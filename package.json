@@ -1,0 +1,6 @@
+{
+  "name": "birdwood-iv3232",
+  "version": "1.0.0",
+  "description": "Job progress tracker for Birdwood IV3232",
+  "engines": { "node": "24.x" }
+}
