@@ -231,6 +231,7 @@ textarea:focus{border-color:var(--navy);background:#fff}
   <button class="nb" onclick="show('units')">Units (15)</button>
   <button class="nb" onclick="show('townhouses')">Townhouses (7)</button>
   <button class="nb" id="snav" onclick="show('snags')">Snags</button>
+  <button class="nb" id="ttnav" onclick="show('tags')">Test &amp; Tag</button>
 </div>
 
 <div class="pg">
@@ -238,6 +239,7 @@ textarea:focus{border-color:var(--navy);background:#fff}
   <div id="units" class="sc"></div>
   <div id="townhouses" class="sc"></div>
   <div id="snags" class="sc"></div>
+  <div id="tags" class="sc"></div>
 </div>
 
 <script>
@@ -503,7 +505,7 @@ function renderGallery(dw,photos){
 
 function photoCard(p,idx,dw){
   return`<div class="photo-card" onclick="openLightbox(${idx})">
-    <img src="${p.dataUrl}" alt="${p.stage}" loading="lazy">
+    <img src="${p.url}" alt="${p.stage}" loading="lazy">
     <div class="photo-card-info">
       <div class="photo-card-stage">${p.stage}</div>
       ${p.caption?`<div class="photo-card-cap">${p.caption}</div>`:''}
@@ -516,7 +518,7 @@ function photoCard(p,idx,dw){
 function openLightbox(idx){
   const p=currentDwellingPhotos[idx];
   if(!p)return;
-  document.getElementById('lb-img').src=p.dataUrl;
+  document.getElementById("lb-img").src=p.url;
   document.getElementById('lb-stage').textContent=p.stage;
   document.getElementById('lb-cap').textContent=p.caption||'';
   document.getElementById('lb-meta').textContent=`${p.uploadedBy} · ${p.date} ${p.time}`;
@@ -610,15 +612,129 @@ function show(id){
   document.querySelectorAll('.sc').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  ['dashboard','units','townhouses','snags'].forEach((s,i)=>{if(s===id)document.querySelectorAll('.nb')[i].classList.add('active');});
+  ['dashboard','units','townhouses','snags','tags'].forEach((s,i)=>{if(s===id)document.querySelectorAll('.nb')[i].classList.add('active');});
   if(id==='dashboard')renderDash();
   if(id==='units')renderList('units',UNITS,'Units 1–15');
   if(id==='townhouses')renderList('townhouses',TH,'Townhouses 1–7');
   if(id==='snags')renderSnags();
+  if(id==='tags')renderTags();
   updateBadge();window.scrollTo(0,0);
 }
 
+
+// ── Test & Tag ──────────────────────────────────────────
+let tagData = [];
+
+async function loadTags(){
+  try{
+    const r = await fetch('/api/tags');
+    if(r.ok) tagData = await r.json();
+  }catch(e){}
+}
+
+function tagStatus(expiryDate){
+  const exp = new Date(expiryDate.split('/').reverse().join('-'));
+  const today = new Date();
+  const diff = Math.floor((exp - today) / (1000*60*60*24));
+  if(diff < 0) return { label:'Expired', cls:'expired', days: diff };
+  if(diff <= 30) return { label:`Expires in ${diff}d`, cls:'expiring', days: diff };
+  return { label:'Valid', cls:'valid', days: diff };
+}
+
+function renderTags(){
+  const valid = tagData.filter(t => tagStatus(t.expiryDate).cls === 'valid').length;
+  const expiring = tagData.filter(t => tagStatus(t.expiryDate).cls === 'expiring').length;
+  const expired = tagData.filter(t => tagStatus(t.expiryDate).cls === 'expired').length;
+
+  let h = `
+  <div class="tag-summary">
+    <div class="tag-kpi"><div class="tag-kpi-l">Valid</div><div class="tag-kpi-v" style="color:var(--green)">${valid}</div></div>
+    <div class="tag-kpi"><div class="tag-kpi-l">Expiring soon</div><div class="tag-kpi-v" style="color:var(--amber)">${expiring}</div></div>
+    <div class="tag-kpi"><div class="tag-kpi-l">Expired</div><div class="tag-kpi-v" style="color:var(--red)">${expired}</div></div>
+  </div>
+  <div class="tag-form">
+    <div class="tag-form-title">Add a power tool</div>
+    <div class="fg">
+      <div><label>Tool description</label><input id="tt-name" type="text" placeholder="e.g. Makita drill 18V"></div>
+      <div><label>Tag number</label><input id="tt-num" type="text" placeholder="e.g. T-042"></div>
+    </div>
+    <div class="fg">
+      <div><label>Owner / sparky</label><input id="tt-owner" type="text" placeholder="e.g. Jake"></div>
+      <div><label>Test date</label><input id="tt-tested" type="date"></div>
+    </div>
+    <div class="fg">
+      <div><label>Expiry date</label><input id="tt-expiry" type="date"></div>
+      <div><label>Tested by</label><input id="tt-tester" type="text" placeholder="e.g. Jake / external tester"></div>
+    </div>
+    <button class="sbtn" onclick="addTag()">Add tool</button>
+  </div>
+  <div class="stitle">${tagData.length} tool${tagData.length!==1?'s':''} registered</div>`;
+
+  // Sort: expired first, then expiring, then valid
+  const sorted = [...tagData].sort((a,b) => tagStatus(a.expiryDate).days - tagStatus(b.expiryDate).days);
+
+  if(!sorted.length){
+    h += '<div class="empty">No tools registered yet</div>';
+  } else {
+    sorted.forEach(t => {
+      const st = tagStatus(t.expiryDate);
+      h += `<div class="tag-card ${st.cls}">
+        <div class="tag-top">
+          <div class="tag-name">${t.name}</div>
+          <span class="tag-status ${st.cls}">${st.label}</span>
+        </div>
+        <div class="tag-meta">
+          <span><b>Tag #</b> ${t.tagNumber||'—'}</span>
+          <span><b>Owner</b> ${t.owner||'—'}</span>
+          <span><b>Tested</b> ${t.testDate||'—'}</span>
+          <span><b>Expires</b> ${t.expiryDate||'—'}</span>
+          <span><b>Tested by</b> ${t.testedBy||'—'}</span>
+          <span><b>Added</b> ${t.addedDate||'—'}</span>
+        </div>
+        <div class="tag-actions">
+          <button class="tag-del-btn" onclick="deleteTag('${t.id}')">Remove</button>
+        </div>
+      </div>`;
+    });
+  }
+
+  document.getElementById('tags').innerHTML = h;
+  // Update nav badge for expired/expiring
+  const warn = expired + expiring;
+  document.getElementById('ttnav').innerHTML = 'Test &amp; Tag' + (warn > 0 ? `<span class="nbadge" style="background:${expired>0?'var(--red)':'var(--amber)'}">${warn}</span>` : '');
+}
+
+async function addTag(){
+  const name = document.getElementById('tt-name').value.trim();
+  const expiry = document.getElementById('tt-expiry').value;
+  if(!name || !expiry){ alert('Please enter a tool name and expiry date.'); return; }
+  // convert date input (yyyy-mm-dd) to dd/mm/yyyy
+  const fmt = d => d ? d.split('-').reverse().join('/') : '';
+  await fetch('/api/tags', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      name,
+      tagNumber: document.getElementById('tt-num').value.trim(),
+      owner: document.getElementById('tt-owner').value.trim(),
+      testDate: fmt(document.getElementById('tt-tested').value),
+      expiryDate: fmt(expiry),
+      testedBy: document.getElementById('tt-tester').value.trim(),
+    })
+  });
+  await loadTags();
+  renderTags();
+}
+
+async function deleteTag(id){
+  if(!confirm('Remove this tool?')) return;
+  await fetch('/api/tags', { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id}) });
+  await loadTags();
+  renderTags();
+}
+
 load();
+loadTags();
 </script>
 </body>
 </html>

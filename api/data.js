@@ -1,36 +1,43 @@
-const fs = require('fs');
-const path = require('path');
+const { put, head, getDownloadUrl } = require('@vercel/blob');
 
-const DATA_FILE = '/tmp/birdwood_data.json';
+const BLOB_KEY = 'birdwood-data.json';
 
-function readData() {
+async function readData() {
   try {
-    if (fs.existsSync(DATA_FILE)) {
-      return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    }
-  } catch (e) {}
-  return { dwellings: {}, snags: [] };
+    const url = `https://blob.vercel-storage.com/${BLOB_KEY}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` }
+    });
+    if (!res.ok) return { dwellings: {}, snags: [] };
+    return await res.json();
+  } catch (e) {
+    return { dwellings: {}, snags: [] };
+  }
 }
 
-function writeData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data));
+async function writeData(data) {
+  await put(BLOB_KEY, JSON.stringify(data), {
+    access: 'public',
+    contentType: 'application/json',
+    addRandomSuffix: false,
+    token: process.env.BLOB_READ_WRITE_TOKEN,
+  });
 }
 
-module.exports = (req, res) => {
+module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   if (req.method === 'GET') {
-    return res.status(200).json(readData());
+    const data = await readData();
+    return res.status(200).json(data);
   }
 
   if (req.method === 'POST') {
     try {
-      const data = req.body;
-      writeData(data);
+      await writeData(req.body);
       return res.status(200).json({ ok: true });
     } catch (e) {
       return res.status(500).json({ error: e.message });
