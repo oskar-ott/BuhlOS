@@ -1,6 +1,8 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite } = require('./_lib/auth');
 
+const FIELD = 'hours' === 'hours' ? 'entries' : 'hours';
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -11,10 +13,15 @@ module.exports = async (req, res) => {
   const user = await requireAuth(req, res, { jobId });
   if (!user) return;
 
-  const KEY = `jobs/${jobId}/data.json`;
+  // Clients cannot see hours
+  if ('hours' === 'hours' && user.role === 'client') {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+
+  const KEY = `jobs/${jobId}/hours.json`;
 
   if (req.method === 'GET') {
-    const data = await readBlob(KEY, { dwellings: {}, snags: [], notes: [] });
+    const data = await readBlob(KEY, { [FIELD]: [] });
     return res.status(200).json(data);
   }
 

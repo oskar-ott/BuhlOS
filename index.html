@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Birdwood IV3232 — bühl electrical</title>
+<title>Birdwood IV3232</title>
 <style>
 :root{
   --navy:#0d1f35;--navy2:#152840;
@@ -17,6 +17,7 @@
 html{-webkit-font-smoothing:antialiased}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--page);color:var(--text);min-height:100vh}
 
+/* Header */
 .hdr{background:var(--navy);height:60px;display:flex;align-items:center;padding:0 16px;gap:12px;position:sticky;top:0;z-index:200;border-bottom:1px solid rgba(255,255,255,.06)}
 .hdr-logo{height:32px;width:32px;object-fit:contain;border-radius:6px;background:#fff;padding:3px;flex-shrink:0}
 .hdr-div{width:1px;height:22px;background:rgba(255,255,255,.15);flex-shrink:0}
@@ -30,6 +31,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .stxt{color:#94a3b8;font-size:11px;font-weight:500}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
 
+/* Nav */
 .nav{background:#fff;border-bottom:1px solid var(--border);display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;position:sticky;top:60px;z-index:100}
 .nav::-webkit-scrollbar{display:none}
 .nb{flex-shrink:0;padding:13px 16px;border:none;background:none;color:var(--muted);font-size:13px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
@@ -40,6 +42,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .pg{max-width:900px;margin:0 auto;padding:14px}
 .sc{display:none}.sc.active{display:block}
 
+/* Hero */
 .hero{background:var(--navy2);border-radius:var(--r);padding:20px;margin-bottom:14px;overflow:hidden;position:relative}
 .hero::after{content:'';position:absolute;top:-60px;right:-60px;width:200px;height:200px;background:rgba(255,255,255,.025);border-radius:50%;pointer-events:none}
 .hero-row{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px}
@@ -53,9 +56,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .hero-bar-bg{background:rgba(255,255,255,.1);border-radius:6px;height:8px;overflow:hidden}
 .hero-bar{height:8px;border-radius:6px;background:linear-gradient(90deg,#3b82f6,#22c55e);transition:width .7s ease}
 
+/* KPIs */
+.kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
+@media(min-width:500px){.kpi-grid{grid-template-columns:repeat(4,1fr)}}
+.kpi{background:var(--card);border-radius:var(--rs);padding:12px 14px;border:1px solid var(--border)}
+.kpi-l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:4px}
+.kpi-v{font-size:24px;font-weight:700;line-height:1}
+.kpi-v.g{color:var(--green)}.kpi-v.a{color:var(--amber)}.kpi-v.r{color:var(--red)}.kpi-v.b{color:var(--navy)}
+
 .stitle{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;margin:14px 0 8px;display:flex;align-items:center;gap:8px}
 .stitle::after{content:'';flex:1;height:1px;background:var(--border)}
 
+/* Dwelling cards */
 .dgrid{display:flex;flex-direction:column;gap:6px}
 .dc{background:var(--card);border-radius:var(--rs);border:1px solid var(--border);padding:12px 14px;cursor:pointer;transition:all .14s}
 .dc:hover{border-color:#a5b4fc;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.07)}
@@ -82,8 +94,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .dh-pct{font-size:13px;color:var(--muted)}
 .dh-pct b{color:var(--text);font-weight:700}
 
-/* Detail sub-tabs */
-.dtabs{display:flex;gap:0;background:var(--card);border-radius:var(--rs);border:1px solid var(--border);overflow:hidden;margin-bottom:12px}
+/* Detail tabs */
+.dtabs{display:flex;background:var(--card);border-radius:var(--rs);border:1px solid var(--border);overflow:hidden;margin-bottom:12px}
 .dtab{flex:1;padding:10px 8px;border:none;background:none;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
 .dtab.active{color:var(--navy);border-bottom-color:var(--navy);font-weight:600;background:#f8fafc}
 .dpanel{display:none}.dpanel.active{display:block}
@@ -98,7 +110,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .sr-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 .sr-nm{flex:1;font-size:13px;font-weight:500}
 .sr-sel{padding:6px 9px;border-radius:6px;border:1px solid var(--border);background:#f8fafc;font-size:12px;cursor:pointer;color:var(--text);font-weight:500;outline:none}
-.sr-sel:focus{border-color:var(--navy)}
 .sr-sel.done{border-color:var(--green-bd);background:var(--green-bg);color:var(--green)}
 .sr-sel.inprog{border-color:var(--amber-bd);background:var(--amber-bg);color:var(--amber)}
 .sr-sel.snagged{border-color:var(--red-bd);background:var(--red-bg);color:var(--red)}
@@ -111,9 +122,10 @@ textarea:focus{border-color:var(--navy);background:#fff}
 .save-row{display:flex;align-items:center;gap:10px;margin-top:8px}
 .sbtn{padding:8px 18px;background:var(--navy);color:#fff;border:none;border-radius:var(--rs);cursor:pointer;font-size:13px;font-weight:600}
 .sbtn:hover{opacity:.85}
+.sbtn:disabled{opacity:.5;cursor:not-allowed}
 .sok{font-size:12px;color:var(--green);opacity:0;transition:opacity .3s;font-weight:500}
 
-/* ITP / Photos */
+/* ITP photos */
 .itp-header{background:var(--card);border-radius:var(--rs);border:1px solid var(--border);padding:14px 16px;margin-bottom:12px}
 .itp-header-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px}
 .itp-title{font-size:14px;font-weight:700;color:var(--navy)}
@@ -123,19 +135,15 @@ textarea:focus{border-color:var(--navy);background:#fff}
 @media(max-width:500px){.itp-row{grid-template-columns:1fr}}
 .itp-lbl{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:3px}
 .itp-sel,.itp-inp{width:100%;padding:8px 10px;border-radius:var(--rs);border:1px solid var(--border);font-size:13px;font-family:inherit;background:#fafafa;color:var(--text);outline:none}
-.itp-sel:focus,.itp-inp:focus{border-color:var(--navy);background:#fff}
 .photo-pick{display:flex;align-items:center;justify-content:center;gap:8px;border:2px dashed var(--border);border-radius:var(--rs);padding:16px;cursor:pointer;transition:all .15s;background:#fafafa;position:relative}
 .photo-pick:hover{border-color:#a5b4fc;background:#f0f4ff}
 .photo-pick input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
 .photo-pick-icon{font-size:22px}
 .photo-pick-txt{font-size:13px;color:var(--muted);font-weight:500}
 .photo-preview{width:100%;max-height:200px;object-fit:cover;border-radius:var(--rs);border:1px solid var(--border);display:none}
-.upload-btn{padding:9px 20px;background:var(--navy);color:#fff;border:none;border-radius:var(--rs);cursor:pointer;font-size:13px;font-weight:600;width:100%;transition:opacity .15s}
-.upload-btn:hover{opacity:.85}
+.upload-btn{padding:9px 20px;background:var(--navy);color:#fff;border:none;border-radius:var(--rs);cursor:pointer;font-size:13px;font-weight:600;width:100%}
 .upload-btn:disabled{opacity:.5;cursor:not-allowed}
 .upload-progress{font-size:12px;color:var(--muted);text-align:center;display:none}
-
-/* Photo gallery */
 .photo-group{margin-bottom:16px}
 .photo-group-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
 .photo-group-title::after{content:'';flex:1;height:1px;background:var(--border)}
@@ -149,22 +157,13 @@ textarea:focus{border-color:var(--navy);background:#fff}
 .photo-card-cap{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .photo-card-meta{font-size:10px;color:#94a3b8;margin-top:3px}
 .photo-card-del{font-size:10px;color:var(--red);background:none;border:none;cursor:pointer;padding:0;margin-top:3px;display:block}
-.empty{text-align:center;padding:32px;color:var(--muted);font-size:13px}
-
-/* Lightbox */
-.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:500;display:none;flex-direction:column;align-items:center;justify-content:center;padding:16px}
-.lightbox.open{display:flex}
-.lightbox-img{max-width:100%;max-height:70vh;object-fit:contain;border-radius:8px}
-.lightbox-info{color:#fff;text-align:center;margin-top:12px}
-.lightbox-stage{font-size:14px;font-weight:600}
-.lightbox-cap{font-size:13px;opacity:.7;margin-top:3px}
-.lightbox-meta{font-size:11px;opacity:.5;margin-top:4px}
-.lightbox-close{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.15);border:none;color:#fff;font-size:20px;width:36px;height:36px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center}
 
 /* Snags */
 .sform{background:var(--card);border-radius:var(--r);border:1px solid var(--border);padding:15px;margin-bottom:14px}
-.sform-t{font-size:14px;font-weight:700;color:var(--red);margin-bottom:12px;display:flex;align-items:center;gap:7px}
-.sform-t::before{content:'';width:3px;height:16px;background:var(--red);border-radius:2px;flex-shrink:0}
+.sform-t{font-size:14px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:7px}
+.sform-t::before{content:'';width:3px;height:16px;border-radius:2px;flex-shrink:0}
+.sform-t.red{color:var(--red)}.sform-t.red::before{background:var(--red)}
+.sform-t.navy{color:var(--navy)}.sform-t.navy::before{background:var(--navy)}
 .fg{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:9px}
 @media(max-width:480px){.fg{grid-template-columns:1fr}}
 .fg.full{grid-template-columns:1fr}
@@ -172,6 +171,8 @@ textarea:focus{border-color:var(--navy);background:#fff}
 .fg input,.fg select,.fg textarea{width:100%;padding:8px 10px;border-radius:var(--rs);border:1px solid var(--border);font-size:13px;font-family:inherit;background:#fafafa;color:var(--text);outline:none}
 .fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--navy);background:#fff}
 .asbtn{padding:8px 18px;background:var(--red);color:#fff;border:none;border-radius:var(--rs);cursor:pointer;font-size:13px;font-weight:600}
+
+/* Item cards (snags, tags, temps) */
 .si{background:var(--card);border-radius:var(--rs);border:1px solid var(--border);padding:12px 14px;margin-bottom:7px}
 .si.closed{opacity:.5}
 .si-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px}
@@ -184,7 +185,57 @@ textarea:focus{border-color:var(--navy);background:#fff}
 .si-meta{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px}
 .si-by{font-size:11px;color:#94a3b8}
 .cbtn{font-size:11px;color:var(--muted);background:none;border:1px solid var(--border);border-radius:5px;padding:3px 9px;cursor:pointer}
+.cbtn:hover{background:#f8fafc}
+.cbtn.danger{color:var(--red);border-color:var(--red-bd)}
 
+/* Accent card (with left border) */
+.accent-card{background:var(--card);border-radius:var(--rs);border:1px solid var(--border);overflow:hidden;display:flex;margin-bottom:7px}
+.accent-bar{width:4px;flex-shrink:0}
+.accent-bar.green{background:#22c55e}
+.accent-bar.amber{background:#f59e0b}
+.accent-bar.red{background:#ef4444}
+.accent-bar.blue{background:#3b82f6}
+.accent-bar.yellow{background:#eab308}
+.accent-bar.pink{background:#ec4899}
+.accent-bar.grey{background:#9ca3af}
+.accent-body{flex:1;padding:12px 14px}
+.accent-top{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.accent-name{font-size:14px;font-weight:700;color:var(--text);flex:1}
+.accent-meta{display:grid;grid-template-columns:1fr 1fr;gap:3px 14px;font-size:12px;color:var(--muted);margin-bottom:8px}
+.accent-meta b{color:var(--text);font-weight:600}
+
+/* Status / type pills */
+.spill{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px}
+.spill.valid{background:#dcfce7;color:#166534}
+.spill.expiring{background:#fef3c7;color:#92400e}
+.spill.expired{background:#fee2e2;color:#991b1b}
+.spill.board{background:#dbeafe;color:#1e40af}
+.spill.lights{background:#fef9c3;color:#854d0e}
+.spill.outlets{background:#fce7f3;color:#9d174d}
+.spill.other{background:#f3f4f6;color:#374151}
+
+/* Temp photo grid */
+.temp-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media(min-width:600px){.temp-grid{grid-template-columns:repeat(3,1fr)}}
+.temp-card{background:var(--card);border-radius:var(--rs);border:1px solid var(--border);overflow:hidden}
+.temp-card:hover{border-color:#a5b4fc;box-shadow:0 4px 12px rgba(0,0,0,.07)}
+.temp-img{width:100%;height:140px;object-fit:cover;display:block;cursor:pointer}
+.temp-no-img{width:100%;height:80px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
+.temp-body{padding:10px 12px}
+
+.empty{text-align:center;padding:36px;color:var(--muted);font-size:13px}
+
+/* Lightbox */
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:500;display:none;flex-direction:column;align-items:center;justify-content:center;padding:16px}
+.lightbox.open{display:flex}
+.lightbox-img{max-width:100%;max-height:70vh;object-fit:contain;border-radius:8px}
+.lightbox-info{color:#fff;text-align:center;margin-top:12px}
+.lightbox-stage{font-size:14px;font-weight:600}
+.lightbox-cap{font-size:13px;opacity:.7;margin-top:3px}
+.lightbox-meta{font-size:11px;opacity:.5;margin-top:4px}
+.lightbox-close{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.15);border:none;color:#fff;font-size:20px;width:36px;height:36px;border-radius:50%;cursor:pointer}
+
+/* Loading */
 #loading{position:fixed;inset:0;background:var(--navy);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:16px;transition:opacity .4s}
 #loading.out{opacity:0;pointer-events:none}
 .ll{height:40px;object-fit:contain}
@@ -202,7 +253,6 @@ textarea:focus{border-color:var(--navy);background:#fff}
   <div class="lt">Loading job data…</div>
 </div>
 
-<!-- Lightbox -->
 <div class="lightbox" id="lightbox" onclick="closeLightbox()">
   <button class="lightbox-close" onclick="closeLightbox()">&#10005;</button>
   <img class="lightbox-img" id="lb-img" src="" alt="">
@@ -214,16 +264,19 @@ textarea:focus{border-color:var(--navy);background:#fff}
 </div>
 
 <div class="hdr">
-  <img src="/logo.png" class="hdr-logo" alt="bühl electrical">
+  <a href="/jobs" class="hdr-logo-link" style="display:flex;align-items:center;text-decoration:none;flex-shrink:0" title="Back to jobs">
+    <img src="/logo.png" class="hdr-logo" alt="bühl electrical">
+  </a>
   <div class="hdr-div"></div>
   <div class="hdr-job">
-    <div class="hdr-name">Birdwood IV3232</div>
-    <div class="hdr-sub">bühl electrical</div>
+    <div class="hdr-name" id="hdr-name">Loading…</div>
+    <div class="hdr-sub" id="hdr-sub"></div>
   </div>
   <div class="sync-pill">
     <div class="sdot" id="sdot"></div>
     <div class="stxt" id="stxt">Live</div>
   </div>
+  <button id="logoutBtn" title="Sign out" style="margin-left:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);color:#94a3b8;padding:6px 10px;border-radius:8px;font-size:12px;cursor:pointer;flex-shrink:0">Sign out</button>
 </div>
 
 <div class="nav">
@@ -232,6 +285,8 @@ textarea:focus{border-color:var(--navy);background:#fff}
   <button class="nb" onclick="show('townhouses')">Townhouses (7)</button>
   <button class="nb" id="snav" onclick="show('snags')">Snags</button>
   <button class="nb" id="ttnav" onclick="show('tags')">Test &amp; Tag</button>
+  <button class="nb" onclick="show('temps')">Temps</button>
+  <button class="nb" onclick="show('hours')">Hours</button>
 </div>
 
 <div class="pg">
@@ -240,9 +295,110 @@ textarea:focus{border-color:var(--navy);background:#fff}
   <div id="townhouses" class="sc"></div>
   <div id="snags" class="sc"></div>
   <div id="tags" class="sc"></div>
+  <div id="temps" class="sc"></div>
+  <div id="hours" class="sc"></div>
 </div>
 
 <script>
+// ── buhl multi-job shim ────────────────────────────────────────────────
+// Injected by Phase 2. Handles:
+//   1. reading jobId from URL (/jobs/:jobId)
+//   2. auth check + redirect to /login if not signed in
+//   3. wrapping fetch so every /api/... call gets jobId + credentials
+//   4. role-based UI (hide Hours for clients, read-only mode)
+//   5. header population + logout
+const JOB_ID = (location.pathname.match(/^\/jobs\/([^/]+)/) || [])[1] || '';
+let CURRENT_USER = null;
+let CURRENT_JOB = null;
+
+// Wrap fetch BEFORE any app code runs so every call is intercepted.
+(function(){
+  const origFetch = window.fetch.bind(window);
+  window.fetch = function(input, init) {
+    init = init || {};
+    let url = typeof input === 'string' ? input : (input && input.url) || '';
+    if (typeof url === 'string' && url.startsWith('/api/')) {
+      // Add jobId query param (except for auth/jobs/users endpoints)
+      const isNonJobRoute = /^\/api\/(auth|jobs|users)(\?|$)/.test(url);
+      if (!isNonJobRoute && JOB_ID) {
+        url += (url.includes('?') ? '&' : '?') + 'jobId=' + encodeURIComponent(JOB_ID);
+      }
+      init.credentials = init.credentials || 'same-origin';
+      if (typeof input === 'string') input = url;
+    }
+    return origFetch(input, init);
+  };
+})();
+
+async function bootstrapAuth() {
+  if (!JOB_ID) { location.href = '/jobs'; return false; }
+  try {
+    const me = await fetch('/api/auth?action=me');
+    if (!me.ok) { location.href = '/login'; return false; }
+    const { user } = await me.json();
+    CURRENT_USER = user;
+  } catch (e) { location.href = '/login'; return false; }
+
+  try {
+    const jr = await fetch('/api/jobs?id=' + encodeURIComponent(JOB_ID));
+    if (!jr.ok) { location.href = '/jobs'; return false; }
+    const { job } = await jr.json();
+    CURRENT_JOB = job;
+    document.getElementById('hdr-name').textContent = job.name || JOB_ID;
+    document.getElementById('hdr-sub').textContent = job.id;
+    document.title = (job.name || JOB_ID) + ' — bühl electrical';
+  } catch (e) { location.href = '/jobs'; return false; }
+
+  // Role-based UI
+  if (CURRENT_USER.role === 'client') {
+    // hide hours nav button
+    document.querySelectorAll('.nb').forEach(b => {
+      if (b.getAttribute('onclick') === "show('hours')") b.style.display = 'none';
+    });
+    // add a subtle read-only badge
+    const sub = document.getElementById('hdr-sub');
+    if (sub) sub.textContent += ' · read-only';
+    // disable all form inputs and buttons inside page content after render
+    document.body.classList.add('role-client');
+  }
+
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await fetch('/api/auth?action=logout', { method: 'POST' });
+    location.href = '/login';
+  });
+  return true;
+}
+
+// Client role: neutralise interactions on .pg content after every render
+function enforceReadOnly() {
+  if (!CURRENT_USER || CURRENT_USER.role !== 'client') return;
+  const pg = document.querySelector('.pg');
+  if (!pg) return;
+  pg.querySelectorAll('input, select, textarea, button').forEach(el => {
+    // keep navigation-style buttons (back, open dwelling, tab switch) enabled
+    const keep = el.classList.contains('back') ||
+                 el.classList.contains('nb') ||
+                 el.classList.contains('dw') ||
+                 el.classList.contains('dwell') ||
+                 el.closest('.lightbox') ||
+                 el.closest('.nav') ||
+                 el.closest('.hdr') ||
+                 /^(show|openDw|closeLb|openLb|prevLb|nextLb)\(/.test(el.getAttribute('onclick') || '');
+    if (keep) return;
+    el.disabled = true;
+    el.style.opacity = '0.5';
+    el.style.pointerEvents = 'none';
+  });
+}
+// Patch MutationObserver onto .pg so re-renders re-enforce read-only
+document.addEventListener('DOMContentLoaded', () => {
+  const pg = document.querySelector('.pg');
+  if (!pg) return;
+  const obs = new MutationObserver(() => enforceReadOnly());
+  obs.observe(pg, { childList: true, subtree: true });
+});
+// ── end shim ───────────────────────────────────────────────────────────
+
 const ROUGH=['AC Rough-In','Lighting Rough-In','Power Rough-In','NBN','Rough-In Inspection'];
 const FITOFF=['AC Fit-Off','GPO / Switch Install','Lighting Install','Switchboard Fit-Off','Final Test & Commission','Certificate of Compliance','Handover'];
 const ALL_STAGES=[...ROUGH,...FITOFF];
@@ -252,36 +408,36 @@ const ALL=[...UNITS,...TH];
 const OPTS=['Not Started','In Progress','Done','Snagged','N/A'];
 
 let D={dwellings:{},snags:[]};
+let tagData=[];
+let tempsData=[];
 let saveT=null;
-let currentDwellingPhotos=[];
 let selectedFile=null;
+let tempSelectedFile=null;
+let currentDwellingPhotos=[];
 
+// ── Core data ───────────────────────────────────────────────
 async function load(){
-  try{const r=await fetch('/api/data');if(r.ok){D=await r.json();if(!D.snags)D.snags=[];}}
+  try{const r=await fetch('/api/data?t='+Date.now());if(r.ok){D=await r.json();if(!D.snags)D.snags=[];}}
   catch(e){sync('error');}
   const el=document.getElementById('loading');
   el.classList.add('out');setTimeout(()=>el.style.display='none',450);
   renderAll();
 }
-
 async function persist(){
   sync('syncing');
   try{await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(D)});sync('ok');}
   catch(e){sync('error');}
 }
-
 function sched(){clearTimeout(saveT);saveT=setTimeout(persist,800);}
 function sync(s){
   const d=document.getElementById('sdot'),t=document.getElementById('stxt');
   d.className='sdot'+(s==='syncing'?' syncing':s==='error'?' err':'');
   t.textContent=s==='syncing'?'Saving…':s==='error'?'Offline':'Saved';
 }
-
 function inf(dw){return D.dwellings[dw]||{};}
 function stv(dw,st){const i=inf(dw);return(i[st]&&i[st].status)||'Not Started';}
 function setSt(dw,st,v){if(!D.dwellings[dw])D.dwellings[dw]={};if(!D.dwellings[dw][st])D.dwellings[dw][st]={};D.dwellings[dw][st].status=v;sched();}
 function setN(dw,v){if(!D.dwellings[dw])D.dwellings[dw]={};D.dwellings[dw]._notes=v;sched();}
-
 function stats(dw){
   let done=0,ip=0,sn=0;
   ALL_STAGES.forEach(s=>{const v=stv(dw,s);if(v==='Done')done++;else if(v==='In Progress')ip++;else if(v==='Snagged')sn++;});
@@ -293,12 +449,13 @@ function sc2(v){if(v==='Done')return'done';if(v==='In Progress')return'inprog';i
 function dc(v){if(v==='Done')return'#22c55e';if(v==='In Progress')return'#f59e0b';if(v==='Snagged')return'#ef4444';return'#cbd5e1';}
 
 function renderAll(){renderDash();updateBadge();}
-
 function updateBadge(){
   const n=(D.snags||[]).filter(s=>s.status==='Open').length;
   document.getElementById('snav').innerHTML='Snags'+(n>0?`<span class="nbadge">${n}</span>`:'');
+  updateTagBadge();
 }
 
+// ── Dashboard ───────────────────────────────────────────────
 function renderDash(){
   const done=ALL.filter(d=>stats(d).pct===100).length;
   const active=ALL.filter(d=>{const s=stats(d);return s.pct<100&&(s.done>0||s.ip>0);}).length;
@@ -336,6 +493,7 @@ function dwCard(dw){
   </div>`;
 }
 
+// ── Dwelling detail ─────────────────────────────────────────
 function openDw(dw){
   const isU=UNITS.includes(dw);const sec=isU?'units':'townhouses';
   show(sec);
@@ -351,38 +509,26 @@ function openDw(dw){
     <button class="dtab" onclick="switchTab(this,'tp-itp');loadPhotos('${dw}')">ITP Photos</button>
     <button class="dtab" onclick="switchTab(this,'tp-notes')">Notes</button>
   </div>
-
   <div id="tp-stages" class="dpanel active">
     <div class="ghdr"><div class="gpill rough">Rough-In</div><div class="gline"></div></div>`;
   ROUGH.forEach(st=>{h+=stRow(dw,st);});
   h+=`<div class="ghdr"><div class="gpill fitoff">Fit-Off</div><div class="gline"></div></div>`;
   FITOFF.forEach(st=>{h+=stRow(dw,st);});
   h+=`</div>
-
   <div id="tp-itp" class="dpanel">
     <div class="itp-header">
-      <div class="itp-header-top">
-        <div class="itp-title">ITP Photo Upload</div>
-        <div class="itp-count" id="itp-count">Loading...</div>
-      </div>
+      <div class="itp-header-top"><div class="itp-title">ITP Photo Upload</div><div class="itp-count" id="itp-count">Loading...</div></div>
       <div class="itp-upload-form">
         <div class="itp-row">
-          <div>
-            <label class="itp-lbl">Stage</label>
+          <div><label class="itp-lbl">Stage</label>
             <select class="itp-sel" id="itp-stage">
-              <optgroup label="Rough-In">${ROUGH.map(s=>`<option value="${s}" data-group="rough">${s}</option>`).join('')}</optgroup>
-              <optgroup label="Fit-Off">${FITOFF.map(s=>`<option value="${s}" data-group="fitoff">${s}</option>`).join('')}</optgroup>
+              <optgroup label="Rough-In">${ROUGH.map(s=>`<option>${s}</option>`).join('')}</optgroup>
+              <optgroup label="Fit-Off">${FITOFF.map(s=>`<option>${s}</option>`).join('')}</optgroup>
             </select>
           </div>
-          <div>
-            <label class="itp-lbl">Your name</label>
-            <input class="itp-inp" type="text" id="itp-by" placeholder="e.g. Jake">
-          </div>
+          <div><label class="itp-lbl">Your name</label><input class="itp-inp" type="text" id="itp-by" placeholder="e.g. Jake"></div>
         </div>
-        <div>
-          <label class="itp-lbl">Caption (optional)</label>
-          <input class="itp-inp" type="text" id="itp-cap" placeholder="e.g. Sub-main terminations complete">
-        </div>
+        <div><label class="itp-lbl">Caption (optional)</label><input class="itp-inp" type="text" id="itp-cap" placeholder="e.g. Sub-main terminations"></div>
         <div class="photo-pick" id="photo-pick-area">
           <input type="file" accept="image/*" capture="environment" onchange="handleFile(this,'${dw}')">
           <div class="photo-pick-icon">📷</div>
@@ -395,14 +541,12 @@ function openDw(dw){
     </div>
     <div id="photo-gallery"></div>
   </div>
-
   <div id="tp-notes" class="dpanel">
     <div class="nc"><div class="nl">Notes</div>
       <textarea id="nt-${dw}" placeholder="Add notes for ${dw}…">${i._notes||''}</textarea>
       <div class="save-row"><button class="sbtn" onclick="saveN('${dw}')">Save notes</button><span class="sok" id="sok-${dw}">&#10003; Saved</span></div>
     </div>
   </div>`;
-
   document.getElementById(sec).innerHTML=h;
 }
 
@@ -411,130 +555,6 @@ function switchTab(btn,panelId){
   btn.classList.add('active');
   document.querySelectorAll('.dpanel').forEach(p=>p.classList.remove('active'));
   document.getElementById(panelId).classList.add('active');
-}
-
-function handleFile(input,dw){
-  const file=input.files[0];
-  if(!file)return;
-  selectedFile=file;
-  const reader=new FileReader();
-  reader.onload=e=>{
-    const prev=document.getElementById('photo-preview');
-    const pickArea=document.getElementById('photo-pick-area');
-    prev.src=e.target.result;
-    prev.style.display='block';
-    pickArea.style.display='none';
-    document.getElementById('upload-btn').disabled=false;
-  };
-  reader.readAsDataURL(file);
-}
-
-async function uploadPhoto(dw){
-  if(!selectedFile)return;
-  const btn=document.getElementById('upload-btn');
-  const prog=document.getElementById('upload-progress');
-  btn.disabled=true;btn.style.display='none';prog.style.display='block';
-
-  const stageEl=document.getElementById('itp-stage');
-  const stage=stageEl.value;
-  const selOpt=stageEl.options[stageEl.selectedIndex];
-  const group=ROUGH.includes(stage)?'rough':'fitoff';
-
-  try{
-    const reader=new FileReader();
-    reader.onload=async e=>{
-      const dataUrl=e.target.result;
-      await fetch('/api/photos',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          dwelling:dw,stage,group,
-          caption:document.getElementById('itp-cap').value,
-          uploadedBy:document.getElementById('itp-by').value||'Unknown',
-          dataUrl
-        })
-      });
-      selectedFile=null;
-      document.getElementById('photo-preview').style.display='none';
-      document.getElementById('photo-pick-area').style.display='flex';
-      document.getElementById('itp-cap').value='';
-      btn.style.display='block';btn.disabled=true;prog.style.display='none';
-      loadPhotos(dw);
-    };
-    reader.readAsDataURL(selectedFile);
-  }catch(e){
-    prog.textContent='Upload failed. Try again.';
-    btn.style.display='block';btn.disabled=false;
-  }
-}
-
-async function loadPhotos(dw){
-  try{
-    const r=await fetch(`/api/photos?dwelling=${encodeURIComponent(dw)}`);
-    currentDwellingPhotos=await r.json();
-    renderGallery(dw,currentDwellingPhotos);
-    const c=document.getElementById('itp-count');
-    if(c)c.textContent=currentDwellingPhotos.length+' photo'+(currentDwellingPhotos.length!==1?'s':'');
-  }catch(e){
-    const g=document.getElementById('photo-gallery');
-    if(g)g.innerHTML='<div class="empty">Could not load photos</div>';
-  }
-}
-
-function renderGallery(dw,photos){
-  const el=document.getElementById('photo-gallery');
-  if(!el)return;
-  if(!photos.length){el.innerHTML='<div class="empty">No photos yet — upload the first one above</div>';return;}
-
-  const roughPhotos=photos.filter(p=>p.group==='rough'||ROUGH.includes(p.stage));
-  const fitoffPhotos=photos.filter(p=>p.group==='fitoff'||FITOFF.includes(p.stage));
-
-  let h='';
-  if(roughPhotos.length){
-    h+=`<div class="photo-group"><div class="photo-group-title">Rough-In</div><div class="photo-grid">`;
-    roughPhotos.forEach((p,i)=>{h+=photoCard(p,photos.indexOf(p),dw);});
-    h+=`</div></div>`;
-  }
-  if(fitoffPhotos.length){
-    h+=`<div class="photo-group"><div class="photo-group-title">Fit-Off</div><div class="photo-grid">`;
-    fitoffPhotos.forEach((p,i)=>{h+=photoCard(p,photos.indexOf(p),dw);});
-    h+=`</div></div>`;
-  }
-  el.innerHTML=h;
-}
-
-function photoCard(p,idx,dw){
-  return`<div class="photo-card" onclick="openLightbox(${idx})">
-    <img src="${p.url}" alt="${p.stage}" loading="lazy">
-    <div class="photo-card-info">
-      <div class="photo-card-stage">${p.stage}</div>
-      ${p.caption?`<div class="photo-card-cap">${p.caption}</div>`:''}
-      <div class="photo-card-meta">${p.uploadedBy} · ${p.date} ${p.time}</div>
-      <button class="photo-card-del" onclick="event.stopPropagation();deletePhoto('${dw}','${p.id}')">Delete</button>
-    </div>
-  </div>`;
-}
-
-function openLightbox(idx){
-  const p=currentDwellingPhotos[idx];
-  if(!p)return;
-  document.getElementById("lb-img").src=p.url;
-  document.getElementById('lb-stage').textContent=p.stage;
-  document.getElementById('lb-cap').textContent=p.caption||'';
-  document.getElementById('lb-meta').textContent=`${p.uploadedBy} · ${p.date} ${p.time}`;
-  document.getElementById('lightbox').classList.add('open');
-  document.body.style.overflow='hidden';
-}
-
-function closeLightbox(){
-  document.getElementById('lightbox').classList.remove('open');
-  document.body.style.overflow='';
-}
-
-async function deletePhoto(dw,photoId){
-  if(!confirm('Delete this photo?'))return;
-  await fetch('/api/photos',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({dwelling:dw,photoId})});
-  loadPhotos(dw);
 }
 
 function stRow(dw,st){
@@ -570,10 +590,100 @@ function renderList(sec,list,title){
   document.getElementById(sec).innerHTML=h;
 }
 
+// ── ITP Photos ──────────────────────────────────────────────
+function handleFile(input,dw){
+  const file=input.files[0];if(!file)return;
+  selectedFile=file;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    document.getElementById('photo-preview').src=e.target.result;
+    document.getElementById('photo-preview').style.display='block';
+    document.getElementById('photo-pick-area').style.display='none';
+    document.getElementById('upload-btn').disabled=false;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function uploadPhoto(dw){
+  if(!selectedFile)return;
+  const btn=document.getElementById('upload-btn');
+  const prog=document.getElementById('upload-progress');
+  btn.disabled=true;btn.style.display='none';prog.style.display='block';
+  const stage=document.getElementById('itp-stage').value;
+  const group=ROUGH.includes(stage)?'rough':'fitoff';
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    await fetch('/api/photos',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({dwelling:dw,stage,group,caption:document.getElementById('itp-cap').value,uploadedBy:document.getElementById('itp-by').value||'Unknown',dataUrl:e.target.result})});
+    selectedFile=null;
+    document.getElementById('photo-preview').style.display='none';
+    document.getElementById('photo-pick-area').style.display='flex';
+    document.getElementById('itp-cap').value='';
+    btn.style.display='block';btn.disabled=true;prog.style.display='none';
+    loadPhotos(dw);
+  };
+  reader.readAsDataURL(selectedFile);
+}
+
+async function loadPhotos(dw){
+  try{
+    const r=await fetch(`/api/photos?dwelling=${encodeURIComponent(dw)}`);
+    currentDwellingPhotos=await r.json();
+    renderGallery(dw,currentDwellingPhotos);
+    const c=document.getElementById('itp-count');
+    if(c)c.textContent=currentDwellingPhotos.length+' photo'+(currentDwellingPhotos.length!==1?'s':'');
+  }catch(e){}
+}
+
+function renderGallery(dw,photos){
+  const el=document.getElementById('photo-gallery');if(!el)return;
+  if(!photos.length){el.innerHTML='<div class="empty">No photos yet</div>';return;}
+  const rough=photos.filter(p=>p.group==='rough'||ROUGH.includes(p.stage));
+  const fitoff=photos.filter(p=>p.group==='fitoff'||FITOFF.includes(p.stage));
+  let h='';
+  if(rough.length){h+=`<div class="photo-group"><div class="photo-group-title">Rough-In</div><div class="photo-grid">`;rough.forEach(p=>{h+=photoCard(p,photos.indexOf(p));});h+=`</div></div>`;}
+  if(fitoff.length){h+=`<div class="photo-group"><div class="photo-group-title">Fit-Off</div><div class="photo-grid">`;fitoff.forEach(p=>{h+=photoCard(p,photos.indexOf(p));});h+=`</div></div>`;}
+  el.innerHTML=h;
+}
+
+function photoCard(p,idx){
+  return`<div class="photo-card" onclick="openLightbox(${idx})">
+    <img src="${p.url}" alt="${p.stage}" loading="lazy">
+    <div class="photo-card-info">
+      <div class="photo-card-stage">${p.stage}</div>
+      ${p.caption?`<div class="photo-card-cap">${p.caption}</div>`:''}
+      <div class="photo-card-meta">${p.uploadedBy} · ${p.date}</div>
+      <button class="photo-card-del" onclick="event.stopPropagation();deletePhoto('${p.id}')">Delete</button>
+    </div>
+  </div>`;
+}
+
+function openLightbox(idx){
+  const p=currentDwellingPhotos[idx];if(!p)return;
+  document.getElementById('lb-img').src=p.url;
+  document.getElementById('lb-stage').textContent=p.stage;
+  document.getElementById('lb-cap').textContent=p.caption||'';
+  document.getElementById('lb-meta').textContent=`${p.uploadedBy} · ${p.date} ${p.time}`;
+  document.getElementById('lightbox').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+
+function closeLightbox(){document.getElementById('lightbox').classList.remove('open');document.body.style.overflow='';}
+
+async function deletePhoto(photoId){
+  const dw=currentDwellingPhotos.find(p=>p.id===photoId)?.dwelling;
+  if(!confirm('Delete this photo?'))return;
+  await fetch('/api/photos',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({photoId})});
+  const sec=document.querySelector('.sc.active').id;
+  const dwName=document.querySelector('.dh-name')?.textContent;
+  if(dwName)loadPhotos(dwName);
+}
+
+// ── Snags ───────────────────────────────────────────────────
 function renderSnags(){
   const sn=D.snags||[];const op=sn.filter(s=>s.status==='Open').length;
   let h=`<div class="sform">
-    <div class="sform-t">Log a snag</div>
+    <div class="sform-t red">Log a snag</div>
     <div class="fg">
       <div><label>Dwelling</label><select id="sd">${ALL.map(d=>`<option>${d}</option>`).join('')}</select></div>
       <div><label>Stage</label><select id="ss">${ALL_STAGES.map(s=>`<option>${s}</option>`).join('')}</select></div>
@@ -586,7 +696,7 @@ function renderSnags(){
     <button class="asbtn" onclick="addSnag()">Add snag</button>
   </div>
   <div class="stitle">${op} open snag${op!==1?'s':''}</div>`;
-  if(!sn.length){h+=`<div class="empty">✓ No snags logged yet</div>`;}
+  if(!sn.length){h+=`<div class="empty">No snags logged yet</div>`;}
   else{sn.slice().reverse().forEach((s,ri)=>{
     const i=sn.length-1-ri;const pc=s.priority==='High'?'bh':s.priority==='Low'?'bl':'bm';
     h+=`<div class="si${s.status==='Closed'?' closed':''}">
@@ -605,136 +715,348 @@ function addSnag(){
   D.snags.push({dwelling:document.getElementById('sd').value,stage:document.getElementById('ss').value,desc,by:document.getElementById('sby').value.trim(),priority:document.getElementById('spri').value,status:'Open',date:new Date().toLocaleDateString('en-AU')});
   sched();updateBadge();renderSnags();
 }
-
 function closeSnag(i){D.snags[i].status='Closed';sched();updateBadge();renderSnags();}
 
-function show(id){
-  document.querySelectorAll('.sc').forEach(s=>s.classList.remove('active'));
-  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-  ['dashboard','units','townhouses','snags','tags'].forEach((s,i)=>{if(s===id)document.querySelectorAll('.nb')[i].classList.add('active');});
-  if(id==='dashboard')renderDash();
-  if(id==='units')renderList('units',UNITS,'Units 1–15');
-  if(id==='townhouses')renderList('townhouses',TH,'Townhouses 1–7');
-  if(id==='snags')renderSnags();
-  if(id==='tags')renderTags();
-  updateBadge();window.scrollTo(0,0);
-}
-
-
-// ── Test & Tag ──────────────────────────────────────────
-let tagData = [];
-
+// ── Test & Tag ──────────────────────────────────────────────
 async function loadTags(){
-  try{
-    const r = await fetch('/api/tags');
-    if(r.ok) tagData = await r.json();
-  }catch(e){}
+  try{const r=await fetch('/api/tags');if(r.ok)tagData=await r.json();}catch(e){}
 }
 
 function tagStatus(expiryDate){
-  const exp = new Date(expiryDate.split('/').reverse().join('-'));
-  const today = new Date();
-  const diff = Math.floor((exp - today) / (1000*60*60*24));
-  if(diff < 0) return { label:'Expired', cls:'expired', days: diff };
-  if(diff <= 30) return { label:`Expires in ${diff}d`, cls:'expiring', days: diff };
-  return { label:'Valid', cls:'valid', days: diff };
+  const exp=new Date(expiryDate.split('/').reverse().join('-'));
+  const diff=Math.floor((exp-new Date())/(1000*60*60*24));
+  if(diff<0)return{label:'Expired',cls:'expired',days:diff};
+  if(diff<=30)return{label:`Expires in ${diff}d`,cls:'expiring',days:diff};
+  return{label:'Valid',cls:'valid',days:diff};
+}
+
+function updateTagBadge(){
+  const warn=tagData.filter(t=>tagStatus(t.expiryDate).cls!=='valid').length;
+  document.getElementById('ttnav').innerHTML='Test &amp; Tag'+(warn>0?`<span class="nbadge" style="background:${tagData.some(t=>tagStatus(t.expiryDate).cls==='expired')?'var(--red)':'var(--amber)'}">${warn}</span>`:'');
 }
 
 function renderTags(){
-  const valid = tagData.filter(t => tagStatus(t.expiryDate).cls === 'valid').length;
-  const expiring = tagData.filter(t => tagStatus(t.expiryDate).cls === 'expiring').length;
-  const expired = tagData.filter(t => tagStatus(t.expiryDate).cls === 'expired').length;
+  const valid=tagData.filter(t=>tagStatus(t.expiryDate).cls==='valid').length;
+  const expiring=tagData.filter(t=>tagStatus(t.expiryDate).cls==='expiring').length;
+  const expired=tagData.filter(t=>tagStatus(t.expiryDate).cls==='expired').length;
+  const sorted=[...tagData].sort((a,b)=>tagStatus(a.expiryDate).days-tagStatus(b.expiryDate).days);
 
-  let h = `
-  <div class="tag-summary">
-    <div class="tag-kpi"><div class="tag-kpi-l">Valid</div><div class="tag-kpi-v" style="color:var(--green)">${valid}</div></div>
-    <div class="tag-kpi"><div class="tag-kpi-l">Expiring soon</div><div class="tag-kpi-v" style="color:var(--amber)">${expiring}</div></div>
-    <div class="tag-kpi"><div class="tag-kpi-l">Expired</div><div class="tag-kpi-v" style="color:var(--red)">${expired}</div></div>
+  let h=`<div class="kpi-grid" style="margin-bottom:14px">
+    <div class="kpi"><div class="kpi-l">Valid</div><div class="kpi-v g">${valid}</div></div>
+    <div class="kpi"><div class="kpi-l">Expiring soon</div><div class="kpi-v a">${expiring}</div></div>
+    <div class="kpi"><div class="kpi-l">Expired</div><div class="kpi-v r">${expired}</div></div>
+    <div class="kpi"><div class="kpi-l">Total tools</div><div class="kpi-v b">${tagData.length}</div></div>
   </div>
-  <div class="tag-form">
-    <div class="tag-form-title">Add a power tool</div>
+  <div class="sform">
+    <div class="sform-t navy">Register a power tool</div>
     <div class="fg">
       <div><label>Tool description</label><input id="tt-name" type="text" placeholder="e.g. Makita drill 18V"></div>
       <div><label>Tag number</label><input id="tt-num" type="text" placeholder="e.g. T-042"></div>
     </div>
     <div class="fg">
       <div><label>Owner / sparky</label><input id="tt-owner" type="text" placeholder="e.g. Jake"></div>
-      <div><label>Test date</label><input id="tt-tested" type="date"></div>
+      <div><label>Tested by</label><input id="tt-tester" type="text" placeholder="e.g. Jake"></div>
     </div>
     <div class="fg">
+      <div><label>Test date</label><input id="tt-tested" type="date"></div>
       <div><label>Expiry date</label><input id="tt-expiry" type="date"></div>
-      <div><label>Tested by</label><input id="tt-tester" type="text" placeholder="e.g. Jake / external tester"></div>
     </div>
     <button class="sbtn" onclick="addTag()">Add tool</button>
   </div>
-  <div class="stitle">${tagData.length} tool${tagData.length!==1?'s':''} registered</div>`;
+  <div class="stitle">${sorted.length} tool${sorted.length!==1?'s':''} on site</div>`;
 
-  // Sort: expired first, then expiring, then valid
-  const sorted = [...tagData].sort((a,b) => tagStatus(a.expiryDate).days - tagStatus(b.expiryDate).days);
-
-  if(!sorted.length){
-    h += '<div class="empty">No tools registered yet</div>';
-  } else {
-    sorted.forEach(t => {
-      const st = tagStatus(t.expiryDate);
-      h += `<div class="tag-card ${st.cls}">
-        <div class="tag-top">
-          <div class="tag-name">${t.name}</div>
-          <span class="tag-status ${st.cls}">${st.label}</span>
+  if(!sorted.length){h+=`<div class="empty">No tools registered yet</div>`;}
+  else{sorted.forEach(t=>{
+    const st=tagStatus(t.expiryDate);
+    const ac=st.cls==='expired'?'red':st.cls==='expiring'?'amber':'green';
+    h+=`<div class="accent-card">
+      <div class="accent-bar ${ac}"></div>
+      <div class="accent-body">
+        <div class="accent-top">
+          <div class="accent-name">${t.name}</div>
+          <span class="spill ${st.cls}">${st.label}</span>
         </div>
-        <div class="tag-meta">
+        <div class="accent-meta">
           <span><b>Tag #</b> ${t.tagNumber||'—'}</span>
           <span><b>Owner</b> ${t.owner||'—'}</span>
           <span><b>Tested</b> ${t.testDate||'—'}</span>
           <span><b>Expires</b> ${t.expiryDate||'—'}</span>
-          <span><b>Tested by</b> ${t.testedBy||'—'}</span>
-          <span><b>Added</b> ${t.addedDate||'—'}</span>
+          ${t.testedBy?`<span><b>Tested by</b> ${t.testedBy}</span>`:''}
         </div>
-        <div class="tag-actions">
-          <button class="tag-del-btn" onclick="deleteTag('${t.id}')">Remove</button>
+        <div style="display:flex;justify-content:flex-end">
+          <button class="cbtn danger" onclick="deleteTag('${t.id}')">Remove</button>
         </div>
-      </div>`;
-    });
-  }
-
-  document.getElementById('tags').innerHTML = h;
-  // Update nav badge for expired/expiring
-  const warn = expired + expiring;
-  document.getElementById('ttnav').innerHTML = 'Test &amp; Tag' + (warn > 0 ? `<span class="nbadge" style="background:${expired>0?'var(--red)':'var(--amber)'}">${warn}</span>` : '');
+      </div>
+    </div>`;
+  });}
+  document.getElementById('tags').innerHTML=h;
+  updateTagBadge();
 }
 
 async function addTag(){
-  const name = document.getElementById('tt-name').value.trim();
-  const expiry = document.getElementById('tt-expiry').value;
-  if(!name || !expiry){ alert('Please enter a tool name and expiry date.'); return; }
-  // convert date input (yyyy-mm-dd) to dd/mm/yyyy
-  const fmt = d => d ? d.split('-').reverse().join('/') : '';
-  await fetch('/api/tags', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      name,
-      tagNumber: document.getElementById('tt-num').value.trim(),
-      owner: document.getElementById('tt-owner').value.trim(),
-      testDate: fmt(document.getElementById('tt-tested').value),
-      expiryDate: fmt(expiry),
-      testedBy: document.getElementById('tt-tester').value.trim(),
-    })
-  });
-  await loadTags();
-  renderTags();
+  const name=document.getElementById('tt-name').value.trim();
+  const expiry=document.getElementById('tt-expiry').value;
+  if(!name||!expiry){alert('Please enter a tool name and expiry date.');return;}
+  const fmt=d=>d?d.split('-').reverse().join('/'):'';
+  await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name,tagNumber:document.getElementById('tt-num').value.trim(),owner:document.getElementById('tt-owner').value.trim(),testDate:fmt(document.getElementById('tt-tested').value),expiryDate:fmt(expiry),testedBy:document.getElementById('tt-tester').value.trim()})});
+  await loadTags();renderTags();
 }
 
 async function deleteTag(id){
-  if(!confirm('Remove this tool?')) return;
-  await fetch('/api/tags', { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id}) });
-  await loadTags();
-  renderTags();
+  if(!confirm('Remove this tool?'))return;
+  await fetch('/api/tags',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+  await loadTags();renderTags();
 }
 
-load();
-loadTags();
+// ── Temps ───────────────────────────────────────────────────
+async function loadTemps(){
+  try{const r=await fetch('/api/temps');if(r.ok)tempsData=await r.json();}catch(e){}
+}
+
+function tempTypeClass(type){
+  if(!type)return'other';
+  const t=type.toLowerCase();
+  if(t.includes('board'))return'board';
+  if(t.includes('light'))return'lights';
+  if(t.includes('outlet')||t.includes('power'))return'outlets';
+  return'other';
+}
+
+function renderTemps(){
+  const boards=tempsData.filter(t=>t.type==='Temp Board').length;
+  const lights=tempsData.filter(t=>t.type==='Temp Lights').length;
+  const outlets=tempsData.filter(t=>t.type==='Power Outlets').length;
+  const other=tempsData.filter(t=>!['Temp Board','Temp Lights','Power Outlets'].includes(t.type)).length;
+
+  let h=`<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
+    <div class="kpi"><div class="kpi-l">Boards</div><div class="kpi-v b">${boards}</div></div>
+    <div class="kpi"><div class="kpi-l">Lights</div><div class="kpi-v" style="color:#854d0e">${lights}</div></div>
+    <div class="kpi"><div class="kpi-l">Outlets</div><div class="kpi-v" style="color:#9d174d">${outlets}</div></div>
+    <div class="kpi"><div class="kpi-l">Other</div><div class="kpi-v" style="color:var(--muted)">${other}</div></div>
+  </div>
+  <div class="sform">
+    <div class="sform-t navy">Log temp equipment</div>
+    <div class="fg">
+      <div><label>Type</label>
+        <select id="tp-type">
+          <option>Temp Board</option>
+          <option>Temp Lights</option>
+          <option>Power Outlets</option>
+          <option>Other</option>
+        </select>
+      </div>
+      <div><label>Logged by</label><input id="tp-by" type="text" placeholder="Your name"></div>
+    </div>
+    <div class="fg full"><div><label>Location on site</label><input id="tp-loc" type="text" placeholder="e.g. Unit 3 — Level 1 corridor"></div></div>
+    <div style="margin-bottom:10px">
+      <label style="display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Photo</label>
+      <div class="photo-pick" id="tp-pick-area">
+        <input type="file" accept="image/*" capture="environment" onchange="handleTempFile(this)">
+        <div class="photo-pick-icon">📷</div>
+        <div class="photo-pick-txt">Tap to take or choose a photo</div>
+      </div>
+      <img class="photo-preview" id="tp-preview" style="margin-top:6px">
+    </div>
+    <button class="sbtn" id="tp-submit" onclick="addTemp()">Log equipment</button>
+    <div id="tp-progress" style="font-size:12px;color:var(--muted);margin-top:6px;display:none">Uploading…</div>
+  </div>
+  <div class="stitle">${tempsData.length} item${tempsData.length!==1?'s':''} on site</div>`;
+
+  if(!tempsData.length){h+=`<div class="empty">No temp equipment logged yet</div>`;}
+  else{
+    h+=`<div class="temp-grid">`;
+    tempsData.slice().reverse().forEach(t=>{
+      const tc=tempTypeClass(t.type);
+      h+=`<div class="temp-card">
+        ${t.photoUrl?`<img class="temp-img" src="${t.photoUrl}" alt="${t.type}" onclick="openTempLightbox('${t.photoUrl}','${t.type}','${t.location||''}')">`:
+        `<div class="temp-no-img">No photo</div>`}
+        <div class="temp-body">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+            <span class="spill ${tc}">${t.type}</span>
+          </div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px">${t.location||'No location'}</div>
+          <div style="font-size:11px;color:var(--muted)">${t.loggedBy?'By '+t.loggedBy+' · ':''}${t.date}</div>
+          <div style="display:flex;justify-content:flex-end;margin-top:6px">
+            <button class="cbtn danger" onclick="deleteTemp('${t.id}')">Remove</button>
+          </div>
+        </div>
+      </div>`;
+    });
+    h+=`</div>`;
+  }
+  document.getElementById('temps').innerHTML=h;
+}
+
+function handleTempFile(input){
+  const file=input.files[0];if(!file)return;
+  tempSelectedFile=file;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    document.getElementById('tp-preview').src=e.target.result;
+    document.getElementById('tp-preview').style.display='block';
+    document.getElementById('tp-pick-area').style.display='none';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function addTemp(){
+  const loc=document.getElementById('tp-loc').value.trim();
+  if(!loc){alert('Please enter a location.');return;}
+  const btn=document.getElementById('tp-submit');
+  const prog=document.getElementById('tp-progress');
+  btn.disabled=true;prog.style.display='block';
+  let dataUrl=null;
+  if(tempSelectedFile){
+    dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(tempSelectedFile);});
+  }
+  await fetch('/api/temps',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({type:document.getElementById('tp-type').value,location:loc,loggedBy:document.getElementById('tp-by').value.trim(),dataUrl})});
+  tempSelectedFile=null;btn.disabled=false;prog.style.display='none';
+  await loadTemps();renderTemps();
+}
+
+async function deleteTemp(id){
+  if(!confirm('Remove this item?'))return;
+  await fetch('/api/temps',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+  await loadTemps();renderTemps();
+}
+
+function openTempLightbox(url,type,loc){
+  document.getElementById('lb-img').src=url;
+  document.getElementById('lb-stage').textContent=type;
+  document.getElementById('lb-cap').textContent=loc;
+  document.getElementById('lb-meta').textContent='';
+  document.getElementById('lightbox').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+
+// ── Navigation ──────────────────────────────────────────────
+function show(id){
+  document.querySelectorAll('.sc').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  ['dashboard','units','townhouses','snags','tags','temps','hours'].forEach((s,i)=>{if(s===id)document.querySelectorAll('.nb')[i].classList.add('active');});
+  if(id==='dashboard')renderDash();
+  if(id==='units')renderList('units',UNITS,'Units 1–15');
+  if(id==='townhouses')renderList('townhouses',TH,'Townhouses 1–7');
+  if(id==='snags')renderSnags();
+  if(id==='tags')renderTags();
+  if(id==='temps')renderTemps();
+  if(id==='hours')renderHours();
+  updateBadge();window.scrollTo(0,0);
+}
+
+
+let hoursData=[];
+let crewRows=[{name:'',hours:''}];
+
+async function loadHours(){try{const r=await fetch('/api/hours');if(r.ok)hoursData=await r.json();}catch(e){}}
+
+function renderCrewRows(){
+  const wrap=document.getElementById('crew-rows');
+  if(!wrap)return;
+  wrap.innerHTML=crewRows.map((row,i)=>`
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <input style="flex:2;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;background:#fafafa;color:var(--text)" 
+        placeholder="Name e.g. Jake" value="${row.name}" oninput="crewRows[${i}].name=this.value">
+      <input style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;background:#fafafa;color:var(--text)" 
+        type="number" min="0" max="24" step="0.5" placeholder="Hours" value="${row.hours}" oninput="crewRows[${i}].hours=this.value">
+      ${crewRows.length>1?`<button onclick="removeCrew(${i})" style="background:none;border:1px solid var(--red-bd);color:var(--red);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:12px">×</button>`:'<div style="width:34px"></div>'}
+    </div>`).join('');
+}
+
+function addCrewRow(){crewRows.push({name:'',hours:''});renderCrewRows();}
+function removeCrew(i){crewRows.splice(i,1);renderCrewRows();}
+
+function renderHours(){
+  const allCrew={};
+  hoursData.forEach(day=>(day.crew||[]).forEach(c=>{if(c.name)allCrew[c.name]=(allCrew[c.name]||0)+c.hours;}));
+  const totalHours=Object.values(allCrew).reduce((a,b)=>a+b,0);
+  const now=new Date(),mon=new Date(now);mon.setDate(now.getDate()-now.getDay()+1);mon.setHours(0,0,0,0);
+  const weekHours=hoursData.filter(h=>new Date(h.date)>=mon).reduce((a,day)=>a+(day.crew||[]).reduce((b,c)=>b+c.hours,0),0);
+
+  let h=`<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px">
+    <div class="kpi"><div class="kpi-l">This week</div><div class="kpi-v b">${weekHours.toFixed(1)}h</div></div>
+    <div class="kpi"><div class="kpi-l">Total hours</div><div class="kpi-v b">${totalHours.toFixed(1)}h</div></div>
+    <div class="kpi"><div class="kpi-l">Days logged</div><div class="kpi-v b">${hoursData.length}</div></div>
+  </div>
+
+  <div class="sform">
+    <div class="sform-t navy">Log daily hours</div>
+    <div class="fg" style="margin-bottom:10px">
+      <div><label>Date</label><input id="hr-date" type="date" value="${new Date().toISOString().split('T')[0]}" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;background:#fafafa"></div>
+      <div><label>Notes (optional)</label><input id="hr-notes" type="text" placeholder="e.g. Rough-in Units 1-5" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;background:#fafafa"></div>
+    </div>
+    <label style="display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Crew on site</label>
+    <div id="crew-rows"></div>
+    <button onclick="addCrewRow()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:7px 14px;font-size:12px;color:var(--muted);cursor:pointer;margin-bottom:10px;width:100%">+ Add person</button>
+    <button class="sbtn" onclick="submitHours()" style="width:100%">Save day</button>
+  </div>
+
+  <div class="stitle">${hoursData.length} day${hoursData.length!==1?'s':''} logged</div>`;
+
+  if(!hoursData.length){h+='<div class="empty">No hours logged yet</div>';}
+  else{
+    let currentWeek=null;
+    hoursData.forEach(entry=>{
+      const d=new Date(entry.date),wm=new Date(d);wm.setDate(d.getDate()-d.getDay()+1);
+      const wk=wm.toISOString().split('T')[0];
+      if(wk!==currentWeek){
+        currentWeek=wk;
+        const wt=hoursData.filter(e=>{const m=new Date(e.date),w2=new Date(m);w2.setDate(m.getDate()-m.getDay()+1);return w2.toISOString().split('T')[0]===wk;}).reduce((a,e)=>a+(e.crew||[]).reduce((b,c)=>b+c.hours,0),0);
+        h+=`<div class="stitle">Week of ${wm.toLocaleDateString('en-AU',{day:'numeric',month:'short'})} <span style="font-weight:400;color:var(--muted)">${wt.toFixed(1)}h total</span></div>`;
+      }
+      const dayTotal=(entry.crew||[]).reduce((a,c)=>a+c.hours,0);
+      const dn=d.toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'short'});
+      h+=`<div class="accent-card"><div class="accent-bar blue"></div><div class="accent-body">
+        <div class="accent-top">
+          <div class="accent-name">${dn}</div>
+          <div style="font-size:18px;font-weight:700;color:var(--navy)">${dayTotal.toFixed(1)}h</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;margin:6px 0">
+          ${(entry.crew||[]).map(c=>`<div style="display:flex;justify-content:space-between;font-size:13px">
+            <span style="color:var(--text);font-weight:500">${c.name}</span>
+            <span style="color:var(--muted)">${c.hours}h</span>
+          </div>`).join('')}
+        </div>
+        ${entry.notes?`<div style="font-size:12px;color:var(--muted);margin-top:2px">${entry.notes}</div>`:''}
+        <div style="display:flex;justify-content:flex-end;margin-top:8px">
+          <button class="cbtn danger" onclick="deleteHours('${entry.id}')">Remove</button>
+        </div>
+      </div></div>`;
+    });
+  }
+
+  document.getElementById('hours').innerHTML=h;
+  renderCrewRows();
+}
+
+async function submitHours(){
+  const date=document.getElementById('hr-date').value;
+  const crew=crewRows.filter(r=>r.name.trim()&&r.hours).map(r=>({name:r.name.trim(),hours:parseFloat(r.hours)}));
+  if(!date){alert('Please enter a date.');return;}
+  if(!crew.length){alert('Please add at least one crew member.');return;}
+  await fetch('/api/hours',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({date,crew,notes:document.getElementById('hr-notes').value})});
+  crewRows=[{name:'',hours:''}];
+  await loadHours();renderHours();
+}
+
+async function deleteHours(id){
+  if(!confirm('Remove this day?'))return;
+  await fetch('/api/hours',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+  await loadHours();renderHours();
+}
+
+(async () => {
+  const ok = await bootstrapAuth();
+  if (!ok) return;
+  await load();
+  await loadTags();
+  await loadTemps();
+  if (CURRENT_USER.role !== 'client') await loadHours();
+})();
 </script>
 </body>
 </html>

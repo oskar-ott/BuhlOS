@@ -1,3 +1,9 @@
 {
-  "version": 2
+  "rewrites": [
+    { "source": "/login", "destination": "/login.html" },
+    { "source": "/jobs", "destination": "/jobs.html" },
+    { "source": "/jobs/:jobId", "destination": "/index.html" },
+    { "source": "/admin", "destination": "/index.html" },
+    { "source": "/", "destination": "/jobs.html" }
+  ]
 }

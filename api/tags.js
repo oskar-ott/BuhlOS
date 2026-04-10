@@ -1,61 +1,38 @@
-const { put, list } = require('@vercel/blob');
-const KEY = 'birdwood-tags.json';
+const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
+const { requireAuth, canWrite } = require('./_lib/auth');
 
-async function readTags() {
-  try {
-    const { blobs } = await list({ prefix: KEY, token: process.env.BLOB_READ_WRITE_TOKEN });
-    if (!blobs.length) return [];
-    const r = await fetch(blobs[0].url + '?t=' + Date.now());
-    return await r.json();
-  } catch(e) { return []; }
-}
-
-async function writeTags(data) {
-  await put(KEY, JSON.stringify(data), {
-    access: 'public', contentType: 'application/json',
-    addRandomSuffix: false, token: process.env.BLOB_READ_WRITE_TOKEN
-  });
-}
+const FIELD = 'tags' === 'hours' ? 'entries' : 'tags';
 
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Cache-Control', 'no-store');
+  setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
 
+  const jobId = (req.query && req.query.jobId) || '';
+  if (!jobId) return res.status(400).json({ error: 'jobId required' });
+
+  const user = await requireAuth(req, res, { jobId });
+  if (!user) return;
+
+  // Clients cannot see hours
+  if ('tags' === 'hours' && user.role === 'client') {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+
+  const KEY = `jobs/${jobId}/tags.json`;
+
   if (req.method === 'GET') {
-    return res.status(200).json(await readTags());
+    const data = await readBlob(KEY, { [FIELD]: [] });
+    return res.status(200).json(data);
   }
 
   if (req.method === 'POST') {
+    if (!canWrite(user, jobId)) return res.status(403).json({ error: 'read-only' });
     try {
-      const tags = await readTags();
-      const { id, ...rest } = req.body;
-      if (id) {
-        // update existing
-        const idx = tags.findIndex(t => t.id === id);
-        if (idx > -1) tags[idx] = { ...tags[idx], ...rest };
-      } else {
-        // new tag
-        tags.push({
-          id: Date.now() + '_' + Math.random().toString(36).slice(2),
-          ...rest,
-          addedDate: new Date().toLocaleDateString('en-AU')
-        });
-      }
-      await writeTags(tags);
+      await writeBlob(KEY, req.body);
       return res.status(200).json({ ok: true });
-    } catch(e) { return res.status(500).json({ error: e.message }); }
-  }
-
-  if (req.method === 'DELETE') {
-    try {
-      const { id } = req.body;
-      const tags = await readTags();
-      await writeTags(tags.filter(t => t.id !== id));
-      return res.status(200).json({ ok: true });
-    } catch(e) { return res.status(500).json({ error: e.message }); }
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
   }
 
   res.status(405).end();
