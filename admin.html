@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>buhl — admin</title>
+<style>
+:root{--bg:#0b0d10;--card:#14171c;--bd:#232830;--tx:#e8ecf1;--mu:#8a94a3;--ac:#ffcc00;--er:#ff6b6b;--ok:#22c55e}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif}
+header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--bd);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;padding-top:max(14px,env(safe-area-inset-top))}
+header h1{margin:0;font-size:18px;font-weight:600}
+header a,header button{background:none;border:1px solid var(--bd);color:var(--tx);padding:8px 12px;border-radius:8px;font-size:13px;text-decoration:none;cursor:pointer;margin-left:8px}
+nav{display:flex;gap:2px;padding:0 18px;border-bottom:1px solid var(--bd);overflow-x:auto}
+nav button{background:none;border:0;color:var(--mu);padding:12px 16px;font-size:14px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+nav button.active{color:var(--tx);border-bottom-color:var(--ac)}
+.wrap{padding:18px;max-width:960px;margin:0 auto}
+.tab{display:none}.tab.active{display:block}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:12px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.row h3{margin:0;font-size:15px;font-weight:600}
+.mu{color:var(--mu);font-size:12px}
+label{display:block;font-size:12px;color:var(--mu);margin:10px 0 4px}
+input,select{width:100%;padding:10px;background:#0b0d10;border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px;outline:none}
+input:focus,select:focus{border-color:var(--ac)}
+.btn{background:var(--ac);color:#0b0d10;border:0;padding:10px 14px;border-radius:8px;font-weight:600;cursor:pointer;font-size:14px}
+.btn.sec{background:transparent;color:var(--tx);border:1px solid var(--bd)}
+.btn.danger{background:transparent;color:var(--er);border:1px solid var(--er)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#232830;color:var(--mu);text-transform:uppercase;letter-spacing:.5px}
+.err{color:var(--er);font-size:13px;margin-top:8px}
+.ok{color:var(--ok);font-size:13px;margin-top:8px}
+table{width:100%;border-collapse:collapse}
+th,td{padding:10px;text-align:left;border-bottom:1px solid var(--bd);font-size:13px}
+th{color:var(--mu);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.multi{max-height:140px;overflow:auto;border:1px solid var(--bd);border-radius:8px;padding:8px;background:#0b0d10}
+.multi label{display:flex;align-items:center;gap:8px;margin:4px 0;color:var(--tx);font-size:13px;cursor:pointer}
+.multi input{width:auto}
+dialog{background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:12px;padding:20px;max-width:420px;width:90%}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+.flex{display:flex;gap:8px;align-items:center}
+.grow{flex:1}
+</style></head><body>
+<header>
+  <div class="flex"><a href="/jobs" style="margin-left:0">← Jobs</a><h1 style="margin-left:12px">Admin</h1></div>
+  <div><span id="me" class="mu"></span><button id="logout">Sign out</button></div>
+</header>
+<nav>
+  <button class="active" data-tab="jobs">Jobs</button>
+  <button data-tab="users">Users</button>
+  <button data-tab="costs">Costs</button>
+  <button data-tab="settings">Settings</button>
+</nav>
+<div class="wrap">
+  <div id="jobs" class="tab active">
+    <div class="card"><div class="row"><h3>Create job</h3></div>
+      <label>Job name</label><input id="j-name" placeholder="e.g. North Sydney T2">
+      <label>Job ID (URL slug)</label><input id="j-id" placeholder="auto">
+      <label>Client (optional)</label><select id="j-client"><option value="">— none —</option></select>
+      <div style="margin-top:12px"><button class="btn" id="j-create">Create job</button><span id="j-msg"></span></div>
+    </div>
+    <div id="jobs-list"></div>
+  </div>
+  <div id="users" class="tab">
+    <div class="card"><div class="row"><h3>Create user</h3></div>
+      <label>Username</label><input id="u-name">
+      <label>Role</label>
+      <select id="u-role"><option value="tradie">Tradie</option><option value="client">Client</option><option value="admin">Admin</option></select>
+      <label id="u-sec-lbl">4-digit PIN</label><input id="u-sec" inputmode="numeric" maxlength="32">
+      <div id="u-rate-wrap"><label>Hourly rate ($)</label><input id="u-rate" type="number" inputmode="decimal" value="85"></div>
+      <div id="u-jobs-wrap"><label>Assign to jobs</label><div class="multi" id="u-jobs"></div></div>
+      <div style="margin-top:12px"><button class="btn" id="u-create">Create user</button><span id="u-msg"></span></div>
+    </div>
+    <div id="users-list"></div>
+  </div>
+  <div id="costs" class="tab">
+    <div class="card">
+      <div class="row"><h3>Labour cost rollup</h3><button class="btn sec" id="c-refresh">Refresh</button></div>
+      <div id="c-totals" style="margin-top:10px"></div>
+      <div id="c-list" style="margin-top:10px"></div>
+    </div>
+  </div>
+  <div id="settings" class="tab">
+    <div class="card"><h3>Change my password</h3>
+      <label>Current password</label><input id="s-cur" type="password">
+      <label>New password (min 6 chars)</label><input id="s-new" type="password">
+      <div style="margin-top:12px"><button class="btn" id="s-save">Save</button><span id="s-msg"></span></div>
+    </div>
+  </div>
+</div>
+<dialog id="edit-user"><h3 id="eu-title">Edit user</h3>
+  <input type="hidden" id="eu-id">
+  <label>Username</label><input id="eu-name">
+  <div id="eu-rate-wrap"><label>Hourly rate ($)</label><input id="eu-rate" type="number"></div>
+  <div id="eu-jobs-wrap"><label>Assign to jobs</label><div class="multi" id="eu-jobs"></div></div>
+  <label>New PIN / password (leave blank to keep)</label><input id="eu-sec" type="text">
+  <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn sec" id="eu-cancel">Cancel</button>
+    <button class="btn danger" id="eu-delete">Delete</button>
+    <button class="btn" id="eu-save">Save</button>
+  </div><div class="err" id="eu-msg"></div>
+</dialog>
+<script>
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => '$' + Number(n||0).toLocaleString('en-AU',{maximumFractionDigits:0});
+let ME=null, JOBS=[], USERS=[];
+async function api(url, opts={}) {
+  opts.credentials='same-origin';
+  opts.headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
+  if (opts.body && typeof opts.body !== 'string') opts.body = JSON.stringify(opts.body);
+  const r = await fetch(url, opts);
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(j.error || 'request failed');
+  return j;
+}
+async function boot() {
+  try { const r = await api('/api/auth?action=me'); ME = r.user; }
+  catch { location.href='/login'; return; }
+  if (ME.role !== 'admin') { location.href='/jobs'; return; }
+  document.getElementById('me').textContent = ME.username + ' · admin';
+  document.getElementById('logout').onclick = async () => {
+    await api('/api/auth?action=logout', {method:'POST'}); location.href='/login';
+  };
+  document.querySelectorAll('nav button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+  wireJobs(); wireUsers(); wireCosts(); wireSettings();
+  await refreshAll();
+}
+function switchTab(id) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelector('nav button[data-tab="'+id+'"]').classList.add('active');
+  if (id==='costs') loadCosts();
+}
+async function refreshAll() {
+  const [jr, ur] = await Promise.all([api('/api/jobs'), api('/api/users')]);
+  JOBS = jr.jobs || []; USERS = ur.users || [];
+  renderJobs(); renderUsers(); populateJobForm(); populateUserForm();
+}
+function wireJobs() {
+  document.getElementById('j-name').addEventListener('input', e => {
+    const slug = e.target.value.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+    document.getElementById('j-id').placeholder = slug || 'auto';
+  });
+  document.getElementById('j-create').onclick = async () => {
+    const name = document.getElementById('j-name').value.trim();
+    const id = document.getElementById('j-id').value.trim();
+    const clientUserId = document.getElementById('j-client').value || null;
+    const msg = document.getElementById('j-msg'); msg.className=''; msg.textContent='';
+    if (!name) { msg.className='err'; msg.textContent='Name required'; return; }
+    try {
+      await api('/api/jobs', { method:'POST', body:{name, id: id||undefined, clientUserId}});
+      document.getElementById('j-name').value=''; document.getElementById('j-id').value='';
+      document.getElementById('j-client').value='';
+      msg.className='ok'; msg.textContent='Created'; await refreshAll();
+    } catch(e) { msg.className='err'; msg.textContent=e.message; }
+  };
+}
+function populateJobForm() {
+  const sel = document.getElementById('j-client'); sel.innerHTML='<option value="">— none —</option>';
+  USERS.filter(u=>u.role==='client').forEach(u=>{
+    const o=document.createElement('option'); o.value=u.id; o.textContent=u.username; sel.appendChild(o);
+  });
+}
+function renderJobs() {
+  const el = document.getElementById('jobs-list');
+  if (!JOBS.length) { el.innerHTML='<div class="card mu">No jobs yet.</div>'; return; }
+  el.innerHTML = JOBS.map(j => {
+    const client = USERS.find(u=>u.id===j.clientUserId);
+    return '<div class="card"><div class="row"><div><h3>'+esc(j.name)+'</h3><div class="mu">'+esc(j.id)+' · <span class="pill">'+esc(j.status||'active')+'</span>'+(client?' · client: '+esc(client.username):'')+'</div></div><div class="flex"><a class="btn sec" href="/jobs/'+esc(j.id)+'">Open</a></div></div></div>';
+  }).join('');
+}
+function wireUsers() {
+  const role = document.getElementById('u-role');
+  const secLbl = document.getElementById('u-sec-lbl');
+  const sec = document.getElementById('u-sec');
+  const rateWrap = document.getElementById('u-rate-wrap');
+  const jobsWrap = document.getElementById('u-jobs-wrap');
+  function updateRoleUI(){
+    const r = role.value;
+    if (r==='admin'){ secLbl.textContent='Password (min 6 chars)'; sec.type='password'; sec.maxLength=64; }
+    else { secLbl.textContent='4-digit PIN'; sec.type='text'; sec.maxLength=4; }
+    rateWrap.style.display = r==='tradie'?'':'none';
+    jobsWrap.style.display = r==='tradie'?'':'none';
+  }
+  role.onchange = updateRoleUI; updateRoleUI();
+  document.getElementById('u-create').onclick = async () => {
+    const body = {
+      username: document.getElementById('u-name').value.trim(),
+      role: role.value,
+      secret: sec.value,
+    };
+    if (body.role==='tradie') {
+      body.hourlyRate = Number(document.getElementById('u-rate').value)||0;
+      body.assignedJobIds = Array.from(document.querySelectorAll('#u-jobs input:checked')).map(i=>i.value);
+    }
+    const msg = document.getElementById('u-msg'); msg.className=''; msg.textContent='';
+    try {
+      await api('/api/users', { method:'POST', body });
+      document.getElementById('u-name').value=''; sec.value='';
+      msg.className='ok'; msg.textContent='Created'; await refreshAll();
+    } catch(e){ msg.className='err'; msg.textContent=e.message; }
+  };
+}
+function populateUserForm() {
+  const el = document.getElementById('u-jobs');
+  el.innerHTML = JOBS.map(j=>'<label><input type="checkbox" value="'+esc(j.id)+'"> '+esc(j.name)+'</label>').join('') || '<div class="mu">No jobs yet</div>';
+}
+function renderUsers() {
+  const el = document.getElementById('users-list');
+  if (!USERS.length) { el.innerHTML='<div class="card mu">No users yet.</div>'; return; }
+  el.innerHTML = '<div class="card"><table><thead><tr><th>Username</th><th>Role</th><th>Rate</th><th>Jobs</th><th></th></tr></thead><tbody>' +
+    USERS.map(u=>'<tr><td>'+esc(u.username)+'</td><td><span class="pill">'+esc(u.role)+'</span></td><td>'+(u.role==='tradie'?fmt(u.hourlyRate)+'/hr':'—')+'</td><td class="mu">'+((u.assignedJobIds||[]).length?(u.assignedJobIds||[]).length+' assigned':'—')+'</td><td><button class="btn sec" data-edit="'+esc(u.id)+'">Edit</button></td></tr>').join('') + '</tbody></table></div>';
+  el.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEditUser(b.dataset.edit));
+}
+function openEditUser(id) {
+  const u = USERS.find(x=>x.id===id); if (!u) return;
+  document.getElementById('eu-id').value = u.id;
+  document.getElementById('eu-name').value = u.username;
+  document.getElementById('eu-title').textContent = 'Edit ' + u.username + ' (' + u.role + ')';
+  document.getElementById('eu-rate').value = u.hourlyRate || 0;
+  document.getElementById('eu-rate-wrap').style.display = u.role==='tradie'?'':'none';
+  document.getElementById('eu-jobs-wrap').style.display = u.role==='tradie'?'':'none';
+  document.getElementById('eu-jobs').innerHTML = JOBS.map(j=>
+    '<label><input type="checkbox" value="'+esc(j.id)+'" '+((u.assignedJobIds||[]).includes(j.id)?'checked':'')+'> '+esc(j.name)+'</label>'
+  ).join('') || '<div class="mu">No jobs</div>';
+  document.getElementById('eu-sec').value = '';
+  document.getElementById('eu-msg').textContent = '';
+  document.getElementById('edit-user').showModal();
+}
+document.getElementById('eu-cancel').onclick = ()=>document.getElementById('edit-user').close();
+document.getElementById('eu-save').onclick = async () => {
+  const id = document.getElementById('eu-id').value;
+  const u = USERS.find(x=>x.id===id);
+  const body = { id, username: document.getElementById('eu-name').value.trim() };
+  if (u.role==='tradie') {
+    body.hourlyRate = Number(document.getElementById('eu-rate').value)||0;
+    body.assignedJobIds = Array.from(document.querySelectorAll('#eu-jobs input:checked')).map(i=>i.value);
+  }
+  const sec = document.getElementById('eu-sec').value;
+  if (sec) body.secret = sec;
+  const msg = document.getElementById('eu-msg'); msg.textContent='';
+  try {
+    await api('/api/users', { method:'PUT', body });
+    document.getElementById('edit-user').close();
+    await refreshAll();
+  } catch(e) { msg.textContent = e.message; }
+};
+document.getElementById('eu-delete').onclick = async () => {
+  const id = document.getElementById('eu-id').value;
+  if (!confirm('Delete this user?')) return;
+  try { await api('/api/users?id='+encodeURIComponent(id), { method:'DELETE' });
+    document.getElementById('edit-user').close(); await refreshAll();
+  } catch(e){ document.getElementById('eu-msg').textContent = e.message; }
+};
+function wireCosts() { document.getElementById('c-refresh').onclick = loadCosts; }
+async function loadCosts() {
+  try {
+    const r = await api('/api/costs');
+    document.getElementById('c-totals').innerHTML =
+      '<div class="row"><div><div class="mu">Total hours</div><div style="font-size:22px;font-weight:700">'+r.totals.hours.toFixed(1)+'</div></div><div><div class="mu">Total labour cost</div><div style="font-size:22px;font-weight:700">'+fmt(r.totals.cost)+'</div></div></div>';
+    const rows = r.jobs.map(j=>'<tr><td>'+esc(j.name)+'</td><td>'+j.hours.toFixed(1)+'</td><td>'+fmt(j.cost)+'</td></tr>').join('');
+    document.getElementById('c-list').innerHTML =
+      '<table><thead><tr><th>Job</th><th>Hours</th><th>Labour cost</th></tr></thead><tbody>'+(rows||'<tr><td colspan=3 class=mu>No data</td></tr>')+'</tbody></table>';
+  } catch(e) { document.getElementById('c-list').innerHTML = '<div class="err">'+esc(e.message)+'</div>'; }
+}
+function wireSettings() {
+  document.getElementById('s-save').onclick = async () => {
+    const msg = document.getElementById('s-msg'); msg.className=''; msg.textContent='';
+    try {
+      await api('/api/auth?action=change-password', { method:'POST', body:{
+        currentSecret: document.getElementById('s-cur').value,
+        newSecret: document.getElementById('s-new').value,
+      }});
+      msg.className='ok'; msg.textContent='Password updated';
+      document.getElementById('s-cur').value=''; document.getElementById('s-new').value='';
+    } catch(e){ msg.className='err'; msg.textContent=e.message; }
+  };
+}
+boot();
+</script></body></html>
