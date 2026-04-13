@@ -38,6 +38,9 @@ dialog{background:var(--card);color:var(--tx);border:1px solid var(--bd);border-
 dialog::backdrop{background:rgba(0,0,0,.6)}
 .flex{display:flex;gap:8px;align-items:center}
 .grow{flex:1}
+.jt-group{background:#0b0d10;border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:8px}
+.jt-area-row{display:flex;gap:6px;align-items:center;margin-bottom:4px}
+.jt-area-row input{flex:1}
 </style></head><body>
 <header>
   <div class="flex"><a href="/jobs" style="margin-left:0">← Jobs</a><h1 style="margin-left:12px">Admin</h1></div>
@@ -48,6 +51,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   <button data-tab="users">Users</button>
   <button data-tab="costs">Costs</button>
   <button data-tab="settings">Settings</button>
+  <button data-tab="job-types">Job Types</button>
 </nav>
 <div class="wrap">
   <div id="jobs" class="tab active">
@@ -85,7 +89,38 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <div style="margin-top:12px"><button class="btn" id="s-save">Save</button><span id="s-msg"></span></div>
     </div>
   </div>
+  <div id="job-types" class="tab">
+    <div class="card"><div class="row"><h3>Create job type</h3></div>
+      <label>Name</label><input id="jt-name" placeholder="e.g. Residential fitout">
+      <div style="margin-top:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:12px;color:var(--mu);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Default area groups</span>
+          <button class="btn sec" style="padding:6px 10px;font-size:12px" id="jt-add-group">+ Add group</button>
+        </div>
+        <div id="jt-groups"></div>
+      </div>
+      <div style="margin-top:12px"><button class="btn" id="jt-create">Create type</button><span id="jt-msg"></span></div>
+    </div>
+    <div id="jt-list"></div>
+  </div>
 </div>
+<dialog id="edit-jt" style="max-width:520px">
+  <h3 id="ejt-title">Edit job type</h3>
+  <input type="hidden" id="ejt-id">
+  <label>Name</label><input id="ejt-name">
+  <div style="margin-top:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:12px;color:var(--mu);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Default area groups</span>
+      <button class="btn sec" style="padding:6px 10px;font-size:12px" id="ejt-add-group">+ Add group</button>
+    </div>
+    <div id="ejt-groups"></div>
+  </div>
+  <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn sec" id="ejt-cancel">Cancel</button>
+    <button class="btn danger" id="ejt-delete">Delete</button>
+    <button class="btn" id="ejt-save">Save</button>
+  </div><div class="err" id="ejt-msg"></div>
+</dialog>
 <dialog id="edit-user"><h3 id="eu-title">Edit user</h3>
   <input type="hidden" id="eu-id">
   <label>Username</label><input id="eu-name">
@@ -101,7 +136,8 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 <script>
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = n => '$' + Number(n||0).toLocaleString('en-AU',{maximumFractionDigits:0});
-let ME=null, JOBS=[], USERS=[];
+let ME=null, JOBS=[], USERS=[], JOB_TYPES=[];
+let jtGroups=[], ejtGroups=[];
 async function api(url, opts={}) {
   opts.credentials='same-origin';
   opts.headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
@@ -120,7 +156,7 @@ async function boot() {
     await api('/api/auth?action=logout', {method:'POST'}); location.href='/login';
   };
   document.querySelectorAll('nav button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
-  wireJobs(); wireUsers(); wireCosts(); wireSettings();
+  wireJobs(); wireUsers(); wireCosts(); wireSettings(); wireJobTypes();
   await refreshAll();
 }
 function switchTab(id) {
@@ -129,6 +165,7 @@ function switchTab(id) {
   document.getElementById(id).classList.add('active');
   document.querySelector('nav button[data-tab="'+id+'"]').classList.add('active');
   if (id==='costs') loadCosts();
+  if (id==='job-types') loadJobTypes();
 }
 async function refreshAll() {
   const [jr, ur] = await Promise.all([api('/api/jobs'), api('/api/users')]);
@@ -273,6 +310,100 @@ function wireSettings() {
       msg.className='ok'; msg.textContent='Password updated';
       document.getElementById('s-cur').value=''; document.getElementById('s-new').value='';
     } catch(e){ msg.className='err'; msg.textContent=e.message; }
+  };
+}
+// ── Job Types ─────────────────────────────────────────────────────────────
+function jtState(cid) { return cid==='jt-groups' ? jtGroups : ejtGroups; }
+function jtGroupName(gi,cid,v) { jtState(cid)[gi].name=v; }
+function jtAreaName(gi,ai,cid,v) { jtState(cid)[gi].areas[ai].name=v; }
+function jtAddArea(gi,cid) { jtState(cid)[gi].areas.push({id:null,name:''}); renderGroupEditor(cid,jtState(cid)); }
+function jtRemoveArea(gi,ai,cid) { jtState(cid)[gi].areas.splice(ai,1); renderGroupEditor(cid,jtState(cid)); }
+function jtAddGroup(cid) { jtState(cid).push({id:null,name:'',areas:[]}); renderGroupEditor(cid,jtState(cid)); }
+function jtRemoveGroup(gi,cid) { jtState(cid).splice(gi,1); renderGroupEditor(cid,jtState(cid)); }
+function renderGroupEditor(cid, groups) {
+  const el = document.getElementById(cid);
+  if (!groups.length) { el.innerHTML='<div class="mu" style="font-size:12px;padding:4px 0">No groups — click "+ Add group" above</div>'; return; }
+  el.innerHTML = groups.map((g,gi) =>
+    '<div class="jt-group">' +
+    '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">' +
+    '<input style="flex:1" placeholder="Group name e.g. Units" value="'+esc(g.name)+'" oninput="jtGroupName('+gi+',\''+cid+'\',this.value)">' +
+    '<button class="btn danger" style="padding:6px 10px;font-size:12px" onclick="jtRemoveGroup('+gi+',\''+cid+'\')">Remove</button></div>' +
+    g.areas.map((a,ai) =>
+      '<div class="jt-area-row">' +
+      '<input placeholder="Area name" value="'+esc(a.name)+'" oninput="jtAreaName('+gi+','+ai+',\''+cid+'\',this.value)">' +
+      '<button class="btn sec" style="padding:6px 8px;font-size:12px" onclick="jtRemoveArea('+gi+','+ai+',\''+cid+'\')">×</button></div>'
+    ).join('') +
+    '<button class="btn sec" style="padding:5px 10px;font-size:12px;margin-top:4px" onclick="jtAddArea('+gi+',\''+cid+'\')">+ Add area</button>' +
+    '</div>'
+  ).join('');
+}
+async function loadJobTypes() {
+  try {
+    const r = await api('/api/job-types?action=list');
+    JOB_TYPES = r.jobTypes || [];
+    renderJobTypes();
+  } catch(e) { document.getElementById('jt-list').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
+}
+function renderJobTypes() {
+  const el = document.getElementById('jt-list');
+  if (!JOB_TYPES.length) { el.innerHTML='<div class="card mu">No job types yet.</div>'; return; }
+  el.innerHTML = '<div class="card"><table><thead><tr><th>Name</th><th>Default area groups</th><th></th></tr></thead><tbody>' +
+    JOB_TYPES.map(t => {
+      const summary = (t.defaultAreaGroups||[]).map(g=>esc(g.name)+(g.areas&&g.areas.length?' ('+g.areas.length+')':'')).join(', ')||'—';
+      return '<tr><td>'+esc(t.name)+'</td><td class="mu">'+summary+'</td><td><button class="btn sec" data-edit-jt="'+esc(t.id)+'">Edit</button></td></tr>';
+    }).join('') + '</tbody></table></div>';
+  el.querySelectorAll('[data-edit-jt]').forEach(b=>b.onclick=()=>openEditJt(b.dataset.editJt));
+}
+function openEditJt(id) {
+  const t = JOB_TYPES.find(x=>x.id===id); if (!t) return;
+  document.getElementById('ejt-id').value = t.id;
+  document.getElementById('ejt-name').value = t.name;
+  document.getElementById('ejt-title').textContent = 'Edit ' + t.name;
+  document.getElementById('ejt-msg').textContent = '';
+  ejtGroups = (t.defaultAreaGroups||[]).map(g=>({id:g.id||null,name:g.name,areas:(g.areas||[]).map(a=>({id:a.id||null,name:a.name}))}));
+  renderGroupEditor('ejt-groups', ejtGroups);
+  document.getElementById('edit-jt').showModal();
+}
+function wireJobTypes() {
+  renderGroupEditor('jt-groups', jtGroups);
+  document.getElementById('jt-add-group').onclick = () => jtAddGroup('jt-groups');
+  document.getElementById('jt-create').onclick = async () => {
+    const name = document.getElementById('jt-name').value.trim();
+    const msg = document.getElementById('jt-msg'); msg.className=''; msg.textContent='';
+    if (!name) { msg.className='err'; msg.textContent='Name required'; return; }
+    const defaultAreaGroups = jtGroups.map(g=>({name:g.name,areas:g.areas.map(a=>({name:a.name}))}));
+    try {
+      await api('/api/job-types?action=create',{method:'POST',body:{name,defaultAreaGroups}});
+      document.getElementById('jt-name').value='';
+      jtGroups=[]; renderGroupEditor('jt-groups',jtGroups);
+      msg.className='ok'; msg.textContent='Created';
+      await loadJobTypes();
+    } catch(e) { msg.className='err'; msg.textContent=e.message; }
+  };
+  document.getElementById('ejt-cancel').onclick = ()=>document.getElementById('edit-jt').close();
+  document.getElementById('ejt-add-group').onclick = ()=>jtAddGroup('ejt-groups');
+  document.getElementById('ejt-save').onclick = async () => {
+    const id = document.getElementById('ejt-id').value;
+    const name = document.getElementById('ejt-name').value.trim();
+    const msg = document.getElementById('ejt-msg'); msg.textContent='';
+    if (!name) { msg.textContent='Name required'; return; }
+    const defaultAreaGroups = ejtGroups.map(g=>({...(g.id?{id:g.id}:{}),name:g.name,areas:g.areas.map(a=>({...(a.id?{id:a.id}:{}),name:a.name}))}));
+    try {
+      await api('/api/job-types?action=update',{method:'POST',body:{id,name,defaultAreaGroups}});
+      document.getElementById('edit-jt').close();
+      await loadJobTypes();
+    } catch(e) { msg.textContent=e.message; }
+  };
+  document.getElementById('ejt-delete').onclick = async () => {
+    const id = document.getElementById('ejt-id').value;
+    const typeName = document.getElementById('ejt-name').value;
+    if (!confirm('Delete job type "'+typeName+'"?')) return;
+    const msg = document.getElementById('ejt-msg'); msg.textContent='';
+    try {
+      await api('/api/job-types?action=delete',{method:'POST',body:{id}});
+      document.getElementById('edit-jt').close();
+      await loadJobTypes();
+    } catch(e) { msg.textContent=e.message; }
   };
 }
 boot();
