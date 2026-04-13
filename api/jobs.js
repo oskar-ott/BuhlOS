@@ -1,6 +1,6 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, getCurrentUser } = require('./_lib/auth');
-const { parseGroups } = require('./_lib/validation');
+const { validateAreaGroups } = require('./_lib/validation');
 
 function slugify(s) {
   return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -62,7 +62,7 @@ module.exports = async (req, res) => {
     // Validate areaGroups if provided
     let parsedGroups = [];
     if (areaGroups !== undefined) {
-      const parsed = parseGroups(areaGroups, 'areaGroups');
+      const parsed = validateAreaGroups(areaGroups, 'areaGroups');
       if (!parsed.ok) return res.status(400).json({ error: parsed.error });
       parsedGroups = parsed.groups;
     }
@@ -110,7 +110,7 @@ module.exports = async (req, res) => {
     }
 
     if (areaGroups !== undefined) {
-      const parsed = parseGroups(areaGroups, 'areaGroups');
+      const parsed = validateAreaGroups(areaGroups, 'areaGroups');
       if (!parsed.ok) return res.status(400).json({ error: parsed.error });
       // Merge: preserve existing ids for groups/areas already on the job,
       // only generate new ids for newly-added entries (matched by name).

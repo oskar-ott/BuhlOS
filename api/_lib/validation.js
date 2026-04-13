@@ -1,4 +1,4 @@
-// Shared validation + ID-generation helpers used by api/jobs.js and api/job-types.js.
+// Shared validation + ID-generation helpers used by api/jobs.js.
 
 // 8-char base36 id with caller-supplied prefix.
 function nanoid(prefix) {
@@ -8,10 +8,10 @@ function nanoid(prefix) {
   return prefix + s;
 }
 
-// Validate and normalise an areaGroups / defaultAreaGroups array.
+// Validate and normalise an areaGroups array.
 // Preserves existing ids; generates missing ones server-side.
 // Returns { ok: true, groups } or { ok: false, error }.
-function parseGroups(raw, fieldName) {
+function validateAreaGroups(raw, fieldName) {
   const f = fieldName || 'areaGroups';
   if (!Array.isArray(raw)) return { ok: false, error: `${f} must be an array` };
   const groups = [];
@@ -34,4 +34,4 @@ function parseGroups(raw, fieldName) {
   return { ok: true, groups };
 }
 
-module.exports = { nanoid, parseGroups };
+module.exports = { nanoid, validateAreaGroups };
