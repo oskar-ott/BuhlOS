@@ -4,47 +4,38 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>buhl — jobs</title>
+<link rel="stylesheet" href="/public/theme.css">
 <style>
-  :root {
-    --bg: #0b0d10; --card: #14171c; --border: #232830;
-    --text: #e8ecf1; --muted: #8a94a3; --accent: #ffcc00;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
-  header { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--border);
-    padding: 14px 18px; display: flex; align-items: center; justify-content: space-between;
-    padding-top: max(14px, env(safe-area-inset-top)); }
-  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
-  header .me { font-size: 13px; color: var(--muted); }
-  header a, header button { background: none; border: 1px solid var(--border); color: var(--text);
-    padding: 8px 12px; border-radius: 8px; font-size: 13px; text-decoration: none; cursor: pointer;
-    margin-left: 8px; }
-  .wrap { padding: 18px; max-width: 720px; margin: 0 auto; }
-  .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
-  .job { display: block; background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-    padding: 18px; margin-bottom: 12px; text-decoration: none; color: var(--text); }
-  .job h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; }
-  .job .id { color: var(--muted); font-size: 13px; }
-  .role-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px;
-    background: #232830; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-  .admin-bar { margin-bottom: 14px; display: flex; gap: 8px; }
-  .admin-bar a { background: var(--accent); color: #0b0d10; font-weight: 600; padding: 10px 14px;
-    border-radius: 8px; text-decoration: none; font-size: 14px; }
-  .admin-bar a.sec { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .app-header { position: sticky; top: 0; z-index: 100;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+    padding-top: max(0px, env(safe-area-inset-top)); }
+  .app-header .spacer { flex: 1; }
+  .app-header .me { font-size: var(--fs-sm); opacity: .7; }
+  .wrap { padding: 20px 18px; max-width: 720px; margin: 0 auto; }
+  .empty { text-align: center; color: var(--muted); padding: 60px 20px; font-size: var(--fs-sm); }
+  .job { display: block; border-radius: var(--radius); padding: 18px; margin-bottom: 12px;
+         text-decoration: none; color: var(--ink);
+         border: 1px solid var(--border); background: var(--card);
+         transition: border-color .15s; }
+  .job:hover { border-color: var(--accent); }
+  .job h2 { margin: 0 0 5px; font-size: var(--fs-lg); font-weight: 600; }
+  .job .meta { color: var(--muted); font-size: var(--fs-sm); display: flex; align-items: center; gap: 8px; }
+  .admin-bar { margin-bottom: 16px; display: flex; gap: 8px; }
 </style>
 </head>
 <body>
-<header>
-  <h1>buhl jobs</h1>
-  <div>
-    <span class="me" id="me"></span>
-    <button id="logout">Sign out</button>
-  </div>
+<header class="app-header">
+  <img src="/BUHL_LOGO.png" class="logo" alt="buhl electrical" onerror="this.style.display='none'">
+  <div class="spacer"></div>
+  <span class="me" id="me"></span>
+  <button class="btn" id="logout"
+    style="color:var(--header-ink);border-color:rgba(255,255,255,.25);background:transparent">
+    Sign out
+  </button>
 </header>
 <div class="wrap">
   <div id="adminBar" class="admin-bar" style="display:none">
-    <a href="/admin">Admin panel</a>
+    <a class="btn primary" href="/admin">Admin panel</a>
   </div>
   <div id="list"></div>
 </div>
@@ -53,8 +44,7 @@ async function load() {
   const meRes = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
   if (!meRes.ok) { location.href = '/login'; return; }
   const { user } = await meRes.json();
-  document.getElementById('me').textContent =
-    user.username + ' · ' + user.role;
+  document.getElementById('me').textContent = user.username + ' · ' + user.role;
   if (user.role === 'admin') document.getElementById('adminBar').style.display = 'flex';
 
   const r = await fetch('/api/jobs', { credentials: 'same-origin' });
@@ -65,15 +55,16 @@ async function load() {
       (user.role === 'admin' ? ' Create one from the admin panel.' : '') + '</div>';
     return;
   }
-  list.innerHTML = jobs.map(j =>
-    `<a class="job" href="/jobs/${j.id}">
-       <h2>${escapeHtml(j.name)}</h2>
-       <div class="id">${j.id} · <span class="role-badge">${j.status || 'active'}</span></div>
-     </a>`
-  ).join('');
+  list.innerHTML = jobs.map(j => {
+    const st = j.status || 'active';
+    return `<a class="job" href="/jobs/${esc(j.id)}">
+      <h2>${esc(j.name)}</h2>
+      <div class="meta">${esc(j.id)} <span class="badge ${st}">${st}</span></div>
+    </a>`;
+  }).join('');
 }
-function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({
-  '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function esc(s) { return String(s).replace(/[&<>"']/g, c =>
+  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 document.getElementById('logout').addEventListener('click', async () => {
   await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' });
   location.href = '/login';

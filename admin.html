@@ -3,49 +3,96 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>buhl — admin</title>
+<link rel="stylesheet" href="/public/theme.css">
 <style>
-:root{--bg:#0b0d10;--card:#14171c;--bd:#232830;--tx:#e8ecf1;--mu:#8a94a3;--ac:#ffcc00;--er:#ff6b6b;--ok:#22c55e}
-*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif}
-header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--bd);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;padding-top:max(14px,env(safe-area-inset-top))}
-header h1{margin:0;font-size:18px;font-weight:600}
-header a,header button{background:none;border:1px solid var(--bd);color:var(--tx);padding:8px 12px;border-radius:8px;font-size:13px;text-decoration:none;cursor:pointer;margin-left:8px}
-nav{display:flex;gap:2px;padding:0 18px;border-bottom:1px solid var(--bd);overflow-x:auto}
-nav button{background:none;border:0;color:var(--mu);padding:12px 16px;font-size:14px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
-nav button.active{color:var(--tx);border-bottom-color:var(--ac)}
-.wrap{padding:18px;max-width:960px;margin:0 auto}
-.tab{display:none}.tab.active{display:block}
-.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:12px}
-.row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
-.row h3{margin:0;font-size:15px;font-weight:600}
-.mu{color:var(--mu);font-size:12px}
-label{display:block;font-size:12px;color:var(--mu);margin:10px 0 4px}
-input,select{width:100%;padding:10px;background:#0b0d10;border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px;outline:none}
-input:focus,select:focus{border-color:var(--ac)}
-.btn{background:var(--ac);color:#0b0d10;border:0;padding:10px 14px;border-radius:8px;font-weight:600;cursor:pointer;font-size:14px}
-.btn.sec{background:transparent;color:var(--tx);border:1px solid var(--bd)}
-.btn.danger{background:transparent;color:var(--er);border:1px solid var(--er)}
-.btn:disabled{opacity:.5;cursor:not-allowed}
-.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#232830;color:var(--mu);text-transform:uppercase;letter-spacing:.5px}
-.err{color:var(--er);font-size:13px;margin-top:8px}
-.ok{color:var(--ok);font-size:13px;margin-top:8px}
-table{width:100%;border-collapse:collapse}
-th,td{padding:10px;text-align:left;border-bottom:1px solid var(--bd);font-size:13px}
-th{color:var(--mu);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
-.multi{max-height:140px;overflow:auto;border:1px solid var(--bd);border-radius:8px;padding:8px;background:#0b0d10}
-.multi label{display:flex;align-items:center;gap:8px;margin:4px 0;color:var(--tx);font-size:13px;cursor:pointer}
-.multi input{width:auto}
-dialog{background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:12px;padding:20px;max-width:480px;width:90%}
-dialog::backdrop{background:rgba(0,0,0,.6)}
-.flex{display:flex;gap:8px;align-items:center}
-.grow{flex:1}
-.grp-group{background:#0b0d10;border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:8px}
-.grp-area-row{display:flex;gap:6px;align-items:center;margin-bottom:4px}
-.grp-area-row input{flex:1}
+/* Admin-specific tokens (aligned with theme) */
+:root {
+  --bd: var(--border);
+  --tx: var(--ink);
+  --mu: var(--muted);
+  --ac: var(--accent);
+  --er: var(--danger);
+  --ok: #22c55e;
+}
+/* Header */
+header.app-header {
+  position: sticky; top: 0; z-index: 100;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  padding-top: max(0px, env(safe-area-inset-top));
+}
+header.app-header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+header.app-header a, header.app-header .hdr-btn {
+  background: transparent; border: 1px solid rgba(255,255,255,.25);
+  color: var(--header-ink); padding: 8px 12px; border-radius: 8px;
+  font-size: var(--fs-sm); text-decoration: none; cursor: pointer;
+  margin-left: 8px;
+}
+/* Tab nav */
+nav { display: flex; gap: 2px; padding: 0 18px;
+      border-bottom: 1px solid var(--bd); overflow-x: auto;
+      background: var(--card); }
+nav::-webkit-scrollbar { display: none; }
+nav button { background: none; border: 0; color: var(--mu); padding: 12px 16px;
+             font-size: var(--fs-base); cursor: pointer;
+             border-bottom: 2px solid transparent; white-space: nowrap; }
+nav button.active { color: var(--tx); border-bottom-color: var(--ac); font-weight: 600; }
+/* Layout */
+.wrap { padding: 18px; max-width: 960px; margin: 0 auto; }
+.tab { display: none; } .tab.active { display: block; }
+/* Card: theme provides bg/border/radius; we add margin */
+.card { margin-bottom: 12px; }
+.row { display: flex; justify-content: space-between; align-items: center;
+       gap: 12px; flex-wrap: wrap; }
+.row h3 { margin: 0; font-size: 15px; font-weight: 600; }
+/* Utility */
+.mu { color: var(--mu); font-size: 12px; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px;
+        font-size: 11px; background: var(--bd); color: var(--mu);
+        text-transform: uppercase; letter-spacing: .5px; }
+.err { color: var(--er); font-size: var(--fs-sm); margin-top: 8px; }
+.ok  { color: var(--ok); font-size: var(--fs-sm); margin-top: 8px; }
+/* Table */
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px; text-align: left; border-bottom: 1px solid var(--bd); font-size: var(--fs-sm); }
+th { color: var(--mu); font-weight: 600; font-size: 11px;
+     text-transform: uppercase; letter-spacing: .5px; }
+/* Multi-select list */
+.multi { max-height: 140px; overflow: auto; border: 1px solid var(--bd);
+         border-radius: 8px; padding: 8px; }
+.multi label { display: flex; align-items: center; gap: 8px;
+               margin: 4px 0; color: var(--tx); font-size: var(--fs-sm); cursor: pointer; }
+.multi input { width: auto; min-height: auto; }
+/* Dialog */
+dialog { background: var(--card); color: var(--tx);
+         border: 1px solid var(--bd); border-radius: 12px;
+         padding: 20px; max-width: 480px; width: 90%; }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+dialog h3 { margin: 0 0 14px; }
+/* Flex helpers */
+.flex { display: flex; gap: 8px; align-items: center; }
+.grow { flex: 1; }
+/* Area group editor */
+.grp-group { background: var(--bg); border: 1px solid var(--bd);
+             border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.grp-area-row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+.grp-area-row input { flex: 1; }
+/* Tight inline buttons within group editor get min 40px */
+.grp-group .btn { min-height: 36px; padding: 6px 10px; font-size: 12px; }
 </style></head><body>
-<header>
-  <div class="flex"><a href="/jobs" style="margin-left:0">← Jobs</a><h1 style="margin-left:12px">Admin</h1></div>
-  <div><span id="me" class="mu"></span><button id="logout">Sign out</button></div>
+
+<header class="app-header">
+  <div class="flex">
+    <a href="/jobs">← Jobs</a>
+    <img src="/BUHL_LOGO.png" class="logo" alt="buhl" style="margin-left:8px" onerror="this.style.display='none'">
+    <h1 style="margin-left:8px">Admin</h1>
+  </div>
+  <div>
+    <span id="me" class="mu" style="color:rgba(255,255,255,.6)"></span>
+    <button class="hdr-btn" id="logout">Sign out</button>
+  </div>
 </header>
+
 <nav>
   <button class="active" data-tab="jobs">Jobs</button>
   <button data-tab="users">Users</button>
@@ -53,6 +100,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   <button data-tab="settings">Settings</button>
   <button data-tab="job-types">Job Types</button>
 </nav>
+
 <div class="wrap">
   <!-- Jobs tab -->
   <div id="jobs" class="tab active">
@@ -65,48 +113,71 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <div style="margin-top:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <span style="font-size:12px;color:var(--mu);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Area groups</span>
-          <button class="btn sec" style="padding:6px 10px;font-size:12px" id="jc-add-group">+ Add group</button>
+          <button class="btn sec" id="jc-add-group">+ Add group</button>
         </div>
         <div id="jc-groups"></div>
       </div>
-      <div style="margin-top:12px"><button class="btn" id="j-create">Create job</button><span id="j-msg"></span></div>
+      <div style="margin-top:14px">
+        <button class="btn primary" id="j-create">Create job</button>
+        <span id="j-msg" style="margin-left:10px"></span>
+      </div>
     </div>
     <div id="jobs-list"></div>
   </div>
+
   <!-- Users tab -->
   <div id="users" class="tab">
     <div class="card"><div class="row"><h3>Create user</h3></div>
       <label>Username</label><input id="u-name">
       <label>Role</label>
-      <select id="u-role"><option value="tradie">Tradie</option><option value="client">Client</option><option value="admin">Admin</option></select>
-      <label id="u-sec-lbl">4-digit PIN</label><input id="u-sec" inputmode="numeric" maxlength="32">
+      <select id="u-role">
+        <option value="tradie">Tradie</option>
+        <option value="client">Client</option>
+        <option value="admin">Admin</option>
+      </select>
+      <label id="u-sec-lbl">4-digit PIN</label>
+      <input id="u-sec" inputmode="numeric" maxlength="32">
       <div id="u-rate-wrap"><label>Hourly rate ($)</label><input id="u-rate" type="number" inputmode="decimal" value="85"></div>
       <div id="u-jobs-wrap"><label>Assign to jobs</label><div class="multi" id="u-jobs"></div></div>
-      <div style="margin-top:12px"><button class="btn" id="u-create">Create user</button><span id="u-msg"></span></div>
+      <div style="margin-top:14px">
+        <button class="btn primary" id="u-create">Create user</button>
+        <span id="u-msg" style="margin-left:10px"></span>
+      </div>
     </div>
     <div id="users-list"></div>
   </div>
+
   <!-- Costs tab -->
   <div id="costs" class="tab">
     <div class="card">
-      <div class="row"><h3>Labour cost rollup</h3><button class="btn sec" id="c-refresh">Refresh</button></div>
-      <div id="c-totals" style="margin-top:10px"></div>
-      <div id="c-list" style="margin-top:10px"></div>
+      <div class="row"><h3>Labour cost rollup</h3>
+        <button class="btn sec" id="c-refresh">Refresh</button>
+      </div>
+      <div id="c-totals" style="margin-top:12px"></div>
+      <div id="c-list" style="margin-top:12px"></div>
     </div>
   </div>
+
   <!-- Settings tab -->
   <div id="settings" class="tab">
-    <div class="card"><h3>Change my password</h3>
+    <div class="card"><h3 style="margin:0 0 16px">Change my password</h3>
       <label>Current password</label><input id="s-cur" type="password">
       <label>New password (min 6 chars)</label><input id="s-new" type="password">
-      <div style="margin-top:12px"><button class="btn" id="s-save">Save</button><span id="s-msg"></span></div>
+      <div style="margin-top:14px">
+        <button class="btn primary" id="s-save">Save</button>
+        <span id="s-msg" style="margin-left:10px"></span>
+      </div>
     </div>
   </div>
+
   <!-- Job Types tab -->
   <div id="job-types" class="tab">
     <div class="card"><div class="row"><h3>Create job type</h3></div>
       <label>Name</label><input id="jt-name" placeholder="e.g. Residential fitout">
-      <div style="margin-top:12px"><button class="btn" id="jt-create">Create type</button><span id="jt-msg"></span></div>
+      <div style="margin-top:14px">
+        <button class="btn primary" id="jt-create">Create type</button>
+        <span id="jt-msg" style="margin-left:10px"></span>
+      </div>
     </div>
     <div id="jt-list"></div>
   </div>
@@ -125,17 +196,18 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     <option value="complete">Complete</option>
     <option value="archived">Archived</option>
   </select>
-  <div style="margin-top:10px">
+  <div style="margin-top:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <span style="font-size:12px;color:var(--mu);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Area groups</span>
-      <button class="btn sec" style="padding:6px 10px;font-size:12px" id="ej-add-group">+ Add group</button>
+      <button class="btn sec" id="ej-add-group">+ Add group</button>
     </div>
     <div id="ej-groups"></div>
   </div>
-  <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+  <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
     <button class="btn sec" id="ej-cancel">Cancel</button>
-    <button class="btn" id="ej-save">Save</button>
-  </div><div class="err" id="ej-msg"></div>
+    <button class="btn primary" id="ej-save">Save</button>
+  </div>
+  <div class="err" id="ej-msg"></div>
 </dialog>
 
 <!-- Edit job type dialog -->
@@ -143,25 +215,28 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   <h3 id="ejt-title">Edit job type</h3>
   <input type="hidden" id="ejt-id">
   <label>Name</label><input id="ejt-name">
-  <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+  <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
     <button class="btn sec" id="ejt-cancel">Cancel</button>
     <button class="btn danger" id="ejt-delete">Delete</button>
-    <button class="btn" id="ejt-save">Save</button>
-  </div><div class="err" id="ejt-msg"></div>
+    <button class="btn primary" id="ejt-save">Save</button>
+  </div>
+  <div class="err" id="ejt-msg"></div>
 </dialog>
 
 <!-- Edit user dialog -->
-<dialog id="edit-user"><h3 id="eu-title">Edit user</h3>
+<dialog id="edit-user">
+  <h3 id="eu-title">Edit user</h3>
   <input type="hidden" id="eu-id">
   <label>Username</label><input id="eu-name">
   <div id="eu-rate-wrap"><label>Hourly rate ($)</label><input id="eu-rate" type="number"></div>
   <div id="eu-jobs-wrap"><label>Assign to jobs</label><div class="multi" id="eu-jobs"></div></div>
   <label>New PIN / password (leave blank to keep)</label><input id="eu-sec" type="text">
-  <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+  <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
     <button class="btn sec" id="eu-cancel">Cancel</button>
     <button class="btn danger" id="eu-delete">Delete</button>
-    <button class="btn" id="eu-save">Save</button>
-  </div><div class="err" id="eu-msg"></div>
+    <button class="btn primary" id="eu-save">Save</button>
+  </div>
+  <div class="err" id="eu-msg"></div>
 </dialog>
 
 <script>
@@ -228,13 +303,13 @@ function renderGrpEditor(cid, groups) {
     '<div class="grp-group">' +
     '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">' +
     '<input style="flex:1" placeholder="Group name e.g. Units" value="'+esc(g.name)+'" oninput="grpGroupName('+gi+',\''+cid+'\',this.value)">' +
-    '<button class="btn danger" style="padding:6px 10px;font-size:12px" onclick="grpRemoveGroup('+gi+',\''+cid+'\')">Remove</button></div>' +
+    '<button class="btn danger" onclick="grpRemoveGroup('+gi+',\''+cid+'\')">Remove</button></div>' +
     g.areas.map((a,ai) =>
       '<div class="grp-area-row">' +
       '<input placeholder="Area name" value="'+esc(a.name)+'" oninput="grpAreaName('+gi+','+ai+',\''+cid+'\',this.value)">' +
-      '<button class="btn sec" style="padding:6px 8px;font-size:12px" onclick="grpRemoveArea('+gi+','+ai+',\''+cid+'\')">×</button></div>'
+      '<button class="btn sec" onclick="grpRemoveArea('+gi+','+ai+',\''+cid+'\')">×</button></div>'
     ).join('') +
-    '<button class="btn sec" style="padding:5px 10px;font-size:12px;margin-top:4px" onclick="grpAddArea('+gi+',\''+cid+'\')">+ Add area</button>' +
+    '<button class="btn sec" style="margin-top:4px" onclick="grpAddArea('+gi+',\''+cid+'\')">+ Add area</button>' +
     '</div>'
   ).join('');
 }
@@ -272,7 +347,6 @@ function wireJobs() {
       msg.className='ok'; msg.textContent='Created'; await refreshAll();
     } catch(e) { msg.className='err'; msg.textContent=e.message; }
   };
-  // Edit job dialog wiring
   document.getElementById('ej-cancel').onclick = ()=>document.getElementById('edit-job').close();
   document.getElementById('ej-add-group').onclick = ()=>grpAddGroup('ej-groups');
   document.getElementById('ej-save').onclick = async () => {
@@ -311,15 +385,12 @@ function openEditJob(id) {
   document.getElementById('ej-title').textContent = 'Edit ' + j.name;
   document.getElementById('ej-status').value = j.status || 'active';
   document.getElementById('ej-msg').textContent = '';
-  // Populate type dropdown
   const tSel = document.getElementById('ej-type');
   tSel.innerHTML = '<option value="">— none —</option>' +
     JOB_TYPES.map(t=>'<option value="'+esc(t.id)+'"'+(j.type===t.id?' selected':'')+'>'+esc(t.name)+'</option>').join('');
-  // Populate client dropdown
   const cSel = document.getElementById('ej-client');
   cSel.innerHTML = '<option value="">— none —</option>' +
     USERS.filter(u=>u.role==='client').map(u=>'<option value="'+esc(u.id)+'"'+(j.clientUserId===u.id?' selected':'')+'>'+esc(u.username)+'</option>').join('');
-  // Load area groups
   ejGroups = (j.areaGroups||[]).map(g=>({id:g.id||null,name:g.name,areas:(g.areas||[]).map(a=>({id:a.id||null,name:a.name}))}));
   renderGrpEditor('ej-groups', ejGroups);
   document.getElementById('edit-job').showModal();
@@ -342,16 +413,17 @@ function populateJobForm() {
 
 function renderJobs() {
   const el = document.getElementById('jobs-list');
-  if (!JOBS.length) { el.innerHTML='<div class="card mu">No jobs yet.</div>'; return; }
+  if (!JOBS.length) { el.innerHTML='<div style="color:var(--mu);padding:20px 0;font-size:13px">No jobs yet.</div>'; return; }
   el.innerHTML = JOBS.map(j => {
     const client = USERS.find(u=>u.id===j.clientUserId);
     const typeName = JOB_TYPES.find(t=>t.id===j.type);
+    const st = j.status || 'active';
     return '<div class="card"><div class="row"><div>' +
       '<h3>'+esc(j.name)+'</h3>' +
-      '<div class="mu">'+esc(j.id)+' · <span class="pill">'+esc(j.status||'active')+'</span>' +
+      '<div class="mu">'+esc(j.id)+' · <span class="badge '+st+'">'+st+'</span>' +
       (typeName?' · '+esc(typeName.name):'') +
-      (client?' · client: '+esc(client.username):'')+'</div></div>' +
-      '<div class="flex">' +
+      (client?' · '+esc(client.username):'')+'</div></div>' +
+      '<div style="display:flex;gap:8px">' +
       '<button class="btn sec" data-edit-job="'+esc(j.id)+'">Edit</button>' +
       '<a class="btn sec" href="/jobs/'+esc(j.id)+'">Open</a>' +
       '</div></div></div>';
@@ -368,8 +440,8 @@ function wireUsers() {
   const jobsWrap = document.getElementById('u-jobs-wrap');
   function updateRoleUI(){
     const r = role.value;
-    if (r==='admin'){ secLbl.textContent='Password (min 6 chars)'; sec.type='password'; sec.maxLength=64; }
-    else { secLbl.textContent='4-digit PIN'; sec.type='text'; sec.maxLength=4; }
+    if (r==='admin'){ secLbl.textContent='Password (min 6 chars)'; sec.type='password'; sec.maxLength=64; sec.inputMode='text'; }
+    else { secLbl.textContent='4-digit PIN'; sec.type='text'; sec.inputMode='numeric'; sec.maxLength=4; }
     rateWrap.style.display = r==='tradie'?'':'none';
     jobsWrap.style.display = r==='tradie'?'':'none';
   }
@@ -400,9 +472,9 @@ function populateUserForm() {
 
 function renderUsers() {
   const el = document.getElementById('users-list');
-  if (!USERS.length) { el.innerHTML='<div class="card mu">No users yet.</div>'; return; }
+  if (!USERS.length) { el.innerHTML='<div style="color:var(--mu);padding:20px 0;font-size:13px">No users yet.</div>'; return; }
   el.innerHTML = '<div class="card"><table><thead><tr><th>Username</th><th>Role</th><th>Rate</th><th>Jobs</th><th></th></tr></thead><tbody>' +
-    USERS.map(u=>'<tr><td>'+esc(u.username)+'</td><td><span class="pill">'+esc(u.role)+'</span></td><td>'+(u.role==='tradie'?fmt(u.hourlyRate)+'/hr':'—')+'</td><td class="mu">'+((u.assignedJobIds||[]).length?(u.assignedJobIds||[]).length+' assigned':'—')+'</td><td><button class="btn sec" data-edit="'+esc(u.id)+'">Edit</button></td></tr>').join('') + '</tbody></table></div>';
+    USERS.map(u=>'<tr><td>'+esc(u.username)+'</td><td><span class="badge">'+esc(u.role)+'</span></td><td>'+(u.role==='tradie'?fmt(u.hourlyRate)+'/hr':'—')+'</td><td class="mu">'+((u.assignedJobIds||[]).length?(u.assignedJobIds||[]).length+' assigned':'—')+'</td><td><button class="btn sec" data-edit="'+esc(u.id)+'">Edit</button></td></tr>').join('') + '</tbody></table></div>';
   el.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEditUser(b.dataset.edit));
 }
 
@@ -453,8 +525,12 @@ function wireCosts() { document.getElementById('c-refresh').onclick = loadCosts;
 async function loadCosts() {
   try {
     const r = await api('/api/costs');
+    const th = r.totals.hours.toFixed(1);
+    const tc = fmt(r.totals.cost);
     document.getElementById('c-totals').innerHTML =
-      '<div class="row"><div><div class="mu">Total hours</div><div style="font-size:22px;font-weight:700">'+r.totals.hours.toFixed(1)+'</div></div><div><div class="mu">Total labour cost</div><div style="font-size:22px;font-weight:700">'+fmt(r.totals.cost)+'</div></div></div>';
+      '<div style="display:flex;gap:32px;flex-wrap:wrap;padding:8px 0">'+
+      '<div><div class="mu">Total hours</div><div style="font-size:22px;font-weight:700">'+th+'</div></div>'+
+      '<div><div class="mu">Total labour cost</div><div style="font-size:22px;font-weight:700">'+tc+'</div></div></div>';
     const rows = r.jobs.map(j=>'<tr><td>'+esc(j.name)+'</td><td>'+j.hours.toFixed(1)+'</td><td>'+fmt(j.cost)+'</td></tr>').join('');
     document.getElementById('c-list').innerHTML =
       '<table><thead><tr><th>Job</th><th>Hours</th><th>Labour cost</th></tr></thead><tbody>'+(rows||'<tr><td colspan=3 class=mu>No data</td></tr>')+'</tbody></table>';
@@ -479,7 +555,7 @@ function wireSettings() {
 // ── Job Types ─────────────────────────────────────────────────────────────
 function renderJobTypes() {
   const el = document.getElementById('jt-list');
-  if (!JOB_TYPES.length) { el.innerHTML='<div class="card mu">No job types yet.</div>'; return; }
+  if (!JOB_TYPES.length) { el.innerHTML='<div style="color:var(--mu);padding:20px 0;font-size:13px">No job types yet.</div>'; return; }
   el.innerHTML = '<div class="card"><table><thead><tr><th>Name</th><th>Jobs using</th><th></th></tr></thead><tbody>' +
     JOB_TYPES.map(t => {
       const count = JOBS.filter(j=>j.type===t.id).length;

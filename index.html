@@ -4,18 +4,27 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>buhl electrical</title>
+<link rel="stylesheet" href="/public/theme.css">
 <style>
 :root{
-  --navy:#0d1f35;--navy2:#152840;
-  --blue:#2563eb;--green:#16a34a;--green-bg:#f0fdf4;--green-bd:#bbf7d0;
+  /* === shared theme tokens === */
+  --bg:#f1f5f9;--card:#fff;
+  --header:#0d1f35;--header-ink:#fff;
+  --ink:#0f172a;--muted:#475569;
+  --border:#e2e8f0;--accent:#ffcc00;--accent-ink:#0f172a;
+  --danger:#dc2626;--radius:12px;
+  /* === legacy aliases so existing CSS needs no changes === */
+  --navy:var(--header);--navy2:var(--header);
+  --text:var(--ink);--page:var(--bg);
+  --r:var(--radius);--rs:8px;
+  /* === semantic colours (progress/status) === */
+  --blue:#2563eb;
+  --green:#16a34a;--green-bg:#f0fdf4;--green-bd:#bbf7d0;
   --amber:#d97706;--amber-bg:#fffbeb;--amber-bd:#fde68a;
   --red:#dc2626;--red-bg:#fef2f2;--red-bd:#fecaca;
-  --border:#e2e8f0;--text:#0f172a;--muted:#64748b;
-  --card:#fff;--page:#f1f5f9;--r:12px;--rs:8px;
 }
-*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+*{margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html{-webkit-font-smoothing:antialiased}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--page);color:var(--text);min-height:100vh}
 
 /* Header */
 .hdr{background:var(--navy);height:60px;display:flex;align-items:center;padding:0 16px;gap:12px;position:sticky;top:0;z-index:200;border-bottom:1px solid rgba(255,255,255,.06)}
@@ -43,18 +52,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .sc{display:none}.sc.active{display:block}
 
 /* Hero */
-.hero{background:var(--navy2);border-radius:var(--r);padding:20px;margin-bottom:14px;overflow:hidden;position:relative}
-.hero::after{content:'';position:absolute;top:-60px;right:-60px;width:200px;height:200px;background:rgba(255,255,255,.025);border-radius:50%;pointer-events:none}
+.hero{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:14px;overflow:hidden;position:relative}
 .hero-row{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px}
-.hero-lbl{color:#64748b;font-size:10px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;margin-bottom:2px}
-.hero-pct{color:#fff;font-size:44px;font-weight:800;line-height:1;letter-spacing:-2px}
-.hero-pct sup{font-size:20px;font-weight:500;opacity:.5;letter-spacing:0;vertical-align:super}
+.hero-lbl{color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;margin-bottom:2px}
+.hero-pct{color:var(--header);font-size:44px;font-weight:800;line-height:1;letter-spacing:-2px}
+.hero-pct sup{font-size:20px;font-weight:500;opacity:.4;letter-spacing:0;vertical-align:super}
 .hero-stats{display:flex;gap:16px;flex-wrap:wrap}
 .hst{text-align:right}
-.hst-v{color:#fff;font-size:22px;font-weight:700;line-height:1}
-.hst-l{color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-top:1px}
-.hero-bar-bg{background:rgba(255,255,255,.1);border-radius:6px;height:8px;overflow:hidden}
-.hero-bar{height:8px;border-radius:6px;background:linear-gradient(90deg,#3b82f6,#22c55e);transition:width .7s ease}
+.hst-v{color:var(--ink);font-size:22px;font-weight:700;line-height:1}
+.hst-l{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-top:1px}
+.hero-bar-bg{background:var(--border);border-radius:6px;height:8px;overflow:hidden}
+.hero-bar{height:8px;border-radius:6px;background:var(--accent);transition:width .7s ease}
 
 /* KPIs */
 .kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
@@ -120,7 +128,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 textarea{width:100%;padding:9px 11px;border-radius:var(--rs);border:1px solid var(--border);font-size:13px;font-family:inherit;resize:vertical;min-height:75px;color:var(--text);background:#fafafa;outline:none}
 textarea:focus{border-color:var(--navy);background:#fff}
 .save-row{display:flex;align-items:center;gap:10px;margin-top:8px}
-.sbtn{padding:8px 18px;background:var(--navy);color:#fff;border:none;border-radius:var(--rs);cursor:pointer;font-size:13px;font-weight:600}
+.sbtn{padding:8px 18px;background:var(--header);color:var(--header-ink);border:none;border-radius:var(--rs);cursor:pointer;font-size:13px;font-weight:600}
 .sbtn:hover{opacity:.85}
 .sbtn:disabled{opacity:.5;cursor:not-allowed}
 .sok{font-size:12px;color:var(--green);opacity:0;transition:opacity .3s;font-weight:500}
@@ -170,7 +178,7 @@ textarea:focus{border-color:var(--navy);background:#fff}
 .fg label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px}
 .fg input,.fg select,.fg textarea{width:100%;padding:8px 10px;border-radius:var(--rs);border:1px solid var(--border);font-size:13px;font-family:inherit;background:#fafafa;color:var(--text);outline:none}
 .fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--navy);background:#fff}
-.asbtn{padding:8px 18px;background:var(--red);color:#fff;border:none;border-radius:var(--rs);cursor:pointer;font-size:13px;font-weight:600}
+.asbtn{padding:8px 18px;background:var(--danger);color:#fff;border:none;border-radius:var(--rs);cursor:pointer;font-size:13px;font-weight:600}
 
 /* Item cards (snags, tags, temps) */
 .si{background:var(--card);border-radius:var(--rs);border:1px solid var(--border);padding:12px 14px;margin-bottom:7px}
@@ -265,7 +273,7 @@ textarea:focus{border-color:var(--navy);background:#fff}
 
 <div class="hdr">
   <a href="/jobs" class="hdr-logo-link" style="display:flex;align-items:center;text-decoration:none;flex-shrink:0" title="Back to jobs">
-    <img src="/logo.png" class="hdr-logo" alt="bühl electrical">
+    <img src="/BUHL_LOGO.png" class="hdr-logo" alt="bühl electrical">
   </a>
   <div class="hdr-div"></div>
   <div class="hdr-job">
