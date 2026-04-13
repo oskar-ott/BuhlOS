@@ -256,7 +256,7 @@ textarea:focus{border-color:var(--navy);background:#fff}
 <body>
 
 <div id="loading">
-  <img src="/logo.png" class="ll" alt="bühl electrical">
+  <img src="/BUHL_LOGO.png" class="ll" alt="bühl electrical">
   <div class="lb-bg"><div class="lb"></div></div>
   <div class="lt">Loading job data…</div>
 </div>
@@ -310,6 +310,7 @@ textarea:focus{border-color:var(--navy);background:#fff}
 const JOB_ID = (location.pathname.match(/^\/jobs\/([^/]+)/) || [])[1] || '';
 let CURRENT_USER = null;
 let CURRENT_JOB = null;
+const state = { type: null, areaGroups: [], activeGroupId: null };
 
 // Wrap fetch BEFORE any app code runs so every call is intercepted.
 (function(){
@@ -343,6 +344,9 @@ async function bootstrapAuth() {
     if (!jr.ok) { location.href = '/jobs'; return false; }
     const { job } = await jr.json();
     CURRENT_JOB = job;
+    state.type = job.type || null;
+    state.areaGroups = job.areaGroups || [];
+    state.activeGroupId = (job.areaGroups && job.areaGroups[0]) ? job.areaGroups[0].id : null;
     document.getElementById('hdr-name').textContent = job.name || JOB_ID;
     document.getElementById('hdr-sub').textContent = job.id;
     document.title = (job.name || JOB_ID) + ' — bühl electrical';
@@ -431,13 +435,17 @@ function buildGroupNav(){
   const snagsSec=document.getElementById('snags');
   groups.forEach((g,gi)=>{
     const secId='grp-'+gi;
-    const btn=document.createElement('button');
-    btn.className='nb';
-    btn.dataset.grpNav=gi;
-    btn.dataset.sec=secId;
-    btn.textContent=g.name+(groups.length>1?' ('+g.areas.length+')':'');
-    btn.onclick=()=>show(secId);
-    nav.insertBefore(btn,snagBtn);
+    // Only render a nav tab when there are multiple groups; single-group jobs
+    // show everything on the dashboard so the extra tab would be redundant.
+    if(groups.length>1){
+      const btn=document.createElement('button');
+      btn.className='nb';
+      btn.dataset.grpNav=gi;
+      btn.dataset.sec=secId;
+      btn.textContent=g.name+' ('+g.areas.length+')';
+      btn.onclick=()=>{state.activeGroupId=g.id;show(secId);};
+      nav.insertBefore(btn,snagBtn);
+    }
     const sec=document.createElement('div');
     sec.id=secId;
     sec.className='sc';
@@ -729,7 +737,8 @@ async function deletePhoto(photoId){
 function renderSnags(){
   const sn=D.snags||[];const op=sn.filter(s=>s.status==='Open').length;
   const groups=(CURRENT_JOB&&CURRENT_JOB.areaGroups)||[];
-  const areaOpts=groups.flatMap(g=>g.areas.map(a=>`<option value="${esc(a.id)}">${esc(g.name)} — ${esc(a.name)}</option>`)).join('');
+  const multiGroup=groups.length>1;
+  const areaOpts=groups.flatMap(g=>g.areas.map(a=>`<option value="${esc(a.id)}">${multiGroup?esc(g.name)+' \u2014 '+esc(a.name):esc(a.name)}</option>`)).join('');
   let h=`<div class="sform">
     <div class="sform-t red">Log a snag</div>
     <div class="fg">
@@ -988,7 +997,12 @@ function show(id){
   const btn=document.querySelector('.nb[data-sec="'+id+'"]');
   if(btn)btn.classList.add('active');
   if(id==='dashboard')renderDash();
-  else if(id.startsWith('grp-'))renderGroup(parseInt(id.slice(4)));
+  else if(id.startsWith('grp-')){
+    const gi=parseInt(id.slice(4));
+    const g=(state.areaGroups||[])[gi];
+    if(g)state.activeGroupId=g.id;
+    renderGroup(gi);
+  }
   if(id==='snags')renderSnags();
   if(id==='tags')renderTags();
   if(id==='temps')renderTemps();
