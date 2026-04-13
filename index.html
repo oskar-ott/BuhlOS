@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Birdwood IV3232</title>
+<title>buhl electrical</title>
 <style>
 :root{
   --navy:#0d1f35;--navy2:#152840;
@@ -280,19 +280,17 @@ textarea:focus{border-color:var(--navy);background:#fff}
 </div>
 
 <div class="nav">
-  <button class="nb active" onclick="show('dashboard')">Dashboard</button>
-  <button class="nb" onclick="show('units')">Units (15)</button>
-  <button class="nb" onclick="show('townhouses')">Townhouses (7)</button>
-  <button class="nb" id="snav" onclick="show('snags')">Snags</button>
-  <button class="nb" id="ttnav" onclick="show('tags')">Test &amp; Tag</button>
-  <button class="nb" onclick="show('temps')">Temps</button>
-  <button class="nb" onclick="show('hours')">Hours</button>
+  <button class="nb active" data-sec="dashboard" onclick="show('dashboard')">Dashboard</button>
+  <!-- area group buttons inserted here by buildGroupNav() -->
+  <button class="nb" id="snav" data-sec="snags" onclick="show('snags')">Snags</button>
+  <button class="nb" id="ttnav" data-sec="tags" onclick="show('tags')">Test &amp; Tag</button>
+  <button class="nb" data-sec="temps" onclick="show('temps')">Temps</button>
+  <button class="nb" data-sec="hours" onclick="show('hours')">Hours</button>
 </div>
 
 <div class="pg">
   <div id="dashboard" class="sc active"></div>
-  <div id="units" class="sc"></div>
-  <div id="townhouses" class="sc"></div>
+  <!-- area group sections inserted here by buildGroupNav() -->
   <div id="snags" class="sc"></div>
   <div id="tags" class="sc"></div>
   <div id="temps" class="sc"></div>
@@ -301,12 +299,6 @@ textarea:focus{border-color:var(--navy);background:#fff}
 
 <script>
 // ── buhl multi-job shim ────────────────────────────────────────────────
-// Injected by Phase 2. Handles:
-//   1. reading jobId from URL (/jobs/:jobId)
-//   2. auth check + redirect to /login if not signed in
-//   3. wrapping fetch so every /api/... call gets jobId + credentials
-//   4. role-based UI (hide Hours for clients, read-only mode)
-//   5. header population + logout
 const JOB_ID = (location.pathname.match(/^\/jobs\/([^/]+)/) || [])[1] || '';
 let CURRENT_USER = null;
 let CURRENT_JOB = null;
@@ -318,7 +310,6 @@ let CURRENT_JOB = null;
     init = init || {};
     let url = typeof input === 'string' ? input : (input && input.url) || '';
     if (typeof url === 'string' && url.startsWith('/api/')) {
-      // Add jobId query param (except for auth/jobs/users endpoints)
       const isNonJobRoute = /^\/api\/(auth|jobs|users)(\?|$)/.test(url);
       if (!isNonJobRoute && JOB_ID) {
         url += (url.includes('?') ? '&' : '?') + 'jobId=' + encodeURIComponent(JOB_ID);
@@ -349,16 +340,12 @@ async function bootstrapAuth() {
     document.title = (job.name || JOB_ID) + ' — bühl electrical';
   } catch (e) { location.href = '/jobs'; return false; }
 
-  // Role-based UI
   if (CURRENT_USER.role === 'client') {
-    // hide hours nav button
     document.querySelectorAll('.nb').forEach(b => {
       if (b.getAttribute('onclick') === "show('hours')") b.style.display = 'none';
     });
-    // add a subtle read-only badge
     const sub = document.getElementById('hdr-sub');
     if (sub) sub.textContent += ' · read-only';
-    // disable all form inputs and buttons inside page content after render
     document.body.classList.add('role-client');
   }
 
@@ -375,7 +362,6 @@ function enforceReadOnly() {
   const pg = document.querySelector('.pg');
   if (!pg) return;
   pg.querySelectorAll('input, select, textarea, button').forEach(el => {
-    // keep navigation-style buttons (back, open dwelling, tab switch) enabled
     const keep = el.classList.contains('back') ||
                  el.classList.contains('nb') ||
                  el.classList.contains('dw') ||
@@ -390,7 +376,6 @@ function enforceReadOnly() {
     el.style.pointerEvents = 'none';
   });
 }
-// Patch MutationObserver onto .pg so re-renders re-enforce read-only
 document.addEventListener('DOMContentLoaded', () => {
   const pg = document.querySelector('.pg');
   if (!pg) return;
@@ -402,9 +387,6 @@ document.addEventListener('DOMContentLoaded', () => {
 const ROUGH=['AC Rough-In','Lighting Rough-In','Power Rough-In','NBN','Rough-In Inspection'];
 const FITOFF=['AC Fit-Off','GPO / Switch Install','Lighting Install','Switchboard Fit-Off','Final Test & Commission','Certificate of Compliance','Handover'];
 const ALL_STAGES=[...ROUGH,...FITOFF];
-const UNITS=Array.from({length:15},(_,i)=>`Unit ${i+1}`);
-const TH=Array.from({length:7},(_,i)=>`Townhouse ${i+1}`);
-const ALL=[...UNITS,...TH];
 const OPTS=['Not Started','In Progress','Done','Snagged','N/A'];
 
 let D={dwellings:{},snags:[]};
@@ -414,6 +396,47 @@ let saveT=null;
 let selectedFile=null;
 let tempSelectedFile=null;
 let currentDwellingPhotos=[];
+let currentDwellingId=null;
+
+// ── Area group helpers ──────────────────────────────────────
+function allAreas(){
+  return((CURRENT_JOB&&CURRENT_JOB.areaGroups)||[]).flatMap(g=>g.areas);
+}
+function areaLabel(id){
+  for(const g of(CURRENT_JOB&&CURRENT_JOB.areaGroups)||[]){
+    const a=g.areas.find(a=>a.id===id);
+    if(a)return a.name;
+  }
+  return id;
+}
+
+// Inserts one nav button + one page section per area group.
+// Called once after bootstrapAuth() sets CURRENT_JOB.
+function buildGroupNav(){
+  const groups=(CURRENT_JOB&&CURRENT_JOB.areaGroups)||[];
+  // Remove any previously inserted items (safe to call again)
+  document.querySelectorAll('.nb[data-grp-nav]').forEach(b=>b.remove());
+  document.querySelectorAll('.sc[data-grp-sec]').forEach(s=>s.remove());
+  const nav=document.querySelector('.nav');
+  const snagBtn=document.getElementById('snav');
+  const pg=document.querySelector('.pg');
+  const snagsSec=document.getElementById('snags');
+  groups.forEach((g,gi)=>{
+    const secId='grp-'+gi;
+    const btn=document.createElement('button');
+    btn.className='nb';
+    btn.dataset.grpNav=gi;
+    btn.dataset.sec=secId;
+    btn.textContent=g.name+(groups.length>1?' ('+g.areas.length+')':'');
+    btn.onclick=()=>show(secId);
+    nav.insertBefore(btn,snagBtn);
+    const sec=document.createElement('div');
+    sec.id=secId;
+    sec.className='sc';
+    sec.dataset.grpSec=gi;
+    pg.insertBefore(sec,snagsSec);
+  });
+}
 
 // ── Core data ───────────────────────────────────────────────
 async function load(){
@@ -457,11 +480,17 @@ function updateBadge(){
 
 // ── Dashboard ───────────────────────────────────────────────
 function renderDash(){
-  const done=ALL.filter(d=>stats(d).pct===100).length;
-  const active=ALL.filter(d=>{const s=stats(d);return s.pct<100&&(s.done>0||s.ip>0);}).length;
-  const ns=ALL.filter(d=>stats(d).pct===0&&stats(d).ip===0).length;
+  const groups=(CURRENT_JOB&&CURRENT_JOB.areaGroups)||[];
+  const areas=allAreas();
+  if(!areas.length){
+    document.getElementById('dashboard').innerHTML='<div class="empty">No areas configured — edit this job in admin</div>';
+    return;
+  }
+  const done=areas.filter(a=>stats(a.id).pct===100).length;
+  const active=areas.filter(a=>{const s=stats(a.id);return s.pct<100&&(s.done>0||s.ip>0);}).length;
+  const ns=areas.filter(a=>{const s=stats(a.id);return s.pct===0&&s.ip===0;}).length;
   const os=(D.snags||[]).filter(s=>s.status==='Open').length;
-  const op=Math.round(ALL.reduce((a,d)=>a+stats(d).pct,0)/ALL.length);
+  const op=Math.round(areas.reduce((acc,a)=>acc+stats(a.id).pct,0)/areas.length);
   let h=`<div class="hero">
     <div class="hero-row">
       <div><div class="hero-lbl">Overall progress</div><div class="hero-pct">${op}<sup>%</sup></div></div>
@@ -473,47 +502,65 @@ function renderDash(){
       </div>
     </div>
     <div class="hero-bar-bg"><div class="hero-bar" style="width:${op}%"></div></div>
-  </div>
-  <div class="stitle">Units 1–15</div><div class="dgrid">`;
-  UNITS.forEach(d=>{h+=dwCard(d);});
-  h+=`</div><div class="stitle">Townhouses 1–7</div><div class="dgrid">`;
-  TH.forEach(d=>{h+=dwCard(d);});
-  h+=`</div>`;
+  </div>`;
+  groups.forEach(g=>{
+    h+=`<div class="stitle">${esc(g.name)}</div><div class="dgrid">`;
+    g.areas.forEach(a=>{h+=dwCard(a.id,a.name);});
+    h+=`</div>`;
+  });
   document.getElementById('dashboard').innerHTML=h;
 }
 
-function dwCard(dw){
-  const s=stats(dw);const tc=tlc(s.pct,s.sn);
-  const sc=(D.snags||[]).filter(x=>x.dwelling===dw&&x.status==='Open').length;
-  const dots=ALL_STAGES.map(st=>{const v=stv(dw,st);const c=v==='Done'?'done':v==='In Progress'?'inprog':v==='Snagged'?'snagged':'';return`<div class="sdot2 ${c}" title="${st}"></div>`;}).join('');
-  return`<div class="dc" onclick="openDw('${dw}')">
-    <div class="dc-top"><div class="dot ${tc}"></div><div class="dc-name">${dw}</div>${sc>0?`<div class="dc-snag">${sc} snag${sc>1?'s':''}</div>`:''}<div class="dc-pct">${s.pct}%</div></div>
+function dwCard(areaId,areaName){
+  const s=stats(areaId);const tc=tlc(s.pct,s.sn);
+  const sc=(D.snags||[]).filter(x=>x.dwelling===areaId&&x.status==='Open').length;
+  const dots=ALL_STAGES.map(st=>{const v=stv(areaId,st);const c=v==='Done'?'done':v==='In Progress'?'inprog':v==='Snagged'?'snagged':'';return`<div class="sdot2 ${c}" title="${st}"></div>`;}).join('');
+  return`<div class="dc" onclick="openDw('${areaId}')">
+    <div class="dc-top"><div class="dot ${tc}"></div><div class="dc-name">${esc(areaName)}</div>${sc>0?`<div class="dc-snag">${sc} snag${sc>1?'s':''}</div>`:''}<div class="dc-pct">${s.pct}%</div></div>
     <div class="bar-bg"><div class="bar" style="width:${s.pct}%;background:${bc(s.pct)}"></div></div>
     <div class="stage-dots">${dots}</div>
   </div>`;
 }
 
+// ── Group section ───────────────────────────────────────────
+function renderGroup(gi){
+  const groups=(CURRENT_JOB&&CURRENT_JOB.areaGroups)||[];
+  const g=groups[gi];if(!g)return;
+  const secId='grp-'+gi;
+  let h=`<div class="stitle">${esc(g.name)}</div><div class="dgrid">`;
+  g.areas.forEach(a=>{h+=dwCard(a.id,a.name);});
+  h+=`</div>`;
+  document.getElementById(secId).innerHTML=h;
+}
+
 // ── Dwelling detail ─────────────────────────────────────────
-function openDw(dw){
-  const isU=UNITS.includes(dw);const sec=isU?'units':'townhouses';
+function openDw(areaId){
+  const groups=(CURRENT_JOB&&CURRENT_JOB.areaGroups)||[];
+  let groupIdx=0,areaName=areaId,groupName='';
+  for(let gi=0;gi<groups.length;gi++){
+    const found=groups[gi].areas.find(a=>a.id===areaId);
+    if(found){groupIdx=gi;areaName=found.name;groupName=groups[gi].name;break;}
+  }
+  const sec='grp-'+groupIdx;
+  currentDwellingId=areaId;
   show(sec);
-  const i=inf(dw);const s=stats(dw);
-  let h=`<button class="back" onclick="show('${sec}')">&#8592; Back to ${isU?'Units':'Townhouses'}</button>
+  const i=inf(areaId);const s=stats(areaId);
+  let h=`<button class="back" onclick="show('${sec}')">&#8592; Back to ${esc(groupName)}</button>
   <div class="dh">
-    <div class="dh-name">${dw}</div>
+    <div class="dh-name">${esc(areaName)}</div>
     <div class="dh-bar-bg"><div class="dh-bar" id="dhb" style="width:${s.pct}%;background:${bc(s.pct)}"></div></div>
     <div class="dh-pct" id="dhp"><b>${s.pct}%</b> complete — ${s.done} of ${ALL_STAGES.length} stages done</div>
   </div>
   <div class="dtabs">
     <button class="dtab active" onclick="switchTab(this,'tp-stages')">Stages</button>
-    <button class="dtab" onclick="switchTab(this,'tp-itp');loadPhotos('${dw}')">ITP Photos</button>
+    <button class="dtab" onclick="switchTab(this,'tp-itp');loadPhotos('${areaId}')">ITP Photos</button>
     <button class="dtab" onclick="switchTab(this,'tp-notes')">Notes</button>
   </div>
   <div id="tp-stages" class="dpanel active">
     <div class="ghdr"><div class="gpill rough">Rough-In</div><div class="gline"></div></div>`;
-  ROUGH.forEach(st=>{h+=stRow(dw,st);});
+  ROUGH.forEach(st=>{h+=stRow(areaId,st);});
   h+=`<div class="ghdr"><div class="gpill fitoff">Fit-Off</div><div class="gline"></div></div>`;
-  FITOFF.forEach(st=>{h+=stRow(dw,st);});
+  FITOFF.forEach(st=>{h+=stRow(areaId,st);});
   h+=`</div>
   <div id="tp-itp" class="dpanel">
     <div class="itp-header">
@@ -530,12 +577,12 @@ function openDw(dw){
         </div>
         <div><label class="itp-lbl">Caption (optional)</label><input class="itp-inp" type="text" id="itp-cap" placeholder="e.g. Sub-main terminations"></div>
         <div class="photo-pick" id="photo-pick-area">
-          <input type="file" accept="image/*" capture="environment" onchange="handleFile(this,'${dw}')">
+          <input type="file" accept="image/*" capture="environment" onchange="handleFile(this,'${areaId}')">
           <div class="photo-pick-icon">📷</div>
           <div class="photo-pick-txt">Tap to take or choose a photo</div>
         </div>
         <img class="photo-preview" id="photo-preview">
-        <button class="upload-btn" id="upload-btn" onclick="uploadPhoto('${dw}')" disabled>Upload Photo</button>
+        <button class="upload-btn" id="upload-btn" onclick="uploadPhoto('${areaId}')" disabled>Upload Photo</button>
         <div class="upload-progress" id="upload-progress">Uploading…</div>
       </div>
     </div>
@@ -543,8 +590,8 @@ function openDw(dw){
   </div>
   <div id="tp-notes" class="dpanel">
     <div class="nc"><div class="nl">Notes</div>
-      <textarea id="nt-${dw}" placeholder="Add notes for ${dw}…">${i._notes||''}</textarea>
-      <div class="save-row"><button class="sbtn" onclick="saveN('${dw}')">Save notes</button><span class="sok" id="sok-${dw}">&#10003; Saved</span></div>
+      <textarea id="nt-${areaId}" placeholder="Add notes for ${esc(areaName)}…">${i._notes||''}</textarea>
+      <div class="save-row"><button class="sbtn" onclick="saveN('${areaId}')">Save notes</button><span class="sok" id="sok-${areaId}">&#10003; Saved</span></div>
     </div>
   </div>`;
   document.getElementById(sec).innerHTML=h;
@@ -582,12 +629,6 @@ function hSel(el,dw,st){
 function saveN(dw){
   setN(dw,document.getElementById('nt-'+dw).value);
   const el=document.getElementById('sok-'+dw);el.style.opacity='1';setTimeout(()=>el.style.opacity='0',2000);
-}
-
-function renderList(sec,list,title){
-  let h=`<div class="stitle">${title}</div><div class="dgrid">`;
-  list.forEach(d=>{h+=dwCard(d);});h+=`</div>`;
-  document.getElementById(sec).innerHTML=h;
 }
 
 // ── ITP Photos ──────────────────────────────────────────────
@@ -671,21 +712,20 @@ function openLightbox(idx){
 function closeLightbox(){document.getElementById('lightbox').classList.remove('open');document.body.style.overflow='';}
 
 async function deletePhoto(photoId){
-  const dw=currentDwellingPhotos.find(p=>p.id===photoId)?.dwelling;
   if(!confirm('Delete this photo?'))return;
   await fetch('/api/photos',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({photoId})});
-  const sec=document.querySelector('.sc.active').id;
-  const dwName=document.querySelector('.dh-name')?.textContent;
-  if(dwName)loadPhotos(dwName);
+  if(currentDwellingId)loadPhotos(currentDwellingId);
 }
 
 // ── Snags ───────────────────────────────────────────────────
 function renderSnags(){
   const sn=D.snags||[];const op=sn.filter(s=>s.status==='Open').length;
+  const groups=(CURRENT_JOB&&CURRENT_JOB.areaGroups)||[];
+  const areaOpts=groups.flatMap(g=>g.areas.map(a=>`<option value="${esc(a.id)}">${esc(g.name)} — ${esc(a.name)}</option>`)).join('');
   let h=`<div class="sform">
     <div class="sform-t red">Log a snag</div>
     <div class="fg">
-      <div><label>Dwelling</label><select id="sd">${ALL.map(d=>`<option>${d}</option>`).join('')}</select></div>
+      <div><label>Dwelling</label><select id="sd">${areaOpts}</select></div>
       <div><label>Stage</label><select id="ss">${ALL_STAGES.map(s=>`<option>${s}</option>`).join('')}</select></div>
     </div>
     <div class="fg full"><div><label>Description</label><textarea id="sdesc" rows="2" placeholder="Describe the issue…"></textarea></div></div>
@@ -700,7 +740,7 @@ function renderSnags(){
   else{sn.slice().reverse().forEach((s,ri)=>{
     const i=sn.length-1-ri;const pc=s.priority==='High'?'bh':s.priority==='Low'?'bl':'bm';
     h+=`<div class="si${s.status==='Closed'?' closed':''}">
-      <div class="si-top"><span class="badge ${pc}">${s.priority}</span><span class="badge ${s.status==='Closed'?'bc':'bo'}">${s.status}</span><span class="si-dw">${s.dwelling}</span><span class="si-stage">${s.stage}</span></div>
+      <div class="si-top"><span class="badge ${pc}">${s.priority}</span><span class="badge ${s.status==='Closed'?'bc':'bo'}">${s.status}</span><span class="si-dw">${esc(areaLabel(s.dwelling))}</span><span class="si-stage">${s.stage}</span></div>
       <div class="si-desc">${s.desc}</div>
       <div class="si-meta"><span class="si-by">${s.by?'By '+s.by+' · ':''}${s.date}</span>${s.status==='Open'?`<button class="cbtn" onclick="closeSnag(${i})">Mark closed</button>`:''}</div>
     </div>`;
@@ -935,11 +975,12 @@ function openTempLightbox(url,type,loc){
 function show(id){
   document.querySelectorAll('.sc').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-  ['dashboard','units','townhouses','snags','tags','temps','hours'].forEach((s,i)=>{if(s===id)document.querySelectorAll('.nb')[i].classList.add('active');});
+  const sec=document.getElementById(id);
+  if(sec)sec.classList.add('active');
+  const btn=document.querySelector('.nb[data-sec="'+id+'"]');
+  if(btn)btn.classList.add('active');
   if(id==='dashboard')renderDash();
-  if(id==='units')renderList('units',UNITS,'Units 1–15');
-  if(id==='townhouses')renderList('townhouses',TH,'Townhouses 1–7');
+  else if(id.startsWith('grp-'))renderGroup(parseInt(id.slice(4)));
   if(id==='snags')renderSnags();
   if(id==='tags')renderTags();
   if(id==='temps')renderTemps();
@@ -947,7 +988,7 @@ function show(id){
   updateBadge();window.scrollTo(0,0);
 }
 
-
+// ── Hours ───────────────────────────────────────────────────
 let hoursData=[];
 let crewRows=[{name:'',hours:''}];
 
@@ -958,9 +999,9 @@ function renderCrewRows(){
   if(!wrap)return;
   wrap.innerHTML=crewRows.map((row,i)=>`
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-      <input style="flex:2;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;background:#fafafa;color:var(--text)" 
+      <input style="flex:2;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;background:#fafafa;color:var(--text)"
         placeholder="Name e.g. Jake" value="${row.name}" oninput="crewRows[${i}].name=this.value">
-      <input style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;background:#fafafa;color:var(--text)" 
+      <input style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;background:#fafafa;color:var(--text)"
         type="number" min="0" max="24" step="0.5" placeholder="Hours" value="${row.hours}" oninput="crewRows[${i}].hours=this.value">
       ${crewRows.length>1?`<button onclick="removeCrew(${i})" style="background:none;border:1px solid var(--red-bd);color:var(--red);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:12px">×</button>`:'<div style="width:34px"></div>'}
     </div>`).join('');
@@ -1049,9 +1090,13 @@ async function deleteHours(id){
   await loadHours();renderHours();
 }
 
+// ── XSS-safe HTML escape ────────────────────────────────────
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
 (async () => {
   const ok = await bootstrapAuth();
   if (!ok) return;
+  buildGroupNav();
   await load();
   await loadTags();
   await loadTemps();
