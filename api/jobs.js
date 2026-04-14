@@ -1,6 +1,6 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, getCurrentUser } = require('./_lib/auth');
-const { validateAreaGroups } = require('./_lib/validation');
+const { validateAreaGroups, validateTasks } = require('./_lib/validation');
 
 function slugify(s) {
   return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -45,7 +45,7 @@ module.exports = async (req, res) => {
 
   // POST — create
   if (req.method === 'POST') {
-    const { name, id, clientUserId, type, areaGroups } = req.body || {};
+    const { name, id, clientUserId, type, areaGroups, roughInTasks, fitOffTasks } = req.body || {};
     if (!name) return res.status(400).json({ error: 'name required' });
     const jobId = slugify(id || name);
     if (!jobId) return res.status(400).json({ error: 'invalid id' });
@@ -67,12 +67,28 @@ module.exports = async (req, res) => {
       parsedGroups = parsed.groups;
     }
 
+    // Validate task lists if provided
+    let parsedRoughIn = [];
+    if (roughInTasks !== undefined) {
+      const v = validateTasks(roughInTasks, 'rt');
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      parsedRoughIn = v.tasks;
+    }
+    let parsedFitOff = [];
+    if (fitOffTasks !== undefined) {
+      const v = validateTasks(fitOffTasks, 'ft');
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      parsedFitOff = v.tasks;
+    }
+
     const job = {
       id: jobId,
       name,
       clientUserId: clientUserId || null,
       type: type || null,
       areaGroups: parsedGroups,
+      roughInTasks: parsedRoughIn,
+      fitOffTasks: parsedFitOff,
       status: 'active',
       createdAt: new Date().toISOString(),
     };
@@ -87,7 +103,7 @@ module.exports = async (req, res) => {
 
   // PUT — update (patch)
   if (req.method === 'PUT') {
-    const { id, name, clientUserId, type, areaGroups, status } = req.body || {};
+    const { id, name, clientUserId, type, areaGroups, status, roughInTasks, fitOffTasks } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id required' });
     const job = data.jobs.find(j => j.id === id);
     if (!job) return res.status(404).json({ error: 'job not found' });
@@ -131,6 +147,30 @@ module.exports = async (req, res) => {
         });
         return { id: groupId, name: g.name, areas };
       });
+    }
+
+    // Patch roughInTasks — preserve existing IDs for tasks matched by name
+    if (roughInTasks !== undefined) {
+      const v = validateTasks(roughInTasks, 'rt');
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      const existingByName = {};
+      for (const t of (job.roughInTasks || [])) existingByName[t.name] = t;
+      job.roughInTasks = v.tasks.map(t => ({
+        id: (existingByName[t.name] && existingByName[t.name].id) ? existingByName[t.name].id : t.id,
+        name: t.name,
+      }));
+    }
+
+    // Patch fitOffTasks — preserve existing IDs for tasks matched by name
+    if (fitOffTasks !== undefined) {
+      const v = validateTasks(fitOffTasks, 'ft');
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      const existingByName = {};
+      for (const t of (job.fitOffTasks || [])) existingByName[t.name] = t;
+      job.fitOffTasks = v.tasks.map(t => ({
+        id: (existingByName[t.name] && existingByName[t.name].id) ? existingByName[t.name].id : t.id,
+        name: t.name,
+      }));
     }
 
     await writeBlob('jobs.json', data);

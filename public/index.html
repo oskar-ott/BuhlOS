@@ -477,10 +477,24 @@ function inf(dw){return D.dwellings[dw]||{};}
 function stv(dw,st){const i=inf(dw);return(i[st]&&i[st].status)||'Not Started';}
 function setSt(dw,st,v){if(!D.dwellings[dw])D.dwellings[dw]={};if(!D.dwellings[dw][st])D.dwellings[dw][st]={};D.dwellings[dw][st].status=v;sched();}
 function setN(dw,v){if(!D.dwellings[dw])D.dwellings[dw]={};D.dwellings[dw]._notes=v;sched();}
+
+// Returns task % for one stage, or null if tasks array is empty (signal: use legacy).
+function stageTaskPct(areaId,stageKey,tasks){
+  if(!tasks||!tasks.length)return null;
+  const taskMap=((D.dwellings[areaId]||{})[stageKey]||{}).tasks||{};
+  return Math.round(tasks.filter(t=>taskMap[t.id]===true).length/tasks.length*100);
+}
+
 function stats(dw){
+  const roughInTasks=(CURRENT_JOB&&CURRENT_JOB.roughInTasks)||[];
+  const fitOffTasks=(CURRENT_JOB&&CURRENT_JOB.fitOffTasks)||[];
+  const rPct=stageTaskPct(dw,'roughIn',roughInTasks)??Math.round(ROUGH.filter(s=>stv(dw,s)==='Done').length/ROUGH.length*100);
+  const fPct=stageTaskPct(dw,'fitOff',fitOffTasks)??Math.round(FITOFF.filter(s=>stv(dw,s)==='Done').length/FITOFF.length*100);
+  const pct=Math.round((rPct+fPct)/2);
+  // Legacy counts (for status dot colour — still meaningful in legacy mode)
   let done=0,ip=0,sn=0;
   ALL_STAGES.forEach(s=>{const v=stv(dw,s);if(v==='Done')done++;else if(v==='In Progress')ip++;else if(v==='Snagged')sn++;});
-  return{done,ip,sn,pct:Math.round(done/ALL_STAGES.length*100)};
+  return{done,ip,sn,pct};
 }
 function tlc(pct,sn){if(sn>0)return'red';if(pct===100)return'green';if(pct>0)return'amber';return'grey';}
 function bc(pct){if(pct===100)return'#22c55e';if(pct>=50)return'#f59e0b';return'#3b82f6';}
@@ -530,7 +544,20 @@ function renderDash(){
 function dwCard(areaId,areaName){
   const s=stats(areaId);const tc=tlc(s.pct,s.sn);
   const sc=(D.snags||[]).filter(x=>x.dwelling===areaId&&x.status==='Open').length;
-  const dots=ALL_STAGES.map(st=>{const v=stv(areaId,st);const c=v==='Done'?'done':v==='In Progress'?'inprog':v==='Snagged'?'snagged':'';return`<div class="sdot2 ${c}" title="${st}"></div>`;}).join('');
+  const roughInTasks=(CURRENT_JOB&&CURRENT_JOB.roughInTasks)||[];
+  const fitOffTasks=(CURRENT_JOB&&CURRENT_JOB.fitOffTasks)||[];
+  let dots;
+  if(roughInTasks.length||fitOffTasks.length){
+    // Task-based dots: one per task across both stages
+    const rMap=((D.dwellings[areaId]||{}).roughIn||{}).tasks||{};
+    const fMap=((D.dwellings[areaId]||{}).fitOff||{}).tasks||{};
+    dots=[
+      ...roughInTasks.map(t=>`<div class="sdot2${rMap[t.id]?' done':''}" title="${esc(t.name)}"></div>`),
+      ...fitOffTasks.map(t=>`<div class="sdot2${fMap[t.id]?' done':''}" title="${esc(t.name)}"></div>`),
+    ].join('');
+  } else {
+    dots=ALL_STAGES.map(st=>{const v=stv(areaId,st);const c=v==='Done'?'done':v==='In Progress'?'inprog':v==='Snagged'?'snagged':'';return`<div class="sdot2 ${c}" title="${st}"></div>`;}).join('');
+  }
   return`<div class="dc" onclick="openDw('${areaId}')">
     <div class="dc-top"><div class="dot ${tc}"></div><div class="dc-name">${esc(areaName)}</div>${sc>0?`<div class="dc-snag">${sc} snag${sc>1?'s':''}</div>`:''}<div class="dc-pct">${s.pct}%</div></div>
     <div class="bar-bg"><div class="bar" style="width:${s.pct}%;background:${bc(s.pct)}"></div></div>
@@ -565,7 +592,7 @@ function openDw(areaId){
   <div class="dh">
     <div class="dh-name">${esc(areaName)}</div>
     <div class="dh-bar-bg"><div class="dh-bar" id="dhb" style="width:${s.pct}%;background:${bc(s.pct)}"></div></div>
-    <div class="dh-pct" id="dhp"><b>${s.pct}%</b> complete — ${s.done} of ${ALL_STAGES.length} stages done</div>
+    <div class="dh-pct" id="dhp"><b>${s.pct}%</b> complete</div>
   </div>
   <div class="dtabs">
     <button class="dtab active" onclick="switchTab(this,'tp-stages')">Stages</button>
@@ -574,9 +601,13 @@ function openDw(areaId){
   </div>
   <div id="tp-stages" class="dpanel active">
     <div class="ghdr"><div class="gpill rough">Rough-In</div><div class="gline"></div></div>`;
-  ROUGH.forEach(st=>{h+=stRow(areaId,st);});
+  const _roughInTasks=(CURRENT_JOB&&CURRENT_JOB.roughInTasks)||[];
+  const _fitOffTasks=(CURRENT_JOB&&CURRENT_JOB.fitOffTasks)||[];
+  if(_roughInTasks.length){h+=taskRows(areaId,'roughIn',_roughInTasks);}
+  else{ROUGH.forEach(st=>{h+=stRow(areaId,st);});}
   h+=`<div class="ghdr"><div class="gpill fitoff">Fit-Off</div><div class="gline"></div></div>`;
-  FITOFF.forEach(st=>{h+=stRow(areaId,st);});
+  if(_fitOffTasks.length){h+=taskRows(areaId,'fitOff',_fitOffTasks);}
+  else{FITOFF.forEach(st=>{h+=stRow(areaId,st);});}
   h+=`</div>
   <div id="tp-itp" class="dpanel">
     <div class="itp-header">
@@ -639,7 +670,7 @@ function hSel(el,dw,st){
   const s=stats(dw);
   const b=document.getElementById('dhb'),p=document.getElementById('dhp');
   if(b){b.style.width=s.pct+'%';b.style.background=bc(s.pct);}
-  if(p)p.innerHTML=`<b>${s.pct}%</b> complete — ${s.done} of ${ALL_STAGES.length} stages done`;
+  if(p)p.innerHTML=`<b>${s.pct}%</b> complete`;
 }
 
 function saveN(dw){
@@ -1110,6 +1141,31 @@ async function deleteHours(id){
   if(!confirm('Remove this day?'))return;
   await fetch('/api/hours',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
   await loadHours();renderHours();
+}
+
+// ── Task checklist helpers ───────────────────────────────────
+function taskRows(areaId,stageKey,tasks){
+  const taskMap=((D.dwellings[areaId]||{})[stageKey]||{}).tasks||{};
+  return tasks.map(t=>{
+    const checked=taskMap[t.id]===true;
+    const cid='ck-'+stageKey+'-'+t.id.replace(/[^a-z0-9]/g,'');
+    return`<div class="sr" style="gap:10px">
+      <input type="checkbox" id="${cid}"${checked?' checked':''} style="width:18px;height:18px;cursor:pointer;flex-shrink:0;accent-color:var(--accent)"
+        onchange="toggleTask('${esc(areaId)}','${esc(stageKey)}','${esc(t.id)}',this.checked)">
+      <label for="${cid}" class="sr-nm" style="cursor:pointer">${esc(t.name)}</label>
+    </div>`;
+  }).join('');
+}
+function toggleTask(areaId,stageKey,taskId,checked){
+  if(!D.dwellings[areaId])D.dwellings[areaId]={};
+  if(!D.dwellings[areaId][stageKey])D.dwellings[areaId][stageKey]={};
+  if(!D.dwellings[areaId][stageKey].tasks)D.dwellings[areaId][stageKey].tasks={};
+  D.dwellings[areaId][stageKey].tasks[taskId]=checked;
+  persist(); // immediate — no debounce for checkboxes
+  const s=stats(areaId);
+  const b=document.getElementById('dhb'),p=document.getElementById('dhp');
+  if(b){b.style.width=s.pct+'%';b.style.background=bc(s.pct);}
+  if(p)p.innerHTML=`<b>${s.pct}%</b> complete`;
 }
 
 // ── XSS-safe HTML escape ────────────────────────────────────

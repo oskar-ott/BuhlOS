@@ -34,4 +34,20 @@ function validateAreaGroups(raw, fieldName) {
   return { ok: true, groups };
 }
 
-module.exports = { nanoid, validateAreaGroups };
+// Validate and normalise a tasks array (roughInTasks / fitOffTasks).
+// prefix: 'rt' for rough-in, 'ft' for fit-off — used to generate missing ids.
+// Returns { ok: true, tasks } or { ok: false, error }.
+function validateTasks(raw, prefix) {
+  if (!Array.isArray(raw)) return { ok: false, error: `${prefix}Tasks must be an array` };
+  const tasks = [];
+  for (let i = 0; i < raw.length; i++) {
+    const t = raw[i];
+    if (!t || typeof t !== 'object') return { ok: false, error: `task[${i}] must be an object` };
+    if (!t.name || typeof t.name !== 'string' || !t.name.trim())
+      return { ok: false, error: `task[${i}].name must be a non-empty string` };
+    tasks.push({ id: t.id || nanoid(prefix + '_'), name: t.name.trim() });
+  }
+  return { ok: true, tasks };
+}
+
+module.exports = { nanoid, validateAreaGroups, validateTasks };

@@ -95,6 +95,7 @@ dialog h3 { margin: 0 0 14px; }
 
 <nav>
   <button class="active" data-tab="jobs">Jobs</button>
+  <button data-tab="job-setup">Job Setup</button>
   <button data-tab="users">Users</button>
   <button data-tab="costs">Costs</button>
   <button data-tab="settings">Settings</button>
@@ -110,19 +111,26 @@ dialog h3 { margin: 0 0 14px; }
       <label>Type</label>
       <select id="j-type"><option value="">— select type —</option></select>
       <label>Client (optional)</label><select id="j-client"><option value="">— none —</option></select>
-      <div style="margin-top:10px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <span style="font-size:12px;color:var(--mu);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Area groups</span>
-          <button class="btn sec" id="jc-add-group">+ Add group</button>
-        </div>
-        <div id="jc-groups"></div>
-      </div>
       <div style="margin-top:14px">
         <button class="btn primary" id="j-create">Create job</button>
         <span id="j-msg" style="margin-left:10px"></span>
       </div>
+      <div class="mu" style="margin-top:8px;font-size:12px">Configure areas &amp; checklists in <strong>Job Setup</strong> after creation.</div>
     </div>
     <div id="jobs-list"></div>
+  </div>
+
+  <!-- Job Setup tab -->
+  <div id="job-setup" class="tab">
+    <div style="display:flex;gap:0;min-height:500px">
+      <div style="width:190px;flex-shrink:0;border-right:1px solid var(--bd);padding-right:16px;margin-right:20px">
+        <div style="font-size:11px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Jobs</div>
+        <div id="js-sidebar"></div>
+      </div>
+      <div style="flex:1;min-width:0" id="js-pane">
+        <div class="mu" style="padding-top:8px">Select a job from the sidebar to configure it.</div>
+      </div>
+    </div>
   </div>
 
   <!-- Users tab -->
@@ -244,6 +252,7 @@ const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&
 const fmt = n => '$' + Number(n||0).toLocaleString('en-AU',{maximumFractionDigits:0});
 let ME=null, JOBS=[], USERS=[], JOB_TYPES=[];
 let jcGroups=[], ejGroups=[];
+let jsGroups=[], jsRoughTasks=[], jsFitTasks=[], jsSelectedJobId=null;
 
 async function api(url, opts={}) {
   opts.credentials='same-origin';
@@ -266,6 +275,7 @@ async function boot() {
   document.querySelectorAll('nav button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
   wireJobs(); wireUsers(); wireCosts(); wireSettings(); wireJobTypes();
   await refreshAll();
+  wireJobSetup();
 }
 
 function switchTab(id) {
@@ -274,6 +284,12 @@ function switchTab(id) {
   document.getElementById(id).classList.add('active');
   document.querySelector('nav button[data-tab="'+id+'"]').classList.add('active');
   if (id==='costs') loadCosts();
+  if (id==='job-setup') renderJobSetupSidebar(jsSelectedJobId);
+}
+
+function switchToJobSetup(id) {
+  switchTab('job-setup');
+  selectJobSetup(id);
 }
 
 async function refreshAll() {
@@ -286,10 +302,16 @@ async function refreshAll() {
   USERS = ur.users || [];
   JOB_TYPES = jtr.jobTypes || [];
   renderJobs(); renderUsers(); populateJobForm(); populateUserForm(); renderJobTypes();
+  renderJobSetupSidebar(jsSelectedJobId);
 }
 
 // ── Area group editor ─────────────────────────────────────────────────────
-function grpState(cid) { return cid==='jc-groups' ? jcGroups : ejGroups; }
+function grpState(cid) {
+  if (cid==='jc-groups') return jcGroups;
+  if (cid==='ej-groups') return ejGroups;
+  if (cid==='js-groups') return jsGroups;
+  return [];
+}
 function grpGroupName(gi,cid,v) { grpState(cid)[gi].name=v; }
 function grpAreaName(gi,ai,cid,v) { grpState(cid)[gi].areas[ai].name=v; }
 function grpAddArea(gi,cid) { grpState(cid)[gi].areas.push({id:null,name:''}); renderGrpEditor(cid,grpState(cid)); }
@@ -320,8 +342,6 @@ function wireJobs() {
     const slug = e.target.value.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
     document.getElementById('j-id').placeholder = slug || 'auto';
   });
-  renderGrpEditor('jc-groups', jcGroups);
-  document.getElementById('jc-add-group').onclick = () => grpAddGroup('jc-groups');
   document.getElementById('j-create').onclick = async () => {
     const name = document.getElementById('j-name').value.trim();
     const id = document.getElementById('j-id').value.trim();
@@ -329,22 +349,11 @@ function wireJobs() {
     const clientUserId = document.getElementById('j-client').value || null;
     const msg = document.getElementById('j-msg'); msg.className=''; msg.textContent='';
     if (!name) { msg.className='err'; msg.textContent='Name required'; return; }
-    if (!type) { msg.className='err'; msg.textContent='Type required'; return; }
-    if (!jcGroups.length) { msg.className='err'; msg.textContent='At least one area group required'; return; }
-    for (const g of jcGroups) {
-      if (!g.name.trim()) { msg.className='err'; msg.textContent='All group names must be non-empty'; return; }
-      if (!g.areas.length) { msg.className='err'; msg.textContent='Each group must have at least one area'; return; }
-      for (const a of g.areas) {
-        if (!a.name.trim()) { msg.className='err'; msg.textContent='All area names must be non-empty'; return; }
-      }
-    }
-    const areaGroups = jcGroups.map(g=>({name:g.name,areas:g.areas.map(a=>({name:a.name}))}));
     try {
-      await api('/api/jobs', { method:'POST', body:{name, id: id||undefined, type, clientUserId, areaGroups}});
+      await api('/api/jobs', { method:'POST', body:{name, id: id||undefined, type: type||undefined, clientUserId: clientUserId||undefined}});
       document.getElementById('j-name').value=''; document.getElementById('j-id').value='';
       document.getElementById('j-type').value=''; document.getElementById('j-client').value='';
-      jcGroups=[]; renderGrpEditor('jc-groups', jcGroups);
-      msg.className='ok'; msg.textContent='Created'; await refreshAll();
+      msg.className='ok'; msg.textContent='Created — set up areas & checklists in Job Setup'; await refreshAll();
     } catch(e) { msg.className='err'; msg.textContent=e.message; }
   };
   document.getElementById('ej-cancel').onclick = ()=>document.getElementById('edit-job').close();
@@ -423,12 +432,14 @@ function renderJobs() {
       '<div class="mu">'+esc(j.id)+' · <span class="badge '+st+'">'+st+'</span>' +
       (typeName?' · '+esc(typeName.name):'') +
       (client?' · '+esc(client.username):'')+'</div></div>' +
-      '<div style="display:flex;gap:8px">' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
       '<button class="btn sec" data-edit-job="'+esc(j.id)+'">Edit</button>' +
+      '<button class="btn sec" data-setup-job="'+esc(j.id)+'">Set up →</button>' +
       '<a class="btn sec" href="/jobs/'+esc(j.id)+'">Open</a>' +
       '</div></div></div>';
   }).join('');
   el.querySelectorAll('[data-edit-job]').forEach(b=>b.onclick=()=>openEditJob(b.dataset.editJob));
+  el.querySelectorAll('[data-setup-job]').forEach(b=>b.onclick=()=>switchToJobSetup(b.dataset.setupJob));
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────
@@ -608,6 +619,150 @@ function wireJobTypes() {
       await refreshAll();
     } catch(e) { msg.textContent=e.message; }
   };
+}
+
+// ── Task list editor (reusable for rough-in & fit-off checklists) ─────────
+function taskState(cid) {
+  if (cid==='js-rough-tasks') return jsRoughTasks;
+  if (cid==='js-fit-tasks')   return jsFitTasks;
+  return [];
+}
+function taskSetName(i,cid,v) { taskState(cid)[i].name=v; }
+function taskRemove(i,cid) { taskState(cid).splice(i,1); renderTaskEditor(cid,taskState(cid)); }
+function taskAdd(cid) { taskState(cid).push({id:null,name:''}); renderTaskEditor(cid,taskState(cid)); }
+function renderTaskEditor(cid, tasks) {
+  const el = document.getElementById(cid); if (!el) return;
+  if (!tasks.length) {
+    el.innerHTML='<div class="mu" style="font-size:12px;padding:4px 0">No tasks — click "+ Add task" above.</div>';
+    return;
+  }
+  el.innerHTML = tasks.map((t,i)=>
+    '<div class="grp-area-row">'+
+    '<input placeholder="Task name e.g. Mark out core hole" value="'+esc(t.name)+'" oninput="taskSetName('+i+',\''+cid+'\',this.value)">'+
+    '<button class="btn sec" onclick="taskRemove('+i+',\''+cid+'\')">×</button>'+
+    '</div>'
+  ).join('');
+}
+
+// ── Job Setup ─────────────────────────────────────────────────────────────
+function wireJobSetup() {
+  // Sidebar and pane are rendered dynamically; nothing to wire statically.
+}
+
+function renderJobSetupSidebar(selectedId) {
+  const el = document.getElementById('js-sidebar'); if (!el) return;
+  if (!JOBS.length) {
+    el.innerHTML='<div class="mu" style="font-size:12px">No jobs yet.</div>'; return;
+  }
+  el.innerHTML = JOBS.map(j=>{
+    const active = j.id===selectedId;
+    const st = j.status||'active';
+    return '<div onclick="selectJobSetup(\''+esc(j.id)+'\')" style="padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:3px;background:'+(active?'var(--bg)':'none')+';border:1px solid '+(active?'var(--bd)':'transparent')+'">'+
+      '<div style="font-size:13px;font-weight:'+(active?'600':'500')+';color:var(--tx);margin-bottom:2px">'+esc(j.name)+'</div>'+
+      '<span class="badge '+st+'">'+st+'</span>'+
+    '</div>';
+  }).join('');
+}
+
+function selectJobSetup(id) {
+  jsSelectedJobId = id;
+  const job = JOBS.find(j=>j.id===id); if (!job) return;
+  renderJobSetupSidebar(id);
+  renderJobSetupPane(job);
+}
+
+function renderJobSetupPane(job) {
+  // Populate module-level state from job
+  jsGroups = (job.areaGroups||[]).map(g=>({
+    id:g.id||null, name:g.name,
+    areas:(g.areas||[]).map(a=>({id:a.id||null,name:a.name}))
+  }));
+  jsRoughTasks = (job.roughInTasks||[]).map(t=>({id:t.id||null,name:t.name}));
+  jsFitTasks   = (job.fitOffTasks||[]).map(t=>({id:t.id||null,name:t.name}));
+
+  const jid = esc(job.id);
+  document.getElementById('js-pane').innerHTML =
+    '<h3 style="margin:0 0 16px;font-size:16px">'+esc(job.name)+'</h3>'+
+
+    // Area groups
+    '<div class="card">'+
+    '<div class="row"><h3>Area groups</h3>'+
+    '<button class="btn sec" onclick="grpAddGroup(\'js-groups\')">+ Add group</button></div>'+
+    '<div id="js-groups" style="margin-top:8px"></div>'+
+    '<div style="margin-top:12px;display:flex;align-items:center;gap:8px">'+
+    '<button class="btn primary" onclick="saveSetupAreas(\''+jid+'\')">Save areas</button>'+
+    '<span id="js-area-msg" style="font-size:13px"></span></div></div>'+
+
+    // Rough-in checklist
+    '<div class="card">'+
+    '<div class="row"><h3>Rough-in checklist</h3>'+
+    '<button class="btn sec" onclick="taskAdd(\'js-rough-tasks\')">+ Add task</button></div>'+
+    '<div id="js-rough-tasks" style="margin-top:8px"></div>'+
+    '<div style="margin-top:12px;display:flex;align-items:center;gap:8px">'+
+    '<button class="btn primary" onclick="saveSetupRough(\''+jid+'\')">Save rough-in</button>'+
+    '<span id="js-rough-msg" style="font-size:13px"></span></div></div>'+
+
+    // Fit-off checklist
+    '<div class="card">'+
+    '<div class="row"><h3>Fit-off checklist</h3>'+
+    '<button class="btn sec" onclick="taskAdd(\'js-fit-tasks\')">+ Add task</button></div>'+
+    '<div id="js-fit-tasks" style="margin-top:8px"></div>'+
+    '<div style="margin-top:12px;display:flex;align-items:center;gap:8px">'+
+    '<button class="btn primary" onclick="saveSetupFit(\''+jid+'\')">Save fit-off</button>'+
+    '<span id="js-fit-msg" style="font-size:13px"></span></div></div>';
+
+  renderGrpEditor('js-groups', jsGroups);
+  renderTaskEditor('js-rough-tasks', jsRoughTasks);
+  renderTaskEditor('js-fit-tasks', jsFitTasks);
+}
+
+async function saveSetupAreas(jobId) {
+  const msg = document.getElementById('js-area-msg'); msg.className=''; msg.textContent='';
+  for (const g of jsGroups) {
+    if (!g.name.trim()) { msg.className='err'; msg.textContent='All group names must be non-empty'; return; }
+    if (!g.areas.length) { msg.className='err'; msg.textContent='Each group must have at least one area'; return; }
+    for (const a of g.areas) {
+      if (!a.name.trim()) { msg.className='err'; msg.textContent='All area names must be non-empty'; return; }
+    }
+  }
+  const areaGroups = jsGroups.map(g=>({...(g.id?{id:g.id}:{}),name:g.name,areas:g.areas.map(a=>({...(a.id?{id:a.id}:{}),name:a.name}))}));
+  try {
+    const r = await api('/api/jobs',{method:'PUT',body:{id:jobId,areaGroups}});
+    const idx=JOBS.findIndex(j=>j.id===jobId); if(idx>=0) JOBS[idx]=r.job;
+    jsGroups=(r.job.areaGroups||[]).map(g=>({id:g.id,name:g.name,areas:(g.areas||[]).map(a=>({id:a.id,name:a.name}))}));
+    renderGrpEditor('js-groups',jsGroups);
+    msg.className='ok'; msg.textContent='Saved ✓';
+  } catch(e) { msg.className='err'; msg.textContent=e.message; }
+}
+
+async function saveSetupRough(jobId) {
+  const msg = document.getElementById('js-rough-msg'); msg.className=''; msg.textContent='';
+  for (const t of jsRoughTasks) {
+    if (!t.name.trim()) { msg.className='err'; msg.textContent='All task names must be non-empty'; return; }
+  }
+  const roughInTasks = jsRoughTasks.map(t=>({...(t.id?{id:t.id}:{}),name:t.name}));
+  try {
+    const r = await api('/api/jobs',{method:'PUT',body:{id:jobId,roughInTasks}});
+    const idx=JOBS.findIndex(j=>j.id===jobId); if(idx>=0) JOBS[idx]=r.job;
+    jsRoughTasks=(r.job.roughInTasks||[]).map(t=>({id:t.id,name:t.name}));
+    renderTaskEditor('js-rough-tasks',jsRoughTasks);
+    msg.className='ok'; msg.textContent='Saved ✓';
+  } catch(e) { msg.className='err'; msg.textContent=e.message; }
+}
+
+async function saveSetupFit(jobId) {
+  const msg = document.getElementById('js-fit-msg'); msg.className=''; msg.textContent='';
+  for (const t of jsFitTasks) {
+    if (!t.name.trim()) { msg.className='err'; msg.textContent='All task names must be non-empty'; return; }
+  }
+  const fitOffTasks = jsFitTasks.map(t=>({...(t.id?{id:t.id}:{}),name:t.name}));
+  try {
+    const r = await api('/api/jobs',{method:'PUT',body:{id:jobId,fitOffTasks}});
+    const idx=JOBS.findIndex(j=>j.id===jobId); if(idx>=0) JOBS[idx]=r.job;
+    jsFitTasks=(r.job.fitOffTasks||[]).map(t=>({id:t.id,name:t.name}));
+    renderTaskEditor('js-fit-tasks',jsFitTasks);
+    msg.className='ok'; msg.textContent='Saved ✓';
+  } catch(e) { msg.className='err'; msg.textContent=e.message; }
 }
 
 boot();
