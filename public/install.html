@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Install BuhlOS</title>
+<link rel="stylesheet" href="/theme.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BuhlOS">
+<meta name="theme-color" content="#0d1f35">
+<style>
+  body { background: var(--bg); }
+  .install-page { max-width: 640px; margin: 0 auto; padding: 24px 20px 60px; }
+  .install-hero {
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center; gap: 10px; margin-bottom: 28px;
+  }
+  .install-hero img {
+    width: 72px; height: 72px; border-radius: 16px;
+    background: var(--header); padding: 6px;
+    border: 1px solid var(--border);
+  }
+  .install-hero h1 {
+    margin: 6px 0 0; font-size: 26px; font-weight: 700;
+    color: var(--header); letter-spacing: -.3px;
+  }
+  .install-hero .lede {
+    font-size: var(--fs-base); color: var(--muted); max-width: 440px;
+  }
+  .install-tabs {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 380px) {
+    .install-tabs { grid-template-columns: 1fr; }
+  }
+  .install-tab {
+    background: var(--card); border: 1px solid var(--border);
+    padding: 12px 14px; border-radius: 10px;
+    font-size: var(--fs-sm); font-weight: 700; color: var(--ink);
+    cursor: pointer; text-align: center;
+    font-family: inherit; transition: all .12s;
+  }
+  .install-tab.active {
+    background: var(--header); color: var(--header-ink);
+    border-color: var(--header);
+  }
+  .install-section {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px;
+    margin-bottom: 16px;
+  }
+  .install-section.hidden { display: none; }
+  .install-section h2 {
+    margin: 0 0 16px; font-size: var(--fs-lg); font-weight: 700;
+    color: var(--ink);
+  }
+  .step-list { display: flex; flex-direction: column; gap: 16px; }
+  .step-row {
+    display: flex; gap: 14px; align-items: flex-start;
+  }
+  .step-num {
+    flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent); color: var(--accent-ink);
+    font-size: 14px; font-weight: 800;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .step-body { font-size: var(--fs-base); color: var(--ink); line-height: 1.55; }
+  .step-body b { color: var(--ink); font-weight: 700; }
+  .step-illus {
+    margin-top: 8px; padding: 12px;
+    background: var(--bg); border-radius: 10px;
+    border: 1px dashed var(--border);
+    display: inline-flex; align-items: center; gap: 10px;
+    font-size: var(--fs-sm); color: var(--muted);
+  }
+  .illus-share {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; background: #fff;
+    border: 1px solid var(--border); border-radius: 8px;
+    color: #007aff;
+  }
+  .illus-add {
+    background: #fff; border: 1px solid var(--border);
+    padding: 8px 12px; border-radius: 8px;
+    font-size: var(--fs-sm); color: var(--ink);
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .plus-box {
+    width: 22px; height: 22px; border: 1.5px solid var(--ink);
+    border-radius: 5px; display: inline-flex;
+    align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700;
+  }
+  .install-note {
+    margin-top: 18px; padding: 14px 16px;
+    background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;
+    font-size: var(--fs-sm); color: #854d0e;
+  }
+  .install-note b { color: #713f12; }
+  .install-back {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 10px 0; font-size: var(--fs-sm); color: var(--muted);
+    text-decoration: none; margin-bottom: 8px;
+  }
+  .install-back:hover { color: var(--ink); }
+  .install-after {
+    margin-top: 24px; padding: 20px;
+    background: var(--header); color: var(--header-ink);
+    border-radius: 14px; text-align: center;
+  }
+  .install-after h3 {
+    margin: 0 0 6px; font-size: var(--fs-lg); font-weight: 700;
+  }
+  .install-after p {
+    margin: 0; font-size: var(--fs-sm); color: rgba(255,255,255,.75);
+  }
+  .already-installed {
+    text-align: center; padding: 32px 20px;
+    background: var(--green-bg); border: 1px solid var(--green-bd);
+    border-radius: 14px; color: var(--green);
+    font-weight: 600; display: none;
+  }
+  .already-installed.show { display: block; }
+</style>
+</head>
+<body>
+<div class="install-page">
+  <a href="javascript:history.length>1?history.back():location.href='/'" class="install-back">&larr; Back</a>
+
+  <div class="install-hero">
+    <img src="/icon-192.png" alt="BuhlOS">
+    <h1>Install BuhlOS</h1>
+    <p class="lede">Get the app on your phone's home screen &mdash; fullscreen, faster, with reminders and no browser bar in the way.</p>
+  </div>
+
+  <div class="already-installed" id="already">
+    &#10003; BuhlOS is already installed on this device.
+  </div>
+
+  <div id="install-steps">
+    <div class="install-tabs" id="install-tabs">
+      <button class="install-tab" data-tab="ios">iPhone / iPad</button>
+      <button class="install-tab" data-tab="ioschrome">iPhone (Chrome)</button>
+      <button class="install-tab" data-tab="android">Android</button>
+    </div>
+
+    <div class="install-section" id="sec-ios">
+      <h2>Install on iPhone or iPad</h2>
+      <div class="step-list">
+        <div class="step-row">
+          <span class="step-num">1</span>
+          <div class="step-body">
+            Open <b>buhlapp.xyz</b> in <b>Safari</b>. The install option only works in Safari &mdash; not Chrome or Firefox on iPhone.
+          </div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">2</span>
+          <div class="step-body">
+            Tap the <b>Share</b> button in the toolbar below the page.
+            <div class="step-illus">
+              <span class="illus-share">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+              </span>
+              <span>This is the Share icon</span>
+            </div>
+          </div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">3</span>
+          <div class="step-body">
+            Scroll down in the Share menu and tap <b>"Add to Home Screen"</b>.
+            <div class="step-illus">
+              <span class="illus-add">
+                <span class="plus-box">+</span>
+                <span>Add to Home Screen</span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">4</span>
+          <div class="step-body">
+            Tap <b>"Add"</b> in the top right. You'll find the BuhlOS icon on your home screen &mdash; open it from there, not Safari.
+          </div>
+        </div>
+      </div>
+      <div class="install-note">
+        <b>Tip:</b> if the Share button isn't showing, tap the address bar once to reveal Safari's toolbar.
+      </div>
+    </div>
+
+    <div class="install-section hidden" id="sec-ioschrome">
+      <h2>Using Chrome on iPhone? Switch to Safari first</h2>
+      <div class="install-note" style="margin:0 0 18px;background:#fffbeb;border-color:#fde68a;color:#854d0e">
+        <b>Why?</b> Apple doesn’t let any browser other than Safari install web apps on iPhone — not Chrome, not Firefox, not Edge. The fix is one tap: <b>Open in Safari</b>, then install from there.
+      </div>
+      <div class="step-list">
+        <div class="step-row">
+          <span class="step-num">1</span>
+          <div class="step-body">
+            In Chrome, tap the <b>···</b> menu in the top-right corner.
+          </div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">2</span>
+          <div class="step-body">
+            Tap <b>"Open in Safari"</b>. The same page reopens in Safari with the same login.
+          </div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">3</span>
+          <div class="step-body">
+            In Safari, tap the <b>Share</b> button in the bottom toolbar.
+            <div class="step-illus">
+              <span class="illus-share">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+              </span>
+              <span>This is the Share icon</span>
+            </div>
+          </div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">4</span>
+          <div class="step-body">
+            Scroll down and tap <b>"Add to Home Screen"</b>, then <b>Add</b>.
+            <div class="step-illus">
+              <span class="illus-add">
+                <span class="plus-box">+</span>
+                <span>Add to Home Screen</span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="install-note">
+        <b>After install:</b> always open BuhlOS from the home-screen icon, not Chrome or Safari.
+      </div>
+    </div>
+
+    <div class="install-section hidden" id="sec-android">
+      <h2>Install on Android</h2>
+      <div class="step-list">
+        <div class="step-row">
+          <span class="step-num">1</span>
+          <div class="step-body">
+            Open <b>buhlapp.xyz</b> in <b>Chrome</b>. Chrome has the best install experience on Android.
+          </div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">2</span>
+          <div class="step-body">
+            Tap the <b>menu</b> (three dots <b>&#x22EE;</b>) in the top-right corner of Chrome.
+          </div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">3</span>
+          <div class="step-body">
+            Tap <b>"Install app"</b> or <b>"Add to Home screen"</b> (the wording varies slightly by Android version).
+          </div>
+        </div>
+        <div class="step-row">
+          <span class="step-num">4</span>
+          <div class="step-body">
+            Confirm by tapping <b>"Install"</b>. BuhlOS will appear in your app drawer and on your home screen.
+          </div>
+        </div>
+      </div>
+      <div class="install-note">
+        <b>Shortcut:</b> Chrome may also show a small "Install" prompt at the bottom of the screen when you first visit &mdash; tap it and you're done.
+      </div>
+    </div>
+
+    <div class="install-after">
+      <h3>After installing</h3>
+      <p>Always open BuhlOS from the home-screen icon &mdash; not via Safari or Chrome. The home-screen version runs fullscreen, remembers you, and is much faster.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // If already installed, hide steps and show confirmation.
+  var isStandalone = window.matchMedia('(display-mode: standalone)').matches
+                  || window.navigator.standalone === true;
+  if (isStandalone) {
+    document.getElementById('already').classList.add('show');
+    document.getElementById('install-steps').style.display = 'none';
+    return;
+  }
+
+  // Auto-select tab based on user agent
+  var ua = navigator.userAgent || '';
+  var isIOS = /iP(hone|ad|od)/.test(ua) && !window.MSStream;
+  var isIOSSafari = isIOS && /Safari/.test(ua) && !/CriOS|FxiOS|OPiOS|EdgiOS|mercury/i.test(ua);
+  var isAndroid = /Android/.test(ua);
+  var activeTab = isAndroid ? 'android'
+                : (isIOS && !isIOSSafari) ? 'ioschrome'
+                : 'ios';
+  setActiveTab(activeTab);
+
+  function setActiveTab(name){
+    ['ios','ioschrome','android'].forEach(function(t){
+      var tabEl = document.querySelector('[data-tab="'+t+'"]');
+      var secEl = document.getElementById('sec-'+t);
+      if (!tabEl || !secEl) return;
+      if (t === name) {
+        tabEl.classList.add('active');
+        secEl.classList.remove('hidden');
+      } else {
+        tabEl.classList.remove('active');
+        secEl.classList.add('hidden');
+      }
+    });
+  }
+
+  document.getElementById('install-tabs').addEventListener('click', function(e){
+    var btn = e.target.closest('[data-tab]');
+    if (btn) setActiveTab(btn.getAttribute('data-tab'));
+  });
+})();
+</script>
+</body>
+</html>

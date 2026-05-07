@@ -5,70 +5,350 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>buhl — jobs</title>
 <link rel="stylesheet" href="/theme.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BuhlOS">
+<meta name="theme-color" content="#0d1f35">
+<script src="/mobile-nav.js" defer></script>
+<script src="/install-prompt.js" defer></script>
+<script src="/lib/approvals-badge.js" defer></script>
 <style>
-  .app-header { position: sticky; top: 0; z-index: 100;
+  .app-header {
+    position: sticky; top: 0; z-index: 100;
     border-bottom: 1px solid rgba(255,255,255,.08);
-    padding-top: max(0px, env(safe-area-inset-top)); }
-  .app-header .spacer { flex: 1; }
-  .app-header .me { font-size: var(--fs-sm); opacity: .7; }
-  .wrap { padding: 20px 18px; max-width: 720px; margin: 0 auto; }
-  .empty { text-align: center; color: var(--muted); padding: 60px 20px; font-size: var(--fs-sm); }
-  .job { display: block; border-radius: var(--radius); padding: 18px; margin-bottom: 12px;
-         text-decoration: none; color: var(--ink);
-         border: 1px solid var(--border); background: var(--card);
-         transition: border-color .15s; }
-  .job:hover { border-color: var(--accent); }
-  .job h2 { margin: 0 0 5px; font-size: var(--fs-lg); font-weight: 600; }
-  .job .meta { color: var(--muted); font-size: var(--fs-sm); display: flex; align-items: center; gap: 8px; }
-  .admin-bar { margin-bottom: 16px; display: flex; gap: 8px; }
+    padding-top: max(0px, env(safe-area-inset-top));
+    justify-content: space-between;
+  }
+  .app-header .hdr-left  { display: flex; align-items: center; gap: 10px; }
+  .app-header .hdr-right { display: flex; align-items: center; gap: 10px; }
+  .me { font-size: var(--fs-sm); color: rgba(255,255,255,.65); }
+
+  .nav-pill {
+    display: inline-flex; align-items: center; height: 34px;
+    padding: 0 12px; border-radius: 999px;
+    font-size: var(--fs-xs); font-weight: 600;
+    color: rgba(255,255,255,.65);
+    border: 1px solid rgba(255,255,255,.12);
+    background: transparent; text-decoration: none;
+    transition: background .15s, color .15s;
+  }
+  .nav-pill:hover { color: #fff; background: rgba(255,255,255,.08); }
+  .nav-pill.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+
+  /* Job card list — full-width, tap-friendly */
+  .job-card { min-height: 60px; }
+  .job-card:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .job-card:active { background: #f8fafc; }
+  .job-card-type {
+    font-size: var(--fs-xs); color: var(--muted);
+    background: var(--grey-bg); border: 1px solid var(--border);
+    padding: 2px 8px; border-radius: 999px; font-weight: 600;
+  }
+  /* Right-rail "snag" chip on a job row — deep links to /jobs/<id>#snags so
+     admin/LH can jump straight to the issue list without drilling in. */
+  .job-card-snag {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--red-bg); color: var(--red);
+    border: 1px solid var(--red-bd);
+    border-radius: 999px; padding: 2px 9px;
+    font-size: 11px; font-weight: 700; line-height: 1;
+    text-decoration: none; min-height: 22px;
+  }
+  .job-card-snag::before { content: '!'; font-weight: 900; }
+  .job-card-snag:hover { background: #fde2e2; }
+  /* Test & Tag compliance chip — surfaces expired or expiring-soon tags so
+     admin/LH spot retest gaps from the jobs list. */
+  .job-card-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    border-radius: 999px; padding: 2px 9px;
+    font-size: 11px; font-weight: 700; line-height: 1;
+    text-decoration: none; min-height: 22px;
+    font-variant-numeric: tabular-nums;
+  }
+  .job-card-tag-red   { background: var(--red-bg);   color: var(--red);   border: 1px solid var(--red-bd); }
+  .job-card-tag-amber { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-bd); }
+  .job-card-tag-red:hover   { background: #fde2e2; }
+  .job-card-tag-amber:hover { background: #fde9b6; }
+  /* Right-rail % progress pill, contextual colour. */
+  .job-card-pct {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 28px; min-width: 50px; padding: 0 10px;
+    border-radius: 999px;
+    font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums;
+    background: var(--grey-bg); color: var(--grey-ink);
+    border: 1px solid var(--grey-bd);
+    flex-shrink: 0;
+  }
+  .job-card-pct.green { background: var(--green-bg); color: var(--green); border-color: var(--green-bd); }
+  .job-card-pct.amber { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-bd); }
+  .job-card-pct.navy  { background: #f1f5f9; color: var(--header); border-color: var(--border); }
+  /* Right-rail container so chips/pills live in a tight cluster next to the chevron */
+  .job-card-rail {
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  }
+  @media (max-width: 600px) {
+    .job-card { padding: 14px; gap: 10px; }
+    .job-card-name { font-size: var(--fs-lg); }
+    .job-card-meta { gap: 6px; }
+    .job-card-rail { gap: 6px; }
+    .job-card-pct { min-width: 44px; padding: 0 8px; height: 26px; font-size: 11px; }
+  }
+
+  /* Status filter pills above the search input. Mirrors /admin's pattern. */
+  .jobs-filter-bar {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .jobs-filter-pill {
+    appearance: none; -webkit-appearance: none;
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 34px; padding: 0 12px;
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--muted); border-radius: 999px;
+    font-size: var(--fs-xs); font-weight: 700; cursor: pointer;
+    font-family: inherit; transition: background .12s, color .12s, border-color .12s;
+  }
+  .jobs-filter-pill:hover { background: #f8fafc; color: var(--ink); }
+  .jobs-filter-pill.active {
+    background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+  }
+  .jobs-filter-pill .filter-count {
+    font-size: 10px; font-weight: 700; opacity: .7;
+    font-variant-numeric: tabular-nums;
+  }
+  .jobs-filter-pill.active .filter-count { opacity: .85; color: var(--accent-ink); }
+
+  .empty {
+    text-align: center; color: var(--muted);
+    padding: 48px 20px; font-size: var(--fs-sm);
+    background: var(--card); border: 1px dashed var(--border);
+    border-radius: var(--radius);
+  }
 </style>
 </head>
 <body>
 <header class="app-header">
-  <img src="/BUHL_LOGO.png" class="logo" alt="buhl electrical" onerror="this.style.display='none'">
-  <div class="spacer"></div>
-  <span class="me" id="me"></span>
-  <button class="btn" id="logout"
-    style="color:var(--header-ink);border-color:rgba(255,255,255,.25);background:transparent">
-    Sign out
-  </button>
+  <div class="hdr-left">
+    <img src="/BUHL_LOGO.png" class="logo" alt="buhl electrical" onerror="this.style.display='none'">
+    <a class="nav-pill" id="myDayLink" href="/my-day" style="display:none">My Day</a>
+    <a class="nav-pill" id="ovLink" href="/overview" style="display:none">Operations</a>
+    <a class="nav-pill active" href="/jobs">Jobs</a>
+    <a class="nav-pill" id="approvalsLink" href="/approvals" style="display:none">Approvals</a>
+    <a class="nav-pill" id="adminLink" href="/admin" style="display:none">Admin</a>
+  </div>
+  <div class="hdr-right">
+    <span class="me" id="me"></span>
+    <button class="btn ghost" id="logout">Sign out</button>
+  </div>
 </header>
-<div class="wrap">
-  <div id="adminBar" class="admin-bar" style="display:none">
-    <a class="btn primary" href="/admin">Admin panel</a>
+
+<div class="jobs-page">
+  <div class="jobs-header">
+    <div>
+      <h1 class="page-title">Jobs</h1>
+      <span class="page-subtitle" id="job-count"></span>
+    </div>
+  </div>
+  <div class="jobs-filter-bar" id="jobs-filter-bar"></div>
+  <div class="jobs-search">
+    <input type="search" placeholder="Search jobs…" id="job-search" autocomplete="off">
   </div>
   <div id="list"></div>
 </div>
+
 <script>
+let allJobs = [];
+let jobTypes = {};       // id -> { name }
+let currentUser = null;
+let jobStatusFilter = 'active'; // active | all | complete | archived
+let jobSearchQuery  = '';
+
 async function load() {
   const meRes = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
   if (!meRes.ok) { location.href = '/login'; return; }
   const { user } = await meRes.json();
-  document.getElementById('me').textContent = user.username + ' · ' + user.role;
-  if (user.role === 'admin') document.getElementById('adminBar').style.display = 'flex';
+  currentUser = user;
 
-  const r = await fetch('/api/jobs', { credentials: 'same-origin' });
-  const { jobs } = await r.json();
-  const list = document.getElementById('list');
-  if (!jobs || !jobs.length) {
-    list.innerHTML = '<div class="empty">No jobs yet.' +
-      (user.role === 'admin' ? ' Create one from the admin panel.' : '') + '</div>';
+  const roleLabel = { admin: 'Admin', leadingHand: 'Leading Hand', tradie: 'Tradie' }[user.role] || '';
+  document.getElementById('me').textContent = roleLabel ? (user.username + ' · ' + roleLabel) : user.username;
+
+  if (user.role === 'admin' || user.role === 'leadingHand') {
+    document.getElementById('ovLink').style.display = 'inline-flex';
+    document.getElementById('approvalsLink').style.display = 'inline-flex';
+    const al = document.getElementById('adminLink');
+    al.style.display = 'inline-flex';
+    if (user.role === 'leadingHand') al.textContent = 'Job Setup';
+  } else if (user.role === 'tradie') {
+    // Tradies get a one-tap link back to their daily home
+    document.getElementById('myDayLink').style.display = 'inline-flex';
+  }
+
+  // Fetch jobs (with per-row stats so we can show progress + snag count inline)
+  // + job types in parallel so the type chip shows a human name.
+  const [jobsRes, typesRes] = await Promise.all([
+    fetch('/api/jobs?withStats=1', { credentials: 'same-origin' }),
+    fetch('/api/job-types', { credentials: 'same-origin' }).catch(() => null),
+  ]);
+  const { jobs } = await jobsRes.json();
+  allJobs = jobs || [];
+  if (typesRes && typesRes.ok) {
+    try {
+      const td = await typesRes.json();
+      (td.jobTypes || td.types || []).forEach(t => { jobTypes[t.id] = t; });
+    } catch (e) { /* tolerate missing endpoint */ }
+  }
+
+  // Clients with one job → just open it. Avoid making them tap through a list.
+  if (user.role === 'client' && allJobs.length === 1) {
+    location.replace('/jobs/' + encodeURIComponent(allJobs[0].id));
     return;
   }
-  list.innerHTML = jobs.map(j => {
-    const st = j.status || 'active';
-    return `<a class="job" href="/jobs/${esc(j.id)}">
-      <h2>${esc(j.name)}</h2>
-      <div class="meta">${esc(j.id)} <span class="badge ${st}">${st}</span></div>
-    </a>`;
-  }).join('');
+
+  // For 1-job tradies, default the filter to "all" so a complete/archived
+  // single job still shows. (No filter pills are useful when there's only one.)
+  if (allJobs.length <= 1) jobStatusFilter = 'all';
+
+  renderFilters();
+  applyView();
 }
-function esc(s) { return String(s).replace(/[&<>"']/g, c =>
-  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+// ── Filter pills ──────────────────────────────────────────────────────────
+function renderFilters() {
+  const bar = document.getElementById('jobs-filter-bar');
+  if (!bar) return;
+  // Hide the bar entirely if there's nothing meaningful to filter
+  if (allJobs.length <= 1) { bar.style.display = 'none'; return; }
+  bar.style.display = '';
+  const counts = {
+    active:    allJobs.filter(j => (j.status || 'active') === 'active').length,
+    complete:  allJobs.filter(j => j.status === 'complete').length,
+    archived:  allJobs.filter(j => j.status === 'archived').length,
+    all:       allJobs.length,
+  };
+  const opts = [
+    { id: 'active',   label: 'Active',   c: counts.active   },
+    { id: 'all',      label: 'All',      c: counts.all      },
+    { id: 'complete', label: 'Complete', c: counts.complete },
+    { id: 'archived', label: 'Archived', c: counts.archived },
+  ].filter(o => o.id === 'active' || o.id === 'all' || o.c > 0);
+  bar.innerHTML = opts.map(o =>
+    `<button class="jobs-filter-pill${o.id === jobStatusFilter ? ' active' : ''}" data-st="${o.id}">${o.label} <span class="filter-count">${o.c}</span></button>`
+  ).join('');
+  bar.querySelectorAll('[data-st]').forEach(btn => {
+    btn.onclick = () => { jobStatusFilter = btn.dataset.st; renderFilters(); applyView(); };
+  });
+}
+
+function applyView() {
+  const q = jobSearchQuery.trim().toLowerCase();
+  const filtered = allJobs.filter(j => {
+    const status = j.status || 'active';
+    if (jobStatusFilter !== 'all' && status !== jobStatusFilter) return false;
+    if (!q) return true;
+    return (j.name || '').toLowerCase().includes(q) || (j.id || '').toLowerCase().includes(q);
+  });
+  renderJobs(filtered, currentUser);
+}
+
+function resolveTypeName(j) {
+  if (j.typeName) return j.typeName;             // server-enriched
+  if (j.type && jobTypes[j.type]) return jobTypes[j.type].name;
+  return '';                                      // unresolvable → hide chip
+}
+
+function renderJobs(jobs, user) {
+  const count = jobs.length;
+  document.getElementById('job-count').textContent = count === 1 ? '1 job' : count + ' jobs';
+
+  const list = document.getElementById('list');
+  if (!jobs.length) {
+    const role = (user && user.role) || (currentUser && currentUser.role);
+    const msg = role === 'admin'       ? 'No jobs yet.'
+              : role === 'leadingHand' ? 'No jobs assigned yet.'
+              : role === 'client'      ? 'No jobs visible to your account yet.'
+              : 'No jobs assigned to you yet.';
+    const hint = role === 'admin'
+      ? ' <a href="/admin" style="color:inherit;text-decoration:underline">Create one in Admin.</a>'
+      : role === 'leadingHand'
+      ? ' Ask an admin to assign you.'
+      : '';
+    list.innerHTML = `<div class="empty">${msg}${hint}</div>`;
+    return;
+  }
+
+  let html = `<div class="jobs-list">`;
+  jobs.forEach(j => {
+    const st = j.status || 'active';
+    const statusCls = st === 'complete' ? 'complete' : st === 'archived' ? 'not-started' : 'in-progress';
+    const statusLabel = { active: 'Active', complete: 'Complete', archived: 'Archived' }[st] || st;
+    const typeName = resolveTypeName(j);
+
+    // Stats from /api/jobs?withStats=1 — may be undefined if older deploy or first paint.
+    const pct  = (typeof j.statsPct === 'number') ? j.statsPct : null;
+    const sn   = Number(j.statsOpenSnags || 0);
+    const crew = Number(j.statsCrewCount || 0);
+    const expired  = Number(j.statsExpiredTags  || 0);
+    const expiring = Number(j.statsExpiringTags || 0);
+
+    const pctClass = pct === null ? '' : pct === 100 ? 'green' : pct > 0 ? 'amber' : 'navy';
+    const pctChip  = pct === null ? '' : `<span class="job-card-pct ${pctClass}" title="${pct}% complete">${pct}%</span>`;
+    const snagChip = sn > 0
+      ? `<a class="job-card-snag" href="/jobs/${esc(j.id)}#snags" onclick="event.stopPropagation()" title="Open snags for this job">${sn}</a>`
+      : '';
+    // T&T compliance chip — only render when there's something needing
+    // action. Expired (red) outranks expiring-soon (amber); we show one
+    // chip total so the card stays compact.
+    let tagChip = '';
+    if (expired > 0) {
+      tagChip = `<a class="job-card-tag job-card-tag-red" href="/jobs/${esc(j.id)}#tags" onclick="event.stopPropagation()" title="${expired} expired tag${expired===1?'':'s'} — retest required">!${expired}</a>`;
+    } else if (expiring > 0) {
+      tagChip = `<a class="job-card-tag job-card-tag-amber" href="/jobs/${esc(j.id)}#tags" onclick="event.stopPropagation()" title="${expiring} tag${expiring===1?'':'s'} due in 14d">⏰${expiring}</a>`;
+    }
+    // Inline meta hints: type chip + status badge + (admin only) crew count.
+    const metaBits = [];
+    if (typeName) metaBits.push(`<span class="job-card-type">${esc(typeName)}</span>`);
+    metaBits.push(`<span class="status-badge ${statusCls}">${statusLabel}</span>`);
+    if (crew > 0 && (currentUser && (currentUser.role === 'admin' || currentUser.role === 'leadingHand'))) {
+      metaBits.push(`<span class="job-card-type" title="Crew assigned">${crew} crew</span>`);
+    }
+
+    // Row is now a div (not <a>) so the snag chip can be a real link without
+    // an invalid <a><a></a></a> structure. Whole row navigates via onclick.
+    const goJob = `location.href='/jobs/${esc(j.id)}'`;
+    html += `<div class="job-card" role="link" tabindex="0" onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
+      <div class="job-card-body">
+        <div class="job-card-name">${esc(j.name)}</div>
+        <div class="job-card-meta">${metaBits.join('')}</div>
+      </div>
+      <div class="job-card-rail">
+        ${tagChip}
+        ${snagChip}
+        ${pctChip}
+        <div class="job-card-arrow">&#8250;</div>
+      </div>
+    </div>`;
+  });
+  html += `</div>`;
+  list.innerHTML = html;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 document.getElementById('logout').addEventListener('click', async () => {
   await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' });
   location.href = '/login';
 });
+
+document.getElementById('job-search').addEventListener('input', function () {
+  jobSearchQuery = this.value;
+  applyView();
+});
+
 load();
 </script>
 </body>

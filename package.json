@@ -1,10 +1,13 @@
 {
   "name": "birdwood-iv3232",
   "version": "1.0.0",
-  "engines": { "node": "24.x" },
+  "engines": {
+    "node": "24.x"
+  },
   "dependencies": {
     "@vercel/blob": "^0.24.0",
     "bcryptjs": "^2.4.3",
-    "cookie": "^0.6.0"
+    "cookie": "^0.6.0",
+    "web-push": "^3.6.7"
   }
 }

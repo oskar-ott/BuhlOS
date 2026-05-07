@@ -1,0 +1,1153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0d1f35">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BuhlOS">
+<script src="/install-prompt.js" defer></script>
+<script src="/lib/compliments.js" defer></script>
+<script src="/log-hours-sheet.js" defer></script>
+<title>buhl — my day</title>
+<link rel="stylesheet" href="/theme.css">
+<style>
+  body { background: var(--bg); }
+
+  /* Header (minimal for phone-first) */
+  .md-hdr {
+    background: var(--header); color: #fff;
+    padding: max(12px, env(safe-area-inset-top)) 16px 12px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; position: sticky; top: 0; z-index: 50;
+  }
+  .md-hdr img.logo { height: 26px; }
+  .md-hdr-l { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+  /* Header nav pills (matches /jobs and /admin pill style for consistency) */
+  .md-nav-pill {
+    display: inline-flex; align-items: center; height: 32px;
+    padding: 0 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 600;
+    color: rgba(255,255,255,.7);
+    border: 1px solid rgba(255,255,255,.14);
+    background: transparent; text-decoration: none;
+    white-space: nowrap; flex-shrink: 0;
+    transition: background .15s, color .15s;
+  }
+  .md-nav-pill:hover { color: #fff; background: rgba(255,255,255,.08); }
+  .md-nav-pill.active {
+    color: var(--accent-ink); background: var(--accent);
+    border-color: var(--accent);
+  }
+  @media (max-width: 380px) {
+    .md-nav-pill { height: 28px; padding: 0 10px; font-size: 11px; }
+    .md-hdr img.logo { height: 22px; }
+  }
+  .md-hdr .me {
+    display: flex; align-items: center; gap: 8px;
+    font-size: var(--fs-xs); color: rgba(255,255,255,.65);
+  }
+  .md-hdr .signout {
+    background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
+    color: #fff; border-radius: 8px; padding: 7px 11px;
+    font-size: var(--fs-xs); font-weight: 600; cursor: pointer; min-height: 36px;
+  }
+
+  .md-page { max-width: 560px; margin: 0 auto; padding: 14px 14px 60px; }
+
+  /* Tight one-line greeting (saves 60-80px above the fold) */
+  .md-greet {
+    margin: 2px 4px 12px;
+  }
+  .md-greet-hi {
+    font-size: 20px; font-weight: 800; color: var(--header);
+    letter-spacing: -.3px; line-height: 1.15;
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  }
+  .md-greet-date-inline {
+    font-size: 13px; font-weight: 600; color: var(--muted);
+    letter-spacing: 0;
+  }
+  .md-greet-compliment {
+    font-size: var(--fs-xs); color: var(--muted);
+    font-style: italic; margin-top: 3px; line-height: 1.35;
+  }
+
+  /* Banner — fat yellow button when unlogged; calmer chip when logged */
+  .md-banner {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; width: 100%; min-height: 84px;
+    background: var(--accent); color: var(--accent-ink);
+    border: none; border-radius: 16px;
+    padding: 18px 20px;
+    font-size: 19px; font-weight: 800;
+    letter-spacing: -.2px;
+    cursor: pointer; text-align: left;
+    box-shadow: 0 4px 14px rgba(255,204,0,.32);
+    margin-bottom: 22px;
+  }
+  .md-banner:active { transform: translateY(1px); }
+  .md-banner.logged {
+    background: #fff; border: 1px solid var(--green-bd);
+    color: var(--header); box-shadow: none;
+    min-height: 56px;
+    padding: 12px 16px;
+    font-size: 15px; font-weight: 700;
+  }
+  .md-banner.logged .md-banner-chev { color: var(--muted); font-size: 22px; }
+  .md-banner-sub {
+    font-size: var(--fs-sm); font-weight: 600; opacity: .75;
+    margin-top: 3px; letter-spacing: 0;
+  }
+  .md-banner-chev { font-size: 28px; font-weight: 400; opacity: .7; }
+
+  /* (Action Needed CSS retired with the section in the My-Day simplification.) */
+
+  .md-sec { margin-bottom: 22px; }
+  .md-sec-hdr {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin: 0 4px 8px;
+  }
+  .md-sec-title {
+    font-size: 11px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .8px;
+  }
+  .md-sec-count { font-size: 11px; color: var(--muted); }
+  /* Bulk-submit drafts chip — appears in My-Week header when 2+ drafts exist */
+  .myweek-submit-btn {
+    appearance: none; -webkit-appearance: none;
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 28px; padding: 0 11px;
+    background: var(--accent); color: var(--accent-ink);
+    border: none; border-radius: 999px;
+    font-size: 11px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .4px;
+    cursor: pointer; font-family: inherit;
+    transition: filter .12s, opacity .12s;
+  }
+  .myweek-submit-btn::before { content: '\2191'; font-size: 12px; line-height: 1; font-weight: 900; }
+  .myweek-submit-btn:hover { filter: brightness(.95); }
+  .myweek-submit-btn:disabled { opacity: .55; cursor: wait; }
+
+  /* My snags — assigned-to-me cross-job list (only shown when ≥ 1 exists) */
+  .md-mysnag {
+    display: flex; align-items: center; gap: 10px;
+    background: #fff; border: 1px solid var(--border);
+    border-radius: 12px; padding: 10px 12px;
+    text-decoration: none; color: inherit;
+    min-height: 60px; cursor: pointer;
+    transition: border-color .12s, background .12s;
+    margin-bottom: 6px;
+  }
+  .md-mysnag:active { background: #f8fafc; }
+  .md-mysnag:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .md-mysnag-accent {
+    width: 4px; min-height: 36px; border-radius: 3px; flex-shrink: 0;
+    background: var(--grey-bd);
+  }
+  .md-mysnag-accent.high   { background: var(--red); }
+  .md-mysnag-accent.medium { background: var(--amber); }
+  .md-mysnag-accent.resolved { background: var(--green); }
+  .md-mysnag-body { flex: 1; min-width: 0; }
+  .md-mysnag-title {
+    font-size: var(--fs-base); font-weight: 700; color: var(--header);
+    line-height: 1.2;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .md-mysnag-meta {
+    font-size: var(--fs-xs); color: var(--muted); margin-top: 3px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .md-mysnag-meta b { color: var(--ink); font-weight: 700; }
+  .md-mysnag-prio {
+    flex-shrink: 0; font-size: 10px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .4px;
+    padding: 2px 8px; border-radius: 999px;
+  }
+  .md-mysnag-prio.high   { background: var(--red-bg);   color: var(--red);   border: 1px solid var(--red-bd); }
+  .md-mysnag-prio.medium { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-bd); }
+  .md-mysnag-prio.low    { background: var(--grey-bg);  color: var(--grey-ink); border: 1px solid var(--grey-bd); }
+  /* "Resolved" pill — used in the Recently Resolved section so the row reads
+     as a positive update rather than an open priority. */
+  .md-mysnag-prio.resolved {
+    background: var(--green-bg, #ecfdf5);
+    color: var(--green, #047857);
+    border: 1px solid var(--green-bd, #a7f3d0);
+  }
+  .md-mysnag-chev { color: var(--muted); font-size: 18px; flex-shrink: 0; }
+
+  /* (Continue cards CSS retired with the section in the My-Day simplification.) */
+
+  /* My jobs — compact rows */
+  .md-jobs {
+    background: #fff; border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+  }
+  /* Promoted state: lone active job, nothing else pending — make it feel like
+     a strong "open this" CTA rather than a passive list. */
+  .md-jobs-promote {
+    border-color: var(--accent);
+    box-shadow: 0 2px 10px rgba(255,204,0,.18);
+  }
+  .md-jobs-promote .md-job-name {
+    font-size: var(--fs-lg);
+    letter-spacing: -.2px;
+  }
+  .md-jobs-promote .md-job-chev {
+    color: var(--header);
+    font-weight: 600;
+  }
+  .md-job {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none; color: inherit;
+    min-height: 60px;
+    cursor: pointer;
+  }
+  .md-job:last-child { border-bottom: none; }
+  .md-job:active { background: #f8fafc; }
+  .md-job:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .md-job-body { flex: 1; min-width: 0; }
+  .md-job-name {
+    font-size: var(--fs-base); font-weight: 700; color: var(--header);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    line-height: 1.2;
+  }
+  .md-job-meta {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    font-size: var(--fs-xs); color: var(--muted); margin-top: 4px;
+  }
+  .md-job-meta b { color: var(--ink); font-weight: 700; }
+  /* Snag count chip — now a real deep-link straight to the job's Snags tab.
+     Tap goes to /jobs/<id>#snags; rest of the row still goes to the job dashboard. */
+  a.md-job-snag, .md-job-snag {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--red-bg); color: var(--red);
+    border: 1px solid var(--red-bd);
+    border-radius: 999px; padding: 2px 9px;
+    font-size: 11px; font-weight: 700;
+    text-decoration: none;
+    min-height: 24px;          /* tap target on phone */
+    line-height: 1;
+  }
+  a.md-job-snag:active { background: #fde2e2; }
+  .md-job-snag::before { content: '!'; font-weight: 900; }
+  /* % progress pill (calmer, contextual color) */
+  .md-job-pct {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 30px; min-width: 48px; padding: 0 10px;
+    border-radius: 999px;
+    font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+    background: var(--grey-bg); color: var(--grey-ink);
+    border: 1px solid var(--grey-bd);
+    flex-shrink: 0;
+  }
+  .md-job-pct.green { background: var(--green-bg); color: var(--green); border-color: var(--green-bd); }
+  .md-job-pct.amber { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-bd); }
+  .md-job-pct.navy  { background: #f1f5f9; color: var(--header); border-color: var(--border); }
+  .md-job-chev { color: var(--muted); font-size: 20px; flex-shrink: 0; margin-left: -2px; }
+
+  /* My week — actionable per-day list. Replaces the passive "This week" total
+     strip. Tradies can scan their week, see missing days at a glance, and tap
+     any past/today day to add or edit hours via the same BuhlLogHours modal. */
+  .md-week-card {
+    background: #fff; border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+  }
+  .md-week-card-hdr {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px; padding: 12px 14px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .md-week-card-total {
+    font-size: 13px; font-weight: 700; color: var(--header);
+    font-variant-numeric: tabular-nums;
+  }
+  .md-week-card-total .unit { color: var(--muted); font-weight: 600; margin-left: 2px; font-size: 11px; }
+  .md-week-card-sub { font-size: 11px; color: var(--muted); }
+
+  .md-week-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none; color: inherit;
+    min-height: 56px;
+    cursor: pointer;
+    background: #fff;
+    transition: background .12s;
+  }
+  .md-week-row:last-child { border-bottom: none; }
+  .md-week-row:active { background: #f8fafc; }
+  .md-week-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .md-week-row.future, .md-week-row.weekend-empty {
+    cursor: default;
+    background: #fafbfc;
+    opacity: .82;
+  }
+  .md-week-row.today { background: #fffdf2; }   /* subtle yellow tint for "today" */
+
+  .md-week-row-body { flex: 1; min-width: 0; }
+  .md-week-row-day {
+    font-size: var(--fs-sm); font-weight: 700; color: var(--header);
+    line-height: 1.15;
+  }
+  .md-week-row-day .date { color: var(--muted); font-weight: 600; margin-left: 4px; }
+  .md-week-row-meta {
+    font-size: var(--fs-xs); color: var(--muted); margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .md-week-row-meta b { color: var(--ink); font-weight: 700; }
+
+  .md-week-row-status {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 800;
+    letter-spacing: .4px; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 999px;
+    flex-shrink: 0; line-height: 1;
+  }
+  .md-week-row-status.logged   { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-bd); }
+  .md-week-row-status.missing  { background: var(--red-bg);   color: var(--red);   border: 1px solid var(--red-bd); }
+  .md-week-row-status.today    { background: #fef9c3;          color: #854d0e;      border: 1px solid #fde68a; }
+  .md-week-row-status.future   { background: var(--grey-bg);  color: var(--grey-ink); border: 1px solid var(--grey-bd); }
+  .md-week-row-status.draft    { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-bd); }
+  .md-week-row-status.submit   { background: #dbeafe;          color: #1e40af;      border: 1px solid #bfdbfe; }
+  .md-week-row-status.rejected { background: var(--red-bg);   color: var(--red);   border: 1px solid var(--red-bd); }
+
+  .md-week-row-chev {
+    color: var(--muted); font-size: 18px; flex-shrink: 0; line-height: 1;
+  }
+  .md-week-row.future .md-week-row-chev,
+  .md-week-row.weekend-empty .md-week-row-chev { display: none; }
+
+  /* 375px safety: a tighter day label so the row never wraps awkwardly */
+  @media (max-width: 380px) {
+    .md-week-row { padding: 10px 12px; gap: 8px; }
+    .md-week-row-day { font-size: 12px; }
+    .md-week-row-status { font-size: 9px; padding: 3px 7px; }
+  }
+
+  /* 375px safety: wrap week strip, prevent overflow */
+  @media (max-width: 380px) {
+    .md-week { flex-wrap: wrap; gap: 10px; }
+    .md-greet-hi { font-size: 22px; }
+  }
+
+  .md-empty {
+    background: #fff; border: 1px dashed var(--border); border-radius: 12px;
+    padding: 22px 14px; text-align: center;
+    color: var(--muted); font-size: var(--fs-sm);
+  }
+
+  .md-footer {
+    margin-top: 26px; text-align: center;
+  }
+  .md-switch {
+    display: inline-block;
+    font-size: var(--fs-xs); color: var(--muted);
+    text-decoration: underline; text-underline-offset: 3px;
+    padding: 6px 10px;
+  }
+
+  /* ── Push notification opt-in card (one-time, after 5s) ─────────────── */
+  .md-push-opt {
+    position: fixed; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom));
+    background: #fff; border: 1px solid var(--border);
+    border-radius: 14px; padding: 14px 16px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.15);
+    z-index: 100; max-width: 520px; margin: 0 auto;
+    display: none;
+    animation: slideUp .25s ease-out;
+  }
+  .md-push-opt.open { display: block; }
+  @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .md-push-title { font-size: var(--fs-base); font-weight: 700; color: var(--header); margin-bottom: 4px; }
+  .md-push-body { font-size: var(--fs-sm); color: var(--muted); margin-bottom: 12px; line-height: 1.4; }
+  .md-push-row { display: flex; gap: 8px; }
+  .md-push-row .btn { flex: 1; }
+
+  /* Legacy log-hours modal styles removed in Phase 2 — modal now provided
+     by /log-hours-sheet.js (BuhlLogHours), which injects its own styles. */
+</style>
+</head>
+<body>
+
+<header class="md-hdr">
+  <div class="md-hdr-l">
+    <img src="/BUHL_LOGO.png" class="logo" alt="buhl" onerror="this.style.display='none'">
+    <a class="md-nav-pill active" href="/my-day">My Day</a>
+    <a class="md-nav-pill" href="/jobs">Jobs</a>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+    <span class="me" id="me"></span>
+    <button class="signout" id="logout">Sign out</button>
+  </div>
+</header>
+
+<div class="md-page">
+  <div class="md-greet">
+    <div class="md-greet-hi">
+      <span id="greet">Loading…</span>
+      <span class="md-greet-date-inline" id="today"></span>
+    </div>
+    <div class="md-greet-compliment" id="compliment"></div>
+  </div>
+
+  <button class="md-banner" id="banner" onclick="openMyDayLog()">
+    <div>
+      <div id="banner-txt">Log today's hours</div>
+      <div class="md-banner-sub" id="banner-sub"></div>
+    </div>
+    <div class="md-banner-chev">&#8250;</div>
+  </button>
+
+  <!-- My snags — shown when current user is the assignee on at least one
+       open snag across any of their jobs. -->
+  <section class="md-sec" id="mysnags-sec" style="display:none">
+    <div class="md-sec-hdr">
+      <div class="md-sec-title">Snags assigned to me</div>
+      <span class="md-sec-count" id="mysnags-count"></span>
+    </div>
+    <div id="mysnags-list"></div>
+  </section>
+
+  <!-- Recently resolved — snags I raised that someone else closed in the
+       last 7 days. Mirrors the resolved-push notifications so the in-app
+       counterpart is visible to users who don't have push enabled. -->
+  <section class="md-sec" id="resolved-sec" style="display:none">
+    <div class="md-sec-hdr">
+      <div class="md-sec-title">Recently resolved</div>
+      <span class="md-sec-count" id="resolved-count"></span>
+    </div>
+    <div id="resolved-list"></div>
+  </section>
+
+  <section class="md-sec">
+    <div class="md-sec-hdr">
+      <div class="md-sec-title">My jobs</div>
+      <span class="md-sec-count" id="jobs-count"></span>
+    </div>
+    <div id="jobs-list"></div>
+  </section>
+
+  <section class="md-sec">
+    <div class="md-sec-hdr">
+      <div class="md-sec-title">My week</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button id="myweek-submit-drafts" class="myweek-submit-btn" style="display:none" onclick="submitAllDrafts()"></button>
+        <span class="md-sec-count" id="myweek-total"></span>
+      </div>
+    </div>
+    <div id="myweek-list"></div>
+  </section>
+
+  <div class="md-footer">
+    <a class="md-switch" href="/jobs">Switch to full view &rsaquo;</a>
+  </div>
+</div>
+
+<!-- Push opt-in card -->
+<div class="md-push-opt" id="push-opt">
+  <div class="md-push-title">Enable reminders?</div>
+  <div class="md-push-body">We'll remind you at 4:30&thinsp;pm to log your hours so you don't forget.</div>
+  <div class="md-push-row">
+    <button class="btn" onclick="dismissPush()">Not now</button>
+    <button class="btn primary" onclick="enablePush()">Enable</button>
+  </div>
+</div>
+
+<!-- Log-hours: now provided by /log-hours-sheet.js (BuhlLogHours.open).
+     Legacy markup removed in Phase 2 cutover — single source of truth for hours
+     is /api/time-entries. -->
+
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────
+let ME = null;
+let JOBS = [];
+let DATA_BY_JOB = {};    // jobId -> { dwellings, snags }
+let ACTIVITY = [];       // my recent activity
+
+// My own time-entries (from /api/time-entries). Authoritative for everything
+// self-shaped on this page — banner, missed days, week total.
+let MY_TIME_ENTRIES = []; // sorted newest-first; covers at least the current ISO week
+
+// Cross-user "who's on site today" — per-jobId snapshot from
+// /api/time-entries-on-site. Replaces the old HOURS_BY_JOB legacy read.
+let CREW_ON_SITE_BY_JOB = {}; // jobId -> { count, users: [...] }
+
+// Cross-job snags assigned to ME (open). Loaded once at boot, refreshed on
+// pull-to-refresh / nothing else (snag assignments don't change minute-to-minute).
+let MY_SNAGS = []; // [{ id, jobId, jobName, desc, priority, dwellingName, ... }]
+
+// Cross-job snags I RAISED that have been resolved in the last 7 days.
+// Loaded alongside MY_SNAGS; surfaces the in-app counterpart of the
+// "✓ Snag resolved" push notification.
+let MY_RECENT_RESOLVED = []; // same shape, sorted newest-closed-first
+
+// (MY_EXPIRING_TAGS was retired with the Needs Action section. The /jobs
+//  list and /overview still surface expired/expiring tags via their own
+//  reads, and the per-job T&T tab has its own badge.)
+
+// ─── Helpers ─────────────────────────────────────────────────────────────
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+function _iso(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function todayIso(){ return _iso(new Date()); }
+function firstName(u){ return (u && u.username) ? u.username.split(/[\s._-]/)[0] : 'there'; }
+function greeting(){
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+function isoWeekMonday(){
+  const d = new Date();
+  const day = d.getDay() || 7;
+  if (day !== 1) d.setDate(d.getDate() - (day - 1));
+  d.setHours(0,0,0,0);
+  return d;
+}
+function fmtDur(hoursDecimal){
+  const hr = Math.floor(hoursDecimal);
+  const mn = Math.round((hoursDecimal - hr) * 60);
+  return mn ? `${hr}h ${mn}m` : `${hr}h`;
+}
+
+// ─── Bootstrap ───────────────────────────────────────────────────────────
+async function load(){
+  const meRes = await fetch('/api/auth?action=me', { credentials:'same-origin' });
+  if (!meRes.ok) { location.href = '/login'; return; }
+  const { user } = await meRes.json();
+  ME = user;
+
+  // Role gate — /my-day is for tradies. Others get redirected.
+  if (ME.role === 'admin' || ME.role === 'leadingHand') { location.href = '/overview'; return; }
+  if (ME.role === 'client') { location.href = '/jobs'; return; }
+
+  // Header bits
+  document.getElementById('me').textContent = ME.username;
+  document.getElementById('greet').textContent = `${greeting()}, ${firstName(ME)}`;
+  const complimentPool = (typeof window !== 'undefined' && window.BUHL_COMPLIMENTS) || [];
+  if (complimentPool.length) {
+    const dayIndex = Math.floor(Date.now() / (1000 * 60 * 60 * 24));
+    document.getElementById('compliment').textContent = complimentPool[dayIndex % complimentPool.length];
+  }
+  // Compact one-line date inline with greeting (e.g. "Mon, 14 Apr")
+  document.getElementById('today').textContent = new Date().toLocaleDateString('en-AU', {
+    weekday:'short', day:'numeric', month:'short'
+  });
+
+  // Parallel: jobs + activity + my time-entries (last ~3 weeks for week strip + history)
+  const fromIso = (() => {
+    const d = isoWeekMonday();
+    d.setDate(d.getDate() - 14); // include the previous two weeks for back-logging context
+    return _iso(d);
+  })();
+  const [jobsRes, actRes, teRes, msRes, mrRes] = await Promise.all([
+    fetch('/api/jobs', { credentials:'same-origin' }),
+    fetch('/api/user-activity', { credentials:'same-origin' }),
+    fetch('/api/time-entries?fromDate=' + encodeURIComponent(fromIso), { credentials:'same-origin' }),
+    fetch('/api/snags-mine?status=Open', { credentials:'same-origin' }).catch(() => null),
+    fetch('/api/snags-mine?status=Closed&view=raised', { credentials:'same-origin' }).catch(() => null),
+  ]);
+  JOBS = jobsRes.ok ? (((await jobsRes.json()).jobs) || []) : [];
+  ACTIVITY = actRes.ok ? (((await actRes.json()).entries) || []) : [];
+  MY_TIME_ENTRIES = teRes.ok ? (((await teRes.json()).entries) || []) : [];
+  MY_SNAGS = (msRes && msRes.ok) ? (((await msRes.json()).snags) || []) : [];
+  // Filter the raised+closed list to "someone else closed my raised snag in
+  // the last 7 days". Self-resolutions are excluded — "I raised it, I closed
+  // it" isn't useful in a 'Recently resolved' panel; the user already knows.
+  // Older resolutions are noise on the daily landing page.
+  {
+    const all = (mrRes && mrRes.ok) ? (((await mrRes.json()).snags) || []) : [];
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const myUsername = (ME && ME.username) || '';
+    MY_RECENT_RESOLVED = all.filter(s => {
+      if (s.updatedBy && s.updatedBy === myUsername) return false; // self-resolved
+      const t = Date.parse(s.closedAt || s.updatedAt || '');
+      return Number.isFinite(t) && t >= cutoff;
+    });
+  }
+
+  // Parallel: fetch per-job data (snags + dwellings) + on-site crew snapshot
+  // for today. The on-site read replaces the legacy /api/hours pull and now
+  // sources from time-entries via the small access-gated endpoint.
+  const todayIsoStr = todayIso();
+  await Promise.all(JOBS.map(async j => {
+    try {
+      const [d, c] = await Promise.all([
+        fetch('/api/data?jobId='   + encodeURIComponent(j.id), { credentials:'same-origin' }),
+        fetch('/api/time-entries-on-site?jobId=' + encodeURIComponent(j.id) +
+              '&date=' + encodeURIComponent(todayIsoStr), { credentials:'same-origin' }),
+      ]);
+      DATA_BY_JOB[j.id]          = d.ok ? (await d.json()) : { dwellings:{}, snags:[] };
+      CREW_ON_SITE_BY_JOB[j.id]  = c.ok ? (await c.json()) : { count: 0, users: [] };
+    } catch (e) {
+      DATA_BY_JOB[j.id]          = { dwellings:{}, snags:[] };
+      CREW_ON_SITE_BY_JOB[j.id]  = { count: 0, users: [] };
+    }
+  }));
+
+  renderAll();
+  afterRenderChecks();
+}
+
+function renderAll(){
+  renderBanner();
+  renderMySnags();
+  renderRecentResolved();
+  renderJobs();
+  renderMyWeek();
+}
+
+// ─── Banner: today's hours, click opens modal ────────────────────────────
+// Reads from MY_TIME_ENTRIES (new system). Returns the date-total, regardless
+// of how many jobs the day was split across.
+function todaysHoursDecimal(){
+  const t = todayIso();
+  const e = MY_TIME_ENTRIES.find(x => x.date === t);
+  return e ? Number(e.totalHours || 0) : 0;
+}
+function todaysEntry(){
+  return MY_TIME_ENTRIES.find(x => x.date === todayIso()) || null;
+}
+function renderBanner(){
+  const b = document.getElementById('banner');
+  const txt = document.getElementById('banner-txt');
+  const sub = document.getElementById('banner-sub');
+  const entry = todaysEntry();
+  const total = entry ? Number(entry.totalHours || 0) : 0;
+  if (total > 0) {
+    b.classList.add('logged');
+    const statusLabel = entry.status === 'approved' ? '✓ Approved'
+                      : entry.status === 'submitted' ? '✓ Submitted'
+                      : entry.status === 'rejected'  ? 'Rejected — fix & resubmit'
+                      : 'Draft';
+    const statusColor = entry.status === 'rejected' ? 'var(--red)'
+                       : entry.status === 'draft'   ? 'var(--muted)'
+                       : 'var(--green)';
+    txt.innerHTML = `Today: ${fmtDur(total)} <span style="color:${statusColor};font-size:13px;font-weight:700;margin-left:4px">${statusLabel}</span>`;
+    // Approved entries are read-only for tradies (server enforces) so the
+    // sub-text becomes "Tap to view" instead of an edit promise we can't keep.
+    sub.textContent =
+      entry.status === 'draft'    ? 'Tap to submit' :
+      entry.status === 'approved' ? 'Tap to view'   :
+      entry.status === 'rejected' ? 'Tap to fix & resubmit' :
+                                    'Tap to edit';
+  } else {
+    b.classList.remove('logged');
+    txt.textContent = `Log today's hours`;
+    sub.textContent = 'Takes 10 seconds';
+  }
+}
+
+// ─── Continue where you left off (top 3 unique {jobId,areaId}) ───────────
+function timeAgo(ts){
+  if (!ts) return '—';
+  const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return 'just now';
+  const m = Math.floor(s/60);
+  if (m < 60) return `${m} min${m!==1?'s':''} ago`;
+  const h = Math.floor(m/60);
+  if (h < 24) return `${h} hr${h!==1?'s':''} ago`;
+  const d = Math.floor(h/24);
+  return `${d} day${d!==1?'s':''} ago`;
+}
+
+// ─── My snags: cross-job list of snags assigned to me ──────────────────
+// Source: /api/snags-mine. Hidden when I have none. Tap a row → deep-links
+// to that job's Snags tab. Sorted by priority then oldest-open first.
+function renderMySnags(){
+  const sec = document.getElementById('mysnags-sec');
+  const list = document.getElementById('mysnags-list');
+  const cnt = document.getElementById('mysnags-count');
+  if (!sec || !list) return;
+  const snags = MY_SNAGS || [];
+  if (!snags.length) { sec.style.display = 'none'; return; }
+  sec.style.display = '';
+  if (cnt) cnt.textContent = snags.length + ' open';
+  // Cap at 5 inline; if more, show a "+N more" line linking to first job
+  const SHOW = 5;
+  const shown = snags.slice(0, SHOW);
+  list.innerHTML = shown.map(s => {
+    const prio = (s.priority || 'Medium').toLowerCase();
+    const where = s.dwellingName + (s.stage ? ' · ' + s.stage : '');
+    const goJob = `location.href='/jobs/${esc(s.jobId)}#snags'`;
+    return `<div class="md-mysnag" role="link" tabindex="0" onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
+      <div class="md-mysnag-accent ${esc(prio)}"></div>
+      <div class="md-mysnag-body">
+        <div class="md-mysnag-title">${esc(s.desc || '(no description)')}</div>
+        <div class="md-mysnag-meta"><b>${esc(s.jobName)}</b> · ${esc(where)}</div>
+      </div>
+      <span class="md-mysnag-prio ${esc(prio)}">${esc(s.priority || 'Medium')}</span>
+      <span class="md-mysnag-chev">&#8250;</span>
+    </div>`;
+  }).join('');
+  if (snags.length > SHOW) {
+    list.insertAdjacentHTML('beforeend',
+      `<div style="font-size:12px;color:var(--muted);text-align:center;padding:8px;font-weight:600">
+         +${snags.length - SHOW} more — open a job's Snags tab to see all
+       </div>`);
+  }
+}
+
+// ─── Recently resolved: snags I raised that someone else closed ─────────
+// Source: /api/snags-mine?view=raised&status=Closed, filtered client-side
+// to the last 7 days. This is the in-app mirror of the resolved push, so
+// users without push enabled still see when their issues are fixed.
+function renderRecentResolved(){
+  const sec = document.getElementById('resolved-sec');
+  const list = document.getElementById('resolved-list');
+  const cnt = document.getElementById('resolved-count');
+  if (!sec || !list) return;
+  const snags = MY_RECENT_RESOLVED || [];
+  if (!snags.length) { sec.style.display = 'none'; return; }
+  sec.style.display = '';
+  if (cnt) cnt.textContent = snags.length + ' in last 7 days';
+  const SHOW = 5;
+  const shown = snags.slice(0, SHOW);
+  list.innerHTML = shown.map(s => {
+    const where = s.dwellingName + (s.stage ? ' · ' + s.stage : '');
+    // timeAgo expects numeric ms; closedAt is an ISO string from the API.
+    const closedTs  = s.closedAt ? Date.parse(s.closedAt) : NaN;
+    const closedAgo = Number.isFinite(closedTs) ? timeAgo(closedTs) : '';
+    const byWhom = s.updatedBy ? ('by ' + s.updatedBy) : 'resolved';
+    const meta = `<b>${esc(s.jobName)}</b> · ${esc(where)} · ${esc(byWhom)}${closedAgo ? ' · ' + esc(closedAgo) : ''}`;
+    const goJob = `location.href='/jobs/${esc(s.jobId)}#snags'`;
+    return `<div class="md-mysnag" role="link" tabindex="0" onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
+      <div class="md-mysnag-accent resolved"></div>
+      <div class="md-mysnag-body">
+        <div class="md-mysnag-title">&#10003; ${esc(s.desc || '(no description)')}</div>
+        <div class="md-mysnag-meta">${meta}</div>
+      </div>
+      <span class="md-mysnag-prio resolved">Resolved</span>
+      <span class="md-mysnag-chev">&#8250;</span>
+    </div>`;
+  }).join('');
+  if (snags.length > SHOW) {
+    list.insertAdjacentHTML('beforeend',
+      `<div style="font-size:12px;color:var(--muted);text-align:center;padding:8px;font-weight:600">
+         +${snags.length - SHOW} more
+       </div>`);
+  }
+}
+
+// renderActionNeeded was removed in the My-Day simplification — workers
+// now see the unfiltered "Snags assigned to me" / "Recently resolved" /
+// "My week" sections directly. Compliance + rejected-hours alerts surface
+// in the appropriate per-row UIs (T&T tab, My Week row).
+// (no replacement function \u2014 the section is gone from the page)
+
+// ─── My jobs ─────────────────────────────────────────────────────────────
+function jobProgress(job){
+  const d = DATA_BY_JOB[job.id] || { dwellings:{} };
+  const areas = (job.areaGroups || []).flatMap(g => g.areas || []);
+  if (!areas.length) return 0;
+  const rt = job.roughInTasks || [];
+  const ft = job.fitOffTasks  || [];
+  if (!rt.length && !ft.length) return 0;
+  let sum = 0;
+  for (const a of areas) {
+    const rMap = ((d.dwellings[a.id]||{}).roughIn||{}).tasks || {};
+    const fMap = ((d.dwellings[a.id]||{}).fitOff ||{}).tasks || {};
+    const rPct = rt.length ? Math.round(rt.filter(t => rMap[t.id]==='complete').length/rt.length*100) : 0;
+    const fPct = ft.length ? Math.round(ft.filter(t => fMap[t.id]==='complete').length/ft.length*100) : 0;
+    const pct = (rt.length && ft.length) ? Math.round((rPct+fPct)/2)
+             :  rt.length ? rPct : fPct;
+    sum += pct;
+  }
+  return Math.round(sum / areas.length);
+}
+function crewTodayCount(job){
+  // Sourced from /api/time-entries-on-site (new system). Counts distinct users
+  // with a time-entry on this job for today.
+  const snap = CREW_ON_SITE_BY_JOB[job.id];
+  return snap ? Number(snap.count || 0) : 0;
+}
+function openSnagCount(job){
+  const d = DATA_BY_JOB[job.id] || { snags:[] };
+  return (d.snags || []).filter(s => s.status === 'Open').length;
+}
+function renderJobs(){
+  const active = JOBS.filter(j => (j.status || 'active') === 'active');
+  document.getElementById('jobs-count').textContent =
+    active.length + ' active';
+  const wrap = document.getElementById('jobs-list');
+  if (!active.length) {
+    wrap.innerHTML = `<div class="md-empty">No jobs assigned yet.</div>`;
+    return;
+  }
+  // After the My-Day simplification, the single-active-job promote rule
+  // is unconditional: if there's exactly one active job, surface it as
+  // the primary card so the next step is obvious.
+  const promoteSingle = active.length === 1;
+
+  let html = `<div class="md-jobs${promoteSingle ? ' md-jobs-promote' : ''}">`;
+  active.forEach(j => {
+    const pct = jobProgress(j);
+    const crew = crewTodayCount(j);
+    const sn   = openSnagCount(j);
+    // % pill colour: green at 100, amber when in progress, navy when 0
+    const pctClass = pct === 100 ? 'green' : pct > 0 ? 'amber' : 'navy';
+    // Meta line: prefer "on site today" if any; otherwise muted
+    const metaBits = [];
+    if (crew > 0) metaBits.push(`<span><b>${crew}</b> on site today</span>`);
+    if (sn > 0)   metaBits.push(`<a class="md-job-snag" href="/jobs/${esc(j.id)}#snags" onclick="event.stopPropagation()">${sn} open snag${sn!==1?'s':''}</a>`);
+    if (!metaBits.length) metaBits.push('<span>No activity today</span>');
+    // Row is a div (not <a>) so the snag chip can be a real nested link without
+    // the invalid <a><a></a></a> issue. Whole row navigates via onclick.
+    const goJob = `location.href='/jobs/${esc(j.id)}'`;
+    html += `<div class="md-job" role="link" tabindex="0" onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
+      <div class="md-job-body">
+        <div class="md-job-name">${esc(j.name)}</div>
+        <div class="md-job-meta">${metaBits.join('')}</div>
+      </div>
+      <div class="md-job-pct ${pctClass}">${pct}%</div>
+      <div class="md-job-chev">&#8250;</div>
+    </div>`;
+  });
+  html += `</div>`;
+  wrap.innerHTML = html;
+}
+
+// ─── My week ─────────────────────────────────────────────────────────────
+// Actionable per-day list for the worker. Tradies can scan their week, see
+// missing/logged at a glance, and tap any row (today or past) to add or edit
+// hours — same BuhlLogHours modal, prefilled to that date.
+function renderMyWeek(){
+  const wrap = document.getElementById('myweek-list');
+  const totalEl = document.getElementById('myweek-total');
+  if (!wrap) return;
+
+  const monday = isoWeekMonday();
+  const today  = new Date(); today.setHours(0,0,0,0);
+  const todayIsoStr = todayIso();
+
+  // Map ISO date → entry (latest if duplicates somehow exist)
+  const byDate = {};
+  for (const e of MY_TIME_ENTRIES) {
+    if (e && e.date) byDate[e.date] = e;
+  }
+
+  // Build seven days Mon..Sun
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday); d.setDate(monday.getDate() + i);
+    const iso = _iso(d);
+    const isFuture = d > today;
+    const isToday  = iso === todayIsoStr;
+    const isWeekend = (d.getDay() === 0 || d.getDay() === 6);
+    const entry = byDate[iso] || null;
+    const hasHours = entry && Number(entry.totalHours || 0) > 0;
+    days.push({ d, iso, isFuture, isToday, isWeekend, entry, hasHours });
+  }
+
+  // Week total (only count days with hours, regardless of weekday)
+  let total = 0;
+  for (const day of days) if (day.hasHours) total += Number(day.entry.totalHours || 0);
+  if (totalEl) {
+    totalEl.innerHTML = total > 0
+      ? `${fmtDur(total)} this week`
+      : '';
+  }
+
+  // "Submit all drafts" chip — only render when 2+ drafts in this week's view
+  // (a single-draft tradie can submit it inline by tapping the row).
+  const draftCount = days.filter(d => d.entry && d.entry.status === 'draft').length;
+  const submitBtn = document.getElementById('myweek-submit-drafts');
+  if (submitBtn) {
+    if (draftCount >= 2) {
+      submitBtn.textContent = 'Submit ' + draftCount + ' drafts';
+      submitBtn.style.display = '';
+      submitBtn.disabled = false;
+    } else {
+      submitBtn.style.display = 'none';
+    }
+  }
+
+  // Render each day. Tap behaviour: future/empty-weekend = no-op; everything
+  // else opens the BuhlLogHours modal pre-filled to that date.
+  const rows = days.map(day => {
+    const dayName  = day.d.toLocaleDateString('en-AU', { weekday: 'short' });
+    const datePart = day.d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+    const dayLabel = `${dayName} <span class="date">${datePart}</span>`;
+
+    let statusCls = '';
+    let statusLbl = '';
+    let metaHtml  = '';
+    let rowCls    = '';
+    let openOn    = day.iso; // default tap target
+
+    if (day.isFuture) {
+      rowCls = 'future';
+      statusCls = 'future';
+      statusLbl = 'Not due';
+      metaHtml  = '';
+      openOn = null; // no tap
+    } else if (day.hasHours) {
+      const e = day.entry;
+      // Status follows workflow if relevant; otherwise a generic "Logged".
+      if (e.status === 'rejected') { statusCls = 'rejected'; statusLbl = 'Rejected'; }
+      else if (e.status === 'submitted') { statusCls = 'submit';  statusLbl = 'Submitted'; }
+      else if (e.status === 'approved')  { statusCls = 'logged';  statusLbl = '✓ Approved'; }
+      else if (e.status === 'draft')     { statusCls = 'draft';   statusLbl = 'Draft'; }
+      else                               { statusCls = 'logged';  statusLbl = 'Logged'; }
+      // Show the dominant job (first allocation) + total hours
+      const firstAlloc = (e.allocations || [])[0];
+      const job = firstAlloc && firstAlloc.jobId
+        ? (JOBS.find(j => j.id === firstAlloc.jobId) || { name: firstAlloc.jobId })
+        : null;
+      const allocCount = (e.allocations || []).length;
+      const jobLabel = job
+        ? esc(job.name) + (allocCount > 1 ? ` <b>+${allocCount - 1}</b>` : '')
+        : '<i style="color:var(--muted)">Internal</i>';
+      metaHtml = `${jobLabel} &middot; <b>${esc(fmtDur(Number(e.totalHours || 0)))}</b>`;
+      if (day.isToday) rowCls = 'today';
+    } else if (day.isToday) {
+      rowCls = 'today';
+      statusCls = 'today';
+      statusLbl = 'Today';
+      metaHtml = 'Tap to log hours';
+    } else if (day.isWeekend) {
+      // Past weekend day with no entry — quiet, but tappable in case worker
+      // did weekend hours. Distinct from "Missing" weekday red treatment.
+      rowCls = 'weekend-empty';
+      statusCls = 'future';
+      statusLbl = 'Day off';
+      metaHtml  = '';
+      openOn = day.iso; // still tappable so weekend hours can be added
+    } else {
+      // Past weekday with no hours — the "missing" case
+      statusCls = 'missing';
+      statusLbl = 'Missing';
+      metaHtml  = 'Tap to add';
+    }
+
+    const handler = openOn
+      ? `onclick="openLhForDate('${openOn}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openLhForDate('${openOn}')}" tabindex="0" role="button"`
+      : 'tabindex="-1" aria-disabled="true"';
+
+    return `<div class="md-week-row ${rowCls}" ${handler}>
+      <div class="md-week-row-body">
+        <div class="md-week-row-day">${dayLabel}</div>
+        ${metaHtml ? `<div class="md-week-row-meta">${metaHtml}</div>` : ''}
+      </div>
+      ${statusLbl ? `<span class="md-week-row-status ${statusCls}">${statusLbl}</span>` : ''}
+      <span class="md-week-row-chev">&#8250;</span>
+    </div>`;
+  }).join('');
+
+  wrap.innerHTML = `<div class="md-week-card">${rows}</div>`;
+}
+
+// ─── After-render side-effects ───────────────────────────────────────────
+function afterRenderChecks(){
+  const params = new URLSearchParams(location.search);
+
+  // ?fixDate=YYYY-MM-DD — landing from a "Hours rejected" push. Auto-open
+  // BuhlLogHours pre-filled to that date so the tradie can edit and resubmit
+  // without hunting the right row in My Week. Consume the param so a refresh
+  // doesn't keep reopening the modal.
+  const fixDate = params.get('fixDate');
+  if (fixDate && /^\d{4}-\d{2}-\d{2}$/.test(fixDate)) {
+    setTimeout(() => openLhForDate(fixDate), 350);
+    params.delete('fixDate');
+    const qs = params.toString();
+    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+    return; // mutually exclusive with the everyday opener below
+  }
+
+  // Auto-open modal if after 16:00 and no hours logged today.
+  // Or if landing from push notification ?openHours=1.
+  const fromPush = params.get('openHours') === '1';
+  const after4 = new Date().getHours() >= 16;
+  const noneLogged = todaysHoursDecimal() === 0;
+  if ((fromPush || after4) && noneLogged) {
+    setTimeout(openLh, 400);
+  }
+  // After 5s, show push opt-in if eligible & not dismissed/enabled before
+  if (pushEligible() && !localStorage.getItem('push-asked')) {
+    setTimeout(() => {
+      if (!localStorage.getItem('push-asked')) {
+        document.getElementById('push-opt').classList.add('open');
+      }
+    }, 5000);
+  }
+}
+
+// ─── Log-hours opener ────────────────────────────────────────────────────
+// Phase 2: writes go through /api/time-entries via BuhlLogHours (log-hours-sheet.js).
+// Legacy /api/hours is no longer the source of truth for self-logged hours.
+
+// Most recently touched job — the modal pre-fills with this so the tradie
+// doesn't have to pick on the common single-job case.
+function _scheduledJobIdHint(){
+  const active = JOBS.filter(j => (j.status || 'active') === 'active');
+  if (active.length === 1) return active[0].id;
+  for (const e of ACTIVITY) {
+    if (active.find(j => j.id === e.jobId)) return e.jobId;
+  }
+  return active[0]?.id || null;
+}
+
+async function _refreshAfterTimeEntrySave(){
+  // Re-fetch my time-entries window (Mon-2w..today) and re-render dependent strips.
+  const fromIso = (() => {
+    const d = isoWeekMonday();
+    d.setDate(d.getDate() - 14);
+    return _iso(d);
+  })();
+  try {
+    const r = await fetch('/api/time-entries?fromDate=' + encodeURIComponent(fromIso), { credentials: 'same-origin' });
+    MY_TIME_ENTRIES = r.ok ? (((await r.json()).entries) || []) : MY_TIME_ENTRIES;
+  } catch (e) { /* keep existing */ }
+  renderBanner();
+  renderMyWeek();
+}
+
+function openMyDayLog(){
+  if (!window.BuhlLogHours) {
+    showToast && showToast('Log-hours module not loaded — refresh the page.', 'warn');
+    return;
+  }
+  // If today's entry already exists, open it for edit; otherwise create
+  const existing = todaysEntry();
+  BuhlLogHours.open({
+    scheduledJobId: _scheduledJobIdHint(),
+    entry: existing || undefined,
+    onSaved: _refreshAfterTimeEntrySave,
+  });
+}
+
+function openLhForDate(iso){
+  if (!window.BuhlLogHours) {
+    showToast && showToast('Log-hours module not loaded — refresh the page.', 'warn');
+    return;
+  }
+  const existing = MY_TIME_ENTRIES.find(e => e.date === iso) || null;
+  BuhlLogHours.open({
+    scheduledJobId: _scheduledJobIdHint(),
+    defaultDate: iso,
+    entry: existing || undefined,
+    onSaved: _refreshAfterTimeEntrySave,
+  });
+}
+
+// Bulk-submit every draft entry from the current week (Mon..Sun).
+// Tradies often log multiple days throughout the week as drafts then submit
+// the whole week on Friday — this turns N taps into 1.
+async function submitAllDrafts(){
+  const monday = isoWeekMonday();
+  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+  const fromIso = _iso(monday), toIso = _iso(sunday);
+  const drafts = MY_TIME_ENTRIES.filter(e =>
+    e && e.status === 'draft' && e.date >= fromIso && e.date <= toIso
+  );
+  if (!drafts.length) return;
+  if (!confirm('Submit ' + drafts.length + ' draft entr' + (drafts.length === 1 ? 'y' : 'ies') + ' for approval?')) return;
+
+  const btn = document.getElementById('myweek-submit-drafts');
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitting 0/' + drafts.length + '…'; }
+
+  let ok = 0, failed = 0;
+  // Sequential to keep stable progress text and avoid hammering blob writes.
+  for (let i = 0; i < drafts.length; i++) {
+    const e = drafts[i];
+    if (btn) btn.textContent = 'Submitting ' + (i + 1) + '/' + drafts.length + '…';
+    try {
+      const r = await fetch('/api/time-entries?date=' + encodeURIComponent(e.date), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ status: 'submitted' }),
+      });
+      if (r.ok) ok++; else failed++;
+    } catch (_) { failed++; }
+  }
+
+  if (btn) btn.textContent = 'Done';
+  if (failed > 0 && window.showToast) {
+    showToast('Submitted ' + ok + ', failed ' + failed + '. Check the rejected/draft rows below.', 'warn', 4500);
+  } else if (window.showToast) {
+    showToast('Submitted ' + ok + ' entries for approval.', 'success');
+  }
+  await _refreshAfterTimeEntrySave();
+}
+
+// ─── Push notifications ──────────────────────────────────────────────────
+function pushEligible(){
+  return 'serviceWorker' in navigator &&
+         'PushManager'    in window &&
+         'Notification'   in window &&
+         Notification.permission !== 'denied' &&
+         Notification.permission !== 'granted';  // only ask if default/unset
+}
+function dismissPush(){
+  document.getElementById('push-opt').classList.remove('open');
+  localStorage.setItem('push-asked', 'dismissed');
+}
+async function enablePush(){
+  document.getElementById('push-opt').classList.remove('open');
+  localStorage.setItem('push-asked', 'trying');
+  try {
+    // Fetch VAPID public key from server (set via env var VAPID_PUBLIC_KEY)
+    const kr = await fetch('/api/notifications?action=public-key', { credentials: 'same-origin' });
+    if (!kr.ok) throw new Error('push not configured');
+    const { publicKey } = await kr.json();
+    if (!publicKey) throw new Error('no VAPID key');
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') {
+      localStorage.setItem('push-asked', 'denied');
+      return;
+    }
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+    await fetch('/api/notifications?action=subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(sub),
+    });
+    localStorage.setItem('push-asked', 'enabled');
+  } catch (e) {
+    console.warn('push subscribe failed', e);
+    localStorage.setItem('push-asked', 'error');
+  }
+}
+function urlBase64ToUint8Array(base64){
+  const padding = '='.repeat((4 - base64.length % 4) % 4);
+  const b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(b64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; ++i) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+// Register SW on load (separate from push opt-in — needed for manifest install)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+
+// ─── Sign out ────────────────────────────────────────────────────────────
+document.getElementById('logout').addEventListener('click', async () => {
+  await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' });
+  location.href = '/login';
+});
+
+load();
+</script>
+</body>
+</html>

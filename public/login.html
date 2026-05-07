@@ -5,34 +5,29 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>buhl — sign in</title>
 <link rel="stylesheet" href="/theme.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BuhlOS">
+<meta name="theme-color" content="#0d1f35">
 <style>
   .page { min-height: 100vh; display: flex; flex-direction: column; }
   .wrap { flex: 1; display: flex; align-items: center; justify-content: center;
-    padding: 24px; padding-bottom: max(24px, env(safe-area-inset-bottom)); }
-  .login-card { width: 100%; max-width: 360px; }
-  .logo-block { text-align: center; margin-bottom: 20px; }
-  .logo-block img { max-width: 120px; height: auto; }
-  h1 { margin: 0 0 4px; font-size: var(--fs-xl); font-weight: 700; text-align: center; }
-  .sub { margin: 0 0 24px; color: var(--muted); text-align: center; font-size: var(--fs-sm); }
-  .field { margin-bottom: 4px; }
-  .login-btn { width: 100%; margin-top: 20px; }
+    padding: 24px 16px; padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+  .login-card { width: 100%; max-width: 400px; }
+  .login-logo { display: block; margin: 0 auto 24px; max-width: 160px; height: auto; }
+  .login-card input { min-height: 44px; font-size: 16px; }
+  .login-btn { width: 100%; min-height: 44px; margin-top: 8px; }
   .err { margin-top: 12px; color: var(--danger); font-size: var(--fs-sm);
          text-align: center; min-height: 18px; }
-  .hint { margin-top: 14px; color: var(--muted); font-size: var(--fs-xs); text-align: center; }
 </style>
 </head>
 <body>
 <div class="page">
-  <header class="app-header">
-    <img src="/BUHL_LOGO.png" class="logo" alt="buhl electrical" onerror="this.style.display='none'">
-  </header>
   <div class="wrap">
     <form class="card login-card" id="f">
-      <div class="logo-block">
-        <img src="/BUHL_LOGO.png" alt="buhl" onerror="this.style.display='none'">
-      </div>
-      <h1>Sign in</h1>
-      <p class="sub">buhl electrical job management</p>
+      <img src="/BUHL_LOGO.png" class="login-logo" alt="buhl electrical" onerror="this.style.display='none'">
       <div class="field">
         <label for="u">Username</label>
         <input id="u" name="username" autocomplete="username"
@@ -45,7 +40,6 @@
       </div>
       <button type="submit" class="btn primary login-btn" id="btn">Sign in</button>
       <div class="err" id="err"></div>
-      <div class="hint">Enter your PIN or password.</div>
     </form>
   </div>
 </div>
@@ -70,16 +64,26 @@ f.addEventListener('submit', async (e) => {
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'Sign in failed');
-    location.href = '/jobs';
+    const role = j.user && j.user.role;
+    location.href = landingFor(role);
   } catch (e) {
     err.textContent = e.message;
     btn.disabled = false;
     btn.textContent = 'Sign in';
   }
 });
+function landingFor(role) {
+  if (role === 'admin' || role === 'leadingHand') return '/overview';
+  if (role === 'tradie') return '/my-day';
+  return '/jobs';
+}
 fetch('/api/auth?action=me', { credentials: 'same-origin' })
   .then(r => r.ok ? r.json() : null)
-  .then(d => { if (d && d.user) location.href = '/jobs'; })
+  .then(d => {
+    if (d && d.user) {
+      location.href = landingFor(d.user.role);
+    }
+  })
   .catch(() => {});
 </script>
 </body>

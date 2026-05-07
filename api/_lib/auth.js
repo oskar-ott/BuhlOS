@@ -101,8 +101,19 @@ async function requireAuth(req, res, opts = {}) {
 function canWrite(user, jobId) {
   if (!user) return false;
   if (user.role === 'admin') return true;
-  if (user.role === 'tradie') return (user.assignedJobIds || []).includes(jobId);
+  if (user.role === 'tradie' || user.role === 'leadingHand') {
+    return (user.assignedJobIds || []).includes(jobId);
+  }
   return false; // client is read-only
+}
+
+// Check if a user can MANAGE a job (edit setup, crew, client).
+// Admin can manage any job; leadingHand only their assigned jobs.
+function canManageJob(user, jobId) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (user.role === 'leadingHand') return (user.assignedJobIds || []).includes(jobId);
+  return false;
 }
 
 module.exports = {
@@ -115,4 +126,5 @@ module.exports = {
   getCurrentUser,
   requireAuth,
   canWrite,
+  canManageJob,
 };

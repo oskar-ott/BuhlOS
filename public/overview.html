@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>buhl — operations</title>
+<link rel="stylesheet" href="/theme.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BuhlOS">
+<meta name="theme-color" content="#0d1f35">
+<script src="/mobile-nav.js" defer></script>
+<script src="/install-prompt.js" defer></script>
+<script src="/lib/approvals-badge.js" defer></script>
+<style>
+  .app-header {
+    position: sticky; top: 0; z-index: 100;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+    padding-top: max(0px, env(safe-area-inset-top));
+    justify-content: space-between;
+  }
+  .app-header .hdr-left  { display: flex; align-items: center; gap: 10px; }
+  .app-header .hdr-right { display: flex; align-items: center; gap: 10px; }
+  .me { font-size: var(--fs-sm); color: rgba(255,255,255,.65); }
+  .nav-pill {
+    display: inline-flex; align-items: center; height: 34px;
+    padding: 0 12px; border-radius: 999px;
+    font-size: var(--fs-xs); font-weight: 600;
+    color: rgba(255,255,255,.65);
+    border: 1px solid rgba(255,255,255,.12);
+    background: transparent; text-decoration: none;
+    transition: background .15s, color .15s;
+  }
+  .nav-pill:hover { color: #fff; background: rgba(255,255,255,.08); }
+  .nav-pill.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+  .ov-loading {
+    padding: 40px 20px; text-align: center;
+    color: var(--muted); font-size: var(--fs-sm);
+  }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <div class="hdr-left">
+    <img src="/BUHL_LOGO.png" class="logo" alt="buhl electrical" onerror="this.style.display='none'">
+    <a class="nav-pill active" href="/overview">Operations</a>
+    <a class="nav-pill" href="/jobs">Jobs</a>
+    <a class="nav-pill" href="/approvals">Approvals</a>
+    <a class="nav-pill" id="adminLink" href="/admin" style="display:none">Admin</a>
+  </div>
+  <div class="hdr-right">
+    <span class="me" id="me"></span>
+    <button class="btn ghost" id="logout">Sign out</button>
+  </div>
+</header>
+
+<div class="ov-page">
+  <div class="ov-hdr">
+    <div class="ov-hdr-l">
+      <h1 class="ov-title">Operations</h1>
+      <div class="ov-sub" id="today-sub">Loading…</div>
+    </div>
+  </div>
+
+  <div id="ov-body">
+    <div class="ov-loading">Loading operational data…</div>
+  </div>
+</div>
+
+<script>
+// ─── Auth & bootstrap ─────────────────────────────────────────────────────
+let ME = null;
+let JOBS = [];
+let USERS = [];            // tradies + leading hands
+let JOB_DATA = {};         // jobId -> { data } (snag details — for snag age / latest)
+let TIME_ENTRIES = [];     // cross-user, range = 2 weeks back .. today (one fetch)
+let EXPIRING_TAGS = [];    // expired or expiring-within-14d tags across visible jobs
+let TODAY_ISO = _iso(new Date());
+
+function _iso(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function _daysAgo(iso){
+  if(!iso) return Infinity;
+  const d = new Date(iso);
+  if (isNaN(d)) return Infinity;
+  return Math.floor((new Date(TODAY_ISO) - d) / (1000*60*60*24));
+}
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+function pluralise(n, singular, plural){
+  return n === 1 ? singular : (plural || singular + 's');
+}
+
+async function load(){
+  // Auth
+  const meRes = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
+  if (!meRes.ok) { location.href = '/login'; return; }
+  const { user } = await meRes.json();
+  ME = user;
+
+  // Role gate
+  if (ME.role !== 'admin' && ME.role !== 'leadingHand') {
+    location.href = '/jobs';
+    return;
+  }
+
+  // Header bits
+  const roleLabel = { admin:'Admin', leadingHand:'Leading Hand' }[ME.role] || ME.role;
+  document.getElementById('me').textContent = ME.username + ' · ' + roleLabel;
+  if (ME.role === 'admin') document.getElementById('adminLink').style.display = 'inline-flex';
+
+  // Date in subhead
+  const today = new Date();
+  document.getElementById('today-sub').textContent =
+    today.toLocaleDateString('en-AU', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+
+  // Fetch jobs + crew users + cross-user time-entries in parallel
+  // Time-entries window: from 2 weeks before this Monday → today.
+  // That covers labour-this-week + missed-yesterday + last-activity-by-job.
+  const monday = isoWeekStart(new Date());
+  const fromIso = (() => { const d = new Date(monday); d.setDate(d.getDate() - 14); return _iso(d); })();
+  const toIsoAll = TODAY_ISO;
+  const [jobsRes, usersRes, teRes, etRes] = await Promise.all([
+    fetch('/api/jobs', { credentials:'same-origin' }),
+    fetch('/api/users?action=listTradies', { credentials:'same-origin' }),
+    fetch('/api/time-entries-overview?fromDate=' + encodeURIComponent(fromIso) +
+          '&toDate=' + encodeURIComponent(toIsoAll), { credentials:'same-origin' }),
+    fetch('/api/tags-expiring?withinDays=14', { credentials:'same-origin' }).catch(() => null),
+  ]);
+  if (jobsRes.ok)  JOBS  = ((await jobsRes.json()).jobs)  || [];
+  if (usersRes.ok) USERS = ((await usersRes.json()).users) || [];
+  if (teRes.ok)    TIME_ENTRIES = ((await teRes.json()).entries) || [];
+  EXPIRING_TAGS = (etRes && etRes.ok) ? ((await etRes.json()).tags) || [] : [];
+
+  // Fetch per-job snag details for active jobs (no hours read — that comes
+  // from TIME_ENTRIES now). Snag detail still needed for age / latest.
+  const activeJobs = JOBS.filter(j => (j.status || 'active') === 'active');
+  await Promise.all(activeJobs.map(async j => {
+    const dRes = await fetch('/api/data?jobId=' + encodeURIComponent(j.id), { credentials:'same-origin' });
+    JOB_DATA[j.id] = { data: dRes.ok ? await dRes.json() : { dwellings:{}, snags:[] } };
+  }));
+
+  render();
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+function allAreas(job){
+  return (job.areaGroups || []).flatMap(g => g.areas || []);
+}
+function jobProgress(job){
+  // Mirrors index.html's pct calc: average of rough & fit-off task completion per area
+  const areas = allAreas(job);
+  if (!areas.length) return 0;
+  const d = (JOB_DATA[job.id] && JOB_DATA[job.id].data) || { dwellings:{} };
+  const dwellings = d.dwellings || {};
+  const rt = job.roughInTasks || [];
+  const ft = job.fitOffTasks  || [];
+  if (!rt.length && !ft.length) return 0;
+  let sum = 0;
+  for (const a of areas) {
+    const rMap = ((dwellings[a.id]||{}).roughIn||{}).tasks || {};
+    const fMap = ((dwellings[a.id]||{}).fitOff ||{}).tasks || {};
+    const rPct = rt.length ? Math.round(rt.filter(t=>rMap[t.id]==='complete').length/rt.length*100) : 0;
+    const fPct = ft.length ? Math.round(ft.filter(t=>fMap[t.id]==='complete').length/ft.length*100) : 0;
+    const pct  = (rt.length && ft.length) ? Math.round((rPct+fPct)/2)
+              :  rt.length                 ? rPct
+              :                              fPct;
+    sum += pct;
+  }
+  return Math.round(sum / areas.length);
+}
+function openSnags(job){
+  const d = (JOB_DATA[job.id] && JOB_DATA[job.id].data) || { snags:[] };
+  return (d.snags || []).filter(s => s.status === 'Open');
+}
+function latestSnagCreated(job){
+  const open = openSnags(job);
+  if (!open.length) return null;
+  let newest = null;
+  for (const s of open) {
+    const t = s.createdAt || s.date || null;
+    if (!t) continue;
+    if (!newest || t > newest) newest = t;
+  }
+  return newest;
+}
+function oldestSnagAgeDays(job){
+  const open = openSnags(job);
+  if (!open.length) return 0;
+  let oldest = null;
+  for (const s of open) {
+    const t = s.createdAt || s.date || null;
+    if (!t) continue;
+    if (!oldest || t < oldest) oldest = t;
+  }
+  return oldest ? _daysAgo(oldest) : 0;
+}
+function lastActivityIso(job){
+  // Most recent of: any time-entry with allocation on this job, any snag createdAt (open or closed).
+  const d = (JOB_DATA[job.id] && JOB_DATA[job.id].data)  || { snags:[] };
+  let latest = null;
+  for (const e of TIME_ENTRIES) {
+    if (!e.date) continue;
+    const onThisJob = (e.allocations || []).some(a => a.jobId === job.id);
+    if (!onThisJob) continue;
+    if (!latest || e.date > latest) latest = e.date;
+  }
+  (d.snags || []).forEach(s => {
+    const t = (s.createdAt || s.date || '').slice(0,10);
+    if (t && (!latest || t > latest)) latest = t;
+  });
+  return latest;
+}
+function crewToday(job){
+  // Distinct users with a time-entry today that has an allocation on this job.
+  const set = new Set();
+  for (const e of TIME_ENTRIES) {
+    if (e.date !== TODAY_ISO) continue;
+    if ((e.allocations || []).some(a => a.jobId === job.id)) set.add(e.userId);
+  }
+  return set.size;
+}
+
+// ISO week: weeks start Monday
+function isoWeekStart(d){
+  const t = new Date(d);
+  const day = t.getDay() || 7;
+  if (day !== 1) t.setDate(t.getDate() - (day - 1));
+  t.setHours(0,0,0,0);
+  return t;
+}
+function thisWeekRange(){
+  const monday = isoWeekStart(new Date());
+  const next   = new Date(monday); next.setDate(monday.getDate() + 7);
+  return { fromIso: _iso(monday), toIso: _iso(next) };
+}
+
+// Sum totalHours per user across all entries Mon..Sun of this week.
+// Now reads from TIME_ENTRIES (per-user shape).
+function weekHoursByUser(){
+  const { fromIso, toIso } = thisWeekRange();
+  const totals = {};                 // userId -> { name, hours, userId }
+  let grandTotal = 0;
+  for (const e of TIME_ENTRIES) {
+    if (!e.date || e.date < fromIso || e.date >= toIso) continue;
+    const hrs = Number(e.totalHours) || 0;
+    if (!hrs) continue;
+    grandTotal += hrs;
+    const key = e.userId || ('name:' + (e.userName || '—'));
+    if (!totals[key]) totals[key] = { name: e.userName || e.userId || '—', hours: 0, userId: e.userId || null };
+    totals[key].hours += hrs;
+  }
+  const rows = Object.values(totals).sort((a,b) => b.hours - a.hours);
+  return { rows, grandTotal };
+}
+
+// Who logged on a given date — returns set of userIds with any entry on that date.
+function loggedOnDate(iso){
+  const set = new Set();
+  for (const e of TIME_ENTRIES) {
+    if (e.date === iso && e.userId) set.add(e.userId);
+  }
+  return set;
+}
+
+// Last active date + last job for each crew user (preferring the entry's first
+// allocation as their "last job" — consistent with how the per-row meta reads).
+function crewLastActivity(){
+  const map = {};   // userId -> { lastIso, lastJob }
+  const jobById = {}; for (const j of JOBS) jobById[j.id] = j;
+  // Iterate newest-first so first hit per user wins
+  const sorted = TIME_ENTRIES.slice().sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+  for (const e of sorted) {
+    if (!e.userId || !e.date) continue;
+    if (map[e.userId]) continue;
+    const firstJobId = (e.allocations || []).find(a => a.jobId)?.jobId;
+    map[e.userId] = { lastIso: e.date, lastJob: firstJobId ? (jobById[firstJobId] || null) : null };
+  }
+  return map;
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────
+function render(){
+  const body = document.getElementById('ov-body');
+  let html = '';
+  html += renderAttention();
+  html += renderTodayActivity();
+  html += renderActiveJobs();
+  html += renderLabourWeek();
+  html += renderPeople();
+  body.innerHTML = html;
+}
+
+// "Today's activity" — pulse-of-the-org strip. Computed client-side from
+// existing JOB_DATA (snags) + TIME_ENTRIES so no extra fetch is needed.
+// Events surfaced (most recent first):
+//   • Snag raised today (per snag)
+//   • Snag resolved today (per snag) — uses closedAt
+//   • Hours submitted today (per entry) — uses submittedAt
+// Hidden when empty so the page doesn't carry a "No activity" placeholder.
+function renderTodayActivity(){
+  const events = [];
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const dayStartMs = dayStart.getTime();
+
+  const jobNameById = {};
+  for (const j of JOBS) jobNameById[j.id] = j.name;
+
+  // Snags created or closed today
+  for (const jobId of Object.keys(JOB_DATA || {})) {
+    const data = (JOB_DATA[jobId] && JOB_DATA[jobId].data) || {};
+    const jobName = jobNameById[jobId] || jobId;
+    for (const s of (data.snags || [])) {
+      const createdMs = s.createdAt ? Date.parse(s.createdAt) : NaN;
+      if (Number.isFinite(createdMs) && createdMs >= dayStartMs) {
+        events.push({
+          ts: createdMs,
+          kind: 'snag-raised',
+          jobId, jobName,
+          actor: s.by || '—',
+          desc: s.desc || '(no description)',
+          priority: s.priority || 'Medium',
+          snagId: s.id,
+        });
+      }
+      if (s.status === 'Closed') {
+        const closedMs = s.closedAt ? Date.parse(s.closedAt) : NaN;
+        if (Number.isFinite(closedMs) && closedMs >= dayStartMs) {
+          events.push({
+            ts: closedMs,
+            kind: 'snag-resolved',
+            jobId, jobName,
+            actor: s.updatedBy || '—',
+            desc: s.desc || '(no description)',
+            snagId: s.id,
+          });
+        }
+      }
+    }
+  }
+
+  // Hours submitted today
+  for (const e of (TIME_ENTRIES || [])) {
+    const submittedMs = e.submittedAt ? Date.parse(e.submittedAt) : NaN;
+    if (!Number.isFinite(submittedMs) || submittedMs < dayStartMs) continue;
+    events.push({
+      ts: submittedMs,
+      kind: 'hours-submitted',
+      actor: e.userName || e.userId,
+      hours: Number(e.totalHours) || 0,
+      date: e.date,
+      status: e.status,
+    });
+  }
+
+  if (!events.length) return ''; // hide section entirely when calm
+
+  events.sort((a, b) => b.ts - a.ts);
+  const SHOW = 8;
+  const shown = events.slice(0, SHOW);
+
+  // Time-of-day formatter (24h, like "14:32") — date is implicitly "today"
+  // for everything in this list, so we don't repeat it on every row.
+  const fmtTime = ms => {
+    const d = new Date(ms);
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  };
+
+  let body = `<div class="ov-list">`;
+  for (const ev of shown) {
+    if (ev.kind === 'snag-raised') {
+      const tone = ev.priority === 'High' ? 'red' : 'amber';
+      const url  = '/jobs/' + esc(ev.jobId) + '?snag=' + esc(ev.snagId) + '#snags';
+      body += `<a class="ov-row clickable" href="${url}">
+        <div class="ov-row-accent ${tone}"></div>
+        <div class="ov-row-body" style="padding-left:6px">
+          <div class="ov-row-title">Snag raised — ${esc(ev.desc)}</div>
+          <div class="ov-row-meta">
+            <span><b>${esc(ev.jobName)}</b></span>
+            <span>by <b>${esc(ev.actor)}</b></span>
+            <span>${fmtTime(ev.ts)}</span>
+          </div>
+        </div>
+        <div class="ov-row-right"><span class="ov-chip ${tone}">${esc(ev.priority)}</span></div>
+      </a>`;
+    } else if (ev.kind === 'snag-resolved') {
+      const url = '/jobs/' + esc(ev.jobId) + '?snag=' + esc(ev.snagId) + '#snags';
+      body += `<a class="ov-row clickable" href="${url}">
+        <div class="ov-row-accent green"></div>
+        <div class="ov-row-body" style="padding-left:6px">
+          <div class="ov-row-title">✓ Snag resolved — ${esc(ev.desc)}</div>
+          <div class="ov-row-meta">
+            <span><b>${esc(ev.jobName)}</b></span>
+            <span>by <b>${esc(ev.actor)}</b></span>
+            <span>${fmtTime(ev.ts)}</span>
+          </div>
+        </div>
+        <div class="ov-row-right"><span class="ov-chip green">Resolved</span></div>
+      </a>`;
+    } else if (ev.kind === 'hours-submitted') {
+      const tone = ev.status === 'approved' ? 'green' : 'amber';
+      body += `<a class="ov-row clickable" href="/approvals">
+        <div class="ov-row-accent ${tone}"></div>
+        <div class="ov-row-body" style="padding-left:6px">
+          <div class="ov-row-title">Hours submitted — ${esc(ev.actor)}</div>
+          <div class="ov-row-meta">
+            <span><b>${ev.hours.toFixed(1)}h</b> for ${esc(ev.date)}</span>
+            <span>${fmtTime(ev.ts)}</span>
+          </div>
+        </div>
+        <div class="ov-row-right"><span class="ov-chip ${tone}">${ev.status === 'approved' ? 'Approved' : 'Pending'}</span></div>
+      </a>`;
+    }
+  }
+  body += `</div>`;
+  if (events.length > SHOW) {
+    body += `<div class="ov-view-all" style="border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);margin-top:-1px">+${events.length - SHOW} more events today</div>`;
+  }
+
+  return `<section class="ov-sec">
+    <div class="ov-sec-hdr">
+      <h2 class="ov-sec-title">Today's activity</h2>
+      <span class="ov-sec-count">${events.length} ${events.length===1?'event':'events'}</span>
+    </div>
+    ${body}
+  </section>`;
+}
+
+function renderAttention(){
+  const items = [];
+
+  // (a-zero) Compliance: expired/expiring T&T entries — top of the queue
+  // because retest deadlines are non-negotiable. One row per job; severity
+  // is "red" if any tag is expired, otherwise "amber".
+  if ((EXPIRING_TAGS || []).length) {
+    const byJob = {};
+    for (const t of EXPIRING_TAGS) {
+      if (!byJob[t.jobId]) byJob[t.jobId] = { jobId: t.jobId, jobName: t.jobName, expired: 0, soon: 0 };
+      if (t.status === 'expired') byJob[t.jobId].expired++;
+      else byJob[t.jobId].soon++;
+    }
+    const tagItems = Object.values(byJob)
+      .sort((a, b) => (b.expired - a.expired) || (b.soon - a.soon))
+      .map(x => ({ kind: 'tags-expiring', jobId: x.jobId, jobName: x.jobName, expired: x.expired, soon: x.soon }));
+    tagItems.forEach(x => items.push(x));
+  }
+
+  // (a) Jobs with open snags → one row per job, sorted by oldest-snag age desc
+  const snagJobs = JOBS
+    .filter(j => (j.status || 'active') === 'active' && openSnags(j).length > 0)
+    .map(j => ({
+      kind: 'snag',
+      job: j,
+      count: openSnags(j).length,
+      ageDays: oldestSnagAgeDays(j),
+    }))
+    .sort((a,b) => b.ageDays - a.ageDays);
+  snagJobs.forEach(x => items.push(x));
+
+  // (b) Active jobs with no activity 7+ days
+  const stale = JOBS
+    .filter(j => (j.status || 'active') === 'active')
+    .map(j => ({ job: j, lastIso: lastActivityIso(j) }))
+    .filter(x => {
+      // Exclude jobs we already flagged for snags
+      if (snagJobs.find(s => s.job.id === x.job.id)) return false;
+      const days = _daysAgo(x.lastIso);
+      return days >= 7;
+    })
+    .sort((a,b) => _daysAgo(b.lastIso) - _daysAgo(a.lastIso))
+    .map(x => ({ kind: 'stale', job: x.job, lastIso: x.lastIso, ageDays: _daysAgo(x.lastIso) }));
+  stale.forEach(x => items.push(x));
+
+  // (c) Tradies who did not log hours yesterday
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  const yIso = _iso(y);
+  const dow = y.getDay(); // 0=Sun 6=Sat — only flag weekdays
+  if (dow !== 0 && dow !== 6) {
+    const loggedY = loggedOnDate(yIso);
+    const tradies = USERS.filter(u => u.role === 'tradie');
+    const missed = tradies.filter(u => !loggedY.has(u.id));
+    missed.forEach(u => items.push({ kind:'missed-hours', user: u, iso: yIso }));
+  }
+
+  let body;
+  if (!items.length) {
+    body = `<div class="ov-empty">All clear — no jobs need attention, all hours logged.</div>`;
+  } else {
+    const SHOW = 5;
+    const shown = items.slice(0, SHOW);
+    body = `<div class="ov-list">`;
+    shown.forEach(it => {
+      if (it.kind === 'tags-expiring') {
+        const total = it.expired + it.soon;
+        const tone = it.expired > 0 ? 'red' : 'amber';
+        const sub = it.expired && it.soon
+          ? `<b>${it.expired}</b> expired · <b>${it.soon}</b> due soon`
+          : it.expired
+            ? `<b>${it.expired}</b> ${pluralise(it.expired,'tag')} expired`
+            : `<b>${it.soon}</b> ${pluralise(it.soon,'tag')} due in 14d`;
+        body += `<a class="ov-row clickable" href="/jobs/${esc(it.jobId)}#tags">
+          <div class="ov-row-accent ${tone}"></div>
+          <div class="ov-row-body" style="padding-left:6px">
+            <div class="ov-row-title">${esc(it.jobName)} — Test &amp; Tag</div>
+            <div class="ov-row-meta">
+              <span>${sub}</span>
+              <span><b>${total}</b> total</span>
+            </div>
+          </div>
+          <div class="ov-row-right"><span class="ov-chip ${tone}">${it.expired > 0 ? 'Expired' : 'T&amp;T'}</span></div>
+        </a>`;
+      } else if (it.kind === 'snag') {
+        body += `<a class="ov-row clickable" href="/jobs/${esc(it.job.id)}">
+          <div class="ov-row-accent red"></div>
+          <div class="ov-row-body" style="padding-left:6px">
+            <div class="ov-row-title">${esc(it.job.name)}</div>
+            <div class="ov-row-meta">
+              <span><b>${it.count}</b> open ${pluralise(it.count,'snag')}</span>
+              ${it.ageDays ? `<span>Oldest <b>${it.ageDays}d</b> old</span>` : ''}
+            </div>
+          </div>
+          <div class="ov-row-right"><span class="ov-chip red">Snags</span></div>
+        </a>`;
+      } else if (it.kind === 'stale') {
+        body += `<a class="ov-row clickable" href="/jobs/${esc(it.job.id)}">
+          <div class="ov-row-accent amber"></div>
+          <div class="ov-row-body" style="padding-left:6px">
+            <div class="ov-row-title">${esc(it.job.name)}</div>
+            <div class="ov-row-meta">
+              <span>No activity <b>${isFinite(it.ageDays) ? it.ageDays+'d' : '—'}</b></span>
+              ${it.lastIso ? `<span>Last <b>${esc(it.lastIso)}</b></span>` : '<span>No hours ever logged</span>'}
+            </div>
+          </div>
+          <div class="ov-row-right"><span class="ov-chip amber">Stale</span></div>
+        </a>`;
+      } else if (it.kind === 'missed-hours') {
+        body += `<div class="ov-row">
+          <div class="ov-row-accent amber"></div>
+          <div class="ov-row-body" style="padding-left:6px">
+            <div class="ov-row-title">${esc(it.user.username)} — no hours yesterday</div>
+            <div class="ov-row-meta">
+              <span>Missing <b>${esc(it.iso)}</b></span>
+            </div>
+          </div>
+          <div class="ov-row-right"><span class="ov-chip amber">Hours</span></div>
+        </div>`;
+      }
+    });
+    body += `</div>`;
+    if (items.length > SHOW) {
+      body += `<div class="ov-view-all" style="border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);margin-top:-1px">View all ${items.length} items — sorted by urgency</div>`;
+    }
+  }
+  return `<section class="ov-sec">
+    <div class="ov-sec-hdr">
+      <h2 class="ov-sec-title">What needs attention</h2>
+      <span class="ov-sec-count">${items.length} ${pluralise(items.length,'item')}</span>
+    </div>
+    ${body}
+  </section>`;
+}
+
+function renderActiveJobs(){
+  const active = JOBS.filter(j => (j.status || 'active') === 'active');
+  if (!active.length) {
+    return `<section class="ov-sec">
+      <div class="ov-sec-hdr"><h2 class="ov-sec-title">Active jobs</h2><span class="ov-sec-count">0</span></div>
+      <div class="ov-empty">No active jobs.</div>
+    </section>`;
+  }
+  // Sort: snags desc, then last-activity asc (most stale first)
+  active.sort((a,b) => {
+    const sa = openSnags(a).length, sb = openSnags(b).length;
+    if (sa !== sb) return sb - sa;
+    const la = lastActivityIso(a) || '', lb = lastActivityIso(b) || '';
+    return la.localeCompare(lb);
+  });
+
+  const SHOW = 6;
+  const shown = active.slice(0, SHOW);
+  let body = `<div class="ov-list">`;
+  shown.forEach(j => {
+    const pct = jobProgress(j);
+    const sn  = openSnags(j).length;
+    const la  = lastActivityIso(j);
+    const laDays = la ? _daysAgo(la) : null;
+    const crewN = crewToday(j);
+    const typeLabel = j.type || '—';
+    body += `<a class="ov-row clickable" href="/jobs/${esc(j.id)}">
+      <div class="ov-row-body">
+        <div class="ov-row-title">${esc(j.name)}</div>
+        <div class="ov-row-meta">
+          <span>${esc(typeLabel)}</span>
+          <span><b>${pct}%</b> complete</span>
+          ${sn > 0 ? `<span style="color:var(--red)"><b>${sn}</b> open ${pluralise(sn,'snag')}</span>` : ''}
+          ${crewN > 0 ? `<span><b>${crewN}</b> on site today</span>` : ''}
+          ${la ? `<span>Last activity <b>${laDays === 0 ? 'today' : laDays === 1 ? 'yesterday' : laDays + 'd ago'}</b></span>` : '<span>No activity yet</span>'}
+        </div>
+      </div>
+      <div class="ov-row-right"><b>${pct}%</b></div>
+    </a>`;
+  });
+  body += `</div>`;
+  if (active.length > SHOW) {
+    body += `<a class="ov-view-all" href="/jobs" style="border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);margin-top:-1px">View all ${active.length} active jobs</a>`;
+  }
+  return `<section class="ov-sec">
+    <div class="ov-sec-hdr">
+      <h2 class="ov-sec-title">Active jobs</h2>
+      <span class="ov-sec-count">${active.length}</span>
+    </div>
+    ${body}
+  </section>`;
+}
+
+function renderLabourWeek(){
+  const { rows, grandTotal } = weekHoursByUser();
+  const { fromIso } = thisWeekRange();
+  const monLabel = new Date(fromIso).toLocaleDateString('en-AU', { day:'numeric', month:'short' });
+
+  let body;
+  if (!rows.length) {
+    body = `<div class="ov-empty">No hours logged this week yet.</div>`;
+  } else {
+    const SHOW = 6;
+    const shown = rows.slice(0, SHOW);
+    body = `<div class="ov-list">`;
+    // Total row first
+    body += `<div class="ov-row" style="background:#f8fafc;font-weight:600">
+      <div class="ov-row-body">
+        <div class="ov-row-title">Team total</div>
+        <div class="ov-row-meta"><span>Week of ${esc(monLabel)}</span></div>
+      </div>
+      <div class="ov-row-right"><b>${grandTotal.toFixed(1)}h</b></div>
+    </div>`;
+    shown.forEach(r => {
+      body += `<div class="ov-row">
+        <div class="ov-row-body">
+          <div class="ov-row-title">${esc(r.name)}</div>
+        </div>
+        <div class="ov-row-right"><b>${r.hours.toFixed(1)}h</b></div>
+      </div>`;
+    });
+    body += `</div>`;
+    if (rows.length > SHOW) {
+      body += `<div class="ov-view-all" style="border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);margin-top:-1px">${rows.length - SHOW} more crew — open a job to see per-day detail</div>`;
+    }
+  }
+  return `<section class="ov-sec">
+    <div class="ov-sec-hdr">
+      <h2 class="ov-sec-title">Labour this week</h2>
+      <span class="ov-sec-count">${grandTotal.toFixed(1)}h total</span>
+    </div>
+    ${body}
+  </section>`;
+}
+
+function renderPeople(){
+  const activity = crewLastActivity();
+  const crew = USERS.slice().sort((a,b) => a.username.localeCompare(b.username));
+  if (!crew.length) {
+    return `<section class="ov-sec">
+      <div class="ov-sec-hdr"><h2 class="ov-sec-title">People</h2><span class="ov-sec-count">0</span></div>
+      <div class="ov-empty">No tradies or leading hands on file.</div>
+    </section>`;
+  }
+  let body = `<div class="ov-list">`;
+  crew.forEach(u => {
+    const a = activity[u.id];
+    const days = a ? _daysAgo(a.lastIso) : Infinity;
+    const idle = days >= 3;
+    const roleLbl = u.role === 'leadingHand' ? 'Leading hand' : 'Tradie';
+    let right = '';
+    if (!isFinite(days)) {
+      right = `<span class="ov-chip grey">No activity</span>`;
+    } else if (idle) {
+      right = `<span class="ov-chip amber">Idle ${days}d</span>`;
+    } else {
+      right = `<span class="ov-chip green">${days === 0 ? 'Active today' : days === 1 ? 'Active yesterday' : 'Active ' + days + 'd ago'}</span>`;
+    }
+    const lastJob = a && a.lastJob;
+    body += `<div class="ov-row">
+      <div class="ov-row-body">
+        <div class="ov-row-title">${esc(u.username)}</div>
+        <div class="ov-row-meta">
+          <span>${roleLbl}</span>
+          ${lastJob ? `<span>Last on <b>${esc(lastJob.name)}</b></span>` : '<span>No jobs logged yet</span>'}
+        </div>
+      </div>
+      <div class="ov-row-right">${right}</div>
+    </div>`;
+  });
+  body += `</div>`;
+  return `<section class="ov-sec">
+    <div class="ov-sec-hdr">
+      <h2 class="ov-sec-title">People</h2>
+      <span class="ov-sec-count">${crew.length} ${pluralise(crew.length,'person','people')}</span>
+    </div>
+    ${body}
+  </section>`;
+}
+
+document.getElementById('logout').addEventListener('click', async () => {
+  await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' });
+  location.href = '/login';
+});
+
+load();
+</script>
+</body>
+</html>
