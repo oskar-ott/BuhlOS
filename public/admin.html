@@ -379,6 +379,11 @@ button.setup-step {
 }
 button.setup-step:hover { border-color: var(--header); background: #f8fafc; }
 button.setup-step.todo .setup-step-mark { background: #fff7ed; color: var(--amber); border-color: #fed7aa; }
+/* Optional steps (Plans, Materials) — quieter than required-but-missing.
+   Grey '+', no urgency colour, so admins know they're encouraged but not
+   blocking. */
+button.setup-step.todo.optional .setup-step-mark { background: #f1f5f9; color: var(--muted); border-color: var(--border); }
+button.setup-step.todo.optional { color: var(--muted); }
 .setup-summary {
   margin: -8px 0 14px; font-size: var(--fs-xs); color: var(--muted);
 }
@@ -1939,6 +1944,9 @@ async function loadPlansSection(jobId) {
   if (typeof jsGroups !== 'undefined' && document.getElementById('js-groups')) {
     renderGrpEditor('js-groups', jsGroups);
   }
+  // Bump the setup-progress strip so the Plans chip flips green once we
+  // know how many drawings are uploaded.
+  _refreshSetupProgress();
 }
 
 function renderPlansSection() {
@@ -2205,6 +2213,27 @@ async function loadMaterialsSection(jobId) {
     }
   } catch { matState.items = []; }
   renderMaterialsSection();
+  // Materials chip in the progress strip flips green once any items exist.
+  _refreshSetupProgress();
+}
+
+// Re-runs the setup progress strip with the latest setup/crew/plans/mat
+// state. Safe to call from any of the section-loaders.
+function _refreshSetupProgress() {
+  if (!jsSelectedJobId) return;
+  const job = JOBS.find(j => j.id === jsSelectedJobId);
+  if (!job) return;
+  const stepsEl = document.getElementById('setup-progress');
+  if (!stepsEl) return;
+  // Crew state — light read of the current rendered crew section. If the
+  // section is still loading, leave crew = null (the renderer treats it as
+  // pending).
+  const crewLoaded = document.getElementById('js-crew-list') &&
+                     !document.getElementById('js-crew-list').textContent.includes('Loading');
+  const crewState = crewLoaded
+    ? { hasCrew: !!document.querySelector('#js-crew-list .crew-row') }
+    : null;
+  stepsEl.innerHTML = renderProgress(setupState(job), crewState);
 }
 
 function renderMaterialsSection() {
@@ -2657,17 +2686,27 @@ function _matCloseModal(overlay) { overlay.remove(); }
 
 function renderProgress(setup, crewState) {
   // crewState: {hasCrew: bool} | null (loading)
+  // Plans/Materials are optional but highly recommended: shown as separate
+  // chips so the admin sees what's still useful to add. When loading
+  // (plansState/matState empty before the async fetch resolves), we pass
+  // null so they render as "loading" rather than "missing".
+  const plansLoaded = plansState && plansState.jobId;
+  const matsLoaded  = matState   && matState.jobId;
   const steps = [
     { label:'Areas',     done:setup.hasAreas, target:'sc-areas' },
+    { label:'Plans',     done: plansLoaded ? plansState.plans.some(p => p.status !== 'archived') : null, target:'sc-plans', optional: true },
     { label:'Rough-in',  done:setup.hasRough, target:'sc-rough' },
     { label:'Fit-off',   done:setup.hasFit,   target:'sc-fit'   },
+    { label:'Materials', done: matsLoaded ? matState.items.length > 0 : null, target:'sc-materials', optional: true },
     { label:'Crew',      done: crewState ? !!crewState.hasCrew : null, target:'sc-crew' },
   ];
-  // Update the summary line
+  // Update the summary line. Optional steps (Plans, Materials) don't
+  // block "Setup complete" but do show in the chip strip below.
   const sum = document.getElementById('setup-summary');
   if (sum) {
-    const missing = steps.filter(s => s.done === false).map(s => s.label.toLowerCase());
-    const loading = steps.some(s => s.done === null);
+    const required = steps.filter(s => !s.optional);
+    const missing = required.filter(s => s.done === false).map(s => s.label.toLowerCase());
+    const loading = required.some(s => s.done === null);
     if (loading) {
       sum.className = 'setup-summary';
       sum.textContent = '';
@@ -2680,8 +2719,12 @@ function renderProgress(setup, crewState) {
     }
   }
   return steps.map(s => {
-    const cls = s.done === true ? 'done' : s.done === false ? 'todo' : '';
-    const mark = s.done === true ? '&#10003;' : s.done === false ? '&middot;' : '&hellip;';
+    // Optional-and-missing → soft "todo" but rendered with a quieter
+    // class so it doesn't read as a blocker.
+    const cls = s.done === true ? 'done'
+              : s.done === false ? (s.optional ? 'todo optional' : 'todo')
+              : '';
+    const mark = s.done === true ? '&#10003;' : s.done === false ? (s.optional ? '+' : '&middot;') : '&hellip;';
     return `<button type="button" class="setup-step ${cls}" onclick="jumpSetup('${s.target}')">
       <span class="setup-step-mark">${mark}</span>
       <span>${s.label}</span>
