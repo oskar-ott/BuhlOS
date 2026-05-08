@@ -4213,17 +4213,21 @@ function _renderQuotesList() {
       counts.materials ? `<span class="setup-chip ok"><span class="setup-chip-mark">✓</span>${counts.materials} material${counts.materials===1?'':'s'}</span>` : '',
       counts.labourLines ? `<span class="setup-chip ok"><span class="setup-chip-mark">✓</span>${(counts.labourHours||0).toFixed(0)}h labour</span>` : '',
     ].filter(Boolean).join('');
+    const revPill = (qt.version && qt.version > 1)
+      ? `<span class="setup-chip" style="background:#eef2f7;color:var(--header);border:1px solid var(--border);font-size:10px;font-weight:800">Rev ${qt.version}</span>` : '';
     return `<div class="jrow" onclick="_qOpenWorkspace('${esc(qt.id)}')">
       <div class="jrow-body">
         <div class="jrow-line1">
           <span class="jrow-name">${esc(qt.name)}</span>
           <span class="badge-st ${st.tone === 'green' ? 'active' : ''}" style="${st.tone==='red'?'background:var(--red-bg);color:var(--red);border-color:var(--red-bd)':st.tone==='amber'?'background:var(--amber-bg);color:var(--amber);border-color:var(--amber-bd)':''}">${st.l}</span>
+          ${revPill}
         </div>
         <div class="jrow-line2">${[builder, due, esc(qt.id)].filter(Boolean).map(s=>'<span>'+s+'</span>').join('')}</div>
         <div class="setup-chips" style="margin-top:7px">${chips}</div>
       </div>
       <div class="jrow-actions" onclick="event.stopPropagation()">
-        <button class="jrow-edit" onclick="_qDuplicate('${esc(qt.id)}')" title="Create a new quote using this one as a template">Duplicate</button>
+        <button class="jrow-edit" onclick="_qRevise('${esc(qt.id)}')" title="Same tender, new revision pack received">+ Rev</button>
+        <button class="jrow-edit" onclick="_qDuplicate('${esc(qt.id)}')" title="Different tender — copy basics as a starting point">Duplicate</button>
         <button class="jrow-edit" onclick="_qOpenWorkspace('${esc(qt.id)}')">Open →</button>
       </div>
     </div>`;
@@ -4245,6 +4249,23 @@ async function _qDuplicate(id) {
     await loadQuotesTab();
     if (j.quote && j.quote.id) _qOpenWorkspace(j.quote.id);
   } catch (e) { alert('Duplicate failed: ' + e.message); }
+}
+
+// New revision — same tender, new pack received. Carries structure +
+// estimate forward but bumps the version and links back to the parent
+// so the list view can group revisions together.
+async function _qRevise(id) {
+  if (!confirm('Create a new revision of this quote? Estimate carries forward; documents do not (upload the new pack into the new revision).')) return;
+  try {
+    const r = await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=revise', {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+      body: '{}',
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    const j = await r.json();
+    await loadQuotesTab();
+    if (j.quote && j.quote.id) _qOpenWorkspace(j.quote.id);
+  } catch (e) { alert('Revise failed: ' + e.message); }
 }
 
 function _qOpenNewModal() {
@@ -5151,7 +5172,10 @@ function _qRenderSummary(host) {
   host.innerHTML = `
     <div class="s-card">
       <div class="s-card-hdr"><div><div class="s-card-title">Summary</div><div class="s-card-sub">Snapshot of what's been captured. Estimated total only shows when both materials and labour have prices/rates.</div></div>
-        <button class="s-add" onclick="_qPrintSummary()">Print / Export</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="s-add" onclick="_qPrintSummary()" title="Internal estimate — full labour + cost detail">Internal estimate</button>
+          <button class="s-add" onclick="_qPrintClientQuote()" style="background:#fff;color:var(--header);border:1px solid var(--border)" title="Client-facing version — scope + assumptions, no internal cost detail">Client quote</button>
+        </div>
       </div>
       <div class="hours-summary" style="margin-bottom:14px">
         <div class="hours-card"><div class="hours-card-label">Documents</div><div class="hours-card-value ${docs>0?'green':'amber'}">${docs}</div></div>
@@ -5275,6 +5299,98 @@ function _qPrintSummary() {
     ${noteList(notes.clarifications, 'Clarifications needed')}
 
     ${docs.length ? `<h2>Documents on file</h2><ul class="docs">${docs.map(d => `<li>${esc(d.drawingNumber||'')}${d.revision?' Rev '+esc(d.revision):''} — ${esc(d.title || d.fileName)} <em style="color:#94a3b8">(${esc(d.documentType||'')}, ${esc(d.status||'')})</em></li>`).join('')}</ul>` : ''}
+
+    <script>setTimeout(function(){window.print()},250);<\/script>
+  </body></html>`);
+  w.document.close();
+}
+
+// Client-facing quote document — same printable pattern as the internal
+// estimate, but strips per-line labour, hourly rates, per-line material
+// pricing, and risk factors. Shows only what the client should see:
+// scope summary, structure (no work-package task lists), single quoted
+// total (or "Pricing on request"), assumptions, exclusions, document
+// register without revisions table.
+function _qPrintClientQuote() {
+  const q = qState.open;
+  if (!q) return;
+  const quote = q.quote;
+  const groups = q.structure.areaGroups || [];
+  const mats = q.materials.items || [];
+  const labour = q.labour.lines || [];
+  const notes = q.notes || {};
+  const matCost = mats.reduce((s,i) => s + (Number(i.totalCost) || (Number(i.unitCost)||0)*(Number(i.quantity)||0)), 0);
+  const labCost = labour.reduce((s,l) => s + (Number(l.estimatedHours)||0)*(Number(l.hourlyRate)||0)*(Number(l.riskFactor)||1), 0);
+  const total = matCost + labCost;
+  const fmt$ = n => '$' + n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const today = new Date().toLocaleDateString('en-AU');
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Popup blocked. Allow popups to print the quote.'); return; }
+
+  // Structure: list area groups + areas only — no work-package detail
+  // (that's internal scoping, not client-facing).
+  const structureHtml = groups.length ? groups.map(g => {
+    const areas = (g.areas || []).map(a => `<li>${esc(a.name||'')}</li>`).join('');
+    return `<h3>${esc(g.name||'(unnamed)')}</h3><ul>${areas || '<li class="muted">—</li>'}</ul>`;
+  }).join('') : '';
+
+  const noteList = (arr, lbl) => Array.isArray(arr) && arr.length
+    ? `<h3>${lbl}</h3><ul>${arr.map(n => '<li>' + esc(n) + '</li>').join('')}</ul>` : '';
+
+  // Top-line price: only show concrete number if total > 0; otherwise
+  // "Pricing on request" — never fake a total.
+  const totalBlock = total > 0
+    ? `<div class="quote-total">Quoted total: <b>${fmt$(total)}</b><div class="quote-total-sub">incl. labour and materials as listed</div></div>`
+    : `<div class="quote-total quote-total-tba">Pricing on request</div>`;
+
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(quote.name || 'Quote')}</title>
+    <style>
+      body{font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#0f172a;max-width:760px;margin:30px auto;padding:0 32px}
+      header{border-bottom:2px solid #0d1f35;padding-bottom:14px;margin-bottom:20px}
+      h1{font-size:24px;margin:0 0 6px;color:#0d1f35;letter-spacing:-.3px}
+      .meta{color:#475569;font-size:12px}
+      .meta b{color:#0d1f35}
+      h2{font-size:14px;margin:24px 0 8px;color:#0d1f35;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #cbd5e1;padding-bottom:4px}
+      h3{font-size:13px;margin:14px 0 4px;color:#0d1f35}
+      .muted{color:#94a3b8;font-style:italic}
+      .quote-total{background:#fef3c7;border:1px solid #fde68a;padding:14px 18px;border-radius:10px;margin:16px 0 24px;font-size:18px}
+      .quote-total b{font-size:24px;color:#0d1f35;font-weight:800}
+      .quote-total-sub{font-size:12px;color:#64748b;font-weight:500;margin-top:2px}
+      .quote-total-tba{font-size:16px;font-weight:800;color:#0d1f35}
+      ul{margin:4px 0 12px 20px;padding:0}
+      li{margin:3px 0}
+      .signoff{margin-top:36px;padding-top:14px;border-top:1px solid #cbd5e1;font-size:12px;color:#475569}
+      .signoff b{color:#0d1f35;font-weight:700}
+      footer{margin-top:36px;padding-top:14px;border-top:1px solid #cbd5e1;font-size:11px;color:#94a3b8;text-align:center}
+      @media print{body{margin:0;padding:0 16px}}
+    </style></head><body>
+    <header>
+      <h1>${esc(quote.name || 'Quote')}</h1>
+      <div class="meta">
+        ${quote.builder ? '<b>For:</b> ' + esc(quote.builder) + ' · ' : ''}
+        ${quote.siteAddress ? esc(quote.siteAddress) + ' · ' : ''}
+        Quote date <b>${today}</b>${quote.dueDate ? ' · Valid until <b>' + esc(quote.dueDate) + '</b>' : ''}
+      </div>
+    </header>
+
+    ${quote.description ? '<h2>Project</h2><p>' + esc(quote.description).replace(/\n/g,'<br>') + '</p>' : ''}
+
+    ${totalBlock}
+
+    ${structureHtml ? '<h2>Scope of work</h2>' + structureHtml : ''}
+
+    ${noteList(notes.assumptions, 'Assumptions')}
+    ${noteList(notes.exclusions, 'Exclusions')}
+    ${noteList(notes.clarifications, 'Clarifications required')}
+
+    <div class="signoff">
+      Prepared by <b>bühl electrical</b><br>
+      ${quote.contactName ? esc(quote.contactName) + (quote.contactEmail ? ' · ' + esc(quote.contactEmail) : '') + '<br>' : ''}
+      Quote ref: ${esc(quote.id)}${quote.version ? ' (rev ' + quote.version + ')' : ''}
+    </div>
+
+    <footer>This document does not include internal labour breakdowns or per-item cost detail. Pricing assumptions are listed above.</footer>
 
     <script>setTimeout(function(){window.print()},250);<\/script>
   </body></html>`);

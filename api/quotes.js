@@ -555,15 +555,25 @@ async function handleConvert(req, res, user, id) {
   }
   jobId = jobId + suffix;
 
-  // Map quote area groups into the live job shape (id + name, areas with
-  // id + name). Work-package detail lives in quote-only storage for v1 —
-  // converting to global rough-in / fit-off task lists where they exist.
+  // Map quote area groups into the live job shape. The tradie task UI
+  // still uses the unioned global rough-in/fit-off task lists below, but
+  // we also preserve the area-specific workPackages on each area so the
+  // future "custom checklists per area" feature has the data to work
+  // from without a re-convert. Existing live-job consumers ignore the
+  // extra field (it's lazy-tolerated everywhere).
   const areaGroups = (structure.areaGroups || []).map(g => ({
     id:    'g_' + Math.random().toString(36).slice(2, 8),
     name:  g.name,
     areas: (g.areas || []).map(a => ({
       id:   'a_' + Math.random().toString(36).slice(2, 8),
       name: a.name,
+      workPackages: Array.isArray(a.workPackages)
+        ? a.workPackages.map(wp => ({
+            name: wp.name || '',
+            stage: wp.stage === 'fit-off' ? 'fit-off' : 'rough-in',
+            tasks: Array.isArray(wp.tasks) ? wp.tasks.slice() : [],
+          }))
+        : [],
     })),
   }));
 
@@ -639,11 +649,17 @@ async function handleConvert(req, res, user, id) {
   });
 }
 
-// Duplicate a quote — common workflow when a similar tender comes in.
-// Copies basics + structure + materials + labour + notes (NOT documents:
-// binary blobs are large and the cloned quote almost certainly needs new
-// drawings anyway). Status resets to 'draft' and convertedJobId clears.
-async function handleDuplicate(req, res, user, srcId) {
+// Duplicate / revise a quote.
+//   mode='duplicate' — clean copy for a different tender; new name + (copy);
+//                       no parent linkage.
+//   mode='revise'    — same tender, new revision pack received; same name
+//                       suffixed with " (rev N)"; parentQuoteId links back
+//                       to the original so the list view can group revisions.
+// In both modes we copy basics + structure + materials + labour + notes
+// (NOT documents — binary blobs are large; admin uploads the new pack
+// for revisions). Status resets to 'draft' and convertedJobId clears.
+async function handleDuplicate(req, res, user, srcId, opts) {
+  const mode = (opts && opts.mode) || 'duplicate';
   const data = await readQuotes();
   const src = (data.quotes || []).find(q => q.id === srcId);
   if (!src) return res.status(404).json({ error: 'source quote not found' });
@@ -656,12 +672,32 @@ async function handleDuplicate(req, res, user, srcId) {
   ]);
 
   const now = new Date().toISOString();
+  let derivedName, parentId, version;
+  if (mode === 'revise') {
+    // Walk to the root (in case the source is itself a revision) and
+    // count siblings to compute the next rev number for the same root.
+    const rootId = src.parentQuoteId || src.id;
+    const siblings = (data.quotes || []).filter(q =>
+      q.id === rootId || q.parentQuoteId === rootId);
+    version = (Math.max(0, ...siblings.map(s => s.version || 1)) + 1);
+    // Strip any existing "(rev N)" / "(copy)" suffix before re-suffixing.
+    const stripped = String(src.name || '').replace(/\s*\((rev\s*\d+|copy)\)\s*$/i, '');
+    derivedName = stripped + ' (rev ' + version + ')';
+    parentId = rootId;
+  } else {
+    derivedName = (src.name || '') + ' (copy)';
+    parentId = null;
+    version = null;
+  }
+
   const newQuote = {
     ...src,
     id:              newId('quote'),
-    name:            (src.name || '') + ' (copy)',
+    name:            derivedName,
     status:          'draft',
     convertedJobId:  null,
+    parentQuoteId:   parentId,
+    version:         version,
     createdAt:       now,
     createdBy:       user.username,
     updatedAt:       now,
@@ -899,7 +935,12 @@ module.exports = async (req, res) => {
   if (action === 'duplicate') {
     if (!id) return res.status(400).json({ error: 'id required' });
     if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
-    return handleDuplicate(req, res, user, id);
+    return handleDuplicate(req, res, user, id, { mode: 'duplicate' });
+  }
+  if (action === 'revise') {
+    if (!id) return res.status(400).json({ error: 'id required' });
+    if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
+    return handleDuplicate(req, res, user, id, { mode: 'revise' });
   }
   if (action === 'benchmark') {
     if (req.method !== 'GET') return res.status(405).json({ error: 'GET required' });
