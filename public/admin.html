@@ -1093,7 +1093,10 @@ dialog h3.dlg-title {
             <div class="s-card-title">Rough-in checklist<span class="s-card-title-dot" title="Unsaved changes"></span></div>
             <div class="s-card-sub">Tasks tradies tick off during the rough-in stage.</div>
           </div>
-          <button class="s-add" onclick="taskAdd('js-rough-tasks')">+ Add task</button>
+          <div style="display:flex;gap:6px">
+            <button class="s-add" onclick="taskAdd('js-rough-tasks')">+ Add task</button>
+            <button class="s-add" onclick="taskBulkAdd('js-rough-tasks')" style="background:#fff;color:var(--header);border:1px solid var(--border)">Bulk add</button>
+          </div>
         </div>
         <div id="js-rough-tasks" class="task-list"></div>
       </div>
@@ -1105,7 +1108,10 @@ dialog h3.dlg-title {
             <div class="s-card-title">Fit-off checklist<span class="s-card-title-dot" title="Unsaved changes"></span></div>
             <div class="s-card-sub">Tasks for the fit-off stage.</div>
           </div>
-          <button class="s-add" onclick="taskAdd('js-fit-tasks')">+ Add task</button>
+          <div style="display:flex;gap:6px">
+            <button class="s-add" onclick="taskAdd('js-fit-tasks')">+ Add task</button>
+            <button class="s-add" onclick="taskBulkAdd('js-fit-tasks')" style="background:#fff;color:var(--header);border:1px solid var(--border)">Bulk add</button>
+          </div>
         </div>
         <div id="js-fit-tasks" class="task-list"></div>
       </div>
@@ -2692,6 +2698,49 @@ function grpState(cid) { return cid==='js-groups' ? jsGroups : []; }
 window.grpGroupName  = (gi,cid,v) => { grpState(cid)[gi].name = v; markSetupDirty('areas'); };
 window.grpAreaName   = (gi,ai,cid,v) => { grpState(cid)[gi].areas[ai].name = v; markSetupDirty('areas'); };
 window.grpAddArea    = (gi,cid) => { grpState(cid)[gi].areas.push({id:null,name:''}); renderGrpEditor(cid, grpState(cid)); markSetupDirty('areas'); };
+
+// Bulk add areas — supports two flavours in the same modal:
+//   1) Paste a list (one area per line) → creates one area per line
+//   2) Numbered range (prefix + start + end) → "Unit 1", "Unit 2", ...
+// Either method appends to the existing areas; doesn't replace.
+window.grpBulkAdd = function (gi, cid) {
+  const overlay = _matBuildModal('Bulk add areas');
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div style="font-size:13px;color:var(--muted);margin-bottom:10px">Either paste a list (one per line) <b>or</b> use the numbered range below. Items append to the existing areas.</div>
+    <div class="snag-field"><label class="snag-field-label">Paste list</label>
+      <textarea id="ga-lines" rows="6" placeholder="Lobby
+Corridor
+Plant Room" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:monospace"></textarea></div>
+    <div style="text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:12px 0 8px">— or —</div>
+    <div style="display:grid;grid-template-columns:1fr 80px 80px;gap:8px;align-items:end">
+      <div class="snag-field" style="margin:0"><label class="snag-field-label">Prefix</label>
+        <input id="ga-prefix" type="text" placeholder="Unit" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field" style="margin:0"><label class="snag-field-label">From</label>
+        <input id="ga-from" type="number" min="1" placeholder="1" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field" style="margin:0"><label class="snag-field-label">To</label>
+        <input id="ga-to" type="number" min="1" placeholder="15" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">e.g. <b>Unit 1</b>, <b>Unit 2</b>, … <b>Unit 15</b>. Use either method, not both.</div>`;
+  overlay.querySelector('.snag-modal-save').textContent = 'Add';
+  overlay.querySelector('.snag-modal-save').onclick = () => {
+    const linesText = overlay.querySelector('#ga-lines').value;
+    const prefix = overlay.querySelector('#ga-prefix').value.trim();
+    const from = parseInt(overlay.querySelector('#ga-from').value, 10);
+    const to   = parseInt(overlay.querySelector('#ga-to').value, 10);
+    const names = [];
+    if (linesText.trim()) {
+      linesText.split(/\r?\n/).forEach(l => { const t = l.trim(); if (t) names.push(t); });
+    } else if (prefix && Number.isFinite(from) && Number.isFinite(to) && from > 0 && to >= from && (to - from) <= 500) {
+      for (let n = from; n <= to; n++) names.push(prefix + ' ' + n);
+    }
+    if (!names.length) { alert('Add lines OR prefix+range first.'); return; }
+    const arr = grpState(cid);
+    for (const nm of names) arr[gi].areas.push({ id:null, name: nm });
+    renderGrpEditor(cid, arr);
+    markSetupDirty('areas');
+    _matCloseModal(overlay);
+  };
+};
 window.grpRemoveArea = (gi,ai,cid) => { grpState(cid)[gi].areas.splice(ai,1); renderGrpEditor(cid, grpState(cid)); markSetupDirty('areas'); };
 window.grpAddGroup   = cid => { grpState(cid).push({id:null,name:'',areas:[]}); renderGrpEditor(cid, grpState(cid)); markSetupDirty('areas'); };
 window.grpRemoveGroup= (gi,cid) => { grpState(cid).splice(gi,1); renderGrpEditor(cid, grpState(cid)); markSetupDirty('areas'); };
@@ -2731,7 +2780,10 @@ function renderGrpEditor(cid, groups) {
           </div>
         `).join('')}
       </div>
-      <button class="grp-add-area" onclick="grpAddArea(${gi},'${cid}')">+ Add area</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <button class="grp-add-area" onclick="grpAddArea(${gi},'${cid}')">+ Add area</button>
+        <button class="grp-add-area" onclick="grpBulkAdd(${gi},'${cid}')" style="background:#fff;color:var(--header)">Bulk add</button>
+      </div>
       ${linkedHtml}
     </div>
   `;}).join('');
@@ -2747,6 +2799,30 @@ const _taskSection = cid => cid==='js-rough-tasks'?'rough':cid==='js-fit-tasks'?
 window.taskSetName = (i,cid,v) => { taskState(cid)[i].name = v; markSetupDirty(_taskSection(cid)); };
 window.taskRemove  = (i,cid)   => { taskState(cid).splice(i,1); renderTaskEditor(cid, taskState(cid)); markSetupDirty(_taskSection(cid)); };
 window.taskAdd     = cid => { taskState(cid).push({id:null,name:''}); renderTaskEditor(cid, taskState(cid)); markSetupDirty(_taskSection(cid)); };
+
+// Bulk add tasks — paste-and-go. One task per line.
+window.taskBulkAdd = function (cid) {
+  const isRough = cid === 'js-rough-tasks';
+  const overlay = _matBuildModal('Bulk add ' + (isRough ? 'rough-in' : 'fit-off') + ' tasks');
+  const sample = isRough
+    ? 'Mark out core hole\nCable rough-in\nContainment\nLighting rough-in\nPower rough-in\nData/comms rough-in'
+    : 'Fit-off lighting\nFit-off power\nFit-off data\nLabelling\nTesting\nDefects';
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div style="font-size:13px;color:var(--muted);margin-bottom:10px">One task per line. They'll be appended to the existing list.</div>
+    <div class="snag-field"><label class="snag-field-label">Tasks</label>
+      <textarea id="tb-lines" rows="10" placeholder="${esc(sample)}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:monospace"></textarea></div>`;
+  overlay.querySelector('.snag-modal-save').textContent = 'Add all';
+  overlay.querySelector('.snag-modal-save').onclick = () => {
+    const text = overlay.querySelector('#tb-lines').value;
+    const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (!lines.length) { alert('Paste at least one task.'); return; }
+    const arr = taskState(cid);
+    for (const nm of lines) arr.push({ id:null, name: nm });
+    renderTaskEditor(cid, arr);
+    markSetupDirty(_taskSection(cid));
+    _matCloseModal(overlay);
+  };
+};
 
 function renderTaskEditor(cid, tasks) {
   const el = document.getElementById(cid); if (!el) return;
