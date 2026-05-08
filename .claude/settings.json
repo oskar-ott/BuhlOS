@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "allow": [
+      "Bash(vercel inspect *)",
+      "Bash(vercel logs *)",
+      "mcp__75c7a97c-7b6b-4476-ae33-9805e95beb4b__get_deployment",
+      "mcp__75c7a97c-7b6b-4476-ae33-9805e95beb4b__get_deployment_build_logs"
+    ]
+  }
+}

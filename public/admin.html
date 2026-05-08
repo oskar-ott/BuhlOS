@@ -124,6 +124,74 @@ nav.admin-tabs .tab-badge.amber { background: var(--amber); color: #fff; }
 .page-head-left { min-width: 0; }
 .page-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
+/* ── Overview (Admin Home) ──────────────────────────────────────────────
+   Control-centre layout: KPI strip on top, two-column "Needs attention"
+   + "Crew at a glance" mid, quick actions row at the bottom. Each card
+   uses the same .ov-card shell so the page reads as one coherent surface
+   rather than scattered widgets. */
+.ov-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;
+}
+@media(max-width:760px){.ov-grid{grid-template-columns:1fr}}
+.ov-card{
+  background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:14px 16px;
+}
+.ov-card-hdr{
+  display:flex;align-items:baseline;justify-content:space-between;
+  gap:10px;margin-bottom:10px;
+}
+.ov-card-title{
+  font-size:13px;font-weight:800;color:var(--header);
+  text-transform:uppercase;letter-spacing:.4px;margin:0;
+}
+.ov-card-count{
+  font-size:11px;font-weight:700;color:var(--muted);
+  font-variant-numeric:tabular-nums;
+}
+.ov-row{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 0;border-bottom:1px solid var(--border);
+  text-decoration:none;color:inherit;
+  cursor:pointer;
+}
+.ov-row:last-child{border-bottom:none}
+.ov-row:hover{background:#fafbfc}
+.ov-row-accent{width:4px;align-self:stretch;border-radius:3px;flex-shrink:0}
+.ov-row-accent.red{background:var(--red)}
+.ov-row-accent.amber{background:var(--amber)}
+.ov-row-accent.green{background:var(--green)}
+.ov-row-accent.navy{background:var(--header)}
+.ov-row-body{flex:1;min-width:0}
+.ov-row-title{font-size:13px;font-weight:700;color:var(--ink);line-height:1.2}
+.ov-row-meta{font-size:11px;color:var(--muted);margin-top:2px}
+.ov-row-chev{color:var(--muted);font-size:18px;flex-shrink:0}
+.ov-empty{
+  padding:18px 0;text-align:center;font-size:13px;color:var(--muted);
+}
+/* Quick actions grid — large tap targets, scannable, role-coloured count
+   chips. Hidden when count = 0 to keep the row calm. */
+.ov-quick{
+  display:grid;grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));
+  gap:8px;
+}
+.ov-quick-btn{
+  display:flex;flex-direction:column;align-items:flex-start;gap:4px;
+  padding:14px;background:#fff;
+  border:1px solid var(--border);border-radius:10px;
+  font-family:inherit;cursor:pointer;text-align:left;
+  transition:border-color .12s, box-shadow .12s;
+}
+.ov-quick-btn:hover{border-color:var(--header);box-shadow:0 2px 8px rgba(13,31,53,.06)}
+.ov-quick-ico{
+  font-size:18px;font-weight:800;color:var(--header);
+  background:#fef3c7;width:32px;height:32px;border-radius:8px;
+  display:inline-flex;align-items:center;justify-content:center;
+  margin-bottom:4px;
+}
+.ov-quick-lbl{font-size:13px;font-weight:700;color:var(--ink);line-height:1.1}
+.ov-quick-sub{font-size:11px;color:var(--muted);font-weight:500}
+
 .admin-page-title {
   margin: 0; font-size: 22px; font-weight: 700;
   color: var(--header); letter-spacing: -.3px; line-height: 1.2;
@@ -986,7 +1054,8 @@ dialog h3.dlg-title {
 </header>
 
 <nav class="admin-tabs" id="admin-tabs">
-  <button class="active" data-tab="jobs">Jobs</button>
+  <button class="active" data-tab="overview">Overview</button>
+  <button data-tab="jobs">Jobs</button>
   <button data-tab="hours">Hours</button>
   <button data-tab="snags">Snags</button>
   <button data-tab="temps">Temps</button>
@@ -997,7 +1066,77 @@ dialog h3.dlg-title {
 <div class="admin-wrap">
 
   <!-- ╔════════════ JOBS TAB ════════════╗ -->
-  <div id="tab-jobs" class="tab active">
+  <!-- ╔════════════ OVERVIEW TAB (Admin Home) ════════════╗ -->
+  <!-- Control-centre overview: jobs status, attention items, user roles,
+       quick actions. First thing admin sees on landing. Renders cheaply
+       from already-fetched JOBS + USERS so it doesn't add a network hop. -->
+  <div id="tab-overview" class="tab active">
+    <div class="page-head">
+      <div class="page-head-left">
+        <h1 class="admin-page-title">Overview</h1>
+        <div class="admin-page-sub">What's happening across the business right now.</div>
+      </div>
+      <div class="page-head-actions">
+        <button class="btn primary" onclick="document.getElementById('open-new-job').click()" style="height:38px;padding:0 16px;font-size:var(--fs-sm)">+ New job</button>
+      </div>
+    </div>
+
+    <!-- KPI strip -->
+    <div class="hours-summary" id="ov-summary"></div>
+
+    <!-- Two-column layout: Needs attention + Quick links -->
+    <div class="ov-grid">
+      <section class="ov-card">
+        <div class="ov-card-hdr">
+          <h2 class="ov-card-title">Needs attention</h2>
+          <span class="ov-card-count" id="ov-attn-count"></span>
+        </div>
+        <div id="ov-attn-list"></div>
+      </section>
+      <section class="ov-card">
+        <div class="ov-card-hdr">
+          <h2 class="ov-card-title">Crew at a glance</h2>
+        </div>
+        <div id="ov-crew-list"></div>
+      </section>
+    </div>
+
+    <!-- Quick actions -->
+    <section class="ov-card" style="margin-top:14px">
+      <div class="ov-card-hdr">
+        <h2 class="ov-card-title">Quick actions</h2>
+      </div>
+      <div class="ov-quick">
+        <button class="ov-quick-btn" onclick="switchTab('jobs')">
+          <span class="ov-quick-ico">▤</span>
+          <span class="ov-quick-lbl">Manage jobs</span>
+          <span class="ov-quick-sub" id="ov-q-jobs">…</span>
+        </button>
+        <button class="ov-quick-btn" onclick="switchTab('snags')">
+          <span class="ov-quick-ico">!</span>
+          <span class="ov-quick-lbl">Open snags</span>
+          <span class="ov-quick-sub" id="ov-q-snags">…</span>
+        </button>
+        <button class="ov-quick-btn" onclick="switchTab('hours')">
+          <span class="ov-quick-ico">⏱</span>
+          <span class="ov-quick-lbl">Approvals</span>
+          <span class="ov-quick-sub" id="ov-q-appr">…</span>
+        </button>
+        <button class="ov-quick-btn" onclick="switchTab('temps')">
+          <span class="ov-quick-ico">⚙</span>
+          <span class="ov-quick-lbl">Temps register</span>
+          <span class="ov-quick-sub" id="ov-q-temps">…</span>
+        </button>
+        <button class="ov-quick-btn" onclick="switchTab('people')">
+          <span class="ov-quick-ico">👥</span>
+          <span class="ov-quick-lbl">People &amp; roles</span>
+          <span class="ov-quick-sub" id="ov-q-people">…</span>
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <div id="tab-jobs" class="tab">
 
     <!-- Index view -->
     <div id="jobs-index">
@@ -1584,13 +1723,22 @@ async function boot() {
   const isLH = ME.role === 'leadingHand';
 
   if (isLH) {
-    // LH: limit to Jobs + Hours + Snags tabs (hide People + Costs).
+    // LH: limit to Jobs + Hours + Snags tabs (hide Overview + Temps + People + Costs).
     // Pill label changes to "Job Setup" since Jobs IS the setup surface for them.
     const lhTabs = ['jobs', 'hours', 'snags'];
     document.querySelectorAll('nav.admin-tabs button').forEach(b => {
       if (lhTabs.indexOf(b.dataset.tab) === -1) b.style.display = 'none';
       else b.onclick = () => switchTab(b.dataset.tab);
     });
+    // Flip the visible tab from Overview (admin-only) to Jobs for LH.
+    const ovBtn = document.querySelector('nav.admin-tabs button[data-tab="overview"]');
+    const jobsBtn = document.querySelector('nav.admin-tabs button[data-tab="jobs"]');
+    if (ovBtn) ovBtn.classList.remove('active');
+    if (jobsBtn) jobsBtn.classList.add('active');
+    const ovPane = document.getElementById('tab-overview');
+    const jobsPane = document.getElementById('tab-jobs');
+    if (ovPane) ovPane.classList.remove('active');
+    if (jobsPane) jobsPane.classList.add('active');
     const adminPill = document.getElementById('adminLink');
     if (adminPill) adminPill.textContent = 'Job Setup';
     document.getElementById('open-new-job').style.display = 'none';
@@ -1730,10 +1878,11 @@ function switchTab(id) {
   document.querySelector('nav.admin-tabs button[data-tab="'+id+'"]').classList.add('active');
   if (id === 'costs')  loadCosts();
   if (id === 'jobs')   showJobsIndex(true);
-  if (id === 'hours')  loadHoursOverview();
-  if (id === 'snags')  loadSnagsTab();
-  if (id === 'temps')  loadTempsTab();
-  if (id === 'people') loadPeopleActivity();
+  if (id === 'overview') loadOverviewTab();
+  if (id === 'hours')    loadHoursOverview();
+  if (id === 'snags')    loadSnagsTab();
+  if (id === 'temps')    loadTempsTab();
+  if (id === 'people')   loadPeopleActivity();
 }
 
 async function refreshAll() {
@@ -1747,6 +1896,12 @@ async function refreshAll() {
   JOB_TYPES = jtr.jobTypes || [];
   renderJobs();
   renderUsers();
+  // If Overview is the visible tab (default on admin boot), render it now
+  // that JOBS + USERS are loaded. Subsequent visits go through switchTab.
+  const ovTab = document.getElementById('tab-overview');
+  if (ovTab && ovTab.classList.contains('active')) {
+    try { loadOverviewTab(); } catch (e) { /* tolerate */ }
+  }
 }
 
 // ── Setup completeness ───────────────────────────────────────────────────
@@ -1834,14 +1989,23 @@ function renderJobs() {
     const stLabel = ({active:'Active',complete:'Complete',archived:'Archived'})[st] || st;
     const setup = setupState(j);
     const dCount = dwellingCount(j);
+    // Crew count derived from USERS' assignedJobIds — same source the
+    // server uses for job-access checks, so what admin sees here is
+    // exactly who can write to this job.
+    const crewCount = (USERS || []).filter(u =>
+      (u.role === 'tradie' || u.role === 'leadingHand') &&
+      (u.assignedJobIds || []).includes(j.id)).length;
+    const taskCount = ((j.roughInTasks || []).length) + ((j.fitOffTasks || []).length);
     const chips = [
       `<span class="setup-chip ${setup.hasAreas?'ok':'warn'}"><span class="setup-chip-mark">${setup.hasAreas?'&#10003;':'!'}</span>Areas${setup.hasAreas&&dCount?' &middot; '+dCount:''}</span>`,
-      `<span class="setup-chip ${setup.hasRough?'ok':'warn'}"><span class="setup-chip-mark">${setup.hasRough?'&#10003;':'!'}</span>Rough-in</span>`,
-      `<span class="setup-chip ${setup.hasFit?'ok':'warn'}"><span class="setup-chip-mark">${setup.hasFit?'&#10003;':'!'}</span>Fit-off</span>`,
+      `<span class="setup-chip ${setup.hasRough?'ok':'warn'}"><span class="setup-chip-mark">${setup.hasRough?'&#10003;':'!'}</span>Rough-in${setup.hasRough?' &middot; '+(j.roughInTasks||[]).length:''}</span>`,
+      `<span class="setup-chip ${setup.hasFit?'ok':'warn'}"><span class="setup-chip-mark">${setup.hasFit?'&#10003;':'!'}</span>Fit-off${setup.hasFit?' &middot; '+(j.fitOffTasks||[]).length:''}</span>`,
+      `<span class="setup-chip ${crewCount>0?'ok':'warn'}"><span class="setup-chip-mark">${crewCount>0?'&#10003;':'!'}</span>${crewCount>0?crewCount+' crew':'No crew'}</span>`,
+      `<span class="setup-chip ${client?'ok':'warn'}"><span class="setup-chip-mark">${client?'&#10003;':'!'}</span>${client?'Client':'No client'}</span>`,
     ].join('');
     const meta = [
       t ? esc(t.name) : '',
-      client ? 'Client: <b>'+esc(client.username)+'</b>' : '',
+      client ? 'Client: <b>'+esc(client.username)+'</b>' : '<em style="color:var(--muted)">No client linked</em>',
       esc(j.id),
     ].filter(Boolean).map(s => '<span>'+s+'</span>').join('');
     return `
@@ -3744,6 +3908,143 @@ const tempsAdminState = {
   filtersWired: false,
   lastSummary: null,
 };
+
+// ╔══════════════════════════ OVERVIEW (Admin Home) ══════════════════════════╗
+// Renders cheaply from already-fetched JOBS + USERS + cached badge counts
+// (set by _refreshTabBadges every 60s). The tab also fires its own fresh
+// snag-count + approval-count fetches so the values are right when admin
+// lands on this page.
+
+async function loadOverviewTab() {
+  // KPI strip — derived from JOBS + USERS, plus async snag/approval counts.
+  const active     = (JOBS || []).filter(j => (j.status || 'active') === 'active').length;
+  const completed  = (JOBS || []).filter(j => j.status === 'complete').length;
+  const archived   = (JOBS || []).filter(j => j.status === 'archived').length;
+  const needsSetup = (JOBS || []).filter(j => {
+    if ((j.status || 'active') !== 'active') return false;
+    const s = setupState(j);
+    return !s.hasAreas || !s.hasRough || !s.hasFit;
+  }).length;
+  const usersTotal = (USERS || []).length;
+  const tradies = (USERS || []).filter(u => u.role === 'tradie').length;
+  const lhs     = (USERS || []).filter(u => u.role === 'leadingHand').length;
+  const admins  = (USERS || []).filter(u => u.role === 'admin').length;
+  const clients = (USERS || []).filter(u => u.role === 'client').length;
+
+  document.getElementById('ov-summary').innerHTML = [
+    { label:'Active jobs',  value:active,     tone: active ? '' : '' },
+    { label:'Needs setup',  value:needsSetup, tone: needsSetup ? 'amber' : 'green' },
+    { label:'Completed',    value:completed,  tone: '' },
+    { label:'Archived',     value:archived,   tone: '' },
+    { label:'Crew',         value: tradies + lhs, tone: '' },
+    { label:'Clients',      value: clients, tone: '' },
+  ].map(c => `<div class="hours-card">
+       <div class="hours-card-label">${esc(c.label)}</div>
+       <div class="hours-card-value ${c.tone}">${esc(String(c.value))}</div>
+     </div>`).join('');
+
+  // Quick actions sub-counts — cheap reads from existing caches.
+  const qJobs = document.getElementById('ov-q-jobs');
+  if (qJobs) qJobs.textContent = active + ' active · ' + (JOBS || []).length + ' total';
+  const qPeople = document.getElementById('ov-q-people');
+  if (qPeople) qPeople.textContent = `${admins} admin · ${lhs} LH · ${tradies} tradie${tradies===1?'':'s'} · ${clients} client${clients===1?'':'s'}`;
+  const qTemps = document.getElementById('ov-q-temps');
+  if (qTemps && tempsAdminState && tempsAdminState.lastSummary) {
+    const s = tempsAdminState.lastSummary;
+    qTemps.textContent = `${s.deployed||0} deployed · ${s.available||0} available`;
+  } else if (qTemps) {
+    qTemps.textContent = 'View register';
+  }
+
+  // Async fills — open snags + approvals waiting. Independent of badge poll.
+  fetch('/api/snags-all?status=Open', { credentials:'same-origin' })
+    .then(r => r.ok ? r.json() : { snags: [] })
+    .then(j => {
+      const n = (j.snags || []).length;
+      const el = document.getElementById('ov-q-snags');
+      if (el) el.textContent = n + ' open across ' + new Set((j.snags||[]).map(s=>s.jobId)).size + ' job' + ((new Set((j.snags||[]).map(s=>s.jobId)).size)===1?'':'s');
+    })
+    .catch(()=>{});
+  fetch('/api/time-entries?status=submitted&scope=approver', { credentials:'same-origin' })
+    .then(r => r.ok ? r.json() : { entries: [] })
+    .then(j => {
+      const n = ((j && j.entries) || []).length;
+      const el = document.getElementById('ov-q-appr');
+      if (el) el.textContent = n ? (n + ' pending approval') : 'All caught up';
+    })
+    .catch(()=>{});
+
+  // Needs-attention list — combines: jobs needing setup + jobs without crew
+  // + jobs without a client linked. Each row is tappable and deep-links to
+  // the right surface. Sorted with most-incomplete first.
+  const items = [];
+  for (const j of (JOBS || [])) {
+    if ((j.status || 'active') !== 'active') continue;
+    const s = setupState(j);
+    const missing = [];
+    if (!s.hasAreas) missing.push('areas');
+    if (!s.hasRough) missing.push('rough-in');
+    if (!s.hasFit)   missing.push('fit-off');
+    const hasCrew = (USERS || []).some(u =>
+      (u.role === 'tradie' || u.role === 'leadingHand') &&
+      (u.assignedJobIds || []).includes(j.id));
+    if (!hasCrew) missing.push('crew');
+    if (!j.clientUserId) missing.push('client');
+    if (!missing.length) continue;
+    items.push({
+      jobId: j.id, jobName: j.name,
+      missing,
+      tone: (missing.includes('areas') || missing.includes('crew')) ? 'amber' : 'navy',
+    });
+  }
+  items.sort((a, b) => b.missing.length - a.missing.length);
+
+  const cnt = document.getElementById('ov-attn-count');
+  if (cnt) cnt.textContent = items.length ? items.length + ' job' + (items.length===1?'':'s') : '';
+  const list = document.getElementById('ov-attn-list');
+  if (items.length === 0) {
+    list.innerHTML = `<div class="ov-empty"><b style="color:var(--green)">✓ All clear</b><br>Every active job has its setup, crew, and client sorted.</div>`;
+  } else {
+    list.innerHTML = items.slice(0, 6).map(it => `
+      <a class="ov-row" onclick="enterSetup('${esc(it.jobId)}')">
+        <div class="ov-row-accent ${it.tone}"></div>
+        <div class="ov-row-body">
+          <div class="ov-row-title">${esc(it.jobName)}</div>
+          <div class="ov-row-meta">Needs ${it.missing.map(esc).join(', ')}</div>
+        </div>
+        <div class="ov-row-chev">›</div>
+      </a>`).join('') + (items.length > 6
+        ? `<div class="ov-empty" style="font-size:12px;padding:10px 0">+${items.length - 6} more in <a href="#" onclick="event.preventDefault();switchTab('jobs');return false" style="color:var(--header);text-decoration:underline">Jobs</a></div>`
+        : '');
+  }
+
+  // Crew at a glance — top 6 crew by open snag count (uses workload data
+  // if loaded). Falls back to alpha-sorted list. Click → /admin Snags
+  // filtered to that user (existing _jumpToSnagsForUser helper).
+  const crew = (USERS || []).filter(u => u.role === 'tradie' || u.role === 'leadingHand');
+  crew.sort((a, b) => (OPEN_SNAGS_BY_USER[b.id] || 0) - (OPEN_SNAGS_BY_USER[a.id] || 0)
+                    || String(a.username || '').localeCompare(String(b.username || '')));
+  const crewEl = document.getElementById('ov-crew-list');
+  if (!crew.length) {
+    crewEl.innerHTML = `<div class="ov-empty">No crew members yet.<br><a href="#" onclick="event.preventDefault();switchTab('people');return false" style="color:var(--header);text-decoration:underline">Add someone in People</a></div>`;
+  } else {
+    crewEl.innerHTML = crew.slice(0, 6).map(u => {
+      const open = OPEN_SNAGS_BY_USER[u.id] || 0;
+      const jobs = (u.assignedJobIds || []).length;
+      const roleBadge = u.role === 'leadingHand'
+        ? `<span style="font-size:10px;font-weight:800;color:var(--header);background:#fef3c7;padding:1px 7px;border-radius:999px;letter-spacing:.4px;text-transform:uppercase">LH</span>`
+        : '';
+      return `<a class="ov-row" onclick="_jumpToSnagsForUser('${esc(u.id)}')">
+        <div class="ov-row-accent ${open >= 8 ? 'red' : open >= 4 ? 'amber' : 'green'}"></div>
+        <div class="ov-row-body">
+          <div class="ov-row-title">${esc(u.username)} ${roleBadge}</div>
+          <div class="ov-row-meta">${jobs} job${jobs===1?'':'s'} · ${open} open snag${open===1?'':'s'}</div>
+        </div>
+        <div class="ov-row-chev">›</div>
+      </a>`;
+    }).join('');
+  }
+}
 
 async function loadTempsTab() {
   if (!tempsAdminState.filtersWired) { _wireTempsFilters(); tempsAdminState.filtersWired = true; }
