@@ -24,11 +24,14 @@
     border: 1px solid var(--border);
   }
   .install-hero h1 {
-    margin: 6px 0 0; font-size: 26px; font-weight: 700;
-    color: var(--header); letter-spacing: -.3px;
+    margin: 8px 0 0; font-family: var(--display);
+    font-size: 32px; font-weight: 700;
+    color: var(--navy); letter-spacing: -.028em;
   }
   .install-hero .lede {
-    font-size: var(--fs-base); color: var(--muted); max-width: 440px;
+    font-family: var(--display); font-weight: 400;
+    font-size: 17px; line-height: 1.4; letter-spacing: -.012em;
+    color: var(--ink-2); max-width: 440px;
   }
   .install-tabs {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
@@ -38,15 +41,17 @@
     .install-tabs { grid-template-columns: 1fr; }
   }
   .install-tab {
-    background: var(--card); border: 1px solid var(--border);
-    padding: 12px 14px; border-radius: 10px;
-    font-size: var(--fs-sm); font-weight: 700; color: var(--ink);
+    background: var(--paper); border: 1px solid var(--rule-2);
+    padding: 12px 14px; border-radius: var(--radius);
+    font-family: var(--mono);
+    font-size: 11px; font-weight: 600; color: var(--ink-2);
+    text-transform: uppercase; letter-spacing: .12em;
     cursor: pointer; text-align: center;
-    font-family: inherit; transition: all .12s;
+    transition: all .12s;
   }
   .install-tab.active {
-    background: var(--header); color: var(--header-ink);
-    border-color: var(--header);
+    background: var(--navy); color: var(--paper);
+    border-color: var(--navy);
   }
   .install-section {
     background: var(--card); border: 1px solid var(--border);
@@ -55,17 +60,19 @@
   }
   .install-section.hidden { display: none; }
   .install-section h2 {
-    margin: 0 0 16px; font-size: var(--fs-lg); font-weight: 700;
-    color: var(--ink);
+    margin: 0 0 16px; font-family: var(--display);
+    font-size: 18px; font-weight: 700;
+    color: var(--navy); letter-spacing: -.018em;
   }
   .step-list { display: flex; flex-direction: column; gap: 16px; }
   .step-row {
     display: flex; gap: 14px; align-items: flex-start;
   }
   .step-num {
-    flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
-    background: var(--accent); color: var(--accent-ink);
-    font-size: 14px; font-weight: 800;
+    flex-shrink: 0; width: 28px; height: 28px; border-radius: 2px;
+    background: var(--yellow); color: var(--yellow-ink);
+    font-family: var(--display);
+    font-size: 14px; font-weight: 700;
     display: inline-flex; align-items: center; justify-content: center;
   }
   .step-body { font-size: var(--fs-base); color: var(--ink); line-height: 1.55; }

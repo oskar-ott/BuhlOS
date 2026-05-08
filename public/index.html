@@ -433,8 +433,8 @@ textarea:focus{border-color:var(--navy);background:#fff}
 /* When the dashboard / non-detail section is active, force-hide any orphaned upload state so it can't bleed onto rows */
 #dashboard .upload-progress, #snags .upload-progress, #tags .upload-progress, #temps .upload-progress, #hours .upload-progress { display: none !important; }
 .photo-group{margin-bottom:16px}
-.photo-group-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
-.photo-group-title::after{content:'';flex:1;height:1px;background:var(--border)}
+.photo-group-title{font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.14em;margin-bottom:10px;display:flex;align-items:center;gap:10px}
+.photo-group-title::after{content:'';flex:1;height:1px;background:var(--rule)}
 .photo-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 @media(min-width:600px){.photo-grid{grid-template-columns:repeat(3,1fr)}}
 .photo-card{background:var(--card);border-radius:var(--rs);border:1px solid var(--border);overflow:hidden;cursor:pointer;transition:all .14s}
