@@ -331,24 +331,23 @@ body.has-worker-fab .pg{padding-bottom:calc(100px + env(safe-area-inset-bottom))
 .sr-snag-btn{
   width:36px;height:40px;flex-shrink:0;
   display:inline-flex;align-items:center;justify-content:center;
-  font-family:inherit;font-size:16px;font-weight:900;line-height:1;
-  color:var(--red);background:#fff;
-  border:1px solid var(--red-bd);border-radius:8px;cursor:pointer;
+  font-family:var(--display);font-size:15px;font-weight:700;line-height:1;
+  color:var(--red);background:var(--paper);
+  border:1px solid var(--rule-2);border-radius:var(--radius);cursor:pointer;
   -webkit-tap-highlight-color:transparent;
   transition:background .12s;
 }
-.sr-snag-btn:hover{background:var(--red-bg)}
+.sr-snag-btn:hover{background:rgba(192,49,47,.08);border-color:transparent}
 .sr-snag-btn:active{transform:scale(.96)}
 
-/* Snagged task row: shows a red "Snagged" pill in place of the segmented
+/* Snagged task row: shows a "Snagged" pill in place of the segmented
    control. Cannot be changed without resolving the snag first. */
-.sr.sr-snagged{background:#fef7f7}
+.sr.sr-snagged{background:rgba(192,49,47,.04);border-left:3px solid var(--red);padding-left:10px}
 .sr-snagged-pill{
   display:inline-flex;align-items:center;
-  height:40px;padding:0 14px;border-radius:8px;
-  background:var(--red-bg);color:var(--red);
-  border:1px solid var(--red-bd);
-  font-size:12px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;
+  height:40px;padding:0 14px;border-radius:var(--radius);
+  background:rgba(192,49,47,.12);color:var(--red);
+  font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
   white-space:nowrap;
 }
 
@@ -360,24 +359,25 @@ body.has-worker-fab .pg{padding-bottom:calc(100px + env(safe-area-inset-bottom))
 }
 .dw-step{
   flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;
-  background:#fff;border:1px solid var(--border);border-radius:10px;
+  background:var(--paper);border:1px solid var(--rule-2);border-radius:var(--radius);
   height:42px;padding:0 12px;
-  font-family:inherit;font-size:13px;font-weight:700;color:var(--header);
+  font-family:var(--display);font-size:13px;font-weight:600;letter-spacing:-.012em;color:var(--navy);
   cursor:pointer;min-width:0;
   transition:border-color .12s, background .12s;
   -webkit-tap-highlight-color:transparent;
 }
-.dw-step:hover:not(:disabled){border-color:var(--header);background:#f8fafc}
+.dw-step:hover:not(:disabled){background:var(--paper-3)}
 .dw-step:active:not(:disabled){transform:translateY(1px)}
-.dw-step:disabled{color:var(--muted);background:#f8fafc;cursor:default;opacity:.6}
-.dw-step-arr{font-size:16px;font-weight:900;line-height:1;flex-shrink:0}
+.dw-step:disabled{color:var(--ink-4);background:var(--paper-2);cursor:default;border-color:var(--rule);opacity:.7}
+.dw-step-arr{font-size:14px;font-weight:700;line-height:1;flex-shrink:0}
 .dw-step-lbl{
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font-variant-numeric:tabular-nums;
 }
 .dw-step-pos{
   display:inline-flex;align-items:center;
-  font-size:12px;font-weight:700;color:var(--muted);
+  font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--ink-3);
+  letter-spacing:.06em;
   padding:0 10px;flex-shrink:0;
   font-variant-numeric:tabular-nums;
 }
@@ -387,21 +387,21 @@ body.has-worker-fab .pg{padding-bottom:calc(100px + env(safe-area-inset-bottom))
    unit screen. Visible to everyone except clients. */
 .dw-snag-cta{
   display:flex;align-items:center;justify-content:center;gap:8px;
-  width:100%;height:52px;margin-top:14px;
-  background:#fff;color:var(--red);
-  border:2px dashed var(--red-bd);border-radius:12px;
-  font-family:inherit;font-size:14px;font-weight:800;
-  cursor:pointer;letter-spacing:-.1px;
-  transition:background .12s, border-color .12s;
+  width:100%;height:50px;margin-top:14px;
+  background:var(--paper);color:var(--red);
+  border:1px dashed var(--rule-2);border-radius:var(--radius);
+  font-family:var(--display);font-size:14px;font-weight:600;letter-spacing:-.012em;
+  cursor:pointer;
+  transition:background .12s, border-color .12s, color .12s;
 }
-.dw-snag-cta:hover{background:var(--red-bg);border-style:solid}
+.dw-snag-cta:hover{background:rgba(192,49,47,.06);border-style:solid;border-color:var(--red)}
 .dw-snag-cta:active{transform:translateY(1px)}
-.dw-snag-cta-ico{font-size:18px;font-weight:900}
+.dw-snag-cta-ico{font-family:var(--display);font-size:16px;font-weight:700}
 
-.nc{background:var(--card);border-radius:var(--rs);border:1px solid var(--border);padding:13px;margin-top:12px}
-.nl{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}
-textarea{width:100%;padding:9px 11px;border-radius:var(--rs);border:1px solid var(--border);font-size:13px;font-family:inherit;resize:vertical;min-height:75px;color:var(--text);background:#fafafa;outline:none}
-textarea:focus{border-color:var(--navy);background:#fff}
+.nc{background:var(--paper);border-radius:var(--radius);border:1px solid var(--rule);padding:14px;margin-top:12px}
+.nl{font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.14em;margin-bottom:8px}
+textarea{width:100%;padding:10px 12px;border-radius:var(--radius);border:1px solid var(--rule-2);font-family:var(--sans);font-size:14px;resize:vertical;min-height:75px;color:var(--ink);background:var(--paper-2);outline:none}
+textarea:focus{border-color:var(--navy);background:var(--paper);outline:2px solid var(--yellow);outline-offset:-1px}
 .save-row{display:flex;align-items:center;gap:10px;margin-top:8px}
 .sbtn{padding:8px 18px;background:var(--header);color:var(--header-ink);border:none;border-radius:var(--rs);cursor:pointer;font-size:13px;font-weight:600}
 .sbtn:hover{opacity:.85}
