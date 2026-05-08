@@ -2248,12 +2248,34 @@ function renderMaterialsSection() {
   const priced = matState.items.filter(i => i.status === 'priced').length;
   const ordered = matState.items.filter(i => i.status === 'ordered').length;
   if (sumEl) {
-    sumEl.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px;color:var(--muted);font-weight:600">
-      <span style="background:#f1f5f9;padding:3px 8px;border-radius:999px">${matState.items.length} items</span>
-      ${ready?`<span style="background:var(--amber-bg);color:var(--amber);padding:3px 8px;border-radius:999px">${ready} ready to price</span>`:''}
-      ${priced?`<span style="background:var(--green-bg);color:var(--green);padding:3px 8px;border-radius:999px">${priced} priced</span>`:''}
-      ${ordered?`<span style="background:#dbeafe;color:#1e40af;padding:3px 8px;border-radius:999px">${ordered} ordered</span>`:''}
-    </div>`;
+    // Build filter chips: status + category + free-text search. Selecting
+    // matches drives matState.filter and re-renders. The "Selected" pill
+    // surfaces what the pricing-email modal will pick up by default.
+    const f = matState.filter || { status:'all', category:'all', search:'' };
+    const cats = Array.from(new Set(matState.items.map(i => i.category).filter(Boolean))).sort();
+    const selectedN = matState.selected ? matState.selected.size : 0;
+    const statusBtn = (val, lbl, count, tone) => {
+      const active = (f.status || 'all') === val;
+      return `<button class="filter-chip${active?' active':''}${tone===' danger'?' danger':''}" onclick="matSetFilter('status','${val}')">${lbl}${count!=null?`<span class="filter-chip-count">${count}</span>`:''}</button>`;
+    };
+    sumEl.innerHTML = `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+        ${statusBtn('all','All', matState.items.length)}
+        ${statusBtn('draft','Draft', matState.items.filter(i=>i.status==='draft').length)}
+        ${statusBtn('ready_to_price','Ready to price', ready)}
+        ${priced?statusBtn('priced','Priced', priced):''}
+        ${ordered?statusBtn('ordered','Ordered', ordered):''}
+        ${selectedN ? `<span style="background:var(--accent);color:var(--accent-ink);padding:4px 10px;border-radius:999px;font-size:11px;font-weight:800;margin-left:auto">${selectedN} selected · used by pricing email</span>` : ''}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select onchange="matSetFilter('category', this.value)" style="height:32px;padding:0 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--card);color:var(--ink);font-family:inherit">
+          <option value="all">All categories</option>
+          ${cats.map(c => `<option value="${esc(c)}"${f.category===c?' selected':''}>${esc(c)}</option>`).join('')}
+        </select>
+        <input type="search" placeholder="Search items, brand, drawing…" value="${esc(f.search||'')}" oninput="matSetFilter('search', this.value)"
+          style="height:32px;padding:0 10px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--ink);font-family:inherit;flex:1;min-width:160px">
+        ${(f.status!=='all'||f.category!=='all'||f.search) ? `<button class="filter-clear" onclick="matClearFilter()">Clear</button>` : ''}
+      </div>`;
   }
 
   // Filter row + search
@@ -2319,6 +2341,29 @@ function matFiltered() {
 
 function matToggleSelect(id, on) {
   if (on) matState.selected.add(id); else matState.selected.delete(id);
+  // Re-render so the "N selected" pill updates without losing the row's
+  // checked state (which lives in matState.selected, not the DOM).
+  renderMaterialsSection();
+}
+
+// Set / clear filter state. Called by the inline chip buttons + the
+// category select + the search box. Re-renders restore focus to the search
+// input and keep the caret position (rebuilding innerHTML otherwise blurs).
+function matSetFilter(key, val) {
+  matState.filter = matState.filter || { status:'all', category:'all', search:'' };
+  matState.filter[key] = val;
+  renderMaterialsSection();
+  if (key === 'search') {
+    const inp = document.querySelector('#js-materials-summary input[type="search"]');
+    if (inp) {
+      inp.focus();
+      try { const n = String(val||'').length; inp.setSelectionRange(n, n); } catch(e) {}
+    }
+  }
+}
+function matClearFilter() {
+  matState.filter = { status:'all', category:'all', search:'' };
+  renderMaterialsSection();
 }
 
 async function matSetStatus(id, status) {
