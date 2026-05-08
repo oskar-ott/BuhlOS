@@ -1055,6 +1055,7 @@ dialog h3.dlg-title {
 
 <nav class="admin-tabs" id="admin-tabs">
   <button class="active" data-tab="overview">Overview</button>
+  <button data-tab="quotes">Quotes</button>
   <button data-tab="jobs">Jobs</button>
   <button data-tab="hours">Hours</button>
   <button data-tab="snags">Snags</button>
@@ -1134,6 +1135,67 @@ dialog h3.dlg-title {
         </button>
       </div>
     </section>
+  </div>
+
+  <!-- ╔════════════ QUOTES TAB ════════════╗ -->
+  <!-- Tenders / Quotes / EOIs — admin-only. Two views inside this tab:
+       a list view (default) and a workspace view (when a quote is open).
+       Switching is controlled by qState.openQuoteId. -->
+  <div id="tab-quotes" class="tab">
+    <!-- List view -->
+    <div id="quotes-index">
+      <div class="page-head">
+        <div class="page-head-left">
+          <h1 class="admin-page-title">Quotes</h1>
+          <div class="admin-page-sub" id="quotes-subtitle">Tender opportunities and estimates before they become live jobs.</div>
+        </div>
+        <div class="page-head-actions">
+          <button class="btn primary" id="open-new-quote" style="height:38px;padding:0 16px;font-size:var(--fs-sm)">+ New quote</button>
+        </div>
+      </div>
+      <div class="hours-filters" style="margin-bottom:12px">
+        <div class="seg" id="quotes-status-seg">
+          <button data-st="all" class="active">All</button>
+          <button data-st="draft">Draft</button>
+          <button data-st="reviewing">Reviewing</button>
+          <button data-st="estimating">Estimating</button>
+          <button data-st="submitted">Submitted</button>
+          <button data-st="won">Won</button>
+          <button data-st="lost">Lost</button>
+        </div>
+        <input type="search" id="quotes-search" placeholder="Search name, builder…" autocomplete="off"
+          style="height:34px;padding:0 10px;font-size:13px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--ink);font-family:inherit;flex:1;min-width:160px">
+      </div>
+      <div id="quotes-list"></div>
+    </div>
+
+    <!-- Workspace view (replaces index when a quote is open) -->
+    <div id="quotes-workspace" hidden>
+      <div class="setup-head">
+        <div class="setup-head-row">
+          <button class="setup-crumb" onclick="qCloseWorkspace()">&#8592; All quotes</button>
+        </div>
+        <div class="setup-name-row">
+          <h1 class="setup-name" id="qw-name">…</h1>
+          <span class="badge-st active" id="qw-status">draft</span>
+        </div>
+        <div class="admin-page-sub" id="qw-meta">…</div>
+      </div>
+
+      <!-- Section nav -->
+      <nav class="admin-tabs" id="qw-nav" style="margin-bottom:14px;top:60px">
+        <button class="active" data-qsec="overview">Overview</button>
+        <button data-qsec="documents">Documents</button>
+        <button data-qsec="ai">AI Review</button>
+        <button data-qsec="structure">Structure</button>
+        <button data-qsec="materials">Materials</button>
+        <button data-qsec="labour">Labour</button>
+        <button data-qsec="risks">Risks &amp; Assumptions</button>
+        <button data-qsec="summary">Summary</button>
+      </nav>
+
+      <div id="qw-section"></div>
+    </div>
   </div>
 
   <div id="tab-jobs" class="tab">
@@ -1879,6 +1941,7 @@ function switchTab(id) {
   if (id === 'costs')  loadCosts();
   if (id === 'jobs')   showJobsIndex(true);
   if (id === 'overview') loadOverviewTab();
+  if (id === 'quotes')   loadQuotesTab();
   if (id === 'hours')    loadHoursOverview();
   if (id === 'snags')    loadSnagsTab();
   if (id === 'temps')    loadTempsTab();
@@ -4044,6 +4107,816 @@ async function loadOverviewTab() {
       </a>`;
     }).join('');
   }
+}
+
+// ╔══════════════════════════ QUOTES (Tenders) ══════════════════════════╗
+// Foundation v1: list view + workspace with sections (overview / documents
+// / AI review / structure / materials / labour / risks / summary). Mounts
+// against /api/quotes (combined CRUD + sections) and /api/quote-documents
+// (file uploads). All admin-only — server enforces.
+
+const QUOTE_STATUSES = [
+  { v:'draft',            l:'Draft',           tone:'' },
+  { v:'reviewing',        l:'Reviewing',       tone:'amber' },
+  { v:'estimating',       l:'Estimating',      tone:'amber' },
+  { v:'submitted',        l:'Submitted',       tone:'navy' },
+  { v:'won',              l:'Won',             tone:'green' },
+  { v:'lost',             l:'Lost',            tone:'red' },
+  { v:'declined',         l:'Declined',        tone:'red' },
+  { v:'converted_to_job', l:'Converted',       tone:'green' },
+  { v:'archived',         l:'Archived',        tone:'' },
+];
+function _qStatusLabel(v) { const s = QUOTE_STATUSES.find(x => x.v === v); return s ? s.l : v; }
+
+const qState = {
+  filter: { status:'all', search:'' },
+  filtersWired: false,
+  list: [],            // index of quotes
+  openQuoteId: null,   // null = list view; else workspace view
+  open: null,          // full bundle (quote + structure + materials + labour + notes + ai + documents)
+  section: 'overview',
+};
+
+async function loadQuotesTab() {
+  if (!qState.filtersWired) { _wireQuotesFilters(); qState.filtersWired = true; }
+  // If a workspace was already open, keep showing it; otherwise reload list.
+  if (qState.openQuoteId) {
+    await _qLoadOpenQuote(qState.openQuoteId);
+    return;
+  }
+  document.getElementById('quotes-list').innerHTML = '<div class="empty-block"><div>Loading…</div></div>';
+  try {
+    const r = await fetch('/api/quotes', { credentials: 'same-origin' });
+    if (r.ok) qState.list = (await r.json()).quotes || [];
+  } catch { qState.list = []; }
+  _renderQuotesList();
+}
+
+function _wireQuotesFilters() {
+  document.querySelectorAll('#quotes-status-seg button').forEach(b => {
+    b.onclick = () => {
+      qState.filter.status = b.dataset.st;
+      document.querySelectorAll('#quotes-status-seg button').forEach(x => x.classList.toggle('active', x === b));
+      _renderQuotesList();
+    };
+  });
+  document.getElementById('quotes-search').oninput = e => {
+    qState.filter.search = e.target.value;
+    _renderQuotesList();
+    const i = document.getElementById('quotes-search');
+    if (i) { i.focus(); try { const n = e.target.value.length; i.setSelectionRange(n, n); } catch(_){} }
+  };
+  document.getElementById('open-new-quote').onclick = () => _qOpenNewModal();
+  // Section nav inside the workspace.
+  document.querySelectorAll('#qw-nav button').forEach(b => {
+    b.onclick = () => {
+      qState.section = b.dataset.qsec;
+      document.querySelectorAll('#qw-nav button').forEach(x => x.classList.toggle('active', x === b));
+      _qRenderSection();
+    };
+  });
+}
+
+function _renderQuotesList() {
+  const f = qState.filter;
+  const q = (f.search || '').trim().toLowerCase();
+  const filtered = qState.list.filter(qt => {
+    if (f.status !== 'all' && qt.status !== f.status) return false;
+    if (q && !((qt.name||'').toLowerCase().includes(q) || (qt.builder||'').toLowerCase().includes(q))) return false;
+    return true;
+  });
+  // Subtitle counts
+  const sub = document.getElementById('quotes-subtitle');
+  const wonCount = qState.list.filter(x => x.status === 'won').length;
+  const submittedCount = qState.list.filter(x => x.status === 'submitted').length;
+  if (sub) sub.innerHTML = `<b style="color:var(--ink);font-weight:600">${qState.list.length}</b> total · ${submittedCount} submitted · ${wonCount} won`;
+
+  const el = document.getElementById('quotes-list');
+  if (!filtered.length) {
+    el.innerHTML = qState.list.length
+      ? `<div class="empty-block"><div class="empty-block-title">No quotes match these filters.</div></div>`
+      : `<div class="empty-block">
+          <div class="empty-block-title">No quotes yet</div>
+          <div>Create your first tender opportunity to get started.</div>
+        </div>`;
+    return;
+  }
+  // Sort: most recently updated first, then by status priority
+  const sorted = filtered.slice().sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||''));
+  el.innerHTML = '<div class="jbox">' + sorted.map(qt => {
+    const st = QUOTE_STATUSES.find(s => s.v === qt.status) || { l: qt.status, tone: '' };
+    const due = qt.dueDate ? `<span>Due <b style="color:var(--ink)">${esc(qt.dueDate)}</b></span>` : '';
+    const builder = qt.builder ? `<span>Builder: <b style="color:var(--ink)">${esc(qt.builder)}</b></span>` : '';
+    const counts = qt.counts || {};
+    const chips = [
+      counts.documents ? `<span class="setup-chip ok"><span class="setup-chip-mark">✓</span>${counts.documents} doc${counts.documents===1?'':'s'}</span>` : `<span class="setup-chip warn"><span class="setup-chip-mark">!</span>No documents</span>`,
+      counts.materials ? `<span class="setup-chip ok"><span class="setup-chip-mark">✓</span>${counts.materials} material${counts.materials===1?'':'s'}</span>` : '',
+      counts.labourLines ? `<span class="setup-chip ok"><span class="setup-chip-mark">✓</span>${(counts.labourHours||0).toFixed(0)}h labour</span>` : '',
+    ].filter(Boolean).join('');
+    return `<div class="jrow" onclick="_qOpenWorkspace('${esc(qt.id)}')">
+      <div class="jrow-body">
+        <div class="jrow-line1">
+          <span class="jrow-name">${esc(qt.name)}</span>
+          <span class="badge-st ${st.tone === 'green' ? 'active' : ''}" style="${st.tone==='red'?'background:var(--red-bg);color:var(--red);border-color:var(--red-bd)':st.tone==='amber'?'background:var(--amber-bg);color:var(--amber);border-color:var(--amber-bd)':''}">${st.l}</span>
+        </div>
+        <div class="jrow-line2">${[builder, due, esc(qt.id)].filter(Boolean).map(s=>'<span>'+s+'</span>').join('')}</div>
+        <div class="setup-chips" style="margin-top:7px">${chips}</div>
+      </div>
+      <div class="jrow-actions" onclick="event.stopPropagation()">
+        <button class="jrow-edit" onclick="_qOpenWorkspace('${esc(qt.id)}')">Open →</button>
+      </div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+function _qOpenNewModal() {
+  const overlay = _matBuildModal('New quote');
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div class="snag-field"><label class="snag-field-label">Quote name *</label>
+      <input id="qn-name" type="text" placeholder="e.g. 19-21 The Corso EOI" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="snag-field"><label class="snag-field-label">Builder / client</label>
+        <input id="qn-builder" type="text" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field"><label class="snag-field-label">Due date</label>
+        <input id="qn-due" type="date" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    </div>
+    <div class="snag-field"><label class="snag-field-label">Site address</label>
+      <input id="qn-addr" type="text" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="snag-field"><label class="snag-field-label">Contact name</label>
+        <input id="qn-cname" type="text" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field"><label class="snag-field-label">Contact email</label>
+        <input id="qn-cemail" type="email" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    </div>
+    <div class="snag-field"><label class="snag-field-label">Description</label>
+      <textarea id="qn-desc" rows="3" placeholder="Short scope summary" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></textarea></div>`;
+  overlay.querySelector('.snag-modal-save').textContent = 'Create quote';
+  overlay.querySelector('.snag-modal-save').onclick = async () => {
+    const body = {
+      name:         document.getElementById('qn-name').value.trim(),
+      builder:      document.getElementById('qn-builder').value.trim(),
+      dueDate:      document.getElementById('qn-due').value,
+      siteAddress:  document.getElementById('qn-addr').value.trim(),
+      contactName:  document.getElementById('qn-cname').value.trim(),
+      contactEmail: document.getElementById('qn-cemail').value.trim(),
+      description:  document.getElementById('qn-desc').value.trim(),
+    };
+    if (!body.name) { alert('Quote name required.'); return; }
+    try {
+      const r = await fetch('/api/quotes', {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+      const j = await r.json();
+      _matCloseModal(overlay);
+      await loadQuotesTab();
+      // Drop the admin straight into the workspace for the new quote.
+      _qOpenWorkspace(j.quote.id);
+    } catch (e) { alert('Create failed: ' + e.message); }
+  };
+}
+
+async function _qOpenWorkspace(id) {
+  qState.openQuoteId = id;
+  qState.section = 'overview';
+  // Toggle index ↔ workspace.
+  document.getElementById('quotes-index').hidden = true;
+  document.getElementById('quotes-workspace').hidden = false;
+  document.querySelectorAll('#qw-nav button').forEach(b => b.classList.toggle('active', b.dataset.qsec === 'overview'));
+  document.getElementById('qw-section').innerHTML = '<div class="empty-block"><div>Loading…</div></div>';
+  await _qLoadOpenQuote(id);
+}
+
+async function _qLoadOpenQuote(id) {
+  try {
+    const r = await fetch('/api/quotes?id=' + encodeURIComponent(id), { credentials:'same-origin' });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    qState.open = await r.json();
+  } catch (e) {
+    document.getElementById('qw-section').innerHTML =
+      `<div class="empty-block"><div class="empty-block-title">Couldn't load quote</div><div>${esc(e.message)}</div></div>`;
+    return;
+  }
+  const q = qState.open.quote;
+  document.getElementById('qw-name').textContent = q.name || '(unnamed)';
+  document.getElementById('qw-status').textContent = _qStatusLabel(q.status);
+  document.getElementById('qw-meta').innerHTML = [
+    q.builder ? 'Builder: <b style="color:var(--ink)">' + esc(q.builder) + '</b>' : '',
+    q.siteAddress ? esc(q.siteAddress) : '',
+    q.dueDate ? 'Due <b style="color:var(--ink)">' + esc(q.dueDate) + '</b>' : '',
+    esc(q.id),
+  ].filter(Boolean).join(' · ');
+  _qRenderSection();
+}
+
+function qCloseWorkspace() {
+  qState.openQuoteId = null;
+  qState.open = null;
+  document.getElementById('quotes-index').hidden = false;
+  document.getElementById('quotes-workspace').hidden = true;
+  loadQuotesTab();
+}
+
+function _qRenderSection() {
+  const sec = qState.section;
+  const host = document.getElementById('qw-section');
+  if (!qState.open) return;
+  if (sec === 'overview')   _qRenderOverview(host);
+  if (sec === 'documents')  _qRenderDocuments(host);
+  if (sec === 'ai')         _qRenderAi(host);
+  if (sec === 'structure')  _qRenderStructure(host);
+  if (sec === 'materials')  _qRenderMaterials(host);
+  if (sec === 'labour')     _qRenderLabour(host);
+  if (sec === 'risks')      _qRenderRisks(host);
+  if (sec === 'summary')    _qRenderSummary(host);
+}
+
+function _qRenderOverview(host) {
+  const q = qState.open.quote;
+  const statusOpts = QUOTE_STATUSES.map(s =>
+    `<option value="${s.v}"${q.status===s.v?' selected':''}>${s.l}</option>`).join('');
+  host.innerHTML = `
+    <div class="s-card">
+      <div class="s-card-hdr">
+        <div><div class="s-card-title">Quote details</div>
+          <div class="s-card-sub">Edit basics. Status drives the lifecycle.</div></div>
+        <button class="s-add" onclick="_qSaveOverview()">Save changes</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="snag-field"><label class="snag-field-label">Name</label>
+          <input id="qo-name" type="text" value="${esc(q.name||'')}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+        <div class="snag-field"><label class="snag-field-label">Status</label>
+          <select id="qo-status" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">${statusOpts}</select></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="snag-field"><label class="snag-field-label">Builder</label>
+          <input id="qo-builder" type="text" value="${esc(q.builder||'')}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+        <div class="snag-field"><label class="snag-field-label">Due date</label>
+          <input id="qo-due" type="date" value="${esc(q.dueDate||'')}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      </div>
+      <div class="snag-field"><label class="snag-field-label">Site address</label>
+        <input id="qo-addr" type="text" value="${esc(q.siteAddress||'')}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div class="snag-field"><label class="snag-field-label">Contact name</label>
+          <input id="qo-cname" type="text" value="${esc(q.contactName||'')}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+        <div class="snag-field"><label class="snag-field-label">Contact email</label>
+          <input id="qo-cemail" type="email" value="${esc(q.contactEmail||'')}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+        <div class="snag-field"><label class="snag-field-label">Contact phone</label>
+          <input id="qo-cphone" type="text" value="${esc(q.contactPhone||'')}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      </div>
+      <div class="snag-field"><label class="snag-field-label">Description / scope summary</label>
+        <textarea id="qo-desc" rows="4" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit">${esc(q.description||'')}</textarea></div>
+    </div>
+    ${q.convertedJobId ? `<div class="empty-block" style="margin-top:14px"><div class="empty-block-title">Converted to live job</div><div>Job ID: <b>${esc(q.convertedJobId)}</b> · <a href="/jobs/${esc(q.convertedJobId)}" target="_blank">Open dashboard ↗</a></div></div>` : ''}`;
+}
+
+async function _qSaveOverview() {
+  const id = qState.openQuoteId; if (!id) return;
+  const body = {
+    name:         document.getElementById('qo-name').value.trim(),
+    status:       document.getElementById('qo-status').value,
+    builder:      document.getElementById('qo-builder').value.trim(),
+    dueDate:      document.getElementById('qo-due').value,
+    siteAddress:  document.getElementById('qo-addr').value.trim(),
+    contactName:  document.getElementById('qo-cname').value.trim(),
+    contactEmail: document.getElementById('qo-cemail').value.trim(),
+    contactPhone: document.getElementById('qo-cphone').value.trim(),
+    description:  document.getElementById('qo-desc').value.trim(),
+  };
+  try {
+    const r = await fetch('/api/quotes?id=' + encodeURIComponent(id), {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    await _qLoadOpenQuote(id);
+    alert('Saved.');
+  } catch (e) { alert('Save failed: ' + e.message); }
+}
+
+function _qRenderDocuments(host) {
+  const docs = (qState.open.documents.documents || []).filter(d => d.status !== 'archived');
+  host.innerHTML = `
+    <div class="s-card">
+      <div class="s-card-hdr">
+        <div><div class="s-card-title">Documents <span class="s-card-count">${docs.length}</span></div>
+          <div class="s-card-sub">Plans, scope, specs, addendums. Used as reference while estimating and copied across when the quote becomes a job.</div></div>
+        <label class="s-add" style="cursor:pointer">+ Upload
+          <input type="file" id="qd-file" accept="application/pdf,image/*,.docx,.xlsx" style="display:none" multiple></label>
+      </div>
+      <div id="qd-progress" class="s-msg" style="display:none"></div>
+      <div id="qd-list">${_qRenderDocsList(docs)}</div>
+    </div>`;
+  document.getElementById('qd-file').onchange = e => _qUploadDocs(e.target.files);
+}
+function _qRenderDocsList(docs) {
+  if (!docs.length) return '<div class="empty-block">No documents yet. Upload PDFs or images of the tender plans/spec.</div>';
+  return docs.sort((a,b)=>(a.documentType||'').localeCompare(b.documentType||'')).map(d => {
+    const stCls = d.status === 'current' ? 'complete' : 'in-progress';
+    const stLbl = d.status === 'current' ? 'Current' : d.status === 'superseded' ? 'Superseded' : 'Archived';
+    const sizeKb = d.sizeBytes ? Math.round(d.sizeBytes/1024) + ' KB' : '';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);background:#fff;border-radius:8px;margin-bottom:6px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700;color:var(--header)">
+          ${d.drawingNumber?esc(d.drawingNumber):'<span style="color:var(--muted);font-weight:500">No drawing no.</span>'}
+          ${d.revision?`<span style="color:var(--muted);font-weight:500"> · Rev ${esc(d.revision)}</span>`:''}
+          <span class="status-badge ${stCls}" style="margin-left:6px">${stLbl}</span>
+        </div>
+        <div style="font-size:13px;color:var(--ink);margin-top:2px">${esc(d.title || d.fileName)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">
+          ${esc(d.documentType||'')} · ${esc(d.fileName)} ${sizeKb?'· '+sizeKb:''}
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+        <a href="${esc(d.url)}" target="_blank" rel="noopener" class="utbl-edit">Open ↗</a>
+        ${d.status==='current'?`<button class="utbl-edit" onclick="_qSetDocStatus('${esc(d.id)}','superseded')">Mark superseded</button>`:`<button class="utbl-edit" onclick="_qSetDocStatus('${esc(d.id)}','current')">Mark current</button>`}
+        <button class="utbl-edit" onclick="_qArchiveDoc('${esc(d.id)}')" style="color:var(--red);border-color:var(--red-bd)">Archive</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+async function _qUploadDocs(fileList) {
+  const id = qState.openQuoteId; if (!id) return;
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  const prog = document.getElementById('qd-progress');
+  let done = 0, failed = 0;
+  for (const file of files) {
+    if (prog) { prog.style.display='block'; prog.textContent = `Uploading ${done+1}/${files.length}: ${file.name}…`; }
+    try {
+      const dataUrl = await new Promise((res, rej) => {
+        const r = new FileReader(); r.onload = e => res(e.target.result); r.onerror = rej; r.readAsDataURL(file);
+      });
+      const r = await fetch('/api/quote-documents?quoteId=' + encodeURIComponent(id), {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify({ fileName: file.name, mimeType: file.type, dataUrl, title: file.name.replace(/\.[^.]+$/,'') }),
+      });
+      if (!r.ok) failed++; else done++;
+    } catch (e) { failed++; }
+  }
+  document.getElementById('qd-file').value = '';
+  if (prog) { prog.textContent = `${done} uploaded${failed?` · ${failed} failed`:''}`; setTimeout(()=>prog.style.display='none', 2500); }
+  await _qLoadOpenQuote(id);
+}
+async function _qSetDocStatus(docId, status) {
+  const id = qState.openQuoteId; if (!id) return;
+  try {
+    const r = await fetch('/api/quote-documents?quoteId=' + encodeURIComponent(id) + '&id=' + encodeURIComponent(docId), {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+      body: JSON.stringify({ status }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    await _qLoadOpenQuote(id);
+  } catch (e) { alert('Update failed: ' + e.message); }
+}
+async function _qArchiveDoc(docId) {
+  if (!confirm('Archive this document?')) return;
+  const id = qState.openQuoteId; if (!id) return;
+  try {
+    const r = await fetch('/api/quote-documents?quoteId=' + encodeURIComponent(id) + '&id=' + encodeURIComponent(docId), {
+      method:'DELETE', credentials:'same-origin',
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    await _qLoadOpenQuote(id);
+  } catch (e) { alert('Archive failed: ' + e.message); }
+}
+
+function _qRenderAi(host) {
+  const reviews = (qState.open.ai.reviews || []).slice().reverse();
+  host.innerHTML = `
+    <div class="s-card">
+      <div class="s-card-hdr">
+        <div><div class="s-card-title">AI-assisted review</div>
+          <div class="s-card-sub">Paste scope text from the tender. Output is saved as <b>suggestions only</b> — review and apply selectively.</div></div>
+      </div>
+      <div class="snag-field"><label class="snag-field-label">Paste scope / spec text</label>
+        <textarea id="qa-text" rows="8" placeholder="Paste relevant tender scope, spec extract, or notes…" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace"></textarea></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+        <button class="s-add" onclick="_qRunAi()" style="background:var(--accent);color:var(--accent-ink)">Run review</button>
+        <span style="font-size:11px;color:var(--muted)">Anthropic-API-backed when ANTHROPIC_API_KEY is set; otherwise the paste is preserved for manual review.</span>
+      </div>
+      <div id="qa-list">
+        ${reviews.length ? reviews.map(r => _qRenderReview(r)).join('') : '<div class="empty-block">No AI reviews yet.</div>'}
+      </div>
+    </div>`;
+}
+function _qRenderReview(r) {
+  const dt = r.createdAt ? new Date(r.createdAt).toLocaleString('en-AU') : '';
+  const list = arr => Array.isArray(arr) && arr.length ? `<ul style="margin:4px 0 8px 18px;padding:0">${arr.map(x => `<li style="font-size:12px;color:var(--ink)">${esc(typeof x === 'string' ? x : (x.name || JSON.stringify(x)))}</li>`).join('')}</ul>` : '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">— none —</div>';
+  return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:#fff">
+    <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px">Review ${esc(dt)} · ${esc(r.createdBy||'')}</div>
+    ${r.summary ? `<div style="font-size:13px;margin-top:6px">${esc(r.summary)}</div>`:''}
+    ${r.rawModelNotes ? `<div style="font-size:11px;color:var(--amber);margin-top:6px;font-style:italic">${esc(r.rawModelNotes)}</div>`:''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--header);text-transform:uppercase;letter-spacing:.4px">Suggested area groups</div>
+        ${list((r.suggestedAreaGroups || []).map(g => g.name + (Array.isArray(g.areas)&&g.areas.length?` (${g.areas.join(', ')})`:'')))}
+        <div style="font-size:11px;font-weight:700;color:var(--header);text-transform:uppercase;letter-spacing:.4px">Systems</div>
+        ${list(r.suggestedSystems)}
+        <div style="font-size:11px;font-weight:700;color:var(--header);text-transform:uppercase;letter-spacing:.4px">Risks</div>
+        ${list(r.risks)}
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--header);text-transform:uppercase;letter-spacing:.4px">Rough-in tasks</div>
+        ${list(r.suggestedTasks && r.suggestedTasks.roughIn)}
+        <div style="font-size:11px;font-weight:700;color:var(--header);text-transform:uppercase;letter-spacing:.4px">Fit-off tasks</div>
+        ${list(r.suggestedTasks && r.suggestedTasks.fitOff)}
+        <div style="font-size:11px;font-weight:700;color:var(--header);text-transform:uppercase;letter-spacing:.4px">Assumptions</div>
+        ${list(r.assumptions)}
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+      <button class="utbl-edit" onclick='_qApplyReview(${JSON.stringify(JSON.stringify(r)).replace(/"/g,"&quot;")})'>Apply selected suggestions</button>
+    </div>
+  </div>`;
+}
+async function _qRunAi() {
+  const id = qState.openQuoteId; if (!id) return;
+  const text = document.getElementById('qa-text').value.trim();
+  if (!text) { alert('Paste scope text first.'); return; }
+  try {
+    const r = await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=ai-review', {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+      body: JSON.stringify({ sourceText: text }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    await _qLoadOpenQuote(id);
+    alert('Review saved.');
+  } catch (e) { alert('AI review failed: ' + e.message); }
+}
+async function _qApplyReview(reviewJson) {
+  const id = qState.openQuoteId; if (!id) return;
+  let r; try { r = JSON.parse(reviewJson); } catch { return; }
+  if (!confirm('Apply suggestions to structure / risks / assumptions / materials? (existing data preserved; suggestions appended)')) return;
+  // Append to structure
+  const cur = qState.open.structure || { areaGroups: [] };
+  const newAreaGroups = [...(cur.areaGroups || [])];
+  for (const g of (r.suggestedAreaGroups || [])) {
+    if (!g.name) continue;
+    if (!newAreaGroups.find(x => x.name === g.name)) {
+      newAreaGroups.push({ name: g.name, areas: (g.areas||[]).map(name => ({ name })), workPackages: [] });
+    }
+  }
+  await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=structure', {
+    method:'PATCH', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+    body: JSON.stringify({ areaGroups: newAreaGroups }),
+  });
+  // Append assumptions / risks to notes
+  const curNotes = qState.open.notes || {};
+  await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=notes', {
+    method:'PATCH', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+    body: JSON.stringify({
+      assumptions:    [...(curNotes.assumptions || []), ...(r.assumptions || [])],
+      exclusions:     curNotes.exclusions || [],
+      risks:          [...(curNotes.risks || []), ...(r.risks || [])],
+      clarifications: curNotes.clarifications || [],
+    }),
+  });
+  // Append materials as ai_suggested
+  for (const m of (r.suggestedMaterials || [])) {
+    if (!m.name) continue;
+    await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=materials', {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+      body: JSON.stringify({
+        name: m.name, category: m.category || 'Other',
+        quantity: m.quantity != null ? Number(m.quantity) : null,
+        confidence: m.confidence || 'low',
+        notes: m.notes || '',
+        source: 'ai_suggested',
+        status: 'needs_review',
+      }),
+    });
+  }
+  await _qLoadOpenQuote(id);
+  alert('Suggestions applied.');
+}
+
+function _qRenderStructure(host) {
+  const groups = (qState.open.structure.areaGroups || []);
+  host.innerHTML = `
+    <div class="s-card">
+      <div class="s-card-hdr">
+        <div><div class="s-card-title">Quote structure</div>
+          <div class="s-card-sub">Area groups, areas, and area-specific work packages. Used as the seed structure when the quote converts to a live job.</div></div>
+        <div style="display:flex;gap:6px"><button class="s-add" onclick="_qAddGroup()">+ Add group</button>
+          <button class="s-add" onclick="_qSaveStructure()" style="background:var(--accent);color:var(--accent-ink)">Save changes</button></div>
+      </div>
+      <div id="qs-editor">${_qStructureHtml(groups)}</div>
+    </div>`;
+}
+function _qStructureHtml(groups) {
+  if (!groups.length) return '<div class="empty-block">No structure yet. Add an area group or apply AI suggestions.</div>';
+  return groups.map((g, gi) => `
+    <div class="grp">
+      <div class="grp-hdr">
+        <input placeholder="Group name (e.g. Level 1)" value="${esc(g.name||'')}" oninput="_qSt(${gi},'name',this.value)">
+        <button class="grp-remove" onclick="_qRemoveGroup(${gi})">Remove</button>
+      </div>
+      <div class="grp-areas">
+        ${(g.areas||[]).map((a, ai) => `<div class="grp-area">
+          <input placeholder="Area name" value="${esc(a.name||'')}" oninput="_qSt(${gi},'area',this.value,${ai})">
+          <button class="x-btn" onclick="_qRemoveArea(${gi},${ai})">×</button>
+        </div>`).join('')}
+      </div>
+      <button class="grp-add-area" onclick="_qAddArea(${gi})">+ Add area</button>
+    </div>`).join('');
+}
+function _qAddGroup() {
+  qState.open.structure.areaGroups.push({ name:'', areas:[], workPackages:[] });
+  document.getElementById('qs-editor').innerHTML = _qStructureHtml(qState.open.structure.areaGroups);
+}
+function _qRemoveGroup(gi) {
+  qState.open.structure.areaGroups.splice(gi, 1);
+  document.getElementById('qs-editor').innerHTML = _qStructureHtml(qState.open.structure.areaGroups);
+}
+function _qAddArea(gi) {
+  qState.open.structure.areaGroups[gi].areas = qState.open.structure.areaGroups[gi].areas || [];
+  qState.open.structure.areaGroups[gi].areas.push({ name:'' });
+  document.getElementById('qs-editor').innerHTML = _qStructureHtml(qState.open.structure.areaGroups);
+}
+function _qRemoveArea(gi, ai) {
+  qState.open.structure.areaGroups[gi].areas.splice(ai, 1);
+  document.getElementById('qs-editor').innerHTML = _qStructureHtml(qState.open.structure.areaGroups);
+}
+function _qSt(gi, kind, val, ai) {
+  const g = qState.open.structure.areaGroups[gi]; if (!g) return;
+  if (kind === 'name') g.name = val;
+  if (kind === 'area' && g.areas[ai]) g.areas[ai].name = val;
+}
+async function _qSaveStructure() {
+  const id = qState.openQuoteId; if (!id) return;
+  try {
+    const r = await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=structure', {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+      body: JSON.stringify({ areaGroups: qState.open.structure.areaGroups }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    await _qLoadOpenQuote(id);
+    alert('Saved.');
+  } catch (e) { alert('Save failed: ' + e.message); }
+}
+
+function _qRenderMaterials(host) {
+  const items = qState.open.materials.items || [];
+  const total = items.reduce((s, i) => s + (Number(i.totalCost) || (Number(i.unitCost) || 0) * (Number(i.quantity) || 0)), 0);
+  host.innerHTML = `
+    <div class="s-card">
+      <div class="s-card-hdr">
+        <div><div class="s-card-title">Materials estimate <span class="s-card-count">${items.length}</span></div>
+          <div class="s-card-sub">Manual + AI-suggested items. Captured at quote stage; carried into the live job's materials list on conversion.</div></div>
+        <div style="display:flex;gap:6px">
+          <button class="s-add" onclick="_qMatAdd()">+ Add item</button>
+          <button class="s-add" onclick="_qMatBulk()" style="background:#fff;color:var(--header);border:1px solid var(--border)">Bulk add</button>
+        </div>
+      </div>
+      ${total > 0 ? `<div style="font-size:13px;color:var(--header);font-weight:700;margin-bottom:10px">Estimated materials cost: $${total.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>` : ''}
+      ${items.length ? items.map(i => `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;margin-bottom:6px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:var(--header)"><b>${i.quantity}</b> ${esc(i.unit||'each')} · ${esc(i.name)}${i.source==='ai_suggested'?' <span style="font-size:10px;color:var(--amber);background:var(--amber-bg);padding:1px 6px;border-radius:999px;font-weight:800">AI</span>':''}</div>
+          <div style="font-size:11px;color:var(--muted)">${[esc(i.category||''), i.brandOrSpec?esc(i.brandOrSpec):'', i.area?esc(i.area):''].filter(Boolean).join(' · ')}</div>
+        </div>
+        <button class="utbl-edit" onclick="_qMatRemove('${esc(i.id)}')" style="color:var(--red);border-color:var(--red-bd)">×</button>
+      </div>`).join('') : '<div class="empty-block">No materials yet.</div>'}
+    </div>`;
+}
+function _qMatAdd() {
+  const overlay = _matBuildModal('Add material');
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div class="snag-field"><label class="snag-field-label">Name *</label>
+      <input id="qm-name" type="text" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      <div class="snag-field"><label class="snag-field-label">Quantity</label><input id="qm-qty" type="number" step="0.01" min="0" value="1" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field"><label class="snag-field-label">Unit</label><input id="qm-unit" type="text" value="each" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field"><label class="snag-field-label">Category</label><input id="qm-cat" type="text" value="Other" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    </div>
+    <div class="snag-field"><label class="snag-field-label">Brand / spec</label><input id="qm-spec" type="text" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>`;
+  overlay.querySelector('.snag-modal-save').textContent = 'Add';
+  overlay.querySelector('.snag-modal-save').onclick = async () => {
+    const id = qState.openQuoteId;
+    const body = {
+      name: document.getElementById('qm-name').value.trim(),
+      quantity: parseFloat(document.getElementById('qm-qty').value) || 0,
+      unit: document.getElementById('qm-unit').value.trim() || 'each',
+      category: document.getElementById('qm-cat').value.trim() || 'Other',
+      brandOrSpec: document.getElementById('qm-spec').value.trim(),
+    };
+    if (!body.name) { alert('Name required.'); return; }
+    try {
+      const r = await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=materials', {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+      _matCloseModal(overlay); await _qLoadOpenQuote(id);
+    } catch (e) { alert('Save failed: ' + e.message); }
+  };
+}
+function _qMatBulk() {
+  const overlay = _matBuildModal('Bulk add materials');
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div style="font-size:13px;color:var(--muted);margin-bottom:8px">One per line: <code>40 x Twin GPO - Iconic</code></div>
+    <textarea id="qmb-lines" rows="10" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace"></textarea>`;
+  overlay.querySelector('.snag-modal-save').textContent = 'Add all';
+  overlay.querySelector('.snag-modal-save').onclick = async () => {
+    const id = qState.openQuoteId;
+    const lines = document.getElementById('qmb-lines').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    if (!lines.length) { alert('Paste at least one line.'); return; }
+    // Simple parse: "<qty><unit>? x <name> [- <spec>]"
+    const parsed = lines.map(raw => {
+      const m = raw.match(/^([\d.]+)\s*([a-zA-Z]*)\s*[x×]\s*(.+)$/i);
+      if (m) {
+        let rest = m[3].trim(), spec = '';
+        const di = rest.indexOf(' - '); if (di > 0) { spec = rest.slice(di+3).trim(); rest = rest.slice(0, di).trim(); }
+        return { name: rest, brandOrSpec: spec, quantity: parseFloat(m[1])||0, unit: (m[2]||'each').toLowerCase() };
+      }
+      return { name: raw, quantity: 1, unit: 'each' };
+    });
+    try {
+      const r = await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=materials', {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify({ lines: parsed }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+      _matCloseModal(overlay); await _qLoadOpenQuote(id);
+    } catch (e) { alert('Save failed: ' + e.message); }
+  };
+}
+async function _qMatRemove(itemId) {
+  if (!confirm('Remove this material?')) return;
+  const id = qState.openQuoteId;
+  try {
+    const r = await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=materials&itemId=' + encodeURIComponent(itemId), {
+      method:'DELETE', credentials:'same-origin',
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    await _qLoadOpenQuote(id);
+  } catch (e) { alert('Delete failed: ' + e.message); }
+}
+
+function _qRenderLabour(host) {
+  const lines = qState.open.labour.lines || [];
+  const totalH = lines.reduce((s,l) => s + (Number(l.estimatedHours)||0), 0);
+  const totalCost = lines.reduce((s,l) => s + (Number(l.estimatedHours)||0) * (Number(l.hourlyRate)||0) * (Number(l.riskFactor)||1), 0);
+  host.innerHTML = `
+    <div class="s-card">
+      <div class="s-card-hdr">
+        <div><div class="s-card-title">Labour estimate <span class="s-card-count">${lines.length}</span></div>
+          <div class="s-card-sub">Estimate hours per area / system / stage. Totals only show cost when an hourly rate is captured.</div></div>
+        <button class="s-add" onclick="_qLabAdd()">+ Add line</button>
+      </div>
+      <div style="font-size:13px;color:var(--header);font-weight:700;margin-bottom:10px">
+        ${totalH.toFixed(1)}h estimated${totalCost ? ' · $' + totalCost.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' labour cost' : ''}
+      </div>
+      ${lines.length ? lines.map(l => `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;margin-bottom:6px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:var(--header)"><b>${(Number(l.estimatedHours)||0).toFixed(1)}h</b> · ${esc(l.task)}</div>
+          <div style="font-size:11px;color:var(--muted)">${[esc(l.areaGroup||''), esc(l.area||''), esc(l.system||''), esc(l.stage||'')].filter(Boolean).join(' · ')}${l.hourlyRate?` · $${l.hourlyRate}/h`:''}${l.crewSize?` · crew ${l.crewSize}`:''}</div>
+        </div>
+        <button class="utbl-edit" onclick="_qLabRemove('${esc(l.id)}')" style="color:var(--red);border-color:var(--red-bd)">×</button>
+      </div>`).join('') : '<div class="empty-block">No labour lines yet.</div>'}
+    </div>`;
+}
+function _qLabAdd() {
+  const overlay = _matBuildModal('Add labour line');
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div class="snag-field"><label class="snag-field-label">Task *</label>
+      <input id="ql-task" type="text" placeholder="e.g. Cable rough-in" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="snag-field"><label class="snag-field-label">Area group</label><input id="ql-ag" type="text" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field"><label class="snag-field-label">Area</label><input id="ql-area" type="text" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">
+      <div class="snag-field"><label class="snag-field-label">System</label><input id="ql-sys" type="text" placeholder="Power…" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field"><label class="snag-field-label">Stage</label>
+        <select id="ql-stage" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">
+          <option value="rough-in">Rough-in</option><option value="fit-off">Fit-off</option>
+        </select></div>
+      <div class="snag-field"><label class="snag-field-label">Hours</label><input id="ql-h" type="number" step="0.25" min="0" value="0" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field"><label class="snag-field-label">Rate $/h</label><input id="ql-r" type="number" step="0.01" min="0" placeholder="optional" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    </div>`;
+  overlay.querySelector('.snag-modal-save').textContent = 'Add';
+  overlay.querySelector('.snag-modal-save').onclick = async () => {
+    const id = qState.openQuoteId;
+    const body = {
+      task:           document.getElementById('ql-task').value.trim(),
+      areaGroup:      document.getElementById('ql-ag').value.trim(),
+      area:           document.getElementById('ql-area').value.trim(),
+      system:         document.getElementById('ql-sys').value.trim(),
+      stage:          document.getElementById('ql-stage').value,
+      estimatedHours: parseFloat(document.getElementById('ql-h').value) || 0,
+      hourlyRate:     document.getElementById('ql-r').value ? Number(document.getElementById('ql-r').value) : null,
+    };
+    if (!body.task) { alert('Task required.'); return; }
+    try {
+      const r = await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=labour', {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+      _matCloseModal(overlay); await _qLoadOpenQuote(id);
+    } catch (e) { alert('Save failed: ' + e.message); }
+  };
+}
+async function _qLabRemove(lineId) {
+  if (!confirm('Remove this line?')) return;
+  const id = qState.openQuoteId;
+  try {
+    const r = await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=labour&lineId=' + encodeURIComponent(lineId), {
+      method:'DELETE', credentials:'same-origin',
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    await _qLoadOpenQuote(id);
+  } catch (e) { alert('Delete failed: ' + e.message); }
+}
+
+function _qRenderRisks(host) {
+  const n = qState.open.notes;
+  const ta = (id, label, arr) => `<div class="snag-field"><label class="snag-field-label">${label} <span style="color:var(--muted);text-transform:none;font-weight:500">(one per line)</span></label>
+    <textarea id="${id}" rows="5" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace">${esc((arr||[]).join('\n'))}</textarea></div>`;
+  host.innerHTML = `
+    <div class="s-card">
+      <div class="s-card-hdr">
+        <div><div class="s-card-title">Risks &amp; assumptions</div>
+          <div class="s-card-sub">Construction quotes hinge on assumptions. Capture them here so they can be included in the formal quote and carried across when won.</div></div>
+        <button class="s-add" onclick="_qSaveNotes()" style="background:var(--accent);color:var(--accent-ink)">Save</button>
+      </div>
+      ${ta('qn-assumptions', 'Assumptions', n.assumptions)}
+      ${ta('qn-exclusions', 'Exclusions', n.exclusions)}
+      ${ta('qn-risks', 'Risks', n.risks)}
+      ${ta('qn-clarifications', 'Clarifications needed', n.clarifications)}
+    </div>`;
+}
+async function _qSaveNotes() {
+  const id = qState.openQuoteId; if (!id) return;
+  const split = el => (document.getElementById(el).value || '').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  try {
+    const r = await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=notes', {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+      body: JSON.stringify({
+        assumptions:    split('qn-assumptions'),
+        exclusions:     split('qn-exclusions'),
+        risks:          split('qn-risks'),
+        clarifications: split('qn-clarifications'),
+      }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    await _qLoadOpenQuote(id);
+    alert('Saved.');
+  } catch (e) { alert('Save failed: ' + e.message); }
+}
+
+function _qRenderSummary(host) {
+  const q = qState.open;
+  const docs = (q.documents.documents || []).filter(d => d.status !== 'archived').length;
+  const groups = (q.structure.areaGroups || []).length;
+  const areas = (q.structure.areaGroups || []).reduce((s,g) => s + (g.areas||[]).length, 0);
+  const mats = (q.materials.items || []).length;
+  const matCost = (q.materials.items || []).reduce((s,i) => s + (Number(i.totalCost) || (Number(i.unitCost)||0)*(Number(i.quantity)||0)), 0);
+  const labLines = (q.labour.lines || []).length;
+  const labH = (q.labour.lines || []).reduce((s,l) => s + (Number(l.estimatedHours)||0), 0);
+  const labCost = (q.labour.lines || []).reduce((s,l) => s + (Number(l.estimatedHours)||0)*(Number(l.hourlyRate)||0)*(Number(l.riskFactor)||1), 0);
+  const ass = (q.notes.assumptions || []).length;
+  const risks = (q.notes.risks || []).length;
+  const total = matCost + labCost;
+  const notice = q.quote.convertedJobId
+    ? `<div class="empty-block" style="margin-top:14px;border-color:var(--green-bd);background:var(--green-bg)"><div class="empty-block-title">✓ Converted to live job</div><div>This quote was converted to job <b>${esc(q.quote.convertedJobId)}</b>. <a href="/jobs/${esc(q.quote.convertedJobId)}" target="_blank">Open dashboard ↗</a></div></div>`
+    : `<div class="s-card" style="margin-top:14px"><div class="s-card-hdr"><div><div class="s-card-title">Convert to live job</div><div class="s-card-sub">Creates a new job in <code>jobs.json</code> with this quote's structure (area groups, rough-in/fit-off task union from work packages) plus the materials list. Status moves to <b>Converted</b>.</div></div><button class="s-add" onclick="_qConvert()" style="background:var(--accent);color:var(--accent-ink)" ${q.quote.status==='lost'||q.quote.status==='declined'||q.quote.status==='archived'?'disabled':''}>Convert →</button></div></div>`;
+  host.innerHTML = `
+    <div class="s-card">
+      <div class="s-card-hdr"><div><div class="s-card-title">Summary</div><div class="s-card-sub">Snapshot of what's been captured. Estimated total only shows when both materials and labour have prices/rates.</div></div></div>
+      <div class="hours-summary" style="margin-bottom:14px">
+        <div class="hours-card"><div class="hours-card-label">Documents</div><div class="hours-card-value ${docs>0?'green':'amber'}">${docs}</div></div>
+        <div class="hours-card"><div class="hours-card-label">Area groups</div><div class="hours-card-value ${groups>0?'':'amber'}">${groups}</div></div>
+        <div class="hours-card"><div class="hours-card-label">Areas</div><div class="hours-card-value">${areas}</div></div>
+        <div class="hours-card"><div class="hours-card-label">Materials</div><div class="hours-card-value">${mats}</div></div>
+        <div class="hours-card"><div class="hours-card-label">Labour lines</div><div class="hours-card-value">${labLines}</div></div>
+        <div class="hours-card"><div class="hours-card-label">Labour hours</div><div class="hours-card-value">${labH.toFixed(1)}</div></div>
+      </div>
+      <div style="font-size:13px;color:var(--ink)">
+        ${matCost ? `<div><b>Materials:</b> $${matCost.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>` : '<div style="color:var(--muted)">Materials cost not captured yet.</div>'}
+        ${labCost ? `<div><b>Labour:</b> $${labCost.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>` : '<div style="color:var(--muted)">Labour rates not captured yet.</div>'}
+        ${total ? `<div style="margin-top:6px;font-weight:800;color:var(--header)"><b>Estimated total:</b> $${total.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>` : ''}
+        ${ass||risks ? `<div style="margin-top:8px;font-size:12px;color:var(--muted)">${ass} assumption${ass===1?'':'s'} · ${risks} risk${risks===1?'':'s'}</div>` : ''}
+      </div>
+    </div>
+    ${notice}`;
+}
+async function _qConvert() {
+  const id = qState.openQuoteId; if (!id) return;
+  if (!confirm('Convert this quote to a live job? A new job will be created with the structure, tasks, and materials.')) return;
+  try {
+    const r = await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=convert', {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+      body: JSON.stringify({}),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    const j = await r.json();
+    alert('Converted! New job: ' + j.jobId);
+    // Refresh JOBS so the new entry is visible in the Jobs tab and Overview.
+    if (typeof refreshAll === 'function') await refreshAll();
+    await _qLoadOpenQuote(id);
+  } catch (e) { alert('Convert failed: ' + e.message); }
 }
 
 async function loadTempsTab() {
