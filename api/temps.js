@@ -241,21 +241,24 @@ async function handleRetireAsset(req, res, user) {
 async function handleListJobDeployments(req, res, user) {
   const jobId = (req.query && req.query.jobId) || '';
   if (!jobId) return res.status(400).json({ error: 'jobId required' });
-  const blob = await readJobDeployments(jobId);
   // Compute due/overdue server-side so all clients agree on the day's state.
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const todayMs = today.getTime();
 
   // Only admins + LHs see cost data per the brief — "Do not expose cost
-  // rates to tradies or clients." We enrich with dailyCostRate +
-  // computed days-onsite + accruedCost for those roles only.
+  // rates to tradies or clients." Read deployments + assets in parallel
+  // when cost is needed; otherwise just deployments.
   const showCost = user.role === 'admin' || user.role === 'leadingHand';
-  let assetsById = {};
+  let blob, assetsById = {};
   if (showCost) {
-    try {
-      const assetsBlob = await readAssets();
-      for (const a of (assetsBlob.items || [])) assetsById[a.id] = a;
-    } catch { /* tolerate */ }
+    const [d, a] = await Promise.all([
+      readJobDeployments(jobId),
+      readAssets().catch(() => ({ items: [] })),
+    ]);
+    blob = d;
+    for (const it of (a.items || [])) assetsById[it.id] = it;
+  } else {
+    blob = await readJobDeployments(jobId);
   }
 
   const enriched = (blob.deployments || []).map(d => {

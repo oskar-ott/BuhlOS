@@ -137,15 +137,28 @@ async function load(){
   if (teRes.ok)    TIME_ENTRIES = ((await teRes.json()).entries) || [];
   EXPIRING_TAGS = (etRes && etRes.ok) ? ((await etRes.json()).tags) || [] : [];
 
-  // Fetch per-job snag details for active jobs (no hours read — that comes
-  // from TIME_ENTRIES now). Snag detail still needed for age / latest.
+  // Render the shell FIRST with whatever's loaded (jobs list, labour,
+  // people). Per-job snag detail streams in afterwards — Attention items
+  // and Today's-activity gradually fill rather than blocking the page.
+  // Stub each active job's data so render() doesn't choke on undefined.
   const activeJobs = JOBS.filter(j => (j.status || 'active') === 'active');
-  await Promise.all(activeJobs.map(async j => {
-    const dRes = await fetch('/api/data?jobId=' + encodeURIComponent(j.id), { credentials:'same-origin' });
-    JOB_DATA[j.id] = { data: dRes.ok ? await dRes.json() : { dwellings:{}, snags:[] } };
-  }));
-
+  for (const j of activeJobs) {
+    if (!JOB_DATA[j.id]) JOB_DATA[j.id] = { data: { dwellings:{}, snags:[] } };
+  }
   render();
+
+  // Stream per-job data; re-render after each resolves. Cheap because
+  // render() is a full re-renderer over loaded state, not a partial diff.
+  for (const j of activeJobs) {
+    fetch('/api/data?jobId=' + encodeURIComponent(j.id), { credentials:'same-origin' })
+      .then(async dRes => {
+        JOB_DATA[j.id] = { data: dRes.ok ? await dRes.json() : { dwellings:{}, snags:[] } };
+        render();
+      })
+      .catch(() => {
+        JOB_DATA[j.id] = { data: { dwellings:{}, snags:[] } };
+      });
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

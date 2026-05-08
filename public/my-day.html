@@ -577,27 +577,34 @@ async function load(){
     });
   }
 
-  // Parallel: fetch per-job data (snags + dwellings) + on-site crew snapshot
-  // for today. The on-site read replaces the legacy /api/hours pull and now
-  // sources from time-entries via the small access-gated endpoint.
-  const todayIsoStr = todayIso();
-  await Promise.all(JOBS.map(async j => {
-    try {
-      const [d, c] = await Promise.all([
-        fetch('/api/data?jobId='   + encodeURIComponent(j.id), { credentials:'same-origin' }),
-        fetch('/api/time-entries-on-site?jobId=' + encodeURIComponent(j.id) +
-              '&date=' + encodeURIComponent(todayIsoStr), { credentials:'same-origin' }),
-      ]);
-      DATA_BY_JOB[j.id]          = d.ok ? (await d.json()) : { dwellings:{}, snags:[] };
-      CREW_ON_SITE_BY_JOB[j.id]  = c.ok ? (await c.json()) : { count: 0, users: [] };
-    } catch (e) {
-      DATA_BY_JOB[j.id]          = { dwellings:{}, snags:[] };
-      CREW_ON_SITE_BY_JOB[j.id]  = { count: 0, users: [] };
-    }
-  }));
-
+  // Render the shell FIRST with whatever we have (banner, snags, week,
+  // jobs row stubs). Per-job data (snag counts, on-site crew) streams in
+  // afterwards and triggers a cheap re-render of just the jobs section.
+  // This kept ~N parallel fetches off the critical path; on a 5-job tradie
+  // it's roughly 10 reads removed from first paint.
   renderAll();
   afterRenderChecks();
+
+  // Stream per-job snags + on-site crew. As each job resolves, update
+  // DATA_BY_JOB / CREW_ON_SITE_BY_JOB and re-render the jobs strip so the
+  // numbers fill in progressively rather than blocking the page.
+  const todayIsoStr = todayIso();
+  for (const j of JOBS) {
+    Promise.all([
+      fetch('/api/data?jobId='   + encodeURIComponent(j.id), { credentials:'same-origin' }),
+      fetch('/api/time-entries-on-site?jobId=' + encodeURIComponent(j.id) +
+            '&date=' + encodeURIComponent(todayIsoStr), { credentials:'same-origin' }),
+    ]).then(async ([d, c]) => {
+      DATA_BY_JOB[j.id]         = d.ok ? (await d.json()) : { dwellings:{}, snags:[] };
+      CREW_ON_SITE_BY_JOB[j.id] = c.ok ? (await c.json()) : { count: 0, users: [] };
+      // Cheap re-render — only the jobs section depends on these maps.
+      renderJobs();
+    }).catch(() => {
+      DATA_BY_JOB[j.id]         = { dwellings:{}, snags:[] };
+      CREW_ON_SITE_BY_JOB[j.id] = { count: 0, users: [] };
+      renderJobs();
+    });
+  }
 }
 
 function renderAll(){

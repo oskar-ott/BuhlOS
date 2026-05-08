@@ -4647,9 +4647,9 @@ function show(id){
     renderGroup(gi);
   }
   if(id==='snags')renderSnags();
-  if(id==='tags')renderTags();
-  if(id==='temps')renderTemps();
-  if(id==='hours')renderHours();
+  if(id==='tags')_lazyTags();
+  if(id==='temps')_lazyTemps();
+  if(id==='hours')_lazyHours();
   updateBadge();window.scrollTo(0,0);
   closeNavMenu();
 }
@@ -5183,16 +5183,68 @@ function _applyHashNav(){
 }
 window.addEventListener('hashchange', _applyHashNav);
 
+// Lazy section loaders — fired by show() when the tab is first opened.
+// Tags/Temps/Hours used to load eagerly on every page boot, blocking the
+// Dashboard render with 3 extra Blob reads even though the user lands on
+// Dashboard. Now they kick off on demand and skeleton-render until ready.
+let _tagsLoaded = false, _tempsLoaded = false, _hoursLoaded = false;
+let _tagsLoading = false, _tempsLoading = false, _hoursLoading = false;
+function _setSectionLoading(id, msg) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = `<div class="empty" style="padding:36px 20px;text-align:center;color:var(--muted);font-size:13px">${msg}</div>`;
+}
+async function _lazyTags() {
+  if (_tagsLoaded) { renderTags(); return; }
+  if (_tagsLoading) return;
+  _tagsLoading = true;
+  _setSectionLoading('tags', 'Loading Test &amp; Tag register…');
+  try { await loadTags(); _tagsLoaded = true; renderTags(); }
+  finally { _tagsLoading = false; }
+}
+async function _lazyTemps() {
+  if (_tempsLoaded) { renderTemps(); return; }
+  if (_tempsLoading) return;
+  _tempsLoading = true;
+  _setSectionLoading('temps', 'Loading temporary equipment…');
+  try { await loadTemps(); _tempsLoaded = true; renderTemps(); }
+  finally { _tempsLoading = false; }
+}
+async function _lazyHours() {
+  if (_hoursLoaded) { renderHours(); return; }
+  if (_hoursLoading) return;
+  if (CURRENT_USER && CURRENT_USER.role === 'client') return; // gated client-side too
+  _hoursLoading = true;
+  _setSectionLoading('hours', 'Loading hours…');
+  try { await loadHours(); _hoursLoaded = true; renderHours(); }
+  finally { _hoursLoading = false; }
+}
+// Tags badge on the hamburger menu still needs to be accurate. Fire a
+// lightweight tags load in the background so the badge is correct without
+// blocking the Dashboard render. If the user clicks Tags before this
+// finishes, _lazyTags handles the in-flight case.
+async function _backgroundTagsBadge() {
+  if (_tagsLoaded || _tagsLoading) return;
+  _tagsLoading = true;
+  try { await loadTags(); _tagsLoaded = true; updateTagBadge(); }
+  finally { _tagsLoading = false; }
+}
+
 (async () => {
   const ok = await bootstrapAuth();
   if (!ok) return;
   buildGroupNav();
   dwFindInit();
+  // Critical-path: only the Dashboard data. Tags/Temps/Hours load when
+  // their tab is opened (or via _backgroundTagsBadge for the count badge).
   await load();
-  await loadTags();
-  await loadTemps();
-  if (CURRENT_USER.role !== 'client') await loadHours();
   _applyHashNav(); // honour the URL hash on first paint, after all renders are wired
+  // Idle-time: fire the tags badge update so admins see the warning count
+  // without slowing first paint.
+  if (window.requestIdleCallback) {
+    requestIdleCallback(_backgroundTagsBadge, { timeout: 2000 });
+  } else {
+    setTimeout(_backgroundTagsBadge, 800);
+  }
 })();
 </script>
 </body>
