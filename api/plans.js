@@ -164,6 +164,15 @@ module.exports = async (req, res) => {
     for (const k of editable) {
       if (body[k] !== undefined) data.plans[idx][k] = String(body[k] || '').trim();
     }
+    // linkedAreaGroups: array of area-group IDs the plan is relevant to.
+    // Used by the Areas section of Job Setup to show "Relevant drawings"
+    // under each group.
+    if (Array.isArray(body.linkedAreaGroups)) {
+      data.plans[idx].linkedAreaGroups = body.linkedAreaGroups
+        .filter(g => typeof g === 'string')
+        .map(g => g.trim())
+        .filter(Boolean);
+    }
     if (body.status && VALID_STATUSES.includes(body.status)) {
       data.plans[idx].status = body.status;
       // If marking current, demote any other "current" with the same drawing number to superseded.

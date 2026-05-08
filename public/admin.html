@@ -984,6 +984,7 @@ dialog h3.dlg-title {
   <button class="active" data-tab="jobs">Jobs</button>
   <button data-tab="hours">Hours</button>
   <button data-tab="snags">Snags</button>
+  <button data-tab="temps">Temps</button>
   <button data-tab="people">People</button>
   <button data-tab="costs">Costs</button>
 </nav>
@@ -1241,6 +1242,41 @@ dialog h3.dlg-title {
     </div>
 
     <div id="snags-list"></div>
+  </div>
+
+  <!-- ╔════════════ TEMPS TAB ════════════╗ -->
+  <!-- Global temp asset register. Admin/LH can manage; tradies see read-only. -->
+  <div id="tab-temps" class="tab">
+    <div class="page-head">
+      <div class="page-head-left">
+        <h1 class="admin-page-title">Temps register</h1>
+        <div class="admin-page-sub" id="temps-subtitle">Loading…</div>
+      </div>
+      <div class="page-head-actions">
+        <button class="btn primary" id="open-new-temp" style="height:38px;padding:0 16px;font-size:var(--fs-sm)">+ Add item</button>
+      </div>
+    </div>
+
+    <!-- Summary cards -->
+    <div class="hours-summary" id="temps-summary"></div>
+
+    <div class="hours-filters" style="margin-bottom:12px">
+      <div class="seg" id="temps-status-seg">
+        <button data-st="all" class="active">All</button>
+        <button data-st="available">Available</button>
+        <button data-st="deployed">Deployed</button>
+        <button data-st="missing">Missing</button>
+        <button data-st="damaged">Damaged</button>
+        <button data-st="repair">Repair</button>
+      </div>
+      <select id="temps-cat-filter"><option value="">All categories</option></select>
+      <select id="temps-job-filter"><option value="">All jobs</option></select>
+      <input type="search" id="temps-search" placeholder="Search code, name…" autocomplete="off"
+        style="height:34px;padding:0 10px;font-size:13px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--ink);font-family:inherit;flex:1;min-width:160px">
+      <button class="filter-clear" id="temps-clear">Clear filters</button>
+    </div>
+
+    <div id="temps-list"></div>
   </div>
 
   <!-- ╔════════════ PEOPLE TAB ════════════╗ -->
@@ -1684,6 +1720,7 @@ function switchTab(id) {
   if (id === 'jobs')   showJobsIndex(true);
   if (id === 'hours')  loadHoursOverview();
   if (id === 'snags')  loadSnagsTab();
+  if (id === 'temps')  loadTempsTab();
   if (id === 'people') loadPeopleActivity();
 }
 
@@ -1891,6 +1928,11 @@ async function loadPlansSection(jobId) {
     if (r.ok) { const j = await r.json(); plansState.plans = j.plans || []; }
   } catch { plansState.plans = []; }
   renderPlansSection();
+  // Re-render the area groups so any "Drawings:" rows reflect the latest
+  // linkedAreaGroups state.
+  if (typeof jsGroups !== 'undefined' && document.getElementById('js-groups')) {
+    renderGrpEditor('js-groups', jsGroups);
+  }
 }
 
 function renderPlansSection() {
@@ -1930,7 +1972,7 @@ function renderPlansSection() {
           </div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
-          <a href="${esc(p.url)}" target="_blank" rel="noopener" class="utbl-edit">Open</a>
+          <button class="utbl-edit" onclick="planOpenViewer('${esc(p.id)}')">Open</button>
           <button class="utbl-edit" onclick="planOpenEditModal('${esc(p.id)}')">Edit</button>
           ${p.status==='current'?`<button class="utbl-edit" onclick="planSetStatus('${esc(p.id)}','superseded')">Mark superseded</button>`:`<button class="utbl-edit" onclick="planSetStatus('${esc(p.id)}','current')">Mark current</button>`}
           <button class="utbl-edit" onclick="planArchive('${esc(p.id)}')" style="color:var(--red);border-color:var(--red-bd)">Archive</button>
@@ -2003,6 +2045,90 @@ async function planArchive(planId) {
 
 const PLAN_CATEGORIES = ['Lighting','Power','Data / Communications','Security','Schematic','Single Line','Details','Legend / Notes','Fire','Mechanical','Other'];
 
+// In-page plan viewer — fullscreen overlay with prev/next nav between
+// non-archived plans, metadata header, and a "Pop out" link to open in a
+// new tab when the inline iframe can't render (some browsers block
+// cross-origin PDFs in iframes; we keep the link as an escape hatch).
+let _planViewerIdx = 0;
+function planOpenViewer(planId) {
+  const visible = plansState.plans.filter(p => p.status !== 'archived');
+  const startIdx = visible.findIndex(p => p.id === planId);
+  if (startIdx < 0) return;
+  _planViewerIdx = startIdx;
+  // Inject viewer styles once.
+  if (!document.getElementById('plan-viewer-styles')) {
+    const s = document.createElement('style');
+    s.id = 'plan-viewer-styles';
+    s.textContent = `
+      .pv-overlay{position:fixed;inset:0;background:rgba(15,23,42,.92);z-index:600;display:flex;flex-direction:column;animation:pvFade .15s ease-out}
+      @keyframes pvFade{from{opacity:0}to{opacity:1}}
+      .pv-hdr{display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(0,0,0,.4);color:#fff;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.1)}
+      .pv-meta{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.2}
+      .pv-meta-title{font-size:14px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .pv-meta-sub{font-size:11px;color:rgba(255,255,255,.65);margin-top:1px}
+      .pv-btn{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:none}
+      .pv-btn:hover{background:rgba(255,255,255,.18)}
+      .pv-btn:disabled{opacity:.4;cursor:not-allowed}
+      .pv-pos{font-size:11px;color:rgba(255,255,255,.55);font-variant-numeric:tabular-nums;flex-shrink:0;padding:0 4px}
+      .pv-body{flex:1;overflow:hidden;background:#1e293b;display:flex;align-items:center;justify-content:center;position:relative}
+      .pv-frame{width:100%;height:100%;border:0;background:#fff}
+      .pv-img{max-width:100%;max-height:100%;object-fit:contain}
+      .pv-fallback{padding:40px 20px;text-align:center;color:rgba(255,255,255,.7);font-size:14px}
+      .pv-close{background:transparent;border:none;color:#fff;font-size:24px;cursor:pointer;padding:0 8px;line-height:1}
+    `;
+    document.head.appendChild(s);
+  }
+  const overlay = document.createElement('div');
+  overlay.className = 'pv-overlay';
+  overlay.id = '__plan_viewer';
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => {
+    if (e.key === 'Escape') close();
+    if (e.key === 'ArrowLeft')  _planViewerStep(-1);
+    if (e.key === 'ArrowRight') _planViewerStep(1);
+  };
+  document.addEventListener('keydown', onKey);
+  overlay._render = () => {
+    const list = plansState.plans.filter(p => p.status !== 'archived');
+    if (!list.length) { close(); return; }
+    if (_planViewerIdx < 0) _planViewerIdx = 0;
+    if (_planViewerIdx >= list.length) _planViewerIdx = list.length - 1;
+    const p = list[_planViewerIdx];
+    const isPdf = (p.mimeType || '').toLowerCase() === 'application/pdf';
+    const isImg = (p.mimeType || '').toLowerCase().startsWith('image/');
+    const titleBits = [p.drawingNumber, p.revision ? 'Rev ' + p.revision : '', p.title || p.fileName].filter(Boolean).join(' · ');
+    const subBits = [p.category, p.level, p.status].filter(Boolean).join(' · ');
+    overlay.innerHTML = `
+      <div class="pv-hdr">
+        <div class="pv-meta">
+          <div class="pv-meta-title">${esc(titleBits)}</div>
+          <div class="pv-meta-sub">${esc(subBits)}</div>
+        </div>
+        <span class="pv-pos">${_planViewerIdx+1} / ${list.length}</span>
+        <button class="pv-btn" id="pv-prev" ${_planViewerIdx===0?'disabled':''}>← Prev</button>
+        <button class="pv-btn" id="pv-next" ${_planViewerIdx===list.length-1?'disabled':''}>Next →</button>
+        <a class="pv-btn" href="${esc(p.url)}" target="_blank" rel="noopener">Pop out ↗</a>
+        <button class="pv-close" id="pv-close" aria-label="Close">×</button>
+      </div>
+      <div class="pv-body">
+        ${isPdf ? `<iframe class="pv-frame" src="${esc(p.url)}#view=FitH" title="${esc(titleBits)}"></iframe>`
+                : isImg ? `<img class="pv-img" src="${esc(p.url)}" alt="${esc(titleBits)}">`
+                : `<div class="pv-fallback">This file type can't be previewed inline.<br><br><a class="pv-btn" href="${esc(p.url)}" target="_blank" rel="noopener" style="display:inline-flex">Open in new tab</a></div>`}
+      </div>`;
+    overlay.querySelector('#pv-close').onclick = close;
+    overlay.querySelector('#pv-prev').onclick  = () => _planViewerStep(-1);
+    overlay.querySelector('#pv-next').onclick  = () => _planViewerStep(1);
+  };
+  overlay._render();
+}
+function _planViewerStep(delta) {
+  const overlay = document.getElementById('__plan_viewer');
+  if (!overlay) return;
+  _planViewerIdx += delta;
+  overlay._render();
+}
+
 function planOpenEditModal(planId) {
   const p = plansState.plans.find(x => x.id === planId);
   if (!p) return;
@@ -2021,10 +2147,21 @@ function planOpenEditModal(planId) {
         <option value="">—</option>
         ${PLAN_CATEGORIES.map(c => `<option value="${esc(c)}"${p.category===c?' selected':''}>${esc(c)}</option>`).join('')}
       </select></div>
+    <div class="snag-field"><label class="snag-field-label">Linked area groups <span style="text-transform:none;color:var(--muted);font-weight:500">(optional — surfaces the drawing under those groups)</span></label>
+      <div id="pe-groups" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;min-height:40px">
+        ${(jsGroups || []).filter(g => g.id).map(g => {
+          const checked = (p.linkedAreaGroups || []).includes(g.id);
+          return `<label style="display:inline-flex;align-items:center;gap:5px;padding:5px 9px;background:#fff;border:1px solid var(--border);border-radius:999px;font-size:12px;font-weight:600;cursor:pointer">
+            <input type="checkbox" data-grp-id="${esc(g.id)}" ${checked?'checked':''} style="margin:0">
+            ${esc(g.name)}</label>`;
+        }).join('') || '<span style="font-size:12px;color:var(--muted)">No saved area groups yet — save them first to link.</span>'}
+      </div></div>
     <div class="snag-field"><label class="snag-field-label">Notes</label>
       <textarea id="pe-notes" rows="2" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit">${esc(p.notes||'')}</textarea></div>`;
   overlay.querySelector('.snag-modal-save').textContent = 'Save';
   overlay.querySelector('.snag-modal-save').onclick = async () => {
+    const linkedAreaGroups = Array.from(overlay.querySelectorAll('#pe-groups input[type="checkbox"]'))
+      .filter(c => c.checked).map(c => c.dataset.grpId);
     const body = {
       drawingNumber: document.getElementById('pe-no').value.trim(),
       revision: document.getElementById('pe-rev').value.trim(),
@@ -2032,6 +2169,7 @@ function planOpenEditModal(planId) {
       level: document.getElementById('pe-level').value.trim(),
       category: document.getElementById('pe-cat').value.trim(),
       notes: document.getElementById('pe-notes').value.trim(),
+      linkedAreaGroups,
     };
     try {
       const r = await fetch('/api/plans?jobId=' + encodeURIComponent(plansState.jobId) + '&id=' + encodeURIComponent(planId), {
@@ -2291,7 +2429,7 @@ function matOpenBulkAdd() {
   };
 }
 
-function matOpenEmailGen() {
+async function matOpenEmailGen() {
   const items = matState.items.filter(i => matState.selected.has(i.id));
   // If nothing selected, default to "ready to price"; if still nothing, all draft+ready.
   const targetItems = items.length ? items
@@ -2300,6 +2438,13 @@ function matOpenEmailGen() {
   if (!targetItems.length) { alert('No items to include — add some first.'); return; }
   const job = JOBS.find(j => j.id === matState.jobId);
   const jobName = job ? job.name : matState.jobId;
+
+  // Pull saved wholesalers so the admin can pick one without retyping the email.
+  let wholesalers = [];
+  try {
+    const r = await fetch('/api/wholesalers', { credentials: 'same-origin' });
+    if (r.ok) wholesalers = (await r.json()).wholesalers || [];
+  } catch {}
   const subject = `Pricing Request — ${jobName} — Electrical Materials`;
   const lines = targetItems.map((i, n) => {
     const refs = [i.drawingRef ? 'Drawing: ' + i.drawingRef : '', i.level ? 'Level: ' + i.level : '', i.area ? 'Area: ' + i.area : '', i.notes ? 'Notes: ' + i.notes : ''].filter(Boolean);
@@ -2334,9 +2479,15 @@ bühl electrical`;
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div class="snag-field"><label class="snag-field-label">Wholesaler</label>
+        ${wholesalers.length ? `<select id="me-pick" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit;margin-bottom:6px">
+          <option value="">— Saved or type below —</option>
+          ${wholesalers.map(w => `<option value="${esc(w.id)}" data-name="${esc(w.name)}" data-email="${esc(w.email||'')}">${esc(w.name)}${w.branch?' · '+esc(w.branch):''}</option>`).join('')}
+        </select>` : ''}
         <input id="me-name" type="text" placeholder="e.g. TLE / MMEM / etc." style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
       <div class="snag-field"><label class="snag-field-label">Recipient email</label>
-        <input id="me-to" type="email" placeholder="optional" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+        <input id="me-to" type="email" placeholder="optional" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit">
+        <div style="margin-top:4px"><a href="#" onclick="event.preventDefault();matManageWholesalers()" style="font-size:11px;color:var(--header);text-decoration:underline">Manage saved wholesalers</a></div>
+      </div>
     </div>
     <div class="snag-field"><label class="snag-field-label">Subject</label>
       <input id="me-subj" type="text" value="${esc(subject)}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
@@ -2346,6 +2497,14 @@ bühl electrical`;
       <button class="s-add" onclick="matCopyEmail()" style="background:var(--accent);color:var(--accent-ink)">Copy email</button>
       <button class="s-add" onclick="matMailto()" style="background:#fff;color:var(--header);border:1px solid var(--border)">Open in mail client</button>
     </div>`;
+  // Picker → fills name + email when selected.
+  const pick = overlay.querySelector('#me-pick');
+  if (pick) pick.addEventListener('change', () => {
+    const opt = pick.options[pick.selectedIndex];
+    if (!opt || !opt.value) return;
+    overlay.querySelector('#me-name').value = opt.dataset.name || '';
+    overlay.querySelector('#me-to').value = opt.dataset.email || '';
+  });
   overlay.querySelector('.snag-modal-save').textContent = 'Save draft';
   overlay.querySelector('.snag-modal-save').onclick = async () => {
     try {
@@ -2364,6 +2523,88 @@ bühl electrical`;
       alert('Draft saved.');
     } catch (e) { alert('Save failed: ' + e.message); }
   };
+}
+
+// Saved wholesalers register — small CRUD modal launched from the Pricing
+// email screen. Lets admin/LH add, edit, and remove suppliers without
+// touching the API directly.
+async function matManageWholesalers() {
+  const overlay = _matBuildModal('Saved wholesalers');
+  overlay.querySelector('.snag-modal-save').style.display = 'none';
+  const renderList = async () => {
+    let list = [];
+    try {
+      const r = await fetch('/api/wholesalers', { credentials: 'same-origin' });
+      if (r.ok) list = (await r.json()).wholesalers || [];
+    } catch {}
+    overlay.querySelector('.snag-modal-body').innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+        ${list.length ? list.map(w => `
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#fff">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:700;color:var(--header)">${esc(w.name)}${w.branch?` <span style="color:var(--muted);font-weight:500">· ${esc(w.branch)}</span>`:''}</div>
+              <div style="font-size:11px;color:var(--muted)">${esc(w.email || '—')}</div>
+            </div>
+            <button class="utbl-edit" onclick="matEditWholesaler('${esc(w.id)}', this)">Edit</button>
+            <button class="utbl-edit" onclick="matDeleteWholesaler('${esc(w.id)}', this)" style="color:var(--red);border-color:var(--red-bd)">×</button>
+          </div>`).join('') : '<div class="empty-block">No wholesalers saved yet.</div>'}
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:12px">
+        <div style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Add new</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <input id="wh-add-name" type="text" placeholder="Name (TLE, MMEM, …)" style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit">
+          <input id="wh-add-branch" type="text" placeholder="Branch (optional)" style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit">
+        </div>
+        <input id="wh-add-email" type="email" placeholder="Email" style="margin-top:8px;width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit">
+        <input id="wh-add-notes" type="text" placeholder="Notes (optional)" style="margin-top:8px;width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit">
+        <div style="margin-top:8px"><button class="s-add" id="wh-add-btn" style="background:var(--accent);color:var(--accent-ink)">+ Save wholesaler</button></div>
+      </div>`;
+    overlay.querySelector('#wh-add-btn').onclick = async () => {
+      const body = {
+        name:   overlay.querySelector('#wh-add-name').value.trim(),
+        branch: overlay.querySelector('#wh-add-branch').value.trim(),
+        email:  overlay.querySelector('#wh-add-email').value.trim(),
+        notes:  overlay.querySelector('#wh-add-notes').value.trim(),
+      };
+      if (!body.name) { alert('Name required.'); return; }
+      try {
+        const r = await fetch('/api/wholesalers', {
+          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+        await renderList();
+      } catch (e) { alert('Save failed: ' + e.message); }
+    };
+  };
+  // Expose for inline button handlers.
+  window.matEditWholesaler = async (id) => {
+    const r = await fetch('/api/wholesalers', { credentials: 'same-origin' });
+    if (!r.ok) return;
+    const list = (await r.json()).wholesalers || [];
+    const w = list.find(x => x.id === id);
+    if (!w) return;
+    const name = prompt('Wholesaler name:', w.name); if (name == null) return;
+    const branch = prompt('Branch:', w.branch || ''); if (branch == null) return;
+    const email = prompt('Email:', w.email || ''); if (email == null) return;
+    try {
+      const r2 = await fetch('/api/wholesalers?id=' + encodeURIComponent(id), {
+        method:'PATCH', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify({ name: name.trim(), branch: branch.trim(), email: email.trim() }),
+      });
+      if (!r2.ok) throw new Error((await r2.json().catch(()=>({}))).error || 'Failed');
+      await renderList();
+    } catch (e) { alert('Update failed: ' + e.message); }
+  };
+  window.matDeleteWholesaler = async (id) => {
+    if (!confirm('Remove this wholesaler?')) return;
+    try {
+      const r = await fetch('/api/wholesalers?id=' + encodeURIComponent(id), { method:'DELETE', credentials:'same-origin' });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+      await renderList();
+    } catch (e) { alert('Delete failed: ' + e.message); }
+  };
+  renderList();
 }
 
 function matCopyEmail() {
@@ -2464,7 +2705,19 @@ function renderGrpEditor(cid, groups) {
     </div>`;
     return;
   }
-  el.innerHTML = groups.map((g,gi) => `
+  el.innerHTML = groups.map((g,gi) => {
+    // Surface plans linked to this group so admin can see drawings while
+    // editing areas. Only saved groups (with an id) can have linked plans.
+    const linkedPlans = g.id
+      ? (plansState.plans || []).filter(p => p.status !== 'archived' && (p.linkedAreaGroups || []).includes(g.id))
+      : [];
+    const linkedHtml = linkedPlans.length
+      ? `<div class="grp-plan-row" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;background:#f1f5f9;border-radius:6px;margin-top:6px;font-size:11px;color:var(--muted)">
+          <span style="font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--header)">Drawings:</span>
+          ${linkedPlans.map(p => `<button class="utbl-edit" onclick="planOpenViewer('${esc(p.id)}')" style="font-size:11px;padding:2px 8px">${esc(p.drawingNumber || p.title || p.fileName)}${p.revision?` r${esc(p.revision)}`:''}</button>`).join('')}
+        </div>`
+      : '';
+    return `
     <div class="grp">
       <div class="grp-hdr">
         <input placeholder="Group name e.g. Units" value="${esc(g.name)}" oninput="grpGroupName(${gi},'${cid}',this.value)">
@@ -2479,8 +2732,9 @@ function renderGrpEditor(cid, groups) {
         `).join('')}
       </div>
       <button class="grp-add-area" onclick="grpAddArea(${gi},'${cid}')">+ Add area</button>
+      ${linkedHtml}
     </div>
-  `).join('');
+  `;}).join('');
 }
 
 // ── Task editor (rough/fit) ────────────────────────────────────────
@@ -3202,6 +3456,383 @@ function _jumpToSnagsForUser(userId) {
   document.querySelectorAll('#snags-status-seg button').forEach(b =>
     b.classList.toggle('active', b.dataset.st === 'Open'));
   switchTab('snags');
+}
+
+// ╔══════════════════════════ TEMPS REGISTER ══════════════════════════╗
+// Global temp asset register for /admin → Temps tab. Reads /api/temps and
+// /api/temps?action=summary. Add/edit/deploy/history flows go through
+// modals. Filters: status / category / current job / search.
+
+const TEMPS_CATEGORIES_DEFAULT = [
+  'Temp Board', 'RCD Board', 'Lead', 'Extension Lead', 'Power Distribution',
+  'Spider Box', 'Site Light', 'Temp Lighting', 'Cable Ramp', 'Traffic Cone',
+  'Barrier', 'Signage', 'Other',
+];
+
+const tempsAdminState = {
+  filter: { status: 'all', category: '', jobId: '', search: '' },
+  items: [],
+  jobs: [],     // { id, name } from /api/jobs
+  filtersWired: false,
+  lastSummary: null,
+};
+
+async function loadTempsTab() {
+  if (!tempsAdminState.filtersWired) { _wireTempsFilters(); tempsAdminState.filtersWired = true; }
+  document.getElementById('temps-subtitle').textContent = 'Loading…';
+  document.getElementById('temps-list').innerHTML = '<div class="empty-block"><div>Loading…</div></div>';
+  try {
+    const [aRes, sRes] = await Promise.all([
+      fetch('/api/temps?includeRetired=0', { credentials: 'same-origin' }),
+      fetch('/api/temps?action=summary', { credentials: 'same-origin' }).catch(()=>null),
+    ]);
+    if (aRes.ok) {
+      const j = await aRes.json();
+      tempsAdminState.items = j.items || [];
+    }
+    if (sRes && sRes.ok) {
+      tempsAdminState.lastSummary = (await sRes.json()).counts || null;
+    }
+  } catch (e) { /* silent */ }
+  // Pull active jobs for the deploy/filter dropdowns. JOBS is already
+  // loaded by admin boot; we keep a lightweight copy here.
+  tempsAdminState.jobs = (typeof JOBS !== 'undefined' ? JOBS : [])
+    .filter(j => (j.status || 'active') === 'active')
+    .map(j => ({ id: j.id, name: j.name }));
+  _renderTempsTab();
+}
+
+function _wireTempsFilters() {
+  document.querySelectorAll('#temps-status-seg button').forEach(b => {
+    b.onclick = () => {
+      tempsAdminState.filter.status = b.dataset.st;
+      document.querySelectorAll('#temps-status-seg button').forEach(x => x.classList.toggle('active', x === b));
+      _renderTempsTab();
+    };
+  });
+  document.getElementById('temps-cat-filter').onchange = e => { tempsAdminState.filter.category = e.target.value; _renderTempsTab(); };
+  document.getElementById('temps-job-filter').onchange = e => { tempsAdminState.filter.jobId = e.target.value; _renderTempsTab(); };
+  document.getElementById('temps-search').oninput     = e => { tempsAdminState.filter.search = e.target.value; _renderTempsTab(); };
+  document.getElementById('temps-clear').onclick = () => {
+    tempsAdminState.filter = { status: 'all', category: '', jobId: '', search: '' };
+    document.querySelectorAll('#temps-status-seg button').forEach(b => b.classList.toggle('active', b.dataset.st === 'all'));
+    document.getElementById('temps-cat-filter').value = '';
+    document.getElementById('temps-job-filter').value = '';
+    document.getElementById('temps-search').value = '';
+    _renderTempsTab();
+  };
+  document.getElementById('open-new-temp').onclick = () => _openTempAssetModal(null);
+}
+
+function _renderTempsTab() {
+  const items = tempsAdminState.items;
+
+  // Subtitle: counts of available/deployed
+  const sum = tempsAdminState.lastSummary || {
+    total: items.length,
+    available: items.filter(i => i.status === 'available').length,
+    deployed:  items.filter(i => i.status === 'deployed').length,
+    missing:   items.filter(i => i.status === 'missing').length,
+    damaged:   items.filter(i => i.status === 'damaged').length,
+    repair:    items.filter(i => i.status === 'repair').length,
+    overdue:   0, dueSoon: 0,
+  };
+  const subBits = [`<b style="color:var(--ink)">${sum.total}</b> total`];
+  if (sum.deployed) subBits.push(`${sum.deployed} deployed`);
+  if (sum.overdue)  subBits.push(`<span style="color:var(--red);font-weight:700">${sum.overdue} overdue</span>`);
+  if (sum.missing + sum.damaged) subBits.push(`<span style="color:var(--red);font-weight:600">${sum.missing+sum.damaged} ${sum.missing+sum.damaged===1?'issue':'issues'}</span>`);
+  document.getElementById('temps-subtitle').innerHTML = subBits.join(' &middot; ');
+
+  // Summary cards strip
+  const cards = [
+    { label: 'Total',     value: sum.total,     tone: '' },
+    { label: 'Available', value: sum.available, tone: sum.available > 0 ? 'green' : '' },
+    { label: 'Deployed',  value: sum.deployed,  tone: '' },
+    { label: 'Due soon',  value: sum.dueSoon,   tone: sum.dueSoon  ? 'amber' : '' },
+    { label: 'Overdue',   value: sum.overdue,   tone: sum.overdue  ? 'red'   : '' },
+    { label: 'Issues',    value: sum.missing + sum.damaged, tone: (sum.missing + sum.damaged) ? 'red' : '' },
+  ];
+  document.getElementById('temps-summary').innerHTML = cards.map(c =>
+    `<div class="hours-card"><div class="hours-card-label">${esc(c.label)}</div><div class="hours-card-value ${c.tone}">${esc(String(c.value))}</div></div>`
+  ).join('');
+
+  // Populate filter dropdowns
+  const cats = Array.from(new Set(items.map(i => i.category).filter(Boolean))).sort();
+  const catSel = document.getElementById('temps-cat-filter');
+  if (catSel) {
+    const cur = tempsAdminState.filter.category;
+    const opts = ['<option value="">All categories</option>']
+      .concat(cats.map(c => `<option value="${esc(c)}"${c===cur?' selected':''}>${esc(c)}</option>`));
+    if (catSel.dataset.lastOpts !== opts.join('')) {
+      catSel.innerHTML = opts.join('');
+      catSel.dataset.lastOpts = opts.join('');
+    }
+  }
+  const jobIdsWithItems = Array.from(new Set(items.map(i => i.currentJobId).filter(Boolean)));
+  const jobSel = document.getElementById('temps-job-filter');
+  if (jobSel) {
+    const cur = tempsAdminState.filter.jobId;
+    const opts = ['<option value="">All jobs</option>']
+      .concat(tempsAdminState.jobs
+        .filter(j => jobIdsWithItems.includes(j.id))
+        .map(j => `<option value="${esc(j.id)}"${j.id===cur?' selected':''}>${esc(j.name)}</option>`));
+    if (jobSel.dataset.lastOpts !== opts.join('')) {
+      jobSel.innerHTML = opts.join('');
+      jobSel.dataset.lastOpts = opts.join('');
+    }
+  }
+
+  // Apply filters
+  const f = tempsAdminState.filter;
+  const q = (f.search || '').trim().toLowerCase();
+  const filtered = items.filter(i => {
+    if (f.status && f.status !== 'all' && i.status !== f.status) return false;
+    if (f.category && i.category !== f.category) return false;
+    if (f.jobId && i.currentJobId !== f.jobId) return false;
+    if (q && !(
+      (i.assetCode || '').toLowerCase().includes(q) ||
+      (i.name || '').toLowerCase().includes(q) ||
+      (i.category || '').toLowerCase().includes(q) ||
+      (i.serialNumber || '').toLowerCase().includes(q) ||
+      (i.notes || '').toLowerCase().includes(q)
+    )) return false;
+    return true;
+  });
+
+  // Render — group by status: deployed > available > issues > rest
+  const list = document.getElementById('temps-list');
+  if (!filtered.length) {
+    list.innerHTML = `<div class="empty-block">
+      <div class="empty-block-title">${items.length ? 'No items match these filters.' : 'No temp items yet.'}</div>
+      ${!items.length ? '<div>Click <b>+ Add item</b> to start the register.</div>' : ''}
+    </div>`;
+    return;
+  }
+  const jobNameById = id => { const j = tempsAdminState.jobs.find(x => x.id === id); return j ? j.name : id; };
+  const statusOrder = { deployed: 0, available: 1, missing: 2, damaged: 3, repair: 4, returned: 5, retired: 6 };
+  const sorted = filtered.slice().sort((a, b) => {
+    const sa = statusOrder[a.status] ?? 99, sb = statusOrder[b.status] ?? 99;
+    if (sa !== sb) return sa - sb;
+    return (a.assetCode || '').localeCompare(b.assetCode || '');
+  });
+
+  list.innerHTML = `<div class="utbl"><table>
+    <thead><tr>
+      <th>Code</th><th>Name</th><th>Category</th><th>Status</th><th>Location</th><th>Last seen</th><th></th>
+    </tr></thead>
+    <tbody>` + sorted.map(i => {
+      const stMap = { available:'complete', deployed:'in-progress', missing:'snagged', damaged:'snagged', repair:'in-progress', returned:'complete', retired:'in-progress' };
+      const stLbl = { available:'Available', deployed:'On site', missing:'Missing', damaged:'Damaged', repair:'Repair', returned:'Returned', retired:'Retired' }[i.status] || i.status;
+      const lastSeen = i.lastSeenAt ? new Date(i.lastSeenAt).toLocaleDateString('en-AU') : '—';
+      const jobBit = i.currentJobId
+        ? `<a href="/jobs/${esc(i.currentJobId)}#temps" style="color:var(--header);font-weight:600;text-decoration:none">${esc(jobNameById(i.currentJobId))}</a>`
+        : esc(i.currentLocationLabel || '—');
+      return `<tr>
+        <td class="utbl-name" style="font-family:monospace;font-weight:700">${esc(i.assetCode)}</td>
+        <td>${esc(i.name)}</td>
+        <td><span class="type-pill">${esc(i.category || '—')}</span></td>
+        <td><span class="status-badge ${stMap[i.status]||'in-progress'}">${esc(stLbl)}</span></td>
+        <td>${jobBit}</td>
+        <td>${esc(lastSeen)}</td>
+        <td style="text-align:right;white-space:nowrap">
+          ${i.status === 'available' ? `<button class="utbl-edit" onclick="_openTempDeployFromAdmin('${esc(i.id)}')">Deploy</button>` : ''}
+          <button class="utbl-edit" onclick="_openTempHistoryModal('${esc(i.id)}')">History</button>
+          <button class="utbl-edit" onclick="_openTempAssetModal('${esc(i.id)}')">Edit</button>
+        </td>
+      </tr>`;
+    }).join('') + `</tbody></table></div>`;
+}
+
+// Suggest the next asset code for a category, e.g. "TB-001" → "TB-002".
+// Looks at existing codes and picks the highest numeric suffix + 1. The
+// prefix is derived from the category's initials (Temp Board → TB,
+// Lead → LEAD, etc.) and can be edited by the user.
+function _suggestAssetCode(category) {
+  if (!category) return '';
+  const word = category.trim();
+  // Map full category names to short codes — covers the defaults; falls
+  // back to the first letters of words otherwise.
+  const known = {
+    'Temp Board': 'TB', 'RCD Board': 'RCD', 'Lead': 'LEAD',
+    'Extension Lead': 'EXT', 'Power Distribution': 'PD',
+    'Spider Box': 'SB', 'Site Light': 'LIGHT', 'Temp Lighting': 'LIGHT',
+    'Cable Ramp': 'RAMP', 'Traffic Cone': 'CONE', 'Barrier': 'BAR',
+    'Signage': 'SIGN', 'Other': 'ITEM',
+  };
+  let prefix = known[word];
+  if (!prefix) {
+    const parts = word.split(/\s+/);
+    prefix = (parts.length === 1 ? parts[0].slice(0, 4) : parts.map(p => p[0]).join('')).toUpperCase();
+  }
+  let max = 0;
+  const re = new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '-?(\\d+)$', 'i');
+  for (const it of tempsAdminState.items) {
+    const m = (it.assetCode || '').match(re);
+    if (m) { const n = parseInt(m[1], 10); if (n > max) max = n; }
+  }
+  const next = String(max + 1).padStart(3, '0');
+  return prefix + '-' + next;
+}
+
+function _openTempAssetModal(id) {
+  const isEdit = !!id;
+  const item = isEdit ? tempsAdminState.items.find(i => i.id === id) : null;
+  if (isEdit && !item) return;
+  const overlay = _matBuildModal(isEdit ? ('Edit ' + (item.assetCode || 'item')) : 'Add temp item');
+  const cats = Array.from(new Set([
+    ...TEMPS_CATEGORIES_DEFAULT,
+    ...tempsAdminState.items.map(i => i.category).filter(Boolean),
+  ]));
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div style="display:grid;grid-template-columns:120px 1fr;gap:8px">
+      <div class="snag-field"><label class="snag-field-label">Code *</label>
+        <input id="ta-code" type="text" placeholder="TB-001" value="${esc(item?.assetCode || '')}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:monospace;font-weight:700"></div>
+      <div class="snag-field"><label class="snag-field-label">Name *</label>
+        <input id="ta-name" type="text" placeholder="e.g. Temporary Power Board 1" value="${esc(item?.name || '')}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    </div>
+    <div class="snag-field"><label class="snag-field-label">Category *</label>
+      <select id="ta-cat" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">
+        ${cats.map(c => `<option value="${esc(c)}"${item?.category===c?' selected':''}>${esc(c)}</option>`).join('')}
+      </select></div>
+    <div class="snag-field"><label class="snag-field-label">Description</label>
+      <input id="ta-desc" type="text" placeholder="e.g. RCD protected" value="${esc(item?.description || '')}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="snag-field"><label class="snag-field-label">Serial #</label>
+        <input id="ta-serial" type="text" value="${esc(item?.serialNumber || '')}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field"><label class="snag-field-label">Test tag ID</label>
+        <input id="ta-tag" type="text" value="${esc(item?.testTagId || '')}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="snag-field"><label class="snag-field-label">Purchase cost <span style="text-transform:none;color:var(--muted);font-weight:500">(admin only)</span></label>
+        <input id="ta-cost" type="number" step="0.01" min="0" value="${item?.purchaseCost ?? ''}" placeholder="$" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field"><label class="snag-field-label">Daily rate <span style="text-transform:none;color:var(--muted);font-weight:500">(internal)</span></label>
+        <input id="ta-rate" type="number" step="0.01" min="0" value="${item?.dailyCostRate ?? ''}" placeholder="$/day" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    </div>
+    <div class="snag-field"><label class="snag-field-label">Condition</label>
+      <select id="ta-cond" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">
+        <option value="good"${item?.condition==='good'?' selected':''}>Good</option>
+        <option value="fair"${item?.condition==='fair'?' selected':''}>Fair</option>
+        <option value="damaged"${item?.condition==='damaged'?' selected':''}>Damaged</option>
+      </select></div>
+    <div class="snag-field"><label class="snag-field-label">Notes</label>
+      <textarea id="ta-notes" rows="2" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit">${esc(item?.notes || '')}</textarea></div>`;
+  // Auto-suggest the asset code when adding (and the code field is empty).
+  const codeInput = overlay.querySelector('#ta-code');
+  const catSel = overlay.querySelector('#ta-cat');
+  if (!isEdit) {
+    catSel.addEventListener('change', () => {
+      if (!codeInput.value.trim()) codeInput.value = _suggestAssetCode(catSel.value);
+    });
+    // Pre-fill on open
+    if (!codeInput.value.trim()) codeInput.value = _suggestAssetCode(catSel.value);
+  }
+  overlay.querySelector('.snag-modal-save').textContent = isEdit ? 'Save' : 'Add';
+  overlay.querySelector('.snag-modal-save').onclick = async () => {
+    const body = {
+      assetCode:    overlay.querySelector('#ta-code').value.trim(),
+      name:         overlay.querySelector('#ta-name').value.trim(),
+      category:     overlay.querySelector('#ta-cat').value,
+      description:  overlay.querySelector('#ta-desc').value.trim(),
+      serialNumber: overlay.querySelector('#ta-serial').value.trim(),
+      testTagId:    overlay.querySelector('#ta-tag').value.trim(),
+      purchaseCost: overlay.querySelector('#ta-cost').value ? Number(overlay.querySelector('#ta-cost').value) : null,
+      dailyCostRate:overlay.querySelector('#ta-rate').value ? Number(overlay.querySelector('#ta-rate').value) : null,
+      condition:    overlay.querySelector('#ta-cond').value,
+      notes:        overlay.querySelector('#ta-notes').value.trim(),
+    };
+    if (!body.assetCode) { alert('Asset code required.'); return; }
+    if (!body.name)      { alert('Name required.');       return; }
+    try {
+      const url = isEdit ? '/api/temps?id=' + encodeURIComponent(item.id) : '/api/temps';
+      const r = await fetch(url, {
+        method: isEdit ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+      _matCloseModal(overlay);
+      await loadTempsTab();
+    } catch (e) { alert('Save failed: ' + e.message); }
+  };
+}
+
+async function _openTempDeployFromAdmin(assetId) {
+  const item = tempsAdminState.items.find(i => i.id === assetId);
+  if (!item || item.status !== 'available') return;
+  const overlay = _matBuildModal('Deploy ' + item.assetCode);
+  const jobOpts = ['<option value="">— Pick job —</option>']
+    .concat(tempsAdminState.jobs.map(j => `<option value="${esc(j.id)}">${esc(j.name)}</option>`));
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div style="padding:10px 12px;background:#f8fafc;border-radius:8px;font-size:13px;color:var(--ink);margin-bottom:12px">
+      <b>${esc(item.name)}</b> · ${esc(item.category || '')}
+    </div>
+    <div class="snag-field"><label class="snag-field-label">Job</label>
+      <select id="td2-job" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">${jobOpts.join('')}</select></div>
+    <div class="snag-field"><label class="snag-field-label">Where on site</label>
+      <input id="td2-loc" type="text" placeholder="e.g. Ground Floor Switch Room" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div class="snag-field"><label class="snag-field-label">Expected return <span style="text-transform:none;color:var(--muted);font-weight:500">(optional)</span></label>
+      <input id="td2-due" type="date" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div class="snag-field"><label class="snag-field-label">Notes</label>
+      <textarea id="td2-notes" rows="2" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></textarea></div>`;
+  overlay.querySelector('.snag-modal-save').textContent = 'Deploy';
+  overlay.querySelector('.snag-modal-save').onclick = async () => {
+    const jobId = overlay.querySelector('#td2-job').value;
+    if (!jobId) { alert('Pick a job.'); return; }
+    try {
+      const r = await fetch('/api/temps?action=deploy&jobId=' + encodeURIComponent(jobId), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({
+          jobId, tempItemId: item.id,
+          locationOnSite: overlay.querySelector('#td2-loc').value.trim(),
+          expectedReturnDate: overlay.querySelector('#td2-due').value || null,
+          notes: overlay.querySelector('#td2-notes').value.trim(),
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+      _matCloseModal(overlay);
+      await loadTempsTab();
+    } catch (e) { alert('Deploy failed: ' + e.message); }
+  };
+}
+
+async function _openTempHistoryModal(assetId) {
+  const item = tempsAdminState.items.find(i => i.id === assetId);
+  if (!item) return;
+  const overlay = _matBuildModal((item.assetCode || 'Item') + ' — history');
+  overlay.querySelector('.snag-modal-body').innerHTML = '<div class="empty-block"><div>Loading…</div></div>';
+  overlay.querySelector('.snag-modal-save').style.display = 'none';
+  try {
+    const r = await fetch('/api/temps?action=history&id=' + encodeURIComponent(assetId), { credentials: 'same-origin' });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    const j = await r.json();
+    const moves = j.movements || [];
+    if (!moves.length) {
+      overlay.querySelector('.snag-modal-body').innerHTML = '<div class="empty-block">No movements logged yet.</div>';
+      return;
+    }
+    const actionLbl = {
+      created: 'Created', deployed: 'Deployed', returned: 'Returned',
+      retired: 'Retired', reported_missing: 'Reported missing',
+      reported_damaged: 'Reported damaged', reported_other: 'Reported',
+    };
+    overlay.querySelector('.snag-modal-body').innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${moves.map(m => {
+          const t = m.timestamp ? new Date(m.timestamp).toLocaleString('en-AU') : '';
+          const route = (m.fromLocationLabel && m.toLocationLabel)
+            ? `${esc(m.fromLocationLabel)} → ${esc(m.toLocationLabel)}`
+            : (m.toLocationLabel ? '→ ' + esc(m.toLocationLabel) : '');
+          return `<div style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:#fff">
+            <div style="font-size:12px;color:var(--muted);font-weight:600">${esc(t)} · ${esc(m.userName || '—')}</div>
+            <div style="font-size:14px;font-weight:700;color:var(--header);margin-top:2px">${esc(actionLbl[m.action] || m.action)}</div>
+            ${route ? `<div style="font-size:13px;color:var(--ink);margin-top:2px">${route}</div>` : ''}
+            ${m.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:4px;font-style:italic">${esc(m.notes)}</div>` : ''}
+          </div>`;
+        }).join('')}
+      </div>`;
+  } catch (e) {
+    overlay.querySelector('.snag-modal-body').innerHTML = '<div class="empty-block"><div style="color:var(--red)">Failed to load history: ' + esc(e.message) + '</div></div>';
+  }
 }
 
 // ╔══════════════════════════ HOURS OVERVIEW ══════════════════════════╗
