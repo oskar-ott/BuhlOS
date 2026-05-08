@@ -532,9 +532,11 @@ textarea:focus{border-color:var(--navy);background:#fff}
 .reg-icon-btn.primary:hover{background:#1a3050;color:#fff;border-color:#1a3050}
 
 /* ── Snag row (list) — desktop: inline actions, mobile: stacked ───── */
-.snag-row{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border);position:relative;transition:background .12s;flex-wrap:wrap}
+.snag-row{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--rule);position:relative;transition:background .12s;flex-wrap:wrap;border-left:3px solid var(--red)}
+.snag-row.resolved{border-left-color:var(--green)}
+.snag-row.in-progress{border-left-color:var(--amber)}
 .snag-row:last-child{border-bottom:none}
-.snag-row:hover{background:#fafbfc}
+.snag-row:hover{background:var(--paper-2)}
 /* Brief amber pulse on the row when arriving via a push deep-link
    (?snag=<id>). Consumed on render and removed after ~2.4s. */
 .snag-row-flash{animation:snagRowFlash 2.4s ease-out 1}
@@ -545,16 +547,16 @@ textarea:focus{border-color:var(--navy);background:#fff}
 }
 .snag-row-main{flex:1;min-width:0;display:flex;align-items:center;gap:12px}
 .snag-row-actions{display:flex;gap:8px;align-items:center;flex-shrink:0}
-.snag-act{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:34px;padding:0 12px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:#fff;border:1px solid var(--border);color:var(--ink);white-space:nowrap}
-.snag-act.resolve{border-color:var(--green-bd);color:var(--green);background:var(--green-bg)}
-.snag-act.resolve:hover{background:#dcfce7}
-/* "Assign me" — accent-tinted to read as a take-action affordance */
-.snag-act.claim{border-color:var(--accent);color:var(--accent-ink);background:var(--accent)}
-.snag-act.claim:hover{filter:brightness(.95)}
-.snag-act.reopen{color:var(--muted)}
-.snag-act.reopen:hover{background:#f8fafc;color:var(--ink)}
+.snag-act{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:34px;padding:0 12px;border-radius:var(--radius);font-family:var(--display);font-size:13px;font-weight:600;letter-spacing:-.012em;cursor:pointer;background:var(--paper);border:1px solid var(--rule-2);color:var(--ink-2);white-space:nowrap}
+/* Resolve — yellow per Brief §11 (the one most-likely action per snag) */
+.snag-act.resolve{background:var(--yellow);color:var(--yellow-ink);border-color:var(--yellow)}
+.snag-act.resolve:hover{filter:brightness(.97)}
+.snag-act.claim{background:var(--paper);color:var(--navy);border:1px solid var(--rule-2)}
+.snag-act.claim:hover{background:var(--paper-3)}
+.snag-act.reopen{color:var(--ink-3)}
+.snag-act.reopen:hover{background:var(--paper-3);color:var(--navy)}
 .snag-act.del{border:none;background:transparent;color:var(--red);padding:0 10px}
-.snag-act.del:hover{background:var(--red-bg)}
+.snag-act.del:hover{background:rgba(192,49,47,.08)}
 @media(max-width:600px){
   .snag-row{flex-direction:column;align-items:stretch;gap:10px}
   .snag-row-actions{width:100%;gap:8px}
