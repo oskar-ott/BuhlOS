@@ -482,8 +482,9 @@ label { display: block; font-size: var(--fs-sm); color: var(--muted); margin-bot
 .add-form-grid.full { grid-template-columns: 1fr; }
 .add-form-row { display: flex; flex-direction: column; gap: 4px; }
 .add-form-row label {
-  font-size: 10px; font-weight: 700; color: var(--muted);
-  text-transform: uppercase; letter-spacing: .4px; margin: 0;
+  font-family: var(--mono);
+  font-size: 10px; font-weight: 600; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .12em; margin: 0;
 }
 .add-form-row input,
 .add-form-row select,
@@ -503,27 +504,29 @@ label { display: block; font-size: var(--fs-sm); color: var(--muted); margin-bot
 }
 .add-form-submit {
   flex: 1; height: 42px;
-  background: var(--header); color: #fff;
-  border: none; border-radius: 8px;
-  font-size: var(--fs-sm); font-weight: 700; cursor: pointer;
+  background: var(--navy); color: var(--paper);
+  border: none; border-radius: var(--radius);
+  font-family: var(--display);
+  font-size: 13px; font-weight: 600; letter-spacing: -.012em;
+  cursor: pointer;
 }
-.add-form-submit:hover { background: #1a3050; }
+.add-form-submit:hover { background: var(--navy-2); }
 .add-form-submit:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ── Register list (Test&Tag, Temp items) ─────────────────────────────────── */
 .reg-list {
-  background: var(--card); border: 1px solid var(--border);
+  background: var(--paper); border: 1px solid var(--rule);
   border-radius: var(--radius); overflow: hidden;
 }
 .reg-row {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--rule);
   position: relative;
   transition: background .12s;
 }
 .reg-row:last-child { border-bottom: none; }
-.reg-row:hover { background: #fafbfc; }
+.reg-row:hover { background: var(--paper-2); }
 .reg-row-accent {
   position: absolute; left: 0; top: 0; bottom: 0;
   width: 3px;
@@ -539,13 +542,17 @@ label { display: block; font-size: var(--fs-sm); color: var(--muted); margin-bot
   margin-bottom: 4px;
 }
 .reg-row-name {
-  font-size: var(--fs-base); font-weight: 600; color: var(--ink);
+  font-family: var(--display);
+  font-size: 14.5px; font-weight: 600; color: var(--navy);
+  letter-spacing: -.012em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   max-width: 100%;
 }
 .reg-row-meta {
   display: flex; gap: 14px; flex-wrap: wrap;
-  font-size: var(--fs-xs); color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10.5px; color: var(--ink-3);
+  letter-spacing: .04em;
 }
 .reg-row-meta b { color: var(--ink); font-weight: 600; }
 .reg-row-actions { flex-shrink: 0; display: flex; gap: 6px; align-items: center; }
@@ -567,18 +574,21 @@ label { display: block; font-size: var(--fs-sm); color: var(--muted); margin-bot
 /* Group header for register sub-sections */
 .reg-group-hdr {
   display: flex; align-items: center; gap: 10px;
-  margin: 16px 0 8px;
+  margin: 18px 0 8px;
 }
 .reg-group-hdr h4 {
-  margin: 0; font-size: 11px; font-weight: 700; color: var(--header);
-  text-transform: uppercase; letter-spacing: .8px; white-space: nowrap;
+  margin: 0; font-family: var(--mono);
+  font-size: 10.5px; font-weight: 600; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .14em; white-space: nowrap;
 }
 .reg-group-hdr .count {
-  font-size: 11px; font-weight: 600;
-  background: var(--border); color: var(--muted);
-  padding: 1px 8px; border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10px; font-weight: 600;
+  background: var(--paper-3); color: var(--ink-2);
+  padding: 3px 8px; border-radius: 2px;
+  letter-spacing: .06em;
 }
-.reg-group-hdr::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.reg-group-hdr::after { content: ''; flex: 1; height: 1px; background: var(--rule); }
 
 /* Empty state for feature pages */
 .feat-empty {
@@ -595,26 +605,32 @@ label { display: block; font-size: var(--fs-sm); color: var(--muted); margin-bot
   margin: 16px 0 8px;
 }
 .hr-week-hdr h4 {
-  margin: 0; font-size: 11px; font-weight: 700; color: var(--header);
-  text-transform: uppercase; letter-spacing: .8px;
+  margin: 0; font-family: var(--mono);
+  font-size: 10.5px; font-weight: 600; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .14em;
 }
 .hr-week-hdr .total {
-  font-size: 11px; font-weight: 600; color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10.5px; font-weight: 600; color: var(--ink-3);
+  letter-spacing: .06em;
 }
-.hr-week-hdr::after { content: ''; flex: 1; height: 1px; background: var(--border); align-self: center; }
+.hr-week-hdr::after { content: ''; flex: 1; height: 1px; background: var(--rule); align-self: center; }
 .hr-day {
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: 10px; padding: 12px 14px;
+  background: var(--paper); border: 1px solid var(--rule);
+  border-radius: var(--radius); padding: 12px 14px;
   margin-bottom: 6px;
 }
 .hr-day-top {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 8px;
 }
-.hr-day-date { font-size: var(--fs-base); font-weight: 700; color: var(--header); }
+.hr-day-date { font-family: var(--display); font-size: 14.5px; font-weight: 600; color: var(--navy); letter-spacing: -.012em; }
 .hr-day-total {
-  font-size: var(--fs-base); font-weight: 700; color: var(--header);
-  background: var(--accent); padding: 2px 10px; border-radius: 999px;
+  font-family: var(--display);
+  font-size: 14px; font-weight: 700; color: var(--yellow-ink);
+  background: var(--yellow); padding: 4px 10px; border-radius: 2px;
+  letter-spacing: -.012em;
+  font-variant-numeric: tabular-nums;
 }
 .hr-day-crew {
   display: flex; flex-direction: column; gap: 3px;
@@ -625,7 +641,7 @@ label { display: block; font-size: var(--fs-sm); color: var(--muted); margin-bot
   padding: 3px 0;
 }
 .hr-day-crew-name { color: var(--ink); font-weight: 500; }
-.hr-day-crew-hours { color: var(--muted); font-variant-numeric: tabular-nums; }
+.hr-day-crew-hours { font-family: var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums; letter-spacing: .04em; }
 .hr-day-notes {
   font-size: var(--fs-xs); color: var(--muted);
   margin-top: 8px; padding-top: 8px;
