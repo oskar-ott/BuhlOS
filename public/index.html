@@ -31,9 +31,9 @@ html{-webkit-font-smoothing:antialiased}
 .hdr{background:var(--navy);height:60px;display:flex;align-items:center;padding:0 16px;gap:12px;position:sticky;top:0;z-index:200;border-bottom:1px solid rgba(255,255,255,.06)}
 .hdr-logo{height:32px;width:32px;object-fit:contain;border-radius:6px;background:#fff;padding:3px;flex-shrink:0}
 .hdr-div{width:1px;height:22px;background:rgba(255,255,255,.15);flex-shrink:0}
-.hdr-job{flex:1;min-width:0}
+.hdr-job{flex:1;min-width:0;overflow:hidden}
 .hdr-name{color:#fff;font-size:14px;font-weight:600;letter-spacing:-.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hdr-sub{color:#64748b;font-size:11px;margin-top:1px}
+.hdr-sub{color:#64748b;font-size:11px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sync-pill{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:4px 10px;flex-shrink:0}
 .hdr-signout{margin-left:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);color:#94a3b8;padding:7px 11px;border-radius:8px;font-size:var(--fs-xs);cursor:pointer;flex-shrink:0;min-height:34px}
 /* Tradie-only "My Day" pill in the per-job header. Hidden by default; shown via JS once role is known. */
@@ -52,6 +52,22 @@ html{-webkit-font-smoothing:antialiased}
 .stxt{color:#94a3b8;font-size:11px;font-weight:500}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
 
+/* Phone header: condense the navy bar so the job name has room.
+   - Hide the internal job ID sub-line (workers don't need it)
+   - Hide the "Live" status text — keep just the dot
+   - Condense Sign out to an icon-style button
+   - Smaller logo, less gap */
+@media(max-width:600px){
+  .hdr{padding:0 10px;gap:8px}
+  .hdr-logo{height:28px;width:28px;padding:2px}
+  .hdr-div{display:none}
+  .hdr-name{font-size:13px}
+  .hdr-sub{display:none}
+  .sync-pill{padding:4px 6px;background:transparent;border-color:transparent}
+  .sync-pill .stxt{display:none}
+  .hdr-signout{margin-left:0;padding:6px 9px;font-size:10px}
+}
+
 /* Dwelling finder (filter across ALL groups) */
 .dw-find{background:#fff;border-bottom:1px solid var(--border);padding:8px 12px;position:sticky;top:60px;z-index:101}
 .dw-find-wrap{position:relative;max-width:900px;margin:0 auto}
@@ -69,9 +85,13 @@ html{-webkit-font-smoothing:antialiased}
 .dw-find-meta{font-size:11px;color:var(--muted);flex-shrink:0}
 .dw-find-empty{padding:14px;font-size:13px;color:var(--muted);text-align:center}
 
-/* Nav */
-.nav{background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:stretch;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;position:sticky;top:112px;z-index:100}
-.nav::-webkit-scrollbar{display:none}
+/* Nav — split into a scrollable primary strip on the LEFT and a fixed
+   hamburger button on the RIGHT. Previously the entire row scrolled, which
+   pushed the Tools button off-screen on phones with multiple area groups.
+   Now the Tools button is always visible at the right edge. */
+.nav{background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:stretch;position:sticky;top:112px;z-index:100;min-height:46px}
+.nav-scroll{flex:1;min-width:0;display:flex;align-items:stretch;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;mask-image:linear-gradient(to right,#000 calc(100% - 18px),transparent)}
+.nav-scroll::-webkit-scrollbar{display:none}
 .nb{flex-shrink:0;padding:13px 16px;border:none;background:none;color:var(--muted);font-size:13px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
 .nb.active{color:var(--navy);border-bottom-color:var(--navy);font-weight:600}
 .nb:hover:not(.active){color:var(--text);background:#f8fafc}
@@ -86,15 +106,16 @@ html{-webkit-font-smoothing:antialiased}
    Placement: anchored to the right of the nav row. Dropdown is positioned
    below the button via absolute positioning relative to .nav-menu-wrap.
    We close it on item-select, click-outside, and Escape. */
-.nav-menu-wrap{position:relative;margin-left:auto;display:flex;align-items:stretch;flex-shrink:0}
+.nav-menu-wrap{position:relative;display:flex;align-items:stretch;flex-shrink:0;background:#fff;box-shadow:-8px 0 12px -8px rgba(15,23,42,.08);z-index:1}
 .nb-menu{
   display:inline-flex;align-items:center;gap:6px;
   flex-shrink:0;padding:13px 14px;
-  border:none;background:none;color:var(--muted);
+  border:none;background:#fff;color:var(--muted);
   font-size:13px;font-weight:500;cursor:pointer;
   border-bottom:2px solid transparent;border-left:1px solid var(--border);
   transition:all .15s;white-space:nowrap;font-family:inherit;
   -webkit-tap-highlight-color:transparent;
+  position:relative;
 }
 .nb-menu:hover:not(.active){color:var(--text);background:#f8fafc}
 .nb-menu.active{color:var(--navy);border-bottom-color:var(--navy);font-weight:700}
@@ -173,8 +194,12 @@ html{-webkit-font-smoothing:antialiased}
   display:none;
   position:fixed;left:0;right:0;
   bottom:0;
-  padding:10px 12px calc(10px + env(safe-area-inset-bottom));
-  background:linear-gradient(to top, rgba(255,255,255,.98) 70%, rgba(255,255,255,0));
+  padding:14px 12px calc(14px + env(safe-area-inset-bottom));
+  /* Solid white panel with a tight blur lead-in so content underneath is
+     fully obscured (no half-visible rows behind the FAB). */
+  background:#fff;
+  border-top:1px solid var(--border);
+  box-shadow:0 -2px 12px rgba(15,23,42,.06);
   z-index:90;
   gap:10px;
   pointer-events:none; /* let scroll happen above the gradient lead-in */
@@ -201,8 +226,9 @@ html{-webkit-font-smoothing:antialiased}
   .worker-fab[data-active="1"]{display:none}
 }
 /* Reserve room at the bottom of the page so the FAB doesn't cover footer
-   content (snag list, hours table, etc.). 84px = button height + gradient. */
-body.has-worker-fab .pg{padding-bottom:84px}
+   content (snag list, hours table, etc.). 100px = button height + padding +
+   border + safe-area buffer. */
+body.has-worker-fab .pg{padding-bottom:calc(100px + env(safe-area-inset-bottom))}
 @media(min-width:760px){
   body.has-worker-fab .pg{padding-bottom:14px}
 }
@@ -1189,9 +1215,11 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
 </div>
 
 <div class="nav">
-  <button class="nb active" data-sec="dashboard" onclick="show('dashboard')">Dashboard</button>
-  <!-- area group buttons inserted here by buildGroupNav(), before #navMenuAnchor -->
-  <span id="navMenuAnchor" hidden></span>
+  <div class="nav-scroll" id="navScroll">
+    <button class="nb active" data-sec="dashboard" onclick="show('dashboard')">Dashboard</button>
+    <!-- area group buttons inserted here by buildGroupNav(), before #navMenuAnchor -->
+    <span id="navMenuAnchor" hidden></span>
+  </div>
   <div class="nav-menu-wrap">
     <button class="nb nb-menu" id="navMenuBtn" type="button"
       aria-haspopup="true" aria-expanded="false"
@@ -1424,11 +1452,11 @@ function buildGroupNav(){
   // Remove any previously inserted items (safe to call again)
   document.querySelectorAll('.nb[data-grp-nav]').forEach(b=>b.remove());
   document.querySelectorAll('.sc[data-grp-sec]').forEach(s=>s.remove());
-  const nav=document.querySelector('.nav');
-  // Insertion anchor is the hamburger menu wrap so area-group buttons sit
-  // between Dashboard and the Tools menu.
-  const menuWrap=document.querySelector('.nav-menu-wrap');
-  const anchor=document.getElementById('navMenuAnchor') || menuWrap;
+  // Area-group buttons live INSIDE the scrollable strip (.nav-scroll), so
+  // when overflow happens, the user can horizontally scroll through them
+  // while the Tools hamburger stays pinned to the right.
+  const scroll=document.getElementById('navScroll') || document.querySelector('.nav');
+  const anchor=document.getElementById('navMenuAnchor');
   const pg=document.querySelector('.pg');
   const snagsSec=document.getElementById('snags');
   groups.forEach((g,gi)=>{
@@ -1447,7 +1475,10 @@ function buildGroupNav(){
       cnt.textContent=g.areas.length;
       btn.appendChild(cnt);
       btn.onclick=()=>{state.activeGroupId=g.id;show(secId);};
-      nav.insertBefore(btn,anchor);
+      // Insert before the anchor (which is inside .nav-scroll); falls back
+      // to appending if the anchor isn't found.
+      if (anchor && anchor.parentNode === scroll) scroll.insertBefore(btn, anchor);
+      else scroll.appendChild(btn);
     }
     const sec=document.createElement('div');
     sec.id=secId;

@@ -24,6 +24,23 @@ header.app-header {
 .hdr-left  { display: flex; align-items: center; gap: 12px; }
 .hdr-right { display: flex; align-items: center; gap: 8px; position: relative; }
 
+/* Header nav pills — match the styling used on /jobs and /overview so the
+   Operations / Jobs / Approvals / Admin row reads as a unified pill nav
+   instead of default purple browser links. */
+.nav-pill {
+  display: inline-flex; align-items: center; height: 34px;
+  padding: 0 12px; border-radius: 999px;
+  font-size: var(--fs-xs); font-weight: 600;
+  color: rgba(255,255,255,.65);
+  border: 1px solid rgba(255,255,255,.12);
+  background: transparent; text-decoration: none;
+  transition: background .15s, color .15s;
+}
+.nav-pill:hover { color: #fff; background: rgba(255,255,255,.08); }
+.nav-pill.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+/* The site logo at the top-left — small and clickable, matches /jobs */
+.app-header .logo { height: 28px; width: auto; flex-shrink: 0; }
+
 /* Profile menu */
 .profile-btn {
   display: inline-flex; align-items: center; gap: 8px;
