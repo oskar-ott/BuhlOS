@@ -409,6 +409,17 @@ button.setup-step.todo .setup-step-mark { background: #fff7ed; color: var(--ambe
   font-size: 11px; color: var(--muted); font-weight: 500;
   margin-top: 2px;
 }
+/* Small inline count beside section titles (e.g. "Plans 4", "Materials 24") */
+.s-card-count{
+  display:inline-flex;align-items:center;justify-content:center;
+  margin-left:4px;
+  background:#f1f5f9;color:var(--header);
+  font-size:11px;font-weight:800;
+  padding:1px 8px;border-radius:999px;
+  font-variant-numeric:tabular-nums;
+}
+.s-card-count:empty{display:none}
+
 .s-add {
   display: inline-flex; align-items: center; gap: 4px;
   background: transparent; border: 1px dashed var(--border);
@@ -1025,6 +1036,23 @@ dialog h3.dlg-title {
 
       <div class="setup-progress" id="setup-progress"></div>
 
+      <!-- Plans — drawing register + upload. Sits before Areas because the
+           admin builds the structure FROM the drawings. -->
+      <div class="s-card" id="sc-plans">
+        <div class="s-card-hdr">
+          <div>
+            <div class="s-card-title">Plans <span id="sc-plans-count" class="s-card-count"></span></div>
+            <div class="s-card-sub">Upload electrical/construction drawings. Use them as reference while building areas, tasks, and the materials list.</div>
+          </div>
+          <label class="s-add" style="cursor:pointer">
+            + Upload plan
+            <input type="file" id="js-plan-input" accept="application/pdf,image/*" style="display:none" multiple>
+          </label>
+        </div>
+        <div id="js-plan-progress" class="s-msg" style="display:none"></div>
+        <div id="js-plans-list"></div>
+      </div>
+
       <!-- Areas -->
       <div class="s-card" id="sc-areas">
         <div class="s-card-hdr">
@@ -1037,6 +1065,24 @@ dialog h3.dlg-title {
           <button class="s-add" onclick="grpAddGroup('js-groups')">+ Add group</button>
         </div>
         <div id="js-groups"></div>
+      </div>
+
+      <!-- Materials — takeoff + wholesaler pricing email. Sits after Areas
+           so the admin can reference area groups when adding items. -->
+      <div class="s-card" id="sc-materials">
+        <div class="s-card-hdr">
+          <div>
+            <div class="s-card-title">Materials list <span id="sc-mat-count" class="s-card-count"></span></div>
+            <div class="s-card-sub">Build the job materials list from the plans. Generate a wholesaler pricing email when you're ready.</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="s-add" onclick="matOpenAddItem()">+ Add item</button>
+            <button class="s-add" onclick="matOpenBulkAdd()" style="background:#fff;color:var(--header);border:1px solid var(--border)">Bulk add</button>
+            <button class="s-add" onclick="matOpenEmailGen()" style="background:#fff;color:var(--header);border:1px solid var(--border)">&#9993; Pricing email</button>
+          </div>
+        </div>
+        <div id="js-materials-summary" style="margin-bottom:8px"></div>
+        <div id="js-materials-list"></div>
       </div>
 
       <!-- Rough-in -->
@@ -1823,7 +1869,544 @@ function renderSetup(job) {
     const e=document.getElementById(id); if(e){e.className=e.className.replace(/(ok|err)/g,'').trim();e.textContent='';}
   });
   loadCrewSection(job.id);
+  // Plans + Materials sections (Phase 1) — fetch + render after the rest.
+  loadPlansSection(job.id);
+  loadMaterialsSection(job.id);
 }
+
+// ╔══════════════════════════ PLAN REGISTER ══════════════════════════╗
+// State + render for the per-job plan register inside Job Setup.
+let plansState = { jobId: null, plans: [] };
+
+async function loadPlansSection(jobId) {
+  plansState.jobId = jobId;
+  // Wire the upload input once per setup load.
+  const input = document.getElementById('js-plan-input');
+  if (input && !input.dataset.wired) {
+    input.dataset.wired = '1';
+    input.onchange = () => uploadPlanFiles(input.files);
+  }
+  try {
+    const r = await fetch('/api/plans?jobId=' + encodeURIComponent(jobId), { credentials:'same-origin' });
+    if (r.ok) { const j = await r.json(); plansState.plans = j.plans || []; }
+  } catch { plansState.plans = []; }
+  renderPlansSection();
+}
+
+function renderPlansSection() {
+  const el = document.getElementById('js-plans-list');
+  if (!el) return;
+  const cnt = document.getElementById('sc-plans-count');
+  const visible = plansState.plans.filter(p => p.status !== 'archived');
+  if (cnt) cnt.textContent = visible.length ? visible.length : '';
+
+  if (!visible.length) {
+    el.innerHTML = `<div class="empty-block">No plans uploaded yet. Tap "+ Upload plan" to add a PDF or image of a drawing.</div>`;
+    return;
+  }
+  // Group by category for scanability.
+  const byCat = {};
+  for (const p of visible) {
+    const c = p.category || 'Uncategorised';
+    (byCat[c] = byCat[c] || []).push(p);
+  }
+  let h = '';
+  for (const cat of Object.keys(byCat).sort()) {
+    h += `<div style="margin-top:10px"><div style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">${esc(cat)}</div>`;
+    for (const p of byCat[cat].sort((a,b) => (a.drawingNumber||'').localeCompare(b.drawingNumber||''))) {
+      const stCls = p.status === 'current' ? 'complete' : p.status === 'superseded' ? 'in-progress' : 'in-progress';
+      const stLbl = p.status === 'current' ? 'Current' : p.status === 'superseded' ? 'Superseded' : 'Archived';
+      const sizeKb = p.sizeBytes ? Math.round(p.sizeBytes / 1024) + ' KB' : '';
+      h += `<div class="utbl-row" style="display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);background:#fff;border-radius:8px;margin-bottom:6px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:var(--header)">
+            ${p.drawingNumber?esc(p.drawingNumber):'<span style="color:var(--muted);font-weight:500">No drawing no.</span>'}
+            ${p.revision?`<span style="color:var(--muted);font-weight:500"> · Rev ${esc(p.revision)}</span>`:''}
+            <span class="status-badge ${stCls}" style="margin-left:6px">${stLbl}</span>
+          </div>
+          <div style="font-size:13px;color:var(--ink);margin-top:2px">${esc(p.title || p.fileName)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">
+            ${p.level?esc(p.level)+' · ':''}${esc(p.fileName)} ${sizeKb?'· '+sizeKb:''}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+          <a href="${esc(p.url)}" target="_blank" rel="noopener" class="utbl-edit">Open</a>
+          <button class="utbl-edit" onclick="planOpenEditModal('${esc(p.id)}')">Edit</button>
+          ${p.status==='current'?`<button class="utbl-edit" onclick="planSetStatus('${esc(p.id)}','superseded')">Mark superseded</button>`:`<button class="utbl-edit" onclick="planSetStatus('${esc(p.id)}','current')">Mark current</button>`}
+          <button class="utbl-edit" onclick="planArchive('${esc(p.id)}')" style="color:var(--red);border-color:var(--red-bd)">Archive</button>
+        </div>
+      </div>`;
+    }
+    h += '</div>';
+  }
+  el.innerHTML = h;
+}
+
+async function uploadPlanFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  const prog = document.getElementById('js-plan-progress');
+  const setMsg = (txt, isErr) => { if (prog) { prog.style.display='block'; prog.textContent=txt; prog.className='s-msg'+(isErr?' err':' ok'); } };
+  let done = 0, failed = 0;
+  for (const file of files) {
+    setMsg(`Uploading ${done+1} of ${files.length} (${file.name})…`);
+    try {
+      const dataUrl = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = e => res(e.target.result);
+        r.onerror = rej;
+        r.readAsDataURL(file);
+      });
+      const resp = await fetch('/api/plans?jobId=' + encodeURIComponent(plansState.jobId), {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type,
+          dataUrl,
+          drawingNumber: '',
+          title: file.name.replace(/\.[^.]+$/, ''),
+        }),
+      });
+      if (!resp.ok) { failed++; continue; }
+      done++;
+    } catch (e) { failed++; }
+  }
+  // Reset the input so re-selecting the same file fires onchange again.
+  const input = document.getElementById('js-plan-input');
+  if (input) input.value = '';
+  setMsg((failed?failed+' failed · ':'') + done + ' uploaded.', !!failed);
+  setTimeout(() => { if (prog) { prog.style.display='none'; prog.textContent=''; } }, 3500);
+  await loadPlansSection(plansState.jobId);
+}
+
+async function planSetStatus(planId, newStatus) {
+  try {
+    const r = await fetch('/api/plans?jobId=' + encodeURIComponent(plansState.jobId) + '&id=' + encodeURIComponent(planId), {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+      body: JSON.stringify({ status: newStatus }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    await loadPlansSection(plansState.jobId);
+  } catch (e) { alert('Could not update: ' + e.message); }
+}
+
+async function planArchive(planId) {
+  if (!confirm('Archive this plan? It will be hidden but the file is kept.')) return;
+  try {
+    const r = await fetch('/api/plans?jobId=' + encodeURIComponent(plansState.jobId) + '&id=' + encodeURIComponent(planId), {
+      method:'DELETE', credentials:'same-origin',
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    await loadPlansSection(plansState.jobId);
+  } catch (e) { alert('Could not archive: ' + e.message); }
+}
+
+const PLAN_CATEGORIES = ['Lighting','Power','Data / Communications','Security','Schematic','Single Line','Details','Legend / Notes','Fire','Mechanical','Other'];
+
+function planOpenEditModal(planId) {
+  const p = plansState.plans.find(x => x.id === planId);
+  if (!p) return;
+  const overlay = _matBuildModal('Edit drawing metadata');
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div class="snag-field"><label class="snag-field-label">Drawing number</label>
+      <input id="pe-no" type="text" value="${esc(p.drawingNumber||'')}" placeholder="e.g. P251177-E-L01-101" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div class="snag-field"><label class="snag-field-label">Revision</label>
+      <input id="pe-rev" type="text" value="${esc(p.revision||'')}" placeholder="e.g. 2" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div class="snag-field"><label class="snag-field-label">Title</label>
+      <input id="pe-title" type="text" value="${esc(p.title||'')}" placeholder="e.g. Level 1 Lighting Layout" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div class="snag-field"><label class="snag-field-label">Level / Floor</label>
+      <input id="pe-level" type="text" value="${esc(p.level||'')}" placeholder="e.g. Level 1, Ground Floor" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div class="snag-field"><label class="snag-field-label">Category</label>
+      <select id="pe-cat" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">
+        <option value="">—</option>
+        ${PLAN_CATEGORIES.map(c => `<option value="${esc(c)}"${p.category===c?' selected':''}>${esc(c)}</option>`).join('')}
+      </select></div>
+    <div class="snag-field"><label class="snag-field-label">Notes</label>
+      <textarea id="pe-notes" rows="2" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit">${esc(p.notes||'')}</textarea></div>`;
+  overlay.querySelector('.snag-modal-save').textContent = 'Save';
+  overlay.querySelector('.snag-modal-save').onclick = async () => {
+    const body = {
+      drawingNumber: document.getElementById('pe-no').value.trim(),
+      revision: document.getElementById('pe-rev').value.trim(),
+      title: document.getElementById('pe-title').value.trim(),
+      level: document.getElementById('pe-level').value.trim(),
+      category: document.getElementById('pe-cat').value.trim(),
+      notes: document.getElementById('pe-notes').value.trim(),
+    };
+    try {
+      const r = await fetch('/api/plans?jobId=' + encodeURIComponent(plansState.jobId) + '&id=' + encodeURIComponent(planId), {
+        method:'PATCH', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+      _matCloseModal(overlay);
+      await loadPlansSection(plansState.jobId);
+    } catch (e) { alert('Save failed: ' + e.message); }
+  };
+}
+
+// ╔══════════════════════════ MATERIALS LIST ══════════════════════════╗
+const MAT_CATEGORIES = ['Cable','Conduit / Containment','Power','Lighting','Data / Communications','Security','Switchboard / DB','Accessories','Fixings','Test / Compliance','Temporary Works','Other'];
+const MAT_UNITS = ['each','m','box','pack','roll','set','pair'];
+let matState = { jobId: null, items: [], selected: new Set(), filter: { category:'all', status:'all', search:'' } };
+
+async function loadMaterialsSection(jobId) {
+  matState.jobId = jobId;
+  matState.selected = new Set();
+  try {
+    const r = await fetch('/api/materials-list?jobId=' + encodeURIComponent(jobId), { credentials:'same-origin' });
+    if (r.ok) {
+      const j = await r.json();
+      matState.items = j.items || [];
+    }
+  } catch { matState.items = []; }
+  renderMaterialsSection();
+}
+
+function renderMaterialsSection() {
+  const el = document.getElementById('js-materials-list');
+  const sumEl = document.getElementById('js-materials-summary');
+  if (!el) return;
+  const cnt = document.getElementById('sc-mat-count');
+  if (cnt) cnt.textContent = matState.items.length ? matState.items.length : '';
+
+  // Summary chip strip
+  const ready = matState.items.filter(i => i.status === 'ready_to_price').length;
+  const priced = matState.items.filter(i => i.status === 'priced').length;
+  const ordered = matState.items.filter(i => i.status === 'ordered').length;
+  if (sumEl) {
+    sumEl.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px;color:var(--muted);font-weight:600">
+      <span style="background:#f1f5f9;padding:3px 8px;border-radius:999px">${matState.items.length} items</span>
+      ${ready?`<span style="background:var(--amber-bg);color:var(--amber);padding:3px 8px;border-radius:999px">${ready} ready to price</span>`:''}
+      ${priced?`<span style="background:var(--green-bg);color:var(--green);padding:3px 8px;border-radius:999px">${priced} priced</span>`:''}
+      ${ordered?`<span style="background:#dbeafe;color:#1e40af;padding:3px 8px;border-radius:999px">${ordered} ordered</span>`:''}
+    </div>`;
+  }
+
+  // Filter row + search
+  const items = matFiltered();
+  if (!items.length) {
+    if (!matState.items.length) {
+      el.innerHTML = `<div class="empty-block">No materials yet. Add items as you read the plans, or paste a list with <b>Bulk add</b>.</div>`;
+      return;
+    }
+    el.innerHTML = `<div class="empty-block">No items match the current filter.</div>`;
+    return;
+  }
+
+  // Group by category
+  const byCat = {};
+  for (const i of items) {
+    const c = i.category || 'Other';
+    (byCat[c] = byCat[c] || []).push(i);
+  }
+  let h = '';
+  for (const cat of Object.keys(byCat).sort()) {
+    h += `<div style="margin-top:10px"><div style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">${esc(cat)}</div>`;
+    for (const i of byCat[cat]) {
+      const stCls = i.status === 'ready_to_price' ? 'in-progress' : i.status === 'priced' ? 'complete' : i.status === 'ordered' ? 'in-progress' : 'in-progress';
+      const stLbl = ({draft:'Draft', ready_to_price:'Ready to price', priced:'Priced', ordered:'Ordered', received:'Received', cancelled:'Cancelled'})[i.status] || i.status;
+      const checked = matState.selected.has(i.id);
+      h += `<div style="display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);background:#fff;border-radius:8px;margin-bottom:6px">
+        <input type="checkbox" ${checked?'checked':''} onchange="matToggleSelect('${esc(i.id)}', this.checked)" style="width:16px;height:16px;cursor:pointer;flex-shrink:0">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--header);font-weight:700">
+            <b style="font-variant-numeric:tabular-nums">${i.quantity}</b> ${esc(i.unit||'each')} ·
+            ${esc(i.name)}
+            <span class="status-badge ${stCls}" style="margin-left:6px">${esc(stLbl)}</span>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">
+            ${i.brandOrSpec?esc(i.brandOrSpec):''}${i.brandOrSpec && (i.drawingRef||i.level||i.area)?' · ':''}
+            ${i.drawingRef?'Dwg '+esc(i.drawingRef):''}${i.drawingRef && (i.level||i.area)?' · ':''}
+            ${i.level?esc(i.level):''}${i.level && i.area?' · ':''}
+            ${i.area?esc(i.area):''}
+          </div>
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button class="utbl-edit" onclick="matOpenEditItem('${esc(i.id)}')">Edit</button>
+          ${i.status==='draft'?`<button class="utbl-edit" onclick="matSetStatus('${esc(i.id)}','ready_to_price')">Ready to price</button>`:''}
+          <button class="utbl-edit" onclick="matDeleteItem('${esc(i.id)}')" style="color:var(--red);border-color:var(--red-bd)">×</button>
+        </div>
+      </div>`;
+    }
+    h += '</div>';
+  }
+  el.innerHTML = h;
+}
+
+function matFiltered() {
+  let arr = matState.items.slice();
+  const f = matState.filter;
+  if (f.category && f.category !== 'all') arr = arr.filter(i => i.category === f.category);
+  if (f.status && f.status !== 'all') arr = arr.filter(i => i.status === f.status);
+  const q = (f.search || '').trim().toLowerCase();
+  if (q) arr = arr.filter(i => (i.name+' '+i.brandOrSpec+' '+i.drawingRef).toLowerCase().includes(q));
+  return arr;
+}
+
+function matToggleSelect(id, on) {
+  if (on) matState.selected.add(id); else matState.selected.delete(id);
+}
+
+async function matSetStatus(id, status) {
+  try {
+    const r = await fetch('/api/materials-list?jobId=' + encodeURIComponent(matState.jobId) + '&id=' + encodeURIComponent(id), {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+      body: JSON.stringify({ status }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    await loadMaterialsSection(matState.jobId);
+  } catch (e) { alert('Update failed: ' + e.message); }
+}
+
+async function matDeleteItem(id) {
+  if (!confirm('Remove this item?')) return;
+  try {
+    const r = await fetch('/api/materials-list?jobId=' + encodeURIComponent(matState.jobId) + '&id=' + encodeURIComponent(id), {
+      method:'DELETE', credentials:'same-origin',
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    matState.selected.delete(id);
+    await loadMaterialsSection(matState.jobId);
+  } catch (e) { alert('Delete failed: ' + e.message); }
+}
+
+function matOpenAddItem() { _matOpenItemModal(null); }
+function matOpenEditItem(id) {
+  const item = matState.items.find(i => i.id === id);
+  if (item) _matOpenItemModal(item);
+}
+
+function _matOpenItemModal(item) {
+  const isEdit = !!item;
+  const overlay = _matBuildModal(isEdit ? 'Edit material item' : 'Add material item');
+  // Pull plan drawing options for the dropdown.
+  const planOpts = ['<option value="">—</option>']
+    .concat((plansState.plans || []).filter(p => p.status !== 'archived').map(p =>
+      `<option value="${esc(p.drawingNumber||p.title||p.fileName)}">${esc((p.drawingNumber||'')+' '+(p.title||p.fileName))}</option>`));
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div class="snag-field"><label class="snag-field-label">Item name *</label>
+      <input id="mi-name" type="text" value="${esc(item?.name||'')}" placeholder="e.g. Twin GPO" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="snag-field"><label class="snag-field-label">Quantity *</label>
+        <input id="mi-qty" type="number" step="0.01" min="0" value="${item?.quantity||1}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field"><label class="snag-field-label">Unit</label>
+        <select id="mi-unit" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">
+          ${MAT_UNITS.map(u => `<option value="${u}"${item?.unit===u?' selected':''}>${u}</option>`).join('')}
+        </select></div>
+    </div>
+    <div class="snag-field"><label class="snag-field-label">Brand / spec</label>
+      <input id="mi-spec" type="text" value="${esc(item?.brandOrSpec||'')}" placeholder="e.g. Clipsal Iconic or approved equivalent" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="snag-field"><label class="snag-field-label">Category</label>
+        <select id="mi-cat" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">
+          ${MAT_CATEGORIES.map(c => `<option value="${esc(c)}"${item?.category===c?' selected':''}>${esc(c)}</option>`).join('')}
+        </select></div>
+      <div class="snag-field"><label class="snag-field-label">Drawing ref</label>
+        <select id="mi-dwg" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">${planOpts.join('')}</select></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="snag-field"><label class="snag-field-label">Level</label>
+        <input id="mi-level" type="text" value="${esc(item?.level||'')}" placeholder="e.g. Level 1" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field"><label class="snag-field-label">Area</label>
+        <input id="mi-area" type="text" value="${esc(item?.area||'')}" placeholder="e.g. Units, Lobby" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    </div>
+    <div class="snag-field"><label class="snag-field-label">Notes</label>
+      <textarea id="mi-notes" rows="2" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit">${esc(item?.notes||'')}</textarea></div>`;
+  // Pre-select drawing if matching one exists
+  if (item?.drawingRef) {
+    const dwg = overlay.querySelector('#mi-dwg');
+    if (dwg) {
+      const opt = Array.from(dwg.options).find(o => o.value === item.drawingRef);
+      if (opt) dwg.value = item.drawingRef;
+      else { const o = document.createElement('option'); o.value = item.drawingRef; o.textContent = item.drawingRef; o.selected = true; dwg.appendChild(o); }
+    }
+  }
+  overlay.querySelector('.snag-modal-save').textContent = isEdit ? 'Save' : 'Add';
+  overlay.querySelector('.snag-modal-save').onclick = async () => {
+    const body = {
+      name: document.getElementById('mi-name').value.trim(),
+      quantity: parseFloat(document.getElementById('mi-qty').value) || 0,
+      unit: document.getElementById('mi-unit').value,
+      brandOrSpec: document.getElementById('mi-spec').value.trim(),
+      category: document.getElementById('mi-cat').value,
+      drawingRef: document.getElementById('mi-dwg').value,
+      level: document.getElementById('mi-level').value.trim(),
+      area: document.getElementById('mi-area').value.trim(),
+      notes: document.getElementById('mi-notes').value.trim(),
+    };
+    if (!body.name) { alert('Name required'); return; }
+    try {
+      const url = '/api/materials-list?jobId=' + encodeURIComponent(matState.jobId) + (isEdit ? '&id=' + encodeURIComponent(item.id) : '');
+      const r = await fetch(url, {
+        method: isEdit ? 'PATCH' : 'POST',
+        headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+      _matCloseModal(overlay);
+      await loadMaterialsSection(matState.jobId);
+    } catch (e) { alert('Save failed: ' + e.message); }
+  };
+}
+
+function matOpenBulkAdd() {
+  const overlay = _matBuildModal('Bulk add materials');
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div style="font-size:13px;color:var(--muted);margin-bottom:8px">Paste one item per line. Each line becomes a draft item you can edit afterwards.</div>
+    <div style="font-family:monospace;font-size:12px;color:var(--muted);background:#f8fafc;padding:8px 10px;border-radius:6px;margin-bottom:10px">
+      40 x Twin GPO - Clipsal Iconic<br>
+      20 x Single data outlet<br>
+      250m x 2.5mm TPS<br>
+      6 x 20A RCBO
+    </div>
+    <div class="snag-field"><label class="snag-field-label">Lines</label>
+      <textarea id="mb-lines" rows="10" placeholder="40 x Twin GPO" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:monospace"></textarea></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="snag-field"><label class="snag-field-label">Default category</label>
+        <select id="mb-cat" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">
+          ${MAT_CATEGORIES.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+        </select></div>
+      <div class="snag-field"><label class="snag-field-label">Default level <span style="text-transform:none;color:var(--muted);font-weight:500">(optional)</span></label>
+        <input id="mb-level" type="text" placeholder="e.g. Level 1" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    </div>`;
+  overlay.querySelector('.snag-modal-save').textContent = 'Add all';
+  overlay.querySelector('.snag-modal-save').onclick = async () => {
+    const text = document.getElementById('mb-lines').value;
+    const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (!lines.length) { alert('Paste at least one line.'); return; }
+    try {
+      const r = await fetch('/api/materials-list?jobId=' + encodeURIComponent(matState.jobId) + '&action=bulk-add', {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify({
+          lines,
+          category: document.getElementById('mb-cat').value,
+          level: document.getElementById('mb-level').value.trim(),
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+      _matCloseModal(overlay);
+      await loadMaterialsSection(matState.jobId);
+    } catch (e) { alert('Bulk add failed: ' + e.message); }
+  };
+}
+
+function matOpenEmailGen() {
+  const items = matState.items.filter(i => matState.selected.has(i.id));
+  // If nothing selected, default to "ready to price"; if still nothing, all draft+ready.
+  const targetItems = items.length ? items
+                    : matState.items.filter(i => i.status === 'ready_to_price').length ? matState.items.filter(i => i.status === 'ready_to_price')
+                    : matState.items.filter(i => i.status !== 'cancelled');
+  if (!targetItems.length) { alert('No items to include — add some first.'); return; }
+  const job = JOBS.find(j => j.id === matState.jobId);
+  const jobName = job ? job.name : matState.jobId;
+  const subject = `Pricing Request — ${jobName} — Electrical Materials`;
+  const lines = targetItems.map((i, n) => {
+    const refs = [i.drawingRef ? 'Drawing: ' + i.drawingRef : '', i.level ? 'Level: ' + i.level : '', i.area ? 'Area: ' + i.area : '', i.notes ? 'Notes: ' + i.notes : ''].filter(Boolean);
+    return `${n+1}. ${i.quantity} x ${i.unit || 'each'} — ${i.name}${i.brandOrSpec ? ' (' + i.brandOrSpec + ')' : ''}` +
+           (refs.length ? '\n   ' + refs.join(' · ') : '');
+  });
+  const body = `Hi [Wholesaler],
+
+Can you please provide pricing and availability for the following materials for ${jobName}.
+
+Job: ${jobName}
+Reference: ${matState.jobId}
+
+Materials:
+${lines.join('\n\n')}
+
+Please include:
+- unit price
+- total price
+- availability / lead time
+- any equivalent product substitutions
+- delivery options if available
+
+Regards,
+bühl electrical`;
+
+  const overlay = _matBuildModal('Wholesaler pricing email');
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+      Generated from <b>${targetItems.length}</b> ${targetItems.length===1?'item':'items'}.
+      Edit the body if you want to tweak it before copying.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="snag-field"><label class="snag-field-label">Wholesaler</label>
+        <input id="me-name" type="text" placeholder="e.g. TLE / MMEM / etc." style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field"><label class="snag-field-label">Recipient email</label>
+        <input id="me-to" type="email" placeholder="optional" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    </div>
+    <div class="snag-field"><label class="snag-field-label">Subject</label>
+      <input id="me-subj" type="text" value="${esc(subject)}" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div class="snag-field"><label class="snag-field-label">Body</label>
+      <textarea id="me-body" rows="14" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;line-height:1.5">${esc(body)}</textarea></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+      <button class="s-add" onclick="matCopyEmail()" style="background:var(--accent);color:var(--accent-ink)">Copy email</button>
+      <button class="s-add" onclick="matMailto()" style="background:#fff;color:var(--header);border:1px solid var(--border)">Open in mail client</button>
+    </div>`;
+  overlay.querySelector('.snag-modal-save').textContent = 'Save draft';
+  overlay.querySelector('.snag-modal-save').onclick = async () => {
+    try {
+      const r = await fetch('/api/materials-list?jobId=' + encodeURIComponent(matState.jobId) + '&action=email', {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify({
+          wholesalerName: document.getElementById('me-name').value.trim(),
+          recipientEmail: document.getElementById('me-to').value.trim(),
+          subject: document.getElementById('me-subj').value,
+          body: document.getElementById('me-body').value,
+          itemIds: targetItems.map(i => i.id),
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+      _matCloseModal(overlay);
+      alert('Draft saved.');
+    } catch (e) { alert('Save failed: ' + e.message); }
+  };
+}
+
+function matCopyEmail() {
+  const txt = document.getElementById('me-body').value;
+  const subj = document.getElementById('me-subj').value;
+  const combined = 'Subject: ' + subj + '\n\n' + txt;
+  navigator.clipboard.writeText(combined).then(
+    () => alert('Email copied to clipboard.'),
+    () => alert('Copy failed — select the body and copy manually.')
+  );
+}
+function matMailto() {
+  const subj = document.getElementById('me-subj').value;
+  const body = document.getElementById('me-body').value;
+  const to = document.getElementById('me-to').value.trim();
+  const url = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(body);
+  window.open(url, '_blank');
+}
+
+// Reuse the same modal shell pattern across plan + materials editing.
+function _matBuildModal(title) {
+  const overlay = document.createElement('div');
+  overlay.className = 'snag-modal-overlay open';
+  overlay.innerHTML = `
+    <div class="snag-modal" role="dialog" style="max-width:560px">
+      <div class="snag-modal-hdr">
+        <div class="snag-modal-title">${esc(title)}</div>
+        <button class="snag-modal-close" aria-label="Close">&#10005;</button>
+      </div>
+      <div class="snag-modal-body"></div>
+      <div class="snag-modal-footer">
+        <button class="snag-modal-cancel">Cancel</button>
+        <button class="snag-modal-save">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => _matCloseModal(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('.snag-modal-close').onclick = close;
+  overlay.querySelector('.snag-modal-cancel').onclick = close;
+  return overlay;
+}
+function _matCloseModal(overlay) { overlay.remove(); }
 
 function renderProgress(setup, crewState) {
   // crewState: {hasCrew: bool} | null (loading)

@@ -4176,181 +4176,175 @@ window.exportTagsPDF=exportTagsPDF;
 window.recomputeTagExpiry=recomputeTagExpiry;
 window.handleTagScanFile=handleTagScanFile;
 
-// ── Temps ───────────────────────────────────────────────────
+// ── Temps (per-job) ────────────────────────────────────────────
+// Rebuilt v2 against the new /api/temps endpoint. Temps are now first-class
+// asset records; this view shows the deployments active on THIS job, plus a
+// returned-history strip. Deploy / return / report flows go through modals
+// to keep the page mobile-friendly.
+let tempsLoaded = false;
+let tempsAssetsCache = null; // global asset register, fetched on demand for deploy modal
+
 async function loadTemps(){
-  try{const r=await fetch('/api/temps');if(r.ok)tempsData=await r.json();}catch(e){}
+  try {
+    const r = await fetch('/api/temps?action=for-job&jobId=' + encodeURIComponent(JOB_ID));
+    if (r.ok) {
+      const j = await r.json();
+      tempsData = j.deployments || [];
+      tempsLoaded = true;
+    }
+  } catch(e) { /* tolerate */ }
 }
 
-function tempTypeClass(type){
-  if(!type)return'other';
-  const t=type.toLowerCase();
-  if(t.includes('board'))return'board';
-  if(t.includes('light'))return'lights';
-  if(t.includes('outlet')||t.includes('power'))return'outlets';
-  return'other';
+// Status badge label/class for deployments.
+function tempStatusLabel(s) {
+  switch(s){
+    case 'deployed': return { lbl:'On site',  cls:'in-progress' };
+    case 'due_soon': return { lbl:'Due soon', cls:'in-progress' };
+    case 'overdue':  return { lbl:'Overdue',  cls:'snagged' };
+    case 'returned': return { lbl:'Returned', cls:'complete' };
+    case 'missing':  return { lbl:'Missing',  cls:'snagged' };
+    case 'damaged':  return { lbl:'Damaged',  cls:'snagged' };
+    default: return { lbl: s || 'Unknown', cls:'in-progress' };
+  }
 }
 
-// Filter state for the temps register
-let tempFilter='all'; // 'all' | 'board' | 'lights' | 'outlets' | 'other'
+// Days deployed (today minus deployedAt). Used as a soft signal even when
+// no expectedReturnDate was set.
+function tempDaysDeployed(d) {
+  if (!d.deployedAt) return null;
+  const t = Date.parse(d.deployedAt);
+  if (!Number.isFinite(t)) return null;
+  return Math.max(0, Math.floor((Date.now() - t) / (24*60*60*1000)));
+}
+
+// Filter state — kept simple. Tabs: all, active, overdue, returned, issues.
+let tempFilter='active';
 let tempSearch='';
-
-function tempCategory(t){
-  const ty=(t.type||'').toLowerCase();
-  if(ty.includes('board'))return 'board';
-  if(ty.includes('light'))return 'lights';
-  if(ty.includes('outlet')||ty.includes('power'))return 'outlets';
-  return 'other';
-}
-
-function tempDaysDeployed(t){
-  if(!t.date)return null;
-  const[dd,mm,yy]=String(t.date).split('/').map(Number);
-  if(!yy)return null;
-  const then=new Date(yy,(mm||1)-1,dd||1);
-  return Math.max(0,Math.floor((Date.now()-then.getTime())/(1000*60*60*24)));
-}
 
 function tempFiltered(){
   const q=(tempSearch||'').trim().toLowerCase();
   let arr=tempsData.slice();
-  if(tempFilter!=='all')arr=arr.filter(t=>tempCategory(t)===tempFilter);
-  if(q)arr=arr.filter(t=>(
-    (t.location||'').toLowerCase().includes(q)
-    ||(t.type||'').toLowerCase().includes(q)
-    ||(t.loggedBy||'').toLowerCase().includes(q)
+  // The server marks active deployments with derivedStatus 'overdue' /
+  // 'due_soon'; we treat both as "active" for the default tab.
+  const activeStatuses = new Set(['deployed','due_soon','overdue']);
+  if (tempFilter === 'active')   arr = arr.filter(d => activeStatuses.has(d.derivedStatus || d.status));
+  if (tempFilter === 'overdue')  arr = arr.filter(d => (d.derivedStatus || d.status) === 'overdue');
+  if (tempFilter === 'returned') arr = arr.filter(d => d.status === 'returned');
+  if (tempFilter === 'issues')   arr = arr.filter(d => d.status === 'missing' || d.status === 'damaged');
+  if (q) arr = arr.filter(d => (
+    (d.assetCode || '').toLowerCase().includes(q) ||
+    (d.name || '').toLowerCase().includes(q) ||
+    (d.category || '').toLowerCase().includes(q) ||
+    (d.locationOnSite || '').toLowerCase().includes(q) ||
+    (d.deployedBy || '').toLowerCase().includes(q)
   ));
-  // Newest deployed first
-  return arr.sort((a,b)=>{
-    const pd=s=>{if(!s)return 0;const[d,m,y]=String(s).split('/').map(Number);return y?new Date(y,(m||1)-1,d||1).getTime():0;};
-    return pd(b.date)-pd(a.date);
+  // Active sort: oldest deployed first (so "needing attention" surfaces).
+  // Returned sort: newest returned first.
+  return arr.sort((a,b) => {
+    if (tempFilter === 'returned') {
+      return (b.returnedAt || '').localeCompare(a.returnedAt || '');
+    }
+    return (a.deployedAt || '').localeCompare(b.deployedAt || '');
   });
 }
 
-function renderTemps(){
-  const boards =tempsData.filter(t=>tempCategory(t)==='board').length;
-  const lights =tempsData.filter(t=>tempCategory(t)==='lights').length;
-  const outlets=tempsData.filter(t=>tempCategory(t)==='outlets').length;
-  const other  =tempsData.filter(t=>tempCategory(t)==='other').length;
-  const isClient=CURRENT_USER&&CURRENT_USER.role==='client';
+function renderTemps(){ return _renderTempsV2(); }
+function _renderTempsV2(){
+  const isClient = CURRENT_USER && CURRENT_USER.role === 'client';
+  // Counts derived from server-provided derivedStatus + base status.
+  const active   = tempsData.filter(d => ['deployed','due_soon','overdue'].includes(d.derivedStatus || d.status)).length;
+  const dueSoon  = tempsData.filter(d => (d.derivedStatus || d.status) === 'due_soon').length;
+  const overdue  = tempsData.filter(d => (d.derivedStatus || d.status) === 'overdue').length;
+  const returned = tempsData.filter(d => d.status === 'returned').length;
+  const issues   = tempsData.filter(d => d.status === 'missing' || d.status === 'damaged').length;
 
-  // Surface long-deployed items in the sub-line — operationally meaningful
-  const stale = tempsData.filter(t=>(tempDaysDeployed(t)||0)>=30).length;
-  const subBits=[];
-  subBits.push(`${tempsData.length} item${tempsData.length!==1?'s':''} on site`);
-  if(stale>0)subBits.push(`<span style="color:var(--amber);font-weight:600">${stale} deployed 30+ days</span>`);
+  const subBits = [`${active} on site`];
+  if (overdue) subBits.push(`<span style="color:var(--red);font-weight:600">${overdue} overdue</span>`);
+  if (issues)  subBits.push(`<span style="color:var(--red);font-weight:600">${issues} ${issues===1?'issue':'issues'}</span>`);
 
-  let h=`<div class="feat-header">
+  let h = `<div class="feat-header">
     <div>
       <h1 class="feat-title">Temporary equipment</h1>
       <span class="feat-sub">${subBits.join(' &middot; ')}</span>
     </div>
-    ${isClient?'':`<button class="feat-action" onclick="toggleTempForm()" id="tp-toggle-btn">+ Log equipment</button>`}
+    ${isClient?'':`<button class="feat-action" onclick="openTempDeployModal()">+ Deploy item</button>`}
   </div>
-
   <div class="kpi-strip cols-4">
-    <div class="kpi-cell"><div class="kpi-cell-label">Boards</div><div class="kpi-cell-value">${boards}</div></div>
-    <div class="kpi-cell"><div class="kpi-cell-label">Lights</div><div class="kpi-cell-value">${lights}</div></div>
-    <div class="kpi-cell"><div class="kpi-cell-label">Outlets</div><div class="kpi-cell-value">${outlets}</div></div>
-    <div class="kpi-cell"><div class="kpi-cell-label">Other</div><div class="kpi-cell-value">${other}</div></div>
+    <div class="kpi-cell"><div class="kpi-cell-label">On site</div><div class="kpi-cell-value">${active}</div></div>
+    <div class="kpi-cell"><div class="kpi-cell-label">Due soon</div><div class="kpi-cell-value ${dueSoon?'amber':''}">${dueSoon}</div></div>
+    <div class="kpi-cell"><div class="kpi-cell-label">Overdue</div><div class="kpi-cell-value ${overdue?'red':''}">${overdue}</div></div>
+    <div class="kpi-cell"><div class="kpi-cell-label">Returned</div><div class="kpi-cell-value">${returned}</div></div>
   </div>
-
-  ${isClient?'':`<div class="add-form" id="tp-form">
-    <div class="add-form-hdr">
-      <div class="add-form-hdr-title">Log temporary equipment</div>
-      <button class="add-form-close" onclick="toggleTempForm()" title="Close">&#10005;</button>
-    </div>
-    <div class="add-form-grid full">
-      <div class="add-form-row"><label>Location on site</label><input id="tp-loc" type="text" placeholder="e.g. Unit 3 &mdash; Level 1 corridor"></div>
-    </div>
-    <div class="add-form-grid">
-      <div class="add-form-row"><label>Type</label>
-        <select id="tp-type">
-          <option>Temp Board</option>
-          <option>Temp Lights</option>
-          <option>Power Outlets</option>
-          <option>Other</option>
-        </select>
-      </div>
-      <div class="add-form-row"><label>Logged by</label><input id="tp-by" type="text" placeholder="Your name" value="${esc(CURRENT_USER&&CURRENT_USER.username||'')}"></div>
-    </div>
-    <div style="margin-top:10px">
-      <label style="display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Photo (optional)</label>
-      <div class="photo-pick" id="tp-pick-area">
-        <input type="file" accept="image/*" capture="environment" onchange="handleTempFile(this)">
-        <div class="photo-pick-icon">&#128247;</div>
-        <div class="photo-pick-txt">Tap to take or choose a photo</div>
-      </div>
-      <img class="photo-preview" id="tp-preview" style="margin-top:8px">
-    </div>
-    <div class="add-form-actions">
-      <button class="add-form-submit" id="tp-submit" onclick="addTemp()">Log equipment</button>
-    </div>
-    <div id="tp-progress" class="msg" style="margin-top:6px;display:none;color:var(--muted)">Uploading\u2026</div>
-  </div>`}
-
   <div class="filter-bar">
+    <button class="filter-chip${tempFilter==='active'?' active':''}" onclick="setTempFilter('active')">On site <span class="filter-chip-count">${active}</span></button>
+    ${overdue?`<button class="filter-chip${tempFilter==='overdue'?' active danger':''}" onclick="setTempFilter('overdue')">Overdue <span class="filter-chip-count">${overdue}</span></button>`:''}
+    ${issues?`<button class="filter-chip${tempFilter==='issues'?' active danger':''}" onclick="setTempFilter('issues')">Issues <span class="filter-chip-count">${issues}</span></button>`:''}
+    <button class="filter-chip${tempFilter==='returned'?' active':''}" onclick="setTempFilter('returned')">Returned <span class="filter-chip-count">${returned}</span></button>
     <button class="filter-chip${tempFilter==='all'?' active':''}" onclick="setTempFilter('all')">All <span class="filter-chip-count">${tempsData.length}</span></button>
-    <button class="filter-chip${tempFilter==='board'?' active':''}" onclick="setTempFilter('board')">Boards <span class="filter-chip-count">${boards}</span></button>
-    <button class="filter-chip${tempFilter==='lights'?' active':''}" onclick="setTempFilter('lights')">Lights <span class="filter-chip-count">${lights}</span></button>
-    <button class="filter-chip${tempFilter==='outlets'?' active':''}" onclick="setTempFilter('outlets')">Outlets <span class="filter-chip-count">${outlets}</span></button>
-    <button class="filter-chip${tempFilter==='other'?' active':''}" onclick="setTempFilter('other')">Other <span class="filter-chip-count">${other}</span></button>
-    <input class="filter-search" id="temp-search" type="search" placeholder="Search location, type\u2026" value="${esc(tempSearch)}" oninput="setTempSearch(this.value)">
+    <input class="filter-search" id="temp-search" type="search" placeholder="Search code, name, location…" value="${esc(tempSearch)}" oninput="setTempSearch(this.value)">
   </div>`;
 
-  const filtered=tempFiltered();
-  if(!filtered.length){
-    const msg = !tempsData.length ? 'No temporary equipment logged'
-              : tempSearch        ? `No items match \u201c${esc(tempSearch)}\u201d.`
-              : 'No items in this category.';
-    const sub = !tempsData.length
-      ? (isClient ? 'Items will appear here once they\u2019re logged on site.'
-                  : 'Tap &ldquo;Log equipment&rdquo; to record temp boards, lights, outlets or other site equipment.')
+  const filtered = tempFiltered();
+  if (!filtered.length) {
+    const msg = !tempsData.length
+      ? 'No temporary gear has been deployed to this job yet.'
+      : tempSearch
+        ? `No items match "${esc(tempSearch)}".`
+        : 'No items in this view.';
+    const sub = !tempsData.length && !isClient
+      ? 'Tap "Deploy item" to send temp gear to this job.'
       : '';
-    h+=`<div class="feat-empty">
-      <div class="feat-empty-title">${msg}</div>
-      ${sub?`<div class="feat-empty-sub">${sub}</div>`:''}
-    </div>`;
+    h += `<div class="feat-empty"><div class="feat-empty-title">${msg}</div>${sub?`<div class="feat-empty-sub">${sub}</div>`:''}</div>`;
   } else {
-    h+=`<div class="reg-list">`;
-    filtered.forEach(t=>{
-      const safeUrl=esc(t.photoUrl||'');
-      const safeType=esc(t.type||'');
-      const safeLoc=esc(t.location||'');
-      const days=tempDaysDeployed(t);
-      const stale=days!=null&&days>=30;
-      const accent=stale?'amber':'navy';
-      let daysLbl='';
-      if(days!=null){
-        daysLbl = days===0 ? 'deployed today'
-                : days===1 ? 'deployed 1 day'
-                : `deployed ${days} days`;
-      }
-      const typePillCls = stale ? 'type-pill amber' : 'type-pill';
-      h+=`<div class="reg-row">
+    h += `<div class="reg-list">`;
+    filtered.forEach(d => {
+      const isOpen = ['deployed','due_soon','overdue'].includes(d.derivedStatus || d.status);
+      const status = tempStatusLabel(d.derivedStatus || d.status);
+      const accent = (d.derivedStatus === 'overdue' || d.status === 'missing' || d.status === 'damaged') ? 'red'
+                   : (d.derivedStatus === 'due_soon') ? 'amber'
+                   : (d.status === 'returned') ? 'grey' : 'navy';
+      const days = tempDaysDeployed(d);
+      const daysLbl = days != null ? (days === 0 ? 'today' : days === 1 ? '1 day' : days + ' days') : '';
+      const dueBit = d.expectedReturnDate
+        ? (d.derivedStatus === 'overdue'
+            ? `<span style="color:var(--red);font-weight:700"><b style="color:var(--red)">Overdue</b> · was due ${esc(d.expectedReturnDate)}</span>`
+            : d.derivedStatus === 'due_soon'
+              ? `<span style="color:var(--amber);font-weight:600"><b style="color:var(--amber)">Due ${esc(d.expectedReturnDate)}</b></span>`
+              : `<span><b>Due back</b> ${esc(d.expectedReturnDate)}</span>`)
+        : '';
+      const returnedBit = d.status === 'returned' && d.returnedAt
+        ? `<span><b>Returned</b> ${esc(new Date(d.returnedAt).toLocaleDateString('en-AU'))}${d.returnedBy?' by '+esc(d.returnedBy):''}</span>`
+        : '';
+      const actions = (!isClient && isOpen) ? `<div class="reg-row-actions" style="gap:6px">
+        <button class="reg-icon-btn primary" onclick="openTempReturnModal('${esc(d.id)}')" title="Mark this item returned">✓ Return</button>
+        <button class="reg-icon-btn" onclick="openTempReportModal('${esc(d.id)}')" title="Report missing or damaged" style="color:var(--red);border-color:var(--red-bd)">!</button>
+      </div>` : '';
+      h += `<div class="reg-row${isOpen?'':' muted'}">
         <div class="reg-row-accent ${accent}"></div>
-        <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;padding-left:6px">
-          ${t.photoUrl?`<img src="${safeUrl}" alt="${safeType}" onclick="openTempLightbox('${safeUrl}','${safeType}','${safeLoc}')" style="width:44px;height:44px;object-fit:cover;border-radius:6px;cursor:pointer;flex-shrink:0">`:''}
-          <div class="reg-row-body">
-            <div class="reg-row-title">
-              <span class="reg-row-name">${safeLoc||'No location'}</span>
-              ${safeType?`<span class="${typePillCls}">${safeType}</span>`:''}
-              <span class="status-badge ${stale?'in-progress':'complete'}" style="${stale?'':''}">${stale?'On site (long)':'On site'}</span>
-            </div>
-            <div class="reg-row-meta">
-              ${daysLbl?`<span style="${stale?'color:var(--amber);font-weight:600':''}"><b style="${stale?'color:var(--amber)':''}">${daysLbl.charAt(0).toUpperCase()+daysLbl.slice(1)}</b>${t.date?` &middot; since ${esc(t.date)}`:''}</span>`:(t.date?`<span><b>Deployed</b> ${esc(t.date)}</span>`:'')}
-              ${t.loggedBy?`<span><b>Logged by</b> ${esc(t.loggedBy)}</span>`:''}
-            </div>
+        <div class="reg-row-body" style="padding-left:6px">
+          <div class="reg-row-title">
+            ${d.assetCode?`<span class="type-pill" style="background:#f1f5f9;color:var(--header)">${esc(d.assetCode)}</span>`:''}
+            <span class="reg-row-name">${esc(d.name || d.category || 'Temp item')}</span>
+            ${d.category?`<span class="type-pill">${esc(d.category)}</span>`:''}
+            <span class="status-badge ${status.cls}">${esc(status.lbl)}</span>
+          </div>
+          <div class="reg-row-meta">
+            ${d.locationOnSite?`<span><b>Where</b> ${esc(d.locationOnSite)}</span>`:''}
+            ${daysLbl && isOpen?`<span><b>On site</b> ${esc(daysLbl)}</span>`:''}
+            ${dueBit}
+            ${returnedBit}
+            ${d.deployedBy && isOpen?`<span><b>Deployed by</b> ${esc(d.deployedBy)}</span>`:''}
+            ${d.notes?`<span style="font-style:italic">${esc(d.notes)}</span>`:''}
           </div>
         </div>
-        ${isClient?'':`<div class="reg-row-actions">
-          <button class="reg-icon-btn primary" onclick="returnTemp('${t.id}')" title="Mark as returned (removes from site)">&#10003; Returned</button>
-          <button class="reg-icon-btn danger" onclick="deleteTemp('${t.id}')" title="Delete">&#10005;</button>
-        </div>`}
+        ${actions}
       </div>`;
     });
-    h+=`</div>`;
+    h += `</div>`;
   }
-  document.getElementById('temps').innerHTML=h;
+
+  document.getElementById('temps').innerHTML = h;
+  return; // Stop before the dead old code below.
 }
 
 function setTempFilter(f){tempFilter=f;renderTemps();}
@@ -4361,74 +4355,184 @@ function setTempSearch(q){
   if(el){el.focus();try{el.setSelectionRange(q.length,q.length);}catch(e){}}
 }
 
-function toggleTempForm(){
-  const f=document.getElementById('tp-form');
-  const b=document.getElementById('tp-toggle-btn');
-  if(!f)return;
-  const open=f.classList.toggle('open');
-  if(b)b.textContent=open?'\u00d7 Close':'+ Log equipment';
-  if(open){const n=document.getElementById('tp-loc');if(n)n.focus();}
-}
-
-function handleTempFile(input){
-  const file=input.files[0];if(!file)return;
-  tempSelectedFile=file;
-  const reader=new FileReader();
-  reader.onload=e=>{
-    document.getElementById('tp-preview').src=e.target.result;
-    document.getElementById('tp-preview').style.display='block';
-    document.getElementById('tp-pick-area').style.display='none';
-  };
-  reader.readAsDataURL(file);
-}
-
-async function addTemp(){
-  const loc=document.getElementById('tp-loc').value.trim();
-  if(!loc){showToast('Please enter a location.','warn');return;}
-  const btn=document.getElementById('tp-submit');
-  const prog=document.getElementById('tp-progress');
-  btn.disabled=true;prog.style.display='block';
-  try {
-    let dataUrl=null;
-    if(tempSelectedFile){
-      dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(tempSelectedFile);});
-    }
-    await fetch('/api/temps',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({type:document.getElementById('tp-type').value,location:loc,loggedBy:document.getElementById('tp-by').value.trim(),dataUrl})});
-    tempSelectedFile=null;
-    await loadTemps();renderTemps();
-  } catch(e) {
-    try { showToast('Equipment log failed: '+(e.message||e),'error'); } catch(_) {}
-  } finally {
-    // Always reset upload UI so a stale spinner can't persist if the user navigates away mid-flight
-    const b2=document.getElementById('tp-submit');  if(b2) b2.disabled=false;
-    const p2=document.getElementById('tp-progress');if(p2) p2.style.display='none';
+// ── Temps deploy / return / report modals ──────────────────────────────
+// Lightweight on-demand modals reusing .snag-modal-overlay styles. Each
+// opens, posts to /api/temps with a specific action, reloads the per-job
+// list, then closes.
+async function openTempDeployModal() {
+  if (!CURRENT_USER || CURRENT_USER.role === 'client') return;
+  if (!tempsAssetsCache) {
+    try {
+      const r = await fetch('/api/temps');
+      tempsAssetsCache = r.ok ? ((await r.json()).items || []) : [];
+    } catch { tempsAssetsCache = []; }
   }
+  const available = (tempsAssetsCache || []).filter(a => a.status === 'available');
+  const overlay = _buildTempModal('Deploy temp item to this job');
+  if (!available.length) {
+    overlay.querySelector('.snag-modal-body').innerHTML = `
+      <div style="padding:14px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;font-size:13px;color:var(--header)">
+        <b>No items available.</b> Either everything is currently deployed, or no temp assets have been added yet.
+        ${(CURRENT_USER.role==='admin')?' Add items in <b>Admin → Temps</b>.':''}
+      </div>`;
+    overlay.querySelector('.snag-modal-save').style.display = 'none';
+    return;
+  }
+  const byCat = {};
+  for (const a of available) {
+    const c = a.category || 'Other';
+    (byCat[c] = byCat[c] || []).push(a);
+  }
+  const opts = ['<option value="">— Select item —</option>'];
+  for (const cat of Object.keys(byCat).sort()) {
+    opts.push(`<optgroup label="${esc(cat)}">`);
+    for (const a of byCat[cat]) opts.push(`<option value="${esc(a.id)}">${esc(a.assetCode)} — ${esc(a.name)}</option>`);
+    opts.push('</optgroup>');
+  }
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div class="snag-field"><label class="snag-field-label">Item</label>
+      <select id="td-asset" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">${opts.join('')}</select></div>
+    <div class="snag-field"><label class="snag-field-label">Where on site</label>
+      <input id="td-loc" type="text" placeholder="e.g. Ground Floor Switch Room" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div class="snag-field"><label class="snag-field-label">Expected return <span style="text-transform:none;color:var(--muted);font-weight:500">(optional)</span></label>
+      <input id="td-due" type="date" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    <div class="snag-field"><label class="snag-field-label">Notes</label>
+      <textarea id="td-notes" rows="2" placeholder="Optional" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></textarea></div>`;
+  const saveBtn = overlay.querySelector('.snag-modal-save');
+  saveBtn.textContent = 'Deploy';
+  saveBtn.onclick = async () => {
+    const tempItemId = document.getElementById('td-asset').value;
+    if (!tempItemId) { showToast('Pick an item first.', 'warn'); return; }
+    saveBtn.disabled = true; saveBtn.textContent = 'Deploying…';
+    try {
+      const r = await fetch('/api/temps?action=deploy&jobId=' + encodeURIComponent(JOB_ID), {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify({
+          jobId: JOB_ID, tempItemId,
+          locationOnSite: document.getElementById('td-loc').value.trim(),
+          expectedReturnDate: document.getElementById('td-due').value || null,
+          notes: document.getElementById('td-notes').value.trim(),
+        }),
+      });
+      if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || ('HTTP '+r.status)); }
+      tempsAssetsCache = null;
+      _closeTempModal(overlay);
+      await loadTemps(); renderTemps();
+      showToast('Deployed.', 'success');
+    } catch (e) {
+      saveBtn.disabled = false; saveBtn.textContent = 'Deploy';
+      showToast('Deploy failed: ' + e.message, 'error');
+    }
+  };
 }
 
-async function deleteTemp(id){
-  if(!confirm('Remove this item?'))return;
-  await fetch('/api/temps',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
-  await loadTemps();renderTemps();
+function openTempReturnModal(deploymentId) {
+  if (!CURRENT_USER || CURRENT_USER.role === 'client') return;
+  const dep = tempsData.find(d => d.id === deploymentId);
+  if (!dep) return;
+  const overlay = _buildTempModal('Return ' + (dep.assetCode || dep.name || 'item'));
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div style="padding:10px 12px;background:#f8fafc;border-radius:8px;font-size:13px;color:var(--ink);margin-bottom:12px">
+      <b>${esc(dep.name || dep.category || 'Item')}</b>${dep.locationOnSite?' · was at <b>'+esc(dep.locationOnSite)+'</b>':''}
+    </div>
+    <div class="snag-field"><label class="snag-field-label">Returned to</label>
+      <select id="tr-locType" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">
+        <option value="workshop">Workshop</option><option value="vehicle">Vehicle</option><option value="repair">Repair</option>
+      </select></div>
+    <div class="snag-field"><label class="snag-field-label">Condition on return</label>
+      <select id="tr-cond" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">
+        <option value="good">Good</option><option value="fair">Fair (worn)</option><option value="damaged">Damaged</option>
+      </select></div>
+    <div class="snag-field"><label class="snag-field-label">Notes <span style="text-transform:none;color:var(--muted);font-weight:500">(required if damaged)</span></label>
+      <textarea id="tr-notes" rows="2" placeholder="Optional" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></textarea></div>`;
+  const saveBtn = overlay.querySelector('.snag-modal-save');
+  saveBtn.textContent = 'Mark returned';
+  saveBtn.onclick = async () => {
+    const conditionReturn = document.getElementById('tr-cond').value;
+    const notes = document.getElementById('tr-notes').value.trim();
+    if (conditionReturn === 'damaged' && !notes) { showToast('Add a note about the damage.', 'warn'); return; }
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+    try {
+      const r = await fetch('/api/temps?action=return&jobId=' + encodeURIComponent(JOB_ID), {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify({
+          jobId: JOB_ID, deploymentId, conditionReturn,
+          returnLocationType: document.getElementById('tr-locType').value, notes,
+        }),
+      });
+      if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || ('HTTP '+r.status)); }
+      tempsAssetsCache = null;
+      _closeTempModal(overlay);
+      await loadTemps(); renderTemps();
+      showToast('Returned.', 'success');
+    } catch (e) {
+      saveBtn.disabled = false; saveBtn.textContent = 'Mark returned';
+      showToast('Return failed: ' + e.message, 'error');
+    }
+  };
 }
 
-// "Returned" — removes the item from the on-site register. Full return-history
-// (who, when, photo of returned state) lands in Phase 11; until then this is
-// a one-shot remove with a confirm so accidental taps don't lose data.
-async function returnTemp(id){
-  if(!confirm('Mark this item as returned and remove from site?'))return;
-  await fetch('/api/temps',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
-  await loadTemps();renderTemps();
+function openTempReportModal(deploymentId) {
+  if (!CURRENT_USER || CURRENT_USER.role === 'client') return;
+  const dep = tempsData.find(d => d.id === deploymentId);
+  if (!dep) return;
+  const overlay = _buildTempModal('Report issue — ' + (dep.assetCode || dep.name || 'item'));
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div class="snag-field"><label class="snag-field-label">Reason</label>
+      <select id="tp-reason" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;font-family:inherit">
+        <option value="missing">Missing</option><option value="damaged">Damaged</option><option value="other">Other</option>
+      </select></div>
+    <div class="snag-field"><label class="snag-field-label">Notes</label>
+      <textarea id="tp-rnotes" rows="3" placeholder="What happened?" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></textarea></div>`;
+  const saveBtn = overlay.querySelector('.snag-modal-save');
+  saveBtn.textContent = 'Submit report';
+  saveBtn.style.background = 'var(--red)'; saveBtn.style.color = '#fff';
+  saveBtn.onclick = async () => {
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+    try {
+      const r = await fetch('/api/temps?action=report&jobId=' + encodeURIComponent(JOB_ID), {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify({
+          jobId: JOB_ID, deploymentId,
+          reason: document.getElementById('tp-reason').value,
+          notes: document.getElementById('tp-rnotes').value.trim(),
+        }),
+      });
+      if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || ('HTTP '+r.status)); }
+      tempsAssetsCache = null;
+      _closeTempModal(overlay);
+      await loadTemps(); renderTemps();
+      showToast('Reported.', 'success');
+    } catch (e) {
+      saveBtn.disabled = false; saveBtn.textContent = 'Submit report';
+      showToast('Report failed: ' + e.message, 'error');
+    }
+  };
 }
 
-function openTempLightbox(url,type,loc){
-  document.getElementById('lb-img').src=url;
-  document.getElementById('lb-stage').textContent=type;
-  document.getElementById('lb-cap').textContent=loc;
-  document.getElementById('lb-meta').textContent='';
-  document.getElementById('lightbox').classList.add('open');
-  document.body.style.overflow='hidden';
+function _buildTempModal(title) {
+  const overlay = document.createElement('div');
+  overlay.className = 'snag-modal-overlay open';
+  overlay.innerHTML = `
+    <div class="snag-modal" role="dialog" style="max-width:480px">
+      <div class="snag-modal-hdr">
+        <div class="snag-modal-title">${esc(title)}</div>
+        <button class="snag-modal-close" aria-label="Close">&#10005;</button>
+      </div>
+      <div class="snag-modal-body"></div>
+      <div class="snag-modal-footer">
+        <button class="snag-modal-cancel">Cancel</button>
+        <button class="snag-modal-save">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => _closeTempModal(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('.snag-modal-close').onclick = close;
+  overlay.querySelector('.snag-modal-cancel').onclick = close;
+  return overlay;
 }
+function _closeTempModal(overlay) { overlay.remove(); }
 
 // ── Dwelling finder (searches across ALL area groups) ───────
 let dwFindHlIdx=-1;
