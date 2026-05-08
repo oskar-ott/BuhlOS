@@ -224,27 +224,31 @@ nav.admin-tabs .tab-badge.amber { background: rgba(209,139,28,.16); color: var(-
 .f-bar input[type=search] {
   flex: 1; min-width: 180px;
   padding: 9px 12px; min-height: 38px;
-  border: 1px solid var(--border); border-radius: 8px;
-  background: #fff; font-size: var(--fs-sm); outline: none;
+  border: 1px solid var(--rule-2); border-radius: var(--radius);
+  background: var(--paper); font-family: var(--sans);
+  font-size: var(--fs-sm); outline: none;
 }
-.f-bar input[type=search]:focus { border-color: var(--header); }
+.f-bar input[type=search]:focus { border-color: var(--navy); outline: 2px solid var(--yellow); outline-offset: -1px; }
 .seg {
-  display: inline-flex; background: #fff;
-  border: 1px solid var(--border); border-radius: 8px;
+  display: inline-flex; background: var(--paper);
+  border: 1px solid var(--rule-2); border-radius: var(--radius);
   padding: 3px; gap: 2px;
 }
 .seg button {
   background: none; border: none; cursor: pointer;
-  padding: 6px 12px; border-radius: 6px;
-  font-size: var(--fs-xs); font-weight: 600;
-  color: var(--muted); white-space: nowrap;
+  padding: 6px 12px; border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 10px; font-weight: 600;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--ink-3); white-space: nowrap;
   transition: background .12s, color .12s;
 }
-.seg button:hover { color: var(--ink); }
-.seg button.active { background: var(--header); color: #fff; }
+.seg button:hover { color: var(--navy); }
+.seg button.active { background: var(--navy); color: var(--paper); }
 .seg-count {
   display: inline-block; margin-left: 5px;
-  font-size: 10px; opacity: .75; font-weight: 700;
+  font-size: 9px; opacity: .8; font-weight: 600;
+  letter-spacing: .06em;
 }
 .seg button.active .seg-count { opacity: 1; }
 
@@ -255,26 +259,28 @@ nav.admin-tabs .tab-badge.amber { background: rgba(209,139,28,.16); color: var(-
 }
 .jrow {
   display: flex; align-items: center; gap: 12px;
-  padding: 14px 16px; border-bottom: 1px solid var(--border);
+  padding: 14px 16px; border-bottom: 1px solid var(--rule);
   cursor: pointer;
   box-shadow: inset 3px 0 0 transparent;
   transition: background .12s, box-shadow .12s;
 }
 .jrow:last-child { border-bottom: none; }
-.jrow:hover { background: #f8fafc; box-shadow: inset 3px 0 0 var(--header); }
+.jrow:hover { background: var(--paper-2); box-shadow: inset 3px 0 0 var(--yellow); }
 .jrow-body { flex: 1; min-width: 0; }
 .jrow-line1 {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin-bottom: 5px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 6px;
 }
 .jrow-name {
-  font-size: var(--fs-base); font-weight: 700; color: var(--ink);
-  letter-spacing: -.1px;
+  font-family: var(--display);
+  font-size: 15px; font-weight: 600; color: var(--navy);
+  letter-spacing: -.014em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
 .jrow-line2 {
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  font-size: var(--fs-xxs); color: var(--muted); font-weight: 500;
+  font-family: var(--mono);
+  font-size: 10.5px; color: var(--ink-3); letter-spacing: .04em;
 }
 .jrow-line2 span b {
   color: var(--ink); font-weight: 600;
@@ -283,57 +289,60 @@ nav.admin-tabs .tab-badge.amber { background: rgba(209,139,28,.16); color: var(-
   display: flex; align-items: center; gap: 6px; flex-shrink: 0;
 }
 .jrow-edit {
-  background: none; border: 1px solid var(--border); border-radius: 8px;
-  padding: 6px 12px; font-size: var(--fs-xs); font-weight: 600;
-  color: var(--muted); cursor: pointer;
+  background: none; border: 1px solid var(--rule-2); border-radius: var(--radius);
+  padding: 6px 12px;
+  font-family: var(--mono);
+  font-size: 10px; font-weight: 600;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--ink-3); cursor: pointer;
   transition: background .12s, color .12s, border-color .12s;
 }
-.jrow-edit:hover { background: #f1f5f9; color: var(--ink); border-color: var(--header); }
-.jrow-arrow { color: var(--muted); font-size: 18px; flex-shrink: 0; padding-left: 4px; }
+.jrow-edit:hover { background: var(--paper-3); color: var(--navy); border-color: var(--rule-2); }
+.jrow-arrow { color: var(--ink-3); font-size: 18px; flex-shrink: 0; padding-left: 4px; }
 
 /* Setup completeness chips on job rows */
 .setup-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 .setup-chip {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 8px 2px 6px; border-radius: 6px;
-  font-size: 10px; font-weight: 700; line-height: 1;
+  padding: 3px 8px; border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 10px; font-weight: 600; line-height: 1;
   height: 20px;
-  background: #f1f5f9; color: var(--muted);
-  border: 1px solid var(--border);
-  text-transform: uppercase; letter-spacing: .3px;
+  background: var(--paper-3); color: var(--ink-2);
+  text-transform: uppercase; letter-spacing: .12em;
 }
 .setup-chip.ok {
-  background: var(--green-bg); color: var(--green); border-color: var(--green-bd);
+  background: rgba(31,139,90,.12); color: var(--green);
 }
 .setup-chip.warn {
-  background: var(--amber-bg); color: var(--amber); border-color: var(--amber-bd);
+  background: rgba(209,139,28,.16); color: var(--amber);
 }
 .setup-chip-mark { font-size: 11px; line-height: 1; }
 
 /* ── Status badges (extend theme) ────────────────────────────────────── */
 .badge-st {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 9px; border-radius: 999px;
-  font-size: 10px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .5px;
-  border: 1px solid transparent;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .12em;
 }
-.badge-st.active   { background: var(--green-bg); color: var(--green); border-color: var(--green-bd); }
-.badge-st.complete { background: #f1f5f9; color: var(--muted); border-color: var(--border); }
-.badge-st.archived { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-bd); }
+.badge-st.active   { background: rgba(31,139,90,.12); color: var(--green); }
+.badge-st.complete { background: var(--paper-3); color: var(--ink-2); }
+.badge-st.archived { background: rgba(209,139,28,.16); color: var(--amber); }
 
 /* Role badges (People) */
 .badge-role {
   display: inline-flex; align-items: center;
-  padding: 2px 9px; border-radius: 6px;
-  font-size: 10px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .4px;
-  border: 1px solid transparent;
+  padding: 3px 8px; border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .12em;
 }
-.badge-role.admin       { background: var(--header); color: #fff; }
-.badge-role.leadingHand { background: var(--accent); color: var(--accent-ink); }
-.badge-role.tradie      { background: #f1f5f9; color: var(--ink); border-color: var(--border); }
-.badge-role.client      { background: #e0f2fe; color: #0369a1; border-color: #bae6fd; }
+.badge-role.admin       { background: var(--navy); color: var(--paper); }
+.badge-role.leadingHand { background: var(--yellow); color: var(--yellow-ink); }
+.badge-role.tradie      { background: var(--paper-3); color: var(--ink-2); }
+.badge-role.client      { background: rgba(31,139,90,.12); color: var(--green); }
 
 /* ── Setup view (inside Jobs tab) ────────────────────────────────────── */
 .setup-head {
