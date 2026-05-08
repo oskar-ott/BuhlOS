@@ -10,24 +10,63 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
-<meta name="theme-color" content="#0d1f35">
+<meta name="theme-color" content="#0d1b34">
 <style>
+  body { background: var(--paper-2); }
   .page { min-height: 100vh; display: flex; flex-direction: column; }
   .wrap { flex: 1; display: flex; align-items: center; justify-content: center;
     padding: 24px 16px; padding-bottom: max(24px, env(safe-area-inset-bottom)); }
-  .login-card { width: 100%; max-width: 400px; }
-  .login-logo { display: block; margin: 0 auto 24px; max-width: 160px; height: auto; }
-  .login-card input { min-height: 44px; font-size: 16px; }
-  .login-btn { width: 100%; min-height: 44px; margin-top: 8px; }
-  .err { margin-top: 12px; color: var(--danger); font-size: var(--fs-sm);
+  .login-card {
+    width: 100%; max-width: 400px;
+    padding: 32px 28px 28px;
+    border: 1px solid var(--rule);
+    background: var(--paper);
+  }
+  .login-mark {
+    display: flex; align-items: baseline; gap: .04em;
+    font-family: var(--display); font-weight: 800;
+    font-size: 56px; line-height: 1; letter-spacing: -.034em;
+    color: var(--navy);
+    margin-bottom: 4px;
+  }
+  .login-mark .os { font-size: .35em; font-weight: 600; color: var(--ink-2); letter-spacing: -.014em; }
+  .login-mark .dot { width: 7px; height: 7px; border-radius: 50%;
+    background: var(--yellow); margin-left: .15em; align-self: end; margin-bottom: .2em;
+    box-shadow: 0 0 0 3px rgba(245,208,32,.18); }
+  .login-strap {
+    font-family: var(--mono);
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-3); margin-bottom: 28px;
+  }
+  .login-card label {
+    font-family: var(--mono);
+    font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .login-card input { min-height: 44px; font-size: 16px;
+    border-radius: var(--radius); border: 1px solid var(--rule-2); }
+  .login-card input:focus { border-color: var(--navy); outline: 2px solid var(--yellow); outline-offset: -1px; }
+  .login-btn { width: 100%; min-height: 48px; margin-top: 16px;
+    font-family: var(--display); font-size: 14px; font-weight: 700;
+    letter-spacing: -.012em; }
+  .err { margin-top: 12px; color: var(--red); font-size: var(--fs-sm);
          text-align: center; min-height: 18px; }
+  .login-foot {
+    margin-top: 22px; padding-top: 16px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-3); text-align: center;
+  }
 </style>
 </head>
 <body>
 <div class="page">
   <div class="wrap">
     <form class="card login-card" id="f">
-      <img src="/BUHL_LOGO.png" class="login-logo" alt="buhl electrical" onerror="this.style.display='none'">
+      <div class="login-mark">b&uuml;hl<span class="os">OS</span><span class="dot"></span></div>
+      <div class="login-strap">field-ready · sign in</div>
       <div class="field">
         <label for="u">Username</label>
         <input id="u" name="username" autocomplete="username"
@@ -40,6 +79,7 @@
       </div>
       <button type="submit" class="btn primary login-btn" id="btn">Sign in</button>
       <div class="err" id="err"></div>
+      <div class="login-foot">b&uuml;hl electrical · internal</div>
     </form>
   </div>
 </div>

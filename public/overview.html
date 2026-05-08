@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
-<meta name="theme-color" content="#0d1f35">
+<meta name="theme-color" content="#0d1b34">
 <script src="/mobile-nav.js" defer></script>
 <script src="/install-prompt.js" defer></script>
 <script src="/lib/approvals-badge.js" defer></script>
@@ -44,7 +44,7 @@
 <body>
 <header class="app-header">
   <div class="hdr-left">
-    <img src="/BUHL_LOGO.png" class="logo" alt="buhl electrical" onerror="this.style.display='none'">
+    <a href="/overview" class="wordmark hdr-mark" aria-label="BuhlOS — operations">b&uuml;hl<span class="os">OS</span></a>
     <a class="nav-pill active" href="/overview">Operations</a>
     <a class="nav-pill" href="/jobs">Jobs</a>
     <a class="nav-pill" href="/approvals">Approvals</a>
@@ -500,82 +500,46 @@ function renderAttention(){
     missed.forEach(u => items.push({ kind:'missed-hours', user: u, iso: yIso }));
   }
 
+  // Brief com·05: dark exception panel — max 5 items, sentence + mono meta tag.
+  const SHOW = 5;
+  const dateLabel = new Date(TODAY_ISO).toLocaleDateString('en-AU', { weekday:'long', day:'2-digit', month:'short' }).toLowerCase();
   let body;
   if (!items.length) {
-    body = `<div class="ov-empty">All clear — no jobs need attention, all hours logged.</div>`;
+    body = `<div class="alerts-panel">
+      <div class="alerts-panel-hdr">all clear · ${esc(dateLabel)}</div>
+      <p class="alerts-panel-empty">Nothing needs you right now — no open snags, no stale jobs, all hours logged.</p>
+    </div>`;
   } else {
-    const SHOW = 5;
     const shown = items.slice(0, SHOW);
-    body = `<div class="ov-list">`;
+    const headLabel = `${items.length} ${pluralise(items.length,'thing')} to look at · ${dateLabel}`;
+    let rows = '';
     shown.forEach(it => {
       if (it.kind === 'tags-expiring') {
-        const total = it.expired + it.soon;
-        const tone = it.expired > 0 ? 'red' : 'amber';
         const sub = it.expired && it.soon
-          ? `<b>${it.expired}</b> expired · <b>${it.soon}</b> due soon`
+          ? `${esc(it.jobName)} — ${it.expired} tag${it.expired===1?'':'s'} expired, ${it.soon} due soon`
           : it.expired
-            ? `<b>${it.expired}</b> ${pluralise(it.expired,'tag')} expired`
-            : `<b>${it.soon}</b> ${pluralise(it.soon,'tag')} due in 14d`;
-        body += `<a class="ov-row clickable" href="/jobs/${esc(it.jobId)}#tags">
-          <div class="ov-row-accent ${tone}"></div>
-          <div class="ov-row-body" style="padding-left:6px">
-            <div class="ov-row-title">${esc(it.jobName)} — Test &amp; Tag</div>
-            <div class="ov-row-meta">
-              <span>${sub}</span>
-              <span><b>${total}</b> total</span>
-            </div>
-          </div>
-          <div class="ov-row-right"><span class="ov-chip ${tone}">${it.expired > 0 ? 'Expired' : 'T&amp;T'}</span></div>
-        </a>`;
+            ? `${esc(it.jobName)} — ${it.expired} ${pluralise(it.expired,'tag')} expired`
+            : `${esc(it.jobName)} — ${it.soon} ${pluralise(it.soon,'tag')} due in 14d`;
+        rows += `<li><a href="/jobs/${esc(it.jobId)}#tags"><span>${sub}</span><span class="meta">test &amp; tag</span></a></li>`;
       } else if (it.kind === 'snag') {
-        body += `<a class="ov-row clickable" href="/jobs/${esc(it.job.id)}">
-          <div class="ov-row-accent red"></div>
-          <div class="ov-row-body" style="padding-left:6px">
-            <div class="ov-row-title">${esc(it.job.name)}</div>
-            <div class="ov-row-meta">
-              <span><b>${it.count}</b> open ${pluralise(it.count,'snag')}</span>
-              ${it.ageDays ? `<span>Oldest <b>${it.ageDays}d</b> old</span>` : ''}
-            </div>
-          </div>
-          <div class="ov-row-right"><span class="ov-chip red">Snags</span></div>
-        </a>`;
+        const oldest = it.ageDays ? `, oldest ${it.ageDays}d` : '';
+        rows += `<li><a href="/jobs/${esc(it.job.id)}"><span>${esc(it.job.name)} — ${it.count} open ${pluralise(it.count,'snag')}${oldest}</span><span class="meta">snags</span></a></li>`;
       } else if (it.kind === 'stale') {
-        body += `<a class="ov-row clickable" href="/jobs/${esc(it.job.id)}">
-          <div class="ov-row-accent amber"></div>
-          <div class="ov-row-body" style="padding-left:6px">
-            <div class="ov-row-title">${esc(it.job.name)}</div>
-            <div class="ov-row-meta">
-              <span>No activity <b>${isFinite(it.ageDays) ? it.ageDays+'d' : '—'}</b></span>
-              ${it.lastIso ? `<span>Last <b>${esc(it.lastIso)}</b></span>` : '<span>No hours ever logged</span>'}
-            </div>
-          </div>
-          <div class="ov-row-right"><span class="ov-chip amber">Stale</span></div>
-        </a>`;
+        const ageStr = isFinite(it.ageDays) ? `idle ${it.ageDays}d` : 'no hours ever logged';
+        rows += `<li><a href="/jobs/${esc(it.job.id)}"><span>${esc(it.job.name)} — ${ageStr}</span><span class="meta">stale</span></a></li>`;
       } else if (it.kind === 'missed-hours') {
-        body += `<div class="ov-row">
-          <div class="ov-row-accent amber"></div>
-          <div class="ov-row-body" style="padding-left:6px">
-            <div class="ov-row-title">${esc(it.user.username)} — no hours yesterday</div>
-            <div class="ov-row-meta">
-              <span>Missing <b>${esc(it.iso)}</b></span>
-            </div>
-          </div>
-          <div class="ov-row-right"><span class="ov-chip amber">Hours</span></div>
-        </div>`;
+        rows += `<li><span>${esc(it.user.username)} — no hours logged ${esc(it.iso)}</span><span class="meta">crew · hours</span></li>`;
       }
     });
-    body += `</div>`;
+    body = `<div class="alerts-panel">
+      <div class="alerts-panel-hdr">${esc(headLabel)}</div>
+      <ul class="alerts-panel-list">${rows}</ul>
+    </div>`;
     if (items.length > SHOW) {
-      body += `<div class="ov-view-all" style="border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);margin-top:-1px">View all ${items.length} items — sorted by urgency</div>`;
+      body += `<div style="text-align:center;margin:-6px 0 12px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--ink-3)">${items.length - SHOW} more · sorted by urgency</div>`;
     }
   }
-  return `<section class="ov-sec">
-    <div class="ov-sec-hdr">
-      <h2 class="ov-sec-title">What needs attention</h2>
-      <span class="ov-sec-count">${items.length} ${pluralise(items.length,'item')}</span>
-    </div>
-    ${body}
-  </section>`;
+  return `<section class="ov-sec">${body}</section>`;
 }
 
 function renderActiveJobs(){

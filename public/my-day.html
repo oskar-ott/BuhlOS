@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<meta name="theme-color" content="#0d1f35">
+<meta name="theme-color" content="#0d1b34">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -25,7 +25,9 @@
     gap: 10px; position: sticky; top: 0; z-index: 50;
   }
   .md-hdr img.logo { height: 26px; }
-  .md-hdr-l { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+  .md-hdr .hdr-mark { color: #fff; font-size: 22px; text-decoration: none; flex-shrink: 0; }
+  .md-hdr .hdr-mark .os { color: var(--yellow); }
+  .md-hdr-l { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
   /* Header nav pills (matches /jobs and /admin pill style for consistency) */
   .md-nav-pill {
     display: inline-flex; align-items: center; height: 32px;
@@ -45,6 +47,7 @@
   @media (max-width: 380px) {
     .md-nav-pill { height: 28px; padding: 0 10px; font-size: 11px; }
     .md-hdr img.logo { height: 22px; }
+    .md-hdr .hdr-mark { font-size: 19px; }
   }
   .md-hdr .me {
     display: flex; align-items: center; gap: 8px;
@@ -377,7 +380,7 @@
 
 <header class="md-hdr">
   <div class="md-hdr-l">
-    <img src="/BUHL_LOGO.png" class="logo" alt="buhl" onerror="this.style.display='none'">
+    <a href="/my-day" class="wordmark hdr-mark" aria-label="BuhlOS — my day">b&uuml;hl<span class="os">OS</span></a>
     <a class="md-nav-pill active" href="/my-day">My Day</a>
     <a class="md-nav-pill" href="/jobs">Jobs</a>
   </div>

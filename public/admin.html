@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
-<meta name="theme-color" content="#0d1f35">
+<meta name="theme-color" content="#0d1b34">
 <script src="/mobile-nav.js" defer></script>
 <script src="/log-hours-sheet.js" defer></script>
 <script src="/lib/approvals-badge.js" defer></script>
@@ -1024,7 +1024,7 @@ dialog h3.dlg-title {
 
 <header class="app-header">
   <div class="hdr-left">
-    <img src="/BUHL_LOGO.png" class="logo" alt="buhl" onerror="this.style.display='none'">
+    <a href="/admin" class="wordmark hdr-mark" aria-label="BuhlOS — admin">b&uuml;hl<span class="os">OS</span></a>
     <a class="nav-pill" id="ovLink" href="/overview">Operations</a>
     <a class="nav-pill" href="/jobs">Jobs</a>
     <!-- Approvals link with auto-badge of pending count (approvals-badge.js).
@@ -4065,20 +4065,30 @@ async function loadOverviewTab() {
   const cnt = document.getElementById('ov-attn-count');
   if (cnt) cnt.textContent = items.length ? items.length + ' job' + (items.length===1?'':'s') : '';
   const list = document.getElementById('ov-attn-list');
+  // Brief com·05: dark exception panel — boss/admin sentence + mono meta tag.
+  const dateLabel = new Date().toLocaleDateString('en-AU', { weekday:'long', day:'2-digit', month:'short' }).toLowerCase();
   if (items.length === 0) {
-    list.innerHTML = `<div class="ov-empty"><b style="color:var(--green)">✓ All clear</b><br>Every active job has its setup, crew, and client sorted.</div>`;
+    list.innerHTML = `<div class="alerts-panel">
+      <div class="alerts-panel-hdr">all clear · ${esc(dateLabel)}</div>
+      <p class="alerts-panel-empty">Every active job has its setup, crew and client sorted.</p>
+    </div>`;
   } else {
-    list.innerHTML = items.slice(0, 6).map(it => `
-      <a class="ov-row" onclick="enterSetup('${esc(it.jobId)}')">
-        <div class="ov-row-accent ${it.tone}"></div>
-        <div class="ov-row-body">
-          <div class="ov-row-title">${esc(it.jobName)}</div>
-          <div class="ov-row-meta">Needs ${it.missing.map(esc).join(', ')}</div>
-        </div>
-        <div class="ov-row-chev">›</div>
-      </a>`).join('') + (items.length > 6
-        ? `<div class="ov-empty" style="font-size:12px;padding:10px 0">+${items.length - 6} more in <a href="#" onclick="event.preventDefault();switchTab('jobs');return false" style="color:var(--header);text-decoration:underline">Jobs</a></div>`
-        : '');
+    const SHOW = 5;
+    const head = `${items.length} thing${items.length===1?'':'s'} to finish · ${dateLabel}`;
+    const rows = items.slice(0, SHOW).map(it => {
+      const tagText = it.missing.includes('areas') || it.missing.includes('rough-in') || it.missing.includes('fit-off')
+        ? 'setup'
+        : it.missing.includes('crew') ? 'crew'
+        : it.missing.includes('client') ? 'contacts'
+        : 'admin';
+      return `<li><a onclick="enterSetup('${esc(it.jobId)}')" style="cursor:pointer"><span>${esc(it.jobName)} — ${it.missing.map(esc).join(', ')} missing</span><span class="meta">${tagText}</span></a></li>`;
+    }).join('');
+    list.innerHTML = `<div class="alerts-panel">
+      <div class="alerts-panel-hdr">${esc(head)}</div>
+      <ul class="alerts-panel-list">${rows}</ul>
+    </div>` + (items.length > SHOW
+      ? `<div style="text-align:center;margin:6px 0 0;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--ink-3)">${items.length - SHOW} more · sorted by gap count</div>`
+      : '');
   }
 
   // Crew at a glance — top 6 crew by open snag count (uses workload data
@@ -5242,15 +5252,15 @@ function _qPrintSummary() {
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(quote.name || 'Quote')} — Estimate</title>
     <style>
       body{font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#0f172a;max-width:880px;margin:30px auto;padding:0 24px}
-      h1{font-size:22px;margin:0 0 4px;color:#0d1f35}
-      h2{font-size:15px;margin:24px 0 8px;border-bottom:1px solid #e2e8f0;padding-bottom:4px;color:#0d1f35;text-transform:uppercase;letter-spacing:.4px}
-      h3{font-size:13px;margin:14px 0 4px;color:#0d1f35}
+      h1{font-size:22px;margin:0 0 4px;color:#0d1b34}
+      h2{font-size:15px;margin:24px 0 8px;border-bottom:1px solid #e2e8f0;padding-bottom:4px;color:#0d1b34;text-transform:uppercase;letter-spacing:.4px}
+      h3{font-size:13px;margin:14px 0 4px;color:#0d1b34}
       .muted{color:#64748b;font-style:italic}
       .meta{color:#475569;font-size:12px;margin-bottom:14px}
       .kpi{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0 14px;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px}
       .kpi div{font-size:11px;color:#64748b}
-      .kpi b{display:block;font-size:18px;color:#0d1f35;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums}
-      .total{background:#fef3c7;border:1px solid #fde68a;padding:10px 14px;border-radius:8px;font-size:14px;font-weight:700;color:#0d1f35;margin:8px 0 14px}
+      .kpi b{display:block;font-size:18px;color:#0d1b34;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums}
+      .total{background:#fef3c7;border:1px solid #fde68a;padding:10px 14px;border-radius:8px;font-size:14px;font-weight:700;color:#0d1b34;margin:8px 0 14px}
       table{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0 12px}
       th{background:#f1f5f9;text-align:left;padding:6px 8px;border-bottom:1px solid #cbd5e1;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
       td{padding:5px 8px;border-bottom:1px solid #f1f5f9;vertical-align:top}
@@ -5347,21 +5357,21 @@ function _qPrintClientQuote() {
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(quote.name || 'Quote')}</title>
     <style>
       body{font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#0f172a;max-width:760px;margin:30px auto;padding:0 32px}
-      header{border-bottom:2px solid #0d1f35;padding-bottom:14px;margin-bottom:20px}
-      h1{font-size:24px;margin:0 0 6px;color:#0d1f35;letter-spacing:-.3px}
+      header{border-bottom:2px solid #0d1b34;padding-bottom:14px;margin-bottom:20px}
+      h1{font-size:24px;margin:0 0 6px;color:#0d1b34;letter-spacing:-.3px}
       .meta{color:#475569;font-size:12px}
-      .meta b{color:#0d1f35}
-      h2{font-size:14px;margin:24px 0 8px;color:#0d1f35;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #cbd5e1;padding-bottom:4px}
-      h3{font-size:13px;margin:14px 0 4px;color:#0d1f35}
+      .meta b{color:#0d1b34}
+      h2{font-size:14px;margin:24px 0 8px;color:#0d1b34;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #cbd5e1;padding-bottom:4px}
+      h3{font-size:13px;margin:14px 0 4px;color:#0d1b34}
       .muted{color:#94a3b8;font-style:italic}
       .quote-total{background:#fef3c7;border:1px solid #fde68a;padding:14px 18px;border-radius:10px;margin:16px 0 24px;font-size:18px}
-      .quote-total b{font-size:24px;color:#0d1f35;font-weight:800}
+      .quote-total b{font-size:24px;color:#0d1b34;font-weight:800}
       .quote-total-sub{font-size:12px;color:#64748b;font-weight:500;margin-top:2px}
-      .quote-total-tba{font-size:16px;font-weight:800;color:#0d1f35}
+      .quote-total-tba{font-size:16px;font-weight:800;color:#0d1b34}
       ul{margin:4px 0 12px 20px;padding:0}
       li{margin:3px 0}
       .signoff{margin-top:36px;padding-top:14px;border-top:1px solid #cbd5e1;font-size:12px;color:#475569}
-      .signoff b{color:#0d1f35;font-weight:700}
+      .signoff b{color:#0d1b34;font-weight:700}
       footer{margin-top:36px;padding-top:14px;border-top:1px solid #cbd5e1;font-size:11px;color:#94a3b8;text-align:center}
       @media print{body{margin:0;padding:0 16px}}
     </style></head><body>
