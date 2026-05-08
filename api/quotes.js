@@ -717,6 +717,120 @@ async function handleDuplicate(req, res, user, srcId) {
   return res.status(201).json({ quote: newQuote });
 }
 
+// Previous-job benchmarking — labour-estimate reference data.
+// Walks all jobs + every user's per-day time-entries blob, aggregates
+// total hours per job, joins to each job's area count, and returns a
+// list sorted by total hours descending. Admin-only — internal cost
+// and labour data must not leak.
+//
+// This is intentionally a heavy read (one blob per user-day across the
+// whole window), so we cap to 180 days and ignore drafts. Acceptable
+// because it's manually triggered from the Labour estimate panel and
+// not on every page load.
+async function handleBenchmark(req, res, user) {
+  // Parallel: jobs index + users index. We need users to know which
+  // per-user time-entries blobs to read.
+  const [jobsBlob, usersBlob] = await Promise.all([
+    readBlob('jobs.json', { jobs: [] }),
+    readBlob('users.json', { users: [] }),
+  ]);
+
+  const jobs = jobsBlob.jobs || [];
+  const users = (usersBlob.users || []).filter(u =>
+    u.role === 'tradie' || u.role === 'leadingHand' || u.role === 'admin');
+
+  // Walk the last 180 days of time-entries for crew users. Per-user
+  // per-day blobs are small; we use Promise.all + a soft concurrency cap
+  // by chunking through users.
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = 180;
+  const dates = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    dates.push(
+      d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0')
+    );
+  }
+
+  const totals = {};        // jobId -> { hours, days: Set, lastDate }
+  const internalTotal = { hours: 0 };
+
+  // Cap concurrent reads to keep blob throughput sane on Vercel. 12 is a
+  // safe spot — single-digit tens of files in flight at once.
+  const CONCURRENCY = 12;
+  const tasks = [];
+  for (const u of users) {
+    for (const date of dates) {
+      tasks.push({ u, date });
+    }
+  }
+
+  let inflight = 0, idx = 0;
+  await new Promise(resolve => {
+    if (!tasks.length) return resolve();
+    const next = () => {
+      if (idx >= tasks.length && inflight === 0) return resolve();
+      while (inflight < CONCURRENCY && idx < tasks.length) {
+        const { u, date } = tasks[idx++];
+        inflight++;
+        readBlob('users/' + u.id + '/time-entries/' + date + '.json', null)
+          .then(entry => {
+            if (entry && Array.isArray(entry.allocations)) {
+              for (const a of entry.allocations) {
+                const jid = a.jobId || '__internal__';
+                if (jid === '__internal__') {
+                  internalTotal.hours += Number(a.hours) || 0;
+                  continue;
+                }
+                if (!totals[jid]) totals[jid] = { hours: 0, days: new Set(), lastDate: '' };
+                totals[jid].hours += Number(a.hours) || 0;
+                totals[jid].days.add(date);
+                if (date > totals[jid].lastDate) totals[jid].lastDate = date;
+              }
+            }
+          })
+          .catch(() => { /* missing day blob = no entry, normal */ })
+          .finally(() => { inflight--; next(); });
+      }
+    };
+    next();
+  });
+
+  // Build the response: one row per known job (omit jobs with zero hours
+  // unless they're complete — admin still wants to see "0 logged" jobs).
+  const rows = jobs.map(j => {
+    const t = totals[j.id] || { hours: 0, days: new Set(), lastDate: '' };
+    const areaCount = (j.areaGroups || []).reduce((s, g) => s + (g.areas || []).length, 0);
+    const hoursPerArea = areaCount > 0 ? (t.hours / areaCount) : 0;
+    return {
+      jobId:        j.id,
+      name:         j.name,
+      type:         j.type || '',
+      status:       j.status || 'active',
+      areaCount,
+      areaGroupsCount: (j.areaGroups || []).length,
+      totalHours:   Math.round(t.hours * 10) / 10,
+      daysWorked:   t.days.size,
+      hoursPerArea: areaCount > 0 ? Math.round(hoursPerArea * 10) / 10 : null,
+      lastDate:     t.lastDate || null,
+    };
+  })
+  .filter(r => r.totalHours > 0 || r.status === 'complete')
+  .sort((a, b) => b.totalHours - a.totalHours);
+
+  return res.status(200).json({
+    rows,
+    coverage: {
+      windowDays: days,
+      jobsScanned: jobs.length,
+      usersScanned: users.length,
+      enoughData: rows.length >= 2,
+    },
+  });
+}
+
 // Helper — bumps the parent quote's updatedAt so the list view sorts right.
 async function touchQuote(id) {
   try {
@@ -786,6 +900,10 @@ module.exports = async (req, res) => {
     if (!id) return res.status(400).json({ error: 'id required' });
     if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
     return handleDuplicate(req, res, user, id);
+  }
+  if (action === 'benchmark') {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'GET required' });
+    return handleBenchmark(req, res, user);
   }
 
   // Top-level routes

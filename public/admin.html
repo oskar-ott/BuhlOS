@@ -4987,7 +4987,61 @@ function _qRenderLabour(host) {
         </div>
         <button class="utbl-edit" onclick="_qLabRemove('${esc(l.id)}')" style="color:var(--red);border-color:var(--red-bd)">×</button>
       </div>`).join('') : '<div class="empty-block">No labour lines yet.</div>'}
+    </div>
+
+    <!-- Previous-job benchmarking — heavy read, so it's gated behind an
+         explicit "Load reference jobs" button rather than auto-fetched. -->
+    <div class="s-card" style="margin-top:14px">
+      <div class="s-card-hdr">
+        <div><div class="s-card-title">Previous job reference</div>
+          <div class="s-card-sub">Compare your estimate against actual hours-per-area on past BuhlOS jobs. Last 180 days. Admin-only.</div></div>
+        <button class="s-add" onclick="_qBenchLoad()">Load reference jobs</button>
+      </div>
+      <div id="qbench-out"><div class="empty-block">Click <b>Load reference jobs</b> to pull historical labour data. This walks every crew member's time-entries, so it takes a few seconds.</div></div>
     </div>`;
+}
+
+// Load + render the previous-job benchmarking panel. Heavy read, so it's
+// only fired on explicit click, never on tab open.
+async function _qBenchLoad() {
+  const out = document.getElementById('qbench-out');
+  if (out) out.innerHTML = '<div class="empty-block"><div>Loading… (walking time-entries)</div></div>';
+  try {
+    const r = await fetch('/api/quotes?action=benchmark', { credentials:'same-origin' });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    const j = await r.json();
+    if (!j.rows || !j.rows.length) {
+      out.innerHTML = `<div class="empty-block"><div class="empty-block-title">Not enough completed job data yet</div><div>BuhlOS hasn't accumulated enough labour history for a reliable comparison. Keep logging hours and the panel will fill in over time.</div></div>`;
+      return;
+    }
+    out.innerHTML = `
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+        ${j.rows.length} job${j.rows.length===1?'':'s'} with logged hours · last ${j.coverage.windowDays}d window · ${j.coverage.usersScanned} crew scanned
+      </div>
+      <div class="utbl"><table>
+        <thead><tr>
+          <th>Job</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th style="text-align:right">Areas</th>
+          <th style="text-align:right">Hours</th>
+          <th style="text-align:right">h / area</th>
+          <th>Last logged</th>
+        </tr></thead>
+        <tbody>${j.rows.map(r => `<tr>
+          <td class="utbl-name">${esc(r.name)}</td>
+          <td><span class="type-pill">${esc(r.type || '—')}</span></td>
+          <td><span class="status-badge ${r.status==='complete'?'complete':r.status==='active'?'in-progress':''}">${esc(r.status)}</span></td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">${r.areaCount}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:var(--header)">${r.totalHours.toFixed(1)}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">${r.hoursPerArea != null ? r.hoursPerArea.toFixed(1) : '—'}</td>
+          <td style="font-size:11px;color:var(--muted)">${esc(r.lastDate || '—')}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;font-style:italic">Hours-per-area is a rough benchmark — accuracy depends on how completely hours were logged on each past job.</div>`;
+  } catch (e) {
+    out.innerHTML = `<div class="empty-block"><div style="color:var(--red)">Couldn't load benchmark data: ${esc(e.message)}</div></div>`;
+  }
 }
 function _qLabAdd() {
   const overlay = _matBuildModal('Add labour line');
@@ -5096,7 +5150,9 @@ function _qRenderSummary(host) {
     : `<div class="s-card" style="margin-top:14px"><div class="s-card-hdr"><div><div class="s-card-title">Convert to live job</div><div class="s-card-sub">Creates a new job in <code>jobs.json</code> with this quote's structure (area groups, rough-in/fit-off task union from work packages) plus the materials list. Status moves to <b>Converted</b>.</div></div><button class="s-add" onclick="_qConvert()" style="background:var(--accent);color:var(--accent-ink)" ${q.quote.status==='lost'||q.quote.status==='declined'||q.quote.status==='archived'?'disabled':''}>Convert →</button></div></div>`;
   host.innerHTML = `
     <div class="s-card">
-      <div class="s-card-hdr"><div><div class="s-card-title">Summary</div><div class="s-card-sub">Snapshot of what's been captured. Estimated total only shows when both materials and labour have prices/rates.</div></div></div>
+      <div class="s-card-hdr"><div><div class="s-card-title">Summary</div><div class="s-card-sub">Snapshot of what's been captured. Estimated total only shows when both materials and labour have prices/rates.</div></div>
+        <button class="s-add" onclick="_qPrintSummary()">Print / Export</button>
+      </div>
       <div class="hours-summary" style="margin-bottom:14px">
         <div class="hours-card"><div class="hours-card-label">Documents</div><div class="hours-card-value ${docs>0?'green':'amber'}">${docs}</div></div>
         <div class="hours-card"><div class="hours-card-label">Area groups</div><div class="hours-card-value ${groups>0?'':'amber'}">${groups}</div></div>
@@ -5114,6 +5170,117 @@ function _qRenderSummary(host) {
     </div>
     ${notice}`;
 }
+// Print/export the quote summary as a self-contained printable HTML page.
+// Same window.open + document.write + auto-print pattern as the snag PDF
+// export. The user's browser-print dialog handles "save as PDF". Avoids
+// shipping a fragile custom PDF engine in the API per the brief's guidance.
+function _qPrintSummary() {
+  const q = qState.open;
+  if (!q) return;
+  const quote = q.quote;
+  const docs = (q.documents.documents || []).filter(d => d.status !== 'archived');
+  const groups = q.structure.areaGroups || [];
+  const mats = q.materials.items || [];
+  const labour = q.labour.lines || [];
+  const notes = q.notes || {};
+  const matCost = mats.reduce((s,i) => s + (Number(i.totalCost) || (Number(i.unitCost)||0)*(Number(i.quantity)||0)), 0);
+  const labH = labour.reduce((s,l) => s + (Number(l.estimatedHours)||0), 0);
+  const labCost = labour.reduce((s,l) => s + (Number(l.estimatedHours)||0)*(Number(l.hourlyRate)||0)*(Number(l.riskFactor)||1), 0);
+  const total = matCost + labCost;
+
+  const fmt$ = n => '$' + n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const today = new Date().toLocaleDateString('en-AU');
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Popup blocked. Allow popups to print the summary.'); return; }
+
+  const groupsHtml = groups.length ? groups.map(g => {
+    const areas = (g.areas || []).map(a => {
+      const wps = (a.workPackages || []).map(wp =>
+        `<li>${esc(wp.name||'')} <em>(${esc(wp.stage||'rough-in')})</em>: ${(wp.tasks||[]).map(esc).join(', ') || '<span class="muted">—</span>'}</li>`
+      ).join('');
+      return `<li><b>${esc(a.name||'')}</b>${wps?`<ul class="wp">${wps}</ul>`:''}</li>`;
+    }).join('');
+    return `<h3>${esc(g.name||'(unnamed group)')}</h3><ul class="areas">${areas || '<li class="muted">No areas</li>'}</ul>`;
+  }).join('') : '<p class="muted">No structure captured.</p>';
+
+  const matsHtml = mats.length ? `<table><thead><tr><th>Qty</th><th>Unit</th><th>Item</th><th>Brand / Spec</th><th>Category</th><th>Notes</th></tr></thead><tbody>${
+    mats.map(i => `<tr><td>${i.quantity||0}</td><td>${esc(i.unit||'each')}</td><td>${esc(i.name||'')}</td><td>${esc(i.brandOrSpec||'')}</td><td>${esc(i.category||'')}</td><td>${esc(i.notes||'')}</td></tr>`).join('')
+  }</tbody></table>` : '<p class="muted">No materials captured.</p>';
+
+  const labHtml = labour.length ? `<table><thead><tr><th>Area group</th><th>Area</th><th>System</th><th>Stage</th><th>Task</th><th class="r">Hours</th><th class="r">$/h</th></tr></thead><tbody>${
+    labour.map(l => `<tr><td>${esc(l.areaGroup||'')}</td><td>${esc(l.area||'')}</td><td>${esc(l.system||'')}</td><td>${esc(l.stage||'')}</td><td>${esc(l.task||'')}</td><td class="r">${(Number(l.estimatedHours)||0).toFixed(1)}</td><td class="r">${l.hourlyRate?'$'+l.hourlyRate:'—'}</td></tr>`).join('')
+  }</tbody></table>` : '<p class="muted">No labour lines captured.</p>';
+
+  const noteList = (arr, lbl) => Array.isArray(arr) && arr.length
+    ? `<h3>${lbl}</h3><ul>${arr.map(n => '<li>' + esc(n) + '</li>').join('')}</ul>` : '';
+
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(quote.name || 'Quote')} — Estimate</title>
+    <style>
+      body{font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#0f172a;max-width:880px;margin:30px auto;padding:0 24px}
+      h1{font-size:22px;margin:0 0 4px;color:#0d1f35}
+      h2{font-size:15px;margin:24px 0 8px;border-bottom:1px solid #e2e8f0;padding-bottom:4px;color:#0d1f35;text-transform:uppercase;letter-spacing:.4px}
+      h3{font-size:13px;margin:14px 0 4px;color:#0d1f35}
+      .muted{color:#64748b;font-style:italic}
+      .meta{color:#475569;font-size:12px;margin-bottom:14px}
+      .kpi{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0 14px;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px}
+      .kpi div{font-size:11px;color:#64748b}
+      .kpi b{display:block;font-size:18px;color:#0d1f35;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums}
+      .total{background:#fef3c7;border:1px solid #fde68a;padding:10px 14px;border-radius:8px;font-size:14px;font-weight:700;color:#0d1f35;margin:8px 0 14px}
+      table{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0 12px}
+      th{background:#f1f5f9;text-align:left;padding:6px 8px;border-bottom:1px solid #cbd5e1;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+      td{padding:5px 8px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+      td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+      ul.areas{margin:4px 0 12px 18px;padding:0}
+      ul.wp{margin:4px 0 8px 16px;padding:0;font-size:12px;color:#475569}
+      ul.wp em{color:#94a3b8;font-style:italic}
+      ul{margin:4px 0 8px 18px;padding:0}
+      li{margin:2px 0}
+      .docs{font-size:11px;color:#475569}
+      .docs li{margin:1px 0}
+      @media print { body{margin:0;padding:0 16px} }
+    </style></head><body>
+    <h1>${esc(quote.name || '(unnamed quote)')}</h1>
+    <div class="meta">${[
+      quote.builder ? 'Builder: <b>' + esc(quote.builder) + '</b>' : '',
+      quote.siteAddress ? esc(quote.siteAddress) : '',
+      quote.dueDate ? 'Due ' + esc(quote.dueDate) : '',
+      'Status: ' + esc(_qStatusLabel(quote.status)),
+      'Quote ID: ' + esc(quote.id),
+      'Generated: ' + today + ' by ' + esc(ME && ME.username || ''),
+    ].filter(Boolean).join(' &middot; ')}</div>
+
+    ${quote.description ? '<h2>Scope summary</h2><p>' + esc(quote.description).replace(/\n/g,'<br>') + '</p>' : ''}
+
+    <h2>Estimate snapshot</h2>
+    <div class="kpi">
+      <div>Documents<b>${docs.length}</b></div>
+      <div>Area groups<b>${groups.length}</b></div>
+      <div>Areas<b>${groups.reduce((s,g)=>s+(g.areas||[]).length,0)}</b></div>
+      <div>Materials<b>${mats.length}</b></div>
+      <div>Labour lines<b>${labour.length}</b></div>
+      <div>Labour hours<b>${labH.toFixed(1)}</b></div>
+    </div>
+    ${total > 0 ? `<div class="total">Estimated total: ${fmt$(total)}${matCost?` <span style="font-weight:500;color:#475569">(materials ${fmt$(matCost)} + labour ${fmt$(labCost)})</span>`:''}</div>` : '<p class="muted">Pricing not captured yet — totals will populate once material costs and labour rates are entered.</p>'}
+
+    <h2>Structure</h2>${groupsHtml}
+
+    <h2>Materials estimate</h2>${matsHtml}
+
+    <h2>Labour estimate</h2>${labHtml}
+
+    ${noteList(notes.assumptions, 'Assumptions')}
+    ${noteList(notes.exclusions, 'Exclusions')}
+    ${noteList(notes.risks, 'Risks')}
+    ${noteList(notes.clarifications, 'Clarifications needed')}
+
+    ${docs.length ? `<h2>Documents on file</h2><ul class="docs">${docs.map(d => `<li>${esc(d.drawingNumber||'')}${d.revision?' Rev '+esc(d.revision):''} — ${esc(d.title || d.fileName)} <em style="color:#94a3b8">(${esc(d.documentType||'')}, ${esc(d.status||'')})</em></li>`).join('')}</ul>` : ''}
+
+    <script>setTimeout(function(){window.print()},250);<\/script>
+  </body></html>`);
+  w.document.close();
+}
+
 async function _qConvert() {
   const id = qState.openQuoteId; if (!id) return;
   if (!confirm('Convert this quote to a live job? A new job will be created with the structure, tasks, and materials.')) return;
