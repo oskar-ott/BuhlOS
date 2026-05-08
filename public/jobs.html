@@ -200,9 +200,10 @@ async function load() {
     } catch (e) { /* tolerate missing endpoint */ }
   }
 
-  // Clients with one job → just open it. Avoid making them tap through a list.
-  if (user.role === 'client' && allJobs.length === 1) {
-    location.replace('/jobs/' + encodeURIComponent(allJobs[0].id));
+  // Clients always land on the dedicated client portal (Brief §14: a clean
+  // window, not admin-lite). The portal handles 0 / 1 / many jobs itself.
+  if (user.role === 'client') {
+    location.replace('/client');
     return;
   }
 

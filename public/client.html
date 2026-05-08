@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>buhl — your job</title>
+<link rel="stylesheet" href="/theme.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BuhlOS">
+<meta name="theme-color" content="#0d1b34">
+<style>
+/* ── Brief §14: client portal — a clean window, not admin-lite ─────────── */
+body { background: var(--paper-2); }
+
+.cp-shell {
+  max-width: 880px; margin: 0 auto;
+  padding: 0 clamp(16px, 4vw, 36px);
+}
+
+/* ── top bar: navy, mono caption, wordmark ───────────────────────────── */
+.cp-top {
+  background: var(--navy); color: var(--paper);
+  padding: 14px clamp(20px, 4vw, 36px);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+  padding-top: max(14px, env(safe-area-inset-top));
+}
+.cp-top .wordmark { font-size: 22px; }
+.cp-top .right {
+  font-family: var(--mono);
+  font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase;
+  color: rgba(255,255,255,.7);
+  display: flex; align-items: center; gap: 14px;
+}
+.cp-top .right .me { color: var(--yellow); }
+.cp-top .signout {
+  background: transparent; color: rgba(255,255,255,.85);
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 6px; padding: 6px 12px;
+  font-family: var(--display); font-weight: 500; font-size: 12px;
+  letter-spacing: -.01em; cursor: pointer;
+}
+.cp-top .signout:hover { background: rgba(255,255,255,.08); color: #fff; }
+
+/* ── main job card framing the portal ─────────────────────────────── */
+.cp-job {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  margin-top: 24px;
+  overflow: hidden;
+}
+.cp-job-hdr {
+  background: var(--navy); color: var(--paper);
+  padding: 18px 24px;
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 16px;
+}
+.cp-job-hdr .title {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(22px, 3.2vw, 28px); letter-spacing: -.025em;
+  line-height: 1.05; color: var(--paper);
+}
+.cp-job-hdr .meta {
+  font-family: var(--mono);
+  font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase;
+  color: rgba(255,255,255,.65); flex-shrink: 0;
+}
+.cp-job-body { padding: 24px; }
+
+.cp-sub {
+  font-family: var(--mono);
+  font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-3); margin: 0 0 18px;
+}
+
+.cp-progress { margin-bottom: 22px; }
+.cp-pbar {
+  height: 8px; background: var(--paper-3); border-radius: 999px;
+  position: relative; overflow: hidden;
+}
+.cp-pbar i {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: var(--yellow); border-radius: 999px;
+  transition: width .4s;
+}
+.cp-pnums {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 10.5px; letter-spacing: .06em; color: var(--ink-3);
+}
+.cp-pnums .pct {
+  font-family: var(--display); font-size: 18px; font-weight: 700;
+  letter-spacing: -.02em; color: var(--navy);
+  font-variant-numeric: tabular-nums; margin-right: 8px;
+}
+
+/* ── stage tiles (rough-in / fit-off / T&T / handover) ─────────────── */
+.cp-stages {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  margin-bottom: 24px;
+}
+.cp-stage {
+  background: var(--paper-2); border: 1px solid var(--rule);
+  padding: 14px 14px; border-radius: 4px;
+}
+.cp-stage .l {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px;
+}
+.cp-stage .v {
+  font-family: var(--display); font-weight: 700; font-size: 18px;
+  letter-spacing: -.018em; color: var(--navy);
+}
+.cp-stage .pct {
+  margin-top: 8px;
+  font-family: var(--mono); font-size: 10.5px;
+  letter-spacing: .06em; color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.cp-stage.complete { background: rgba(31,139,90,.06); border-color: rgba(31,139,90,.3); }
+.cp-stage.complete .v { color: var(--green); }
+.cp-stage.complete .v::after { content: " ✓"; }
+.cp-stage.in-progress {
+  background: var(--paper);
+  border-left: 3px solid var(--yellow);
+}
+@media (max-width: 600px) {
+  .cp-stages { grid-template-columns: 1fr 1fr; }
+}
+
+/* ── section header inside body ──────────────────────────────────── */
+.cp-sect {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule);
+}
+.cp-sect-hdr {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.cp-sect-title {
+  font-family: var(--display); font-weight: 700;
+  font-size: 18px; letter-spacing: -.018em; color: var(--navy);
+  margin: 0;
+}
+.cp-sect-meta {
+  font-family: var(--mono);
+  font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ── photo grid (curated by stage) ─────────────────────────────── */
+.cp-photos {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+}
+@media (max-width: 480px) { .cp-photos { grid-template-columns: 1fr 1fr; } }
+.cp-photo {
+  aspect-ratio: 1 / 1;
+  background: var(--paper-3);
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform .15s;
+}
+.cp-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cp-photo:hover { transform: scale(1.01); }
+.cp-photo-empty {
+  border: 1px dashed var(--rule-2);
+  background: var(--paper);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--ink-3);
+}
+
+/* ── visible snag list (curated for client) ────────────────────── */
+.cp-snag {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.cp-snag:last-child { border-bottom: 0; }
+.cp-snag-accent {
+  width: 4px; align-self: stretch; min-height: 36px;
+  border-radius: 2px; background: var(--yellow);
+  flex-shrink: 0;
+}
+.cp-snag-accent.green { background: var(--green); }
+.cp-snag-body { flex: 1; min-width: 0; }
+.cp-snag-title {
+  font-family: var(--display); font-weight: 700;
+  font-size: 15px; letter-spacing: -.014em;
+  color: var(--navy); margin-bottom: 4px;
+}
+.cp-snag-meta {
+  font-family: var(--mono);
+  font-size: 10.5px; letter-spacing: .04em;
+  color: var(--ink-3);
+}
+.cp-snag-state {
+  flex-shrink: 0;
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: .12em; text-transform: uppercase;
+  padding: 4px 8px; border-radius: 2px;
+}
+.cp-snag-state.open  { background: rgba(245,208,32,.18); color: #806800; }
+.cp-snag-state.resolved { background: rgba(31,139,90,.12); color: var(--green); }
+
+/* ── job list (multi-job clients) ──────────────────────────────── */
+.cp-job-list { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
+.cp-job-card {
+  background: var(--paper); border: 1px solid var(--rule);
+  border-radius: var(--radius); padding: 18px 20px;
+  display: flex; justify-content: space-between; align-items: center;
+  text-decoration: none; color: inherit; gap: 16px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.cp-job-card:hover { border-color: var(--rule-2); box-shadow: 0 2px 10px rgba(13,27,52,.06); }
+.cp-job-card-name {
+  font-family: var(--display); font-weight: 700;
+  font-size: 18px; letter-spacing: -.018em; color: var(--navy);
+  line-height: 1.15;
+}
+.cp-job-card-sub {
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--ink-3); letter-spacing: .06em;
+  margin-top: 4px;
+}
+.cp-job-card .pct {
+  font-family: var(--display); font-size: 22px; font-weight: 700;
+  letter-spacing: -.02em; color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── empty / loading ──────────────────────────────────────────── */
+.cp-empty {
+  background: var(--paper); border: 1px dashed var(--rule-2);
+  border-radius: var(--radius); padding: 36px 20px;
+  text-align: center;
+  font-family: var(--display); font-weight: 500; font-size: 16px;
+  color: var(--ink-2);
+  margin-top: 24px;
+}
+.cp-empty .sub {
+  margin-top: 6px;
+  font-family: var(--mono); font-size: 10.5px;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 600;
+}
+.cp-loading {
+  text-align: center; padding: 40px 20px;
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ── lightbox ─────────────────────────────────────────────────── */
+.cp-lightbox {
+  position: fixed; inset: 0; background: rgba(13,27,52,.92);
+  z-index: 1000; display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.cp-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.cp-lightbox .close {
+  position: absolute; top: 18px; right: 18px;
+  background: var(--yellow); color: var(--yellow-ink);
+  font-family: var(--display); font-weight: 700; font-size: 14px;
+  border: none; border-radius: 4px; padding: 8px 14px;
+  cursor: pointer; letter-spacing: -.012em;
+}
+
+footer.cp-foot {
+  text-align: center;
+  margin-top: 36px;
+  padding: 24px 0 32px;
+  font-family: var(--mono); font-size: 9.5px;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+</style>
+</head>
+<body>
+
+<header class="cp-top">
+  <a href="/client" class="wordmark invert" aria-label="BuhlOS — client portal">b&uuml;hl<span class="os">OS</span></a>
+  <div class="right">
+    <span id="me"></span>
+    <button class="signout" id="signout">Sign out</button>
+  </div>
+</header>
+
+<div class="cp-shell">
+  <div id="body">
+    <div class="cp-loading">Loading…</div>
+  </div>
+  <footer class="cp-foot">b&uuml;hl electrical · client portal</footer>
+</div>
+
+<script>
+let ME = null;
+let JOBS = [];
+let JOB_DATA = {};
+
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+async function load() {
+  const meRes = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
+  if (!meRes.ok) { location.href = '/login'; return; }
+  const { user } = await meRes.json();
+  ME = user;
+
+  // Only clients land here.  Others get bumped back to their landing.
+  if (ME.role !== 'client') {
+    location.href = ME.role === 'tradie' ? '/my-day'
+                   : (ME.role === 'admin' || ME.role === 'leadingHand') ? '/overview'
+                   : '/jobs';
+    return;
+  }
+  document.getElementById('me').textContent = ME.username;
+
+  const jr = await fetch('/api/jobs', { credentials: 'same-origin' });
+  if (!jr.ok) { renderError('We couldn\'t load your job right now.'); return; }
+  JOBS = ((await jr.json()).jobs) || [];
+
+  // Honour ?jobId= when given; else: 1 job → straight in, multiple → list
+  const want = new URLSearchParams(location.search).get('jobId');
+  let target = null;
+  if (want) target = JOBS.find(j => j.id === want);
+  else if (JOBS.length === 1) target = JOBS[0];
+
+  if (target) {
+    renderPortal(target);
+  } else if (JOBS.length === 0) {
+    renderEmpty();
+  } else {
+    renderJobList();
+  }
+}
+
+function renderEmpty() {
+  document.getElementById('body').innerHTML =
+    `<div class="cp-empty">No jobs are visible to your account yet.<div class="sub">contact b&uuml;hl if this looks wrong</div></div>`;
+}
+function renderError(msg) {
+  document.getElementById('body').innerHTML = `<div class="cp-empty">${esc(msg)}</div>`;
+}
+function renderJobList() {
+  const cards = JOBS.map(j => {
+    return `<a class="cp-job-card" href="/client?jobId=${esc(j.id)}">
+      <div>
+        <div class="cp-job-card-name">${esc(j.name)}</div>
+        <div class="cp-job-card-sub">${esc(j.type || 'job')}</div>
+      </div>
+      <div class="pct">view</div>
+    </a>`;
+  }).join('');
+  document.getElementById('body').innerHTML =
+    `<div class="cp-job-list">${cards}</div>`;
+}
+
+async function renderPortal(job) {
+  document.getElementById('body').innerHTML =
+    `<div class="cp-loading">Loading ${esc(job.name)}…</div>`;
+
+  const dRes = await fetch('/api/data?jobId=' + encodeURIComponent(job.id),
+                          { credentials: 'same-origin' });
+  const data = dRes.ok ? await dRes.json() : { dwellings:{}, snags:[] };
+
+  // Compute job % (rough/fit averaged) and per-stage %.
+  const areas = (job.areaGroups || []).flatMap(g => g.areas || []);
+  const dwellings = data.dwellings || {};
+  const rt = job.roughInTasks || [];
+  const ft = job.fitOffTasks  || [];
+  let rSum = 0, fSum = 0;
+  for (const a of areas) {
+    const rMap = ((dwellings[a.id]||{}).roughIn||{}).tasks || {};
+    const fMap = ((dwellings[a.id]||{}).fitOff ||{}).tasks || {};
+    rSum += rt.length ? rt.filter(t => rMap[t.id] === 'complete').length / rt.length : 0;
+    fSum += ft.length ? ft.filter(t => fMap[t.id] === 'complete').length / ft.length : 0;
+  }
+  const roughPct = areas.length ? Math.round(rSum / areas.length * 100) : 0;
+  const fitPct   = areas.length ? Math.round(fSum / areas.length * 100) : 0;
+  const overallPct = Math.round((roughPct + fitPct) / 2);
+
+  // Curated client-visible snags.  We show snags marked clientVisible:true,
+  // OR — fallback — open snags with photos (most complete picture for client).
+  // Internal-only details are stripped (assignedTo, internalNote).
+  const allSnags = (data.snags || []);
+  const visible = allSnags.filter(s =>
+    s.clientVisible === true ||
+    (s.clientVisible === undefined && s.status !== 'resolved' && (s.photos || []).length > 0)
+  ).slice(0, 5);
+
+  // Curated photos: take ITP / dwelling photos that are not snag-internal.
+  const photos = [];
+  for (const aid in dwellings) {
+    const d = dwellings[aid] || {};
+    for (const stage of ['roughIn','fitOff']) {
+      const sd = d[stage] || {};
+      for (const p of (sd.photos || [])) {
+        if (p && p.url) photos.push({ url: p.url });
+      }
+    }
+  }
+  for (const s of allSnags) {
+    if (s.clientVisible !== false && (s.photos || []).length) {
+      for (const p of s.photos) if (p && p.url) photos.push({ url: p.url });
+    }
+  }
+  // Dedupe + cap at 9.
+  const seen = new Set();
+  const photoList = [];
+  for (const p of photos) {
+    if (seen.has(p.url)) continue;
+    seen.add(p.url);
+    photoList.push(p);
+    if (photoList.length >= 9) break;
+  }
+
+  // Stage tiles — 4 stages with explicit done state when 100%.
+  const stageState = (pct) => pct >= 100 ? 'complete' : pct > 0 ? 'in-progress' : '';
+  const ttPct = 0;       // T&T % not modelled per dwelling — left as planned
+  const handPct = 0;
+  const stagesHtml = [
+    { l:'stage 01', v:'rough-in',   pct: roughPct },
+    { l:'stage 02', v:'fit-off',    pct: fitPct },
+    { l:'stage 03', v:'test &amp; tag', pct: ttPct },
+    { l:'stage 04', v:'handover',   pct: handPct },
+  ].map(s => `
+    <div class="cp-stage ${stageState(s.pct)}">
+      <div class="l">${s.l}</div>
+      <div class="v">${s.v}</div>
+      <div class="pct">${s.pct}%</div>
+    </div>`).join('');
+
+  // Photos block.
+  const photosHtml = photoList.length
+    ? photoList.map((p, i) =>
+        `<div class="cp-photo" data-idx="${i}"><img src="${esc(p.url)}" alt="" loading="lazy"></div>`
+      ).join('')
+    : '<div class="cp-photo cp-photo-empty" style="grid-column:1/-1;aspect-ratio:auto;padding:28px">No photos yet</div>';
+
+  // Snags block.
+  const snagsHtml = visible.length
+    ? visible.map(s => {
+        const resolved = s.status === 'resolved';
+        const dateStr = s.createdIso || s.createdAt || '';
+        return `<div class="cp-snag">
+          <div class="cp-snag-accent ${resolved ? 'green' : ''}"></div>
+          <div class="cp-snag-body">
+            <div class="cp-snag-title">${esc(s.title || s.summary || 'Item')}</div>
+            <div class="cp-snag-meta">${esc(dateStr || '')}${s.areaName ? ' · ' + esc(s.areaName) : ''}</div>
+          </div>
+          <span class="cp-snag-state ${resolved ? 'resolved' : 'open'}">${resolved ? 'resolved' : 'in&nbsp;progress'}</span>
+        </div>`;
+      }).join('')
+    : `<div style="font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--ink-3);padding:14px 0">No items requiring your attention.</div>`;
+
+  // Last update label
+  let lastIso = '';
+  for (const aid in dwellings) {
+    const d = dwellings[aid] || {};
+    for (const stage of ['roughIn','fitOff']) {
+      const t = (d[stage] || {}).lastTouchedIso;
+      if (t && (!lastIso || t > lastIso)) lastIso = t;
+    }
+  }
+
+  document.getElementById('body').innerHTML = `
+    <div class="cp-job">
+      <div class="cp-job-hdr">
+        <div class="title">${esc(job.name)}</div>
+        <div class="meta">${esc(job.type || 'job')}</div>
+      </div>
+      <div class="cp-job-body">
+        <div class="cp-sub">last update ${esc(lastIso || '—')}${areas.length ? ' · ' + areas.length + ' area' + (areas.length===1?'':'s') : ''}</div>
+
+        <div class="cp-progress">
+          <div class="cp-pbar"><i style="width: ${overallPct}%"></i></div>
+          <div class="cp-pnums">
+            <span><span class="pct">${overallPct}%</span>overall progress</span>
+          </div>
+        </div>
+
+        <div class="cp-stages">${stagesHtml}</div>
+
+        <section class="cp-sect">
+          <div class="cp-sect-hdr">
+            <h2 class="cp-sect-title">Photos</h2>
+            <span class="cp-sect-meta">${photoList.length} curated</span>
+          </div>
+          <div class="cp-photos">${photosHtml}</div>
+        </section>
+
+        <section class="cp-sect">
+          <div class="cp-sect-hdr">
+            <h2 class="cp-sect-title">Items in progress</h2>
+            <span class="cp-sect-meta">${visible.length} visible</span>
+          </div>
+          <div>${snagsHtml}</div>
+        </section>
+      </div>
+    </div>
+
+    ${JOBS.length > 1 ? `<div style="margin-top:18px;text-align:center"><a href="/client" style="font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);text-decoration:none">← all jobs</a></div>` : ''}
+  `;
+
+  // Wire photo lightbox
+  document.querySelectorAll('.cp-photo[data-idx]').forEach(el => {
+    el.addEventListener('click', () => {
+      const i = +el.getAttribute('data-idx');
+      const url = (photoList[i] || {}).url;
+      if (!url) return;
+      const lb = document.createElement('div');
+      lb.className = 'cp-lightbox';
+      lb.innerHTML = `<img src="${esc(url)}"><button class="close">close</button>`;
+      lb.addEventListener('click', () => lb.remove());
+      document.body.appendChild(lb);
+    });
+  });
+}
+
+document.getElementById('signout').addEventListener('click', async () => {
+  await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' });
+  location.href = '/login';
+});
+
+load();
+</script>
+</body>
+</html>

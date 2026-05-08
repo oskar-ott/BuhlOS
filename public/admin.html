@@ -90,15 +90,16 @@ nav.admin-tabs {
 nav.admin-tabs::-webkit-scrollbar { display: none; }
 nav.admin-tabs button {
   background: none; border: 0;
-  color: var(--muted); padding: 13px 16px;
-  font-size: var(--fs-sm); font-weight: 600;
+  color: var(--ink-3); padding: 13px 16px;
+  font-family: var(--display);
+  font-size: 13px; font-weight: 500; letter-spacing: -.012em;
   cursor: pointer; white-space: nowrap;
   border-bottom: 2px solid transparent; margin-bottom: -1px;
   transition: color .12s;
 }
-nav.admin-tabs button:hover:not(.active) { color: var(--ink); }
+nav.admin-tabs button:hover:not(.active) { color: var(--navy); }
 nav.admin-tabs button.active {
-  color: var(--header); border-bottom-color: var(--accent); font-weight: 700;
+  color: var(--navy); border-bottom-color: var(--yellow); font-weight: 700;
 }
 /* Tab badge for high-signal counts (Snags open, Hours pending). Tucked
    into the tab button label and only shown when count > 0 — silent the
@@ -193,12 +194,15 @@ nav.admin-tabs .tab-badge.amber { background: var(--amber); color: #fff; }
 .ov-quick-sub{font-size:11px;color:var(--muted);font-weight:500}
 
 .admin-page-title {
-  margin: 0; font-size: 22px; font-weight: 700;
-  color: var(--header); letter-spacing: -.3px; line-height: 1.2;
+  margin: 0; font-family: var(--display);
+  font-size: 28px; font-weight: 700;
+  color: var(--navy); letter-spacing: -.025em; line-height: 1.05;
 }
 .admin-page-sub {
-  display: block; font-size: var(--fs-xs); color: var(--muted);
-  margin-top: 3px;
+  display: block; font-family: var(--mono);
+  font-size: 10.5px; color: var(--ink-3);
+  letter-spacing: .12em; text-transform: uppercase;
+  margin-top: 6px;
 }
 .btn-link {
   background: none; border: none; cursor: pointer;

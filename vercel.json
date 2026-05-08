@@ -8,6 +8,7 @@
     { "source": "/my-day", "destination": "/my-day.html" },
     { "source": "/install", "destination": "/install.html" },
     { "source": "/approvals", "destination": "/approvals.html" },
+    { "source": "/client", "destination": "/client.html" },
     { "source": "/", "destination": "/jobs.html" }
   ],
   "crons": [

@@ -63,49 +63,55 @@
 
   /* Tight one-line greeting (saves 60-80px above the fold) */
   .md-greet {
-    margin: 2px 4px 12px;
+    margin: 4px 4px 14px;
   }
   .md-greet-hi {
-    font-size: 20px; font-weight: 800; color: var(--header);
-    letter-spacing: -.3px; line-height: 1.15;
-    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+    font-family: var(--display);
+    font-size: 26px; font-weight: 700; color: var(--navy);
+    letter-spacing: -.025em; line-height: 1.1;
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
   }
   .md-greet-date-inline {
-    font-size: 13px; font-weight: 600; color: var(--muted);
-    letter-spacing: 0;
+    font-family: var(--mono);
+    font-size: 10.5px; font-weight: 600; color: var(--ink-3);
+    letter-spacing: .12em; text-transform: uppercase;
   }
   .md-greet-compliment {
-    font-size: var(--fs-xs); color: var(--muted);
-    font-style: italic; margin-top: 3px; line-height: 1.35;
+    font-size: var(--fs-xs); color: var(--ink-3);
+    font-style: italic; margin-top: 4px; line-height: 1.4;
   }
 
-  /* Banner — fat yellow button when unlogged; calmer chip when logged */
+  /* Banner — yellow CTA per Brief §06 principle 04 (reduce taps).  Single
+     primary action: log today's hours. */
   .md-banner {
     display: flex; align-items: center; justify-content: space-between;
-    gap: 12px; width: 100%; min-height: 84px;
-    background: var(--accent); color: var(--accent-ink);
-    border: none; border-radius: 16px;
-    padding: 18px 20px;
-    font-size: 19px; font-weight: 800;
-    letter-spacing: -.2px;
+    gap: 12px; width: 100%; min-height: 80px;
+    background: var(--yellow); color: var(--yellow-ink);
+    border: none; border-radius: var(--radius);
+    padding: 16px 20px;
+    font-family: var(--display);
+    font-size: 19px; font-weight: 700;
+    letter-spacing: -.018em;
     cursor: pointer; text-align: left;
-    box-shadow: 0 4px 14px rgba(255,204,0,.32);
     margin-bottom: 22px;
   }
   .md-banner:active { transform: translateY(1px); }
   .md-banner.logged {
-    background: #fff; border: 1px solid var(--green-bd);
-    color: var(--header); box-shadow: none;
+    background: var(--paper); border: 1px solid var(--green-bd);
+    border-left: 3px solid var(--green);
+    color: var(--navy);
     min-height: 56px;
     padding: 12px 16px;
-    font-size: 15px; font-weight: 700;
+    font-size: 15px; font-weight: 600;
   }
-  .md-banner.logged .md-banner-chev { color: var(--muted); font-size: 22px; }
+  .md-banner.logged .md-banner-chev { color: var(--ink-3); font-size: 18px; }
   .md-banner-sub {
-    font-size: var(--fs-sm); font-weight: 600; opacity: .75;
-    margin-top: 3px; letter-spacing: 0;
+    font-family: var(--mono);
+    font-size: 10.5px; font-weight: 600; opacity: .8;
+    letter-spacing: .08em; text-transform: uppercase;
+    margin-top: 4px;
   }
-  .md-banner-chev { font-size: 28px; font-weight: 400; opacity: .7; }
+  .md-banner-chev { font-size: 22px; font-weight: 400; opacity: .7; }
 
   /* (Action Needed CSS retired with the section in the My-Day simplification.) */
 
@@ -115,10 +121,11 @@
     margin: 0 4px 8px;
   }
   .md-sec-title {
-    font-size: 11px; font-weight: 700; color: var(--muted);
-    text-transform: uppercase; letter-spacing: .8px;
+    font-family: var(--mono);
+    font-size: 10.5px; font-weight: 600; color: var(--ink-3);
+    text-transform: uppercase; letter-spacing: .14em;
   }
-  .md-sec-count { font-size: 11px; color: var(--muted); }
+  .md-sec-count { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: .06em; }
   /* Bulk-submit drafts chip — appears in My-Week header when 2+ drafts exist */
   .myweek-submit-btn {
     appearance: none; -webkit-appearance: none;
