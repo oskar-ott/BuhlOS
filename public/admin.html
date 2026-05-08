@@ -4223,10 +4223,28 @@ function _renderQuotesList() {
         <div class="setup-chips" style="margin-top:7px">${chips}</div>
       </div>
       <div class="jrow-actions" onclick="event.stopPropagation()">
+        <button class="jrow-edit" onclick="_qDuplicate('${esc(qt.id)}')" title="Create a new quote using this one as a template">Duplicate</button>
         <button class="jrow-edit" onclick="_qOpenWorkspace('${esc(qt.id)}')">Open →</button>
       </div>
     </div>`;
   }).join('') + '</div>';
+}
+
+// Quote duplication — creates a draft copy with same structure / materials /
+// labour / notes (documents not copied — admin almost always needs new
+// drawings for a new tender). Drops admin straight into the new quote.
+async function _qDuplicate(id) {
+  if (!confirm('Duplicate this quote as a new draft? Documents are not copied.')) return;
+  try {
+    const r = await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=duplicate', {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+      body: '{}',
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    const j = await r.json();
+    await loadQuotesTab();
+    if (j.quote && j.quote.id) _qOpenWorkspace(j.quote.id);
+  } catch (e) { alert('Duplicate failed: ' + e.message); }
 }
 
 function _qOpenNewModal() {
@@ -4429,7 +4447,7 @@ function _qRenderDocsList(docs) {
         </div>
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
-        <a href="${esc(d.url)}" target="_blank" rel="noopener" class="utbl-edit">Open ↗</a>
+        <button class="utbl-edit" onclick="_qOpenDocViewer('${esc(d.id)}')">Open</button>
         ${d.status==='current'?`<button class="utbl-edit" onclick="_qSetDocStatus('${esc(d.id)}','superseded')">Mark superseded</button>`:`<button class="utbl-edit" onclick="_qSetDocStatus('${esc(d.id)}','current')">Mark current</button>`}
         <button class="utbl-edit" onclick="_qArchiveDoc('${esc(d.id)}')" style="color:var(--red);border-color:var(--red-bd)">Archive</button>
       </div>
@@ -4459,6 +4477,88 @@ async function _qUploadDocs(fileList) {
   if (prog) { prog.textContent = `${done} uploaded${failed?` · ${failed} failed`:''}`; setTimeout(()=>prog.style.display='none', 2500); }
   await _qLoadOpenQuote(id);
 }
+// Open the quote's document register in the same fullscreen overlay used
+// by the plan viewer. Reuses the styles + Esc/Arrow behaviour. Lets admin
+// flip through drawings while estimating without leaving the workspace.
+let _qDocViewerIdx = 0;
+function _qOpenDocViewer(docId) {
+  const docs = (qState.open && qState.open.documents.documents || [])
+    .filter(d => d.status !== 'archived');
+  const startIdx = docs.findIndex(d => d.id === docId);
+  if (startIdx < 0) return;
+  _qDocViewerIdx = startIdx;
+  // Inject the same styles the plan viewer uses (idempotent — guarded by id).
+  if (!document.getElementById('plan-viewer-styles')) {
+    // The plan viewer's CSS-injection block lives next to planOpenViewer;
+    // calling that to set up styles + closing immediately would render its
+    // overlay too. Cheaper to duplicate the rules under our own id.
+    const s = document.createElement('style');
+    s.id = 'plan-viewer-styles';
+    s.textContent = `
+      .pv-overlay{position:fixed;inset:0;background:rgba(15,23,42,.92);z-index:600;display:flex;flex-direction:column;animation:pvFade .15s ease-out}
+      @keyframes pvFade{from{opacity:0}to{opacity:1}}
+      .pv-hdr{display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(0,0,0,.4);color:#fff;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.1)}
+      .pv-meta{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.2}
+      .pv-meta-title{font-size:14px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .pv-meta-sub{font-size:11px;color:rgba(255,255,255,.65);margin-top:1px}
+      .pv-btn{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:none}
+      .pv-btn:hover{background:rgba(255,255,255,.18)}
+      .pv-btn:disabled{opacity:.4;cursor:not-allowed}
+      .pv-pos{font-size:11px;color:rgba(255,255,255,.55);font-variant-numeric:tabular-nums;flex-shrink:0;padding:0 4px}
+      .pv-body{flex:1;overflow:hidden;background:#1e293b;display:flex;align-items:center;justify-content:center;position:relative}
+      .pv-frame{width:100%;height:100%;border:0;background:#fff}
+      .pv-img{max-width:100%;max-height:100%;object-fit:contain}
+      .pv-fallback{padding:40px 20px;text-align:center;color:rgba(255,255,255,.7);font-size:14px}
+      .pv-close{background:transparent;border:none;color:#fff;font-size:24px;cursor:pointer;padding:0 8px;line-height:1}
+    `;
+    document.head.appendChild(s);
+  }
+  const overlay = document.createElement('div');
+  overlay.className = 'pv-overlay';
+  overlay.id = '__quote_doc_viewer';
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => {
+    if (e.key === 'Escape') close();
+    if (e.key === 'ArrowLeft')  step(-1);
+    if (e.key === 'ArrowRight') step(1);
+  };
+  document.addEventListener('keydown', onKey);
+  function step(delta) { _qDocViewerIdx += delta; render(); }
+  function render() {
+    const list = (qState.open && qState.open.documents.documents || []).filter(d => d.status !== 'archived');
+    if (!list.length) { close(); return; }
+    if (_qDocViewerIdx < 0) _qDocViewerIdx = 0;
+    if (_qDocViewerIdx >= list.length) _qDocViewerIdx = list.length - 1;
+    const d = list[_qDocViewerIdx];
+    const isPdf = (d.mimeType || '').toLowerCase() === 'application/pdf';
+    const isImg = (d.mimeType || '').toLowerCase().startsWith('image/');
+    const titleBits = [d.drawingNumber, d.revision ? 'Rev ' + d.revision : '', d.title || d.fileName].filter(Boolean).join(' · ');
+    const subBits = [d.documentType, d.level, d.status].filter(Boolean).join(' · ');
+    overlay.innerHTML = `
+      <div class="pv-hdr">
+        <div class="pv-meta">
+          <div class="pv-meta-title">${esc(titleBits)}</div>
+          <div class="pv-meta-sub">${esc(subBits)}</div>
+        </div>
+        <span class="pv-pos">${_qDocViewerIdx+1} / ${list.length}</span>
+        <button class="pv-btn" id="pvq-prev" ${_qDocViewerIdx===0?'disabled':''}>← Prev</button>
+        <button class="pv-btn" id="pvq-next" ${_qDocViewerIdx===list.length-1?'disabled':''}>Next →</button>
+        <a class="pv-btn" href="${esc(d.url)}" target="_blank" rel="noopener">Pop out ↗</a>
+        <button class="pv-close" id="pvq-close" aria-label="Close">×</button>
+      </div>
+      <div class="pv-body">
+        ${isPdf ? `<iframe class="pv-frame" src="${esc(d.url)}#view=FitH" title="${esc(titleBits)}"></iframe>`
+                : isImg ? `<img class="pv-img" src="${esc(d.url)}" alt="${esc(titleBits)}">`
+                : `<div class="pv-fallback">This file type can't be previewed inline.<br><br><a class="pv-btn" href="${esc(d.url)}" target="_blank" rel="noopener" style="display:inline-flex">Open in new tab</a></div>`}
+      </div>`;
+    overlay.querySelector('#pvq-close').onclick = close;
+    overlay.querySelector('#pvq-prev').onclick  = () => step(-1);
+    overlay.querySelector('#pvq-next').onclick  = () => step(1);
+  }
+  render();
+}
+
 async function _qSetDocStatus(docId, status) {
   const id = qState.openQuoteId; if (!id) return;
   try {
@@ -4614,13 +4714,125 @@ function _qStructureHtml(groups) {
         <button class="grp-remove" onclick="_qRemoveGroup(${gi})">Remove</button>
       </div>
       <div class="grp-areas">
-        ${(g.areas||[]).map((a, ai) => `<div class="grp-area">
-          <input placeholder="Area name" value="${esc(a.name||'')}" oninput="_qSt(${gi},'area',this.value,${ai})">
-          <button class="x-btn" onclick="_qRemoveArea(${gi},${ai})">×</button>
-        </div>`).join('')}
+        ${(g.areas||[]).map((a, ai) => {
+          const wps = a.workPackages || [];
+          const wpSummary = wps.length
+            ? wps.map(w => `${esc(w.name||'')} (${esc(w.stage||'rough-in')}, ${(w.tasks||[]).length}t)`).join(' · ')
+            : '';
+          return `<div class="grp-area" style="flex-wrap:wrap;align-items:center">
+            <input placeholder="Area name" value="${esc(a.name||'')}" oninput="_qSt(${gi},'area',this.value,${ai})">
+            <button class="x-btn" onclick="_qWpEdit(${gi},${ai})" title="Edit work packages for this area" style="border:1px solid var(--border);width:auto;padding:0 10px;font-size:11px;font-weight:700;color:var(--header);background:#fff">${wps.length} WP</button>
+            <button class="x-btn" onclick="_qRemoveArea(${gi},${ai})">×</button>
+            ${wpSummary?`<div style="flex-basis:100%;font-size:11px;color:var(--muted);margin-top:4px;padding-left:2px">${wpSummary}</div>`:''}
+          </div>`;
+        }).join('')}
       </div>
-      <button class="grp-add-area" onclick="_qAddArea(${gi})">+ Add area</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <button class="grp-add-area" onclick="_qAddArea(${gi})">+ Add area</button>
+        <button class="grp-add-area" onclick="_qBulkAreas(${gi})" style="background:#fff;color:var(--header)">Bulk add</button>
+      </div>
     </div>`).join('');
+}
+
+// Bulk-add areas to a group — paste list OR numbered range. Same UX as
+// the Job Setup version. Operates on local qState (not yet saved); admin
+// must hit Save changes to persist to the API.
+function _qBulkAreas(gi) {
+  const overlay = _matBuildModal('Bulk add areas');
+  overlay.querySelector('.snag-modal-body').innerHTML = `
+    <div style="font-size:13px;color:var(--muted);margin-bottom:10px">Paste a list <b>or</b> use a numbered range. Items append to the group's existing areas. Save changes after.</div>
+    <div class="snag-field"><label class="snag-field-label">Paste list</label>
+      <textarea id="qba-lines" rows="6" placeholder="Lobby
+Plant Room
+Switch Room" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:monospace"></textarea></div>
+    <div style="text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:12px 0 8px">— or —</div>
+    <div style="display:grid;grid-template-columns:1fr 80px 80px;gap:8px;align-items:end">
+      <div class="snag-field" style="margin:0"><label class="snag-field-label">Prefix</label>
+        <input id="qba-prefix" type="text" placeholder="Unit" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field" style="margin:0"><label class="snag-field-label">From</label>
+        <input id="qba-from" type="number" min="1" placeholder="1" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      <div class="snag-field" style="margin:0"><label class="snag-field-label">To</label>
+        <input id="qba-to" type="number" min="1" placeholder="15" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+    </div>`;
+  overlay.querySelector('.snag-modal-save').textContent = 'Add';
+  overlay.querySelector('.snag-modal-save').onclick = () => {
+    const linesText = overlay.querySelector('#qba-lines').value;
+    const prefix = overlay.querySelector('#qba-prefix').value.trim();
+    const from = parseInt(overlay.querySelector('#qba-from').value, 10);
+    const to   = parseInt(overlay.querySelector('#qba-to').value, 10);
+    const names = [];
+    if (linesText.trim()) {
+      linesText.split(/\r?\n/).forEach(l => { const t = l.trim(); if (t) names.push(t); });
+    } else if (prefix && Number.isFinite(from) && Number.isFinite(to) && from > 0 && to >= from && (to - from) <= 500) {
+      for (let n = from; n <= to; n++) names.push(prefix + ' ' + n);
+    }
+    if (!names.length) { alert('Add lines OR prefix+range first.'); return; }
+    const g = qState.open.structure.areaGroups[gi];
+    g.areas = g.areas || [];
+    for (const nm of names) g.areas.push({ name: nm, workPackages: [] });
+    document.getElementById('qs-editor').innerHTML = _qStructureHtml(qState.open.structure.areaGroups);
+    _matCloseModal(overlay);
+  };
+}
+
+// Work-package editor for a specific area. Lets the admin record the
+// area-specific task differences that the brief calls out: e.g. apartments
+// need power+lighting+data, switch rooms need DB tasks, common areas need
+// emergency lighting. Each work package = { name, stage: rough-in|fit-off,
+// tasks: string[] }. Saved into qState.open.structure for the next Save.
+function _qWpEdit(gi, ai) {
+  const area = qState.open.structure.areaGroups[gi].areas[ai];
+  if (!area) return;
+  area.workPackages = area.workPackages || [];
+  const overlay = _matBuildModal('Work packages — ' + (area.name || 'area'));
+  const render = () => {
+    const list = (area.workPackages || []).map((wp, wi) => `
+      <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;background:#fff">
+        <div style="display:grid;grid-template-columns:2fr 1fr 32px;gap:6px;align-items:end;margin-bottom:8px">
+          <div><label class="snag-field-label">Name</label>
+            <input data-wp-name="${wi}" type="text" placeholder="Lighting / Power / Data…" value="${esc(wp.name||'')}" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit"></div>
+          <div><label class="snag-field-label">Stage</label>
+            <select data-wp-stage="${wi}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:#fff;font-family:inherit">
+              <option value="rough-in"${wp.stage==='fit-off'?'':' selected'}>Rough-in</option>
+              <option value="fit-off"${wp.stage==='fit-off'?' selected':''}>Fit-off</option>
+            </select></div>
+          <button class="x-btn" data-wp-rm="${wi}" style="align-self:end">×</button>
+        </div>
+        <label class="snag-field-label">Tasks (one per line)</label>
+        <textarea data-wp-tasks="${wi}" rows="3" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:monospace">${esc((wp.tasks||[]).join('\n'))}</textarea>
+      </div>`).join('');
+    overlay.querySelector('.snag-modal-body').innerHTML = `
+      <div style="font-size:13px;color:var(--muted);margin-bottom:8px">Different areas need different tasks. Add a work package per system/stage. On convert-to-job, tasks are unioned across all packages into the job's rough-in/fit-off lists.</div>
+      ${list || '<div class="empty-block">No work packages yet.</div>'}
+      <button class="s-add" id="qwp-add" style="margin-top:6px">+ Add work package</button>`;
+    overlay.querySelector('#qwp-add').onclick = () => {
+      area.workPackages.push({ name: '', stage: 'rough-in', tasks: [] });
+      render();
+    };
+    overlay.querySelectorAll('[data-wp-rm]').forEach(btn => btn.onclick = () => {
+      area.workPackages.splice(Number(btn.dataset.wpRm), 1);
+      render();
+    });
+    // Bind inputs back into the local model so the modal "Save" just
+    // closes — changes already mirrored. The outer "Save changes" button
+    // on the Structure section flushes the whole thing to the API.
+    overlay.querySelectorAll('[data-wp-name]').forEach(el => el.oninput = () => {
+      area.workPackages[Number(el.dataset.wpName)].name = el.value;
+    });
+    overlay.querySelectorAll('[data-wp-stage]').forEach(el => el.onchange = () => {
+      area.workPackages[Number(el.dataset.wpStage)].stage = el.value;
+    });
+    overlay.querySelectorAll('[data-wp-tasks]').forEach(el => el.oninput = () => {
+      area.workPackages[Number(el.dataset.wpTasks)].tasks =
+        el.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    });
+  };
+  render();
+  overlay.querySelector('.snag-modal-save').textContent = 'Done';
+  overlay.querySelector('.snag-modal-save').onclick = () => {
+    _matCloseModal(overlay);
+    document.getElementById('qs-editor').innerHTML = _qStructureHtml(qState.open.structure.areaGroups);
+  };
 }
 function _qAddGroup() {
   qState.open.structure.areaGroups.push({ name:'', areas:[], workPackages:[] });
@@ -4632,7 +4844,7 @@ function _qRemoveGroup(gi) {
 }
 function _qAddArea(gi) {
   qState.open.structure.areaGroups[gi].areas = qState.open.structure.areaGroups[gi].areas || [];
-  qState.open.structure.areaGroups[gi].areas.push({ name:'' });
+  qState.open.structure.areaGroups[gi].areas.push({ name:'', workPackages:[] });
   document.getElementById('qs-editor').innerHTML = _qStructureHtml(qState.open.structure.areaGroups);
 }
 function _qRemoveArea(gi, ai) {

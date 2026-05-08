@@ -639,6 +639,84 @@ async function handleConvert(req, res, user, id) {
   });
 }
 
+// Duplicate a quote — common workflow when a similar tender comes in.
+// Copies basics + structure + materials + labour + notes (NOT documents:
+// binary blobs are large and the cloned quote almost certainly needs new
+// drawings anyway). Status resets to 'draft' and convertedJobId clears.
+async function handleDuplicate(req, res, user, srcId) {
+  const data = await readQuotes();
+  const src = (data.quotes || []).find(q => q.id === srcId);
+  if (!src) return res.status(404).json({ error: 'source quote not found' });
+
+  const [structure, materials, labour, notes] = await Promise.all([
+    readSection(srcId, 'structure'),
+    readSection(srcId, 'materials'),
+    readSection(srcId, 'labour'),
+    readSection(srcId, 'notes'),
+  ]);
+
+  const now = new Date().toISOString();
+  const newQuote = {
+    ...src,
+    id:              newId('quote'),
+    name:            (src.name || '') + ' (copy)',
+    status:          'draft',
+    convertedJobId:  null,
+    createdAt:       now,
+    createdBy:       user.username,
+    updatedAt:       now,
+  };
+  data.quotes = data.quotes || [];
+  data.quotes.push(newQuote);
+  await writeQuotes(data);
+
+  // Re-id everything inside the structure so references don't collide
+  // with the source quote (helpful if both stay open in the workspace).
+  const newStructure = {
+    areaGroups: (structure.areaGroups || []).map(g => ({
+      ...g,
+      id: newId('qag'),
+      areas: (g.areas || []).map(a => ({
+        ...a,
+        id: newId('qar'),
+        workPackages: a.workPackages || [],
+      })),
+    })),
+  };
+  const newMaterials = {
+    items: (materials.items || []).map(i => ({
+      ...i,
+      id: newId('qmat'),
+      quoteId: newQuote.id,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  };
+  const newLabour = {
+    lines: (labour.lines || []).map(l => ({
+      ...l,
+      id: newId('qlab'),
+      quoteId: newQuote.id,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  };
+
+  await Promise.all([
+    writeSection(newQuote.id, 'structure', newStructure),
+    writeSection(newQuote.id, 'materials', newMaterials),
+    writeSection(newQuote.id, 'labour', newLabour),
+    writeSection(newQuote.id, 'notes', {
+      assumptions:    notes.assumptions || [],
+      exclusions:     notes.exclusions || [],
+      risks:          notes.risks || [],
+      clarifications: notes.clarifications || [],
+    }),
+  ]);
+
+  return res.status(201).json({ quote: newQuote });
+}
+
 // Helper — bumps the parent quote's updatedAt so the list view sorts right.
 async function touchQuote(id) {
   try {
@@ -703,6 +781,11 @@ module.exports = async (req, res) => {
     if (!id) return res.status(400).json({ error: 'id required' });
     if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
     return handleConvert(req, res, user, id);
+  }
+  if (action === 'duplicate') {
+    if (!id) return res.status(400).json({ error: 'id required' });
+    if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
+    return handleDuplicate(req, res, user, id);
   }
 
   // Top-level routes
