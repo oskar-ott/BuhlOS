@@ -2255,6 +2255,18 @@ function renderMaterialsSection() {
     const f = matState.filter || { status:'all', category:'all', search:'' };
     const cats = Array.from(new Set(matState.items.map(i => i.category).filter(Boolean))).sort();
     const selectedN = matState.selected ? matState.selected.size : 0;
+    // Cost roll-up — totals quoted-price subtotals across items that have
+    // pricing captured. Renders only when at least one item is priced so
+    // we don't show "$0" before any quotes come in.
+    const pricedItems = matState.items.filter(i => i.quotedTotal != null || i.quotedUnitPrice != null);
+    const quotedSum = pricedItems.reduce((s, i) => {
+      if (i.quotedTotal != null) return s + Number(i.quotedTotal);
+      if (i.quotedUnitPrice != null) return s + Number(i.quotedUnitPrice) * (Number(i.quantity) || 0);
+      return s;
+    }, 0);
+    const quotedFmt = quotedSum > 0
+      ? '$' + quotedSum.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : null;
     const statusBtn = (val, lbl, count, tone) => {
       const active = (f.status || 'all') === val;
       return `<button class="filter-chip${active?' active':''}${tone===' danger'?' danger':''}" onclick="matSetFilter('status','${val}')">${lbl}${count!=null?`<span class="filter-chip-count">${count}</span>`:''}</button>`;
@@ -2266,6 +2278,7 @@ function renderMaterialsSection() {
         ${statusBtn('ready_to_price','Ready to price', ready)}
         ${priced?statusBtn('priced','Priced', priced):''}
         ${ordered?statusBtn('ordered','Ordered', ordered):''}
+        ${quotedFmt ? `<span style="background:var(--green-bg);color:var(--green);padding:4px 10px;border-radius:999px;font-size:11px;font-weight:800;border:1px solid var(--green-bd);font-variant-numeric:tabular-nums" title="Sum of quoted prices across items">${quotedFmt} quoted</span>` : ''}
         ${selectedN ? `<span style="background:var(--accent);color:var(--accent-ink);padding:4px 10px;border-radius:999px;font-size:11px;font-weight:800;margin-left:auto">${selectedN} selected · used by pricing email</span>` : ''}
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
@@ -2497,7 +2510,18 @@ function _matOpenItemModal(item) {
         <input id="mi-area" type="text" value="${esc(item?.area||'')}" placeholder="e.g. Units, Lobby" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
     </div>
     <div class="snag-field"><label class="snag-field-label">Notes</label>
-      <textarea id="mi-notes" rows="2" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit">${esc(item?.notes||'')}</textarea></div>`;
+      <textarea id="mi-notes" rows="2" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit">${esc(item?.notes||'')}</textarea></div>
+    <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:10px">
+      <div style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Pricing (optional)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div class="snag-field"><label class="snag-field-label">Unit price</label>
+          <input id="mi-qup" type="number" step="0.01" min="0" value="${item?.quotedUnitPrice ?? ''}" placeholder="$" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+        <div class="snag-field"><label class="snag-field-label">Total</label>
+          <input id="mi-qtot" type="number" step="0.01" min="0" value="${item?.quotedTotal ?? ''}" placeholder="$" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+        <div class="snag-field"><label class="snag-field-label">Wholesaler</label>
+          <input id="mi-wh" type="text" value="${esc(item?.selectedWholesaler || '')}" placeholder="e.g. TLE" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit"></div>
+      </div>
+    </div>`;
   // Pre-select drawing if matching one exists
   if (item?.drawingRef) {
     const dwg = overlay.querySelector('#mi-dwg');
@@ -2509,6 +2533,8 @@ function _matOpenItemModal(item) {
   }
   overlay.querySelector('.snag-modal-save').textContent = isEdit ? 'Save' : 'Add';
   overlay.querySelector('.snag-modal-save').onclick = async () => {
+    const qupRaw = document.getElementById('mi-qup').value;
+    const qtotRaw = document.getElementById('mi-qtot').value;
     const body = {
       name: document.getElementById('mi-name').value.trim(),
       quantity: parseFloat(document.getElementById('mi-qty').value) || 0,
@@ -2519,7 +2545,18 @@ function _matOpenItemModal(item) {
       level: document.getElementById('mi-level').value.trim(),
       area: document.getElementById('mi-area').value.trim(),
       notes: document.getElementById('mi-notes').value.trim(),
+      quotedUnitPrice: qupRaw === '' ? null : Number(qupRaw),
+      quotedTotal:     qtotRaw === '' ? null : Number(qtotRaw),
+      selectedWholesaler: document.getElementById('mi-wh').value.trim(),
     };
+    // If admin enters a unit price but no total, fill the total automatically.
+    if (body.quotedUnitPrice != null && body.quotedTotal == null && body.quantity > 0) {
+      body.quotedTotal = Math.round(body.quotedUnitPrice * body.quantity * 100) / 100;
+    }
+    // Auto-promote status when pricing is captured (admin convenience).
+    if ((body.quotedUnitPrice != null || body.quotedTotal != null) && (item?.status === 'draft' || item?.status === 'ready_to_price' || !item)) {
+      body.status = 'priced';
+    }
     if (!body.name) { alert('Name required'); return; }
     try {
       const url = '/api/materials-list?jobId=' + encodeURIComponent(matState.jobId) + (isEdit ? '&id=' + encodeURIComponent(item.id) : '');
