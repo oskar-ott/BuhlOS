@@ -1084,6 +1084,7 @@ dialog h3.dlg-title {
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="s-add" onclick="matOpenAddItem()">+ Add item</button>
             <button class="s-add" onclick="matOpenBulkAdd()" style="background:#fff;color:var(--header);border:1px solid var(--border)">Bulk add</button>
+            <button class="s-add" onclick="matExportCsv()" style="background:#fff;color:var(--header);border:1px solid var(--border)" title="Download as CSV">CSV</button>
             <button class="s-add" onclick="matOpenEmailGen()" style="background:#fff;color:var(--header);border:1px solid var(--border)">&#9993; Pricing email</button>
           </div>
         </div>
@@ -2319,6 +2320,7 @@ function renderMaterialsSection() {
         </div>
         <div style="display:flex;gap:4px;flex-shrink:0">
           <button class="utbl-edit" onclick="matOpenEditItem('${esc(i.id)}')">Edit</button>
+          <button class="utbl-edit" onclick="matDuplicateItem('${esc(i.id)}')" title="Duplicate (handy when entering similar items across levels)">Copy</button>
           ${i.status==='draft'?`<button class="utbl-edit" onclick="matSetStatus('${esc(i.id)}','ready_to_price')">Ready to price</button>`:''}
           <button class="utbl-edit" onclick="matDeleteItem('${esc(i.id)}')" style="color:var(--red);border-color:var(--red-bd)">×</button>
         </div>
@@ -2387,6 +2389,71 @@ async function matDeleteItem(id) {
     matState.selected.delete(id);
     await loadMaterialsSection(matState.jobId);
   } catch (e) { alert('Delete failed: ' + e.message); }
+}
+
+// Duplicate an existing item — POSTs a new item with the same fields and
+// then opens the edit modal so the admin can tweak (e.g. change level
+// from "Level 1" to "Level 2"). Status resets to 'draft' since the
+// pricing/order state of the original doesn't apply to the copy.
+async function matDuplicateItem(id) {
+  const src = matState.items.find(i => i.id === id);
+  if (!src) return;
+  try {
+    const body = {
+      name: src.name, description: src.description, brandOrSpec: src.brandOrSpec,
+      category: src.category, subcategory: src.subcategory,
+      quantity: src.quantity, unit: src.unit,
+      drawingRef: src.drawingRef, level: src.level, area: src.area,
+      notes: src.notes, status: 'draft',
+    };
+    const r = await fetch('/api/materials-list?jobId=' + encodeURIComponent(matState.jobId), {
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || 'Failed');
+    const j = await r.json();
+    await loadMaterialsSection(matState.jobId);
+    // Open the new copy for immediate edit so the admin can change level/area.
+    if (j.item) matOpenEditItem(j.item.id);
+  } catch (e) { alert('Duplicate failed: ' + e.message); }
+}
+
+// Export the current Materials view (after filters) as CSV. UTF-8 BOM so
+// Excel reads it cleanly. Same pattern as Snags/Hours/Costs CSV exports.
+function matExportCsv() {
+  const items = matFiltered();
+  if (!items.length) { alert('No items in the current view to export.'); return; }
+  const job = JOBS.find(j => j.id === matState.jobId);
+  const jobName = job ? job.name : matState.jobId;
+  const fmtDate = iso => {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    } catch (e) { return iso; }
+  };
+  const header = ['Qty','Unit','Item','Brand / Spec','Category','Drawing','Level','Area','Status','Notes','Quoted unit','Quoted total','Wholesaler','Created'];
+  const rows = [header];
+  for (const i of items) {
+    rows.push([
+      i.quantity, i.unit || '', i.name || '', i.brandOrSpec || '',
+      i.category || '', i.drawingRef || '', i.level || '', i.area || '',
+      i.status || '', i.notes || '',
+      i.quotedUnitPrice != null ? String(i.quotedUnitPrice) : '',
+      i.quotedTotal != null ? String(i.quotedTotal) : '',
+      i.selectedWholesaler || '',
+      fmtDate(i.createdAt),
+    ]);
+  }
+  const csv = rows.map(r => r.map(_csvCell).join(',')).join('\r\n');
+  const safeJob = String(jobName).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
+  const stamp = new Date().toISOString().slice(0, 10);
+  const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'materials_' + safeJob + '_' + stamp + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 function matOpenAddItem() { _matOpenItemModal(null); }
