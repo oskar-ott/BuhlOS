@@ -4261,6 +4261,19 @@ function _renderTempsV2(){
   const subBits = [`${active} on site`];
   if (overdue) subBits.push(`<span style="color:var(--red);font-weight:600">${overdue} overdue</span>`);
   if (issues)  subBits.push(`<span style="color:var(--red);font-weight:600">${issues} ${issues===1?'issue':'issues'}</span>`);
+  // Cost roll-up — admin/LH only (server omits rate fields for others).
+  // Sum accruedCost across active deployments only (returned items aren't
+  // currently costing anything; their historical cost is captured in the
+  // closed deployment record).
+  const isAdminOrLH = CURRENT_USER && (CURRENT_USER.role === 'admin' || CURRENT_USER.role === 'leadingHand');
+  let accruedTotal = 0;
+  for (const d of tempsData) {
+    if (!['deployed','due_soon','overdue'].includes(d.derivedStatus || d.status)) continue;
+    if (typeof d.accruedCost === 'number') accruedTotal += d.accruedCost;
+  }
+  if (isAdminOrLH && accruedTotal > 0) {
+    subBits.push(`<span style="color:var(--header);font-weight:700;background:var(--green-bg);padding:2px 8px;border-radius:999px;border:1px solid var(--green-bd)">$${accruedTotal.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})} tied up</span>`);
+  }
 
   let h = `<div class="feat-header">
     <div>
@@ -4334,6 +4347,7 @@ function _renderTempsV2(){
             ${dueBit}
             ${returnedBit}
             ${d.deployedBy && isOpen?`<span><b>Deployed by</b> ${esc(d.deployedBy)}</span>`:''}
+            ${(isAdminOrLH && typeof d.accruedCost === 'number' && d.accruedCost > 0) ? `<span style="color:var(--header);font-weight:700"><b>Cost</b> $${d.accruedCost.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}${d.daysOnSite?` · ${d.daysOnSite}d`:''}</span>` : ''}
             ${d.notes?`<span style="font-style:italic">${esc(d.notes)}</span>`:''}
           </div>
         </div>

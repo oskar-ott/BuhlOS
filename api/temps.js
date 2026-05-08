@@ -245,15 +245,52 @@ async function handleListJobDeployments(req, res, user) {
   // Compute due/overdue server-side so all clients agree on the day's state.
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const todayMs = today.getTime();
+
+  // Only admins + LHs see cost data per the brief — "Do not expose cost
+  // rates to tradies or clients." We enrich with dailyCostRate +
+  // computed days-onsite + accruedCost for those roles only.
+  const showCost = user.role === 'admin' || user.role === 'leadingHand';
+  let assetsById = {};
+  if (showCost) {
+    try {
+      const assetsBlob = await readAssets();
+      for (const a of (assetsBlob.items || [])) assetsById[a.id] = a;
+    } catch { /* tolerate */ }
+  }
+
   const enriched = (blob.deployments || []).map(d => {
-    if (d.status !== 'deployed') return d;
-    const due = d.expectedReturnDate ? Date.parse(d.expectedReturnDate + 'T00:00:00') : NaN;
-    if (Number.isFinite(due)) {
-      const days = Math.floor((due - todayMs) / (24 * 60 * 60 * 1000));
-      if (days < 0)        return { ...d, derivedStatus: 'overdue', daysToDue: days };
-      if (days <= 3)       return { ...d, derivedStatus: 'due_soon', daysToDue: days };
+    let derived;
+    if (d.status === 'deployed') {
+      const due = d.expectedReturnDate ? Date.parse(d.expectedReturnDate + 'T00:00:00') : NaN;
+      if (Number.isFinite(due)) {
+        const days = Math.floor((due - todayMs) / (24 * 60 * 60 * 1000));
+        if (days < 0)         derived = { derivedStatus: 'overdue', daysToDue: days };
+        else if (days <= 3)   derived = { derivedStatus: 'due_soon', daysToDue: days };
+        else                  derived = { derivedStatus: 'deployed', daysToDue: days };
+      } else {
+        derived = { derivedStatus: 'deployed', daysToDue: null };
+      }
+    } else {
+      derived = {};
     }
-    return { ...d, derivedStatus: 'deployed', daysToDue: null };
+    // Cost enrichment: days × rate. Returned deployments use returnedAt;
+    // active ones use today.
+    let cost = {};
+    if (showCost) {
+      const asset = assetsById[d.tempItemId];
+      const rate = asset && Number.isFinite(Number(asset.dailyCostRate)) ? Number(asset.dailyCostRate) : 0;
+      if (rate > 0 && d.deployedAt) {
+        const start = Date.parse(d.deployedAt);
+        const end = d.returnedAt ? Date.parse(d.returnedAt) : Date.now();
+        if (Number.isFinite(start) && Number.isFinite(end)) {
+          const days = Math.max(0, Math.ceil((end - start) / (24 * 60 * 60 * 1000)));
+          cost = { dailyCostRate: rate, daysOnSite: days, accruedCost: Math.round(rate * days * 100) / 100 };
+        } else {
+          cost = { dailyCostRate: rate, daysOnSite: 0, accruedCost: 0 };
+        }
+      }
+    }
+    return { ...d, ...derived, ...cost };
   });
   return res.status(200).json({ deployments: enriched });
 }
