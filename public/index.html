@@ -55,26 +55,28 @@ html{-webkit-font-smoothing:antialiased}
 /* Phone header: condense the navy bar so the job name has room.
    - Hide the internal job ID sub-line (workers don't need it)
    - Hide the "Live" status text — keep just the dot
-   - Condense Sign out to an icon-style button
-   - Smaller logo, less gap */
+   - Smaller wordmark, less gap, no sub-line caption
+   - Sign out collapses to a square icon-button with no label */
 @media(max-width:600px){
-  .hdr{padding:0 10px;gap:8px}
-  .hdr-logo{height:28px;width:28px;padding:2px}
+  .hdr{padding:0 10px;gap:8px;height:54px;min-height:54px}
+  .hdr-logo{height:26px;width:26px;padding:2px}
+  .hdr-logo-link.wordmark{font-size:18px}
   .hdr-div{display:none}
-  .hdr-name{font-size:13px}
+  .hdr-name{font-size:14px}
   .hdr-sub{display:none}
   .sync-pill{padding:4px 6px;background:transparent;border-color:transparent}
   .sync-pill .stxt{display:none}
-  .hdr-signout{margin-left:0;padding:6px 9px;font-size:10px}
+  .hdr-signout{margin-left:0;padding:0;width:34px;height:34px;font-size:0;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+  .hdr-signout::before{content:'\2192';font-size:16px;color:rgba(255,255,255,.7);transform:rotate(180deg);display:inline-block}
 }
 
 /* Dwelling finder (filter across ALL groups) */
-.dw-find{background:#fff;border-bottom:1px solid var(--border);padding:8px 12px;position:sticky;top:60px;z-index:101}
+.dw-find{background:var(--paper);border-bottom:1px solid var(--rule);padding:8px 12px;position:sticky;top:60px;z-index:101}
 .dw-find-wrap{position:relative;max-width:900px;margin:0 auto}
-.dw-find input{width:100%;box-sizing:border-box;padding:9px 36px 9px 34px;border-radius:10px;border:1px solid var(--border);background:#f8fafc;font-size:14px;color:var(--ink);outline:none;transition:border-color .15s,background .15s}
-.dw-find input:focus{border-color:var(--header);background:#fff}
-.dw-find .dw-find-ico{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted);pointer-events:none}
-.dw-find .dw-find-clr{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:4px 8px;display:none}
+.dw-find input{width:100%;box-sizing:border-box;padding:9px 36px 9px 34px;border-radius:var(--radius);border:1px solid var(--rule-2);background:var(--paper-2);font-family:var(--sans);font-size:14px;color:var(--ink);outline:none;transition:border-color .15s,background .15s}
+.dw-find input:focus{border-color:var(--navy);background:var(--paper);outline:2px solid var(--yellow);outline-offset:-1px}
+.dw-find .dw-find-ico{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--ink-3);pointer-events:none}
+.dw-find .dw-find-clr{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--ink-3);font-size:18px;cursor:pointer;padding:4px 8px;display:none}
 .dw-find.has-q .dw-find-clr{display:block}
 .dw-find-results{position:absolute;left:0;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 25px -8px rgba(15,23,42,.15);max-height:60vh;overflow-y:auto;display:none;z-index:200}
 .dw-find.open .dw-find-results{display:block}
@@ -89,7 +91,7 @@ html{-webkit-font-smoothing:antialiased}
    hamburger button on the RIGHT. Previously the entire row scrolled, which
    pushed the Tools button off-screen on phones with multiple area groups.
    Now the Tools button is always visible at the right edge. */
-.nav{background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:stretch;position:sticky;top:112px;z-index:100;min-height:46px}
+.nav{background:var(--paper);border-bottom:1px solid var(--rule);display:flex;align-items:stretch;position:sticky;top:112px;z-index:100;min-height:46px}
 .nav-scroll{flex:1;min-width:0;display:flex;align-items:stretch;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;mask-image:linear-gradient(to right,#000 calc(100% - 18px),transparent)}
 .nav-scroll::-webkit-scrollbar{display:none}
 .nb{flex-shrink:0;padding:13px 16px;border:none;background:none;color:var(--ink-3);font-family:var(--display);font-size:13px;font-weight:500;letter-spacing:-.012em;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
@@ -194,32 +196,30 @@ html{-webkit-font-smoothing:antialiased}
   display:none;
   position:fixed;left:0;right:0;
   bottom:0;
-  padding:14px 12px calc(14px + env(safe-area-inset-bottom));
-  /* Solid white panel with a tight blur lead-in so content underneath is
-     fully obscured (no half-visible rows behind the FAB). */
-  background:#fff;
-  border-top:1px solid var(--border);
-  box-shadow:0 -2px 12px rgba(15,23,42,.06);
+  padding:12px 12px calc(12px + env(safe-area-inset-bottom));
+  /* Solid panel so content underneath is fully obscured. */
+  background:var(--paper);
+  border-top:1px solid var(--rule);
   z-index:90;
-  gap:10px;
-  pointer-events:none; /* let scroll happen above the gradient lead-in */
+  gap:8px;
+  pointer-events:none;
 }
 .worker-fab[data-active="1"]{display:flex}
 .worker-fab-btn{
   pointer-events:auto;
   flex:1;display:flex;align-items:center;justify-content:center;gap:8px;
-  height:54px;border-radius:14px;font-family:inherit;
-  font-size:15px;font-weight:800;letter-spacing:-.1px;
-  box-shadow:0 4px 14px rgba(13,31,53,.18);
+  height:50px;border-radius:var(--radius);
+  font-family:var(--display);
+  font-size:14px;font-weight:600;letter-spacing:-.012em;
   cursor:pointer;border:1px solid transparent;
-  transition:transform .08s, box-shadow .12s;
+  transition:transform .08s;
 }
 .worker-fab-btn:active{transform:translateY(1px)}
-.worker-fab-secondary{background:#fff;color:var(--header);border-color:var(--border)}
-.worker-fab-secondary:hover{border-color:var(--header)}
-.worker-fab-primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
-.worker-fab-primary:hover{filter:brightness(.96)}
-.worker-fab-ico{font-size:18px;line-height:1;font-weight:900}
+.worker-fab-secondary{background:var(--paper);color:var(--navy);border-color:var(--rule-2)}
+.worker-fab-secondary:hover{background:var(--paper-3)}
+.worker-fab-primary{background:var(--yellow);color:var(--yellow-ink);border-color:var(--yellow);font-weight:700}
+.worker-fab-primary:hover{filter:brightness(.97)}
+.worker-fab-ico{font-size:14px;line-height:1;font-weight:700}
 .worker-fab-lbl{line-height:1}
 /* Hide on wider viewports — desktop has the regular sub-nav. */
 @media(min-width:760px){
@@ -235,17 +235,17 @@ body.has-worker-fab .pg{padding-bottom:calc(100px + env(safe-area-inset-bottom))
 .sc{display:none}.sc.active{display:block}
 
 /* Hero */
-.hero{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:14px;overflow:hidden;position:relative}
+.hero{background:var(--paper);border:1px solid var(--rule);border-radius:var(--radius);padding:18px 20px;margin-bottom:14px;overflow:hidden;position:relative}
 .hero-row{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px}
-.hero-lbl{color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;margin-bottom:2px}
-.hero-pct{color:var(--header);font-size:44px;font-weight:800;line-height:1;letter-spacing:-2px}
-.hero-pct sup{font-size:20px;font-weight:500;opacity:.4;letter-spacing:0;vertical-align:super}
-.hero-stats{display:flex;gap:16px;flex-wrap:wrap}
+.hero-lbl{font-family:var(--mono);color:var(--ink-3);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px}
+.hero-pct{font-family:var(--display);color:var(--navy);font-size:44px;font-weight:700;line-height:1;letter-spacing:-.034em;font-variant-numeric:tabular-nums}
+.hero-pct sup{font-size:18px;font-weight:500;opacity:.45;letter-spacing:0;vertical-align:super}
+.hero-stats{display:flex;gap:18px;flex-wrap:wrap}
 .hst{text-align:right}
-.hst-v{color:var(--ink);font-size:22px;font-weight:700;line-height:1}
-.hst-l{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-top:1px}
-.hero-bar-bg{background:var(--border);border-radius:6px;height:8px;overflow:hidden}
-.hero-bar{height:8px;border-radius:6px;background:var(--accent);transition:width .7s ease}
+.hst-v{font-family:var(--display);color:var(--navy);font-size:20px;font-weight:700;line-height:1;letter-spacing:-.022em;font-variant-numeric:tabular-nums}
+.hst-l{font-family:var(--mono);color:var(--ink-3);font-size:9.5px;text-transform:uppercase;letter-spacing:.12em;margin-top:4px}
+.hero-bar-bg{background:var(--paper-3);border-radius:999px;height:8px;overflow:hidden}
+.hero-bar{height:8px;border-radius:999px;background:var(--yellow);transition:width .7s ease}
 
 /* KPIs */
 .kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
@@ -771,27 +771,27 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
   display:inline-flex;align-items:center;gap:8px;
   flex:1 1 0;min-width:140px;justify-content:center;
   height:46px;padding:0 14px;
-  background:var(--card);color:var(--header);
-  border:1px solid var(--border);border-radius:10px;
-  font:inherit;font-size:13px;font-weight:700;
+  background:var(--paper);color:var(--navy);
+  border:1px solid var(--rule-2);border-radius:var(--radius);
+  font-family:var(--display);font-size:13px;font-weight:600;
+  letter-spacing:-.012em;
   cursor:pointer;text-decoration:none;
-  transition:background .12s,border-color .12s,box-shadow .12s,transform .08s;
+  transition:background .12s,border-color .12s,transform .08s;
   white-space:nowrap;
 }
-.dash-quick-btn:hover{background:#f8fafc;border-color:#cbd5e1}
+.dash-quick-btn:hover{background:var(--paper-3);border-color:var(--rule-2)}
 .dash-quick-btn:active{transform:scale(.98)}
 .dash-quick-btn.primary{
-  background:var(--accent);color:var(--accent-ink);
-  border-color:var(--accent);
-  box-shadow:0 2px 8px rgba(255,204,0,.22);
+  background:var(--yellow);color:var(--yellow-ink);
+  border-color:var(--yellow);
 }
-.dash-quick-btn.primary:hover{filter:brightness(.96);background:var(--accent)}
-.dash-quick-ico{font-size:16px;line-height:1;flex-shrink:0}
+.dash-quick-btn.primary:hover{filter:brightness(.97);background:var(--yellow)}
+.dash-quick-ico{font-size:15px;line-height:1;flex-shrink:0}
 @media(max-width:480px){
   /* On phones, each button takes a full row when there are 3 — primary at top. */
-  .dash-quick{flex-wrap:wrap}
-  .dash-quick-btn{flex-basis:calc(50% - 4px);min-width:0}
-  .dash-quick-btn.primary{flex-basis:100%}
+  .dash-quick{flex-wrap:wrap;gap:6px;margin-bottom:12px}
+  .dash-quick-btn{flex-basis:calc(50% - 3px);min-width:0;height:44px;font-size:12.5px}
+  .dash-quick-btn.primary{flex-basis:100%;height:48px;font-size:14px}
 }
 
 /* ── Module shortcuts row: compact glance cards for Snags / T&T / Temps.
@@ -807,34 +807,36 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
   appearance:none;-webkit-appearance:none;
   display:flex;align-items:center;gap:12px;
   padding:12px 14px;
-  background:var(--card);color:var(--header);
-  border:1px solid var(--border);border-radius:10px;
+  background:var(--paper);color:var(--navy);
+  border:1px solid var(--rule);border-radius:var(--radius);
   font:inherit;text-align:left;cursor:pointer;
   transition:border-color .12s,box-shadow .12s,transform .08s;
   min-height:64px;
 }
-.dash-mod:hover{border-color:#cbd5e1;box-shadow:0 2px 8px rgba(15,23,42,.06)}
+.dash-mod:hover{border-color:var(--rule-2);box-shadow:0 2px 8px rgba(13,27,52,.05)}
 .dash-mod:active{transform:scale(.99)}
 .dash-mod-ico{
-  width:38px;height:38px;border-radius:9px;
+  width:36px;height:36px;border-radius:2px;
   display:inline-flex;align-items:center;justify-content:center;
-  font-size:18px;line-height:1;flex-shrink:0;
-  background:var(--bg);
+  font-family:var(--display);font-size:15px;font-weight:700;line-height:1;flex-shrink:0;
+  background:var(--paper-3);color:var(--navy);
+  letter-spacing:-.012em;
 }
-.dash-mod-body{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
-.dash-mod-label{font-size:12px;font-weight:800;color:var(--header);text-transform:uppercase;letter-spacing:.4px}
-.dash-mod-meta{font-size:13px;color:var(--ink);font-weight:600}
-.dash-mod-meta b{font-weight:800;color:var(--header)}
+.dash-mod-body{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
+.dash-mod-label{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.14em}
+.dash-mod-meta{font-family:var(--display);font-size:14px;color:var(--navy);font-weight:600;letter-spacing:-.012em}
+.dash-mod-meta b{font-weight:700;color:var(--navy)}
 .dash-mod-flag{
   display:inline-block;margin-left:6px;
-  background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd);
-  border-radius:999px;padding:1px 7px;font-size:10px;font-weight:800;
-  text-transform:uppercase;letter-spacing:.3px;vertical-align:1px;
+  background:rgba(209,139,28,.16);color:var(--amber);
+  border-radius:2px;padding:3px 7px;
+  font-family:var(--mono);font-size:9.5px;font-weight:600;
+  text-transform:uppercase;letter-spacing:.12em;vertical-align:1px;
 }
-.dash-mod-red .dash-mod-ico{background:var(--red-bg);color:var(--red)}
-.dash-mod-red .dash-mod-flag{background:var(--red-bg);color:var(--red);border-color:var(--red-bd)}
-.dash-mod-amber .dash-mod-ico{background:var(--amber-bg);color:var(--amber)}
-.dash-mod-ok .dash-mod-ico{background:var(--green-bg);color:var(--green)}
+.dash-mod-red .dash-mod-ico{background:rgba(192,49,47,.12);color:var(--red)}
+.dash-mod-red .dash-mod-flag{background:rgba(192,49,47,.12);color:var(--red)}
+.dash-mod-amber .dash-mod-ico{background:rgba(209,139,28,.16);color:var(--amber)}
+.dash-mod-ok .dash-mod-ico{background:rgba(31,139,90,.12);color:var(--green)}
 
 /* ── Mobile-tight dashboard — Continue card + denser KPIs + bigger tap targets ── */
 
@@ -902,15 +904,52 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
 @media (max-width: 600px) {
   .dash-kpis { gap: 6px; margin-bottom: 12px; }
   .kpi-tile { padding: 10px 12px; }
-  .kpi-tile-label { font-size: 10px; margin-bottom: 3px; letter-spacing: .5px; }
-  .kpi-tile-value { font-size: 22px; letter-spacing: -.6px; }
+  .kpi-tile-label { font-size: 9.5px; margin-bottom: 3px; letter-spacing: .12em; }
+  .kpi-tile-value { font-size: 22px; letter-spacing: -.022em; }
   /* Bigger tap area on dash-row, tighter visual */
   .dash-row { padding: 13px 14px; min-height: 56px; gap: 8px; }
-  .dash-row-name { font-size: 15px; }
+  .dash-row-name { font-size: 14.5px; }
   .dash-row-pct { font-size: 11px; min-width: 28px; }
   /* On phones, drop the inline progress bar from "In progress" rows; pct + chevron are enough */
   .dash-row .dw-row-progress { width: auto; gap: 0; }
   .dash-row .dw-row-progress .dw-row-bar-bg { display: none; }
+
+  /* ── Phone sticky stack: header (54) + finder (~44) + nav (~46) ─── */
+  /* Re-anchor sticky offsets so the nav strip doesn't gap below the
+     finder when the page scrolls. dw-find sits at top:54; nav at the
+     sum of those (~98). */
+  .dw-find { top: 54px; padding: 6px 10px; }
+  .dw-find input { padding: 9px 32px 9px 32px; min-height: 38px; font-size: 14px; }
+  .nav { top: 98px; min-height: 42px; }
+  .nb { padding: 11px 14px; font-size: 12.5px; }
+  .nb-menu { padding: 11px 12px; }
+
+  /* Hero compresses: smaller %, single-row layout, tighter padding */
+  .hero { padding: 14px 16px; }
+  .hero-row { margin-bottom: 10px; gap: 8px; }
+  .hero-pct { font-size: 36px; letter-spacing: -.034em; }
+  .hero-pct sup { font-size: 16px; }
+  .hero-stats { gap: 12px; }
+  .hst-v { font-size: 18px; }
+  .hst-l { font-size: 9.5px; letter-spacing: .12em; }
+  .hero-bar-bg, .hero-bar { height: 6px; }
+
+  /* Page padding tightened on phones */
+  .pg { padding: 10px 12px; }
+
+  /* Worker FAB — slimmer on phones, no shadows competing with content */
+  .worker-fab { padding: 10px 10px calc(10px + env(safe-area-inset-bottom)); gap: 8px; }
+  .worker-fab-btn { height: 48px; font-size: 14px; box-shadow: none; }
+  body.has-worker-fab .pg { padding-bottom: calc(86px + env(safe-area-inset-bottom)); }
+}
+
+/* Even tighter on very narrow phones */
+@media (max-width: 380px) {
+  .hdr { padding: 0 8px; gap: 6px; }
+  .hdr-logo-link.wordmark { font-size: 17px; }
+  .hdr-myday, .hdr-setup { padding: 0 8px; height: 26px; font-size: 9.5px; }
+  .nb { padding: 11px 11px; font-size: 12px; }
+  .hero-pct { font-size: 32px; }
 }
 </style>
 </head>
