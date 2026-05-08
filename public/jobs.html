@@ -49,41 +49,44 @@
   /* Right-rail "snag" chip on a job row — deep links to /jobs/<id>#snags so
      admin/LH can jump straight to the issue list without drilling in. */
   .job-card-snag {
-    display: inline-flex; align-items: center; gap: 4px;
-    background: var(--red-bg); color: var(--red);
-    border: 1px solid var(--red-bd);
-    border-radius: 999px; padding: 2px 9px;
-    font-size: 11px; font-weight: 700; line-height: 1;
+    display: inline-flex; align-items: center; gap: 5px;
+    background: rgba(192,49,47,.12); color: var(--red);
+    border-radius: 2px; padding: 4px 8px;
+    font-family: var(--mono);
+    font-size: 10px; font-weight: 600; letter-spacing: .12em;
+    text-transform: uppercase; line-height: 1;
     text-decoration: none; min-height: 22px;
   }
-  .job-card-snag::before { content: '!'; font-weight: 900; }
-  .job-card-snag:hover { background: #fde2e2; }
+  .job-card-snag::before { content: '\25CF'; font-weight: 900; font-size: 8px; }
+  .job-card-snag:hover { filter: brightness(.97); }
   /* Test & Tag compliance chip — surfaces expired or expiring-soon tags so
      admin/LH spot retest gaps from the jobs list. */
   .job-card-tag {
-    display: inline-flex; align-items: center; gap: 4px;
-    border-radius: 999px; padding: 2px 9px;
-    font-size: 11px; font-weight: 700; line-height: 1;
+    display: inline-flex; align-items: center; gap: 5px;
+    border-radius: 2px; padding: 4px 8px;
+    font-family: var(--mono);
+    font-size: 10px; font-weight: 600; letter-spacing: .12em;
+    text-transform: uppercase; line-height: 1;
     text-decoration: none; min-height: 22px;
     font-variant-numeric: tabular-nums;
   }
-  .job-card-tag-red   { background: var(--red-bg);   color: var(--red);   border: 1px solid var(--red-bd); }
-  .job-card-tag-amber { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-bd); }
-  .job-card-tag-red:hover   { background: #fde2e2; }
-  .job-card-tag-amber:hover { background: #fde9b6; }
+  .job-card-tag-red   { background: rgba(192,49,47,.12); color: var(--red); }
+  .job-card-tag-amber { background: rgba(209,139,28,.16); color: var(--amber); }
+  .job-card-tag-red:hover, .job-card-tag-amber:hover { filter: brightness(.97); }
   /* Right-rail % progress pill, contextual colour. */
   .job-card-pct {
     display: inline-flex; align-items: center; justify-content: center;
     height: 28px; min-width: 50px; padding: 0 10px;
-    border-radius: 999px;
-    font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums;
-    background: var(--grey-bg); color: var(--grey-ink);
-    border: 1px solid var(--grey-bd);
+    border-radius: 2px;
+    font-family: var(--mono);
+    font-size: 11px; font-weight: 600; letter-spacing: .04em;
+    font-variant-numeric: tabular-nums;
+    background: var(--paper-3); color: var(--ink-2);
     flex-shrink: 0;
   }
-  .job-card-pct.green { background: var(--green-bg); color: var(--green); border-color: var(--green-bd); }
-  .job-card-pct.amber { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-bd); }
-  .job-card-pct.navy  { background: #f1f5f9; color: var(--header); border-color: var(--border); }
+  .job-card-pct.green { background: rgba(31,139,90,.12); color: var(--green); }
+  .job-card-pct.amber { background: rgba(209,139,28,.16); color: var(--amber); }
+  .job-card-pct.navy  { background: var(--navy); color: var(--paper); }
   /* Right-rail container so chips/pills live in a tight cluster next to the chevron */
   .job-card-rail {
     display: flex; align-items: center; gap: 8px; flex-shrink: 0;
@@ -104,15 +107,17 @@
   .jobs-filter-pill {
     appearance: none; -webkit-appearance: none;
     display: inline-flex; align-items: center; gap: 6px;
-    height: 34px; padding: 0 12px;
-    background: var(--card); border: 1px solid var(--border);
-    color: var(--muted); border-radius: 999px;
-    font-size: var(--fs-xs); font-weight: 700; cursor: pointer;
-    font-family: inherit; transition: background .12s, color .12s, border-color .12s;
+    height: 32px; padding: 0 12px;
+    background: var(--paper); border: 1px solid var(--rule-2);
+    color: var(--ink-2); border-radius: 2px;
+    font-family: var(--mono);
+    font-size: 10px; font-weight: 600; letter-spacing: .12em;
+    text-transform: uppercase;
+    cursor: pointer; transition: background .12s, color .12s, border-color .12s;
   }
-  .jobs-filter-pill:hover { background: #f8fafc; color: var(--ink); }
+  .jobs-filter-pill:hover { background: var(--paper-3); color: var(--navy); }
   .jobs-filter-pill.active {
-    background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+    background: var(--yellow); border-color: var(--yellow); color: var(--yellow-ink);
   }
   .jobs-filter-pill .filter-count {
     font-size: 10px; font-weight: 700; opacity: .7;

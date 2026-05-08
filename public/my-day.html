@@ -163,29 +163,32 @@
   .md-mysnag-accent.resolved { background: var(--green); }
   .md-mysnag-body { flex: 1; min-width: 0; }
   .md-mysnag-title {
-    font-size: var(--fs-base); font-weight: 700; color: var(--header);
-    line-height: 1.2;
+    font-family: var(--display);
+    font-size: 14.5px; font-weight: 600; color: var(--navy);
+    letter-spacing: -.012em; line-height: 1.2;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .md-mysnag-meta {
-    font-size: var(--fs-xs); color: var(--muted); margin-top: 3px;
+    font-family: var(--mono);
+    font-size: 10.5px; color: var(--ink-3); margin-top: 4px;
+    letter-spacing: .04em;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .md-mysnag-meta b { color: var(--ink); font-weight: 700; }
+  .md-mysnag-meta b { color: var(--ink); font-weight: 600; }
   .md-mysnag-prio {
-    flex-shrink: 0; font-size: 10px; font-weight: 800;
-    text-transform: uppercase; letter-spacing: .4px;
-    padding: 2px 8px; border-radius: 999px;
+    flex-shrink: 0; font-family: var(--mono);
+    font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .12em;
+    padding: 4px 8px; border-radius: 2px;
   }
-  .md-mysnag-prio.high   { background: var(--red-bg);   color: var(--red);   border: 1px solid var(--red-bd); }
-  .md-mysnag-prio.medium { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-bd); }
-  .md-mysnag-prio.low    { background: var(--grey-bg);  color: var(--grey-ink); border: 1px solid var(--grey-bd); }
+  .md-mysnag-prio.high   { background: rgba(192,49,47,.12); color: var(--red); }
+  .md-mysnag-prio.medium { background: rgba(209,139,28,.16); color: var(--amber); }
+  .md-mysnag-prio.low    { background: var(--paper-3); color: var(--ink-2); }
   /* "Resolved" pill — used in the Recently Resolved section so the row reads
      as a positive update rather than an open priority. */
   .md-mysnag-prio.resolved {
-    background: var(--green-bg, #ecfdf5);
-    color: var(--green, #047857);
-    border: 1px solid var(--green-bd, #a7f3d0);
+    background: rgba(31,139,90,.12);
+    color: var(--green);
   }
   .md-mysnag-chev { color: var(--muted); font-size: 18px; flex-shrink: 0; }
 
@@ -274,11 +277,13 @@
     border-bottom: 1px solid var(--border);
   }
   .md-week-card-total {
-    font-size: 13px; font-weight: 700; color: var(--header);
+    font-family: var(--display);
+    font-size: 16px; font-weight: 700; color: var(--navy);
+    letter-spacing: -.014em;
     font-variant-numeric: tabular-nums;
   }
-  .md-week-card-total .unit { color: var(--muted); font-weight: 600; margin-left: 2px; font-size: 11px; }
-  .md-week-card-sub { font-size: 11px; color: var(--muted); }
+  .md-week-card-total .unit { font-family: var(--mono); color: var(--ink-3); font-weight: 500; margin-left: 4px; font-size: 10.5px; letter-spacing: .06em; }
+  .md-week-card-sub { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: .06em; }
 
   .md-week-row {
     display: flex; align-items: center; gap: 10px;
@@ -302,15 +307,18 @@
 
   .md-week-row-body { flex: 1; min-width: 0; }
   .md-week-row-day {
-    font-size: var(--fs-sm); font-weight: 700; color: var(--header);
-    line-height: 1.15;
+    font-family: var(--display);
+    font-size: 14px; font-weight: 600; color: var(--navy);
+    letter-spacing: -.012em; line-height: 1.15;
   }
-  .md-week-row-day .date { color: var(--muted); font-weight: 600; margin-left: 4px; }
+  .md-week-row-day .date { font-family: var(--mono); color: var(--ink-3); font-weight: 500; margin-left: 6px; font-size: 10.5px; letter-spacing: .06em; }
   .md-week-row-meta {
-    font-size: var(--fs-xs); color: var(--muted); margin-top: 2px;
+    font-family: var(--mono);
+    font-size: 10.5px; color: var(--ink-3); margin-top: 4px;
+    letter-spacing: .04em;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .md-week-row-meta b { color: var(--ink); font-weight: 700; }
+  .md-week-row-meta b { color: var(--ink); font-weight: 600; }
 
   .md-week-row-status {
     display: inline-flex; align-items: center; gap: 4px;
