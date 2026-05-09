@@ -31,9 +31,38 @@ html{-webkit-font-smoothing:antialiased}
 .hdr{background:var(--navy);height:60px;display:flex;align-items:center;padding:0 16px;gap:12px;position:sticky;top:0;z-index:200;border-bottom:1px solid rgba(255,255,255,.06)}
 .hdr-logo{height:32px;width:32px;object-fit:contain;border-radius:6px;background:#fff;padding:3px;flex-shrink:0}
 .hdr-div{width:1px;height:22px;background:rgba(255,255,255,.15);flex-shrink:0}
-.hdr-job{flex:1;min-width:0;overflow:hidden}
+/* Job header is now a button so the user can tap to open the job switcher
+   sheet (Sheet 03 moment 04: tap the job ref → slide-down sheet of jobs). */
+button.hdr-job{flex:1;min-width:0;overflow:hidden;background:transparent;border:0;padding:0;margin:0;color:inherit;text-align:left;display:flex;flex-direction:column;justify-content:center;cursor:pointer;font:inherit;position:relative;padding-right:18px;-webkit-tap-highlight-color:transparent}
+button.hdr-job:hover{opacity:.92}
+button.hdr-job:focus-visible{outline:1px solid rgba(255,204,0,.6);outline-offset:2px}
+.hdr-job-chev{position:absolute;right:0;top:50%;transform:translateY(-50%);color:rgba(255,255,255,.45);font-size:12px;line-height:1;font-weight:400;transition:transform .15s,color .15s}
+button.hdr-job[aria-expanded="true"] .hdr-job-chev{color:var(--yellow);transform:translateY(-50%) rotate(180deg)}
 .hdr-name{color:#fff;font-family:var(--display);font-size:15px;font-weight:600;letter-spacing:-.014em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hdr-sub{color:rgba(255,255,255,.55);font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Job switcher slide-down sheet — Sheet, not route. Drops down from
+   under the header so the user keeps context. Tap a row → navigate;
+   tap outside / Escape → close. Cached job list for instant open. */
+.js-overlay{position:fixed;left:0;right:0;top:60px;bottom:0;z-index:300;display:none;background:rgba(13,27,52,.32)}
+.js-overlay.open{display:block}
+.js-sheet{background:#fff;border-bottom:1px solid var(--rule);max-height:min(70vh,520px);overflow-y:auto;animation:js-down .18s ease-out;padding-top:max(0px,env(safe-area-inset-top))}
+@keyframes js-down{from{transform:translateY(-12px);opacity:0}to{transform:translateY(0);opacity:1}}
+.js-sheet-hdr{padding:12px 16px 8px;display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--rule)}
+.js-sheet-hdr b{color:var(--ink);font-weight:600}
+.js-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);text-decoration:none;color:inherit;cursor:pointer;background:#fff;transition:background .12s}
+.js-row:hover{background:var(--paper-2)}
+.js-row:last-child{border-bottom:0}
+.js-row.cur{background:var(--paper-3);border-left:3px solid var(--yellow);padding-left:13px}
+.js-row .js-meta{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-top:3px}
+.js-row .js-name{font-family:var(--display);font-size:15px;font-weight:600;letter-spacing:-.014em;color:var(--navy);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.js-row .js-meta b{color:var(--ink);font-weight:600}
+.js-row .js-pct{font-family:var(--display);font-weight:700;font-size:18px;letter-spacing:-.025em;color:var(--navy);font-variant-numeric:tabular-nums;text-align:right;min-width:48px}
+.js-row .js-pct small{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:var(--ink-3);font-weight:500;margin-top:2px;text-transform:uppercase}
+.js-row .js-snags{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.06em;color:var(--red);margin-top:2px}
+.js-foot{padding:12px 16px;text-align:center;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.js-foot a{color:var(--navy);text-decoration:none;border-bottom:1px dashed var(--ink-3)}
+.js-empty{padding:20px;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:center}
 .sync-pill{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:4px 10px;flex-shrink:0}
 .hdr-signout{margin-left:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);color:#94a3b8;padding:7px 11px;border-radius:8px;font-size:var(--fs-xs);cursor:pointer;flex-shrink:0;min-height:34px}
 /* Tradie-only "My Day" pill in the per-job header. Hidden by default; shown via JS once role is known. */
@@ -1245,15 +1274,32 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
   <a href="/my-day" id="hdr-myday" class="hdr-myday" title="Back to My Day">My Day</a>
   <a id="hdr-setup" class="hdr-setup" title="Edit job setup (areas, checklists, crew, client)">Setup</a>
   <div class="hdr-div"></div>
-  <div class="hdr-job">
+  <button class="hdr-job" id="hdr-job-trigger" type="button"
+          aria-haspopup="dialog" aria-expanded="false"
+          title="Switch job — tap to see your other jobs">
     <div class="hdr-name" id="hdr-name">Loading…</div>
     <div class="hdr-sub" id="hdr-sub"></div>
-  </div>
+    <span class="hdr-job-chev" aria-hidden="true">&#9662;</span>
+  </button>
   <div class="sync-pill">
     <div class="sdot" id="sdot"></div>
     <div class="stxt" id="stxt">Live</div>
   </div>
   <button id="logoutBtn" class="hdr-signout" title="Sign out">Sign out</button>
+</div>
+
+<!-- Job switcher slide-down sheet — Sheet 03 moment 04 -->
+<div class="js-overlay" id="jsOverlay" role="dialog" aria-modal="true" aria-label="Switch job">
+  <div class="js-sheet" id="jsSheet">
+    <div class="js-sheet-hdr">
+      <span><b>Switch job</b></span>
+      <span id="jsCount">…</span>
+    </div>
+    <div id="jsList"></div>
+    <div class="js-foot">
+      <a href="/jobs">Open full jobs list &rarr;</a>
+    </div>
+  </div>
 </div>
 
 <div class="dw-find" id="dwFind">
@@ -1439,7 +1485,103 @@ async function bootstrapAuth() {
     await fetch('/api/auth?action=logout', { method: 'POST' });
     location.href = '/login';
   });
+
+  // ── Job switcher (Sheet 03 moment 04) ─────────────────────────────
+  // Tap the job name/ref → slide-down sheet of the user's other active
+  // jobs. Tap a row → navigate. Outside-tap / Escape → close. The list
+  // is fetched once and cached on first open for instant subsequent opens.
+  setupJobSwitcher();
   return true;
+}
+
+let _jsCache = null;        // { jobs, fetchedAt }
+let _jsLoading = false;
+async function _jsLoadJobs() {
+  if (_jsCache && (Date.now() - _jsCache.fetchedAt) < 60_000) return _jsCache.jobs;
+  if (_jsLoading) return [];
+  _jsLoading = true;
+  try {
+    const r = await fetch('/api/jobs?withStats=1', { credentials: 'same-origin' });
+    if (!r.ok) return [];
+    const d = await r.json();
+    _jsCache = { jobs: d.jobs || [], fetchedAt: Date.now() };
+    return _jsCache.jobs;
+  } catch { return []; }
+  finally { _jsLoading = false; }
+}
+function _jsRender(jobs) {
+  const list = document.getElementById('jsList');
+  const cnt  = document.getElementById('jsCount');
+  if (!list || !cnt) return;
+  // Active first, current job pinned to top, then % desc.
+  const sorted = jobs.slice().sort((a, b) => {
+    if (a.id === JOB_ID && b.id !== JOB_ID) return -1;
+    if (b.id === JOB_ID && a.id !== JOB_ID) return 1;
+    const sa = (a.status || 'active') === 'active' ? 0 : 1;
+    const sb = (b.status || 'active') === 'active' ? 0 : 1;
+    if (sa !== sb) return sa - sb;
+    return (b.statsPct || 0) - (a.statsPct || 0);
+  });
+  // Don't include archived in the switcher — those should be opened
+  // explicitly from /jobs.
+  const visible = sorted.filter(j => (j.status || 'active') !== 'archived');
+  cnt.textContent = visible.length + ' job' + (visible.length === 1 ? '' : 's');
+  if (!visible.length) {
+    list.innerHTML = '<div class="js-empty">No other jobs to switch to.</div>';
+    return;
+  }
+  list.innerHTML = visible.map(j => {
+    const isCur = j.id === JOB_ID;
+    const pct = (typeof j.statsPct === 'number') ? j.statsPct + '%' : '—';
+    const sn  = Number(j.statsOpenSnags || 0);
+    const dw  = Number(j.statsDwellingCount || 0);
+    const ref = (j.ref || j.shortRef || j.id || '').toUpperCase();
+    const meta = [
+      ref ? '<b>' + esc(ref) + '</b>' : '',
+      dw  ? dw + ' DW' : '',
+      sn  ? '<span style="color:var(--red);font-weight:600">' + sn + ' SNAG' + (sn===1?'':'S') + '</span>' : '',
+    ].filter(Boolean).join(' &middot; ');
+    return `<a class="js-row${isCur ? ' cur' : ''}" href="/jobs/${esc(j.id)}" data-jid="${esc(j.id)}">
+      <div>
+        <div class="js-name">${esc(j.name || '(unnamed)')}</div>
+        <div class="js-meta">${meta || '&nbsp;'}</div>
+      </div>
+      <div class="js-pct">${pct}<small>${isCur ? 'current' : ((j.status || 'active') === 'active' ? 'active' : (j.status || ''))}</small></div>
+    </a>`;
+  }).join('');
+}
+function _jsOpen() {
+  const ov = document.getElementById('jsOverlay');
+  const tg = document.getElementById('hdr-job-trigger');
+  if (!ov || !tg) return;
+  ov.classList.add('open');
+  tg.setAttribute('aria-expanded', 'true');
+  // Optimistic: render whatever's cached immediately, then refresh in
+  // the background so totals stay live without blocking the open.
+  if (_jsCache) _jsRender(_jsCache.jobs);
+  else document.getElementById('jsList').innerHTML = '<div class="js-empty">Loading…</div>';
+  _jsLoadJobs().then(jobs => _jsRender(jobs));
+}
+function _jsClose() {
+  const ov = document.getElementById('jsOverlay');
+  const tg = document.getElementById('hdr-job-trigger');
+  if (ov) ov.classList.remove('open');
+  if (tg) tg.setAttribute('aria-expanded', 'false');
+}
+function setupJobSwitcher() {
+  const tg = document.getElementById('hdr-job-trigger');
+  const ov = document.getElementById('jsOverlay');
+  if (!tg || !ov) return;
+  tg.addEventListener('click', () => {
+    const open = ov.classList.contains('open');
+    if (open) _jsClose(); else _jsOpen();
+  });
+  // Outside-tap on the dim overlay (not the sheet itself) closes.
+  ov.addEventListener('click', (e) => { if (e.target === ov) _jsClose(); });
+  // Escape closes.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && ov.classList.contains('open')) _jsClose();
+  });
 }
 
 // Client role: neutralise interactions on .pg content after every render
