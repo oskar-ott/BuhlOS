@@ -1,0 +1,1580 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · site office</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BuhlOS">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║  BuhlOS site-office admin (epBAI9eU4ojy…)                        ║
+   ║  Single-file consolidation of the design pack:                   ║
+   ║    styles.css → tokens + reset                                   ║
+   ║    shell.css  → layout (sidebar / topbar / page)                 ║
+   ║    components.css → buttons, inputs, cards, KPIs, tables, pills  ║
+   ║    views.css  → hero, bars, two-col, charts, tabs, etc.          ║
+   ║                                                                  ║
+   ║  Read-only v1. Write actions deep-link to /admin.html.           ║
+   ║  Admin-only — non-admin redirects to /login.                     ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+
+/* ── Tokens (styles.css) ─────────────────────────────────── */
+:root {
+  /* Surfaces — warm off-white */
+  --bg: #f5f3ee;
+  --surface: #ffffff;
+  --surface-2: #faf8f3;
+  --surface-3: #f0ede5;
+  --shell: #0d1f35;
+  --shell-2: #152840;
+  --shell-3: #1d324c;
+
+  /* Ink */
+  --ink: #0d1f35;
+  --ink-2: #2a3a52;
+  --muted: #6b7689;
+  --muted-2: #8a93a4;
+  --line: #e6e1d5;
+  --line-2: #d8d2c1;
+
+  /* Accent — safety amber, bridges jobs.html yellow + index.html amber */
+  --accent: #e08a1a;
+  --accent-2: #f4a93b;
+  --accent-ink: #2a1a05;
+
+  /* Semantic */
+  --ok: #1f8a4c;   --ok-bg: #e8f4ec;
+  --warn: #b76b00; --warn-bg: #fbf1de;
+  --bad: #b3261e;  --bad-bg: #fbeae8;
+  --info: #1c5fb8; --info-bg: #e7eef9;
+
+  /* Role tints — pack ships 3, BuhlOS adds leadingHand */
+  --role-admin: #5b3a8a;       --role-admin-bg: #efeaf6;
+  --role-tradie: #1c5fb8;      --role-tradie-bg: #e7eef9;
+  --role-leadingHand: #b76b00; --role-leadingHand-bg: #fbf1de;
+  --role-client: #1f8a4c;      --role-client-bg: #e8f4ec;
+
+  /* Type */
+  --ff-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --ff-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Geometry */
+  --r-sm: 6px;
+  --r: 10px;
+  --r-lg: 14px;
+  --pad-cell: 14px 16px;
+  --pad-card: 18px 20px;
+  --gap: 14px;
+  --shadow:    0 1px 0 rgba(13, 31, 53, 0.04), 0 1px 2px rgba(13, 31, 53, 0.04);
+  --shadow-lg: 0 1px 0 rgba(13, 31, 53, 0.04), 0 8px 24px rgba(13, 31, 53, 0.08);
+}
+:root[data-density="compact"] { --pad-cell: 9px 12px;  --pad-card: 14px 16px; --gap: 10px; }
+:root[data-density="roomy"]   { --pad-cell: 18px 22px; --pad-card: 24px 28px; --gap: 18px; }
+
+/* Theme: dark canvas (pack spec), keeps amber + status palette intact. */
+:root[data-theme="dark"] {
+  --bg: #0b0d10;
+  --surface: #14171c;
+  --surface-2: #1a1e25;
+  --surface-3: #232830;
+  --ink: #e8ecf1;
+  --ink-2: #c7cfdb;
+  --muted: #8a94a3;
+  --muted-2: #6b7689;
+  --line: #232830;
+  --line-2: #2c333d;
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+:root[data-theme="dark"] .hero { background: linear-gradient(135deg, #14171c 0%, #1d324c 100%); }
+:root[data-theme="dark"] .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+:root[data-theme="dark"] .btn-primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+
+/* Reset (styles.css) */
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html { -webkit-font-smoothing: antialiased; }
+body {
+  font-family: var(--ff-sans);
+  font-feature-settings: "ss01", "cv11";
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.45;
+  min-height: 100vh;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: none; }
+a { color: inherit; text-decoration: none; }
+.mono { font-family: var(--ff-mono); font-feature-settings: normal; letter-spacing: -0.01em; }
+.tabular { font-variant-numeric: tabular-nums; }
+svg { width: 18px; height: 18px; flex-shrink: 0; display: inline-block; vertical-align: middle; }
+.feed-icon svg { width: 16px; height: 16px; }
+.appr-check svg, .btn-sm svg { width: 13px; height: 13px; }
+.empty-icon svg { width: 28px; height: 28px; }
+.hero svg { width: 18px; height: 18px; }
+
+/* ── Layout shell (shell.css) ────────────────────────────── */
+.app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+
+.side {
+  background: var(--shell); color: #cdd6e4;
+  padding: 18px 14px;
+  display: flex; flex-direction: column; gap: 4px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+}
+.side-brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 8px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 8px;
+}
+.side-brand-mark {
+  width: 30px; height: 30px;
+  background: #fff; color: var(--shell);
+  padding: 4px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--ff-sans); font-weight: 800; font-size: 14px;
+  letter-spacing: -.04em;
+}
+.side-brand-name { color: #fff; font-weight: 600; font-size: 14px; letter-spacing: -.1px; }
+.side-brand-sub  { color: #6b7689; font-size: 11px; margin-top: 1px; }
+
+.side-section {
+  font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  color: #5e6a7e; text-transform: uppercase;
+  padding: 12px 10px 6px;
+}
+.side a, .side button.side-link {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; padding-left: 12px;
+  border-radius: 8px;
+  color: #b6c0d0; font-size: 13px; font-weight: 500;
+  text-align: left; width: 100%;
+  position: relative;
+  transition: background .15s, color .15s;
+}
+.side a:hover, .side button.side-link:hover { background: rgba(255, 255, 255, .04); color: #fff; }
+.side a.active, .side button.side-link.active {
+  background: rgba(255, 255, 255, .06); color: #fff;
+}
+.side a.active::before, .side button.side-link.active::before {
+  content: ""; width: 3px; height: 16px;
+  background: var(--accent); border-radius: 2px;
+}
+.side-key   { margin-left: auto; font-size: 10px; color: #5e6a7e; font-family: var(--ff-mono); }
+.side-badge {
+  margin-left: auto;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: 10px; font-weight: 700;
+  border-radius: 10px; padding: 1px 7px;
+  font-family: var(--ff-mono);
+}
+.side-badge.bad { background: var(--bad); color: #fff; }
+
+.side-foot {
+  margin-top: auto; padding: 12px 10px;
+  border-top: 1px solid rgba(255, 255, 255, .06);
+  display: flex; align-items: center; gap: 10px;
+}
+.side-avatar {
+  width: 30px; height: 30px;
+  background: var(--accent); color: var(--accent-ink);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 12px; flex-shrink: 0;
+}
+.side-foot-name { color: #fff; font-size: 13px; font-weight: 500; }
+.side-foot-role { color: #6b7689; font-size: 11px; }
+
+.main { display: flex; flex-direction: column; min-width: 0; }
+.topbar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  position: sticky; top: 0; z-index: 50;
+}
+.topbar-title { font-size: 16px; font-weight: 600; letter-spacing: -.2px; color: var(--ink); }
+.topbar-crumb {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--muted);
+}
+.topbar-spacer { flex: 1; }
+.search {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 10px;
+  width: 280px; max-width: 35vw;
+}
+.search input {
+  border: none; outline: none; background: none;
+  flex: 1; font-size: 13px; color: var(--ink);
+}
+.search input::placeholder { color: var(--muted-2); }
+.search-key {
+  font-family: var(--ff-mono); font-size: 10px;
+  color: var(--muted-2);
+  border: 1px solid var(--line); border-radius: 4px;
+  padding: 1px 5px; background: var(--surface);
+}
+.icon-btn {
+  width: 34px; height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); background: var(--surface);
+}
+.icon-btn:hover { color: var(--ink); border-color: var(--line-2); }
+
+.page { padding: 24px 28px 80px; max-width: 1280px; }
+.page-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  flex-wrap: wrap; gap: 16px; margin-bottom: 22px;
+}
+.page-h1 { font-size: 24px; font-weight: 700; letter-spacing: -.4px; color: var(--ink); }
+.page-sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .side {
+    position: fixed; left: -240px; width: 240px;
+    z-index: 200; transition: left .2s;
+  }
+  .side.open { left: 0; }
+  .topbar { padding: 12px 16px; }
+  .page { padding: 16px 16px 60px; }
+  .search { width: 180px; }
+}
+
+/* ── Components (components.css) ─────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface);
+  color: var(--ink); font-size: 13px; font-weight: 500;
+  transition: all .15s;
+}
+.btn:hover { border-color: var(--line-2); background: var(--surface-2); }
+.btn-primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+.btn-primary:hover { background: var(--shell-2); border-color: var(--shell-2); }
+.btn-accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn-accent:hover { background: var(--accent-2); border-color: var(--accent-2); }
+.btn-ghost { border-color: transparent; background: transparent; color: var(--muted); }
+.btn-ghost:hover { color: var(--ink); background: var(--surface-2); }
+.btn-danger { color: var(--bad); border-color: var(--bad-bg); }
+.btn-danger:hover { background: var(--bad-bg); }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-icon { width: 28px; height: 28px; padding: 0; justify-content: center; }
+
+.input, .select, .textarea {
+  width: 100%; padding: 9px 11px;
+  border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink);
+  font-size: 13px; outline: none;
+  transition: border-color .15s;
+}
+.input:focus, .select:focus, .textarea:focus { border-color: var(--ink); }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: var(--pad-card);
+  box-shadow: var(--shadow);
+}
+
+.kgrid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--gap); margin-bottom: 20px;
+}
+.kpi {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 16px 18px;
+  box-shadow: var(--shadow);
+}
+.kpi-l { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 8px; }
+.kpi-v { font-size: 28px; font-weight: 700; letter-spacing: -.6px; line-height: 1.05; font-variant-numeric: tabular-nums; color: var(--ink); }
+.kpi-v sup { font-size: 14px; font-weight: 500; opacity: .5; letter-spacing: 0; vertical-align: super; }
+.kpi-d { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+.card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px; flex-wrap: wrap; gap: 10px;
+}
+.card-title { font-size: 13px; font-weight: 600; color: var(--ink); }
+.card-sub   { font-size: 12px; color: var(--muted); }
+
+.sec-title {
+  font-size: 11px; font-weight: 700; letter-spacing: .7px;
+  color: var(--muted); text-transform: uppercase;
+  display: flex; align-items: center; gap: 10px;
+  margin: 22px 0 10px;
+}
+.sec-title::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600;
+  padding: 2px 9px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted);
+  border: 1px solid var(--line);
+}
+.pill-ok    { background: var(--ok-bg);   color: var(--ok);   border-color: transparent; }
+.pill-warn  { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.pill-bad   { background: var(--bad-bg);  color: var(--bad);  border-color: transparent; }
+.pill-info  { background: var(--info-bg); color: var(--info); border-color: transparent; }
+.pill-admin       { background: var(--role-admin-bg);       color: var(--role-admin);       border-color: transparent; }
+.pill-tradie      { background: var(--role-tradie-bg);      color: var(--role-tradie);      border-color: transparent; }
+.pill-leadingHand { background: var(--role-leadingHand-bg); color: var(--role-leadingHand); border-color: transparent; }
+.pill-client      { background: var(--role-client-bg);      color: var(--role-client);      border-color: transparent; }
+.pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.table-wrap {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r); overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.table { width: 100%; border-collapse: collapse; }
+.table thead th {
+  text-align: left; font-size: 11px; font-weight: 600;
+  color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+  padding: 10px 16px;
+  background: var(--surface-2); border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.table tbody td {
+  padding: var(--pad-cell);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px; vertical-align: middle;
+}
+.table tbody tr:last-child td { border-bottom: none; }
+.table tbody tr { transition: background .1s; }
+.table tbody tr:hover { background: var(--surface-2); }
+.table-num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--ff-mono); font-size: 12px; }
+.table-id  { font-family: var(--ff-mono); font-size: 12px; color: var(--muted); }
+
+.avatar {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: 12px; flex-shrink: 0;
+  background: var(--surface-3); color: var(--ink);
+}
+.avatar.admin       { background: var(--role-admin-bg);       color: var(--role-admin); }
+.avatar.tradie      { background: var(--role-tradie-bg);      color: var(--role-tradie); }
+.avatar.leadingHand { background: var(--role-leadingHand-bg); color: var(--role-leadingHand); }
+.avatar.client      { background: var(--role-client-bg);      color: var(--role-client); }
+.user-cell { display: flex; align-items: center; gap: 10px; }
+.user-name { font-weight: 500; color: var(--ink); }
+.user-handle { font-size: 11px; color: var(--muted); font-family: var(--ff-mono); }
+
+.empty {
+  text-align: center; padding: 60px 20px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r);
+}
+.empty-icon { font-size: 28px; margin-bottom: 8px; opacity: .5; }
+.empty-title { font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+.empty-sub { font-size: 12px; }
+
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--ink); color: #fff;
+  padding: 10px 16px; border-radius: 8px;
+  font-size: 13px; z-index: 400;
+  box-shadow: var(--shadow-lg);
+  animation: toast-in .2s ease;
+}
+@keyframes toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* ── Views (views.css) ───────────────────────────────────── */
+.hero {
+  background: linear-gradient(135deg, var(--shell) 0%, var(--shell-2) 100%);
+  color: #fff;
+  border-radius: var(--r-lg);
+  padding: 28px 32px; margin-bottom: 22px;
+  position: relative; overflow: hidden;
+}
+.hero::after {
+  content: ""; position: absolute;
+  top: -80px; right: -80px;
+  width: 280px; height: 280px;
+  background: radial-gradient(circle, rgba(224,138,26,.18), transparent 70%);
+  border-radius: 50%; pointer-events: none;
+}
+.hero-eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: #8a93a4; font-weight: 600; margin-bottom: 6px; }
+.hero-title { font-size: 22px; font-weight: 600; letter-spacing: -.3px; margin-bottom: 4px; }
+.hero-sub   { color: #b6c0d0; font-size: 13px; }
+.hero-row {
+  display: grid; grid-template-columns: 2fr 3fr;
+  gap: 28px; align-items: center;
+}
+@media (max-width: 720px) { .hero-row { grid-template-columns: 1fr; } }
+.hero-stats {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+}
+.hero-stat-l { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: #6b7689; font-weight: 600; margin-bottom: 4px; }
+.hero-stat-v { font-size: 24px; font-weight: 700; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+
+.bar { background: var(--surface-3); border-radius: 999px; height: 6px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 999px; transition: width .4s; }
+
+.two-col {
+  display: grid; grid-template-columns: 1.5fr 1fr;
+  gap: var(--gap); margin-bottom: 20px;
+}
+@media (max-width: 980px) { .two-col { grid-template-columns: 1fr; } }
+
+.job-mini {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer; transition: background .1s;
+}
+.job-mini:hover { background: var(--surface-2); }
+.job-mini:last-child { border-bottom: none; }
+.job-mini-top { display: flex; align-items: center; gap: 10px; }
+.job-mini-name { font-weight: 600; font-size: 14px; flex: 1; }
+.job-mini-ref {
+  font-family: var(--ff-mono); font-size: 11px; color: var(--muted);
+  padding: 2px 8px; background: var(--surface-3); border-radius: 4px;
+}
+.job-mini-meta {
+  display: flex; gap: 16px; font-size: 12px; color: var(--muted); flex-wrap: wrap;
+}
+.job-mini-meta b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.feed-item {
+  display: flex; gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.feed-item:last-child { border-bottom: none; }
+.feed-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: var(--surface-3); color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.feed-icon.photo    { background: var(--info-bg); color: var(--info); }
+.feed-icon.snag     { background: var(--bad-bg);  color: var(--bad); }
+.feed-icon.stage    { background: var(--ok-bg);   color: var(--ok); }
+.feed-icon.hours    { background: var(--warn-bg); color: var(--warn); }
+.feed-icon.approval { background: var(--ok-bg);   color: var(--ok); }
+.feed-icon.admin    { background: var(--role-admin-bg); color: var(--role-admin); }
+.feed-icon.tag      { background: var(--surface-3); color: var(--ink-2); }
+.feed-icon.temp     { background: var(--warn-bg); color: var(--warn); }
+.feed-icon.quote    { background: var(--info-bg); color: var(--info); }
+.feed-body { flex: 1; min-width: 0; }
+.feed-line { font-size: 13px; color: var(--ink); }
+.feed-line b { font-weight: 600; }
+.feed-line .muted { color: var(--muted); }
+.feed-meta { font-size: 11px; color: var(--muted-2); margin-top: 2px; }
+
+/* Week chart (sparkline bars) */
+.chart {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
+  align-items: end; height: 100px;
+  padding: 8px 0;
+}
+.chart-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.chart-bar {
+  width: 100%;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-2) 100%);
+  border-radius: 4px 4px 0 0;
+  min-height: 2px;
+}
+.chart-bar.weekend { background: var(--surface-3); }
+.chart-day { font-size: 10px; color: var(--muted); }
+.chart-val { font-size: 11px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* Approvals list (read-only) */
+.appr-row {
+  display: grid;
+  grid-template-columns: 36px 1.5fr 1fr 80px 90px 70px auto;
+  gap: 12px; align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.appr-row:hover { background: var(--surface-2); }
+.appr-row:last-child { border-bottom: none; }
+.appr-row.head {
+  background: var(--surface-2); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .5px;
+  color: var(--muted); font-weight: 600;
+}
+.appr-row.head:hover { background: var(--surface-2); }
+.appr-check {
+  width: 18px; height: 18px;
+  border: 1.5px solid var(--line-2); border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface);
+}
+.appr-check.checked {
+  background: var(--ok); border-color: var(--ok); color: #fff;
+}
+.appr-check.checked svg { width: 12px; height: 12px; }
+@media (max-width: 800px) {
+  .appr-row { grid-template-columns: 1fr auto; }
+  .appr-row > * + * { display: none; }
+  .appr-row.head { display: none; }
+}
+
+/* Job cards (Jobs view) */
+.job-card {
+  border: 1px solid var(--line); border-radius: var(--r);
+  padding: 16px 18px; background: var(--surface);
+  transition: border-color .15s;
+}
+.job-card:hover { border-color: var(--line-2); }
+.jobs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--gap);
+}
+.job-card-top { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+.job-card-name { font-size: 15px; font-weight: 600; flex: 1; line-height: 1.3; }
+.job-card-ref  { font-family: var(--ff-mono); font-size: 11px; color: var(--muted); margin-top: 2px; }
+.job-card-meta {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 10px 14px; font-size: 12px; color: var(--muted);
+  margin-top: 12px;
+}
+.job-card-meta b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.job-card-pct { font-size: 22px; font-weight: 700; letter-spacing: -.4px; font-variant-numeric: tabular-nums; }
+
+/* Tabs */
+.tabs {
+  display: flex; border-bottom: 1px solid var(--line);
+  margin-bottom: 18px; gap: 4px; flex-wrap: wrap;
+}
+.tab {
+  padding: 8px 14px;
+  font-size: 13px; font-weight: 500;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  border-radius: 6px 6px 0 0;
+}
+.tab:hover { color: var(--ink); background: var(--surface-2); }
+.tab.active { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+.tab .badge {
+  background: var(--surface-3); color: var(--muted);
+  font-size: 10px; padding: 1px 6px;
+  border-radius: 999px; margin-left: 4px;
+  font-variant-numeric: tabular-nums; font-weight: 600;
+}
+.tab.active .badge { background: var(--ink); color: var(--surface); }
+
+/* Toolbar above tables */
+.toolbar {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 14px; flex-wrap: wrap;
+}
+.toolbar .search { width: auto; min-width: 220px; flex: 1; max-width: 360px; }
+.toolbar-spacer { flex: 1; }
+.chip-group {
+  display: flex; gap: 4px; padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+.chip {
+  padding: 5px 10px; font-size: 12px; font-weight: 500;
+  color: var(--muted); border-radius: 6px; white-space: nowrap;
+}
+.chip:hover { color: var(--ink); }
+.chip.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+
+/* Bootstrap loading state */
+#boot-loading {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; color: var(--muted);
+  font-family: var(--ff-mono); font-size: 11px; letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+/* Tweaks panel position fix */
+[data-tweaks-panel] { z-index: 250; }
+</style>
+</head>
+<body>
+<div id="boot-loading">Loading site office…</div>
+
+<div class="app" id="app" hidden>
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <header class="topbar" id="topbar"></header>
+    <div class="page" id="page"></div>
+  </main>
+</div>
+
+<script>
+/* ── Helpers (state.js) ──────────────────────────────────── */
+const $  = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const initials = s => s ? s.split(/[\s._-]+/).filter(Boolean).slice(0,2).map(w => w[0]).join('').toUpperCase() : '?';
+const pluralize = (n, w, p) => n === 1 ? `${n} ${w}` : `${n} ${p || w + 's'}`;
+const ico = name => `<span class="ico">${ICONS[name] || ''}</span>`;
+
+/* ── Persisted tweaks (localStorage) ─────────────────────── */
+const TWEAK_DEFAULTS = { theme: 'light', density: 'default', accent: '#e08a1a' };
+const TWEAK_KEY = 'buhl-site-office-tweaks';
+let tweaks = (() => {
+  try { return Object.assign({}, TWEAK_DEFAULTS, JSON.parse(localStorage.getItem(TWEAK_KEY) || '{}')); }
+  catch { return { ...TWEAK_DEFAULTS }; }
+})();
+function shadeAccent(hex, amt) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  const t = n => Math.min(255, Math.round(n + (255 - n) * amt));
+  return '#' + [t(r),t(g),t(b)].map(n => n.toString(16).padStart(2,'0')).join('');
+}
+function applyTweaks() {
+  document.documentElement.dataset.density = tweaks.density;
+  document.documentElement.dataset.theme   = tweaks.theme;
+  document.documentElement.style.setProperty('--accent',   tweaks.accent);
+  document.documentElement.style.setProperty('--accent-2', shadeAccent(tweaks.accent, 0.18));
+  // Derive accent-ink from luminance so contrast stays legible across swatches.
+  const r = parseInt(tweaks.accent.slice(1,3),16),
+        g = parseInt(tweaks.accent.slice(3,5),16),
+        b = parseInt(tweaks.accent.slice(5,7),16);
+  const lum = (0.299*r + 0.587*g + 0.114*b);
+  document.documentElement.style.setProperty('--accent-ink', lum > 160 ? '#2a1a05' : '#fff');
+}
+function setTweak(k, v) {
+  tweaks[k] = v;
+  applyTweaks();
+  try { localStorage.setItem(TWEAK_KEY, JSON.stringify(tweaks)); } catch {}
+  if (tweakOpen) renderTweaksPanel();
+}
+applyTweaks();
+let tweakOpen = false;
+
+/* ── Icons (icons.js) ────────────────────────────────────── */
+const ICONS = {
+  overview:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l9-9 9 9M5 11v9h5v-6h4v6h5v-9"/></svg>',
+  users:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 15c2-.5 5.5.7 5.5 4"/></svg>',
+  jobs:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>',
+  hours:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  activity:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>',
+  field:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V8l8-5 8 5v12"/><path d="M9 20v-6h6v6"/></svg>',
+  search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  external:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M19 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h6"/></svg>',
+  more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>',
+  bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2H4.5L6 16z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>',
+  download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12m0 0l-4-4m4 4l4-4"/><path d="M4 20h16"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 7"/></svg>',
+  x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16v4z"/><path d="M14 6l4 4"/></svg>',
+  warn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 17H2L12 3z"/><path d="M12 10v4M12 17v.5"/></svg>',
+  arrow:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  photo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M3 17l5-4 4 3 4-5 5 6"/></svg>',
+  snag:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16v.5"/></svg>',
+  stage:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 6"/></svg>',
+  approval:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>',
+  temp:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>',
+  tag:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V3h9l9 9-9 9-9-9z"/><circle cx="8" cy="8" r="1.5"/></svg>',
+  admin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6l8-3z"/></svg>',
+  trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
+  quote:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg>',
+  tweaks:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2"/><path d="M8 7h12M3 7h1"/><circle cx="18" cy="12" r="2"/><path d="M3 12h13M20 12h1"/><circle cx="9" cy="17" r="2"/><path d="M3 17h4M11 17h10"/></svg>',
+};
+
+/* ── State ────────────────────────────────────────────────── */
+const STATE = {
+  view: 'overview',
+  ME: null,
+  users: [],            // normalised /api/users
+  jobs: [],             // normalised /api/jobs?withStats=1
+  hours: [],            // pending allocations (admin scope)
+  hoursApproved: [],    // approved entries this period (KPI only)
+  weekChart: [],        // [{day, hours}] — Mon→Sun for current ISO week
+  activity: [],         // synthesised from snags + hours + quotes
+  quoteMetrics: null,   // /api/quotes?action=metrics
+  filters: {
+    userRole: 'all',
+    userJob: 'all',
+    hourJob: 'all',
+    jobStatus: 'all',
+  },
+  search: '',
+};
+
+function jobById(id)  { return STATE.jobs.find(j => j.id === id); }
+function userById(id) { return STATE.users.find(u => u.id === id); }
+
+function toast(msg) {
+  $$('.toast').forEach(t => t.remove());
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2200);
+}
+
+function jobStatusPill(s) {
+  if (s === 'active')   return `<span class="pill pill-info"><span class="pill-dot"></span>Active</span>`;
+  if (s === 'paused')   return `<span class="pill pill-warn"><span class="pill-dot"></span>Paused</span>`;
+  if (s === 'complete') return `<span class="pill pill-ok"><span class="pill-dot"></span>Complete</span>`;
+  if (s === 'archived') return `<span class="pill"><span class="pill-dot"></span>Archived</span>`;
+  return `<span class="pill">${escapeHtml(s)}</span>`;
+}
+function rolePill(r) {
+  const lbl = r === 'leadingHand' ? 'Leading hand' : r[0].toUpperCase() + r.slice(1);
+  return `<span class="pill pill-${r}"><span class="pill-dot"></span>${lbl}</span>`;
+}
+function bar(pct, color) {
+  const p = Math.max(0, Math.min(100, Number(pct) || 0));
+  const c = color || (p >= 100 ? 'var(--ok)' : p >= 50 ? 'var(--accent)' : 'var(--info)');
+  return `<div class="bar"><div class="bar-fill" style="width:${p}%;background:${c}"></div></div>`;
+}
+function _iso(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function _ago(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso); if (isNaN(d)) return '—';
+  const s = Math.max(1, Math.floor((Date.now() - d) / 1000));
+  if (s < 60)        return 'just now';
+  if (s < 3600)      return Math.floor(s / 60) + ' min ago';
+  if (s < 86400)     return Math.floor(s / 3600) + ' hr ago';
+  if (s < 86400 * 7) return Math.floor(s / 86400) + 'd ago';
+  return d.toLocaleDateString('en-AU', { day:'numeric', month:'short' });
+}
+
+/* ── Auth + boot ─────────────────────────────────────────── */
+async function boot() {
+  // Same session-cookie check used by /admin.html.
+  const meR = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
+  if (!meR.ok) { location.href = '/login'; return; }
+  const j = await meR.json();
+  STATE.ME = j.user;
+  // Per spec — admin only. Non-admin (incl. leadingHand) goes to /login.
+  if (STATE.ME.role !== 'admin') {
+    location.href = '/login';
+    return;
+  }
+  await refreshAll();
+  const boot = document.getElementById('boot-loading');
+  if (boot) boot.remove();
+  $('#app').hidden = false;
+  renderShell();
+  renderCurrent();
+}
+
+async function refreshAll() {
+  // Time-entry window: this ISO week + 14 days back so we have inputs for
+  // both the week chart + the approval queue.
+  const today = new Date();
+  const monday = new Date(today);
+  const dow = monday.getDay() || 7;
+  if (dow !== 1) monday.setDate(monday.getDate() - (dow - 1));
+  monday.setHours(0,0,0,0);
+  const fromIsoWeek  = _iso(monday);
+  const toIsoToday   = _iso(today);
+
+  const [jobsR, usersR, jobTypesR, pendingR, weekR, snagsR, quotesR, qMetricsR] = await Promise.all([
+    fetch('/api/jobs?withStats=1', { credentials: 'same-origin' }),
+    fetch('/api/users',            { credentials: 'same-origin' }).catch(() => null),
+    fetch('/api/job-types',        { credentials: 'same-origin' }).catch(() => null),
+    fetch('/api/time-entries?status=submitted&scope=approver', { credentials: 'same-origin' }).catch(() => null),
+    fetch('/api/time-entries-overview?fromDate=' + encodeURIComponent(fromIsoWeek) + '&toDate=' + encodeURIComponent(toIsoToday), { credentials: 'same-origin' }).catch(() => null),
+    fetch('/api/snags-all?status=Open', { credentials: 'same-origin' }).catch(() => null),
+    fetch('/api/quotes', { credentials: 'same-origin' }).catch(() => null),
+    fetch('/api/quotes?action=metrics', { credentials: 'same-origin' }).catch(() => null),
+  ]);
+
+  // Jobs — normalise into the shape the views expect.
+  const rawJobs = jobsR.ok ? (await jobsR.json()).jobs || [] : [];
+  STATE.jobs = rawJobs.map(j => ({
+    id:            j.id,
+    name:          j.name || '(unnamed)',
+    ref:           (j.ref || j.shortRef || j.id).toUpperCase(),
+    client:        j.builder || j.contactName || '—',
+    clientId:      j.clientUserId || null,
+    status:        j.status || 'active',
+    progress:      typeof j.statsPct === 'number' ? j.statsPct : 0,
+    dwellings:     Number(j.statsDwellingCount || 0),
+    dwellingsDone: Number(j.statsDwellingsDone || 0),
+    openSnags:     Number(j.statsOpenSnags || 0),
+    weekHours:     Number(j.statsWeekHours || 0),
+    startedAt:     (j.startDate || j.createdAt || '').slice(0, 10),
+    lastActivity:  j.lastActivityIso || '',
+    typeId:        j.type || null,
+  }));
+
+  // Users — strip server-side fields the UI shouldn't see (passwordHash, etc).
+  const rawUsers = usersR && usersR.ok ? (await usersR.json()).users || [] : [];
+  STATE.users = rawUsers.map(u => ({
+    id:             u.id,
+    username:       u.username || u.id,
+    role:           u.role || 'tradie',
+    initials:       initials(u.username || u.id),
+    hourlyRate:     u.hourlyRate || null,
+    assignedJobIds: u.assignedJobIds || [],
+    weekHours:      0, // filled below from the week roll-up
+    lastSeen:       u.lastSeenIso || '',
+    createdAt:      u.createdAt || '',
+  }));
+
+  // Pending hours — flatten to allocation rows so the table reflects what
+  // the admin actually approves.
+  const pending = pendingR && pendingR.ok ? (await pendingR.json()).entries || [] : [];
+  STATE.hours = pending.flatMap(e => (e.allocations || []).map((a, i) => ({
+    id:          e.id + ':' + i,
+    entryId:     e.id,
+    userId:      e.userId,
+    userName:    e.userName || (userById(e.userId) || {}).username || e.userId,
+    jobId:       a.jobId || (e.allocations[0] || {}).jobId,
+    date:        e.date,
+    hours:       Number(a.hours) || 0,
+    rate:        ((rawUsers.find(u => u.id === e.userId) || {}).hourlyRate) || 0,
+    notes:       e.notes || a.notes || '',
+    approved:    e.status === 'approved',
+    submittedAt: e.submittedAt || '',
+  })));
+
+  // Week roll-up — totals per day (chart) + per-user totals (leaderboard).
+  const weekData = weekR && weekR.ok ? (await weekR.json()) : { entries: [] };
+  const dayTotals  = {};
+  const userTotals = {};
+  for (const e of (weekData.entries || [])) {
+    if (!e.date) continue;
+    dayTotals[e.date] = (dayTotals[e.date] || 0) + Number(e.totalHours || 0);
+    userTotals[e.userId] = (userTotals[e.userId] || 0) + Number(e.totalHours || 0);
+  }
+  STATE.users.forEach(u => { u.weekHours = userTotals[u.id] || 0; });
+  STATE.hoursApproved = (weekData.entries || []).filter(e => e.status === 'approved');
+
+  // Build a Mon→Sun chart for the current ISO week.
+  STATE.weekChart = [];
+  const dayLabels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday); d.setDate(monday.getDate() + i);
+    STATE.weekChart.push({
+      day:   dayLabels[i],
+      hours: Math.round((dayTotals[_iso(d)] || 0) * 10) / 10,
+    });
+  }
+
+  // Quote metrics — for the new Overview chip.
+  STATE.quoteMetrics = qMetricsR && qMetricsR.ok ? (await qMetricsR.json()).metrics || null : null;
+
+  // Activity feed — synthesised; no separate audit log.
+  const recentSnags  = snagsR  && snagsR.ok  ? (await snagsR.json()).snags  || [] : [];
+  const recentQuotes = quotesR && quotesR.ok ? (await quotesR.json()).quotes || [] : [];
+  const feed = [];
+  for (const s of recentSnags.slice(0, 8)) {
+    feed.push({
+      kind:    'snag',
+      who:     s.raisedBy || 'Crew',
+      action:  'raised a snag on',
+      target:  s.dwellingName || s.areaName || '(unit)',
+      time:    _ago(s.createdAt || s.raisedAt),
+      whenIso: s.createdAt || s.raisedAt || '',
+      jobId:   s.jobId || null,
+    });
+  }
+  for (const e of pending.slice(0, 6)) {
+    feed.push({
+      kind:    'hours',
+      who:     e.userName || 'Tradie',
+      action:  'submitted hours for',
+      target:  e.date,
+      time:    _ago(e.submittedAt || e.date),
+      whenIso: e.submittedAt || e.date || '',
+      jobId:   ((e.allocations || [])[0] || {}).jobId || null,
+    });
+  }
+  for (const q of recentQuotes.slice(0, 8)) {
+    if (q.acceptance && q.acceptance.acceptedAt) {
+      feed.push({
+        kind:    'approval',
+        who:     q.acceptance.clientName || q.contactName || 'Client',
+        action:  'accepted quote',
+        target:  q.name || q.id,
+        time:    _ago(q.acceptance.acceptedAt),
+        whenIso: q.acceptance.acceptedAt,
+        jobId:   null,
+      });
+    } else if (q.status === 'submitted' && q.updatedAt) {
+      feed.push({
+        kind:    'quote',
+        who:     q.createdBy || 'Admin',
+        action:  'submitted quote',
+        target:  q.name || q.id,
+        time:    _ago(q.updatedAt),
+        whenIso: q.updatedAt,
+        jobId:   null,
+      });
+    }
+  }
+  STATE.activity = feed
+    .sort((a, b) => (b.whenIso || '').localeCompare(a.whenIso || ''))
+    .slice(0, 30);
+}
+
+/* ── App orchestration (app.js) ──────────────────────────── */
+const VIEWS = {
+  overview: { label: 'Overview', icon: 'overview', render: renderOverview },
+  jobs:     { label: 'Jobs',     icon: 'jobs',     render: renderJobs },
+  users:    { label: 'Users',    icon: 'users',    render: renderUsers },
+  hours:    { label: 'Hours',    icon: 'hours',    render: renderHours },
+  activity: { label: 'Activity', icon: 'activity', render: renderActivity },
+};
+
+function show(view) {
+  STATE.view = view;
+  STATE.search = '';
+  renderShell();
+  renderCurrent();
+  window.scrollTo(0, 0);
+}
+function renderCurrent() {
+  $('#page').innerHTML = VIEWS[STATE.view].render();
+}
+
+function renderShell() {
+  const me = STATE.ME;
+  const pendingHours = STATE.hours.length;
+  const openSnagsTotal = STATE.jobs.reduce((a, j) => a + j.openSnags, 0);
+  const counts = {
+    overview: '',
+    jobs:  STATE.jobs.filter(j => j.status === 'active').length,
+    users: STATE.users.length,
+    hours: pendingHours,
+    activity: '',
+  };
+  const badgeClass = { hours: 'bad' };
+
+  $('#side').innerHTML = `
+    <div class="side-brand">
+      <div class="side-brand-mark">b</div>
+      <div>
+        <div class="side-brand-name">bühl admin</div>
+        <div class="side-brand-sub">site office</div>
+      </div>
+    </div>
+    <div class="side-section">Manage</div>
+    ${Object.entries(VIEWS).map(([key, v]) => `
+      <button class="side-link ${STATE.view === key ? 'active' : ''}" onclick="show('${key}')">
+        ${ICONS[v.icon]}
+        <span>${v.label}</span>
+        ${counts[key] !== '' ? `<span class="side-badge ${badgeClass[key] || ''}">${counts[key]}</span>` : ''}
+      </button>
+    `).join('')}
+    <div class="side-section">Field</div>
+    <a href="/overview"   target="_blank" rel="noopener">${ICONS.field}<span>Operations</span>${ICONS.external}</a>
+    <a href="/jobs"       target="_blank" rel="noopener">${ICONS.field}<span>Jobs (field)</span>${ICONS.external}</a>
+    <a href="/admin.html" rel="noopener">${ICONS.admin}<span>Legacy admin</span>${ICONS.external}</a>
+    <div class="side-foot">
+      <div class="side-avatar">${initials(me.username)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="side-foot-name">${escapeHtml(me.username)}</div>
+        <div class="side-foot-role">Admin · signed in</div>
+      </div>
+      <button class="btn-icon btn-ghost" title="Tweaks"   onclick="toggleTweaks()" style="color:#8a93a4">${ICONS.tweaks}</button>
+      <button class="btn-icon btn-ghost" title="Sign out" onclick="signOut()"      style="color:#8a93a4">${ICONS.x}</button>
+    </div>
+  `;
+
+  $('#topbar').innerHTML = `
+    <div class="topbar-crumb">
+      <span>Admin</span><span>›</span>
+      <span style="color:var(--ink);font-weight:500">${VIEWS[STATE.view].label}</span>
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="search">
+      ${ICONS.search}
+      <input placeholder="Quick find — job, user…" oninput="STATE.search=this.value;renderCurrent()" value="${escapeHtml(STATE.search)}">
+      <span class="search-key">⌘K</span>
+    </div>
+    <button class="icon-btn" title="Notifications" style="position:relative">
+      ${ICONS.bell}
+      ${(pendingHours + openSnagsTotal) > 0
+        ? `<span style="position:absolute;top:6px;right:6px;width:7px;height:7px;background:var(--bad);border-radius:50%;border:1.5px solid var(--surface)"></span>`
+        : ''}
+    </button>
+  `;
+}
+
+async function signOut() {
+  await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+  location.href = '/login';
+}
+
+/* ── Overview view (view-overview.js) ────────────────────── */
+function renderOverview() {
+  const totalDw    = STATE.jobs.reduce((a, j) => a + j.dwellings, 0);
+  const totalDone  = STATE.jobs.reduce((a, j) => a + j.dwellingsDone, 0);
+  const totalSnags = STATE.jobs.reduce((a, j) => a + j.openSnags, 0);
+  const weekHours  = STATE.weekChart.reduce((a, d) => a + d.hours, 0);
+  const pendingHrs = STATE.hours.length;
+  const pendingTot = STATE.hours.reduce((a, h) => a + h.hours, 0);
+  const tradies    = STATE.users.filter(u => u.role === 'tradie' || u.role === 'leadingHand').length;
+  const activeTrd  = STATE.users.filter(u => (u.role === 'tradie' || u.role === 'leadingHand') && u.weekHours > 0).length;
+  const activeJobs = STATE.jobs.filter(j => j.status === 'active').length;
+  const maxDay     = Math.max(...STATE.weekChart.map(d => d.hours), 1);
+
+  const today = new Date().toLocaleDateString('en-AU', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+
+  return `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Overview</div>
+        <div class="page-sub">${today} · all jobs across the org</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn" onclick="exportOverviewCSV()">${ico('download')} Export CSV</button>
+        <a class="btn btn-accent" href="/admin.html#tab-jobs">${ico('plus')} New job</a>
+      </div>
+    </div>
+
+    <div class="hero">
+      <div class="hero-row">
+        <div>
+          <div class="hero-eyebrow">This week</div>
+          <div class="hero-title tabular">${weekHours.toFixed(1)} hours logged</div>
+          <div class="hero-sub">${activeTrd} of ${tradies} crew active across ${activeJobs} live jobs</div>
+        </div>
+        <div class="hero-stats">
+          <div><div class="hero-stat-l">Pending approvals</div><div class="hero-stat-v">${pendingHrs}</div></div>
+          <div><div class="hero-stat-l">Open snags</div><div class="hero-stat-v">${totalSnags}</div></div>
+          <div><div class="hero-stat-l">Dwellings</div><div class="hero-stat-v">${totalDone}<span style="color:#6b7689">/${totalDw}</span></div></div>
+          <div><div class="hero-stat-l">Active jobs</div><div class="hero-stat-v">${activeJobs}</div></div>
+        </div>
+      </div>
+    </div>
+
+    ${pendingHrs > 0 ? `
+      <div class="card" style="background:var(--warn-bg);border-color:#e6c98a;display:flex;align-items:center;gap:14px;padding:14px 18px;margin-bottom:20px">
+        <span style="color:var(--warn);display:flex">${ICONS.warn}</span>
+        <div style="flex:1">
+          <div style="font-weight:600;color:var(--warn);font-size:13px">${pendingHrs} timesheet allocation${pendingHrs===1?'':'s'} awaiting approval</div>
+          <div style="font-size:12px;color:var(--warn);opacity:.8">${pendingTot.toFixed(1)} hours pending across ${new Set(STATE.hours.map(h => h.userId)).size} crew</div>
+        </div>
+        <button class="btn btn-sm" onclick="show('hours')" style="background:var(--warn);border-color:var(--warn);color:#fff">Review hours ${ICONS.arrow}</button>
+      </div>
+    ` : ''}
+
+    <div class="two-col">
+      <div class="card" style="padding:0">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div class="card-title">Jobs at a glance</div>
+            <div class="card-sub">${pluralize(activeJobs, 'active job')} · sorted by recent activity</div>
+          </div>
+          <button class="btn btn-sm btn-ghost" onclick="show('jobs')">View all ${ICONS.arrow}</button>
+        </div>
+        <div>
+          ${STATE.jobs
+            .filter(j => j.status === 'active')
+            .sort((a, b) => (b.lastActivity || '').localeCompare(a.lastActivity || ''))
+            .slice(0, 5)
+            .map(j => `
+              <div class="job-mini" onclick="location.href='/jobs/${j.id}'">
+                <div class="job-mini-top">
+                  <div class="job-mini-name">${escapeHtml(j.name)}</div>
+                  <div class="job-mini-ref">${escapeHtml(j.ref)}</div>
+                  ${jobStatusPill(j.status)}
+                </div>
+                ${bar(j.progress)}
+                <div class="job-mini-meta">
+                  <span><b>${j.progress}%</b> complete</span>
+                  ${j.dwellings ? `<span><b>${j.dwellingsDone}/${j.dwellings}</b> dwellings</span>` : ''}
+                  ${j.weekHours ? `<span><b>${j.weekHours.toFixed(1)}h</b> this week</span>` : ''}
+                  ${j.openSnags > 0
+                    ? `<span style="color:var(--bad)"><b>${j.openSnags}</b> open snag${j.openSnags>1?'s':''}</span>`
+                    : `<span style="color:var(--ok)">No snags</span>`}
+                </div>
+              </div>
+            `).join('') || '<div class="empty" style="border:0">No active jobs.</div>'}
+        </div>
+      </div>
+
+      <div class="card" style="padding:0">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
+          <div class="card-title">Hours this week</div>
+          <div class="card-sub">${weekHours.toFixed(1)}h org-wide</div>
+        </div>
+        <div style="padding:14px 18px">
+          <div class="chart">
+            ${STATE.weekChart.map((d, i) => {
+              const h = Math.max(2, Math.round(d.hours / maxDay * 80));
+              const we = i >= 5;
+              return `<div class="chart-col">
+                <div class="chart-val">${d.hours || ''}</div>
+                <div class="chart-bar ${we ? 'weekend' : ''}" style="height:${h}px"></div>
+                <div class="chart-day">${d.day}</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+        <div style="padding:14px 18px;border-top:1px solid var(--line)">
+          <div class="card-title" style="margin-bottom:10px">Most hours this week</div>
+          ${STATE.users.filter(u => u.weekHours > 0)
+            .sort((a, b) => b.weekHours - a.weekHours)
+            .slice(0, 5).map(u => `
+              <div style="display:flex;align-items:center;gap:10px;padding:6px 0">
+                <div class="avatar ${u.role}">${u.initials}</div>
+                <div style="flex:1;font-size:13px;font-weight:500">${escapeHtml(u.username)}</div>
+                <div class="tabular" style="font-weight:600">${u.weekHours.toFixed(1)}h</div>
+              </div>
+            `).join('') || '<div style="color:var(--muted);font-size:12px">No hours logged this week yet.</div>'}
+        </div>
+      </div>
+    </div>
+
+    ${STATE.quoteMetrics ? `
+      <div class="kgrid">
+        <div class="kpi"><div class="kpi-l">Quotes total</div><div class="kpi-v">${STATE.quoteMetrics.total}</div><div class="kpi-d">${STATE.quoteMetrics.recent30Count} created in last 30d</div></div>
+        <div class="kpi"><div class="kpi-l">Win rate</div><div class="kpi-v" style="${STATE.quoteMetrics.winRatePct == null ? '' : (STATE.quoteMetrics.winRatePct >= 50 ? 'color:var(--ok)' : (STATE.quoteMetrics.winRatePct >= 30 ? 'color:var(--warn)' : 'color:var(--bad)'))}">${STATE.quoteMetrics.winRatePct == null ? '—' : STATE.quoteMetrics.winRatePct.toFixed(1) + '<sup>%</sup>'}</div><div class="kpi-d">${STATE.quoteMetrics.winCount} of ${STATE.quoteMetrics.conclusiveCount} conclusive</div></div>
+        <div class="kpi"><div class="kpi-l">Avg cycle</div><div class="kpi-v">${STATE.quoteMetrics.avgCycleDays == null ? '—' : STATE.quoteMetrics.avgCycleDays + '<sup>d</sup>'}</div><div class="kpi-d">create → accept</div></div>
+        <div class="kpi"><div class="kpi-l">90d won (value)</div><div class="kpi-v">${STATE.quoteMetrics.recent90Value > 0 ? '$' + Number(STATE.quoteMetrics.recent90Value).toLocaleString('en-AU',{maximumFractionDigits:0}) : '—'}</div><div class="kpi-d">${STATE.quoteMetrics.recent90Count} won</div></div>
+      </div>
+    ` : ''}
+
+    <div class="card" style="padding:0">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div class="card-title">Recent activity</div>
+          <div class="card-sub">Across all jobs</div>
+        </div>
+        <button class="btn btn-sm btn-ghost" onclick="show('activity')">Full feed ${ICONS.arrow}</button>
+      </div>
+      ${STATE.activity.slice(0, 6).map(a => activityItem(a)).join('') || '<div class="empty" style="border:0;padding:30px">Nothing yet today.</div>'}
+    </div>
+  `;
+}
+
+function activityItem(a) {
+  const j = a.jobId ? jobById(a.jobId) : null;
+  return `
+    <div class="feed-item">
+      <div class="feed-icon ${a.kind}">${ICONS[a.kind] || ICONS.activity}</div>
+      <div class="feed-body">
+        <div class="feed-line"><b>${escapeHtml(a.who)}</b> <span class="muted">${escapeHtml(a.action)}</span> ${escapeHtml(a.target)}</div>
+        <div class="feed-meta">${escapeHtml(a.time)}${j ? ' · ' + escapeHtml(j.ref) : ''}</div>
+      </div>
+    </div>
+  `;
+}
+
+function exportOverviewCSV() {
+  const rows = [['Job ref','Name','Status','Progress %','Dwellings','Snags','Week hours']];
+  STATE.jobs.forEach(j => rows.push([j.ref, j.name, j.status, j.progress, j.dwellings, j.openSnags, j.weekHours.toFixed(1)]));
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  const a = document.createElement('a'); a.href = url; a.download = 'overview-jobs.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ── Jobs view (view-jobs.js) ────────────────────────────── */
+function renderJobs() {
+  const counts = {
+    all:      STATE.jobs.length,
+    active:   STATE.jobs.filter(j => j.status === 'active').length,
+    paused:   STATE.jobs.filter(j => j.status === 'paused').length,
+    complete: STATE.jobs.filter(j => j.status === 'complete').length,
+    archived: STATE.jobs.filter(j => j.status === 'archived').length,
+  };
+  const status = STATE.filters.jobStatus;
+  const q = STATE.search.toLowerCase();
+  const list = STATE.jobs.filter(j => {
+    if (status !== 'all' && j.status !== status) return false;
+    if (q && !(j.name.toLowerCase().includes(q) || j.ref.toLowerCase().includes(q) || (j.client || '').toLowerCase().includes(q))) return false;
+    return true;
+  });
+
+  return `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Jobs</div>
+        <div class="page-sub">${pluralize(counts.active, 'live job')} · ${counts.paused} paused · ${counts.complete} complete${counts.archived ? ' · ' + counts.archived + ' archived' : ''}</div>
+      </div>
+      <div class="page-actions">
+        <a class="btn btn-accent" href="/admin.html#tab-jobs">${ico('plus')} New job</a>
+      </div>
+    </div>
+
+    <div class="tabs">
+      ${['all','active','paused','complete','archived'].map(r => `
+        <button class="tab ${status === r ? 'active' : ''}" onclick="STATE.filters.jobStatus='${r}';renderCurrent()">
+          ${r === 'all' ? 'All' : r[0].toUpperCase() + r.slice(1)}
+          <span class="badge">${counts[r] || 0}</span>
+        </button>
+      `).join('')}
+    </div>
+
+    <div class="jobs-grid">
+      ${list.length ? list.map(j => jobCard(j)).join('') : `
+        <div class="empty" style="grid-column:1/-1">
+          <div class="empty-icon">${ICONS.jobs}</div>
+          <div class="empty-title">No jobs match those filters</div>
+          <div class="empty-sub">Try a different status or clear the search.</div>
+        </div>`}
+    </div>
+  `;
+}
+function jobCard(j) {
+  return `
+    <div class="job-card" onclick="location.href='/jobs/${j.id}'" style="cursor:pointer">
+      <div class="job-card-top">
+        <div style="flex:1">
+          <div class="job-card-name">${escapeHtml(j.name)}</div>
+          <div class="job-card-ref">${escapeHtml(j.ref)}${j.client && j.client !== '—' ? ' · ' + escapeHtml(j.client) : ''}</div>
+        </div>
+        ${jobStatusPill(j.status)}
+      </div>
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:10px">
+        <div class="job-card-pct">${j.progress}%</div>
+        ${j.dwellings ? `<div style="font-size:12px;color:var(--muted)"><b style="color:var(--ink)">${j.dwellingsDone}</b>/${j.dwellings} dwellings done</div>` : ''}
+      </div>
+      ${bar(j.progress)}
+      <div class="job-card-meta">
+        <span>This week <b>${j.weekHours.toFixed(1)}h</b></span>
+        <span>Open snags <b ${j.openSnags > 0 ? 'style="color:var(--bad)"' : ''}>${j.openSnags}</b></span>
+        ${j.startedAt ? `<span>Started <b>${escapeHtml(j.startedAt)}</b></span>` : ''}
+        ${j.lastActivity ? `<span>Activity <b>${escapeHtml(_ago(j.lastActivity))}</b></span>` : ''}
+      </div>
+      <div style="display:flex;gap:6px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+        <a class="btn btn-sm" href="/jobs/${j.id}" onclick="event.stopPropagation()">${ICONS.external} Open</a>
+        <a class="btn btn-sm btn-ghost" href="/admin.html#tab-jobs" onclick="event.stopPropagation()">${ICONS.edit} Edit</a>
+      </div>
+    </div>
+  `;
+}
+
+/* ── Users view (view-users.js) ──────────────────────────── */
+function renderUsers() {
+  const counts = {
+    all:         STATE.users.length,
+    admin:       STATE.users.filter(u => u.role === 'admin').length,
+    leadingHand: STATE.users.filter(u => u.role === 'leadingHand').length,
+    tradie:      STATE.users.filter(u => u.role === 'tradie').length,
+    client:      STATE.users.filter(u => u.role === 'client').length,
+  };
+  const role = STATE.filters.userRole;
+  const q = STATE.search.toLowerCase();
+  const filtered = STATE.users.filter(u => {
+    if (role !== 'all' && u.role !== role) return false;
+    if (STATE.filters.userJob !== 'all' && !(u.assignedJobIds || []).includes(STATE.filters.userJob)) return false;
+    if (q && !u.username.toLowerCase().includes(q) && !u.id.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  return `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Users</div>
+        <div class="page-sub">${pluralize(STATE.users.length, 'person')} with access · admins, leading hands, tradies, clients</div>
+      </div>
+      <div class="page-actions">
+        <a class="btn btn-accent" href="/admin.html#tab-people">${ico('plus')} Add user</a>
+      </div>
+    </div>
+
+    <div class="tabs">
+      ${['all','admin','leadingHand','tradie','client'].map(r => `
+        <button class="tab ${role === r ? 'active' : ''}" onclick="STATE.filters.userRole='${r}';renderCurrent()">
+          ${r === 'all' ? 'All' : (r === 'leadingHand' ? 'Leading hands' : r[0].toUpperCase() + r.slice(1) + 's')}
+          <span class="badge">${counts[r] || 0}</span>
+        </button>
+      `).join('')}
+    </div>
+
+    <div class="toolbar">
+      <div class="search">${ico('search')}<input placeholder="Search by name or id…" value="${escapeHtml(STATE.search)}" oninput="STATE.search=this.value;renderCurrent()"></div>
+      <select class="select" style="width:auto" onchange="STATE.filters.userJob=this.value;renderCurrent()">
+        <option value="all">All jobs</option>
+        ${STATE.jobs.map(j => `<option value="${j.id}" ${STATE.filters.userJob === j.id ? 'selected' : ''}>${escapeHtml(j.ref)} — ${escapeHtml(j.name)}</option>`).join('')}
+      </select>
+      <div class="toolbar-spacer"></div>
+      <span style="color:var(--muted);font-size:12px">${pluralize(filtered.length, 'result')}</span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th style="padding-left:18px">Name</th>
+            <th>Role</th>
+            <th>Jobs</th>
+            <th class="table-num">Rate</th>
+            <th class="table-num">This week</th>
+            <th>Last seen</th>
+            <th style="width:60px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filtered.length === 0
+            ? `<tr><td colspan="7" style="padding:60px;text-align:center;color:var(--muted)">No users match those filters</td></tr>`
+            : filtered.map(u => userRow(u)).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+function userRow(u) {
+  const jobsList = (u.assignedJobIds || []).map(id => (jobById(id) || {}).ref).filter(Boolean);
+  return `
+    <tr style="cursor:pointer" onclick="location.href='/admin.html#tab-people'">
+      <td style="padding-left:18px">
+        <div class="user-cell">
+          <div class="avatar ${u.role}">${u.initials}</div>
+          <div>
+            <div class="user-name">${escapeHtml(u.username)}</div>
+            <div class="user-handle">${escapeHtml(u.id)}</div>
+          </div>
+        </div>
+      </td>
+      <td>${rolePill(u.role)}</td>
+      <td>
+        ${jobsList.length === 0 ? '<span style="color:var(--muted-2)">—</span>' :
+          jobsList.length <= 3 ? jobsList.map(r => `<span class="pill" style="margin-right:3px">${escapeHtml(r)}</span>`).join('') :
+          `${jobsList.slice(0,2).map(r=>`<span class="pill" style="margin-right:3px">${escapeHtml(r)}</span>`).join('')}<span class="pill">+${jobsList.length-2}</span>`}
+      </td>
+      <td class="table-num">${u.hourlyRate ? '$' + u.hourlyRate : '—'}</td>
+      <td class="table-num">${u.weekHours > 0 ? u.weekHours.toFixed(1) + 'h' : '—'}</td>
+      <td style="color:var(--muted);font-size:12px">${u.lastSeen ? escapeHtml(_ago(u.lastSeen)) : '—'}</td>
+      <td><a class="btn btn-icon btn-ghost" href="/admin.html#tab-people" onclick="event.stopPropagation()">${ICONS.more}</a></td>
+    </tr>
+  `;
+}
+
+/* ── Hours view (view-hours.js) ──────────────────────────── */
+function renderHours() {
+  const list = STATE.hours.filter(h => {
+    if (STATE.filters.hourJob !== 'all' && h.jobId !== STATE.filters.hourJob) return false;
+    return true;
+  });
+  const pendingTotal = list.reduce((a, h) => a + h.hours, 0);
+  const pendingCost  = list.reduce((a, h) => a + h.hours * (h.rate || 0), 0);
+  const approvedHrs  = STATE.hoursApproved.reduce((a, e) => a + Number(e.totalHours || 0), 0);
+
+  // Group by user (per pack pattern).
+  const grouped = {};
+  list.forEach(h => {
+    const k = h.userId;
+    if (!grouped[k]) {
+      grouped[k] = {
+        user: STATE.users.find(u => u.id === h.userId) || {
+          id: h.userId, username: h.userName || h.userId,
+          role: 'tradie', initials: initials(h.userName || h.userId),
+          hourlyRate: h.rate,
+        },
+        entries: [], total: 0, cost: 0,
+      };
+    }
+    grouped[k].entries.push(h);
+    grouped[k].total += h.hours;
+    grouped[k].cost  += h.hours * (h.rate || 0);
+  });
+  const groups = Object.values(grouped).sort((a, b) => b.total - a.total);
+
+  return `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Hours review</div>
+        <div class="page-sub">Pending timesheet entries — read-only here. Approve them on <a href="/approvals" style="color:inherit;text-decoration:underline">/approvals</a>.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn" onclick="exportHoursCSV()">${ico('download')} Export CSV</button>
+        <a class="btn btn-accent" href="/approvals">${ico('approval')} Review on /approvals</a>
+      </div>
+    </div>
+
+    <div class="kgrid">
+      <div class="kpi">
+        <div class="kpi-l">Pending hours</div>
+        <div class="kpi-v" style="color:var(--warn)">${pendingTotal.toFixed(1)}<sup>h</sup></div>
+        <div class="kpi-d">${list.length} allocation${list.length === 1 ? '' : 's'}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-l">Pending payroll</div>
+        <div class="kpi-v">$${pendingCost.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</div>
+        <div class="kpi-d">at current rates</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-l">Approved this period</div>
+        <div class="kpi-v" style="color:var(--ok)">${approvedHrs.toFixed(1)}<sup>h</sup></div>
+        <div class="kpi-d">${STATE.hoursApproved.length} entries</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-l">Crew on payroll</div>
+        <div class="kpi-v">${new Set(list.map(h => h.userId)).size}</div>
+        <div class="kpi-d">across ${new Set(list.map(h => h.jobId).filter(Boolean)).size} jobs</div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <select class="select" style="width:auto" onchange="STATE.filters.hourJob=this.value;renderCurrent()">
+        <option value="all">All jobs</option>
+        ${STATE.jobs.map(j => `<option value="${j.id}" ${STATE.filters.hourJob === j.id ? 'selected' : ''}>${escapeHtml(j.ref)} — ${escapeHtml(j.name)}</option>`).join('')}
+      </select>
+      <div class="toolbar-spacer"></div>
+      <span style="color:var(--muted);font-size:12px">${pluralize(list.length, 'allocation')}</span>
+    </div>
+
+    ${groups.length === 0 ? `
+      <div class="empty">
+        <div class="empty-icon">${ICONS.approval}</div>
+        <div class="empty-title">All caught up</div>
+        <div class="empty-sub">No timesheet entries match those filters.</div>
+      </div>
+    ` : groups.map(g => hourGroup(g)).join('')}
+  `;
+}
+function hourGroup(g) {
+  const u = g.user;
+  const dateKey = e => e.entryId || (e.userId + ':' + e.date);
+  const seenEntries = new Set();
+  g.entries.forEach(e => seenEntries.add(dateKey(e)));
+  return `
+    <div class="card" style="padding:0;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line);background:var(--surface-2)">
+        <div class="avatar ${u.role}">${u.initials}</div>
+        <div style="flex:1">
+          <div style="font-weight:600">${escapeHtml(u.username)}</div>
+          <div style="font-size:12px;color:var(--muted)">${pluralize(g.entries.length, 'allocation')} across ${seenEntries.size} ${seenEntries.size === 1 ? 'day' : 'days'} · ${u.hourlyRate ? '$' + u.hourlyRate + '/hr' : 'no rate set'}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="tabular" style="font-weight:700;font-size:18px">${g.total.toFixed(1)}h</div>
+          <div style="font-size:12px;color:var(--muted)" class="tabular">$${g.cost.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</div>
+        </div>
+      </div>
+      <div class="appr-row head">
+        <div></div><div>Date · job</div><div>Notes</div><div class="table-num">Hours</div><div class="table-num">Rate</div><div class="table-num">Total</div><div></div>
+      </div>
+      ${g.entries.map(h => hourRow(h)).join('')}
+    </div>
+  `;
+}
+function hourRow(h) {
+  const j = h.jobId ? jobById(h.jobId) : null;
+  return `
+    <div class="appr-row" data-entryid="${escapeHtml(h.entryId || '')}" data-userid="${escapeHtml(h.userId)}" data-date="${escapeHtml(h.date)}">
+      <div class="appr-check ${h.approved ? 'checked' : ''}" title="${h.approved ? 'Approved' : 'Approve on /approvals'}">${h.approved ? ICONS.check : ''}</div>
+      <div>
+        <div style="font-weight:500;font-size:13px" class="tabular">${escapeHtml(h.date)}${j ? ' · ' + escapeHtml(j.ref) : ''}</div>
+        <div style="font-size:11px;color:var(--muted)">${escapeHtml((h.userName || '').slice(0, 40))}</div>
+      </div>
+      <div style="font-size:12px;color:var(--muted)">${escapeHtml((h.notes || '').slice(0, 90))}</div>
+      <div class="table-num">${h.hours.toFixed(1)}h</div>
+      <div class="table-num">${h.rate ? '$' + h.rate : '—'}</div>
+      <div class="table-num" style="font-weight:600">${h.rate ? '$' + (h.hours * h.rate).toFixed(0) : '—'}</div>
+      <div style="display:flex;gap:4px;justify-content:flex-end">
+        <a class="btn btn-sm btn-ghost" href="/approvals" title="Open in approvals">${ICONS.external}</a>
+      </div>
+    </div>
+  `;
+}
+
+function exportHoursCSV() {
+  const rows = [['Date','User','Job ref','Hours','Rate','Total','Notes']];
+  STATE.hours.forEach(h => {
+    const j = h.jobId ? jobById(h.jobId) : null;
+    rows.push([h.date, h.userName, j ? j.ref : '', h.hours, h.rate || '', h.rate ? (h.hours * h.rate).toFixed(2) : '', (h.notes || '').replace(/\n/g, ' ')]);
+  });
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  const a = document.createElement('a'); a.href = url; a.download = 'pending-hours.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ── Activity view (view-hours.js — second renderer) ─────── */
+function renderActivity() {
+  return `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Activity log</div>
+        <div class="page-sub">Recent events across the org · synthesised from snags, hours, and quotes</div>
+      </div>
+    </div>
+    <div class="card" style="padding:0">
+      ${STATE.activity.length
+        ? STATE.activity.map(a => activityItem(a)).join('')
+        : '<div class="empty" style="border:0;padding:40px">Nothing yet today.</div>'}
+    </div>
+  `;
+}
+
+/* ── Cmd-K + Esc keyboard shortcuts ──────────────────────── */
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    const input = document.querySelector('.topbar .search input');
+    if (input) { input.focus(); input.select(); }
+  }
+  if (e.key === 'Escape' && tweakOpen) { tweakOpen = false; renderTweaksPanel(); }
+});
+
+/* ── Tweaks panel (tweaks.js, no postMessage) ────────────── */
+function toggleTweaks() { tweakOpen = !tweakOpen; renderTweaksPanel(); }
+function renderTweaksPanel() {
+  let host = document.getElementById('tweaks-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'tweaks-host';
+    host.setAttribute('data-tweaks-panel','');
+    document.body.appendChild(host);
+  }
+  if (!tweakOpen) { host.innerHTML = ''; return; }
+  const ACCENTS = ['#e08a1a','#f5d020','#1c5fb8','#1f8a4c','#b3261e','#5b3a8a'];
+  host.innerHTML = `
+    <div style="position:fixed;bottom:20px;right:20px;width:300px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow-lg);padding:18px;z-index:300">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="font-weight:600;font-size:14px">Tweaks</div>
+        <button class="btn btn-icon btn-ghost" onclick="toggleTweaks()">${ICONS.x}</button>
+      </div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Theme</div>
+      <div class="chip-group" style="display:grid;grid-template-columns:1fr 1fr">
+        <button class="chip ${tweaks.theme==='light'?'active':''}" onclick="setTweak('theme','light')">Light</button>
+        <button class="chip ${tweaks.theme==='dark'?'active':''}"  onclick="setTweak('theme','dark')">Dark</button>
+      </div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px">Density</div>
+      <div class="chip-group" style="display:grid;grid-template-columns:1fr 1fr 1fr">
+        <button class="chip ${tweaks.density==='compact'?'active':''}" onclick="setTweak('density','compact')">Compact</button>
+        <button class="chip ${tweaks.density==='default'?'active':''}" onclick="setTweak('density','default')">Default</button>
+        <button class="chip ${tweaks.density==='roomy'?'active':''}"   onclick="setTweak('density','roomy')">Roomy</button>
+      </div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px">Accent colour</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${ACCENTS.map(c => `
+          <button onclick="setTweak('accent','${c}')" title="${c}"
+            style="width:28px;height:28px;border-radius:50%;background:${c};border:2px solid ${tweaks.accent===c?'var(--ink)':'var(--line)'};cursor:pointer"></button>
+        `).join('')}
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);line-height:1.5">
+        Saved to this device. <kbd style="font-family:var(--ff-mono);background:var(--surface-2);padding:1px 5px;border:1px solid var(--line);border-radius:3px">⌘K</kbd> focuses search · <kbd style="font-family:var(--ff-mono);background:var(--surface-2);padding:1px 5px;border:1px solid var(--line);border-radius:3px">Esc</kbd> closes panels.
+      </div>
+    </div>
+  `;
+}
+
+/* ── Boot ────────────────────────────────────────────────── */
+boot().catch(e => {
+  console.error('site office boot failed', e);
+  const boot = document.getElementById('boot-loading');
+  if (boot) boot.textContent = 'Could not load — try refreshing.';
+});
+</script>
+</body>
+</html>
