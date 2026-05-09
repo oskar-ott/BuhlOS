@@ -3,7 +3,7 @@
     { "source": "/login", "destination": "/login.html" },
     { "source": "/jobs", "destination": "/jobs.html" },
     { "source": "/jobs/:jobId", "destination": "/index.html" },
-    { "source": "/admin/", "destination": "/admin/index.html" },
+    { "source": "/admin/", "destination": "/admin-office.html" },
     { "source": "/admin", "destination": "/admin.html" },
     { "source": "/admin-v2", "destination": "/admin-v2.html" },
     { "source": "/overview", "destination": "/overview.html" },
