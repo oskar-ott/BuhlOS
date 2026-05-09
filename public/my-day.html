@@ -113,6 +113,36 @@
   }
   .md-banner-chev { font-size: 22px; font-weight: 400; opacity: .7; }
 
+  /* Quick-add hours chips — Sheet 03 moment 02. */
+  .md-quick {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    margin: -10px 0 18px;
+  }
+  .md-quick[hidden] { display: none !important; }
+  .md-quick-chip {
+    appearance: none; -webkit-appearance: none;
+    height: 34px; padding: 0 12px;
+    background: var(--paper); border: 1px solid var(--rule-2);
+    color: var(--ink-2); cursor: pointer;
+    font-family: var(--mono);
+    font-size: 10.5px; font-weight: 600;
+    letter-spacing: .12em; text-transform: uppercase;
+    border-radius: var(--radius);
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  .md-quick-chip:hover { background: var(--paper-3); color: var(--navy); }
+  .md-quick-chip:active { transform: translateY(1px); }
+  .md-quick-chip.busy { opacity: .55; cursor: wait; }
+  .md-quick-chip:disabled { opacity: .45; cursor: not-allowed; }
+  .md-quick-meta {
+    margin-left: auto;
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .md-quick-meta.ok { color: var(--green); }
+  .md-quick-meta.err { color: var(--red); }
+
   /* (Action Needed CSS retired with the section in the My-Day simplification.) */
 
   .md-sec { margin-bottom: 22px; }
@@ -422,6 +452,16 @@
     <div class="md-banner-chev">&#8250;</div>
   </button>
 
+  <!-- Sheet 03 moment 02 — quick-add hours chips. Two taps from anywhere:
+       open my-day, tap +30 / +1HR / + custom. No modal, no confirm. -->
+  <div class="md-quick" id="md-quick" hidden>
+    <button type="button" class="md-quick-chip" data-qh="0.5">+ 30 MIN</button>
+    <button type="button" class="md-quick-chip" data-qh="1">+ 1 HR</button>
+    <button type="button" class="md-quick-chip" data-qh="2">+ 2 HR</button>
+    <button type="button" class="md-quick-chip" data-qh="custom">+ CUSTOM</button>
+    <span class="md-quick-meta" id="md-quick-meta"></span>
+  </div>
+
   <!-- My snags — shown when current user is the assignee on at least one
        open snag across any of their jobs. -->
   <section class="md-sec" id="mysnags-sec" style="display:none">
@@ -660,8 +700,6 @@ function renderBanner(){
                        : entry.status === 'draft'   ? 'var(--muted)'
                        : 'var(--green)';
     txt.innerHTML = `Today: ${fmtDur(total)} <span style="color:${statusColor};font-size:13px;font-weight:700;margin-left:4px">${statusLabel}</span>`;
-    // Approved entries are read-only for tradies (server enforces) so the
-    // sub-text becomes "Tap to view" instead of an edit promise we can't keep.
     sub.textContent =
       entry.status === 'draft'    ? 'Tap to submit' :
       entry.status === 'approved' ? 'Tap to view'   :
@@ -672,7 +710,167 @@ function renderBanner(){
     txt.textContent = `Log today's hours`;
     sub.textContent = 'Takes 10 seconds';
   }
+  renderQuickChips();
 }
+
+// ── Hours quick-add chips (Sheet 03 moment 02) ────────────────────────────
+// Show only when:
+//   - there's at least one assigned active job (we know where to allocate)
+//   - the user can still mutate today (not approved, not in the future)
+// Tapping a chip:
+//   - If no entry today → POST a new draft, allocating bumped hours to the
+//     primary assigned job.
+//   - If entry exists and status ≠ approved → PATCH, bumping the first
+//     allocation's hours by the chip amount and recomputing totals.
+//   - On success: refresh MY_TIME_ENTRIES, re-render banner + week strip.
+function _myAssignedActiveJobs() {
+  const ids = new Set(ME && ME.assignedJobIds ? ME.assignedJobIds : []);
+  return JOBS.filter(j => ids.has(j.id) && (j.status || 'active') === 'active');
+}
+function _primaryJobForQuickAdd() {
+  const mine = _myAssignedActiveJobs();
+  if (!mine.length) return null;
+  // Prefer the job we already logged to today (so chips bump that allocation
+  // rather than introducing a second job allocation).
+  const today = todaysEntry();
+  if (today && Array.isArray(today.allocations) && today.allocations.length) {
+    const recent = today.allocations[0].jobId;
+    const match  = mine.find(j => j.id === recent);
+    if (match) return match;
+  }
+  return mine[0];
+}
+function renderQuickChips() {
+  const root = document.getElementById('md-quick');
+  if (!root) return;
+  const mine = _myAssignedActiveJobs();
+  const today = todaysEntry();
+  // Hide if no assigned active job, or today's entry is approved (tradies
+  // can't edit those — they need admin help).
+  if (!mine.length || (today && today.status === 'approved')) {
+    root.hidden = true;
+    return;
+  }
+  root.hidden = false;
+  const meta = document.getElementById('md-quick-meta');
+  const primary = _primaryJobForQuickAdd();
+  if (meta && primary) {
+    const t = today ? Number(today.totalHours || 0) : 0;
+    meta.textContent = (t > 0 ? `+ to ${fmtDur(t)} on ` : 'logs to ') +
+                       (primary.name || 'job');
+    meta.classList.remove('ok', 'err');
+  }
+}
+async function _quickAddHours(deltaHours) {
+  const mine = _myAssignedActiveJobs();
+  if (!mine.length) return;
+  const primary = _primaryJobForQuickAdd();
+  if (!primary) return;
+  const meta = document.getElementById('md-quick-meta');
+  const today = todaysEntry();
+
+  // Build the next entry shape. New: single allocation against the primary
+  // job. Existing: bump the first allocation that targets primary; if none,
+  // append a new allocation.
+  let body;
+  let url, method;
+  if (!today) {
+    body = {
+      date: todayIso(),
+      totalHours: deltaHours,
+      ordinaryHours: deltaHours,
+      overtimeHours: 0,
+      otOverridden: false,
+      allocations: [{ jobId: primary.id, hours: deltaHours }],
+      status: 'draft',
+    };
+    url = '/api/time-entries';
+    method = 'POST';
+  } else {
+    const existing = today;
+    if (existing.status === 'approved') return;
+    const nextTotal = Number(existing.totalHours || 0) + deltaHours;
+    let nextAllocs = (existing.allocations || []).map(a => ({ jobId: a.jobId, hours: Number(a.hours), notes: a.notes }));
+    const idx = nextAllocs.findIndex(a => a.jobId === primary.id);
+    if (idx >= 0) {
+      nextAllocs[idx].hours = Number(nextAllocs[idx].hours || 0) + deltaHours;
+    } else {
+      nextAllocs.push({ jobId: primary.id, hours: deltaHours });
+    }
+    // Round each allocation + total to 2 decimals; rebuild ordinary/overtime
+    // by extending the previous split proportionally so we don't change OT
+    // policy implicitly.
+    const round = n => Math.round(n * 100) / 100;
+    nextAllocs = nextAllocs.map(a => ({ ...a, hours: round(a.hours) }));
+    const sumAlloc = nextAllocs.reduce((s, a) => s + a.hours, 0);
+    const newTotal = round(sumAlloc);
+    const otFrac = existing.totalHours > 0
+      ? Number(existing.overtimeHours || 0) / Number(existing.totalHours)
+      : 0;
+    const overtime = round(newTotal * otFrac);
+    const ordinary = round(newTotal - overtime);
+    body = {
+      totalHours: newTotal,
+      ordinaryHours: ordinary,
+      overtimeHours: overtime,
+      otOverridden: !!existing.otOverridden,
+      allocations: nextAllocs,
+      // If it was rejected, send back as draft for the tradie to re-review
+      // before submitting. If it was submitted, keep it submitted (admin
+      // gets the bumped value and either approves or rejects again).
+      status: existing.status === 'rejected' ? 'draft' : existing.status,
+    };
+    url = '/api/time-entries?date=' + encodeURIComponent(existing.date);
+    method = 'PATCH';
+  }
+
+  // Optimistic UI: disable chips while in flight.
+  const chips = document.querySelectorAll('.md-quick-chip');
+  chips.forEach(c => c.classList.add('busy'));
+  if (meta) { meta.textContent = 'logging…'; meta.classList.remove('ok', 'err'); }
+  try {
+    const r = await fetch(url, {
+      method, credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'log failed');
+    // Refresh MY_TIME_ENTRIES from the source of truth + re-render.
+    const fromIso = (() => { const d = isoWeekMonday(); d.setDate(d.getDate() - 14); return _iso(d); })();
+    const teRes = await fetch('/api/time-entries?fromDate=' + encodeURIComponent(fromIso),
+                              { credentials: 'same-origin' });
+    if (teRes.ok) {
+      const td = await teRes.json();
+      MY_TIME_ENTRIES = (td.entries || []);
+    }
+    renderBanner();
+    if (typeof renderMyWeek === 'function') renderMyWeek();
+    if (meta) { meta.textContent = '✓ saved'; meta.classList.add('ok'); }
+    setTimeout(() => { if (meta && meta.classList.contains('ok')) renderQuickChips(); }, 1800);
+  } catch (e) {
+    if (meta) { meta.textContent = 'error · ' + (e.message || 'try again'); meta.classList.add('err'); }
+    setTimeout(() => { if (meta) renderQuickChips(); }, 3000);
+  } finally {
+    chips.forEach(c => c.classList.remove('busy'));
+  }
+}
+function _quickCustomPrompt() {
+  const raw = prompt('How many hours to add? (e.g. 0.25, 1.5)');
+  if (raw == null) return;
+  const v = Number(raw);
+  if (!isFinite(v) || v <= 0 || v > 16) {
+    alert('Hours must be between 0 and 16.'); return;
+  }
+  _quickAddHours(Math.round(v * 100) / 100);
+}
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest && e.target.closest('.md-quick-chip');
+  if (!chip || chip.classList.contains('busy') || chip.disabled) return;
+  const v = chip.getAttribute('data-qh');
+  if (v === 'custom') _quickCustomPrompt();
+  else { const n = Number(v); if (isFinite(n) && n > 0) _quickAddHours(n); }
+});
 
 // ─── Continue where you left off (top 3 unique {jobId,areaId}) ───────────
 function timeAgo(ts){
