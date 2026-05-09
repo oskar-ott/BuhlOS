@@ -1208,6 +1208,8 @@ dialog h3.dlg-title {
         <button data-qsec="structure">Structure</button>
         <button data-qsec="materials">Materials</button>
         <button data-qsec="labour">Labour</button>
+        <button data-qsec="provisional">Provisional</button>
+        <button data-qsec="pricing">Pricing &amp; totals</button>
         <button data-qsec="risks">Risks &amp; Assumptions</button>
         <button data-qsec="summary">Summary</button>
       </nav>
@@ -4395,6 +4397,8 @@ function _qRenderSection() {
   if (sec === 'structure')  _qRenderStructure(host);
   if (sec === 'materials')  _qRenderMaterials(host);
   if (sec === 'labour')     _qRenderLabour(host);
+  if (sec === 'provisional')_qRenderProvisional(host);
+  if (sec === 'pricing')    _qRenderPricing(host);
   if (sec === 'risks')      _qRenderRisks(host);
   if (sec === 'summary')    _qRenderSummary(host);
 }
@@ -5145,6 +5149,319 @@ async function _qLabRemove(lineId) {
   } catch (e) { alert('Delete failed: ' + e.message); }
 }
 
+// ── Provisional sums + Allowances ─────────────────────────────────────────
+// PS items / Allowances are billed at face value (no markup). The admin
+// uses this section for client-supplied items, scope-flex items, or
+// budget placeholders.
+function _qRenderProvisional(host) {
+  const data = (qState.open && qState.open.provisional) || { items: [] };
+  const items = data.items || [];
+  const psCount = items.filter(i => i.kind === 'provisional').length;
+  const allowCount = items.filter(i => i.kind === 'allowance').length;
+  const total = items.reduce((s, i) => s + (Number(i.amountExGst) || 0), 0);
+
+  const rows = items.length
+    ? items.map(it => `
+      <div class="s-row" data-itemid="${esc(it.id)}">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span class="status-badge ${it.kind === 'allowance' ? 'in-progress' : 'snagged'}">${it.kind === 'allowance' ? 'Allowance' : 'PS'}</span>
+          <strong style="font-size:14px">${esc(it.name)}</strong>
+        </div>
+        ${it.description ? `<div style="font-size:12.5px;color:var(--muted);margin-top:4px">${esc(it.description)}</div>` : ''}
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--muted)">
+          <span>${esc(it.notes || '')}</span>
+          <span style="font-family:var(--display);font-weight:700;font-size:16px;color:var(--ink);font-variant-numeric:tabular-nums">$${(Number(it.amountExGst)||0).toFixed(2)}</span>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="s-add" style="background:var(--paper);color:var(--ink);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="_qPsEdit('${esc(it.id)}')">Edit</button>
+          <button class="s-add" style="background:var(--paper);color:var(--red);border:1px solid var(--red-bd);font-size:11px;padding:5px 10px" onclick="_qPsDel('${esc(it.id)}')">Remove</button>
+        </div>
+      </div>
+    `).join('')
+    : `<div class="empty-block">No provisional sums or allowances yet. Use these for client-supplied items, scope-flex items, or budget placeholders.</div>`;
+
+  host.innerHTML = `
+    <div class="s-card">
+      <div class="s-card-hdr">
+        <div><div class="s-card-title">Provisional sums &amp; allowances</div>
+        <div class="s-card-sub">${psCount} PS &middot; ${allowCount} allowances &middot; <strong>$${total.toFixed(2)} ex-GST</strong> total · billed at face value, no markup applied</div></div>
+        <div style="display:flex;gap:8px">
+          <button class="s-add" onclick="_qPsAdd('provisional')">+ Add PS item</button>
+          <button class="s-add" onclick="_qPsAdd('allowance')" style="background:var(--paper);color:var(--ink);border:1px solid var(--border)">+ Add allowance</button>
+        </div>
+      </div>
+      <div class="s-card-body" style="display:flex;flex-direction:column;gap:8px">${rows}</div>
+    </div>
+  `;
+}
+
+async function _qPsAdd(kind) {
+  const name = prompt('Name (e.g. "Light fittings — client supplied")');
+  if (!name || !name.trim()) return;
+  const amtRaw = prompt('Amount (ex-GST, $)');
+  if (amtRaw == null) return;
+  const amount = Number(amtRaw);
+  if (!isFinite(amount) || amount < 0) { alert('Amount must be a non-negative number'); return; }
+  const desc = prompt('Description (optional)') || '';
+  const r = await fetch('/api/quotes?id=' + encodeURIComponent(qState.openQuoteId) + '&action=provisional',
+    { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ kind, name: name.trim(), amountExGst: amount, description: desc.trim() }) });
+  if (!r.ok) { alert('Could not add PS item'); return; }
+  await _qReloadAndRefresh();
+}
+
+async function _qPsEdit(itemId) {
+  const it = ((qState.open.provisional && qState.open.provisional.items) || []).find(x => x.id === itemId);
+  if (!it) return;
+  const name = prompt('Name', it.name);
+  if (name == null) return;
+  const amtRaw = prompt('Amount (ex-GST, $)', String(Number(it.amountExGst) || 0));
+  if (amtRaw == null) return;
+  const amount = Number(amtRaw);
+  if (!isFinite(amount) || amount < 0) { alert('Amount must be a non-negative number'); return; }
+  const desc = prompt('Description', it.description || '');
+  const r = await fetch('/api/quotes?id=' + encodeURIComponent(qState.openQuoteId) + '&action=provisional&itemId=' + encodeURIComponent(itemId),
+    { method:'PATCH', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name: name.trim(), amountExGst: amount, description: (desc||'').trim() }) });
+  if (!r.ok) { alert('Could not update PS item'); return; }
+  await _qReloadAndRefresh();
+}
+
+async function _qPsDel(itemId) {
+  if (!confirm('Remove this provisional / allowance item?')) return;
+  const r = await fetch('/api/quotes?id=' + encodeURIComponent(qState.openQuoteId) + '&action=provisional&itemId=' + encodeURIComponent(itemId),
+    { method:'DELETE', credentials:'same-origin' });
+  if (!r.ok) { alert('Could not remove'); return; }
+  await _qReloadAndRefresh();
+}
+
+// ── Pricing & totals ──────────────────────────────────────────────────────
+// The pricing tab is where the admin sets markup, GST and the labour
+// sell rate, then sees the rolled-up cost / sell / margin / GST / total.
+function _qRenderPricing(host) {
+  const p = (qState.open && qState.open.pricing) || {};
+  const t = (qState.open && qState.open.totals) || {};
+  const markupTbl = p.materialMarkupPct || { default: 25 };
+  const cats = Object.keys(markupTbl).filter(k => k !== 'default').sort();
+
+  const fmtMoney = v => '$' + (Number(v) || 0).toFixed(2);
+  const fmtMoneyB = v => '<span style="font-family:var(--display);font-weight:700;font-variant-numeric:tabular-nums">' + fmtMoney(v) + '</span>';
+
+  // Materials breakdown table.
+  const matBreakdown = (t.materials && t.materials.breakdown) || [];
+  const matRows = matBreakdown.length
+    ? matBreakdown.map(r => `
+      <tr>
+        <td>${esc(r.category)}</td>
+        <td style="text-align:right;font-family:var(--mono)">${r.count}</td>
+        <td style="text-align:right;font-family:var(--mono)">${fmtMoney(r.cost)}</td>
+        <td style="text-align:right;font-family:var(--mono)">${r.markupPct}%</td>
+        <td style="text-align:right;font-family:var(--mono);font-weight:700">${fmtMoney(r.sell)}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:14px">No material costs entered yet.</td></tr>`;
+
+  // Per-category markup editor — one row per existing override + a row for
+  // the "default" + a "+ category override" affordance.
+  const markupRows = `
+    <tr>
+      <td>Default (all uncategorised)</td>
+      <td style="text-align:right">
+        <input id="qpr-mu-default" type="number" min="-50" max="500" step="0.5" value="${markupTbl.default || 25}" style="width:80px;text-align:right;padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-family:var(--mono)"> %
+      </td>
+    </tr>
+    ${cats.map(c => `
+      <tr>
+        <td>${esc(c)}</td>
+        <td style="text-align:right">
+          <input id="qpr-mu-${esc(c)}" data-cat="${esc(c)}" class="qpr-mu-cat" type="number" min="-50" max="500" step="0.5" value="${markupTbl[c]}" style="width:80px;text-align:right;padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-family:var(--mono)"> %
+          <button onclick="_qPricingDelCat('${esc(c)}')" style="margin-left:6px;background:transparent;border:0;color:var(--red);cursor:pointer;font-size:14px" title="Remove override">×</button>
+        </td>
+      </tr>`).join('')}
+  `;
+
+  host.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div class="s-card">
+        <div class="s-card-hdr"><div><div class="s-card-title">Pricing settings</div>
+        <div class="s-card-sub">How cost lines roll up to a sell-side total.</div></div></div>
+        <div class="s-card-body">
+          <div class="snag-field">
+            <label class="snag-field-label">Material markup by category (% applied to cost)</label>
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead><tr style="background:var(--paper-3);font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)">
+                <th style="text-align:left;padding:8px 10px">Category</th>
+                <th style="text-align:right;padding:8px 10px;width:140px">Markup %</th>
+              </tr></thead>
+              <tbody>${markupRows}</tbody>
+            </table>
+            <div style="margin-top:8px"><button class="s-add" style="background:var(--paper);color:var(--ink);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="_qPricingAddCat()">+ Category override</button></div>
+          </div>
+
+          <div class="snag-field" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px">
+            <div>
+              <label class="snag-field-label">Labour sell rate ($/hr)</label>
+              <input id="qpr-labour-sell" type="number" min="0" max="1000" step="0.5" value="${p.labourSellRate || 95}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono)">
+            </div>
+            <div>
+              <label class="snag-field-label">Labour cost mode</label>
+              <select id="qpr-labour-mode" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit">
+                <option value="per-line" ${p.labourCostMode==='per-line'?'selected':''}>Per line (uses each line's hourlyRate)</option>
+                <option value="shared" ${p.labourCostMode==='shared'?'selected':''}>Shared (use one cost rate)</option>
+              </select>
+            </div>
+            <div>
+              <label class="snag-field-label">Shared labour cost rate ($/hr)</label>
+              <input id="qpr-labour-cost" type="number" min="0" max="1000" step="0.5" value="${p.labourCostRate || 65}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono)" ${p.labourCostMode==='per-line'?'disabled':''}>
+            </div>
+            <div>
+              <label class="snag-field-label">Contingency (%)</label>
+              <input id="qpr-cont" type="number" min="0" max="50" step="0.5" value="${p.contingencyPct || 0}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono)">
+            </div>
+            <div>
+              <label class="snag-field-label">GST (%)</label>
+              <input id="qpr-gst" type="number" min="0" max="30" step="0.5" value="${p.gstPct != null ? p.gstPct : 10}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono)">
+            </div>
+            <div>
+              <label class="snag-field-label">Validity (days)</label>
+              <input id="qpr-val" type="number" min="1" max="365" step="1" value="${p.validityDays || 30}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono)">
+            </div>
+          </div>
+
+          <div class="snag-field" style="margin-top:14px">
+            <label class="snag-field-label">Override total (ex-GST, $) <span style="color:var(--muted);text-transform:none;font-weight:500">— set when you've negotiated a fixed price</span></label>
+            <input id="qpr-override" type="number" min="0" step="0.01" value="${p.overrideTotalExGst != null ? p.overrideTotalExGst : ''}" placeholder="(computed automatically)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:var(--mono)">
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:14px">
+            <button class="s-add" onclick="_qPricingSave()">Save pricing</button>
+            <button class="s-add" style="background:var(--paper);color:var(--ink);border:1px solid var(--border)" onclick="_qPricingClearOverride()">Clear override</button>
+            <span id="qpr-msg" style="font-size:12px;color:var(--green);align-self:center"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="s-card">
+        <div class="s-card-hdr"><div><div class="s-card-title">Totals</div>
+        <div class="s-card-sub">${t.overridden ? '<strong style="color:var(--amber)">Override active</strong> — computed total ignored.' : 'Live roll-up across all sections.'}</div></div></div>
+        <div class="s-card-body">
+          <div style="display:grid;grid-template-columns:1fr auto;gap:8px 14px;font-family:var(--mono);font-size:13px">
+            <div>Materials cost</div>            <div style="text-align:right">${fmtMoney(t.materials && t.materials.cost)}</div>
+            <div>Materials sell (after markup)</div><div style="text-align:right">${fmtMoneyB(t.materials && t.materials.sell)}</div>
+            <div>Labour hours</div>              <div style="text-align:right">${(t.labour && t.labour.hours || 0).toFixed(1)} h</div>
+            <div>Labour cost</div>               <div style="text-align:right">${fmtMoney(t.labour && t.labour.cost)}</div>
+            <div>Labour sell @ $${(t.labour && t.labour.sellRate || 0).toFixed(0)}/hr</div><div style="text-align:right">${fmtMoneyB(t.labour && t.labour.sell)}</div>
+            <div>Provisional sums (${t.provisional && t.provisional.count || 0})</div><div style="text-align:right">${fmtMoneyB(t.provisional && t.provisional.total)}</div>
+            <div>Contingency (${(t.contingency && t.contingency.pct || 0).toFixed(1)}%)</div><div style="text-align:right">${fmtMoney(t.contingency && t.contingency.amount)}</div>
+            <div style="border-top:1px solid var(--border);padding-top:8px;font-weight:700">Subtotal (ex-GST)</div>
+            <div style="border-top:1px solid var(--border);padding-top:8px;text-align:right;font-weight:700">${fmtMoneyB(t.subtotalExGst)}</div>
+            <div>GST (${(t.gstPct || 0).toFixed(1)}%)</div><div style="text-align:right">${fmtMoney(t.gst)}</div>
+            <div style="font-family:var(--display);font-weight:700;font-size:16px;color:var(--ink)">Total (inc-GST)</div>
+            <div style="font-family:var(--display);font-weight:800;font-size:18px;color:var(--ink);text-align:right">${fmtMoney(t.totalIncGst)}</div>
+            <div style="margin-top:14px;padding-top:8px;border-top:1px dashed var(--border);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.12em">Internal margin</div>
+            <div style="margin-top:14px;padding-top:8px;border-top:1px dashed var(--border);text-align:right;color:var(--muted);font-size:11px"></div>
+            <div>Total cost</div>                <div style="text-align:right">${fmtMoney(t.totalCost)}</div>
+            <div>Total sell (ex PS)</div>        <div style="text-align:right">${fmtMoney(t.totalSell)}</div>
+            <div>Margin</div>                    <div style="text-align:right">${fmtMoneyB(t.margin && t.margin.amount)} (${(t.margin && t.margin.pct || 0).toFixed(1)}%)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="s-card">
+      <div class="s-card-hdr"><div><div class="s-card-title">Materials breakdown by category</div>
+      <div class="s-card-sub">Cost vs sell, by category, applying the markup table above.</div></div></div>
+      <div class="s-card-body">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="background:var(--paper-3);font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)">
+            <th style="text-align:left;padding:8px 10px">Category</th>
+            <th style="text-align:right;padding:8px 10px">Lines</th>
+            <th style="text-align:right;padding:8px 10px">Cost</th>
+            <th style="text-align:right;padding:8px 10px">Markup</th>
+            <th style="text-align:right;padding:8px 10px">Sell</th>
+          </tr></thead>
+          <tbody>${matRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function _qPricingSave() {
+  // Collect markup table from the inputs.
+  const markupTbl = {};
+  const def = Number(document.getElementById('qpr-mu-default').value);
+  if (isFinite(def)) markupTbl.default = def;
+  document.querySelectorAll('.qpr-mu-cat').forEach(inp => {
+    const cat = inp.getAttribute('data-cat');
+    const v = Number(inp.value);
+    if (cat && isFinite(v)) markupTbl[cat] = v;
+  });
+  const body = {
+    materialMarkupPct: markupTbl,
+    labourSellRate:    Number(document.getElementById('qpr-labour-sell').value),
+    labourCostMode:    document.getElementById('qpr-labour-mode').value,
+    labourCostRate:    Number(document.getElementById('qpr-labour-cost').value),
+    contingencyPct:    Number(document.getElementById('qpr-cont').value),
+    gstPct:            Number(document.getElementById('qpr-gst').value),
+    validityDays:      Number(document.getElementById('qpr-val').value),
+  };
+  const ovRaw = document.getElementById('qpr-override').value;
+  body.overrideTotalExGst = ovRaw === '' ? null : Number(ovRaw);
+  const r = await fetch('/api/quotes?id=' + encodeURIComponent(qState.openQuoteId) + '&action=pricing',
+    { method:'PATCH', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body) });
+  if (!r.ok) { alert('Could not save pricing settings'); return; }
+  const msg = document.getElementById('qpr-msg');
+  if (msg) { msg.textContent = '✓ Saved'; setTimeout(() => msg.textContent = '', 2400); }
+  await _qReloadAndRefresh();
+}
+
+async function _qPricingAddCat() {
+  const name = prompt('Category name (e.g. "Switchgear")');
+  if (!name || !name.trim()) return;
+  const pct = prompt('Markup % for ' + name.trim(), '25');
+  if (pct == null) return;
+  const v = Number(pct);
+  if (!isFinite(v)) { alert('Markup must be a number'); return; }
+  const cur = (qState.open && qState.open.pricing && qState.open.pricing.materialMarkupPct) || { default: 25 };
+  const next = Object.assign({}, cur);
+  next[name.trim()] = v;
+  const r = await fetch('/api/quotes?id=' + encodeURIComponent(qState.openQuoteId) + '&action=pricing',
+    { method:'PATCH', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ materialMarkupPct: next }) });
+  if (!r.ok) { alert('Could not add category override'); return; }
+  await _qReloadAndRefresh();
+}
+
+async function _qPricingDelCat(cat) {
+  const cur = (qState.open && qState.open.pricing && qState.open.pricing.materialMarkupPct) || { default: 25 };
+  const next = Object.assign({}, cur);
+  delete next[cat];
+  const r = await fetch('/api/quotes?id=' + encodeURIComponent(qState.openQuoteId) + '&action=pricing',
+    { method:'PATCH', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ materialMarkupPct: next }) });
+  if (!r.ok) { alert('Could not remove category override'); return; }
+  await _qReloadAndRefresh();
+}
+
+async function _qPricingClearOverride() {
+  const r = await fetch('/api/quotes?id=' + encodeURIComponent(qState.openQuoteId) + '&action=pricing',
+    { method:'PATCH', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ overrideTotalExGst: null }) });
+  if (!r.ok) { alert('Could not clear override'); return; }
+  await _qReloadAndRefresh();
+}
+
+// Re-fetch the open quote bundle (which includes fresh totals) and re-render.
+async function _qReloadAndRefresh() {
+  if (!qState.openQuoteId) return;
+  try {
+    const r = await fetch('/api/quotes?id=' + encodeURIComponent(qState.openQuoteId), { credentials:'same-origin' });
+    if (r.ok) qState.open = await r.json();
+  } catch {}
+  _qRenderSection();
+}
+
 function _qRenderRisks(host) {
   const n = qState.open.notes;
   const ta = (id, label, arr) => `<div class="snag-field"><label class="snag-field-label">${label} <span style="color:var(--muted);text-transform:none;font-weight:500">(one per line)</span></label>
@@ -5187,22 +5504,20 @@ function _qRenderSummary(host) {
   const groups = (q.structure.areaGroups || []).length;
   const areas = (q.structure.areaGroups || []).reduce((s,g) => s + (g.areas||[]).length, 0);
   const mats = (q.materials.items || []).length;
-  const matCost = (q.materials.items || []).reduce((s,i) => s + (Number(i.totalCost) || (Number(i.unitCost)||0)*(Number(i.quantity)||0)), 0);
   const labLines = (q.labour.lines || []).length;
-  const labH = (q.labour.lines || []).reduce((s,l) => s + (Number(l.estimatedHours)||0), 0);
-  const labCost = (q.labour.lines || []).reduce((s,l) => s + (Number(l.estimatedHours)||0)*(Number(l.hourlyRate)||0)*(Number(l.riskFactor)||1), 0);
   const ass = (q.notes.assumptions || []).length;
   const risks = (q.notes.risks || []).length;
-  const total = matCost + labCost;
+  const t = q.totals || {};
+  const fmt$ = n => '$' + (Number(n)||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
   const notice = q.quote.convertedJobId
     ? `<div class="empty-block" style="margin-top:14px;border-color:var(--green-bd);background:var(--green-bg)"><div class="empty-block-title">✓ Converted to live job</div><div>This quote was converted to job <b>${esc(q.quote.convertedJobId)}</b>. <a href="/jobs/${esc(q.quote.convertedJobId)}" target="_blank">Open dashboard ↗</a></div></div>`
     : `<div class="s-card" style="margin-top:14px"><div class="s-card-hdr"><div><div class="s-card-title">Convert to live job</div><div class="s-card-sub">Creates a new job in <code>jobs.json</code> with this quote's structure (area groups, rough-in/fit-off task union from work packages) plus the materials list. Status moves to <b>Converted</b>.</div></div><button class="s-add" onclick="_qConvert()" style="background:var(--accent);color:var(--accent-ink)" ${q.quote.status==='lost'||q.quote.status==='declined'||q.quote.status==='archived'?'disabled':''}>Convert →</button></div></div>`;
   host.innerHTML = `
     <div class="s-card">
-      <div class="s-card-hdr"><div><div class="s-card-title">Summary</div><div class="s-card-sub">Snapshot of what's been captured. Estimated total only shows when both materials and labour have prices/rates.</div></div>
+      <div class="s-card-hdr"><div><div class="s-card-title">Summary</div><div class="s-card-sub">Snapshot of what's been captured.${t.overridden ? ' <strong style="color:var(--amber)">Override total active</strong>.' : ''}</div></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="s-add" onclick="_qPrintSummary()" title="Internal estimate — full labour + cost detail">Internal estimate</button>
-          <button class="s-add" onclick="_qPrintClientQuote()" style="background:#fff;color:var(--header);border:1px solid var(--border)" title="Client-facing version — scope + assumptions, no internal cost detail">Client quote</button>
+          <button class="s-add" onclick="_qPrintClientQuote()" style="background:#fff;color:var(--header);border:1px solid var(--border)" title="Client-facing version — totals + scope + assumptions">Client quote</button>
         </div>
       </div>
       <div class="hours-summary" style="margin-bottom:14px">
@@ -5211,13 +5526,22 @@ function _qRenderSummary(host) {
         <div class="hours-card"><div class="hours-card-label">Areas</div><div class="hours-card-value">${areas}</div></div>
         <div class="hours-card"><div class="hours-card-label">Materials</div><div class="hours-card-value">${mats}</div></div>
         <div class="hours-card"><div class="hours-card-label">Labour lines</div><div class="hours-card-value">${labLines}</div></div>
-        <div class="hours-card"><div class="hours-card-label">Labour hours</div><div class="hours-card-value">${labH.toFixed(1)}</div></div>
+        <div class="hours-card"><div class="hours-card-label">Labour hours</div><div class="hours-card-value">${(t.labour && t.labour.hours || 0).toFixed(1)}</div></div>
       </div>
-      <div style="font-size:13px;color:var(--ink)">
-        ${matCost ? `<div><b>Materials:</b> $${matCost.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>` : '<div style="color:var(--muted)">Materials cost not captured yet.</div>'}
-        ${labCost ? `<div><b>Labour:</b> $${labCost.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>` : '<div style="color:var(--muted)">Labour rates not captured yet.</div>'}
-        ${total ? `<div style="margin-top:6px;font-weight:800;color:var(--header)"><b>Estimated total:</b> $${total.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>` : ''}
-        ${ass||risks ? `<div style="margin-top:8px;font-size:12px;color:var(--muted)">${ass} assumption${ass===1?'':'s'} · ${risks} risk${risks===1?'':'s'}</div>` : ''}
+      <div style="display:grid;grid-template-columns:1fr auto;gap:6px 18px;font-size:13px;color:var(--ink);font-family:var(--mono)">
+        <div>Materials sell</div>            <div style="text-align:right">${fmt$(t.materials && t.materials.sell)}</div>
+        <div>Labour sell</div>               <div style="text-align:right">${fmt$(t.labour && t.labour.sell)}</div>
+        <div>Provisional sums (${t.provisional && t.provisional.count || 0})</div><div style="text-align:right">${fmt$(t.provisional && t.provisional.total)}</div>
+        ${(t.contingency && t.contingency.amount) ? `<div>Contingency (${t.contingency.pct}%)</div><div style="text-align:right">${fmt$(t.contingency.amount)}</div>` : ''}
+        <div style="border-top:1px solid var(--border);padding-top:8px;font-weight:700">Subtotal (ex-GST)</div>
+        <div style="border-top:1px solid var(--border);padding-top:8px;text-align:right;font-weight:700">${fmt$(t.subtotalExGst)}</div>
+        <div>GST (${(t.gstPct||0).toFixed(1)}%)</div><div style="text-align:right">${fmt$(t.gst)}</div>
+        <div style="font-family:var(--display);font-weight:700;font-size:16px;color:var(--ink)">Total (inc-GST)</div>
+        <div style="font-family:var(--display);font-weight:800;font-size:18px;color:var(--ink);text-align:right">${fmt$(t.totalIncGst)}</div>
+      </div>
+      <div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;justify-content:space-between">
+        <span>Internal margin: ${fmt$(t.margin && t.margin.amount)} (${(t.margin && t.margin.pct || 0).toFixed(1)}%)</span>
+        <span>${ass} assumption${ass===1?'':'s'} · ${risks} risk${risks===1?'':'s'}</span>
       </div>
     </div>
     ${notice}`;
@@ -5235,10 +5559,9 @@ function _qPrintSummary() {
   const mats = q.materials.items || [];
   const labour = q.labour.lines || [];
   const notes = q.notes || {};
-  const matCost = mats.reduce((s,i) => s + (Number(i.totalCost) || (Number(i.unitCost)||0)*(Number(i.quantity)||0)), 0);
-  const labH = labour.reduce((s,l) => s + (Number(l.estimatedHours)||0), 0);
-  const labCost = labour.reduce((s,l) => s + (Number(l.estimatedHours)||0)*(Number(l.hourlyRate)||0)*(Number(l.riskFactor)||1), 0);
-  const total = matCost + labCost;
+  const psItems = (q.provisional && q.provisional.items) || [];
+  const t = q.totals || {};
+  const labH = (t.labour && t.labour.hours) || 0;
 
   const fmt$ = n => '$' + n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const today = new Date().toLocaleDateString('en-AU');
@@ -5313,13 +5636,26 @@ function _qPrintSummary() {
       <div>Labour lines<b>${labour.length}</b></div>
       <div>Labour hours<b>${labH.toFixed(1)}</b></div>
     </div>
-    ${total > 0 ? `<div class="total">Estimated total: ${fmt$(total)}${matCost?` <span style="font-weight:500;color:#475569">(materials ${fmt$(matCost)} + labour ${fmt$(labCost)})</span>`:''}</div>` : '<p class="muted">Pricing not captured yet — totals will populate once material costs and labour rates are entered.</p>'}
+    ${(t.totalIncGst > 0) ? `<div class="total">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:4px 18px;font-weight:500;font-size:13px;color:#475569">
+        <span>Materials sell</span><span style="text-align:right">${fmt$(t.materials.sell)}</span>
+        <span>Labour sell (${(t.labour.hours||0).toFixed(1)} h @ $${(t.labour.sellRate||0).toFixed(0)}/h)</span><span style="text-align:right">${fmt$(t.labour.sell)}</span>
+        <span>Provisional sums (${t.provisional.count})</span><span style="text-align:right">${fmt$(t.provisional.total)}</span>
+        ${t.contingency.amount ? `<span>Contingency (${t.contingency.pct}%)</span><span style="text-align:right">${fmt$(t.contingency.amount)}</span>` : ''}
+        <span style="font-weight:700;color:#0d1b34">Subtotal (ex-GST)</span><span style="text-align:right;font-weight:700;color:#0d1b34">${fmt$(t.subtotalExGst)}</span>
+        <span>GST (${(t.gstPct||0).toFixed(1)}%)</span><span style="text-align:right">${fmt$(t.gst)}</span>
+        <span style="font-size:15px;font-weight:800;color:#0d1b34">Total (inc-GST)</span><span style="text-align:right;font-size:15px;font-weight:800;color:#0d1b34">${fmt$(t.totalIncGst)}</span>
+        <span style="font-size:11px;color:#94a3b8;font-style:italic;margin-top:6px">Internal margin</span><span style="text-align:right;font-size:11px;color:#94a3b8;margin-top:6px">${fmt$(t.margin && t.margin.amount)} (${(t.margin && t.margin.pct||0).toFixed(1)}%)</span>
+      </div>
+    </div>` : '<p class="muted">Pricing not captured yet — totals will populate once material costs and labour rates are entered, and a markup is set in the Pricing tab.</p>'}
 
     <h2>Structure</h2>${groupsHtml}
 
     <h2>Materials estimate</h2>${matsHtml}
 
     <h2>Labour estimate</h2>${labHtml}
+
+    ${psItems.length ? `<h2>Provisional sums &amp; allowances</h2><table><thead><tr><th>Type</th><th>Item</th><th>Description</th><th class="r">Amount (ex-GST)</th></tr></thead><tbody>${psItems.map(i => `<tr><td>${i.kind === 'allowance' ? 'Allowance' : 'PS'}</td><td>${esc(i.name||'')}</td><td>${esc(i.description||'')}</td><td class="r">${fmt$(Number(i.amountExGst)||0)}</td></tr>`).join('')}</tbody></table>` : ''}
 
     ${noteList(notes.assumptions, 'Assumptions')}
     ${noteList(notes.exclusions, 'Exclusions')}
@@ -5344,14 +5680,17 @@ function _qPrintClientQuote() {
   if (!q) return;
   const quote = q.quote;
   const groups = q.structure.areaGroups || [];
-  const mats = q.materials.items || [];
-  const labour = q.labour.lines || [];
   const notes = q.notes || {};
-  const matCost = mats.reduce((s,i) => s + (Number(i.totalCost) || (Number(i.unitCost)||0)*(Number(i.quantity)||0)), 0);
-  const labCost = labour.reduce((s,l) => s + (Number(l.estimatedHours)||0)*(Number(l.hourlyRate)||0)*(Number(l.riskFactor)||1), 0);
-  const total = matCost + labCost;
-  const fmt$ = n => '$' + n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const psItems = (q.provisional && q.provisional.items) || [];
+  const t = q.totals || {};
+  const p = q.pricing || {};
+  const fmt$ = n => '$' + (Number(n)||0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const today = new Date().toLocaleDateString('en-AU');
+  const validityDays = Number(p.validityDays || 30);
+  const validUntil = (() => {
+    const d = new Date(); d.setDate(d.getDate() + validityDays);
+    return d.toLocaleDateString('en-AU');
+  })();
 
   const w = window.open('', '_blank');
   if (!w) { alert('Popup blocked. Allow popups to print the quote.'); return; }
@@ -5366,11 +5705,26 @@ function _qPrintClientQuote() {
   const noteList = (arr, lbl) => Array.isArray(arr) && arr.length
     ? `<h3>${lbl}</h3><ul>${arr.map(n => '<li>' + esc(n) + '</li>').join('')}</ul>` : '';
 
-  // Top-line price: only show concrete number if total > 0; otherwise
-  // "Pricing on request" — never fake a total.
-  const totalBlock = total > 0
-    ? `<div class="quote-total">Quoted total: <b>${fmt$(total)}</b><div class="quote-total-sub">incl. labour and materials as listed</div></div>`
-    : `<div class="quote-total quote-total-tba">Pricing on request</div>`;
+  // Top-line price: show subtotal + GST + total inc-GST when totals
+  // have been computed; otherwise "Pricing on request" — never fake one.
+  const totalBlock = (t.totalIncGst > 0)
+    ? `<div class="quote-total">
+         <div style="display:grid;grid-template-columns:1fr auto;gap:6px 24px;font-size:14px;color:#475569">
+           <span>Subtotal (ex-GST)</span><span style="text-align:right">${fmt$(t.subtotalExGst)}</span>
+           <span>GST (${(t.gstPct||0).toFixed(1)}%)</span><span style="text-align:right">${fmt$(t.gst)}</span>
+           <span style="font-size:18px;font-weight:800;color:#0d1b34;border-top:2px solid #0d1b34;padding-top:8px;margin-top:4px">Total (inc-GST)</span>
+           <span style="text-align:right;font-size:18px;font-weight:800;color:#0d1b34;border-top:2px solid #0d1b34;padding-top:8px;margin-top:4px">${fmt$(t.totalIncGst)}</span>
+         </div>
+         <div class="quote-total-sub">Quotation valid for ${validityDays} days &middot; expires ${validUntil}</div>
+       </div>`
+    : `<div class="quote-total quote-total-tba">Pricing on request<div class="quote-total-sub">A detailed quotation will follow once scope is confirmed.</div></div>`;
+
+  // PS / Allowances disclosure for the client (face-value items, no markup).
+  const psBlock = psItems.length
+    ? `<h3>Provisional sums &amp; allowances</h3>
+       <p style="font-size:12px;color:#475569;margin:0 0 6px">The following items are provisional or allowed-for amounts; final cost is based on actual selection or scope at time of order.</p>
+       <table><thead><tr><th>Item</th><th>Description</th><th class="r">Amount (ex-GST)</th></tr></thead><tbody>${psItems.map(i => `<tr><td>${esc(i.name||'')}</td><td>${esc(i.description||'')}</td><td class="r">${fmt$(Number(i.amountExGst)||0)}</td></tr>`).join('')}</tbody></table>`
+    : '';
 
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(quote.name || 'Quote')}</title>
     <style>
@@ -5398,7 +5752,7 @@ function _qPrintClientQuote() {
       <div class="meta">
         ${quote.builder ? '<b>For:</b> ' + esc(quote.builder) + ' · ' : ''}
         ${quote.siteAddress ? esc(quote.siteAddress) + ' · ' : ''}
-        Quote date <b>${today}</b>${quote.dueDate ? ' · Valid until <b>' + esc(quote.dueDate) + '</b>' : ''}
+        Quote date <b>${today}</b>${(t.totalIncGst > 0) ? ' · Valid until <b>' + esc(validUntil) + '</b>' : (quote.dueDate ? ' · Due <b>' + esc(quote.dueDate) + '</b>' : '')}
       </div>
     </header>
 
@@ -5407,6 +5761,8 @@ function _qPrintClientQuote() {
     ${totalBlock}
 
     ${structureHtml ? '<h2>Scope of work</h2>' + structureHtml : ''}
+
+    ${psBlock}
 
     ${noteList(notes.assumptions, 'Assumptions')}
     ${noteList(notes.exclusions, 'Exclusions')}

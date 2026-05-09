@@ -42,6 +42,26 @@
 //                                                       body: { copyDocuments?: bool }
 //                                                       returns { jobId }
 //
+//   GET    /api/quotes?id=<quoteId>&action=pricing    → pricing settings object
+//   PATCH  /api/quotes?id=<quoteId>&action=pricing    → save pricing settings
+//                                                       body: { materialMarkupPct,
+//                                                               labourSellRate, labourCostMode,
+//                                                               labourCostRate, contingencyPct,
+//                                                               gstPct, validityDays,
+//                                                               overrideTotalExGst }
+//
+//   GET    /api/quotes?id=<quoteId>&action=provisional → list { items: [] }
+//   POST   /api/quotes?id=<quoteId>&action=provisional → add (PS or allowance)
+//                                                        body: { kind, name, amountExGst, ... }
+//   PATCH  /api/quotes?id=<quoteId>&action=provisional&itemId=X
+//   DELETE /api/quotes?id=<quoteId>&action=provisional&itemId=X
+//
+//   GET    /api/quotes?id=<quoteId>&action=totals     → computed roll-up
+//                                                       { totals: { materials, labour,
+//                                                                   provisional, contingency,
+//                                                                   subtotalExGst, gst,
+//                                                                   totalIncGst, margin } }
+//
 // Permissions: admin only on writes; admin/LH for read (LH read kept off
 // for v1 — quoting is admin-facing). Tradies + clients always 403.
 
@@ -67,21 +87,48 @@ async function writeQuotes(data) {
 }
 
 const SECTION_KEYS = {
-  structure: q => 'quotes/' + q + '/structure.json',
-  materials: q => 'quotes/' + q + '/materials-estimate.json',
-  labour:    q => 'quotes/' + q + '/labour-estimate.json',
-  notes:     q => 'quotes/' + q + '/notes.json',
-  ai:        q => 'quotes/' + q + '/ai-review.json',
-  documents: q => 'quotes/' + q + '/documents-index.json',
+  structure:    q => 'quotes/' + q + '/structure.json',
+  materials:    q => 'quotes/' + q + '/materials-estimate.json',
+  labour:       q => 'quotes/' + q + '/labour-estimate.json',
+  notes:        q => 'quotes/' + q + '/notes.json',
+  ai:           q => 'quotes/' + q + '/ai-review.json',
+  documents:    q => 'quotes/' + q + '/documents-index.json',
+  pricing:      q => 'quotes/' + q + '/pricing.json',
+  provisional:  q => 'quotes/' + q + '/provisional.json',
+};
+
+const PRICING_DEFAULTS = {
+  // Per-category markup applied to materials cost when computing sell price.
+  // Keys are category names; "default" is the fallback for items without a
+  // matching category override.
+  materialMarkupPct: { default: 25 },
+  // Hourly rate billed to the client for labour. Cost rate per line still
+  // comes from the labour line itself (hourlyRate) when present; sellRate
+  // is what the client sees on the printed quote.
+  labourSellRate: 95,
+  // Whether labour cost is computed line-by-line (using each line's
+  // hourlyRate) or via a single shared cost rate (labourCostRate).
+  labourCostMode: 'per-line', // 'per-line' | 'shared'
+  labourCostRate: 65,
+  // Fixed overhead/contingency added on top of subtotal-of-cost-marked-up.
+  contingencyPct: 0,
+  // GST rate (Australia: 10%). Applied to subtotal.
+  gstPct: 10,
+  // Quote validity (days) — printed on the client document.
+  validityDays: 30,
+  // Override total — when set, replaces the computed total (e.g. negotiated).
+  overrideTotalExGst: null,
 };
 
 const SECTION_DEFAULTS = {
-  structure: { areaGroups: [] },
-  materials: { items: [] },
-  labour:    { lines: [] },
-  notes:     { assumptions: [], exclusions: [], risks: [], clarifications: [] },
-  ai:        { reviews: [] },
-  documents: { documents: [] },
+  structure:   { areaGroups: [] },
+  materials:   { items: [] },
+  labour:      { lines: [] },
+  notes:       { assumptions: [], exclusions: [], risks: [], clarifications: [] },
+  ai:          { reviews: [] },
+  documents:   { documents: [] },
+  pricing:     PRICING_DEFAULTS,
+  provisional: { items: [] },
 };
 
 async function readSection(quoteId, key) {
@@ -158,15 +205,23 @@ async function handleGetQuote(req, res, user) {
   const quote = (data.quotes || []).find(q => q.id === id);
   if (!quote) return res.status(404).json({ error: 'not found' });
   // Bundle every section in parallel for the workspace.
-  const [structure, materials, labour, notes, ai, documents] = await Promise.all([
+  const [structure, materials, labour, notes, ai, documents, pricing, provisional] = await Promise.all([
     readSection(id, 'structure'),
     readSection(id, 'materials'),
     readSection(id, 'labour'),
     readSection(id, 'notes'),
     readSection(id, 'ai'),
     readSection(id, 'documents'),
+    readSection(id, 'pricing'),
+    readSection(id, 'provisional'),
   ]);
-  return res.status(200).json({ quote, structure, materials, labour, notes, ai, documents });
+  // Pre-compute totals for the bundle so the client doesn't need a second
+  // round-trip on workspace open.
+  const totals = computeQuoteTotals({ pricing, materials, labour, provisional });
+  return res.status(200).json({
+    quote, structure, materials, labour, notes, ai, documents,
+    pricing, provisional, totals,
+  });
 }
 
 async function handleUpdateQuote(req, res, user) {
@@ -397,6 +452,257 @@ async function handleNotesSet(req, res, user, id) {
   await writeSection(id, 'notes', out);
   await touchQuote(id);
   return res.status(200).json(out);
+}
+
+// ── Section: pricing settings ────────────────────────────────────────────
+// Stored as a single object (not a list). Defines how cost lines roll up
+// into a sell-side total: per-category material markup, labour sell rate,
+// labour cost mode, contingency %, GST %, validity, and an optional
+// override total for negotiated quotes.
+
+async function handlePricingGet(req, res, user, id) {
+  const p = await readSection(id, 'pricing');
+  return res.status(200).json({ pricing: p });
+}
+
+async function handlePricingSet(req, res, user, id) {
+  const body = req.body || {};
+  const cur = await readSection(id, 'pricing');
+  // Sanitise + merge — never let a stray field clobber existing data.
+  const out = Object.assign({}, cur);
+  if (body.materialMarkupPct && typeof body.materialMarkupPct === 'object') {
+    const clean = {};
+    for (const k of Object.keys(body.materialMarkupPct)) {
+      const v = Number(body.materialMarkupPct[k]);
+      if (isFinite(v) && v >= -50 && v <= 500) clean[String(k).trim() || 'default'] = v;
+    }
+    if (!clean.default) clean.default = (cur.materialMarkupPct && cur.materialMarkupPct.default) || 25;
+    out.materialMarkupPct = clean;
+  }
+  if (body.labourSellRate != null) {
+    const v = Number(body.labourSellRate);
+    if (isFinite(v) && v >= 0 && v <= 1000) out.labourSellRate = v;
+  }
+  if (body.labourCostMode && ['per-line', 'shared'].includes(body.labourCostMode)) {
+    out.labourCostMode = body.labourCostMode;
+  }
+  if (body.labourCostRate != null) {
+    const v = Number(body.labourCostRate);
+    if (isFinite(v) && v >= 0 && v <= 1000) out.labourCostRate = v;
+  }
+  if (body.contingencyPct != null) {
+    const v = Number(body.contingencyPct);
+    if (isFinite(v) && v >= 0 && v <= 50) out.contingencyPct = v;
+  }
+  if (body.gstPct != null) {
+    const v = Number(body.gstPct);
+    if (isFinite(v) && v >= 0 && v <= 30) out.gstPct = v;
+  }
+  if (body.validityDays != null) {
+    const v = Number(body.validityDays);
+    if (isFinite(v) && v >= 1 && v <= 365) out.validityDays = Math.round(v);
+  }
+  if (body.overrideTotalExGst === null || body.overrideTotalExGst === '') {
+    out.overrideTotalExGst = null;
+  } else if (body.overrideTotalExGst !== undefined) {
+    const v = Number(body.overrideTotalExGst);
+    if (isFinite(v) && v >= 0) out.overrideTotalExGst = v;
+  }
+  await writeSection(id, 'pricing', out);
+  await touchQuote(id);
+  return res.status(200).json({ pricing: out });
+}
+
+// ── Section: provisional sums + allowances ───────────────────────────────
+// PS items are dollar amounts the contractor bills the client without
+// going through cost+markup — typical for items the client will choose
+// later (e.g. light fittings client-supplied) or scoped allowances.
+
+async function handleProvisionalGet(req, res, user, id) {
+  const p = await readSection(id, 'provisional');
+  return res.status(200).json(p);
+}
+
+async function handleProvisionalAdd(req, res, user, id) {
+  const body = req.body || {};
+  if (!body.name || !String(body.name).trim()) {
+    return res.status(400).json({ error: 'name required' });
+  }
+  const data = await readSection(id, 'provisional');
+  data.items = data.items || [];
+  const now = new Date().toISOString();
+  const item = {
+    id:          newId('qps'),
+    quoteId:     id,
+    kind:        body.kind === 'allowance' ? 'allowance' : 'provisional',
+    name:        String(body.name).trim(),
+    description: body.description ? String(body.description).trim() : '',
+    amountExGst: body.amountExGst != null ? Number(body.amountExGst) : 0,
+    notes:       body.notes ? String(body.notes).trim() : '',
+    createdAt:   now,
+    createdBy:   user.username,
+    updatedAt:   now,
+  };
+  data.items.push(item);
+  await writeSection(id, 'provisional', data);
+  await touchQuote(id);
+  return res.status(201).json({ item });
+}
+
+async function handleProvisionalUpdate(req, res, user, id) {
+  const itemId = req.query && req.query.itemId;
+  if (!itemId) return res.status(400).json({ error: 'itemId required' });
+  const body = req.body || {};
+  const data = await readSection(id, 'provisional');
+  const idx = (data.items || []).findIndex(i => i.id === itemId);
+  if (idx < 0) return res.status(404).json({ error: 'not found' });
+  const editable = ['kind', 'name', 'description', 'amountExGst', 'notes'];
+  for (const k of editable) {
+    if (body[k] !== undefined) {
+      if (k === 'amountExGst') data.items[idx][k] = Number(body[k]);
+      else if (k === 'kind') data.items[idx][k] = body[k] === 'allowance' ? 'allowance' : 'provisional';
+      else data.items[idx][k] = String(body[k] || '').trim();
+    }
+  }
+  data.items[idx].updatedAt = new Date().toISOString();
+  await writeSection(id, 'provisional', data);
+  await touchQuote(id);
+  return res.status(200).json({ item: data.items[idx] });
+}
+
+async function handleProvisionalDelete(req, res, user, id) {
+  const itemId = req.query && req.query.itemId;
+  if (!itemId) return res.status(400).json({ error: 'itemId required' });
+  const data = await readSection(id, 'provisional');
+  data.items = (data.items || []).filter(i => i.id !== itemId);
+  await writeSection(id, 'provisional', data);
+  await touchQuote(id);
+  return res.status(200).json({ ok: true });
+}
+
+// ── Totals computation (pure function — also used by the bundle) ─────────
+function computeQuoteTotals({ pricing, materials, labour, provisional }) {
+  const p = Object.assign({}, PRICING_DEFAULTS, pricing || {});
+  const items = (materials && materials.items) || [];
+  const lines = (labour && labour.lines) || [];
+  const psItems = (provisional && provisional.items) || [];
+  const markupTbl = p.materialMarkupPct || { default: 25 };
+  const defaultMarkup = Number(markupTbl.default) || 0;
+
+  // Materials cost + sell
+  let matCost = 0, matSell = 0;
+  const matBreakdown = {};
+  for (const m of items) {
+    const qty = Number(m.quantity) || 0;
+    const lineCost = (m.totalCost != null && Number(m.totalCost)) ||
+                     (m.unitCost != null ? Number(m.unitCost) * qty : 0);
+    if (!isFinite(lineCost)) continue;
+    const cat = String(m.category || 'Other');
+    const markup = (markupTbl[cat] != null) ? Number(markupTbl[cat]) : defaultMarkup;
+    const lineSell = lineCost * (1 + markup / 100);
+    matCost += lineCost;
+    matSell += lineSell;
+    if (!matBreakdown[cat]) matBreakdown[cat] = { cost: 0, sell: 0, count: 0, markupPct: markup };
+    matBreakdown[cat].cost += lineCost;
+    matBreakdown[cat].sell += lineSell;
+    matBreakdown[cat].count += 1;
+  }
+
+  // Labour cost + sell
+  let labHours = 0, labCost = 0, labSell = 0;
+  for (const l of lines) {
+    const hours = (Number(l.estimatedHours) || 0) * (Number(l.crewSize) || 1);
+    const risk = Number(l.riskFactor) || 1.0;
+    const adjHours = hours * risk;
+    labHours += adjHours;
+    const costRate = (p.labourCostMode === 'shared')
+      ? Number(p.labourCostRate)
+      : (l.hourlyRate != null ? Number(l.hourlyRate) : Number(p.labourCostRate));
+    if (isFinite(costRate)) labCost += adjHours * costRate;
+    const sellRate = Number(p.labourSellRate);
+    if (isFinite(sellRate)) labSell += adjHours * sellRate;
+  }
+
+  // Provisional sums + allowances (not marked up — billed at face value)
+  let psTotal = 0;
+  for (const ps of psItems) {
+    const a = Number(ps.amountExGst) || 0;
+    if (isFinite(a)) psTotal += a;
+  }
+
+  // Subtotal-of-sell + contingency
+  const subBeforeContingency = matSell + labSell + psTotal;
+  const contingencyPct = Number(p.contingencyPct) || 0;
+  const contingency = subBeforeContingency * (contingencyPct / 100);
+
+  let subtotalExGst = subBeforeContingency + contingency;
+  let overridden = false;
+  if (p.overrideTotalExGst != null && isFinite(Number(p.overrideTotalExGst))) {
+    subtotalExGst = Number(p.overrideTotalExGst);
+    overridden = true;
+  }
+
+  const gstPct = Number(p.gstPct) || 0;
+  const gst = subtotalExGst * (gstPct / 100);
+  const totalIncGst = subtotalExGst + gst;
+
+  // Margin (sell - cost across materials + labour); PS is excluded since
+  // we don't book a markup against it.
+  const totalCost = matCost + labCost;
+  const totalSell = matSell + labSell;
+  const marginAmount = totalSell - totalCost;
+  const marginPct = totalSell > 0 ? (marginAmount / totalSell) * 100 : 0;
+
+  return {
+    materials: {
+      cost: round2(matCost),
+      sell: round2(matSell),
+      breakdown: Object.keys(matBreakdown).map(k => ({
+        category: k,
+        cost: round2(matBreakdown[k].cost),
+        sell: round2(matBreakdown[k].sell),
+        markupPct: matBreakdown[k].markupPct,
+        count: matBreakdown[k].count,
+      })),
+    },
+    labour: {
+      hours: round2(labHours),
+      cost:  round2(labCost),
+      sell:  round2(labSell),
+      sellRate: Number(p.labourSellRate) || 0,
+    },
+    provisional: {
+      total: round2(psTotal),
+      count: psItems.length,
+    },
+    contingency: {
+      pct:    contingencyPct,
+      amount: round2(contingency),
+    },
+    subtotalExGst: round2(subtotalExGst),
+    gstPct,
+    gst:           round2(gst),
+    totalIncGst:   round2(totalIncGst),
+    totalCost:     round2(totalCost),
+    totalSell:     round2(totalSell),
+    margin: {
+      amount: round2(marginAmount),
+      pct:    round1(marginPct),
+    },
+    overridden,
+  };
+}
+function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+function round1(n) { return Math.round((Number(n) || 0) * 10) / 10; }
+
+async function handleTotals(req, res, user, id) {
+  const [pricing, materials, labour, provisional] = await Promise.all([
+    readSection(id, 'pricing'),
+    readSection(id, 'materials'),
+    readSection(id, 'labour'),
+    readSection(id, 'provisional'),
+  ]);
+  return res.status(200).json({ totals: computeQuoteTotals({ pricing, materials, labour, provisional }) });
 }
 
 // ── Section: AI review ───────────────────────────────────────────────────
@@ -920,6 +1226,25 @@ module.exports = async (req, res) => {
     if (req.method === 'GET')   return handleNotesGet(req, res, user, id);
     if (req.method === 'PATCH') return handleNotesSet(req, res, user, id);
     return res.status(405).json({ error: 'method not allowed' });
+  }
+  if (action === 'pricing') {
+    if (!id) return res.status(400).json({ error: 'id required' });
+    if (req.method === 'GET')   return handlePricingGet(req, res, user, id);
+    if (req.method === 'PATCH') return handlePricingSet(req, res, user, id);
+    return res.status(405).json({ error: 'method not allowed' });
+  }
+  if (action === 'provisional') {
+    if (!id) return res.status(400).json({ error: 'id required' });
+    if (req.method === 'GET')    return handleProvisionalGet(req, res, user, id);
+    if (req.method === 'POST')   return handleProvisionalAdd(req, res, user, id);
+    if (req.method === 'PATCH')  return handleProvisionalUpdate(req, res, user, id);
+    if (req.method === 'DELETE') return handleProvisionalDelete(req, res, user, id);
+    return res.status(405).json({ error: 'method not allowed' });
+  }
+  if (action === 'totals') {
+    if (!id) return res.status(400).json({ error: 'id required' });
+    if (req.method !== 'GET') return res.status(405).json({ error: 'GET required' });
+    return handleTotals(req, res, user, id);
   }
   if (action === 'ai-review') {
     if (!id) return res.status(400).json({ error: 'id required' });
