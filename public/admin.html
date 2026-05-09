@@ -4574,7 +4574,81 @@ function _qRenderOverview(host) {
       <div class="snag-field"><label class="snag-field-label">Description / scope summary</label>
         <textarea id="qo-desc" rows="4" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit">${esc(q.description||'')}</textarea></div>
     </div>
-    ${q.convertedJobId ? `<div class="empty-block" style="margin-top:14px"><div class="empty-block-title">Converted to live job</div><div>Job ID: <b>${esc(q.convertedJobId)}</b> · <a href="/jobs/${esc(q.convertedJobId)}" target="_blank">Open dashboard ↗</a></div></div>` : ''}`;
+    ${q.convertedJobId ? `<div class="empty-block" style="margin-top:14px"><div class="empty-block-title">Converted to live job</div><div>Job ID: <b>${esc(q.convertedJobId)}</b> · <a href="/jobs/${esc(q.convertedJobId)}" target="_blank">Open dashboard ↗</a></div></div>` : ''}
+    ${_qRenderActivityTimeline()}`;
+}
+
+// Lightweight activity timeline derived from existing data — no separate
+// audit log. Captures the meaningful lifecycle moments so the admin can see
+// the quote's history at a glance.
+function _qRenderActivityTimeline() {
+  const open = qState.open || {};
+  const q    = open.quote || {};
+  const events = [];
+  const push = (when, kind, label, meta) => { if (when) events.push({ when, kind, label, meta }); };
+
+  push(q.createdAt, 'created', 'Created', q.createdBy ? 'by ' + q.createdBy : '');
+
+  // Documents uploaded.
+  ((open.documents && open.documents.documents) || []).forEach(d => {
+    if (d.status === 'archived') return;
+    push(d.uploadedAt, 'doc', 'Document — ' + (d.title || d.fileName || 'untitled'),
+         (d.documentType || '') + (d.uploadedBy ? ' · ' + d.uploadedBy : ''));
+  });
+  // AI reviews.
+  ((open.ai && open.ai.reviews) || []).forEach(r => {
+    push(r.createdAt, 'ai', 'AI review run', r.modelOrSource ? 'via ' + r.modelOrSource : '');
+  });
+  // Pricing requests.
+  ((open.pricingRequests && open.pricingRequests.requests) || []).forEach(r => {
+    push(r.createdAt, 'preq', 'Price request drafted — ' + ((r.wholesaler && r.wholesaler.name) || '?'), r.itemCount + ' items');
+    push(r.sentAt,    'psent', 'Price request sent — ' + ((r.wholesaler && r.wholesaler.name) || '?'),  '');
+    push(r.replyAt,   'preply','Wholesaler replied — ' + ((r.wholesaler && r.wholesaler.name) || '?'),
+         r.replyTotalExGst != null ? '$' + Number(r.replyTotalExGst).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' ex-GST' : '');
+  });
+  // Acceptance.
+  if (q.acceptance && q.acceptance.acceptedAt) {
+    push(q.acceptance.acceptedAt, 'accept', 'Accepted by client',
+         (q.acceptance.clientName || '') + (q.acceptance.method ? ' · ' + q.acceptance.method : ''));
+  }
+  // Conversion.
+  if (q.convertedJobId) {
+    push(q.updatedAt, 'convert', 'Converted to live job', q.convertedJobId);
+  }
+  // Last edit (only when distinct from createdAt and not already covered).
+  if (q.updatedAt && q.updatedAt !== q.createdAt && !q.convertedJobId) {
+    push(q.updatedAt, 'edit', 'Last edited', '');
+  }
+
+  if (events.length <= 1) return ''; // just the create line — not interesting alone
+
+  events.sort((a, b) => (b.when || '').localeCompare(a.when || ''));
+  const dot = (k) => ({ created:'var(--green)', doc:'var(--ink-3)', ai:'var(--amber)',
+                       preq:'var(--ink-3)', psent:'var(--navy)', preply:'var(--green)',
+                       accept:'var(--green)', convert:'var(--green)', edit:'var(--ink-3)' })[k] || 'var(--ink-3)';
+
+  const rows = events.slice(0, 12).map(ev => {
+    const dt = new Date(ev.when);
+    const dStr = isNaN(dt) ? '—' : dt.toLocaleDateString('en-AU', { day:'numeric', month:'short' });
+    const tStr = isNaN(dt) ? '' : dt.toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit' });
+    return `<div style="display:grid;grid-template-columns:80px 14px 1fr;gap:10px;align-items:baseline;padding:8px 0;border-bottom:1px dashed var(--rule)">
+      <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--ink-3)">${dStr}<br><span style="font-size:9.5px;opacity:.7">${tStr}</span></div>
+      <div style="width:7px;height:7px;border-radius:50%;background:${dot(ev.kind)};margin-top:5px"></div>
+      <div>
+        <div style="font-family:var(--display);font-size:13.5px;font-weight:600;color:var(--navy);letter-spacing:-.012em">${esc(ev.label)}</div>
+        ${ev.meta ? `<div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;color:var(--ink-3);margin-top:2px">${esc(ev.meta)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="s-card" style="margin-top:14px">
+      <div class="s-card-hdr">
+        <div><div class="s-card-title">Activity timeline</div>
+        <div class="s-card-sub">Derived from existing data — no separate audit log. ${events.length > 12 ? events.length + ' events total · showing latest 12.' : ''}</div></div>
+      </div>
+      <div class="s-card-body">${rows}</div>
+    </div>`;
 }
 
 async function _qSaveOverview() {
@@ -5060,12 +5134,21 @@ async function _qSaveStructure() {
 function _qRenderMaterials(host) {
   const items = qState.open.materials.items || [];
   const total = items.reduce((s, i) => s + (Number(i.totalCost) || (Number(i.unitCost) || 0) * (Number(i.quantity) || 0)), 0);
+  // Sourcing badge: cross-link to the Sourcing tab when there's at least
+  // one price request on this quote, so the admin sees that they've already
+  // pushed this list out to a wholesaler.
+  const sourcingReqs = (qState.open.pricingRequests && qState.open.pricingRequests.requests) || [];
+  const activeReqs = sourcingReqs.filter(r => !['cancelled','lost'].includes(r.status));
+  const sourcingBadge = sourcingReqs.length
+    ? `<button class="s-add" onclick="qState.section='sourcing';document.querySelectorAll('#qw-nav button').forEach(x=>x.classList.toggle('active',x.dataset.qsec==='sourcing'));_qRenderSection()" style="background:var(--paper-3);color:var(--ink);border:1px solid var(--rule-2)">${activeReqs.length} active sourcing → </button>`
+    : '';
   host.innerHTML = `
     <div class="s-card">
       <div class="s-card-hdr">
         <div><div class="s-card-title">Materials estimate <span class="s-card-count">${items.length}</span></div>
           <div class="s-card-sub">Manual + AI-suggested items. Captured at quote stage; carried into the live job's materials list on conversion.</div></div>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${sourcingBadge}
           <button class="s-add" onclick="_qMatAdd()">+ Add item</button>
           <button class="s-add" onclick="_qMatBulk()" style="background:#fff;color:var(--header);border:1px solid var(--border)">Bulk add</button>
         </div>
