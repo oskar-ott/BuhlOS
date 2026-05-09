@@ -4,86 +4,274 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>buhl — sign in</title>
-<link rel="stylesheet" href="/theme.css">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
 <meta name="theme-color" content="#0d1b34">
+<!-- Sheet 03 register: IBM Plex on warm cream paper, monochrome navy. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  body { background: var(--paper-2); }
-  .page { min-height: 100vh; display: flex; flex-direction: column; }
-  .wrap { flex: 1; display: flex; align-items: center; justify-content: center;
-    padding: 24px 16px; padding-bottom: max(24px, env(safe-area-inset-bottom)); }
-  .login-card {
-    width: 100%; max-width: 400px;
-    padding: 32px 28px 28px;
-    border: 1px solid var(--rule);
+  :root {
+    --paper:     #fdfbf3;
+    --paper-2:   #f7f3e6;
+    --paper-3:   #efe9d6;
+    --grid:      rgba(13,27,52,.07);
+    --grid-strong: rgba(13,27,52,.16);
+    --ink:       #0d1b34;
+    --ink-2:     #36446b;
+    --ink-3:     #6a7591;
+    --rule:      #c8cee0;
+    --rule-2:    #dde1ea;
+    --red:       #c0312f;
+    --green:     #1f8b5a;
+    --display:   "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+    --sans:      "IBM Plex Sans", system-ui, sans-serif;
+    --serif:     "IBM Plex Serif", Georgia, serif;
+    --mono:      "IBM Plex Mono", ui-monospace, monospace;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
     background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14.5px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
   }
-  .login-mark {
-    display: flex; align-items: baseline; gap: .04em;
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      linear-gradient(to right, var(--grid) 0 1px, transparent 1px 100%),
+      linear-gradient(to bottom, var(--grid) 0 1px, transparent 1px 100%),
+      linear-gradient(to right, var(--grid-strong) 0 1px, transparent 1px 100%),
+      linear-gradient(to bottom, var(--grid-strong) 0 1px, transparent 1px 100%);
+    background-size: 24px 24px, 24px 24px, 120px 120px, 120px 120px;
+    opacity: .35;
+  }
+
+  .page {
+    position: relative; z-index: 1;
+    min-height: 100vh; display: flex; flex-direction: column;
+    padding-top: max(20px, env(safe-area-inset-top));
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+
+  /* drawing-chrome top strip — issued/drawing reference */
+  .strip {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px clamp(20px, 5vw, 36px) 10px;
+    border-bottom: 1.5px solid var(--ink);
+    font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-2);
+  }
+  .strip b { color: var(--ink); font-weight: 600; }
+  .strip .marker {
+    display: inline-block; width: 7px; height: 7px;
+    background: var(--ink); margin-right: 8px; vertical-align: 1px;
+  }
+
+  .wrap {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 28px 16px;
+  }
+
+  /* login card frame */
+  .card {
+    width: 100%; max-width: 380px;
+    background: var(--paper);
+    border: 1.5px solid var(--ink);
+    display: flex; flex-direction: column;
+  }
+
+  .lg-mark {
+    margin: 36px auto 6px;
     font-family: var(--display); font-weight: 800;
-    font-size: 56px; line-height: 1; letter-spacing: -.034em;
-    color: var(--navy);
-    margin-bottom: 4px;
+    font-size: 54px; letter-spacing: -.034em; line-height: 1;
+    color: var(--ink); text-align: center;
   }
-  .login-mark .os { font-size: .35em; font-weight: 600; color: var(--ink-2); letter-spacing: -.014em; }
-  .login-mark .dot { width: 7px; height: 7px; border-radius: 50%;
-    background: var(--yellow); margin-left: .15em; align-self: end; margin-bottom: .2em;
-    box-shadow: 0 0 0 3px rgba(245,208,32,.18); }
-  .login-strap {
-    font-family: var(--mono);
-    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
-    color: var(--ink-3); margin-bottom: 28px;
+  .lg-mark .uml { font-style: italic; font-weight: 800; }
+  .lg-mark .os {
+    font-family: var(--serif); font-style: italic; font-weight: 400;
+    font-size: .55em; color: var(--ink-2);
+    margin-left: .04em;
   }
-  .login-card label {
-    font-family: var(--mono);
-    font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
-    color: var(--ink-3); font-weight: 600;
-    margin-bottom: 6px;
+  .lg-sub {
+    text-align: center;
+    font-family: var(--mono); font-size: 10.5px;
+    letter-spacing: .22em; text-transform: uppercase;
+    color: var(--ink-2); margin-bottom: 32px;
   }
-  .login-card input { min-height: 44px; font-size: 16px;
-    border-radius: var(--radius); border: 1px solid var(--rule-2); }
-  .login-card input:focus { border-color: var(--navy); outline: 2px solid var(--yellow); outline-offset: -1px; }
-  .login-btn { width: 100%; min-height: 48px; margin-top: 16px;
-    font-family: var(--display); font-size: 14px; font-weight: 700;
-    letter-spacing: -.012em; }
-  .err { margin-top: 12px; color: var(--red); font-size: var(--fs-sm);
-         text-align: center; min-height: 18px; }
-  .login-foot {
-    margin-top: 22px; padding-top: 16px;
-    border-top: 1px solid var(--rule);
-    font-family: var(--mono);
-    font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase;
-    color: var(--ink-3); text-align: center;
+
+  /* form */
+  .form {
+    padding: 0 22px 22px;
+    display: flex; flex-direction: column; gap: 10px;
+    margin-top: auto;
+  }
+  .row { display: flex; flex-direction: column; gap: 0; }
+  .row label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .18em;
+    color: var(--ink-2); text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  .row label b { color: var(--ink); font-weight: 600; letter-spacing: .14em; }
+  .row input {
+    width: 100%;
+    border: 0; border-bottom: 1.5px solid var(--ink);
+    background: transparent;
+    font-family: var(--sans); font-size: 18px; font-weight: 600;
+    padding: 6px 0 8px;
+    color: var(--ink); outline: none;
+    border-radius: 0;
+    -webkit-appearance: none;
+  }
+  .row input::placeholder { color: var(--ink-3); font-weight: 400; }
+  .row input:focus { border-bottom-color: var(--ink); }
+  .row input[type=password] { letter-spacing: .25em; }
+
+  .go {
+    margin-top: 18px;
+    background: var(--ink); color: var(--paper);
+    border: 0; padding: 14px;
+    font-family: var(--display); font-weight: 800;
+    letter-spacing: .08em; font-size: 15px;
+    text-transform: uppercase; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .go:hover { background: #182a4d; }
+  .go:disabled { opacity: .55; cursor: wait; }
+  .go .ar { font-size: 18px; }
+
+  .meta {
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 9px; letter-spacing: .15em;
+    color: var(--ink-2); text-transform: uppercase; margin-top: 10px;
+  }
+  .meta b { color: var(--ink); font-weight: 600; }
+  #syncDot { display: inline-block; width: 6px; height: 6px;
+             background: var(--green); margin-right: 4px; vertical-align: 1px; }
+  #syncDot.offline { background: var(--ink-3); }
+
+  .err {
+    margin-top: 8px; min-height: 16px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--red);
+    text-align: center; font-weight: 600;
+  }
+
+  /* drawing title-block at the bottom of the card */
+  .tb {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border-top: 1.5px solid var(--ink);
+    margin: 0;
+    font-family: var(--mono); font-size: 8.5px; letter-spacing: .12em;
+    text-transform: uppercase; background: var(--paper-2);
+  }
+  .tb-cell {
+    border-right: 1px solid var(--ink); padding: 7px 8px 6px;
+    color: var(--ink-2); line-height: 1.35;
+  }
+  .tb-cell:last-child { border-right: 0; }
+  .tb-cell .o {
+    display: block; color: var(--ink-3); font-size: 7.5px;
+    letter-spacing: .14em; margin-bottom: 2px;
+  }
+  .tb-cell b {
+    color: var(--ink); font-family: var(--display); font-weight: 700;
+    font-size: 10px; letter-spacing: -.005em; text-transform: none;
+  }
+
+  /* foot strip below the card */
+  .foot {
+    text-align: center; padding: 18px 16px 6px;
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+  .foot b { color: var(--ink); font-weight: 600; }
+
+  @media (max-width: 380px) {
+    .lg-mark { font-size: 44px; margin-top: 28px; }
+    .lg-sub { letter-spacing: .18em; }
   }
 </style>
 </head>
 <body>
 <div class="page">
+  <header class="strip">
+    <span><span class="marker"></span>buhl electrical · internal</span>
+    <span><b>R-LOGIN</b> · rev a · 09 may 26</span>
+  </header>
+
   <div class="wrap">
-    <form class="card login-card" id="f">
-      <div class="login-mark">b&uuml;hl<span class="os">OS</span><span class="dot"></span></div>
-      <div class="login-strap">field-ready · sign in</div>
-      <div class="field">
-        <label for="u">Username</label>
-        <input id="u" name="username" autocomplete="username"
-               autocapitalize="none" autocorrect="off" required>
+    <form class="card" id="f">
+      <div class="lg-mark">b<span class="uml">&uuml;</span>hl<span class="os">os</span></div>
+      <div class="lg-sub">site &middot; timesheets &middot; snags</div>
+
+      <div class="form">
+        <div class="row">
+          <label><span>Crew &middot; ID</span><b>username</b></label>
+          <input id="u" name="username" autocomplete="username"
+                 autocapitalize="none" autocorrect="off"
+                 spellcheck="false" required>
+        </div>
+        <div class="row">
+          <label><span>Password / 4-digit PIN</span><b>secret</b></label>
+          <input id="p" name="secret" type="password"
+                 inputmode="numeric" autocomplete="current-password" required>
+        </div>
+
+        <button type="submit" class="go" id="btn">
+          <span>Open BuhlOS</span><span class="ar">&rarr;</span>
+        </button>
+
+        <div class="err" id="err"></div>
+
+        <div class="meta">
+          <span>BUILD <b id="buildLbl">2.0.5</b></span>
+          <span><span id="syncDot"></span><b id="syncLbl">LIVE</b> &middot; <span id="lastSync">live</span></span>
+        </div>
       </div>
-      <div class="field">
-        <label for="p">Password or PIN</label>
-        <input id="p" name="secret" type="password"
-               inputmode="numeric" autocomplete="current-password" required>
+
+      <div class="tb">
+        <div class="tb-cell"><span class="o">project</span><b>BuhlOS</b></div>
+        <div class="tb-cell"><span class="o">screen</span>R-LOGIN</div>
+        <div class="tb-cell"><span class="o">rev</span>A &middot; 09&middot;05</div>
+        <div class="tb-cell"><span class="o">sync</span><b id="tbSync">LIVE</b></div>
       </div>
-      <button type="submit" class="btn primary login-btn" id="btn">Sign in</button>
-      <div class="err" id="err"></div>
-      <div class="login-foot">b&uuml;hl electrical · internal</div>
     </form>
   </div>
+
+  <div class="foot">b&uuml;hl &middot; <b>field-ready</b> &middot; sign in</div>
 </div>
+
 <script>
+// Sync state — show OFFLINE on the meta row so you know before saving.
+function setSync(state) {
+  const dot = document.getElementById('syncDot');
+  const lbl = document.getElementById('syncLbl');
+  const tb  = document.getElementById('tbSync');
+  if (state === 'offline') {
+    dot.classList.add('offline');
+    lbl.textContent = 'OFFLINE';
+    tb.textContent  = 'OFFLINE';
+    document.getElementById('lastSync').textContent = 'offline';
+  } else {
+    dot.classList.remove('offline');
+    lbl.textContent = 'LIVE';
+    tb.textContent  = 'LIVE';
+    document.getElementById('lastSync').textContent = 'live';
+  }
+}
+setSync(navigator.onLine === false ? 'offline' : 'live');
+window.addEventListener('online',  () => setSync('live'));
+window.addEventListener('offline', () => setSync('offline'));
+
 const f = document.getElementById('f');
 const err = document.getElementById('err');
 const btn = document.getElementById('btn');
@@ -91,7 +279,7 @@ f.addEventListener('submit', async (e) => {
   e.preventDefault();
   err.textContent = '';
   btn.disabled = true;
-  btn.textContent = 'Signing in…';
+  btn.querySelector('span').textContent = 'Signing in…';
   try {
     const r = await fetch('/api/auth?action=login', {
       method: 'POST',
@@ -109,7 +297,7 @@ f.addEventListener('submit', async (e) => {
   } catch (e) {
     err.textContent = e.message;
     btn.disabled = false;
-    btn.textContent = 'Sign in';
+    btn.querySelector('span').textContent = 'Open BuhlOS';
   }
 });
 function landingFor(role) {
