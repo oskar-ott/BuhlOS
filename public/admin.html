@@ -1207,6 +1207,7 @@ dialog h3.dlg-title {
         <button data-qsec="ai">AI Review</button>
         <button data-qsec="structure">Structure</button>
         <button data-qsec="materials">Materials</button>
+        <button data-qsec="sourcing">Sourcing</button>
         <button data-qsec="labour">Labour</button>
         <button data-qsec="provisional">Provisional</button>
         <button data-qsec="pricing">Pricing &amp; totals</button>
@@ -4399,6 +4400,7 @@ function _qRenderSection() {
   if (sec === 'materials')  _qRenderMaterials(host);
   if (sec === 'labour')     _qRenderLabour(host);
   if (sec === 'provisional')_qRenderProvisional(host);
+  if (sec === 'sourcing')   _qRenderSourcing(host);
   if (sec === 'pricing')    _qRenderPricing(host);
   if (sec === 'risks')      _qRenderRisks(host);
   if (sec === 'summary')    _qRenderSummary(host);
@@ -5234,6 +5236,187 @@ async function _qPsDel(itemId) {
     { method:'DELETE', credentials:'same-origin' });
   if (!r.ok) { alert('Could not remove'); return; }
   await _qReloadAndRefresh();
+}
+
+// ── Sourcing — wholesaler price requests for the materials list ─────────
+// Lets admin push the materials list to a saved (or one-off) wholesaler
+// as a draft email. Each request is tracked with status (drafted → sent
+// → replied → won/lost) and the wholesaler's quoted total once captured.
+
+let _qWholesalersCache = null;
+async function _qLoadWholesalers() {
+  if (_qWholesalersCache) return _qWholesalersCache;
+  try {
+    const r = await fetch('/api/wholesalers', { credentials:'same-origin' });
+    if (!r.ok) return _qWholesalersCache = [];
+    const j = await r.json();
+    _qWholesalersCache = j.wholesalers || [];
+  } catch { _qWholesalersCache = []; }
+  return _qWholesalersCache;
+}
+
+function _qRenderSourcing(host) {
+  const open = qState.open || {};
+  const data = (open.pricingRequests) || { requests: [] };
+  const reqs = (data.requests || []).slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const matsCount = ((open.materials && open.materials.items) || []).length;
+
+  const totalsByStatus = reqs.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; }, {});
+  const repliedTotalLow = reqs
+    .filter(r => r.status === 'replied' || r.status === 'won')
+    .reduce((m, r) => (r.replyTotalExGst != null && (m == null || r.replyTotalExGst < m)) ? r.replyTotalExGst : m, null);
+
+  const headStrip = `
+    <div class="hours-summary" style="margin-bottom:14px">
+      <div class="hours-card"><div class="hours-card-label">Materials in list</div><div class="hours-card-value">${matsCount}</div></div>
+      <div class="hours-card"><div class="hours-card-label">Drafted</div><div class="hours-card-value">${totalsByStatus.drafted || 0}</div></div>
+      <div class="hours-card"><div class="hours-card-label">Sent</div><div class="hours-card-value navy">${totalsByStatus.sent || 0}</div></div>
+      <div class="hours-card"><div class="hours-card-label">Replied</div><div class="hours-card-value green">${(totalsByStatus.replied||0) + (totalsByStatus.won||0)}</div></div>
+      <div class="hours-card"><div class="hours-card-label">Best price (ex-GST)</div><div class="hours-card-value">${repliedTotalLow != null ? '$' + Number(repliedTotalLow).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</div></div>
+    </div>`;
+
+  const fmt$ = v => v == null ? '—' : '$' + Number(v).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const statusTone = (s) =>
+    s === 'won' || s === 'replied' ? 'in-progress' :
+    s === 'sent'                    ? 'snagged'     :
+    s === 'lost' || s === 'cancelled' ? 'not-started' :
+                                      'in-progress';
+
+  const rows = reqs.length ? reqs.map(r => {
+    const tone = statusTone(r.status);
+    const ws = r.wholesaler || {};
+    const mailto = ws.email
+      ? `mailto:${encodeURIComponent(ws.email)}?subject=${encodeURIComponent(r.subject)}&body=${encodeURIComponent(r.body)}`
+      : '';
+    return `<div class="s-row" data-reqid="${esc(r.id)}">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span class="status-badge ${tone}" style="text-transform:uppercase">${esc(r.status)}</span>
+          <strong style="font-size:14px">${esc(ws.name || '(no name)')}</strong>
+          ${ws.branch ? `<span style="font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.04em">${esc(ws.branch)}</span>` : ''}
+          ${ws.email ? `<a href="mailto:${esc(ws.email)}" style="font-family:var(--mono);font-size:11px;color:var(--ink-2);text-decoration:none;border-bottom:1px dashed var(--ink-3)">${esc(ws.email)}</a>` : ''}
+        </div>
+        <div style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3);letter-spacing:.06em">${r.itemCount} item${r.itemCount===1?'':'s'} · ${esc(new Date(r.createdAt).toLocaleDateString('en-AU',{day:'numeric',month:'short'}))}</div>
+      </div>
+      <div style="margin-top:8px;font-family:var(--mono);font-size:11.5px;color:var(--ink-2);letter-spacing:.04em">${esc(r.subject)}</div>
+      <details style="margin-top:6px">
+        <summary style="cursor:pointer;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);letter-spacing:.12em;text-transform:uppercase">Email body</summary>
+        <pre style="white-space:pre-wrap;font-family:var(--mono);font-size:11.5px;color:var(--ink-2);background:var(--paper-2);padding:10px 12px;margin-top:6px;border:1px solid var(--rule);border-radius:var(--radius);max-height:280px;overflow:auto">${esc(r.body)}</pre>
+      </details>
+      ${(r.status === 'replied' || r.status === 'won' || r.status === 'lost') && r.replyTotalExGst != null
+        ? `<div style="margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--ink);letter-spacing:.04em"><strong style="font-family:var(--display);font-size:14px;font-weight:700">Replied: ${fmt$(r.replyTotalExGst)}</strong>${r.replyAt ? ' · ' + esc(new Date(r.replyAt).toLocaleDateString('en-AU')) : ''}${r.replyNotes ? '<br><em style="color:var(--ink-2);font-style:italic">"' + esc(r.replyNotes) + '"</em>' : ''}</div>`
+        : ''}
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+        ${mailto ? `<a class="s-add" href="${mailto}" style="background:var(--accent);color:var(--accent-ink);text-decoration:none">Open mail ↗</a>` : ''}
+        <button class="s-add" style="background:var(--paper);color:var(--ink);border:1px solid var(--border)" onclick="_qPRCopy('${esc(r.id)}')">Copy body</button>
+        ${r.status === 'drafted' ? `<button class="s-add" style="background:var(--paper);color:var(--ink);border:1px solid var(--border)" onclick="_qPRStatus('${esc(r.id)}','sent')">Mark sent</button>` : ''}
+        ${(r.status === 'sent' || r.status === 'drafted') ? `<button class="s-add" style="background:var(--paper);color:var(--ink);border:1px solid var(--border)" onclick="_qPRReply('${esc(r.id)}')">Mark replied</button>` : ''}
+        ${(r.status === 'replied') ? `<button class="s-add" onclick="_qPRStatus('${esc(r.id)}','won')" style="background:var(--green-bg);color:var(--green);border:1px solid var(--green-bd)">Won</button><button class="s-add" onclick="_qPRStatus('${esc(r.id)}','lost')" style="background:var(--red-bg);color:var(--red);border:1px solid var(--red-bd)">Lost</button>` : ''}
+        <button class="s-add" style="background:var(--paper);color:var(--red);border:1px solid var(--red-bd);font-size:11px" onclick="_qPRDel('${esc(r.id)}')">Remove</button>
+      </div>
+    </div>`;
+  }).join('') : `<div class="empty-block">No price requests yet. Use "Request prices →" above to send the materials list to a wholesaler.</div>`;
+
+  host.innerHTML = `
+    ${headStrip}
+    <div class="s-card">
+      <div class="s-card-hdr">
+        <div><div class="s-card-title">Wholesaler price requests</div>
+        <div class="s-card-sub">Push the materials list to one or more wholesalers as a draft email; track replies and capture the best quote.</div></div>
+        <div style="display:flex;gap:8px">
+          <button class="s-add" onclick="_qPRNew()" ${matsCount === 0 ? 'disabled title="Add materials first"' : ''}>Request prices →</button>
+          <a class="s-add" href="#" style="background:var(--paper);color:var(--ink);border:1px solid var(--border)" onclick="event.preventDefault();switchTab('wholesalers');return false">Manage wholesalers ↗</a>
+        </div>
+      </div>
+      <div class="s-card-body" style="display:flex;flex-direction:column;gap:8px">${rows}</div>
+    </div>
+  `;
+}
+
+async function _qPRNew() {
+  const wholesalers = await _qLoadWholesalers();
+  let wholesalerId = null;
+  let inline = null;
+  if (wholesalers.length) {
+    const opts = wholesalers.map((w, i) => (i + 1) + '. ' + w.name + (w.branch ? ' (' + w.branch + ')' : '') + (w.email ? ' — ' + w.email : '')).join('\n');
+    const pickRaw = prompt('Pick a wholesaler by number (or "new" to enter one inline):\n\n' + opts + '\n\nNumber:');
+    if (pickRaw == null) return;
+    if (/^new$/i.test(pickRaw.trim())) {
+      const name = prompt('Wholesaler name'); if (!name) return;
+      const email = prompt('Wholesaler email (optional)') || '';
+      inline = { name: name.trim(), email: email.trim(), branch: '' };
+    } else {
+      const i = Number(pickRaw) - 1;
+      if (!isFinite(i) || !wholesalers[i]) { alert('No wholesaler at that number.'); return; }
+      wholesalerId = wholesalers[i].id;
+    }
+  } else {
+    const name = prompt('No saved wholesalers yet.\nWholesaler name:'); if (!name) return;
+    const email = prompt('Wholesaler email (optional)') || '';
+    inline = { name: name.trim(), email: email.trim(), branch: '' };
+  }
+  // For v1 we send the FULL materials list. A future iteration can add a
+  // checkbox modal for picking a subset before generating the draft.
+  const r = await fetch('/api/quotes?id=' + encodeURIComponent(qState.openQuoteId) + '&action=pricing-requests', {
+    method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(wholesalerId ? { wholesalerId } : { wholesaler: inline }),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    alert('Could not create request: ' + (j.error || r.status));
+    return;
+  }
+  await _qReloadAndRefresh();
+}
+
+function _qPRGet(reqId) {
+  const reqs = (qState.open && qState.open.pricingRequests && qState.open.pricingRequests.requests) || [];
+  return reqs.find(r => r.id === reqId);
+}
+
+async function _qPRStatus(reqId, status) {
+  const r = await fetch('/api/quotes?id=' + encodeURIComponent(qState.openQuoteId) + '&action=pricing-requests&reqId=' + encodeURIComponent(reqId),
+    { method:'PATCH', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ status }) });
+  if (!r.ok) { alert('Status update failed'); return; }
+  await _qReloadAndRefresh();
+}
+
+async function _qPRReply(reqId) {
+  const it = _qPRGet(reqId);
+  const totalRaw = prompt('Wholesaler\'s quoted total (ex-GST, $) — leave blank if not stated', it && it.replyTotalExGst != null ? String(it.replyTotalExGst) : '');
+  if (totalRaw == null) return;
+  const total = totalRaw === '' ? null : Number(totalRaw);
+  if (total != null && (!isFinite(total) || total < 0)) { alert('Total must be a non-negative number, or blank.'); return; }
+  const notes = prompt('Reply notes (lead time, exclusions, etc.)', it && it.replyNotes ? it.replyNotes : '') || '';
+  const r = await fetch('/api/quotes?id=' + encodeURIComponent(qState.openQuoteId) + '&action=pricing-requests&reqId=' + encodeURIComponent(reqId),
+    { method:'PATCH', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ status: 'replied', replyTotalExGst: total, replyNotes: notes.trim() }) });
+  if (!r.ok) { alert('Reply update failed'); return; }
+  await _qReloadAndRefresh();
+}
+
+async function _qPRDel(reqId) {
+  if (!confirm('Remove this price request? Any captured reply data will be lost.')) return;
+  const r = await fetch('/api/quotes?id=' + encodeURIComponent(qState.openQuoteId) + '&action=pricing-requests&reqId=' + encodeURIComponent(reqId),
+    { method:'DELETE', credentials:'same-origin' });
+  if (!r.ok) { alert('Could not remove'); return; }
+  await _qReloadAndRefresh();
+}
+
+async function _qPRCopy(reqId) {
+  const it = _qPRGet(reqId);
+  if (!it) return;
+  try {
+    await navigator.clipboard.writeText(it.body);
+    alert('Email body copied to clipboard.');
+  } catch (e) {
+    // Fallback: select-all in a hidden textarea.
+    const ta = document.createElement('textarea');
+    ta.value = it.body; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    alert('Email body copied to clipboard.');
+  }
 }
 
 // ── Pricing & totals ──────────────────────────────────────────────────────

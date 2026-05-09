@@ -67,6 +67,18 @@
 //                                                                   subtotalExGst, gst,
 //                                                                   totalIncGst, margin } }
 //
+//   GET    /api/quotes?id=<quoteId>&action=pricing-requests
+//                                                     → list pricing requests sent to wholesalers
+//   POST   /api/quotes?id=<quoteId>&action=pricing-requests
+//     body: { wholesalerId | wholesaler{name,email,branch}, itemIds?: [], subject?, body? }
+//                                                     → creates a draft email request, auto-builds
+//                                                       subject/body from quote + materials list
+//   PATCH  /api/quotes?id=<quoteId>&action=pricing-requests&reqId=X
+//     body: { status?, subject?, body?, replyTotalExGst?, replyNotes? }
+//                                                     → mark sent / replied / won / lost / cancelled,
+//                                                       capture wholesaler reply total + notes
+//   DELETE /api/quotes?id=<quoteId>&action=pricing-requests&reqId=X
+//
 // Permissions: admin only on writes; admin/LH for read (LH read kept off
 // for v1 — quoting is admin-facing). Tradies + clients always 403.
 
@@ -93,14 +105,15 @@ async function writeQuotes(data) {
 }
 
 const SECTION_KEYS = {
-  structure:    q => 'quotes/' + q + '/structure.json',
-  materials:    q => 'quotes/' + q + '/materials-estimate.json',
-  labour:       q => 'quotes/' + q + '/labour-estimate.json',
-  notes:        q => 'quotes/' + q + '/notes.json',
-  ai:           q => 'quotes/' + q + '/ai-review.json',
-  documents:    q => 'quotes/' + q + '/documents-index.json',
-  pricing:      q => 'quotes/' + q + '/pricing.json',
-  provisional:  q => 'quotes/' + q + '/provisional.json',
+  structure:        q => 'quotes/' + q + '/structure.json',
+  materials:        q => 'quotes/' + q + '/materials-estimate.json',
+  labour:           q => 'quotes/' + q + '/labour-estimate.json',
+  notes:            q => 'quotes/' + q + '/notes.json',
+  ai:               q => 'quotes/' + q + '/ai-review.json',
+  documents:        q => 'quotes/' + q + '/documents-index.json',
+  pricing:          q => 'quotes/' + q + '/pricing.json',
+  provisional:      q => 'quotes/' + q + '/provisional.json',
+  pricingRequests:  q => 'quotes/' + q + '/pricing-requests.json',
 };
 
 const PRICING_DEFAULTS = {
@@ -127,14 +140,15 @@ const PRICING_DEFAULTS = {
 };
 
 const SECTION_DEFAULTS = {
-  structure:   { areaGroups: [] },
-  materials:   { items: [] },
-  labour:      { lines: [] },
-  notes:       { assumptions: [], exclusions: [], risks: [], clarifications: [] },
-  ai:          { reviews: [] },
-  documents:   { documents: [] },
-  pricing:     PRICING_DEFAULTS,
-  provisional: { items: [] },
+  structure:        { areaGroups: [] },
+  materials:        { items: [] },
+  labour:           { lines: [] },
+  notes:            { assumptions: [], exclusions: [], risks: [], clarifications: [] },
+  ai:               { reviews: [] },
+  documents:        { documents: [] },
+  pricing:          PRICING_DEFAULTS,
+  provisional:      { items: [] },
+  pricingRequests:  { requests: [] },
 };
 
 async function readSection(quoteId, key) {
@@ -211,7 +225,7 @@ async function handleGetQuote(req, res, user) {
   const quote = (data.quotes || []).find(q => q.id === id);
   if (!quote) return res.status(404).json({ error: 'not found' });
   // Bundle every section in parallel for the workspace.
-  const [structure, materials, labour, notes, ai, documents, pricing, provisional] = await Promise.all([
+  const [structure, materials, labour, notes, ai, documents, pricing, provisional, pricingRequests] = await Promise.all([
     readSection(id, 'structure'),
     readSection(id, 'materials'),
     readSection(id, 'labour'),
@@ -220,13 +234,14 @@ async function handleGetQuote(req, res, user) {
     readSection(id, 'documents'),
     readSection(id, 'pricing'),
     readSection(id, 'provisional'),
+    readSection(id, 'pricingRequests'),
   ]);
   // Pre-compute totals for the bundle so the client doesn't need a second
   // round-trip on workspace open.
   const totals = computeQuoteTotals({ pricing, materials, labour, provisional });
   return res.status(200).json({
     quote, structure, materials, labour, notes, ai, documents,
-    pricing, provisional, totals,
+    pricing, provisional, pricingRequests, totals,
   });
 }
 
@@ -582,6 +597,171 @@ async function handleProvisionalDelete(req, res, user, id) {
   const data = await readSection(id, 'provisional');
   data.items = (data.items || []).filter(i => i.id !== itemId);
   await writeSection(id, 'provisional', data);
+  await touchQuote(id);
+  return res.status(200).json({ ok: true });
+}
+
+// ── Section: pricing requests (wholesaler price-out) ──────────────────────
+// Each request is a draft email to a wholesaler asking them to quote a
+// subset of the materials list. The endpoint generates a sensible
+// subject + body from the items, the admin opens it via mailto: and
+// marks sent. When the wholesaler replies, the admin captures the
+// quoted total + a note for comparison.
+
+function _buildEmailDraft(quote, wholesaler, items) {
+  const lines = items.map(i => {
+    const qty   = (Number(i.quantity) || 1).toString();
+    const unit  = String(i.unit || 'each');
+    const name  = String(i.name || '').trim();
+    const spec  = i.brandOrSpec ? ' (' + String(i.brandOrSpec).trim() + ')' : '';
+    const ref   = i.drawingRef ? ' [drawing ' + String(i.drawingRef).trim() + ']' : '';
+    return '- ' + qty + ' ' + unit + ' x ' + name + spec + ref;
+  });
+  const projectLine = quote.siteAddress
+    ? quote.name + ' — ' + quote.siteAddress
+    : quote.name;
+  const subject = 'Pricing request — ' + projectLine + ' (' + items.length + ' item' + (items.length===1?'':'s') + ')';
+  const greeting = wholesaler.name ? 'Hi ' + wholesaler.name.split(/[\s,]/)[0] + ',' : 'Hi team,';
+  const body = [
+    greeting,
+    '',
+    'Could you please quote the following items for our project ' + projectLine + '?',
+    '',
+    ...lines,
+    '',
+    quote.expectedStartDate ? 'Expected start: ' + quote.expectedStartDate : '',
+    quote.dueDate ? 'Quote needed by: ' + quote.dueDate : '',
+    '',
+    'Pricing & lead time appreciated, including any current promos.',
+    '',
+    'Thanks,',
+    'bühl electrical',
+    '',
+    '— quote ref ' + quote.id,
+  ].filter(s => s !== null && s !== undefined).join('\n');
+  return { subject, body };
+}
+
+async function handlePricingRequestsGet(req, res, user, id) {
+  const data = await readSection(id, 'pricingRequests');
+  return res.status(200).json(data);
+}
+
+async function handlePricingRequestsAdd(req, res, user, id) {
+  const body = req.body || {};
+  if (!body.wholesalerId && !body.wholesaler) {
+    return res.status(400).json({ error: 'wholesalerId or wholesaler{} required' });
+  }
+  // Resolve wholesaler details either from the saved register or from the
+  // inline object the caller passed (lets the admin quote a one-off
+  // recipient without having to add them to the register first).
+  let wholesaler = body.wholesaler || null;
+  if (body.wholesalerId) {
+    const wsBlob = await readBlob('wholesalers.json', { wholesalers: [] });
+    wholesaler = (wsBlob.wholesalers || []).find(w => w.id === body.wholesalerId);
+    if (!wholesaler) return res.status(404).json({ error: 'wholesaler not found' });
+  }
+
+  // Pick items: caller may pass itemIds (subset) or "all" (default).
+  const matsBlob = await readSection(id, 'materials');
+  const allItems = matsBlob.items || [];
+  let items;
+  if (Array.isArray(body.itemIds) && body.itemIds.length) {
+    const wanted = new Set(body.itemIds.map(String));
+    items = allItems.filter(i => wanted.has(i.id));
+    if (!items.length) return res.status(400).json({ error: 'no matching items for the given itemIds' });
+  } else {
+    items = allItems.slice();
+  }
+  if (!items.length) return res.status(400).json({ error: 'no materials to request pricing for' });
+
+  // Look up the quote for the email draft context.
+  const qData = await readQuotes();
+  const quote = (qData.quotes || []).find(q => q.id === id);
+  if (!quote) return res.status(404).json({ error: 'quote not found' });
+
+  const draft = _buildEmailDraft(quote, wholesaler, items);
+
+  const now = new Date().toISOString();
+  const request = {
+    id:           newId('preq'),
+    quoteId:      id,
+    wholesaler: {
+      id:     wholesaler.id || null,
+      name:   String(wholesaler.name || '').trim(),
+      email:  String(wholesaler.email || '').trim(),
+      branch: String(wholesaler.branch || '').trim(),
+    },
+    itemIds:      items.map(i => i.id),
+    itemCount:    items.length,
+    subject:      body.subject ? String(body.subject).trim() : draft.subject,
+    body:         body.body ? String(body.body) : draft.body,
+    status:       'drafted',     // drafted | sent | replied | won | lost | cancelled
+    sentAt:       null,
+    replyAt:      null,
+    replyTotalExGst: null,
+    replyNotes:   '',
+    createdAt:    now,
+    createdBy:    user.username,
+    updatedAt:    now,
+  };
+
+  const data = await readSection(id, 'pricingRequests');
+  data.requests = data.requests || [];
+  data.requests.push(request);
+  await writeSection(id, 'pricingRequests', data);
+  await touchQuote(id);
+  return res.status(201).json({ request });
+}
+
+async function handlePricingRequestsUpdate(req, res, user, id) {
+  const reqId = req.query && req.query.reqId;
+  if (!reqId) return res.status(400).json({ error: 'reqId required' });
+  const body = req.body || {};
+  const data = await readSection(id, 'pricingRequests');
+  const idx = (data.requests || []).findIndex(r => r.id === reqId);
+  if (idx < 0) return res.status(404).json({ error: 'not found' });
+
+  const validStatuses = ['drafted','sent','replied','won','lost','cancelled'];
+  const editable = ['subject', 'body', 'replyTotalExGst', 'replyNotes'];
+  for (const k of editable) {
+    if (body[k] !== undefined) {
+      if (k === 'replyTotalExGst') {
+        const v = body[k] === null || body[k] === '' ? null : Number(body[k]);
+        if (v !== null && (!isFinite(v) || v < 0)) {
+          return res.status(400).json({ error: 'replyTotalExGst must be a non-negative number or null' });
+        }
+        data.requests[idx][k] = v;
+      } else {
+        data.requests[idx][k] = String(body[k] || '').trim();
+      }
+    }
+  }
+  if (body.status && validStatuses.includes(body.status)) {
+    const wasStatus = data.requests[idx].status;
+    data.requests[idx].status = body.status;
+    const now = new Date().toISOString();
+    if (body.status === 'sent' && wasStatus !== 'sent' && !data.requests[idx].sentAt) {
+      data.requests[idx].sentAt = now;
+    }
+    if (body.status === 'replied' && wasStatus !== 'replied' && !data.requests[idx].replyAt) {
+      data.requests[idx].replyAt = now;
+    }
+  }
+  data.requests[idx].updatedAt = new Date().toISOString();
+  await writeSection(id, 'pricingRequests', data);
+  await touchQuote(id);
+  return res.status(200).json({ request: data.requests[idx] });
+}
+
+async function handlePricingRequestsDelete(req, res, user, id) {
+  const reqId = req.query && req.query.reqId;
+  if (!reqId) return res.status(400).json({ error: 'reqId required' });
+  const data = await readSection(id, 'pricingRequests');
+  const before = (data.requests || []).length;
+  data.requests = (data.requests || []).filter(r => r.id !== reqId);
+  if (data.requests.length === before) return res.status(404).json({ error: 'not found' });
+  await writeSection(id, 'pricingRequests', data);
   await touchQuote(id);
   return res.status(200).json({ ok: true });
 }
@@ -1318,6 +1498,14 @@ module.exports = async (req, res) => {
     if (!id) return res.status(400).json({ error: 'id required' });
     if (req.method !== 'GET') return res.status(405).json({ error: 'GET required' });
     return handleTotals(req, res, user, id);
+  }
+  if (action === 'pricing-requests') {
+    if (!id) return res.status(400).json({ error: 'id required' });
+    if (req.method === 'GET')    return handlePricingRequestsGet(req, res, user, id);
+    if (req.method === 'POST')   return handlePricingRequestsAdd(req, res, user, id);
+    if (req.method === 'PATCH')  return handlePricingRequestsUpdate(req, res, user, id);
+    if (req.method === 'DELETE') return handlePricingRequestsDelete(req, res, user, id);
+    return res.status(405).json({ error: 'method not allowed' });
   }
   if (action === 'ai-review') {
     if (!id) return res.status(400).json({ error: 'id required' });
