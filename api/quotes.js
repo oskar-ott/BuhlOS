@@ -38,6 +38,11 @@
 //                                                       body: { sourceText, sourceDocumentIds }
 //   GET    /api/quotes?id=<quoteId>&action=ai-review  → read latest review
 //
+//   POST   /api/quotes?id=<quoteId>&action=accept     → mark accepted
+//                                                       body: { clientName, clientRole, reference,
+//                                                               acceptedAmountExGst, notes, method }
+//   POST   /api/quotes?id=<quoteId>&action=unaccept   → undo accept (back to submitted)
+//
 //   POST   /api/quotes?id=<quoteId>&action=convert    → convert to live job
 //                                                       body: { copyDocuments?: bool }
 //                                                       returns { jobId }
@@ -70,6 +75,7 @@ const { requireAuth } = require('./_lib/auth');
 
 const VALID_STATUSES = [
   'draft', 'reviewing', 'estimating', 'submitted',
+  'accepted',                                       // client said yes; not yet converted
   'won', 'lost', 'declined', 'converted_to_job', 'archived',
 ];
 
@@ -818,6 +824,73 @@ async function _callAnthropic(apiKey, sourceText) {
   };
 }
 
+// ── Mark a quote as accepted by the client ───────────────────────────────
+// Captures acceptance metadata on the quote itself: who accepted (client
+// name + role), when, and an optional reference (PO number, signed-doc
+// blob URL, email reference). Status becomes "accepted". From there the
+// admin can convert (→ live job) or mark won/lost as before.
+async function handleAccept(req, res, user, id) {
+  const body = req.body || {};
+  const data = await readQuotes();
+  const qIdx = (data.quotes || []).findIndex(q => q.id === id);
+  if (qIdx < 0) return res.status(404).json({ error: 'quote not found' });
+  const quote = data.quotes[qIdx];
+
+  if (quote.convertedJobId) {
+    return res.status(409).json({
+      error: 'already converted to job',
+      convertedJobId: quote.convertedJobId,
+    });
+  }
+  if (['lost', 'declined', 'archived'].includes(quote.status)) {
+    return res.status(409).json({ error: 'cannot accept from status ' + quote.status });
+  }
+
+  const now = new Date().toISOString();
+  const acceptance = {
+    acceptedAt:        now,
+    acceptedBy:        user.username,
+    clientName:        body.clientName ? String(body.clientName).trim() : (quote.contactName || ''),
+    clientRole:        body.clientRole ? String(body.clientRole).trim() : '',
+    reference:         body.reference ? String(body.reference).trim() : '',
+    acceptedAmountExGst: body.acceptedAmountExGst != null ? Number(body.acceptedAmountExGst) : null,
+    notes:             body.notes ? String(body.notes).trim() : '',
+    method:            ['email', 'verbal', 'po', 'signed', 'other'].includes(body.method) ? body.method : 'email',
+  };
+  // Validate acceptedAmount when present.
+  if (acceptance.acceptedAmountExGst != null && !isFinite(acceptance.acceptedAmountExGst)) {
+    return res.status(400).json({ error: 'acceptedAmountExGst must be a number' });
+  }
+
+  data.quotes[qIdx].status     = 'accepted';
+  data.quotes[qIdx].acceptance = acceptance;
+  data.quotes[qIdx].updatedAt  = now;
+  await writeQuotes(data);
+  return res.status(200).json({ quote: data.quotes[qIdx] });
+}
+
+// Reverse: mark a previously-accepted quote as no-longer-accepted (e.g.
+// scope changed, client withdrew before signing). Restores status to the
+// previous value if recorded, otherwise 'submitted'.
+async function handleUnaccept(req, res, user, id) {
+  const data = await readQuotes();
+  const qIdx = (data.quotes || []).findIndex(q => q.id === id);
+  if (qIdx < 0) return res.status(404).json({ error: 'quote not found' });
+  const quote = data.quotes[qIdx];
+  if (quote.status !== 'accepted') {
+    return res.status(409).json({ error: 'quote is not in accepted status' });
+  }
+  if (quote.convertedJobId) {
+    return res.status(409).json({ error: 'quote already converted to job — cannot unaccept' });
+  }
+  const now = new Date().toISOString();
+  data.quotes[qIdx].status     = 'submitted';
+  data.quotes[qIdx].acceptance = null;
+  data.quotes[qIdx].updatedAt  = now;
+  await writeQuotes(data);
+  return res.status(200).json({ quote: data.quotes[qIdx] });
+}
+
 // ── Convert won quote → live job ─────────────────────────────────────────
 async function handleConvert(req, res, user, id) {
   const data = await readQuotes();
@@ -1251,6 +1324,16 @@ module.exports = async (req, res) => {
     if (req.method === 'GET')  return handleAiGet(req, res, user, id);
     if (req.method === 'POST') return handleAiRun(req, res, user, id);
     return res.status(405).json({ error: 'method not allowed' });
+  }
+  if (action === 'accept') {
+    if (!id) return res.status(400).json({ error: 'id required' });
+    if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
+    return handleAccept(req, res, user, id);
+  }
+  if (action === 'unaccept') {
+    if (!id) return res.status(400).json({ error: 'id required' });
+    if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
+    return handleUnaccept(req, res, user, id);
   }
   if (action === 'convert') {
     if (!id) return res.status(400).json({ error: 'id required' });

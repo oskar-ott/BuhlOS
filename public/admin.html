@@ -4150,6 +4150,7 @@ const QUOTE_STATUSES = [
   { v:'reviewing',        l:'Reviewing',       tone:'amber' },
   { v:'estimating',       l:'Estimating',      tone:'amber' },
   { v:'submitted',        l:'Submitted',       tone:'navy' },
+  { v:'accepted',         l:'Accepted',        tone:'green' },
   { v:'won',              l:'Won',             tone:'green' },
   { v:'lost',             l:'Lost',            tone:'red' },
   { v:'declined',         l:'Declined',        tone:'red' },
@@ -5509,9 +5510,43 @@ function _qRenderSummary(host) {
   const risks = (q.notes.risks || []).length;
   const t = q.totals || {};
   const fmt$ = n => '$' + (Number(n)||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+  // Acceptance + conversion blocks. Acceptance comes BEFORE conversion in
+  // the workflow: client says yes → admin records who/when/reference →
+  // then converts to a live job when ready to start work.
+  const isAccepted = q.quote.status === 'accepted';
+  const a = q.quote.acceptance || null;
+  const acceptanceBlock = a
+    ? `<div class="s-card" style="margin-top:14px;border-color:var(--green-bd);background:var(--green-bg)">
+         <div class="s-card-hdr">
+           <div>
+             <div class="s-card-title">✓ Accepted by client</div>
+             <div class="s-card-sub">${esc(a.clientName || '—')}${a.clientRole ? ' · ' + esc(a.clientRole) : ''} · ${esc(new Date(a.acceptedAt).toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' }))} · via ${esc(a.method || 'email')}${a.acceptedAmountExGst != null ? ' · $' + Number(a.acceptedAmountExGst).toLocaleString('en-AU', {minimumFractionDigits:2,maximumFractionDigits:2}) + ' ex-GST' : ''}</div>
+           </div>
+           ${q.quote.convertedJobId ? '' : `<button class="s-add" style="background:var(--paper);color:var(--ink);border:1px solid var(--border)" onclick="_qUnaccept()">Undo accept</button>`}
+         </div>
+         ${a.reference || a.notes ? `<div class="s-card-body" style="font-size:13px;color:var(--ink);padding-top:0">
+           ${a.reference ? `<div><strong>Reference:</strong> ${esc(a.reference)}</div>` : ''}
+           ${a.notes ? `<div style="margin-top:6px;color:var(--ink-2);font-style:italic">"${esc(a.notes)}"</div>` : ''}
+         </div>` : ''}
+       </div>`
+    : '';
+  // Show the Accept call-to-action whenever the quote is in submitted /
+  // estimating / reviewing — and it's not already converted/lost/etc.
+  const canAccept = ['draft','reviewing','estimating','submitted'].includes(q.quote.status);
+  const acceptCta = (!a && canAccept)
+    ? `<div class="s-card" style="margin-top:14px">
+         <div class="s-card-hdr">
+           <div>
+             <div class="s-card-title">Mark accepted</div>
+             <div class="s-card-sub">Client said yes? Capture the date, who accepted, and a reference (PO number, email subject, signed-doc reference). Status moves to <b>Accepted</b> — you can convert to a live job from there.</div>
+           </div>
+           <button class="s-add" onclick="_qAccept()" style="background:var(--accent);color:var(--accent-ink)">Mark accepted →</button>
+         </div>
+       </div>`
+    : '';
   const notice = q.quote.convertedJobId
     ? `<div class="empty-block" style="margin-top:14px;border-color:var(--green-bd);background:var(--green-bg)"><div class="empty-block-title">✓ Converted to live job</div><div>This quote was converted to job <b>${esc(q.quote.convertedJobId)}</b>. <a href="/jobs/${esc(q.quote.convertedJobId)}" target="_blank">Open dashboard ↗</a></div></div>`
-    : `<div class="s-card" style="margin-top:14px"><div class="s-card-hdr"><div><div class="s-card-title">Convert to live job</div><div class="s-card-sub">Creates a new job in <code>jobs.json</code> with this quote's structure (area groups, rough-in/fit-off task union from work packages) plus the materials list. Status moves to <b>Converted</b>.</div></div><button class="s-add" onclick="_qConvert()" style="background:var(--accent);color:var(--accent-ink)" ${q.quote.status==='lost'||q.quote.status==='declined'||q.quote.status==='archived'?'disabled':''}>Convert →</button></div></div>`;
+    : (acceptanceBlock + acceptCta + `<div class="s-card" style="margin-top:14px"><div class="s-card-hdr"><div><div class="s-card-title">Convert to live job</div><div class="s-card-sub">Creates a new job in <code>jobs.json</code> with this quote's structure (area groups, rough-in/fit-off task union from work packages) plus the materials list. Status moves to <b>Converted</b>.${isAccepted?'':' <em>(Tip: mark accepted first so the acceptance details ride along.)</em>'}</div></div><button class="s-add" onclick="_qConvert()" style="background:var(--accent);color:var(--accent-ink)" ${q.quote.status==='lost'||q.quote.status==='declined'||q.quote.status==='archived'?'disabled':''}>Convert →</button></div></div>`);
   host.innerHTML = `
     <div class="s-card">
       <div class="s-card-hdr"><div><div class="s-card-title">Summary</div><div class="s-card-sub">Snapshot of what's been captured.${t.overridden ? ' <strong style="color:var(--amber)">Override total active</strong>.' : ''}</div></div>
@@ -5779,6 +5814,58 @@ function _qPrintClientQuote() {
     <script>setTimeout(function(){window.print()},250);<\/script>
   </body></html>`);
   w.document.close();
+}
+
+// Capture client acceptance of the open quote. Two-prompt flow keeps
+// the keystrokes minimal — name + reference. Method, role, notes can
+// be edited later via the regular update endpoint.
+async function _qAccept() {
+  const id = qState.openQuoteId; if (!id) return;
+  const q = qState.open && qState.open.quote;
+  const t = qState.open && qState.open.totals;
+  const defName = q && q.contactName ? q.contactName : '';
+  const name = prompt('Who accepted? (client / builder name)', defName);
+  if (name == null) return;
+  const ref  = prompt('Reference (PO number, email subject, signed-doc id) — optional');
+  if (ref == null) return;
+  const method = prompt('How? email / verbal / po / signed / other', 'email');
+  if (method == null) return;
+  const amtRaw = prompt('Accepted amount ex-GST (optional, $)',
+    t && t.subtotalExGst > 0 ? String(t.subtotalExGst) : '');
+  if (amtRaw == null) return;
+  const acceptedAmount = amtRaw === '' ? null : Number(amtRaw);
+  if (acceptedAmount != null && (!isFinite(acceptedAmount) || acceptedAmount < 0)) {
+    alert('Amount must be a non-negative number, or blank.'); return;
+  }
+  const r = await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=accept', {
+    method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+    body: JSON.stringify({
+      clientName: name.trim(),
+      reference:  ref.trim(),
+      method:     method.trim().toLowerCase(),
+      acceptedAmountExGst: acceptedAmount,
+    }),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    alert('Mark accepted failed: ' + (j.error || r.status));
+    return;
+  }
+  await _qLoadOpenQuote(id);
+  if (typeof refreshAll === 'function') await refreshAll();
+}
+
+async function _qUnaccept() {
+  const id = qState.openQuoteId; if (!id) return;
+  if (!confirm('Undo the client acceptance? Status will go back to Submitted.')) return;
+  const r = await fetch('/api/quotes?id=' + encodeURIComponent(id) + '&action=unaccept',
+    { method:'POST', credentials:'same-origin' });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    alert('Undo failed: ' + (j.error || r.status));
+    return;
+  }
+  await _qLoadOpenQuote(id);
 }
 
 async function _qConvert() {
