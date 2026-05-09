@@ -891,6 +891,77 @@ async function handleTotals(req, res, user, id) {
   return res.status(200).json({ totals: computeQuoteTotals({ pricing, materials, labour, provisional }) });
 }
 
+// ── Aggregate metrics across all quotes (admin home strip) ───────────────
+// Cheap roll-up over the master quotes index. Computes:
+//   - count by status
+//   - win rate (won + accepted + converted_to_job) / (excluding draft)
+//   - avg cycle days submittedAt → acceptance.acceptedAt
+//   - 30-day inflow (created in last 30d)
+//   - 90-day pipeline value (sum of acceptedAmountExGst on accepted/won)
+// No section reads — we rely on what's already on the quote shell so this
+// stays O(N) on the index without N×sections fetches.
+async function handleMetrics(req, res, user) {
+  const data = await readQuotes();
+  const quotes = (data.quotes || []);
+  const today = new Date();
+  const since = (days) => { const d = new Date(today); d.setDate(today.getDate() - days); return d; };
+
+  const byStatus = {};
+  for (const q of quotes) byStatus[q.status || 'draft'] = (byStatus[q.status || 'draft'] || 0) + 1;
+
+  // Win rate: conclusive outcomes only. Drafts/reviewing/estimating are excluded.
+  const conclusive = ['accepted','won','lost','declined','converted_to_job'];
+  const won        = ['accepted','won','converted_to_job'];
+  const inConclusive = quotes.filter(q => conclusive.includes(q.status));
+  const winCount   = quotes.filter(q => won.includes(q.status)).length;
+  const winRatePct = inConclusive.length > 0 ? Math.round((winCount / inConclusive.length) * 1000) / 10 : null;
+
+  // Avg cycle: createdAt → acceptance.acceptedAt (or updatedAt for converted ones).
+  const cycles = [];
+  for (const q of quotes) {
+    if (!won.includes(q.status)) continue;
+    const start = q.createdAt && new Date(q.createdAt);
+    const acc   = (q.acceptance && q.acceptance.acceptedAt && new Date(q.acceptance.acceptedAt)) ||
+                  (q.updatedAt && new Date(q.updatedAt));
+    if (start && acc && acc > start) cycles.push((acc - start) / 86400000);
+  }
+  const avgCycleDays = cycles.length ? Math.round(cycles.reduce((s,n) => s+n, 0) / cycles.length * 10) / 10 : null;
+
+  // 30-day inflow.
+  const since30 = since(30);
+  const recent30Count = quotes.filter(q => q.createdAt && new Date(q.createdAt) >= since30).length;
+
+  // 90-day accepted/won value (sum of acceptedAmountExGst when present).
+  const since90 = since(90);
+  let recent90Value = 0;
+  let recent90Count = 0;
+  for (const q of quotes) {
+    if (!won.includes(q.status)) continue;
+    const t = (q.acceptance && q.acceptance.acceptedAt && new Date(q.acceptance.acceptedAt)) ||
+              (q.updatedAt && new Date(q.updatedAt));
+    if (!t || t < since90) continue;
+    recent90Count += 1;
+    if (q.acceptance && q.acceptance.acceptedAmountExGst != null) {
+      recent90Value += Number(q.acceptance.acceptedAmountExGst) || 0;
+    }
+  }
+
+  return res.status(200).json({
+    metrics: {
+      total:          quotes.length,
+      byStatus,
+      winRatePct,
+      winCount,
+      conclusiveCount: inConclusive.length,
+      avgCycleDays,
+      recent30Count,
+      recent90Count,
+      recent90Value:  Math.round(recent90Value * 100) / 100,
+      asOf:           today.toISOString(),
+    },
+  });
+}
+
 // ── Section: AI review ───────────────────────────────────────────────────
 // V1 implementation: server-side stub that accepts pasted scope text and
 // either calls Anthropic (if ANTHROPIC_API_KEY is set) or falls back to a
@@ -1506,6 +1577,10 @@ module.exports = async (req, res) => {
     if (req.method === 'PATCH')  return handlePricingRequestsUpdate(req, res, user, id);
     if (req.method === 'DELETE') return handlePricingRequestsDelete(req, res, user, id);
     return res.status(405).json({ error: 'method not allowed' });
+  }
+  if (action === 'metrics') {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'GET required' });
+    return handleMetrics(req, res, user);
   }
   if (action === 'ai-review') {
     if (!id) return res.status(400).json({ error: 'id required' });

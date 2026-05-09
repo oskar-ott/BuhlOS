@@ -1080,6 +1080,7 @@ dialog h3.dlg-title {
   <button data-tab="temps">Temps</button>
   <button data-tab="people">People</button>
   <button data-tab="costs">Costs</button>
+  <button data-tab="wholesalers">Wholesalers</button>
 </nav>
 
 <div class="admin-wrap">
@@ -1171,6 +1172,9 @@ dialog h3.dlg-title {
           <button class="btn primary" id="open-new-quote" style="height:38px;padding:0 16px;font-size:var(--fs-sm)">+ New quote</button>
         </div>
       </div>
+      <!-- Metrics strip — populated from /api/quotes?action=metrics -->
+      <div class="hours-summary" id="qmx-strip" style="margin-bottom:14px"></div>
+
       <div class="hours-filters" style="margin-bottom:12px">
         <div class="seg" id="quotes-status-seg">
           <button data-st="all" class="active">All</button>
@@ -1178,6 +1182,7 @@ dialog h3.dlg-title {
           <button data-st="reviewing">Reviewing</button>
           <button data-st="estimating">Estimating</button>
           <button data-st="submitted">Submitted</button>
+          <button data-st="accepted">Accepted</button>
           <button data-st="won">Won</button>
           <button data-st="lost">Lost</button>
         </div>
@@ -1577,6 +1582,20 @@ dialog h3.dlg-title {
     <div id="costs-by-user" class="cost-tbl"></div>
   </div>
 
+  <!-- Wholesalers register — used by quote Sourcing tab. -->
+  <div id="tab-wholesalers" class="tab">
+    <div class="page-head">
+      <div class="page-head-left">
+        <h1 class="admin-page-title">Wholesalers</h1>
+        <div class="admin-page-sub">Saved electrical suppliers for quote price-out emails. Used by the <em>Sourcing</em> tab on each quote.</div>
+      </div>
+      <div class="page-head-actions">
+        <button class="btn primary" onclick="_whAdd()" style="height:38px;padding:0 14px;font-size:var(--fs-sm)">+ Add wholesaler</button>
+      </div>
+    </div>
+    <div id="wh-list" style="margin-top:14px"></div>
+  </div>
+
 </div>
 
 <!-- ─── Dialogs ────────────────────────────────────────────────────── -->
@@ -1967,6 +1986,7 @@ function switchTab(id) {
   if (id === 'snags')    loadSnagsTab();
   if (id === 'temps')    loadTempsTab();
   if (id === 'people')   loadPeopleActivity();
+  if (id === 'wholesalers') loadWholesalersTab();
 }
 
 async function refreshAll() {
@@ -3807,6 +3827,90 @@ let LAST_ACTIVE_BY_USER = {}; // userId -> ISO date of newest entry
 let OPEN_SNAGS_BY_USER  = {}; // userId -> count of open snags assigned to them
 let _peopleActivityLoading = false;
 
+// ── Wholesalers tab loader / CRUD ─────────────────────────────────────────
+async function loadWholesalersTab() {
+  const list = document.getElementById('wh-list');
+  if (!list) return;
+  list.innerHTML = '<div class="empty-block">Loading…</div>';
+  try {
+    const r = await fetch('/api/wholesalers', { credentials:'same-origin' });
+    const j = r.ok ? await r.json() : { wholesalers: [] };
+    _qWholesalersCache = j.wholesalers || [];   // shared with quote Sourcing
+    if (!_qWholesalersCache.length) {
+      list.innerHTML = `<div class="empty-block"><div class="empty-block-title">No wholesalers yet</div>
+        <div>Add your usual electrical suppliers here so they're one tap away when sending price requests on a quote.</div></div>`;
+      return;
+    }
+    list.innerHTML = `<div class="reg-list">${_qWholesalersCache.map(w => `
+      <div class="reg-row">
+        <div class="reg-row-body">
+          <div class="reg-row-title">
+            <span class="reg-row-name">${esc(w.name)}</span>
+            ${w.branch ? `<span class="status-badge in-progress" style="text-transform:uppercase">${esc(w.branch)}</span>` : ''}
+          </div>
+          <div class="reg-row-meta">
+            ${w.email ? `<span><a href="mailto:${esc(w.email)}" style="color:inherit;text-decoration:none;border-bottom:1px dashed currentColor">${esc(w.email)}</a></span>` : '<span style="font-style:italic;opacity:.7">no email — won\'t be usable for price requests</span>'}
+            ${w.notes ? `<span><b>${esc(w.notes)}</b></span>` : ''}
+          </div>
+        </div>
+        <div class="reg-row-actions">
+          <button class="reg-icon-btn" title="Edit" onclick="_whEdit('${esc(w.id)}')">&#9998;</button>
+          <button class="reg-icon-btn danger" title="Remove" onclick="_whDel('${esc(w.id)}')">&#10005;</button>
+        </div>
+      </div>`).join('')}</div>`;
+  } catch (e) {
+    list.innerHTML = '<div class="empty-block">Could not load wholesalers — try again.</div>';
+  }
+}
+
+async function _whAdd() {
+  const name = prompt('Wholesaler name (e.g. "TLE Sydney North")');
+  if (!name || !name.trim()) return;
+  const email = prompt('Email (optional, used to open the price-request mailto)') || '';
+  const branch = prompt('Branch / location (optional)') || '';
+  const notes = prompt('Notes (optional, e.g. "best for switchgear")') || '';
+  const r = await fetch('/api/wholesalers', {
+    method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ name: name.trim(), email: email.trim(), branch: branch.trim(), notes: notes.trim() }),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    alert('Add failed: ' + (j.error || r.status));
+    return;
+  }
+  _qWholesalersCache = null;
+  await loadWholesalersTab();
+}
+
+async function _whEdit(id) {
+  const cur = (_qWholesalersCache || []).find(w => w.id === id);
+  if (!cur) return;
+  const name = prompt('Wholesaler name', cur.name); if (name == null) return;
+  const email = prompt('Email', cur.email || ''); if (email == null) return;
+  const branch = prompt('Branch / location', cur.branch || ''); if (branch == null) return;
+  const notes = prompt('Notes', cur.notes || ''); if (notes == null) return;
+  const r = await fetch('/api/wholesalers?id=' + encodeURIComponent(id), {
+    method:'PATCH', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ name: name.trim(), email: email.trim(), branch: branch.trim(), notes: notes.trim() }),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    alert('Update failed: ' + (j.error || r.status));
+    return;
+  }
+  _qWholesalersCache = null;
+  await loadWholesalersTab();
+}
+
+async function _whDel(id) {
+  if (!confirm('Remove this wholesaler? Existing quote price-requests pointed at them are kept (the wholesaler details on the request are denormalised).')) return;
+  const r = await fetch('/api/wholesalers?id=' + encodeURIComponent(id),
+    { method:'DELETE', credentials:'same-origin' });
+  if (!r.ok) { alert('Delete failed'); return; }
+  _qWholesalersCache = null;
+  await loadWholesalersTab();
+}
+
 async function loadPeopleActivity() {
   if (_peopleActivityLoading) return;
   _peopleActivityLoading = true;
@@ -4177,11 +4281,39 @@ async function loadQuotesTab() {
     return;
   }
   document.getElementById('quotes-list').innerHTML = '<div class="empty-block"><div>Loading…</div></div>';
+  // List + metrics in parallel — strip paints as soon as either lands.
   try {
-    const r = await fetch('/api/quotes', { credentials: 'same-origin' });
-    if (r.ok) qState.list = (await r.json()).quotes || [];
-  } catch { qState.list = []; }
+    const [listR, metricsR] = await Promise.all([
+      fetch('/api/quotes', { credentials: 'same-origin' }),
+      fetch('/api/quotes?action=metrics', { credentials: 'same-origin' }).catch(() => null),
+    ]);
+    if (listR.ok) qState.list = (await listR.json()).quotes || [];
+    if (metricsR && metricsR.ok) {
+      const m = (await metricsR.json()).metrics || null;
+      _renderQuotesMetrics(m);
+    } else {
+      _renderQuotesMetrics(null);
+    }
+  } catch { qState.list = []; _renderQuotesMetrics(null); }
   _renderQuotesList();
+}
+
+function _renderQuotesMetrics(m) {
+  const strip = document.getElementById('qmx-strip');
+  if (!strip) return;
+  if (!m) {
+    strip.innerHTML = '<div class="hours-card"><div class="hours-card-label">Quotes</div><div class="hours-card-value">—</div></div>';
+    return;
+  }
+  const fmt$ = v => '$' + (Number(v)||0).toLocaleString('en-AU',{maximumFractionDigits:0});
+  strip.innerHTML = `
+    <div class="hours-card"><div class="hours-card-label">Total quotes</div><div class="hours-card-value">${m.total}</div></div>
+    <div class="hours-card"><div class="hours-card-label">Last 30d created</div><div class="hours-card-value">${m.recent30Count}</div></div>
+    <div class="hours-card"><div class="hours-card-label">Win rate</div><div class="hours-card-value ${m.winRatePct == null ? '' : (m.winRatePct >= 50 ? 'green' : (m.winRatePct >= 30 ? 'amber' : 'red'))}">${m.winRatePct == null ? '—' : m.winRatePct + '%'}</div></div>
+    <div class="hours-card"><div class="hours-card-label">Avg cycle</div><div class="hours-card-value">${m.avgCycleDays == null ? '—' : m.avgCycleDays + 'd'}</div></div>
+    <div class="hours-card"><div class="hours-card-label">90d won (count)</div><div class="hours-card-value green">${m.recent90Count}</div></div>
+    <div class="hours-card"><div class="hours-card-label">90d won (value)</div><div class="hours-card-value">${m.recent90Value > 0 ? fmt$(m.recent90Value) : '—'}</div></div>
+  `;
 }
 
 function _wireQuotesFilters() {
