@@ -1309,7 +1309,7 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
 </div>
 
 <div class="hdr">
-  <a href="/jobs" class="hdr-logo-link wordmark invert" style="display:inline-flex;align-items:baseline;gap:.04em;text-decoration:none;flex-shrink:0;font-size:22px" title="Back to jobs">b&uuml;hl<span class="os">OS</span></a>
+  <a href="/my-day" class="hdr-logo-link wordmark invert" style="display:inline-flex;align-items:baseline;gap:.04em;text-decoration:none;flex-shrink:0;font-size:22px" title="Back to My Day">b&uuml;hl<span class="os">OS</span></a>
   <a href="/my-day" id="hdr-myday" class="hdr-myday" title="Back to My Day">My Day</a>
   <a id="hdr-setup" class="hdr-setup" title="Edit job setup (areas, checklists, crew, client)">Setup</a>
   <div class="hdr-div"></div>
@@ -1336,7 +1336,7 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
     </div>
     <div id="jsList"></div>
     <div class="js-foot">
-      <a href="/jobs">Open full jobs list &rarr;</a>
+      <a href="/my-day">Open My Day &rarr;</a>
     </div>
   </div>
 </div>
@@ -1471,7 +1471,10 @@ const state = { type: null, areaGroups: [], activeGroupId: null };
 })();
 
 async function bootstrapAuth() {
-  if (!JOB_ID) { location.href = '/jobs'; return false; }
+  // Picker page nuked — fall back to the role-aware landing handled by
+  // /login (it routes admin/LH → /admin/operations, tradie → /my-day,
+  // client → /client). If we have no job id at all, just go there.
+  if (!JOB_ID) { location.href = '/login'; return false; }
   try {
     const me = await fetch('/api/auth?action=me');
     if (!me.ok) { location.href = '/login'; return false; }
@@ -1495,7 +1498,7 @@ async function bootstrapAuth() {
 
   try {
     const jr = await fetch('/api/jobs?id=' + encodeURIComponent(JOB_ID));
-    if (!jr.ok) { location.href = '/jobs'; return false; }
+    if (!jr.ok) { location.href = '/login'; return false; }
     const { job } = await jr.json();
     CURRENT_JOB = job;
     state.type = job.type || null;
@@ -1504,7 +1507,7 @@ async function bootstrapAuth() {
     document.getElementById('hdr-name').textContent = job.name || JOB_ID;
     document.getElementById('hdr-sub').textContent = job.id;
     document.title = (job.name || JOB_ID) + ' — bühl electrical';
-  } catch (e) { location.href = '/jobs'; return false; }
+  } catch (e) { location.href = '/login'; return false; }
 
   if (CURRENT_USER.role === 'client') {
     // Hours moved into the hamburger menu — hide the menu item for clients.

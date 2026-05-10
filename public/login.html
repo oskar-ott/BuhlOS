@@ -304,7 +304,8 @@ function landingFor(role) {
   if (role === 'admin' || role === 'leadingHand') return '/admin/operations';
   if (role === 'tradie') return '/my-day';
   if (role === 'client') return '/client';
-  return '/jobs';
+  // Unknown / unset role — back to login (the picker page is gone).
+  return '/login';
 }
 fetch('/api/auth?action=me', { credentials: 'same-origin' })
   .then(r => r.ok ? r.json() : null)
