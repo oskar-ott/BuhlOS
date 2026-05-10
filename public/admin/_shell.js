@@ -340,6 +340,14 @@
         <button class="btn-icon btn-ghost" title="Tweaks"   onclick="SHELL.toggleTweaks()" style="color:#8a93a4">${ICONS.tweaks}</button>
         <button class="btn-icon btn-ghost" title="Sign out" onclick="SHELL.signOut()"      style="color:#8a93a4">${ICONS.x}</button>
       </div>
+      <!-- Env-chip — design ref: sCITnq7lo bundle, sidenav-foot. Tiny
+           low-key string in the sidebar foot so admins always know which
+           build of BuhlOS they're looking at. -->
+      <div class="side-env" title="bühl electrical · Site office console">
+        <span class="side-env-dot"></span>
+        Production · v1
+        <span class="side-env-meta">bühl electrical · Site office</span>
+      </div>
     `;
   }
 

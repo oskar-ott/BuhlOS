@@ -199,6 +199,39 @@ window.PAGE = {
         </div>
       </div>
 
+      <!-- Quick actions + today's site-office checklist (design ref:
+           sCITnq7lo bundle, renderHome). Tile grid for the 6 most-used
+           admin actions, plus a per-day checklist persisted to
+           localStorage so an admin can jot what they want to clear
+           today and the list survives a refresh. -->
+      <div class="two-col">
+        <div class="card" style="padding:0">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
+            <div class="card-title">Quick actions</div>
+            <div class="card-sub">The most-used admin moves, one tap away.</div>
+          </div>
+          <div style="padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">
+            <a class="qa-tile" href="/admin/jobs">${SHELL.ICONS.plus} New job</a>
+            <a class="qa-tile" href="/admin/crew">${SHELL.ICONS.plus} New user</a>
+            <a class="qa-tile" href="/admin/quotes">${SHELL.ICONS.plus} New quote</a>
+            <a class="qa-tile" href="/admin/approvals">${SHELL.ICONS.approval} Approvals${(C.pendingHours || 0) > 0 ? ` <span class="qa-tile-badge">${C.pendingHours}</span>` : ''}</a>
+            <a class="qa-tile" href="/admin/snags?asgn=unassigned">${SHELL.ICONS.snag} Triage snags${unassignedSnags.length > 0 ? ` <span class="qa-tile-badge bad">${unassignedSnags.length}</span>` : ''}</a>
+            <a class="qa-tile" href="/admin/suppliers">${SHELL.ICONS.suppliers} Wholesalers</a>
+          </div>
+        </div>
+
+        <div class="card" style="padding:0">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div class="card-title">Today's checklist</div>
+              <div class="card-sub" id="checklist-sub">Loading…</div>
+            </div>
+            <button class="btn btn-sm" id="checklist-add">+ Add</button>
+          </div>
+          <div id="checklist-list" style="padding:8px 12px"></div>
+        </div>
+      </div>
+
       <!-- Quote pipeline pulse -->
       ${quoteMetrics ? `
         <div class="card" style="padding:0;margin-bottom:20px">
@@ -218,8 +251,83 @@ window.PAGE = {
         </div>
       ` : ''}
     `;
+
+    // Wire today's checklist after the page is painted.
+    paintChecklist();
+    SHELL.$('#checklist-add').addEventListener('click', addChecklistItem);
   }
 };
+
+// ─── Today's site-office checklist ───────────────────────────
+// Persisted per-day in localStorage so it doesn't bleed between days.
+// Pre-seeded the first time you visit on a new day with a few sensible
+// defaults; admin can add/check/remove freely.
+function checklistKey() {
+  const d = new Date();
+  const ymd = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  return 'buhl-admin-checklist-' + ymd;
+}
+function loadChecklist() {
+  try {
+    const raw = localStorage.getItem(checklistKey());
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  // Seed with sensible defaults on first visit of the day
+  const seed = [
+    { text: 'Clear pending hours approvals', done: false },
+    { text: 'Triage any unassigned snags', done: false },
+    { text: 'Confirm crew assignments for tomorrow', done: false },
+  ];
+  saveChecklist(seed);
+  return seed;
+}
+function saveChecklist(items) {
+  try { localStorage.setItem(checklistKey(), JSON.stringify(items)); } catch {}
+}
+function paintChecklist() {
+  const items = loadChecklist();
+  const sub = SHELL.$('#checklist-sub');
+  const list = SHELL.$('#checklist-list');
+  if (!sub || !list) return;
+  const done = items.filter(x => x.done).length;
+  sub.textContent = done + ' / ' + items.length + ' done';
+  if (!items.length) {
+    list.innerHTML = '<div style="padding:14px;color:var(--muted);font-size:13px;text-align:center">All clear — add an item to get started.</div>';
+    return;
+  }
+  list.innerHTML = items.map((it, i) => `
+    <label style="display:flex;gap:10px;align-items:center;padding:8px 6px;border-radius:6px;cursor:pointer;font-size:13px;${it.done ? 'opacity:.55' : ''}">
+      <input type="checkbox" data-i="${i}" ${it.done ? 'checked' : ''}>
+      <span style="flex:1;${it.done ? 'text-decoration:line-through' : ''}">${SHELL.escapeHtml(it.text)}</span>
+      <button data-rm="${i}" style="appearance:none;background:transparent;border:0;color:var(--muted);font-size:14px;line-height:1;padding:2px 6px;cursor:pointer" title="Remove">×</button>
+    </label>
+  `).join('');
+  list.querySelectorAll('input[type="checkbox"][data-i]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const cur = loadChecklist();
+      cur[Number(cb.dataset.i)].done = cb.checked;
+      saveChecklist(cur);
+      paintChecklist();
+    });
+  });
+  list.querySelectorAll('button[data-rm]').forEach(b => {
+    b.addEventListener('click', e => {
+      e.preventDefault();
+      const cur = loadChecklist();
+      cur.splice(Number(b.dataset.rm), 1);
+      saveChecklist(cur);
+      paintChecklist();
+    });
+  });
+}
+function addChecklistItem() {
+  const text = prompt('Add to today\'s checklist:');
+  if (!text || !text.trim()) return;
+  const cur = loadChecklist();
+  cur.push({ text: text.trim(), done: false });
+  saveChecklist(cur);
+  paintChecklist();
+}
 
 function greetingPart() {
   const h = new Date().getHours();
