@@ -2134,13 +2134,22 @@ function renderDash(){
       if (isTradie) {
         actions.push({ label: 'Log hours', icon: '⏱', primary: false, onclick: 'openTradieLogForThisJob()' });
       } else {
-        actions.push({ label: 'Log for crew', icon: '⏱', primary: false, href: '/admin?goto=hours&jobId=' + esc(JOB_ID) });
+        // LH — in-context crew picker (this job is already preselected,
+        // and we already have the assigned-crew list cached for snag
+        // assignment). The old "Log for crew" link bounced LHs out to
+        // the legacy /admin?goto=hours batch flow; that loses job
+        // context and asks them to re-pick the job. Now: tap → small
+        // sheet of tradies on this job → tap a tradie → BuhlLogHours
+        // opens prefilled to <tradie> + <this job> + today.
+        actions.push({ label: 'Log for crew', icon: '⏱', primary: false, onclick: 'openCrewLogPicker()' });
       }
       actions.push({ label: 'Raise snag', icon: '⚠', primary: false, onclick: 'openSnagModal(null)' });
     } else {
-      // Admin — same legacy actions; admins don't navigate the per-job
-      // page like workers do, so the area-first reordering doesn't apply.
-      actions.push({ label: 'Log hours for crew', icon: '⏱', primary: true, href: '/admin?goto=hours&jobId=' + esc(JOB_ID) });
+      // Admin — same in-context flow as LH. Admin can also still use the
+      // batch-entry surface from /admin/hours; this just gives them an
+      // in-context option for "I'm already on this job, log Sam's hours
+      // really fast" without bouncing out.
+      actions.push({ label: 'Log hours for crew', icon: '⏱', primary: true, onclick: 'openCrewLogPicker()' });
       actions.push({ label: 'Raise a snag',     icon: '⚠', primary: false, onclick: 'openSnagModal(null)' });
       actions.push({ label: 'Edit job setup', icon: '⚙', primary: false, href: '/admin?setupJob=' + esc(JOB_ID) });
     }
@@ -2347,6 +2356,138 @@ window.openTradieLogForThisJob = async function openTradieLogForThisJob(){
       if (window.showToast) showToast(lbl,'success');
     },
   });
+};
+
+// LH/admin → log hours for a crew member on THIS job, in-context.
+//
+// Replaces the old "Log for crew" link that bounced LHs to the legacy
+// /admin?goto=hours batch flow (which lost job context and asked them
+// to re-pick the job they're already on). New flow:
+//
+//   1. Tap "Log for crew" on the per-job dashboard
+//   2. Small sheet lists the tradies + LHs assigned to THIS job
+//   3. Tap a worker → BuhlLogHours opens prefilled to <worker> +
+//      <this job> + today, in on-behalf mode
+//   4. Save → entry is written against the worker (not the LH/admin),
+//      stamped with enteredByUserId so the tradie's My Day will show
+//      "Entered by <LH>" and the chain of custody is preserved
+//
+// Server enforces the LH-shares-job permission check, so even if a
+// stale crew list slipped through, an LH can't write for someone
+// who's not on a job they manage.
+window.openCrewLogPicker = async function openCrewLogPicker(){
+  if (!window.BuhlLogHours) {
+    if (window.showToast) showToast('Log-hours module not loaded — refresh the page.','warn');
+    return;
+  }
+  const role = (CURRENT_USER && CURRENT_USER.role) || '';
+  if (role !== 'admin' && role !== 'leadingHand') {
+    if (window.showToast) showToast('Only admin or leading hand can log hours for crew.','warn');
+    return;
+  }
+  // Reuse the snag-modal crew cache (same /api/users?action=listTradies
+  // call, same scope: tradies + LHs assigned to this job).
+  if (!_snagCrewCache) {
+    try {
+      const r = await fetch('/api/users?action=listTradies', { credentials: 'same-origin' });
+      if (r.ok) {
+        const data = await r.json();
+        _snagCrewCache = (data.users || []).filter(u =>
+          (u.role === 'tradie' || u.role === 'leadingHand') &&
+          (u.assignedJobIds || []).includes(JOB_ID)
+        );
+      } else {
+        _snagCrewCache = [];
+      }
+    } catch (e) { _snagCrewCache = []; }
+  }
+  // Sort: tradies first (most common case for delegated entry),
+  // alphabetical within each role.
+  const crew = _snagCrewCache.slice().sort((a,b) => {
+    if (a.role !== b.role) return a.role === 'tradie' ? -1 : 1;
+    return (a.username || '').localeCompare(b.username || '');
+  });
+  if (!crew.length) {
+    if (window.showToast) showToast('No crew assigned to this job — assign tradies first.','warn');
+    return;
+  }
+  // Build a tiny picker sheet. We don't have a dedicated modal system on
+  // this page (snag modal is bespoke for snags), so we render a quick
+  // overlay inline. Tap outside / Esc closes; tap a row opens BuhlLogHours.
+  const overlay = document.createElement('div');
+  overlay.id = 'crew-log-picker';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(13,27,52,.45);z-index:1000;display:flex;align-items:flex-end;justify-content:center;padding:0';
+  const sheet = document.createElement('div');
+  sheet.style.cssText = 'background:#fff;width:100%;max-width:420px;max-height:80vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column;animation:none';
+  sheet.innerHTML = `
+    <div style="padding:14px 18px;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:10px">
+      <div style="flex:1">
+        <div style="font-family:var(--display);font-size:15px;font-weight:700;color:var(--navy);letter-spacing:-.012em">Log hours for crew</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.12em;margin-top:2px">Job: ${esc((CURRENT_JOB && CURRENT_JOB.name) || JOB_ID)}</div>
+      </div>
+      <button type="button" id="crew-log-close" aria-label="Close" style="background:none;border:0;font-size:22px;line-height:1;color:var(--ink-3);cursor:pointer;padding:4px 8px">&times;</button>
+    </div>
+    <div style="overflow-y:auto;-webkit-overflow-scrolling:touch">
+      ${crew.map(u => `
+        <button type="button" data-crew-id="${esc(u.id)}" data-crew-name="${esc(u.username)}" style="display:flex;align-items:center;gap:12px;width:100%;padding:14px 18px;border:0;border-bottom:1px solid var(--rule);background:#fff;text-align:left;cursor:pointer;font:inherit;color:inherit;-webkit-tap-highlight-color:transparent">
+          <div style="width:36px;height:36px;border-radius:50%;background:${u.role === 'leadingHand' ? 'rgba(245,208,32,.18)' : 'var(--paper-3)'};color:var(--navy);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:13px;font-weight:700;flex-shrink:0">${esc((u.username || '?').slice(0,2).toUpperCase())}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-family:var(--display);font-size:14px;font-weight:600;color:var(--navy)">${esc(u.username)}</div>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.1em;margin-top:2px">${u.role === 'leadingHand' ? 'Leading hand' : 'Tradie'}</div>
+          </div>
+          <span style="color:var(--ink-3);font-size:18px">&rsaquo;</span>
+        </button>
+      `).join('')}
+    </div>
+    <div style="padding:10px 18px;border-top:1px solid var(--rule);font-size:11px;color:var(--ink-3);background:var(--paper-2)">
+      Hours save against the selected worker's timesheet. They'll see "Entered by ${esc((CURRENT_USER && CURRENT_USER.username) || 'you')}" on My Day.
+    </div>
+  `;
+  overlay.appendChild(sheet);
+  document.body.appendChild(overlay);
+  document.body.style.overflow = 'hidden';
+  function close() {
+    overlay.remove();
+    document.body.style.overflow = '';
+    document.removeEventListener('keydown', escClose);
+  }
+  function escClose(e) { if (e.key === 'Escape') close(); }
+  document.addEventListener('keydown', escClose);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  sheet.querySelector('#crew-log-close').addEventListener('click', close);
+  sheet.querySelectorAll('button[data-crew-id]').forEach(b => b.addEventListener('click', async () => {
+    const targetId   = b.dataset.crewId;
+    const targetName = b.dataset.crewName;
+    close();
+    // Fetch any existing entry for THIS worker on today, so BuhlLogHours
+    // opens in edit mode instead of creating a duplicate (the server
+    // would 409 otherwise — log-hours-sheet's auto-edit-on-409 handles
+    // this too, but pre-fetching is faster + lets us toast the user).
+    const today = new Date().toISOString().slice(0,10);
+    let existing = null;
+    try {
+      const r = await fetch('/api/time-entries?fromDate=' + encodeURIComponent(today) +
+                            '&userId=' + encodeURIComponent(targetId),
+                            { credentials:'same-origin' });
+      if (r.ok) {
+        const j = await r.json();
+        existing = (j.entries || []).find(e => e.date === today) || null;
+      }
+    } catch (e) { /* fall through to create */ }
+    BuhlLogHours.open({
+      targetUserId:   targetId,
+      targetUserName: targetName,
+      scheduledJobId: JOB_ID,
+      entry: existing || undefined,
+      onSaved: (e) => {
+        const jobName = (document.getElementById('hdr-name').textContent || '').trim();
+        const total = Number(e && e.totalHours) || 0;
+        const h = Math.floor(total), m = Math.round((total - h) * 60);
+        const fmt = m ? `${h}h ${m}m` : `${h}h`;
+        if (window.showToast) showToast(`Logged ${fmt} to ${targetName}'s timesheet${jobName ? ' for ' + jobName : ''}.`,'success');
+      },
+    });
+  }));
 };
 
 // "Last touched X mins ago" helper for the Continue card
