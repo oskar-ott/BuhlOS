@@ -681,6 +681,20 @@ textarea:focus{border-color:var(--navy);background:var(--paper);outline:2px soli
 .snag-photo-add input{position:absolute;inset:0;opacity:0;cursor:pointer}
 .snag-photo-add-icon{font-size:20px;line-height:1}
 .snag-photo-hint{font-size:11px;color:var(--muted);margin-top:6px}
+/* Auto-assign hint shown under the snag-modal assignee dropdown when a
+   newly-raised snag will be (or has been) routed to a Leading Hand. Quiet
+   green so it reads as a reassurance, not a new field to fill. */
+.snag-autoassign-hint{
+  margin-top:6px;padding:6px 10px;border-radius:6px;
+  background:var(--green-bg,#f0fdf4);color:var(--green,#16a34a);
+  border:1px solid var(--green-bd,#bbf7d0);
+  font-size:11.5px;font-weight:500;line-height:1.4;
+}
+.snag-autoassign-hint b{font-weight:700}
+.snag-autoassign-hint.tradie{
+  background:var(--paper-3);color:var(--ink-2);
+  border-color:var(--rule);
+}
 .snag-meta-footer{margin-top:16px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.5}
 .snag-meta-footer b{color:var(--ink);font-weight:600}
 
@@ -1185,6 +1199,14 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
         <select id="snm-assignee">
           <option value="">— unassigned —</option>
         </select>
+        <!-- Auto-assign hint — appears under the dropdown when the snag will
+             be (or has been) routed to a Leading Hand on the job. Server
+             does the actual routing in api/data.js; this is just the
+             worker-facing affordance ("Will go to Joe") so the raiser sees
+             where their snag lands without having to wait for the assign
+             action. Hidden when an explicit assignee is already set, when
+             there's no LH on the job, or for clients (who can't see crew). -->
+        <div id="snm-autoassign-hint" class="snag-autoassign-hint" hidden></div>
       </div>
 
       <div class="snag-field">
@@ -3432,6 +3454,7 @@ async function populateSnagAssigneeSelect() {
       ? `<option value="${esc(cur.assignedToUserId)}">${esc(cur.assignedToName || cur.assignedToUserId)}</option>`
       : `<option value="">— unassigned —</option>`;
     sel.value = cur.assignedToUserId || '';
+    updateAutoAssignHint();
     return;
   }
   // Admin/LH path: lazy-fetch crew assigned to this job. Cached for the session.
@@ -3473,6 +3496,59 @@ async function populateSnagAssigneeSelect() {
   }
   sel.innerHTML = opts;
   sel.value = cur.assignedToUserId || '';
+  // Wire the hint to update whenever the user changes the selection — picking
+  // someone explicitly should hide the auto-assign reassurance. Use a guard
+  // so we don't double-bind on re-open.
+  if (!sel.dataset.autoAssignWired) {
+    sel.addEventListener('change', updateAutoAssignHint);
+    sel.dataset.autoAssignWired = '1';
+  }
+  updateAutoAssignHint();
+}
+
+// Auto-assign hint — shows "Will go to <LH name>" when raising a new snag
+// that has no explicit assignee yet AND there's a Leading Hand on the job.
+// Mirrors the server-side routing in api/data.js so the raiser sees the
+// outcome before they hit Save. For tradies we show a generic version
+// (they don't have access to the LH list) — admin/LH see the actual name.
+function updateAutoAssignHint() {
+  const hint = document.getElementById('snm-autoassign-hint');
+  if (!hint) return;
+  const sel = document.getElementById('snm-assignee');
+  const role = (CURRENT_USER && CURRENT_USER.role) || '';
+  // Hide for: editing existing snag · client view · explicit assignee set ·
+  // resolved/closed status · no working snag.
+  if (!snagModalWorking || snagModalOriginal) { hint.hidden = true; return; }
+  if (role === 'client') { hint.hidden = true; return; }
+  if (sel && sel.value) { hint.hidden = true; return; }
+  // Find an LH on this job. Admin/LH have the crew cache; for tradies we
+  // show a generic message because /api/users?action=listTradies is
+  // admin/LH-only and we don't want to leak crew names through a bypass
+  // endpoint just for this hint.
+  if (role === 'tradie') {
+    hint.hidden = false;
+    hint.classList.add('tradie');
+    hint.innerHTML = '✓ Your leading hand will be assigned this snag automatically.';
+    return;
+  }
+  // Admin/LH path: name the LH if the cache is populated.
+  const lhs = (_snagCrewCache || []).filter(u => u.role === 'leadingHand')
+    .sort((a, b) => a.username.localeCompare(b.username));
+  if (!lhs.length) {
+    hint.hidden = false;
+    hint.classList.remove('tradie');
+    hint.innerHTML = 'No leading hand on this job — snag will stay <b>unassigned</b> for triage.';
+    hint.style.background = '';
+    hint.style.color = '';
+    hint.style.borderColor = '';
+    return;
+  }
+  hint.hidden = false;
+  hint.classList.remove('tradie');
+  hint.innerHTML = '→ Will be assigned to <b>' + esc(lhs[0].username) + '</b> (leading hand on this job). Pick someone above to override.';
+  hint.style.background = '';
+  hint.style.color = '';
+  hint.style.borderColor = '';
 }
 
 function renderSnagModalPhotos(){
