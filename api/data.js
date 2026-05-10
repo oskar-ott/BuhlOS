@@ -3,6 +3,17 @@ const { requireAuth, canWrite } = require('./_lib/auth');
 
 const VALID_TASK_STATES = new Set(['not_started', 'in_progress', 'complete']);
 
+// dwellings[id] is a free-form bag — known fields:
+//   roughIn.tasks   { taskId: 'not_started'|'in_progress'|'complete' }
+//   fitOff.tasks    { taskId: 'not_started'|'in_progress'|'complete' }
+//   materials       { code: positive-int-qty, ... }   // Phase 9 — admin-confirmed
+//                                                       counts from plan takeoff;
+//                                                       writes also accepted via
+//                                                       /api/plans?action=set-dwelling-materials
+// Validation only enforces the known shape (task states); other fields flow
+// through unchanged. The full POST replaces the data blob, so the client must
+// re-fetch before mutating to avoid stomping concurrent writes.
+
 // Scans dwellings for roughIn/fitOff task values and rejects anything that
 // isn't a valid three-state string. Returns an error string or null.
 function validateTaskStates(body) {
