@@ -85,7 +85,8 @@ function paint() {
         <li><b>Approvals queue</b> moved into <a href="/admin/approvals">/admin/approvals</a> with inline approve/reject and per-user batch actions.</li>
         <li><b>Snags</b> are now triaged cross-job at <a href="/admin/snags">/admin/snags</a>, with inline assign/close/reopen.</li>
         <li><b>Hours + Costs</b> merged at <a href="/admin/hours">/admin/hours</a> (Entries / Cost roll-up tabs). Approvals deep-link from there.</li>
-        <li>The legacy <a href="/admin.html">/admin.html</a> stays available for the deep area-task editor (per-job Setup tab) and the multi-select "Log for crew" batch flow — both will be ported next.</li>
+        <li><b>Per-job Setup</b> (areas, tasks, crew, client) lives on the per-job workspace at <a href="/admin/jobs">/admin/jobs</a> → any job → Setup tab. Live editing with safe-edit guards (rename always safe; delete blocked when progress exists).</li>
+        <li><b>Field tools</b> at <a href="/admin-legacy">/admin-legacy</a> hosts two ops flows that haven't been ported into the new shell: batch-logging hours on behalf of crew, and Temps deploy / return / damage report (photo-capture flow).</li>
       </ul>
     </div>
   `;

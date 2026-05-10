@@ -78,7 +78,7 @@ function paint() {
         <div class="page-sub">Tools, equipment, gear. Track availability, deployments, and condition.</div>
       </div>
       <div class="page-actions">
-        <a class="btn" href="/admin.html#tab-temps">Deploy / report (legacy)</a>
+        <a class="btn" href="/admin-legacy#tab-temps" title="Field tools page — deploy / return / damage report with photo capture">Deploy / report →</a>
         <button class="btn btn-accent" id="add-asset">${SHELL.ICONS.plus} New asset</button>
       </div>
     </div>
@@ -155,7 +155,7 @@ function editPanel(id) {
           </select></div>
       </div>
       <div class="field"><label class="field-lbl">Notes</label><textarea class="textarea" id="t-notes" rows="3">${SHELL.escapeHtml(cur.notes || '')}</textarea></div>
-      <p style="font-size:12px;color:var(--muted);margin-top:8px">Deployment, return, and damage flows live on the legacy <a href="/admin.html#tab-temps">temps tab</a> for now — they include photo capture and per-job movement logs.</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px">Deploy / return / damage flows live on the <a href="/admin-legacy#tab-temps">Field tools page</a> — they include photo capture and per-job movement logs.</p>
     `,
     footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="t-save">${id ? 'Save' : 'Create'}</button>`,
   });
