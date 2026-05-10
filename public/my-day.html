@@ -53,15 +53,28 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   padding-bottom:calc(82px + var(--safe-b));
 }
 
-/* ── Top bar ───────────────────────────────────────────── */
+/* ── Top bar ───────────────────────────────────────────────
+   Personalised greeting + secondary date line. Compact, no
+   hero card, no decoration — calm and field-ready. The greeting
+   line takes the worker's first name (loaded from /api/auth?action=me),
+   falling back to "My Day" until that resolves so we never flash a raw
+   id/email. Time-of-day chosen from local browser time. */
 .top{
   display:flex;align-items:center;gap:12px;
-  padding:calc(14px + var(--safe-t)) 18px 10px;
+  padding:calc(14px + var(--safe-t)) 18px 12px;
 }
 .top-greet{flex:1;min-width:0}
-.top-day{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
-.top-name{font-size:20px;font-weight:700;letter-spacing:-.4px;color:var(--ink);margin-top:1px}
-.top-name #compliment{display:block;font-size:11px;font-weight:500;color:var(--muted);font-style:italic;margin-top:1px;letter-spacing:0;text-transform:none}
+.top-name{
+  font-size:22px;font-weight:700;letter-spacing:-.4px;
+  color:var(--ink);
+  /* Single-line truncation in case of unusually long names */
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.top-day{
+  font-size:12px;font-weight:500;color:var(--muted);
+  margin-top:3px;letter-spacing:.1px;
+}
+.top-day b{font-weight:600;color:var(--ink-2)}
 .top-bell{
   width:38px;height:38px;border-radius:50%;
   background:var(--surface);border:1px solid var(--line);
@@ -421,13 +434,16 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 
 <div class="frame">
 
-  <!-- Header — My Day + date. No greeting/compliment, no bell. Brief
-       calls for a calm header; predictive alerts (snags assigned, recently
-       resolved) are explicitly out per the brief and have been removed. -->
+  <!-- Header — Personalised greeting ("Good morning, Oskar") above a
+       compact date line ("Today · Mon, 12 May"). Calm, mobile-first,
+       no decoration, no hero card. Greeting text is bootstrapped to
+       "My Day" so the page never flashes a raw id/email — the JS
+       upgrades it to "Good morning, <FirstName>" once /api/auth?action=me
+       resolves. Time-of-day is chosen from local browser time. -->
   <div class="top">
     <div class="top-greet">
-      <div class="top-day" id="today">…</div>
-      <div class="top-name">My Day</div>
+      <div class="top-name" id="top-name">My Day</div>
+      <div class="top-day" id="today">Today</div>
     </div>
   </div>
 
@@ -621,18 +637,32 @@ async function load(){
   if (ME.role === 'admin' || ME.role === 'leadingHand') { location.href = '/admin/operations'; return; }
   if (ME.role === 'client') { location.href = '/client'; return; }
 
-  // Header bits
+  // Header bits — visible greeting + secondary date line.
+  // Greeting upgrades from the bootstrapped "My Day" to a personalised
+  // "Good morning, Oskar" the moment user data is in hand. firstName()
+  // already strips junk (dots, dashes, surnames) so we never expose
+  // raw ids/emails. If username is missing we silently degrade to just
+  // the greeting (e.g. "Good morning"), per brief.
   document.getElementById('me').textContent = ME.username;
+  const fname = (ME && ME.username) ? firstName(ME) : '';
+  const greetEl = document.getElementById('top-name');
+  if (greetEl) {
+    greetEl.textContent = fname && fname !== 'there'
+      ? `${greeting()}, ${fname}`
+      : greeting();
+  }
+  // Hidden legacy #greet kept in sync for any older code that reads it.
   document.getElementById('greet').textContent = `${greeting()}, ${firstName(ME)}`;
   const complimentPool = (typeof window !== 'undefined' && window.BUHL_COMPLIMENTS) || [];
   if (complimentPool.length) {
     const dayIndex = Math.floor(Date.now() / (1000 * 60 * 60 * 24));
     document.getElementById('compliment').textContent = complimentPool[dayIndex % complimentPool.length];
   }
-  // Compact one-line date inline with greeting (e.g. "Mon, 14 Apr")
-  document.getElementById('today').textContent = new Date().toLocaleDateString('en-AU', {
+  // Date line beneath greeting — "Today · Mon, 12 May" (brief option B).
+  // Compact, no uppercase shouting, no decoration.
+  document.getElementById('today').innerHTML = 'Today · <b>' + new Date().toLocaleDateString('en-AU', {
     weekday:'short', day:'numeric', month:'short'
-  });
+  }) + '</b>';
 
   // Parallel: jobs + activity + my time-entries (last ~3 weeks for week strip + history)
   const fromIso = (() => {
