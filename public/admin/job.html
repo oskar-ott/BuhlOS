@@ -29,6 +29,8 @@ let STATE = {
   // Phase 10 — materials list + cost rollup
   materials: { items: [], emailRequests: [] },
   costRollup: { itemsCount: 0, pricedCount: 0, unpricedCount: 0, totalCostExGst: 0, unpricedQty: 0 },
+  // Hours tab — full per-job breakdown (last 12 weeks). Loaded lazily on tab open.
+  jobHours: { loaded: false, loading: false, range: 84, entries: [] },
 };
 
 window.PAGE = {
@@ -149,7 +151,7 @@ function paint() {
   const body = SHELL.$('#ws-body');
   if      (STATE.section === 'overview')  body.innerHTML = renderOverview();
   else if (STATE.section === 'snags')     body.innerHTML = renderSnags();
-  else if (STATE.section === 'hours')     body.innerHTML = renderHours();
+  else if (STATE.section === 'hours')     renderHoursTab(body);
   else if (STATE.section === 'plans')     renderPlans(body);
   else if (STATE.section === 'materials') renderMaterials(body);
   else if (STATE.section === 'crew')      renderCrew(body);
@@ -303,44 +305,217 @@ function renderSnags() {
   `;
 }
 
+// ── Hours tab ──────────────────────────────────────────────────────────
+//
+// Per-job, multi-week labour breakdown. Loads lazily on first open of the
+// tab. Three sections: KPI strip, weekly breakdown, by-crew totals. Calls
+// out unrated workers (rate = 0) so payroll knows to fix it before export.
+
+async function renderHoursTab(body) {
+  if (!STATE.jobHours.loaded && !STATE.jobHours.loading) {
+    STATE.jobHours.loading = true;
+    body.innerHTML = '<div class="empty" style="border:0;padding:30px"><div class="empty-title">Loading hours…</div></div>';
+    try {
+      const days = STATE.jobHours.range || 84;
+      const to   = SHELL._iso(new Date());
+      const f    = new Date(); f.setDate(f.getDate() - days);
+      const from = SHELL._iso(f);
+      const r = await SHELL.api(`/api/time-entries-overview?fromDate=${from}&toDate=${to}&jobId=${encodeURIComponent(STATE.jobId)}`);
+      STATE.jobHours.entries = r.entries || [];
+      STATE.jobHours.loaded  = true;
+    } catch (e) {
+      body.innerHTML = `<div class="empty" style="border:0;padding:30px"><div class="empty-title">Couldn't load hours</div><div class="empty-sub">${SHELL.escapeHtml(e.message)}</div></div>`;
+      STATE.jobHours.loading = false;
+      return;
+    }
+    STATE.jobHours.loading = false;
+  }
+  body.innerHTML = renderHours();
+  // Range selector
+  const sel = body.querySelector('#hr-range');
+  if (sel) sel.addEventListener('change', async e => {
+    STATE.jobHours.range = Number(e.target.value);
+    STATE.jobHours.loaded = false;
+    await renderHoursTab(body);
+  });
+}
+
 function renderHours() {
-  const entries = STATE.hoursThisWeek.filter(e => (e.allocations || []).some(a => a.jobId === STATE.jobId));
-  const totalHrs = entries.reduce((a, e) => a + (e.allocations || []).filter(x => x.jobId === STATE.jobId).reduce((aa, x) => aa + Number(x.hours || 0), 0), 0);
-  const submitters = new Set(entries.map(e => e.userId));
+  const users = (SHELL.USERS || []);
+  const userById = {}; users.forEach(u => userById[u.id] = u);
+  const entries = STATE.jobHours.entries;
+
+  // Per-allocation: pull only the bits assigned to this job, with rate.
+  const allocs = [];
+  for (const e of entries) {
+    const u = userById[e.userId] || {};
+    const rate = (u.role === 'tradie' || u.role === 'leadingHand') ? Number(u.hourlyRate) || 0 : 0;
+    for (const a of (e.allocations || [])) {
+      if (a.jobId !== STATE.jobId) continue;
+      const hours = Number(a.hours) || 0;
+      if (!hours) continue;
+      allocs.push({
+        date: e.date,
+        userId: e.userId,
+        userName: e.userName || u.username || e.userId,
+        hourlyRate: rate,
+        rateMissing: rate === 0,
+        hours,
+        cost: hours * rate,
+        status: e.status || 'draft',
+      });
+    }
+  }
+  allocs.sort((a, b) => b.date.localeCompare(a.date));
+
+  // Aggregations
+  const totalHrs = allocs.reduce((s, a) => s + a.hours, 0);
+  const totalCost = allocs.reduce((s, a) => s + a.cost, 0);
+  const approvedHrs = allocs.filter(a => a.status === 'approved').reduce((s, a) => s + a.hours, 0);
+  const submittedHrs = allocs.filter(a => a.status === 'submitted').reduce((s, a) => s + a.hours, 0);
+  const draftHrs    = allocs.filter(a => a.status === 'draft').reduce((s, a) => s + a.hours, 0);
+  const unratedHrs  = allocs.filter(a => a.rateMissing).reduce((s, a) => s + a.hours, 0);
+  const unratedUsers = [...new Set(allocs.filter(a => a.rateMissing).map(a => a.userName))];
+
+  // By worker
+  const byWorker = {};
+  for (const a of allocs) {
+    if (!byWorker[a.userId]) byWorker[a.userId] = { name: a.userName, rate: a.hourlyRate, rateMissing: a.rateMissing, hours: 0, cost: 0 };
+    byWorker[a.userId].hours += a.hours;
+    byWorker[a.userId].cost  += a.cost;
+  }
+  const workers = Object.values(byWorker).sort((a, b) => b.hours - a.hours);
+
+  // By week (ISO Mon-Sun). Each entry's date determines its week.
+  const byWeek = {};
+  for (const a of allocs) {
+    const wk = isoWeekMondayOf(a.date);
+    if (!byWeek[wk]) byWeek[wk] = { weekStart: wk, weekEnd: addDays(wk, 6), hours: 0, cost: 0, workers: new Set(), submittedCount: 0, approvedCount: 0, draftCount: 0 };
+    byWeek[wk].hours += a.hours;
+    byWeek[wk].cost  += a.cost;
+    byWeek[wk].workers.add(a.userName);
+    if (a.status === 'submitted') byWeek[wk].submittedCount++;
+    else if (a.status === 'approved') byWeek[wk].approvedCount++;
+    else if (a.status === 'draft') byWeek[wk].draftCount++;
+  }
+  const weeks = Object.values(byWeek)
+    .map(w => ({ ...w, workers: [...w.workers] }))
+    .sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+
   return `
-    <div class="card" style="padding:0;margin-bottom:14px">
-      <div style="padding:14px 18px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line)">
-        <div>
-          <div class="card-title">Hours this week — this job</div>
-          <div class="card-sub">${SHELL.pluralize(entries.length, 'entry', 'entries')} · ${totalHrs.toFixed(1)}h · ${submitters.size} crew</div>
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-l">Total hours</div><div class="kpi-v">${totalHrs.toFixed(1)}<sup>h</sup></div><div class="kpi-d">${SHELL.pluralize(allocs.length, 'allocation')}</div></div>
+      <div class="kpi"><div class="kpi-l">Labour cost</div><div class="kpi-v">${SHELL.fmtMoney(totalCost)}</div><div class="kpi-d">rate × hours</div></div>
+      <div class="kpi"><div class="kpi-l">Approved</div><div class="kpi-v green">${approvedHrs.toFixed(1)}<sup>h</sup></div><div class="kpi-d">payroll-ready</div></div>
+      <div class="kpi"><div class="kpi-l">Awaiting</div><div class="kpi-v ${submittedHrs > 0 ? 'amber' : ''}">${(submittedHrs + draftHrs).toFixed(1)}<sup>h</sup></div><div class="kpi-d">${submittedHrs.toFixed(1)} pending · ${draftHrs.toFixed(1)} draft</div></div>
+    </div>
+
+    ${unratedHrs > 0 ? `
+      <div class="card" style="border-color:var(--warn);background:rgba(255,193,7,.06);padding:12px 14px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="font-size:18px">⚠️</div>
+          <div style="flex:1;font-size:13px">
+            <b>${unratedUsers.length} crew without an hourly rate</b> have logged ${unratedHrs.toFixed(1)}h on this job — labour cost is undercounted.<br>
+            <span style="color:var(--ink-2)">Set a rate on <a href="/admin/crew" style="color:inherit;text-decoration:underline">/admin/crew</a>: ${unratedUsers.map(SHELL.escapeHtml).join(', ')}</span>
+          </div>
         </div>
-        <a class="btn btn-sm" href="/admin/hours?job=${SHELL.escapeHtml(STATE.jobId)}">Open in Hours ${SHELL.ICONS.arrow}</a>
       </div>
-      ${entries.length === 0 ? '<div class="empty" style="border:0;padding:30px">No hours logged this week on this job.</div>' : `
-        <div>
-          ${entries
-            .sort((a,b) => (b.date || '').localeCompare(a.date || ''))
-            .map(e => {
-              const onJob = (e.allocations || []).filter(x => x.jobId === STATE.jobId);
-              const h = onJob.reduce((s,x) => s + Number(x.hours || 0), 0);
-              return `
-                <div style="display:grid;grid-template-columns:1fr 100px 80px 90px;gap:10px;padding:10px 18px;border-bottom:1px solid var(--line);font-size:13px;align-items:center">
-                  <div>
-                    <div style="font-weight:500">${SHELL.escapeHtml(e.userName || e.userId)}</div>
-                    <div style="font-size:11px;color:var(--muted)" class="tabular">${SHELL.escapeHtml(e.date)}</div>
-                  </div>
-                  <div class="tabular" style="text-align:right">${h.toFixed(2)}h</div>
-                  <div>${e.status === 'approved' ? '<span class="pill pill-ok">Approved</span>' : e.status === 'submitted' ? '<span class="pill pill-warn">Pending</span>' : '<span class="pill">Draft</span>'}</div>
-                  <div style="text-align:right">
-                    ${e.status === 'submitted' ? `<a class="btn btn-sm" href="/admin/approvals?job=${SHELL.escapeHtml(STATE.jobId)}">Approve</a>` : ''}
-                  </div>
-                </div>
-              `;
-            }).join('')}
+    ` : ''}
+
+    <div class="toolbar">
+      <select class="select" id="hr-range" style="max-width:160px">
+        <option value="14"  ${STATE.jobHours.range === 14  ? 'selected' : ''}>Last 2 weeks</option>
+        <option value="28"  ${STATE.jobHours.range === 28  ? 'selected' : ''}>Last 4 weeks</option>
+        <option value="84"  ${STATE.jobHours.range === 84  ? 'selected' : ''}>Last 12 weeks</option>
+        <option value="180" ${STATE.jobHours.range === 180 ? 'selected' : ''}>Last 6 months</option>
+        <option value="365" ${STATE.jobHours.range === 365 ? 'selected' : ''}>Last year</option>
+      </select>
+      <div class="toolbar-spacer"></div>
+      <a class="btn btn-sm" href="/admin/hours?job=${SHELL.escapeHtml(STATE.jobId)}">Open in Hours ${SHELL.ICONS.arrow}</a>
+    </div>
+
+    <div class="two-col">
+      <div class="card" style="padding:0">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
+          <div class="card-title">Weekly breakdown</div>
+          <div class="card-sub">Mon-Sun ISO weeks. Newest first.</div>
         </div>
-      `}
+        <div class="table-wrap" style="border:none;box-shadow:none;border-radius:0">
+          <table class="table">
+            <thead><tr>
+              <th>Week</th><th class="table-num">Hours</th><th class="table-num">Cost</th><th class="table-num">Crew</th><th>Status</th>
+            </tr></thead>
+            <tbody>${weeks.length ? weeks.map(w => `<tr>
+              <td><b>${w.weekStart}</b><div style="font-size:11px;color:var(--muted)">→ ${w.weekEnd}</div></td>
+              <td class="table-num">${w.hours.toFixed(1)}h</td>
+              <td class="table-num"><b>${SHELL.fmtMoney(w.cost)}</b></td>
+              <td class="table-num">${w.workers.length}</td>
+              <td style="font-size:11px;color:var(--ink-2)">
+                ${w.approvedCount ? `<span class="pill pill-ok" style="font-size:10px">${w.approvedCount} ✓</span> ` : ''}
+                ${w.submittedCount ? `<span class="pill pill-warn" style="font-size:10px">${w.submittedCount} ⏳</span> ` : ''}
+                ${w.draftCount ? `<span class="pill" style="font-size:10px">${w.draftCount} draft</span>` : ''}
+              </td>
+            </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:18px">No hours in this range.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
+          <div class="card-title">By crew member</div>
+          <div class="card-sub">Sorted by hours.</div>
+        </div>
+        <div class="table-wrap" style="border:none;box-shadow:none;border-radius:0">
+          <table class="table">
+            <thead><tr>
+              <th>Crew</th><th class="table-num">Rate</th><th class="table-num">Hours</th><th class="table-num">Cost</th>
+            </tr></thead>
+            <tbody>${workers.length ? workers.map(w => `<tr>
+              <td><b>${SHELL.escapeHtml(w.name)}</b></td>
+              <td class="table-num">${w.rateMissing ? '<span style="color:var(--warn)">—</span>' : '$' + w.rate + '/h'}</td>
+              <td class="table-num">${w.hours.toFixed(1)}h</td>
+              <td class="table-num"><b>${SHELL.fmtMoney(w.cost)}</b></td>
+            </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:18px">No crew with hours in this range.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0;margin-top:14px">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div class="card-title">Recent entries</div>
+          <div class="card-sub">${SHELL.pluralize(allocs.length, 'allocation')} on this job · newest 30 shown</div>
+        </div>
+        ${submittedHrs > 0 ? `<a class="btn btn-sm btn-accent" href="/admin/approvals?job=${SHELL.escapeHtml(STATE.jobId)}">Approve pending →</a>` : ''}
+      </div>
+      <div>
+        ${allocs.slice(0, 30).map(a => `
+          <div style="display:grid;grid-template-columns:1fr 100px 100px 110px;gap:10px;padding:10px 18px;border-bottom:1px solid var(--line);font-size:13px;align-items:center">
+            <div>
+              <div style="font-weight:500">${SHELL.escapeHtml(a.userName)}</div>
+              <div style="font-size:11px;color:var(--muted)" class="tabular">${SHELL.escapeHtml(a.date)}</div>
+            </div>
+            <div class="tabular" style="text-align:right">${a.hours.toFixed(2)}h</div>
+            <div class="tabular" style="text-align:right;color:${a.rateMissing ? 'var(--warn)' : 'var(--ink-2)'}">${a.rateMissing ? '—' : SHELL.fmtMoney(a.cost)}</div>
+            <div>${a.status === 'approved' ? '<span class="pill pill-ok">Approved</span>' : a.status === 'submitted' ? '<span class="pill pill-warn">Pending</span>' : a.status === 'rejected' ? '<span class="pill pill-bad">Rejected</span>' : '<span class="pill">Draft</span>'}</div>
+          </div>
+        `).join('') || '<div class="empty" style="border:0;padding:30px">No allocations on this job in this range.</div>'}
+      </div>
     </div>
   `;
+}
+
+function isoWeekMondayOf(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const dow = d.getDay() || 7;
+  const m = new Date(d); m.setDate(d.getDate() - (dow - 1));
+  return m.toISOString().slice(0, 10);
+}
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 
 function renderCrew(body) {
