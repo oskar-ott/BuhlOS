@@ -1028,6 +1028,83 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
 @media (max-width: 640px) {
   .hdr-signout { display: none !important; }
 }
+
+/* ──────────────────────────────────────────────────────────────────────
+   MOBILE JOB INTERFACE REBUILD (Job → Area → Task → Action → Done)
+
+   The per-job page used to fight against itself on phones: a navy header
+   crammed with My Day pill / Setup pill / divider / sync pill / Sign-out;
+   a sub-nav strip with Dashboard + scrollable area-group tabs + Tools;
+   a Worker FAB at the bottom; AND a Quick Actions row inside the
+   dashboard. Four parallel navigations for one tradie holding one phone.
+
+   On mobile we collapse all four into a coherent flow:
+     1. Tight navy header  — wordmark + job switcher + Tools (everything
+        else lives in Tools: My Day, Setup, Sign out, Snags, T&T, Temps,
+        Hours).
+     2. Sub-nav strip      — Dashboard + area-group chips + Tools.
+     3. Job Home (dashboard) — distilled to: open snags banner (only
+        when relevant), KPI strip, three primary CTAs (Open work areas,
+        Log hours, Raise snag), Top problem areas list. The "Continue
+        here / In progress / Module shortcuts" are admin-style
+        dashboard cruft and are hidden on phones.
+     4. Worker FAB         — hidden on the dashboard (CTAs already there)
+        but kept on inner screens (areas, snags) where the dashboard's
+        primary actions aren't on screen.
+
+   Desktop is unchanged: the same dashboard sections still render.
+   ────────────────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  /* Header collapses to wordmark + job switcher + Tools. */
+  .hdr-myday, .hdr-setup, .hdr-div, .sync-pill { display: none !important; }
+  .hdr { gap: 6px; padding: 0 8px; }
+  .hdr-logo-link.wordmark { font-size: 17px; }
+  /* Job switcher button gets the breathing room previously eaten by pills. */
+  button.hdr-job { padding-right: 16px; }
+  .hdr-name { font-size: 15px; font-weight: 700; letter-spacing: -.018em; }
+
+  /* Drop noisy admin-style dashboard sections — keep KPIs, quick CTAs,
+     attention list. Module shortcuts duplicate the Tools menu; In progress
+     duplicates the area list a tap away; Continue here is a power-user
+     nicety that adds vertical scroll for tradies who already know which
+     unit they were on. */
+  #dashboard .dash-modules,
+  #dashboard .dash-continue,
+  body.role-tradie #dashboard .dash-section + .dash-section,  /* the second .dash-section is "In progress" */
+  body.role-leadingHand #dashboard .dash-section + .dash-section { display: none !important; }
+
+  /* Promote the dashboard primary CTAs above the KPI strip — log hours +
+     raise snag are the worker's two reasons to open this page; they
+     should be one swipe from the top, not buried under stats. We keep
+     the existing .dash-quick row and just give it primary-row weight. */
+  #dashboard .dash-quick { margin-bottom: 14px; order: -1; }
+  #dashboard {
+    display: flex; flex-direction: column;
+    /* Continue card lives inside flex too; explicit order keeps it
+       visually de-emphasized if it ever does render. */
+  }
+  #dashboard > * { order: 0; }
+  #dashboard .dash-compliance-banner { order: -3; }    /* compliance alerts always first */
+  #dashboard .dash-quick { order: -2; }                 /* primary CTAs second */
+  #dashboard .dash-kpis { order: -1; }                  /* KPIs third */
+  #dashboard .dash-section { order: 1; }                /* attention list, etc */
+
+  /* Hide the worker FAB on the dashboard (the CTAs are already inline)
+     but keep it on snag/area/etc screens where the dashboard's CTAs
+     aren't on screen. We hide via :has() — supported on iOS Safari 15.4+
+     and Chrome 105+. Falls back to FAB always-visible on older browsers. */
+  body:has(#dashboard.sc.active) .worker-fab[data-active="1"] { display: none !important; }
+  body:has(#dashboard.sc.active).has-worker-fab .pg { padding-bottom: 14px; }
+
+  /* Compact area row on phones — tighter padding, status badge on its
+     own line so the unit name doesn't get squeezed. */
+  .dw-list .dw-row { padding: 12px 12px; min-height: 56px; gap: 8px; }
+  .dw-list .dw-row .dw-row-name { font-size: 14.5px; }
+  .dw-list .dw-row .dw-row-stage { display: none; }   /* stage badge — too noisy in a list of 30 units */
+
+  /* Tools menu items get a slightly bigger tap target (44pt = Apple HIG). */
+  .nav-menu-item { padding: 12px 16px; min-height: 44px; }
+}
 </style>
 </head>
 <body>
@@ -1384,6 +1461,24 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
         id="hoursMenuItem" onclick="goNav('hours')">
         <span class="nav-menu-item-lbl">Hours</span>
       </button>
+      <!-- Mobile job-rebuild: with the header pills hidden on phones, the
+           Tools menu becomes the single home for navigation off this job
+           (My Day / Setup / Sign out). Each is shown only when relevant —
+           tradies don't see Setup, admins/LH see the full set. JS toggles
+           visibility once role is known so the menu stays uncluttered. -->
+      <div class="nav-menu-section" id="navMenuMoveSection" style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">Switch context</div>
+      <a class="nav-menu-item" role="menuitem" id="navMenuMyDay"
+         href="/my-day" hidden>
+        <span class="nav-menu-item-lbl">← My Day</span>
+      </a>
+      <a class="nav-menu-item" role="menuitem" id="navMenuSetup"
+         href="#" hidden>
+        <span class="nav-menu-item-lbl">⚙ Edit job setup</span>
+      </a>
+      <a class="nav-menu-item" role="menuitem" id="navMenuOps"
+         href="/admin/operations" hidden>
+        <span class="nav-menu-item-lbl">↺ Admin operations</span>
+      </a>
       <!-- Design brief #04 — sign-out moves into Job Tools so it stops
            crowding the header. The original #logoutBtn stays in the DOM
            for desktop / fallback; CSS hides it on small viewports. -->
@@ -1480,10 +1575,17 @@ async function bootstrapAuth() {
     if (!me.ok) { location.href = '/login'; return false; }
     const { user } = await me.json();
     CURRENT_USER = user;
+    // Body class drives role-aware mobile CSS (e.g. hiding admin-style
+    // dashboard sections for tradies, exposing Setup tile for admin/LH).
+    document.body.classList.add('role-' + (user.role || 'unknown'));
     // Tradies get a one-tap "My Day" pill back to their daily home
     if (user && user.role === 'tradie') {
       const md = document.getElementById('hdr-myday');
       if (md) md.style.display = 'inline-flex';
+      // Mobile job-rebuild: My Day link also lives in the Tools menu so it
+      // remains reachable when the header pill collapses on phones.
+      const mdMenu = document.getElementById('navMenuMyDay');
+      if (mdMenu) mdMenu.hidden = false;
     }
     // Admin/LH get a one-tap "Setup" pill into the admin setup view for THIS job —
     // bridges the previously fragmented operational vs setup workflows.
@@ -1493,6 +1595,15 @@ async function bootstrapAuth() {
         setupLink.href = '/admin?setupJob=' + encodeURIComponent(JOB_ID);
         setupLink.style.display = 'inline-flex';
       }
+      // Mobile job-rebuild: Setup + Operations links live in the Tools menu
+      // so admin/LH still have one-tap access when the header pill collapses.
+      const setupMenu = document.getElementById('navMenuSetup');
+      if (setupMenu && JOB_ID) {
+        setupMenu.href = '/admin?setupJob=' + encodeURIComponent(JOB_ID);
+        setupMenu.hidden = false;
+      }
+      const opsMenu = document.getElementById('navMenuOps');
+      if (opsMenu) opsMenu.hidden = false;
     }
   } catch (e) { location.href = '/login'; return false; }
 
@@ -1934,21 +2045,46 @@ function renderDash(){
   }
 
   // ── Quick actions row (role-tailored) ─────────────────────────────────
-  // Tradie:  Log hours · Raise snag
-  // LH:      Log for crew · Raise snag · Setup
-  // Admin:   Log for crew · Setup · View Approvals
-  // Client:  (none — no quick actions, the tabs cover their needs)
+  //
+  // Worker mental model on this page (per the mobile job-rebuild brief):
+  //   Open job → find area → update task / raise snag / log hours → done
+  //
+  // So for tradies + LH the PRIMARY action is "Open work areas" — that's
+  // why they're on this page. Log hours + Raise snag stay as secondary
+  // outlined buttons. Admins keep the original Log-for-crew / Setup pair
+  // because they're rarely opening this page to do unit work themselves.
+  //
+  // Multi-group jobs deep-link to the first group; single-group jobs
+  // scroll-to the attention list (where the actual area rows render).
   if (!isClient) {
     const actions = [];
-    if (isTradie) {
-      actions.push({ label: 'Log today’s hours', icon: '⏱', primary: true, onclick: 'openTradieLogForThisJob()' });
-      actions.push({ label: 'Raise a snag', icon: '⚠', primary: false, onclick: 'openSnagModal(null)' });
+    const hasMultipleGroups = groups.length > 1;
+    if (isTradie || isLH) {
+      // PRIMARY — the whole reason a worker is on this page. Always
+      // deep-link to grp-0 (every job has at least one area-group when
+      // it has areas; renderGroup paints the full unit list there).
+      // Falls back to scroll-to attention list if there are no groups
+      // configured yet (defensive — empty-state already handled above).
+      const hasGroups = groups.length > 0;
+      actions.push({
+        label: 'Open work areas' + (areas.length ? ' · ' + areas.length : ''),
+        icon: '→',
+        primary: true,
+        onclick: hasGroups ? `show('grp-0')` : `document.querySelector('.dash-section')?.scrollIntoView({behavior:'smooth',block:'start'})`,
+      });
+      // Secondary — log hours + raise snag.
+      if (isTradie) {
+        actions.push({ label: 'Log hours', icon: '⏱', primary: false, onclick: 'openTradieLogForThisJob()' });
+      } else {
+        actions.push({ label: 'Log for crew', icon: '⏱', primary: false, href: '/admin?goto=hours&jobId=' + esc(JOB_ID) });
+      }
+      actions.push({ label: 'Raise snag', icon: '⚠', primary: false, onclick: 'openSnagModal(null)' });
     } else {
+      // Admin — same legacy actions; admins don't navigate the per-job
+      // page like workers do, so the area-first reordering doesn't apply.
       actions.push({ label: 'Log hours for crew', icon: '⏱', primary: true, href: '/admin?goto=hours&jobId=' + esc(JOB_ID) });
       actions.push({ label: 'Raise a snag',     icon: '⚠', primary: false, onclick: 'openSnagModal(null)' });
-      if (isLH || isAdmin) {
-        actions.push({ label: 'Edit job setup', icon: '⚙', primary: false, href: '/admin?setupJob=' + esc(JOB_ID) });
-      }
+      actions.push({ label: 'Edit job setup', icon: '⚙', primary: false, href: '/admin?setupJob=' + esc(JOB_ID) });
     }
     h += `<div class="dash-quick">` + actions.map(a => {
       const cls = 'dash-quick-btn' + (a.primary ? ' primary' : '');
