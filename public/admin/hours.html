@@ -15,12 +15,16 @@
 <body>
 <script>
 let STATE = {
-  view: 'entries',          // entries | cost
+  view: 'entries',          // entries | weekly | cost
   // Entries view
-  entryStatus: 'all',       // all | submitted | approved | rejected
+  entryStatus: 'all',       // all | submitted | approved | rejected | draft
   entryJob: 'all',
   entrySearch: '',
   entriesAll: [],
+  // Weekly grid view
+  weeklyAnchor: '',         // ISO Monday of the week being shown
+  weeklyData: null,         // { entries, missing, jobs, users }
+  weeklyJob: 'all',
   // Cost view
   costRange: 'thisMonth',   // thisMonth | lastMonth | last30 | last90 | all | custom
   costFrom: '',
@@ -34,7 +38,11 @@ window.PAGE = {
   crumb: 'Hours',
   async render() {
     const params = new URLSearchParams(location.search);
-    if (params.get('view') === 'cost') STATE.view = 'cost';
+    if (params.get('view') === 'cost')   STATE.view = 'cost';
+    if (params.get('view') === 'weekly') STATE.view = 'weekly';
+    if (params.get('job')) STATE.entryJob = params.get('job');
+    if (params.get('week')) STATE.weeklyAnchor = params.get('week');
+    if (!STATE.weeklyAnchor) STATE.weeklyAnchor = SHELL._iso(SHELL.isoWeekMonday());
     paint();
     await loadActive();
   }
@@ -42,24 +50,37 @@ window.PAGE = {
 
 async function loadActive() {
   if (STATE.view === 'entries') return loadEntries();
+  if (STATE.view === 'weekly')  return loadWeekly();
   return loadCost();
 }
 
 async function loadEntries() {
   try {
-    // Load ALL statuses so the user can filter client-side without re-fetching
-    const [submitted, approved, rejected] = await Promise.all([
+    const [submitted, approved, rejected, drafts] = await Promise.all([
       SHELL.api('/api/time-entries?scope=approver&status=submitted'),
       SHELL.api('/api/time-entries?scope=approver&status=approved').catch(() => ({ entries: [] })),
       SHELL.api('/api/time-entries?scope=approver&status=rejected').catch(() => ({ entries: [] })),
+      SHELL.api('/api/time-entries?scope=approver&status=draft').catch(() => ({ entries: [] })),
     ]);
     const tag = (e, status) => ({ ...e, _statusTag: status });
     STATE.entriesAll = [
       ...(submitted.entries || []).map(e => tag(e, 'submitted')),
       ...(approved.entries  || []).map(e => tag(e, 'approved')),
       ...(rejected.entries  || []).map(e => tag(e, 'rejected')),
+      ...(drafts.entries    || []).map(e => tag(e, 'draft')),
     ];
   } catch (e) { SHELL.toast('Failed to load entries — ' + e.message, 'bad'); }
+  paint();
+}
+
+async function loadWeekly() {
+  const monday = STATE.weeklyAnchor;
+  const sunday = addDays(monday, 6);
+  try {
+    const qs = new URLSearchParams({ fromDate: monday, toDate: sunday });
+    if (STATE.weeklyJob !== 'all') qs.set('jobId', STATE.weeklyJob);
+    STATE.weeklyData = await SHELL.api('/api/time-entries-overview?' + qs.toString());
+  } catch (e) { SHELL.toast('Failed to load weekly grid — ' + e.message, 'bad'); }
   paint();
 }
 
@@ -104,7 +125,7 @@ function paint() {
     <div class="page-head">
       <div>
         <div class="page-h1">Hours</div>
-        <div class="page-sub">Time-entries from the field, approvals queue, and labour cost roll-up.</div>
+        <div class="page-sub">Time-entries from the field, weekly grid, approvals, labour cost roll-up, and payroll export.</div>
       </div>
       <div class="page-actions">
         <a class="btn" href="/admin-legacy#tab-hours" title="Field tools page — batch entry of hours on behalf of crew">+ Log for crew →</a>
@@ -114,6 +135,7 @@ function paint() {
 
     <div class="tabs">
       <a class="tab ${STATE.view === 'entries' ? 'active' : ''}" href="#" data-view="entries">Entries</a>
+      <a class="tab ${STATE.view === 'weekly' ? 'active' : ''}"  href="#" data-view="weekly">Weekly grid</a>
       <a class="tab ${STATE.view === 'cost' ? 'active' : ''}"    href="#" data-view="cost">Cost roll-up</a>
     </div>
 
@@ -127,9 +149,11 @@ function paint() {
     loadActive();
   }));
   if (STATE.view === 'entries') paintEntries();
+  else if (STATE.view === 'weekly') paintWeekly();
   else paintCost();
 }
 
+// ── Entries view ──────────────────────────────────────────────────────
 function paintEntries() {
   const body = SHELL.$('#hours-body');
   if (!STATE.entriesAll.length) {
@@ -169,6 +193,7 @@ function paintEntries() {
       <div class="search">${SHELL.ICONS.search}<input id="se-i" placeholder="Search by user, notes, job…" value="${SHELL.escapeHtml(STATE.entrySearch)}"></div>
       <select class="select" id="se-status" style="max-width:160px">
         <option value="all"${STATE.entryStatus === 'all' ? ' selected' : ''}>All statuses</option>
+        <option value="draft"${STATE.entryStatus === 'draft' ? ' selected' : ''}>Draft</option>
         <option value="submitted"${STATE.entryStatus === 'submitted' ? ' selected' : ''}>Submitted</option>
         <option value="approved"${STATE.entryStatus === 'approved' ? ' selected' : ''}>Approved</option>
         <option value="rejected"${STATE.entryStatus === 'rejected' ? ' selected' : ''}>Rejected</option>
@@ -184,15 +209,16 @@ function paintEntries() {
     <div class="table-wrap">
       <table class="table">
         <thead><tr>
-          <th>Date</th><th>Submitter</th><th>Allocations</th><th class="table-num">Hours</th><th>Status</th>
+          <th>Date</th><th>Submitter</th><th>Allocations</th><th class="table-num">Hours</th><th>Status</th><th></th>
         </tr></thead>
-        <tbody>${filtered.length ? filtered.map(e => entryRow(e, jobsById)).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No entries match the filters.</td></tr>'}</tbody>
+        <tbody>${filtered.length ? filtered.map(e => entryRow(e, jobsById)).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No entries match the filters.</td></tr>'}</tbody>
       </table>
     </div>
   `;
   SHELL.$('#se-i').addEventListener('input', e => { STATE.entrySearch = e.target.value; paintEntries(); });
   SHELL.$('#se-status').addEventListener('change', e => { STATE.entryStatus = e.target.value; paintEntries(); });
   SHELL.$('#se-job').addEventListener('change', e => { STATE.entryJob = e.target.value; paintEntries(); });
+  SHELL.$$('button[data-reopen]').forEach(b => b.addEventListener('click', () => reopenEntry(b.dataset.reopen, b.dataset.date)));
 }
 
 function entryRow(e, jobsById) {
@@ -201,16 +227,281 @@ function entryRow(e, jobsById) {
     const name = (jobsById[a.jobId] || {}).name || a.jobId || 'Internal';
     return `${SHELL.escapeHtml(name)} (${(Number(a.hours) || 0).toFixed(1)}h)`;
   }).join(' · ');
-  const tone = e._statusTag === 'approved' ? 'ok' : e._statusTag === 'rejected' ? 'bad' : 'warn';
+  const tone = e._statusTag === 'approved' ? 'ok' : e._statusTag === 'rejected' ? 'bad' : e._statusTag === 'draft' ? 'navy' : 'warn';
+  const exportedTag = e.exportId ? `<div style="font-size:10px;color:var(--muted);font-family:var(--ff-mono);margin-top:2px">${SHELL.escapeHtml(e.exportId)}</div>` : '';
+  const canReopen = e._statusTag === 'approved' || e._statusTag === 'rejected';
   return `<tr>
     <td><b>${SHELL.escapeHtml(e.date || '')}</b></td>
     <td>${SHELL.escapeHtml(e.userName || e.userId)}</td>
     <td style="font-size:12px;color:var(--ink-2)">${allocStr}${e.notes ? `<br><span style="color:var(--muted);font-size:11px;font-style:italic">"${SHELL.escapeHtml(e.notes)}"</span>` : ''}</td>
     <td class="table-num">${totalH.toFixed(1)}h</td>
-    <td><span class="pill pill-${tone}"><span class="pill-dot"></span>${e._statusTag}</span></td>
+    <td><span class="pill pill-${tone}"><span class="pill-dot"></span>${e._statusTag}</span>${exportedTag}</td>
+    <td style="text-align:right">${canReopen ? `<button class="btn btn-sm" data-reopen="${SHELL.escapeHtml(e.userId)}" data-date="${SHELL.escapeHtml(e.date)}" title="Send back to the worker for editing">Reopen</button>` : ''}</td>
   </tr>`;
 }
 
+async function reopenEntry(userId, date) {
+  const reason = prompt('Why are you reopening this entry? (optional, shown to the worker)');
+  if (reason === null) return; // cancelled
+  try {
+    await SHELL.api('/api/time-entries-reopen', {
+      method: 'POST',
+      body: { userId, date, toStatus: 'submitted', reason: reason || null },
+    });
+    SHELL.toast('Reopened — worker can edit again', 'ok');
+    await loadEntries();
+  } catch (e) {
+    // Special-case the export-guard 409 with a confirm prompt.
+    const msg = String(e.message || '');
+    if (msg.includes('exported')) {
+      if (!confirm('This entry was already exported to payroll. Reopen anyway? You\'ll need to re-export this week.')) return;
+      try {
+        await SHELL.api('/api/time-entries-reopen', {
+          method: 'POST',
+          body: { userId, date, toStatus: 'submitted', reason: reason || null, force: true },
+        });
+        SHELL.toast('Reopened — re-export required', 'ok');
+        await loadEntries();
+      } catch (e2) { SHELL.toast('Reopen failed — ' + e2.message, 'bad'); }
+    } else {
+      SHELL.toast('Reopen failed — ' + msg, 'bad');
+    }
+  }
+}
+
+// ── Weekly grid view ───────────────────────────────────────────────────
+function paintWeekly() {
+  const body = SHELL.$('#hours-body');
+  if (!STATE.weeklyData) {
+    body.innerHTML = '<div class="empty"><div class="empty-title">Loading week…</div></div>';
+    return;
+  }
+  const monday = STATE.weeklyAnchor;
+  const sunday = addDays(monday, 6);
+  const data = STATE.weeklyData;
+  const jobsById = {}; (SHELL.JOBS || []).forEach(j => jobsById[j.id] = j);
+  const usersById = {}; (SHELL.USERS || []).forEach(u => usersById[u.id] = u);
+
+  // Build worker × day matrix.
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(monday, i);
+    const dt = new Date(d + 'T00:00:00');
+    days.push({ iso: d, label: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i], num: dt.getDate(), isWeekend: dt.getDay() === 0 || dt.getDay() === 6 });
+  }
+
+  // Active crew = anyone with an entry this week, plus anyone in data.users.
+  const cellsByUser = {};
+  for (const e of (data.entries || [])) {
+    const totalH = (e.allocations || []).reduce((s, a) => s + (Number(a.hours) || 0), 0);
+    if (!cellsByUser[e.userId]) cellsByUser[e.userId] = { name: e.userName || e.userId, role: e.userRole, days: {} };
+    cellsByUser[e.userId].days[e.date] = { hours: totalH, status: e.status, exportId: e.exportId, allocations: e.allocations };
+  }
+  // Add zero-row for any user assigned but with no entries this week (shows missing days)
+  for (const u of (data.users || [])) {
+    if (!cellsByUser[u.id]) cellsByUser[u.id] = { name: u.username, role: u.role, days: {} };
+  }
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayIso = SHELL._iso(today);
+
+  // Per-user totals + per-day totals
+  const userTotals = {};
+  const dayTotals = {};
+  for (const uid of Object.keys(cellsByUser)) {
+    let t = 0;
+    for (const d of days) {
+      const cell = cellsByUser[uid].days[d.iso];
+      if (cell) {
+        t += cell.hours;
+        dayTotals[d.iso] = (dayTotals[d.iso] || 0) + cell.hours;
+      }
+    }
+    userTotals[uid] = t;
+  }
+  const grandTotal = Object.values(userTotals).reduce((s, v) => s + v, 0);
+
+  // Sort workers: admins/LH bottom, by hours desc, then name
+  const workerRows = Object.entries(cellsByUser)
+    .map(([uid, w]) => ({ uid, ...w, total: userTotals[uid] || 0 }))
+    .sort((a, b) => (b.total - a.total) || a.name.localeCompare(b.name));
+
+  // Job filter dropdown
+  const jobOpts = (data.jobs || []).map(j => `<option value="${SHELL.escapeHtml(j.id)}"${STATE.weeklyJob === j.id ? ' selected' : ''}>${SHELL.escapeHtml(j.name)}</option>`).join('');
+
+  body.innerHTML = `
+    <div class="toolbar">
+      <button class="btn" id="wk-prev">← Prev week</button>
+      <div style="font-weight:600;font-size:14px">Week of ${monday}</div>
+      <button class="btn" id="wk-next">Next week →</button>
+      <button class="btn btn-sm" id="wk-today">This week</button>
+      <select class="select" id="wk-job" style="max-width:200px">
+        <option value="all"${STATE.weeklyJob === 'all' ? ' selected' : ''}>All jobs</option>
+        ${jobOpts}
+      </select>
+      <div class="toolbar-spacer"></div>
+      <button class="btn btn-accent" id="wk-export">${SHELL.ICONS.download || '⬇'} Export payroll CSV</button>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-l">Crew with entries</div><div class="kpi-v">${workerRows.filter(w => w.total > 0).length}</div></div>
+      <div class="kpi"><div class="kpi-l">Total hours</div><div class="kpi-v">${grandTotal.toFixed(1)}<sup>h</sup></div></div>
+      <div class="kpi"><div class="kpi-l">Missing weekday logs</div><div class="kpi-v ${(data.missing || []).length ? 'red' : 'green'}">${(data.missing || []).length}</div></div>
+      <div class="kpi"><div class="kpi-l">Pending approval</div><div class="kpi-v ${data.totals.byStatus.submitted ? 'amber' : 'green'}">${data.totals.byStatus.submitted || 0}</div></div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="table" style="font-size:12px">
+        <thead>
+          <tr>
+            <th style="text-align:left">Crew</th>
+            ${days.map(d => `<th class="table-num" style="width:64px;${d.isWeekend ? 'background:rgba(0,0,0,.03)' : ''}">${d.label}<div style="font-size:10px;color:var(--muted);font-weight:400">${d.num}</div></th>`).join('')}
+            <th class="table-num" style="width:80px;background:rgba(13,31,53,.04)">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${workerRows.length ? workerRows.map(w => `
+            <tr>
+              <td><b>${SHELL.escapeHtml(w.name)}</b>${w.role === 'leadingHand' ? ' <span style="font-size:10px;color:var(--muted)">LH</span>' : ''}</td>
+              ${days.map(d => {
+                const cell = w.days[d.iso];
+                if (cell) {
+                  const tone = cell.status === 'approved' ? 'ok' : cell.status === 'submitted' ? 'warn' : cell.status === 'rejected' ? 'bad' : 'navy';
+                  const exp = cell.exportId ? '<span title="Exported to payroll" style="font-size:9px;margin-left:2px">⊡</span>' : '';
+                  return `<td class="table-num" style="cursor:pointer;${d.isWeekend ? 'background:rgba(0,0,0,.03)' : ''}" data-cell="${SHELL.escapeHtml(w.uid)}|${d.iso}" title="${cell.status} · click for details">
+                    <span class="pill pill-${tone}" style="font-size:10px;padding:1px 5px">${cell.hours.toFixed(1)}h${exp}</span>
+                  </td>`;
+                }
+                // Missing weekday past today is a red flag; weekend or future is OK
+                const isFuture = d.iso > todayIso;
+                const isMissed = !d.isWeekend && d.iso <= todayIso;
+                return `<td class="table-num" style="${d.isWeekend ? 'background:rgba(0,0,0,.03);' : ''}${isMissed ? 'color:var(--bad);font-weight:600' : 'color:var(--muted)'}">${isMissed ? '·' : '—'}</td>`;
+              }).join('')}
+              <td class="table-num" style="background:rgba(13,31,53,.04);font-weight:600">${w.total.toFixed(1)}h</td>
+            </tr>
+          `).join('') : '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">No crew assigned to visible jobs.</td></tr>'}
+          <tr style="background:rgba(13,31,53,.04);font-weight:600">
+            <td>Day totals</td>
+            ${days.map(d => `<td class="table-num">${(dayTotals[d.iso] || 0).toFixed(1)}h</td>`).join('')}
+            <td class="table-num">${grandTotal.toFixed(1)}h</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    ${(data.missing || []).length ? `
+      <div class="card" style="border-color:var(--warn);background:rgba(255,193,7,.06);padding:12px 14px;margin-top:14px">
+        <div style="display:flex;align-items:flex-start;gap:10px">
+          <div style="font-size:18px">⚠️</div>
+          <div style="flex:1;font-size:13px">
+            <b>${SHELL.pluralize((data.missing || []).length, 'missing weekday log')}</b>
+            <div style="color:var(--ink-2);font-size:12px;margin-top:4px">
+              ${(data.missing || []).slice(0, 12).map(m => `<span style="display:inline-block;margin-right:10px">${SHELL.escapeHtml(m.userName)} · ${m.date}</span>`).join('')}
+              ${(data.missing || []).length > 12 ? `<span style="color:var(--muted)">… and ${(data.missing || []).length - 12} more</span>` : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+    ` : ''}
+
+    <p style="color:var(--muted);font-size:11px;margin-top:14px">
+      Cell colours: green = approved · amber = submitted · navy = draft · red dot = missing weekday log. ⊡ = exported to payroll.
+    </p>
+  `;
+
+  SHELL.$('#wk-prev').addEventListener('click',  () => { STATE.weeklyAnchor = addDays(STATE.weeklyAnchor, -7); STATE.weeklyData = null; updateUrl(); paint(); loadWeekly(); });
+  SHELL.$('#wk-next').addEventListener('click',  () => { STATE.weeklyAnchor = addDays(STATE.weeklyAnchor,  7); STATE.weeklyData = null; updateUrl(); paint(); loadWeekly(); });
+  SHELL.$('#wk-today').addEventListener('click', () => { STATE.weeklyAnchor = SHELL._iso(SHELL.isoWeekMonday()); STATE.weeklyData = null; updateUrl(); paint(); loadWeekly(); });
+  SHELL.$('#wk-job').addEventListener('change',  e => { STATE.weeklyJob = e.target.value; STATE.weeklyData = null; paint(); loadWeekly(); });
+  SHELL.$('#wk-export').addEventListener('click', () => exportPayrollCsv(monday, sunday));
+  SHELL.$$('td[data-cell]').forEach(td => td.addEventListener('click', () => {
+    const [uid, date] = td.dataset.cell.split('|');
+    openCellDetails(uid, date);
+  }));
+}
+
+function openCellDetails(userId, date) {
+  // Find the cell entry from the current weekly snapshot.
+  const e = (STATE.weeklyData.entries || []).find(x => x.userId === userId && x.date === date);
+  if (!e) return;
+  const jobsById = {}; (SHELL.JOBS || []).forEach(j => jobsById[j.id] = j);
+  const allocStr = (e.allocations || []).map(a => {
+    const name = (jobsById[a.jobId] || {}).name || a.jobId || 'Internal';
+    return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px">
+      <span>${SHELL.escapeHtml(name)}${a.notes ? `<div style="font-size:11px;color:var(--muted);font-style:italic">${SHELL.escapeHtml(a.notes)}</div>` : ''}</span>
+      <b>${(Number(a.hours) || 0).toFixed(2)}h</b>
+    </div>`;
+  }).join('');
+  const tone = e.status === 'approved' ? 'ok' : e.status === 'submitted' ? 'warn' : e.status === 'rejected' ? 'bad' : 'navy';
+  const canReopen = e.status === 'approved' || e.status === 'rejected';
+  const panel = SHELL.openPanel({
+    title: `${e.userName || e.userId} · ${e.date}`,
+    body: `
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+        <span class="pill pill-${tone}">${SHELL.escapeHtml(e.status)}</span>
+        ${e.exportId ? `<span class="pill pill-navy" title="Exported in payroll run ${SHELL.escapeHtml(e.exportId)}">Exported</span>` : ''}
+        <div style="flex:1"></div>
+        <span style="color:var(--muted);font-size:12px"><b>${(Number(e.totalHours) || 0).toFixed(1)}h</b> total</span>
+      </div>
+      <div class="card-title" style="font-size:13px;margin-bottom:6px">Allocations</div>
+      ${allocStr || '<div style="color:var(--muted);font-size:12px">No allocations</div>'}
+      ${e.notes ? `<div style="margin-top:14px"><div class="card-title" style="font-size:13px;margin-bottom:6px">Notes</div><div style="font-size:13px;color:var(--ink-2)">${SHELL.escapeHtml(e.notes)}</div></div>` : ''}
+      ${e.approvedAt ? `<div style="margin-top:14px;font-size:12px;color:var(--muted)">Approved ${SHELL._ago(e.approvedAt)}</div>` : ''}
+      ${e.exportId ? `<div style="font-size:12px;color:var(--muted)">Export ID: <span class="mono">${SHELL.escapeHtml(e.exportId)}</span></div>` : ''}
+    `,
+    footer: `
+      <button class="btn" onclick="SHELL.closePanel()">Close</button>
+      ${canReopen ? `<button class="btn btn-primary" id="cell-reopen">Reopen</button>` : ''}
+      ${e.status === 'submitted' ? `<a class="btn btn-accent" href="/admin/approvals">Approvals queue →</a>` : ''}
+    `,
+  });
+  if (canReopen) {
+    panel.querySelector('#cell-reopen').addEventListener('click', async () => {
+      SHELL.closePanel();
+      await reopenEntry(userId, date);
+      STATE.weeklyData = null;
+      await loadWeekly();
+    });
+  }
+}
+
+async function exportPayrollCsv(fromDate, toDate) {
+  const status = prompt('Export which status? (approved | all | submitted)', 'approved');
+  if (!status) return;
+  if (!['approved', 'all', 'submitted', 'draft', 'rejected'].includes(status)) {
+    SHELL.toast('Invalid status — must be approved, all, submitted, draft, or rejected', 'bad');
+    return;
+  }
+  // Preview row count first via JSON+dryRun, then trigger the real CSV download.
+  try {
+    const preview = await SHELL.api(`/api/time-entries-export?fromDate=${fromDate}&toDate=${toDate}&status=${encodeURIComponent(status)}&dryRun=1&format=json`);
+    const rows = preview.rows || [];
+    if (!rows.length) { SHELL.toast('No rows to export for that range', 'warn'); return; }
+    const totalH = (preview.summary || {}).totalHours || 0;
+    const totalC = (preview.summary || {}).totalCostExGst || 0;
+    const ok = confirm(
+      `Export ${rows.length} row${rows.length === 1 ? '' : 's'} (${totalH.toFixed(1)}h, $${totalC.toFixed(2)}) for ${fromDate} → ${toDate}?\n\n` +
+      `Each entry will be stamped with an export ID so this payroll run isn't accidentally double-exported. ` +
+      `Already-exported entries will be re-exported with a new ID (use the dry-run URL if you want to peek without stamping).`
+    );
+    if (!ok) return;
+    // Trigger download by setting window location (it'll save as .csv)
+    const url = `/api/time-entries-export?fromDate=${fromDate}&toDate=${toDate}&status=${encodeURIComponent(status)}`;
+    window.location.href = url;
+    SHELL.toast(`Exported ${rows.length} rows`, 'ok');
+    // Refresh the weekly grid so the export-stamp tags show up.
+    setTimeout(() => { STATE.weeklyData = null; loadWeekly(); }, 1200);
+  } catch (e) { SHELL.toast('Export failed — ' + e.message, 'bad'); }
+}
+
+function updateUrl() {
+  const url = new URL(location.href);
+  url.searchParams.set('view', STATE.view);
+  if (STATE.weeklyAnchor) url.searchParams.set('week', STATE.weeklyAnchor);
+  history.replaceState(null, '', url);
+}
+
+// ── Cost view ─────────────────────────────────────────────────────────
 function paintCost() {
   const d = STATE.costData;
   const body = SHELL.$('#hours-body');
@@ -224,6 +515,9 @@ function paintCost() {
 
   const range = computeRange();
   const rangeLabel = range.from || range.to ? `${range.from || '—'} → ${range.to || '—'}` : 'All time';
+
+  // Workers without rate but with hours = labour cost is undercounted.
+  const unrated = users.filter(u => u.hours > 0 && (!u.rate || u.rate === 0));
 
   body.innerHTML = `
     <div class="toolbar">
@@ -252,6 +546,18 @@ function paintCost() {
       <div class="kpi"><div class="kpi-l">Crew contributing</div><div class="kpi-v">${users.length}</div></div>
     </div>
 
+    ${unrated.length ? `
+      <div class="card" style="border-color:var(--warn);background:rgba(255,193,7,.06);padding:12px 14px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="font-size:18px">⚠️</div>
+          <div style="flex:1;font-size:13px">
+            <b>${unrated.length} crew without an hourly rate</b> have ${unrated.reduce((s, u) => s + u.hours, 0).toFixed(1)}h logged — labour cost above is undercounted.<br>
+            <span style="color:var(--ink-2)">Set rates on <a href="/admin/crew" style="color:inherit;text-decoration:underline">/admin/crew</a>: ${unrated.map(u => SHELL.escapeHtml(u.name)).join(', ')}</span>
+          </div>
+        </div>
+      </div>
+    ` : ''}
+
     <div class="two-col">
       <div class="card" style="padding:0">
         <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
@@ -262,7 +568,7 @@ function paintCost() {
           <table class="table">
             <thead><tr><th>Job</th><th class="table-num">Hours</th><th class="table-num">Cost</th></tr></thead>
             <tbody>${jobs.length ? jobs.map(j => `<tr>
-              <td>${j.id ? `<a href="/admin/jobs/${SHELL.escapeHtml(j.id)}" style="font-weight:600">${SHELL.escapeHtml(j.name)}</a>` : `<span style="color:var(--muted);font-style:italic">${SHELL.escapeHtml(j.name)}</span>`}</td>
+              <td>${j.id ? `<a href="/admin/jobs/${SHELL.escapeHtml(j.id)}?s=hours" style="font-weight:600">${SHELL.escapeHtml(j.name)}</a>` : `<span style="color:var(--muted);font-style:italic">${SHELL.escapeHtml(j.name)}</span>`}</td>
               <td class="table-num">${j.hours.toFixed(1)}h</td>
               <td class="table-num"><b>${SHELL.fmtMoney(j.cost)}</b></td>
             </tr>`).join('') : '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:18px">No jobs in this range.</td></tr>'}</tbody>
@@ -280,7 +586,7 @@ function paintCost() {
             <thead><tr><th>Crew</th><th class="table-num">Rate</th><th class="table-num">Hours</th><th class="table-num">Cost</th></tr></thead>
             <tbody>${users.length ? users.map(u => `<tr>
               <td><b>${SHELL.escapeHtml(u.name)}</b></td>
-              <td class="table-num">${u.rate ? '$' + u.rate + '/h' : '—'}</td>
+              <td class="table-num">${u.rate ? '$' + u.rate + '/h' : '<span style="color:var(--warn)">—</span>'}</td>
               <td class="table-num">${u.hours.toFixed(1)}h</td>
               <td class="table-num"><b>${SHELL.fmtMoney(u.cost)}</b></td>
             </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:18px">No crew with hours in this range.</td></tr>'}</tbody>
@@ -300,6 +606,12 @@ function paintCost() {
     SHELL.$('#cr-to').addEventListener('change',   e => { STATE.costTo   = e.target.value; });
     SHELL.$('#cr-apply').addEventListener('click', loadCost);
   }
+}
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 
 SHELL.boot();

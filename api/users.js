@@ -96,7 +96,7 @@ module.exports = async (req, res) => {
   }
 
   if (req.method === 'POST') {
-    const { username, role, secret, assignedJobIds = [], hourlyRate, email } = req.body || {};
+    const { username, role, secret, assignedJobIds = [], hourlyRate, email, xeroEmployeeId } = req.body || {};
     if (!username || !role) return res.status(400).json({ error: 'username and role required' });
     if (!VALID_ROLES.includes(role)) {
       return res.status(400).json({ error: 'invalid role' });
@@ -118,6 +118,11 @@ module.exports = async (req, res) => {
       email: email ? String(email).trim() : undefined,
       assignedJobIds: Array.isArray(assignedJobIds) ? assignedJobIds : [],
       hourlyRate: (role === 'tradie' || role === 'leadingHand') ? Number(hourlyRate) || 0 : undefined,
+      // Xero employee ID — optional, used by payroll CSV export so Xero
+      // can match the row back to the employee. Free-text, no validation
+      // because Xero IDs come in a few different shapes (UUID, short code).
+      xeroEmployeeId: (role === 'tradie' || role === 'leadingHand') && xeroEmployeeId
+        ? String(xeroEmployeeId).trim() : undefined,
       createdAt: new Date().toISOString(),
     };
     data.users.push(user);
@@ -127,7 +132,7 @@ module.exports = async (req, res) => {
   }
 
   if (req.method === 'PUT') {
-    const { id, assignedJobIds, hourlyRate, secret, username, email } = req.body || {};
+    const { id, assignedJobIds, hourlyRate, secret, username, email, xeroEmployeeId } = req.body || {};
     const user = data.users.find(u => u.id === id);
     if (!user) return res.status(404).json({ error: 'user not found' });
 
@@ -142,6 +147,11 @@ module.exports = async (req, res) => {
       addedJobIds = assignedJobIds.filter(j => !previousJobIds.has(j));
     }
     if (hourlyRate !== undefined) user.hourlyRate = Number(hourlyRate) || 0;
+    if (xeroEmployeeId !== undefined) {
+      // Empty string clears the field; admin sets non-empty to bind to Xero.
+      const trimmed = String(xeroEmployeeId).trim();
+      user.xeroEmployeeId = trimmed || undefined;
+    }
     if (email !== undefined) {
       const trimmed = String(email).trim();
       if (trimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {

@@ -91,11 +91,12 @@ function paint() {
 }
 
 function userRow(u) {
+  const isPaid = (u.role === 'tradie' || u.role === 'leadingHand');
   return `<tr>
-    <td><b>${SHELL.escapeHtml(u.username)}</b></td>
+    <td><b>${SHELL.escapeHtml(u.username)}</b>${isPaid && u.xeroEmployeeId ? `<div style="font-size:11px;color:var(--muted);font-family:var(--ff-mono)">Xero: ${SHELL.escapeHtml(u.xeroEmployeeId)}</div>` : ''}</td>
     <td>${SHELL.rolePill(u.role)}</td>
     <td>${u.email ? `<a href="mailto:${SHELL.escapeHtml(u.email)}">${SHELL.escapeHtml(u.email)}</a>` : '<span style="color:var(--muted)">—</span>'}</td>
-    <td class="table-num">${(u.role === 'tradie' || u.role === 'leadingHand') ? (u.hourlyRate ? '$' + u.hourlyRate + '/h' : '<span style="color:var(--warn)">—</span>') : '—'}</td>
+    <td class="table-num">${isPaid ? (u.hourlyRate ? '$' + u.hourlyRate + '/h' : '<span style="color:var(--warn)">—</span>') : '—'}</td>
     <td class="table-num">${(u.assignedJobIds || []).length}</td>
     <td><button class="btn btn-sm" data-edit-user="${SHELL.escapeHtml(u.id)}">Edit</button></td>
   </tr>`;
@@ -153,7 +154,10 @@ function editUserPanel(id) {
     body: `
       <div class="field"><label class="field-lbl">Username</label><input class="input" id="eu-name" value="${SHELL.escapeHtml(u.username)}"></div>
       <div class="field"><label class="field-lbl">Email</label><input class="input" id="eu-email" type="email" value="${SHELL.escapeHtml(u.email || '')}"></div>
-      ${showRate ? `<div class="field"><label class="field-lbl">Hourly rate ($)</label><input class="input" id="eu-rate" type="number" min="0" step="0.5" value="${u.hourlyRate || 0}"></div>` : ''}
+      ${showRate ? `<div class="two-col">
+        <div class="field"><label class="field-lbl">Hourly rate ($)</label><input class="input" id="eu-rate" type="number" min="0" step="0.5" value="${u.hourlyRate || 0}"></div>
+        <div class="field"><label class="field-lbl">Xero employee ID <span style="color:var(--muted);font-weight:400;font-size:11px">(optional — for payroll CSV)</span></label><input class="input" id="eu-xero" value="${SHELL.escapeHtml(u.xeroEmployeeId || '')}" placeholder="e.g. EMP-042 or UUID"></div>
+      </div>` : ''}
       ${showJobs ? `<div class="field"><label class="field-lbl">Assigned jobs</label>
         <div style="border:1px solid var(--line);border-radius:8px;padding:8px;max-height:240px;overflow:auto;background:var(--surface)">
           ${jobs.filter(j => (j.status || 'active') !== 'archived').map(j => `<label style="display:flex;gap:8px;padding:4px 6px;border-radius:6px;cursor:pointer;font-size:13px">
@@ -170,7 +174,10 @@ function editUserPanel(id) {
   panel.querySelector('#eu-save').addEventListener('click', async () => {
     const body = { id: u.id, username: panel.querySelector('#eu-name').value.trim(), email: panel.querySelector('#eu-email').value.trim() };
     if (showJobs) body.assignedJobIds = Array.from(panel.querySelectorAll('input[data-job]:checked')).map(c => c.dataset.job);
-    if (showRate) body.hourlyRate = Number(panel.querySelector('#eu-rate').value) || 0;
+    if (showRate) {
+      body.hourlyRate = Number(panel.querySelector('#eu-rate').value) || 0;
+      body.xeroEmployeeId = panel.querySelector('#eu-xero').value.trim();
+    }
     const secret = panel.querySelector('#eu-secret').value;
     if (secret) body.secret = secret;
     try {
