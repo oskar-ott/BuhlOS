@@ -1054,7 +1054,7 @@ dialog h3.dlg-title {
   <div class="hdr-left">
     <a href="/admin-legacy" class="wordmark hdr-mark" aria-label="BuhlOS — admin">b&uuml;hl<span class="os">OS</span></a>
     <a class="nav-pill" id="ovLink" href="/admin/operations">Operations</a>
-    <a class="nav-pill" href="/jobs">Jobs</a>
+    <a class="nav-pill" href="/admin/jobs">Jobs</a>
     <!-- Approvals link with auto-badge of pending count (approvals-badge.js). -->
     <a class="nav-pill" id="approvalsLink" href="/admin/approvals">Approvals</a>
     <a class="nav-pill active" id="adminLink" href="/admin-legacy">Admin (legacy)</a>
@@ -1822,7 +1822,11 @@ async function boot() {
   try { const r = await api('/api/auth?action=me'); ME = r.user; }
   catch { location.href='/login'; return; }
 
-  if (ME.role !== 'admin' && ME.role !== 'leadingHand') { location.href='/jobs'; return; }
+  // Picker page nuked — bounce wrong-role users to their landing.
+  if (ME.role !== 'admin' && ME.role !== 'leadingHand') {
+    location.href = ME.role === 'tradie' ? '/my-day' : ME.role === 'client' ? '/client' : '/login';
+    return;
+  }
 
   // Profile button
   document.getElementById('profile-avatar').textContent = initials(ME.username);

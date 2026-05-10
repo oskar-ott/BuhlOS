@@ -328,9 +328,12 @@
         </div>
       </div>
       ${items}
-      <div class="side-section">Field</div>
-      <a href="/jobs"       target="_blank" rel="noopener">${ICONS.field}<span>Jobs (field)</span>${ICONS.external}</a>
-      ${me.role === 'leadingHand' ? `<a href="/my-day" target="_blank" rel="noopener">${ICONS.field}<span>My day</span>${ICONS.external}</a>` : ''}
+      <!-- Picker page nuked — admin/LH "Jobs" lives in the sidebar above
+           (/admin/jobs). Field-side equivalents kept as quick jump-outs:
+           My Day for LH (their daily home); per-job dashboards reachable
+           from /admin/jobs row → workspace → "Open in field". -->
+      ${me.role === 'leadingHand' ? `<div class="side-section">Field</div>
+        <a href="/my-day" target="_blank" rel="noopener">${ICONS.field}<span>My Day</span>${ICONS.external}</a>` : ''}
       <div class="side-foot">
         <div class="side-avatar">${initials(me.username)}</div>
         <div style="flex:1;min-width:0">

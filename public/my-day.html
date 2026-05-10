@@ -378,7 +378,8 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   <div class="sec">
     <div class="sec-h">My jobs</div>
     <span class="sec-c" id="jobs-count">0</span>
-    <a class="sec-link" href="/jobs">All <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></a>
+    <!-- Picker page nuked — only "Jobs" surface in the app is /admin/jobs
+         (admin-only). Every assigned job is listed below for tradies. -->
   </div>
   <div id="jobs-list"></div>
 
@@ -388,15 +389,13 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
     <button class="md-signout" id="logout" type="button">Sign out</button>
   </div>
 
-  <!-- Bottom tab bar -->
-  <nav class="tabbar">
+  <!-- Bottom tab bar — picker page nuked; the only "Jobs" surface in the
+       app now is /admin/jobs (admin-only). For tradies, the My jobs
+       section above already lists every assigned job, so no Jobs tab here. -->
+  <nav class="tabbar" style="grid-template-columns:repeat(2,1fr)">
     <a href="/my-day" class="tb active">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
       My day
-    </a>
-    <a href="/jobs" class="tb">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
-      Jobs
     </a>
     <button class="tb" type="button" onclick="document.getElementById('logout').click()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
@@ -480,7 +479,7 @@ async function load(){
 
   // Role gate — /my-day is for tradies. Others get redirected.
   if (ME.role === 'admin' || ME.role === 'leadingHand') { location.href = '/admin/operations'; return; }
-  if (ME.role === 'client') { location.href = '/jobs'; return; }
+  if (ME.role === 'client') { location.href = '/client'; return; }
 
   // Header bits
   document.getElementById('me').textContent = ME.username;

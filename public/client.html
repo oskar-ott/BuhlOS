@@ -317,10 +317,11 @@ async function load() {
   ME = user;
 
   // Only clients land here.  Others get bumped back to their landing.
+  // Picker page nuked — fall through to /login for unknown roles.
   if (ME.role !== 'client') {
     location.href = ME.role === 'tradie' ? '/my-day'
                    : (ME.role === 'admin' || ME.role === 'leadingHand') ? '/admin/operations'
-                   : '/jobs';
+                   : '/login';
     return;
   }
   document.getElementById('me').textContent = ME.username;
