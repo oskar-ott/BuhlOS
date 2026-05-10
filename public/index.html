@@ -380,6 +380,37 @@ body.has-worker-fab .pg{padding-bottom:calc(100px + env(safe-area-inset-bottom))
   white-space:nowrap;
 }
 
+/* "Saved · Undo" inline confirmation chip — fires for ~3s after a task
+   status change. Sits anchored to the row so workers see the save land
+   without their thumb leaving the task. Tap "Undo" within the window to
+   roll back to the previous value. Mirrors the design brief's rule that
+   every state change confirms inline within 200ms. */
+.sr{position:relative}
+.sr-saved{
+  position:absolute;right:8px;bottom:-12px;z-index:6;
+  display:inline-flex;align-items:center;gap:8px;
+  padding:4px 11px;border-radius:999px;
+  background:var(--navy);color:#fff;
+  font-family:var(--display);font-size:11px;font-weight:700;
+  letter-spacing:-.01em;line-height:1;
+  box-shadow:0 2px 10px rgba(13,27,52,.22);
+  animation:sr-saved-in .14s ease-out;
+}
+.sr-saved-tick{font-size:10px;line-height:1;color:var(--yellow)}
+.sr-saved-undo{
+  appearance:none;-webkit-appearance:none;
+  background:transparent;border:0;padding:0;
+  color:var(--yellow);cursor:pointer;
+  font-family:inherit;font-size:11px;font-weight:700;
+  text-decoration:underline;text-underline-offset:2px;
+  -webkit-tap-highlight-color:transparent;
+}
+.sr-saved-undo:active{opacity:.75}
+@keyframes sr-saved-in{
+  from{opacity:0;transform:translateY(-3px)}
+  to  {opacity:1;transform:translateY(0)}
+}
+
 /* Prev/Next dwelling stepper — sits just under the dwelling header so
    workers can walk linearly through the group without going back to the
    index. Disabled state at the edges keeps the bar balanced. */
@@ -989,6 +1020,14 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
   .nb { padding: 11px 11px; font-size: 12px; }
   .hero-pct { font-size: 32px; }
 }
+
+/* Mobile header simplification (design brief #04) — sign-out is moved
+   into the Job Tools menu, so the always-on header button is redundant
+   on phones. Hidden ≤640px; menu has it. Desktop keeps the header
+   button so it isn't trapped behind a menu. */
+@media (max-width: 640px) {
+  .hdr-signout { display: none !important; }
+}
 </style>
 </head>
 <body>
@@ -1344,6 +1383,14 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
       <button class="nav-menu-item" role="menuitem" data-sec="hours"
         id="hoursMenuItem" onclick="goNav('hours')">
         <span class="nav-menu-item-lbl">Hours</span>
+      </button>
+      <!-- Design brief #04 — sign-out moves into Job Tools so it stops
+           crowding the header. The original #logoutBtn stays in the DOM
+           for desktop / fallback; CSS hides it on small viewports. -->
+      <div class="nav-menu-section" style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">Account</div>
+      <button class="nav-menu-item" role="menuitem"
+        onclick="document.getElementById('logoutBtn').click()">
+        <span class="nav-menu-item-lbl" style="color:#475569">Sign out</span>
       </button>
     </div>
   </div>
@@ -5306,7 +5353,11 @@ function stageTaskRows(areaId,stageKey,tasks){
 // status string ('not_started' | 'in_progress' | 'complete'). The DOM toggle
 // of `.active` happens via a re-render of just the row's segment so we keep
 // the source of truth in D.dwellings and avoid drift.
-function setTaskStatus(areaId,stageKey,taskId,v){
+function setTaskStatus(areaId,stageKey,taskId,v,opts){
+  // Capture the prior value BEFORE we mutate so the undo chip can roll
+  // back. opts.skipFlash suppresses the chip — used by the undo path so
+  // tapping Undo doesn't open another Saved chip on top of the original.
+  const prev = (((D.dwellings[areaId]||{})[stageKey]||{}).tasks||{})[taskId] || 'not_started';
   if(!D.dwellings[areaId])D.dwellings[areaId]={};
   if(!D.dwellings[areaId][stageKey])D.dwellings[areaId][stageKey]={};
   if(!D.dwellings[areaId][stageKey].tasks)D.dwellings[areaId][stageKey].tasks={};
@@ -5319,8 +5370,10 @@ function setTaskStatus(areaId,stageKey,taskId,v){
   const sid='td-'+stageKey+'-'+taskId.replace(/[^a-z0-9]/g,'');
   const dot=document.getElementById(sid);
   if(dot)dot.style.background=v==='complete'?'#22c55e':v==='in_progress'?'#f59e0b':'#cbd5e1';
+  let row = null;
   if(dot&&dot.parentElement){
-    const seg=dot.parentElement.querySelector('.sr-seg');
+    row = dot.parentElement;
+    const seg=row.querySelector('.sr-seg');
     if(seg){
       seg.querySelectorAll('.sr-seg-btn').forEach(b=>{
         const isActive = b.dataset.st === v;
@@ -5334,6 +5387,35 @@ function setTaskStatus(areaId,stageKey,taskId,v){
   const b=document.getElementById('dhb'),p=document.getElementById('dhp');
   if(b){b.style.width=s.pct+'%';b.style.background=bc(s.pct);}
   if(p)p.innerHTML=`<b>${s.pct}%</b> complete`;
+  // "Saved · Undo" inline chip — design brief #04, every state change
+  // confirms within 200ms. Tap Undo within ~3.5s to roll back. Skipped
+  // when the change is itself an undo (avoid recursive chips).
+  if(row && !(opts && opts.skipFlash) && prev !== v) flashSaved(row, prev, areaId, stageKey, taskId);
+}
+
+// Pop a transient "Saved · Undo" pill anchored to the task row. Auto-
+// removes after 3.5s; tapping Undo replays setTaskStatus with the prior
+// value and removes the chip immediately. Idempotent — replaces any
+// existing chip on the same row so quick consecutive taps don't stack.
+function flashSaved(rowEl, prevVal, areaId, stageKey, taskId){
+  if(!rowEl) return;
+  const existing = rowEl.querySelector('.sr-saved');
+  if(existing) existing.remove();
+  const chip = document.createElement('div');
+  chip.className = 'sr-saved';
+  chip.innerHTML = '<span class="sr-saved-tick">●</span><span>Saved</span>';
+  const undo = document.createElement('button');
+  undo.className = 'sr-saved-undo';
+  undo.type = 'button';
+  undo.textContent = 'Undo';
+  undo.onclick = (e) => {
+    e.stopPropagation();
+    chip.remove();
+    setTaskStatus(areaId, stageKey, taskId, prevVal, { skipFlash: true });
+  };
+  chip.appendChild(undo);
+  rowEl.appendChild(chip);
+  setTimeout(() => { if(chip.isConnected) chip.remove(); }, 3500);
 }
 
 // Fire-and-forget activity log for "Continue where you left off" on /my-day.
