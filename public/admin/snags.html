@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · snag triage</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+let STATE = {
+  status: 'Open',     // Open | Closed | all
+  filterJob: 'all',
+  filterPriority: 'all',
+  filterAssign: 'all', // 'all' | 'unassigned' | userId
+  search: '',
+  snags: [],
+};
+
+window.PAGE = {
+  id: 'snags',
+  title: 'Snag triage',
+  crumb: 'Snag triage',
+  async render() {
+    // Read filters from URL.
+    const params = new URLSearchParams(location.search);
+    if (params.get('status')) STATE.status = params.get('status');
+    if (params.get('asgn'))   STATE.filterAssign = params.get('asgn');
+    if (params.get('job'))    STATE.filterJob = params.get('job');
+    if (params.get('prio'))   STATE.filterPriority = params.get('prio');
+
+    await load();
+    paint();
+  }
+};
+
+async function load() {
+  try {
+    const r = await SHELL.api('/api/snags-all?status=' + encodeURIComponent(STATE.status));
+    STATE.snags = r.snags || [];
+  } catch { STATE.snags = []; }
+}
+
+function paint() {
+  // Apply filters client-side (cheap; we already have the full list).
+  const q = STATE.search.toLowerCase();
+  const filtered = STATE.snags.filter(s => {
+    if (STATE.filterJob !== 'all' && s.jobId !== STATE.filterJob) return false;
+    if (STATE.filterPriority !== 'all' && s.priority !== STATE.filterPriority) return false;
+    if (STATE.filterAssign === 'unassigned' && s.assignedToUserId) return false;
+    if (STATE.filterAssign !== 'all' && STATE.filterAssign !== 'unassigned' && s.assignedToUserId !== STATE.filterAssign) return false;
+    if (q) {
+      const blob = `${s.desc || ''} ${s.dwellingName || ''} ${s.jobName || ''} ${s.assignedToName || ''}`.toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  });
+
+  // Sort: priority (High > Medium > Low > none), then oldest first within each.
+  const prioRank = { High: 0, Medium: 1, Low: 2 };
+  filtered.sort((a, b) => {
+    const pa = prioRank[a.priority] ?? 3, pb = prioRank[b.priority] ?? 3;
+    if (pa !== pb) return pa - pb;
+    return (a.createdAt || '').localeCompare(b.createdAt || '');
+  });
+
+  const counts = {
+    open: STATE.snags.filter(s => s.status === 'Open').length,
+    closed: STATE.snags.filter(s => s.status === 'Closed').length,
+    unassigned: STATE.snags.filter(s => s.status === 'Open' && !s.assignedToUserId).length,
+    high: STATE.snags.filter(s => s.status === 'Open' && s.priority === 'High').length,
+  };
+  const jobs  = SHELL.JOBS  || [];
+  const users = (SHELL.USERS || []).filter(u => u.role === 'tradie' || u.role === 'leadingHand');
+
+  const jobOpts = ['<option value="all">All jobs</option>']
+    .concat(jobs.map(j => `<option value="${SHELL.escapeHtml(j.id)}" ${STATE.filterJob === j.id ? 'selected' : ''}>${SHELL.escapeHtml((j.ref || j.id).toUpperCase())} — ${SHELL.escapeHtml(j.name)}</option>`)).join('');
+  const asgnOpts = [
+    '<option value="all">All assignees</option>',
+    '<option value="unassigned" ' + (STATE.filterAssign === 'unassigned' ? 'selected' : '') + '>Unassigned</option>',
+  ].concat(users.map(u => `<option value="${SHELL.escapeHtml(u.id)}" ${STATE.filterAssign === u.id ? 'selected' : ''}>${SHELL.escapeHtml(u.username)}</option>`)).join('');
+  const prioOpts = ['all','High','Medium','Low'].map(p =>
+    `<option value="${p}" ${STATE.filterPriority === p ? 'selected' : ''}>${p === 'all' ? 'All priority' : p + ' only'}</option>`).join('');
+
+  SHELL.$('#page').innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Snag triage</div>
+        <div class="page-sub">Cross-job snags. Assign owners and resolve from the list.</div>
+      </div>
+    </div>
+
+    <div class="kgrid">
+      <div class="kpi"><div class="kpi-l">Open</div><div class="kpi-v">${counts.open}</div><div class="kpi-d">across all jobs</div></div>
+      <div class="kpi"><div class="kpi-l">Unassigned</div><div class="kpi-v ${counts.unassigned ? 'red' : 'green'}">${counts.unassigned}</div><div class="kpi-d">no owner yet</div></div>
+      <div class="kpi"><div class="kpi-l">High priority</div><div class="kpi-v ${counts.high ? 'red' : ''}">${counts.high}</div><div class="kpi-d">deal first</div></div>
+      <div class="kpi"><div class="kpi-l">Resolved</div><div class="kpi-v green">${counts.closed}</div><div class="kpi-d">historical</div></div>
+    </div>
+
+    <div class="tabs">
+      ${['Open','Closed','all'].map(s => `
+        <a class="tab ${STATE.status === s ? 'active' : ''}" href="#" data-status="${s}">${s === 'all' ? 'All' : s === 'Closed' ? 'Resolved' : 'Open'}</a>
+      `).join('')}
+    </div>
+
+    <div class="toolbar">
+      <div class="search"><span>${SHELL.ICONS.search}</span><input id="search-i" placeholder="Search description, person, dwelling…" value="${SHELL.escapeHtml(STATE.search)}"></div>
+      <select class="select" id="job-i" style="width:auto;min-width:200px">${jobOpts}</select>
+      <select class="select" id="prio-i" style="width:auto;min-width:140px">${prioOpts}</select>
+      <select class="select" id="asgn-i" style="width:auto;min-width:180px">${asgnOpts}</select>
+      <div class="toolbar-spacer"></div>
+      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(filtered.length, 'snag')}</span>
+    </div>
+
+    ${filtered.length === 0 ? `
+      <div class="empty">
+        <div class="empty-icon">${SHELL.ICONS.snag}</div>
+        <div class="empty-title">No snags match those filters</div>
+        <div class="empty-sub">Try a different status or clear the search.</div>
+      </div>
+    ` : `
+      <div class="card" style="padding:0">
+        <div class="snag-row head">
+          <div></div>
+          <div>Description</div>
+          <div>Job · dwelling</div>
+          <div>Priority</div>
+          <div>Status</div>
+          <div>Assignee</div>
+          <div>Actions</div>
+        </div>
+        ${filtered.map(renderRow).join('')}
+      </div>
+    `}
+  `;
+
+  // Wire interactions
+  SHELL.$$('a[data-status]').forEach(t => t.addEventListener('click', e => {
+    e.preventDefault();
+    STATE.status = t.dataset.status;
+    load().then(paint);
+  }));
+  SHELL.$('#search-i').addEventListener('input', e => { STATE.search = e.target.value; paint(); });
+  SHELL.$('#job-i').addEventListener('change', e => { STATE.filterJob = e.target.value; paint(); });
+  SHELL.$('#prio-i').addEventListener('change', e => { STATE.filterPriority = e.target.value; paint(); });
+  SHELL.$('#asgn-i').addEventListener('change', e => { STATE.filterAssign = e.target.value; paint(); });
+
+  // Per-row inline editors
+  SHELL.$$('select[data-field="assignee"]').forEach(sel =>
+    sel.addEventListener('change', () => assignSnag(sel.dataset.jobid, sel.dataset.snagid, sel.value, sel.options[sel.selectedIndex].text)));
+  SHELL.$$('select[data-field="priority"]').forEach(sel =>
+    sel.addEventListener('change', () => updateSnagPriority(sel.dataset.jobid, sel.dataset.snagid, sel.value)));
+  SHELL.$$('button[data-action="close-snag"]').forEach(b =>
+    b.addEventListener('click', () => closeSnag(b.dataset.jobid, b.dataset.snagid)));
+  SHELL.$$('button[data-action="reopen-snag"]').forEach(b =>
+    b.addEventListener('click', () => reopenSnag(b.dataset.jobid, b.dataset.snagid)));
+  SHELL.$$('button[data-action="open-job"]').forEach(b =>
+    b.addEventListener('click', () => location.href = '/jobs/' + b.dataset.jobid));
+}
+
+function renderRow(s) {
+  const users = (SHELL.USERS || []).filter(u => u.role === 'tradie' || u.role === 'leadingHand');
+  const isOpen = s.status === 'Open';
+  return `
+    <div class="snag-row">
+      <div class="left-stripe ${s.priority || ''}"></div>
+      <div class="desc">
+        <b>${SHELL.escapeHtml(s.desc || '(no description)')}</b>
+        <div class="desc-meta">SN-${SHELL.escapeHtml(String(s.id || '').slice(-6))} · raised ${SHELL._ago(s.createdAt)}${s.by ? ' · by ' + SHELL.escapeHtml(s.by) : ''}${s.photoCount ? ' · ' + s.photoCount + ' photo' + (s.photoCount > 1 ? 's' : '') : ''}</div>
+      </div>
+      <div>
+        <div style="font-weight:600;font-size:12px">${SHELL.escapeHtml(s.jobName || s.jobId)}</div>
+        <div style="font-size:11px;color:var(--muted)">${SHELL.escapeHtml(s.dwellingName || s.stage || '—')}</div>
+      </div>
+      <div>
+        <select data-field="priority" data-jobid="${SHELL.escapeHtml(s.jobId)}" data-snagid="${SHELL.escapeHtml(s.id)}">
+          ${['High','Medium','Low'].map(p => `<option value="${p}" ${s.priority === p ? 'selected' : ''}>${p}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        ${isOpen
+          ? `<span class="pill pill-warn"><span class="pill-dot"></span>Open</span>`
+          : `<span class="pill pill-ok"><span class="pill-dot"></span>Resolved</span>`}
+      </div>
+      <div>
+        <select data-field="assignee" data-jobid="${SHELL.escapeHtml(s.jobId)}" data-snagid="${SHELL.escapeHtml(s.id)}">
+          <option value="" ${!s.assignedToUserId ? 'selected' : ''}>— Unassigned —</option>
+          ${users.map(u => `<option value="${SHELL.escapeHtml(u.id)}" ${s.assignedToUserId === u.id ? 'selected' : ''}>${SHELL.escapeHtml(u.username)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:4px;justify-content:flex-end">
+        ${isOpen
+          ? `<button class="btn btn-sm btn-ok" data-action="close-snag" data-jobid="${SHELL.escapeHtml(s.jobId)}" data-snagid="${SHELL.escapeHtml(s.id)}" title="Mark resolved">${SHELL.ICONS.check}</button>`
+          : `<button class="btn btn-sm" data-action="reopen-snag" data-jobid="${SHELL.escapeHtml(s.jobId)}" data-snagid="${SHELL.escapeHtml(s.id)}" title="Reopen">↺</button>`}
+        <button class="btn btn-sm btn-ghost" data-action="open-job" data-jobid="${SHELL.escapeHtml(s.jobId)}" title="Open job dashboard">${SHELL.ICONS.external}</button>
+      </div>
+    </div>
+  `;
+}
+
+/* ── Mutations against /api/data?jobId=X ─────────────────────────────────
+   Snags live in the per-job blob. Read → mutate → write back. Same pattern
+   as the legacy admin and the per-job dashboard use. */
+async function readJob(jobId) {
+  const r = await fetch('/api/data?jobId=' + encodeURIComponent(jobId), { credentials: 'same-origin' });
+  if (!r.ok) throw new Error('Could not read job data');
+  return await r.json();
+}
+async function writeJob(jobId, data) {
+  const r = await fetch('/api/data?jobId=' + encodeURIComponent(jobId), {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!r.ok) throw new Error('Save failed');
+}
+function findSnag(d, snagId) {
+  const idx = (d.snags || []).findIndex(s => s.id === snagId);
+  if (idx < 0) throw new Error('Snag not found');
+  return idx;
+}
+
+async function assignSnag(jobId, snagId, newUserId, newUserText) {
+  try {
+    const d = await readJob(jobId);
+    const idx = findSnag(d, snagId);
+    const snag = d.snags[idx];
+    if ((snag.assignedToUserId || null) === (newUserId || null)) return;
+    snag.assignedToUserId = newUserId || null;
+    snag.assignedToName = newUserId ? newUserText.trim() : null;
+    snag.updatedBy = SHELL.ME.username;
+    snag.updatedAt = new Date().toISOString();
+    await writeJob(jobId, d);
+    // Push notification when assigning TO someone (not unassigning, not self).
+    if (newUserId && newUserId !== SHELL.ME.id) {
+      fetch('/api/snag-notify', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: newUserId, snagId, jobId, kind: 'assigned' }),
+      }).catch(() => {});
+    }
+    SHELL.toast(newUserId ? 'Assigned to ' + newUserText : 'Unassigned', 'ok');
+    // Update local state cheaply.
+    const local = STATE.snags.find(s => s.jobId === jobId && s.id === snagId);
+    if (local) { local.assignedToUserId = snag.assignedToUserId; local.assignedToName = snag.assignedToName; }
+    paint();
+    SHELL.refreshCounts();
+  } catch (e) { SHELL.toast('Assign failed — ' + e.message, 'bad'); load().then(paint); }
+}
+
+async function updateSnagPriority(jobId, snagId, newPriority) {
+  try {
+    const d = await readJob(jobId);
+    const idx = findSnag(d, snagId);
+    if (d.snags[idx].priority === newPriority) return;
+    d.snags[idx].priority = newPriority;
+    d.snags[idx].updatedBy = SHELL.ME.username;
+    d.snags[idx].updatedAt = new Date().toISOString();
+    await writeJob(jobId, d);
+    SHELL.toast('Priority updated', 'ok');
+    const local = STATE.snags.find(s => s.jobId === jobId && s.id === snagId);
+    if (local) local.priority = newPriority;
+    paint();
+  } catch (e) { SHELL.toast('Update failed — ' + e.message, 'bad'); load().then(paint); }
+}
+
+async function closeSnag(jobId, snagId) {
+  if (!confirm('Mark this snag resolved?')) return;
+  try {
+    const d = await readJob(jobId);
+    const idx = findSnag(d, snagId);
+    d.snags[idx].status = 'Closed';
+    d.snags[idx].closedAt = new Date().toISOString();
+    d.snags[idx].closedBy = SHELL.ME.username;
+    d.snags[idx].updatedBy = SHELL.ME.username;
+    d.snags[idx].updatedAt = d.snags[idx].closedAt;
+    await writeJob(jobId, d);
+    // Notify the original raiser their snag was resolved (skip self).
+    const raiser = d.snags[idx].byUserId;
+    if (raiser && raiser !== SHELL.ME.id) {
+      fetch('/api/snag-notify', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: raiser, snagId, jobId, kind: 'resolved' }),
+      }).catch(() => {});
+    }
+    SHELL.toast('Resolved', 'ok');
+    await load();
+    await SHELL.refreshCounts();
+    paint();
+  } catch (e) { SHELL.toast('Close failed — ' + e.message, 'bad'); }
+}
+
+async function reopenSnag(jobId, snagId) {
+  if (!confirm('Reopen this snag?')) return;
+  try {
+    const d = await readJob(jobId);
+    const idx = findSnag(d, snagId);
+    d.snags[idx].status = 'Open';
+    d.snags[idx].closedAt = null;
+    d.snags[idx].closedBy = null;
+    d.snags[idx].updatedBy = SHELL.ME.username;
+    d.snags[idx].updatedAt = new Date().toISOString();
+    await writeJob(jobId, d);
+    SHELL.toast('Reopened', 'ok');
+    await load();
+    await SHELL.refreshCounts();
+    paint();
+  } catch (e) { SHELL.toast('Reopen failed — ' + e.message, 'bad'); }
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>

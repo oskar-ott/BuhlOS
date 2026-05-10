@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · suppliers</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+let STATE = { search: '', list: [] };
+
+window.PAGE = {
+  id: 'suppliers',
+  title: 'Wholesalers',
+  crumb: 'Wholesalers',
+  async render() {
+    SHELL.$('#page').innerHTML = '<div class="empty"><div class="empty-title">Loading…</div></div>';
+    try {
+      const r = await SHELL.api('/api/wholesalers');
+      STATE.list = r.wholesalers || [];
+    } catch (e) {
+      SHELL.$('#page').innerHTML = `<div class="empty"><div class="empty-title">Failed to load</div><div class="empty-sub">${SHELL.escapeHtml(e.message)}</div></div>`;
+      return;
+    }
+    paint();
+  }
+};
+
+function paint() {
+  const q = STATE.search.toLowerCase();
+  const list = STATE.list.filter(w => {
+    if (!q) return true;
+    return `${w.name} ${w.email || ''} ${w.branch || ''} ${w.notes || ''}`.toLowerCase().includes(q);
+  }).sort((a, b) => a.name.localeCompare(b.name));
+
+  SHELL.$('#page').innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Wholesalers</div>
+        <div class="page-sub">Electrical suppliers used for sourcing on quotes. Email is required to draft a price-request mailto.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-accent" id="add-w">${SHELL.ICONS.plus} Add wholesaler</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search">${SHELL.ICONS.search}<input id="se-i" placeholder="Search by name, branch, email…" value="${SHELL.escapeHtml(STATE.search)}"></div>
+      <div class="toolbar-spacer"></div>
+      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(list.length, 'wholesaler')}</span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Name</th><th>Branch</th><th>Email</th><th>Notes</th><th></th></tr></thead>
+        <tbody>${list.length ? list.map(rowHtml).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">${STATE.list.length ? 'No wholesalers match the search.' : 'No wholesalers yet — add your usual suppliers so they\'re one tap away on quotes.'}</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+  SHELL.$('#se-i').addEventListener('input', e => { STATE.search = e.target.value; paint(); });
+  SHELL.$('#add-w').addEventListener('click', () => editPanel(null));
+  SHELL.$$('button[data-edit]').forEach(b => b.addEventListener('click', () => editPanel(b.dataset.edit)));
+  SHELL.$$('button[data-del]').forEach(b => b.addEventListener('click', () => removeOne(b.dataset.del)));
+}
+
+function rowHtml(w) {
+  return `<tr>
+    <td><b>${SHELL.escapeHtml(w.name)}</b></td>
+    <td>${w.branch ? SHELL.escapeHtml(w.branch) : '<span style="color:var(--muted)">—</span>'}</td>
+    <td>${w.email ? `<a href="mailto:${SHELL.escapeHtml(w.email)}">${SHELL.escapeHtml(w.email)}</a>` : '<span style="color:var(--warn);font-style:italic">no email</span>'}</td>
+    <td style="color:var(--muted);font-size:12px">${SHELL.escapeHtml(w.notes || '')}</td>
+    <td style="display:flex;gap:6px;justify-content:flex-end">
+      <button class="btn btn-sm" data-edit="${SHELL.escapeHtml(w.id)}">Edit</button>
+      <button class="btn btn-sm btn-danger" data-del="${SHELL.escapeHtml(w.id)}">Remove</button>
+    </td>
+  </tr>`;
+}
+
+function editPanel(id) {
+  const cur = id ? (STATE.list.find(w => w.id === id) || {}) : {};
+  const panel = SHELL.openPanel({
+    title: id ? 'Edit wholesaler' : 'Add wholesaler',
+    body: `
+      <div class="field"><label class="field-lbl">Name *</label><input class="input" id="w-name" autofocus value="${SHELL.escapeHtml(cur.name || '')}"></div>
+      <div class="field"><label class="field-lbl">Email (used for price-request mailto)</label><input class="input" id="w-email" type="email" value="${SHELL.escapeHtml(cur.email || '')}"></div>
+      <div class="field"><label class="field-lbl">Branch / location</label><input class="input" id="w-branch" value="${SHELL.escapeHtml(cur.branch || '')}"></div>
+      <div class="field"><label class="field-lbl">Notes</label><textarea class="textarea" id="w-notes" rows="3" placeholder="e.g. best for switchgear">${SHELL.escapeHtml(cur.notes || '')}</textarea></div>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="w-save">${id ? 'Save' : 'Add'}</button>`,
+  });
+  panel.querySelector('#w-save').addEventListener('click', async () => {
+    const body = {
+      name: panel.querySelector('#w-name').value.trim(),
+      email: panel.querySelector('#w-email').value.trim(),
+      branch: panel.querySelector('#w-branch').value.trim(),
+      notes: panel.querySelector('#w-notes').value.trim(),
+    };
+    if (!body.name) { SHELL.toast('Name required', 'bad'); return; }
+    try {
+      if (id) await SHELL.api('/api/wholesalers?id=' + encodeURIComponent(id), { method: 'PATCH', body });
+      else    await SHELL.api('/api/wholesalers', { method: 'POST', body });
+      SHELL.toast('Saved', 'ok');
+      SHELL.closePanel();
+      const r = await SHELL.api('/api/wholesalers'); STATE.list = r.wholesalers || []; paint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+
+async function removeOne(id) {
+  if (!confirm('Remove this wholesaler? Existing quote price-requests pointed at them are kept.')) return;
+  try {
+    await fetch('/api/wholesalers?id=' + encodeURIComponent(id), { method: 'DELETE', credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('Failed'); });
+    SHELL.toast('Removed', 'ok');
+    const r = await SHELL.api('/api/wholesalers'); STATE.list = r.wholesalers || []; paint();
+  } catch (e) { SHELL.toast('Remove failed — ' + e.message, 'bad'); }
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>

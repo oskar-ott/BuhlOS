@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · job</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+let STATE = {
+  jobId: null,
+  job: null,
+  data: { dwellings: {}, snags: [] },
+  jobTypes: [],
+  hoursThisWeek: [],
+  crew: [],
+  section: 'overview',
+};
+
+window.PAGE = {
+  id: 'jobs',  // sidebar highlight stays on Jobs
+  title: 'Job',
+  crumb: 'Job',
+
+  async render() {
+    // Job ID from URL: /admin/jobs/<id>
+    const m = location.pathname.match(/^\/admin\/jobs\/([^\/]+)/);
+    STATE.jobId = m ? decodeURIComponent(m[1]) : null;
+    if (!STATE.jobId) { location.href = '/admin/jobs'; return; }
+    STATE.section = (new URLSearchParams(location.search).get('s')) || 'overview';
+    await loadAll();
+    paint();
+  }
+};
+
+async function loadAll() {
+  // Job from /api/jobs (already in shell cache)
+  STATE.job = (SHELL.JOBS || []).find(j => j.id === STATE.jobId) || null;
+  if (!STATE.job) {
+    // Fallback: fetch fresh.
+    try {
+      const r = await SHELL.api('/api/jobs?withStats=1');
+      STATE.job = (r.jobs || []).find(j => j.id === STATE.jobId);
+    } catch {}
+  }
+  if (!STATE.job) {
+    SHELL.$('#page').innerHTML = '<div class="empty"><div class="empty-title">Job not found</div><div class="empty-sub">It may have been archived. <a href="/admin/jobs" style="color:inherit;text-decoration:underline">Back to Jobs.</a></div></div>';
+    return;
+  }
+  // Per-job blob (snags + dwellings)
+  try {
+    const r = await fetch('/api/data?jobId=' + encodeURIComponent(STATE.jobId), { credentials: 'same-origin' });
+    if (r.ok) STATE.data = await r.json();
+  } catch {}
+  // Job types
+  try {
+    const r = await SHELL.api('/api/job-types');
+    STATE.jobTypes = r.jobTypes || r.types || [];
+  } catch {}
+  // Hours this week filtered to this job — for Overview KPI
+  try {
+    const monday = SHELL.isoWeekMonday();
+    const r = await SHELL.api(`/api/time-entries-overview?fromDate=${SHELL._iso(monday)}&toDate=${SHELL._iso(new Date())}`);
+    STATE.hoursThisWeek = (r.entries || []).filter(e =>
+      (e.allocations || []).some(a => a.jobId === STATE.jobId));
+  } catch { STATE.hoursThisWeek = []; }
+  // Crew assigned to this job
+  STATE.crew = (SHELL.USERS || []).filter(u => (u.assignedJobIds || []).includes(STATE.jobId));
+}
+
+function paint() {
+  if (!STATE.job) return;
+  const j = STATE.job;
+  const ref = (j.ref || j.id || '').toUpperCase();
+
+  const sections = [
+    { id: 'overview',  label: 'Overview' },
+    { id: 'snags',     label: 'Snags', count: (STATE.data.snags || []).filter(s => s.status === 'Open').length },
+    { id: 'hours',     label: 'Hours' },
+    { id: 'crew',      label: 'Crew & client' },
+    { id: 'setup',     label: 'Setup (areas, plans, tasks, materials)' },
+  ];
+
+  SHELL.$('#page').innerHTML = `
+    <div class="ws-head">
+      <div class="ws-crumb"><a href="/admin/jobs">← All jobs</a></div>
+      <div class="ws-name">
+        <h1>${SHELL.escapeHtml(j.name)}</h1>
+        ${SHELL.jobStatusPill(j.status || 'active')}
+        <span class="user-handle">${SHELL.escapeHtml(ref)}</span>
+        <button class="btn btn-sm" id="edit-basics">${SHELL.ICONS.edit} Edit basics</button>
+        <a class="btn btn-sm btn-ghost" href="/jobs/${SHELL.escapeHtml(j.id)}" target="_blank" rel="noopener">${SHELL.ICONS.external} Open in field</a>
+      </div>
+    </div>
+
+    <div class="tabs">
+      ${sections.map(s => `
+        <a class="tab ${STATE.section === s.id ? 'active' : ''}" href="#" data-section="${s.id}">
+          ${SHELL.escapeHtml(s.label)}${s.count != null ? `<span class="badge">${s.count}</span>` : ''}
+        </a>
+      `).join('')}
+    </div>
+
+    <div id="ws-body"></div>
+  `;
+
+  SHELL.$$('a[data-section]').forEach(a => a.addEventListener('click', e => {
+    e.preventDefault();
+    STATE.section = a.dataset.section;
+    history.replaceState(null, '', `/admin/jobs/${STATE.jobId}?s=${STATE.section}`);
+    paint();
+  }));
+  SHELL.$('#edit-basics').addEventListener('click', openEditBasics);
+
+  const body = SHELL.$('#ws-body');
+  if      (STATE.section === 'overview') body.innerHTML = renderOverview();
+  else if (STATE.section === 'snags')    body.innerHTML = renderSnags();
+  else if (STATE.section === 'hours')    body.innerHTML = renderHours();
+  else if (STATE.section === 'crew')     renderCrew(body);
+  else if (STATE.section === 'setup')    body.innerHTML = renderSetupRedirect();
+
+  // Wire snags-tab inline triage (same handlers as /admin/snags)
+  if (STATE.section === 'snags') {
+    SHELL.$$('select[data-field="assignee"]').forEach(sel =>
+      sel.addEventListener('change', () => assignSnag(sel.dataset.snagid, sel.value, sel.options[sel.selectedIndex].text)));
+    SHELL.$$('button[data-action="close-snag"]').forEach(b =>
+      b.addEventListener('click', () => closeSnag(b.dataset.snagid)));
+    SHELL.$$('button[data-action="reopen-snag"]').forEach(b =>
+      b.addEventListener('click', () => reopenSnag(b.dataset.snagid)));
+  }
+}
+
+function renderOverview() {
+  const j = STATE.job;
+  const open = (STATE.data.snags || []).filter(s => s.status === 'Open');
+  const weekHrs = STATE.hoursThisWeek.reduce((a, e) => {
+    const onJob = (e.allocations || []).filter(x => x.jobId === STATE.jobId);
+    return a + onJob.reduce((aa, x) => aa + Number(x.hours || 0), 0);
+  }, 0);
+  const weekSubmitters = new Set();
+  for (const e of STATE.hoursThisWeek) {
+    if ((e.allocations || []).some(x => x.jobId === STATE.jobId)) weekSubmitters.add(e.userId);
+  }
+
+  return `
+    <div class="kgrid">
+      <div class="kpi"><div class="kpi-l">Progress</div><div class="kpi-v">${j.statsPct || 0}<sup>%</sup></div><div class="kpi-d">${j.statsDwellingsDone || 0}/${j.statsDwellingCount || 0} dwellings</div></div>
+      <div class="kpi"><div class="kpi-l">Open snags</div><div class="kpi-v ${open.length ? 'red' : 'green'}">${open.length}</div><div class="kpi-d">${open.filter(s => !s.assignedToUserId).length} unassigned</div></div>
+      <div class="kpi"><div class="kpi-l">Hours this week</div><div class="kpi-v">${weekHrs.toFixed(1)}<sup>h</sup></div><div class="kpi-d">${weekSubmitters.size} crew</div></div>
+      <div class="kpi"><div class="kpi-l">Crew assigned</div><div class="kpi-v">${STATE.crew.filter(u => u.role === 'tradie' || u.role === 'leadingHand').length}</div><div class="kpi-d">${j.clientUserId ? 'client linked' : '<span style="color:var(--warn)">no client</span>'}</div></div>
+    </div>
+
+    <div class="two-col">
+      <div class="card" style="padding:0">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div class="card-title">Open snags</div>
+            <div class="card-sub">${open.length === 0 ? 'No open snags on this job.' : SHELL.pluralize(open.length, 'snag')}</div>
+          </div>
+          ${open.length ? `<a class="btn btn-sm btn-ghost" href="#" onclick="event.preventDefault();PAGE.section='snags';location.search='?s=snags';" data-go="snags">Triage ${SHELL.ICONS.arrow}</a>` : ''}
+        </div>
+        ${open.slice(0, 5).map(s => `
+          <div style="padding:12px 16px;border-bottom:1px solid var(--line);font-size:13px;display:flex;align-items:flex-start;gap:10px">
+            <div class="left-stripe ${s.priority || ''}" style="width:4px;align-self:stretch;background:${s.priority === 'High' ? 'var(--bad)' : s.priority === 'Medium' ? 'var(--warn)' : 'var(--info)'};border-radius:2px"></div>
+            <div style="flex:1">
+              <div style="font-weight:500">${SHELL.escapeHtml(s.desc || '(no description)')}</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:3px">${SHELL.escapeHtml(s.dwellingName || s.stage || '—')} · raised ${SHELL._ago(s.createdAt)}${s.assignedToName ? ' · → ' + SHELL.escapeHtml(s.assignedToName) : ' · <span style="color:var(--warn)">unassigned</span>'}</div>
+            </div>
+          </div>
+        `).join('') || ''}
+      </div>
+
+      <div class="card" style="padding:0">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
+          <div class="card-title">Setup completeness</div>
+          <div class="card-sub">What's still missing</div>
+        </div>
+        <div style="padding:14px 18px">
+          ${setupChecklist(j)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function setupChecklist(j) {
+  const checks = [
+    { k: 'areas',    label: 'Area groups',     ok: (j.areaGroups || []).length > 0 },
+    { k: 'rough',    label: 'Rough-in tasks',  ok: (j.roughInTasks || []).length > 0 },
+    { k: 'fit',      label: 'Fit-off tasks',   ok: (j.fitOffTasks || []).length > 0 },
+    { k: 'crew',     label: 'Crew assigned',   ok: STATE.crew.some(u => u.role === 'tradie' || u.role === 'leadingHand') },
+    { k: 'client',   label: 'Client linked',   ok: !!j.clientUserId },
+  ];
+  return checks.map(c => `
+    <div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13px">
+      <span style="width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:${c.ok ? 'var(--ok-bg)' : 'var(--warn-bg)'};color:${c.ok ? 'var(--ok)' : 'var(--warn)'}">${c.ok ? '✓' : '!'}</span>
+      <span style="flex:1">${SHELL.escapeHtml(c.label)}</span>
+      <span style="font-size:11px;color:var(--muted)">${c.ok ? 'OK' : 'set up →'}</span>
+    </div>
+  `).join('');
+}
+
+function renderSnags() {
+  const open = (STATE.data.snags || []).filter(s => s.status === 'Open');
+  const closed = (STATE.data.snags || []).filter(s => s.status === 'Closed');
+  if (!open.length && !closed.length) {
+    return '<div class="empty"><div class="empty-title">No snags</div><div class="empty-sub">Tradies haven\'t raised anything on this job.</div></div>';
+  }
+  const users = (SHELL.USERS || []).filter(u => u.role === 'tradie' || u.role === 'leadingHand');
+  return `
+    <div class="card" style="padding:0">
+      <div class="snag-row head">
+        <div></div>
+        <div>Description</div>
+        <div>Dwelling / stage</div>
+        <div>Priority</div>
+        <div>Status</div>
+        <div>Assignee</div>
+        <div>Actions</div>
+      </div>
+      ${[...open, ...closed].map(s => `
+        <div class="snag-row">
+          <div class="left-stripe ${s.priority || ''}"></div>
+          <div class="desc">
+            <b>${SHELL.escapeHtml(s.desc || '(no description)')}</b>
+            <div class="desc-meta">SN-${SHELL.escapeHtml(String(s.id).slice(-6))} · raised ${SHELL._ago(s.createdAt)}${s.by ? ' · by ' + SHELL.escapeHtml(s.by) : ''}</div>
+          </div>
+          <div>
+            <div style="font-weight:600;font-size:12px">${SHELL.escapeHtml(s.dwellingName || '—')}</div>
+            <div style="font-size:11px;color:var(--muted)">${SHELL.escapeHtml(s.stage || '—')}</div>
+          </div>
+          <div>${s.priority ? `<span class="pill pill-${s.priority === 'High' ? 'bad' : s.priority === 'Medium' ? 'warn' : 'info'}">${s.priority}</span>` : '—'}</div>
+          <div>${s.status === 'Open' ? '<span class="pill pill-warn">Open</span>' : '<span class="pill pill-ok">Resolved</span>'}</div>
+          <div>
+            <select data-field="assignee" data-snagid="${SHELL.escapeHtml(s.id)}">
+              <option value="" ${!s.assignedToUserId ? 'selected' : ''}>— Unassigned —</option>
+              ${users.map(u => `<option value="${SHELL.escapeHtml(u.id)}" ${s.assignedToUserId === u.id ? 'selected' : ''}>${SHELL.escapeHtml(u.username)}</option>`).join('')}
+            </select>
+          </div>
+          <div style="display:flex;gap:4px;justify-content:flex-end">
+            ${s.status === 'Open'
+              ? `<button class="btn btn-sm btn-ok" data-action="close-snag" data-snagid="${SHELL.escapeHtml(s.id)}" title="Mark resolved">${SHELL.ICONS.check}</button>`
+              : `<button class="btn btn-sm" data-action="reopen-snag" data-snagid="${SHELL.escapeHtml(s.id)}" title="Reopen">↺</button>`}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderHours() {
+  const entries = STATE.hoursThisWeek.filter(e => (e.allocations || []).some(a => a.jobId === STATE.jobId));
+  const totalHrs = entries.reduce((a, e) => a + (e.allocations || []).filter(x => x.jobId === STATE.jobId).reduce((aa, x) => aa + Number(x.hours || 0), 0), 0);
+  const submitters = new Set(entries.map(e => e.userId));
+  return `
+    <div class="card" style="padding:0;margin-bottom:14px">
+      <div style="padding:14px 18px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line)">
+        <div>
+          <div class="card-title">Hours this week — this job</div>
+          <div class="card-sub">${SHELL.pluralize(entries.length, 'entry', 'entries')} · ${totalHrs.toFixed(1)}h · ${submitters.size} crew</div>
+        </div>
+        <a class="btn btn-sm" href="/admin/hours?job=${SHELL.escapeHtml(STATE.jobId)}">Open in Hours ${SHELL.ICONS.arrow}</a>
+      </div>
+      ${entries.length === 0 ? '<div class="empty" style="border:0;padding:30px">No hours logged this week on this job.</div>' : `
+        <div>
+          ${entries
+            .sort((a,b) => (b.date || '').localeCompare(a.date || ''))
+            .map(e => {
+              const onJob = (e.allocations || []).filter(x => x.jobId === STATE.jobId);
+              const h = onJob.reduce((s,x) => s + Number(x.hours || 0), 0);
+              return `
+                <div style="display:grid;grid-template-columns:1fr 100px 80px 90px;gap:10px;padding:10px 18px;border-bottom:1px solid var(--line);font-size:13px;align-items:center">
+                  <div>
+                    <div style="font-weight:500">${SHELL.escapeHtml(e.userName || e.userId)}</div>
+                    <div style="font-size:11px;color:var(--muted)" class="tabular">${SHELL.escapeHtml(e.date)}</div>
+                  </div>
+                  <div class="tabular" style="text-align:right">${h.toFixed(2)}h</div>
+                  <div>${e.status === 'approved' ? '<span class="pill pill-ok">Approved</span>' : e.status === 'submitted' ? '<span class="pill pill-warn">Pending</span>' : '<span class="pill">Draft</span>'}</div>
+                  <div style="text-align:right">
+                    ${e.status === 'submitted' ? `<a class="btn btn-sm" href="/admin/approvals?job=${SHELL.escapeHtml(STATE.jobId)}">Approve</a>` : ''}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+        </div>
+      `}
+    </div>
+  `;
+}
+
+function renderCrew(body) {
+  const tradies = STATE.crew.filter(u => u.role === 'tradie' || u.role === 'leadingHand');
+  const allCrew = (SHELL.USERS || []).filter(u => u.role === 'tradie' || u.role === 'leadingHand');
+  const unassigned = allCrew.filter(u => !(u.assignedJobIds || []).includes(STATE.jobId));
+  const j = STATE.job;
+  const clients = (SHELL.USERS || []).filter(u => u.role === 'client');
+  const linkedClient = j.clientUserId ? clients.find(c => c.id === j.clientUserId) : null;
+
+  body.innerHTML = `
+    <div class="two-col">
+      <div class="card" style="padding:0">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div class="card-title">Assigned crew</div>
+            <div class="card-sub">${SHELL.pluralize(tradies.length, 'person')}</div>
+          </div>
+        </div>
+        <div>
+          ${tradies.length ? tradies.map(u => `
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--line);font-size:13px">
+              <div class="avatar ${u.role}">${SHELL.initials(u.username)}</div>
+              <div style="flex:1">
+                <div style="font-weight:500">${SHELL.escapeHtml(u.username)}</div>
+                <div style="font-size:11px;color:var(--muted)">${u.role === 'leadingHand' ? 'Leading hand' : 'Tradie'}${u.hourlyRate ? ' · $' + u.hourlyRate + '/hr' : ''}</div>
+              </div>
+              <button class="btn btn-sm btn-danger" data-unassign="${SHELL.escapeHtml(u.id)}">Unassign</button>
+            </div>
+          `).join('') : '<div class="empty" style="border:0;padding:24px">No crew assigned yet.</div>'}
+        </div>
+        <div style="padding:14px 18px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center">
+          <select class="select" id="crew-add-sel" style="flex:1">
+            <option value="">— pick someone to assign —</option>
+            ${unassigned.map(u => `<option value="${SHELL.escapeHtml(u.id)}">${SHELL.escapeHtml(u.username)} (${u.role === 'leadingHand' ? 'LH' : 'tradie'})</option>`).join('')}
+          </select>
+          <button class="btn btn-primary" id="crew-add-btn">Assign</button>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
+          <div class="card-title">Client access</div>
+          <div class="card-sub">Read-only login for the builder/client</div>
+        </div>
+        <div style="padding:14px 18px;font-size:13px">
+          ${linkedClient ? `
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+              <div class="avatar client">${SHELL.initials(linkedClient.username)}</div>
+              <div style="flex:1">
+                <div style="font-weight:500">${SHELL.escapeHtml(linkedClient.username)}</div>
+                <div style="font-size:11px;color:var(--muted)">Client login linked</div>
+              </div>
+              <button class="btn btn-sm btn-danger" id="client-unlink">Unlink</button>
+            </div>
+          ` : `
+            <div style="color:var(--muted);margin-bottom:10px">No client linked. The job is invisible to any client portal until you link one.</div>
+            ${clients.length ? `
+              <div style="display:flex;gap:8px;align-items:center">
+                <select class="select" id="client-pick" style="flex:1">
+                  <option value="">— pick existing client —</option>
+                  ${clients.map(c => `<option value="${SHELL.escapeHtml(c.id)}">${SHELL.escapeHtml(c.username)}</option>`).join('')}
+                </select>
+                <button class="btn btn-primary" id="client-link">Link</button>
+              </div>
+            ` : `<div style="font-size:12px;color:var(--muted)">No client users exist yet. Create one in <a href="/admin/crew" style="color:inherit;text-decoration:underline">Crew</a>.</div>`}
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+
+  body.querySelectorAll('button[data-unassign]').forEach(b =>
+    b.addEventListener('click', () => unassignCrew(b.dataset.unassign)));
+  const addBtn = body.querySelector('#crew-add-btn');
+  if (addBtn) addBtn.addEventListener('click', () => {
+    const sel = body.querySelector('#crew-add-sel');
+    if (sel.value) assignCrew(sel.value);
+  });
+  const linkBtn = body.querySelector('#client-link');
+  if (linkBtn) linkBtn.addEventListener('click', () => {
+    const sel = body.querySelector('#client-pick');
+    if (sel.value) linkClient(sel.value);
+  });
+  const unlinkBtn = body.querySelector('#client-unlink');
+  if (unlinkBtn) unlinkBtn.addEventListener('click', () => linkClient(null));
+}
+
+function renderSetupRedirect() {
+  return `
+    <div class="card">
+      <div class="card-title">Deep job setup</div>
+      <p style="margin:10px 0;color:var(--muted);font-size:13px;line-height:1.5">
+        Areas + dwellings, rough-in checklist, fit-off checklist, plans upload, and the per-job materials list editor are still in the legacy admin while the porting work continues. Open the legacy setup view to edit those — the basic info, status, snags, hours and crew assignment all live here on the new admin.
+      </p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a class="btn btn-accent" href="/admin.html#tab-jobs" target="_blank">${SHELL.ICONS.external} Open setup in legacy admin</a>
+        <a class="btn" href="/jobs/${SHELL.escapeHtml(STATE.jobId)}" target="_blank">${SHELL.ICONS.external} Open in field</a>
+      </div>
+    </div>
+  `;
+}
+
+function openEditBasics() {
+  const j = STATE.job;
+  const types = STATE.jobTypes;
+  const clients = (SHELL.USERS || []).filter(u => u.role === 'client');
+  const panel = SHELL.openPanel({
+    title: 'Edit job basics',
+    body: `
+      <div class="field"><label class="field-lbl">Name</label><input class="input" id="ej-name" value="${SHELL.escapeHtml(j.name)}"></div>
+      <div class="field"><label class="field-lbl">Type</label>
+        <select class="select" id="ej-type">
+          <option value="">— none —</option>
+          ${types.map(t => `<option value="${SHELL.escapeHtml(t.id)}" ${j.type === t.id ? 'selected' : ''}>${SHELL.escapeHtml(t.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label class="field-lbl">Status</label>
+        <select class="select" id="ej-status">
+          ${['active','paused','complete','archived'].map(s => `<option value="${s}" ${(j.status || 'active') === s ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label class="field-lbl">Client</label>
+        <select class="select" id="ej-client">
+          <option value="">— none —</option>
+          ${clients.map(c => `<option value="${SHELL.escapeHtml(c.id)}" ${j.clientUserId === c.id ? 'selected' : ''}>${SHELL.escapeHtml(c.username)}</option>`).join('')}
+        </select>
+      </div>
+    `,
+    footer: `
+      <button class="btn" onclick="SHELL.closePanel()">Cancel</button>
+      <button class="btn btn-primary" id="ej-save">Save</button>
+    `,
+  });
+  panel.querySelector('#ej-save').addEventListener('click', async () => {
+    const body = {
+      id: STATE.jobId,
+      name: panel.querySelector('#ej-name').value.trim(),
+      type: panel.querySelector('#ej-type').value || null,
+      status: panel.querySelector('#ej-status').value,
+      clientUserId: panel.querySelector('#ej-client').value || null,
+    };
+    if (!body.name) { SHELL.toast('Name required', 'bad'); return; }
+    try {
+      await SHELL.api('/api/jobs', { method: 'PUT', body });
+      SHELL.toast('Saved', 'ok');
+      SHELL.closePanel();
+      // Refresh shell counts so status/job changes propagate.
+      await SHELL.refreshCounts();
+      await loadAll();
+      paint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+
+/* ── Snag mutations (same shape as /admin/snags) ─────────── */
+async function readData() {
+  const r = await fetch('/api/data?jobId=' + encodeURIComponent(STATE.jobId), { credentials: 'same-origin' });
+  if (!r.ok) throw new Error('read failed');
+  return await r.json();
+}
+async function writeData(d) {
+  const r = await fetch('/api/data?jobId=' + encodeURIComponent(STATE.jobId), {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(d),
+  });
+  if (!r.ok) throw new Error('save failed');
+}
+async function assignSnag(snagId, newUserId, newUserText) {
+  try {
+    const d = await readData();
+    const idx = (d.snags || []).findIndex(s => s.id === snagId);
+    if (idx < 0) throw new Error('snag not found');
+    const s = d.snags[idx];
+    if ((s.assignedToUserId || null) === (newUserId || null)) return;
+    s.assignedToUserId = newUserId || null;
+    s.assignedToName = newUserId ? newUserText.trim() : null;
+    s.updatedBy = SHELL.ME.username;
+    s.updatedAt = new Date().toISOString();
+    await writeData(d);
+    if (newUserId && newUserId !== SHELL.ME.id) {
+      fetch('/api/snag-notify', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: newUserId, snagId, jobId: STATE.jobId, kind: 'assigned' }),
+      }).catch(() => {});
+    }
+    SHELL.toast(newUserId ? 'Assigned to ' + newUserText : 'Unassigned', 'ok');
+    await loadAll();
+    await SHELL.refreshCounts();
+    paint();
+  } catch (e) { SHELL.toast('Assign failed — ' + e.message, 'bad'); }
+}
+async function closeSnag(snagId) {
+  if (!confirm('Mark this snag resolved?')) return;
+  try {
+    const d = await readData();
+    const idx = (d.snags || []).findIndex(s => s.id === snagId);
+    if (idx < 0) throw new Error('snag not found');
+    d.snags[idx].status = 'Closed';
+    d.snags[idx].closedAt = new Date().toISOString();
+    d.snags[idx].closedBy = SHELL.ME.username;
+    d.snags[idx].updatedBy = SHELL.ME.username;
+    d.snags[idx].updatedAt = d.snags[idx].closedAt;
+    await writeData(d);
+    SHELL.toast('Resolved', 'ok');
+    await loadAll();
+    await SHELL.refreshCounts();
+    paint();
+  } catch (e) { SHELL.toast('Close failed — ' + e.message, 'bad'); }
+}
+async function reopenSnag(snagId) {
+  if (!confirm('Reopen this snag?')) return;
+  try {
+    const d = await readData();
+    const idx = (d.snags || []).findIndex(s => s.id === snagId);
+    if (idx < 0) throw new Error('snag not found');
+    d.snags[idx].status = 'Open';
+    d.snags[idx].closedAt = null;
+    d.snags[idx].updatedBy = SHELL.ME.username;
+    d.snags[idx].updatedAt = new Date().toISOString();
+    await writeData(d);
+    SHELL.toast('Reopened', 'ok');
+    await loadAll();
+    await SHELL.refreshCounts();
+    paint();
+  } catch (e) { SHELL.toast('Reopen failed — ' + e.message, 'bad'); }
+}
+
+/* ── Crew + client (uses /api/crew + /api/jobs PUT) ──────── */
+async function assignCrew(userId) {
+  try {
+    await SHELL.api(`/api/crew?action=assign&jobId=${encodeURIComponent(STATE.jobId)}&userId=${encodeURIComponent(userId)}`, { method: 'POST' });
+    SHELL.toast('Assigned', 'ok');
+    // Refresh users so the side-shell USERS list shows updated assignedJobIds.
+    try { const r = await SHELL.api('/api/users'); SHELL.USERS = (r.users || []); } catch {}
+    await loadAll();
+    paint();
+  } catch (e) { SHELL.toast('Assign failed — ' + e.message, 'bad'); }
+}
+async function unassignCrew(userId) {
+  if (!confirm('Unassign this crew member from the job?')) return;
+  try {
+    await SHELL.api(`/api/crew?action=unassign&jobId=${encodeURIComponent(STATE.jobId)}&userId=${encodeURIComponent(userId)}`, { method: 'POST' });
+    SHELL.toast('Unassigned', 'ok');
+    try { const r = await SHELL.api('/api/users'); SHELL.USERS = (r.users || []); } catch {}
+    await loadAll();
+    paint();
+  } catch (e) { SHELL.toast('Unassign failed — ' + e.message, 'bad'); }
+}
+async function linkClient(userId) {
+  try {
+    await SHELL.api('/api/jobs', {
+      method: 'PUT',
+      body: { id: STATE.jobId, clientUserId: userId || null },
+    });
+    SHELL.toast(userId ? 'Client linked' : 'Client unlinked', 'ok');
+    await SHELL.refreshCounts();
+    await loadAll();
+    paint();
+  } catch (e) { SHELL.toast('Update failed — ' + e.message, 'bad'); }
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>

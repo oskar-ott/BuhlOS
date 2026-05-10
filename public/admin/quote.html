@@ -1,0 +1,1460 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · quote</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+const QUOTE_STATUSES = [
+  { v:'draft',            l:'Draft',           tone:'navy' },
+  { v:'reviewing',        l:'Reviewing',       tone:'warn' },
+  { v:'estimating',       l:'Estimating',      tone:'warn' },
+  { v:'submitted',        l:'Submitted',       tone:'navy' },
+  { v:'accepted',         l:'Accepted',        tone:'ok' },
+  { v:'won',              l:'Won',             tone:'ok' },
+  { v:'lost',             l:'Lost',            tone:'bad' },
+  { v:'declined',         l:'Declined',        tone:'bad' },
+  { v:'converted_to_job', l:'Converted',       tone:'ok' },
+  { v:'archived',         l:'Archived',        tone:'navy' },
+];
+const SECTIONS = [
+  { id:'overview',    label:'Overview' },
+  { id:'documents',   label:'Documents' },
+  { id:'ai',          label:'AI Review' },
+  { id:'structure',   label:'Structure' },
+  { id:'materials',   label:'Materials' },
+  { id:'sourcing',    label:'Sourcing' },
+  { id:'labour',      label:'Labour' },
+  { id:'provisional', label:'Provisional' },
+  { id:'pricing',     label:'Pricing & totals' },
+  { id:'risks',       label:'Risks & assumptions' },
+  { id:'summary',     label:'Summary' },
+];
+
+let STATE = {
+  quoteId: null,
+  open: null,            // full bundle
+  section: 'overview',
+  wholesalersCache: null,
+};
+
+window.PAGE = {
+  id: 'quotes',
+  title: 'Quote',
+  crumb: 'Quotes',
+  async render() {
+    // URL: /admin/quotes/<id>?sec=overview
+    const path = location.pathname.replace(/\/+$/, '');
+    const id = decodeURIComponent(path.split('/').pop() || '');
+    if (!id || id === 'quotes') { location.href = '/admin/quotes'; return; }
+    STATE.quoteId = id;
+    const params = new URLSearchParams(location.search);
+    if (params.get('sec') && SECTIONS.find(s => s.id === params.get('sec'))) STATE.section = params.get('sec');
+
+    SHELL.$('#page').innerHTML = `<div class="empty"><div class="empty-title">Loading quote…</div></div>`;
+    await loadOpen();
+    paint();
+  },
+};
+
+async function loadOpen() {
+  try {
+    STATE.open = await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId));
+  } catch (e) {
+    SHELL.$('#page').innerHTML = `<div class="empty"><div class="empty-title">Failed to load quote</div><div class="empty-sub">${SHELL.escapeHtml(e.message)}</div></div>`;
+    throw e;
+  }
+}
+
+async function reloadAndPaint() {
+  await loadOpen();
+  paint();
+}
+
+function paint() {
+  if (!STATE.open) return;
+  const q = STATE.open.quote || {};
+  const st = QUOTE_STATUSES.find(s => s.v === q.status) || { l: q.status, tone: 'navy' };
+
+  SHELL.$('#page').innerHTML = `
+    <div class="ws-head">
+      <div>
+        <div class="ws-crumb"><a href="/admin/quotes">Quotes</a> · ${SHELL.escapeHtml(q.id || '')}${q.version > 1 ? ' · Rev ' + q.version : ''}</div>
+        <div class="ws-h1">${SHELL.escapeHtml(q.name || '(unnamed)')}</div>
+        <div class="ws-meta">
+          <span class="pill pill-${st.tone}"><span class="pill-dot"></span>${st.l}</span>
+          ${q.builder ? `<span>Builder: <b>${SHELL.escapeHtml(q.builder)}</b></span>` : ''}
+          ${q.dueDate ? `<span>Due <b>${SHELL.escapeHtml(q.dueDate)}</b></span>` : ''}
+          ${q.siteAddress ? `<span>${SHELL.escapeHtml(q.siteAddress)}</span>` : ''}
+          ${q.convertedJobId ? `<span>· <a href="/admin/jobs/${SHELL.escapeHtml(q.convertedJobId)}">Live job ${SHELL.escapeHtml(q.convertedJobId)} ↗</a></span>` : ''}
+        </div>
+      </div>
+      <div class="ws-actions">
+        ${(q.status !== 'converted_to_job') ? `<button class="btn" id="dup-quote">Duplicate</button>
+          <button class="btn" id="rev-quote">+ Revision</button>` : ''}
+      </div>
+    </div>
+
+    <div class="tabs">
+      ${SECTIONS.map(s => `<a class="tab ${STATE.section === s.id ? 'active' : ''}" href="#" data-sec="${s.id}">${s.label}</a>`).join('')}
+    </div>
+
+    <div id="qsec"></div>
+  `;
+
+  SHELL.$$('a[data-sec]').forEach(t => t.addEventListener('click', e => {
+    e.preventDefault();
+    STATE.section = t.dataset.sec;
+    const url = new URL(location.href);
+    url.searchParams.set('sec', STATE.section);
+    history.replaceState(null, '', url);
+    paint();
+  }));
+  const dup = SHELL.$('#dup-quote'); if (dup) dup.addEventListener('click', duplicateQuote);
+  const rev = SHELL.$('#rev-quote'); if (rev) rev.addEventListener('click', reviseQuote);
+
+  renderSection();
+}
+
+function renderSection() {
+  const host = SHELL.$('#qsec');
+  switch (STATE.section) {
+    case 'overview':    return renderOverview(host);
+    case 'documents':   return renderDocuments(host);
+    case 'ai':          return renderAi(host);
+    case 'structure':   return renderStructure(host);
+    case 'materials':   return renderMaterials(host);
+    case 'sourcing':    return renderSourcing(host);
+    case 'labour':      return renderLabour(host);
+    case 'provisional': return renderProvisional(host);
+    case 'pricing':     return renderPricing(host);
+    case 'risks':       return renderRisks(host);
+    case 'summary':     return renderSummary(host);
+  }
+}
+
+// ───────────────────────── Top-level ops ─────────────────────────
+async function duplicateQuote() {
+  if (!confirm('Duplicate this quote as a new draft? Documents are not copied.')) return;
+  try {
+    const r = await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=duplicate', { method: 'POST', body: {} });
+    SHELL.toast('Duplicated', 'ok');
+    if (r.quote && r.quote.id) location.href = '/admin/quotes/' + r.quote.id;
+  } catch (e) { SHELL.toast('Duplicate failed — ' + e.message, 'bad'); }
+}
+async function reviseQuote() {
+  if (!confirm('Create a new revision? Estimate carries forward; documents do not.')) return;
+  try {
+    const r = await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=revise', { method: 'POST', body: {} });
+    SHELL.toast('Revision created', 'ok');
+    if (r.quote && r.quote.id) location.href = '/admin/quotes/' + r.quote.id;
+  } catch (e) { SHELL.toast('Revise failed — ' + e.message, 'bad'); }
+}
+
+// ───────────────────────── Overview ─────────────────────────
+function renderOverview(host) {
+  const q = STATE.open.quote;
+  const statusOpts = QUOTE_STATUSES.map(s => `<option value="${s.v}"${q.status === s.v ? ' selected' : ''}>${s.l}</option>`).join('');
+  host.innerHTML = `
+    <div class="card">
+      <div class="card-hdr"><div><div class="card-title">Quote details</div><div class="card-sub">Edit basics. Status drives the lifecycle.</div></div>
+        <button class="btn btn-primary" id="qo-save">Save changes</button></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Name</label><input class="input" id="qo-name" value="${SHELL.escapeHtml(q.name || '')}"></div>
+        <div class="field"><label class="field-lbl">Status</label><select class="select" id="qo-status">${statusOpts}</select></div>
+      </div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Builder</label><input class="input" id="qo-builder" value="${SHELL.escapeHtml(q.builder || '')}"></div>
+        <div class="field"><label class="field-lbl">Due date</label><input class="input" id="qo-due" type="date" value="${SHELL.escapeHtml(q.dueDate || '')}"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Site address</label><input class="input" id="qo-addr" value="${SHELL.escapeHtml(q.siteAddress || '')}"></div>
+      <div class="three-col">
+        <div class="field"><label class="field-lbl">Contact name</label><input class="input" id="qo-cname" value="${SHELL.escapeHtml(q.contactName || '')}"></div>
+        <div class="field"><label class="field-lbl">Contact email</label><input class="input" id="qo-cemail" type="email" value="${SHELL.escapeHtml(q.contactEmail || '')}"></div>
+        <div class="field"><label class="field-lbl">Contact phone</label><input class="input" id="qo-cphone" value="${SHELL.escapeHtml(q.contactPhone || '')}"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Description / scope summary</label><textarea class="textarea" id="qo-desc" rows="4">${SHELL.escapeHtml(q.description || '')}</textarea></div>
+    </div>
+    ${activityTimeline()}
+  `;
+  SHELL.$('#qo-save').addEventListener('click', saveOverview);
+}
+async function saveOverview() {
+  const body = {
+    name: SHELL.$('#qo-name').value.trim(),
+    status: SHELL.$('#qo-status').value,
+    builder: SHELL.$('#qo-builder').value.trim(),
+    dueDate: SHELL.$('#qo-due').value,
+    siteAddress: SHELL.$('#qo-addr').value.trim(),
+    contactName: SHELL.$('#qo-cname').value.trim(),
+    contactEmail: SHELL.$('#qo-cemail').value.trim(),
+    contactPhone: SHELL.$('#qo-cphone').value.trim(),
+    description: SHELL.$('#qo-desc').value.trim(),
+  };
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId), { method: 'PATCH', body });
+    SHELL.toast('Saved', 'ok');
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+}
+
+function activityTimeline() {
+  const open = STATE.open || {};
+  const q = open.quote || {};
+  const events = [];
+  const push = (when, kind, label, meta) => { if (when) events.push({ when, kind, label, meta }); };
+  push(q.createdAt, 'created', 'Created', q.createdBy ? 'by ' + q.createdBy : '');
+  ((open.documents && open.documents.documents) || []).forEach(d => {
+    if (d.status === 'archived') return;
+    push(d.uploadedAt, 'doc', 'Document — ' + (d.title || d.fileName || 'untitled'),
+         (d.documentType || '') + (d.uploadedBy ? ' · ' + d.uploadedBy : ''));
+  });
+  ((open.ai && open.ai.reviews) || []).forEach(r => push(r.createdAt, 'ai', 'AI review run', r.modelOrSource || ''));
+  ((open.pricingRequests && open.pricingRequests.requests) || []).forEach(r => {
+    push(r.createdAt, 'preq', 'Price request — ' + ((r.wholesaler && r.wholesaler.name) || '?'), r.itemCount + ' items');
+    push(r.sentAt, 'psent', 'Sent — ' + ((r.wholesaler && r.wholesaler.name) || '?'), '');
+    push(r.replyAt, 'preply', 'Replied — ' + ((r.wholesaler && r.wholesaler.name) || '?'),
+         r.replyTotalExGst != null ? SHELL.fmtMoney2(r.replyTotalExGst) + ' ex-GST' : '');
+  });
+  if (q.acceptance && q.acceptance.acceptedAt) {
+    push(q.acceptance.acceptedAt, 'accept', 'Accepted by client', (q.acceptance.clientName || '') + (q.acceptance.method ? ' · ' + q.acceptance.method : ''));
+  }
+  if (q.convertedJobId) push(q.updatedAt, 'convert', 'Converted to live job', q.convertedJobId);
+  if (q.updatedAt && q.updatedAt !== q.createdAt && !q.convertedJobId) push(q.updatedAt, 'edit', 'Last edited', '');
+  if (events.length <= 1) return '';
+  events.sort((a, b) => (b.when || '').localeCompare(a.when || ''));
+  const dot = k => ({ created:'var(--ok)', doc:'var(--muted)', ai:'var(--accent)', preq:'var(--muted)', psent:'var(--ink)', preply:'var(--ok)', accept:'var(--ok)', convert:'var(--ok)', edit:'var(--muted)' })[k] || 'var(--muted)';
+  const rows = events.slice(0, 12).map(ev => {
+    const dt = new Date(ev.when);
+    const dStr = isNaN(dt) ? '—' : dt.toLocaleDateString('en-AU', { day:'numeric', month:'short' });
+    const tStr = isNaN(dt) ? '' : dt.toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit' });
+    return `<div style="display:grid;grid-template-columns:80px 14px 1fr;gap:10px;align-items:baseline;padding:8px 0;border-bottom:1px dashed var(--rule)">
+      <div style="font-family:var(--mono);font-size:10.5px;color:var(--muted)">${dStr}<br><span style="opacity:.7">${tStr}</span></div>
+      <div style="width:7px;height:7px;border-radius:50%;background:${dot(ev.kind)};margin-top:5px"></div>
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--ink)">${SHELL.escapeHtml(ev.label)}</div>
+        ${ev.meta ? `<div style="font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:2px">${SHELL.escapeHtml(ev.meta)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="margin-top:14px">
+    <div class="card-hdr"><div><div class="card-title">Activity timeline</div>
+      <div class="card-sub">Derived from existing data. ${events.length > 12 ? events.length + ' events total · showing latest 12.' : ''}</div></div></div>
+    <div>${rows}</div></div>`;
+}
+
+// ───────────────────────── Documents ─────────────────────────
+function renderDocuments(host) {
+  const docs = ((STATE.open.documents && STATE.open.documents.documents) || []).filter(d => d.status !== 'archived');
+  host.innerHTML = `
+    <div class="card">
+      <div class="card-hdr">
+        <div><div class="card-title">Documents <span class="card-count">${docs.length}</span></div>
+          <div class="card-sub">Plans, scope, specs, addendums. Carried across to the live job on conversion.</div></div>
+        <label class="btn btn-primary" style="cursor:pointer">+ Upload
+          <input type="file" id="qd-file" accept="application/pdf,image/*,.docx,.xlsx" style="display:none" multiple></label>
+      </div>
+      <div id="qd-progress" style="display:none;margin-bottom:8px;padding:8px 12px;background:var(--surface-2);border-radius:6px;font-size:13px;color:var(--muted)"></div>
+      <div id="qd-list">${docsListHtml(docs)}</div>
+    </div>
+  `;
+  SHELL.$('#qd-file').onchange = e => uploadDocs(e.target.files);
+}
+function docsListHtml(docs) {
+  if (!docs.length) return '<div class="empty"><div class="empty-title">No documents yet</div><div class="empty-sub">Upload PDFs or images of the tender plans / spec.</div></div>';
+  return docs.sort((a, b) => (a.documentType || '').localeCompare(b.documentType || '')).map(d => {
+    const sizeKb = d.sizeBytes ? Math.round(d.sizeBytes / 1024) + ' KB' : '';
+    const stTone = d.status === 'current' ? 'ok' : d.status === 'superseded' ? 'warn' : 'navy';
+    const stLbl = d.status === 'current' ? 'Current' : d.status === 'superseded' ? 'Superseded' : 'Archived';
+    return `<div class="row" style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--rule);border-radius:8px;background:var(--surface);margin-bottom:6px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700;color:var(--ink)">
+          ${d.drawingNumber ? SHELL.escapeHtml(d.drawingNumber) : '<span style="color:var(--muted);font-weight:500">No drawing no.</span>'}
+          ${d.revision ? `<span style="color:var(--muted);font-weight:500"> · Rev ${SHELL.escapeHtml(d.revision)}</span>` : ''}
+          <span class="pill pill-${stTone}" style="margin-left:6px"><span class="pill-dot"></span>${stLbl}</span>
+        </div>
+        <div style="font-size:13px;color:var(--ink-2);margin-top:2px">${SHELL.escapeHtml(d.title || d.fileName)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${SHELL.escapeHtml(d.documentType || '')} · ${SHELL.escapeHtml(d.fileName)} ${sizeKb ? '· ' + sizeKb : ''}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+        <a class="btn" href="${SHELL.escapeHtml(d.url || '#')}" target="_blank" rel="noopener">Open</a>
+        ${d.status === 'current' ? `<button class="btn" data-doc-status="${SHELL.escapeHtml(d.id)}" data-set="superseded">Mark superseded</button>` : `<button class="btn" data-doc-status="${SHELL.escapeHtml(d.id)}" data-set="current">Mark current</button>`}
+        <button class="btn btn-danger" data-doc-archive="${SHELL.escapeHtml(d.id)}">Archive</button>
+      </div>
+    </div>`;
+  }).join('') + bindDocActions();
+}
+function bindDocActions() {
+  // Insert a tiny delegated-listener bootstrap (idempotent re-bind on re-render).
+  setTimeout(() => {
+    SHELL.$$('button[data-doc-status]').forEach(b => b.onclick = () => setDocStatus(b.dataset.docStatus, b.dataset.set));
+    SHELL.$$('button[data-doc-archive]').forEach(b => b.onclick = () => archiveDoc(b.dataset.docArchive));
+  }, 0);
+  return '';
+}
+async function uploadDocs(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  const prog = SHELL.$('#qd-progress');
+  let done = 0, failed = 0;
+  prog.style.display = 'block';
+  for (const file of files) {
+    prog.textContent = `Uploading ${done + 1}/${files.length}: ${file.name}…`;
+    try {
+      const dataUrl = await new Promise((res, rej) => {
+        const r = new FileReader(); r.onload = e => res(e.target.result); r.onerror = rej; r.readAsDataURL(file);
+      });
+      const r = await fetch('/api/quote-documents?quoteId=' + encodeURIComponent(STATE.quoteId), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ fileName: file.name, mimeType: file.type, dataUrl, title: file.name.replace(/\.[^.]+$/, '') }),
+      });
+      if (!r.ok) failed++; else done++;
+    } catch { failed++; }
+  }
+  SHELL.$('#qd-file').value = '';
+  prog.textContent = `${done} uploaded${failed ? ' · ' + failed + ' failed' : ''}`;
+  setTimeout(() => prog.style.display = 'none', 2500);
+  await reloadAndPaint();
+}
+async function setDocStatus(docId, status) {
+  try {
+    await fetch('/api/quote-documents?quoteId=' + encodeURIComponent(STATE.quoteId) + '&id=' + encodeURIComponent(docId), {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ status }),
+    }).then(r => { if (!r.ok) throw new Error('Failed'); });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Update failed — ' + e.message, 'bad'); }
+}
+async function archiveDoc(docId) {
+  if (!confirm('Archive this document?')) return;
+  try {
+    await fetch('/api/quote-documents?quoteId=' + encodeURIComponent(STATE.quoteId) + '&id=' + encodeURIComponent(docId), {
+      method: 'DELETE', credentials: 'same-origin',
+    }).then(r => { if (!r.ok) throw new Error('Failed'); });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Archive failed — ' + e.message, 'bad'); }
+}
+
+// ───────────────────────── AI Review ─────────────────────────
+function renderAi(host) {
+  const reviews = ((STATE.open.ai && STATE.open.ai.reviews) || []).slice().reverse();
+  host.innerHTML = `
+    <div class="card">
+      <div class="card-hdr"><div><div class="card-title">AI-assisted review</div>
+        <div class="card-sub">Paste scope text from the tender. Output is saved as <b>suggestions only</b> — review and apply selectively.</div></div></div>
+      <div class="field"><label class="field-lbl">Paste scope / spec text</label>
+        <textarea id="qa-text" class="textarea" rows="8" style="font-family:var(--mono)" placeholder="Paste relevant tender scope, spec extract, or notes…"></textarea></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+        <button class="btn btn-accent" id="qa-run">Run review</button>
+        <span style="font-size:11px;color:var(--muted)">Anthropic-API-backed when ANTHROPIC_API_KEY is set; otherwise the paste is preserved for manual review.</span>
+      </div>
+      <div id="qa-list">
+        ${reviews.length ? reviews.map(reviewHtml).join('') : '<div class="empty"><div class="empty-title">No AI reviews yet</div></div>'}
+      </div>
+    </div>
+  `;
+  SHELL.$('#qa-run').addEventListener('click', runAi);
+  SHELL.$$('button[data-apply-review]').forEach(b => b.addEventListener('click', () => applyReview(b.dataset.applyReview)));
+}
+function reviewHtml(r) {
+  const dt = r.createdAt ? new Date(r.createdAt).toLocaleString('en-AU') : '';
+  const list = arr => Array.isArray(arr) && arr.length
+    ? `<ul style="margin:4px 0 8px 18px;padding:0">${arr.map(x => `<li style="font-size:12px;color:var(--ink)">${SHELL.escapeHtml(typeof x === 'string' ? x : (x.name || JSON.stringify(x)))}</li>`).join('')}</ul>`
+    : '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">— none —</div>';
+  return `<div style="border:1px solid var(--rule);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--surface)">
+    <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px">Review ${SHELL.escapeHtml(dt)} · ${SHELL.escapeHtml(r.createdBy || '')}</div>
+    ${r.summary ? `<div style="font-size:13px;margin-top:6px">${SHELL.escapeHtml(r.summary)}</div>` : ''}
+    ${r.rawModelNotes ? `<div style="font-size:11px;color:var(--accent);margin-top:6px;font-style:italic">${SHELL.escapeHtml(r.rawModelNotes)}</div>` : ''}
+    <div class="two-col" style="margin-top:10px">
+      <div>
+        <div class="card-sub" style="margin-bottom:2px">Suggested area groups</div>
+        ${list((r.suggestedAreaGroups || []).map(g => g.name + (Array.isArray(g.areas) && g.areas.length ? ' (' + g.areas.join(', ') + ')' : '')))}
+        <div class="card-sub" style="margin-bottom:2px">Systems</div>${list(r.suggestedSystems)}
+        <div class="card-sub" style="margin-bottom:2px">Risks</div>${list(r.risks)}
+      </div>
+      <div>
+        <div class="card-sub" style="margin-bottom:2px">Rough-in tasks</div>${list(r.suggestedTasks && r.suggestedTasks.roughIn)}
+        <div class="card-sub" style="margin-bottom:2px">Fit-off tasks</div>${list(r.suggestedTasks && r.suggestedTasks.fitOff)}
+        <div class="card-sub" style="margin-bottom:2px">Assumptions</div>${list(r.assumptions)}
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      <button class="btn" data-apply-review='${SHELL.escapeHtml(JSON.stringify(r))}'>Apply selected suggestions</button>
+    </div>
+  </div>`;
+}
+async function runAi() {
+  const text = SHELL.$('#qa-text').value.trim();
+  if (!text) { SHELL.toast('Paste scope text first', 'warn'); return; }
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=ai-review', { method: 'POST', body: { sourceText: text } });
+    SHELL.toast('Review saved', 'ok');
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('AI review failed — ' + e.message, 'bad'); }
+}
+async function applyReview(reviewJson) {
+  let r; try { r = JSON.parse(reviewJson); } catch { return; }
+  if (!confirm('Apply suggestions to structure / risks / assumptions / materials? Existing data preserved.')) return;
+  try {
+    const cur = STATE.open.structure || { areaGroups: [] };
+    const newAreaGroups = [...(cur.areaGroups || [])];
+    for (const g of (r.suggestedAreaGroups || [])) {
+      if (!g.name) continue;
+      if (!newAreaGroups.find(x => x.name === g.name)) {
+        newAreaGroups.push({ name: g.name, areas: (g.areas || []).map(name => ({ name })), workPackages: [] });
+      }
+    }
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=structure', { method: 'PATCH', body: { areaGroups: newAreaGroups } });
+    const curNotes = STATE.open.notes || {};
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=notes', {
+      method: 'PATCH', body: {
+        assumptions: [...(curNotes.assumptions || []), ...(r.assumptions || [])],
+        exclusions: curNotes.exclusions || [],
+        risks: [...(curNotes.risks || []), ...(r.risks || [])],
+        clarifications: curNotes.clarifications || [],
+      }
+    });
+    for (const m of (r.suggestedMaterials || [])) {
+      if (!m.name) continue;
+      await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=materials', {
+        method: 'POST', body: { name: m.name, category: m.category || 'Other', quantity: m.quantity != null ? Number(m.quantity) : null, confidence: m.confidence || 'low', notes: m.notes || '', source: 'ai_suggested', status: 'needs_review' },
+      });
+    }
+    SHELL.toast('Suggestions applied', 'ok');
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Apply failed — ' + e.message, 'bad'); }
+}
+
+// ───────────────────────── Structure ─────────────────────────
+function renderStructure(host) {
+  const groups = (STATE.open.structure && STATE.open.structure.areaGroups) || [];
+  host.innerHTML = `
+    <div class="card">
+      <div class="card-hdr"><div><div class="card-title">Quote structure</div>
+        <div class="card-sub">Area groups, areas, area-specific work packages. Seeds the live job structure on conversion.</div></div>
+        <div style="display:flex;gap:6px"><button class="btn" id="add-group">+ Add group</button>
+          <button class="btn btn-primary" id="save-structure">Save changes</button></div></div>
+      <div id="qs-editor">${structureHtml(groups)}</div>
+    </div>
+  `;
+  SHELL.$('#add-group').addEventListener('click', () => { groups.push({ name: '', areas: [], workPackages: [] }); SHELL.$('#qs-editor').innerHTML = structureHtml(groups); bindStructure(groups); });
+  SHELL.$('#save-structure').addEventListener('click', async () => {
+    try {
+      await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=structure', { method: 'PATCH', body: { areaGroups: STATE.open.structure.areaGroups } });
+      SHELL.toast('Saved', 'ok');
+      await reloadAndPaint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+  bindStructure(groups);
+}
+function structureHtml(groups) {
+  if (!groups.length) return '<div class="empty"><div class="empty-title">No structure yet</div><div class="empty-sub">Add a group or apply AI suggestions.</div></div>';
+  return groups.map((g, gi) => `
+    <div style="border:1px solid var(--rule);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--surface)">
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="input" data-group-name="${gi}" placeholder="Group name (e.g. Level 1)" value="${SHELL.escapeHtml(g.name || '')}" style="flex:1">
+        <button class="btn btn-danger" data-rm-group="${gi}">Remove</button>
+      </div>
+      <div style="margin-top:8px">
+        ${(g.areas || []).map((a, ai) => {
+          const wps = a.workPackages || [];
+          const wpSummary = wps.length ? wps.map(w => `${SHELL.escapeHtml(w.name || '')} (${SHELL.escapeHtml(w.stage || 'rough-in')}, ${(w.tasks || []).length}t)`).join(' · ') : '';
+          return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+            <input class="input" data-area-name="${gi}.${ai}" placeholder="Area name" value="${SHELL.escapeHtml(a.name || '')}" style="flex:1">
+            <button class="btn" data-wp-edit="${gi}.${ai}" title="Edit work packages">${wps.length} WP</button>
+            <button class="btn btn-danger" data-rm-area="${gi}.${ai}">×</button>
+            ${wpSummary ? `<div style="flex-basis:100%;font-size:11px;color:var(--muted);margin-top:2px">${wpSummary}</div>` : ''}
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button class="btn" data-add-area="${gi}">+ Add area</button>
+        <button class="btn" data-bulk-areas="${gi}">Bulk add</button>
+      </div>
+    </div>`).join('');
+}
+function bindStructure(groups) {
+  SHELL.$$('input[data-group-name]').forEach(el => el.oninput = () => { groups[Number(el.dataset.groupName)].name = el.value; });
+  SHELL.$$('input[data-area-name]').forEach(el => el.oninput = () => {
+    const [gi, ai] = el.dataset.areaName.split('.').map(Number);
+    groups[gi].areas[ai].name = el.value;
+  });
+  SHELL.$$('button[data-rm-group]').forEach(b => b.onclick = () => { groups.splice(Number(b.dataset.rmGroup), 1); SHELL.$('#qs-editor').innerHTML = structureHtml(groups); bindStructure(groups); });
+  SHELL.$$('button[data-add-area]').forEach(b => b.onclick = () => {
+    const gi = Number(b.dataset.addArea);
+    groups[gi].areas = groups[gi].areas || [];
+    groups[gi].areas.push({ name: '', workPackages: [] });
+    SHELL.$('#qs-editor').innerHTML = structureHtml(groups); bindStructure(groups);
+  });
+  SHELL.$$('button[data-rm-area]').forEach(b => b.onclick = () => {
+    const [gi, ai] = b.dataset.rmArea.split('.').map(Number);
+    groups[gi].areas.splice(ai, 1);
+    SHELL.$('#qs-editor').innerHTML = structureHtml(groups); bindStructure(groups);
+  });
+  SHELL.$$('button[data-bulk-areas]').forEach(b => b.onclick = () => bulkAddAreas(Number(b.dataset.bulkAreas), groups));
+  SHELL.$$('button[data-wp-edit]').forEach(b => b.onclick = () => {
+    const [gi, ai] = b.dataset.wpEdit.split('.').map(Number);
+    openWpEditor(gi, ai, groups);
+  });
+}
+function bulkAddAreas(gi, groups) {
+  const panel = SHELL.openPanel({
+    title: 'Bulk add areas',
+    body: `
+      <p style="font-size:13px;color:var(--muted);margin:0 0 10px">Paste a list <b>or</b> use a numbered range. Items append. Save changes after.</p>
+      <div class="field"><label class="field-lbl">Paste list</label>
+        <textarea class="textarea" id="qba-lines" rows="6" placeholder="Lobby&#10;Plant Room&#10;Switch Room"></textarea></div>
+      <div style="text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:12px 0 8px">— or —</div>
+      <div style="display:grid;grid-template-columns:1fr 80px 80px;gap:8px">
+        <div class="field"><label class="field-lbl">Prefix</label><input class="input" id="qba-prefix" placeholder="Unit"></div>
+        <div class="field"><label class="field-lbl">From</label><input class="input" id="qba-from" type="number" min="1"></div>
+        <div class="field"><label class="field-lbl">To</label><input class="input" id="qba-to" type="number" min="1"></div>
+      </div>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="qba-add">Add</button>`,
+  });
+  panel.querySelector('#qba-add').addEventListener('click', () => {
+    const linesText = panel.querySelector('#qba-lines').value;
+    const prefix = panel.querySelector('#qba-prefix').value.trim();
+    const from = parseInt(panel.querySelector('#qba-from').value, 10);
+    const to = parseInt(panel.querySelector('#qba-to').value, 10);
+    const names = [];
+    if (linesText.trim()) {
+      linesText.split(/\r?\n/).forEach(l => { const t = l.trim(); if (t) names.push(t); });
+    } else if (prefix && Number.isFinite(from) && Number.isFinite(to) && from > 0 && to >= from && (to - from) <= 500) {
+      for (let n = from; n <= to; n++) names.push(prefix + ' ' + n);
+    }
+    if (!names.length) { SHELL.toast('Add lines OR prefix+range first', 'warn'); return; }
+    groups[gi].areas = groups[gi].areas || [];
+    for (const nm of names) groups[gi].areas.push({ name: nm, workPackages: [] });
+    SHELL.$('#qs-editor').innerHTML = structureHtml(groups);
+    bindStructure(groups);
+    SHELL.closePanel();
+  });
+}
+function openWpEditor(gi, ai, groups) {
+  const area = groups[gi].areas[ai];
+  if (!area) return;
+  area.workPackages = area.workPackages || [];
+  const panel = SHELL.openPanel({
+    title: 'Work packages — ' + (area.name || 'area'),
+    body: `<div id="wp-body"></div>`,
+    footer: `<button class="btn btn-primary" id="wp-done">Done</button>`,
+  });
+  const renderWps = () => {
+    const list = (area.workPackages || []).map((wp, wi) => `
+      <div style="border:1px solid var(--rule);border-radius:8px;padding:10px;margin-bottom:8px;background:var(--surface-2)">
+        <div style="display:grid;grid-template-columns:2fr 1fr 32px;gap:6px;align-items:end;margin-bottom:8px">
+          <div><label class="field-lbl">Name</label>
+            <input class="input" data-wp-name="${wi}" placeholder="Lighting / Power / Data…" value="${SHELL.escapeHtml(wp.name || '')}"></div>
+          <div><label class="field-lbl">Stage</label>
+            <select class="select" data-wp-stage="${wi}">
+              <option value="rough-in"${wp.stage === 'fit-off' ? '' : ' selected'}>Rough-in</option>
+              <option value="fit-off"${wp.stage === 'fit-off' ? ' selected' : ''}>Fit-off</option>
+            </select></div>
+          <button class="btn btn-danger" data-wp-rm="${wi}" style="align-self:end">×</button>
+        </div>
+        <label class="field-lbl">Tasks (one per line)</label>
+        <textarea class="textarea" data-wp-tasks="${wi}" rows="3" style="font-family:var(--mono)">${SHELL.escapeHtml((wp.tasks || []).join('\n'))}</textarea>
+      </div>`).join('');
+    panel.querySelector('#wp-body').innerHTML = `
+      <p style="font-size:13px;color:var(--muted);margin:0 0 10px">Different areas need different tasks. Add a work package per system/stage. On convert-to-job, tasks union into the job's rough-in/fit-off lists.</p>
+      ${list || '<div class="empty"><div class="empty-title">No work packages yet</div></div>'}
+      <button class="btn" id="wp-add">+ Add work package</button>
+    `;
+    panel.querySelector('#wp-add').onclick = () => { area.workPackages.push({ name: '', stage: 'rough-in', tasks: [] }); renderWps(); };
+    panel.querySelectorAll('button[data-wp-rm]').forEach(b => b.onclick = () => { area.workPackages.splice(Number(b.dataset.wpRm), 1); renderWps(); });
+    panel.querySelectorAll('input[data-wp-name]').forEach(el => el.oninput = () => { area.workPackages[Number(el.dataset.wpName)].name = el.value; });
+    panel.querySelectorAll('select[data-wp-stage]').forEach(el => el.onchange = () => { area.workPackages[Number(el.dataset.wpStage)].stage = el.value; });
+    panel.querySelectorAll('textarea[data-wp-tasks]').forEach(el => el.oninput = () => {
+      area.workPackages[Number(el.dataset.wpTasks)].tasks = el.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    });
+  };
+  renderWps();
+  panel.querySelector('#wp-done').addEventListener('click', () => {
+    SHELL.closePanel();
+    SHELL.$('#qs-editor').innerHTML = structureHtml(groups);
+    bindStructure(groups);
+  });
+}
+
+// ───────────────────────── Materials ─────────────────────────
+function renderMaterials(host) {
+  const items = (STATE.open.materials && STATE.open.materials.items) || [];
+  const total = items.reduce((s, i) => s + (Number(i.totalCost) || (Number(i.unitCost) || 0) * (Number(i.quantity) || 0)), 0);
+  const sourcingReqs = (STATE.open.pricingRequests && STATE.open.pricingRequests.requests) || [];
+  const activeReqs = sourcingReqs.filter(r => !['cancelled', 'lost'].includes(r.status));
+  const sourcingBadge = sourcingReqs.length ? `<button class="btn" id="goto-sourcing">${activeReqs.length} active sourcing →</button>` : '';
+  host.innerHTML = `
+    <div class="card">
+      <div class="card-hdr">
+        <div><div class="card-title">Materials estimate <span class="card-count">${items.length}</span></div>
+          <div class="card-sub">Manual + AI-suggested. Carried into the live job's materials list on conversion.</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${sourcingBadge}
+          <button class="btn btn-primary" id="mat-add">+ Add item</button>
+          <button class="btn" id="mat-bulk">Bulk add</button>
+        </div>
+      </div>
+      ${total > 0 ? `<div style="font-size:13px;color:var(--ink);font-weight:700;margin-bottom:10px">Estimated materials cost: ${SHELL.fmtMoney2(total)}</div>` : ''}
+      ${items.length ? items.map(i => `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--rule);border-radius:8px;background:var(--surface);margin-bottom:6px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:var(--ink)"><b>${i.quantity || 0}</b> ${SHELL.escapeHtml(i.unit || 'each')} · ${SHELL.escapeHtml(i.name)}${i.source === 'ai_suggested' ? ' <span class="pill pill-warn" style="margin-left:4px;font-size:9px">AI</span>' : ''}</div>
+          <div style="font-size:11px;color:var(--muted)">${[SHELL.escapeHtml(i.category || ''), i.brandOrSpec ? SHELL.escapeHtml(i.brandOrSpec) : '', i.area ? SHELL.escapeHtml(i.area) : ''].filter(Boolean).join(' · ')}</div>
+        </div>
+        <button class="btn btn-danger" data-mat-rm="${SHELL.escapeHtml(i.id)}">×</button>
+      </div>`).join('') : '<div class="empty"><div class="empty-title">No materials yet</div></div>'}
+    </div>
+  `;
+  SHELL.$$('button[data-mat-rm]').forEach(b => b.addEventListener('click', () => matRemove(b.dataset.matRm)));
+  SHELL.$('#mat-add').addEventListener('click', matAddPanel);
+  SHELL.$('#mat-bulk').addEventListener('click', matBulkPanel);
+  if (sourcingBadge) SHELL.$('#goto-sourcing').addEventListener('click', () => { STATE.section = 'sourcing'; const url = new URL(location.href); url.searchParams.set('sec', 'sourcing'); history.replaceState(null, '', url); paint(); });
+}
+function matAddPanel() {
+  const panel = SHELL.openPanel({
+    title: 'Add material',
+    body: `
+      <div class="field"><label class="field-lbl">Name *</label><input class="input" id="qm-name" autofocus></div>
+      <div class="three-col">
+        <div class="field"><label class="field-lbl">Quantity</label><input class="input" id="qm-qty" type="number" step="0.01" min="0" value="1"></div>
+        <div class="field"><label class="field-lbl">Unit</label><input class="input" id="qm-unit" value="each"></div>
+        <div class="field"><label class="field-lbl">Category</label><input class="input" id="qm-cat" value="Other"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Brand / spec</label><input class="input" id="qm-spec"></div>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="qm-save">Add</button>`,
+  });
+  panel.querySelector('#qm-save').addEventListener('click', async () => {
+    const body = {
+      name: panel.querySelector('#qm-name').value.trim(),
+      quantity: parseFloat(panel.querySelector('#qm-qty').value) || 0,
+      unit: panel.querySelector('#qm-unit').value.trim() || 'each',
+      category: panel.querySelector('#qm-cat').value.trim() || 'Other',
+      brandOrSpec: panel.querySelector('#qm-spec').value.trim(),
+    };
+    if (!body.name) { SHELL.toast('Name required', 'bad'); return; }
+    try {
+      await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=materials', { method: 'POST', body });
+      SHELL.closePanel();
+      await reloadAndPaint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+function matBulkPanel() {
+  const panel = SHELL.openPanel({
+    title: 'Bulk add materials',
+    body: `
+      <p style="font-size:13px;color:var(--muted);margin:0 0 10px">One per line: <code>40 x Twin GPO - Iconic</code></p>
+      <textarea class="textarea" id="qmb-lines" rows="10" style="font-family:var(--mono)" autofocus></textarea>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="qmb-save">Add all</button>`,
+  });
+  panel.querySelector('#qmb-save').addEventListener('click', async () => {
+    const lines = panel.querySelector('#qmb-lines').value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (!lines.length) { SHELL.toast('Paste at least one line', 'warn'); return; }
+    const parsed = lines.map(raw => {
+      const m = raw.match(/^([\d.]+)\s*([a-zA-Z]*)\s*[x×]\s*(.+)$/i);
+      if (m) {
+        let rest = m[3].trim(), spec = '';
+        const di = rest.indexOf(' - '); if (di > 0) { spec = rest.slice(di + 3).trim(); rest = rest.slice(0, di).trim(); }
+        return { name: rest, brandOrSpec: spec, quantity: parseFloat(m[1]) || 0, unit: (m[2] || 'each').toLowerCase() };
+      }
+      return { name: raw, quantity: 1, unit: 'each' };
+    });
+    try {
+      await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=materials', { method: 'POST', body: { lines: parsed } });
+      SHELL.closePanel();
+      await reloadAndPaint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+async function matRemove(itemId) {
+  if (!confirm('Remove this material?')) return;
+  try {
+    await fetch('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=materials&itemId=' + encodeURIComponent(itemId), { method: 'DELETE', credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('Failed'); });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Delete failed — ' + e.message, 'bad'); }
+}
+
+// ───────────────────────── Labour ─────────────────────────
+function renderLabour(host) {
+  const lines = (STATE.open.labour && STATE.open.labour.lines) || [];
+  const totalH = lines.reduce((s, l) => s + (Number(l.estimatedHours) || 0), 0);
+  const totalCost = lines.reduce((s, l) => s + (Number(l.estimatedHours) || 0) * (Number(l.hourlyRate) || 0) * (Number(l.riskFactor) || 1), 0);
+  host.innerHTML = `
+    <div class="card">
+      <div class="card-hdr"><div><div class="card-title">Labour estimate <span class="card-count">${lines.length}</span></div>
+        <div class="card-sub">Estimate hours per area / system / stage. Cost rolls up only when an hourly rate is captured.</div></div>
+        <button class="btn btn-primary" id="lab-add">+ Add line</button></div>
+      <div style="font-size:13px;color:var(--ink);font-weight:700;margin-bottom:10px">
+        ${totalH.toFixed(1)}h estimated${totalCost ? ' · ' + SHELL.fmtMoney2(totalCost) + ' labour cost' : ''}
+      </div>
+      ${lines.length ? lines.map(l => `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--rule);border-radius:8px;background:var(--surface);margin-bottom:6px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:var(--ink)"><b>${(Number(l.estimatedHours) || 0).toFixed(1)}h</b> · ${SHELL.escapeHtml(l.task)}</div>
+          <div style="font-size:11px;color:var(--muted)">${[SHELL.escapeHtml(l.areaGroup || ''), SHELL.escapeHtml(l.area || ''), SHELL.escapeHtml(l.system || ''), SHELL.escapeHtml(l.stage || '')].filter(Boolean).join(' · ')}${l.hourlyRate ? ' · $' + l.hourlyRate + '/h' : ''}${l.crewSize ? ' · crew ' + l.crewSize : ''}</div>
+        </div>
+        <button class="btn btn-danger" data-lab-rm="${SHELL.escapeHtml(l.id)}">×</button>
+      </div>`).join('') : '<div class="empty"><div class="empty-title">No labour lines yet</div></div>'}
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-hdr"><div><div class="card-title">Previous-job benchmark</div>
+        <div class="card-sub">Compare your estimate against actual hours/area on past jobs. Last 180d. Heavy read.</div></div>
+        <button class="btn" id="bench-load">Load reference jobs</button></div>
+      <div id="bench-out"><div class="empty"><div class="empty-title">Click "Load reference jobs" to pull historical labour</div></div></div>
+    </div>
+  `;
+  SHELL.$$('button[data-lab-rm]').forEach(b => b.addEventListener('click', () => labRemove(b.dataset.labRm)));
+  SHELL.$('#lab-add').addEventListener('click', labAddPanel);
+  SHELL.$('#bench-load').addEventListener('click', loadBenchmark);
+}
+function labAddPanel() {
+  const panel = SHELL.openPanel({
+    title: 'Add labour line',
+    body: `
+      <div class="field"><label class="field-lbl">Task *</label><input class="input" id="ql-task" placeholder="e.g. Cable rough-in" autofocus></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Area group</label><input class="input" id="ql-ag"></div>
+        <div class="field"><label class="field-lbl">Area</label><input class="input" id="ql-area"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">
+        <div class="field"><label class="field-lbl">System</label><input class="input" id="ql-sys" placeholder="Power…"></div>
+        <div class="field"><label class="field-lbl">Stage</label>
+          <select class="select" id="ql-stage"><option value="rough-in">Rough-in</option><option value="fit-off">Fit-off</option></select></div>
+        <div class="field"><label class="field-lbl">Hours</label><input class="input" id="ql-h" type="number" step="0.25" min="0" value="0"></div>
+        <div class="field"><label class="field-lbl">Rate $/h</label><input class="input" id="ql-r" type="number" step="0.01" min="0" placeholder="opt"></div>
+      </div>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="ql-save">Add</button>`,
+  });
+  panel.querySelector('#ql-save').addEventListener('click', async () => {
+    const body = {
+      task: panel.querySelector('#ql-task').value.trim(),
+      areaGroup: panel.querySelector('#ql-ag').value.trim(),
+      area: panel.querySelector('#ql-area').value.trim(),
+      system: panel.querySelector('#ql-sys').value.trim(),
+      stage: panel.querySelector('#ql-stage').value,
+      estimatedHours: parseFloat(panel.querySelector('#ql-h').value) || 0,
+      hourlyRate: panel.querySelector('#ql-r').value ? Number(panel.querySelector('#ql-r').value) : null,
+    };
+    if (!body.task) { SHELL.toast('Task required', 'bad'); return; }
+    try {
+      await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=labour', { method: 'POST', body });
+      SHELL.closePanel();
+      await reloadAndPaint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+async function labRemove(lineId) {
+  if (!confirm('Remove this line?')) return;
+  try {
+    await fetch('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=labour&lineId=' + encodeURIComponent(lineId), { method: 'DELETE', credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('Failed'); });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Delete failed — ' + e.message, 'bad'); }
+}
+async function loadBenchmark() {
+  const out = SHELL.$('#bench-out');
+  out.innerHTML = '<div class="empty"><div class="empty-title">Loading… (walking time-entries)</div></div>';
+  try {
+    const j = await SHELL.api('/api/quotes?action=benchmark');
+    if (!j.rows || !j.rows.length) {
+      out.innerHTML = '<div class="empty"><div class="empty-title">Not enough job data yet</div><div class="empty-sub">Keep logging hours; benchmark fills in over time.</div></div>';
+      return;
+    }
+    out.innerHTML = `
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">${j.rows.length} job${j.rows.length === 1 ? '' : 's'} · last ${j.coverage.windowDays}d · ${j.coverage.usersScanned} crew scanned</div>
+      <div class="table"><table>
+        <thead><tr><th>Job</th><th>Type</th><th>Status</th><th style="text-align:right">Areas</th><th style="text-align:right">Hours</th><th style="text-align:right">h / area</th><th>Last logged</th></tr></thead>
+        <tbody>${j.rows.map(r => `<tr>
+          <td>${SHELL.escapeHtml(r.name)}</td>
+          <td><span class="chip">${SHELL.escapeHtml(r.type || '—')}</span></td>
+          <td>${SHELL.jobStatusPill(r.status)}</td>
+          <td style="text-align:right">${r.areaCount}</td>
+          <td style="text-align:right;font-weight:700">${r.totalHours.toFixed(1)}</td>
+          <td style="text-align:right">${r.hoursPerArea != null ? r.hoursPerArea.toFixed(1) : '—'}</td>
+          <td style="font-size:11px;color:var(--muted)">${SHELL.escapeHtml(r.lastDate || '—')}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    `;
+  } catch (e) {
+    out.innerHTML = `<div class="empty"><div class="empty-title">Couldn't load benchmark</div><div class="empty-sub">${SHELL.escapeHtml(e.message)}</div></div>`;
+  }
+}
+
+// ───────────────────────── Provisional ─────────────────────────
+function renderProvisional(host) {
+  const items = ((STATE.open.provisional && STATE.open.provisional.items)) || [];
+  const psCount = items.filter(i => i.kind === 'provisional').length;
+  const allowCount = items.filter(i => i.kind === 'allowance').length;
+  const total = items.reduce((s, i) => s + (Number(i.amountExGst) || 0), 0);
+  host.innerHTML = `
+    <div class="card">
+      <div class="card-hdr">
+        <div><div class="card-title">Provisional sums &amp; allowances</div>
+          <div class="card-sub">${psCount} PS · ${allowCount} allowances · <b>${SHELL.fmtMoney2(total)} ex-GST</b> · billed at face value, no markup.</div></div>
+        <div style="display:flex;gap:6px"><button class="btn btn-primary" id="ps-add">+ PS item</button><button class="btn" id="al-add">+ Allowance</button></div>
+      </div>
+      ${items.length ? items.map(it => `
+        <div style="border:1px solid var(--rule);border-radius:8px;padding:10px;background:var(--surface);margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span class="pill pill-${it.kind === 'allowance' ? 'warn' : 'navy'}">${it.kind === 'allowance' ? 'Allowance' : 'PS'}</span>
+            <strong>${SHELL.escapeHtml(it.name)}</strong>
+            <span style="margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums">${SHELL.fmtMoney2(Number(it.amountExGst) || 0)}</span>
+          </div>
+          ${it.description ? `<div style="font-size:12px;color:var(--muted);margin-top:4px">${SHELL.escapeHtml(it.description)}</div>` : ''}
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="btn" data-ps-edit="${SHELL.escapeHtml(it.id)}">Edit</button>
+            <button class="btn btn-danger" data-ps-rm="${SHELL.escapeHtml(it.id)}">Remove</button>
+          </div>
+        </div>`).join('') : '<div class="empty"><div class="empty-title">No provisional sums or allowances yet</div></div>'}
+    </div>
+  `;
+  SHELL.$('#ps-add').addEventListener('click', () => psAdd('provisional'));
+  SHELL.$('#al-add').addEventListener('click', () => psAdd('allowance'));
+  SHELL.$$('button[data-ps-edit]').forEach(b => b.addEventListener('click', () => psEdit(b.dataset.psEdit)));
+  SHELL.$$('button[data-ps-rm]').forEach(b => b.addEventListener('click', () => psDel(b.dataset.psRm)));
+}
+async function psAdd(kind) {
+  const name = prompt('Name (e.g. "Light fittings — client supplied")');
+  if (!name || !name.trim()) return;
+  const amtRaw = prompt('Amount (ex-GST, $)');
+  if (amtRaw == null) return;
+  const amount = Number(amtRaw);
+  if (!isFinite(amount) || amount < 0) { SHELL.toast('Amount must be ≥ 0', 'bad'); return; }
+  const desc = prompt('Description (optional)') || '';
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=provisional', {
+      method: 'POST', body: { kind, name: name.trim(), amountExGst: amount, description: desc.trim() }
+    });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Add failed — ' + e.message, 'bad'); }
+}
+async function psEdit(itemId) {
+  const it = ((STATE.open.provisional && STATE.open.provisional.items) || []).find(x => x.id === itemId);
+  if (!it) return;
+  const name = prompt('Name', it.name); if (name == null) return;
+  const amtRaw = prompt('Amount (ex-GST, $)', String(Number(it.amountExGst) || 0)); if (amtRaw == null) return;
+  const amount = Number(amtRaw);
+  if (!isFinite(amount) || amount < 0) { SHELL.toast('Amount must be ≥ 0', 'bad'); return; }
+  const desc = prompt('Description', it.description || '');
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=provisional&itemId=' + encodeURIComponent(itemId), {
+      method: 'PATCH', body: { name: name.trim(), amountExGst: amount, description: (desc || '').trim() }
+    });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Update failed — ' + e.message, 'bad'); }
+}
+async function psDel(itemId) {
+  if (!confirm('Remove this item?')) return;
+  try {
+    await fetch('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=provisional&itemId=' + encodeURIComponent(itemId), { method: 'DELETE', credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('Failed'); });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Remove failed — ' + e.message, 'bad'); }
+}
+
+// ───────────────────────── Sourcing ─────────────────────────
+async function loadWholesalers() {
+  if (STATE.wholesalersCache) return STATE.wholesalersCache;
+  try {
+    const j = await SHELL.api('/api/wholesalers');
+    STATE.wholesalersCache = j.wholesalers || [];
+  } catch { STATE.wholesalersCache = []; }
+  return STATE.wholesalersCache;
+}
+function renderSourcing(host) {
+  const open = STATE.open || {};
+  const data = open.pricingRequests || { requests: [] };
+  const reqs = (data.requests || []).slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const matsCount = ((open.materials && open.materials.items) || []).length;
+  const totalsByStatus = reqs.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; }, {});
+  const repliedTotalLow = reqs.filter(r => r.status === 'replied' || r.status === 'won')
+    .reduce((m, r) => (r.replyTotalExGst != null && (m == null || r.replyTotalExGst < m)) ? r.replyTotalExGst : m, null);
+
+  host.innerHTML = `
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-lbl">Materials</div><div class="kpi-val">${matsCount}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Drafted</div><div class="kpi-val">${totalsByStatus.drafted || 0}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Sent</div><div class="kpi-val">${totalsByStatus.sent || 0}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Replied</div><div class="kpi-val">${(totalsByStatus.replied || 0) + (totalsByStatus.won || 0)}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Best price ex-GST</div><div class="kpi-val">${repliedTotalLow != null ? SHELL.fmtMoney(repliedTotalLow) : '—'}</div></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-hdr">
+        <div><div class="card-title">Wholesaler price requests</div>
+          <div class="card-sub">Push the materials list out as a draft email; track replies and capture the best quote.</div></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-primary" id="pr-new" ${matsCount === 0 ? 'disabled title="Add materials first"' : ''}>Request prices →</button>
+          <a class="btn" href="/admin/suppliers">Manage wholesalers ↗</a>
+        </div>
+      </div>
+      ${reqs.length ? reqs.map(prRowHtml).join('') : '<div class="empty"><div class="empty-title">No price requests yet</div><div class="empty-sub">Click "Request prices" to draft one.</div></div>'}
+    </div>
+  `;
+  SHELL.$('#pr-new').addEventListener('click', prNew);
+  SHELL.$$('button[data-pr-status]').forEach(b => b.addEventListener('click', () => prStatus(b.dataset.prStatus, b.dataset.toStatus)));
+  SHELL.$$('button[data-pr-reply]').forEach(b => b.addEventListener('click', () => prReply(b.dataset.prReply)));
+  SHELL.$$('button[data-pr-del]').forEach(b => b.addEventListener('click', () => prDel(b.dataset.prDel)));
+  SHELL.$$('button[data-pr-copy]').forEach(b => b.addEventListener('click', () => prCopy(b.dataset.prCopy)));
+}
+function prRowHtml(r) {
+  const ws = r.wholesaler || {};
+  const tone = (r.status === 'won' || r.status === 'replied') ? 'ok' : r.status === 'sent' ? 'navy' : (r.status === 'lost' || r.status === 'cancelled') ? 'bad' : 'warn';
+  const mailto = ws.email ? `mailto:${encodeURIComponent(ws.email)}?subject=${encodeURIComponent(r.subject)}&body=${encodeURIComponent(r.body)}` : '';
+  return `<div style="border:1px solid var(--rule);border-radius:10px;padding:12px;background:var(--surface);margin-bottom:8px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span class="pill pill-${tone}" style="text-transform:uppercase">${SHELL.escapeHtml(r.status)}</span>
+        <strong>${SHELL.escapeHtml(ws.name || '(no name)')}</strong>
+        ${ws.branch ? `<span style="font-family:var(--mono);font-size:11px;color:var(--muted)">${SHELL.escapeHtml(ws.branch)}</span>` : ''}
+        ${ws.email ? `<a href="mailto:${SHELL.escapeHtml(ws.email)}" style="font-family:var(--mono);font-size:11px;color:var(--muted);text-decoration:underline">${SHELL.escapeHtml(ws.email)}</a>` : ''}
+      </div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--muted)">${r.itemCount} item${r.itemCount === 1 ? '' : 's'} · ${SHELL.escapeHtml(new Date(r.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }))}</div>
+    </div>
+    <div style="margin-top:8px;font-family:var(--mono);font-size:12px;color:var(--ink-2)">${SHELL.escapeHtml(r.subject)}</div>
+    <details style="margin-top:6px">
+      <summary style="cursor:pointer;font-family:var(--mono);font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em">Email body</summary>
+      <pre style="white-space:pre-wrap;font-family:var(--mono);font-size:11.5px;color:var(--ink-2);background:var(--surface-2);padding:10px 12px;margin-top:6px;border:1px solid var(--rule);border-radius:6px;max-height:280px;overflow:auto">${SHELL.escapeHtml(r.body)}</pre>
+    </details>
+    ${(r.status === 'replied' || r.status === 'won' || r.status === 'lost') && r.replyTotalExGst != null
+      ? `<div style="margin-top:8px;font-size:12px"><strong>Replied: ${SHELL.fmtMoney2(r.replyTotalExGst)}</strong>${r.replyAt ? ' · ' + SHELL.escapeHtml(new Date(r.replyAt).toLocaleDateString('en-AU')) : ''}${r.replyNotes ? '<br><em style="color:var(--muted)">"' + SHELL.escapeHtml(r.replyNotes) + '"</em>' : ''}</div>` : ''}
+    <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+      ${mailto ? `<a class="btn btn-accent" href="${mailto}">Open mail ↗</a>` : ''}
+      <button class="btn" data-pr-copy="${SHELL.escapeHtml(r.id)}">Copy body</button>
+      ${r.status === 'drafted' ? `<button class="btn" data-pr-status="${SHELL.escapeHtml(r.id)}" data-to-status="sent">Mark sent</button>` : ''}
+      ${(r.status === 'sent' || r.status === 'drafted') ? `<button class="btn" data-pr-reply="${SHELL.escapeHtml(r.id)}">Mark replied</button>` : ''}
+      ${r.status === 'replied' ? `<button class="btn btn-ok" data-pr-status="${SHELL.escapeHtml(r.id)}" data-to-status="won">Won</button><button class="btn btn-danger" data-pr-status="${SHELL.escapeHtml(r.id)}" data-to-status="lost">Lost</button>` : ''}
+      <button class="btn btn-danger" data-pr-del="${SHELL.escapeHtml(r.id)}">Remove</button>
+    </div>
+  </div>`;
+}
+async function prNew() {
+  const wholesalers = await loadWholesalers();
+  let wholesalerId = null, inline = null;
+  if (wholesalers.length) {
+    const opts = wholesalers.map((w, i) => (i + 1) + '. ' + w.name + (w.branch ? ' (' + w.branch + ')' : '') + (w.email ? ' — ' + w.email : '')).join('\n');
+    const pickRaw = prompt('Pick a wholesaler by number (or "new" to enter inline):\n\n' + opts + '\n\nNumber:');
+    if (pickRaw == null) return;
+    if (/^new$/i.test(pickRaw.trim())) {
+      const name = prompt('Wholesaler name'); if (!name) return;
+      const email = prompt('Wholesaler email (optional)') || '';
+      inline = { name: name.trim(), email: email.trim(), branch: '' };
+    } else {
+      const i = Number(pickRaw) - 1;
+      if (!isFinite(i) || !wholesalers[i]) { SHELL.toast('No wholesaler at that number', 'bad'); return; }
+      wholesalerId = wholesalers[i].id;
+    }
+  } else {
+    const name = prompt('No saved wholesalers yet.\nWholesaler name:'); if (!name) return;
+    const email = prompt('Wholesaler email (optional)') || '';
+    inline = { name: name.trim(), email: email.trim(), branch: '' };
+  }
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=pricing-requests', {
+      method: 'POST', body: wholesalerId ? { wholesalerId } : { wholesaler: inline }
+    });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Could not create — ' + e.message, 'bad'); }
+}
+async function prStatus(reqId, status) {
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=pricing-requests&reqId=' + encodeURIComponent(reqId), { method: 'PATCH', body: { status } });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Status update failed — ' + e.message, 'bad'); }
+}
+async function prReply(reqId) {
+  const reqs = ((STATE.open.pricingRequests && STATE.open.pricingRequests.requests) || []);
+  const it = reqs.find(r => r.id === reqId);
+  const totalRaw = prompt('Wholesaler\'s quoted total (ex-GST, $) — blank if not stated', it && it.replyTotalExGst != null ? String(it.replyTotalExGst) : '');
+  if (totalRaw == null) return;
+  const total = totalRaw === '' ? null : Number(totalRaw);
+  if (total != null && (!isFinite(total) || total < 0)) { SHELL.toast('Total must be ≥ 0 or blank', 'bad'); return; }
+  const notes = prompt('Reply notes (lead time, exclusions, etc.)', it && it.replyNotes ? it.replyNotes : '') || '';
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=pricing-requests&reqId=' + encodeURIComponent(reqId), {
+      method: 'PATCH', body: { status: 'replied', replyTotalExGst: total, replyNotes: notes.trim() }
+    });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Reply update failed — ' + e.message, 'bad'); }
+}
+async function prDel(reqId) {
+  if (!confirm('Remove this price request? Captured reply data will be lost.')) return;
+  try {
+    await fetch('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=pricing-requests&reqId=' + encodeURIComponent(reqId), { method: 'DELETE', credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('Failed'); });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Remove failed — ' + e.message, 'bad'); }
+}
+async function prCopy(reqId) {
+  const reqs = ((STATE.open.pricingRequests && STATE.open.pricingRequests.requests) || []);
+  const it = reqs.find(r => r.id === reqId);
+  if (!it) return;
+  try { await navigator.clipboard.writeText(it.body); SHELL.toast('Copied', 'ok'); }
+  catch {
+    const ta = document.createElement('textarea'); ta.value = it.body; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    SHELL.toast('Copied', 'ok');
+  }
+}
+
+// ───────────────────────── Pricing & totals ─────────────────────────
+function renderPricing(host) {
+  const p = (STATE.open && STATE.open.pricing) || {};
+  const t = (STATE.open && STATE.open.totals) || {};
+  const markupTbl = p.materialMarkupPct || { default: 25 };
+  const cats = Object.keys(markupTbl).filter(k => k !== 'default').sort();
+  const matBreakdown = (t.materials && t.materials.breakdown) || [];
+
+  host.innerHTML = `
+    <div class="two-col">
+      <div class="card">
+        <div class="card-hdr"><div><div class="card-title">Pricing settings</div>
+          <div class="card-sub">How cost lines roll up to a sell-side total.</div></div></div>
+        <div class="field">
+          <label class="field-lbl">Material markup by category (% applied to cost)</label>
+          <table class="table" style="width:100%">
+            <thead><tr><th>Category</th><th style="text-align:right;width:140px">Markup %</th></tr></thead>
+            <tbody>
+              <tr><td>Default (uncategorised)</td><td style="text-align:right">
+                <input id="qpr-mu-default" type="number" min="-50" max="500" step="0.5" value="${markupTbl.default || 25}" style="width:80px;text-align:right;padding:5px 8px;border:1px solid var(--rule);border-radius:4px;font-family:var(--mono)"> %
+              </td></tr>
+              ${cats.map(c => `<tr><td>${SHELL.escapeHtml(c)}</td><td style="text-align:right">
+                <input data-cat="${SHELL.escapeHtml(c)}" class="qpr-mu-cat" type="number" min="-50" max="500" step="0.5" value="${markupTbl[c]}" style="width:80px;text-align:right;padding:5px 8px;border:1px solid var(--rule);border-radius:4px;font-family:var(--mono)"> %
+                <button data-del-cat="${SHELL.escapeHtml(c)}" style="margin-left:6px;background:transparent;border:0;color:var(--bad);cursor:pointer">×</button>
+              </td></tr>`).join('')}
+            </tbody>
+          </table>
+          <div style="margin-top:8px"><button class="btn" id="qpr-add-cat">+ Category override</button></div>
+        </div>
+        <div class="two-col" style="margin-top:14px">
+          <div><label class="field-lbl">Labour sell rate ($/hr)</label>
+            <input class="input" id="qpr-labour-sell" type="number" min="0" max="1000" step="0.5" value="${p.labourSellRate || 95}"></div>
+          <div><label class="field-lbl">Labour cost mode</label>
+            <select class="select" id="qpr-labour-mode">
+              <option value="per-line"${p.labourCostMode === 'per-line' ? ' selected' : ''}>Per line (use each line's rate)</option>
+              <option value="shared"${p.labourCostMode === 'shared' ? ' selected' : ''}>Shared rate</option>
+            </select></div>
+          <div><label class="field-lbl">Shared cost rate ($/hr)</label>
+            <input class="input" id="qpr-labour-cost" type="number" min="0" max="1000" step="0.5" value="${p.labourCostRate || 65}" ${p.labourCostMode === 'per-line' ? 'disabled' : ''}></div>
+          <div><label class="field-lbl">Contingency (%)</label>
+            <input class="input" id="qpr-cont" type="number" min="0" max="50" step="0.5" value="${p.contingencyPct || 0}"></div>
+          <div><label class="field-lbl">GST (%)</label>
+            <input class="input" id="qpr-gst" type="number" min="0" max="30" step="0.5" value="${p.gstPct != null ? p.gstPct : 10}"></div>
+          <div><label class="field-lbl">Validity (days)</label>
+            <input class="input" id="qpr-val" type="number" min="1" max="365" step="1" value="${p.validityDays || 30}"></div>
+        </div>
+        <div class="field" style="margin-top:14px">
+          <label class="field-lbl">Override total (ex-GST, $) — fixed-price negotiated</label>
+          <input class="input" id="qpr-override" type="number" min="0" step="0.01" value="${p.overrideTotalExGst != null ? p.overrideTotalExGst : ''}" placeholder="(computed automatically)">
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <button class="btn btn-primary" id="qpr-save">Save pricing</button>
+          <button class="btn" id="qpr-clear-override">Clear override</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr"><div><div class="card-title">Totals</div>
+          <div class="card-sub">${t.overridden ? '<b style="color:var(--warn)">Override active</b> — computed total ignored.' : 'Live roll-up across all sections.'}</div></div></div>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:8px 14px;font-family:var(--mono);font-size:13px">
+          <div>Materials cost</div><div style="text-align:right">${SHELL.fmtMoney2(t.materials && t.materials.cost)}</div>
+          <div>Materials sell (after markup)</div><div style="text-align:right;font-weight:700">${SHELL.fmtMoney2(t.materials && t.materials.sell)}</div>
+          <div>Labour hours</div><div style="text-align:right">${(t.labour && t.labour.hours || 0).toFixed(1)} h</div>
+          <div>Labour cost</div><div style="text-align:right">${SHELL.fmtMoney2(t.labour && t.labour.cost)}</div>
+          <div>Labour sell @ $${(t.labour && t.labour.sellRate || 0).toFixed(0)}/hr</div><div style="text-align:right;font-weight:700">${SHELL.fmtMoney2(t.labour && t.labour.sell)}</div>
+          <div>Provisional sums (${t.provisional && t.provisional.count || 0})</div><div style="text-align:right;font-weight:700">${SHELL.fmtMoney2(t.provisional && t.provisional.total)}</div>
+          <div>Contingency (${(t.contingency && t.contingency.pct || 0).toFixed(1)}%)</div><div style="text-align:right">${SHELL.fmtMoney2(t.contingency && t.contingency.amount)}</div>
+          <div style="border-top:1px solid var(--rule);padding-top:8px;font-weight:700">Subtotal (ex-GST)</div>
+          <div style="border-top:1px solid var(--rule);padding-top:8px;text-align:right;font-weight:700">${SHELL.fmtMoney2(t.subtotalExGst)}</div>
+          <div>GST (${(t.gstPct || 0).toFixed(1)}%)</div><div style="text-align:right">${SHELL.fmtMoney2(t.gst)}</div>
+          <div style="font-weight:700;font-size:15px">Total (inc-GST)</div>
+          <div style="font-weight:800;font-size:16px;text-align:right">${SHELL.fmtMoney2(t.totalIncGst)}</div>
+          <div style="margin-top:14px;padding-top:8px;border-top:1px dashed var(--rule);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.12em">Internal margin</div>
+          <div style="margin-top:14px;padding-top:8px;border-top:1px dashed var(--rule)"></div>
+          <div>Total cost</div><div style="text-align:right">${SHELL.fmtMoney2(t.totalCost)}</div>
+          <div>Total sell (ex PS)</div><div style="text-align:right">${SHELL.fmtMoney2(t.totalSell)}</div>
+          <div>Margin</div><div style="text-align:right">${SHELL.fmtMoney2(t.margin && t.margin.amount)} (${(t.margin && t.margin.pct || 0).toFixed(1)}%)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-hdr"><div><div class="card-title">Materials breakdown by category</div>
+        <div class="card-sub">Cost vs sell, applying the markup table.</div></div></div>
+      <div class="table"><table>
+        <thead><tr><th>Category</th><th style="text-align:right">Lines</th><th style="text-align:right">Cost</th><th style="text-align:right">Markup</th><th style="text-align:right">Sell</th></tr></thead>
+        <tbody>${matBreakdown.length ? matBreakdown.map(r => `<tr>
+          <td>${SHELL.escapeHtml(r.category)}</td>
+          <td style="text-align:right">${r.count}</td>
+          <td style="text-align:right;font-family:var(--mono)">${SHELL.fmtMoney2(r.cost)}</td>
+          <td style="text-align:right;font-family:var(--mono)">${r.markupPct}%</td>
+          <td style="text-align:right;font-family:var(--mono);font-weight:700">${SHELL.fmtMoney2(r.sell)}</td>
+        </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:14px">No material costs entered yet.</td></tr>'}</tbody>
+      </table></div>
+    </div>
+  `;
+  SHELL.$('#qpr-save').addEventListener('click', pricingSave);
+  SHELL.$('#qpr-clear-override').addEventListener('click', pricingClearOverride);
+  SHELL.$('#qpr-add-cat').addEventListener('click', pricingAddCat);
+  SHELL.$$('button[data-del-cat]').forEach(b => b.addEventListener('click', () => pricingDelCat(b.dataset.delCat)));
+}
+async function pricingSave() {
+  const markupTbl = {};
+  const def = Number(SHELL.$('#qpr-mu-default').value);
+  if (isFinite(def)) markupTbl.default = def;
+  SHELL.$$('.qpr-mu-cat').forEach(inp => {
+    const cat = inp.getAttribute('data-cat'); const v = Number(inp.value);
+    if (cat && isFinite(v)) markupTbl[cat] = v;
+  });
+  const ovRaw = SHELL.$('#qpr-override').value;
+  const body = {
+    materialMarkupPct: markupTbl,
+    labourSellRate: Number(SHELL.$('#qpr-labour-sell').value),
+    labourCostMode: SHELL.$('#qpr-labour-mode').value,
+    labourCostRate: Number(SHELL.$('#qpr-labour-cost').value),
+    contingencyPct: Number(SHELL.$('#qpr-cont').value),
+    gstPct: Number(SHELL.$('#qpr-gst').value),
+    validityDays: Number(SHELL.$('#qpr-val').value),
+    overrideTotalExGst: ovRaw === '' ? null : Number(ovRaw),
+  };
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=pricing', { method: 'PATCH', body });
+    SHELL.toast('Saved', 'ok');
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+}
+async function pricingAddCat() {
+  const name = prompt('Category name (e.g. "Switchgear")'); if (!name || !name.trim()) return;
+  const pct = prompt('Markup % for ' + name.trim(), '25'); if (pct == null) return;
+  const v = Number(pct); if (!isFinite(v)) { SHELL.toast('Markup must be a number', 'bad'); return; }
+  const cur = (STATE.open && STATE.open.pricing && STATE.open.pricing.materialMarkupPct) || { default: 25 };
+  const next = Object.assign({}, cur); next[name.trim()] = v;
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=pricing', { method: 'PATCH', body: { materialMarkupPct: next } });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Add failed — ' + e.message, 'bad'); }
+}
+async function pricingDelCat(cat) {
+  const cur = (STATE.open && STATE.open.pricing && STATE.open.pricing.materialMarkupPct) || { default: 25 };
+  const next = Object.assign({}, cur); delete next[cat];
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=pricing', { method: 'PATCH', body: { materialMarkupPct: next } });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Remove failed — ' + e.message, 'bad'); }
+}
+async function pricingClearOverride() {
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=pricing', { method: 'PATCH', body: { overrideTotalExGst: null } });
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Clear failed — ' + e.message, 'bad'); }
+}
+
+// ───────────────────────── Risks & assumptions ─────────────────────────
+function renderRisks(host) {
+  const n = STATE.open.notes || {};
+  const ta = (id, label, arr) => `<div class="field"><label class="field-lbl">${label} <span style="color:var(--muted);text-transform:none;font-weight:500">(one per line)</span></label>
+    <textarea class="textarea" id="${id}" rows="5" style="font-family:var(--mono)">${SHELL.escapeHtml((arr || []).join('\n'))}</textarea></div>`;
+  host.innerHTML = `
+    <div class="card">
+      <div class="card-hdr"><div><div class="card-title">Risks &amp; assumptions</div>
+        <div class="card-sub">Capture them here so they can be included in the formal quote and carried across when won.</div></div>
+        <button class="btn btn-primary" id="qn-save">Save</button></div>
+      ${ta('qn-assumptions', 'Assumptions', n.assumptions)}
+      ${ta('qn-exclusions', 'Exclusions', n.exclusions)}
+      ${ta('qn-risks', 'Risks', n.risks)}
+      ${ta('qn-clarifications', 'Clarifications needed', n.clarifications)}
+    </div>
+  `;
+  SHELL.$('#qn-save').addEventListener('click', async () => {
+    const split = id => (SHELL.$('#' + id).value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    try {
+      await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=notes', {
+        method: 'PATCH', body: {
+          assumptions: split('qn-assumptions'),
+          exclusions: split('qn-exclusions'),
+          risks: split('qn-risks'),
+          clarifications: split('qn-clarifications'),
+        }
+      });
+      SHELL.toast('Saved', 'ok');
+      await reloadAndPaint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+
+// ───────────────────────── Summary + accept/convert ─────────────────────────
+function renderSummary(host) {
+  const q = STATE.open;
+  const docs = ((q.documents && q.documents.documents) || []).filter(d => d.status !== 'archived').length;
+  const groups = ((q.structure && q.structure.areaGroups) || []).length;
+  const areas = ((q.structure && q.structure.areaGroups) || []).reduce((s, g) => s + (g.areas || []).length, 0);
+  const mats = ((q.materials && q.materials.items) || []).length;
+  const labLines = ((q.labour && q.labour.lines) || []).length;
+  const ass = ((q.notes && q.notes.assumptions) || []).length;
+  const risks = ((q.notes && q.notes.risks) || []).length;
+  const t = q.totals || {};
+  const isAccepted = q.quote.status === 'accepted';
+  const a = q.quote.acceptance || null;
+  const canAccept = ['draft', 'reviewing', 'estimating', 'submitted'].includes(q.quote.status);
+  const acceptanceBlock = a ? `
+    <div class="card" style="margin-top:14px;border-color:var(--ok-bd);background:var(--ok-bg)">
+      <div class="card-hdr"><div>
+        <div class="card-title">✓ Accepted by client</div>
+        <div class="card-sub">${SHELL.escapeHtml(a.clientName || '—')}${a.clientRole ? ' · ' + SHELL.escapeHtml(a.clientRole) : ''} · ${SHELL.escapeHtml(new Date(a.acceptedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }))} · via ${SHELL.escapeHtml(a.method || 'email')}${a.acceptedAmountExGst != null ? ' · ' + SHELL.fmtMoney2(a.acceptedAmountExGst) + ' ex-GST' : ''}</div>
+      </div>
+      ${q.quote.convertedJobId ? '' : `<button class="btn" id="qsm-unaccept">Undo accept</button>`}</div>
+      ${a.reference || a.notes ? `<div style="font-size:13px;color:var(--ink);padding-top:6px">
+        ${a.reference ? `<div><b>Reference:</b> ${SHELL.escapeHtml(a.reference)}</div>` : ''}
+        ${a.notes ? `<div style="margin-top:6px;color:var(--muted);font-style:italic">"${SHELL.escapeHtml(a.notes)}"</div>` : ''}
+      </div>` : ''}
+    </div>` : '';
+  const acceptCta = (!a && canAccept) ? `
+    <div class="card" style="margin-top:14px">
+      <div class="card-hdr"><div><div class="card-title">Mark accepted</div>
+        <div class="card-sub">Client said yes? Capture the date, who accepted, and a reference. Status moves to <b>Accepted</b>.</div></div>
+        <button class="btn btn-accent" id="qsm-accept">Mark accepted →</button></div>
+    </div>` : '';
+  const convertBlock = q.quote.convertedJobId ? `
+    <div class="card" style="margin-top:14px;border-color:var(--ok-bd);background:var(--ok-bg)">
+      <div class="card-hdr"><div><div class="card-title">✓ Converted to live job</div>
+        <div class="card-sub">Job <b>${SHELL.escapeHtml(q.quote.convertedJobId)}</b> · <a href="/admin/jobs/${SHELL.escapeHtml(q.quote.convertedJobId)}">Open workspace ↗</a></div></div></div>
+    </div>` : `
+    <div class="card" style="margin-top:14px">
+      <div class="card-hdr"><div><div class="card-title">Convert to live job</div>
+        <div class="card-sub">Creates a new job with this quote's structure, tasks, and materials.${isAccepted ? '' : ' (Tip: mark accepted first so acceptance details ride along.)'}</div></div>
+        <button class="btn btn-accent" id="qsm-convert" ${q.quote.status === 'lost' || q.quote.status === 'declined' || q.quote.status === 'archived' ? 'disabled' : ''}>Convert →</button></div>
+    </div>`;
+
+  host.innerHTML = `
+    <div class="card">
+      <div class="card-hdr"><div><div class="card-title">Summary</div>
+        <div class="card-sub">Snapshot of what's been captured.${t.overridden ? ' <b style="color:var(--warn)">Override total active</b>.' : ''}</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn" id="qsm-internal">Internal estimate</button>
+          <button class="btn" id="qsm-client">Client quote</button>
+        </div></div>
+      <div class="kpi-row" style="margin-bottom:14px">
+        <div class="kpi"><div class="kpi-lbl">Documents</div><div class="kpi-val">${docs}</div></div>
+        <div class="kpi"><div class="kpi-lbl">Area groups</div><div class="kpi-val">${groups}</div></div>
+        <div class="kpi"><div class="kpi-lbl">Areas</div><div class="kpi-val">${areas}</div></div>
+        <div class="kpi"><div class="kpi-lbl">Materials</div><div class="kpi-val">${mats}</div></div>
+        <div class="kpi"><div class="kpi-lbl">Labour lines</div><div class="kpi-val">${labLines}</div></div>
+        <div class="kpi"><div class="kpi-lbl">Labour h</div><div class="kpi-val">${(t.labour && t.labour.hours || 0).toFixed(1)}</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:6px 18px;font-family:var(--mono);font-size:13px">
+        <div>Materials sell</div><div style="text-align:right">${SHELL.fmtMoney2(t.materials && t.materials.sell)}</div>
+        <div>Labour sell</div><div style="text-align:right">${SHELL.fmtMoney2(t.labour && t.labour.sell)}</div>
+        <div>Provisional sums (${t.provisional && t.provisional.count || 0})</div><div style="text-align:right">${SHELL.fmtMoney2(t.provisional && t.provisional.total)}</div>
+        ${(t.contingency && t.contingency.amount) ? `<div>Contingency (${t.contingency.pct}%)</div><div style="text-align:right">${SHELL.fmtMoney2(t.contingency.amount)}</div>` : ''}
+        <div style="border-top:1px solid var(--rule);padding-top:8px;font-weight:700">Subtotal (ex-GST)</div>
+        <div style="border-top:1px solid var(--rule);padding-top:8px;text-align:right;font-weight:700">${SHELL.fmtMoney2(t.subtotalExGst)}</div>
+        <div>GST (${(t.gstPct || 0).toFixed(1)}%)</div><div style="text-align:right">${SHELL.fmtMoney2(t.gst)}</div>
+        <div style="font-weight:700;font-size:15px">Total (inc-GST)</div>
+        <div style="font-weight:800;font-size:16px;text-align:right">${SHELL.fmtMoney2(t.totalIncGst)}</div>
+      </div>
+      <div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--rule);font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;justify-content:space-between">
+        <span>Internal margin: ${SHELL.fmtMoney2(t.margin && t.margin.amount)} (${(t.margin && t.margin.pct || 0).toFixed(1)}%)</span>
+        <span>${ass} assumption${ass === 1 ? '' : 's'} · ${risks} risk${risks === 1 ? '' : 's'}</span>
+      </div>
+    </div>
+    ${acceptanceBlock}${acceptCta}${convertBlock}
+  `;
+  if (SHELL.$('#qsm-internal')) SHELL.$('#qsm-internal').addEventListener('click', printInternal);
+  if (SHELL.$('#qsm-client'))   SHELL.$('#qsm-client').addEventListener('click', printClient);
+  if (SHELL.$('#qsm-accept'))   SHELL.$('#qsm-accept').addEventListener('click', acceptQuote);
+  if (SHELL.$('#qsm-unaccept')) SHELL.$('#qsm-unaccept').addEventListener('click', unacceptQuote);
+  if (SHELL.$('#qsm-convert'))  SHELL.$('#qsm-convert').addEventListener('click', convertQuote);
+}
+async function acceptQuote() {
+  const q = STATE.open && STATE.open.quote;
+  const t = STATE.open && STATE.open.totals;
+  const name = prompt('Who accepted? (client / builder name)', q && q.contactName ? q.contactName : ''); if (name == null) return;
+  const ref = prompt('Reference (PO number, email subject, signed-doc id) — optional'); if (ref == null) return;
+  const method = prompt('How? email / verbal / po / signed / other', 'email'); if (method == null) return;
+  const amtRaw = prompt('Accepted amount ex-GST (optional, $)', t && t.subtotalExGst > 0 ? String(t.subtotalExGst) : ''); if (amtRaw == null) return;
+  const acceptedAmount = amtRaw === '' ? null : Number(amtRaw);
+  if (acceptedAmount != null && (!isFinite(acceptedAmount) || acceptedAmount < 0)) { SHELL.toast('Amount must be ≥ 0 or blank', 'bad'); return; }
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=accept', {
+      method: 'POST', body: { clientName: name.trim(), reference: ref.trim(), method: method.trim().toLowerCase(), acceptedAmountExGst: acceptedAmount }
+    });
+    SHELL.toast('Accepted', 'ok');
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Mark accepted failed — ' + e.message, 'bad'); }
+}
+async function unacceptQuote() {
+  if (!confirm('Undo client acceptance? Status will go back to Submitted.')) return;
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=unaccept', { method: 'POST' });
+    SHELL.toast('Acceptance removed', 'ok');
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Undo failed — ' + e.message, 'bad'); }
+}
+async function convertQuote() {
+  if (!confirm('Convert this quote to a live job? A new job will be created with the structure, tasks, and materials.')) return;
+  try {
+    const r = await SHELL.api('/api/quotes?id=' + encodeURIComponent(STATE.quoteId) + '&action=convert', { method: 'POST', body: {} });
+    SHELL.toast('Converted! Job: ' + r.jobId, 'ok');
+    await reloadAndPaint();
+  } catch (e) { SHELL.toast('Convert failed — ' + e.message, 'bad'); }
+}
+
+function printInternal() {
+  const q = STATE.open; if (!q) return;
+  const quote = q.quote;
+  const docs = ((q.documents && q.documents.documents) || []).filter(d => d.status !== 'archived');
+  const groups = (q.structure && q.structure.areaGroups) || [];
+  const mats = (q.materials && q.materials.items) || [];
+  const labour = (q.labour && q.labour.lines) || [];
+  const notes = q.notes || {};
+  const psItems = (q.provisional && q.provisional.items) || [];
+  const t = q.totals || {};
+  const labH = (t.labour && t.labour.hours) || 0;
+  const fmt$ = n => '$' + (Number(n) || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const today = new Date().toLocaleDateString('en-AU');
+  const w = window.open('', '_blank');
+  if (!w) { SHELL.toast('Popup blocked. Allow popups to print.', 'warn'); return; }
+
+  const esc = SHELL.escapeHtml;
+  const groupsHtml = groups.length ? groups.map(g => {
+    const areas = (g.areas || []).map(a => {
+      const wps = (a.workPackages || []).map(wp =>
+        `<li>${esc(wp.name || '')} <em>(${esc(wp.stage || 'rough-in')})</em>: ${(wp.tasks || []).map(esc).join(', ') || '<span class="muted">—</span>'}</li>`).join('');
+      return `<li><b>${esc(a.name || '')}</b>${wps ? `<ul class="wp">${wps}</ul>` : ''}</li>`;
+    }).join('');
+    return `<h3>${esc(g.name || '(unnamed group)')}</h3><ul class="areas">${areas || '<li class="muted">No areas</li>'}</ul>`;
+  }).join('') : '<p class="muted">No structure captured.</p>';
+  const matsHtml = mats.length ? `<table><thead><tr><th>Qty</th><th>Unit</th><th>Item</th><th>Brand / Spec</th><th>Category</th></tr></thead><tbody>${
+    mats.map(i => `<tr><td>${i.quantity || 0}</td><td>${esc(i.unit || 'each')}</td><td>${esc(i.name || '')}</td><td>${esc(i.brandOrSpec || '')}</td><td>${esc(i.category || '')}</td></tr>`).join('')
+  }</tbody></table>` : '<p class="muted">No materials captured.</p>';
+  const labHtml = labour.length ? `<table><thead><tr><th>Area group</th><th>Area</th><th>System</th><th>Stage</th><th>Task</th><th class="r">Hours</th><th class="r">$/h</th></tr></thead><tbody>${
+    labour.map(l => `<tr><td>${esc(l.areaGroup || '')}</td><td>${esc(l.area || '')}</td><td>${esc(l.system || '')}</td><td>${esc(l.stage || '')}</td><td>${esc(l.task || '')}</td><td class="r">${(Number(l.estimatedHours) || 0).toFixed(1)}</td><td class="r">${l.hourlyRate ? '$' + l.hourlyRate : '—'}</td></tr>`).join('')
+  }</tbody></table>` : '<p class="muted">No labour lines captured.</p>';
+  const noteList = (arr, lbl) => Array.isArray(arr) && arr.length ? `<h3>${lbl}</h3><ul>${arr.map(n => '<li>' + esc(n) + '</li>').join('')}</ul>` : '';
+
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(quote.name || 'Quote')} — Estimate</title>
+    <style>
+      body{font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#0f172a;max-width:880px;margin:30px auto;padding:0 24px}
+      h1{font-size:22px;margin:0 0 4px;color:#0d1f35}
+      h2{font-size:15px;margin:24px 0 8px;border-bottom:1px solid #e2e8f0;padding-bottom:4px;color:#0d1f35;text-transform:uppercase;letter-spacing:.4px}
+      h3{font-size:13px;margin:14px 0 4px;color:#0d1f35}
+      .muted{color:#64748b;font-style:italic}
+      .meta{color:#475569;font-size:12px;margin-bottom:14px}
+      .total{background:#fef3c7;border:1px solid #fde68a;padding:10px 14px;border-radius:8px;font-size:14px;margin:8px 0 14px}
+      table{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0 12px}
+      th{background:#f1f5f9;text-align:left;padding:6px 8px;border-bottom:1px solid #cbd5e1;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+      td{padding:5px 8px;border-bottom:1px solid #f1f5f9}
+      td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+      ul.areas{margin:4px 0 12px 18px;padding:0}
+      ul.wp{margin:4px 0 8px 16px;padding:0;font-size:12px;color:#475569}
+      ul{margin:4px 0 8px 18px}
+      @media print{body{margin:0;padding:0 16px}}
+    </style></head><body>
+    <h1>${esc(quote.name || '(unnamed)')}</h1>
+    <div class="meta">${[quote.builder ? 'Builder: <b>' + esc(quote.builder) + '</b>' : '', quote.siteAddress ? esc(quote.siteAddress) : '', quote.dueDate ? 'Due ' + esc(quote.dueDate) : '', 'Quote ID: ' + esc(quote.id), 'Generated ' + today].filter(Boolean).join(' · ')}</div>
+    ${quote.description ? '<h2>Scope summary</h2><p>' + esc(quote.description).replace(/\n/g, '<br>') + '</p>' : ''}
+    ${(t.totalIncGst > 0) ? `<div class="total"><div style="display:grid;grid-template-columns:1fr auto;gap:4px 18px;font-size:13px;color:#475569">
+      <span>Materials sell</span><span style="text-align:right">${fmt$(t.materials.sell)}</span>
+      <span>Labour sell (${labH.toFixed(1)} h)</span><span style="text-align:right">${fmt$(t.labour.sell)}</span>
+      <span>Provisional sums (${t.provisional.count})</span><span style="text-align:right">${fmt$(t.provisional.total)}</span>
+      ${t.contingency.amount ? `<span>Contingency (${t.contingency.pct}%)</span><span style="text-align:right">${fmt$(t.contingency.amount)}</span>` : ''}
+      <span style="font-weight:700;color:#0d1f35">Subtotal (ex-GST)</span><span style="text-align:right;font-weight:700">${fmt$(t.subtotalExGst)}</span>
+      <span>GST (${(t.gstPct || 0).toFixed(1)}%)</span><span style="text-align:right">${fmt$(t.gst)}</span>
+      <span style="font-size:15px;font-weight:800;color:#0d1f35">Total (inc-GST)</span><span style="text-align:right;font-size:15px;font-weight:800">${fmt$(t.totalIncGst)}</span>
+    </div></div>` : '<p class="muted">Pricing not captured yet.</p>'}
+    <h2>Structure</h2>${groupsHtml}
+    <h2>Materials estimate</h2>${matsHtml}
+    <h2>Labour estimate</h2>${labHtml}
+    ${psItems.length ? `<h2>Provisional sums &amp; allowances</h2><table><thead><tr><th>Type</th><th>Item</th><th>Description</th><th class="r">Amount</th></tr></thead><tbody>${psItems.map(i => `<tr><td>${i.kind === 'allowance' ? 'Allowance' : 'PS'}</td><td>${esc(i.name || '')}</td><td>${esc(i.description || '')}</td><td class="r">${fmt$(Number(i.amountExGst) || 0)}</td></tr>`).join('')}</tbody></table>` : ''}
+    ${noteList(notes.assumptions, 'Assumptions')}
+    ${noteList(notes.exclusions, 'Exclusions')}
+    ${noteList(notes.risks, 'Risks')}
+    ${noteList(notes.clarifications, 'Clarifications needed')}
+    ${docs.length ? `<h2>Documents on file</h2><ul>${docs.map(d => `<li>${esc(d.drawingNumber || '')}${d.revision ? ' Rev ' + esc(d.revision) : ''} — ${esc(d.title || d.fileName)}</li>`).join('')}</ul>` : ''}
+    <script>setTimeout(function(){window.print()},250);<\/script>
+  </body></html>`);
+  w.document.close();
+}
+function printClient() {
+  const q = STATE.open; if (!q) return;
+  const quote = q.quote;
+  const groups = (q.structure && q.structure.areaGroups) || [];
+  const notes = q.notes || {};
+  const psItems = (q.provisional && q.provisional.items) || [];
+  const t = q.totals || {};
+  const p = q.pricing || {};
+  const fmt$ = n => '$' + (Number(n) || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const today = new Date().toLocaleDateString('en-AU');
+  const validityDays = Number(p.validityDays || 30);
+  const validUntil = (() => { const d = new Date(); d.setDate(d.getDate() + validityDays); return d.toLocaleDateString('en-AU'); })();
+  const w = window.open('', '_blank');
+  if (!w) { SHELL.toast('Popup blocked', 'warn'); return; }
+  const esc = SHELL.escapeHtml;
+  const structureHtml = groups.length ? groups.map(g => `<h3>${esc(g.name || '(unnamed)')}</h3><ul>${(g.areas || []).map(a => `<li>${esc(a.name || '')}</li>`).join('') || '<li>—</li>'}</ul>`).join('') : '';
+  const noteList = (arr, lbl) => Array.isArray(arr) && arr.length ? `<h3>${lbl}</h3><ul>${arr.map(n => '<li>' + esc(n) + '</li>').join('')}</ul>` : '';
+  const totalBlock = (t.totalIncGst > 0) ? `<div class="quote-total">
+    <div style="display:grid;grid-template-columns:1fr auto;gap:6px 24px;font-size:14px;color:#475569">
+      <span>Subtotal (ex-GST)</span><span style="text-align:right">${fmt$(t.subtotalExGst)}</span>
+      <span>GST (${(t.gstPct || 0).toFixed(1)}%)</span><span style="text-align:right">${fmt$(t.gst)}</span>
+      <span style="font-size:18px;font-weight:800;color:#0d1f35;border-top:2px solid #0d1f35;padding-top:8px;margin-top:4px">Total (inc-GST)</span>
+      <span style="text-align:right;font-size:18px;font-weight:800;color:#0d1f35;border-top:2px solid #0d1f35;padding-top:8px;margin-top:4px">${fmt$(t.totalIncGst)}</span>
+    </div>
+    <div class="quote-total-sub">Quotation valid for ${validityDays} days · expires ${validUntil}</div>
+  </div>` : `<div class="quote-total quote-total-tba">Pricing on request<div class="quote-total-sub">A detailed quotation will follow once scope is confirmed.</div></div>`;
+  const psBlock = psItems.length ? `<h3>Provisional sums &amp; allowances</h3>
+    <p style="font-size:12px;color:#475569;margin:0 0 6px">Provisional / allowed-for amounts; final cost based on actual selection or scope at time of order.</p>
+    <table><thead><tr><th>Item</th><th>Description</th><th style="text-align:right">Amount (ex-GST)</th></tr></thead><tbody>${psItems.map(i => `<tr><td>${esc(i.name || '')}</td><td>${esc(i.description || '')}</td><td style="text-align:right">${fmt$(Number(i.amountExGst) || 0)}</td></tr>`).join('')}</tbody></table>` : '';
+
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(quote.name || 'Quote')}</title>
+    <style>
+      body{font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#0f172a;max-width:760px;margin:30px auto;padding:0 32px}
+      header{border-bottom:2px solid #0d1f35;padding-bottom:14px;margin-bottom:20px}
+      h1{font-size:24px;margin:0 0 6px;color:#0d1f35}
+      h2{font-size:14px;margin:24px 0 8px;color:#0d1f35;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #cbd5e1;padding-bottom:4px}
+      h3{font-size:13px;margin:14px 0 4px;color:#0d1f35}
+      .meta{color:#475569;font-size:12px}
+      .quote-total{background:#fef3c7;border:1px solid #fde68a;padding:14px 18px;border-radius:10px;margin:16px 0 24px}
+      .quote-total-sub{font-size:12px;color:#64748b;margin-top:2px}
+      .quote-total-tba{font-size:16px;font-weight:800;color:#0d1f35}
+      table{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0 12px}
+      th{background:#f1f5f9;padding:6px 8px;text-transform:uppercase;letter-spacing:.4px;font-size:11px}
+      td{padding:5px 8px;border-bottom:1px solid #f1f5f9}
+      .signoff{margin-top:36px;padding-top:14px;border-top:1px solid #cbd5e1;font-size:12px;color:#475569}
+      footer{margin-top:36px;padding-top:14px;border-top:1px solid #cbd5e1;font-size:11px;color:#94a3b8;text-align:center}
+      @media print{body{margin:0;padding:0 16px}}
+    </style></head><body>
+    <header><h1>${esc(quote.name || 'Quote')}</h1>
+      <div class="meta">${quote.builder ? '<b>For:</b> ' + esc(quote.builder) + ' · ' : ''}${quote.siteAddress ? esc(quote.siteAddress) + ' · ' : ''}Quote date <b>${today}</b>${(t.totalIncGst > 0) ? ' · Valid until <b>' + esc(validUntil) + '</b>' : ''}</div>
+    </header>
+    ${quote.description ? '<h2>Project</h2><p>' + esc(quote.description).replace(/\n/g, '<br>') + '</p>' : ''}
+    ${totalBlock}
+    ${structureHtml ? '<h2>Scope of work</h2>' + structureHtml : ''}
+    ${psBlock}
+    ${noteList(notes.assumptions, 'Assumptions')}
+    ${noteList(notes.exclusions, 'Exclusions')}
+    ${noteList(notes.clarifications, 'Clarifications required')}
+    <div class="signoff">Prepared by <b>bühl electrical</b><br>${quote.contactName ? esc(quote.contactName) + (quote.contactEmail ? ' · ' + esc(quote.contactEmail) : '') + '<br>' : ''}Quote ref: ${esc(quote.id)}${quote.version ? ' (rev ' + quote.version + ')' : ''}</div>
+    <footer>This document does not include internal labour breakdowns or per-item cost detail.</footer>
+    <script>setTimeout(function(){window.print()},250);<\/script>
+  </body></html>`);
+  w.document.close();
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>

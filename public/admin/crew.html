@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · crew</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+let STATE = {
+  filterRole: 'all',
+  search: '',
+  users: [],
+};
+
+window.PAGE = {
+  id: 'crew',
+  title: 'Crew & people',
+  crumb: 'Crew',
+  async render() {
+    STATE.users = (SHELL.USERS || []).slice();
+    paint();
+  }
+};
+
+function paint() {
+  const counts = {
+    all: STATE.users.length,
+    admin: STATE.users.filter(u => u.role === 'admin').length,
+    leadingHand: STATE.users.filter(u => u.role === 'leadingHand').length,
+    tradie: STATE.users.filter(u => u.role === 'tradie').length,
+    client: STATE.users.filter(u => u.role === 'client').length,
+  };
+  const q = STATE.search.toLowerCase();
+  const list = STATE.users.filter(u => {
+    if (STATE.filterRole !== 'all' && u.role !== STATE.filterRole) return false;
+    if (q) {
+      const blob = `${u.username} ${u.email || ''} ${u.role}`.toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => a.username.localeCompare(b.username));
+
+  SHELL.$('#page').innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Crew &amp; people</div>
+        <div class="page-sub">Tradies, leading hands, admins, clients. Hourly rates and job assignments.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-accent" id="add-user">${SHELL.ICONS.plus} Add person</button>
+      </div>
+    </div>
+
+    <div class="tabs">
+      ${[
+        { v: 'all', l: 'All' },
+        { v: 'tradie', l: 'Tradies' },
+        { v: 'leadingHand', l: 'Leading hands' },
+        { v: 'admin', l: 'Admins' },
+        { v: 'client', l: 'Clients' },
+      ].map(s => `<a class="tab ${STATE.filterRole === s.v ? 'active' : ''}" href="#" data-role="${s.v}">${s.l}<span class="badge">${counts[s.v] || 0}</span></a>`).join('')}
+    </div>
+
+    <div class="toolbar">
+      <div class="search">${SHELL.ICONS.search}<input id="se-i" placeholder="Search by name, email…" value="${SHELL.escapeHtml(STATE.search)}"></div>
+      <div class="toolbar-spacer"></div>
+      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(list.length, 'person', 'people')}</span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr>
+          <th>Name</th><th>Role</th><th>Email</th><th class="table-num">Rate</th><th class="table-num">Jobs</th><th></th>
+        </tr></thead>
+        <tbody>${list.length ? list.map(userRow).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No people match those filters.</td></tr>'}</tbody>
+      </table>
+    </div>
+  `;
+  SHELL.$$('a[data-role]').forEach(t => t.addEventListener('click', e => { e.preventDefault(); STATE.filterRole = t.dataset.role; paint(); }));
+  SHELL.$('#se-i').addEventListener('input', e => { STATE.search = e.target.value; paint(); });
+  SHELL.$('#add-user').addEventListener('click', addUserPanel);
+  SHELL.$$('button[data-edit-user]').forEach(b => b.addEventListener('click', () => editUserPanel(b.dataset.editUser)));
+}
+
+function userRow(u) {
+  return `<tr>
+    <td><b>${SHELL.escapeHtml(u.username)}</b></td>
+    <td>${SHELL.rolePill(u.role)}</td>
+    <td>${u.email ? `<a href="mailto:${SHELL.escapeHtml(u.email)}">${SHELL.escapeHtml(u.email)}</a>` : '<span style="color:var(--muted)">—</span>'}</td>
+    <td class="table-num">${(u.role === 'tradie' || u.role === 'leadingHand') ? (u.hourlyRate ? '$' + u.hourlyRate + '/h' : '<span style="color:var(--warn)">—</span>') : '—'}</td>
+    <td class="table-num">${(u.assignedJobIds || []).length}</td>
+    <td><button class="btn btn-sm" data-edit-user="${SHELL.escapeHtml(u.id)}">Edit</button></td>
+  </tr>`;
+}
+
+function addUserPanel() {
+  const panel = SHELL.openPanel({
+    title: 'Add person',
+    body: `
+      <div class="field"><label class="field-lbl">Username *</label><input class="input" id="nu-name" autofocus></div>
+      <div class="field"><label class="field-lbl">Role *</label>
+        <select class="select" id="nu-role">
+          <option value="tradie">Tradie</option>
+          <option value="leadingHand">Leading hand</option>
+          <option value="admin">Admin</option>
+          <option value="client">Client</option>
+        </select></div>
+      <div class="field"><label class="field-lbl">Secret (PIN for tradie/LH, password for admin) *</label><input class="input" id="nu-secret" type="text"></div>
+      <div class="field"><label class="field-lbl">Email (optional)</label><input class="input" id="nu-email" type="email"></div>
+      <div class="field" id="nu-rate-wrap"><label class="field-lbl">Hourly rate ($) — tradies / LHs only</label><input class="input" id="nu-rate" type="number" min="0" step="0.5" value="0"></div>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="nu-save">Create</button>`,
+  });
+  panel.querySelector('#nu-role').addEventListener('change', e => {
+    panel.querySelector('#nu-rate-wrap').style.display = (e.target.value === 'tradie' || e.target.value === 'leadingHand') ? '' : 'none';
+  });
+  panel.querySelector('#nu-save').addEventListener('click', async () => {
+    const role = panel.querySelector('#nu-role').value;
+    const body = {
+      username: panel.querySelector('#nu-name').value.trim(),
+      role,
+      secret: panel.querySelector('#nu-secret').value,
+      email: panel.querySelector('#nu-email').value.trim(),
+      hourlyRate: (role === 'tradie' || role === 'leadingHand') ? Number(panel.querySelector('#nu-rate').value) || 0 : undefined,
+    };
+    if (!body.username || !body.secret) { SHELL.toast('Username + secret required', 'bad'); return; }
+    try {
+      await SHELL.api('/api/users', { method: 'POST', body });
+      SHELL.toast('Created', 'ok');
+      SHELL.closePanel();
+      try { const r = await SHELL.api('/api/users'); STATE.users = r.users || []; SHELL.USERS = STATE.users; } catch {}
+      paint();
+    } catch (e) { SHELL.toast('Create failed — ' + e.message, 'bad'); }
+  });
+}
+
+function editUserPanel(id) {
+  const u = STATE.users.find(x => x.id === id);
+  if (!u) return;
+  const jobs = SHELL.JOBS || [];
+  const showRate = (u.role === 'tradie' || u.role === 'leadingHand');
+  const showJobs = (u.role === 'tradie' || u.role === 'leadingHand' || u.role === 'client');
+  const panel = SHELL.openPanel({
+    title: 'Edit ' + u.username,
+    body: `
+      <div class="field"><label class="field-lbl">Username</label><input class="input" id="eu-name" value="${SHELL.escapeHtml(u.username)}"></div>
+      <div class="field"><label class="field-lbl">Email</label><input class="input" id="eu-email" type="email" value="${SHELL.escapeHtml(u.email || '')}"></div>
+      ${showRate ? `<div class="field"><label class="field-lbl">Hourly rate ($)</label><input class="input" id="eu-rate" type="number" min="0" step="0.5" value="${u.hourlyRate || 0}"></div>` : ''}
+      ${showJobs ? `<div class="field"><label class="field-lbl">Assigned jobs</label>
+        <div style="border:1px solid var(--line);border-radius:8px;padding:8px;max-height:240px;overflow:auto;background:var(--surface)">
+          ${jobs.filter(j => (j.status || 'active') !== 'archived').map(j => `<label style="display:flex;gap:8px;padding:4px 6px;border-radius:6px;cursor:pointer;font-size:13px">
+            <input type="checkbox" data-job="${SHELL.escapeHtml(j.id)}"${(u.assignedJobIds || []).includes(j.id) ? ' checked' : ''}>
+            <span>${SHELL.escapeHtml(j.name)} <span style="color:var(--muted);font-size:11px">${SHELL.escapeHtml(j.id)}</span></span>
+          </label>`).join('')}
+        </div></div>` : ''}
+      <div class="field"><label class="field-lbl">New secret (leave blank to keep)</label><input class="input" id="eu-secret" type="text" placeholder="•••••"></div>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button>
+             ${u.role !== 'admin' ? '<button class="btn btn-danger" id="eu-delete">Remove</button>' : ''}
+             <button class="btn btn-primary" id="eu-save">Save</button>`,
+  });
+  panel.querySelector('#eu-save').addEventListener('click', async () => {
+    const body = { id: u.id, username: panel.querySelector('#eu-name').value.trim(), email: panel.querySelector('#eu-email').value.trim() };
+    if (showJobs) body.assignedJobIds = Array.from(panel.querySelectorAll('input[data-job]:checked')).map(c => c.dataset.job);
+    if (showRate) body.hourlyRate = Number(panel.querySelector('#eu-rate').value) || 0;
+    const secret = panel.querySelector('#eu-secret').value;
+    if (secret) body.secret = secret;
+    try {
+      await SHELL.api('/api/users', { method: 'PUT', body });
+      SHELL.toast('Saved', 'ok');
+      SHELL.closePanel();
+      try { const r = await SHELL.api('/api/users'); STATE.users = r.users || []; SHELL.USERS = STATE.users; } catch {}
+      paint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+  if (u.role !== 'admin') {
+    panel.querySelector('#eu-delete').addEventListener('click', async () => {
+      if (!confirm('Remove ' + u.username + '? This cannot be undone.')) return;
+      try {
+        await fetch('/api/users?id=' + encodeURIComponent(u.id), { method: 'DELETE', credentials: 'same-origin' })
+          .then(r => { if (!r.ok) throw new Error('Failed'); });
+        SHELL.toast('Removed', 'ok');
+        SHELL.closePanel();
+        try { const r = await SHELL.api('/api/users'); STATE.users = r.users || []; SHELL.USERS = STATE.users; } catch {}
+        paint();
+      } catch (e) { SHELL.toast('Remove failed — ' + e.message, 'bad'); }
+    });
+  }
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · hours</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+let STATE = {
+  view: 'entries',          // entries | cost
+  // Entries view
+  entryStatus: 'all',       // all | submitted | approved | rejected
+  entryJob: 'all',
+  entrySearch: '',
+  entriesAll: [],
+  // Cost view
+  costRange: 'thisMonth',   // thisMonth | lastMonth | last30 | last90 | all | custom
+  costFrom: '',
+  costTo: '',
+  costData: null,
+};
+
+window.PAGE = {
+  id: 'hours',
+  title: 'Hours',
+  crumb: 'Hours',
+  async render() {
+    const params = new URLSearchParams(location.search);
+    if (params.get('view') === 'cost') STATE.view = 'cost';
+    paint();
+    await loadActive();
+  }
+};
+
+async function loadActive() {
+  if (STATE.view === 'entries') return loadEntries();
+  return loadCost();
+}
+
+async function loadEntries() {
+  try {
+    // Load ALL statuses so the user can filter client-side without re-fetching
+    const [submitted, approved, rejected] = await Promise.all([
+      SHELL.api('/api/time-entries?scope=approver&status=submitted'),
+      SHELL.api('/api/time-entries?scope=approver&status=approved').catch(() => ({ entries: [] })),
+      SHELL.api('/api/time-entries?scope=approver&status=rejected').catch(() => ({ entries: [] })),
+    ]);
+    const tag = (e, status) => ({ ...e, _statusTag: status });
+    STATE.entriesAll = [
+      ...(submitted.entries || []).map(e => tag(e, 'submitted')),
+      ...(approved.entries  || []).map(e => tag(e, 'approved')),
+      ...(rejected.entries  || []).map(e => tag(e, 'rejected')),
+    ];
+  } catch (e) { SHELL.toast('Failed to load entries — ' + e.message, 'bad'); }
+  paint();
+}
+
+async function loadCost() {
+  const range = computeRange();
+  const qs = new URLSearchParams();
+  if (range.from) qs.set('fromDate', range.from);
+  if (range.to)   qs.set('toDate',   range.to);
+  try {
+    STATE.costData = await SHELL.api('/api/costs' + (qs.toString() ? '?' + qs : ''));
+  } catch (e) { SHELL.toast('Failed to load costs — ' + e.message, 'bad'); }
+  paint();
+}
+
+function computeRange() {
+  const today = new Date();
+  const fmt = d => d.toISOString().slice(0, 10);
+  if (STATE.costRange === 'thisMonth') {
+    const f = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: fmt(f), to: fmt(today) };
+  }
+  if (STATE.costRange === 'lastMonth') {
+    const f = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const t = new Date(today.getFullYear(), today.getMonth(), 0);
+    return { from: fmt(f), to: fmt(t) };
+  }
+  if (STATE.costRange === 'last30') {
+    const f = new Date(today); f.setDate(today.getDate() - 30);
+    return { from: fmt(f), to: fmt(today) };
+  }
+  if (STATE.costRange === 'last90') {
+    const f = new Date(today); f.setDate(today.getDate() - 90);
+    return { from: fmt(f), to: fmt(today) };
+  }
+  if (STATE.costRange === 'all') return { from: '', to: '' };
+  if (STATE.costRange === 'custom') return { from: STATE.costFrom, to: STATE.costTo };
+  return { from: '', to: '' };
+}
+
+function paint() {
+  SHELL.$('#page').innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Hours</div>
+        <div class="page-sub">Time-entries from the field, approvals queue, and labour cost roll-up.</div>
+      </div>
+      <div class="page-actions">
+        <a class="btn" href="/admin.html#tab-hours">+ Log for crew (legacy)</a>
+        <a class="btn btn-accent" href="/admin/approvals">Approvals queue →</a>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <a class="tab ${STATE.view === 'entries' ? 'active' : ''}" href="#" data-view="entries">Entries</a>
+      <a class="tab ${STATE.view === 'cost' ? 'active' : ''}"    href="#" data-view="cost">Cost roll-up</a>
+    </div>
+
+    <div id="hours-body"></div>
+  `;
+  SHELL.$$('a[data-view]').forEach(t => t.addEventListener('click', e => {
+    e.preventDefault();
+    STATE.view = t.dataset.view;
+    const url = new URL(location.href); url.searchParams.set('view', STATE.view); history.replaceState(null, '', url);
+    paint();
+    loadActive();
+  }));
+  if (STATE.view === 'entries') paintEntries();
+  else paintCost();
+}
+
+function paintEntries() {
+  const body = SHELL.$('#hours-body');
+  if (!STATE.entriesAll.length) {
+    body.innerHTML = '<div class="empty"><div class="empty-title">Loading…</div></div>';
+    return;
+  }
+  // Build job dropdown options
+  const jobIds = new Set();
+  STATE.entriesAll.forEach(e => (e.allocations || []).forEach(a => { if (a.jobId) jobIds.add(a.jobId); }));
+  const jobsById = {};
+  (SHELL.JOBS || []).forEach(j => jobsById[j.id] = j);
+
+  // Filter
+  const q = STATE.entrySearch.toLowerCase();
+  const filtered = STATE.entriesAll.filter(e => {
+    if (STATE.entryStatus !== 'all' && e._statusTag !== STATE.entryStatus) return false;
+    if (STATE.entryJob !== 'all' && !(e.allocations || []).some(a => a.jobId === STATE.entryJob)) return false;
+    if (q) {
+      const blob = `${e.userName || ''} ${e.notes || ''} ${(e.allocations || []).map(a => (jobsById[a.jobId] || {}).name || '').join(' ')}`.toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  const totalHours = filtered.reduce((s, e) => s + ((e.allocations || []).reduce((ss, a) => ss + (Number(a.hours) || 0), 0)), 0);
+  const submittedCount = filtered.filter(e => e._statusTag === 'submitted').length;
+
+  body.innerHTML = `
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-l">Filtered entries</div><div class="kpi-v">${filtered.length}</div><div class="kpi-d">${STATE.entryStatus === 'all' ? 'across all statuses' : STATE.entryStatus}</div></div>
+      <div class="kpi"><div class="kpi-l">Total hours</div><div class="kpi-v">${totalHours.toFixed(1)}<sup>h</sup></div></div>
+      <div class="kpi"><div class="kpi-l">Submitted (waiting)</div><div class="kpi-v ${submittedCount ? 'amber' : 'green'}">${submittedCount}</div><div class="kpi-d">${submittedCount ? 'go to approvals queue' : 'all clear'}</div></div>
+      <div class="kpi"><div class="kpi-l">Distinct submitters</div><div class="kpi-v">${new Set(filtered.map(e => e.userId)).size}</div></div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search">${SHELL.ICONS.search}<input id="se-i" placeholder="Search by user, notes, job…" value="${SHELL.escapeHtml(STATE.entrySearch)}"></div>
+      <select class="select" id="se-status" style="max-width:160px">
+        <option value="all"${STATE.entryStatus === 'all' ? ' selected' : ''}>All statuses</option>
+        <option value="submitted"${STATE.entryStatus === 'submitted' ? ' selected' : ''}>Submitted</option>
+        <option value="approved"${STATE.entryStatus === 'approved' ? ' selected' : ''}>Approved</option>
+        <option value="rejected"${STATE.entryStatus === 'rejected' ? ' selected' : ''}>Rejected</option>
+      </select>
+      <select class="select" id="se-job" style="max-width:200px">
+        <option value="all"${STATE.entryJob === 'all' ? ' selected' : ''}>All jobs</option>
+        ${[...jobIds].map(id => `<option value="${SHELL.escapeHtml(id)}"${STATE.entryJob === id ? ' selected' : ''}>${SHELL.escapeHtml((jobsById[id] || {}).name || id)}</option>`).join('')}
+      </select>
+      <div class="toolbar-spacer"></div>
+      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(filtered.length, 'entry', 'entries')}</span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr>
+          <th>Date</th><th>Submitter</th><th>Allocations</th><th class="table-num">Hours</th><th>Status</th>
+        </tr></thead>
+        <tbody>${filtered.length ? filtered.map(e => entryRow(e, jobsById)).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No entries match the filters.</td></tr>'}</tbody>
+      </table>
+    </div>
+  `;
+  SHELL.$('#se-i').addEventListener('input', e => { STATE.entrySearch = e.target.value; paintEntries(); });
+  SHELL.$('#se-status').addEventListener('change', e => { STATE.entryStatus = e.target.value; paintEntries(); });
+  SHELL.$('#se-job').addEventListener('change', e => { STATE.entryJob = e.target.value; paintEntries(); });
+}
+
+function entryRow(e, jobsById) {
+  const totalH = (e.allocations || []).reduce((s, a) => s + (Number(a.hours) || 0), 0);
+  const allocStr = (e.allocations || []).map(a => {
+    const name = (jobsById[a.jobId] || {}).name || a.jobId || 'Internal';
+    return `${SHELL.escapeHtml(name)} (${(Number(a.hours) || 0).toFixed(1)}h)`;
+  }).join(' · ');
+  const tone = e._statusTag === 'approved' ? 'ok' : e._statusTag === 'rejected' ? 'bad' : 'warn';
+  return `<tr>
+    <td><b>${SHELL.escapeHtml(e.date || '')}</b></td>
+    <td>${SHELL.escapeHtml(e.userName || e.userId)}</td>
+    <td style="font-size:12px;color:var(--ink-2)">${allocStr}${e.notes ? `<br><span style="color:var(--muted);font-size:11px;font-style:italic">"${SHELL.escapeHtml(e.notes)}"</span>` : ''}</td>
+    <td class="table-num">${totalH.toFixed(1)}h</td>
+    <td><span class="pill pill-${tone}"><span class="pill-dot"></span>${e._statusTag}</span></td>
+  </tr>`;
+}
+
+function paintCost() {
+  const d = STATE.costData;
+  const body = SHELL.$('#hours-body');
+  if (!d) {
+    body.innerHTML = '<div class="empty"><div class="empty-title">Loading cost data…</div></div>';
+    return;
+  }
+  const totals = d.totals || { hours: 0, cost: 0 };
+  const jobs = (d.jobs || []).filter(j => j.hours > 0).sort((a, b) => b.cost - a.cost);
+  const users = d.users || [];
+
+  const range = computeRange();
+  const rangeLabel = range.from || range.to ? `${range.from || '—'} → ${range.to || '—'}` : 'All time';
+
+  body.innerHTML = `
+    <div class="toolbar">
+      <select class="select" id="cr-range" style="max-width:200px">
+        <option value="thisMonth"${STATE.costRange === 'thisMonth' ? ' selected' : ''}>This month</option>
+        <option value="lastMonth"${STATE.costRange === 'lastMonth' ? ' selected' : ''}>Last month</option>
+        <option value="last30"${STATE.costRange === 'last30' ? ' selected' : ''}>Last 30 days</option>
+        <option value="last90"${STATE.costRange === 'last90' ? ' selected' : ''}>Last 90 days</option>
+        <option value="all"${STATE.costRange === 'all' ? ' selected' : ''}>All time</option>
+        <option value="custom"${STATE.costRange === 'custom' ? ' selected' : ''}>Custom…</option>
+      </select>
+      ${STATE.costRange === 'custom' ? `
+        <input class="input" type="date" id="cr-from" value="${SHELL.escapeHtml(STATE.costFrom)}" style="max-width:160px">
+        <span style="color:var(--muted)">→</span>
+        <input class="input" type="date" id="cr-to" value="${SHELL.escapeHtml(STATE.costTo)}" style="max-width:160px">
+        <button class="btn btn-primary" id="cr-apply">Apply</button>
+      ` : ''}
+      <div class="toolbar-spacer"></div>
+      <span style="color:var(--muted);font-size:12px">${rangeLabel}</span>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-l">Total hours</div><div class="kpi-v">${totals.hours.toFixed(1)}<sup>h</sup></div><div class="kpi-d">across all entries</div></div>
+      <div class="kpi"><div class="kpi-l">Total labour cost</div><div class="kpi-v">${SHELL.fmtMoney(totals.cost)}</div><div class="kpi-d">hours × user.hourlyRate</div></div>
+      <div class="kpi"><div class="kpi-l">Active jobs (with hours)</div><div class="kpi-v">${jobs.length}</div></div>
+      <div class="kpi"><div class="kpi-l">Crew contributing</div><div class="kpi-v">${users.length}</div></div>
+    </div>
+
+    <div class="two-col">
+      <div class="card" style="padding:0">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
+          <div class="card-title">Cost by job</div>
+          <div class="card-sub">Sorted by cost; rolls up all allocations.</div>
+        </div>
+        <div class="table-wrap" style="border:none;box-shadow:none;border-radius:0">
+          <table class="table">
+            <thead><tr><th>Job</th><th class="table-num">Hours</th><th class="table-num">Cost</th></tr></thead>
+            <tbody>${jobs.length ? jobs.map(j => `<tr>
+              <td>${j.id ? `<a href="/admin/jobs/${SHELL.escapeHtml(j.id)}" style="font-weight:600">${SHELL.escapeHtml(j.name)}</a>` : `<span style="color:var(--muted);font-style:italic">${SHELL.escapeHtml(j.name)}</span>`}</td>
+              <td class="table-num">${j.hours.toFixed(1)}h</td>
+              <td class="table-num"><b>${SHELL.fmtMoney(j.cost)}</b></td>
+            </tr>`).join('') : '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:18px">No jobs in this range.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
+          <div class="card-title">Cost by crew member</div>
+          <div class="card-sub">Sorted by cost; rate × hours.</div>
+        </div>
+        <div class="table-wrap" style="border:none;box-shadow:none;border-radius:0">
+          <table class="table">
+            <thead><tr><th>Crew</th><th class="table-num">Rate</th><th class="table-num">Hours</th><th class="table-num">Cost</th></tr></thead>
+            <tbody>${users.length ? users.map(u => `<tr>
+              <td><b>${SHELL.escapeHtml(u.name)}</b></td>
+              <td class="table-num">${u.rate ? '$' + u.rate + '/h' : '—'}</td>
+              <td class="table-num">${u.hours.toFixed(1)}h</td>
+              <td class="table-num"><b>${SHELL.fmtMoney(u.cost)}</b></td>
+            </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:18px">No crew with hours in this range.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  SHELL.$('#cr-range').addEventListener('change', e => {
+    STATE.costRange = e.target.value;
+    if (STATE.costRange !== 'custom') loadCost();
+    else paint();
+  });
+  if (STATE.costRange === 'custom') {
+    SHELL.$('#cr-from').addEventListener('change', e => { STATE.costFrom = e.target.value; });
+    SHELL.$('#cr-to').addEventListener('change',   e => { STATE.costTo   = e.target.value; });
+    SHELL.$('#cr-apply').addEventListener('click', loadCost);
+  }
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>

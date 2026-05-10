@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · settings</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+let STATE = {
+  jobTypes: [],
+};
+
+window.PAGE = {
+  id: 'settings',
+  title: 'Settings',
+  crumb: 'Settings',
+  async render() {
+    SHELL.$('#page').innerHTML = '<div class="empty"><div class="empty-title">Loading…</div></div>';
+    try {
+      const r = await SHELL.api('/api/job-types');
+      STATE.jobTypes = (r.jobTypes || r.types || []);
+    } catch (e) { /* graceful — let paint show empty */ }
+    paint();
+  }
+};
+
+function paint() {
+  const me = SHELL.ME || {};
+  SHELL.$('#page').innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Settings</div>
+        <div class="page-sub">Job types, your profile, password, and look-and-feel tweaks.</div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <div class="card-hdr"><div><div class="card-title">Job types</div>
+          <div class="card-sub">Categorise jobs (e.g. Apartment fit-out, Office strip-out, Industrial). Used in filters and the New job form.</div></div>
+          <button class="btn btn-primary" id="jt-add">+ Add type</button></div>
+        <div id="jt-list">${jobTypesHtml()}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr"><div><div class="card-title">Your profile</div>
+          <div class="card-sub">Username and email visible to other admins.</div></div>
+          <button class="btn btn-primary" id="me-save">Save</button></div>
+        <div class="field"><label class="field-lbl">Username</label><input class="input" id="me-name" value="${SHELL.escapeHtml(me.username || '')}" disabled></div>
+        <div class="field"><label class="field-lbl">Role</label><div>${SHELL.rolePill(me.role || 'admin')}</div></div>
+        <div class="field"><label class="field-lbl">Email</label><input class="input" id="me-email" type="email" value="${SHELL.escapeHtml(me.email || '')}"></div>
+        <p style="font-size:12px;color:var(--muted);margin-top:10px">Username changes need an admin to edit your row in <a href="/admin/crew">Crew</a>.</p>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <div class="card-hdr"><div><div class="card-title">Change password</div>
+          <div class="card-sub">Pick a strong, unique password.</div></div>
+          <button class="btn btn-primary" id="pw-save">Update</button></div>
+        <div class="field"><label class="field-lbl">New password</label><input class="input" id="pw-new" type="password" autocomplete="new-password"></div>
+        <div class="field"><label class="field-lbl">Confirm</label><input class="input" id="pw-confirm" type="password" autocomplete="new-password"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr"><div><div class="card-title">Look &amp; feel</div>
+          <div class="card-sub">Tweaks (theme, density, accent) live behind the floating <b>Tweaks</b> button in the topbar — open it to switch dark mode, density, or palette.</div></div>
+          <button class="btn" id="open-tweaks">Open Tweaks →</button></div>
+        <div style="font-size:12px;color:var(--muted)">Saved per-browser as <code>buhl-site-office-tweaks</code> in localStorage.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr"><div><div class="card-title">Migration notes</div>
+        <div class="card-sub">This redesign consolidates three older admin surfaces.</div></div></div>
+      <ul style="font-size:13px;color:var(--ink-2);padding-left:18px;line-height:1.7">
+        <li><b>Approvals queue</b> moved into <a href="/admin/approvals">/admin/approvals</a> with inline approve/reject and per-user batch actions.</li>
+        <li><b>Snags</b> are now triaged cross-job at <a href="/admin/snags">/admin/snags</a>, with inline assign/close/reopen.</li>
+        <li><b>Hours + Costs</b> merged at <a href="/admin/hours">/admin/hours</a> (Entries / Cost roll-up tabs). Approvals deep-link from there.</li>
+        <li>The legacy <a href="/admin.html">/admin.html</a> stays available for the deep area-task editor (per-job Setup tab) and the multi-select "Log for crew" batch flow — both will be ported next.</li>
+      </ul>
+    </div>
+  `;
+
+  SHELL.$('#jt-add').addEventListener('click', addType);
+  SHELL.$$('button[data-jt-edit]').forEach(b => b.addEventListener('click', () => editType(b.dataset.jtEdit)));
+  SHELL.$$('button[data-jt-del]').forEach(b => b.addEventListener('click', () => delType(b.dataset.jtDel)));
+  SHELL.$('#me-save').addEventListener('click', saveProfile);
+  SHELL.$('#pw-save').addEventListener('click', savePassword);
+  SHELL.$('#open-tweaks').addEventListener('click', () => { if (SHELL.toggleTweaks) SHELL.toggleTweaks(); });
+}
+
+function jobTypesHtml() {
+  if (!STATE.jobTypes.length) return '<div class="empty"><div class="empty-title">No job types yet</div><div class="empty-sub">Click "+ Add type" to create one.</div></div>';
+  return `<div>
+    ${STATE.jobTypes.map(t => `<div style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);margin-bottom:6px">
+      <div style="flex:1"><b>${SHELL.escapeHtml(t.name)}</b> <span style="color:var(--muted);font-size:11px;font-family:var(--ff-mono)">${SHELL.escapeHtml(t.id)}</span></div>
+      <button class="btn btn-sm" data-jt-edit="${SHELL.escapeHtml(t.id)}">Rename</button>
+      <button class="btn btn-sm btn-danger" data-jt-del="${SHELL.escapeHtml(t.id)}">Remove</button>
+    </div>`).join('')}
+  </div>`;
+}
+
+async function addType() {
+  const name = prompt('Job type name (e.g. "Apartment fit-out")');
+  if (!name || !name.trim()) return;
+  try {
+    await SHELL.api('/api/job-types?action=create', { method: 'POST', body: { name: name.trim() } });
+    const r = await SHELL.api('/api/job-types'); STATE.jobTypes = r.jobTypes || r.types || [];
+    paint();
+  } catch (e) { SHELL.toast('Add failed — ' + e.message, 'bad'); }
+}
+async function editType(id) {
+  const cur = STATE.jobTypes.find(t => t.id === id); if (!cur) return;
+  const name = prompt('New name', cur.name); if (name == null) return;
+  try {
+    await SHELL.api('/api/job-types?action=update', { method: 'POST', body: { id, name: name.trim() } });
+    const r = await SHELL.api('/api/job-types'); STATE.jobTypes = r.jobTypes || r.types || [];
+    paint();
+  } catch (e) { SHELL.toast('Rename failed — ' + e.message, 'bad'); }
+}
+async function delType(id) {
+  if (!confirm('Remove this job type? Jobs already using it will keep the type id but the label will be missing.')) return;
+  try {
+    await SHELL.api('/api/job-types?action=delete', { method: 'POST', body: { id } });
+    const r = await SHELL.api('/api/job-types'); STATE.jobTypes = r.jobTypes || r.types || [];
+    paint();
+  } catch (e) { SHELL.toast('Remove failed — ' + e.message, 'bad'); }
+}
+
+async function saveProfile() {
+  const me = SHELL.ME || {};
+  const body = { id: me.id, email: SHELL.$('#me-email').value.trim() };
+  try {
+    await SHELL.api('/api/users', { method: 'PUT', body });
+    SHELL.toast('Profile saved', 'ok');
+  } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+}
+
+async function savePassword() {
+  const a = SHELL.$('#pw-new').value;
+  const b = SHELL.$('#pw-confirm').value;
+  if (!a || a.length < 6) { SHELL.toast('Password must be at least 6 chars', 'bad'); return; }
+  if (a !== b) { SHELL.toast('Passwords don\'t match', 'bad'); return; }
+  try {
+    await SHELL.api('/api/users', { method: 'PUT', body: { id: (SHELL.ME || {}).id, secret: a } });
+    SHELL.toast('Password updated', 'ok');
+    SHELL.$('#pw-new').value = ''; SHELL.$('#pw-confirm').value = '';
+  } catch (e) { SHELL.toast('Update failed — ' + e.message, 'bad'); }
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>
