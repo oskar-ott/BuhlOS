@@ -1,3 +1,40 @@
+// Materials Takeoff / Order List + Pricing + Procurement — Phase 11 (extends Phase 10).
+//
+// Phase 11 adds the procurement loop: priced items become purchase orders,
+// receipts draw down the order, and the per-item status auto-advances
+// (priced → ordered → received). The Overview cost rollup gains
+// committedExGst (sum of sent POs) and receivedExGst (sum of received qty
+// × unit) so admins see commitment vs actual spend at a glance.
+//
+// New actions:
+//   POST   /api/materials-list?jobId=X&action=create-po
+//                        body: { requestId } | { itemIds: [...] }
+//                        → Snapshots priced items + chosen wholesaler into
+//                          a draft PO. Items without a quotedUnitPrice are
+//                          skipped. Returns { po }.
+//   POST   /api/materials-list?jobId=X&action=update-po&poId=Y
+//                        body: { status?, expectedDeliveryDate?, notes?, confirmedAt? }
+//                        → Status flow: draft → sent → confirmed → partial
+//                          → fulfilled (or cancelled at any point). When
+//                          flipped to 'sent' records sentAt + sentBy.
+//   POST   /api/materials-list?jobId=X&action=record-receipt&poId=Y
+//                        body: { items: [{ itemId, qtyReceived, notes? }],
+//                                notes? }
+//                        → Logs a receipt event against the PO. Per-item
+//                          qtyReceived sums across all events. PO status
+//                          auto-advances to partial/fulfilled. Items'
+//                          quoteStatus auto-flips to 'received' when their
+//                          ordered qty is fully covered.
+//
+// Phase 10 actions (still here):
+//   GET    ...&action=schedule       Computed roll-up from data.json
+//   POST   ...&action=sync-from-takeoff
+//   POST   ...&action=record-reply
+//   GET    ...&action=cost-rollup    Now also returns committedExGst /
+//                                    receivedExGst / poCount / openPoCount.
+//
+// Phase 1 actions (CRUD + bulk-add + email) unchanged.
+
 // Materials Takeoff / Order List + Wholesaler Pricing — Phase 10 (extends Phase 1).
 //
 // Job-scoped materials list. Each job has its own materials-list.json with
@@ -237,6 +274,7 @@ async function syncFromTakeoff(jobId, user) {
 // reflects current item state.
 function rollupCost(list) {
   const items = list.items || [];
+  const pos = list.purchaseOrders || [];
   let totalCostExGst = 0;
   let priced = 0;
   let unpricedQty = 0;
@@ -250,13 +288,232 @@ function rollupCost(list) {
       unpricedQty += qty;
     }
   }
+  // Phase 11 — committed (sent POs) and received (line × unit, summed
+  // across all receivedEvents). Cancelled POs don't count.
+  let committedExGst = 0;
+  let receivedExGst = 0;
+  let openPos = 0;
+  for (const po of pos) {
+    if (po.status === 'cancelled' || po.status === 'draft') continue;
+    committedExGst += Number(po.totalExGst) || 0;
+    if (['sent', 'confirmed', 'partial'].includes(po.status)) openPos++;
+    const unitByItemId = {};
+    for (const snap of (po.itemSnapshots || [])) unitByItemId[snap.itemId] = Number(snap.unitPriceExGst) || 0;
+    for (const ev of (po.receivedEvents || [])) {
+      for (const r of (ev.items || [])) {
+        const u = unitByItemId[r.itemId] || 0;
+        receivedExGst += u * (Number(r.qtyReceived) || 0);
+      }
+    }
+  }
   return {
     itemsCount: items.length,
     pricedCount: priced,
     unpricedCount: items.length - priced,
     unpricedQty,
-    totalCostExGst: Math.round(totalCostExGst * 100) / 100,
+    totalCostExGst:  Math.round(totalCostExGst  * 100) / 100,
+    committedExGst:  Math.round(committedExGst  * 100) / 100,
+    receivedExGst:   Math.round(receivedExGst   * 100) / 100,
+    poCount: pos.length,
+    openPoCount: openPos,
   };
+}
+
+// ─── Phase 11: purchase orders + receipts ──────────────────────────────
+//
+// A purchase order snapshots the items + chosen wholesaler + agreed prices
+// from a replied email request. Once sent, it commits the spend; receipts
+// against it (full or partial) draw down the outstanding balance and tip
+// items into 'received' status when fully delivered.
+//
+// Lifecycle:
+//   draft     — created, not yet sent to wholesaler
+//   sent      — wholesaler notified
+//   confirmed — wholesaler ack received
+//   partial   — at least one receipt logged but not all qty in
+//   fulfilled — every snapshot line fully received
+//   cancelled — admin cancelled (commitments backed out)
+
+const PO_STATUSES = ['draft', 'sent', 'confirmed', 'partial', 'fulfilled', 'cancelled'];
+
+// Recompute per-item qtyOrdered + qtyReceived + status across all live POs.
+// Cheap O(items × pos × snapshots × receipts) — fine at job scale.
+function reconcileItemFlows(list) {
+  const items = list.items || [];
+  const pos = list.purchaseOrders || [];
+  const ord = {}, rec = {}; // itemId -> qty
+  for (const po of pos) {
+    if (po.status === 'cancelled' || po.status === 'draft') continue;
+    for (const snap of (po.itemSnapshots || [])) {
+      ord[snap.itemId] = (ord[snap.itemId] || 0) + (Number(snap.qty) || 0);
+    }
+    for (const ev of (po.receivedEvents || [])) {
+      for (const r of (ev.items || [])) {
+        rec[r.itemId] = (rec[r.itemId] || 0) + (Number(r.qtyReceived) || 0);
+      }
+    }
+  }
+  for (const it of items) {
+    it.qtyOrdered  = ord[it.id] || 0;
+    it.qtyReceived = rec[it.id] || 0;
+    // Status flow only auto-advances forward; admin can manually set
+    // anything via PATCH.
+    const qty = Number(it.quantity) || 0;
+    if (it.qtyReceived >= qty && qty > 0) it.status = 'received';
+    else if (it.qtyOrdered > 0 && it.status !== 'cancelled') it.status = 'ordered';
+  }
+}
+
+// PO line totals derived from item snapshots (immutable once PO is sent —
+// admin must cancel + redo to change pricing on a sent PO, intentional).
+function recomputePoTotals(po) {
+  let sub = 0;
+  for (const snap of (po.itemSnapshots || [])) {
+    snap.lineTotalExGst = Math.round((Number(snap.unitPriceExGst) || 0) * (Number(snap.qty) || 0) * 100) / 100;
+    sub += snap.lineTotalExGst;
+  }
+  po.totalExGst = Math.round(sub * 100) / 100;
+  po.gstAmount  = Math.round(sub * 0.10 * 100) / 100;
+  po.totalIncGst = Math.round(sub * 1.10 * 100) / 100;
+}
+
+// Update PO status based on receipt coverage (partial / fulfilled).
+function reconcilePoStatus(po) {
+  if (['draft', 'cancelled'].includes(po.status)) return;
+  const ordered = {}; let totalOrdered = 0;
+  for (const snap of (po.itemSnapshots || [])) {
+    ordered[snap.itemId] = Number(snap.qty) || 0;
+    totalOrdered += ordered[snap.itemId];
+  }
+  const recv = {};
+  for (const ev of (po.receivedEvents || [])) {
+    for (const r of (ev.items || [])) {
+      recv[r.itemId] = (recv[r.itemId] || 0) + (Number(r.qtyReceived) || 0);
+    }
+  }
+  let totalRecv = 0;
+  let allComplete = true;
+  for (const [id, ordQty] of Object.entries(ordered)) {
+    const r = recv[id] || 0;
+    totalRecv += Math.min(r, ordQty);
+    if (r < ordQty) allComplete = false;
+  }
+  if (totalRecv === 0) {
+    if (po.status === 'partial') po.status = 'sent'; // backed out fully
+  } else if (allComplete) {
+    po.status = 'fulfilled';
+  } else {
+    po.status = 'partial';
+  }
+}
+
+async function createPo(jobId, body, user) {
+  const requestId = body.requestId;
+  const list = await readList(jobId);
+  list.purchaseOrders = list.purchaseOrders || [];
+  let req = null;
+  let itemIds = body.itemIds || null;
+  let wholesalerName = body.wholesalerName || '';
+  let recipientEmail = body.recipientEmail || '';
+
+  if (requestId) {
+    req = (list.emailRequests || []).find(r => r.id === requestId);
+    if (!req) return { error: 'request not found', status: 404 };
+    itemIds = req.itemIds || [];
+    wholesalerName = req.wholesalerName || wholesalerName;
+    recipientEmail = req.recipientEmail || recipientEmail;
+  }
+  if (!itemIds || !itemIds.length) return { error: 'no items to order', status: 400 };
+
+  const itemsById = {};
+  for (const it of (list.items || [])) itemsById[it.id] = it;
+  const snapshots = [];
+  for (const id of itemIds) {
+    const it = itemsById[id];
+    if (!it) continue;
+    const qty = Number(it.quantity) || 0;
+    const unit = Number(it.quotedUnitPrice);
+    if (!Number.isFinite(unit) || unit <= 0) continue; // skip unpriced
+    snapshots.push({
+      itemId: id, name: it.name, brandOrSpec: it.brandOrSpec || '',
+      qty, unit: it.unit || 'each', unitPriceExGst: unit,
+      lineTotalExGst: Math.round(unit * qty * 100) / 100,
+    });
+  }
+  if (!snapshots.length) return { error: 'no priced items in this request', status: 400 };
+
+  const po = {
+    id: newId('po'), jobId,
+    poNumber: 'PO-' + Date.now().toString(36).toUpperCase(),
+    createdAt: new Date().toISOString(), createdBy: user.username,
+    wholesalerName, recipientEmail,
+    fromRequestId: requestId || null,
+    itemSnapshots: snapshots,
+    status: 'draft',
+    receivedEvents: [],
+    expectedDeliveryDate: body.expectedDeliveryDate || '',
+    notes: body.notes ? String(body.notes).trim() : '',
+  };
+  recomputePoTotals(po);
+  list.purchaseOrders.push(po);
+  reconcileItemFlows(list);
+  await writeList(jobId, list);
+  return { po };
+}
+
+async function updatePo(jobId, poId, body, user) {
+  const list = await readList(jobId);
+  const po = (list.purchaseOrders || []).find(p => p.id === poId);
+  if (!po) return { error: 'PO not found', status: 404 };
+  if (body.status && PO_STATUSES.includes(body.status)) {
+    if (body.status === 'sent' && po.status === 'draft') {
+      po.sentAt = new Date().toISOString();
+      po.sentBy = user.username;
+    }
+    if (body.status === 'cancelled') {
+      po.cancelledAt = new Date().toISOString();
+      po.cancelledBy = user.username;
+    }
+    po.status = body.status;
+  }
+  if (body.expectedDeliveryDate !== undefined) po.expectedDeliveryDate = String(body.expectedDeliveryDate || '').trim();
+  if (body.notes !== undefined) po.notes = String(body.notes || '').trim();
+  if (body.confirmedAt !== undefined) po.confirmedAt = body.confirmedAt;
+  reconcileItemFlows(list);
+  await writeList(jobId, list);
+  return { po };
+}
+
+async function recordReceipt(jobId, poId, body, user) {
+  const list = await readList(jobId);
+  const po = (list.purchaseOrders || []).find(p => p.id === poId);
+  if (!po) return { error: 'PO not found', status: 404 };
+  if (po.status === 'draft' || po.status === 'cancelled') {
+    return { error: 'cannot receive against a ' + po.status + ' PO', status: 400 };
+  }
+  const incoming = Array.isArray(body.items) ? body.items : [];
+  const allowed = new Set((po.itemSnapshots || []).map(s => s.itemId));
+  const cleaned = [];
+  for (const r of incoming) {
+    if (!r || !r.itemId || !allowed.has(r.itemId)) continue;
+    const q = Number(r.qtyReceived);
+    if (!Number.isFinite(q) || q <= 0) continue;
+    cleaned.push({ itemId: r.itemId, qtyReceived: q, notes: r.notes ? String(r.notes).trim() : '' });
+  }
+  if (!cleaned.length) return { error: 'no valid receipts in body.items', status: 400 };
+
+  po.receivedEvents = po.receivedEvents || [];
+  po.receivedEvents.push({
+    id: newId('rcpt'),
+    at: new Date().toISOString(),
+    by: user.username,
+    items: cleaned,
+    notes: body.notes ? String(body.notes).trim() : '',
+  });
+  reconcilePoStatus(po);
+  reconcileItemFlows(list);
+  await writeList(jobId, list);
+  return { po, eventId: po.receivedEvents[po.receivedEvents.length - 1].id };
 }
 
 // Apply a wholesaler's reply to an email request — both annotates the
@@ -363,6 +620,27 @@ module.exports = async (req, res) => {
 
     if (action === 'record-reply') {
       const result = await recordReply(jobId, body, user);
+      if (result.error) return res.status(result.status || 400).json({ error: result.error });
+      return res.status(200).json(result);
+    }
+
+    // Phase 11 — purchase orders + receipts
+    if (action === 'create-po') {
+      const result = await createPo(jobId, body, user);
+      if (result.error) return res.status(result.status || 400).json({ error: result.error });
+      return res.status(201).json(result);
+    }
+    if (action === 'update-po') {
+      const poId = (req.query && req.query.poId) || body.poId;
+      if (!poId) return res.status(400).json({ error: 'poId required' });
+      const result = await updatePo(jobId, poId, body, user);
+      if (result.error) return res.status(result.status || 400).json({ error: result.error });
+      return res.status(200).json(result);
+    }
+    if (action === 'record-receipt') {
+      const poId = (req.query && req.query.poId) || body.poId;
+      if (!poId) return res.status(400).json({ error: 'poId required' });
+      const result = await recordReceipt(jobId, poId, body, user);
       if (result.error) return res.status(result.status || 400).json({ error: result.error });
       return res.status(200).json(result);
     }

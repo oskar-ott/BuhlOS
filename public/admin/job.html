@@ -191,7 +191,12 @@ function renderOverview() {
       ${cr.itemsCount > 0 ? `
         <div class="kpi"><div class="kpi-l">Materials cost (projected)</div>
           <div class="kpi-v ${matCostTone}">${SHELL.fmtMoney(cr.totalCostExGst || 0)}</div>
-          <div class="kpi-d">${cr.pricedCount}/${cr.itemsCount} priced · ${cr.unpricedCount ? '<a href="?s=materials" data-go-materials style="color:var(--warn);text-decoration:underline">' + cr.unpricedCount + ' to price →</a>' : 'ex-GST'}</div>
+          <div class="kpi-d">${cr.pricedCount}/${cr.itemsCount} priced · ${cr.unpricedCount ? '<a href="?s=materials" style="color:var(--warn);text-decoration:underline">' + cr.unpricedCount + ' to price →</a>' : 'ex-GST'}</div>
+        </div>` : ''}
+      ${(cr.committedExGst || 0) > 0 ? `
+        <div class="kpi"><div class="kpi-l">Committed / received</div>
+          <div class="kpi-v">${SHELL.fmtMoney(cr.committedExGst || 0)}</div>
+          <div class="kpi-d"><b style="color:${(cr.receivedExGst || 0) > 0 ? 'var(--ok)' : 'var(--muted)'}">${SHELL.fmtMoney(cr.receivedExGst || 0)}</b> received · ${cr.openPoCount || 0} open PO${(cr.openPoCount || 0) === 1 ? '' : 's'}</div>
         </div>` : ''}
     </div>
 
@@ -1010,18 +1015,22 @@ async function dismissDwelling(dwellingId) {
 function renderMaterials(host) {
   const items = (STATE.materials && STATE.materials.items) || [];
   const requests = (STATE.materials && STATE.materials.emailRequests) || [];
-  const cr = STATE.costRollup || { itemsCount: 0, pricedCount: 0, unpricedCount: 0, totalCostExGst: 0 };
+  const pos = (STATE.materials && STATE.materials.purchaseOrders) || [];
+  const cr = STATE.costRollup || { itemsCount: 0, pricedCount: 0, unpricedCount: 0, totalCostExGst: 0, committedExGst: 0, receivedExGst: 0, openPoCount: 0 };
   const stale = items.filter(i => i.staleAfter).length;
   const fromTakeoff = items.filter(i => i.source === 'plan-takeoff').length;
   const manual = items.filter(i => i.source !== 'plan-takeoff').length;
   const haveTakeoff = (STATE.takeoff && STATE.takeoff.dwellings && Object.keys(STATE.takeoff.dwellings).length) > 0;
+  const ordered = items.filter(i => (i.qtyOrdered || 0) > 0).length;
+  const received = items.filter(i => (i.qtyReceived || 0) > 0).length;
 
   host.innerHTML = `
     <div class="kpi-row" style="margin-bottom:14px">
       <div class="kpi"><div class="kpi-l">Items</div><div class="kpi-v">${cr.itemsCount}</div><div class="kpi-d">${fromTakeoff} from takeoff · ${manual} manual${stale ? ' · <span style="color:var(--warn)">' + stale + ' stale</span>' : ''}</div></div>
       <div class="kpi"><div class="kpi-l">Priced</div><div class="kpi-v ${cr.pricedCount === cr.itemsCount && cr.itemsCount ? 'green' : 'amber'}">${cr.pricedCount}</div><div class="kpi-d">${cr.unpricedCount} need pricing</div></div>
-      <div class="kpi"><div class="kpi-l">Projected materials cost</div><div class="kpi-v">${SHELL.fmtMoney(cr.totalCostExGst)}</div><div class="kpi-d">ex-GST · priced items only</div></div>
-      <div class="kpi"><div class="kpi-l">Wholesaler requests</div><div class="kpi-v">${requests.length}</div><div class="kpi-d">${requests.filter(r => r.status === 'replied').length} replied</div></div>
+      <div class="kpi"><div class="kpi-l">Projected cost</div><div class="kpi-v">${SHELL.fmtMoney(cr.totalCostExGst || 0)}</div><div class="kpi-d">ex-GST · priced items</div></div>
+      <div class="kpi"><div class="kpi-l">Committed (POs sent)</div><div class="kpi-v">${SHELL.fmtMoney(cr.committedExGst || 0)}</div><div class="kpi-d">${cr.openPoCount || 0} open of ${cr.poCount || 0} PO${(cr.poCount || 0) === 1 ? '' : 's'}</div></div>
+      <div class="kpi"><div class="kpi-l">Received</div><div class="kpi-v ${cr.receivedExGst > 0 ? 'green' : ''}">${SHELL.fmtMoney(cr.receivedExGst || 0)}</div><div class="kpi-d">${received}/${ordered || cr.itemsCount} item${(ordered || cr.itemsCount) === 1 ? '' : 's'} delivered</div></div>
     </div>
 
     <div class="card" style="margin-bottom:14px">
@@ -1037,7 +1046,7 @@ function renderMaterials(host) {
       </div>
       ${items.length ? `<div class="table-wrap"><table class="table">
         <thead><tr>
-          <th>Item</th><th>Source</th><th class="table-num">Qty</th><th>Unit</th>
+          <th>Item</th><th>Source</th><th class="table-num">Qty</th><th class="table-num" title="Ordered / Received">Ord / Rec</th>
           <th class="table-num">Unit $</th><th class="table-num">Total $</th><th></th>
         </tr></thead>
         <tbody>${items.map(materialRow).join('')}</tbody>
@@ -1047,9 +1056,15 @@ function renderMaterials(host) {
       </div>`}
     </div>
 
+    ${pos.length ? `<div class="card" style="margin-bottom:14px">
+      <div class="card-hdr"><div><div class="card-title">Purchase orders <span class="card-count">${pos.length}</span></div>
+        <div class="card-sub">Snapshots of priced items sent to a wholesaler. Receipts here flip items to "received" automatically.</div></div></div>
+      ${pos.slice().reverse().map(poRow).join('')}
+    </div>` : ''}
+
     ${requests.length ? `<div class="card" style="margin-bottom:14px">
       <div class="card-hdr"><div><div class="card-title">Wholesaler requests <span class="card-count">${requests.length}</span></div>
-        <div class="card-sub">Drafts you've sent + replies received. Capturing a reply applies per-item prices to the items in that request.</div></div></div>
+        <div class="card-sub">Drafts you've sent + replies received. Capturing a reply applies per-item prices; converting a replied request to a PO commits the spend.</div></div></div>
       ${requests.slice().reverse().map(emailRequestRow).join('')}
     </div>` : ''}
   `;
@@ -1064,6 +1079,11 @@ function renderMaterials(host) {
     inp.addEventListener('change', () => updateUnitPrice(inp.dataset.matPrice, inp.value)));
   SHELL.$$('button[data-record-reply]').forEach(b =>
     b.addEventListener('click', () => openRecordReplyPanel(b.dataset.recordReply)));
+  // Phase 11 — PO actions
+  SHELL.$$('button[data-create-po]').forEach(b =>
+    b.addEventListener('click', () => createPoFromRequest(b.dataset.createPo)));
+  SHELL.$$('button[data-open-po]').forEach(b =>
+    b.addEventListener('click', () => openPoPanel(b.dataset.openPo)));
 }
 
 function materialRow(it) {
@@ -1071,7 +1091,19 @@ function materialRow(it) {
   const priced = Number(it.quotedUnitPrice) > 0;
   const fromTakeoff = it.source === 'plan-takeoff';
   const stale = !!it.staleAfter;
+  const qty = Number(it.quantity) || 0;
+  const ord = Number(it.qtyOrdered) || 0;
+  const rec = Number(it.qtyReceived) || 0;
+  const fullyRecv = qty > 0 && rec >= qty;
   const dwBreakdown = it.perDwelling ? Object.entries(it.perDwelling).map(([d, n]) => SHELL.escapeHtml(d) + ' (' + n + ')').join(' · ') : '';
+  // Tone for the ord/rec column: green if fully received, amber if partially, blue if ordered but nothing in, muted if untouched.
+  const ordRecHtml = ord === 0
+    ? '<span style="color:var(--muted)">—</span>'
+    : (fullyRecv
+       ? '<span style="color:var(--ok);font-weight:600">' + ord + ' / ' + rec + '</span>'
+       : (rec > 0
+          ? '<span style="color:var(--warn);font-weight:600">' + ord + ' / ' + rec + '</span>'
+          : '<span style="color:var(--info);font-weight:600">' + ord + ' / 0</span>'));
   return `<tr ${stale ? 'style="background:var(--warn-bg)"' : ''}>
     <td>
       <div style="font-weight:600">${SHELL.escapeHtml(it.name)}</div>
@@ -1083,8 +1115,8 @@ function materialRow(it) {
       ${fromTakeoff ? `<span class="pill pill-info"><span class="pill-dot"></span>From takeoff</span>` : `<span class="pill"><span class="pill-dot"></span>Manual</span>`}
       ${it.legendCode ? `<div style="font-size:10px;color:var(--muted);font-family:var(--ff-mono);margin-top:3px">${SHELL.escapeHtml(it.legendCode)}</div>` : ''}
     </td>
-    <td class="table-num">${SHELL.escapeHtml(String(it.quantity || 0))}</td>
-    <td>${SHELL.escapeHtml(it.unit || 'each')}</td>
+    <td class="table-num">${SHELL.escapeHtml(String(qty))} ${SHELL.escapeHtml(it.unit || 'each')}</td>
+    <td class="table-num">${ordRecHtml}</td>
     <td class="table-num">
       <input class="input" type="number" min="0" step="0.01" style="width:80px;text-align:right;font-family:var(--ff-mono);padding:4px 6px"
              data-mat-price="${SHELL.escapeHtml(it.id)}" value="${priced ? Number(it.quotedUnitPrice).toFixed(2) : ''}" placeholder="—">
@@ -1100,6 +1132,9 @@ function materialRow(it) {
 function emailRequestRow(req) {
   const tone = req.status === 'replied' ? (req.chosen ? 'ok' : 'info') : req.status === 'sent' ? 'navy' : 'warn';
   const itemCount = (req.itemIds || []).length;
+  // Phase 11: any PO already created from this request?
+  const pos = (STATE.materials && STATE.materials.purchaseOrders) || [];
+  const existingPo = pos.find(p => p.fromRequestId === req.id);
   return `<div style="border-top:1px solid var(--line);padding:10px 14px">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <span class="pill pill-${tone}">${SHELL.escapeHtml(req.status)}${req.chosen ? ' · chosen' : ''}</span>
@@ -1111,6 +1146,34 @@ function emailRequestRow(req) {
     ${req.replyTotalExGst != null ? `<div style="margin-top:6px;font-size:13px"><b>Replied: ${SHELL.fmtMoney2(req.replyTotalExGst)}</b>${req.replyAt ? ' · ' + SHELL.escapeHtml(new Date(req.replyAt).toLocaleDateString('en-AU')) : ''}${req.replyNotes ? '<br><em style="color:var(--muted)">"' + SHELL.escapeHtml(req.replyNotes) + '"</em>' : ''}</div>` : ''}
     <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
       ${req.status !== 'replied' ? `<button class="btn btn-sm" data-record-reply="${SHELL.escapeHtml(req.id)}">Record reply</button>` : `<button class="btn btn-sm" data-record-reply="${SHELL.escapeHtml(req.id)}">Update reply</button>`}
+      ${req.status === 'replied' && !existingPo ? `<button class="btn btn-sm btn-accent" data-create-po="${SHELL.escapeHtml(req.id)}">Convert to PO →</button>` : ''}
+      ${existingPo ? `<button class="btn btn-sm" data-open-po="${SHELL.escapeHtml(existingPo.id)}">Open PO ${SHELL.escapeHtml(existingPo.poNumber)} →</button>` : ''}
+    </div>
+  </div>`;
+}
+
+function poRow(po) {
+  const tone = ({
+    draft: 'navy', sent: 'info', confirmed: 'info', partial: 'warn',
+    fulfilled: 'ok', cancelled: 'bad'
+  })[po.status] || 'navy';
+  const recvCount = (po.itemSnapshots || []).filter(s => {
+    const totalRecv = (po.receivedEvents || []).reduce((sum, ev) =>
+      sum + (ev.items || []).filter(r => r.itemId === s.itemId).reduce((ss, r) => ss + (Number(r.qtyReceived) || 0), 0), 0);
+    return totalRecv >= s.qty;
+  }).length;
+  const totalLines = (po.itemSnapshots || []).length;
+  return `<div style="border-top:1px solid var(--line);padding:10px 14px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span class="pill pill-${tone}">${SHELL.escapeHtml(po.status)}</span>
+      <strong>${SHELL.escapeHtml(po.poNumber)}</strong>
+      <span style="font-family:var(--ff-mono);font-size:11px;color:var(--muted)">${SHELL.escapeHtml(po.wholesalerName || '(no wholesaler)')}</span>
+      <span style="margin-left:auto;font-family:var(--ff-mono);font-size:11px;color:var(--muted)">${totalLines} line${totalLines === 1 ? '' : 's'} · ${SHELL.fmtMoney2(po.totalIncGst)} inc-GST · ${recvCount}/${totalLines} fully received</span>
+    </div>
+    ${po.expectedDeliveryDate ? `<div style="font-size:12px;color:var(--ink-2);margin-top:4px">Expected: <b>${SHELL.escapeHtml(po.expectedDeliveryDate)}</b></div>` : ''}
+    ${po.notes ? `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-top:4px">"${SHELL.escapeHtml(po.notes)}"</div>` : ''}
+    <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+      <button class="btn btn-sm" data-open-po="${SHELL.escapeHtml(po.id)}">Open →</button>
     </div>
   </div>`;
 }
@@ -1331,6 +1394,215 @@ function openRecordReplyPanel(requestId) {
       await loadAll(); paint();
     } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 11 — Purchase orders + receipts
+//
+// A PO snapshots the priced items + chosen wholesaler. Once sent, it
+// commits the spend. Receipts (full or partial) are logged against the
+// PO and tip items into 'received' status when fully delivered. Item
+// qtyOrdered + qtyReceived are reconciled server-side after every
+// PO mutation, so the materials list always shows live flow state.
+//
+// Lifecycle: draft → sent → confirmed → partial → fulfilled (or
+// cancelled at any point). Cancelled POs back out of commitment + flow.
+// ─────────────────────────────────────────────────────────────────────
+
+async function createPoFromRequest(requestId) {
+  const req = (STATE.materials.emailRequests || []).find(r => r.id === requestId);
+  if (!req) return;
+  // Filter to priced items only — server enforces this too, but the
+  // confirm message should set expectations.
+  const itemsById = {};
+  for (const it of (STATE.materials.items || [])) itemsById[it.id] = it;
+  const priced = (req.itemIds || []).filter(id => {
+    const it = itemsById[id];
+    return it && Number(it.quotedUnitPrice) > 0;
+  });
+  if (!priced.length) {
+    SHELL.toast('No priced items in this request — record the reply first', 'bad');
+    return;
+  }
+  const skipped = (req.itemIds || []).length - priced.length;
+  if (!confirm('Create a draft PO from "' + (req.wholesalerName || 'this request') + '" — ' + priced.length + ' priced item' + (priced.length === 1 ? '' : 's') + (skipped ? ' (' + skipped + ' unpriced will be skipped)' : '') + '?')) return;
+  try {
+    const r = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=create-po', {
+      method: 'POST', body: { requestId },
+    });
+    SHELL.toast('PO ' + r.po.poNumber + ' created (draft)', 'ok');
+    await loadAll(); paint();
+    // Open the new PO right away
+    setTimeout(() => openPoPanel(r.po.id), 200);
+  } catch (e) { SHELL.toast('Create failed — ' + e.message, 'bad'); }
+}
+
+function openPoPanel(poId) {
+  const po = (STATE.materials.purchaseOrders || []).find(p => p.id === poId);
+  if (!po) return;
+
+  const recvByItem = {};
+  for (const ev of (po.receivedEvents || [])) {
+    for (const r of (ev.items || [])) {
+      recvByItem[r.itemId] = (recvByItem[r.itemId] || 0) + (Number(r.qtyReceived) || 0);
+    }
+  }
+
+  const lineRows = (po.itemSnapshots || []).map(s => {
+    const recv = recvByItem[s.itemId] || 0;
+    const outstanding = Math.max(0, s.qty - recv);
+    const tone = recv === 0 ? '' : (recv >= s.qty ? 'ok' : 'warn');
+    return `<tr>
+      <td>
+        <div style="font-weight:600">${SHELL.escapeHtml(s.name)}</div>
+        ${s.brandOrSpec ? `<div style="font-size:11px;color:var(--muted)">${SHELL.escapeHtml(s.brandOrSpec)}</div>` : ''}
+      </td>
+      <td class="table-num">${s.qty} ${SHELL.escapeHtml(s.unit || 'each')}</td>
+      <td class="table-num">${SHELL.fmtMoney2(s.unitPriceExGst)}</td>
+      <td class="table-num"><b>${SHELL.fmtMoney2(s.lineTotalExGst)}</b></td>
+      <td class="table-num"><span class="${tone ? 'pill pill-' + tone : ''}" style="font-size:11px">${recv} / ${s.qty}</span></td>
+    </tr>`;
+  }).join('');
+
+  const eventsHtml = (po.receivedEvents || []).slice().reverse().map(ev => `
+    <div style="border-top:1px dashed var(--line);padding:8px 0;font-size:12px">
+      <div><b>${SHELL.escapeHtml(new Date(ev.at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }))}</b> · by ${SHELL.escapeHtml(ev.by)}${ev.notes ? ' · <em style="color:var(--muted)">' + SHELL.escapeHtml(ev.notes) + '</em>' : ''}</div>
+      <div style="font-family:var(--ff-mono);color:var(--muted);margin-top:3px">
+        ${(ev.items || []).map(r => {
+          const snap = (po.itemSnapshots || []).find(s => s.itemId === r.itemId);
+          return SHELL.escapeHtml((snap && snap.name) || r.itemId) + ' × ' + r.qtyReceived;
+        }).join(' · ')}
+      </div>
+    </div>
+  `).join('');
+
+  const canSend     = po.status === 'draft';
+  const canConfirm  = po.status === 'sent';
+  const canReceive  = ['sent', 'confirmed', 'partial'].includes(po.status);
+  const canCancel   = !['fulfilled', 'cancelled'].includes(po.status);
+
+  const tone = ({
+    draft: 'navy', sent: 'info', confirmed: 'info', partial: 'warn',
+    fulfilled: 'ok', cancelled: 'bad'
+  })[po.status] || 'navy';
+
+  const panel = SHELL.openPanel({
+    title: po.poNumber + ' — ' + (po.wholesalerName || ''),
+    body: `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <span class="pill pill-${tone}">${SHELL.escapeHtml(po.status)}</span>
+        ${po.recipientEmail ? `<a href="mailto:${SHELL.escapeHtml(po.recipientEmail)}" style="font-family:var(--ff-mono);font-size:11px;color:var(--ink-2)">${SHELL.escapeHtml(po.recipientEmail)}</a>` : ''}
+        <span style="font-family:var(--ff-mono);font-size:11px;color:var(--muted);margin-left:auto">created ${SHELL.escapeHtml(new Date(po.createdAt).toLocaleDateString('en-AU'))} by ${SHELL.escapeHtml(po.createdBy)}</span>
+      </div>
+
+      <div class="two-col" style="margin-bottom:14px">
+        <div class="field"><label class="field-lbl">Expected delivery</label>
+          <input class="input" id="po-eta" type="date" value="${SHELL.escapeHtml((po.expectedDeliveryDate || '').slice(0, 10))}"></div>
+        <div class="field"><label class="field-lbl">Notes</label>
+          <input class="input" id="po-notes" value="${SHELL.escapeHtml(po.notes || '')}"></div>
+      </div>
+
+      <div class="card-title" style="margin:16px 0 6px">Lines (${(po.itemSnapshots || []).length})</div>
+      <table class="table" style="font-size:13px">
+        <thead><tr><th>Item</th><th class="table-num">Qty</th><th class="table-num">Unit $</th><th class="table-num">Line $</th><th class="table-num">Received</th></tr></thead>
+        <tbody>${lineRows}</tbody>
+        <tfoot><tr style="background:var(--surface-2);font-weight:700">
+          <td colspan="3" style="text-align:right">Total ex-GST</td>
+          <td class="table-num">${SHELL.fmtMoney2(po.totalExGst)}</td><td></td>
+        </tr><tr style="background:var(--surface-2);font-weight:700">
+          <td colspan="3" style="text-align:right">GST (10%)</td>
+          <td class="table-num">${SHELL.fmtMoney2(po.gstAmount)}</td><td></td>
+        </tr><tr style="background:var(--surface-2);font-weight:800;font-size:14px">
+          <td colspan="3" style="text-align:right">Total inc-GST</td>
+          <td class="table-num">${SHELL.fmtMoney2(po.totalIncGst)}</td><td></td>
+        </tr></tfoot>
+      </table>
+
+      ${(po.receivedEvents || []).length ? `
+        <div class="card-title" style="margin:18px 0 4px">Receipt history (${po.receivedEvents.length})</div>
+        ${eventsHtml}
+      ` : ''}
+
+      ${canReceive ? `
+        <div class="card-title" style="margin:18px 0 6px">Record a delivery</div>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 8px">Enter the qty received this delivery against each line. Leave blank to skip a line. Partial deliveries are fine — the PO will sit at "partial" until everything is in.</p>
+        <table class="table" style="font-size:13px">
+          <thead><tr><th>Item</th><th class="table-num">Outstanding</th><th class="table-num">Receiving now</th></tr></thead>
+          <tbody>${(po.itemSnapshots || []).map(s => {
+            const recv = recvByItem[s.itemId] || 0;
+            const outstanding = Math.max(0, s.qty - recv);
+            return `<tr>
+              <td>${SHELL.escapeHtml(s.name)}</td>
+              <td class="table-num">${outstanding}</td>
+              <td class="table-num"><input class="input" type="number" min="0" max="${outstanding}" step="1" style="width:80px;text-align:right;padding:4px 6px" data-recv-qty="${SHELL.escapeHtml(s.itemId)}" placeholder="—" ${outstanding === 0 ? 'disabled' : ''}></td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>
+        <div class="field" style="margin-top:10px">
+          <label class="field-lbl">Receipt notes (optional)</label>
+          <input class="input" id="po-recv-notes" placeholder="e.g. Damaged box on arrival, replacement coming">
+        </div>
+      ` : ''}
+    `,
+    footer: `
+      <button class="btn" onclick="SHELL.closePanel()">Close</button>
+      ${canCancel ? `<button class="btn btn-danger" id="po-cancel">Cancel PO</button>` : ''}
+      ${canSend ? `<button class="btn btn-primary" id="po-send">Send PO →</button>` : ''}
+      ${canConfirm ? `<button class="btn btn-primary" id="po-confirm">Mark confirmed</button>` : ''}
+      ${canReceive ? `<button class="btn btn-accent" id="po-receive">Record receipt</button>` : ''}
+      <button class="btn" id="po-save-meta">Save</button>
+    `,
+  });
+
+  // Save metadata (notes + ETA) on demand — doesn't change status
+  panel.querySelector('#po-save-meta').addEventListener('click', async () => {
+    const eta = panel.querySelector('#po-eta').value;
+    const notes = panel.querySelector('#po-notes').value.trim();
+    try {
+      await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=update-po&poId=' + encodeURIComponent(po.id), {
+        method: 'POST', body: { expectedDeliveryDate: eta, notes },
+      });
+      SHELL.toast('Saved', 'ok');
+      await loadAll();
+      // Re-open the panel with fresh data so receipt history etc. updates
+      paint(); openPoPanel(po.id);
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+
+  if (canSend) panel.querySelector('#po-send').addEventListener('click', () => poStatusChange(po.id, 'sent', 'Send this PO to the wholesaler? Commits the spend.'));
+  if (canConfirm) panel.querySelector('#po-confirm').addEventListener('click', () => poStatusChange(po.id, 'confirmed', 'Mark confirmed by wholesaler?'));
+  if (canCancel) panel.querySelector('#po-cancel').addEventListener('click', () => poStatusChange(po.id, 'cancelled', 'Cancel this PO? Backs out the commitment and any receipts.'));
+
+  if (canReceive) {
+    panel.querySelector('#po-receive').addEventListener('click', async () => {
+      const items = [];
+      panel.querySelectorAll('input[data-recv-qty]').forEach(inp => {
+        const q = Number(inp.value);
+        if (Number.isFinite(q) && q > 0) items.push({ itemId: inp.dataset.recvQty, qtyReceived: q });
+      });
+      if (!items.length) { SHELL.toast('Enter at least one qty', 'warn'); return; }
+      const notes = panel.querySelector('#po-recv-notes').value.trim();
+      try {
+        await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=record-receipt&poId=' + encodeURIComponent(po.id), {
+          method: 'POST', body: { items, notes },
+        });
+        SHELL.toast('Receipt logged', 'ok');
+        await loadAll(); paint(); openPoPanel(po.id);
+      } catch (e) { SHELL.toast('Receipt failed — ' + e.message, 'bad'); }
+    });
+  }
+}
+
+async function poStatusChange(poId, status, confirmMsg) {
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  try {
+    await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=update-po&poId=' + encodeURIComponent(poId), {
+      method: 'POST', body: { status },
+    });
+    SHELL.toast('PO → ' + status, 'ok');
+    SHELL.closePanel();
+    await loadAll(); paint();
+  } catch (e) { SHELL.toast('Failed — ' + e.message, 'bad'); }
 }
 
 SHELL.boot();
