@@ -107,14 +107,24 @@ function paint() {
   const pendingDwellings = STATE.takeoff && STATE.takeoff.dwellings
     ? Object.values(STATE.takeoff.dwellings).filter(d => d.status === 'pending').length : 0;
   const matsCount = (STATE.materials && STATE.materials.items) ? STATE.materials.items.length : 0;
+  const openSnagCount = (STATE.data.snags || []).filter(s => s.status === 'Open').length;
+  // Setup incomplete badge — counts critical setup items still missing,
+  // so the admin sees at a glance whether they need to pop into Setup.
+  // Uses the same setupChecks list the Overview Setup-completeness card
+  // uses, so the number always agrees with the card.
+  const setupMissing = setupChecks(j).filter(c => !c.ok).length;
+  // Tab order matches the workflow recommended in the Site Office Admin
+  // brief: see the job → fix setup → assign crew → triage problems →
+  // review labour → see drawings → check materials. Setup gets an early
+  // amber badge when incomplete so a half-built job demands attention.
   const sections = [
     { id: 'overview',  label: 'Overview' },
-    { id: 'snags',     label: 'Snags', count: (STATE.data.snags || []).filter(s => s.status === 'Open').length },
+    { id: 'setup',     label: 'Setup', count: setupMissing || null, countTone: setupMissing ? 'warn' : null },
+    { id: 'crew',      label: 'Crew & client' },
+    { id: 'snags',     label: 'Snags', count: openSnagCount, countTone: openSnagCount ? 'bad' : null },
     { id: 'hours',     label: 'Hours' },
     { id: 'plans',     label: 'Plans & takeoff', count: pendingDwellings || null },
-    { id: 'materials', label: 'Materials',  count: matsCount || null },
-    { id: 'crew',      label: 'Crew & client' },
-    { id: 'setup',     label: 'Setup (areas, tasks)' },
+    { id: 'materials', label: 'Materials', count: matsCount || null },
   ];
 
   SHELL.$('#page').innerHTML = `
@@ -124,17 +134,24 @@ function paint() {
         <h1>${SHELL.escapeHtml(j.name)}</h1>
         ${SHELL.jobStatusPill(j.status || 'active')}
         <span class="user-handle">${SHELL.escapeHtml(ref)}</span>
-        <button class="btn btn-sm" id="edit-basics">${SHELL.ICONS.edit} Edit basics</button>
-        <a class="btn btn-sm btn-ghost" href="/jobs/${SHELL.escapeHtml(j.id)}" target="_blank" rel="noopener">${SHELL.ICONS.external} Open in field</a>
+        <button class="btn btn-sm" id="edit-basics" title="Edit job name, status, type, and client link">${SHELL.ICONS.edit} Edit job</button>
+        <a class="btn btn-sm btn-ghost" href="/jobs/${SHELL.escapeHtml(j.id)}" target="_blank" rel="noopener" title="Open the field/worker view of this job in a new tab">${SHELL.ICONS.external} Open worker view</a>
       </div>
     </div>
 
     <div class="tabs">
-      ${sections.map(s => `
+      ${sections.map(s => {
+        const badgeStyle = s.countTone === 'bad'
+          ? 'background:var(--bad-bg, #fbeae8);color:var(--bad);border:1px solid var(--bad-bd, #f0c4be)'
+          : s.countTone === 'warn'
+          ? 'background:var(--warn-bg, #fbf1de);color:var(--warn);border:1px solid var(--warn-bd, #f3dca1)'
+          : '';
+        return `
         <a class="tab ${STATE.section === s.id ? 'active' : ''}" href="#" data-section="${s.id}">
-          ${SHELL.escapeHtml(s.label)}${s.count != null ? `<span class="badge">${s.count}</span>` : ''}
+          ${SHELL.escapeHtml(s.label)}${s.count != null ? `<span class="badge" style="${badgeStyle}">${s.count}</span>` : ''}
         </a>
-      `).join('')}
+      `;
+      }).join('')}
     </div>
 
     <div id="ws-body"></div>
@@ -171,6 +188,7 @@ function paint() {
 function renderOverview() {
   const j = STATE.job;
   const open = (STATE.data.snags || []).filter(s => s.status === 'Open');
+  const unassignedSnags = open.filter(s => !s.assignedToUserId).length;
   const weekHrs = STATE.hoursThisWeek.reduce((a, e) => {
     const onJob = (e.allocations || []).filter(x => x.jobId === STATE.jobId);
     return a + onJob.reduce((aa, x) => aa + Number(x.hours || 0), 0);
@@ -180,16 +198,128 @@ function renderOverview() {
     if ((e.allocations || []).some(x => x.jobId === STATE.jobId)) weekSubmitters.add(e.userId);
   }
 
+  // ── Real area-progress numbers (the source of the old "0/0 dwellings"
+  //    bug — the API returns statsAreaCount, NOT statsDwellingCount, so
+  //    `j.statsDwellingsDone || 0` and `j.statsDwellingCount || 0` were
+  //    both always 0 and the card said "0/0 dwellings" forever).
+  //
+  // We compute the real done/total from the data blob using the same
+  // effective-tasks helper the per-job dashboard uses, so the metric
+  // matches exactly what tradies see.
+  const allAreas = (j.areaGroups || []).flatMap(g => g.areas || []);
+  const totalAreas = allAreas.length;
+  const dwellings = (STATE.data && STATE.data.dwellings) || {};
+  const jobR = j.roughInTasks || [];
+  const jobF = j.fitOffTasks  || [];
+  const effRough = (a) => (Array.isArray(a.roughInTasks) && a.roughInTasks.length) ? a.roughInTasks : jobR;
+  const effFit   = (a) => (Array.isArray(a.fitOffTasks)  && a.fitOffTasks.length)  ? a.fitOffTasks  : jobF;
+  const areaPct = (a) => {
+    const r = effRough(a), f = effFit(a);
+    if (!r.length && !f.length) return null; // no checklist
+    const dw = dwellings[a.id] || {};
+    const rMap = ((dw.roughIn || {}).tasks) || {};
+    const fMap = ((dw.fitOff  || {}).tasks) || {};
+    const rPct = r.length ? Math.round(r.filter(t => rMap[t.id] === 'complete').length / r.length * 100) : 0;
+    const fPct = f.length ? Math.round(f.filter(t => fMap[t.id] === 'complete').length / f.length * 100) : 0;
+    if (r.length && f.length) return Math.round((rPct + fPct) / 2);
+    return r.length ? rPct : fPct;
+  };
+  const areasWithCounts = allAreas.map(a => ({ a, pct: areaPct(a) }));
+  const areasWithChecklist = areasWithCounts.filter(x => x.pct != null);
+  const areasComplete = areasWithChecklist.filter(x => x.pct === 100).length;
+
   // Phase 10 — projected materials cost (priced items only; unpriced are
   // an unknown until wholesalers come back).
   const cr = STATE.costRollup || {};
   const matCostTone = (cr.itemsCount && cr.unpricedCount === 0) ? 'green' : (cr.unpricedCount > 0 ? 'amber' : '');
+
+  // Crew/client split — separate concepts that used to be jammed into
+  // one sub-line. Crew metric reads the count; client gets its own
+  // KPI tile so "no client linked" can be acted on directly.
+  const crewCount = STATE.crew.filter(u => u.role === 'tradie' || u.role === 'leadingHand').length;
+  const lhCount   = STATE.crew.filter(u => u.role === 'leadingHand').length;
+  const clientUser = j.clientUserId ? (SHELL.USERS || []).find(u => u.id === j.clientUserId) : null;
+
+  // ── Progress KPI label — "0/0 dwellings" replaced with honest states:
+  //   - "No areas set up"             → empty job
+  //   - "No checklist on N areas"     → areas exist but neither default
+  //                                     nor per-area checklists exist yet
+  //   - "X / Y work areas complete"   → real progress, plain language
+  let progressSub;
+  if (totalAreas === 0) {
+    progressSub = '<a href="?s=setup" style="color:var(--warn);text-decoration:underline">No areas set up — open setup →</a>';
+  } else if (areasWithChecklist.length === 0) {
+    progressSub = `<a href="?s=setup" style="color:var(--warn);text-decoration:underline">No checklist on any of ${totalAreas} ${totalAreas === 1 ? 'area' : 'areas'} →</a>`;
+  } else {
+    const noChecklist = totalAreas - areasWithChecklist.length;
+    progressSub = `<b>${areasComplete}</b>/<b>${areasWithChecklist.length}</b> work ${areasWithChecklist.length === 1 ? 'area' : 'areas'} complete${noChecklist ? ' · <span style="color:var(--warn)">' + noChecklist + ' missing checklist</span>' : ''}`;
+  }
+  // Use the honest computed pct rather than j.statsPct (which can be
+  // stale from the last list-fetch).
+  const progressPct = areasWithChecklist.length
+    ? Math.round(areasWithChecklist.reduce((s, x) => s + x.pct, 0) / areasWithChecklist.length)
+    : 0;
+
+  // ── Hours KPI — state-aware copy. The old "0.0h · 0 crew" was
+  //   ambiguous (broken? nobody worked? data not connected?). Replace
+  //   with explicit states.
+  let hoursValueClass = '', hoursValue, hoursSub;
+  if (weekHrs > 0) {
+    hoursValue = weekHrs.toFixed(1) + '<sup>h</sup>';
+    hoursSub = SHELL.pluralize(weekSubmitters.size, 'crew', 'crew') + ' submitted';
+  } else if (crewCount === 0) {
+    hoursValue = '—';
+    hoursSub = '<span style="color:var(--muted)">no crew assigned yet</span>';
+  } else {
+    hoursValue = '0<sup>h</sup>';
+    hoursValueClass = 'amber';
+    hoursSub = `<a href="/admin/hours?view=weekly&job=${SHELL.escapeHtml(STATE.jobId)}" style="color:var(--warn);text-decoration:underline">No hours logged yet this week →</a>`;
+  }
+
+  // ── Needs-attention rail — only renders when something is actually
+  //   wrong. Each chip is a one-tap deep-link to the action that fixes
+  //   it. Per the brief: "Where the UI shows a problem, add direct
+  //   action."
+  const attention = [];
+  if (totalAreas === 0) {
+    attention.push({ icon: '⚠', text: 'No work areas set up', cta: 'Open setup', href: '?s=setup' });
+  }
+  if (totalAreas > 0 && areasWithChecklist.length === 0) {
+    attention.push({ icon: '⚠', text: 'No checklist on any area', cta: 'Open setup', href: '?s=setup' });
+  }
+  if (!j.clientUserId) {
+    attention.push({ icon: '!', text: 'No client linked', cta: 'Link client', href: '?s=crew' });
+  }
+  if (crewCount === 0) {
+    attention.push({ icon: '⚠', text: 'No crew assigned', cta: 'Assign crew', href: '?s=crew' });
+  }
+  if (unassignedSnags > 0) {
+    attention.push({ icon: '⚠', text: SHELL.pluralize(unassignedSnags, 'unassigned snag'), cta: 'Triage', href: '?s=snags' });
+  }
+  if (weekHrs === 0 && crewCount > 0) {
+    attention.push({ icon: '⏱', text: 'No hours logged this week', cta: 'Open hours', href: '/admin/hours?view=weekly&job=' + encodeURIComponent(STATE.jobId) });
+  }
+  const attentionHtml = attention.length ? `
+    <div class="card" style="padding:0;margin-bottom:14px;border-left:3px solid var(--warn)">
+      <div style="padding:10px 16px;border-bottom:1px solid var(--line);font-size:11px;font-weight:700;color:var(--warn);text-transform:uppercase;letter-spacing:.6px">Needs attention</div>
+      <div style="padding:10px 12px;display:flex;gap:8px;flex-wrap:wrap">
+        ${attention.map(it => `<a href="${it.href}" style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;font-size:12.5px;font-weight:500;color:var(--ink);background:var(--surface);text-decoration:none">
+          <span style="color:var(--warn);font-weight:700">${it.icon}</span>
+          <span>${SHELL.escapeHtml(it.text)}</span>
+          <span style="color:var(--muted);font-size:11px">${SHELL.escapeHtml(it.cta)} →</span>
+        </a>`).join('')}
+      </div>
+    </div>` : '';
+
   return `
+    ${attentionHtml}
+
     <div class="kgrid">
-      <div class="kpi"><div class="kpi-l">Progress</div><div class="kpi-v">${j.statsPct || 0}<sup>%</sup></div><div class="kpi-d">${j.statsDwellingsDone || 0}/${j.statsDwellingCount || 0} dwellings</div></div>
-      <div class="kpi"><div class="kpi-l">Open snags</div><div class="kpi-v ${open.length ? 'red' : 'green'}">${open.length}</div><div class="kpi-d">${open.filter(s => !s.assignedToUserId).length} unassigned</div></div>
-      <div class="kpi"><div class="kpi-l">Hours this week</div><div class="kpi-v">${weekHrs.toFixed(1)}<sup>h</sup></div><div class="kpi-d">${weekSubmitters.size} crew</div></div>
-      <div class="kpi"><div class="kpi-l">Crew assigned</div><div class="kpi-v">${STATE.crew.filter(u => u.role === 'tradie' || u.role === 'leadingHand').length}</div><div class="kpi-d">${j.clientUserId ? 'client linked' : '<span style="color:var(--warn)">no client</span>'}</div></div>
+      <div class="kpi"><div class="kpi-l">Progress</div><div class="kpi-v">${progressPct}<sup>%</sup></div><div class="kpi-d">${progressSub}</div></div>
+      <div class="kpi"><div class="kpi-l">Open snags</div><div class="kpi-v ${open.length ? 'red' : 'green'}">${open.length}</div><div class="kpi-d">${unassignedSnags ? `<a href="?s=snags" style="color:var(--warn);text-decoration:underline">${unassignedSnags} unassigned →</a>` : (open.length ? 'all assigned' : 'none open')}</div></div>
+      <div class="kpi"><div class="kpi-l">Hours this week</div><div class="kpi-v ${hoursValueClass}">${hoursValue}</div><div class="kpi-d">${hoursSub}</div></div>
+      <div class="kpi"><div class="kpi-l">Crew</div><div class="kpi-v">${crewCount}</div><div class="kpi-d">${crewCount === 0 ? '<a href="?s=crew" style="color:var(--warn);text-decoration:underline">none assigned →</a>' : (lhCount ? lhCount + ' LH · ' + (crewCount - lhCount) + ' tradies' : SHELL.pluralize(crewCount, 'tradie'))}</div></div>
+      <div class="kpi"><div class="kpi-l">Client</div><div class="kpi-v" style="font-size:14px;font-weight:600;line-height:1.2;padding-top:6px">${clientUser ? '<span style="color:var(--ok)">✓ Linked</span>' : '<span style="color:var(--warn)">Not linked</span>'}</div><div class="kpi-d">${clientUser ? SHELL.escapeHtml(clientUser.username || j.clientUserId) : '<a href="?s=crew" style="color:var(--warn);text-decoration:underline">link a client →</a>'}</div></div>
       ${cr.itemsCount > 0 ? `
         <div class="kpi"><div class="kpi-l">Materials cost (projected)</div>
           <div class="kpi-v ${matCostTone}">${SHELL.fmtMoney(cr.totalCostExGst || 0)}</div>
@@ -214,23 +344,25 @@ function renderOverview() {
             <div class="card-title">Open snags</div>
             <div class="card-sub">${open.length === 0 ? 'No open snags on this job.' : SHELL.pluralize(open.length, 'snag')}</div>
           </div>
-          ${open.length ? `<a class="btn btn-sm btn-ghost" href="#" onclick="event.preventDefault();PAGE.section='snags';location.search='?s=snags';" data-go="snags">Triage ${SHELL.ICONS.arrow}</a>` : ''}
+          ${open.length ? `<a class="btn btn-sm btn-ghost" href="?s=snags" data-go="snags">Triage all ${SHELL.ICONS.arrow}</a>` : ''}
         </div>
         ${open.slice(0, 5).map(s => `
           <div style="padding:12px 16px;border-bottom:1px solid var(--line);font-size:13px;display:flex;align-items:flex-start;gap:10px">
             <div class="left-stripe ${s.priority || ''}" style="width:4px;align-self:stretch;background:${s.priority === 'High' ? 'var(--bad)' : s.priority === 'Medium' ? 'var(--warn)' : 'var(--info)'};border-radius:2px"></div>
-            <div style="flex:1">
+            <div style="flex:1;min-width:0">
               <div style="font-weight:500">${SHELL.escapeHtml(s.desc || '(no description)')}</div>
               <div style="font-size:11px;color:var(--muted);margin-top:3px">${SHELL.escapeHtml(s.dwellingName || s.stage || '—')} · raised ${SHELL._ago(s.createdAt)}${s.assignedToName ? ' · → ' + SHELL.escapeHtml(s.assignedToName) : ' · <span style="color:var(--warn)">unassigned</span>'}</div>
             </div>
+            <a href="?s=snags" class="btn btn-sm btn-ghost" style="flex-shrink:0">View →</a>
           </div>
         `).join('') || ''}
+        ${open.length > 5 ? `<div style="padding:8px 16px;font-size:11px;color:var(--muted);text-align:center"><a href="?s=snags" style="color:inherit">${open.length - 5} more →</a></div>` : ''}
       </div>
 
       <div class="card" style="padding:0">
         <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
           <div class="card-title">Setup completeness</div>
-          <div class="card-sub">What's still missing</div>
+          <div class="card-sub">${setupCompletenessSubtitle(j)}</div>
         </div>
         <div style="padding:14px 18px">
           ${setupChecklist(j)}
@@ -240,19 +372,74 @@ function renderOverview() {
   `;
 }
 
-function setupChecklist(j) {
-  const checks = [
-    { k: 'areas',    label: 'Area groups',     ok: (j.areaGroups || []).length > 0 },
-    { k: 'rough',    label: 'Rough-in tasks',  ok: (j.roughInTasks || []).length > 0 },
-    { k: 'fit',      label: 'Fit-off tasks',   ok: (j.fitOffTasks || []).length > 0 },
-    { k: 'crew',     label: 'Crew assigned',   ok: STATE.crew.some(u => u.role === 'tradie' || u.role === 'leadingHand') },
-    { k: 'client',   label: 'Client linked',   ok: !!j.clientUserId },
+// Compact subtitle for the Setup completeness card — surfaces "ready"
+// or "N to fix" up-front so the admin doesn't have to scan every row.
+function setupCompletenessSubtitle(j) {
+  const checks = setupChecks(j);
+  const missing = checks.filter(c => !c.ok).length;
+  if (missing === 0) return '<span style="color:var(--ok)">All set — ready for crew.</span>';
+  return missing + ' to fix before this job is fully ready';
+}
+
+// Single source of truth for the per-job setup-checks list. Used by both
+// the Overview Setup-completeness card AND can be reused elsewhere.
+// Each check is: { k, label, value, ok, action: { text, href }? }.
+// `value` is the human-readable count when ok ("8 default tasks") or the
+// short reason when not ok ("none yet").
+function setupChecks(j) {
+  const allUsers = SHELL.USERS || [];
+  const allAreas = (j.areaGroups || []).flatMap(g => g.areas || []);
+  const customRoughCount = allAreas.filter(a => Array.isArray(a.roughInTasks) && a.roughInTasks.length).length;
+  const customFitCount   = allAreas.filter(a => Array.isArray(a.fitOffTasks)  && a.fitOffTasks.length).length;
+  const groupCount = (j.areaGroups || []).length;
+  const tradieCount = STATE.crew.filter(u => u.role === 'tradie').length;
+  const lhCount     = STATE.crew.filter(u => u.role === 'leadingHand').length;
+  const totalCrew   = tradieCount + lhCount;
+  const roughCount  = (j.roughInTasks || []).length;
+  const fitCount    = (j.fitOffTasks  || []).length;
+  // Rough/fit count as "ok" when EITHER the job default exists OR every
+  // area has its own custom override (mirrors PR #23 setup-completeness rule).
+  const everyAreaCustomR = allAreas.length > 0 && allAreas.every(a => Array.isArray(a.roughInTasks) && a.roughInTasks.length);
+  const everyAreaCustomF = allAreas.length > 0 && allAreas.every(a => Array.isArray(a.fitOffTasks)  && a.fitOffTasks.length);
+  return [
+    { k: 'groups', label: 'Area groups',
+      ok: groupCount > 0,
+      value: groupCount > 0 ? SHELL.pluralize(groupCount, 'group') : 'none yet',
+      action: { text: 'Open setup', href: '?s=setup' } },
+    { k: 'areas', label: 'Work areas',
+      ok: allAreas.length > 0,
+      value: allAreas.length > 0 ? SHELL.pluralize(allAreas.length, 'area') : 'no areas',
+      action: { text: 'Open setup', href: '?s=setup' } },
+    { k: 'rough', label: 'Rough-in checklist',
+      ok: roughCount > 0 || everyAreaCustomR,
+      value: roughCount > 0
+        ? SHELL.pluralize(roughCount, 'default task') + (customRoughCount ? ' · ' + customRoughCount + ' custom' : '')
+        : (everyAreaCustomR ? 'all ' + allAreas.length + ' areas have custom' : 'no tasks set'),
+      action: { text: 'Open setup', href: '?s=setup' } },
+    { k: 'fit', label: 'Fit-off checklist',
+      ok: fitCount > 0 || everyAreaCustomF,
+      value: fitCount > 0
+        ? SHELL.pluralize(fitCount, 'default task') + (customFitCount ? ' · ' + customFitCount + ' custom' : '')
+        : (everyAreaCustomF ? 'all ' + allAreas.length + ' areas have custom' : 'no tasks set'),
+      action: { text: 'Open setup', href: '?s=setup' } },
+    { k: 'crew', label: 'Crew',
+      ok: totalCrew > 0,
+      value: totalCrew > 0 ? (lhCount ? lhCount + ' LH · ' + tradieCount + ' tradies' : SHELL.pluralize(tradieCount, 'tradie')) : 'none assigned',
+      action: { text: 'Assign crew', href: '?s=crew' } },
+    { k: 'client', label: 'Client',
+      ok: !!j.clientUserId,
+      value: j.clientUserId ? 'Linked' : 'no client',
+      action: { text: 'Link client', href: '?s=crew' } },
   ];
-  return checks.map(c => `
+}
+
+function setupChecklist(j) {
+  return setupChecks(j).map(c => `
     <div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13px">
-      <span style="width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:${c.ok ? 'var(--ok-bg)' : 'var(--warn-bg)'};color:${c.ok ? 'var(--ok)' : 'var(--warn)'}">${c.ok ? '✓' : '!'}</span>
+      <span style="width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:${c.ok ? 'var(--ok-bg)' : 'var(--warn-bg)'};color:${c.ok ? 'var(--ok)' : 'var(--warn)'};font-weight:700;flex-shrink:0">${c.ok ? '✓' : '!'}</span>
       <span style="flex:1">${SHELL.escapeHtml(c.label)}</span>
-      <span style="font-size:11px;color:var(--muted)">${c.ok ? 'OK' : 'set up →'}</span>
+      <span style="font-size:11px;color:${c.ok ? 'var(--muted)' : 'var(--ink-2)'}">${c.value}</span>
+      ${c.ok ? '' : `<a href="${c.action.href}" class="btn btn-sm" style="flex-shrink:0">${c.action.text}</a>`}
     </div>
   `).join('');
 }
