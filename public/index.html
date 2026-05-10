@@ -2388,9 +2388,17 @@ function dwCard(areaId,areaName){
     }
   }
 
+  // No-checklist case: when an area has no override AND the job has no
+  // default checklist either, there are literally no tasks to tick. Per
+  // the brief: show "No checklist", don't crash, don't fake progress.
+  // The card stays clickable (admin/LH might want to navigate in to add
+  // notes / take ITP photos / raise a snag) but reads honestly.
+  const noChecklist = !roughInTasks.length && !fitOffTasks.length;
+
   // Status badge
   let statusBadge;
-  if(s.pct===100){statusBadge=`<span class="status-badge complete">Complete</span>`;}
+  if(noChecklist){statusBadge=`<span class="status-badge not-started" style="background:var(--surface-3);color:var(--muted);border-color:var(--line)">No checklist</span>`;}
+  else if(s.pct===100){statusBadge=`<span class="status-badge complete">Complete</span>`;}
   else if(sc>0){statusBadge=`<span class="status-badge snagged">Snagged</span>`;}
   else if(s.pct>0||s.ip>0){statusBadge=`<span class="status-badge in-progress">In progress</span>`;}
   else{statusBadge=`<span class="status-badge not-started">Not started</span>`;}
@@ -2400,8 +2408,10 @@ function dwCard(areaId,areaName){
     <div class="dw-row-stage">${stageBadge}</div>
     <div class="dw-row-stage" style="margin-left:4px">${statusBadge}</div>
     <div class="dw-row-progress">
-      <div class="dw-row-bar-bg"><div class="dw-row-bar" style="width:${s.pct}%;background:${barColor}"></div></div>
-      <span class="dw-row-pct">${s.pct}%</span>
+      ${noChecklist
+        ? '<span class="dw-row-pct" style="color:var(--muted)">—</span>'
+        : `<div class="dw-row-bar-bg"><div class="dw-row-bar" style="width:${s.pct}%;background:${barColor}"></div></div>
+           <span class="dw-row-pct">${s.pct}%</span>`}
     </div>
     <div class="dw-row-snags">${sc>0?`<span class="snag-badge">${sc}</span>`:''}</div>
     <div class="dw-row-chevron">&#8250;</div>
