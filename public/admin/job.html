@@ -537,6 +537,13 @@ function renderHours() {
   for (const e of entries) {
     const u = userById[e.userId] || {};
     const rate = (u.role === 'tradie' || u.role === 'leadingHand') ? Number(u.hourlyRate) || 0 : 0;
+    // Delegated-entry attribution — when an LH or admin logged the
+    // entry on behalf of the worker, surface "by <name>" so admin
+    // payroll review can verify the chain of custody. Old entries
+    // (pre-PR #25) don't carry enteredByUserId; we treat those as
+    // self-logged.
+    const delegated = e.enteredByUserId && e.enteredByUserId !== e.userId;
+    const enteredByName = delegated ? (e.enteredByName || 'on behalf') : null;
     for (const a of (e.allocations || [])) {
       if (a.jobId !== STATE.jobId) continue;
       const hours = Number(a.hours) || 0;
@@ -550,6 +557,8 @@ function renderHours() {
         hours,
         cost: hours * rate,
         status: e.status || 'draft',
+        delegated,
+        enteredByName,
       });
     }
   }
@@ -680,7 +689,7 @@ function renderHours() {
         ${allocs.slice(0, 30).map(a => `
           <div style="display:grid;grid-template-columns:1fr 100px 100px 110px;gap:10px;padding:10px 18px;border-bottom:1px solid var(--line);font-size:13px;align-items:center">
             <div>
-              <div style="font-weight:500">${SHELL.escapeHtml(a.userName)}</div>
+              <div style="font-weight:500">${SHELL.escapeHtml(a.userName)}${a.delegated ? ` <span style="font-size:10px;color:var(--ink-2);background:var(--surface-3);padding:1px 7px;border-radius:999px;margin-left:4px;font-weight:500" title="Logged on behalf by ${SHELL.escapeHtml(a.enteredByName)}">by ${SHELL.escapeHtml(a.enteredByName)}</span>` : ''}</div>
               <div style="font-size:11px;color:var(--muted)" class="tabular">${SHELL.escapeHtml(a.date)}</div>
             </div>
             <div class="tabular" style="text-align:right">${a.hours.toFixed(2)}h</div>

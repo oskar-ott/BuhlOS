@@ -814,9 +814,18 @@ function paintLogCard(){
     // Job line: prefer first allocation's job
     const firstAlloc = (entry.allocations || [])[0];
     const job = firstAlloc && firstAlloc.jobId ? (JOBS.find(j => j.id === firstAlloc.jobId)) : null;
-    document.getElementById('logcard-summary-job').innerHTML = job
+    // "Entered by" — when the entry was created or last touched by
+    // someone OTHER than the worker themselves (LH/admin logging on
+    // behalf), show that on the summary line so the tradie understands
+    // they don't need to log a duplicate. Old entries (pre-PR #25)
+    // don't carry enteredByUserId; we silently skip the line for them.
+    const delegated = entry.enteredByUserId && entry.enteredByUserId !== entry.userId;
+    const enteredByLine = delegated
+      ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">Entered by <b style="color:var(--ink-2);font-weight:600">${esc(entry.enteredByName || 'leading hand')}</b></div>`
+      : '';
+    document.getElementById('logcard-summary-job').innerHTML = (job
       ? `On <b>${esc(job.name)}</b>`
-      : '<i style="color:var(--muted)">Internal — no job</i>';
+      : '<i style="color:var(--muted)">Internal — no job</i>') + enteredByLine;
   } else {
     summary.hidden = true;
     entryEl.hidden = false;

@@ -143,6 +143,15 @@ async function handleCreate(req, res, user) {
     })),
     createdAt: now,
     updatedAt: now,
+    // Delegated-entry fields. Per the LH-on-behalf brief, hours BELONG
+    // to the worker (userId) but the system must record who entered them
+    // so the tradie's My Day can show "Entered by Jack" and admin
+    // payroll review can verify the chain of custody. `source` is the
+    // role of the actor at write time so we can split self-entries from
+    // delegated ones in analytics later.
+    enteredByUserId: onBehalf ? user.id : targetUserId,
+    enteredByName:   onBehalf ? user.username : targetUserName,
+    source:          onBehalf ? user.role : 'self',
   };
 
   await writeEntry(targetUserId, entry);
@@ -160,20 +169,46 @@ async function handlePatch(req, res, user) {
   const body = req.body || {};
   const targetUserId = (req.query && req.query.userId) || user.id;
 
-  // Only admin can edit someone else's entry
-  if (targetUserId !== user.id && user.role !== 'admin') {
+  // Permission: self-edit OR admin OR LH editing crew on a shared job.
+  // The LH path is gated below (after we read the target + the existing
+  // entry) so we can compare against the LH's assigned jobs.
+  const isSelf  = (targetUserId === user.id);
+  const isAdmin = (user.role === 'admin');
+  const isLH    = (user.role === 'leadingHand');
+  if (!isSelf && !isAdmin && !isLH) {
     return res.status(403).json({ error: 'forbidden' });
   }
 
   const existing = await readEntry(targetUserId, date);
   if (!existing) return res.status(404).json({ error: 'not found' });
 
-  // Ownership / status gates
-  if (existing.userId !== user.id && user.role !== 'admin') {
-    return res.status(403).json({ error: 'forbidden' });
+  // LH gate — must share at least one assigned job with the target worker.
+  // We read the target's own assignedJobIds (not just the entry's
+  // allocations) because an LH may need to correct hours that the tradie
+  // misallocated to the wrong job.
+  let isDelegated = false;   // is this LH/admin editing someone else's entry?
+  if (!isSelf) {
+    const usersBlob = await readBlob('users.json', { users: [] });
+    const target = (usersBlob.users || []).find(u => u.id === targetUserId);
+    if (!target) return res.status(404).json({ error: 'target user not found' });
+    if (target.role === 'client') return res.status(400).json({ error: 'cannot edit hours for clients' });
+    if (isLH) {
+      const myJobs = new Set(user.assignedJobIds || []);
+      const sharesJob = (target.assignedJobIds || []).some(j => myJobs.has(j));
+      if (!sharesJob) return res.status(403).json({ error: 'forbidden — target is not on a job you run' });
+    }
+    isDelegated = true;
   }
-  if (existing.status === 'approved' && user.role !== 'admin') {
-    return res.status(403).json({ error: 'cannot edit approved entry — ask admin' });
+
+  // Status gates — preserves payroll chain of custody. Only admin can
+  // edit approved or exported entries; everyone else (including LH and
+  // the worker themselves) gets a clear error so they ask admin to
+  // reopen first.
+  if (existing.status === 'approved' && !isAdmin) {
+    return res.status(403).json({ error: 'cannot edit approved entry — ask admin to reopen it' });
+  }
+  if (existing.exportId && !isAdmin) {
+    return res.status(403).json({ error: 'cannot edit entry already exported to payroll — ask admin to reopen it' });
   }
 
   // Build merged shape and validate
@@ -201,6 +236,26 @@ async function handlePatch(req, res, user) {
     updatedAt: now,
     submittedAt: transitioningToSubmitted ? now : existing.submittedAt,
     rejectedReason: wasRejected && body.status === 'submitted' ? null : existing.rejectedReason,
+    // If a non-self user (LH or admin) is editing, refresh the
+    // delegated-entry fields so the tradie's My Day reflects the latest
+    // person who touched it. We never overwrite the original
+    // enteredByUserId on a SELF edit — preserves the audit chain
+    // (entry was originally created on-behalf by Jack, even if Sam
+    // later edited the totals themselves).
+    enteredByUserId: isDelegated
+      ? user.id
+      : (existing.enteredByUserId || existing.userId),
+    enteredByName:   isDelegated
+      ? user.username
+      : (existing.enteredByName   || existing.userName),
+    source: isDelegated
+      ? user.role
+      : (existing.source || 'self'),
+    // Track the most-recent updater independently so admin payroll
+    // review can see "last touched by" without losing the original
+    // entered-by attribution.
+    updatedBy:       user.id,
+    updatedByName:   user.username,
     allocations: (body.allocations || existing.allocations).map((a, i) => ({
       jobId: a.jobId || null,
       hours: Number(a.hours),
