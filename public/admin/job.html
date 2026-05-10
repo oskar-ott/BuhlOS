@@ -22,6 +22,10 @@ let STATE = {
   hoursThisWeek: [],
   crew: [],
   section: 'overview',
+  // Phase 9 — plan takeoff
+  plans: [],         // /api/plans?jobId result
+  takeoff: null,     // /api/plans?jobId&action=takeoff result
+  pdfjsReady: false,
 };
 
 window.PAGE = {
@@ -73,6 +77,14 @@ async function loadAll() {
   } catch { STATE.hoursThisWeek = []; }
   // Crew assigned to this job
   STATE.crew = (SHELL.USERS || []).filter(u => (u.assignedJobIds || []).includes(STATE.jobId));
+  // Plans + AI takeoff (Phase 9)
+  try {
+    const r = await SHELL.api('/api/plans?jobId=' + encodeURIComponent(STATE.jobId));
+    STATE.plans = (r.plans || []).filter(p => p.status !== 'archived');
+  } catch { STATE.plans = []; }
+  try {
+    STATE.takeoff = await SHELL.api('/api/plans?jobId=' + encodeURIComponent(STATE.jobId) + '&action=takeoff');
+  } catch { STATE.takeoff = null; }
 }
 
 function paint() {
@@ -80,12 +92,15 @@ function paint() {
   const j = STATE.job;
   const ref = (j.ref || j.id || '').toUpperCase();
 
+  const pendingDwellings = STATE.takeoff && STATE.takeoff.dwellings
+    ? Object.values(STATE.takeoff.dwellings).filter(d => d.status === 'pending').length : 0;
   const sections = [
     { id: 'overview',  label: 'Overview' },
     { id: 'snags',     label: 'Snags', count: (STATE.data.snags || []).filter(s => s.status === 'Open').length },
     { id: 'hours',     label: 'Hours' },
+    { id: 'plans',     label: 'Plans & takeoff', count: pendingDwellings || null },
     { id: 'crew',      label: 'Crew & client' },
-    { id: 'setup',     label: 'Setup (areas, plans, tasks, materials)' },
+    { id: 'setup',     label: 'Setup (areas, tasks)' },
   ];
 
   SHELL.$('#page').innerHTML = `
@@ -123,6 +138,7 @@ function paint() {
   if      (STATE.section === 'overview') body.innerHTML = renderOverview();
   else if (STATE.section === 'snags')    body.innerHTML = renderSnags();
   else if (STATE.section === 'hours')    body.innerHTML = renderHours();
+  else if (STATE.section === 'plans')    renderPlans(body);
   else if (STATE.section === 'crew')     renderCrew(body);
   else if (STATE.section === 'setup')    body.innerHTML = renderSetupRedirect();
 
@@ -555,6 +571,391 @@ async function linkClient(userId) {
     await loadAll();
     paint();
   } catch (e) { SHELL.toast('Update failed — ' + e.message, 'bad'); }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 9 — Plans & AI-assisted material takeoff
+//
+// Three flows live in this section:
+//   1. Upload PDF → render to PNGs client-side via PDF.js → register pages
+//      against the plan record on the server.
+//   2. Pick a page from a registered plan and run "Extract legend" — Stage 0
+//      of the vision pipeline. The legend becomes the spine for everything
+//      downstream.
+//   3. For each remaining page, run "Analyse sheet" — Stages 1+2. AI
+//      classifies the sheet (which dwelling? what type?) and counts each
+//      legend symbol on it. Counts get written to ai-takeoff.json keyed by
+//      detected dwelling.
+//
+// Per the brief: AI suggests, admin transcribes. The dwelling-review side-
+// panel shows AI counts read-only on the right while the admin types the
+// confirmed numbers into the materials fields on the left. There is
+// deliberately no "accept all" button — the transcription step is the
+// forcing function for review.
+// ─────────────────────────────────────────────────────────────────────
+
+const TAKEOFF_DPI = 180; // A1 plan @ 180 DPI ≈ 4200×6000 PNG, ~2 MB
+const PDFJS_VER  = '4.0.379';
+const PDFJS_BASE = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VER}/legacy/build`;
+
+async function loadPdfJs() {
+  if (STATE.pdfjsReady && window.pdfjsLib) return window.pdfjsLib;
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = PDFJS_BASE + '/pdf.min.js';
+    s.onload = res; s.onerror = () => rej(new Error('PDF.js failed to load'));
+    document.head.appendChild(s);
+  });
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_BASE + '/pdf.worker.min.js';
+  STATE.pdfjsReady = true;
+  return window.pdfjsLib;
+}
+
+function renderPlans(host) {
+  const plans = STATE.plans || [];
+  const takeoff = STATE.takeoff || { dwellings: {}, legendItems: [], spend: { totalUsd: 0 } };
+  const legendCount = (takeoff.legendItems || []).length;
+  const dwellingCount = Object.keys(takeoff.dwellings || {}).length;
+  const pendingCount = Object.values(takeoff.dwellings || {}).filter(d => d.status === 'pending').length;
+  const reviewedCount = Object.values(takeoff.dwellings || {}).filter(d => d.status === 'reviewed').length;
+  const spend = (takeoff.spend && takeoff.spend.totalUsd) || 0;
+
+  host.innerHTML = `
+    <div class="kpi-row" style="margin-bottom:14px">
+      <div class="kpi"><div class="kpi-l">Plans uploaded</div><div class="kpi-v">${plans.length}</div></div>
+      <div class="kpi"><div class="kpi-l">Legend symbols</div><div class="kpi-v ${legendCount ? '' : 'amber'}">${legendCount || '—'}</div><div class="kpi-d">${legendCount ? 'extracted' : 'extract a legend to start'}</div></div>
+      <div class="kpi"><div class="kpi-l">Dwellings detected</div><div class="kpi-v">${dwellingCount}</div><div class="kpi-d">${pendingCount} pending review · ${reviewedCount} reviewed</div></div>
+      <div class="kpi"><div class="kpi-l">AI spend</div><div class="kpi-v">$${spend.toFixed(2)}</div><div class="kpi-d">vision calls this job</div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr"><div><div class="card-title">Upload a plan PDF</div>
+        <div class="card-sub">Pages are rendered to PNG in your browser at ${TAKEOFF_DPI} DPI, then sent for AI takeoff. PDF stays in Vercel Blob.</div></div></div>
+      <input type="file" id="plan-file" accept="application/pdf" style="font-family:inherit">
+      <div id="upload-status" style="margin-top:10px;font-size:13px;color:var(--muted)"></div>
+    </div>
+
+    ${plans.length ? plans.map(planRow).join('') : `
+      <div class="empty"><div class="empty-icon">${SHELL.ICONS.warn}</div>
+        <div class="empty-title">No plans uploaded yet</div>
+        <div class="empty-sub">Upload a PDF to start the AI takeoff.</div></div>
+    `}
+
+    ${dwellingCount ? `
+      <div class="card" style="margin-top:14px">
+        <div class="card-hdr"><div><div class="card-title">Dwellings detected by AI <span class="card-count">${dwellingCount}</span></div>
+          <div class="card-sub">AI suggestions are read-only. Open a dwelling to transcribe confirmed counts into the materials inventory.</div></div></div>
+        ${Object.entries(takeoff.dwellings).map(([dwId, dw]) => dwellingTakeoffRow(dwId, dw)).join('')}
+      </div>` : ''}
+  `;
+
+  SHELL.$('#plan-file').addEventListener('change', e => {
+    if (e.target.files && e.target.files[0]) handlePlanUpload(e.target.files[0]);
+  });
+  SHELL.$$('button[data-render-plan]').forEach(b =>
+    b.addEventListener('click', () => renderAndRegisterPages(b.dataset.renderPlan)));
+  SHELL.$$('button[data-extract-legend]').forEach(b =>
+    b.addEventListener('click', () => extractLegend(b.dataset.extractLegend, Number(b.dataset.page))));
+  SHELL.$$('button[data-analyse-sheet]').forEach(b =>
+    b.addEventListener('click', () => analyseSheet(b.dataset.analyseSheet, Number(b.dataset.page))));
+  SHELL.$$('button[data-analyse-all]').forEach(b =>
+    b.addEventListener('click', () => analyseAllSheets(b.dataset.analyseAll)));
+  SHELL.$$('button[data-open-dwelling]').forEach(b =>
+    b.addEventListener('click', () => openDwellingReview(b.dataset.openDwelling)));
+  SHELL.$$('button[data-dismiss-dwelling]').forEach(b =>
+    b.addEventListener('click', () => dismissDwelling(b.dataset.dismissDwelling)));
+}
+
+function planRow(p) {
+  const pages = p.pages || [];
+  const cls = (STATE.takeoff && STATE.takeoff.sheetClassifications) || {};
+  const legendSrc = STATE.takeoff && STATE.takeoff.legendSource;
+  return `
+    <div class="card" style="margin-bottom:10px">
+      <div class="card-hdr"><div>
+        <div class="card-title">${SHELL.escapeHtml(p.fileName)}</div>
+        <div class="card-sub">${p.drawingNumber ? SHELL.escapeHtml(p.drawingNumber) + ' · ' : ''}${pages.length ? pages.length + ' page' + (pages.length === 1 ? '' : 's') + ' rendered' : 'not rendered yet'}${p.sizeBytes ? ' · ' + Math.round(p.sizeBytes / 1024) + ' KB' : ''}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${!pages.length ? `<button class="btn btn-primary" data-render-plan="${SHELL.escapeHtml(p.id)}">Render pages</button>` : ''}
+        ${pages.length && Object.keys((STATE.takeoff && STATE.takeoff.legendItems) || {}).length === 0 ? `<button class="btn btn-accent" data-analyse-all="${SHELL.escapeHtml(p.id)}" disabled title="Extract the legend first">Analyse all</button>` : ''}
+        ${pages.length && (STATE.takeoff && STATE.takeoff.legendItems || []).length > 0 ? `<button class="btn btn-accent" data-analyse-all="${SHELL.escapeHtml(p.id)}">Analyse all sheets</button>` : ''}
+      </div></div>
+      ${pages.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:10px">
+        ${pages.map(pg => {
+          const k = p.id + ':' + pg.pageIndex;
+          const c = cls[k];
+          const isLegend = legendSrc && legendSrc.planId === p.id && legendSrc.pageIndex === pg.pageIndex;
+          return `<div style="border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)">
+            <a href="${SHELL.escapeHtml(pg.pngUrl)}" target="_blank" rel="noopener" style="display:block">
+              <img src="${SHELL.escapeHtml(pg.pngUrl)}" alt="page ${pg.pageIndex + 1}" style="width:100%;height:120px;object-fit:cover;background:#fff;display:block">
+            </a>
+            <div style="padding:6px 8px;font-size:11px;color:var(--muted);font-family:var(--ff-mono)">
+              p.${pg.pageIndex + 1}${c ? ' · ' + SHELL.escapeHtml(c.sheetType || '') : ''}
+              ${c && c.dwelling ? '<br><b style="color:var(--ink)">' + SHELL.escapeHtml(Array.isArray(c.dwelling) ? c.dwelling.join(', ') : c.dwelling) + '</b>' : ''}
+              ${isLegend ? '<br><span class="pill pill-warn" style="font-size:9px">LEGEND</span>' : ''}
+            </div>
+            <div style="padding:0 8px 8px;display:flex;gap:4px;flex-wrap:wrap">
+              <button class="btn btn-sm" data-extract-legend="${SHELL.escapeHtml(p.id)}" data-page="${pg.pageIndex}" title="Use this page as the legend">Legend</button>
+              <button class="btn btn-sm" data-analyse-sheet="${SHELL.escapeHtml(p.id)}" data-page="${pg.pageIndex}" ${(STATE.takeoff && (STATE.takeoff.legendItems || []).length > 0) ? '' : 'disabled title="Extract legend first"'}>Sheet</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>` : ''}
+    </div>
+  `;
+}
+
+function dwellingTakeoffRow(dwId, dw) {
+  const total = Object.values(dw.suggestions || {}).reduce((s, n) => s + Number(n || 0), 0);
+  const lowConf = Object.values(dw.confidence || {}).filter(c => c === 'partial').length;
+  const tone = dw.status === 'reviewed' ? 'ok' : dw.status === 'dismissed' ? 'navy' : 'warn';
+  const stLabel = dw.status === 'reviewed' ? 'Reviewed' : dw.status === 'dismissed' ? 'Dismissed' : 'Pending review';
+  return `<div style="display:flex;align-items:center;gap:10px;padding:10px;border-top:1px solid var(--line)">
+    <div style="flex:1">
+      <div style="font-weight:600">${SHELL.escapeHtml(dwId)}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">
+        ${total} total fittings suggested · ${(dw.sheetIds || []).length} sheet${(dw.sheetIds || []).length === 1 ? '' : 's'} contributing${lowConf ? ' · <span style="color:var(--warn)">' + lowConf + ' partial-confidence</span>' : ''}
+      </div>
+    </div>
+    <span class="pill pill-${tone}"><span class="pill-dot"></span>${stLabel}</span>
+    <button class="btn btn-sm" data-open-dwelling="${SHELL.escapeHtml(dwId)}">Review →</button>
+    ${dw.status !== 'dismissed' ? `<button class="btn btn-sm btn-danger" data-dismiss-dwelling="${SHELL.escapeHtml(dwId)}">Dismiss</button>` : ''}
+  </div>`;
+}
+
+// ───────────── Upload + render flow ─────────────
+
+async function handlePlanUpload(file) {
+  const status = SHELL.$('#upload-status');
+  if (file.size > 25 * 1024 * 1024) {
+    status.textContent = 'File too large (25 MB limit).'; status.style.color = 'var(--bad)'; return;
+  }
+  status.textContent = 'Uploading PDF…'; status.style.color = 'var(--muted)';
+  try {
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader(); r.onload = e => res(e.target.result); r.onerror = rej; r.readAsDataURL(file);
+    });
+    const r = await SHELL.api('/api/plans?jobId=' + encodeURIComponent(STATE.jobId), {
+      method: 'POST',
+      body: { fileName: file.name, mimeType: file.type, dataUrl, title: file.name.replace(/\.[^.]+$/, '') },
+    });
+    SHELL.$('#plan-file').value = '';
+    status.textContent = 'Uploaded. Rendering pages…'; status.style.color = 'var(--muted)';
+    await loadAll();
+    paint();
+    // Auto-render the new plan's pages immediately
+    if (r.plan && r.plan.id) await renderAndRegisterPages(r.plan.id, file);
+  } catch (e) {
+    status.textContent = 'Upload failed: ' + e.message; status.style.color = 'var(--bad)';
+  }
+}
+
+async function renderAndRegisterPages(planId, file) {
+  const plan = STATE.plans.find(p => p.id === planId);
+  if (!plan) return;
+  const status = SHELL.$('#upload-status');
+  if (status) { status.style.color = 'var(--muted)'; status.textContent = 'Loading PDF.js…'; }
+
+  await loadPdfJs();
+  // Source: prefer the file the admin just picked (already in memory).
+  // Falls back to fetching the Blob URL for re-rendering of an existing plan.
+  let arrayBuffer;
+  if (file) arrayBuffer = await file.arrayBuffer();
+  else {
+    if (status) status.textContent = 'Fetching PDF from storage…';
+    const r = await fetch(plan.url);
+    arrayBuffer = await r.arrayBuffer();
+  }
+  if (status) status.textContent = 'Rendering pages at ' + TAKEOFF_DPI + ' DPI…';
+
+  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pages = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    if (status) status.textContent = `Rendering page ${i}/${pdf.numPages}…`;
+    const page = await pdf.getPage(i);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const scale = TAKEOFF_DPI / 72; // PDF.js default unit is 72 DPI
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const pngDataUrl = canvas.toDataURL('image/png');
+    const sha256 = await sha256OfDataUrl(pngDataUrl);
+    pages.push({ pageIndex: i - 1, pngDataUrl, sha256 });
+    // Free the canvas memory before the next page
+    canvas.width = 0; canvas.height = 0;
+  }
+
+  // POST one page per call — Vercel serverless body limit is 4.5 MB and a
+  // single 180-DPI A1 PNG is ~2 MB base64. Sending 1-at-a-time also gives
+  // a tight progress bar on big plans.
+  for (let i = 0; i < pages.length; i++) {
+    if (status) status.textContent = `Uploading rendered page ${i + 1}/${pages.length}…`;
+    await SHELL.api('/api/plans?jobId=' + encodeURIComponent(STATE.jobId) + '&id=' + encodeURIComponent(planId) + '&action=set-pages', {
+      method: 'POST', body: { pages: [pages[i]] },
+    });
+  }
+  if (status) { status.textContent = 'Pages rendered. Pick the legend page, then analyse the rest.'; status.style.color = 'var(--ok)'; }
+  await loadAll(); paint();
+}
+
+async function sha256OfDataUrl(dataUrl) {
+  const base64 = dataUrl.split(',')[1] || '';
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const buf = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ───────────── Vision calls ─────────────
+
+async function extractLegend(planId, pageIndex) {
+  if (!confirm('Extract the legend from page ' + (pageIndex + 1) + '? This is a paid AI vision call (~$0.02).')) return;
+  SHELL.toast('Extracting legend…');
+  try {
+    const r = await SHELL.api('/api/plans?jobId=' + encodeURIComponent(STATE.jobId) + '&action=analyse-legend', {
+      method: 'POST', body: { planId, pageIndex },
+    });
+    const items = (r.legend && r.legend.items) || [];
+    SHELL.toast('Legend extracted — ' + items.length + ' symbol' + (items.length === 1 ? '' : 's') + (r.cached ? ' (cached)' : ''), 'ok');
+    await loadAll(); paint();
+  } catch (e) { SHELL.toast('Legend extract failed — ' + e.message, 'bad'); }
+}
+
+async function analyseSheet(planId, pageIndex) {
+  SHELL.toast('Analysing page ' + (pageIndex + 1) + '…');
+  try {
+    const r = await SHELL.api('/api/plans?jobId=' + encodeURIComponent(STATE.jobId) + '&action=analyse-sheet', {
+      method: 'POST', body: { planId, pageIndex },
+    });
+    const cls = (r.result && r.result.classification) || {};
+    SHELL.toast(
+      cls.dwelling ? 'Page ' + (pageIndex + 1) + ' → ' + (Array.isArray(cls.dwelling) ? cls.dwelling.join(', ') : cls.dwelling) + (r.cached ? ' (cached)' : '')
+      : 'Page ' + (pageIndex + 1) + ' classified as ' + (cls.sheetType || 'unknown') + (r.cached ? ' (cached)' : ''), 'ok');
+    await loadAll(); paint();
+  } catch (e) { SHELL.toast('Analyse failed — ' + e.message, 'bad'); }
+}
+
+async function analyseAllSheets(planId) {
+  const plan = STATE.plans.find(p => p.id === planId);
+  if (!plan || !(plan.pages || []).length) { SHELL.toast('Render pages first', 'warn'); return; }
+  if (!STATE.takeoff || !(STATE.takeoff.legendItems || []).length) {
+    SHELL.toast('Extract a legend first', 'warn'); return;
+  }
+  if (!confirm('Analyse all ' + plan.pages.length + ' page' + (plan.pages.length === 1 ? '' : 's') + ' on this plan? Estimated cost ~$' + (plan.pages.length * 0.012).toFixed(2) + '.')) return;
+  // Sequential — keeps under any client-side rate limit and lets us stop on cost-cap.
+  for (const pg of plan.pages) {
+    try {
+      const r = await SHELL.api('/api/plans?jobId=' + encodeURIComponent(STATE.jobId) + '&action=analyse-sheet', {
+        method: 'POST', body: { planId, pageIndex: pg.pageIndex },
+      });
+      // Live update — repaint after each
+      await loadAll(); paint();
+    } catch (e) {
+      if (/cost cap/i.test(e.message)) { SHELL.toast('Cost cap reached — stopping', 'warn'); return; }
+      SHELL.toast('Page ' + (pg.pageIndex + 1) + ' failed: ' + e.message, 'bad');
+    }
+  }
+  SHELL.toast('All pages analysed', 'ok');
+}
+
+// ───────────── Dwelling review side-panel ─────────────
+
+function openDwellingReview(dwellingId) {
+  const dw = STATE.takeoff && STATE.takeoff.dwellings && STATE.takeoff.dwellings[dwellingId];
+  if (!dw) { SHELL.toast('No AI suggestions for this dwelling', 'warn'); return; }
+  const legend = (STATE.takeoff && STATE.takeoff.legendItems) || [];
+  const existingMaterials = (STATE.data.dwellings && STATE.data.dwellings[dwellingId] && STATE.data.dwellings[dwellingId].materials) || {};
+  const sheetThumbs = (dw.sheetIds || []).map(s => {
+    const p = STATE.plans.find(pl => pl.id === s.planId);
+    const pg = p && (p.pages || []).find(x => x.pageIndex === s.pageIndex);
+    return pg ? { url: pg.pngUrl, label: (p.fileName || s.planId) + ' p.' + (s.pageIndex + 1) } : null;
+  }).filter(Boolean);
+
+  // Build the materials editor table — one row per legend item.
+  const rows = legend.map(it => {
+    const code = it.code;
+    const aiQty = dw.suggestions[code] || 0;
+    const confidence = dw.confidence[code] || (aiQty > 0 ? 'clear' : 'missing');
+    const adminQty = existingMaterials[code] != null ? existingMaterials[code] : '';
+    const confTone = confidence === 'partial' ? 'warn' : confidence === 'missing' ? 'navy' : 'ok';
+    return `<tr>
+      <td style="font-size:13px"><b>${SHELL.escapeHtml(it.label)}</b><div style="font-size:11px;color:var(--muted);font-family:var(--ff-mono)">${SHELL.escapeHtml(code)}</div></td>
+      <td style="text-align:center;background:var(--surface-2);border-left:1px dashed var(--line);border-right:1px dashed var(--line)">
+        <div style="font-size:18px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums">${aiQty}</div>
+        <span class="pill pill-${confTone}" style="font-size:9px">${confidence}</span>
+      </td>
+      <td style="text-align:center">
+        <input class="input" type="number" min="0" step="1" style="width:80px;text-align:center" data-mat-code="${SHELL.escapeHtml(code)}" value="${SHELL.escapeHtml(String(adminQty))}" placeholder="—">
+      </td>
+    </tr>`;
+  }).join('');
+
+  const panel = SHELL.openPanel({
+    title: 'Review takeoff — ' + dwellingId,
+    body: `
+      <div style="margin-bottom:12px;padding:10px 12px;background:var(--warn-bg);border:1px solid var(--warn-bd);border-radius:6px;font-size:12px;color:var(--ink-2)">
+        <b>AI suggests, you transcribe.</b> The middle column is read-only. Type the confirmed count into the right column. Suggestions are saved to a separate file and never overwrite your numbers.
+      </div>
+      ${sheetThumbs.length ? `<div style="margin-bottom:12px"><div class="card-sub" style="margin-bottom:6px">Source sheets (${sheetThumbs.length})</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${sheetThumbs.map(t => `<a href="${SHELL.escapeHtml(t.url)}" target="_blank" rel="noopener" title="${SHELL.escapeHtml(t.label)}" style="display:block;width:80px;height:60px;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:#fff"><img src="${SHELL.escapeHtml(t.url)}" alt="${SHELL.escapeHtml(t.label)}" style="width:100%;height:100%;object-fit:cover"></a>`).join('')}
+        </div></div>` : ''}
+      ${STATE.takeoff.legendSource ? `<div style="margin-bottom:12px;font-size:12px"><a href="${(() => {
+        const ls = STATE.takeoff.legendSource;
+        const p = STATE.plans.find(pl => pl.id === ls.planId);
+        const pg = p && (p.pages || []).find(x => x.pageIndex === ls.pageIndex);
+        return pg ? SHELL.escapeHtml(pg.pngUrl) : '#';
+      })()}" target="_blank" rel="noopener">View legend ↗</a></div>` : ''}
+      <table class="table" style="font-size:13px">
+        <thead><tr><th>Legend item</th><th style="text-align:center;background:var(--surface-2)">AI suggests</th><th style="text-align:center">Confirmed (admin)</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:20px">No legend items yet.</td></tr>'}</tbody>
+      </table>
+    `,
+    footer: `
+      <button class="btn" onclick="SHELL.closePanel()">Close</button>
+      <button class="btn btn-danger" id="dw-dismiss-${SHELL.escapeHtml(dwellingId)}">Dismiss AI</button>
+      <button class="btn btn-primary" id="dw-save-${SHELL.escapeHtml(dwellingId)}">Save confirmed counts</button>
+    `,
+  });
+  panel.querySelector('#dw-save-' + CSS.escape(dwellingId)).addEventListener('click', async () => {
+    const materials = {};
+    panel.querySelectorAll('input[data-mat-code]').forEach(inp => {
+      const v = parseInt(inp.value, 10);
+      if (Number.isFinite(v) && v > 0) materials[inp.dataset.matCode] = v;
+    });
+    try {
+      await SHELL.api('/api/plans?jobId=' + encodeURIComponent(STATE.jobId) + '&action=set-dwelling-materials', {
+        method: 'POST', body: { dwellingId, materials },
+      });
+      await SHELL.api('/api/plans?jobId=' + encodeURIComponent(STATE.jobId) + '&action=mark-reviewed', {
+        method: 'POST', body: { dwellingId },
+      });
+      SHELL.toast('Saved — dwelling marked reviewed', 'ok');
+      SHELL.closePanel();
+      await loadAll(); paint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+  panel.querySelector('#dw-dismiss-' + CSS.escape(dwellingId)).addEventListener('click', async () => {
+    await dismissDwelling(dwellingId);
+    SHELL.closePanel();
+  });
+}
+
+async function dismissDwelling(dwellingId) {
+  if (!confirm('Dismiss AI suggestions for ' + dwellingId + '? Your materials data is untouched; only the AI panel goes away.')) return;
+  try {
+    await SHELL.api('/api/plans?jobId=' + encodeURIComponent(STATE.jobId) + '&action=dismiss-dwelling', {
+      method: 'POST', body: { dwellingId },
+    });
+    SHELL.toast('Dismissed', 'ok');
+    await loadAll(); paint();
+  } catch (e) { SHELL.toast('Dismiss failed — ' + e.message, 'bad'); }
 }
 
 SHELL.boot();
