@@ -4,345 +4,284 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>buhl — jobs</title>
-<link rel="stylesheet" href="/theme.css">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
-<meta name="theme-color" content="#0d1b34">
+<meta name="theme-color" content="#0d1f35">
 <script src="/mobile-nav.js" defer></script>
 <script src="/install-prompt.js" defer></script>
 <script src="/lib/approvals-badge.js" defer></script>
-<!-- Sheet 03 register: IBM Plex on warm cream, monochrome navy, drafting chrome. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  /* ─────────────────────────────────────────────────────────────────
-     SHEET 03 — JOBS LIST · full-bleed drafting chrome on warm cream paper
-     The navy app-header from theme.css is intentionally NOT used on this
-     page — drafting register owns the whole viewport edge to edge.
-     ───────────────────────────────────────────────────────────────── */
-  /* Override theme.css body bg so cream extends past the centred sheet
-     on wide viewports — no stranded grey gutters. */
-  body { background: #fdfbf3; }
+  /* /jobs picker — rebuilt to match the mobile UX brief's system rules:
+       - Backgrounds stay near-white (#fafaf7); tinting comes from status
+       - Navy only for chrome; yellow only for the single primary action
+       - Inter for UI; IBM Plex Mono only for tabular numbers
+       - Status colours: green (done), amber (in progress), red (snagged), grey (not started)
+       - Min 44pt tap targets; 56pt for primary
+     The decorative "Sheet 03" drafting chrome (FIG. 05 / SHEET / serif
+     italics / project-screen-user-sync footer) is intentionally gone —
+     this is a worker entry point, not a printable cover. */
+  :root {
+    --bg:        #fafaf7;
+    --surface:   #ffffff;
+    --surface-2: #f4f4ef;
+    --ink:       #0c1623;
+    --ink-2:     #33425a;
+    --muted:     #6a778b;
+    --line:      #e3e5dc;
+    --line-2:    #d8dad0;
+    --navy:      #0d1f35;
+    --yellow:    #f5c518;
+    --yellow-ink:#2a1a05;
+    --ok:        #16a34a;
+    --warn:      #f59e0b;
+    --bad:       #dc2626;
+    --info:      #21507a;
+    --r:         10px;
+    --r-sm:      6px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{background:var(--bg);color:var(--ink);font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;font-feature-settings:"ss01","cv11"}
+  a{color:inherit;text-decoration:none}
+  button,input,select{font:inherit;color:inherit}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
 
-  .jobs-page {
-    --paper:        #fdfbf3;
-    --paper-2:      #f7f3e6;
-    --paper-3:      #efe9d6;
-    --grid-soft:    rgba(13,27,52,.07);
-    --grid-strong:  rgba(13,27,52,.14);
-    --ink:          #0d1b34;
-    --ink-2:        #36446b;
-    --ink-3:        #6a7591;
-    --rule-ink:     #0d1b34;
-    --rule-soft:    #c8cee0;
-    --red:          #c0312f;
-    --green:        #1f8b5a;
-    --display:      "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
-    --plex-sans:    "IBM Plex Sans", system-ui, sans-serif;
-    --plex-serif:   "IBM Plex Serif", Georgia, serif;
-    --plex-mono:    "IBM Plex Mono", ui-monospace, monospace;
-
-    background: var(--paper);
-    background-image:
-      linear-gradient(to right, var(--grid-soft) 0 1px, transparent 1px 100%),
-      linear-gradient(to bottom, var(--grid-soft) 0 1px, transparent 1px 100%),
-      linear-gradient(to right, var(--grid-strong) 0 1px, transparent 1px 100%),
-      linear-gradient(to bottom, var(--grid-strong) 0 1px, transparent 1px 100%);
-    background-size: 24px 24px, 24px 24px, 120px 120px, 120px 120px;
-    color: var(--ink);
-    font-family: var(--plex-sans);
-
-    /* Page now owns the full viewport — no navy header above eating 60px. */
-    min-height: 100vh;
-    max-width: 1100px; margin: 0 auto;
-    /* Top padding mirrors safe-area inset so the strip clears the notch
-       on iOS PWAs without padding the body universally. */
-    padding: max(env(safe-area-inset-top), 18px) clamp(16px, 4vw, 36px) 24px;
+  /* ── Topbar — compact navy strip with the wordmark + sign-out ────── */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; gap: 12px;
+    padding: max(env(safe-area-inset-top), 10px) 18px 10px;
+    background: var(--navy); color: #fff;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+  }
+  .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: -.2px; font-size: 16px; line-height: 1; }
+  .brand-mark {
+    width: 24px; height: 24px; display: grid; place-items: center;
+    background: var(--yellow); color: var(--navy);
+    font-weight: 800; font-size: 15px; border-radius: 5px;
+    font-family: Georgia, "Times New Roman", serif; letter-spacing: -1px;
+  }
+  .brand small { font-weight: 400; opacity: .55; font-size: 10px; letter-spacing: .4px; text-transform: uppercase; margin-left: 6px; }
+  .top-spacer { flex: 1; }
+  .nav-pill {
+    display: inline-flex; align-items: center; height: 32px;
+    padding: 0 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 600;
+    color: rgba(255,255,255,.7);
+    border: 1px solid rgba(255,255,255,.14);
+    background: transparent;
+    transition: background .12s, color .12s;
+  }
+  .nav-pill:hover { color: #fff; background: rgba(255,255,255,.08); }
+  .nav-pill.active { color: var(--yellow-ink); background: var(--yellow); border-color: var(--yellow); }
+  .top-me { font-size: 12px; color: rgba(255,255,255,.65); white-space: nowrap; }
+  .top-out {
+    appearance: none; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
+    color: #fff; border-radius: 8px; padding: 6px 10px;
+    font-size: 12px; font-weight: 600; cursor: pointer; min-height: 32px;
+  }
+  .top-out:hover { background: rgba(255,255,255,.14); }
+  @media (max-width: 480px) {
+    .topbar { padding-left: 14px; padding-right: 14px; gap: 8px; }
+    .top-me { display: none; }
+    .nav-pill { padding: 0 10px; font-size: 11px; height: 28px; }
   }
 
-  /* drawing strip across the top */
-  .jobs-page .strip {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 14px 0 12px; border-bottom: 1.5px solid var(--rule-ink);
-    font-family: var(--plex-mono); font-size: 10px; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--ink-2);
-  }
-  .jobs-page .strip b { color: var(--ink); font-weight: 600; }
-  .jobs-page .strip .marker {
-    display: inline-block; width: 7px; height: 7px;
-    background: var(--ink); margin-right: 8px; vertical-align: 1px;
-  }
-  .jobs-page .strip .right { display: flex; gap: 18px; align-items: center; }
+  /* ── Page body ───────────────────────────────────────────────────── */
+  .page { max-width: 720px; margin: 0 auto; padding: 18px clamp(14px, 4vw, 24px) 60px; }
 
-  /* page heading */
-  .jobs-page .ph {
-    display: grid; grid-template-columns: 80px 1fr auto;
-    gap: clamp(16px, 3vw, 32px); align-items: end;
-    padding: 24px 0 16px; border-bottom: 1.5px solid var(--rule-ink);
-    margin-bottom: 18px;
-  }
-  .jobs-page .ph .num {
-    font-family: var(--plex-mono); font-size: 10px; letter-spacing: .14em;
-    color: var(--ink-3); text-transform: uppercase; padding-bottom: 6px;
-  }
-  .jobs-page .ph .num b { color: var(--ink); font-weight: 600; }
-  .jobs-page .ph h1 {
-    font-family: var(--display); font-weight: 700;
-    font-size: clamp(28px, 4.4vw, 48px); line-height: 0.96;
-    letter-spacing: -0.025em; margin: 0 0 6px; color: var(--ink);
-  }
-  .jobs-page .ph h1 em {
-    font-family: var(--plex-serif); font-style: italic; font-weight: 400;
-    font-size: 0.55em; color: var(--ink-2);
-    margin-left: 0.06em;
-  }
-  .jobs-page .ph .lede {
-    font-family: var(--plex-mono); font-size: 10.5px; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--ink-3); margin: 4px 0 0;
-  }
-  .jobs-page .ph .lede b { color: var(--ink); font-weight: 600; }
-  .jobs-page .ph .ref {
-    font-family: var(--plex-mono); font-size: 10px; letter-spacing: .12em;
-    text-transform: uppercase; color: var(--ink-3);
-    text-align: right; line-height: 1.6;
-  }
-  .jobs-page .ph .ref b { display: block; color: var(--ink); font-weight: 600; }
+  .head { margin-bottom: 16px; }
+  .h1 { font-size: clamp(22px, 4.4vw, 26px); font-weight: 700; letter-spacing: -.3px; line-height: 1.15; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: var(--muted); }
+  .sub b { color: var(--ink); font-weight: 600; }
 
-  /* filter row + search */
-  .jobs-page .controls {
-    display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch;
+  /* Controls row — search + filter chips */
+  .controls {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
     margin-bottom: 14px;
   }
-  .jobs-page .filter-bar { display: flex; gap: 0; flex-wrap: wrap; }
-  .jobs-page .filter-pill {
-    appearance: none; -webkit-appearance: none;
-    height: 34px; padding: 0 14px;
-    background: var(--paper); border: 1.5px solid var(--ink);
-    border-right: 0;
-    color: var(--ink-2); cursor: pointer;
-    font-family: var(--plex-mono); font-size: 10px; font-weight: 600;
-    letter-spacing: .14em; text-transform: uppercase;
-  }
-  .jobs-page .filter-pill:last-child { border-right: 1.5px solid var(--ink); }
-  .jobs-page .filter-pill:hover { background: var(--paper-2); color: var(--ink); }
-  .jobs-page .filter-pill.active {
-    background: var(--ink); color: var(--paper);
-  }
-  .jobs-page .filter-count {
-    font-size: 9px; opacity: .85; margin-left: 5px;
-    font-variant-numeric: tabular-nums;
-  }
-  .jobs-page .search {
-    flex: 1; min-width: 220px;
+  .search {
+    flex: 1; min-width: 220px; max-width: 360px;
     display: flex; align-items: center; gap: 8px;
-    border: 1.5px solid var(--ink); background: var(--paper);
-    padding: 0 14px;
+    background: var(--surface);
+    border: 1px solid var(--line); border-radius: var(--r);
+    padding: 0 12px; height: 40px;
   }
-  .jobs-page .search::before {
-    content: "⌕"; font-family: var(--plex-mono); font-size: 14px;
-    color: var(--ink-3); font-weight: 600;
+  .search:focus-within { border-color: var(--ink); }
+  .search svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+  .search input { flex: 1; border: 0; outline: none; background: transparent; height: 100%; font-size: 14px; }
+  .search input::placeholder { color: var(--muted); }
+  .filter-bar {
+    display: inline-flex; gap: 4px; padding: 3px;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r);
   }
-  .jobs-page .search input {
-    flex: 1; background: transparent; border: 0; outline: none;
-    height: 34px; padding: 0;
-    font-family: var(--plex-sans); font-size: 14px; color: var(--ink);
+  .filter-pill {
+    appearance: none; background: transparent; border: 0;
+    padding: 6px 12px; min-height: 34px;
+    border-radius: var(--r-sm);
+    font-size: 12px; font-weight: 500; color: var(--muted);
+    white-space: nowrap; cursor: pointer;
   }
-  .jobs-page .search input::placeholder {
-    font-family: var(--plex-mono); font-size: 11px; letter-spacing: .12em;
-    text-transform: uppercase; color: var(--ink-3);
+  .filter-pill:hover { color: var(--ink); }
+  .filter-pill.active {
+    background: var(--surface); color: var(--ink); font-weight: 600;
+    box-shadow: 0 1px 2px rgba(13,31,53,.06);
   }
+  .filter-count {
+    margin-left: 5px; font-size: 11px; opacity: .7;
+    font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums;
+  }
+  .filter-pill.active .filter-count { opacity: .85; }
+  .visible-count { margin-left: auto; font-size: 12px; color: var(--muted); }
 
-  /* list */
-  .jobs-page .jobs-list {
-    border: 1.5px solid var(--ink); background: var(--paper);
+  /* ── Jobs list ──────────────────────────────────────────────────── */
+  .jobs-list {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    overflow: hidden;
   }
-  .jobs-page .job-row {
+  .job-row {
     display: grid;
-    grid-template-columns: 1fr 64px;
+    grid-template-columns: 4px 1fr auto;
     grid-template-areas:
-      "ref   pct"
-      "name  pct"
-      "pbar  pbar"
-      "stats stats";
-    column-gap: 16px; row-gap: 4px;
-    padding: 12px 14px 10px;
-    border-bottom: 1px solid var(--rule-soft);
-    cursor: pointer; position: relative;
-    background: var(--paper);
+      "stripe ref     pct"
+      "stripe name    pct"
+      "stripe meta    chev";
+    column-gap: 12px; row-gap: 2px;
+    padding: 14px 16px 12px 12px;
+    border-bottom: 1px solid var(--line);
+    cursor: pointer; text-decoration: none; color: inherit;
+    min-height: 76px;
     transition: background .12s;
   }
-  .jobs-page .job-row:last-child { border-bottom: 0; }
-  .jobs-page .job-row:hover  { background: var(--paper-2); }
-  .jobs-page .job-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
-  .jobs-page .job-row.cur {
-    background: var(--paper-2);
-    border-left: 4px solid var(--ink);
-    padding-left: 10px;
-  }
-  .jobs-page .job-row .ref {
+  .job-row:last-child { border-bottom: 0; }
+  .job-row:hover { background: var(--surface-2); }
+  .job-row:focus-visible { outline: 2px solid var(--navy); outline-offset: -2px; }
+  .job-row.cur { background: var(--surface-2); }
+
+  /* State colour stripe — design brief moves[2]: "row colour stripe per
+     state" (red snagged / amber in-progress / green done / grey other) */
+  .stripe { grid-area: stripe; align-self: stretch; border-radius: 3px; background: var(--line-2); width: 4px; }
+  .stripe.red    { background: var(--bad); }
+  .stripe.amber  { background: var(--warn); }
+  .stripe.green  { background: var(--ok); }
+  .stripe.cur    { background: var(--yellow); }
+
+  .ref {
     grid-area: ref;
-    font-family: var(--plex-mono); font-size: 10px; letter-spacing: .12em;
-    text-transform: uppercase; color: var(--ink-2);
+    font-family: "IBM Plex Mono", monospace; font-size: 11px;
+    color: var(--muted); letter-spacing: .04em;
     display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
   }
-  .jobs-page .job-row .ref b { color: var(--ink); font-weight: 700; }
-  .jobs-page .job-row .nm {
+  .ref b { color: var(--ink-2); font-weight: 600; }
+  .name {
     grid-area: name;
-    font-family: var(--display); font-weight: 700;
-    font-size: 18px; letter-spacing: -.022em; line-height: 1.15;
-    color: var(--ink);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-size: 16px; font-weight: 600; line-height: 1.25;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .jobs-page .job-row .pct {
+  .pct {
     grid-area: pct;
-    align-self: start;
-    font-family: var(--display); font-weight: 800;
-    font-size: 28px; letter-spacing: -.03em; line-height: 1;
-    color: var(--ink); text-align: right;
-    font-variant-numeric: tabular-nums;
+    align-self: start; padding-top: 2px;
+    font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums;
+    font-size: 22px; font-weight: 700; letter-spacing: -.4px; line-height: 1;
+    text-align: right; min-width: 56px;
   }
-  .jobs-page .job-row .pct.muted { color: var(--ink-3); }
-  .jobs-page .job-row .pbar {
-    grid-area: pbar;
-    height: 4px; border: 1.5px solid var(--ink); background: var(--paper-2);
-    margin-top: 6px;
+  .pct.muted { color: var(--muted); }
+  .meta {
+    grid-area: meta;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    font-size: 12.5px; color: var(--muted);
   }
-  .jobs-page .job-row .pbar i { display: block; height: 100%; background: var(--ink); }
-  .jobs-page .job-row.cur .pbar i { background: var(--ink); }
-  .jobs-page .job-row .stats {
-    grid-area: stats;
-    display: flex; flex-wrap: wrap; gap: 14px;
-    font-family: var(--plex-mono); font-size: 10px; letter-spacing: .1em;
-    text-transform: uppercase; color: var(--ink-2);
-    margin-top: 4px;
-  }
-  .jobs-page .job-row .stats span { display: inline-flex; align-items: baseline; gap: 4px; }
-  .jobs-page .job-row .stats b { color: var(--ink); font-weight: 700; }
-  .jobs-page .job-row .stats .red b { color: var(--red); }
-  .jobs-page .job-row .stats .red { color: var(--red); }
-  .jobs-page .job-row .stats .green b { color: var(--green); }
-  .jobs-page .job-row .stats .green { color: var(--green); }
-  .jobs-page .job-row .stats .verb { color: var(--ink); font-weight: 600; }
-  .jobs-page .job-row .stats .verb.red { color: var(--red); }
-  .jobs-page .job-row .stats .verb.cur::before { content: "▸ "; color: var(--ink); }
+  .meta span { display: inline-flex; align-items: center; gap: 4px; }
+  .meta b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .meta .red, .meta .red b { color: var(--bad); }
+  .meta .green, .meta .green b { color: var(--ok); }
 
-  /* dashed snag chip — admin/LH-only, links into job snags tab */
-  .jobs-page .job-row .stats a {
-    color: inherit; text-decoration: none;
-    border-bottom: 1px dashed currentColor;
+  /* Status pill (right-aligned in meta row) */
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 999px;
+    font-size: 11px; font-weight: 600;
+    background: var(--surface-2); color: var(--ink-2);
+  }
+  .status-pill.cur      { background: var(--yellow); color: var(--yellow-ink); }
+  .status-pill.complete { background: rgba(22,163,74,.12); color: var(--ok); }
+  .status-pill.archived { color: var(--muted); }
+
+  .chev {
+    grid-area: chev;
+    align-self: end; color: var(--muted);
+    font-size: 18px; line-height: 1;
   }
 
-  /* empty state */
-  .jobs-page .empty-state {
-    border: 1.5px dashed var(--ink); background: var(--paper);
-    padding: 36px 20px; text-align: center;
-    font-family: var(--plex-serif); font-style: italic; font-size: 14px;
-    color: var(--ink-2);
+  /* Empty state */
+  .empty {
+    background: var(--surface);
+    border: 1px dashed var(--line-2);
+    border-radius: var(--r);
+    padding: 32px 20px; text-align: center;
+    font-size: 14px; color: var(--muted);
   }
-  .jobs-page .empty-state a { color: var(--ink); font-weight: 600; }
+  .empty b { color: var(--ink); font-weight: 600; }
+  .empty a { color: var(--ink); font-weight: 600; text-decoration: underline; }
 
-  /* drawing title-block at the bottom */
-  .jobs-page .tb {
-    display: grid; grid-template-columns: repeat(5, 1fr);
-    border: 1.5px solid var(--ink); background: var(--paper-2);
-    margin-top: 18px;
-    font-family: var(--plex-mono); font-size: 9px; letter-spacing: .12em;
-    text-transform: uppercase;
-  }
-  .jobs-page .tb-cell {
-    border-right: 1px solid var(--ink);
-    padding: 8px 10px; color: var(--ink-2); line-height: 1.4;
-  }
-  .jobs-page .tb-cell:last-child { border-right: 0; }
-  .jobs-page .tb-cell .o {
-    display: block; color: var(--ink-3); font-size: 8px;
-    letter-spacing: .14em; margin-bottom: 2px;
-  }
-  .jobs-page .tb-cell b {
-    color: var(--ink); font-family: var(--display); font-weight: 700;
-    font-size: 11px; letter-spacing: -.005em; text-transform: none;
-  }
-  /* Sign-out lives in the title-block — no chrome up top. Styled to match
-     the cell's mono register so it doesn't read as a button. */
-  .jobs-page .tb-signout {
-    appearance: none; -webkit-appearance: none;
-    background: transparent; border: 0; padding: 0;
-    color: var(--ink); font-family: var(--display);
-    font-weight: 700; font-size: 11px; letter-spacing: -.005em;
-    text-transform: none; cursor: pointer;
-  }
-  .jobs-page .tb-signout:hover { color: var(--red); }
-
-  @media (max-width: 540px) {
-    .jobs-page { padding: max(env(safe-area-inset-top), 14px) 14px 18px; }
-    .jobs-page .ph { grid-template-columns: 60px 1fr; }
-    .jobs-page .ph .ref { display: none; }
-    .jobs-page .job-row { grid-template-columns: 1fr 56px; }
-    .jobs-page .job-row .nm { font-size: 16px; }
-    .jobs-page .job-row .pct { font-size: 24px; }
-    .jobs-page .job-row .stats { font-size: 9.5px; gap: 10px; }
-    .jobs-page .filter-pill { padding: 0 10px; height: 32px; font-size: 9.5px; }
-    /* On phones the title-block becomes 2-up so cells stay legible. */
-    .jobs-page .tb { grid-template-columns: 1fr 1fr; }
-    .jobs-page .tb-cell { border-right: 0; border-bottom: 1px solid var(--ink); }
-    .jobs-page .tb-cell:nth-child(odd) { border-right: 1px solid var(--ink); }
-    .jobs-page .tb-cell:nth-last-child(-n+2) { border-bottom: 0; }
+  @media (max-width: 480px) {
+    .page { padding-bottom: 40px; }
+    .controls { gap: 8px; }
+    .visible-count { width: 100%; text-align: right; }
+    .name { font-size: 15px; }
+    .pct { font-size: 20px; min-width: 50px; }
+    .meta { font-size: 12px; gap: 10px; }
   }
 </style>
 </head>
 <body>
-<!-- The navy app-header from theme.css is intentionally omitted on /jobs —
-     full-bleed drafting register owns the viewport edge to edge. Sign-out
-     and identity live in the title-block at the foot of the page; admins
-     reach Approvals/Admin via direct URL or from inside /admin. -->
 
-<div class="jobs-page">
+<header class="topbar">
+  <a class="brand" href="/jobs" aria-label="BuhlOS — jobs">
+    <span class="brand-mark">b</span>
+    <span>bühl<small>electrical</small></span>
+  </a>
+  <a class="nav-pill" id="myDayLink" href="/my-day" style="display:none">My Day</a>
+  <a class="nav-pill" id="ovLink" href="/admin/operations" style="display:none">Operations</a>
+  <a class="nav-pill active" href="/jobs">Jobs</a>
+  <a class="nav-pill" id="approvalsLink" href="/admin/approvals" style="display:none">Approvals</a>
+  <a class="nav-pill" id="adminLink" href="/admin" style="display:none">Admin</a>
+  <span class="top-spacer"></span>
+  <span class="top-me" id="me"></span>
+  <button class="top-out" id="logout">Sign out</button>
+</header>
 
-  <header class="strip">
-    <span><span class="marker"></span>buhl electrical &middot; <b>R-JOBS</b></span>
-    <span class="right">
-      <span><b>FIG. 05</b> &middot; jobs · last opened ↓</span>
-      <span><b id="syncLbl">LIVE</b></span>
-    </span>
-  </header>
-
-  <div class="ph">
-    <div class="num">SHEET <b>R-JOBS</b><br/>1 of 1</div>
-    <div>
-      <h1>your <em>jobs</em>.</h1>
-      <p class="lede"><b id="jobs-active-count">0</b> active &middot; <b id="jobs-snags-count">0</b> open snags &middot; tap any row to open</p>
-    </div>
-    <div class="ref"><b id="job-count">…</b>jobs visible</div>
+<div class="page">
+  <div class="head">
+    <h1 class="h1">Your jobs</h1>
+    <div class="sub"><b id="jobs-active-count">0</b> active · <b id="jobs-snags-count">0</b> open snags · tap any row to open</div>
   </div>
 
   <div class="controls">
-    <div class="filter-bar" id="jobs-filter-bar"></div>
     <div class="search">
-      <input type="search" placeholder="Search · name or ref" id="job-search" autocomplete="off">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input type="search" id="job-search" placeholder="Search by name or ref" autocomplete="off">
     </div>
+    <div class="filter-bar" id="jobs-filter-bar"></div>
+    <span class="visible-count"><b id="job-count" class="mono">…</b> visible</span>
   </div>
 
   <div id="list"></div>
-
-  <div class="tb">
-    <div class="tb-cell"><span class="o">project</span><b>BuhlOS</b></div>
-    <div class="tb-cell"><span class="o">screen</span>R-JOBS</div>
-    <div class="tb-cell"><span class="o">user</span><b id="tbUser">—</b></div>
-    <div class="tb-cell"><span class="o">sync</span><b id="tbSync">LIVE</b></div>
-    <div class="tb-cell"><span class="o">session</span><button class="tb-signout" id="logout" type="button">Sign out</button></div>
-  </div>
 </div>
 
 <script>
 let allJobs = [];
-let jobTypes = {};       // id -> { name }
+let jobTypes = {};
 let currentUser = null;
-let jobStatusFilter = 'active'; // active | all | complete | archived
-let jobSearchQuery  = '';
+let jobStatusFilter = 'active';
+let jobSearchQuery = '';
 
 async function load() {
   const meRes = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
@@ -350,21 +289,18 @@ async function load() {
   const { user } = await meRes.json();
   currentUser = user;
 
-  // Identity goes into the title-block USER cell. Role is uppercased to
-  // match the cell's mono register.
-  const roleLabel = { admin: 'Admin', leadingHand: 'Leading Hand', tradie: 'Tradie' }[user.role] || '';
-  const tbU = document.getElementById('tbUser');
-  if (tbU) tbU.textContent = roleLabel ? (user.username + ' · ' + roleLabel.toUpperCase()) : user.username;
+  const roleLabel = { admin: 'Admin', leadingHand: 'Leading hand', tradie: 'Tradie' }[user.role] || '';
+  document.getElementById('me').textContent = roleLabel ? (user.username + ' · ' + roleLabel) : user.username;
 
-  // Sync state in the strip + title-block.
-  const setSync = (state) => {
-    const t = state === 'offline' ? 'OFFLINE' : 'LIVE';
-    document.getElementById('syncLbl').textContent = t;
-    document.getElementById('tbSync').textContent  = t;
-  };
-  setSync(navigator.onLine === false ? 'offline' : 'live');
-  window.addEventListener('online',  () => setSync('live'));
-  window.addEventListener('offline', () => setSync('offline'));
+  if (user.role === 'admin' || user.role === 'leadingHand') {
+    document.getElementById('ovLink').style.display = 'inline-flex';
+    document.getElementById('approvalsLink').style.display = 'inline-flex';
+    const al = document.getElementById('adminLink');
+    al.style.display = 'inline-flex';
+    if (user.role === 'leadingHand') al.textContent = 'Job Setup';
+  } else if (user.role === 'tradie') {
+    document.getElementById('myDayLink').style.display = 'inline-flex';
+  }
 
   const [jobsRes, typesRes] = await Promise.all([
     fetch('/api/jobs?withStats=1', { credentials: 'same-origin' }),
@@ -376,24 +312,17 @@ async function load() {
     try {
       const td = await typesRes.json();
       (td.jobTypes || td.types || []).forEach(t => { jobTypes[t.id] = t; });
-    } catch (e) { /* tolerate missing endpoint */ }
+    } catch {}
   }
 
-  // Clients always land on the dedicated client portal.
-  if (user.role === 'client') {
-    location.replace('/client');
-    return;
-  }
+  if (user.role === 'client') { location.replace('/client'); return; }
 
-  // For 1-job tradies, default the filter to "all" so a complete/archived
-  // single job still shows.
   if (allJobs.length <= 1) jobStatusFilter = 'all';
 
   renderFilters();
   applyView();
 }
 
-// ── Filter pills (drafting style) ─────────────────────────────────────────
 function renderFilters() {
   const bar = document.getElementById('jobs-filter-bar');
   if (!bar) return;
@@ -435,15 +364,25 @@ function resolveTypeName(j) {
   if (j.type && jobTypes[j.type]) return jobTypes[j.type].name;
   return '';
 }
+function shortRef(j) { return (j.ref || j.shortRef || j.id || '').toUpperCase(); }
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
-function shortRef(j) {
-  // Prefer a job ref if present; fall back to id stem (without prefix).
-  return (j.ref || j.shortRef || j.id || '').toUpperCase();
+function stripeClass(j, isAdminLH) {
+  if (j.isCurrent) return 'cur';
+  const sn = Number(j.statsOpenSnags || 0);
+  if (sn > 0 && isAdminLH) return 'red';
+  const pct = Number(j.statsPct);
+  if (Number.isFinite(pct) && pct >= 100) return 'green';
+  if (Number.isFinite(pct) && pct > 0) return 'amber';
+  return '';
 }
 
 function renderJobs(jobs, user) {
   const count = jobs.length;
-  document.getElementById('job-count').textContent = count === 1 ? '1' : count;
+  document.getElementById('job-count').textContent = count;
 
   const totalActive = allJobs.filter(j => (j.status||'active')==='active').length;
   const totalSnags  = allJobs.reduce((s,j) => s + Number(j.statsOpenSnags || 0), 0);
@@ -458,19 +397,21 @@ function renderJobs(jobs, user) {
               : role === 'client'      ? 'No jobs visible to your account yet.'
               : 'No jobs assigned to you yet.';
     const hint = role === 'admin'
-      ? ' <a href="/admin">Create one in Admin →</a>'
+      ? ' <a href="/admin/jobs">Create one →</a>'
       : role === 'leadingHand'
       ? ' Ask an admin to assign you.'
       : '';
-    list.innerHTML = `<div class="empty-state">${msg}${hint}</div>`;
+    list.innerHTML = `<div class="empty">${msg}${hint}</div>`;
     return;
   }
 
-  // Rank: active first, then % desc, then stale.
-  jobs = jobs.slice().sort((a,b) => {
-    const sa = (a.status||'active') === 'active' ? 0 : 1;
-    const sb = (b.status||'active') === 'active' ? 0 : 1;
+  // Rank: active first, then current job hoisted to top, then % desc.
+  jobs = jobs.slice().sort((a, b) => {
+    const sa = (a.status || 'active') === 'active' ? 0 : 1;
+    const sb = (b.status || 'active') === 'active' ? 0 : 1;
     if (sa !== sb) return sa - sb;
+    if (a.isCurrent && !b.isCurrent) return -1;
+    if (b.isCurrent && !a.isCurrent) return 1;
     const pa = typeof a.statsPct === 'number' ? a.statsPct : -1;
     const pb = typeof b.statsPct === 'number' ? b.statsPct : -1;
     return pb - pa;
@@ -481,53 +422,43 @@ function renderJobs(jobs, user) {
   jobs.forEach(j => {
     const st = j.status || 'active';
     const typeName = resolveTypeName(j);
-    const ref      = shortRef(j);
-    const pct      = (typeof j.statsPct === 'number') ? j.statsPct : null;
-    const sn       = Number(j.statsOpenSnags || 0);
-    const dw       = Number(j.statsDwellingCount || (Array.isArray(j.dwellings) ? j.dwellings.length : 0));
-    const crew     = Number(j.statsCrewCount || 0);
+    const ref = shortRef(j);
+    const pct = (typeof j.statsPct === 'number') ? j.statsPct : null;
+    const sn  = Number(j.statsOpenSnags || 0);
+    const dw  = Number(j.statsDwellingCount || (Array.isArray(j.dwellings) ? j.dwellings.length : 0));
+    const crew = Number(j.statsCrewCount || 0);
     const expired  = Number(j.statsExpiredTags  || 0);
     const expiring = Number(j.statsExpiringTags || 0);
+    const stCls = stripeClass(j, isAdminLH);
+    const statusLabel = j.isCurrent ? 'Current' : ({ active: 'Active', complete: 'Complete', archived: 'Archived' }[st] || st);
+    const pillCls = j.isCurrent ? 'cur' : (st === 'complete' ? 'complete' : st === 'archived' ? 'archived' : '');
 
-    // Status verb: archived/complete states + optional "slipping/early/handover"
-    // hints if the API ever provides them. For now use status label.
-    const verbCls  = (sn > 0 && pct !== null && pct < 100 && st === 'active') ? 'red' : '';
-    const statusLabel = { active: 'Active', complete: 'Complete', archived: 'Archived' }[st] || st;
-
-    // Highlight the most recently opened job (server-provided lastOpenedAt
-    // timestamp if present; otherwise no highlight).
-    const isCur = !!j.isCurrent;
-
-    const goJob = `location.href='/jobs/${esc(j.id)}'`;
-    const stats = [
-      dw > 0 ? `<span><b>${dw}</b> DW</span>` : '',
+    const meta = [
+      dw > 0 ? `<span><b>${dw}</b> ${dw === 1 ? 'dwelling' : 'dwellings'}</span>` : '',
       sn > 0
-        ? `<span class="red"><b>${sn}</b> SNAG${sn===1?'':'S'}</span>`
-        : `<span><b>0</b> SNAGS</span>`,
-      isAdminLH && crew > 0 ? `<span>CREW <b>${crew}</b></span>` : '',
+        ? `<span class="red"><b>${sn}</b> open ${sn === 1 ? 'snag' : 'snags'}</span>`
+        : `<span><b class="mono">0</b> snags</span>`,
+      isAdminLH && crew > 0 ? `<span><b>${crew}</b> crew</span>` : '',
       expired > 0
-        ? `<span class="red"><b>${expired}</b> T&amp;T EXP</span>`
-        : (expiring > 0 ? `<span><b>${expiring}</b> T&amp;T DUE</span>` : ''),
-      typeName ? `<span>${esc(typeName).toUpperCase()}</span>` : '',
-      `<span class="verb ${verbCls}${isCur?' cur':''}">${isCur ? 'CURRENT' : statusLabel.toUpperCase()}</span>`,
+        ? `<span class="red"><b>${expired}</b> ${expired === 1 ? 'tag' : 'tags'} expired</span>`
+        : (expiring > 0 ? `<span><b>${expiring}</b> ${expiring === 1 ? 'tag' : 'tags'} due</span>` : ''),
+      typeName ? `<span>${esc(typeName)}</span>` : '',
+      `<span class="status-pill ${pillCls}">${statusLabel}</span>`,
     ].filter(Boolean).join('');
 
-    html += `<div class="job-row${isCur?' cur':''}" role="link" tabindex="0"
+    const goJob = `location.href='/jobs/${esc(j.id)}'`;
+    html += `<div class="job-row${j.isCurrent ? ' cur' : ''}" role="link" tabindex="0"
         onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
-      <div class="ref"><b>${esc(ref)}</b>${j.location ? ' · ' + esc(String(j.location).toUpperCase()) : ''}</div>
-      <div class="nm">${esc(j.name)}</div>
-      <div class="pct${pct === null ? ' muted' : ''}">${pct === null ? '—' : pct + '%'}</div>
-      <div class="pbar"><i style="width:${Math.max(0, Math.min(100, pct||0))}%"></i></div>
-      <div class="stats">${stats}</div>
+      <div class="stripe ${stCls}"></div>
+      <div class="ref"><b class="mono">${esc(ref)}</b>${j.location ? ' · ' + esc(j.location) : ''}</div>
+      <div class="name">${esc(j.name)}</div>
+      <div class="pct mono${pct === null ? ' muted' : ''}">${pct === null ? '—' : pct + '%'}</div>
+      <div class="meta">${meta}</div>
+      <div class="chev">›</div>
     </div>`;
   });
   html += `</div>`;
   list.innerHTML = html;
-}
-
-function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 document.getElementById('logout').addEventListener('click', async () => {
