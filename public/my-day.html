@@ -76,29 +76,56 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 }
 .top-bell.has-pip .pip{display:block}
 
-/* ── Today banner (slim) — replaces brief's clock card. We don't have
-   live clock-in tracking, so this is a thin status hint above the week
-   card showing today's logged total. Tap to open BuhlLogHours. ── */
-#banner{
-  margin:0 14px 14px;
-  background:var(--shell);color:#fff;border:0;
-  border-radius:18px;padding:14px 18px;
-  display:flex;align-items:center;gap:14px;
+/* ── Log Hours card (PRIMARY action) — brief: "the main action".
+   Replaces the thin clock-style banner. Big, single-action card with
+   today's total, status, preselected job, and a yellow CTA at the
+   bottom. Tap anywhere on the card opens BuhlLogHours. ── */
+.logcard{
+  margin:0 14px 18px;
+  background:var(--surface);color:var(--ink);
+  border:1px solid var(--line);
+  border-radius:18px;padding:18px;
   width:calc(100% - 28px);text-align:left;
-  position:relative;overflow:hidden;
+  display:flex;flex-direction:column;gap:14px;
+  cursor:pointer;
+  transition:transform .08s, border-color .12s;
 }
-#banner::after{
-  content:"";position:absolute;top:-90px;right:-70px;
-  width:240px;height:240px;
-  background:radial-gradient(circle,rgba(255,204,0,.18),transparent 65%);
-  border-radius:50%;pointer-events:none;
+.logcard:active{transform:scale(.99)}
+.logcard:hover{border-color:var(--line-2)}
+.logcard.logged{background:linear-gradient(160deg,#f7fbf8,#eef6f0);border-color:var(--ok-bd)}
+.logcard.logged .logcard-status{background:var(--ok);color:#fff}
+.logcard.logged .logcard-h{color:var(--ok)}
+.logcard.draft{background:#fffbeb;border-color:#f3e3a4}
+.logcard.draft .logcard-status{background:#7a5400;color:#fff}
+.logcard-head{display:flex;align-items:center;gap:10px}
+.logcard-l{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px}
+.logcard-status{
+  margin-left:auto;display:inline-flex;align-items:center;gap:5px;
+  font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;
+  background:var(--surface-3);color:var(--muted);
+  text-transform:uppercase;letter-spacing:.5px;
 }
-#banner.logged{background:linear-gradient(160deg,#1f8a4c,#155f36)}
-#banner > *{position:relative;z-index:1}
-#banner-txt{font-size:18px;font-weight:700;letter-spacing:-.3px;line-height:1.1;flex:1}
-#banner-sub{font-size:11px;color:rgba(255,255,255,.7);font-weight:500;text-transform:uppercase;letter-spacing:.6px;margin-top:4px;display:block}
-.md-banner-chev{font-size:22px;font-weight:400;opacity:.7}
-#banner.logged #banner-sub{color:#cdf0d9}
+.logcard-body{display:flex;align-items:flex-end;gap:14px}
+.logcard-total{display:flex;align-items:baseline;gap:4px;flex:1;min-width:0}
+.logcard-h{font-size:48px;font-weight:700;line-height:1;letter-spacing:-1.6px;font-variant-numeric:tabular-nums;color:var(--ink)}
+.logcard-h-unit{font-size:18px;font-weight:600;color:var(--muted);letter-spacing:-.4px}
+.logcard-sub{flex:1;text-align:right;font-size:12px;color:var(--muted);line-height:1.4}
+.logcard-job{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 12px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:10px;font-size:12.5px;color:var(--ink-2);
+}
+.logcard-job:empty{display:none}
+.logcard-job b{color:var(--ink);font-weight:600}
+.logcard-job .jobref{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;background:var(--surface);padding:1px 5px;border-radius:4px;border:1px solid var(--line);margin-left:auto}
+.logcard-cta{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  padding:13px;border-radius:12px;
+  background:var(--accent);color:var(--accent-ink);
+  font-size:14.5px;font-weight:700;
+}
+.logcard-cta svg{width:17px;height:17px}
+.logcard.logged .logcard-cta{background:var(--ink);color:#fff}
 
 /* ── My week (the focus for tradies) ───────────────────── */
 .week{
@@ -305,83 +332,74 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 
 <div class="frame">
 
-  <!-- Top bar -->
+  <!-- Header — My Day + date. No greeting/compliment, no bell. Brief
+       calls for a calm header; predictive alerts (snags assigned, recently
+       resolved) are explicitly out per the brief and have been removed. -->
   <div class="top">
     <div class="top-greet">
       <div class="top-day" id="today">…</div>
-      <div class="top-name">
-        <span id="greet">Loading…</span>
-        <span id="compliment"></span>
-      </div>
+      <div class="top-name">My Day</div>
     </div>
-    <button class="top-bell" id="topBell" aria-label="Notifications">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2H4.5L6 16z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
-      <span class="pip"></span>
-    </button>
   </div>
 
-  <!-- Today banner — thin clock-style hint, opens log-hours sheet -->
-  <button id="banner" type="button" onclick="openMyDayLog()">
-    <div style="flex:1">
-      <div id="banner-txt">Log today's hours</div>
-      <div id="banner-sub"></div>
+  <!-- 1. Log Hours card (PRIMARY action) — brief: "the main action".
+       Job preselected when only one assigned, today's logged-state shown,
+       single tap opens BuhlLogHours sheet. No start/end time fields. -->
+  <button id="logCard" type="button" class="logcard" onclick="openMyDayLog()">
+    <div class="logcard-head">
+      <span class="logcard-l">Log hours</span>
+      <span class="logcard-status" id="logcard-status">Tap to log</span>
     </div>
-    <div class="md-banner-chev">›</div>
+    <div class="logcard-body">
+      <div class="logcard-total">
+        <span class="logcard-h" id="logcard-h">—</span>
+        <span class="logcard-h-unit" id="logcard-h-unit"></span>
+      </div>
+      <div class="logcard-sub" id="logcard-sub">No hours logged today</div>
+    </div>
+    <div class="logcard-job" id="logcard-job"></div>
+    <div class="logcard-cta" id="logcard-cta">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      <span id="logcard-cta-label">Log today's hours</span>
+    </div>
   </button>
 
-  <!-- My week (hero) -->
+  <!-- 2. My Week — compact summary + 7-cell day strip. Tap a day to
+       add/edit hours for that date. -->
+  <div class="sec">
+    <div class="sec-h">My week</div>
+    <span class="sec-c" id="myweek-summary-b">0.0h</span>
+    <span class="sec-link" id="week-pay" style="display:none;color:#7a5400">
+      <span id="week-pay-text">Pay day</span>
+    </span>
+  </div>
   <div class="week">
-    <div class="week-top">
-      <div class="week-l">My week</div>
-      <span class="week-pay" id="week-pay" style="display:none">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-        <span id="week-pay-text">Pay day</span>
-      </span>
-    </div>
-    <div class="week-totals">
-      <div class="week-h tabular"><span id="myweek-total">0.0</span><small>h</small></div>
-      <div class="week-sub" id="myweek-summary">
-        <b id="myweek-summary-b">No hours yet</b>
-        this week
-      </div>
-    </div>
     <div class="days" id="days"></div>
-    <button class="week-cta" id="myweek-cta" onclick="openMyDayLog()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-      <span id="myweek-cta-label">Log hours</span>
-      <span class="pip" id="myweek-cta-pip" style="display:none"></span>
-    </button>
-    <button id="myweek-submit-drafts" style="display:none;width:100%;margin-top:8px;padding:11px;border-radius:10px;background:var(--accent);color:var(--accent-ink);font-size:13px;font-weight:700" onclick="submitAllDrafts()"></button>
-    <!-- Hidden list — preserved for legacy renderMyWeek fallback -->
+    <button id="myweek-submit-drafts" style="display:none;width:100%;margin-top:10px;padding:11px;border-radius:10px;background:var(--accent);color:var(--accent-ink);font-size:13px;font-weight:700" onclick="submitAllDrafts()"></button>
+    <!-- Hidden — kept for legacy compat -->
     <div id="myweek-list" hidden></div>
+    <span id="myweek-total" hidden></span>
+    <span id="myweek-summary" hidden></span>
   </div>
 
-  <!-- Snags assigned to me — preserved from existing functionality -->
-  <section id="mysnags-sec" style="display:none">
-    <div class="sec">
-      <div class="sec-h">Snags assigned to me</div>
-      <span class="sec-c" id="mysnags-count"></span>
-    </div>
-    <div id="mysnags-list"></div>
-  </section>
-
-  <!-- Recently resolved -->
-  <section id="resolved-sec" style="display:none">
-    <div class="sec">
-      <div class="sec-h">Recently resolved</div>
-      <span class="sec-c" id="resolved-count"></span>
-    </div>
-    <div id="resolved-list"></div>
-  </section>
-
-  <!-- Active jobs -->
+  <!-- 3. Assigned jobs — entry point only, not a dashboard. -->
   <div class="sec">
     <div class="sec-h">My jobs</div>
     <span class="sec-c" id="jobs-count">0</span>
-    <!-- Picker page nuked — only "Jobs" surface in the app is /admin/jobs
-         (admin-only). Every assigned job is listed below for tradies. -->
   </div>
   <div id="jobs-list"></div>
+
+  <!-- Hidden legacy IDs — render functions still target these to avoid
+       null-deref. The relevant data flows up into the new cards above. -->
+  <div hidden>
+    <span id="greet"></span>
+    <span id="compliment"></span>
+    <button id="banner" onclick="openMyDayLog()"><span id="banner-txt"></span><span id="banner-sub"></span></button>
+    <button id="topBell"><span class="pip"></span></button>
+    <button id="myweek-cta"><span id="myweek-cta-label"></span><span id="myweek-cta-pip"></span></button>
+    <section id="mysnags-sec"><span id="mysnags-count"></span><div id="mysnags-list"></div></section>
+    <section id="resolved-sec"><span id="resolved-count"></span><div id="resolved-list"></div></section>
+  </div>
 
   <!-- Footer -->
   <div class="md-footer">
@@ -557,11 +575,103 @@ async function load(){
 }
 
 function renderAll(){
+  // Brief order: Header → Log Hours card (PRIMARY) → My Week → My jobs.
+  // Banner / quick-chips / mysnags / resolved still run (they mutate hidden
+  // elements only — kept so we don't churn the data layer) but the visible
+  // surface is the new logcard.
+  paintLogCard();
   renderBanner();
   renderMySnags();
   renderRecentResolved();
   renderJobs();
   renderMyWeek();
+
+  // Header date — tradies see "TUE · 14 MAY" in mono caps per brief.
+  const todayEl = document.getElementById('today');
+  if (todayEl) {
+    todayEl.textContent = new Date().toLocaleDateString('en-AU', {
+      weekday: 'short', day: 'numeric', month: 'short'
+    });
+  }
+}
+
+// ── Log Hours card paint — primary action surface ──────────────────────
+// Brief layout: status pill in the header, big hours total below, sub
+// describing the state, optional preselected-job chip, yellow CTA.
+// Three states: not-logged (default yellow CTA), logged (green tint),
+// draft (amber tint).
+function paintLogCard(){
+  const card = document.getElementById('logCard');
+  if (!card) return;
+  const status = document.getElementById('logcard-status');
+  const h      = document.getElementById('logcard-h');
+  const hUnit  = document.getElementById('logcard-h-unit');
+  const sub    = document.getElementById('logcard-sub');
+  const jobEl  = document.getElementById('logcard-job');
+  const ctaLbl = document.getElementById('logcard-cta-label');
+
+  const entry = todaysEntry();
+  const total = entry ? Number(entry.totalHours || 0) : 0;
+
+  // Reset state classes
+  card.classList.remove('logged', 'draft');
+
+  if (total > 0) {
+    h.textContent = total.toFixed(1);
+    hUnit.textContent = 'h';
+    if (entry.status === 'approved') {
+      card.classList.add('logged');
+      status.textContent = 'Approved';
+      sub.textContent = "Today's hours are approved";
+      ctaLbl.textContent = 'Edit';
+    } else if (entry.status === 'submitted') {
+      card.classList.add('logged');
+      status.textContent = 'Submitted';
+      sub.textContent = "Today's hours are submitted";
+      ctaLbl.textContent = 'Edit';
+    } else if (entry.status === 'rejected') {
+      status.textContent = 'Rejected';
+      status.style.background = 'var(--bad)';
+      status.style.color = '#fff';
+      sub.textContent = 'Fix and resubmit';
+      ctaLbl.textContent = 'Fix';
+    } else {
+      card.classList.add('draft');
+      status.textContent = 'Draft';
+      sub.textContent = 'Tap to submit';
+      ctaLbl.textContent = 'Submit';
+    }
+  } else {
+    h.textContent = '—';
+    hUnit.textContent = '';
+    status.textContent = 'Not logged';
+    status.style.background = '';
+    status.style.color = '';
+    sub.textContent = 'Takes 10 seconds';
+    ctaLbl.textContent = "Log today's hours";
+  }
+
+  // Preselected job chip — only render when there's exactly one assigned
+  // active job. With multiple, the BuhlLogHours sheet picks; we don't
+  // pre-commit to a job here.
+  const mine = _myAssignedActiveJobs();
+  if (mine.length === 1) {
+    const j = mine[0];
+    const ref = (j.ref || j.id || '').toUpperCase();
+    jobEl.innerHTML = `<b>${esc(j.name)}</b><span class="jobref">${esc(ref)}</span>`;
+  } else if (mine.length > 1 && entry && Array.isArray(entry.allocations) && entry.allocations.length) {
+    // Show whichever job today's entry is currently allocated to (first).
+    const jid = entry.allocations[0].jobId;
+    const j = mine.find(x => x.id === jid);
+    if (j) {
+      const ref = (j.ref || j.id || '').toUpperCase();
+      jobEl.innerHTML = `<b>${esc(j.name)}</b><span class="jobref">${esc(ref)}</span>`;
+    } else {
+      jobEl.innerHTML = '';
+    }
+  } else {
+    jobEl.innerHTML = '';
+  }
 }
 
 // ─── Banner: today's hours, click opens modal ────────────────────────────
@@ -1123,6 +1233,7 @@ async function _refreshAfterTimeEntrySave(){
     const r = await fetch('/api/time-entries?fromDate=' + encodeURIComponent(fromIso), { credentials: 'same-origin' });
     MY_TIME_ENTRIES = r.ok ? (((await r.json()).entries) || []) : MY_TIME_ENTRIES;
   } catch (e) { /* keep existing */ }
+  paintLogCard();
   renderBanner();
   renderMyWeek();
 }
