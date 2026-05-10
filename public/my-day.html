@@ -77,26 +77,24 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .top-bell.has-pip .pip{display:block}
 
 /* ── Log Hours card (PRIMARY action) — brief: "the main action".
-   Replaces the thin clock-style banner. Big, single-action card with
-   today's total, status, preselected job, and a yellow CTA at the
-   bottom. Tap anywhere on the card opens BuhlLogHours. ── */
+   Inline form: job + hours/minutes + quick chips + Save. No modal hop.
+   Two states: ENTRY (shown when not yet logged or editing) and SUMMARY
+   (shown when today's hours exist). Per brief: total hours only — no
+   start/end times. ── */
 .logcard{
   margin:0 14px 18px;
   background:var(--surface);color:var(--ink);
   border:1px solid var(--line);
   border-radius:18px;padding:18px;
-  width:calc(100% - 28px);text-align:left;
   display:flex;flex-direction:column;gap:14px;
-  cursor:pointer;
-  transition:transform .08s, border-color .12s;
 }
-.logcard:active{transform:scale(.99)}
-.logcard:hover{border-color:var(--line-2)}
 .logcard.logged{background:linear-gradient(160deg,#f7fbf8,#eef6f0);border-color:var(--ok-bd)}
 .logcard.logged .logcard-status{background:var(--ok);color:#fff}
-.logcard.logged .logcard-h{color:var(--ok)}
 .logcard.draft{background:#fffbeb;border-color:#f3e3a4}
 .logcard.draft .logcard-status{background:#7a5400;color:#fff}
+.logcard.submitted .logcard-status{background:var(--info);color:#fff}
+.logcard.rejected{background:#fef2f0;border-color:var(--bad-bd)}
+.logcard.rejected .logcard-status{background:var(--bad);color:#fff}
 .logcard-head{display:flex;align-items:center;gap:10px}
 .logcard-l{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px}
 .logcard-status{
@@ -105,27 +103,118 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   background:var(--surface-3);color:var(--muted);
   text-transform:uppercase;letter-spacing:.5px;
 }
-.logcard-body{display:flex;align-items:flex-end;gap:14px}
-.logcard-total{display:flex;align-items:baseline;gap:4px;flex:1;min-width:0}
-.logcard-h{font-size:48px;font-weight:700;line-height:1;letter-spacing:-1.6px;font-variant-numeric:tabular-nums;color:var(--ink)}
-.logcard-h-unit{font-size:18px;font-weight:600;color:var(--muted);letter-spacing:-.4px}
-.logcard-sub{flex:1;text-align:right;font-size:12px;color:var(--muted);line-height:1.4}
+
+/* Job pin (when 1 assigned) or job select (when 2+) */
 .logcard-job{
   display:flex;align-items:center;gap:8px;
-  padding:8px 12px;background:var(--surface-2);border:1px solid var(--line);
-  border-radius:10px;font-size:12.5px;color:var(--ink-2);
+  padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:10px;font-size:13px;color:var(--ink-2);
 }
 .logcard-job:empty{display:none}
 .logcard-job b{color:var(--ink);font-weight:600}
 .logcard-job .jobref{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;background:var(--surface);padding:1px 5px;border-radius:4px;border:1px solid var(--line);margin-left:auto}
-.logcard-cta{
-  display:flex;align-items:center;justify-content:center;gap:8px;
-  padding:13px;border-radius:12px;
-  background:var(--accent);color:var(--accent-ink);
-  font-size:14.5px;font-weight:700;
+.logcard-job select{
+  flex:1;border:0;background:transparent;color:var(--ink);font-size:14px;font-weight:600;
+  font-family:inherit;outline:none;-webkit-appearance:none;appearance:none;cursor:pointer;
+  padding-right:18px;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%236b7689' stroke-width='1.6'><path d='m3 5 3 3 3-3'/></svg>");
+  background-repeat:no-repeat;background-position:right center;
 }
-.logcard-cta svg{width:17px;height:17px}
-.logcard.logged .logcard-cta{background:var(--ink);color:#fff}
+
+/* Time entry — hours stepper + minutes pills */
+.logcard-time{display:flex;gap:8px;align-items:stretch}
+.logcard-hm{
+  display:flex;align-items:center;gap:0;
+  background:var(--surface-2);border:1px solid var(--line);
+  border-radius:12px;padding:4px;min-height:54px;flex-shrink:0;
+}
+.logcard-step{
+  appearance:none;background:transparent;border:0;
+  width:36px;height:46px;border-radius:8px;
+  font-size:22px;font-weight:600;color:var(--ink-2);
+  cursor:pointer;
+}
+.logcard-step:hover{background:var(--surface-3);color:var(--ink)}
+.logcard-step:active{transform:scale(.94)}
+#logcard-h-input{
+  width:54px;height:46px;border:0;background:transparent;outline:none;
+  font:inherit;font-size:22px;font-weight:700;text-align:center;
+  font-variant-numeric:tabular-nums;color:var(--ink);
+  -moz-appearance:textfield;
+}
+#logcard-h-input::-webkit-outer-spin-button,
+#logcard-h-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.logcard-hm-unit{
+  font-size:14px;font-weight:600;color:var(--muted);
+  padding:0 8px 0 2px;
+}
+.logcard-mins{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:4px;flex:1;
+  background:var(--surface-2);border:1px solid var(--line);
+  border-radius:12px;padding:4px;
+}
+.logcard-min{
+  appearance:none;background:transparent;border:0;
+  height:46px;border-radius:8px;
+  font:inherit;font-size:14px;font-weight:600;color:var(--muted);
+  font-variant-numeric:tabular-nums;cursor:pointer;
+  transition:background .1s, color .1s;
+}
+.logcard-min:hover{color:var(--ink)}
+.logcard-min[aria-pressed="true"]{
+  background:var(--surface);color:var(--ink);font-weight:700;
+  box-shadow:0 1px 2px rgba(13,31,53,.08);
+}
+
+/* Quick duration chips */
+.logcard-chips{display:flex;gap:6px;flex-wrap:wrap}
+.logcard-chip{
+  appearance:none;background:var(--surface);border:1px solid var(--line);
+  padding:8px 14px;border-radius:999px;
+  font:inherit;font-size:13px;font-weight:600;color:var(--ink-2);
+  cursor:pointer;min-height:36px;
+  transition:background .1s, border-color .1s, color .1s;
+}
+.logcard-chip:hover{border-color:var(--line-2);color:var(--ink)}
+.logcard-chip[aria-pressed="true"]{
+  background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700;
+}
+
+/* Save button (primary yellow) */
+.logcard-save{
+  appearance:none;border:0;width:100%;
+  padding:14px;border-radius:12px;
+  background:var(--accent);color:var(--accent-ink);
+  font:inherit;font-size:15px;font-weight:700;
+  cursor:pointer;min-height:50px;
+  transition:filter .12s, transform .08s;
+}
+.logcard-save:hover{filter:brightness(.96)}
+.logcard-save:active{transform:scale(.99)}
+.logcard-save:disabled{opacity:.6;cursor:not-allowed}
+.logcard-err{
+  margin-top:-4px;padding:8px 12px;border-radius:8px;
+  background:var(--bad-bg);color:var(--bad);
+  font-size:13px;font-weight:600;
+}
+
+/* Logged-state summary (replaces entry when today's hours exist) */
+.logcard-summary{display:flex;flex-direction:column;gap:10px}
+.logcard-summary-line{display:flex;align-items:baseline;gap:8px;font-size:14px;color:var(--ink-2)}
+.logcard-summary-line b{font-size:30px;font-weight:700;letter-spacing:-.8px;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1}
+.logcard.logged .logcard-summary-line b{color:var(--ok)}
+.logcard.draft .logcard-summary-line b{color:#7a5400}
+.logcard-summary-job{
+  font-size:12px;color:var(--muted);
+}
+.logcard-summary-job b{color:var(--ink);font-weight:600}
+.logcard-edit{
+  appearance:none;border:1px solid var(--line);background:var(--surface);
+  padding:11px;border-radius:10px;width:100%;
+  font:inherit;font-size:14px;font-weight:600;color:var(--ink);
+  cursor:pointer;
+}
+.logcard-edit:hover{background:var(--surface-2);border-color:var(--line-2)}
+.logcard.logged .logcard-edit{background:var(--ink);color:#fff;border-color:var(--ink)}
 
 /* ── My week (the focus for tradies) ───────────────────── */
 .week{
@@ -343,26 +432,59 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   </div>
 
   <!-- 1. Log Hours card (PRIMARY action) — brief: "the main action".
-       Job preselected when only one assigned, today's logged-state shown,
-       single tap opens BuhlLogHours sheet. No start/end time fields. -->
-  <button id="logCard" type="button" class="logcard" onclick="openMyDayLog()">
+       Inline form per brief: hours input + minutes (0/15/30/45) + quick
+       chips (4/6/7.5/8/9h) + Save. Job preselects when only one assigned,
+       picker when multiple. No start/end time. When today is already
+       logged, card collapses to "Logged today: Xh Ym" + Edit. -->
+  <div id="logCard" class="logcard">
     <div class="logcard-head">
       <span class="logcard-l">Log hours</span>
-      <span class="logcard-status" id="logcard-status">Tap to log</span>
+      <span class="logcard-status" id="logcard-status">Not logged</span>
     </div>
-    <div class="logcard-body">
-      <div class="logcard-total">
-        <span class="logcard-h" id="logcard-h">—</span>
-        <span class="logcard-h-unit" id="logcard-h-unit"></span>
+
+    <!-- Logged-state summary (shown when today's entry exists) -->
+    <div class="logcard-summary" id="logcard-summary" hidden>
+      <div class="logcard-summary-line">
+        <span>Logged today:</span>
+        <b id="logcard-summary-total">—</b>
       </div>
-      <div class="logcard-sub" id="logcard-sub">No hours logged today</div>
+      <div class="logcard-summary-job" id="logcard-summary-job"></div>
+      <button class="logcard-edit" type="button" id="logcard-edit">Edit</button>
     </div>
-    <div class="logcard-job" id="logcard-job"></div>
-    <div class="logcard-cta" id="logcard-cta">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-      <span id="logcard-cta-label">Log today's hours</span>
+
+    <!-- Inline entry (shown when not yet logged or when editing) -->
+    <div class="logcard-entry" id="logcard-entry">
+      <!-- Job picker — single chip when 1 job, select when 2+ -->
+      <div class="logcard-job" id="logcard-job"></div>
+
+      <!-- Hours + minutes + chips -->
+      <div class="logcard-time">
+        <div class="logcard-hm">
+          <button type="button" class="logcard-step" id="logcard-h-down" aria-label="−1h">−</button>
+          <input type="number" id="logcard-h-input" min="0" max="14" step="1" value="8" inputmode="numeric" aria-label="Hours">
+          <span class="logcard-hm-unit">h</span>
+        </div>
+        <div class="logcard-mins" role="group" aria-label="Minutes">
+          <button type="button" class="logcard-min" data-m="0" aria-pressed="true">00</button>
+          <button type="button" class="logcard-min" data-m="15">15</button>
+          <button type="button" class="logcard-min" data-m="30">30</button>
+          <button type="button" class="logcard-min" data-m="45">45</button>
+        </div>
+      </div>
+      <div class="logcard-chips" role="group" aria-label="Quick durations">
+        <button type="button" class="logcard-chip" data-h="4">4h</button>
+        <button type="button" class="logcard-chip" data-h="6">6h</button>
+        <button type="button" class="logcard-chip" data-h="7.5">7.5h</button>
+        <button type="button" class="logcard-chip" data-h="8">8h</button>
+        <button type="button" class="logcard-chip" data-h="9">9h</button>
+      </div>
+
+      <button type="button" id="logcard-save" class="logcard-save">
+        Save 8h
+      </button>
+      <div class="logcard-err" id="logcard-err" hidden role="alert"></div>
     </div>
-  </button>
+  </div>
 
   <!-- 2. My Week — compact summary + 7-cell day strip. Tap a day to
        add/edit hours for that date. -->
@@ -580,6 +702,7 @@ function renderAll(){
   // elements only — kept so we don't churn the data layer) but the visible
   // surface is the new logcard.
   paintLogCard();
+  wireLogCardOnce();
   renderBanner();
   renderMySnags();
   renderRecentResolved();
@@ -595,83 +718,247 @@ function renderAll(){
   }
 }
 
-// ── Log Hours card paint — primary action surface ──────────────────────
-// Brief layout: status pill in the header, big hours total below, sub
-// describing the state, optional preselected-job chip, yellow CTA.
-// Three states: not-logged (default yellow CTA), logged (green tint),
-// draft (amber tint).
+// ── Log Hours card — INLINE entry per brief ────────────────────────────
+//
+// Brief: "Logging hours should be: job → total hours → save". Use total
+// hours only — no start/end times. Inline form with hours + minutes
+// (0/15/30/45) + quick chips (4/6/7.5/8/9h) on the card itself, no modal
+// hop. Two render states:
+//   ENTRY   — controls visible, Save button. Shown when no entry today
+//             OR when admin/LH wants to edit a draft.
+//   SUMMARY — "Logged today: Xh Ym" + Edit. Shown when an entry exists.
+//
+// Edit collapses summary back into ENTRY pre-filled with the existing
+// total. Save POSTs to /api/time-entries with the matching shape.
+
+// Local UI state for the entry form (decoupled from server entry)
+let LH_FORM = {
+  hours: 8,        // integer hours
+  minutes: 0,      // 0 / 15 / 30 / 45
+  jobId: null,     // selected job id (null = use first assigned)
+  editing: false,  // forced into entry mode for an existing draft
+};
+
 function paintLogCard(){
-  const card = document.getElementById('logCard');
+  const card     = document.getElementById('logCard');
   if (!card) return;
-  const status = document.getElementById('logcard-status');
-  const h      = document.getElementById('logcard-h');
-  const hUnit  = document.getElementById('logcard-h-unit');
-  const sub    = document.getElementById('logcard-sub');
-  const jobEl  = document.getElementById('logcard-job');
-  const ctaLbl = document.getElementById('logcard-cta-label');
+  const status   = document.getElementById('logcard-status');
+  const summary  = document.getElementById('logcard-summary');
+  const entryEl  = document.getElementById('logcard-entry');
 
   const entry = todaysEntry();
   const total = entry ? Number(entry.totalHours || 0) : 0;
+  const mine  = _myAssignedActiveJobs();
 
   // Reset state classes
-  card.classList.remove('logged', 'draft');
+  card.classList.remove('logged', 'draft', 'submitted', 'rejected');
 
-  if (total > 0) {
-    h.textContent = total.toFixed(1);
-    hUnit.textContent = 'h';
-    if (entry.status === 'approved') {
-      card.classList.add('logged');
-      status.textContent = 'Approved';
-      sub.textContent = "Today's hours are approved";
-      ctaLbl.textContent = 'Edit';
-    } else if (entry.status === 'submitted') {
-      card.classList.add('logged');
-      status.textContent = 'Submitted';
-      sub.textContent = "Today's hours are submitted";
-      ctaLbl.textContent = 'Edit';
-    } else if (entry.status === 'rejected') {
-      status.textContent = 'Rejected';
-      status.style.background = 'var(--bad)';
-      status.style.color = '#fff';
-      sub.textContent = 'Fix and resubmit';
-      ctaLbl.textContent = 'Fix';
-    } else {
-      card.classList.add('draft');
-      status.textContent = 'Draft';
-      sub.textContent = 'Tap to submit';
-      ctaLbl.textContent = 'Submit';
-    }
+  // Show summary when an entry exists AND we're not in editing mode.
+  // For non-editable statuses (approved / submitted) editing is blocked
+  // anyway via the BuhlLogHours sheet; admin still gets Edit affordance
+  // for visibility.
+  const showSummary = total > 0 && !LH_FORM.editing;
+
+  if (showSummary) {
+    summary.hidden = false;
+    entryEl.hidden = true;
+
+    const tone = entry.status === 'approved' ? 'logged'
+              : entry.status === 'submitted' ? 'submitted'
+              : entry.status === 'rejected'  ? 'rejected'
+              : entry.status === 'draft'     ? 'draft'
+              : 'logged';
+    card.classList.add(tone);
+
+    const statusLbl = entry.status === 'approved'  ? 'Approved'
+                    : entry.status === 'submitted' ? 'Submitted'
+                    : entry.status === 'rejected'  ? 'Rejected'
+                    : entry.status === 'draft'     ? 'Draft'
+                    : 'Logged';
+    status.textContent = statusLbl;
+    status.style.background = '';
+    status.style.color = '';
+
+    document.getElementById('logcard-summary-total').textContent = fmtHM(total);
+
+    // Job line: prefer first allocation's job
+    const firstAlloc = (entry.allocations || [])[0];
+    const job = firstAlloc && firstAlloc.jobId ? (JOBS.find(j => j.id === firstAlloc.jobId)) : null;
+    document.getElementById('logcard-summary-job').innerHTML = job
+      ? `On <b>${esc(job.name)}</b>`
+      : '<i style="color:var(--muted)">Internal — no job</i>';
   } else {
-    h.textContent = '—';
-    hUnit.textContent = '';
+    summary.hidden = true;
+    entryEl.hidden = false;
     status.textContent = 'Not logged';
     status.style.background = '';
     status.style.color = '';
-    sub.textContent = 'Takes 10 seconds';
-    ctaLbl.textContent = "Log today's hours";
-  }
 
-  // Preselected job chip — only render when there's exactly one assigned
-  // active job. With multiple, the BuhlLogHours sheet picks; we don't
-  // pre-commit to a job here.
-  const mine = _myAssignedActiveJobs();
-  if (mine.length === 1) {
+    // If editing an existing entry, prefill the form from it
+    if (LH_FORM.editing && entry) {
+      const t = Number(entry.totalHours || 0);
+      LH_FORM.hours   = Math.floor(t);
+      LH_FORM.minutes = Math.round((t - Math.floor(t)) * 60 / 15) * 15 % 60;
+      const firstAlloc = (entry.allocations || [])[0];
+      if (firstAlloc && firstAlloc.jobId) LH_FORM.jobId = firstAlloc.jobId;
+    }
+
+    paintLogCardEntry(mine);
+  }
+}
+
+// Paint the inline entry controls (job picker / chip, time, chips, Save)
+function paintLogCardEntry(mine){
+  const jobEl = document.getElementById('logcard-job');
+
+  // Default jobId to first assigned if not set
+  if (!LH_FORM.jobId && mine.length) LH_FORM.jobId = mine[0].id;
+
+  // Job picker / pin
+  if (!mine.length) {
+    jobEl.innerHTML = '<i style="color:var(--muted)">No assigned jobs — contact admin if this looks wrong.</i>';
+  } else if (mine.length === 1) {
     const j = mine[0];
+    LH_FORM.jobId = j.id;
     const ref = (j.ref || j.id || '').toUpperCase();
     jobEl.innerHTML = `<b>${esc(j.name)}</b><span class="jobref">${esc(ref)}</span>`;
-  } else if (mine.length > 1 && entry && Array.isArray(entry.allocations) && entry.allocations.length) {
-    // Show whichever job today's entry is currently allocated to (first).
-    const jid = entry.allocations[0].jobId;
-    const j = mine.find(x => x.id === jid);
-    if (j) {
-      const ref = (j.ref || j.id || '').toUpperCase();
-      jobEl.innerHTML = `<b>${esc(j.name)}</b><span class="jobref">${esc(ref)}</span>`;
-    } else {
-      jobEl.innerHTML = '';
-    }
   } else {
-    jobEl.innerHTML = '';
+    // Multi-job — render a select
+    jobEl.innerHTML = `<select id="logcard-job-select">${mine.map(j =>
+      `<option value="${esc(j.id)}"${j.id === LH_FORM.jobId ? ' selected' : ''}>${esc(j.name)}</option>`
+    ).join('')}</select>`;
+    document.getElementById('logcard-job-select').addEventListener('change', (e) => {
+      LH_FORM.jobId = e.target.value;
+    });
   }
+
+  // Hours input
+  const hInp = document.getElementById('logcard-h-input');
+  hInp.value = String(LH_FORM.hours);
+
+  // Minutes pills
+  document.querySelectorAll('.logcard-min').forEach(b => {
+    const m = Number(b.dataset.m);
+    b.setAttribute('aria-pressed', m === LH_FORM.minutes ? 'true' : 'false');
+  });
+
+  // Quick chips
+  const total = LH_FORM.hours + LH_FORM.minutes / 60;
+  document.querySelectorAll('.logcard-chip').forEach(b => {
+    const h = Number(b.dataset.h);
+    b.setAttribute('aria-pressed', Math.abs(h - total) < 0.001 ? 'true' : 'false');
+  });
+
+  // Save button label
+  document.getElementById('logcard-save').textContent = 'Save ' + fmtHM(total);
+
+  // Disable save when no job available
+  document.getElementById('logcard-save').disabled = !LH_FORM.jobId;
+}
+
+// "Xh Ym" formatter (per brief: "Logged today: 7h 30m")
+function fmtHM(decimal){
+  const t = Number(decimal) || 0;
+  const h = Math.floor(t);
+  const m = Math.round((t - h) * 60);
+  if (m === 0) return h + 'h';
+  return h + 'h ' + String(m).padStart(2, '0') + 'm';
+}
+
+// Set hours+minutes from a decimal (used by quick chips: 7.5 → 7h 30m)
+function _setLhFromTotal(total){
+  const h = Math.floor(total);
+  const mDec = (total - h) * 60;
+  // Snap to nearest 15
+  const m = Math.round(mDec / 15) * 15;
+  if (m === 60) { LH_FORM.hours = h + 1; LH_FORM.minutes = 0; }
+  else { LH_FORM.hours = h; LH_FORM.minutes = m; }
+}
+
+// Save inline — POST /api/time-entries with the same shape BuhlLogHours uses
+async function saveLogCard(){
+  const err = document.getElementById('logcard-err');
+  err.hidden = true;
+  if (!LH_FORM.jobId) { err.textContent = 'Pick a job first.'; err.hidden = false; return; }
+  const total = LH_FORM.hours + LH_FORM.minutes / 60;
+  if (!(total > 0)) { err.textContent = 'Enter at least 15 minutes.'; err.hidden = false; return; }
+
+  const saveBtn = document.getElementById('logcard-save');
+  const originalLabel = saveBtn.textContent;
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving…';
+
+  const existing = todaysEntry();
+  const date = todayIso();
+  const allocations = [{ jobId: LH_FORM.jobId, hours: total }];
+  const body = {
+    date,
+    allocations,
+    totalHours: total,
+    status: 'submitted',
+    notes: existing && existing.notes ? existing.notes : '',
+  };
+
+  try {
+    const url = '/api/time-entries' + (existing ? '?date=' + encodeURIComponent(date) : '');
+    const method = existing ? 'PATCH' : 'POST';
+    const r = await fetch(url, {
+      method, credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || ('HTTP ' + r.status));
+    }
+    LH_FORM.editing = false;
+    await _refreshAfterTimeEntrySave();
+    showToast && showToast('Saved · ' + fmtHM(total), 'ok');
+  } catch (e) {
+    err.textContent = 'Save failed — ' + (e.message || 'try again');
+    err.hidden = false;
+    saveBtn.disabled = false;
+    saveBtn.textContent = originalLabel;
+  }
+}
+
+// Wire inline entry handlers — bound once on first paint, re-bound after
+// markup-rewrite events (e.g. multi-job select).
+function wireLogCardOnce(){
+  if (wireLogCardOnce._done) return;
+  wireLogCardOnce._done = true;
+
+  const hInp = document.getElementById('logcard-h-input');
+  if (!hInp) return; // markup not present (e.g. push opt-in dismissed)
+
+  hInp.addEventListener('input', () => {
+    let v = parseInt(hInp.value, 10);
+    if (!Number.isFinite(v) || v < 0) v = 0;
+    if (v > 14) v = 14;
+    LH_FORM.hours = v;
+    paintLogCardEntry(_myAssignedActiveJobs());
+  });
+  document.getElementById('logcard-h-down').addEventListener('click', () => {
+    LH_FORM.hours = Math.max(0, LH_FORM.hours - 1);
+    paintLogCardEntry(_myAssignedActiveJobs());
+  });
+  document.querySelectorAll('.logcard-min').forEach(b => {
+    b.addEventListener('click', () => {
+      LH_FORM.minutes = Number(b.dataset.m);
+      paintLogCardEntry(_myAssignedActiveJobs());
+    });
+  });
+  document.querySelectorAll('.logcard-chip').forEach(b => {
+    b.addEventListener('click', () => {
+      _setLhFromTotal(Number(b.dataset.h));
+      paintLogCardEntry(_myAssignedActiveJobs());
+    });
+  });
+  document.getElementById('logcard-save').addEventListener('click', saveLogCard);
+  document.getElementById('logcard-edit').addEventListener('click', () => {
+    LH_FORM.editing = true;
+    paintLogCard();
+  });
 }
 
 // ─── Banner: today's hours, click opens modal ────────────────────────────
