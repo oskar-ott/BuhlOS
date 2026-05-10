@@ -15,51 +15,18 @@
 <title>buhl — my day</title>
 <link rel="stylesheet" href="/theme.css">
 <style>
-  body { background: var(--bg); }
+  /* The dark navy app-header is intentionally omitted on /my-day —
+     phone-first layout owns the viewport edge to edge. The greeting up
+     top serves as page identity; sign-out lives in the footer next to
+     the "Switch to full view" link. */
+  body { background: #fdfbf3; } /* warm cream — same as /jobs full-bleed */
 
-  /* Header (minimal for phone-first) */
-  .md-hdr {
-    background: var(--header); color: #fff;
-    padding: max(12px, env(safe-area-inset-top)) 16px 12px;
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 10px; position: sticky; top: 0; z-index: 50;
+  .md-page {
+    max-width: 560px; margin: 0 auto;
+    /* Top padding tracks safe-area inset so the greeting clears the iOS
+       notch in PWA mode without padding the body globally. */
+    padding: max(env(safe-area-inset-top), 18px) 14px 60px;
   }
-  .md-hdr img.logo { height: 26px; }
-  .md-hdr .hdr-mark { color: #fff; font-size: 22px; text-decoration: none; flex-shrink: 0; }
-  .md-hdr .hdr-mark .os { color: var(--yellow); }
-  .md-hdr-l { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
-  /* Header nav pills (matches /jobs and /admin pill style for consistency) */
-  .md-nav-pill {
-    display: inline-flex; align-items: center; height: 32px;
-    padding: 0 12px; border-radius: 999px;
-    font-size: 12px; font-weight: 600;
-    color: rgba(255,255,255,.7);
-    border: 1px solid rgba(255,255,255,.14);
-    background: transparent; text-decoration: none;
-    white-space: nowrap; flex-shrink: 0;
-    transition: background .15s, color .15s;
-  }
-  .md-nav-pill:hover { color: #fff; background: rgba(255,255,255,.08); }
-  .md-nav-pill.active {
-    color: var(--accent-ink); background: var(--accent);
-    border-color: var(--accent);
-  }
-  @media (max-width: 380px) {
-    .md-nav-pill { height: 28px; padding: 0 10px; font-size: 11px; }
-    .md-hdr img.logo { height: 22px; }
-    .md-hdr .hdr-mark { font-size: 19px; }
-  }
-  .md-hdr .me {
-    display: flex; align-items: center; gap: 8px;
-    font-size: var(--fs-xs); color: rgba(255,255,255,.65);
-  }
-  .md-hdr .signout {
-    background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
-    color: #fff; border-radius: 8px; padding: 7px 11px;
-    font-size: var(--fs-xs); font-weight: 600; cursor: pointer; min-height: 36px;
-  }
-
-  .md-page { max-width: 560px; margin: 0 auto; padding: 14px 14px 60px; }
 
   /* Tight one-line greeting (saves 60-80px above the fold) */
   .md-greet {
@@ -391,14 +358,33 @@
   }
 
   .md-footer {
-    margin-top: 26px; text-align: center;
+    margin-top: 32px;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule, var(--border));
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px;
   }
+  .md-footer-me {
+    font-family: var(--mono);
+    font-size: 10.5px; font-weight: 600;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .md-footer-actions { display: flex; gap: 8px; align-items: center; }
   .md-switch {
     display: inline-block;
     font-size: var(--fs-xs); color: var(--muted);
     text-decoration: underline; text-underline-offset: 3px;
     padding: 6px 10px;
   }
+  .md-signout {
+    appearance: none; -webkit-appearance: none;
+    background: transparent; border: 0; padding: 6px 10px;
+    font-family: inherit; font-size: var(--fs-xs);
+    color: var(--ink-3); cursor: pointer;
+    text-decoration: underline; text-underline-offset: 3px;
+  }
+  .md-signout:hover { color: var(--red); }
 
   /* ── Push notification opt-in card (one-time, after 5s) ─────────────── */
   .md-push-opt {
@@ -422,18 +408,8 @@
 </style>
 </head>
 <body>
-
-<header class="md-hdr">
-  <div class="md-hdr-l">
-    <a href="/my-day" class="wordmark hdr-mark" aria-label="BuhlOS — my day">b&uuml;hl<span class="os">OS</span></a>
-    <a class="md-nav-pill active" href="/my-day">My Day</a>
-    <a class="md-nav-pill" href="/jobs">Jobs</a>
-  </div>
-  <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
-    <span class="me" id="me"></span>
-    <button class="signout" id="logout">Sign out</button>
-  </div>
-</header>
+<!-- The navy app-header is intentionally omitted on /my-day. The greeting
+     up top is the page identity; sign-out + identity live in the footer. -->
 
 <div class="md-page">
   <div class="md-greet">
@@ -503,7 +479,11 @@
   </section>
 
   <div class="md-footer">
-    <a class="md-switch" href="/jobs">Switch to full view &rsaquo;</a>
+    <span class="md-footer-me" id="me"></span>
+    <div class="md-footer-actions">
+      <a class="md-switch" href="/jobs">Full view &rsaquo;</a>
+      <button class="md-signout" id="logout" type="button">Sign out</button>
+    </div>
   </div>
 </div>
 
