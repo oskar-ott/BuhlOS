@@ -152,27 +152,41 @@
   };
 
   /* ── Sidebar nav definition ────────────────────────────── */
+  // Each item gets an optional `roles: [...]` allow-list. Items without
+  // `roles` are visible to both admin and leadingHand. Items gated to
+  // ['admin'] disappear from the LH sidebar.
   const NAV = [
     { section: 'Run' },
-    { id: 'today',     label: 'Today',          href: '/admin/',          icon: 'today' },
-    { id: 'approvals', label: 'Approvals',      href: '/admin/approvals', icon: 'approval', countKey: 'pendingHours', badgeBad: true },
-    { id: 'snags',     label: 'Snag triage',    href: '/admin/snags',     icon: 'snag',     countKey: 'openSnags',     badgeBad: 'unassigned' },
+    { id: 'operations', label: 'Operations',     href: '/admin/operations', icon: 'today' },
+    { id: 'today',      label: 'Today',          href: '/admin/',           icon: 'today',    roles: ['admin'] },
+    { id: 'approvals',  label: 'Approvals',      href: '/admin/approvals',  icon: 'approval', countKey: 'pendingHours', badgeBad: true },
+    { id: 'snags',      label: 'Snag triage',    href: '/admin/snags',      icon: 'snag',     countKey: 'openSnags',    badgeBad: 'unassigned' },
     { section: 'Jobs' },
-    { id: 'jobs',      label: 'Jobs',           href: '/admin/jobs',      icon: 'jobs',     countKey: 'activeJobs' },
-    { section: 'Win' },
-    { id: 'quotes',    label: 'Quotes',         href: '/admin/quotes',    icon: 'quote',    countKey: 'liveQuotes' },
+    { id: 'jobs',       label: 'Jobs',           href: '/admin/jobs',       icon: 'jobs',     countKey: 'activeJobs' },
+    { section: 'Win', roles: ['admin'] },
+    { id: 'quotes',     label: 'Quotes',         href: '/admin/quotes',     icon: 'quote',    countKey: 'liveQuotes', roles: ['admin'] },
     { section: 'Operate' },
-    { id: 'hours',     label: 'Hours & costs',  href: '/admin/hours',     icon: 'hours' },
-    { id: 'crew',      label: 'Crew',           href: '/admin/crew',      icon: 'crew',     countKey: 'crewCount' },
-    { id: 'suppliers', label: 'Suppliers',      href: '/admin/suppliers', icon: 'suppliers' },
-    { id: 'temps',     label: 'Temps',          href: '/admin/temps',     icon: 'temp' },
-    { section: 'Settings' },
-    { id: 'settings',  label: 'Settings',       href: '/admin/settings',  icon: 'settings' },
+    { id: 'hours',      label: 'Hours & costs',  href: '/admin/hours',      icon: 'hours' },
+    { id: 'crew',       label: 'Crew',           href: '/admin/crew',       icon: 'crew',     countKey: 'crewCount', roles: ['admin'] },
+    { id: 'suppliers',  label: 'Suppliers',      href: '/admin/suppliers',  icon: 'suppliers', roles: ['admin'] },
+    { id: 'temps',      label: 'Temps',          href: '/admin/temps',      icon: 'temp' },
+    { section: 'Settings', roles: ['admin'] },
+    { id: 'settings',   label: 'Settings',       href: '/admin/settings',   icon: 'settings', roles: ['admin'] },
   ];
+
+  // Pages gated by role. If the user lands on a page they're not allowed,
+  // they're bounced to their default landing.
+  const PAGE_ROLES = {
+    today:      ['admin'],
+    quotes:     ['admin'],
+    crew:       ['admin'],
+    suppliers:  ['admin'],
+    settings:   ['admin'],
+  };
 
   /* ── Boot ──────────────────────────────────────────────── */
   async function boot() {
-    // Auth gate — admin-only.
+    // Auth gate — admin and leadingHand only.
     let me;
     try {
       const j = await api('/api/auth?action=me');
@@ -180,9 +194,15 @@
     } catch {
       location.href = '/login'; return;
     }
-    if (me.role !== 'admin') {
-      // Leading hand → /overview (their dedicated surface). Anyone else → /login.
-      location.href = me.role === 'leadingHand' ? '/overview' : '/login';
+    if (me.role !== 'admin' && me.role !== 'leadingHand') {
+      // Tradies → my-day; clients → client portal; anyone else → login.
+      location.href = me.role === 'tradie' ? '/my-day' : (me.role === 'client' ? '/client' : '/login');
+      return;
+    }
+    // Per-page role enforcement. Admin-only pages bounce LHs to their default landing.
+    const pageId = (window.PAGE && window.PAGE.id) || '';
+    if (PAGE_ROLES[pageId] && !PAGE_ROLES[pageId].includes(me.role)) {
+      location.href = me.role === 'leadingHand' ? '/admin/operations' : '/admin/';
       return;
     }
 
@@ -271,7 +291,16 @@
     const me = SHELL.ME;
     const C  = SHELL.COUNTS || {};
     const activeId = (window.PAGE && window.PAGE.id) || 'today';
-    const items = NAV.map(item => {
+    // Filter the nav by role and drop adjacent / trailing section headers
+    // that no longer have any items underneath them.
+    const visible = NAV.filter(item => !item.roles || item.roles.includes(me.role));
+    const cleaned = visible.filter((item, i) => {
+      if (!item.section) return true;
+      // Drop section header if next item is another section header or end of list
+      const next = visible[i + 1];
+      return next && !next.section;
+    });
+    const items = cleaned.map(item => {
       if (item.section) {
         return `<div class="side-section">${escapeHtml(item.section)}</div>`;
       }
@@ -289,6 +318,7 @@
       </a>`;
     }).join('');
 
+    const roleLabel = me.role === 'admin' ? 'Admin' : 'Leading hand';
     $('#side').innerHTML = `
       <div class="side-brand">
         <div class="side-brand-mark">b</div>
@@ -299,13 +329,13 @@
       </div>
       ${items}
       <div class="side-section">Field</div>
-      <a href="/overview"   target="_blank" rel="noopener">${ICONS.field}<span>Operations</span>${ICONS.external}</a>
       <a href="/jobs"       target="_blank" rel="noopener">${ICONS.field}<span>Jobs (field)</span>${ICONS.external}</a>
+      ${me.role === 'leadingHand' ? `<a href="/my-day" target="_blank" rel="noopener">${ICONS.field}<span>My day</span>${ICONS.external}</a>` : ''}
       <div class="side-foot">
         <div class="side-avatar">${initials(me.username)}</div>
         <div style="flex:1;min-width:0">
           <div class="side-foot-name">${escapeHtml(me.username)}</div>
-          <div class="side-foot-role">Admin · signed in</div>
+          <div class="side-foot-role">${roleLabel} · signed in</div>
         </div>
         <button class="btn-icon btn-ghost" title="Tweaks"   onclick="SHELL.toggleTweaks()" style="color:#8a93a4">${ICONS.tweaks}</button>
         <button class="btn-icon btn-ghost" title="Sign out" onclick="SHELL.signOut()"      style="color:#8a93a4">${ICONS.x}</button>
@@ -317,9 +347,10 @@
     const C = SHELL.COUNTS || {};
     const crumb = (window.PAGE && window.PAGE.crumb) || (window.PAGE && window.PAGE.title) || '';
     const showDot = (C.pendingHours || 0) > 0 || (C.unassignedSnags || 0) > 0;
+    const homeHref = SHELL.ME && SHELL.ME.role === 'leadingHand' ? '/admin/operations' : '/admin/';
     $('#topbar').innerHTML = `
       <div class="topbar-crumb">
-        <span>Admin</span><span>›</span><b>${escapeHtml(crumb)}</b>
+        <span>${SHELL.ME && SHELL.ME.role === 'leadingHand' ? 'Site office' : 'Admin'}</span><span>›</span><b>${escapeHtml(crumb)}</b>
       </div>
       <div class="topbar-spacer"></div>
       <div class="search">
@@ -327,7 +358,7 @@
         <input id="topbar-search" placeholder="Quick find — job, user, snag…" autocomplete="off">
         <span class="search-key">⌘K</span>
       </div>
-      <button class="icon-btn" title="${C.pendingHours} pending hours, ${C.unassignedSnags || 0} unassigned snags" style="position:relative" onclick="location.href='/admin/'">
+      <button class="icon-btn" title="${C.pendingHours} pending hours, ${C.unassignedSnags || 0} unassigned snags" style="position:relative" onclick="location.href='${homeHref}'">
         ${ICONS.bell}
         ${showDot ? `<span style="position:absolute;top:6px;right:6px;width:7px;height:7px;background:var(--bad);border-radius:50%;border:1.5px solid var(--surface)"></span>` : ''}
       </button>
