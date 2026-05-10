@@ -39,20 +39,34 @@ function paint() {
     client: STATE.users.filter(u => u.role === 'client').length,
   };
   const q = STATE.search.toLowerCase();
-  const list = STATE.users.filter(u => {
-    if (STATE.filterRole !== 'all' && u.role !== STATE.filterRole) return false;
-    if (q) {
-      const blob = `${u.username} ${u.email || ''} ${u.role}`.toLowerCase();
-      if (!blob.includes(q)) return false;
-    }
-    return true;
-  }).sort((a, b) => a.username.localeCompare(b.username));
+  const matches = (u) => {
+    if (!q) return true;
+    const blob = `${u.username} ${u.email || ''} ${u.role}`.toLowerCase();
+    return blob.includes(q);
+  };
+
+  // Per the admin redesign brief: "Users should be organised by role and
+  // responsibility, not just listed." When the user picks "All", we
+  // render a grouped view (Admins → LHs → Tradies → Clients). When they
+  // pick a single role, we render a flat list with the table headers.
+  const sorted = (xs) => xs.slice().sort((a, b) => a.username.localeCompare(b.username));
+  const grouped = STATE.filterRole === 'all';
+  const list = grouped
+    ? null
+    : sorted(STATE.users.filter(u => u.role === STATE.filterRole && matches(u)));
+
+  const groups = grouped ? [
+    { key: 'admin',       label: 'Admins',         desc: 'Full access — can edit jobs, users, hours, settings.', users: sorted(STATE.users.filter(u => u.role === 'admin' && matches(u))) },
+    { key: 'leadingHand', label: 'Leading hands',  desc: 'Scoped to assigned jobs — can approve hours, raise snags.', users: sorted(STATE.users.filter(u => u.role === 'leadingHand' && matches(u))) },
+    { key: 'tradie',      label: 'Tradies',        desc: 'Assigned-job access — log hours, update tasks, raise snags.', users: sorted(STATE.users.filter(u => u.role === 'tradie' && matches(u))) },
+    { key: 'client',      label: 'Clients',        desc: 'Read-only progress portal for one job.', users: sorted(STATE.users.filter(u => u.role === 'client' && matches(u))) },
+  ] : null;
 
   SHELL.$('#page').innerHTML = `
     <div class="page-head">
       <div>
-        <div class="page-h1">Crew &amp; people</div>
-        <div class="page-sub">Tradies, leading hands, admins, clients. Hourly rates and job assignments.</div>
+        <div class="page-h1">People</div>
+        <div class="page-sub">${counts.tradie + counts.leadingHand} crew · ${counts.admin} admin${counts.admin === 1 ? '' : 's'} · ${counts.client} client${counts.client === 1 ? '' : 's'}. Rates + Xero IDs are admin-only and never exposed to tradies/clients.</div>
       </div>
       <div class="page-actions">
         <button class="btn btn-accent" id="add-user">${SHELL.ICONS.plus} Add person</button>
@@ -72,17 +86,19 @@ function paint() {
     <div class="toolbar">
       <div class="search">${SHELL.ICONS.search}<input id="se-i" placeholder="Search by name, email…" value="${SHELL.escapeHtml(STATE.search)}"></div>
       <div class="toolbar-spacer"></div>
-      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(list.length, 'person', 'people')}</span>
+      <span style="color:var(--muted);font-size:12px">${grouped ? 'grouped by role' : SHELL.pluralize(list.length, 'person', 'people')}</span>
     </div>
 
-    <div class="table-wrap">
-      <table class="table">
-        <thead><tr>
-          <th>Name</th><th>Role</th><th>Email</th><th class="table-num">Rate</th><th class="table-num">Jobs</th><th></th>
-        </tr></thead>
-        <tbody>${list.length ? list.map(userRow).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No people match those filters.</td></tr>'}</tbody>
-      </table>
-    </div>
+    ${grouped ? groups.map(groupBlock).join('') : `
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr>
+            <th>Name</th><th>Role</th><th>Email</th><th>Assigned jobs</th><th class="table-num">Rate</th><th></th>
+          </tr></thead>
+          <tbody>${list.length ? list.map(userRow).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No people match those filters.</td></tr>'}</tbody>
+        </table>
+      </div>
+    `}
   `;
   SHELL.$$('a[data-role]').forEach(t => t.addEventListener('click', e => { e.preventDefault(); STATE.filterRole = t.dataset.role; paint(); }));
   SHELL.$('#se-i').addEventListener('input', e => { STATE.search = e.target.value; paint(); });
@@ -90,14 +106,65 @@ function paint() {
   SHELL.$$('button[data-edit-user]').forEach(b => b.addEventListener('click', () => editUserPanel(b.dataset.editUser)));
 }
 
+// Render one role-section (admin / LH / tradie / client) with its members
+// laid out as compact cards. Each card surfaces: name, role pill, assigned
+// jobs (clickable chips), rate (admin-only data, fine because this whole
+// page is admin-gated), and Edit button. Empty groups still render so the
+// admin sees the empty state and knows the role exists.
+function groupBlock(g) {
+  return `<div class="card" style="padding:0;margin-bottom:16px">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:10px">
+      <div class="card-title">${SHELL.escapeHtml(g.label)}</div>
+      <span style="font-size:11px;color:var(--muted)">${g.users.length} · ${SHELL.escapeHtml(g.desc)}</span>
+    </div>
+    ${g.users.length
+      ? g.users.map(u => userCard(u, g.key)).join('')
+      : `<div style="padding:18px;color:var(--muted);font-size:12px;text-align:center">No ${g.label.toLowerCase()} yet.</div>`}
+  </div>`;
+}
+
+function userCard(u, roleKey) {
+  const jobs = SHELL.JOBS || [];
+  const jobById = {}; jobs.forEach(j => { jobById[j.id] = j; });
+  const assigned = (u.assignedJobIds || []).map(id => jobById[id]).filter(Boolean);
+  const isPaid = (u.role === 'tradie' || u.role === 'leadingHand');
+  const showRate = isPaid;
+  return `<div style="display:flex;align-items:flex-start;gap:14px;padding:12px 16px;border-bottom:1px solid var(--line)">
+    <div class="avatar ${u.role}" style="flex-shrink:0">${SHELL.initials(u.username)}</div>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+        <b style="font-size:14px">${SHELL.escapeHtml(u.username)}</b>
+        ${u.email ? `<a href="mailto:${SHELL.escapeHtml(u.email)}" style="font-size:11px;color:var(--muted)">${SHELL.escapeHtml(u.email)}</a>` : ''}
+        ${showRate && u.xeroEmployeeId ? `<span style="font-size:10px;color:var(--muted);font-family:var(--ff-mono)">Xero: ${SHELL.escapeHtml(u.xeroEmployeeId)}</span>` : ''}
+      </div>
+      ${assigned.length
+        ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">
+            ${assigned.slice(0, 6).map(j => `<a href="/admin/jobs/${SHELL.escapeHtml(j.id)}" style="font-size:11px;background:var(--surface-2);border:1px solid var(--line);padding:2px 8px;border-radius:999px;color:var(--ink-2);text-decoration:none">${SHELL.escapeHtml(j.name)}</a>`).join('')}
+            ${assigned.length > 6 ? `<span style="font-size:11px;color:var(--muted);align-self:center">+${assigned.length - 6} more</span>` : ''}
+          </div>`
+        : roleKey === 'admin'
+          ? '<div style="font-size:11px;color:var(--muted);margin-top:6px">No job restriction — sees everything.</div>'
+          : `<div style="font-size:11px;color:var(--warn);margin-top:6px">Not assigned to any job — won't see jobs in field app.</div>`}
+    </div>
+    ${showRate ? `<div class="tabular" style="font-size:13px;font-weight:600;text-align:right;flex-shrink:0;min-width:70px">${u.hourlyRate ? '$' + u.hourlyRate + '/h' : '<span style="color:var(--warn)">no rate</span>'}</div>` : ''}
+    <button class="btn btn-sm" data-edit-user="${SHELL.escapeHtml(u.id)}" style="flex-shrink:0">Edit</button>
+  </div>`;
+}
+
 function userRow(u) {
   const isPaid = (u.role === 'tradie' || u.role === 'leadingHand');
+  const jobs = SHELL.JOBS || [];
+  const jobById = {}; jobs.forEach(j => { jobById[j.id] = j; });
+  const assigned = (u.assignedJobIds || []).map(id => jobById[id]).filter(Boolean);
+  const jobChips = assigned.length
+    ? assigned.slice(0, 3).map(j => `<a href="/admin/jobs/${SHELL.escapeHtml(j.id)}" style="font-size:11px;background:var(--surface-2);border:1px solid var(--line);padding:2px 8px;border-radius:999px;color:var(--ink-2);text-decoration:none;margin-right:4px">${SHELL.escapeHtml(j.name)}</a>`).join('') + (assigned.length > 3 ? `<span style="font-size:11px;color:var(--muted)">+${assigned.length - 3}</span>` : '')
+    : '<span style="color:var(--muted);font-size:11px">—</span>';
   return `<tr>
     <td><b>${SHELL.escapeHtml(u.username)}</b>${isPaid && u.xeroEmployeeId ? `<div style="font-size:11px;color:var(--muted);font-family:var(--ff-mono)">Xero: ${SHELL.escapeHtml(u.xeroEmployeeId)}</div>` : ''}</td>
     <td>${SHELL.rolePill(u.role)}</td>
     <td>${u.email ? `<a href="mailto:${SHELL.escapeHtml(u.email)}">${SHELL.escapeHtml(u.email)}</a>` : '<span style="color:var(--muted)">—</span>'}</td>
+    <td>${jobChips}</td>
     <td class="table-num">${isPaid ? (u.hourlyRate ? '$' + u.hourlyRate + '/h' : '<span style="color:var(--warn)">—</span>') : '—'}</td>
-    <td class="table-num">${(u.assignedJobIds || []).length}</td>
     <td><button class="btn btn-sm" data-edit-user="${SHELL.escapeHtml(u.id)}">Edit</button></td>
   </tr>`;
 }

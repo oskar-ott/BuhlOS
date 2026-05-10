@@ -151,31 +151,50 @@
     stage:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 6"/></svg>',
   };
 
-  /* ── Sidebar nav definition ────────────────────────────── */
-  // Each item gets an optional `roles: [...]` allow-list. Items without
-  // `roles` are visible to both admin and leadingHand. Items gated to
-  // ['admin'] disappear from the LH sidebar.
+  /* ── Sidebar nav definition ────────────────────────────────────────────
+   *
+   * Reorganised around what an electrical contractor admin actually does
+   * day-to-day, grouped by *decision* not by *database type*:
+   *
+   *   Run       — daily ops loops (Operations command centre, then queues:
+   *               approvals, snags). One landing, no Today/Operations split.
+   *   Deliver   — the work itself: Jobs, Hours.
+   *   People    — Crew (admin-only — has rates + Xero IDs).
+   *   Win       — Quotes (admin-only).
+   *   Settings  — low-frequency: Suppliers, Temps, Settings (admin only).
+   *
+   * The previous 13-item sidebar (split across 5 sections) had Suppliers
+   * and Temps competing with daily-ops surfaces. Tradies/LHs don't think
+   * about wholesalers when they open the app — so those go below the fold.
+   *
+   * Each item gets an optional `roles: [...]` allow-list. Items without
+   * `roles` are visible to both admin + leadingHand. Items gated to
+   * ['admin'] disappear from the LH sidebar.
+   */
   const NAV = [
     { section: 'Run' },
-    { id: 'operations', label: 'Operations',     href: '/admin/operations', icon: 'today' },
-    { id: 'today',      label: 'Today',          href: '/admin/',           icon: 'today',    roles: ['admin'] },
+    { id: 'operations', label: 'Command centre', href: '/admin/operations', icon: 'today' },
     { id: 'approvals',  label: 'Approvals',      href: '/admin/approvals',  icon: 'approval', countKey: 'pendingHours', badgeBad: true },
     { id: 'snags',      label: 'Snag triage',    href: '/admin/snags',      icon: 'snag',     countKey: 'openSnags',    badgeBad: 'unassigned' },
-    { section: 'Jobs' },
+    { section: 'Deliver' },
     { id: 'jobs',       label: 'Jobs',           href: '/admin/jobs',       icon: 'jobs',     countKey: 'activeJobs' },
+    { id: 'hours',      label: 'Hours & costs',  href: '/admin/hours',      icon: 'hours' },
+    { section: 'People', roles: ['admin'] },
+    { id: 'crew',       label: 'Crew',           href: '/admin/crew',       icon: 'crew',     countKey: 'crewCount', roles: ['admin'] },
     { section: 'Win', roles: ['admin'] },
     { id: 'quotes',     label: 'Quotes',         href: '/admin/quotes',     icon: 'quote',    countKey: 'liveQuotes', roles: ['admin'] },
-    { section: 'Operate' },
-    { id: 'hours',      label: 'Hours & costs',  href: '/admin/hours',      icon: 'hours' },
-    { id: 'crew',       label: 'Crew',           href: '/admin/crew',       icon: 'crew',     countKey: 'crewCount', roles: ['admin'] },
-    { id: 'suppliers',  label: 'Suppliers',      href: '/admin/suppliers',  icon: 'suppliers', roles: ['admin'] },
-    { id: 'temps',      label: 'Temps',          href: '/admin/temps',      icon: 'temp' },
     { section: 'Settings', roles: ['admin'] },
+    { id: 'suppliers',  label: 'Suppliers',      href: '/admin/suppliers',  icon: 'suppliers', roles: ['admin'] },
+    { id: 'temps',      label: 'Temps & assets', href: '/admin/temps',      icon: 'temp' },
     { id: 'settings',   label: 'Settings',       href: '/admin/settings',   icon: 'settings', roles: ['admin'] },
   ];
 
   // Pages gated by role. If the user lands on a page they're not allowed,
   // they're bounced to their default landing.
+  // (`today` is intentionally still gated to admin because the legacy
+  //  /admin/index.html now redirects to /admin/operations — see
+  //  `redirectToOperations` below — but this guard catches edge cases
+  //  where the page id is referenced elsewhere.)
   const PAGE_ROLES = {
     today:      ['admin'],
     quotes:     ['admin'],
@@ -202,7 +221,8 @@
     // Per-page role enforcement. Admin-only pages bounce LHs to their default landing.
     const pageId = (window.PAGE && window.PAGE.id) || '';
     if (PAGE_ROLES[pageId] && !PAGE_ROLES[pageId].includes(me.role)) {
-      location.href = me.role === 'leadingHand' ? '/admin/operations' : '/admin/';
+      // Single command-centre landing for both admin + LH.
+      location.href = '/admin/operations';
       return;
     }
 
@@ -358,7 +378,11 @@
     const C = SHELL.COUNTS || {};
     const crumb = (window.PAGE && window.PAGE.crumb) || (window.PAGE && window.PAGE.title) || '';
     const showDot = (C.pendingHours || 0) > 0 || (C.unassignedSnags || 0) > 0;
-    const homeHref = SHELL.ME && SHELL.ME.role === 'leadingHand' ? '/admin/operations' : '/admin/';
+    // Single command-centre landing for both admin + LH. The legacy
+    // /admin/ "Today" page redirects to /admin/operations on load — see
+    // public/admin/index.html — so the bell always lands on the live
+    // command centre, not a half-stale duplicate.
+    const homeHref = '/admin/operations';
     $('#topbar').innerHTML = `
       <div class="topbar-crumb">
         <span>${SHELL.ME && SHELL.ME.role === 'leadingHand' ? 'Site office' : 'Admin'}</span><span>›</span><b>${escapeHtml(crumb)}</b>
