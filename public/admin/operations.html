@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · operations</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+let STATE = {
+  jobs: [],
+  users: [],          // tradies + LHs
+  timeEntries: [],    // 2 weeks back .. today, cross-user
+  expiringTags: [],
+  jobData: {},        // jobId -> { dwellings, snags }
+};
+
+window.PAGE = {
+  id: 'operations',
+  title: 'Operations',
+  crumb: 'Operations',
+  async render() {
+    SHELL.$('#page').innerHTML = `<div class="empty"><div class="empty-title">Loading operational data…</div></div>`;
+    await loadAll();
+    paint();
+    streamJobData();
+  }
+};
+
+// ───────────────────────── Loaders ─────────────────────────
+async function loadAll() {
+  const monday = isoWeekStart(new Date());
+  const fromIso = (() => { const d = new Date(monday); d.setDate(d.getDate() - 14); return SHELL._iso(d); })();
+  const toIso = SHELL._iso(new Date());
+  try {
+    const [jobs, users, te, et] = await Promise.all([
+      SHELL.api('/api/jobs').then(r => r.jobs || []),
+      SHELL.api('/api/users?action=listTradies').then(r => r.users || []).catch(() => []),
+      SHELL.api('/api/time-entries-overview?fromDate=' + encodeURIComponent(fromIso) + '&toDate=' + encodeURIComponent(toIso)).then(r => r.entries || []).catch(() => []),
+      SHELL.api('/api/tags-expiring?withinDays=14').then(r => r.tags || []).catch(() => []),
+    ]);
+    STATE.jobs = jobs;
+    STATE.users = users;
+    STATE.timeEntries = te;
+    STATE.expiringTags = et;
+  } catch (e) {
+    SHELL.$('#page').innerHTML = `<div class="empty"><div class="empty-title">Failed to load</div><div class="empty-sub">${SHELL.escapeHtml(e.message)}</div></div>`;
+    throw e;
+  }
+  // Stub each active job's data so render() doesn't choke on undefined
+  for (const j of STATE.jobs.filter(j => (j.status || 'active') === 'active')) {
+    if (!STATE.jobData[j.id]) STATE.jobData[j.id] = { dwellings: {}, snags: [] };
+  }
+}
+
+// Stream per-job snag data; re-render after each resolves so the UI fills in
+function streamJobData() {
+  for (const j of STATE.jobs.filter(j => (j.status || 'active') === 'active')) {
+    SHELL.api('/api/data?jobId=' + encodeURIComponent(j.id))
+      .then(d => { STATE.jobData[j.id] = d || { dwellings: {}, snags: [] }; paint(); })
+      .catch(() => {});
+  }
+}
+
+// ───────────────────────── Helpers ─────────────────────────
+function isoWeekStart(d) {
+  const t = new Date(d);
+  const day = t.getDay() || 7;
+  if (day !== 1) t.setDate(t.getDate() - (day - 1));
+  t.setHours(0, 0, 0, 0);
+  return t;
+}
+function thisWeekRange() {
+  const monday = isoWeekStart(new Date());
+  const next = new Date(monday); next.setDate(monday.getDate() + 7);
+  return { fromIso: SHELL._iso(monday), toIso: SHELL._iso(next) };
+}
+function daysAgo(iso) {
+  if (!iso) return Infinity;
+  const d = new Date(iso); if (isNaN(d)) return Infinity;
+  return Math.floor((new Date(SHELL._iso(new Date())) - d) / 86400000);
+}
+function allAreas(job) { return (job.areaGroups || []).flatMap(g => g.areas || []); }
+function jobProgress(job) {
+  const areas = allAreas(job);
+  if (!areas.length) return 0;
+  const d = STATE.jobData[job.id] || { dwellings: {} };
+  const dwellings = d.dwellings || {};
+  const rt = job.roughInTasks || []; const ft = job.fitOffTasks || [];
+  if (!rt.length && !ft.length) return 0;
+  let sum = 0;
+  for (const a of areas) {
+    const rMap = ((dwellings[a.id] || {}).roughIn || {}).tasks || {};
+    const fMap = ((dwellings[a.id] || {}).fitOff || {}).tasks || {};
+    const rPct = rt.length ? Math.round(rt.filter(t => rMap[t.id] === 'complete').length / rt.length * 100) : 0;
+    const fPct = ft.length ? Math.round(ft.filter(t => fMap[t.id] === 'complete').length / ft.length * 100) : 0;
+    const pct = (rt.length && ft.length) ? Math.round((rPct + fPct) / 2) : (rt.length ? rPct : fPct);
+    sum += pct;
+  }
+  return Math.round(sum / areas.length);
+}
+function openSnags(job) {
+  const d = STATE.jobData[job.id] || { snags: [] };
+  return (d.snags || []).filter(s => s.status === 'Open');
+}
+function oldestSnagAge(job) {
+  const open = openSnags(job);
+  let oldest = null;
+  for (const s of open) { const t = s.createdAt || s.date; if (t && (!oldest || t < oldest)) oldest = t; }
+  return oldest ? daysAgo(oldest) : 0;
+}
+function lastActivityIso(job) {
+  const d = STATE.jobData[job.id] || { snags: [] };
+  let latest = null;
+  for (const e of STATE.timeEntries) {
+    if (!e.date) continue;
+    if (!(e.allocations || []).some(a => a.jobId === job.id)) continue;
+    if (!latest || e.date > latest) latest = e.date;
+  }
+  (d.snags || []).forEach(s => { const t = (s.createdAt || s.date || '').slice(0, 10); if (t && (!latest || t > latest)) latest = t; });
+  return latest;
+}
+function crewToday(job) {
+  const todayIso = SHELL._iso(new Date());
+  const set = new Set();
+  for (const e of STATE.timeEntries) {
+    if (e.date !== todayIso) continue;
+    if ((e.allocations || []).some(a => a.jobId === job.id)) set.add(e.userId);
+  }
+  return set.size;
+}
+function loggedOnDate(iso) {
+  const set = new Set();
+  for (const e of STATE.timeEntries) if (e.date === iso && e.userId) set.add(e.userId);
+  return set;
+}
+function weekHoursByUser() {
+  const { fromIso, toIso } = thisWeekRange();
+  const totals = {}; let grand = 0;
+  for (const e of STATE.timeEntries) {
+    if (!e.date || e.date < fromIso || e.date >= toIso) continue;
+    const hrs = Number(e.totalHours) || 0; if (!hrs) continue;
+    grand += hrs;
+    const k = e.userId || ('name:' + (e.userName || '—'));
+    if (!totals[k]) totals[k] = { name: e.userName || e.userId || '—', hours: 0 };
+    totals[k].hours += hrs;
+  }
+  return { rows: Object.values(totals).sort((a, b) => b.hours - a.hours), grand };
+}
+function crewLastActivity() {
+  const map = {}; const jobById = {}; for (const j of STATE.jobs) jobById[j.id] = j;
+  const sorted = STATE.timeEntries.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  for (const e of sorted) {
+    if (!e.userId || !e.date || map[e.userId]) continue;
+    const firstJobId = (e.allocations || []).find(a => a.jobId)?.jobId;
+    map[e.userId] = { lastIso: e.date, lastJob: firstJobId ? jobById[firstJobId] : null };
+  }
+  return map;
+}
+
+// ───────────────────────── Paint ─────────────────────────
+function paint() {
+  const todayLabel = new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  SHELL.$('#page').innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Operations</div>
+        <div class="page-sub">${todayLabel}</div>
+      </div>
+    </div>
+
+    ${attentionHtml()}
+    ${todayActivityHtml()}
+
+    <div class="two-col">
+      <div class="card" style="padding:0">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
+          <div><div class="card-title">Active jobs</div><div class="card-sub">Sorted by open snags then staleness</div></div>
+          <a class="btn btn-sm" href="/admin/jobs">View all</a>
+        </div>
+        ${activeJobsHtml()}
+      </div>
+
+      <div class="card" style="padding:0">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
+          <div class="card-title">Labour this week</div>
+          <div class="card-sub">${weekHoursByUser().grand.toFixed(1)}h org-wide</div>
+        </div>
+        ${labourWeekHtml()}
+      </div>
+    </div>
+
+    <div class="card" style="padding:0;margin-bottom:20px">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
+        <div><div class="card-title">People</div><div class="card-sub">${SHELL.pluralize(STATE.users.length, 'person', 'people')} on the books</div></div>
+        ${SHELL.ME && SHELL.ME.role === 'admin' ? '<a class="btn btn-sm" href="/admin/crew">Manage</a>' : ''}
+      </div>
+      ${peopleHtml()}
+    </div>
+  `;
+}
+
+function attentionHtml() {
+  const items = [];
+  // Compliance
+  if (STATE.expiringTags.length) {
+    const byJob = {};
+    for (const t of STATE.expiringTags) {
+      if (!byJob[t.jobId]) byJob[t.jobId] = { jobId: t.jobId, jobName: t.jobName, expired: 0, soon: 0 };
+      if (t.status === 'expired') byJob[t.jobId].expired++; else byJob[t.jobId].soon++;
+    }
+    Object.values(byJob).sort((a, b) => (b.expired - a.expired) || (b.soon - a.soon))
+      .forEach(x => items.push({ kind: 'tags', ...x }));
+  }
+  // Snag-loaded jobs
+  const snagJobs = STATE.jobs.filter(j => (j.status || 'active') === 'active' && openSnags(j).length)
+    .map(j => ({ kind: 'snag', job: j, count: openSnags(j).length, ageDays: oldestSnagAge(j) }))
+    .sort((a, b) => b.ageDays - a.ageDays);
+  snagJobs.forEach(x => items.push(x));
+  // Stale jobs
+  const stale = STATE.jobs.filter(j => (j.status || 'active') === 'active')
+    .map(j => ({ job: j, lastIso: lastActivityIso(j) }))
+    .filter(x => !snagJobs.find(s => s.job.id === x.job.id) && daysAgo(x.lastIso) >= 7)
+    .sort((a, b) => daysAgo(b.lastIso) - daysAgo(a.lastIso))
+    .map(x => ({ kind: 'stale', job: x.job, ageDays: daysAgo(x.lastIso) }));
+  stale.forEach(x => items.push(x));
+  // Missed hours yesterday (weekday only)
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  const yIso = SHELL._iso(y); const dow = y.getDay();
+  if (dow !== 0 && dow !== 6) {
+    const loggedY = loggedOnDate(yIso);
+    STATE.users.filter(u => u.role === 'tradie').filter(u => !loggedY.has(u.id))
+      .forEach(u => items.push({ kind: 'missed', user: u, iso: yIso }));
+  }
+  if (!items.length) {
+    return `<div class="card" style="background:var(--ok-bg);border-color:var(--ok-bd);margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:10px"><span class="pill pill-ok">All clear</span><span style="color:var(--ink)">Nothing needs you right now — no open snags, no stale jobs, all hours logged.</span></div>
+    </div>`;
+  }
+  const SHOW = 6;
+  const rows = items.slice(0, SHOW).map(it => {
+    if (it.kind === 'tags') {
+      const sub = it.expired && it.soon
+        ? `${it.expired} tag${it.expired === 1 ? '' : 's'} expired, ${it.soon} due soon`
+        : it.expired ? `${it.expired} ${SHELL.pluralize(it.expired, 'tag').replace(it.expired+' ','')} expired`
+        : `${it.soon} ${SHELL.pluralize(it.soon, 'tag').replace(it.soon+' ','')} due in 14d`;
+      return `<a href="/jobs/${SHELL.escapeHtml(it.jobId)}#tags" style="display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);text-decoration:none;color:var(--ink)">
+        <span><b>${SHELL.escapeHtml(it.jobName)}</b> — ${sub}</span>
+        <span class="pill pill-${it.expired ? 'bad' : 'warn'}">test &amp; tag</span>
+      </a>`;
+    }
+    if (it.kind === 'snag') {
+      const oldest = it.ageDays ? `, oldest ${it.ageDays}d` : '';
+      return `<a href="/admin/jobs/${SHELL.escapeHtml(it.job.id)}?sec=snags" style="display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);text-decoration:none;color:var(--ink)">
+        <span><b>${SHELL.escapeHtml(it.job.name)}</b> — ${it.count} open ${SHELL.pluralize(it.count, 'snag').replace(it.count+' ','')}${oldest}</span>
+        <span class="pill pill-bad">snags</span>
+      </a>`;
+    }
+    if (it.kind === 'stale') {
+      return `<a href="/admin/jobs/${SHELL.escapeHtml(it.job.id)}" style="display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);text-decoration:none;color:var(--ink)">
+        <span><b>${SHELL.escapeHtml(it.job.name)}</b> — idle ${it.ageDays}d</span>
+        <span class="pill pill-warn">stale</span>
+      </a>`;
+    }
+    if (it.kind === 'missed') {
+      return `<div style="display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);color:var(--ink)">
+        <span><b>${SHELL.escapeHtml(it.user.username)}</b> — no hours logged ${SHELL.escapeHtml(it.iso)}</span>
+        <span class="pill pill-warn">crew · hours</span>
+      </div>`;
+    }
+    return '';
+  }).join('');
+  return `<div class="card" style="padding:0;margin-bottom:20px">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
+      <div><div class="card-title">Needs attention</div><div class="card-sub">${items.length} ${items.length === 1 ? 'thing' : 'things'} to look at · sorted by urgency</div></div>
+    </div>
+    ${rows}
+    ${items.length > SHOW ? `<div style="padding:8px 14px;font-size:11px;color:var(--muted);text-align:center">${items.length - SHOW} more</div>` : ''}
+  </div>`;
+}
+
+function todayActivityHtml() {
+  const events = [];
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const dayStartMs = dayStart.getTime();
+  const jobNameById = {}; for (const j of STATE.jobs) jobNameById[j.id] = j.name;
+
+  // Snags created/closed today
+  for (const jobId of Object.keys(STATE.jobData)) {
+    const data = STATE.jobData[jobId] || {};
+    const jobName = jobNameById[jobId] || jobId;
+    for (const s of (data.snags || [])) {
+      const cMs = s.createdAt ? Date.parse(s.createdAt) : NaN;
+      if (Number.isFinite(cMs) && cMs >= dayStartMs) {
+        events.push({ ts: cMs, kind: 'snag-raised', jobId, jobName, actor: s.by || '—', desc: s.desc || '(no description)', priority: s.priority || 'Medium', snagId: s.id });
+      }
+      if (s.status === 'Closed') {
+        const xMs = s.closedAt ? Date.parse(s.closedAt) : NaN;
+        if (Number.isFinite(xMs) && xMs >= dayStartMs) {
+          events.push({ ts: xMs, kind: 'snag-resolved', jobId, jobName, actor: s.updatedBy || '—', desc: s.desc || '(no description)', snagId: s.id });
+        }
+      }
+    }
+  }
+  // Hours submitted today
+  for (const e of STATE.timeEntries) {
+    const ms = e.submittedAt ? Date.parse(e.submittedAt) : NaN;
+    if (!Number.isFinite(ms) || ms < dayStartMs) continue;
+    events.push({ ts: ms, kind: 'hours', actor: e.userName || e.userId, hours: Number(e.totalHours) || 0, date: e.date, status: e.status });
+  }
+  if (!events.length) return '';
+  events.sort((a, b) => b.ts - a.ts);
+  const SHOW = 8;
+  const fmt = ms => { const d = new Date(ms); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+  const rows = events.slice(0, SHOW).map(ev => {
+    if (ev.kind === 'snag-raised') {
+      const tone = ev.priority === 'High' ? 'bad' : 'warn';
+      return `<a href="/jobs/${SHELL.escapeHtml(ev.jobId)}?snag=${SHELL.escapeHtml(ev.snagId)}#snags" style="display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);text-decoration:none;color:var(--ink)">
+        <div><b>Snag raised</b> — ${SHELL.escapeHtml(ev.desc)}<div style="font-size:11px;color:var(--muted);margin-top:2px"><b>${SHELL.escapeHtml(ev.jobName)}</b> · by ${SHELL.escapeHtml(ev.actor)} · ${fmt(ev.ts)}</div></div>
+        <span class="pill pill-${tone}">${SHELL.escapeHtml(ev.priority)}</span>
+      </a>`;
+    }
+    if (ev.kind === 'snag-resolved') {
+      return `<a href="/jobs/${SHELL.escapeHtml(ev.jobId)}?snag=${SHELL.escapeHtml(ev.snagId)}#snags" style="display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);text-decoration:none;color:var(--ink)">
+        <div><b>✓ Snag resolved</b> — ${SHELL.escapeHtml(ev.desc)}<div style="font-size:11px;color:var(--muted);margin-top:2px"><b>${SHELL.escapeHtml(ev.jobName)}</b> · by ${SHELL.escapeHtml(ev.actor)} · ${fmt(ev.ts)}</div></div>
+        <span class="pill pill-ok">Resolved</span>
+      </a>`;
+    }
+    if (ev.kind === 'hours') {
+      const tone = ev.status === 'approved' ? 'ok' : 'warn';
+      return `<a href="/admin/approvals" style="display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);text-decoration:none;color:var(--ink)">
+        <div><b>Hours submitted</b> — ${SHELL.escapeHtml(ev.actor)}<div style="font-size:11px;color:var(--muted);margin-top:2px"><b>${ev.hours.toFixed(1)}h</b> for ${SHELL.escapeHtml(ev.date)} · ${fmt(ev.ts)}</div></div>
+        <span class="pill pill-${tone}">${ev.status === 'approved' ? 'Approved' : 'Pending'}</span>
+      </a>`;
+    }
+    return '';
+  }).join('');
+  return `<div class="card" style="padding:0;margin-bottom:20px">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
+      <div class="card-title">Today's activity</div>
+      <div class="card-sub">${events.length} ${events.length === 1 ? 'event' : 'events'}${events.length > SHOW ? ' · showing latest ' + SHOW : ''}</div>
+    </div>
+    ${rows}
+  </div>`;
+}
+
+function activeJobsHtml() {
+  const active = STATE.jobs.filter(j => (j.status || 'active') === 'active').slice();
+  if (!active.length) return '<div class="empty"><div class="empty-title">No active jobs</div></div>';
+  active.sort((a, b) => {
+    const sa = openSnags(a).length, sb = openSnags(b).length;
+    if (sa !== sb) return sb - sa;
+    return (lastActivityIso(a) || '').localeCompare(lastActivityIso(b) || '');
+  });
+  const SHOW = 6;
+  return active.slice(0, SHOW).map(j => {
+    const pct = jobProgress(j); const sn = openSnags(j).length; const la = lastActivityIso(j);
+    const laDays = la ? daysAgo(la) : null; const crewN = crewToday(j);
+    return `<a href="/admin/jobs/${SHELL.escapeHtml(j.id)}" style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--line);text-decoration:none;color:var(--ink)">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600">${SHELL.escapeHtml(j.name)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">
+          ${j.type ? SHELL.escapeHtml(j.type) + ' · ' : ''}<b>${pct}%</b> complete${sn ? ' · <span style="color:var(--bad)"><b>' + sn + '</b> open ' + (sn === 1 ? 'snag' : 'snags') + '</span>' : ''}${crewN ? ' · <b>' + crewN + '</b> on site today' : ''}${la ? ' · last activity <b>' + (laDays === 0 ? 'today' : laDays === 1 ? 'yesterday' : laDays + 'd ago') + '</b>' : ' · no activity yet'}
+        </div>
+      </div>
+      <div style="font-size:18px;font-weight:700;font-variant-numeric:tabular-nums">${pct}%</div>
+    </a>`;
+  }).join('') + (active.length > SHOW ? `<a href="/admin/jobs" style="display:block;padding:10px;text-align:center;font-size:12px;color:var(--muted);text-decoration:underline">View all ${active.length} active jobs</a>` : '');
+}
+
+function labourWeekHtml() {
+  const { rows, grand } = weekHoursByUser();
+  if (!rows.length) return '<div class="empty"><div class="empty-title">No hours logged this week yet</div></div>';
+  const SHOW = 6;
+  const monLabel = new Date(thisWeekRange().fromIso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+  let html = `<div style="display:flex;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--surface-2);font-weight:600">
+    <div>Team total<div style="font-size:11px;color:var(--muted);font-weight:500">Week of ${monLabel}</div></div>
+    <div style="font-variant-numeric:tabular-nums">${grand.toFixed(1)}h</div>
+  </div>`;
+  html += rows.slice(0, SHOW).map(r => `<div style="display:flex;justify-content:space-between;padding:10px 18px;border-bottom:1px solid var(--line)">
+    <div>${SHELL.escapeHtml(r.name)}</div>
+    <div style="font-variant-numeric:tabular-nums;font-weight:600">${r.hours.toFixed(1)}h</div>
+  </div>`).join('');
+  if (rows.length > SHOW) html += `<div style="padding:8px 14px;font-size:11px;color:var(--muted);text-align:center">${rows.length - SHOW} more crew</div>`;
+  return html;
+}
+
+function peopleHtml() {
+  const activity = crewLastActivity();
+  const crew = STATE.users.slice().sort((a, b) => a.username.localeCompare(b.username));
+  if (!crew.length) return '<div class="empty"><div class="empty-title">No tradies or leading hands on file</div></div>';
+  return crew.map(u => {
+    const a = activity[u.id]; const days = a ? daysAgo(a.lastIso) : Infinity; const idle = days >= 3;
+    const roleLbl = u.role === 'leadingHand' ? 'Leading hand' : 'Tradie';
+    let chip = '';
+    if (!isFinite(days)) chip = `<span class="chip">No activity</span>`;
+    else if (idle) chip = `<span class="chip warn">Idle ${days}d</span>`;
+    else chip = `<span class="chip ok">${days === 0 ? 'Active today' : days === 1 ? 'Active yesterday' : 'Active ' + days + 'd ago'}</span>`;
+    const lastJob = a && a.lastJob;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid var(--line)">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600">${SHELL.escapeHtml(u.username)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${roleLbl}${lastJob ? ' · last on <b style="color:var(--ink)">' + SHELL.escapeHtml(lastJob.name) + '</b>' : ' · no jobs logged yet'}</div>
+      </div>
+      ${chip}
+    </div>`;
+  }).join('');
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>

@@ -301,7 +301,7 @@ f.addEventListener('submit', async (e) => {
   }
 });
 function landingFor(role) {
-  if (role === 'admin' || role === 'leadingHand') return '/overview';
+  if (role === 'admin' || role === 'leadingHand') return '/admin/operations';
   if (role === 'tradie') return '/my-day';
   if (role === 'client') return '/client';
   return '/jobs';

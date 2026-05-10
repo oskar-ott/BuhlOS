@@ -319,7 +319,7 @@ async function load() {
   // Only clients land here.  Others get bumped back to their landing.
   if (ME.role !== 'client') {
     location.href = ME.role === 'tradie' ? '/my-day'
-                   : (ME.role === 'admin' || ME.role === 'leadingHand') ? '/overview'
+                   : (ME.role === 'admin' || ME.role === 'leadingHand') ? '/admin/operations'
                    : '/jobs';
     return;
   }

@@ -587,7 +587,7 @@ async function load(){
   ME = user;
 
   // Role gate — /my-day is for tradies. Others get redirected.
-  if (ME.role === 'admin' || ME.role === 'leadingHand') { location.href = '/overview'; return; }
+  if (ME.role === 'admin' || ME.role === 'leadingHand') { location.href = '/admin/operations'; return; }
   if (ME.role === 'client') { location.href = '/jobs'; return; }
 
   // Header bits
