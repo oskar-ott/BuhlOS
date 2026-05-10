@@ -1040,24 +1040,38 @@ dialog h3.dlg-title {
 }
 </style></head><body>
 
-<!-- Legacy banner — admin shell has been redesigned. This page is kept for the
-     deep area-task editor + the multi-select "Log for crew" batch flow,
-     which haven't been ported into the new shell yet. -->
-<div style="background:#e08a1a;color:#2a1a05;padding:10px 18px;font-size:13px;display:flex;align-items:center;gap:14px;border-bottom:2px solid #f5f3ee;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-  <b>Legacy admin.</b>
-  <span>The new admin lives at <a href="/admin/" style="color:#2a1a05;text-decoration:underline;font-weight:700">/admin/</a> — Today, Approvals, Snags, Jobs, Quotes, Hours, Crew, Suppliers, Temps, Settings.</span>
+<!-- /admin.html is the "Field tools" page — a focused two-feature surface
+     for: (1) batch-logging hours on behalf of crew, and (2) deploying /
+     returning / reporting on temps with photo capture. The 7 tabs that
+     duplicated the new admin (Overview / Quotes / Jobs / Snags / People /
+     Costs / Wholesalers) are CSS-hidden so this page stops competing
+     with the canonical /admin/* shell. JS for those tabs stays in place
+     because removing it would risk breaking shared helpers. -->
+<style>
+  /* Hide the duplicate-of-/admin tabs — keep only Hours, Temps, Test & Tag. */
+  .admin-tabs button[data-tab="overview"],
+  .admin-tabs button[data-tab="quotes"],
+  .admin-tabs button[data-tab="jobs"],
+  .admin-tabs button[data-tab="snags"],
+  .admin-tabs button[data-tab="people"],
+  .admin-tabs button[data-tab="costs"],
+  .admin-tabs button[data-tab="wholesalers"] { display: none !important; }
+</style>
+<div style="background:#0d1f35;color:#fff;padding:10px 18px;font-size:13px;display:flex;align-items:center;gap:14px;border-bottom:2px solid #f5f3ee;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+  <b style="color:#ffcc00">Field tools.</b>
+  <span style="color:rgba(255,255,255,.8)">Batch hours entry on behalf of crew + Temps deploy / return / report. The full admin lives at <a href="/admin/" style="color:#ffcc00;text-decoration:underline;font-weight:700">/admin/</a>.</span>
   <span style="flex:1"></span>
-  <a href="/admin/" style="background:#2a1a05;color:#e08a1a;padding:5px 11px;border-radius:6px;text-decoration:none;font-weight:700;font-size:12px">Open new admin →</a>
+  <a href="/admin/" style="background:#ffcc00;color:#2a1a05;padding:5px 11px;border-radius:6px;text-decoration:none;font-weight:700;font-size:12px">Open admin →</a>
 </div>
 
 <header class="app-header">
   <div class="hdr-left">
-    <a href="/admin-legacy" class="wordmark hdr-mark" aria-label="BuhlOS — admin">b&uuml;hl<span class="os">OS</span></a>
+    <a href="/admin/" class="wordmark hdr-mark" aria-label="BuhlOS — admin">b&uuml;hl<span class="os">OS</span></a>
     <a class="nav-pill" id="ovLink" href="/admin/operations">Operations</a>
     <a class="nav-pill" href="/admin/jobs">Jobs</a>
     <!-- Approvals link with auto-badge of pending count (approvals-badge.js). -->
     <a class="nav-pill" id="approvalsLink" href="/admin/approvals">Approvals</a>
-    <a class="nav-pill active" id="adminLink" href="/admin-legacy">Admin (legacy)</a>
+    <a class="nav-pill active" id="adminLink" href="/admin-legacy">Field tools</a>
   </div>
   <div class="hdr-right">
     <button class="profile-btn" id="profile-btn">
@@ -1081,10 +1095,16 @@ dialog h3.dlg-title {
 </header>
 
 <nav class="admin-tabs" id="admin-tabs">
-  <button class="active" data-tab="overview">Overview</button>
+  <!-- Hidden tabs (overview/quotes/jobs/snags/people/costs/wholesalers)
+       are still in the DOM so the existing JS doesn't break, but CSS
+       hides them. The 3 visible tabs are the unique features:
+         Hours — batch log on behalf of crew
+         Temps — deploy / return / report with photo capture
+       Test & Tag — register edit (kept for back-compat). -->
+  <button data-tab="overview">Overview</button>
   <button data-tab="quotes">Quotes</button>
   <button data-tab="jobs">Jobs</button>
-  <button data-tab="hours">Hours</button>
+  <button class="active" data-tab="hours">Hours</button>
   <button data-tab="snags">Snags</button>
   <button data-tab="temps">Temps</button>
   <button data-tab="people">People</button>
@@ -1099,7 +1119,10 @@ dialog h3.dlg-title {
   <!-- Control-centre overview: jobs status, attention items, user roles,
        quick actions. First thing admin sees on landing. Renders cheaply
        from already-fetched JOBS + USERS so it doesn't add a network hop. -->
-  <div id="tab-overview" class="tab active">
+  <!-- tab-overview default-active flag dropped — Hours is the default
+       landing for /admin.html (Field tools) since the Overview tab is
+       hidden via CSS. -->
+  <div id="tab-overview" class="tab">
     <div class="page-head">
       <div class="page-head-left">
         <h1 class="admin-page-title">Overview</h1>
@@ -1401,7 +1424,7 @@ dialog h3.dlg-title {
   <!-- ╔════════════ HOURS TAB ════════════╗ -->
   <!-- Cross-user hours overview. Visible to admin (all jobs) and leadingHand
        (only their assigned jobs / crew). Pulls from /api/time-entries-overview.  -->
-  <div id="tab-hours" class="tab">
+  <div id="tab-hours" class="tab active">
     <div class="page-head">
       <div class="page-head-left">
         <h1 class="admin-page-title">Hours</h1>
@@ -1838,35 +1861,23 @@ async function boot() {
   const isLH = ME.role === 'leadingHand';
 
   if (isLH) {
-    // LH: limit to Jobs + Hours + Snags tabs (hide Overview + Temps + People + Costs).
-    // Pill label changes to "Job Setup" since Jobs IS the setup surface for them.
-    const lhTabs = ['jobs', 'hours', 'snags'];
-    document.querySelectorAll('nav.admin-tabs button').forEach(b => {
-      if (lhTabs.indexOf(b.dataset.tab) === -1) b.style.display = 'none';
-      else b.onclick = () => switchTab(b.dataset.tab);
-    });
-    // Flip the visible tab from Overview (admin-only) to Jobs for LH.
-    const ovBtn = document.querySelector('nav.admin-tabs button[data-tab="overview"]');
-    const jobsBtn = document.querySelector('nav.admin-tabs button[data-tab="jobs"]');
-    if (ovBtn) ovBtn.classList.remove('active');
-    if (jobsBtn) jobsBtn.classList.add('active');
-    const ovPane = document.getElementById('tab-overview');
-    const jobsPane = document.getElementById('tab-jobs');
-    if (ovPane) ovPane.classList.remove('active');
-    if (jobsPane) jobsPane.classList.add('active');
+    // LH on Field Tools: only the unique features matter (Hours batch +
+    // Temps + Test & Tag). The "Job Setup" workflow for LH now lives in
+    // /admin/jobs/<id>?s=setup (new shell — opened to LH in PR #15).
+    // The "Job Setup" pill is repointed accordingly.
     const adminPill = document.getElementById('adminLink');
-    if (adminPill) adminPill.textContent = 'Job Setup';
+    if (adminPill) {
+      adminPill.textContent = 'Field tools';
+      adminPill.href = '/admin-legacy';
+    }
     document.getElementById('open-new-job').style.display = 'none';
     document.getElementById('open-types').style.display = 'none';
-    // LH list of jobs is filtered to assigned
-    try {
-      const jr = await api('/api/jobs');
-      JOBS = (jr.jobs || []).filter(j => (ME.assignedJobIds || []).includes(j.id));
-    } catch { JOBS = []; }
-    // For LH, also load USERS and JOB_TYPES (for setup pane needs)
-    try { const ur = await api('/api/users'); USERS = ur.users || []; } catch {}
-    try { const jtr = await api('/api/job-types?action=list'); JOB_TYPES = jtr.jobTypes || []; } catch {}
-    renderJobs();
+    // Wire all visible tab buttons (CSS hides the ones LH shouldn't see).
+    document.querySelectorAll('nav.admin-tabs button').forEach(b => {
+      b.onclick = () => switchTab(b.dataset.tab);
+    });
+    // Default landing = Hours (visible for everyone). The HTML default
+    // is already class="active" on tab-hours so no DOM swap needed.
   } else {
     document.querySelectorAll('nav.admin-tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
     wireFilters();
