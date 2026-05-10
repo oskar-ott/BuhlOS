@@ -2,319 +2,788 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>buhl — sign in</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Sign in · BuhlOS</title>
+<meta name="theme-color" content="#0a1828">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
-<meta name="theme-color" content="#0d1b34">
-<!-- Sheet 03 register: IBM Plex on warm cream paper, monochrome navy. -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --paper:     #fdfbf3;
-    --paper-2:   #f7f3e6;
-    --paper-3:   #efe9d6;
-    --grid:      rgba(13,27,52,.07);
-    --grid-strong: rgba(13,27,52,.16);
-    --ink:       #0d1b34;
-    --ink-2:     #36446b;
-    --ink-3:     #6a7591;
-    --rule:      #c8cee0;
-    --rule-2:    #dde1ea;
-    --red:       #c0312f;
-    --green:     #1f8b5a;
-    --display:   "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
-    --sans:      "IBM Plex Sans", system-ui, sans-serif;
-    --serif:     "IBM Plex Serif", Georgia, serif;
-    --mono:      "IBM Plex Mono", ui-monospace, monospace;
-  }
-  *, *::before, *::after { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
+/* /login — mobile-first themed login per the BuhlOS site-office system.
+   Single file, vanilla, no external fonts/images. PIN pad for crew + a
+   username/password form for admin/office, swappable via a role toggle.
+   Above 520px the .frame is rendered inside a phone bezel so the file
+   reads as intentional on desktop too. Posts to existing /api/auth. */
+
+:root {
+  --navy-900: #0a1828;
+  --navy-800: #0d1f35;
+  --navy-700: #152a44;
+  --paper:    #f4f4ef;
+  --card:     #ffffff;
+  --card-soft:#fafaf6;
+  --ink:      #0c1623;
+  --ink-2:    #33425a;
+  --muted:    #6a778b;
+  --faint:    #94a0b3;
+  --border:   #e3e5dc;
+  --border-2: #d8dad0;
+  --yellow:    #f5c518;
+  --yellow-edge:#e8b600;
+  --yellow-bg: #fff8d6;
+  --green:    #16804a;
+  --green-bg: #e6f5ec;
+  --red:      #b8332a;
+  --red-bg:   #fbeae8;
+  --red-edge: #f0c4bf;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --safe-t: env(safe-area-inset-top, 0);
+  --safe-b: env(safe-area-inset-bottom, 0);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { min-height: 100%; }
+body {
+  font-family: var(--font-sans);
+  font-size: 15px; line-height: 1.4;
+  color: var(--ink);
+  background: var(--navy-900);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+button, input, select { font: inherit; color: inherit; }
+button { background: none; border: none; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+.tabular { font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+
+/* ── Frame ────────────────────────────────────────────────── */
+.frame {
+  position: relative;
+  width: 100%; max-width: 100%;
+  min-height: 100vh;
+  background: var(--navy-900);
+  display: flex; flex-direction: column;
+  padding-bottom: var(--safe-b);
+  /* Quiet site-office grid background — two crossed gradients masked
+     top/bottom + two soft yellow radial washes. Never fights content. */
+  background-image:
+    radial-gradient(ellipse at 50% 0%, rgba(245,197,24,.10), transparent 55%),
+    radial-gradient(ellipse at 100% 100%, rgba(245,197,24,.08), transparent 50%),
+    linear-gradient(0deg, transparent 23px, rgba(255,255,255,.025) 23px, rgba(255,255,255,.025) 24px),
+    linear-gradient(90deg, transparent 23px, rgba(255,255,255,.025) 23px, rgba(255,255,255,.025) 24px);
+  background-size: auto, auto, 24px 24px, 24px 24px;
+}
+.frame::after {
+  /* Vertical fade so the grid never touches the edges */
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(10,24,40,.8) 0%, transparent 18%, transparent 82%, rgba(10,24,40,.8) 100%);
+}
+.frame > * { position: relative; z-index: 1; }
+
+/* ── Status bar (fake) ────────────────────────────────────── */
+.statusbar {
+  height: max(20px, var(--safe-t));
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 18px;
+  font-size: 13px; font-weight: 600;
+  color: rgba(255,255,255,.8);
+  font-variant-numeric: tabular-nums;
+}
+.statusbar-time { letter-spacing: -.2px; }
+.statusbar-icons { display: flex; align-items: center; gap: 5px; opacity: .85; }
+.statusbar-icons svg { color: rgba(255,255,255,.85); }
+@media (display-mode: standalone) {
+  /* In PWA mode iOS draws its own status bar — hide ours. */
+  .statusbar { display: none; }
+}
+
+/* ── Brand band ───────────────────────────────────────────── */
+.brand {
+  text-align: center;
+  padding: 28px 18px 20px;
+  color: #fff;
+}
+.brand-eyebrow {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-size: 10px; font-weight: 700; letter-spacing: .2em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.55);
+  margin-bottom: 14px;
+}
+.brand-eyebrow::before, .brand-eyebrow::after {
+  content: ""; display: inline-block; width: 22px; height: 1px;
+  background: rgba(255,255,255,.22);
+}
+.brand-mark {
+  font-size: 30px; font-weight: 800; letter-spacing: -.6px;
+  line-height: 1; color: #fff;
+}
+.brand-mark small {
+  display: inline-block;
+  font-size: 11px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: .25em;
+  color: rgba(255,255,255,.55);
+  margin-left: 8px;
+  vertical-align: middle;
+  padding-bottom: 2px;
+}
+
+/* ── Card ─────────────────────────────────────────────────── */
+.card {
+  margin: 8px 14px 16px;
+  background: var(--paper);
+  border-radius: 18px;
+  padding: 22px 20px 18px;
+  box-shadow:
+    0 28px 60px -20px rgba(0,0,0,.55),
+    inset 0 1px 0 rgba(255,255,255,.55);
+  position: relative;
+}
+.card-head { margin-bottom: 16px; }
+.card-title {
+  font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+  color: var(--ink);
+}
+.card-sub {
+  font-size: 13px; color: var(--muted); margin-top: 3px;
+}
+
+/* Role toggle */
+.toggle {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  background: rgba(13,31,53,.06);
+  border: 1px solid rgba(13,31,53,.08);
+  border-radius: 11px;
+  padding: 4px;
+  margin-bottom: 14px;
+}
+.toggle button {
+  appearance: none; background: transparent; border: 0;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  height: 38px; border-radius: 8px;
+  font-size: 13px; font-weight: 600;
+  color: var(--muted);
+  transition: background .12s, color .12s, box-shadow .12s;
+}
+.toggle button svg { width: 14px; height: 14px; }
+.toggle button[aria-selected="true"] {
+  background: var(--navy-800); color: #fff;
+  box-shadow: 0 1px 2px rgba(13,31,53,.18);
+}
+.toggle button:not([aria-selected="true"]):hover { color: var(--ink); }
+
+/* Error banner */
+.err-banner {
+  display: none;
+  align-items: center; gap: 8px;
+  margin-bottom: 12px;
+  background: var(--red-bg); color: var(--red);
+  border: 1px solid var(--red-edge);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 13px; font-weight: 600;
+}
+.err-banner.show { display: flex; }
+.err-banner svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+/* Form fields */
+.field { margin-bottom: 12px; }
+.field-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.field-l {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .12em;
+}
+.field-link {
+  font-size: 12px; color: var(--ink-2); font-weight: 600;
+  background: none; border: 0; cursor: pointer;
+  padding: 4px 6px; border-radius: 6px;
+}
+.field-link:hover { color: var(--ink); background: rgba(13,31,53,.06); }
+.field-hint {
+  margin-top: 6px;
+  background: rgba(13,31,53,.05); border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px; color: var(--ink-2); line-height: 1.45;
+  display: none;
+}
+.field-hint.show { display: block; }
+
+.input-wrap {
+  position: relative;
+  display: flex; align-items: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  height: 48px;
+  transition: border-color .12s, box-shadow .12s;
+}
+.input-wrap:focus-within {
+  border-color: var(--yellow-edge);
+  box-shadow: 0 0 0 4px rgba(245,197,24,.18);
+}
+.input-wrap > svg.input-lead {
+  width: 16px; height: 16px; color: var(--faint); margin-left: 14px; flex-shrink: 0;
+}
+.input-wrap > input {
+  flex: 1; min-width: 0;
+  border: 0; background: transparent; outline: none;
+  height: 100%; padding: 0 14px;
+  font-size: 15px; color: var(--ink);
+}
+.input-wrap > input::placeholder { color: var(--faint); }
+.input-eye {
+  width: 44px; height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--muted); border-radius: 8px;
+  margin-right: 2px;
+}
+.input-eye svg { width: 18px; height: 18px; }
+.input-eye:hover { color: var(--ink); background: rgba(13,31,53,.05); }
+
+/* PIN cells */
+.pin {
+  display: flex; gap: 10px; justify-content: center;
+  margin: 6px 0 14px;
+}
+.pin-cell {
+  width: 50px; height: 54px;
+  border: 1px solid var(--border-2);
+  background: var(--card);
+  border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; font-weight: 700; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  transition: border-color .12s, box-shadow .12s, background .12s;
+}
+.pin-cell.filled {
+  border-color: var(--yellow-edge);
+  box-shadow: 0 0 0 3px rgba(245,197,24,.16);
+}
+.pin.error .pin-cell {
+  border-color: var(--red-edge);
+  background: var(--red-bg);
+  color: var(--red);
+  animation: pin-shake .35s ease-out;
+}
+.pin.success .pin-cell {
+  border-color: rgba(22,128,74,.5);
+  background: var(--green-bg);
+  color: var(--green);
+}
+@keyframes pin-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+/* PIN pad */
+.pad {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.pad-key {
+  height: 54px; border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 600; color: var(--ink);
+  line-height: 1;
+  transition: background .1s, transform .06s;
+}
+.pad-key:hover { background: var(--card-soft); }
+.pad-key:active { transform: scale(.96); }
+.pad-key small {
+  display: block; font-size: 9px; font-weight: 700;
+  color: var(--faint); letter-spacing: .12em;
+  margin-top: 3px;
+}
+.pad-key.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+}
+.pad-key.ghost:hover { background: rgba(13,31,53,.05); color: var(--ink); }
+.pad-key.icon { color: var(--muted); }
+.pad-key.icon svg { width: 22px; height: 22px; }
+
+.pad-helper {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 4px;
+  font-size: 11.5px; color: var(--muted);
+}
+.pad-helper-text { flex: 1; }
+.faceid {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px; font-weight: 600; color: var(--ink-2);
+  min-height: 32px;
+}
+.faceid svg { width: 14px; height: 14px; }
+.faceid:hover { background: var(--card-soft); }
+
+/* Keep-signed-in */
+.checkrow {
+  display: flex; align-items: center; gap: 8px;
+  margin: 4px 0 14px;
+  font-size: 13px; color: var(--ink-2);
+}
+.checkrow input[type="checkbox"] {
+  width: 18px; height: 18px;
+  accent-color: var(--yellow);
+}
+
+/* Primary CTA */
+.cta {
+  appearance: none; border: 0; width: 100%;
+  height: 50px; border-radius: 12px;
+  background: var(--yellow); color: var(--ink);
+  font-size: 15px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  box-shadow: inset 0 -2px 0 var(--yellow-edge);
+  transition: filter .12s, transform .06s;
+}
+.cta:hover { filter: brightness(.97); }
+.cta:active { transform: translateY(1px); box-shadow: none; }
+.cta:disabled { opacity: .55; cursor: not-allowed; }
+.cta-helper {
+  display: block; text-align: center;
+  margin-top: 10px;
+  font-size: 11.5px; color: var(--muted);
+}
+
+/* Mode panels — only one visible at a time */
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ── Footer ───────────────────────────────────────────────── */
+.foot {
+  margin-top: auto;
+  padding: 14px 18px calc(16px + var(--safe-b));
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px; letter-spacing: .04em;
+  color: rgba(255,255,255,.45);
+  text-align: center;
+}
+.foot-env {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: rgba(255,255,255,.65);
+  font-weight: 600;
+}
+.foot-env::before {
+  content: ""; display: inline-block;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 2px rgba(22,128,74,.25);
+}
+.foot-aup { font-size: 10px; opacity: .7; max-width: 280px; line-height: 1.5; }
+
+/* ── Desktop bezel framing (≥520px) ───────────────────────── */
+@media (min-width: 520px) {
   body {
-    background: var(--paper);
-    color: var(--ink);
-    font-family: var(--sans);
-    font-size: 14.5px;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(ellipse at 50% 30%, #14253d 0%, #0a1828 60%);
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    padding: 32px 16px;
   }
-  body::before {
-    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-    background-image:
-      linear-gradient(to right, var(--grid) 0 1px, transparent 1px 100%),
-      linear-gradient(to bottom, var(--grid) 0 1px, transparent 1px 100%),
-      linear-gradient(to right, var(--grid-strong) 0 1px, transparent 1px 100%),
-      linear-gradient(to bottom, var(--grid-strong) 0 1px, transparent 1px 100%);
-    background-size: 24px 24px, 24px 24px, 120px 120px, 120px 120px;
-    opacity: .35;
+  .frame {
+    max-width: 400px;
+    width: 400px;
+    height: 760px;
+    min-height: 0;
+    border-radius: 32px;
+    overflow: hidden;
+    box-shadow:
+      0 60px 100px -30px rgba(0,0,0,.65),
+      0 0 0 8px #1a2436,
+      0 0 0 9px #2a3550;
   }
-
-  .page {
-    position: relative; z-index: 1;
-    min-height: 100vh; display: flex; flex-direction: column;
-    padding-top: max(20px, env(safe-area-inset-top));
-    padding-bottom: max(20px, env(safe-area-inset-bottom));
-  }
-
-  /* drawing-chrome top strip — issued/drawing reference */
-  .strip {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 12px clamp(20px, 5vw, 36px) 10px;
-    border-bottom: 1.5px solid var(--ink);
-    font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--ink-2);
-  }
-  .strip b { color: var(--ink); font-weight: 600; }
-  .strip .marker {
-    display: inline-block; width: 7px; height: 7px;
-    background: var(--ink); margin-right: 8px; vertical-align: 1px;
-  }
-
-  .wrap {
-    flex: 1; display: flex; align-items: center; justify-content: center;
-    padding: 28px 16px;
-  }
-
-  /* login card frame */
-  .card {
-    width: 100%; max-width: 380px;
-    background: var(--paper);
-    border: 1.5px solid var(--ink);
-    display: flex; flex-direction: column;
-  }
-
-  .lg-mark {
-    margin: 36px auto 6px;
-    font-family: var(--display); font-weight: 800;
-    font-size: 54px; letter-spacing: -.034em; line-height: 1;
-    color: var(--ink); text-align: center;
-  }
-  .lg-mark .uml { font-style: italic; font-weight: 800; }
-  .lg-mark .os {
-    font-family: var(--serif); font-style: italic; font-weight: 400;
-    font-size: .55em; color: var(--ink-2);
-    margin-left: .04em;
-  }
-  .lg-sub {
-    text-align: center;
-    font-family: var(--mono); font-size: 10.5px;
-    letter-spacing: .22em; text-transform: uppercase;
-    color: var(--ink-2); margin-bottom: 32px;
-  }
-
-  /* form */
-  .form {
-    padding: 0 22px 22px;
-    display: flex; flex-direction: column; gap: 10px;
-    margin-top: auto;
-  }
-  .row { display: flex; flex-direction: column; gap: 0; }
-  .row label {
-    display: flex; justify-content: space-between; align-items: baseline;
-    font-family: var(--mono); font-size: 9.5px; letter-spacing: .18em;
-    color: var(--ink-2); text-transform: uppercase;
-    margin-bottom: 2px;
-  }
-  .row label b { color: var(--ink); font-weight: 600; letter-spacing: .14em; }
-  .row input {
-    width: 100%;
-    border: 0; border-bottom: 1.5px solid var(--ink);
-    background: transparent;
-    font-family: var(--sans); font-size: 18px; font-weight: 600;
-    padding: 6px 0 8px;
-    color: var(--ink); outline: none;
-    border-radius: 0;
-    -webkit-appearance: none;
-  }
-  .row input::placeholder { color: var(--ink-3); font-weight: 400; }
-  .row input:focus { border-bottom-color: var(--ink); }
-  .row input[type=password] { letter-spacing: .25em; }
-
-  .go {
-    margin-top: 18px;
-    background: var(--ink); color: var(--paper);
-    border: 0; padding: 14px;
-    font-family: var(--display); font-weight: 800;
-    letter-spacing: .08em; font-size: 15px;
-    text-transform: uppercase; cursor: pointer;
-    display: flex; justify-content: space-between; align-items: center;
-  }
-  .go:hover { background: #182a4d; }
-  .go:disabled { opacity: .55; cursor: wait; }
-  .go .ar { font-size: 18px; }
-
-  .meta {
-    display: flex; justify-content: space-between;
-    font-family: var(--mono); font-size: 9px; letter-spacing: .15em;
-    color: var(--ink-2); text-transform: uppercase; margin-top: 10px;
-  }
-  .meta b { color: var(--ink); font-weight: 600; }
-  #syncDot { display: inline-block; width: 6px; height: 6px;
-             background: var(--green); margin-right: 4px; vertical-align: 1px; }
-  #syncDot.offline { background: var(--ink-3); }
-
-  .err {
-    margin-top: 8px; min-height: 16px;
-    font-family: var(--mono); font-size: 10px; letter-spacing: .12em;
-    text-transform: uppercase; color: var(--red);
-    text-align: center; font-weight: 600;
-  }
-
-  /* drawing title-block at the bottom of the card */
-  .tb {
-    display: grid; grid-template-columns: repeat(4, 1fr);
-    border-top: 1.5px solid var(--ink);
-    margin: 0;
-    font-family: var(--mono); font-size: 8.5px; letter-spacing: .12em;
-    text-transform: uppercase; background: var(--paper-2);
-  }
-  .tb-cell {
-    border-right: 1px solid var(--ink); padding: 7px 8px 6px;
-    color: var(--ink-2); line-height: 1.35;
-  }
-  .tb-cell:last-child { border-right: 0; }
-  .tb-cell .o {
-    display: block; color: var(--ink-3); font-size: 7.5px;
-    letter-spacing: .14em; margin-bottom: 2px;
-  }
-  .tb-cell b {
-    color: var(--ink); font-family: var(--display); font-weight: 700;
-    font-size: 10px; letter-spacing: -.005em; text-transform: none;
-  }
-
-  /* foot strip below the card */
-  .foot {
-    text-align: center; padding: 18px 16px 6px;
-    font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--ink-3);
-  }
-  .foot b { color: var(--ink); font-weight: 600; }
-
-  @media (max-width: 380px) {
-    .lg-mark { font-size: 44px; margin-top: 28px; }
-    .lg-sub { letter-spacing: .18em; }
-  }
+  .statusbar { display: flex; height: 28px; padding-top: 4px; }
+}
 </style>
 </head>
 <body>
-<div class="page">
-  <header class="strip">
-    <span><span class="marker"></span>buhl electrical · internal</span>
-    <span><b>R-LOGIN</b> · rev a · 09 may 26</span>
-  </header>
 
-  <div class="wrap">
-    <form class="card" id="f">
-      <div class="lg-mark">b<span class="uml">&uuml;</span>hl<span class="os">os</span></div>
-      <div class="lg-sub">site &middot; timesheets &middot; snags</div>
+<div class="frame">
 
-      <div class="form">
-        <div class="row">
-          <label><span>Crew &middot; ID</span><b>username</b></label>
-          <input id="u" name="username" autocomplete="username"
-                 autocapitalize="none" autocorrect="off"
-                 spellcheck="false" required>
-        </div>
-        <div class="row">
-          <label><span>Password / 4-digit PIN</span><b>secret</b></label>
-          <input id="p" name="secret" type="password"
-                 inputmode="numeric" autocomplete="current-password" required>
-        </div>
-
-        <button type="submit" class="go" id="btn">
-          <span>Open BuhlOS</span><span class="ar">&rarr;</span>
-        </button>
-
-        <div class="err" id="err"></div>
-
-        <div class="meta">
-          <span>BUILD <b id="buildLbl">2.0.5</b></span>
-          <span><span id="syncDot"></span><b id="syncLbl">LIVE</b> &middot; <span id="lastSync">live</span></span>
-        </div>
-      </div>
-
-      <div class="tb">
-        <div class="tb-cell"><span class="o">project</span><b>BuhlOS</b></div>
-        <div class="tb-cell"><span class="o">screen</span>R-LOGIN</div>
-        <div class="tb-cell"><span class="o">rev</span>A &middot; 09&middot;05</div>
-        <div class="tb-cell"><span class="o">sync</span><b id="tbSync">LIVE</b></div>
-      </div>
-    </form>
+  <!-- Fake mobile status bar — decorative; hidden in PWA mode -->
+  <div class="statusbar" aria-hidden="true">
+    <span class="statusbar-time">9:41</span>
+    <span class="statusbar-icons">
+      <svg viewBox="0 0 18 12" width="16" height="11" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx=".5"/><rect x="4.5" y="6" width="3" height="6" rx=".5"/><rect x="9" y="3" width="3" height="9" rx=".5"/><rect x="13.5" y="0" width="3" height="12" rx=".5"/></svg>
+      <svg viewBox="0 0 18 14" width="14" height="11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5a10 10 0 0 1 14 0"/><path d="M5 8a6 6 0 0 1 8 0"/><circle cx="9" cy="11" r="1.2" fill="currentColor"/></svg>
+      <svg viewBox="0 0 24 12" width="22" height="10" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1" width="20" height="10" rx="2.4"/><rect x="22" y="3.5" width="1.5" height="5" rx=".4" fill="currentColor"/><rect x="3" y="3" width="14" height="6" rx="1" fill="currentColor"/></svg>
+    </span>
   </div>
 
-  <div class="foot">b&uuml;hl &middot; <b>field-ready</b> &middot; sign in</div>
+  <!-- Brand band -->
+  <div class="brand">
+    <div class="brand-eyebrow">Site office · BuhlOS</div>
+    <div class="brand-mark">bühl<small>electrical</small></div>
+  </div>
+
+  <!-- Sign-in card -->
+  <div class="card">
+    <div class="card-head">
+      <div class="card-title">Sign in</div>
+      <div class="card-sub" id="card-sub">Use your 4-digit site PIN to log in.</div>
+    </div>
+
+    <!-- Role toggle -->
+    <div class="toggle" role="tablist" aria-label="Sign-in mode">
+      <button type="button" id="tab-pin" role="tab" aria-selected="true" aria-controls="panel-pin">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+        Crew (PIN)
+      </button>
+      <button type="button" id="tab-pwd" role="tab" aria-selected="false" aria-controls="panel-pwd">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+        Admin / Office
+      </button>
+    </div>
+
+    <!-- Error banner -->
+    <div class="err-banner" id="err" role="alert">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+      <span id="err-text">Wrong PIN. Try again or ask your LH.</span>
+    </div>
+
+    <!-- ─────────── PIN MODE PANEL ─────────── -->
+    <div class="panel active" id="panel-pin" role="tabpanel" aria-labelledby="tab-pin">
+      <div class="field">
+        <div class="field-row">
+          <label class="field-l" for="pin-username">Username</label>
+          <button type="button" class="field-link" id="forgot-pin">Forgot?</button>
+        </div>
+        <div class="input-wrap">
+          <svg class="input-lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+          <input type="text" id="pin-username" placeholder="firstname.lastname"
+                 autocomplete="username" autocapitalize="off" spellcheck="false">
+        </div>
+        <div class="field-hint" id="forgot-pin-hint">Ask Karen or Daniel to reset your PIN from the admin console.</div>
+      </div>
+
+      <div class="field-row" style="margin-bottom: 4px">
+        <span class="field-l">Site PIN — 4 digits</span>
+      </div>
+      <div class="pin" id="pin-cells" aria-live="polite" aria-label="PIN, 4 digits">
+        <div class="pin-cell"></div><div class="pin-cell"></div><div class="pin-cell"></div><div class="pin-cell"></div>
+      </div>
+
+      <div class="pad" id="pin-pad">
+        <button type="button" class="pad-key" data-d="1">1<small>&nbsp;</small></button>
+        <button type="button" class="pad-key" data-d="2">2<small>ABC</small></button>
+        <button type="button" class="pad-key" data-d="3">3<small>DEF</small></button>
+        <button type="button" class="pad-key" data-d="4">4<small>GHI</small></button>
+        <button type="button" class="pad-key" data-d="5">5<small>JKL</small></button>
+        <button type="button" class="pad-key" data-d="6">6<small>MNO</small></button>
+        <button type="button" class="pad-key" data-d="7">7<small>PQRS</small></button>
+        <button type="button" class="pad-key" data-d="8">8<small>TUV</small></button>
+        <button type="button" class="pad-key" data-d="9">9<small>WXYZ</small></button>
+        <button type="button" class="pad-key ghost" id="pad-clear">Clear</button>
+        <button type="button" class="pad-key" data-d="0">0<small>&nbsp;</small></button>
+        <button type="button" class="pad-key icon" id="pad-del" aria-label="Delete last digit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 5h-13l-7 7 7 7h13a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/><path d="M14 9l5 6M19 9l-5 6"/></svg>
+        </button>
+      </div>
+
+      <div class="pad-helper">
+        <span class="pad-helper-text">4-digit PIN issued by your LH.</span>
+        <button type="button" class="faceid" id="faceid-btn" aria-label="Sign in with Face ID">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M21 7V5a2 2 0 0 0-2-2h-2"/><path d="M3 17v2a2 2 0 0 0 2 2h2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M9 10v2"/><path d="M15 10v2"/><path d="M12 9v4"/><path d="M9 16s1 1 3 1 3-1 3-1"/></svg>
+          Face ID
+        </button>
+      </div>
+    </div>
+
+    <!-- ─────────── PASSWORD MODE PANEL ─────────── -->
+    <div class="panel" id="panel-pwd" role="tabpanel" aria-labelledby="tab-pwd">
+      <div class="field">
+        <div class="field-row">
+          <label class="field-l" for="pwd-username">Username</label>
+          <button type="button" class="field-link" id="forgot-pwd">Forgot?</button>
+        </div>
+        <div class="input-wrap">
+          <svg class="input-lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+          <input type="text" id="pwd-username" placeholder="firstname.lastname"
+                 autocomplete="username" autocapitalize="off" spellcheck="false">
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-row">
+          <label class="field-l" for="pwd-password">Password</label>
+        </div>
+        <div class="input-wrap">
+          <svg class="input-lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+          <input type="password" id="pwd-password" placeholder="••••••••"
+                 autocomplete="current-password">
+          <button type="button" class="input-eye" id="pwd-eye" aria-label="Show password">
+            <svg id="pwd-eye-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <div class="field-hint" id="forgot-pwd-hint">Ask Karen or Daniel to reset your password from the admin console.</div>
+      </div>
+
+      <label class="checkrow" for="pwd-remember">
+        <input type="checkbox" id="pwd-remember" checked>
+        <span>Keep me signed in on this site office device</span>
+      </label>
+
+      <button class="cta" id="pwd-submit" type="button">
+        Sign in
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+      <span class="cta-helper">Office staff &amp; admin only.</span>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="foot">
+    <div class="foot-env">Production · v0.41</div>
+    <div>bühl electrical · Site office console</div>
+    <div class="foot-aup">By signing in you accept the site office acceptable-use policy.</div>
+  </div>
 </div>
 
 <script>
-// Sync state — show OFFLINE on the meta row so you know before saving.
-function setSync(state) {
-  const dot = document.getElementById('syncDot');
-  const lbl = document.getElementById('syncLbl');
-  const tb  = document.getElementById('tbSync');
-  if (state === 'offline') {
-    dot.classList.add('offline');
-    lbl.textContent = 'OFFLINE';
-    tb.textContent  = 'OFFLINE';
-    document.getElementById('lastSync').textContent = 'offline';
-  } else {
-    dot.classList.remove('offline');
-    lbl.textContent = 'LIVE';
-    tb.textContent  = 'LIVE';
-    document.getElementById('lastSync').textContent = 'live';
-  }
-}
-setSync(navigator.onLine === false ? 'offline' : 'live');
-window.addEventListener('online',  () => setSync('live'));
-window.addEventListener('offline', () => setSync('offline'));
-
-const f = document.getElementById('f');
-const err = document.getElementById('err');
-const btn = document.getElementById('btn');
-f.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  err.textContent = '';
-  btn.disabled = true;
-  btn.querySelector('span').textContent = 'Signing in…';
-  try {
-    const r = await fetch('/api/auth?action=login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify({
-        username: document.getElementById('u').value.trim(),
-        secret: document.getElementById('p').value,
-      }),
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || 'Sign in failed');
-    const role = j.user && j.user.role;
-    location.href = landingFor(role);
-  } catch (e) {
-    err.textContent = e.message;
-    btn.disabled = false;
-    btn.querySelector('span').textContent = 'Open BuhlOS';
-  }
-});
+// ── Auth landing routing ────────────────────────────────────────────────
+// Same shape as the previous login: admin → /admin/operations,
+// leadingHand → /admin/operations, tradie → /my-day, client → /client.
+// /jobs picker was nuked in PR #14 so it isn't a landing target anymore.
 function landingFor(role) {
   if (role === 'admin' || role === 'leadingHand') return '/admin/operations';
   if (role === 'tradie') return '/my-day';
   if (role === 'client') return '/client';
-  // Unknown / unset role — back to login (the picker page is gone).
   return '/login';
 }
+
+// ── State ───────────────────────────────────────────────────────────────
+let MODE = 'pin';        // 'pin' | 'pwd'
+let PIN = '';            // current entered PIN
+let LOADING = false;
+let SUCCEEDED = false;
+
+// ── Mode toggle ─────────────────────────────────────────────────────────
+function setMode(next) {
+  MODE = next;
+  document.getElementById('tab-pin').setAttribute('aria-selected', MODE === 'pin' ? 'true' : 'false');
+  document.getElementById('tab-pwd').setAttribute('aria-selected', MODE === 'pwd' ? 'true' : 'false');
+  document.getElementById('panel-pin').classList.toggle('active', MODE === 'pin');
+  document.getElementById('panel-pwd').classList.toggle('active', MODE === 'pwd');
+  document.getElementById('card-sub').textContent = MODE === 'pin'
+    ? 'Use your 4-digit site PIN to log in.'
+    : 'Use your office account password.';
+  hideError();
+  // Reset the PIN entry when leaving the mode (no stale digits if you flip back)
+  if (MODE === 'pwd') resetPin();
+  // Auto-focus the username field for whichever mode is active
+  setTimeout(() => {
+    const id = MODE === 'pin' ? 'pin-username' : 'pwd-username';
+    const el = document.getElementById(id);
+    if (el) el.focus({ preventScroll: true });
+  }, 50);
+}
+document.getElementById('tab-pin').addEventListener('click', () => setMode('pin'));
+document.getElementById('tab-pwd').addEventListener('click', () => setMode('pwd'));
+
+// ── Error banner ────────────────────────────────────────────────────────
+function showError(msg) {
+  const banner = document.getElementById('err');
+  document.getElementById('err-text').textContent = msg || 'Something went wrong.';
+  banner.classList.add('show');
+}
+function hideError() {
+  document.getElementById('err').classList.remove('show');
+}
+
+// ── Forgot reveals ──────────────────────────────────────────────────────
+document.getElementById('forgot-pin').addEventListener('click', () => {
+  document.getElementById('forgot-pin-hint').classList.toggle('show');
+});
+document.getElementById('forgot-pwd').addEventListener('click', () => {
+  document.getElementById('forgot-pwd-hint').classList.toggle('show');
+});
+
+// ── Eye toggle (password mode) ──────────────────────────────────────────
+document.getElementById('pwd-eye').addEventListener('click', () => {
+  const inp = document.getElementById('pwd-password');
+  const showing = inp.type === 'text';
+  inp.type = showing ? 'password' : 'text';
+  const btn = document.getElementById('pwd-eye');
+  btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+  // Swap SVG between eye and eye-off
+  const svg = document.getElementById('pwd-eye-svg');
+  svg.innerHTML = showing
+    ? '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'
+    : '<path d="M3 3l18 18"/><path d="M10.5 10.5a2 2 0 0 0 2.8 2.8"/><path d="M9.4 5.5A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.6 4.4"/><path d="M6.4 6.4A17 17 0 0 0 2 12s3.5 7 10 7c1 0 2-.2 2.9-.5"/>';
+});
+
+// ── PIN entry ──────────────────────────────────────────────────────────
+function paintPin() {
+  const cells = document.querySelectorAll('#pin-cells .pin-cell');
+  for (let i = 0; i < 4; i++) {
+    cells[i].textContent = i < PIN.length ? '•' : '';
+    cells[i].classList.toggle('filled', i < PIN.length);
+  }
+}
+function resetPin(opts) {
+  PIN = '';
+  paintPin();
+  if (opts && opts.error) {
+    document.getElementById('pin-cells').classList.add('error');
+    setTimeout(() => document.getElementById('pin-cells').classList.remove('error'), 350);
+  } else {
+    document.getElementById('pin-cells').classList.remove('error');
+  }
+  document.getElementById('pin-cells').classList.remove('success');
+}
+function pushDigit(d) {
+  if (LOADING || SUCCEEDED || PIN.length >= 4) return;
+  PIN += String(d);
+  paintPin();
+  if (PIN.length === 4) {
+    setTimeout(submitPin, 200); // 200ms grace so the 4th cell renders before the request
+  }
+}
+function popDigit() {
+  if (LOADING || SUCCEEDED) return;
+  if (!PIN.length) return;
+  PIN = PIN.slice(0, -1);
+  paintPin();
+}
+document.querySelectorAll('#pin-pad .pad-key[data-d]').forEach(b =>
+  b.addEventListener('click', () => pushDigit(b.dataset.d)));
+document.getElementById('pad-clear').addEventListener('click', () => resetPin());
+document.getElementById('pad-del').addEventListener('click', () => popDigit());
+
+// Hardware keyboard support — only when not focused in an input/textarea
+window.addEventListener('keydown', (e) => {
+  if (MODE !== 'pin') return;
+  if (LOADING || SUCCEEDED) return;
+  const tag = (e.target && e.target.tagName) || '';
+  const inField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  // Username field intentionally bypassed — typing your name shouldn't
+  // ring the PIN pad.
+  if (inField && e.target.id !== 'pin-username') return;
+  if (e.target.id === 'pin-username') {
+    // Allow Enter to focus the pad (no-op visually but signals intent)
+    return;
+  }
+  if (/^[0-9]$/.test(e.key)) { e.preventDefault(); pushDigit(e.key); }
+  else if (e.key === 'Backspace') { e.preventDefault(); popDigit(); }
+  else if (e.key === 'Enter' && PIN.length === 4) { e.preventDefault(); submitPin(); }
+});
+
+// ── Submit handlers ─────────────────────────────────────────────────────
+async function submitPin() {
+  const usernameEl = document.getElementById('pin-username');
+  const username = usernameEl.value.trim();
+  if (!username) {
+    showError('Enter your username first.');
+    usernameEl.focus();
+    resetPin();
+    return;
+  }
+  if (PIN.length !== 4) return;
+  await postLogin(username, PIN, /*isPin*/ true);
+}
+async function submitPwd() {
+  hideError();
+  const username = document.getElementById('pwd-username').value.trim();
+  const password = document.getElementById('pwd-password').value;
+  if (!username) { showError('Enter your username.'); return; }
+  if (!password) { showError('Enter your password.'); return; }
+  if (password.length < 6) { showError('Password must be at least 6 characters.'); return; }
+  await postLogin(username, password, /*isPin*/ false);
+}
+document.getElementById('pwd-submit').addEventListener('click', submitPwd);
+document.getElementById('pwd-username').addEventListener('keydown', e => { if (e.key === 'Enter') submitPwd(); });
+document.getElementById('pwd-password').addEventListener('keydown', e => { if (e.key === 'Enter') submitPwd(); });
+
+async function postLogin(username, secret, isPin) {
+  if (LOADING) return;
+  LOADING = true;
+  hideError();
+  // Visual loading state — dim CTA + disable toggle + disable pad
+  const sub = document.getElementById('card-sub');
+  const originalSub = sub.textContent;
+  sub.textContent = 'Signing in…';
+  document.getElementById('pwd-submit').disabled = true;
+  document.getElementById('tab-pin').disabled = true;
+  document.getElementById('tab-pwd').disabled = true;
+
+  try {
+    const r = await fetch('/api/auth?action=login', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, secret }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const fallback = isPin ? 'Wrong PIN. Try again or ask your LH.' : 'Sign-in failed. Check your details and try again.';
+      showError(j.error || fallback);
+      LOADING = false;
+      sub.textContent = originalSub;
+      document.getElementById('pwd-submit').disabled = false;
+      document.getElementById('tab-pin').disabled = false;
+      document.getElementById('tab-pwd').disabled = false;
+      if (isPin) setTimeout(() => resetPin({ error: true }), 50);
+      return;
+    }
+    SUCCEEDED = true;
+    sub.textContent = 'Signed in. Loading your jobs…';
+    if (isPin) {
+      document.getElementById('pin-cells').classList.add('success');
+    }
+    const role = j.user && j.user.role;
+    setTimeout(() => { location.href = landingFor(role); }, 380);
+  } catch (e) {
+    showError('Network error. Check your connection.');
+    LOADING = false;
+    sub.textContent = originalSub;
+    document.getElementById('pwd-submit').disabled = false;
+    document.getElementById('tab-pin').disabled = false;
+    document.getElementById('tab-pwd').disabled = false;
+    if (isPin) setTimeout(() => resetPin({ error: true }), 50);
+  }
+}
+
+// ── Face ID button (decorative) ─────────────────────────────────────────
+document.getElementById('faceid-btn').addEventListener('click', async () => {
+  // Try WebAuthn if available; otherwise show a friendly toast.
+  if (window.PublicKeyCredential && navigator.credentials && navigator.credentials.get) {
+    showError('Face ID not set up on this device — use your PIN.');
+  } else {
+    showError('Face ID not available on this browser — use your PIN.');
+  }
+});
+
+// ── Auto-redirect if already signed in ──────────────────────────────────
 fetch('/api/auth?action=me', { credentials: 'same-origin' })
   .then(r => r.ok ? r.json() : null)
-  .then(d => {
-    if (d && d.user) {
-      location.href = landingFor(d.user.role);
-    }
-  })
+  .then(d => { if (d && d.user) location.href = landingFor(d.user.role); })
   .catch(() => {});
+
+// Initial focus into username (PIN mode default)
+setTimeout(() => {
+  const el = document.getElementById('pin-username');
+  if (el) el.focus({ preventScroll: true });
+}, 200);
 </script>
 </body>
 </html>
