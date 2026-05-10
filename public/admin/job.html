@@ -740,6 +740,7 @@ function renderSetup(host) {
   SHELL.$$('button[data-add-area]').forEach(b => b.addEventListener('click', () => addAreaToGroup(b.dataset.addArea)));
   SHELL.$$('button[data-bulk-area]').forEach(b => b.addEventListener('click', () => bulkAddAreas(b.dataset.bulkArea)));
   SHELL.$$('button[data-rm-area]').forEach(b => b.addEventListener('click', () => removeAreaOrGroup(b.dataset.rmArea)));
+  SHELL.$$('button[data-edit-checklist]').forEach(b => b.addEventListener('click', () => openAreaChecklistPanel(b.dataset.editChecklist)));
   SHELL.$$('button[data-rename-task]').forEach(b => b.addEventListener('click', () => renameTask(b.dataset.renameTask, b.dataset.stage)));
   SHELL.$$('button[data-rm-task]').forEach(b => b.addEventListener('click', () => removeTask(b.dataset.rmTask, b.dataset.stage)));
 }
@@ -805,7 +806,27 @@ function taskHasProgress(taskId, stage, data) {
 function areasEditorHtml(j, data) {
   const groups = j.areaGroups || [];
   if (!groups.length) return '<div class="empty"><div class="empty-title">No area groups yet</div><div class="empty-sub">Add a group (e.g. "Units" or "Townhouses") to get started.</div></div>';
-  return groups.map(g => {
+  // Setup-summary block: tells the admin at a glance how many areas are
+  // running on the job-default checklist vs how many have a customised
+  // one. Per the brief: "15 areas using default checklist, 3 areas have
+  // custom checklists, 0 areas missing tasks." Lives ABOVE the per-group
+  // editor so it's the first thing the admin reads.
+  const allAreas = groups.flatMap(g => g.areas || []);
+  const customCount  = allAreas.filter(a => (Array.isArray(a.roughInTasks) && a.roughInTasks.length) || (Array.isArray(a.fitOffTasks) && a.fitOffTasks.length)).length;
+  const jobR = (j.roughInTasks || []).length;
+  const jobF = (j.fitOffTasks  || []).length;
+  const missingChecklist = allAreas.filter(a => {
+    const r = (Array.isArray(a.roughInTasks) && a.roughInTasks.length) ? a.roughInTasks.length : jobR;
+    const f = (Array.isArray(a.fitOffTasks)  && a.fitOffTasks.length)  ? a.fitOffTasks.length  : jobF;
+    return r === 0 && f === 0;
+  }).length;
+  const summary = `<div style="display:flex;gap:14px;flex-wrap:wrap;padding:10px 12px;margin-bottom:10px;background:var(--surface-2);border:1px dashed var(--line);border-radius:8px;font-size:12px;color:var(--ink-2)">
+    <span><b>${allAreas.length}</b> total ${allAreas.length === 1 ? 'area' : 'areas'}</span>
+    <span><b>${allAreas.length - customCount}</b> using default checklist</span>
+    <span><b style="color:${customCount ? 'var(--accent)' : 'var(--ink)'}">${customCount}</b> with custom checklist</span>
+    <span><b style="color:${missingChecklist ? 'var(--warn)' : 'var(--ok)'}">${missingChecklist}</b> with no checklist at all</span>
+  </div>`;
+  return summary + groups.map(g => {
     const grpProgress = groupHasProgress(g, data);
     const areas = g.areas || [];
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--surface)">
@@ -816,14 +837,7 @@ function areasEditorHtml(j, data) {
         <button class="btn btn-sm btn-danger" data-rm-area="g:${SHELL.escapeHtml(g.id)}" ${grpProgress ? 'disabled title="Areas in this group have recorded progress — rename instead"' : ''}>Remove</button>
       </div>
       ${areas.length ? `<div style="display:grid;gap:4px">
-        ${areas.map(a => {
-          const used = areaHasProgress(a.id, data);
-          return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface-2);border-radius:6px;font-size:13px">
-            <span style="flex:1">${SHELL.escapeHtml(a.name)}${used ? ` <span class="pill pill-info" style="font-size:9px">in progress</span>` : ''}</span>
-            <button class="btn btn-sm" data-rename-area="a:${SHELL.escapeHtml(a.id)}">Rename</button>
-            <button class="btn btn-sm btn-danger" data-rm-area="a:${SHELL.escapeHtml(a.id)}" ${used ? 'disabled title="Has recorded progress — rename instead"' : ''}>×</button>
-          </div>`;
-        }).join('')}
+        ${areas.map(a => areaRowHtml(j, a, data)).join('')}
       </div>` : '<div style="font-size:12px;color:var(--muted);font-style:italic">No areas yet.</div>'}
       <div style="display:flex;gap:6px;margin-top:8px">
         <button class="btn btn-sm" data-add-area="${SHELL.escapeHtml(g.id)}">+ Add area</button>
@@ -831,6 +845,46 @@ function areasEditorHtml(j, data) {
       </div>
     </div>`;
   }).join('');
+}
+
+// Single area row inside the Setup → Areas editor. Shows the checklist
+// mode (Default / Custom) and the effective task counts so the admin can
+// see at a glance which areas have been customised. The "Custom"
+// affordance opens a small panel that lets the admin start an override
+// from job-default, copy from another area, paste a list, or reset.
+function areaRowHtml(j, a, data) {
+  const used = areaHasProgress(a.id, data);
+  const jobR = (j.roughInTasks || []).length;
+  const jobF = (j.fitOffTasks  || []).length;
+  const hasRoughOverride = !!(Array.isArray(a.roughInTasks) && a.roughInTasks.length);
+  const hasFitOverride   = !!(Array.isArray(a.fitOffTasks)  && a.fitOffTasks.length);
+  const hasOverride = hasRoughOverride || hasFitOverride;
+  const effR = hasRoughOverride ? a.roughInTasks.length : jobR;
+  const effF = hasFitOverride   ? a.fitOffTasks.length  : jobF;
+  const modeLabel = hasOverride
+    ? `<span class="pill pill-info" style="font-size:9px">${
+        hasRoughOverride && hasFitOverride ? 'Custom · both' :
+        hasRoughOverride ? 'Custom · rough-in' : 'Custom · fit-off'
+      }</span>`
+    : `<span style="font-size:10px;color:var(--muted)">Default checklist</span>`;
+  const spaceTypeChip = a.spaceType
+    ? `<span style="font-size:10px;color:var(--ink-2);background:var(--surface-3);padding:1px 7px;border-radius:999px">${SHELL.escapeHtml(a.spaceType)}</span>`
+    : '';
+  return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface-2);border-radius:6px;font-size:13px">
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;gap:8px;align-items:center">
+        <b>${SHELL.escapeHtml(a.name)}</b>
+        ${spaceTypeChip}
+        ${used ? '<span class="pill pill-info" style="font-size:9px">in progress</span>' : ''}
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">
+        ${modeLabel} · <b>${effR}</b> rough-in · <b>${effF}</b> fit-off
+      </div>
+    </div>
+    <button class="btn btn-sm" data-edit-checklist="${SHELL.escapeHtml(a.id)}" title="Customise this area's checklist">Checklist</button>
+    <button class="btn btn-sm" data-rename-area="a:${SHELL.escapeHtml(a.id)}">Rename</button>
+    <button class="btn btn-sm btn-danger" data-rm-area="a:${SHELL.escapeHtml(a.id)}" ${used ? 'disabled title="Has recorded progress — rename instead"' : ''}>×</button>
+  </div>`;
 }
 
 function tasksEditorHtml(j, data, stage) {
@@ -988,6 +1042,269 @@ async function removeTask(taskId, stage) {
   if (!confirm('Remove task "' + t.name + '"?')) return;
   const tasks = (STATE.job[key] || []).filter(x => x.id !== taskId);
   await saveJobPatch({ [key]: tasks });
+}
+
+// ── Per-area checklist editor ──────────────────────────────────────────
+//
+// Slide-in panel that lets the admin customise an area's rough-in / fit-off
+// task list. Two modes per stage (Default / Custom). A space-type chip up
+// top tags the area (Bathroom, Kitchen, Switch room, NBN, …) — informational
+// only, doesn't change behaviour. A "Copy from another area" picker lets
+// the admin propagate a custom checklist across similar spaces.
+//
+// Safety:
+//   • Tasks with recorded progress can't be deleted from a custom list
+//     (rename-only). Same rule the global list has.
+//   • Reset-to-default warns if any task is in progress.
+//   • Stable IDs are preserved by name when the admin renames or copies.
+function findAreaInJob(areaId) {
+  for (const g of (STATE.job.areaGroups || [])) {
+    const a = (g.areas || []).find(x => x.id === areaId);
+    if (a) return { area: a, group: g };
+  }
+  return { area: null, group: null };
+}
+
+function openAreaChecklistPanel(areaId) {
+  const { area, group } = findAreaInJob(areaId);
+  if (!area) return;
+  const j = STATE.job;
+  const data = STATE.data || { dwellings: {} };
+  const jobR = j.roughInTasks || [];
+  const jobF = j.fitOffTasks  || [];
+  const usingCustomR = !!(Array.isArray(area.roughInTasks) && area.roughInTasks.length);
+  const usingCustomF = !!(Array.isArray(area.fitOffTasks)  && area.fitOffTasks.length);
+  const effR = usingCustomR ? area.roughInTasks : jobR;
+  const effF = usingCustomF ? area.fitOffTasks  : jobF;
+  // List of "copyable" areas — anywhere in the job with an existing
+  // override. Excludes the current area.
+  const copySources = (j.areaGroups || []).flatMap(g => (g.areas || [])
+    .filter(a => a.id !== areaId && ((Array.isArray(a.roughInTasks) && a.roughInTasks.length) || (Array.isArray(a.fitOffTasks) && a.fitOffTasks.length)))
+    .map(a => ({ id: a.id, name: a.name, group: g.name })));
+
+  const stageBlock = (stage) => {
+    const isCustom = stage === 'roughIn' ? usingCustomR : usingCustomF;
+    const tasks    = stage === 'roughIn' ? effR         : effF;
+    const stageLabel = stage === 'roughIn' ? 'Rough-in' : 'Fit-off';
+    return `<div class="card" style="padding:0;margin-bottom:14px">
+      <div style="padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px">
+        <div style="flex:1">
+          <div class="card-title">${stageLabel} checklist <span class="card-count">${tasks.length}</span></div>
+          <div class="card-sub">${isCustom ? 'Custom for this area' : 'Using job default'}</div>
+        </div>
+        ${isCustom
+          ? `<button class="btn btn-sm" data-acl-reset="${stage}" title="Drop the override and use the job default again">Reset to default</button>`
+          : `<button class="btn btn-sm btn-primary" data-acl-customise="${stage}" title="Start a custom checklist for this area, copied from the job default">Customise →</button>`}
+      </div>
+      ${tasks.length ? `<div style="display:grid;gap:4px;padding:8px 10px">
+        ${tasks.map((t, i) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface-2);border-radius:6px;font-size:13px">
+          <span style="flex:1">${SHELL.escapeHtml(t.name)}${!isCustom ? ' <span style="font-size:10px;color:var(--muted)">(from default)</span>' : ''}</span>
+          ${isCustom ? `
+            <button class="btn btn-sm" data-acl-rename="${stage}|${i}">Rename</button>
+            <button class="btn btn-sm btn-danger" data-acl-rm="${stage}|${i}" ${taskHasProgress(t.id, stage, data) ? 'disabled title="Has recorded progress — rename instead"' : ''}>×</button>
+          ` : ''}
+        </div>`).join('')}
+      </div>` : '<div style="padding:14px;color:var(--muted);font-size:12px;text-align:center">No tasks yet.</div>'}
+      ${isCustom ? `<div style="display:flex;gap:6px;padding:0 10px 10px">
+        <button class="btn btn-sm" data-acl-add="${stage}">+ Add task</button>
+        <button class="btn btn-sm" data-acl-bulk="${stage}">Bulk paste</button>
+        ${copySources.length ? `<button class="btn btn-sm" data-acl-copy="${stage}">Copy from another area</button>` : ''}
+      </div>` : ''}
+    </div>`;
+  };
+
+  // Common space-type suggestions — admin can also free-type any other.
+  const spaceSuggestions = [
+    'Apartment', 'Townhouse', 'Bedroom', 'Bathroom', 'Kitchen',
+    'Living', 'Corridor', 'Lobby', 'Switch room', 'Comms room',
+    'Riser', 'Plant room', 'External', 'NBN', 'Carpark',
+  ];
+
+  const panel = SHELL.openPanel({
+    title: 'Checklist · ' + (area.name || 'Area'),
+    body: `
+      <div style="font-size:11px;color:var(--muted);margin-bottom:14px">
+        ${SHELL.escapeHtml(group ? group.name : '—')} · ${countAreas(j)} ${countAreas(j) === 1 ? 'area' : 'areas'} on this job
+      </div>
+
+      <div class="field" style="margin-bottom:14px">
+        <label class="field-lbl">Space type <span style="font-weight:400;color:var(--muted)">(optional — helps you and other admins recognise the area)</span></label>
+        <input class="input" id="acl-space" list="acl-space-list" value="${SHELL.escapeHtml(area.spaceType || '')}" placeholder="e.g. Bathroom">
+        <datalist id="acl-space-list">
+          ${spaceSuggestions.map(s => `<option value="${SHELL.escapeHtml(s)}">`).join('')}
+        </datalist>
+      </div>
+
+      ${stageBlock('roughIn')}
+      ${stageBlock('fitOff')}
+
+      <div style="font-size:11px;color:var(--muted);line-height:1.5;padding:10px 12px;background:var(--surface-2);border-radius:8px">
+        Custom checklists override the job default for this area only. Workers see the right tasks automatically — no migration needed. Tasks with recorded progress can't be deleted (rename instead).
+      </div>
+    `,
+    footer: `
+      <button class="btn" onclick="SHELL.closePanel()">Close</button>
+      <button class="btn btn-primary" id="acl-save">Save</button>
+    `,
+  });
+
+  // Wire interactions inside the panel. Working state lives in a local
+  // map so multiple stage edits don't stomp each other; we patch the
+  // job once on Save.
+  const working = {
+    spaceType: area.spaceType || '',
+    roughInTasks: usingCustomR ? area.roughInTasks.map(t => ({ ...t })) : null,
+    fitOffTasks:  usingCustomF ? area.fitOffTasks.map(t => ({ ...t }))  : null,
+  };
+
+  panel.querySelectorAll('button[data-acl-customise]').forEach(b => b.addEventListener('click', () => {
+    const stage = b.dataset.aclCustomise;
+    const key = stage === 'roughIn' ? 'roughInTasks' : 'fitOffTasks';
+    const src = (stage === 'roughIn' ? jobR : jobF).map(t => ({ id: t.id, name: t.name }));
+    working[key] = src;
+    saveAndReopen();
+  }));
+  panel.querySelectorAll('button[data-acl-reset]').forEach(b => b.addEventListener('click', () => {
+    const stage = b.dataset.aclReset;
+    const key = stage === 'roughIn' ? 'roughInTasks' : 'fitOffTasks';
+    // Block reset if any task in the override has recorded progress and
+    // isn't on the job default — that progress would orphan.
+    const cur = working[key] || (stage === 'roughIn' ? area.roughInTasks : area.fitOffTasks) || [];
+    const def = stage === 'roughIn' ? jobR : jobF;
+    const defIds = new Set(def.map(t => t.id));
+    const orphaned = cur.filter(t => !defIds.has(t.id) && taskHasProgress(t.id, stage, data));
+    if (orphaned.length) {
+      if (!confirm(orphaned.length + ' task(s) in this custom checklist have recorded progress and aren\'t in the job default — that progress will become hidden. Continue?')) return;
+    } else {
+      if (!confirm('Reset this stage to the job default?')) return;
+    }
+    working[key] = null;
+    saveAndReopen();
+  }));
+  panel.querySelectorAll('button[data-acl-add]').forEach(b => b.addEventListener('click', () => {
+    const stage = b.dataset.aclAdd;
+    const key = stage === 'roughIn' ? 'roughInTasks' : 'fitOffTasks';
+    const nm = prompt('New ' + (stage === 'roughIn' ? 'rough-in' : 'fit-off') + ' task name:');
+    if (!nm || !nm.trim()) return;
+    const prefix = stage === 'roughIn' ? 'rt_' : 'ft_';
+    if (!working[key]) working[key] = [];
+    working[key].push({ id: prefix + Date.now().toString(36), name: nm.trim() });
+    saveAndReopen();
+  }));
+  panel.querySelectorAll('button[data-acl-bulk]').forEach(b => b.addEventListener('click', () => {
+    const stage = b.dataset.aclBulk;
+    const key = stage === 'roughIn' ? 'roughInTasks' : 'fitOffTasks';
+    const text = prompt('Paste task names, one per line:');
+    if (!text) return;
+    const names = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (!names.length) return;
+    const prefix = stage === 'roughIn' ? 'rt_' : 'ft_';
+    if (!working[key]) working[key] = [];
+    names.forEach((nm, i) => working[key].push({ id: prefix + Date.now().toString(36) + '_' + i, name: nm }));
+    saveAndReopen();
+  }));
+  panel.querySelectorAll('button[data-acl-rename]').forEach(b => b.addEventListener('click', () => {
+    const [stage, idxStr] = b.dataset.aclRename.split('|');
+    const key = stage === 'roughIn' ? 'roughInTasks' : 'fitOffTasks';
+    const i = Number(idxStr);
+    const list = working[key] || (stage === 'roughIn' ? area.roughInTasks : area.fitOffTasks) || [];
+    const t = list[i]; if (!t) return;
+    const nm = prompt('Rename task:', t.name);
+    if (nm == null || !nm.trim() || nm.trim() === t.name) return;
+    if (!working[key]) working[key] = list.map(x => ({ ...x }));
+    working[key][i] = { ...working[key][i], name: nm.trim() };
+    saveAndReopen();
+  }));
+  panel.querySelectorAll('button[data-acl-rm]').forEach(b => b.addEventListener('click', () => {
+    const [stage, idxStr] = b.dataset.aclRm.split('|');
+    const key = stage === 'roughIn' ? 'roughInTasks' : 'fitOffTasks';
+    const i = Number(idxStr);
+    const list = working[key] || (stage === 'roughIn' ? area.roughInTasks : area.fitOffTasks) || [];
+    const t = list[i]; if (!t) return;
+    if (taskHasProgress(t.id, stage, data)) {
+      SHELL.toast('Task has recorded progress — rename instead', 'warn'); return;
+    }
+    if (!confirm('Remove task "' + t.name + '"?')) return;
+    if (!working[key]) working[key] = list.map(x => ({ ...x }));
+    working[key].splice(i, 1);
+    saveAndReopen();
+  }));
+  panel.querySelectorAll('button[data-acl-copy]').forEach(b => b.addEventListener('click', () => {
+    const stage = b.dataset.aclCopy;
+    const key = stage === 'roughIn' ? 'roughInTasks' : 'fitOffTasks';
+    if (!copySources.length) { SHELL.toast('No other areas have a custom checklist yet', 'warn'); return; }
+    const lines = copySources
+      .map((s, i) => (i + 1) + '. ' + s.name + ' (' + s.group + ')')
+      .join('\n');
+    const pickStr = prompt('Copy ' + (stage === 'roughIn' ? 'rough-in' : 'fit-off') + ' checklist from which area? Enter number:\n\n' + lines);
+    if (!pickStr) return;
+    const idx = Number(pickStr) - 1;
+    if (!Number.isFinite(idx) || idx < 0 || idx >= copySources.length) {
+      SHELL.toast('Invalid selection', 'warn'); return;
+    }
+    const src = findAreaInJob(copySources[idx].id).area;
+    const srcList = src && src[key];
+    if (!srcList || !srcList.length) {
+      SHELL.toast('That area has no ' + stage + ' override', 'warn'); return;
+    }
+    // Copy with fresh ids — the new tasks belong to THIS area and the
+    // server preserves ids on rename, but we don't want two areas
+    // sharing identical task ids (would conflate progress).
+    const prefix = stage === 'roughIn' ? 'rt_' : 'ft_';
+    working[key] = srcList.map((t, i) => ({ id: prefix + Date.now().toString(36) + '_' + i, name: t.name }));
+    SHELL.toast('Copied from ' + (src.name || 'area'), 'ok');
+    saveAndReopen();
+  }));
+
+  // Save → patch areaGroups with the new override (or null override).
+  // Triggered by both the explicit Save button and any in-panel mutation
+  // (so changes don't get stuck in the working state).
+  let saving = false;
+  async function persistWorking() {
+    if (saving) return;
+    saving = true;
+    try {
+      const groups = (STATE.job.areaGroups || []).map(g => ({
+        ...g,
+        areas: (g.areas || []).map(a => {
+          if (a.id !== areaId) return a;
+          const next = { id: a.id, name: a.name };
+          // Preserve stuff we don't touch
+          for (const k of Object.keys(a)) {
+            if (!['id','name','spaceType','roughInTasks','fitOffTasks','_previewSpaceType'].includes(k)) {
+              next[k] = a[k];
+            }
+          }
+          if (working.spaceType) next.spaceType = working.spaceType;
+          if (Array.isArray(working.roughInTasks) && working.roughInTasks.length) next.roughInTasks = working.roughInTasks;
+          if (Array.isArray(working.fitOffTasks)  && working.fitOffTasks.length)  next.fitOffTasks  = working.fitOffTasks;
+          return next;
+        }),
+      }));
+      await SHELL.api('/api/jobs', { method: 'PUT', body: { id: STATE.jobId, areaGroups: groups } });
+      await loadAll();
+    } catch (e) {
+      SHELL.toast('Save failed — ' + e.message, 'bad');
+    } finally { saving = false; }
+  }
+
+  async function saveAndReopen() {
+    // Pull spaceType from input each time before persisting
+    const spaceInput = panel.querySelector('#acl-space');
+    if (spaceInput) working.spaceType = spaceInput.value.trim();
+    await persistWorking();
+    SHELL.closePanel();
+    openAreaChecklistPanel(areaId);
+  }
+
+  panel.querySelector('#acl-save').addEventListener('click', async () => {
+    const spaceInput = panel.querySelector('#acl-space');
+    if (spaceInput) working.spaceType = spaceInput.value.trim();
+    await persistWorking();
+    SHELL.toast('Checklist saved', 'ok');
+    SHELL.closePanel();
+    paint();
+  });
 }
 
 function openEditBasics() {

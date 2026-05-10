@@ -1924,9 +1924,45 @@ function stageTaskPct(areaId,stageKey,tasks){
   return Math.round(tasks.filter(t=>taskMap[t.id]==='complete').length/tasks.length*100);
 }
 
+// Per-area task lookup. An area carries its own overrides under
+// area.roughInTasks / area.fitOffTasks (set by /admin/jobs/<id>?s=setup).
+// Empty/missing → fall back to the job-level defaults. Mirrors
+// api/_lib/job-tasks.js exactly so server + client never disagree.
+function findAreaById(areaId){
+  const groups=(CURRENT_JOB&&CURRENT_JOB.areaGroups)||[];
+  for(const g of groups){
+    for(const a of (g.areas||[])){
+      if(a.id===areaId) return a;
+    }
+  }
+  return null;
+}
+function effectiveRoughInTasks(areaId){
+  const a=findAreaById(areaId);
+  if(a && Array.isArray(a.roughInTasks) && a.roughInTasks.length) return a.roughInTasks;
+  return (CURRENT_JOB&&CURRENT_JOB.roughInTasks)||[];
+}
+function effectiveFitOffTasks(areaId){
+  const a=findAreaById(areaId);
+  if(a && Array.isArray(a.fitOffTasks) && a.fitOffTasks.length) return a.fitOffTasks;
+  return (CURRENT_JOB&&CURRENT_JOB.fitOffTasks)||[];
+}
+function areaUsesCustomChecklist(areaId){
+  const a=findAreaById(areaId); if(!a) return null;
+  const r=!!(Array.isArray(a.roughInTasks) && a.roughInTasks.length);
+  const f=!!(Array.isArray(a.fitOffTasks) && a.fitOffTasks.length);
+  if(r&&f) return 'both';
+  if(r) return 'roughIn';
+  if(f) return 'fitOff';
+  return null;
+}
+
 function stats(dw){
-  const roughInTasks=(CURRENT_JOB&&CURRENT_JOB.roughInTasks)||[];
-  const fitOffTasks=(CURRENT_JOB&&CURRENT_JOB.fitOffTasks)||[];
+  // Use effective (per-area-aware) task lists so areas with custom
+  // checklists report progress against their own list, not the job
+  // defaults.
+  const roughInTasks=effectiveRoughInTasks(dw);
+  const fitOffTasks=effectiveFitOffTasks(dw);
   const rPct=stageTaskPct(dw,'roughIn',roughInTasks)??Math.round(ROUGH.filter(s=>stv(dw,s)==='Done').length/ROUGH.length*100);
   const fPct=stageTaskPct(dw,'fitOff',fitOffTasks)??Math.round(FITOFF.filter(s=>stv(dw,s)==='Done').length/FITOFF.length*100);
   const pct=Math.round((rPct+fPct)/2);
@@ -2327,11 +2363,14 @@ function _dashTimeAgo(ts){
 }
 
 function dwCard(areaId,areaName){
-  // Renders a compact list row (used inside dw-list wrappers by renderGroup)
+  // Renders a compact list row (used inside dw-list wrappers by renderGroup).
+  // Uses the area's effective task lists so a custom-checklist area still
+  // gets a correct rough-in/fit-off stage badge (would otherwise read the
+  // job defaults and badge the wrong stage).
   const s=stats(areaId);
   const sc=(D.snags||[]).filter(x=>x.dwelling===areaId&&x.status==='Open').length;
-  const roughInTasks=(CURRENT_JOB&&CURRENT_JOB.roughInTasks)||[];
-  const fitOffTasks=(CURRENT_JOB&&CURRENT_JOB.fitOffTasks)||[];
+  const roughInTasks=effectiveRoughInTasks(areaId);
+  const fitOffTasks=effectiveFitOffTasks(areaId);
   const barColor=s.pct===100?'var(--green)':s.pct>=50?'var(--amber)':'var(--header)';
 
   // Determine dominant stage for badge
@@ -2428,8 +2467,13 @@ function openDw(areaId){
   </div>
   <div id="tp-stages" class="dpanel active">
     <div class="ghdr"><div class="gpill rough">Rough-In</div><div class="gline"></div></div>`;
-  const _roughInTasks=(CURRENT_JOB&&CURRENT_JOB.roughInTasks)||[];
-  const _fitOffTasks=(CURRENT_JOB&&CURRENT_JOB.fitOffTasks)||[];
+  // Per-area effective task lists — areas with custom checklists render
+  // their own tasks here; otherwise we fall back to the job defaults.
+  // Fully transparent to the worker: the task rows look identical, the
+  // status writes go to the same per-area task map. Only the LIST of
+  // tasks differs.
+  const _roughInTasks=effectiveRoughInTasks(areaId);
+  const _fitOffTasks=effectiveFitOffTasks(areaId);
   h+=stageTaskRows(areaId,'roughIn',_roughInTasks);
   h+=`<div class="ghdr"><div class="gpill fitoff">Fit-Off</div><div class="gline"></div></div>`;
   h+=stageTaskRows(areaId,'fitOff',_fitOffTasks);

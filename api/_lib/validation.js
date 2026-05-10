@@ -10,6 +10,14 @@ function nanoid(prefix) {
 
 // Validate and normalise an areaGroups array.
 // Preserves existing ids; generates missing ones server-side.
+//
+// Per-area customisation (added 2026-05): each area may carry optional
+// `spaceType` (free-text label like "Bathroom", "Switch room"),
+// `roughInTasks` and `fitOffTasks` arrays. Absent OR empty arrays mean
+// "fall back to the job-level default checklist" — so existing jobs that
+// don't supply these keep working unchanged. Validation accepts the
+// overrides if present and normalises them via validateTasks().
+//
 // Returns { ok: true, groups } or { ok: false, error }.
 function validateAreaGroups(raw, fieldName) {
   const f = fieldName || 'areaGroups';
@@ -27,7 +35,34 @@ function validateAreaGroups(raw, fieldName) {
       if (!a || typeof a !== 'object') return { ok: false, error: `${f}[${gi}].areas[${ai}] must be an object` };
       if (!a.name || typeof a.name !== 'string' || !a.name.trim())
         return { ok: false, error: `${f}[${gi}].areas[${ai}].name must be a non-empty string` };
-      areas.push({ id: a.id || nanoid('ar_'), name: a.name.trim() });
+      const out = { id: a.id || nanoid('ar_'), name: a.name.trim() };
+      // spaceType is a hint label (no enum) — capped to keep storage tidy.
+      if (a.spaceType !== undefined && a.spaceType !== null && a.spaceType !== '') {
+        if (typeof a.spaceType !== 'string') return { ok: false, error: `${f}[${gi}].areas[${ai}].spaceType must be a string` };
+        const st = a.spaceType.trim().slice(0, 60);
+        if (st) out.spaceType = st;
+      }
+      // Optional per-area task overrides. Validate via validateTasks but
+      // allow empty arrays (which we collapse — empty == "use defaults").
+      if (a.roughInTasks !== undefined && a.roughInTasks !== null) {
+        if (!Array.isArray(a.roughInTasks))
+          return { ok: false, error: `${f}[${gi}].areas[${ai}].roughInTasks must be an array` };
+        if (a.roughInTasks.length) {
+          const v = validateTasks(a.roughInTasks, 'rt');
+          if (!v.ok) return { ok: false, error: `${f}[${gi}].areas[${ai}].${v.error}` };
+          out.roughInTasks = v.tasks;
+        }
+      }
+      if (a.fitOffTasks !== undefined && a.fitOffTasks !== null) {
+        if (!Array.isArray(a.fitOffTasks))
+          return { ok: false, error: `${f}[${gi}].areas[${ai}].fitOffTasks must be an array` };
+        if (a.fitOffTasks.length) {
+          const v = validateTasks(a.fitOffTasks, 'ft');
+          if (!v.ok) return { ok: false, error: `${f}[${gi}].areas[${ai}].${v.error}` };
+          out.fitOffTasks = v.tasks;
+        }
+      }
+      areas.push(out);
     }
     groups.push({ id: g.id || nanoid('ag_'), name: g.name.trim(), areas });
   }
