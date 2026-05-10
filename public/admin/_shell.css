@@ -162,6 +162,22 @@ svg { width: 18px; height: 18px; flex-shrink: 0; display: inline-block; vertical
 }
 .side-foot-name { color: #fff; font-size: 13px; font-weight: 500; }
 .side-foot-role { color: #6b7689; font-size: 11px; }
+/* Env chip in the very bottom of the sidebar — low-key build identity */
+.side-env {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 8px 12px 12px;
+  font-family: var(--ff-mono); font-size: 10px; letter-spacing: .04em;
+  color: #6b7689;
+  border-top: 1px solid rgba(255,255,255,.04);
+}
+.side-env-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ok); box-shadow: 0 0 0 2px rgba(31,138,76,.18);
+  flex-shrink: 0;
+}
+.side-env-meta {
+  flex-basis: 100%; font-size: 9.5px; opacity: .65; margin-top: 2px;
+}
 
 .main { display: flex; flex-direction: column; min-width: 0; }
 .topbar {
@@ -306,6 +322,31 @@ svg { width: 18px; height: 18px; flex-shrink: 0; display: inline-block; vertical
   background: var(--surface-2); border-radius: 999px;
   margin-left: 6px;
 }
+
+/* Quick-action tile (admin Today). Compact icon-prefixed link tile that
+   fills a responsive grid; designed for the "decision-first home"
+   pattern from the sCITnq7lo design bundle. */
+.qa-tile {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 14px; min-height: 56px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r); color: var(--ink);
+  font-size: 13px; font-weight: 600; text-decoration: none;
+  transition: border-color .12s, background .12s, transform .08s;
+  position: relative;
+}
+.qa-tile:hover { border-color: var(--line-2); background: var(--surface-2); }
+.qa-tile:active { transform: translateY(1px); }
+.qa-tile svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--muted); }
+.qa-tile-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-left: auto;
+  min-width: 20px; padding: 0 7px; height: 18px;
+  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: var(--ink); color: var(--surface);
+  border-radius: 999px;
+}
+.qa-tile-badge.bad { background: var(--bad); color: #fff; }
 
 .sec-title {
   font-size: 11px; font-weight: 700; letter-spacing: .7px;
