@@ -198,6 +198,11 @@ function renderOverview() {
           <div class="kpi-v">${SHELL.fmtMoney(cr.committedExGst || 0)}</div>
           <div class="kpi-d"><b style="color:${(cr.receivedExGst || 0) > 0 ? 'var(--ok)' : 'var(--muted)'}">${SHELL.fmtMoney(cr.receivedExGst || 0)}</b> received · ${cr.openPoCount || 0} open PO${(cr.openPoCount || 0) === 1 ? '' : 's'}</div>
         </div>` : ''}
+      ${(cr.invoicedExGst || 0) > 0 ? `
+        <div class="kpi"><div class="kpi-l">Invoiced / paid</div>
+          <div class="kpi-v ${Math.abs(cr.varianceExGst || 0) > 50 ? ((cr.varianceExGst || 0) > 0 ? 'amber' : 'green') : ''}">${SHELL.fmtMoney(cr.invoicedExGst || 0)}</div>
+          <div class="kpi-d"><b style="color:var(--ok)">${SHELL.fmtMoney(cr.paidExGst || 0)}</b> paid · ${cr.pendingInvoiceCount || 0} pending${(cr.varianceExGst || 0) !== 0 ? ' · <a href="?s=materials" style="color:var(--' + ((cr.varianceExGst || 0) > 50 ? 'bad' : 'muted') + ');text-decoration:underline">' + ((cr.varianceExGst || 0) > 0 ? '+' : '') + SHELL.fmtMoney2(cr.varianceExGst) + ' vs PO →</a>' : ''}</div>
+        </div>` : ''}
     </div>
 
     <div class="two-col">
@@ -1016,13 +1021,16 @@ function renderMaterials(host) {
   const items = (STATE.materials && STATE.materials.items) || [];
   const requests = (STATE.materials && STATE.materials.emailRequests) || [];
   const pos = (STATE.materials && STATE.materials.purchaseOrders) || [];
-  const cr = STATE.costRollup || { itemsCount: 0, pricedCount: 0, unpricedCount: 0, totalCostExGst: 0, committedExGst: 0, receivedExGst: 0, openPoCount: 0 };
+  const invoices = (STATE.materials && STATE.materials.invoices) || [];
+  const cr = STATE.costRollup || { itemsCount: 0, pricedCount: 0, unpricedCount: 0, totalCostExGst: 0, committedExGst: 0, receivedExGst: 0, openPoCount: 0, invoicedExGst: 0, paidExGst: 0, varianceExGst: 0, pendingInvoiceCount: 0 };
   const stale = items.filter(i => i.staleAfter).length;
   const fromTakeoff = items.filter(i => i.source === 'plan-takeoff').length;
   const manual = items.filter(i => i.source !== 'plan-takeoff').length;
   const haveTakeoff = (STATE.takeoff && STATE.takeoff.dwellings && Object.keys(STATE.takeoff.dwellings).length) > 0;
   const ordered = items.filter(i => (i.qtyOrdered || 0) > 0).length;
   const received = items.filter(i => (i.qtyReceived || 0) > 0).length;
+  const havePos = pos.filter(p => p.status !== 'cancelled' && p.status !== 'draft').length > 0;
+  const varianceTone = (cr.varianceExGst || 0) > 50 ? 'red' : (cr.varianceExGst || 0) < -50 ? 'green' : '';
 
   host.innerHTML = `
     <div class="kpi-row" style="margin-bottom:14px">
@@ -1031,6 +1039,7 @@ function renderMaterials(host) {
       <div class="kpi"><div class="kpi-l">Projected cost</div><div class="kpi-v">${SHELL.fmtMoney(cr.totalCostExGst || 0)}</div><div class="kpi-d">ex-GST · priced items</div></div>
       <div class="kpi"><div class="kpi-l">Committed (POs sent)</div><div class="kpi-v">${SHELL.fmtMoney(cr.committedExGst || 0)}</div><div class="kpi-d">${cr.openPoCount || 0} open of ${cr.poCount || 0} PO${(cr.poCount || 0) === 1 ? '' : 's'}</div></div>
       <div class="kpi"><div class="kpi-l">Received</div><div class="kpi-v ${cr.receivedExGst > 0 ? 'green' : ''}">${SHELL.fmtMoney(cr.receivedExGst || 0)}</div><div class="kpi-d">${received}/${ordered || cr.itemsCount} item${(ordered || cr.itemsCount) === 1 ? '' : 's'} delivered</div></div>
+      ${invoices.length ? `<div class="kpi"><div class="kpi-l">Invoiced / paid</div><div class="kpi-v">${SHELL.fmtMoney(cr.invoicedExGst || 0)}</div><div class="kpi-d"><b style="color:var(--ok)">${SHELL.fmtMoney(cr.paidExGst || 0)}</b> paid · ${cr.pendingInvoiceCount || 0} pending${(cr.varianceExGst || 0) !== 0 ? ' · <b style="color:var(--' + (varianceTone === 'red' ? 'bad' : 'ok') + ')">' + ((cr.varianceExGst || 0) > 0 ? '+' : '') + SHELL.fmtMoney2(cr.varianceExGst) + '</b> vs PO' : ''}</div></div>` : ''}
     </div>
 
     <div class="card" style="margin-bottom:14px">
@@ -1062,6 +1071,20 @@ function renderMaterials(host) {
       ${pos.slice().reverse().map(poRow).join('')}
     </div>` : ''}
 
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr">
+        <div><div class="card-title">Supplier invoices <span class="card-count">${invoices.length}</span></div>
+          <div class="card-sub">Match each supplier invoice to its PO to spot price/qty drift before payment goes out. Variance threshold: $50 or 5% of PO total.</div></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-primary" id="add-invoice" ${havePos ? '' : 'disabled title="Send a PO first"'}>+ New invoice</button>
+        </div>
+      </div>
+      ${invoices.length ? invoices.slice().reverse().map(invoiceRow).join('') : `<div class="empty">
+        <div class="empty-title">No invoices yet</div>
+        <div class="empty-sub">When the supplier bills you, capture the invoice + match it to the PO to validate the charge.</div>
+      </div>`}
+    </div>
+
     ${requests.length ? `<div class="card" style="margin-bottom:14px">
       <div class="card-hdr"><div><div class="card-title">Wholesaler requests <span class="card-count">${requests.length}</span></div>
         <div class="card-sub">Drafts you've sent + replies received. Capturing a reply applies per-item prices; converting a replied request to a PO commits the spend.</div></div></div>
@@ -1084,6 +1107,10 @@ function renderMaterials(host) {
     b.addEventListener('click', () => createPoFromRequest(b.dataset.createPo)));
   SHELL.$$('button[data-open-po]').forEach(b =>
     b.addEventListener('click', () => openPoPanel(b.dataset.openPo)));
+  // Phase 12 — invoice actions
+  if (SHELL.$('#add-invoice')) SHELL.$('#add-invoice').addEventListener('click', () => openInvoicePanel(null));
+  SHELL.$$('button[data-open-invoice]').forEach(b =>
+    b.addEventListener('click', () => openInvoicePanel(b.dataset.openInvoice)));
 }
 
 function materialRow(it) {
@@ -1600,6 +1627,256 @@ async function poStatusChange(poId, status, confirmMsg) {
       method: 'POST', body: { status },
     });
     SHELL.toast('PO → ' + status, 'ok');
+    SHELL.closePanel();
+    await loadAll(); paint();
+  } catch (e) { SHELL.toast('Failed — ' + e.message, 'bad'); }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 12 — Supplier invoices + 3-way match
+//
+// Closes the procurement triangle. Capture the supplier's actual bill,
+// match it to a PO, surface variance before payment goes out the door.
+//
+// Variance threshold: ±$50 OR ±5% of PO total (whichever is larger)
+// auto-flips the invoice to status 'variance' on match. Admin can
+// approve through it (e.g. accepting a small price escalation) or
+// dispute (flag for back-and-forth with the supplier).
+// ─────────────────────────────────────────────────────────────────────
+
+const INVOICE_STATUS_TONE = {
+  pending: 'navy', matched: 'info', variance: 'warn',
+  approved: 'ok', paid: 'ok', disputed: 'bad', cancelled: '',
+};
+
+function invoiceRow(inv) {
+  const tone = INVOICE_STATUS_TONE[inv.status] || 'navy';
+  const v = inv.variance;
+  const matchedPo = inv.matchedPoId
+    ? (STATE.materials.purchaseOrders || []).find(p => p.id === inv.matchedPoId)
+    : null;
+  const dueSoon = inv.dueDate && new Date(inv.dueDate) - new Date() < 7 * 86400000 && inv.status !== 'paid' && inv.status !== 'cancelled';
+  return `<div style="border-top:1px solid var(--line);padding:10px 14px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span class="pill pill-${tone}">${SHELL.escapeHtml(inv.status)}</span>
+      <strong style="font-family:var(--ff-mono)">${SHELL.escapeHtml(inv.invoiceNumber)}</strong>
+      <span>${SHELL.escapeHtml(inv.wholesalerName || '(no supplier)')}</span>
+      ${matchedPo ? `<span style="font-family:var(--ff-mono);font-size:11px;color:var(--muted)">→ ${SHELL.escapeHtml(matchedPo.poNumber)}</span>` : ''}
+      <span style="margin-left:auto;font-family:var(--ff-mono);font-size:11px;color:var(--muted)">
+        ${inv.invoiceDate ? SHELL.escapeHtml(inv.invoiceDate) : ''} · <b>${SHELL.fmtMoney2(inv.totalIncGst || 0)}</b> inc-GST
+      </span>
+    </div>
+    ${dueSoon ? `<div style="font-size:11px;color:var(--bad);margin-top:4px;font-weight:600">⚠ Due ${SHELL.escapeHtml(inv.dueDate)} — pay soon</div>` : ''}
+    ${v && v.significant ? `<div style="font-size:12px;color:var(--warn);margin-top:6px;font-weight:600">⚠ Variance ${(v.diffExGst > 0 ? '+' : '')}${SHELL.fmtMoney2(v.diffExGst)} vs PO ${SHELL.escapeHtml(v.poNumber)} · ${v.poTotalExGst > 0 ? Math.round((v.diffExGst / v.poTotalExGst) * 1000) / 10 + '%' : ''}</div>` : (v ? `<div style="font-size:12px;color:var(--muted);margin-top:6px">Matches PO ${SHELL.escapeHtml(v.poNumber)} (${(v.diffExGst > 0 ? '+' : '')}${SHELL.fmtMoney2(v.diffExGst)})</div>` : '')}
+    <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+      <button class="btn btn-sm" data-open-invoice="${SHELL.escapeHtml(inv.id)}">Open →</button>
+    </div>
+  </div>`;
+}
+
+function openInvoicePanel(invId) {
+  const inv = invId ? (STATE.materials.invoices || []).find(x => x.id === invId) : null;
+  const isEdit = !!inv;
+  const pos = (STATE.materials.purchaseOrders || []).filter(p => p.status !== 'cancelled' && p.status !== 'draft');
+  const matchedPo = isEdit && inv.matchedPoId ? (STATE.materials.purchaseOrders || []).find(p => p.id === inv.matchedPoId) : null;
+  const v = isEdit && inv.variance;
+
+  // Default empty line item for create
+  const initialLines = isEdit ? (inv.lineItems || []) : [{ lineNumber: 1, description: '', qty: 1, unit: 'each', unitPriceExGst: 0 }];
+
+  const linesHtml = (lines, perLineMap) => lines.map((ln, i) => {
+    const mappedItemId = perLineMap ? perLineMap[ln.lineNumber] : '';
+    return `<tr data-line-row="${i}">
+      <td style="width:40px"><input class="input" data-ln-num style="width:50px;padding:4px 6px" value="${SHELL.escapeHtml(String(ln.lineNumber || (i + 1)))}"></td>
+      <td><input class="input" data-ln-desc value="${SHELL.escapeHtml(ln.description || '')}" placeholder="Item description"></td>
+      <td><input class="input" type="number" min="0" step="0.01" data-ln-qty style="width:80px;text-align:right;padding:4px 6px" value="${SHELL.escapeHtml(String(ln.qty || 0))}"></td>
+      <td><input class="input" data-ln-unit style="width:60px;padding:4px 6px" value="${SHELL.escapeHtml(ln.unit || 'each')}"></td>
+      <td><input class="input" type="number" min="0" step="0.01" data-ln-price style="width:90px;text-align:right;padding:4px 6px;font-family:var(--ff-mono)" value="${SHELL.escapeHtml(String(ln.unitPriceExGst || 0))}"></td>
+      <td class="table-num" data-ln-total>${SHELL.fmtMoney2((Number(ln.qty) || 0) * (Number(ln.unitPriceExGst) || 0))}</td>
+      ${matchedPo ? `<td><select class="select" data-ln-match style="padding:4px 6px;font-size:12px">
+        <option value="">— unmapped —</option>
+        ${(matchedPo.itemSnapshots || []).map(s => `<option value="${SHELL.escapeHtml(s.itemId)}"${mappedItemId === s.itemId ? ' selected' : ''}>${SHELL.escapeHtml(s.name)}</option>`).join('')}
+      </select></td>` : ''}
+      <td><button class="btn btn-sm btn-danger" data-rm-line="${i}">×</button></td>
+    </tr>`;
+  }).join('');
+
+  const lockedStatuses = ['paid', 'cancelled'];
+  const locked = isEdit && lockedStatuses.includes(inv.status);
+
+  const panel = SHELL.openPanel({
+    title: isEdit ? 'Invoice ' + inv.invoiceNumber : 'New supplier invoice',
+    body: `
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Invoice number *</label>
+          <input class="input" id="inv-number" value="${SHELL.escapeHtml(isEdit ? inv.invoiceNumber : '')}" ${locked ? 'disabled' : ''}></div>
+        <div class="field"><label class="field-lbl">Supplier</label>
+          <input class="input" id="inv-supplier" value="${SHELL.escapeHtml(isEdit ? inv.wholesalerName : (matchedPo ? matchedPo.wholesalerName : ''))}" ${locked ? 'disabled' : ''}></div>
+      </div>
+      <div class="three-col">
+        <div class="field"><label class="field-lbl">Invoice date</label>
+          <input class="input" type="date" id="inv-date" value="${isEdit ? SHELL.escapeHtml((inv.invoiceDate || '').slice(0, 10)) : ''}" ${locked ? 'disabled' : ''}></div>
+        <div class="field"><label class="field-lbl">Due date</label>
+          <input class="input" type="date" id="inv-due" value="${isEdit ? SHELL.escapeHtml((inv.dueDate || '').slice(0, 10)) : ''}" ${locked ? 'disabled' : ''}></div>
+        <div class="field"><label class="field-lbl">Received</label>
+          <input class="input" type="date" id="inv-received" value="${isEdit ? SHELL.escapeHtml((inv.receivedDate || '').slice(0, 10)) : new Date().toISOString().slice(0, 10)}" ${locked ? 'disabled' : ''}></div>
+      </div>
+
+      <div class="field" style="margin-top:14px">
+        <label class="field-lbl">Match to PO</label>
+        <select class="select" id="inv-match-po" ${locked ? 'disabled' : ''}>
+          <option value="">— not matched —</option>
+          ${pos.map(p => `<option value="${SHELL.escapeHtml(p.id)}"${(isEdit && inv.matchedPoId === p.id) ? ' selected' : ''}>${SHELL.escapeHtml(p.poNumber)} — ${SHELL.escapeHtml(p.wholesalerName || '')} · ${SHELL.fmtMoney2(p.totalExGst)}</option>`).join('')}
+        </select>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Matching enables per-line variance tracking. Optional but recommended.</div>
+      </div>
+
+      ${v ? `<div style="margin:14px 0;padding:10px 12px;border-radius:6px;background:var(--${v.significant ? 'warn-bg' : 'ok-bg'});border:1px solid var(--${v.significant ? 'warn-bd' : 'ok-bd'})">
+        <div style="font-weight:700;color:var(--${v.significant ? 'warn' : 'ok'});font-size:13px">${v.significant ? '⚠ Variance flagged' : '✓ Within tolerance'}</div>
+        <div style="font-family:var(--ff-mono);font-size:12px;color:var(--ink-2);margin-top:4px">PO ${SHELL.escapeHtml(v.poNumber)}: ${SHELL.fmtMoney2(v.poTotalExGst)} ex-GST · Invoice: ${SHELL.fmtMoney2(v.invoiceTotalExGst)} ex-GST · diff <b>${(v.diffExGst > 0 ? '+' : '')}${SHELL.fmtMoney2(v.diffExGst)}</b>${v.poTotalExGst > 0 ? ' (' + Math.round((v.diffExGst / v.poTotalExGst) * 1000) / 10 + '%)' : ''}</div>
+      </div>` : ''}
+
+      <div class="card-title" style="margin:18px 0 6px">Invoice lines</div>
+      <table class="table" style="font-size:12px" id="inv-lines-table">
+        <thead><tr>
+          <th style="width:40px">#</th><th>Description</th><th style="width:80px;text-align:right">Qty</th>
+          <th style="width:60px">Unit</th><th style="width:90px;text-align:right">Unit $</th>
+          <th class="table-num" style="width:90px">Line $</th>
+          ${matchedPo ? '<th>Maps to item</th>' : ''}
+          <th style="width:32px"></th>
+        </tr></thead>
+        <tbody>${linesHtml(initialLines, isEdit ? inv.perLineMap : null)}</tbody>
+      </table>
+      ${locked ? '' : `<button class="btn btn-sm" id="inv-add-line" style="margin-top:8px">+ Add line</button>`}
+
+      <div style="margin-top:14px;padding:10px 12px;background:var(--surface-2);border-radius:6px;display:grid;grid-template-columns:1fr auto;gap:6px;font-family:var(--ff-mono);font-size:13px">
+        <div>Subtotal ex-GST</div><div style="text-align:right" id="inv-subtotal">${SHELL.fmtMoney2(isEdit ? inv.subtotalExGst : 0)}</div>
+        <div>GST <input type="number" id="inv-gst" min="0" step="0.01" style="width:80px;text-align:right;padding:2px 4px;font-family:var(--ff-mono);border:1px solid var(--line);border-radius:4px" value="${isEdit && inv.gstAmount != null ? Number(inv.gstAmount).toFixed(2) : ''}" placeholder="auto" ${locked ? 'disabled' : ''}></div><div style="text-align:right" id="inv-gst-display">${SHELL.fmtMoney2(isEdit ? inv.gstAmount : 0)}</div>
+        <div style="font-weight:700;font-size:14px">Total inc-GST</div><div style="text-align:right;font-weight:800;font-size:15px" id="inv-total">${SHELL.fmtMoney2(isEdit ? inv.totalIncGst : 0)}</div>
+      </div>
+
+      <div class="field" style="margin-top:14px">
+        <label class="field-lbl">Notes</label>
+        <textarea class="textarea" id="inv-notes" rows="2" ${locked ? 'disabled' : ''}>${SHELL.escapeHtml(isEdit ? (inv.notes || '') : '')}</textarea>
+      </div>
+    `,
+    footer: `
+      <button class="btn" onclick="SHELL.closePanel()">Close</button>
+      ${isEdit && !lockedStatuses.includes(inv.status) ? `<button class="btn btn-danger" id="inv-cancel">Cancel invoice</button>` : ''}
+      ${isEdit && inv.status === 'pending' && inv.matchedPoId ? `<button class="btn" id="inv-dispute">Dispute</button>` : ''}
+      ${isEdit && ['matched', 'variance'].includes(inv.status) ? `<button class="btn btn-primary" id="inv-approve">Approve${inv.status === 'variance' ? ' (accept variance)' : ''}</button>` : ''}
+      ${isEdit && inv.status === 'approved' ? `<button class="btn btn-accent" id="inv-pay">Mark paid</button>` : ''}
+      ${!locked ? `<button class="btn btn-primary" id="inv-save">${isEdit ? 'Save' : 'Create'}</button>` : ''}
+    `,
+  });
+
+  // Wire row dynamic recompute
+  function readLines() {
+    const lines = [];
+    const perLineMap = {};
+    panel.querySelectorAll('tr[data-line-row]').forEach(tr => {
+      const num  = tr.querySelector('input[data-ln-num]').value || '';
+      const desc = tr.querySelector('input[data-ln-desc]').value.trim();
+      const qty  = Number(tr.querySelector('input[data-ln-qty]').value) || 0;
+      const unit = tr.querySelector('input[data-ln-unit]').value.trim() || 'each';
+      const price = Number(tr.querySelector('input[data-ln-price]').value) || 0;
+      const matchSel = tr.querySelector('select[data-ln-match]');
+      if (!desc && qty <= 0) return; // skip empty rows
+      lines.push({ lineNumber: num || (lines.length + 1), description: desc, qty, unit, unitPriceExGst: price });
+      if (matchSel && matchSel.value) perLineMap[num || (lines.length)] = matchSel.value;
+    });
+    return { lines, perLineMap };
+  }
+  function recomputeTotals() {
+    const { lines } = readLines();
+    let sub = 0;
+    panel.querySelectorAll('tr[data-line-row]').forEach((tr, i) => {
+      const qty = Number(tr.querySelector('input[data-ln-qty]').value) || 0;
+      const price = Number(tr.querySelector('input[data-ln-price]').value) || 0;
+      const total = qty * price;
+      tr.querySelector('[data-ln-total]').textContent = SHELL.fmtMoney2(total);
+      sub += total;
+    });
+    panel.querySelector('#inv-subtotal').textContent = SHELL.fmtMoney2(sub);
+    const gstVal = panel.querySelector('#inv-gst').value;
+    const gst = gstVal === '' ? sub * 0.10 : Number(gstVal);
+    panel.querySelector('#inv-gst-display').textContent = SHELL.fmtMoney2(gst);
+    panel.querySelector('#inv-total').textContent = SHELL.fmtMoney2(sub + gst);
+  }
+  panel.querySelectorAll('input[data-ln-qty], input[data-ln-price]').forEach(el => el.addEventListener('input', recomputeTotals));
+  panel.querySelector('#inv-gst').addEventListener('input', recomputeTotals);
+
+  if (panel.querySelector('#inv-add-line')) {
+    panel.querySelector('#inv-add-line').addEventListener('click', () => {
+      const tbody = panel.querySelector('#inv-lines-table tbody');
+      const idx = tbody.querySelectorAll('tr').length;
+      const html = linesHtml([{ lineNumber: idx + 1, description: '', qty: 1, unit: 'each', unitPriceExGst: 0 }], null);
+      tbody.insertAdjacentHTML('beforeend', html);
+      // Re-bind handlers on newly added inputs
+      const newRow = tbody.lastElementChild;
+      newRow.querySelectorAll('input[data-ln-qty], input[data-ln-price]').forEach(el => el.addEventListener('input', recomputeTotals));
+      newRow.querySelector('button[data-rm-line]').addEventListener('click', () => { newRow.remove(); recomputeTotals(); });
+    });
+  }
+  panel.querySelectorAll('button[data-rm-line]').forEach(b => b.addEventListener('click', () => {
+    b.closest('tr').remove(); recomputeTotals();
+  }));
+
+  // Status flow buttons
+  if (panel.querySelector('#inv-cancel')) panel.querySelector('#inv-cancel').addEventListener('click', () => invoiceStatusChange(inv.id, 'cancelled', 'Cancel this invoice? Use this for credit notes / voided invoices.'));
+  if (panel.querySelector('#inv-dispute')) panel.querySelector('#inv-dispute').addEventListener('click', () => invoiceStatusChange(inv.id, 'disputed', 'Mark disputed? Pauses the approval flow until resolved with the supplier.'));
+  if (panel.querySelector('#inv-approve')) panel.querySelector('#inv-approve').addEventListener('click', () => invoiceStatusChange(inv.id, 'approved', inv.status === 'variance' ? 'Approve this invoice despite the variance?' : 'Approve this invoice for payment?'));
+  if (panel.querySelector('#inv-pay'))     panel.querySelector('#inv-pay').addEventListener('click',     () => invoiceStatusChange(inv.id, 'paid', 'Mark this invoice paid? Records today as the payment date.'));
+
+  if (panel.querySelector('#inv-save')) panel.querySelector('#inv-save').addEventListener('click', async () => {
+    const { lines, perLineMap } = readLines();
+    const matchPoId = panel.querySelector('#inv-match-po').value || null;
+    const gstVal = panel.querySelector('#inv-gst').value;
+    const body = {
+      invoiceNumber:  panel.querySelector('#inv-number').value.trim(),
+      wholesalerName: panel.querySelector('#inv-supplier').value.trim(),
+      invoiceDate:    panel.querySelector('#inv-date').value,
+      dueDate:        panel.querySelector('#inv-due').value,
+      receivedDate:   panel.querySelector('#inv-received').value,
+      lineItems:      lines,
+      gstAmount:      gstVal === '' ? '' : Number(gstVal),
+      notes:          panel.querySelector('#inv-notes').value.trim(),
+    };
+    if (!body.invoiceNumber) { SHELL.toast('Invoice number required', 'bad'); return; }
+    try {
+      if (isEdit) {
+        await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=update-invoice&invId=' + encodeURIComponent(inv.id), { method: 'POST', body });
+        // Re-match if matched-PO changed
+        if (matchPoId && matchPoId !== inv.matchedPoId) {
+          await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=match-invoice&invId=' + encodeURIComponent(inv.id), {
+            method: 'POST', body: { poId: matchPoId, perLineMap },
+          });
+        } else if (matchPoId && Object.keys(perLineMap).length) {
+          await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=match-invoice&invId=' + encodeURIComponent(inv.id), {
+            method: 'POST', body: { poId: matchPoId, perLineMap },
+          });
+        }
+      } else {
+        body.matchPoId = matchPoId;
+        body.perLineMap = perLineMap;
+        await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=create-invoice', { method: 'POST', body });
+      }
+      SHELL.toast(isEdit ? 'Saved' : 'Invoice created', 'ok');
+      SHELL.closePanel();
+      await loadAll(); paint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+
+  recomputeTotals();
+}
+
+async function invoiceStatusChange(invId, status, confirmMsg) {
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  try {
+    await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=update-invoice&invId=' + encodeURIComponent(invId), {
+      method: 'POST', body: { status },
+    });
+    SHELL.toast('Invoice → ' + status, 'ok');
     SHELL.closePanel();
     await loadAll(); paint();
   } catch (e) { SHELL.toast('Failed — ' + e.message, 'bad'); }

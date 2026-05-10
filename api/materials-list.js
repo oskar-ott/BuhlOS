@@ -1,3 +1,44 @@
+// Materials Takeoff / Order List + Pricing + Procurement + Invoices — Phase 12 (extends Phase 11).
+//
+// Phase 12 closes the procurement triangle (PO ↔ receipt ↔ invoice) by
+// adding supplier invoice capture + 3-way match. An invoice records what
+// the supplier wants paid; matching it to a PO reveals price/qty drift
+// before money goes out the door. Variance threshold defaults to ±$50
+// OR ±5% of PO total (whichever is larger).
+//
+// New actions:
+//   POST /api/materials-list?jobId=X&action=create-invoice   (admin only)
+//                        body: { invoiceNumber, wholesalerName, invoiceDate,
+//                                dueDate, receivedDate, lineItems: [...],
+//                                gstAmount?, notes?, fileUrl?,
+//                                matchPoId?, perLineMap? }
+//                        → Creates invoice. If matchPoId set, runs match
+//                          + variance compute on create.
+//
+//   POST ?action=update-invoice&invId=Y   (admin only)
+//                        body: any of { invoiceNumber, wholesalerName,
+//                                       invoiceDate, dueDate, receivedDate,
+//                                       lineItems, gstAmount, notes,
+//                                       fileUrl, status }
+//                        → Edit invoice. Status flow: pending → matched →
+//                          variance → approved → paid (or cancelled /
+//                          disputed at any point). Re-runs variance if
+//                          matched.
+//
+//   POST ?action=match-invoice&invId=Y    (admin only)
+//                        body: { poId, perLineMap?: { invoiceLineNumber:
+//                                                      itemId } }
+//                        → Match invoice to PO + compute variance. Status
+//                          auto-flips to 'variance' if significant else
+//                          'matched'. perLineMap optional — without it
+//                          only total-vs-total variance is computed.
+//
+// Cost rollup gains:
+//   invoicedExGst        sum of non-cancelled invoice subtotals
+//   paidExGst            sum of paid-status invoice subtotals
+//   varianceExGst        sum of (invoice - PO) across matched invoices
+//   invoiceCount, pendingInvoiceCount
+
 // Materials Takeoff / Order List + Pricing + Procurement — Phase 11 (extends Phase 10).
 //
 // Phase 11 adds the procurement loop: priced items become purchase orders,
@@ -275,6 +316,7 @@ async function syncFromTakeoff(jobId, user) {
 function rollupCost(list) {
   const items = list.items || [];
   const pos = list.purchaseOrders || [];
+  const invoices = list.invoices || [];
   let totalCostExGst = 0;
   let priced = 0;
   let unpricedQty = 0;
@@ -306,6 +348,24 @@ function rollupCost(list) {
       }
     }
   }
+  // Phase 12 — invoiced + paid + variance. Disputed invoices count toward
+  // invoicedExGst (the supplier still says we owe them); only cancelled
+  // ones drop. Variance = invoicedExGst - committedExGst, but only counts
+  // matched invoices (so unmatched extras are visible separately).
+  let invoicedExGst = 0;
+  let paidExGst = 0;
+  let pendingInvoiceCount = 0;
+  let varianceExGst = 0;
+  for (const inv of invoices) {
+    if (inv.status === 'cancelled') continue;
+    const sub = Number(inv.subtotalExGst) || 0;
+    invoicedExGst += sub;
+    if (['pending', 'matched', 'variance'].includes(inv.status)) pendingInvoiceCount++;
+    if (inv.status === 'paid') paidExGst += sub;
+    if (inv.matchedPoId && inv.variance && Number.isFinite(inv.variance.diffExGst)) {
+      varianceExGst += inv.variance.diffExGst;
+    }
+  }
   return {
     itemsCount: items.length,
     pricedCount: priced,
@@ -314,8 +374,13 @@ function rollupCost(list) {
     totalCostExGst:  Math.round(totalCostExGst  * 100) / 100,
     committedExGst:  Math.round(committedExGst  * 100) / 100,
     receivedExGst:   Math.round(receivedExGst   * 100) / 100,
+    invoicedExGst:   Math.round(invoicedExGst   * 100) / 100,
+    paidExGst:       Math.round(paidExGst       * 100) / 100,
+    varianceExGst:   Math.round(varianceExGst   * 100) / 100,
     poCount: pos.length,
     openPoCount: openPos,
+    invoiceCount: invoices.length,
+    pendingInvoiceCount,
   };
 }
 
@@ -516,6 +581,217 @@ async function recordReceipt(jobId, poId, body, user) {
   return { po, eventId: po.receivedEvents[po.receivedEvents.length - 1].id };
 }
 
+// ─── Phase 12: supplier invoices + 3-way match ────────────────────────
+//
+// An invoice records the supplier's actual bill — what they want paid.
+// Match it against a PO (the agreed price) to compute variance. Each
+// invoice line can optionally map to a materials item (so per-line
+// variance is computed against the agreed unit price); failing that, we
+// only do a total-vs-total comparison.
+//
+// Lifecycle:
+//   pending   — entered by admin, not yet matched
+//   matched   — matched to a PO with no significant variance
+//   variance  — matched to a PO but invoice ≠ PO total
+//   approved  — admin signed off (whether matched cleanly or accepting
+//               the variance)
+//   paid      — payment recorded
+//   disputed  — admin flagged for back-and-forth with supplier
+//   cancelled — invoice voided (credit notes typically replace)
+//
+// Variance threshold defaults: > $50 OR > 5% of PO total triggers the
+// "variance" status auto-flip. Admin can still approve through it.
+
+const INVOICE_STATUSES = ['pending', 'matched', 'variance', 'approved', 'paid', 'disputed', 'cancelled'];
+const VARIANCE_FLAT_AUD = 50;
+const VARIANCE_PCT      = 0.05;
+
+function recomputeInvoiceTotals(inv) {
+  let sub = 0;
+  for (const ln of (inv.lineItems || [])) {
+    ln.lineTotalExGst = Math.round((Number(ln.unitPriceExGst) || 0) * (Number(ln.qty) || 0) * 100) / 100;
+    sub += ln.lineTotalExGst;
+  }
+  inv.subtotalExGst = Math.round(sub * 100) / 100;
+  // Allow the supplier's stated GST to override (some suppliers split GST
+  // unusually). If admin didn't set gstAmount, default to 10% of subtotal.
+  if (inv.gstAmount == null || inv.gstAmount === '') {
+    inv.gstAmount = Math.round(sub * 0.10 * 100) / 100;
+  } else {
+    inv.gstAmount = Math.round((Number(inv.gstAmount) || 0) * 100) / 100;
+  }
+  inv.totalIncGst = Math.round((inv.subtotalExGst + inv.gstAmount) * 100) / 100;
+}
+
+// Compute variance between an invoice and a PO. perLineMap is optional —
+// when present, maps invoiceLineNumber -> itemId so we can do per-item
+// variance. Without it, we still compute total-vs-total.
+function computeVariance(inv, po) {
+  if (!po) return null;
+  const poTotal = Number(po.totalExGst) || 0;
+  const invTotal = Number(inv.subtotalExGst) || 0;
+  const diffExGst = Math.round((invTotal - poTotal) * 100) / 100;
+  const significant = Math.abs(diffExGst) > VARIANCE_FLAT_AUD ||
+                      (poTotal > 0 && Math.abs(diffExGst / poTotal) > VARIANCE_PCT);
+
+  // Per-line variance — sums invoice lines mapped to each PO snapshot.
+  const perLineDiffs = [];
+  if (inv.perLineMap && Object.keys(inv.perLineMap).length) {
+    const invByLine = {};
+    for (const ln of (inv.lineItems || [])) invByLine[ln.lineNumber] = ln;
+    const itemsTotalled = {}; // itemId -> { invQty, invSub }
+    for (const [lineNumber, itemId] of Object.entries(inv.perLineMap)) {
+      const ln = invByLine[lineNumber];
+      if (!ln || !itemId) continue;
+      if (!itemsTotalled[itemId]) itemsTotalled[itemId] = { invQty: 0, invSub: 0 };
+      itemsTotalled[itemId].invQty += Number(ln.qty) || 0;
+      itemsTotalled[itemId].invSub += Number(ln.lineTotalExGst) || 0;
+    }
+    for (const snap of (po.itemSnapshots || [])) {
+      const tally = itemsTotalled[snap.itemId] || { invQty: 0, invSub: 0 };
+      const poSub = Math.round((Number(snap.qty) || 0) * (Number(snap.unitPriceExGst) || 0) * 100) / 100;
+      perLineDiffs.push({
+        itemId: snap.itemId, name: snap.name,
+        poQty: snap.qty, poSub: poSub,
+        invQty: Math.round(tally.invQty * 100) / 100,
+        invSub: Math.round(tally.invSub * 100) / 100,
+        diffExGst: Math.round((tally.invSub - poSub) * 100) / 100,
+      });
+    }
+  }
+
+  return {
+    poId: po.id, poNumber: po.poNumber,
+    poTotalExGst: poTotal, invoiceTotalExGst: invTotal,
+    diffExGst, significant, perLineDiffs,
+    computedAt: new Date().toISOString(),
+  };
+}
+
+async function createInvoice(jobId, body, user) {
+  const list = await readList(jobId);
+  list.invoices = list.invoices || [];
+  if (!body.invoiceNumber || !String(body.invoiceNumber).trim()) {
+    return { error: 'invoiceNumber required', status: 400 };
+  }
+  // Reject duplicates within the same supplier (case-insensitive).
+  const dupe = list.invoices.find(x =>
+    String(x.invoiceNumber || '').trim().toLowerCase() === String(body.invoiceNumber).trim().toLowerCase() &&
+    String(x.wholesalerName || '').trim().toLowerCase() === String(body.wholesalerName || '').trim().toLowerCase() &&
+    x.status !== 'cancelled');
+  if (dupe) return { error: 'invoice number already exists for this supplier (id ' + dupe.id + ')', status: 409 };
+
+  const lineItems = (Array.isArray(body.lineItems) ? body.lineItems : []).map((ln, i) => ({
+    lineNumber: ln.lineNumber || (i + 1),
+    description: String(ln.description || '').trim(),
+    qty:           Number(ln.qty) || 0,
+    unit:          String(ln.unit || 'each').trim(),
+    unitPriceExGst: Number(ln.unitPriceExGst) || 0,
+    lineTotalExGst: 0, // recomputed below
+  })).filter(ln => ln.description || ln.qty > 0);
+
+  const inv = {
+    id: newId('inv'), jobId,
+    invoiceNumber:  String(body.invoiceNumber).trim(),
+    wholesalerName: body.wholesalerName ? String(body.wholesalerName).trim() : '',
+    invoiceDate:    body.invoiceDate || '',
+    dueDate:        body.dueDate || '',
+    receivedDate:   body.receivedDate || new Date().toISOString().slice(0, 10),
+    matchedPoId:    null,
+    perLineMap:     null,
+    status:         'pending',
+    lineItems,
+    subtotalExGst:  0, gstAmount: body.gstAmount != null ? Number(body.gstAmount) : null,
+    totalIncGst:    0,
+    notes:          body.notes ? String(body.notes).trim() : '',
+    fileUrl:        body.fileUrl ? String(body.fileUrl).trim() : null,
+    variance:       null,
+    createdAt:      new Date().toISOString(),
+    createdBy:      user.username,
+  };
+  recomputeInvoiceTotals(inv);
+
+  // Optional: match on create
+  if (body.matchPoId) {
+    const po = (list.purchaseOrders || []).find(p => p.id === body.matchPoId);
+    if (po) {
+      inv.matchedPoId = po.id;
+      inv.perLineMap  = body.perLineMap || null;
+      inv.variance    = computeVariance(inv, po);
+      inv.status      = inv.variance && inv.variance.significant ? 'variance' : 'matched';
+      inv.matchedAt   = new Date().toISOString();
+      inv.matchedBy   = user.username;
+    }
+  }
+
+  list.invoices.push(inv);
+  await writeList(jobId, list);
+  return { invoice: inv };
+}
+
+async function updateInvoice(jobId, invId, body, user) {
+  const list = await readList(jobId);
+  const inv = (list.invoices || []).find(x => x.id === invId);
+  if (!inv) return { error: 'invoice not found', status: 404 };
+  // Editable scalars
+  if (body.invoiceNumber  !== undefined) inv.invoiceNumber  = String(body.invoiceNumber || '').trim();
+  if (body.wholesalerName !== undefined) inv.wholesalerName = String(body.wholesalerName || '').trim();
+  if (body.invoiceDate    !== undefined) inv.invoiceDate    = body.invoiceDate || '';
+  if (body.dueDate        !== undefined) inv.dueDate        = body.dueDate || '';
+  if (body.receivedDate   !== undefined) inv.receivedDate   = body.receivedDate || '';
+  if (body.notes          !== undefined) inv.notes          = String(body.notes || '').trim();
+  if (body.fileUrl        !== undefined) inv.fileUrl        = body.fileUrl ? String(body.fileUrl).trim() : null;
+  if (body.gstAmount      !== undefined) inv.gstAmount      = body.gstAmount === '' ? null : Number(body.gstAmount);
+  if (Array.isArray(body.lineItems)) {
+    inv.lineItems = body.lineItems.map((ln, i) => ({
+      lineNumber: ln.lineNumber || (i + 1),
+      description: String(ln.description || '').trim(),
+      qty: Number(ln.qty) || 0,
+      unit: String(ln.unit || 'each').trim(),
+      unitPriceExGst: Number(ln.unitPriceExGst) || 0,
+      lineTotalExGst: 0,
+    })).filter(ln => ln.description || ln.qty > 0);
+  }
+  if (body.status && INVOICE_STATUSES.includes(body.status)) {
+    inv.status = body.status;
+    if (body.status === 'paid')      { inv.paidAt      = body.paidAt      || new Date().toISOString(); inv.paidBy      = user.username; }
+    if (body.status === 'approved')  { inv.approvedAt  = body.approvedAt  || new Date().toISOString(); inv.approvedBy  = user.username; }
+    if (body.status === 'cancelled') { inv.cancelledAt = body.cancelledAt || new Date().toISOString(); inv.cancelledBy = user.username; }
+  }
+  recomputeInvoiceTotals(inv);
+  // Re-run variance if matched
+  if (inv.matchedPoId) {
+    const po = (list.purchaseOrders || []).find(p => p.id === inv.matchedPoId);
+    inv.variance = computeVariance(inv, po);
+    if (inv.status !== 'approved' && inv.status !== 'paid' && inv.status !== 'cancelled' && inv.status !== 'disputed') {
+      inv.status = inv.variance && inv.variance.significant ? 'variance' : 'matched';
+    }
+  }
+  inv.updatedAt = new Date().toISOString();
+  await writeList(jobId, list);
+  return { invoice: inv };
+}
+
+async function matchInvoice(jobId, invId, body, user) {
+  const list = await readList(jobId);
+  const inv = (list.invoices || []).find(x => x.id === invId);
+  if (!inv) return { error: 'invoice not found', status: 404 };
+  const poId = body.poId;
+  if (!poId) return { error: 'poId required', status: 400 };
+  const po = (list.purchaseOrders || []).find(p => p.id === poId);
+  if (!po) return { error: 'PO not found', status: 404 };
+  inv.matchedPoId = po.id;
+  inv.perLineMap  = body.perLineMap && typeof body.perLineMap === 'object' ? body.perLineMap : null;
+  inv.variance    = computeVariance(inv, po);
+  if (!['approved', 'paid', 'cancelled', 'disputed'].includes(inv.status)) {
+    inv.status = inv.variance && inv.variance.significant ? 'variance' : 'matched';
+  }
+  inv.matchedAt = new Date().toISOString();
+  inv.matchedBy = user.username;
+  await writeList(jobId, list);
+  return { invoice: inv };
+}
+
 // Apply a wholesaler's reply to an email request — both annotates the
 // request with the reply and (optionally) writes per-item unit prices
 // back to the items in that request.
@@ -641,6 +917,23 @@ module.exports = async (req, res) => {
       const poId = (req.query && req.query.poId) || body.poId;
       if (!poId) return res.status(400).json({ error: 'poId required' });
       const result = await recordReceipt(jobId, poId, body, user);
+      if (result.error) return res.status(result.status || 400).json({ error: result.error });
+      return res.status(200).json(result);
+    }
+
+    // Phase 12 — supplier invoices + 3-way match (admin only — financial)
+    if (['create-invoice', 'update-invoice', 'match-invoice'].includes(action)) {
+      if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+      if (action === 'create-invoice') {
+        const result = await createInvoice(jobId, body, user);
+        if (result.error) return res.status(result.status || 400).json({ error: result.error });
+        return res.status(201).json(result);
+      }
+      const invId = (req.query && req.query.invId) || body.invId;
+      if (!invId) return res.status(400).json({ error: 'invId required' });
+      const result = action === 'update-invoice'
+        ? await updateInvoice(jobId, invId, body, user)
+        : await matchInvoice(jobId, invId, body, user);
       if (result.error) return res.status(result.status || 400).json({ error: result.error });
       return res.status(200).json(result);
     }
