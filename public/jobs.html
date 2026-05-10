@@ -10,16 +10,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
-<meta name="theme-color" content="#0d1b34">
+<meta name="theme-color" content="#0d1f35">
 <script src="/mobile-nav.js" defer></script>
 <script src="/install-prompt.js" defer></script>
 <script src="/lib/approvals-badge.js" defer></script>
-<!-- Sheet 03 register: IBM Plex on warm cream, monochrome navy, drafting chrome. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  /* ── App-header (kept from theme.css for cross-page consistency) ── */
+  /* App-header (kept from theme.css for cross-page consistency) */
   .app-header {
     position: sticky; top: 0; z-index: 100;
     border-bottom: 1px solid rgba(255,255,255,.08);
@@ -41,254 +40,211 @@
   .nav-pill:hover { color: #fff; background: rgba(255,255,255,.08); }
   .nav-pill.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 
-  /* ─────────────────────────────────────────────────────────────────
-     SHEET 03 — JOBS LIST · drafting chrome on warm cream paper
-     ───────────────────────────────────────────────────────────────── */
+  /* ── Page body ──────────────────────────────────────── */
   .jobs-page {
-    --paper:        #fdfbf3;
-    --paper-2:      #f7f3e6;
-    --paper-3:      #efe9d6;
-    --grid-soft:    rgba(13,27,52,.07);
-    --grid-strong:  rgba(13,27,52,.14);
-    --ink:          #0d1b34;
-    --ink-2:        #36446b;
-    --ink-3:        #6a7591;
-    --rule-ink:     #0d1b34;
-    --rule-soft:    #c8cee0;
-    --red:          #c0312f;
-    --green:        #1f8b5a;
-    --display:      "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
-    --plex-sans:    "IBM Plex Sans", system-ui, sans-serif;
-    --plex-serif:   "IBM Plex Serif", Georgia, serif;
-    --plex-mono:    "IBM Plex Mono", ui-monospace, monospace;
+    --bg:        #f5f3ee;
+    --surface:   #fdfcf9;
+    --surface-2: #efece4;
+    --ink:       #0d1f35;
+    --ink-2:     #4a5568;
+    --muted:     #8a8678;
+    --line:      #e2dfd5;
+    --line-2:    #d8d2c1;
+    --ok:        #1f8a4c;
+    --warn:      #b76b00;
+    --bad:       #b3261e;
+    --accent:    #e08a1a;
 
-    background: var(--paper);
-    background-image:
-      linear-gradient(to right, var(--grid-soft) 0 1px, transparent 1px 100%),
-      linear-gradient(to bottom, var(--grid-soft) 0 1px, transparent 1px 100%),
-      linear-gradient(to right, var(--grid-strong) 0 1px, transparent 1px 100%),
-      linear-gradient(to bottom, var(--grid-strong) 0 1px, transparent 1px 100%);
-    background-size: 24px 24px, 24px 24px, 120px 120px, 120px 120px;
+    background: var(--bg);
     color: var(--ink);
-    font-family: var(--plex-sans);
-
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
     min-height: calc(100vh - 60px);
-    max-width: 1100px; margin: 0 auto;
-    padding: 0 clamp(16px, 4vw, 36px) 24px;
+    max-width: 960px; margin: 0 auto;
+    padding: 20px clamp(16px, 4vw, 28px) 32px;
   }
 
-  /* drawing strip across the top */
-  .jobs-page .strip {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 14px 0 12px; border-bottom: 1.5px solid var(--rule-ink);
-    font-family: var(--plex-mono); font-size: 10px; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--ink-2);
+  /* Heading */
+  .jobs-page .head {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    gap: 16px; flex-wrap: wrap;
+    padding-bottom: 14px; margin-bottom: 18px;
+    border-bottom: 1px solid var(--line);
   }
-  .jobs-page .strip b { color: var(--ink); font-weight: 600; }
-  .jobs-page .strip .marker {
-    display: inline-block; width: 7px; height: 7px;
-    background: var(--ink); margin-right: 8px; vertical-align: 1px;
+  .jobs-page .head h1 {
+    font-size: clamp(22px, 3.6vw, 30px);
+    font-weight: 700; letter-spacing: -.4px;
+    margin: 0 0 4px;
   }
-  .jobs-page .strip .right { display: flex; gap: 18px; align-items: center; }
+  .jobs-page .head .sub {
+    font-size: 13px; color: var(--muted);
+  }
+  .jobs-page .head .sub b { color: var(--ink); font-weight: 600; }
 
-  /* page heading */
-  .jobs-page .ph {
-    display: grid; grid-template-columns: 80px 1fr auto;
-    gap: clamp(16px, 3vw, 32px); align-items: end;
-    padding: 24px 0 16px; border-bottom: 1.5px solid var(--rule-ink);
-    margin-bottom: 18px;
-  }
-  .jobs-page .ph .num {
-    font-family: var(--plex-mono); font-size: 10px; letter-spacing: .14em;
-    color: var(--ink-3); text-transform: uppercase; padding-bottom: 6px;
-  }
-  .jobs-page .ph .num b { color: var(--ink); font-weight: 600; }
-  .jobs-page .ph h1 {
-    font-family: var(--display); font-weight: 700;
-    font-size: clamp(28px, 4.4vw, 48px); line-height: 0.96;
-    letter-spacing: -0.025em; margin: 0 0 6px; color: var(--ink);
-  }
-  .jobs-page .ph h1 em {
-    font-family: var(--plex-serif); font-style: italic; font-weight: 400;
-    font-size: 0.55em; color: var(--ink-2);
-    margin-left: 0.06em;
-  }
-  .jobs-page .ph .lede {
-    font-family: var(--plex-mono); font-size: 10.5px; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--ink-3); margin: 4px 0 0;
-  }
-  .jobs-page .ph .lede b { color: var(--ink); font-weight: 600; }
-  .jobs-page .ph .ref {
-    font-family: var(--plex-mono); font-size: 10px; letter-spacing: .12em;
-    text-transform: uppercase; color: var(--ink-3);
-    text-align: right; line-height: 1.6;
-  }
-  .jobs-page .ph .ref b { display: block; color: var(--ink); font-weight: 600; }
-
-  /* filter row + search */
+  /* Controls row */
   .jobs-page .controls {
-    display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch;
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
     margin-bottom: 14px;
   }
-  .jobs-page .filter-bar { display: flex; gap: 0; flex-wrap: wrap; }
+  .jobs-page .filter-bar {
+    display: flex; gap: 4px; padding: 3px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
   .jobs-page .filter-pill {
     appearance: none; -webkit-appearance: none;
-    height: 34px; padding: 0 14px;
-    background: var(--paper); border: 1.5px solid var(--ink);
-    border-right: 0;
-    color: var(--ink-2); cursor: pointer;
-    font-family: var(--plex-mono); font-size: 10px; font-weight: 600;
-    letter-spacing: .14em; text-transform: uppercase;
+    background: transparent; border: none;
+    padding: 6px 12px; border-radius: 6px;
+    font-size: 12px; font-weight: 500; color: var(--muted);
+    cursor: pointer; white-space: nowrap;
+    font-family: inherit;
   }
-  .jobs-page .filter-pill:last-child { border-right: 1.5px solid var(--ink); }
-  .jobs-page .filter-pill:hover { background: var(--paper-2); color: var(--ink); }
+  .jobs-page .filter-pill:hover { color: var(--ink); }
   .jobs-page .filter-pill.active {
-    background: var(--ink); color: var(--paper);
+    background: var(--surface); color: var(--ink); font-weight: 600;
+    box-shadow: 0 1px 2px rgba(13,31,53,.08);
   }
   .jobs-page .filter-count {
-    font-size: 9px; opacity: .85; margin-left: 5px;
+    margin-left: 5px; font-size: 11px; opacity: .7;
     font-variant-numeric: tabular-nums;
   }
+  .jobs-page .filter-pill.active .filter-count { opacity: .9; }
+
   .jobs-page .search {
-    flex: 1; min-width: 220px;
+    flex: 1; min-width: 220px; max-width: 360px;
     display: flex; align-items: center; gap: 8px;
-    border: 1.5px solid var(--ink); background: var(--paper);
-    padding: 0 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0 12px;
   }
-  .jobs-page .search::before {
-    content: "⌕"; font-family: var(--plex-mono); font-size: 14px;
-    color: var(--ink-3); font-weight: 600;
-  }
+  .jobs-page .search:focus-within { border-color: var(--ink); }
+  .jobs-page .search svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
   .jobs-page .search input {
     flex: 1; background: transparent; border: 0; outline: none;
-    height: 34px; padding: 0;
-    font-family: var(--plex-sans); font-size: 14px; color: var(--ink);
+    height: 36px; padding: 0;
+    font-family: inherit; font-size: 14px; color: var(--ink);
   }
-  .jobs-page .search input::placeholder {
-    font-family: var(--plex-mono); font-size: 11px; letter-spacing: .12em;
-    text-transform: uppercase; color: var(--ink-3);
+  .jobs-page .search input::placeholder { color: var(--muted); }
+
+  .jobs-page .visible-count {
+    font-size: 12px; color: var(--muted);
+    margin-left: auto;
   }
 
-  /* list */
+  /* Jobs list */
   .jobs-page .jobs-list {
-    border: 1.5px solid var(--ink); background: var(--paper);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
   }
   .jobs-page .job-row {
     display: grid;
-    grid-template-columns: 1fr 64px;
+    grid-template-columns: 1fr 56px;
     grid-template-areas:
       "ref   pct"
       "name  pct"
       "pbar  pbar"
       "stats stats";
     column-gap: 16px; row-gap: 4px;
-    padding: 12px 14px 10px;
-    border-bottom: 1px solid var(--rule-soft);
-    cursor: pointer; position: relative;
-    background: var(--paper);
+    padding: 14px 18px 12px;
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+    text-decoration: none; color: inherit;
     transition: background .12s;
   }
   .jobs-page .job-row:last-child { border-bottom: 0; }
-  .jobs-page .job-row:hover  { background: var(--paper-2); }
+  .jobs-page .job-row:hover  { background: var(--surface-2); }
   .jobs-page .job-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
   .jobs-page .job-row.cur {
-    background: var(--paper-2);
-    border-left: 4px solid var(--ink);
-    padding-left: 10px;
+    background: var(--surface-2);
+    border-left: 3px solid var(--accent);
+    padding-left: 15px;
   }
   .jobs-page .job-row .ref {
     grid-area: ref;
-    font-family: var(--plex-mono); font-size: 10px; letter-spacing: .12em;
-    text-transform: uppercase; color: var(--ink-2);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px; color: var(--muted);
     display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
   }
-  .jobs-page .job-row .ref b { color: var(--ink); font-weight: 700; }
+  .jobs-page .job-row .ref b { color: var(--ink-2); font-weight: 600; }
   .jobs-page .job-row .nm {
     grid-area: name;
-    font-family: var(--display); font-weight: 700;
-    font-size: 18px; letter-spacing: -.022em; line-height: 1.15;
-    color: var(--ink);
+    font-size: 16px; font-weight: 600;
+    line-height: 1.25; color: var(--ink);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .jobs-page .job-row .pct {
     grid-area: pct;
     align-self: start;
-    font-family: var(--display); font-weight: 800;
-    font-size: 28px; letter-spacing: -.03em; line-height: 1;
+    font-size: 22px; font-weight: 700;
+    letter-spacing: -.4px; line-height: 1;
     color: var(--ink); text-align: right;
     font-variant-numeric: tabular-nums;
   }
-  .jobs-page .job-row .pct.muted { color: var(--ink-3); }
+  .jobs-page .job-row .pct.muted { color: var(--muted); }
   .jobs-page .job-row .pbar {
     grid-area: pbar;
-    height: 4px; border: 1.5px solid var(--ink); background: var(--paper-2);
-    margin-top: 6px;
+    height: 4px; background: var(--surface-2);
+    border-radius: 999px; overflow: hidden;
+    margin-top: 8px;
   }
-  .jobs-page .job-row .pbar i { display: block; height: 100%; background: var(--ink); }
-  .jobs-page .job-row.cur .pbar i { background: var(--ink); }
+  .jobs-page .job-row .pbar i {
+    display: block; height: 100%; background: var(--ink);
+    border-radius: 999px;
+  }
+  .jobs-page .job-row.cur .pbar i { background: var(--accent); }
   .jobs-page .job-row .stats {
     grid-area: stats;
     display: flex; flex-wrap: wrap; gap: 14px;
-    font-family: var(--plex-mono); font-size: 10px; letter-spacing: .1em;
-    text-transform: uppercase; color: var(--ink-2);
-    margin-top: 4px;
+    font-size: 12px; color: var(--muted);
+    margin-top: 6px;
   }
   .jobs-page .job-row .stats span { display: inline-flex; align-items: baseline; gap: 4px; }
-  .jobs-page .job-row .stats b { color: var(--ink); font-weight: 700; }
-  .jobs-page .job-row .stats .red b { color: var(--red); }
-  .jobs-page .job-row .stats .red { color: var(--red); }
-  .jobs-page .job-row .stats .green b { color: var(--green); }
-  .jobs-page .job-row .stats .green { color: var(--green); }
-  .jobs-page .job-row .stats .verb { color: var(--ink); font-weight: 600; }
-  .jobs-page .job-row .stats .verb.red { color: var(--red); }
-  .jobs-page .job-row .stats .verb.cur::before { content: "▸ "; color: var(--ink); }
+  .jobs-page .job-row .stats b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .jobs-page .job-row .stats .red,
+  .jobs-page .job-row .stats .red b { color: var(--bad); }
+  .jobs-page .job-row .stats .green,
+  .jobs-page .job-row .stats .green b { color: var(--ok); }
+  .jobs-page .job-row .stats .pill {
+    font-size: 11px; font-weight: 600;
+    padding: 2px 8px; border-radius: 999px;
+    background: var(--surface-2); color: var(--ink-2);
+  }
+  .jobs-page .job-row .stats .pill.cur { background: var(--accent); color: #2a1a05; }
+  .jobs-page .job-row .stats .pill.complete { background: rgba(31,138,76,.12); color: var(--ok); }
+  .jobs-page .job-row .stats .pill.archived { background: var(--surface-2); color: var(--muted); }
+  .jobs-page .job-row .stats .pill.bad { background: rgba(179,38,30,.12); color: var(--bad); }
 
-  /* dashed snag chip — admin/LH-only, links into job snags tab */
   .jobs-page .job-row .stats a {
     color: inherit; text-decoration: none;
     border-bottom: 1px dashed currentColor;
   }
 
-  /* empty state */
+  /* Empty state */
   .jobs-page .empty-state {
-    border: 1.5px dashed var(--ink); background: var(--paper);
+    background: var(--surface);
+    border: 1px dashed var(--line-2);
+    border-radius: 10px;
     padding: 36px 20px; text-align: center;
-    font-family: var(--plex-serif); font-style: italic; font-size: 14px;
-    color: var(--ink-2);
+    font-size: 14px; color: var(--muted);
   }
-  .jobs-page .empty-state a { color: var(--ink); font-weight: 600; }
-
-  /* drawing title-block at the bottom */
-  .jobs-page .tb {
-    display: grid; grid-template-columns: repeat(4, 1fr);
-    border: 1.5px solid var(--ink); background: var(--paper-2);
-    margin-top: 18px;
-    font-family: var(--plex-mono); font-size: 9px; letter-spacing: .12em;
-    text-transform: uppercase;
-  }
-  .jobs-page .tb-cell {
-    border-right: 1px solid var(--ink);
-    padding: 8px 10px; color: var(--ink-2); line-height: 1.4;
-  }
-  .jobs-page .tb-cell:last-child { border-right: 0; }
-  .jobs-page .tb-cell .o {
-    display: block; color: var(--ink-3); font-size: 8px;
-    letter-spacing: .14em; margin-bottom: 2px;
-  }
-  .jobs-page .tb-cell b {
-    color: var(--ink); font-family: var(--display); font-weight: 700;
-    font-size: 11px; letter-spacing: -.005em; text-transform: none;
+  .jobs-page .empty-state b { color: var(--ink); font-weight: 600; }
+  .jobs-page .empty-state a {
+    color: var(--ink); font-weight: 600;
+    text-decoration: underline;
   }
 
   @media (max-width: 540px) {
-    .jobs-page { padding: 0 14px 18px; }
-    .jobs-page .ph { grid-template-columns: 60px 1fr; }
-    .jobs-page .ph .ref { display: none; }
-    .jobs-page .job-row { grid-template-columns: 1fr 56px; }
-    .jobs-page .job-row .nm { font-size: 16px; }
-    .jobs-page .job-row .pct { font-size: 24px; }
-    .jobs-page .job-row .stats { font-size: 9.5px; gap: 10px; }
-    .jobs-page .filter-pill { padding: 0 10px; height: 32px; font-size: 9.5px; }
+    .jobs-page { padding: 16px 14px 24px; }
+    .jobs-page .head h1 { font-size: 22px; }
+    .jobs-page .job-row { padding: 12px 14px 10px; }
+    .jobs-page .job-row.cur { padding-left: 11px; }
+    .jobs-page .job-row .nm { font-size: 15px; }
+    .jobs-page .job-row .pct { font-size: 20px; }
+    .jobs-page .job-row .stats { font-size: 11.5px; gap: 10px; }
   }
 </style>
 </head>
@@ -309,39 +265,23 @@
 </header>
 
 <div class="jobs-page">
-
-  <header class="strip">
-    <span><span class="marker"></span>buhl electrical &middot; <b>R-JOBS</b></span>
-    <span class="right">
-      <span><b>FIG. 05</b> &middot; jobs · last opened ↓</span>
-      <span><b id="syncLbl">LIVE</b></span>
-    </span>
-  </header>
-
-  <div class="ph">
-    <div class="num">SHEET <b>R-JOBS</b><br/>1 of 1</div>
+  <div class="head">
     <div>
-      <h1>your <em>jobs</em>.</h1>
-      <p class="lede"><b id="jobs-active-count">0</b> active &middot; <b id="jobs-snags-count">0</b> open snags &middot; tap any row to open</p>
+      <h1>Your jobs</h1>
+      <div class="sub"><b id="jobs-active-count">0</b> active · <b id="jobs-snags-count">0</b> open snags · tap any row to open</div>
     </div>
-    <div class="ref"><b id="job-count">…</b>jobs visible</div>
   </div>
 
   <div class="controls">
     <div class="filter-bar" id="jobs-filter-bar"></div>
     <div class="search">
-      <input type="search" placeholder="Search · name or ref" id="job-search" autocomplete="off">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input type="search" placeholder="Search by name or ref" id="job-search" autocomplete="off">
     </div>
+    <span class="visible-count"><b id="job-count">…</b> visible</span>
   </div>
 
   <div id="list"></div>
-
-  <div class="tb">
-    <div class="tb-cell"><span class="o">project</span><b>BuhlOS</b></div>
-    <div class="tb-cell"><span class="o">screen</span>R-JOBS</div>
-    <div class="tb-cell"><span class="o">user</span><b id="tbUser">—</b></div>
-    <div class="tb-cell"><span class="o">sync</span><b id="tbSync">LIVE</b></div>
-  </div>
 </div>
 
 <script>
@@ -359,8 +299,6 @@ async function load() {
 
   const roleLabel = { admin: 'Admin', leadingHand: 'Leading Hand', tradie: 'Tradie' }[user.role] || '';
   document.getElementById('me').textContent = roleLabel ? (user.username + ' · ' + roleLabel) : user.username;
-  const tbU = document.getElementById('tbUser');
-  if (tbU) tbU.textContent = roleLabel ? (user.username + ' · ' + roleLabel.toUpperCase()) : user.username;
 
   if (user.role === 'admin' || user.role === 'leadingHand') {
     document.getElementById('ovLink').style.display = 'inline-flex';
@@ -371,16 +309,6 @@ async function load() {
   } else if (user.role === 'tradie') {
     document.getElementById('myDayLink').style.display = 'inline-flex';
   }
-
-  // Sync state in the strip + title-block.
-  const setSync = (state) => {
-    const t = state === 'offline' ? 'OFFLINE' : 'LIVE';
-    document.getElementById('syncLbl').textContent = t;
-    document.getElementById('tbSync').textContent  = t;
-  };
-  setSync(navigator.onLine === false ? 'offline' : 'live');
-  window.addEventListener('online',  () => setSync('live'));
-  window.addEventListener('offline', () => setSync('offline'));
 
   const [jobsRes, typesRes] = await Promise.all([
     fetch('/api/jobs?withStats=1', { credentials: 'same-origin' }),
@@ -409,7 +337,6 @@ async function load() {
   applyView();
 }
 
-// ── Filter pills (drafting style) ─────────────────────────────────────────
 function renderFilters() {
   const bar = document.getElementById('jobs-filter-bar');
   if (!bar) return;
@@ -453,7 +380,6 @@ function resolveTypeName(j) {
 }
 
 function shortRef(j) {
-  // Prefer a job ref if present; fall back to id stem (without prefix).
   return (j.ref || j.shortRef || j.id || '').toUpperCase();
 }
 
@@ -474,7 +400,7 @@ function renderJobs(jobs, user) {
               : role === 'client'      ? 'No jobs visible to your account yet.'
               : 'No jobs assigned to you yet.';
     const hint = role === 'admin'
-      ? ' <a href="/admin">Create one in Admin →</a>'
+      ? ' <a href="/admin/jobs">Create one →</a>'
       : role === 'leadingHand'
       ? ' Ask an admin to assign you.'
       : '';
@@ -505,32 +431,26 @@ function renderJobs(jobs, user) {
     const expired  = Number(j.statsExpiredTags  || 0);
     const expiring = Number(j.statsExpiringTags || 0);
 
-    // Status verb: archived/complete states + optional "slipping/early/handover"
-    // hints if the API ever provides them. For now use status label.
-    const verbCls  = (sn > 0 && pct !== null && pct < 100 && st === 'active') ? 'red' : '';
     const statusLabel = { active: 'Active', complete: 'Complete', archived: 'Archived' }[st] || st;
+    const pillCls = (j.isCurrent ? 'cur' : (st === 'complete' ? 'complete' : st === 'archived' ? 'archived' : ''));
 
-    // Highlight the most recently opened job (server-provided lastOpenedAt
-    // timestamp if present; otherwise no highlight).
-    const isCur = !!j.isCurrent;
-
-    const goJob = `location.href='/jobs/${esc(j.id)}'`;
     const stats = [
-      dw > 0 ? `<span><b>${dw}</b> DW</span>` : '',
+      dw > 0 ? `<span><b>${dw}</b> dwelling${dw === 1 ? '' : 's'}</span>` : '',
       sn > 0
-        ? `<span class="red"><b>${sn}</b> SNAG${sn===1?'':'S'}</span>`
-        : `<span><b>0</b> SNAGS</span>`,
-      isAdminLH && crew > 0 ? `<span>CREW <b>${crew}</b></span>` : '',
+        ? `<span class="red"><b>${sn}</b> open snag${sn === 1 ? '' : 's'}</span>`
+        : `<span><b>0</b> snags</span>`,
+      isAdminLH && crew > 0 ? `<span><b>${crew}</b> crew</span>` : '',
       expired > 0
-        ? `<span class="red"><b>${expired}</b> T&amp;T EXP</span>`
-        : (expiring > 0 ? `<span><b>${expiring}</b> T&amp;T DUE</span>` : ''),
-      typeName ? `<span>${esc(typeName).toUpperCase()}</span>` : '',
-      `<span class="verb ${verbCls}${isCur?' cur':''}">${isCur ? 'CURRENT' : statusLabel.toUpperCase()}</span>`,
+        ? `<span class="red"><b>${expired}</b> tag${expired === 1 ? '' : 's'} expired</span>`
+        : (expiring > 0 ? `<span><b>${expiring}</b> tag${expiring === 1 ? '' : 's'} due</span>` : ''),
+      typeName ? `<span>${esc(typeName)}</span>` : '',
+      `<span class="pill ${pillCls}">${j.isCurrent ? 'Current' : statusLabel}</span>`,
     ].filter(Boolean).join('');
 
-    html += `<div class="job-row${isCur?' cur':''}" role="link" tabindex="0"
+    const goJob = `location.href='/jobs/${esc(j.id)}'`;
+    html += `<div class="job-row${j.isCurrent ? ' cur' : ''}" role="link" tabindex="0"
         onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
-      <div class="ref"><b>${esc(ref)}</b>${j.location ? ' · ' + esc(String(j.location).toUpperCase()) : ''}</div>
+      <div class="ref"><b>${esc(ref)}</b>${j.location ? ' · ' + esc(j.location) : ''}</div>
       <div class="nm">${esc(j.name)}</div>
       <div class="pct${pct === null ? ' muted' : ''}">${pct === null ? '—' : pct + '%'}</div>
       <div class="pbar"><i style="width:${Math.max(0, Math.min(100, pct||0))}%"></i></div>
