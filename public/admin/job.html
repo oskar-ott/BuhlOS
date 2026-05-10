@@ -26,6 +26,9 @@ let STATE = {
   plans: [],         // /api/plans?jobId result
   takeoff: null,     // /api/plans?jobId&action=takeoff result
   pdfjsReady: false,
+  // Phase 10 — materials list + cost rollup
+  materials: { items: [], emailRequests: [] },
+  costRollup: { itemsCount: 0, pricedCount: 0, unpricedCount: 0, totalCostExGst: 0, unpricedQty: 0 },
 };
 
 window.PAGE = {
@@ -85,6 +88,13 @@ async function loadAll() {
   try {
     STATE.takeoff = await SHELL.api('/api/plans?jobId=' + encodeURIComponent(STATE.jobId) + '&action=takeoff');
   } catch { STATE.takeoff = null; }
+  // Materials list + cost rollup (Phase 10)
+  try {
+    STATE.materials = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId));
+  } catch { STATE.materials = { items: [], emailRequests: [] }; }
+  try {
+    STATE.costRollup = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=cost-rollup');
+  } catch { STATE.costRollup = { itemsCount: 0, pricedCount: 0, unpricedCount: 0, totalCostExGst: 0, unpricedQty: 0 }; }
 }
 
 function paint() {
@@ -94,11 +104,13 @@ function paint() {
 
   const pendingDwellings = STATE.takeoff && STATE.takeoff.dwellings
     ? Object.values(STATE.takeoff.dwellings).filter(d => d.status === 'pending').length : 0;
+  const matsCount = (STATE.materials && STATE.materials.items) ? STATE.materials.items.length : 0;
   const sections = [
     { id: 'overview',  label: 'Overview' },
     { id: 'snags',     label: 'Snags', count: (STATE.data.snags || []).filter(s => s.status === 'Open').length },
     { id: 'hours',     label: 'Hours' },
     { id: 'plans',     label: 'Plans & takeoff', count: pendingDwellings || null },
+    { id: 'materials', label: 'Materials',  count: matsCount || null },
     { id: 'crew',      label: 'Crew & client' },
     { id: 'setup',     label: 'Setup (areas, tasks)' },
   ];
@@ -135,12 +147,13 @@ function paint() {
   SHELL.$('#edit-basics').addEventListener('click', openEditBasics);
 
   const body = SHELL.$('#ws-body');
-  if      (STATE.section === 'overview') body.innerHTML = renderOverview();
-  else if (STATE.section === 'snags')    body.innerHTML = renderSnags();
-  else if (STATE.section === 'hours')    body.innerHTML = renderHours();
-  else if (STATE.section === 'plans')    renderPlans(body);
-  else if (STATE.section === 'crew')     renderCrew(body);
-  else if (STATE.section === 'setup')    body.innerHTML = renderSetupRedirect();
+  if      (STATE.section === 'overview')  body.innerHTML = renderOverview();
+  else if (STATE.section === 'snags')     body.innerHTML = renderSnags();
+  else if (STATE.section === 'hours')     body.innerHTML = renderHours();
+  else if (STATE.section === 'plans')     renderPlans(body);
+  else if (STATE.section === 'materials') renderMaterials(body);
+  else if (STATE.section === 'crew')      renderCrew(body);
+  else if (STATE.section === 'setup')     body.innerHTML = renderSetupRedirect();
 
   // Wire snags-tab inline triage (same handlers as /admin/snags)
   if (STATE.section === 'snags') {
@@ -165,12 +178,21 @@ function renderOverview() {
     if ((e.allocations || []).some(x => x.jobId === STATE.jobId)) weekSubmitters.add(e.userId);
   }
 
+  // Phase 10 — projected materials cost (priced items only; unpriced are
+  // an unknown until wholesalers come back).
+  const cr = STATE.costRollup || {};
+  const matCostTone = (cr.itemsCount && cr.unpricedCount === 0) ? 'green' : (cr.unpricedCount > 0 ? 'amber' : '');
   return `
     <div class="kgrid">
       <div class="kpi"><div class="kpi-l">Progress</div><div class="kpi-v">${j.statsPct || 0}<sup>%</sup></div><div class="kpi-d">${j.statsDwellingsDone || 0}/${j.statsDwellingCount || 0} dwellings</div></div>
       <div class="kpi"><div class="kpi-l">Open snags</div><div class="kpi-v ${open.length ? 'red' : 'green'}">${open.length}</div><div class="kpi-d">${open.filter(s => !s.assignedToUserId).length} unassigned</div></div>
       <div class="kpi"><div class="kpi-l">Hours this week</div><div class="kpi-v">${weekHrs.toFixed(1)}<sup>h</sup></div><div class="kpi-d">${weekSubmitters.size} crew</div></div>
       <div class="kpi"><div class="kpi-l">Crew assigned</div><div class="kpi-v">${STATE.crew.filter(u => u.role === 'tradie' || u.role === 'leadingHand').length}</div><div class="kpi-d">${j.clientUserId ? 'client linked' : '<span style="color:var(--warn)">no client</span>'}</div></div>
+      ${cr.itemsCount > 0 ? `
+        <div class="kpi"><div class="kpi-l">Materials cost (projected)</div>
+          <div class="kpi-v ${matCostTone}">${SHELL.fmtMoney(cr.totalCostExGst || 0)}</div>
+          <div class="kpi-d">${cr.pricedCount}/${cr.itemsCount} priced · ${cr.unpricedCount ? '<a href="?s=materials" data-go-materials style="color:var(--warn);text-decoration:underline">' + cr.unpricedCount + ' to price →</a>' : 'ex-GST'}</div>
+        </div>` : ''}
     </div>
 
     <div class="two-col">
@@ -643,8 +665,13 @@ function renderPlans(host) {
 
     ${dwellingCount ? `
       <div class="card" style="margin-top:14px">
-        <div class="card-hdr"><div><div class="card-title">Dwellings detected by AI <span class="card-count">${dwellingCount}</span></div>
-          <div class="card-sub">AI suggestions are read-only. Open a dwelling to transcribe confirmed counts into the materials inventory.</div></div></div>
+        <div class="card-hdr">
+          <div><div class="card-title">Dwellings detected by AI <span class="card-count">${dwellingCount}</span></div>
+            <div class="card-sub">AI suggestions are read-only. Open a dwelling to transcribe confirmed counts into the materials inventory.</div></div>
+          <div style="display:flex;gap:6px">
+            ${reviewedCount > 0 ? `<button class="btn btn-accent" id="push-to-materials" title="Roll up confirmed per-dwelling counts to the job-level materials list">Push to materials list →</button>` : ''}
+          </div>
+        </div>
         ${Object.entries(takeoff.dwellings).map(([dwId, dw]) => dwellingTakeoffRow(dwId, dw)).join('')}
       </div>` : ''}
   `;
@@ -664,6 +691,8 @@ function renderPlans(host) {
     b.addEventListener('click', () => openDwellingReview(b.dataset.openDwelling)));
   SHELL.$$('button[data-dismiss-dwelling]').forEach(b =>
     b.addEventListener('click', () => dismissDwelling(b.dataset.dismissDwelling)));
+  // Phase 10 — push to materials list
+  if (SHELL.$('#push-to-materials')) SHELL.$('#push-to-materials').addEventListener('click', syncFromTakeoff);
 }
 
 function planRow(p) {
@@ -956,6 +985,352 @@ async function dismissDwelling(dwellingId) {
     SHELL.toast('Dismissed', 'ok');
     await loadAll(); paint();
   } catch (e) { SHELL.toast('Dismiss failed — ' + e.message, 'bad'); }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 10 — Materials list, wholesaler pricing, cost rollup
+//
+// Connects the AI plan-takeoff chain to procurement: confirmed per-dwelling
+// counts (from data.json) get rolled up to a job-level schedule, pushed
+// into the materials-list (with provenance tags so admin sees which items
+// came from the takeoff vs were added manually), priced via wholesaler
+// emails, and rolled up into a projected materials-cost figure on the
+// per-job Overview.
+//
+// Single source of truth chain:
+//   AI suggests → admin confirms (data.json materials)
+//                 → push-to-materials syncs (materials-list.json)
+//                 → wholesaler-pricing email (annotated with itemIds)
+//                 → admin records reply (writes per-item quotedUnitPrice)
+//                 → cost rollup on overview
+// Each step is explicit. No silent overwrites; admin-edited fields on
+// materials items are preserved across re-syncs (_nameLocked / _categoryLocked).
+// ─────────────────────────────────────────────────────────────────────
+
+function renderMaterials(host) {
+  const items = (STATE.materials && STATE.materials.items) || [];
+  const requests = (STATE.materials && STATE.materials.emailRequests) || [];
+  const cr = STATE.costRollup || { itemsCount: 0, pricedCount: 0, unpricedCount: 0, totalCostExGst: 0 };
+  const stale = items.filter(i => i.staleAfter).length;
+  const fromTakeoff = items.filter(i => i.source === 'plan-takeoff').length;
+  const manual = items.filter(i => i.source !== 'plan-takeoff').length;
+  const haveTakeoff = (STATE.takeoff && STATE.takeoff.dwellings && Object.keys(STATE.takeoff.dwellings).length) > 0;
+
+  host.innerHTML = `
+    <div class="kpi-row" style="margin-bottom:14px">
+      <div class="kpi"><div class="kpi-l">Items</div><div class="kpi-v">${cr.itemsCount}</div><div class="kpi-d">${fromTakeoff} from takeoff · ${manual} manual${stale ? ' · <span style="color:var(--warn)">' + stale + ' stale</span>' : ''}</div></div>
+      <div class="kpi"><div class="kpi-l">Priced</div><div class="kpi-v ${cr.pricedCount === cr.itemsCount && cr.itemsCount ? 'green' : 'amber'}">${cr.pricedCount}</div><div class="kpi-d">${cr.unpricedCount} need pricing</div></div>
+      <div class="kpi"><div class="kpi-l">Projected materials cost</div><div class="kpi-v">${SHELL.fmtMoney(cr.totalCostExGst)}</div><div class="kpi-d">ex-GST · priced items only</div></div>
+      <div class="kpi"><div class="kpi-l">Wholesaler requests</div><div class="kpi-v">${requests.length}</div><div class="kpi-d">${requests.filter(r => r.status === 'replied').length} replied</div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr">
+        <div><div class="card-title">Materials list <span class="card-count">${items.length}</span></div>
+          <div class="card-sub">Confirmed per-dwelling counts roll up here. Add manual items for cable, conduit, accessories, anything not on the legend.</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${haveTakeoff ? `<button class="btn btn-accent" id="sync-takeoff">Push from takeoff →</button>` : ''}
+          <button class="btn" id="add-manual-item">+ Add item</button>
+          <button class="btn" id="bulk-add-items">Bulk add</button>
+          <button class="btn btn-primary" id="email-wholesaler" ${items.length ? '' : 'disabled'}>Email wholesaler →</button>
+        </div>
+      </div>
+      ${items.length ? `<div class="table-wrap"><table class="table">
+        <thead><tr>
+          <th>Item</th><th>Source</th><th class="table-num">Qty</th><th>Unit</th>
+          <th class="table-num">Unit $</th><th class="table-num">Total $</th><th></th>
+        </tr></thead>
+        <tbody>${items.map(materialRow).join('')}</tbody>
+      </table></div>` : `<div class="empty">
+        <div class="empty-title">No materials yet</div>
+        <div class="empty-sub">${haveTakeoff ? 'Click "Push from takeoff" to roll up the confirmed counts.' : 'Add items manually, or run a plan takeoff first.'}</div>
+      </div>`}
+    </div>
+
+    ${requests.length ? `<div class="card" style="margin-bottom:14px">
+      <div class="card-hdr"><div><div class="card-title">Wholesaler requests <span class="card-count">${requests.length}</span></div>
+        <div class="card-sub">Drafts you've sent + replies received. Capturing a reply applies per-item prices to the items in that request.</div></div></div>
+      ${requests.slice().reverse().map(emailRequestRow).join('')}
+    </div>` : ''}
+  `;
+
+  if (SHELL.$('#sync-takeoff')) SHELL.$('#sync-takeoff').addEventListener('click', syncFromTakeoff);
+  SHELL.$('#add-manual-item').addEventListener('click', openAddItemPanel);
+  SHELL.$('#bulk-add-items').addEventListener('click', openBulkAddPanel);
+  SHELL.$('#email-wholesaler').addEventListener('click', openEmailWholesalerPanel);
+  SHELL.$$('button[data-edit-mat]').forEach(b => b.addEventListener('click', () => editMaterialItem(b.dataset.editMat)));
+  SHELL.$$('button[data-rm-mat]').forEach(b => b.addEventListener('click', () => removeMaterialItem(b.dataset.rmMat)));
+  SHELL.$$('input[data-mat-price]').forEach(inp =>
+    inp.addEventListener('change', () => updateUnitPrice(inp.dataset.matPrice, inp.value)));
+  SHELL.$$('button[data-record-reply]').forEach(b =>
+    b.addEventListener('click', () => openRecordReplyPanel(b.dataset.recordReply)));
+}
+
+function materialRow(it) {
+  const total = (Number(it.quotedUnitPrice) || 0) * (Number(it.quantity) || 0);
+  const priced = Number(it.quotedUnitPrice) > 0;
+  const fromTakeoff = it.source === 'plan-takeoff';
+  const stale = !!it.staleAfter;
+  const dwBreakdown = it.perDwelling ? Object.entries(it.perDwelling).map(([d, n]) => SHELL.escapeHtml(d) + ' (' + n + ')').join(' · ') : '';
+  return `<tr ${stale ? 'style="background:var(--warn-bg)"' : ''}>
+    <td>
+      <div style="font-weight:600">${SHELL.escapeHtml(it.name)}</div>
+      ${it.brandOrSpec ? `<div style="font-size:11px;color:var(--muted)">${SHELL.escapeHtml(it.brandOrSpec)}</div>` : ''}
+      ${dwBreakdown ? `<div style="font-size:10.5px;color:var(--muted);margin-top:2px;font-family:var(--ff-mono)">${dwBreakdown}</div>` : ''}
+      ${stale ? '<div style="font-size:10.5px;color:var(--warn);margin-top:2px;font-weight:600">⚠ no longer in takeoff schedule</div>' : ''}
+    </td>
+    <td>
+      ${fromTakeoff ? `<span class="pill pill-info"><span class="pill-dot"></span>From takeoff</span>` : `<span class="pill"><span class="pill-dot"></span>Manual</span>`}
+      ${it.legendCode ? `<div style="font-size:10px;color:var(--muted);font-family:var(--ff-mono);margin-top:3px">${SHELL.escapeHtml(it.legendCode)}</div>` : ''}
+    </td>
+    <td class="table-num">${SHELL.escapeHtml(String(it.quantity || 0))}</td>
+    <td>${SHELL.escapeHtml(it.unit || 'each')}</td>
+    <td class="table-num">
+      <input class="input" type="number" min="0" step="0.01" style="width:80px;text-align:right;font-family:var(--ff-mono);padding:4px 6px"
+             data-mat-price="${SHELL.escapeHtml(it.id)}" value="${priced ? Number(it.quotedUnitPrice).toFixed(2) : ''}" placeholder="—">
+    </td>
+    <td class="table-num">${priced ? '<b>' + SHELL.fmtMoney2(total) + '</b>' : '<span style="color:var(--muted)">—</span>'}</td>
+    <td style="display:flex;gap:4px;justify-content:flex-end">
+      <button class="btn btn-sm" data-edit-mat="${SHELL.escapeHtml(it.id)}">Edit</button>
+      <button class="btn btn-sm btn-danger" data-rm-mat="${SHELL.escapeHtml(it.id)}">×</button>
+    </td>
+  </tr>`;
+}
+
+function emailRequestRow(req) {
+  const tone = req.status === 'replied' ? (req.chosen ? 'ok' : 'info') : req.status === 'sent' ? 'navy' : 'warn';
+  const itemCount = (req.itemIds || []).length;
+  return `<div style="border-top:1px solid var(--line);padding:10px 14px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span class="pill pill-${tone}">${SHELL.escapeHtml(req.status)}${req.chosen ? ' · chosen' : ''}</span>
+      <strong>${SHELL.escapeHtml(req.wholesalerName || '(no name)')}</strong>
+      ${req.recipientEmail ? `<a href="mailto:${SHELL.escapeHtml(req.recipientEmail)}" style="font-family:var(--ff-mono);font-size:11px;color:var(--muted)">${SHELL.escapeHtml(req.recipientEmail)}</a>` : ''}
+      <span style="margin-left:auto;font-family:var(--ff-mono);font-size:11px;color:var(--muted)">${itemCount} item${itemCount === 1 ? '' : 's'} · ${SHELL.escapeHtml(new Date(req.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }))}</span>
+    </div>
+    <div style="font-family:var(--ff-mono);font-size:12px;color:var(--ink-2);margin-top:6px">${SHELL.escapeHtml(req.subject)}</div>
+    ${req.replyTotalExGst != null ? `<div style="margin-top:6px;font-size:13px"><b>Replied: ${SHELL.fmtMoney2(req.replyTotalExGst)}</b>${req.replyAt ? ' · ' + SHELL.escapeHtml(new Date(req.replyAt).toLocaleDateString('en-AU')) : ''}${req.replyNotes ? '<br><em style="color:var(--muted)">"' + SHELL.escapeHtml(req.replyNotes) + '"</em>' : ''}</div>` : ''}
+    <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+      ${req.status !== 'replied' ? `<button class="btn btn-sm" data-record-reply="${SHELL.escapeHtml(req.id)}">Record reply</button>` : `<button class="btn btn-sm" data-record-reply="${SHELL.escapeHtml(req.id)}">Update reply</button>`}
+    </div>
+  </div>`;
+}
+
+async function syncFromTakeoff() {
+  if (!confirm('Push confirmed per-dwelling counts to the materials list? Manual items are kept; takeoff items get qty + provenance refreshed.')) return;
+  try {
+    const r = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=sync-from-takeoff', {
+      method: 'POST', body: {},
+    });
+    SHELL.toast(r.added + ' added · ' + r.updated + ' updated' + (r.staled ? ' · ' + r.staled + ' marked stale' : ''), 'ok');
+    await loadAll(); paint();
+  } catch (e) { SHELL.toast('Sync failed — ' + e.message, 'bad'); }
+}
+
+async function updateUnitPrice(itemId, value) {
+  const v = Number(value);
+  const body = Number.isFinite(v) && v > 0 ? { quotedUnitPrice: v, status: 'priced' } : { quotedUnitPrice: null };
+  try {
+    await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&id=' + encodeURIComponent(itemId), {
+      method: 'PATCH', body,
+    });
+    // Soft refresh: reload materials + cost rollup, leave the rest untouched.
+    STATE.materials = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId));
+    STATE.costRollup = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=cost-rollup');
+    paint();
+  } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+}
+
+function openAddItemPanel(existing) {
+  const cur = existing || {};
+  const isEdit = !!existing;
+  const panel = SHELL.openPanel({
+    title: isEdit ? 'Edit item' : 'Add material item',
+    body: `
+      <div class="field"><label class="field-lbl">Name *</label><input class="input" id="m-name" autofocus value="${SHELL.escapeHtml(cur.name || '')}"></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Quantity</label><input class="input" id="m-qty" type="number" min="0" step="1" value="${cur.quantity != null ? cur.quantity : 1}"></div>
+        <div class="field"><label class="field-lbl">Unit</label><input class="input" id="m-unit" value="${SHELL.escapeHtml(cur.unit || 'each')}"></div>
+      </div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Brand / spec</label><input class="input" id="m-brand" value="${SHELL.escapeHtml(cur.brandOrSpec || '')}"></div>
+        <div class="field"><label class="field-lbl">Category</label><input class="input" id="m-cat" value="${SHELL.escapeHtml(cur.category || 'Other')}"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Notes</label><textarea class="textarea" id="m-notes" rows="2">${SHELL.escapeHtml(cur.notes || '')}</textarea></div>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="m-save">${isEdit ? 'Save' : 'Add'}</button>`,
+  });
+  panel.querySelector('#m-save').addEventListener('click', async () => {
+    const body = {
+      name: panel.querySelector('#m-name').value.trim(),
+      quantity: Number(panel.querySelector('#m-qty').value) || 0,
+      unit: panel.querySelector('#m-unit').value.trim() || 'each',
+      brandOrSpec: panel.querySelector('#m-brand').value.trim(),
+      category: panel.querySelector('#m-cat').value.trim() || 'Other',
+      notes: panel.querySelector('#m-notes').value.trim(),
+    };
+    if (!body.name) { SHELL.toast('Name required', 'bad'); return; }
+    try {
+      if (isEdit) {
+        await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&id=' + encodeURIComponent(cur.id), { method: 'PATCH', body });
+      } else {
+        await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId), { method: 'POST', body });
+      }
+      SHELL.toast('Saved', 'ok'); SHELL.closePanel();
+      await loadAll(); paint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+function editMaterialItem(itemId) {
+  const it = (STATE.materials.items || []).find(x => x.id === itemId);
+  if (!it) return;
+  openAddItemPanel(it);
+}
+async function removeMaterialItem(itemId) {
+  if (!confirm('Remove this item from the materials list?')) return;
+  try {
+    await fetch('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&id=' + encodeURIComponent(itemId), { method: 'DELETE', credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('Failed'); });
+    SHELL.toast('Removed', 'ok');
+    await loadAll(); paint();
+  } catch (e) { SHELL.toast('Remove failed — ' + e.message, 'bad'); }
+}
+
+function openBulkAddPanel() {
+  const panel = SHELL.openPanel({
+    title: 'Bulk add materials',
+    body: `
+      <p style="font-size:13px;color:var(--muted);margin:0 0 10px">One per line: <code>40 x Twin GPO - Iconic</code></p>
+      <textarea class="textarea" id="bulk-lines" rows="10" style="font-family:var(--ff-mono)" autofocus></textarea>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="bulk-save">Add all</button>`,
+  });
+  panel.querySelector('#bulk-save').addEventListener('click', async () => {
+    const lines = panel.querySelector('#bulk-lines').value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (!lines.length) { SHELL.toast('Paste at least one line', 'warn'); return; }
+    try {
+      const r = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=bulk-add', { method: 'POST', body: { lines } });
+      SHELL.toast(r.items.length + ' added', 'ok'); SHELL.closePanel();
+      await loadAll(); paint();
+    } catch (e) { SHELL.toast('Add failed — ' + e.message, 'bad'); }
+  });
+}
+
+function openEmailWholesalerPanel() {
+  const items = (STATE.materials.items || []).filter(i => !i.staleAfter);
+  const fromTakeoff = items.filter(i => i.source === 'plan-takeoff');
+  const job = STATE.job || {};
+  // Default body: structured list grouped by category, with provenance per
+  // item where available.
+  const byCat = {};
+  for (const it of items) {
+    const c = it.category || 'Other';
+    if (!byCat[c]) byCat[c] = [];
+    byCat[c].push(it);
+  }
+  const bodyLines = [];
+  bodyLines.push('Hi,');
+  bodyLines.push('');
+  bodyLines.push('Could we please get pricing on the following materials for ' + (job.name || 'our project') + ':');
+  bodyLines.push('');
+  for (const [cat, list] of Object.entries(byCat)) {
+    bodyLines.push(cat.toUpperCase());
+    for (const it of list) {
+      const line = '  - ' + (Number(it.quantity) || 0) + ' ' + (it.unit || 'each') + ' x ' + it.name + (it.brandOrSpec ? ' (' + it.brandOrSpec + ')' : '');
+      bodyLines.push(line);
+    }
+    bodyLines.push('');
+  }
+  if (fromTakeoff.length) {
+    bodyLines.push('Note: counts derived from plan takeoff for ' + fromTakeoff.length + ' line(s); confirmed against the issued drawings.');
+    bodyLines.push('');
+  }
+  bodyLines.push('Thanks');
+  const defaultBody = bodyLines.join('\n');
+
+  const panel = SHELL.openPanel({
+    title: 'Email wholesaler',
+    body: `
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Wholesaler name</label><input class="input" id="em-name" placeholder="e.g. TLE Sydney North"></div>
+        <div class="field"><label class="field-lbl">Email (optional)</label><input class="input" id="em-email" type="email"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Subject</label><input class="input" id="em-subject" value="${SHELL.escapeHtml('Pricing request — ' + (job.name || 'job') + ' — ' + items.length + ' items')}"></div>
+      <div class="field"><label class="field-lbl">Body</label><textarea class="textarea" id="em-body" rows="14" style="font-family:var(--ff-mono);font-size:12px">${SHELL.escapeHtml(defaultBody)}</textarea></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">Saves as a draft request bound to ${items.length} item${items.length === 1 ? '' : 's'}. When the wholesaler replies, "Record reply" applies their prices to those items.</div>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="em-save">Save draft</button>`,
+  });
+  panel.querySelector('#em-save').addEventListener('click', async () => {
+    const wholesalerName = panel.querySelector('#em-name').value.trim();
+    const recipientEmail = panel.querySelector('#em-email').value.trim();
+    const subject = panel.querySelector('#em-subject').value.trim();
+    const body = panel.querySelector('#em-body').value;
+    if (!wholesalerName) { SHELL.toast('Wholesaler name required', 'bad'); return; }
+    try {
+      await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=email', {
+        method: 'POST', body: { wholesalerName, recipientEmail, subject, body, itemIds: items.map(i => i.id) },
+      });
+      SHELL.toast('Draft saved', 'ok'); SHELL.closePanel();
+      // Open mailto if email present so admin can send immediately
+      if (recipientEmail) {
+        location.href = 'mailto:' + encodeURIComponent(recipientEmail) +
+          '?subject=' + encodeURIComponent(subject) +
+          '&body=' + encodeURIComponent(body);
+      }
+      await loadAll(); paint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+
+function openRecordReplyPanel(requestId) {
+  const req = (STATE.materials.emailRequests || []).find(r => r.id === requestId);
+  if (!req) return;
+  const items = (STATE.materials.items || []).filter(i => (req.itemIds || []).includes(i.id));
+  const rows = items.map(it => {
+    const unit = (it.pricedFrom === req.id ? it.quotedUnitPrice : null);
+    return `<tr>
+      <td>${SHELL.escapeHtml(it.name)}<div style="font-size:11px;color:var(--muted)">${it.quantity} ${SHELL.escapeHtml(it.unit || 'each')}</div></td>
+      <td style="text-align:right"><input class="input" type="number" min="0" step="0.01" style="width:90px;text-align:right;font-family:var(--ff-mono);padding:4px 6px" data-reply-price="${SHELL.escapeHtml(it.id)}" value="${unit != null ? Number(unit).toFixed(2) : ''}" placeholder="—"></td>
+    </tr>`;
+  }).join('');
+  const panel = SHELL.openPanel({
+    title: 'Record reply — ' + (req.wholesalerName || ''),
+    body: `
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Total quoted (ex-GST, $)</label><input class="input" id="rr-total" type="number" step="0.01" min="0" value="${req.replyTotalExGst != null ? req.replyTotalExGst : ''}"></div>
+        <div class="field"><label class="field-lbl">Reply date</label><input class="input" id="rr-date" type="date" value="${req.replyAt ? req.replyAt.slice(0, 10) : new Date().toISOString().slice(0, 10)}"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Notes (lead time, exclusions, etc.)</label><textarea class="textarea" id="rr-notes" rows="2">${SHELL.escapeHtml(req.replyNotes || '')}</textarea></div>
+      <div class="field"><label class="field-lbl">Per-item prices (optional)</label>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Filling these writes the unit price back to each item and marks them <b>priced</b>.</div>
+        <table class="table" style="font-size:13px"><thead><tr><th>Item</th><th style="text-align:right">Unit $</th></tr></thead><tbody>${rows || '<tr><td colspan="2" style="color:var(--muted);text-align:center;padding:14px">No items bound to this request.</td></tr>'}</tbody></table>
+      </div>
+      <label style="display:flex;gap:6px;align-items:center;margin-top:10px;font-size:13px">
+        <input type="checkbox" id="rr-chosen" ${req.chosen ? 'checked' : ''}>
+        Mark this wholesaler as the chosen supplier for these items
+      </label>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="rr-save">Save reply</button>`,
+  });
+  panel.querySelector('#rr-save').addEventListener('click', async () => {
+    const replyTotalExGst = panel.querySelector('#rr-total').value === '' ? null : Number(panel.querySelector('#rr-total').value);
+    const replyAt = panel.querySelector('#rr-date').value ? new Date(panel.querySelector('#rr-date').value).toISOString() : null;
+    const replyNotes = panel.querySelector('#rr-notes').value.trim();
+    const markChosen = panel.querySelector('#rr-chosen').checked;
+    const perItemPrices = {};
+    panel.querySelectorAll('input[data-reply-price]').forEach(inp => {
+      const v = Number(inp.value);
+      if (Number.isFinite(v) && v > 0) perItemPrices[inp.dataset.replyPrice] = v;
+    });
+    try {
+      const r = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=record-reply', {
+        method: 'POST', body: { requestId, replyTotalExGst, replyAt, replyNotes, perItemPrices, markChosen },
+      });
+      SHELL.toast('Reply saved' + (r.itemsTouched && r.itemsTouched.length ? ' · ' + r.itemsTouched.length + ' item' + (r.itemsTouched.length === 1 ? '' : 's') + ' priced' : ''), 'ok');
+      SHELL.closePanel();
+      await loadAll(); paint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
 }
 
 SHELL.boot();
