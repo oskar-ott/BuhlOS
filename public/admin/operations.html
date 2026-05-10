@@ -24,8 +24,8 @@ let STATE = {
 
 window.PAGE = {
   id: 'operations',
-  title: 'Operations',
-  crumb: 'Operations',
+  title: 'Command centre',
+  crumb: 'Command centre',
   async render() {
     SHELL.$('#page').innerHTML = `<div class="empty"><div class="empty-title">Loading operational data…</div></div>`;
     await loadAll();
@@ -168,15 +168,26 @@ function crewLastActivity() {
 // ───────────────────────── Paint ─────────────────────────
 function paint() {
   const todayLabel = new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const greet = greetingPart();
+  const fname = firstName((SHELL.ME && SHELL.ME.username) || '');
+  const isAdmin = SHELL.ME && SHELL.ME.role === 'admin';
+  const C = SHELL.COUNTS || {};
+  const setupGaps = computeSetupGaps();
+
   SHELL.$('#page').innerHTML = `
     <div class="page-head">
       <div>
-        <div class="page-h1">Operations</div>
-        <div class="page-sub">${todayLabel}</div>
+        <div class="page-h1">Good ${greet}, ${SHELL.escapeHtml(fname)}.</div>
+        <div class="page-sub">${todayLabel} · what needs you right now.</div>
       </div>
+      ${isAdmin ? `<div class="page-actions">
+        <a class="btn btn-sm" href="/admin/jobs" title="Create job">${SHELL.ICONS.plus} New job</a>
+        <a class="btn btn-sm" href="/admin/crew" title="Add person">${SHELL.ICONS.plus} Person</a>
+      </div>` : ''}
     </div>
 
-    ${attentionHtml()}
+    ${attentionHtml(setupGaps)}
+    ${setupGapsHtml(setupGaps)}
     ${todayActivityHtml()}
 
     <div class="two-col">
@@ -189,9 +200,9 @@ function paint() {
       </div>
 
       <div class="card" style="padding:0">
-        <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
-          <div class="card-title">Labour this week</div>
-          <div class="card-sub">${weekHoursByUser().grand.toFixed(1)}h org-wide</div>
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
+          <div><div class="card-title">Labour this week</div><div class="card-sub">${weekHoursByUser().grand.toFixed(1)}h org-wide</div></div>
+          ${isAdmin ? '<a class="btn btn-sm" href="/admin/hours?view=weekly">Weekly grid</a>' : ''}
         </div>
         ${labourWeekHtml()}
       </div>
@@ -200,11 +211,79 @@ function paint() {
     <div class="card" style="padding:0;margin-bottom:20px">
       <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
         <div><div class="card-title">People</div><div class="card-sub">${SHELL.pluralize(STATE.users.length, 'person', 'people')} on the books</div></div>
-        ${SHELL.ME && SHELL.ME.role === 'admin' ? '<a class="btn btn-sm" href="/admin/crew">Manage</a>' : ''}
+        ${isAdmin ? '<a class="btn btn-sm" href="/admin/crew">Manage</a>' : ''}
       </div>
       ${peopleHtml()}
     </div>
   `;
+}
+
+// ── Setup gaps: jobs missing crew / client / areas / tasks ──────────────
+// Surfaced as its own card so admins can fix gaps without leaving the
+// command centre. Each row links straight to the matching tab on the job
+// workspace ("Open setup →") so the action is one click away.
+function computeSetupGaps() {
+  // Use STATE.users (tradies + LHs, populated via /api/users?action=listTradies
+  // which both admin and LH can read) rather than SHELL.USERS (the full
+  // /api/users list which is admin-only). For LH we'd otherwise see [] and
+  // every job would falsely show "no crew" — degrading the most useful
+  // gap-detection signal.
+  const allUsers = (STATE.users && STATE.users.length) ? STATE.users : (SHELL.USERS || []);
+  const gaps = [];
+  for (const j of STATE.jobs.filter(j => (j.status || 'active') === 'active')) {
+    const missing = [];
+    if (!(j.areaGroups && j.areaGroups.length))     missing.push({ key: 'areas',    label: 'Areas' });
+    if (!(j.roughInTasks && j.roughInTasks.length)) missing.push({ key: 'tasks',    label: 'Rough-in tasks' });
+    if (!(j.fitOffTasks && j.fitOffTasks.length))   missing.push({ key: 'tasks',    label: 'Fit-off tasks' });
+    const crewN = allUsers.filter(u => (u.assignedJobIds || []).includes(j.id) && (u.role === 'tradie' || u.role === 'leadingHand')).length;
+    if (!crewN) missing.push({ key: 'crew', label: 'Crew' });
+    // Client gap is admin-only signal — LHs don't manage clients.
+    if (!j.clientUserId && SHELL.ME && SHELL.ME.role === 'admin') {
+      missing.push({ key: 'crew', label: 'Client' });
+    }
+    if (missing.length) gaps.push({ job: j, missing });
+  }
+  return gaps;
+}
+
+function setupGapsHtml(gaps) {
+  if (!gaps.length) return '';
+  const SHOW = 6;
+  const rows = gaps.slice(0, SHOW).map(g => {
+    const labels = g.missing.map(m => `<span class="pill pill-warn" style="font-size:10px;padding:2px 8px">${SHELL.escapeHtml(m.label)}</span>`).join(' ');
+    // Deep-link to the most relevant Setup section — crew/client gaps go
+    // to the Crew tab; otherwise to the Setup (areas) tab.
+    const targetTab = g.missing.some(m => m.key === 'crew') ? 'crew' : 'setup';
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);gap:12px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600">${SHELL.escapeHtml(g.job.name)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;display:flex;gap:6px;flex-wrap:wrap">${labels}</div>
+      </div>
+      <a class="btn btn-sm btn-primary" href="/admin/jobs/${SHELL.escapeHtml(g.job.id)}?s=${targetTab}">Open setup →</a>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="padding:0;margin-bottom:20px;border-left:3px solid var(--warn)">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div class="card-title">Job setup gaps</div>
+        <div class="card-sub">${gaps.length} active ${gaps.length === 1 ? 'job has' : 'jobs have'} missing setup — fix before crew need it.</div>
+      </div>
+      <a class="btn btn-sm" href="/admin/jobs?filter=setup-gaps">All gaps →</a>
+    </div>
+    ${rows}
+    ${gaps.length > SHOW ? `<div style="padding:8px 14px;font-size:11px;color:var(--muted);text-align:center">${gaps.length - SHOW} more</div>` : ''}
+  </div>`;
+}
+
+function greetingPart() {
+  const h = new Date().getHours();
+  if (h < 12) return 'morning';
+  if (h < 17) return 'afternoon';
+  return 'evening';
+}
+function firstName(u) {
+  if (!u) return SHELL.ME && SHELL.ME.role === 'leadingHand' ? 'lead' : 'admin';
+  return String(u).split(/[\s._-]+/).filter(Boolean)[0] || u;
 }
 
 function attentionHtml() {

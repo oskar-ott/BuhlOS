@@ -112,28 +112,48 @@ function paint() {
   SHELL.$('#new-job').addEventListener('click', openNewJobPanel);
 }
 
-function hasSetupGaps(j) {
-  if (!(j.areaGroups && j.areaGroups.length)) return true;
-  if (!(j.roughInTasks && j.roughInTasks.length)) return true;
-  if (!(j.fitOffTasks && j.fitOffTasks.length)) return true;
-  const hasCrew = (SHELL.USERS || []).some(u => (u.assignedJobIds || []).includes(j.id) && (u.role === 'tradie' || u.role === 'leadingHand'));
-  if (!hasCrew) return true;
-  if (!j.clientUserId) return true;
-  return false;
+// Setup-health: structured breakdown so we can render per-item ✓/✗ rather
+// than a single pill. Returns { areas, tasks, crew, client } booleans + a
+// `gaps` count. Per the redesign brief, "If something is missing, the fix
+// button should be right there" — so each missing item gets its own
+// deep-link to the matching setup tab.
+function setupHealth(j) {
+  const allUsers = SHELL.USERS || [];
+  const hasCrew = allUsers.some(u =>
+    (u.assignedJobIds || []).includes(j.id) &&
+    (u.role === 'tradie' || u.role === 'leadingHand')
+  );
+  const h = {
+    areas:  !!(j.areaGroups && j.areaGroups.length),
+    tasks:  !!((j.roughInTasks && j.roughInTasks.length) && (j.fitOffTasks && j.fitOffTasks.length)),
+    crew:   hasCrew,
+    client: !!j.clientUserId,
+  };
+  h.gaps = Object.values(h).filter(v => v === false).length;
+  return h;
 }
+function hasSetupGaps(j) { return setupHealth(j).gaps > 0; }
 
 function jobCard(j) {
   const ref = (j.ref || j.id || '').toUpperCase();
   const typeName = j.typeName || (STATE.jobTypes[j.type] || {}).name || '';
-  const gaps = hasSetupGaps(j) ? '<span class="pill pill-warn" style="margin-left:6px"><span class="pill-dot"></span>Needs setup</span>' : '';
+  const sh = setupHealth(j);
+  const gapsPill = sh.gaps > 0 ? `<span class="pill pill-warn" style="margin-left:6px"><span class="pill-dot"></span>${sh.gaps} setup gap${sh.gaps === 1 ? '' : 's'}</span>` : '';
+  // Compact ✓/✗ checklist row — green tick if set, amber dot + click-to-fix
+  // link if missing. Stops the click bubbling up to the card-level link
+  // so the fix-button takes you to the right tab, not the dashboard.
+  const fix = (target) => `event.preventDefault();event.stopPropagation();location.href='/admin/jobs/${SHELL.escapeHtml(j.id)}?s=${target}';`;
+  const item = (label, ok, target) => ok
+    ? `<span class="setup-tick" style="color:var(--ok)" title="${label} configured">✓ ${label}</span>`
+    : `<a class="setup-fix" href="/admin/jobs/${SHELL.escapeHtml(j.id)}?s=${target}" onclick="${fix(target)}" title="Click to fix">+ ${label}</a>`;
   return `
     <a href="/admin/jobs/${SHELL.escapeHtml(j.id)}" class="job-card">
       <div class="job-card-top">
-        <div style="flex:1">
+        <div style="flex:1;min-width:0">
           <div class="job-card-name">${SHELL.escapeHtml(j.name)}</div>
           <div class="job-card-ref">${SHELL.escapeHtml(ref)}${typeName ? ' · ' + SHELL.escapeHtml(typeName) : ''}</div>
         </div>
-        ${SHELL.jobStatusPill(j.status || 'active')}${gaps}
+        ${SHELL.jobStatusPill(j.status || 'active')}${gapsPill}
       </div>
       <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:10px">
         <div class="job-card-pct">${j.statsPct || 0}%</div>
@@ -145,6 +165,12 @@ function jobCard(j) {
         <span>Open snags <b ${(j.statsOpenSnags || 0) > 0 ? 'style="color:var(--bad)"' : ''}>${j.statsOpenSnags || 0}</b></span>
         ${j.startDate ? `<span>Started <b>${SHELL.escapeHtml(String(j.startDate).slice(0,10))}</b></span>` : ''}
         ${j.lastActivityIso ? `<span>Activity <b>${SHELL.escapeHtml(SHELL._ago(j.lastActivityIso))}</b></span>` : ''}
+      </div>
+      <div class="setup-health">
+        ${item('Areas',  sh.areas,  'setup')}
+        ${item('Tasks',  sh.tasks,  'setup')}
+        ${item('Crew',   sh.crew,   'crew')}
+        ${item('Client', sh.client, 'crew')}
       </div>
     </a>
   `;

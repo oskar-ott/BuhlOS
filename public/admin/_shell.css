@@ -634,6 +634,33 @@ svg { width: 18px; height: 18px; flex-shrink: 0; display: inline-block; vertical
 .job-card-meta b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 .job-card-pct { font-size: 22px; font-weight: 700; letter-spacing: -.4px; font-variant-numeric: tabular-nums; }
 
+/* Setup-health row at the bottom of each .job-card. Per the admin
+   redesign brief: "If something is missing, the fix button should be
+   right there." So missing items render as inline "+ Crew" links that
+   deep-link straight to the matching tab on the job workspace, while
+   set items render as quiet "✓ Crew" ticks. */
+.setup-health {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 12px; padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  font-size: 11px; font-weight: 600;
+}
+.setup-tick {
+  display: inline-flex; align-items: center;
+  padding: 3px 9px; border-radius: 999px;
+  background: var(--ok-bg, #e6f4ec); color: var(--ok);
+  letter-spacing: .1px;
+}
+.setup-fix {
+  display: inline-flex; align-items: center;
+  padding: 3px 9px; border-radius: 999px;
+  background: var(--warn-bg, #fbf1de); color: var(--warn);
+  text-decoration: none;
+  border: 1px dashed transparent;
+  transition: border-color .12s, background .12s;
+}
+.setup-fix:hover { border-color: var(--warn); background: #fff7e0; }
+
 /* Tabs (sub-nav inside workspaces) */
 .tabs {
   display: flex; border-bottom: 1px solid var(--line);
