@@ -153,7 +153,7 @@ function paint() {
   else if (STATE.section === 'plans')     renderPlans(body);
   else if (STATE.section === 'materials') renderMaterials(body);
   else if (STATE.section === 'crew')      renderCrew(body);
-  else if (STATE.section === 'setup')     body.innerHTML = renderSetupRedirect();
+  else if (STATE.section === 'setup')     renderSetup(body);
 
   // Wire snags-tab inline triage (same handlers as /admin/snags)
   if (STATE.section === 'snags') {
@@ -429,19 +429,390 @@ function renderCrew(body) {
   if (unlinkBtn) unlinkBtn.addEventListener('click', () => linkClient(null));
 }
 
-function renderSetupRedirect() {
-  return `
-    <div class="card">
-      <div class="card-title">Deep job setup</div>
-      <p style="margin:10px 0;color:var(--muted);font-size:13px;line-height:1.5">
-        Areas + dwellings, rough-in checklist, fit-off checklist, plans upload, and the per-job materials list editor are still in the legacy admin while the porting work continues. Open the legacy setup view to edit those — the basic info, status, snags, hours and crew assignment all live here on the new admin.
-      </p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <a class="btn btn-accent" href="/admin.html#tab-jobs" target="_blank">${SHELL.ICONS.external} Open setup in legacy admin</a>
-        <a class="btn" href="/jobs/${SHELL.escapeHtml(STATE.jobId)}" target="_blank">${SHELL.ICONS.external} Open in field</a>
+// ── Setup tab — live job structure editor ──────────────────────────────
+//
+// A job does not stop being editable once work starts. The Setup tab lets
+// admin/LH edit areas, rough-in tasks, and fit-off tasks safely on jobs
+// that are already in progress.
+//
+// Safety model:
+//   - The PUT /api/jobs endpoint preserves stable IDs by name match. So
+//     adding/renaming items is non-destructive — existing per-dwelling
+//     progress (data.json dwellings[areaId][stage].tasks[taskId]) keeps
+//     pointing at the same IDs.
+//   - Removing a task or area that has recorded progress would orphan
+//     that progress (it still exists on disk but nothing references it).
+//     We block removal client-side when STATE.data shows progress on it,
+//     and surface a "rename instead" hint.
+//   - All mutations re-fetch the job + data after save and repaint.
+function renderSetup(host) {
+  const j = STATE.job || {};
+  const data = STATE.data || { dwellings: {} };
+  const isLive = (j.status || 'active') === 'active' && jobHasAnyProgress(j, data);
+
+  // Setup completeness checklist — admin can scan what's still missing
+  // without leaving the page.
+  const completeness = [
+    { k: 'name',     label: 'Job name set',         ok: !!(j.name && j.name.trim()) },
+    { k: 'type',     label: 'Job type set',         ok: !!j.type },
+    { k: 'client',   label: 'Client linked',        ok: !!j.clientUserId },
+    { k: 'crew',     label: 'Crew assigned',        ok: STATE.crew.some(u => u.role === 'tradie' || u.role === 'leadingHand') },
+    { k: 'areas',    label: 'Area groups created',  ok: (j.areaGroups || []).length > 0 },
+    { k: 'rough',    label: 'Rough-in tasks set',   ok: (j.roughInTasks || []).length > 0 },
+    { k: 'fit',      label: 'Fit-off tasks set',    ok: (j.fitOffTasks || []).length > 0 },
+  ];
+  const completePct = Math.round(completeness.filter(c => c.ok).length / completeness.length * 100);
+
+  host.innerHTML = `
+    ${isLive ? `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-bd);margin-bottom:14px">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <span style="flex-shrink:0;width:22px;height:22px;border-radius:50%;background:var(--warn);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;margin-top:1px">!</span>
+        <div style="font-size:13px;line-height:1.5;color:var(--ink)">
+          <b>This job is already in progress.</b> You can safely add or rename items, but areas or tasks with recorded progress can't be deleted — rename them instead. Existing snags and dwelling status stay linked because IDs are preserved.
+        </div>
+      </div>
+    </div>` : ''}
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr">
+        <div><div class="card-title">Setup completeness</div>
+          <div class="card-sub">${completePct}% of the checklist filled in</div></div>
+        <div style="font-size:24px;font-weight:700;color:${completePct === 100 ? 'var(--ok)' : 'var(--warn)'}">${completePct}%</div>
+      </div>
+      <div style="display:grid;gap:6px">
+        ${completeness.map(c => `
+          <div style="display:flex;align-items:center;gap:10px;font-size:13px">
+            <span style="width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:${c.ok ? 'var(--ok-bg)' : 'var(--warn-bg)'};color:${c.ok ? 'var(--ok)' : 'var(--warn)'};font-weight:700;font-size:11px">${c.ok ? '✓' : '!'}</span>
+            <span style="flex:1">${SHELL.escapeHtml(c.label)}</span>
+          </div>
+        `).join('')}
       </div>
     </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr">
+        <div><div class="card-title">Job basics</div>
+          <div class="card-sub">Name, type, status, client.</div></div>
+        <button class="btn btn-primary" id="setup-edit-basics">${SHELL.ICONS.edit} Edit</button>
+      </div>
+      <div style="display:grid;grid-template-columns:120px 1fr;gap:6px 14px;font-size:13px">
+        <div style="color:var(--muted)">Name</div><div><b>${SHELL.escapeHtml(j.name || '—')}</b></div>
+        <div style="color:var(--muted)">Type</div><div>${SHELL.escapeHtml((STATE.jobTypes.find(t => t.id === j.type) || {}).name || '—')}</div>
+        <div style="color:var(--muted)">Status</div><div>${SHELL.jobStatusPill(j.status || 'active')}</div>
+        <div style="color:var(--muted)">Client</div><div>${j.clientUserId ? SHELL.escapeHtml((SHELL.USERS || []).find(u => u.id === j.clientUserId)?.username || j.clientUserId) : '<span style="color:var(--warn)">No client linked</span>'}</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr">
+        <div><div class="card-title">Areas <span class="card-count">${countAreas(j)}</span></div>
+          <div class="card-sub">Groups + areas. Add new ones any time. Areas with progress can't be deleted — rename instead.</div></div>
+        <button class="btn btn-primary" id="setup-add-group">+ Add group</button>
+      </div>
+      <div id="areas-list">${areasEditorHtml(j, data)}</div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr">
+        <div><div class="card-title">Rough-in tasks <span class="card-count">${(j.roughInTasks || []).length}</span></div>
+          <div class="card-sub">The checklist tradies tick off during rough-in. Add or rename safely; tasks with status recorded can't be deleted.</div></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn" id="setup-add-rough">+ Add</button>
+          <button class="btn" id="setup-bulk-rough">Bulk paste</button>
+        </div>
+      </div>
+      <div id="rough-list">${tasksEditorHtml(j, data, 'roughIn')}</div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr">
+        <div><div class="card-title">Fit-off tasks <span class="card-count">${(j.fitOffTasks || []).length}</span></div>
+          <div class="card-sub">The checklist tradies tick off during fit-off. Same safe-edit rules.</div></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn" id="setup-add-fit">+ Add</button>
+          <button class="btn" id="setup-bulk-fit">Bulk paste</button>
+        </div>
+      </div>
+      <div id="fit-list">${tasksEditorHtml(j, data, 'fitOff')}</div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr">
+        <div><div class="card-title">Crew & client</div>
+          <div class="card-sub">People with access to this job.</div></div>
+        <a class="btn" href="?s=crew">Open Crew &amp; client tab →</a>
+      </div>
+      <div style="font-size:13px;color:var(--muted)">
+        ${STATE.crew.length} ${STATE.crew.length === 1 ? 'person' : 'people'} on this job · ${j.clientUserId ? '1 client linked' : '<span style="color:var(--warn)">no client linked</span>'}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr"><div><div class="card-title">Open in field</div>
+        <div class="card-sub">See this job the way the tradies do.</div></div></div>
+      <a class="btn" href="/jobs/${SHELL.escapeHtml(STATE.jobId)}" target="_blank" rel="noopener">${SHELL.ICONS.external} Open ${SHELL.escapeHtml(j.name || STATE.jobId)} in field</a>
+    </div>
   `;
+
+  // Wire actions
+  SHELL.$('#setup-edit-basics').addEventListener('click', openEditBasics);
+  SHELL.$('#setup-add-group').addEventListener('click', () => addAreaGroup());
+  SHELL.$('#setup-add-rough').addEventListener('click', () => addTask('roughIn'));
+  SHELL.$('#setup-bulk-rough').addEventListener('click', () => bulkAddTasks('roughIn'));
+  SHELL.$('#setup-add-fit').addEventListener('click', () => addTask('fitOff'));
+  SHELL.$('#setup-bulk-fit').addEventListener('click', () => bulkAddTasks('fitOff'));
+  SHELL.$$('button[data-rename-area]').forEach(b => b.addEventListener('click', () => renameAreaOrGroup(b.dataset.renameArea)));
+  SHELL.$$('button[data-add-area]').forEach(b => b.addEventListener('click', () => addAreaToGroup(b.dataset.addArea)));
+  SHELL.$$('button[data-bulk-area]').forEach(b => b.addEventListener('click', () => bulkAddAreas(b.dataset.bulkArea)));
+  SHELL.$$('button[data-rm-area]').forEach(b => b.addEventListener('click', () => removeAreaOrGroup(b.dataset.rmArea)));
+  SHELL.$$('button[data-rename-task]').forEach(b => b.addEventListener('click', () => renameTask(b.dataset.renameTask, b.dataset.stage)));
+  SHELL.$$('button[data-rm-task]').forEach(b => b.addEventListener('click', () => removeTask(b.dataset.rmTask, b.dataset.stage)));
+}
+
+// ── Setup helpers ──────────────────────────────────────────────────────
+
+function countAreas(j) {
+  return (j.areaGroups || []).reduce((s, g) => s + ((g.areas || []).length), 0);
+}
+
+function jobHasAnyProgress(j, data) {
+  const dwellings = (data && data.dwellings) || {};
+  for (const dwId of Object.keys(dwellings)) {
+    const dw = dwellings[dwId];
+    for (const stage of ['roughIn', 'fitOff']) {
+      const tasks = (dw[stage] && dw[stage].tasks) || {};
+      for (const tid of Object.keys(tasks)) {
+        if (tasks[tid] && tasks[tid] !== 'not_started') return true;
+      }
+    }
+  }
+  return false;
+}
+
+// True if any dwelling under this group has any non-not_started task.
+function groupHasProgress(group, data) {
+  const dwellings = (data && data.dwellings) || {};
+  const areaIds = new Set((group.areas || []).map(a => a.id));
+  for (const dwId of Object.keys(dwellings)) {
+    if (!areaIds.has(dwId)) continue;
+    const dw = dwellings[dwId];
+    for (const stage of ['roughIn', 'fitOff']) {
+      const tasks = (dw[stage] && dw[stage].tasks) || {};
+      for (const tid of Object.keys(tasks)) {
+        if (tasks[tid] && tasks[tid] !== 'not_started') return true;
+      }
+    }
+  }
+  return false;
+}
+
+function areaHasProgress(areaId, data) {
+  const dw = ((data && data.dwellings) || {})[areaId];
+  if (!dw) return false;
+  for (const stage of ['roughIn', 'fitOff']) {
+    const tasks = (dw[stage] && dw[stage].tasks) || {};
+    for (const tid of Object.keys(tasks)) {
+      if (tasks[tid] && tasks[tid] !== 'not_started') return true;
+    }
+  }
+  return false;
+}
+
+function taskHasProgress(taskId, stage, data) {
+  const dwellings = (data && data.dwellings) || {};
+  for (const dwId of Object.keys(dwellings)) {
+    const tasks = (dwellings[dwId][stage] && dwellings[dwId][stage].tasks) || {};
+    if (tasks[taskId] && tasks[taskId] !== 'not_started') return true;
+  }
+  return false;
+}
+
+function areasEditorHtml(j, data) {
+  const groups = j.areaGroups || [];
+  if (!groups.length) return '<div class="empty"><div class="empty-title">No area groups yet</div><div class="empty-sub">Add a group (e.g. "Units" or "Townhouses") to get started.</div></div>';
+  return groups.map(g => {
+    const grpProgress = groupHasProgress(g, data);
+    const areas = g.areas || [];
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px;background:var(--surface)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <b style="flex:1;font-size:14px">${SHELL.escapeHtml(g.name)}</b>
+        <span style="font-size:11px;color:var(--muted)">${areas.length} ${areas.length === 1 ? 'area' : 'areas'}</span>
+        <button class="btn btn-sm" data-rename-area="g:${SHELL.escapeHtml(g.id)}">Rename</button>
+        <button class="btn btn-sm btn-danger" data-rm-area="g:${SHELL.escapeHtml(g.id)}" ${grpProgress ? 'disabled title="Areas in this group have recorded progress — rename instead"' : ''}>Remove</button>
+      </div>
+      ${areas.length ? `<div style="display:grid;gap:4px">
+        ${areas.map(a => {
+          const used = areaHasProgress(a.id, data);
+          return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface-2);border-radius:6px;font-size:13px">
+            <span style="flex:1">${SHELL.escapeHtml(a.name)}${used ? ` <span class="pill pill-info" style="font-size:9px">in progress</span>` : ''}</span>
+            <button class="btn btn-sm" data-rename-area="a:${SHELL.escapeHtml(a.id)}">Rename</button>
+            <button class="btn btn-sm btn-danger" data-rm-area="a:${SHELL.escapeHtml(a.id)}" ${used ? 'disabled title="Has recorded progress — rename instead"' : ''}>×</button>
+          </div>`;
+        }).join('')}
+      </div>` : '<div style="font-size:12px;color:var(--muted);font-style:italic">No areas yet.</div>'}
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button class="btn btn-sm" data-add-area="${SHELL.escapeHtml(g.id)}">+ Add area</button>
+        <button class="btn btn-sm" data-bulk-area="${SHELL.escapeHtml(g.id)}">Bulk paste</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function tasksEditorHtml(j, data, stage) {
+  const tasks = (stage === 'roughIn' ? j.roughInTasks : j.fitOffTasks) || [];
+  if (!tasks.length) return '<div class="empty"><div class="empty-title">No tasks yet</div><div class="empty-sub">Add a task (e.g. "Lighting rough-in") or paste a list.</div></div>';
+  return `<div style="display:grid;gap:4px">
+    ${tasks.map(t => {
+      const used = taskHasProgress(t.id, stage, data);
+      return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface-2);border-radius:6px;font-size:13px">
+        <span style="flex:1">${SHELL.escapeHtml(t.name)}${used ? ` <span class="pill pill-info" style="font-size:9px">in progress</span>` : ''}</span>
+        <button class="btn btn-sm" data-rename-task="${SHELL.escapeHtml(t.id)}" data-stage="${stage}">Rename</button>
+        <button class="btn btn-sm btn-danger" data-rm-task="${SHELL.escapeHtml(t.id)}" data-stage="${stage}" ${used ? 'disabled title="Task has recorded progress — rename instead"' : ''}>×</button>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+// ── Setup mutations ────────────────────────────────────────────────────
+
+async function saveJobPatch(patch) {
+  try {
+    await SHELL.api('/api/jobs', { method: 'PUT', body: { id: STATE.jobId, ...patch } });
+    SHELL.toast('Saved', 'ok');
+    await loadAll();
+    if (STATE.section === 'setup') paint();
+  } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+}
+
+async function addAreaGroup() {
+  const name = prompt('New area group name (e.g. "Units", "Townhouses"):');
+  if (!name || !name.trim()) return;
+  const groups = (STATE.job.areaGroups || []).slice();
+  groups.push({ id: 'g_' + Date.now().toString(36), name: name.trim(), areas: [] });
+  await saveJobPatch({ areaGroups: groups });
+}
+
+async function addAreaToGroup(groupId) {
+  const name = prompt('New area name (e.g. "Unit 7", "Townhouse 3"):');
+  if (!name || !name.trim()) return;
+  const groups = (STATE.job.areaGroups || []).map(g => {
+    if (g.id !== groupId) return g;
+    const areas = (g.areas || []).concat({ id: 'a_' + Date.now().toString(36), name: name.trim() });
+    return { ...g, areas };
+  });
+  await saveJobPatch({ areaGroups: groups });
+}
+
+async function bulkAddAreas(groupId) {
+  const text = prompt('Paste area names — one per line, or use a numbered prefix.\n\nExamples:\n  Lobby\n  Plant Room\n  Switch Room\n\nFor numbered: type "Unit 1" .. "Unit 22" line-by-line.');
+  if (!text) return;
+  const names = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!names.length) return;
+  const groups = (STATE.job.areaGroups || []).map(g => {
+    if (g.id !== groupId) return g;
+    const areas = (g.areas || []).concat(names.map((nm, i) => ({
+      id: 'a_' + Date.now().toString(36) + '_' + i, name: nm,
+    })));
+    return { ...g, areas };
+  });
+  await saveJobPatch({ areaGroups: groups });
+}
+
+async function renameAreaOrGroup(token) {
+  // Token format: "g:<id>" or "a:<id>"
+  const [kind, id] = token.split(':');
+  const groups = STATE.job.areaGroups || [];
+  if (kind === 'g') {
+    const g = groups.find(x => x.id === id); if (!g) return;
+    const nm = prompt('Rename group:', g.name);
+    if (nm == null || !nm.trim() || nm.trim() === g.name) return;
+    const next = groups.map(x => x.id === id ? { ...x, name: nm.trim() } : x);
+    await saveJobPatch({ areaGroups: next });
+  } else {
+    let target = null, parent = null;
+    for (const g of groups) {
+      const a = (g.areas || []).find(x => x.id === id);
+      if (a) { target = a; parent = g; break; }
+    }
+    if (!target) return;
+    const nm = prompt('Rename area:', target.name);
+    if (nm == null || !nm.trim() || nm.trim() === target.name) return;
+    const next = groups.map(g => g.id !== parent.id ? g : ({
+      ...g, areas: g.areas.map(a => a.id === id ? { ...a, name: nm.trim() } : a),
+    }));
+    await saveJobPatch({ areaGroups: next });
+  }
+}
+
+async function removeAreaOrGroup(token) {
+  const [kind, id] = token.split(':');
+  const groups = STATE.job.areaGroups || [];
+  if (kind === 'g') {
+    const g = groups.find(x => x.id === id); if (!g) return;
+    if (groupHasProgress(g, STATE.data)) {
+      SHELL.toast('Group has areas with recorded progress — rename instead', 'warn'); return;
+    }
+    if (!confirm('Remove group "' + g.name + '" and its ' + ((g.areas || []).length) + ' areas?')) return;
+    const next = groups.filter(x => x.id !== id);
+    await saveJobPatch({ areaGroups: next });
+  } else {
+    if (areaHasProgress(id, STATE.data)) {
+      SHELL.toast('Area has recorded progress — rename instead', 'warn'); return;
+    }
+    let parent = null;
+    for (const g of groups) if ((g.areas || []).some(a => a.id === id)) { parent = g; break; }
+    if (!parent) return;
+    const target = parent.areas.find(a => a.id === id);
+    if (!confirm('Remove area "' + target.name + '"?')) return;
+    const next = groups.map(g => g.id !== parent.id ? g : ({ ...g, areas: g.areas.filter(a => a.id !== id) }));
+    await saveJobPatch({ areaGroups: next });
+  }
+}
+
+async function addTask(stage) {
+  const label = stage === 'roughIn' ? 'rough-in' : 'fit-off';
+  const name = prompt('New ' + label + ' task name (e.g. "Lighting ' + label + '"):');
+  if (!name || !name.trim()) return;
+  const key = stage === 'roughIn' ? 'roughInTasks' : 'fitOffTasks';
+  const tasks = (STATE.job[key] || []).concat({
+    id: (stage === 'roughIn' ? 'rt_' : 'ft_') + Date.now().toString(36),
+    name: name.trim(),
+  });
+  await saveJobPatch({ [key]: tasks });
+}
+
+async function bulkAddTasks(stage) {
+  const label = stage === 'roughIn' ? 'rough-in' : 'fit-off';
+  const text = prompt('Paste ' + label + ' task names, one per line:');
+  if (!text) return;
+  const names = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!names.length) return;
+  const key = stage === 'roughIn' ? 'roughInTasks' : 'fitOffTasks';
+  const prefix = stage === 'roughIn' ? 'rt_' : 'ft_';
+  const tasks = (STATE.job[key] || []).concat(names.map((nm, i) => ({
+    id: prefix + Date.now().toString(36) + '_' + i, name: nm,
+  })));
+  await saveJobPatch({ [key]: tasks });
+}
+
+async function renameTask(taskId, stage) {
+  const key = stage === 'roughIn' ? 'roughInTasks' : 'fitOffTasks';
+  const t = (STATE.job[key] || []).find(x => x.id === taskId); if (!t) return;
+  const nm = prompt('Rename task:', t.name);
+  if (nm == null || !nm.trim() || nm.trim() === t.name) return;
+  const tasks = (STATE.job[key] || []).map(x => x.id === taskId ? { ...x, name: nm.trim() } : x);
+  await saveJobPatch({ [key]: tasks });
+}
+
+async function removeTask(taskId, stage) {
+  if (taskHasProgress(taskId, stage, STATE.data)) {
+    SHELL.toast('Task has recorded progress — rename instead', 'warn'); return;
+  }
+  const key = stage === 'roughIn' ? 'roughInTasks' : 'fitOffTasks';
+  const t = (STATE.job[key] || []).find(x => x.id === taskId); if (!t) return;
+  if (!confirm('Remove task "' + t.name + '"?')) return;
+  const tasks = (STATE.job[key] || []).filter(x => x.id !== taskId);
+  await saveJobPatch({ [key]: tasks });
 }
 
 function openEditBasics() {
