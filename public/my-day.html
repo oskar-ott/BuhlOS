@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<meta name="theme-color" content="#0d1b34">
+<meta name="theme-color" content="#0d1f35">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -12,479 +12,397 @@
 <script src="/install-prompt.js" defer></script>
 <script src="/lib/compliments.js" defer></script>
 <script src="/log-hours-sheet.js" defer></script>
-<title>buhl — my day</title>
-<link rel="stylesheet" href="/theme.css">
+<title>My Day · bühl</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-  /* The dark navy app-header is intentionally omitted on /my-day —
-     phone-first layout owns the viewport edge to edge. The greeting up
-     top serves as page identity; sign-out lives in the footer next to
-     the "Switch to full view" link. */
-  body { background: #fdfbf3; } /* warm cream — same as /jobs full-bleed */
+/* /my-day rebuilt to match brief v1 (~/Downloads/briefv1/my-day) — clean
+   warm cream, Inter, weekly hero card, compact job strips, fixed bottom
+   tab bar. Theme.css intentionally NOT linked — the brief is fully
+   self-contained and theme.css's IBM Plex / dark-header tokens fight it. */
+:root{
+  --bg:#f5f3ee; --surface:#fff; --surface-2:#faf8f3; --surface-3:#efece4;
+  --shell:#0d1f35; --shell-2:#152840;
+  --ink:#0d1f35; --ink-2:#2a3a52; --muted:#6b7689; --muted-2:#9aa2b3;
+  --line:#ece7da; --line-2:#dcd5c4;
+  --accent:#ffcc00; --accent-2:#ffd84a; --accent-ink:#2a1a05;
+  --ok:#1f8a4c;     --ok-bg:#e6f4ec;   --ok-bd:#c2e2ce;
+  --bad:#b3261e;    --bad-bg:#fbeae8;  --bad-bd:#f0c4be;
+  --warn:#b76b00;   --warn-bg:#fbf1de; --warn-bd:#f3dca1;
+  --info:#1c5fb8;   --info-bg:#e7eef9; --info-bd:#c4d4ee;
+  --safe-t: env(safe-area-inset-top, 0);
+  --safe-b: env(safe-area-inset-bottom, 0);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{min-height:100%}
+body{
+  font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:var(--bg);color:var(--ink);font-size:15px;line-height:1.4;
+  -webkit-font-smoothing:antialiased;
+  font-feature-settings:"ss01","cv11";
+  overflow-x:hidden;
+}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.tabular,.mono{font-variant-numeric:tabular-nums}
 
-  .md-page {
-    max-width: 560px; margin: 0 auto;
-    /* Top padding tracks safe-area inset so the greeting clears the iOS
-       notch in PWA mode without padding the body globally. */
-    padding: max(env(safe-area-inset-top), 18px) 14px 60px;
-  }
+.frame{
+  max-width:430px;margin:0 auto;min-height:100vh;
+  background:var(--bg);position:relative;
+  padding-bottom:calc(82px + var(--safe-b));
+}
 
-  /* Tight one-line greeting (saves 60-80px above the fold) */
-  .md-greet {
-    margin: 4px 4px 14px;
-  }
-  .md-greet-hi {
-    font-family: var(--display);
-    font-size: 26px; font-weight: 700; color: var(--navy);
-    letter-spacing: -.025em; line-height: 1.1;
-    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
-  }
-  .md-greet-date-inline {
-    font-family: var(--mono);
-    font-size: 10.5px; font-weight: 600; color: var(--ink-3);
-    letter-spacing: .12em; text-transform: uppercase;
-  }
-  .md-greet-compliment {
-    font-size: var(--fs-xs); color: var(--ink-3);
-    font-style: italic; margin-top: 4px; line-height: 1.4;
-  }
+/* ── Top bar ───────────────────────────────────────────── */
+.top{
+  display:flex;align-items:center;gap:12px;
+  padding:calc(14px + var(--safe-t)) 18px 10px;
+}
+.top-greet{flex:1;min-width:0}
+.top-day{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+.top-name{font-size:20px;font-weight:700;letter-spacing:-.4px;color:var(--ink);margin-top:1px}
+.top-name #compliment{display:block;font-size:11px;font-weight:500;color:var(--muted);font-style:italic;margin-top:1px;letter-spacing:0;text-transform:none}
+.top-bell{
+  width:38px;height:38px;border-radius:50%;
+  background:var(--surface);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;color:var(--ink);position:relative;
+  flex-shrink:0;
+}
+.top-bell svg{width:18px;height:18px}
+.top-bell .pip{
+  position:absolute;top:9px;right:10px;width:7px;height:7px;
+  background:var(--bad);border-radius:50%;border:2px solid var(--surface);
+  display:none;
+}
+.top-bell.has-pip .pip{display:block}
 
-  /* Banner — yellow CTA per Brief §06 principle 04 (reduce taps).  Single
-     primary action: log today's hours. */
-  .md-banner {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 12px; width: 100%; min-height: 80px;
-    background: var(--yellow); color: var(--yellow-ink);
-    border: none; border-radius: var(--radius);
-    padding: 16px 20px;
-    font-family: var(--display);
-    font-size: 19px; font-weight: 700;
-    letter-spacing: -.018em;
-    cursor: pointer; text-align: left;
-    margin-bottom: 22px;
-  }
-  .md-banner:active { transform: translateY(1px); }
-  .md-banner.logged {
-    background: var(--paper); border: 1px solid var(--green-bd);
-    border-left: 3px solid var(--green);
-    color: var(--navy);
-    min-height: 56px;
-    padding: 12px 16px;
-    font-size: 15px; font-weight: 600;
-  }
-  .md-banner.logged .md-banner-chev { color: var(--ink-3); font-size: 18px; }
-  .md-banner-sub {
-    font-family: var(--mono);
-    font-size: 10.5px; font-weight: 600; opacity: .8;
-    letter-spacing: .08em; text-transform: uppercase;
-    margin-top: 4px;
-  }
-  .md-banner-chev { font-size: 22px; font-weight: 400; opacity: .7; }
+/* ── Today banner (slim) — replaces brief's clock card. We don't have
+   live clock-in tracking, so this is a thin status hint above the week
+   card showing today's logged total. Tap to open BuhlLogHours. ── */
+#banner{
+  margin:0 14px 14px;
+  background:var(--shell);color:#fff;border:0;
+  border-radius:18px;padding:14px 18px;
+  display:flex;align-items:center;gap:14px;
+  width:calc(100% - 28px);text-align:left;
+  position:relative;overflow:hidden;
+}
+#banner::after{
+  content:"";position:absolute;top:-90px;right:-70px;
+  width:240px;height:240px;
+  background:radial-gradient(circle,rgba(255,204,0,.18),transparent 65%);
+  border-radius:50%;pointer-events:none;
+}
+#banner.logged{background:linear-gradient(160deg,#1f8a4c,#155f36)}
+#banner > *{position:relative;z-index:1}
+#banner-txt{font-size:18px;font-weight:700;letter-spacing:-.3px;line-height:1.1;flex:1}
+#banner-sub{font-size:11px;color:rgba(255,255,255,.7);font-weight:500;text-transform:uppercase;letter-spacing:.6px;margin-top:4px;display:block}
+.md-banner-chev{font-size:22px;font-weight:400;opacity:.7}
+#banner.logged #banner-sub{color:#cdf0d9}
 
-  /* Quick-add hours chips — Sheet 03 moment 02. */
-  .md-quick {
-    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
-    margin: -10px 0 18px;
-  }
-  .md-quick[hidden] { display: none !important; }
-  .md-quick-chip {
-    appearance: none; -webkit-appearance: none;
-    height: 34px; padding: 0 12px;
-    background: var(--paper); border: 1px solid var(--rule-2);
-    color: var(--ink-2); cursor: pointer;
-    font-family: var(--mono);
-    font-size: 10.5px; font-weight: 600;
-    letter-spacing: .12em; text-transform: uppercase;
-    border-radius: var(--radius);
-    transition: background .12s, color .12s, border-color .12s;
-  }
-  .md-quick-chip:hover { background: var(--paper-3); color: var(--navy); }
-  .md-quick-chip:active { transform: translateY(1px); }
-  .md-quick-chip.busy { opacity: .55; cursor: wait; }
-  .md-quick-chip:disabled { opacity: .45; cursor: not-allowed; }
-  .md-quick-meta {
-    margin-left: auto;
-    font-family: var(--mono); font-size: 10px;
-    letter-spacing: .12em; text-transform: uppercase;
-    color: var(--ink-3);
-  }
-  .md-quick-meta.ok { color: var(--green); }
-  .md-quick-meta.err { color: var(--red); }
+/* ── My week (the focus for tradies) ───────────────────── */
+.week{
+  margin:6px 14px 18px;
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:18px;padding:18px 18px 16px;
+}
+.week-top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.week-l{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px}
+.week-pay{
+  margin-left:auto;display:inline-flex;align-items:center;gap:6px;
+  background:#fff8d8;color:#7a5400;border:1px solid #f3e3a4;
+  font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;
+}
+.week-pay svg{width:12px;height:12px}
+.week-totals{display:flex;align-items:flex-end;gap:14px;margin-bottom:14px}
+.week-h{
+  font-size:36px;font-weight:700;letter-spacing:-1.2px;line-height:1;
+  font-variant-numeric:tabular-nums;color:var(--ink);
+}
+.week-h small{font-size:14px;font-weight:500;color:var(--muted);margin-left:2px}
+.week-sub{flex:1;text-align:right;font-size:12px;color:var(--muted);line-height:1.4}
+.week-sub b{display:block;color:var(--ink);font-size:13px;font-weight:600;margin-bottom:1px;font-variant-numeric:tabular-nums}
+.days{
+  display:grid;grid-template-columns:repeat(7,1fr);
+  gap:5px;margin-bottom:14px;
+}
+.day{
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  padding:7px 2px 8px;border-radius:9px;
+  background:var(--surface-2);border:1px solid var(--line);
+  position:relative;cursor:pointer;
+  transition:transform .08s;
+}
+.day:active{transform:scale(.96)}
+.day.today{border-color:var(--ink);background:var(--surface)}
+.day.logged{background:var(--accent);border-color:var(--accent)}
+.day.logged .day-d,.day.logged .day-h{color:var(--accent-ink)}
+.day.draft{background:#fff8d8;border-color:#f3e3a4}
+.day.draft .day-d,.day.draft .day-h{color:#7a5400}
+.day.missing{background:#fbeae8;border-color:#f0c4be}
+.day.missing .day-d,.day.missing .day-h{color:var(--bad)}
+.day.weekend{opacity:.55}
+.day-d{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.day-h{font-size:13px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1}
+.day-h.empty{color:var(--muted-2);font-weight:500}
+.day.today .day-d{color:var(--ink)}
+.week-cta{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  width:100%;padding:13px;border-radius:12px;
+  background:var(--ink);color:#fff;
+  font-size:14.5px;font-weight:600;
+  cursor:pointer;
+  transition:transform .08s;
+}
+.week-cta:active{transform:scale(.99)}
+.week-cta svg{width:17px;height:17px}
+.week-cta .pip{
+  display:inline-flex;align-items:center;justify-content:center;
+  background:var(--accent);color:var(--accent-ink);
+  font-size:10px;font-weight:700;border-radius:999px;padding:1px 7px;
+  margin-left:4px;font-variant-numeric:tabular-nums;
+}
 
-  /* (Action Needed CSS retired with the section in the My-Day simplification.) */
+/* ── Section header ────────────────────────────────────── */
+.sec{
+  display:flex;align-items:center;
+  margin:6px 18px 10px;
+}
+.sec-h{font-size:12px;font-weight:700;color:var(--ink);letter-spacing:-.1px;text-transform:uppercase}
+.sec-c{
+  margin-left:8px;background:var(--surface-3);color:var(--muted);
+  font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;
+  font-variant-numeric:tabular-nums;
+}
+.sec-link{margin-left:auto;font-size:12px;font-weight:500;color:var(--muted);display:flex;align-items:center;gap:2px}
 
-  .md-sec { margin-bottom: 22px; }
-  .md-sec-hdr {
-    display: flex; align-items: baseline; justify-content: space-between;
-    margin: 0 4px 8px;
-  }
-  .md-sec-title {
-    font-family: var(--mono);
-    font-size: 10.5px; font-weight: 600; color: var(--ink-3);
-    text-transform: uppercase; letter-spacing: .14em;
-  }
-  .md-sec-count { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: .06em; }
-  /* Bulk-submit drafts chip — appears in My-Week header when 2+ drafts exist */
-  .myweek-submit-btn {
-    appearance: none; -webkit-appearance: none;
-    display: inline-flex; align-items: center; gap: 5px;
-    height: 28px; padding: 0 11px;
-    background: var(--accent); color: var(--accent-ink);
-    border: none; border-radius: 999px;
-    font-size: 11px; font-weight: 800;
-    text-transform: uppercase; letter-spacing: .4px;
-    cursor: pointer; font-family: inherit;
-    transition: filter .12s, opacity .12s;
-  }
-  .myweek-submit-btn::before { content: '\2191'; font-size: 12px; line-height: 1; font-weight: 900; }
-  .myweek-submit-btn:hover { filter: brightness(.95); }
-  .myweek-submit-btn:disabled { opacity: .55; cursor: wait; }
+/* ── Job strip (single, contextual) ────────────────────── */
+#jobs-list{padding:0 14px}
+.job-strip{
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:14px;padding:13px 14px;
+  display:flex;align-items:center;gap:12px;
+  margin-bottom:7px;
+}
+.job-strip:active{transform:scale(.99)}
+.job-pin{
+  width:36px;height:36px;border-radius:10px;
+  background:var(--surface-3);color:var(--ink);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.job-pin svg{width:18px;height:18px}
+.job-pin.snag{background:#fbeae8;color:var(--bad)}
+.job-info{flex:1;min-width:0}
+.job-name{font-size:13.5px;font-weight:600;color:var(--ink);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.job-sub{font-size:11.5px;color:var(--muted);margin-top:2px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.job-ref{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;background:var(--surface-3);padding:1px 5px;border-radius:4px}
+.job-snag{color:var(--bad);font-weight:600}
+.job-pct{
+  display:flex;flex-direction:column;align-items:flex-end;
+  font-variant-numeric:tabular-nums;flex-shrink:0;
+}
+.job-pct b{font-size:14px;font-weight:700;color:var(--ink)}
+.job-pct .mini-bar{
+  width:48px;height:4px;background:var(--surface-3);border-radius:2px;
+  overflow:hidden;margin-top:4px;
+}
+.job-pct .mini-bar i{display:block;height:100%;background:var(--accent);border-radius:2px}
+.job-empty{
+  margin:0 14px;padding:18px 16px;text-align:center;
+  background:var(--surface);border:1px dashed var(--line-2);border-radius:14px;
+  color:var(--muted);font-size:13px;
+}
+.job-empty b{display:block;color:var(--ink);font-weight:600;margin-bottom:3px}
 
-  /* My snags — assigned-to-me cross-job list (only shown when ≥ 1 exists) */
-  .md-mysnag {
-    display: flex; align-items: center; gap: 10px;
-    background: #fff; border: 1px solid var(--border);
-    border-radius: 12px; padding: 10px 12px;
-    text-decoration: none; color: inherit;
-    min-height: 60px; cursor: pointer;
-    transition: border-color .12s, background .12s;
-    margin-bottom: 6px;
-  }
-  .md-mysnag:active { background: #f8fafc; }
-  .md-mysnag:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .md-mysnag-accent {
-    width: 4px; min-height: 36px; border-radius: 3px; flex-shrink: 0;
-    background: var(--grey-bd);
-  }
-  .md-mysnag-accent.high   { background: var(--red); }
-  .md-mysnag-accent.medium { background: var(--amber); }
-  .md-mysnag-accent.resolved { background: var(--green); }
-  .md-mysnag-body { flex: 1; min-width: 0; }
-  .md-mysnag-title {
-    font-family: var(--display);
-    font-size: 14.5px; font-weight: 600; color: var(--navy);
-    letter-spacing: -.012em; line-height: 1.2;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .md-mysnag-meta {
-    font-family: var(--mono);
-    font-size: 10.5px; color: var(--ink-3); margin-top: 4px;
-    letter-spacing: .04em;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .md-mysnag-meta b { color: var(--ink); font-weight: 600; }
-  .md-mysnag-prio {
-    flex-shrink: 0; font-family: var(--mono);
-    font-size: 10px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: .12em;
-    padding: 4px 8px; border-radius: 2px;
-  }
-  .md-mysnag-prio.high   { background: rgba(192,49,47,.12); color: var(--red); }
-  .md-mysnag-prio.medium { background: rgba(209,139,28,.16); color: var(--amber); }
-  .md-mysnag-prio.low    { background: var(--paper-3); color: var(--ink-2); }
-  /* "Resolved" pill — used in the Recently Resolved section so the row reads
-     as a positive update rather than an open priority. */
-  .md-mysnag-prio.resolved {
-    background: rgba(31,139,90,.12);
-    color: var(--green);
-  }
-  .md-mysnag-chev { color: var(--muted); font-size: 18px; flex-shrink: 0; }
+/* ── Snag rows (kept from existing functionality, restyled to match brief) ── */
+#mysnags-list,#resolved-list{padding:0 14px}
+.snag-row{
+  display:flex;align-items:center;gap:10px;
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:12px;padding:11px 12px;
+  margin-bottom:6px;cursor:pointer;
+}
+.snag-row:active{transform:scale(.99)}
+.snag-accent{width:4px;align-self:stretch;border-radius:3px;background:var(--muted-2);min-height:32px;flex-shrink:0}
+.snag-accent.high{background:var(--bad)}
+.snag-accent.medium{background:var(--warn)}
+.snag-accent.resolved{background:var(--ok)}
+.snag-body{flex:1;min-width:0}
+.snag-title{font-size:13.5px;font-weight:600;color:var(--ink);line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.snag-meta{font-size:11.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.snag-meta b{color:var(--ink);font-weight:600}
+.snag-prio{
+  flex-shrink:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
+  padding:2px 8px;border-radius:999px;
+}
+.snag-prio.high{background:var(--bad-bg);color:var(--bad)}
+.snag-prio.medium{background:var(--warn-bg);color:var(--warn)}
+.snag-prio.low{background:var(--info-bg);color:var(--info)}
+.snag-prio.resolved{background:var(--ok-bg);color:var(--ok)}
 
-  /* (Continue cards CSS retired with the section in the My-Day simplification.) */
+/* ── Tab bar ───────────────────────────────────────────── */
+.tabbar{
+  position:fixed;bottom:0;left:50%;transform:translateX(-50%);
+  width:100%;max-width:430px;
+  background:rgba(255,255,255,.92);
+  backdrop-filter:saturate(180%) blur(20px);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+  border-top:1px solid var(--line);
+  padding:8px 8px calc(8px + var(--safe-b));
+  display:grid;grid-template-columns:repeat(3,1fr);gap:4px;
+  z-index:50;
+}
+.tb{
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:6px 4px;border-radius:10px;color:var(--muted-2);position:relative;
+  text-decoration:none;font-size:10px;font-weight:600;
+}
+.tb svg{width:22px;height:22px}
+.tb.active{color:var(--ink)}
+.tb.active::before{
+  content:"";position:absolute;top:-1px;left:50%;transform:translateX(-50%);
+  width:24px;height:3px;background:var(--accent);border-radius:0 0 3px 3px;
+}
 
-  /* My jobs — compact rows */
-  .md-jobs {
-    background: #fff; border: 1px solid var(--border);
-    border-radius: 12px; overflow: hidden;
-  }
-  /* Promoted state: lone active job, nothing else pending — make it feel like
-     a strong "open this" CTA rather than a passive list. */
-  .md-jobs-promote {
-    border-color: var(--accent);
-    box-shadow: 0 2px 10px rgba(255,204,0,.18);
-  }
-  .md-jobs-promote .md-job-name {
-    font-size: var(--fs-lg);
-    letter-spacing: -.2px;
-  }
-  .md-jobs-promote .md-job-chev {
-    color: var(--header);
-    font-weight: 600;
-  }
-  .md-job {
-    display: flex; align-items: center; gap: 10px;
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--border);
-    text-decoration: none; color: inherit;
-    min-height: 60px;
-    cursor: pointer;
-  }
-  .md-job:last-child { border-bottom: none; }
-  .md-job:active { background: #f8fafc; }
-  .md-job:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .md-job-body { flex: 1; min-width: 0; }
-  .md-job-name {
-    font-size: var(--fs-base); font-weight: 700; color: var(--header);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    line-height: 1.2;
-  }
-  .md-job-meta {
-    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
-    font-size: var(--fs-xs); color: var(--muted); margin-top: 4px;
-  }
-  .md-job-meta b { color: var(--ink); font-weight: 700; }
-  /* Snag count chip — now a real deep-link straight to the job's Snags tab.
-     Tap goes to /jobs/<id>#snags; rest of the row still goes to the job dashboard. */
-  a.md-job-snag, .md-job-snag {
-    display: inline-flex; align-items: center; gap: 4px;
-    background: var(--red-bg); color: var(--red);
-    border: 1px solid var(--red-bd);
-    border-radius: 999px; padding: 2px 9px;
-    font-size: 11px; font-weight: 700;
-    text-decoration: none;
-    min-height: 24px;          /* tap target on phone */
-    line-height: 1;
-  }
-  a.md-job-snag:active { background: #fde2e2; }
-  .md-job-snag::before { content: '!'; font-weight: 900; }
-  /* % progress pill (calmer, contextual color) */
-  .md-job-pct {
-    display: inline-flex; align-items: center; justify-content: center;
-    height: 30px; min-width: 48px; padding: 0 10px;
-    border-radius: 999px;
-    font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
-    background: var(--grey-bg); color: var(--grey-ink);
-    border: 1px solid var(--grey-bd);
-    flex-shrink: 0;
-  }
-  .md-job-pct.green { background: var(--green-bg); color: var(--green); border-color: var(--green-bd); }
-  .md-job-pct.amber { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-bd); }
-  .md-job-pct.navy  { background: #f1f5f9; color: var(--header); border-color: var(--border); }
-  .md-job-chev { color: var(--muted); font-size: 20px; flex-shrink: 0; margin-left: -2px; }
+/* ── Footer (kept low-key) ─────────────────────────────── */
+.md-footer{
+  margin:18px 18px 6px;text-align:center;
+  font-family:ui-monospace,Menlo,monospace;font-size:10px;font-weight:600;
+  color:var(--muted-2);letter-spacing:.06em;text-transform:uppercase;
+}
+.md-footer #me{color:var(--muted)}
+.md-footer button.md-signout{
+  background:none;border:0;color:var(--muted-2);padding:6px 10px;cursor:pointer;
+  font-family:inherit;font-size:inherit;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;text-decoration:underline;text-underline-offset:3px;
+}
+.md-footer button.md-signout:hover{color:var(--bad)}
 
-  /* My week — actionable per-day list. Replaces the passive "This week" total
-     strip. Tradies can scan their week, see missing days at a glance, and tap
-     any past/today day to add or edit hours via the same BuhlLogHours modal. */
-  .md-week-card {
-    background: #fff; border: 1px solid var(--border);
-    border-radius: 12px; overflow: hidden;
-  }
-  .md-week-card-hdr {
-    display: flex; align-items: baseline; justify-content: space-between;
-    gap: 10px; padding: 12px 14px 10px;
-    border-bottom: 1px solid var(--border);
-  }
-  .md-week-card-total {
-    font-family: var(--display);
-    font-size: 16px; font-weight: 700; color: var(--navy);
-    letter-spacing: -.014em;
-    font-variant-numeric: tabular-nums;
-  }
-  .md-week-card-total .unit { font-family: var(--mono); color: var(--ink-3); font-weight: 500; margin-left: 4px; font-size: 10.5px; letter-spacing: .06em; }
-  .md-week-card-sub { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: .06em; }
-
-  .md-week-row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 11px 14px;
-    border-bottom: 1px solid var(--border);
-    text-decoration: none; color: inherit;
-    min-height: 56px;
-    cursor: pointer;
-    background: #fff;
-    transition: background .12s;
-  }
-  .md-week-row:last-child { border-bottom: none; }
-  .md-week-row:active { background: #f8fafc; }
-  .md-week-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .md-week-row.future, .md-week-row.weekend-empty {
-    cursor: default;
-    background: #fafbfc;
-    opacity: .82;
-  }
-  .md-week-row.today { background: #fffdf2; }   /* subtle yellow tint for "today" */
-
-  .md-week-row-body { flex: 1; min-width: 0; }
-  .md-week-row-day {
-    font-family: var(--display);
-    font-size: 14px; font-weight: 600; color: var(--navy);
-    letter-spacing: -.012em; line-height: 1.15;
-  }
-  .md-week-row-day .date { font-family: var(--mono); color: var(--ink-3); font-weight: 500; margin-left: 6px; font-size: 10.5px; letter-spacing: .06em; }
-  .md-week-row-meta {
-    font-family: var(--mono);
-    font-size: 10.5px; color: var(--ink-3); margin-top: 4px;
-    letter-spacing: .04em;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .md-week-row-meta b { color: var(--ink); font-weight: 600; }
-
-  .md-week-row-status {
-    display: inline-flex; align-items: center; gap: 4px;
-    font-size: 10px; font-weight: 800;
-    letter-spacing: .4px; text-transform: uppercase;
-    padding: 3px 8px; border-radius: 999px;
-    flex-shrink: 0; line-height: 1;
-  }
-  .md-week-row-status.logged   { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-bd); }
-  .md-week-row-status.missing  { background: var(--red-bg);   color: var(--red);   border: 1px solid var(--red-bd); }
-  .md-week-row-status.today    { background: #fef9c3;          color: #854d0e;      border: 1px solid #fde68a; }
-  .md-week-row-status.future   { background: var(--grey-bg);  color: var(--grey-ink); border: 1px solid var(--grey-bd); }
-  .md-week-row-status.draft    { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-bd); }
-  .md-week-row-status.submit   { background: #dbeafe;          color: #1e40af;      border: 1px solid #bfdbfe; }
-  .md-week-row-status.rejected { background: var(--red-bg);   color: var(--red);   border: 1px solid var(--red-bd); }
-
-  .md-week-row-chev {
-    color: var(--muted); font-size: 18px; flex-shrink: 0; line-height: 1;
-  }
-  .md-week-row.future .md-week-row-chev,
-  .md-week-row.weekend-empty .md-week-row-chev { display: none; }
-
-  /* 375px safety: a tighter day label so the row never wraps awkwardly */
-  @media (max-width: 380px) {
-    .md-week-row { padding: 10px 12px; gap: 8px; }
-    .md-week-row-day { font-size: 12px; }
-    .md-week-row-status { font-size: 9px; padding: 3px 7px; }
-  }
-
-  /* 375px safety: wrap week strip, prevent overflow */
-  @media (max-width: 380px) {
-    .md-week { flex-wrap: wrap; gap: 10px; }
-    .md-greet-hi { font-size: 22px; }
-  }
-
-  .md-empty {
-    background: #fff; border: 1px dashed var(--border); border-radius: 12px;
-    padding: 22px 14px; text-align: center;
-    color: var(--muted); font-size: var(--fs-sm);
-  }
-
-  .md-footer {
-    margin-top: 32px;
-    padding-top: 16px;
-    border-top: 1px solid var(--rule, var(--border));
-    display: flex; align-items: center; justify-content: space-between;
-    flex-wrap: wrap; gap: 12px;
-  }
-  .md-footer-me {
-    font-family: var(--mono);
-    font-size: 10.5px; font-weight: 600;
-    letter-spacing: .12em; text-transform: uppercase;
-    color: var(--ink-3);
-  }
-  .md-footer-actions { display: flex; gap: 8px; align-items: center; }
-  .md-switch {
-    display: inline-block;
-    font-size: var(--fs-xs); color: var(--muted);
-    text-decoration: underline; text-underline-offset: 3px;
-    padding: 6px 10px;
-  }
-  .md-signout {
-    appearance: none; -webkit-appearance: none;
-    background: transparent; border: 0; padding: 6px 10px;
-    font-family: inherit; font-size: var(--fs-xs);
-    color: var(--ink-3); cursor: pointer;
-    text-decoration: underline; text-underline-offset: 3px;
-  }
-  .md-signout:hover { color: var(--red); }
-
-  /* ── Push notification opt-in card (one-time, after 5s) ─────────────── */
-  .md-push-opt {
-    position: fixed; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom));
-    background: #fff; border: 1px solid var(--border);
-    border-radius: 14px; padding: 14px 16px;
-    box-shadow: 0 8px 28px rgba(0,0,0,.15);
-    z-index: 100; max-width: 520px; margin: 0 auto;
-    display: none;
-    animation: slideUp .25s ease-out;
-  }
-  .md-push-opt.open { display: block; }
-  @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-  .md-push-title { font-size: var(--fs-base); font-weight: 700; color: var(--header); margin-bottom: 4px; }
-  .md-push-body { font-size: var(--fs-sm); color: var(--muted); margin-bottom: 12px; line-height: 1.4; }
-  .md-push-row { display: flex; gap: 8px; }
-  .md-push-row .btn { flex: 1; }
-
-  /* Legacy log-hours modal styles removed in Phase 2 — modal now provided
-     by /log-hours-sheet.js (BuhlLogHours), which injects its own styles. */
+/* ── Push opt-in card (existing) ───────────────────────── */
+.md-push-opt{
+  position:fixed;left:14px;right:14px;bottom:calc(96px + var(--safe-b));
+  max-width:402px;margin:0 auto;
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:14px;padding:14px 16px;
+  box-shadow:0 12px 28px rgba(13,31,53,.18);
+  z-index:60;display:none;
+  animation:slideUp .25s ease-out;
+}
+.md-push-opt.open{display:block}
+@keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
+.md-push-title{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:4px}
+.md-push-body{font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.4}
+.md-push-row{display:flex;gap:8px}
+.md-push-row .btn{
+  flex:1;padding:10px;border-radius:10px;
+  font-size:13px;font-weight:600;
+}
+.md-push-row .btn:not(.primary){background:var(--surface-2);color:var(--ink);border:1px solid var(--line)}
+.md-push-row .btn.primary{background:var(--ink);color:#fff}
 </style>
 </head>
 <body>
-<!-- The navy app-header is intentionally omitted on /my-day. The greeting
-     up top is the page identity; sign-out + identity live in the footer. -->
 
-<div class="md-page">
-  <div class="md-greet">
-    <div class="md-greet-hi">
-      <span id="greet">Loading…</span>
-      <span class="md-greet-date-inline" id="today"></span>
+<div class="frame">
+
+  <!-- Top bar -->
+  <div class="top">
+    <div class="top-greet">
+      <div class="top-day" id="today">…</div>
+      <div class="top-name">
+        <span id="greet">Loading…</span>
+        <span id="compliment"></span>
+      </div>
     </div>
-    <div class="md-greet-compliment" id="compliment"></div>
+    <button class="top-bell" id="topBell" aria-label="Notifications">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2H4.5L6 16z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+      <span class="pip"></span>
+    </button>
   </div>
 
-  <button class="md-banner" id="banner" onclick="openMyDayLog()">
-    <div>
+  <!-- Today banner — thin clock-style hint, opens log-hours sheet -->
+  <button id="banner" type="button" onclick="openMyDayLog()">
+    <div style="flex:1">
       <div id="banner-txt">Log today's hours</div>
-      <div class="md-banner-sub" id="banner-sub"></div>
+      <div id="banner-sub"></div>
     </div>
-    <div class="md-banner-chev">&#8250;</div>
+    <div class="md-banner-chev">›</div>
   </button>
 
-  <!-- Sheet 03 moment 02 — quick-add hours chips. Two taps from anywhere:
-       open my-day, tap +30 / +1HR / + custom. No modal, no confirm. -->
-  <div class="md-quick" id="md-quick" hidden>
-    <button type="button" class="md-quick-chip" data-qh="0.5">+ 30 MIN</button>
-    <button type="button" class="md-quick-chip" data-qh="1">+ 1 HR</button>
-    <button type="button" class="md-quick-chip" data-qh="2">+ 2 HR</button>
-    <button type="button" class="md-quick-chip" data-qh="custom">+ CUSTOM</button>
-    <span class="md-quick-meta" id="md-quick-meta"></span>
+  <!-- My week (hero) -->
+  <div class="week">
+    <div class="week-top">
+      <div class="week-l">My week</div>
+      <span class="week-pay" id="week-pay" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <span id="week-pay-text">Pay day</span>
+      </span>
+    </div>
+    <div class="week-totals">
+      <div class="week-h tabular"><span id="myweek-total">0.0</span><small>h</small></div>
+      <div class="week-sub" id="myweek-summary">
+        <b id="myweek-summary-b">No hours yet</b>
+        this week
+      </div>
+    </div>
+    <div class="days" id="days"></div>
+    <button class="week-cta" id="myweek-cta" onclick="openMyDayLog()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      <span id="myweek-cta-label">Log hours</span>
+      <span class="pip" id="myweek-cta-pip" style="display:none"></span>
+    </button>
+    <button id="myweek-submit-drafts" style="display:none;width:100%;margin-top:8px;padding:11px;border-radius:10px;background:var(--accent);color:var(--accent-ink);font-size:13px;font-weight:700" onclick="submitAllDrafts()"></button>
+    <!-- Hidden list — preserved for legacy renderMyWeek fallback -->
+    <div id="myweek-list" hidden></div>
   </div>
 
-  <!-- My snags — shown when current user is the assignee on at least one
-       open snag across any of their jobs. -->
-  <section class="md-sec" id="mysnags-sec" style="display:none">
-    <div class="md-sec-hdr">
-      <div class="md-sec-title">Snags assigned to me</div>
-      <span class="md-sec-count" id="mysnags-count"></span>
+  <!-- Snags assigned to me — preserved from existing functionality -->
+  <section id="mysnags-sec" style="display:none">
+    <div class="sec">
+      <div class="sec-h">Snags assigned to me</div>
+      <span class="sec-c" id="mysnags-count"></span>
     </div>
     <div id="mysnags-list"></div>
   </section>
 
-  <!-- Recently resolved — snags I raised that someone else closed in the
-       last 7 days. Mirrors the resolved-push notifications so the in-app
-       counterpart is visible to users who don't have push enabled. -->
-  <section class="md-sec" id="resolved-sec" style="display:none">
-    <div class="md-sec-hdr">
-      <div class="md-sec-title">Recently resolved</div>
-      <span class="md-sec-count" id="resolved-count"></span>
+  <!-- Recently resolved -->
+  <section id="resolved-sec" style="display:none">
+    <div class="sec">
+      <div class="sec-h">Recently resolved</div>
+      <span class="sec-c" id="resolved-count"></span>
     </div>
     <div id="resolved-list"></div>
   </section>
 
-  <section class="md-sec">
-    <div class="md-sec-hdr">
-      <div class="md-sec-title">My jobs</div>
-      <span class="md-sec-count" id="jobs-count"></span>
-    </div>
-    <div id="jobs-list"></div>
-  </section>
-
-  <section class="md-sec">
-    <div class="md-sec-hdr">
-      <div class="md-sec-title">My week</div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <button id="myweek-submit-drafts" class="myweek-submit-btn" style="display:none" onclick="submitAllDrafts()"></button>
-        <span class="md-sec-count" id="myweek-total"></span>
-      </div>
-    </div>
-    <div id="myweek-list"></div>
-  </section>
-
-  <div class="md-footer">
-    <span class="md-footer-me" id="me"></span>
-    <div class="md-footer-actions">
-      <a class="md-switch" href="/jobs">Full view &rsaquo;</a>
-      <button class="md-signout" id="logout" type="button">Sign out</button>
-    </div>
+  <!-- Active jobs -->
+  <div class="sec">
+    <div class="sec-h">My jobs</div>
+    <span class="sec-c" id="jobs-count">0</span>
+    <a class="sec-link" href="/jobs">All <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></a>
   </div>
+  <div id="jobs-list"></div>
+
+  <!-- Footer -->
+  <div class="md-footer">
+    <span id="me"></span>
+    <button class="md-signout" id="logout" type="button">Sign out</button>
+  </div>
+
+  <!-- Bottom tab bar -->
+  <nav class="tabbar">
+    <a href="/my-day" class="tb active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      My day
+    </a>
+    <a href="/jobs" class="tb">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+      Jobs
+    </a>
+    <button class="tb" type="button" onclick="document.getElementById('logout').click()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+      Me
+    </button>
+  </nav>
 </div>
 
 <!-- Push opt-in card -->
@@ -496,12 +414,6 @@
     <button class="btn primary" onclick="enablePush()">Enable</button>
   </div>
 </div>
-
-<!-- Log-hours: now provided by /log-hours-sheet.js (BuhlLogHours.open).
-     Legacy markup removed in Phase 2 cutover — single source of truth for hours
-     is /api/time-entries. -->
-
-
 <script>
 // ─── State ───────────────────────────────────────────────────────────────
 let ME = null;
@@ -872,26 +784,30 @@ function renderMySnags(){
   const sec = document.getElementById('mysnags-sec');
   const list = document.getElementById('mysnags-list');
   const cnt = document.getElementById('mysnags-count');
+  const bell = document.getElementById('topBell');
   if (!sec || !list) return;
   const snags = MY_SNAGS || [];
+  // Pip the top bell when there's anything assigned-to-me OR recently resolved
+  if (bell) {
+    const haveAny = (MY_SNAGS && MY_SNAGS.length) || (MY_RECENT_RESOLVED && MY_RECENT_RESOLVED.length);
+    bell.classList.toggle('has-pip', !!haveAny);
+  }
   if (!snags.length) { sec.style.display = 'none'; return; }
   sec.style.display = '';
-  if (cnt) cnt.textContent = snags.length + ' open';
-  // Cap at 5 inline; if more, show a "+N more" line linking to first job
+  if (cnt) cnt.textContent = String(snags.length);
   const SHOW = 5;
   const shown = snags.slice(0, SHOW);
   list.innerHTML = shown.map(s => {
     const prio = (s.priority || 'Medium').toLowerCase();
     const where = s.dwellingName + (s.stage ? ' · ' + s.stage : '');
     const goJob = `location.href='/jobs/${esc(s.jobId)}#snags'`;
-    return `<div class="md-mysnag" role="link" tabindex="0" onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
-      <div class="md-mysnag-accent ${esc(prio)}"></div>
-      <div class="md-mysnag-body">
-        <div class="md-mysnag-title">${esc(s.desc || '(no description)')}</div>
-        <div class="md-mysnag-meta"><b>${esc(s.jobName)}</b> · ${esc(where)}</div>
+    return `<div class="snag-row" role="link" tabindex="0" onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
+      <div class="snag-accent ${esc(prio)}"></div>
+      <div class="snag-body">
+        <div class="snag-title">${esc(s.desc || '(no description)')}</div>
+        <div class="snag-meta"><b>${esc(s.jobName)}</b> · ${esc(where)}</div>
       </div>
-      <span class="md-mysnag-prio ${esc(prio)}">${esc(s.priority || 'Medium')}</span>
-      <span class="md-mysnag-chev">&#8250;</span>
+      <span class="snag-prio ${esc(prio)}">${esc(s.priority || 'Medium')}</span>
     </div>`;
   }).join('');
   if (snags.length > SHOW) {
@@ -914,25 +830,23 @@ function renderRecentResolved(){
   const snags = MY_RECENT_RESOLVED || [];
   if (!snags.length) { sec.style.display = 'none'; return; }
   sec.style.display = '';
-  if (cnt) cnt.textContent = snags.length + ' in last 7 days';
+  if (cnt) cnt.textContent = String(snags.length);
   const SHOW = 5;
   const shown = snags.slice(0, SHOW);
   list.innerHTML = shown.map(s => {
     const where = s.dwellingName + (s.stage ? ' · ' + s.stage : '');
-    // timeAgo expects numeric ms; closedAt is an ISO string from the API.
     const closedTs  = s.closedAt ? Date.parse(s.closedAt) : NaN;
     const closedAgo = Number.isFinite(closedTs) ? timeAgo(closedTs) : '';
     const byWhom = s.updatedBy ? ('by ' + s.updatedBy) : 'resolved';
     const meta = `<b>${esc(s.jobName)}</b> · ${esc(where)} · ${esc(byWhom)}${closedAgo ? ' · ' + esc(closedAgo) : ''}`;
     const goJob = `location.href='/jobs/${esc(s.jobId)}#snags'`;
-    return `<div class="md-mysnag" role="link" tabindex="0" onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
-      <div class="md-mysnag-accent resolved"></div>
-      <div class="md-mysnag-body">
-        <div class="md-mysnag-title">&#10003; ${esc(s.desc || '(no description)')}</div>
-        <div class="md-mysnag-meta">${meta}</div>
+    return `<div class="snag-row" role="link" tabindex="0" onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
+      <div class="snag-accent resolved"></div>
+      <div class="snag-body">
+        <div class="snag-title">&#10003; ${esc(s.desc || '(no description)')}</div>
+        <div class="snag-meta">${meta}</div>
       </div>
-      <span class="md-mysnag-prio resolved">Resolved</span>
-      <span class="md-mysnag-chev">&#8250;</span>
+      <span class="snag-prio resolved">Resolved</span>
     </div>`;
   }).join('');
   if (snags.length > SHOW) {
@@ -981,43 +895,40 @@ function openSnagCount(job){
 }
 function renderJobs(){
   const active = JOBS.filter(j => (j.status || 'active') === 'active');
-  document.getElementById('jobs-count').textContent =
-    active.length + ' active';
+  document.getElementById('jobs-count').textContent = String(active.length);
   const wrap = document.getElementById('jobs-list');
   if (!active.length) {
-    wrap.innerHTML = `<div class="md-empty">No jobs assigned yet.</div>`;
+    wrap.innerHTML = `<div class="job-empty"><b>No jobs assigned yet</b>Ask an admin to put you on a job.</div>`;
     return;
   }
-  // After the My-Day simplification, the single-active-job promote rule
-  // is unconditional: if there's exactly one active job, surface it as
-  // the primary card so the next step is obvious.
-  const promoteSingle = active.length === 1;
-
-  let html = `<div class="md-jobs${promoteSingle ? ' md-jobs-promote' : ''}">`;
+  let html = '';
   active.forEach(j => {
     const pct = jobProgress(j);
     const crew = crewTodayCount(j);
     const sn   = openSnagCount(j);
-    // % pill colour: green at 100, amber when in progress, navy when 0
-    const pctClass = pct === 100 ? 'green' : pct > 0 ? 'amber' : 'navy';
-    // Meta line: prefer "on site today" if any; otherwise muted
-    const metaBits = [];
-    if (crew > 0) metaBits.push(`<span><b>${crew}</b> on site today</span>`);
-    if (sn > 0)   metaBits.push(`<a class="md-job-snag" href="/jobs/${esc(j.id)}#snags" onclick="event.stopPropagation()">${sn} open snag${sn!==1?'s':''}</a>`);
-    if (!metaBits.length) metaBits.push('<span>No activity today</span>');
-    // Row is a div (not <a>) so the snag chip can be a real nested link without
-    // the invalid <a><a></a></a> issue. Whole row navigates via onclick.
+    const pinClass = sn > 0 ? 'job-pin snag' : 'job-pin';
+    const dwCount = (j.areaGroups || []).reduce((s,g) => s + ((g.areas || []).length), 0);
+    const sub = [
+      `<span class="job-ref">${esc((j.ref || j.id || '').toUpperCase())}</span>`,
+      dwCount > 0 ? `<span>${dwCount} ${dwCount === 1 ? 'area' : 'areas'}</span>` : '',
+      crew > 0 ? `<span><b>${crew}</b> on site today</span>` : '',
+      sn > 0 ? `<span class="job-snag">${sn} open ${sn === 1 ? 'snag' : 'snags'}</span>` : '',
+    ].filter(Boolean).join('');
     const goJob = `location.href='/jobs/${esc(j.id)}'`;
-    html += `<div class="md-job" role="link" tabindex="0" onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
-      <div class="md-job-body">
-        <div class="md-job-name">${esc(j.name)}</div>
-        <div class="md-job-meta">${metaBits.join('')}</div>
+    html += `<a class="job-strip" role="link" tabindex="0" onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
+      <div class="${pinClass}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a8 8 0 0 0-8 8c0 5.5 8 12 8 12s8-6.5 8-12a8 8 0 0 0-8-8z"/><circle cx="12" cy="10" r="3"/></svg>
       </div>
-      <div class="md-job-pct ${pctClass}">${pct}%</div>
-      <div class="md-job-chev">&#8250;</div>
-    </div>`;
+      <div class="job-info">
+        <div class="job-name">${esc(j.name)}</div>
+        <div class="job-sub">${sub}</div>
+      </div>
+      <div class="job-pct">
+        <b>${pct}%</b>
+        <div class="mini-bar"><i style="width:${pct}%"></i></div>
+      </div>
+    </a>`;
   });
-  html += `</div>`;
   wrap.innerHTML = html;
 }
 
@@ -1026,9 +937,11 @@ function renderJobs(){
 // missing/logged at a glance, and tap any row (today or past) to add or edit
 // hours — same BuhlLogHours modal, prefilled to that date.
 function renderMyWeek(){
-  const wrap = document.getElementById('myweek-list');
-  const totalEl = document.getElementById('myweek-total');
-  if (!wrap) return;
+  const wrap = document.getElementById('myweek-list');     // hidden legacy fallback
+  const totalEl = document.getElementById('myweek-total'); // header number in the hero
+  const daysEl = document.getElementById('days');          // 7-cell day strip (brief)
+  const summaryB = document.getElementById('myweek-summary-b');
+  const ctaPip = document.getElementById('myweek-cta-pip');
 
   const monday = isoWeekMonday();
   const today  = new Date(); today.setHours(0,0,0,0);
@@ -1057,9 +970,78 @@ function renderMyWeek(){
   let total = 0;
   for (const day of days) if (day.hasHours) total += Number(day.entry.totalHours || 0);
   if (totalEl) {
-    totalEl.innerHTML = total > 0
-      ? `${fmtDur(total)} this week`
-      : '';
+    totalEl.textContent = total.toFixed(1);
+  }
+
+  // ── Day strip (brief v1 visual) ──
+  // States per cell: today / logged / draft / missing / weekend / future.
+  // Each tappable cell opens BuhlLogHours pre-filled to that date.
+  if (daysEl) {
+    const dayLabels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    daysEl.innerHTML = days.map((day, i) => {
+      const cls = [];
+      if (day.isToday) cls.push('today');
+      if (day.isWeekend) cls.push('weekend');
+      let qty = '·';
+      if (day.hasHours) {
+        const h = Number(day.entry.totalHours || 0);
+        qty = h.toFixed(1);
+        if (day.entry.status === 'draft') cls.push('draft');
+        else cls.push('logged');
+      } else if (day.isFuture) {
+        qty = '·';
+      } else if (!day.isWeekend) {
+        // Past weekday with no entry — missing
+        cls.push('missing');
+        qty = '—';
+      }
+      const tappable = !day.isFuture;
+      const tap = tappable ? `onclick="openLhForDate('${day.iso}')"` : '';
+      return `<div class="day ${cls.join(' ')}" ${tap}>
+        <span class="day-d">${dayLabels[i]}</span>
+        <span class="day-h${qty === '·' ? ' empty' : ''}">${qty}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Summary text + CTA pip ──
+  // "X days not logged yet" if ≥1 weekday past today is missing; else
+  // "Up to date" if all past weekdays are logged.
+  const missingCount = days.filter(d => !d.hasHours && !d.isFuture && !d.isWeekend).length;
+  if (summaryB) {
+    if (missingCount > 0) {
+      summaryB.textContent = missingCount + (missingCount === 1 ? ' day' : ' days') + ' missing';
+      summaryB.parentElement.lastChild.textContent = ' not logged yet';
+    } else if (total > 0) {
+      summaryB.textContent = 'All caught up';
+      summaryB.parentElement.lastChild.textContent = ' for this week';
+    } else {
+      summaryB.textContent = 'No hours yet';
+      summaryB.parentElement.lastChild.textContent = ' this week';
+    }
+  }
+  if (ctaPip) {
+    if (missingCount > 0) {
+      ctaPip.style.display = 'inline-flex';
+      ctaPip.textContent = '+' + missingCount + (missingCount === 1 ? ' day' : ' days');
+    } else {
+      ctaPip.style.display = 'none';
+    }
+  }
+
+  // ── Pay-day pill (brief v1) — Thursday weekly per the original spec ──
+  const payChip = document.getElementById('week-pay');
+  const payText = document.getElementById('week-pay-text');
+  if (payChip && payText) {
+    const now = new Date();
+    const dow = now.getDay(); // 0=Sun .. 6=Sat
+    const daysToThu = ((4 - dow) + 7) % 7; // 4=Thu
+    let label = '';
+    if (daysToThu === 0) label = 'Pay day today';
+    else if (daysToThu === 1) label = 'Pay day tomorrow';
+    else label = 'Pay day in ' + daysToThu + ' days';
+    payText.textContent = label;
+    payChip.style.display = 'inline-flex';
   }
 
   // "Submit all drafts" chip — only render when 2+ drafts in this week's view
@@ -1076,79 +1058,9 @@ function renderMyWeek(){
     }
   }
 
-  // Render each day. Tap behaviour: future/empty-weekend = no-op; everything
-  // else opens the BuhlLogHours modal pre-filled to that date.
-  const rows = days.map(day => {
-    const dayName  = day.d.toLocaleDateString('en-AU', { weekday: 'short' });
-    const datePart = day.d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
-    const dayLabel = `${dayName} <span class="date">${datePart}</span>`;
-
-    let statusCls = '';
-    let statusLbl = '';
-    let metaHtml  = '';
-    let rowCls    = '';
-    let openOn    = day.iso; // default tap target
-
-    if (day.isFuture) {
-      rowCls = 'future';
-      statusCls = 'future';
-      statusLbl = 'Not due';
-      metaHtml  = '';
-      openOn = null; // no tap
-    } else if (day.hasHours) {
-      const e = day.entry;
-      // Status follows workflow if relevant; otherwise a generic "Logged".
-      if (e.status === 'rejected') { statusCls = 'rejected'; statusLbl = 'Rejected'; }
-      else if (e.status === 'submitted') { statusCls = 'submit';  statusLbl = 'Submitted'; }
-      else if (e.status === 'approved')  { statusCls = 'logged';  statusLbl = '✓ Approved'; }
-      else if (e.status === 'draft')     { statusCls = 'draft';   statusLbl = 'Draft'; }
-      else                               { statusCls = 'logged';  statusLbl = 'Logged'; }
-      // Show the dominant job (first allocation) + total hours
-      const firstAlloc = (e.allocations || [])[0];
-      const job = firstAlloc && firstAlloc.jobId
-        ? (JOBS.find(j => j.id === firstAlloc.jobId) || { name: firstAlloc.jobId })
-        : null;
-      const allocCount = (e.allocations || []).length;
-      const jobLabel = job
-        ? esc(job.name) + (allocCount > 1 ? ` <b>+${allocCount - 1}</b>` : '')
-        : '<i style="color:var(--muted)">Internal</i>';
-      metaHtml = `${jobLabel} &middot; <b>${esc(fmtDur(Number(e.totalHours || 0)))}</b>`;
-      if (day.isToday) rowCls = 'today';
-    } else if (day.isToday) {
-      rowCls = 'today';
-      statusCls = 'today';
-      statusLbl = 'Today';
-      metaHtml = 'Tap to log hours';
-    } else if (day.isWeekend) {
-      // Past weekend day with no entry — quiet, but tappable in case worker
-      // did weekend hours. Distinct from "Missing" weekday red treatment.
-      rowCls = 'weekend-empty';
-      statusCls = 'future';
-      statusLbl = 'Day off';
-      metaHtml  = '';
-      openOn = day.iso; // still tappable so weekend hours can be added
-    } else {
-      // Past weekday with no hours — the "missing" case
-      statusCls = 'missing';
-      statusLbl = 'Missing';
-      metaHtml  = 'Tap to add';
-    }
-
-    const handler = openOn
-      ? `onclick="openLhForDate('${openOn}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openLhForDate('${openOn}')}" tabindex="0" role="button"`
-      : 'tabindex="-1" aria-disabled="true"';
-
-    return `<div class="md-week-row ${rowCls}" ${handler}>
-      <div class="md-week-row-body">
-        <div class="md-week-row-day">${dayLabel}</div>
-        ${metaHtml ? `<div class="md-week-row-meta">${metaHtml}</div>` : ''}
-      </div>
-      ${statusLbl ? `<span class="md-week-row-status ${statusCls}">${statusLbl}</span>` : ''}
-      <span class="md-week-row-chev">&#8250;</span>
-    </div>`;
-  }).join('');
-
-  wrap.innerHTML = `<div class="md-week-card">${rows}</div>`;
+  // Legacy #myweek-list fallback is now hidden — the brief's day strip
+  // above is the single source of truth for the week display.
+  if (wrap) wrap.innerHTML = '';
 }
 
 // ─── After-render side-effects ───────────────────────────────────────────
