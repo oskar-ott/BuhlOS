@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · temps</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+const STATUSES = [
+  { v: 'all',       l: 'All' },
+  { v: 'available', l: 'Available', tone: 'ok' },
+  { v: 'deployed',  l: 'Deployed',  tone: 'navy' },
+  { v: 'missing',   l: 'Missing',   tone: 'bad' },
+  { v: 'damaged',   l: 'Damaged',   tone: 'bad' },
+  { v: 'repair',    l: 'In repair', tone: 'warn' },
+];
+
+let STATE = {
+  filterStatus: 'all',
+  filterCategory: '',
+  search: '',
+  items: [],
+  summary: null,
+};
+
+window.PAGE = {
+  id: 'temps',
+  title: 'Temps & assets',
+  crumb: 'Temps',
+  async render() {
+    SHELL.$('#page').innerHTML = '<div class="empty"><div class="empty-title">Loading…</div></div>';
+    try {
+      const [a, s] = await Promise.all([
+        SHELL.api('/api/temps?includeRetired=0'),
+        SHELL.api('/api/temps?action=summary').catch(() => null),
+      ]);
+      STATE.items = a.items || [];
+      STATE.summary = s && s.counts;
+    } catch (e) {
+      SHELL.$('#page').innerHTML = `<div class="empty"><div class="empty-title">Failed to load</div><div class="empty-sub">${SHELL.escapeHtml(e.message)}</div></div>`;
+      return;
+    }
+    paint();
+  }
+};
+
+function paint() {
+  const cats = [...new Set(STATE.items.map(i => i.category).filter(Boolean))].sort();
+  const counts = {};
+  STATE.items.forEach(i => { counts[i.status] = (counts[i.status] || 0) + 1; });
+  counts.all = STATE.items.length;
+
+  const q = STATE.search.toLowerCase();
+  const list = STATE.items.filter(i => {
+    if (STATE.filterStatus !== 'all' && i.status !== STATE.filterStatus) return false;
+    if (STATE.filterCategory && i.category !== STATE.filterCategory) return false;
+    if (q) {
+      const blob = `${i.name || ''} ${i.assetCode || ''} ${i.category || ''} ${i.serial || ''}`.toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  const sum = STATE.summary || counts;
+
+  SHELL.$('#page').innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Temps &amp; assets</div>
+        <div class="page-sub">Tools, equipment, gear. Track availability, deployments, and condition.</div>
+      </div>
+      <div class="page-actions">
+        <a class="btn" href="/admin.html#tab-temps">Deploy / report (legacy)</a>
+        <button class="btn btn-accent" id="add-asset">${SHELL.ICONS.plus} New asset</button>
+      </div>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-l">Available</div><div class="kpi-v green">${sum.available || 0}</div></div>
+      <div class="kpi"><div class="kpi-l">Deployed</div><div class="kpi-v">${sum.deployed || 0}</div></div>
+      <div class="kpi"><div class="kpi-l">Missing</div><div class="kpi-v ${sum.missing ? 'red' : ''}">${sum.missing || 0}</div></div>
+      <div class="kpi"><div class="kpi-l">Damaged / repair</div><div class="kpi-v ${(sum.damaged || sum.repair) ? 'amber' : ''}">${(sum.damaged || 0) + (sum.repair || 0)}</div></div>
+      ${sum.overdue ? `<div class="kpi"><div class="kpi-l">Overdue returns</div><div class="kpi-v red">${sum.overdue}</div></div>` : ''}
+    </div>
+
+    <div class="tabs">
+      ${STATUSES.map(s => `<a class="tab ${STATE.filterStatus === s.v ? 'active' : ''}" href="#" data-st="${s.v}">${s.l}<span class="badge">${counts[s.v] || 0}</span></a>`).join('')}
+    </div>
+
+    <div class="toolbar">
+      <div class="search">${SHELL.ICONS.search}<input id="se-i" placeholder="Search by name, code, serial…" value="${SHELL.escapeHtml(STATE.search)}"></div>
+      <select class="select" id="cat-i" style="max-width:200px">
+        <option value="">All categories</option>
+        ${cats.map(c => `<option value="${SHELL.escapeHtml(c)}"${STATE.filterCategory === c ? ' selected' : ''}>${SHELL.escapeHtml(c)}</option>`).join('')}
+      </select>
+      <div class="toolbar-spacer"></div>
+      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(list.length, 'asset')}</span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Name</th><th>Code</th><th>Category</th><th>Status</th><th>Location</th><th></th></tr></thead>
+        <tbody>${list.length ? list.map(rowHtml).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No assets match those filters.</td></tr>'}</tbody>
+      </table>
+    </div>
+  `;
+  SHELL.$$('a[data-st]').forEach(t => t.addEventListener('click', e => { e.preventDefault(); STATE.filterStatus = t.dataset.st; paint(); }));
+  SHELL.$('#se-i').addEventListener('input', e => { STATE.search = e.target.value; paint(); });
+  SHELL.$('#cat-i').addEventListener('change', e => { STATE.filterCategory = e.target.value; paint(); });
+  SHELL.$('#add-asset').addEventListener('click', () => editPanel(null));
+  SHELL.$$('button[data-edit]').forEach(b => b.addEventListener('click', () => editPanel(b.dataset.edit)));
+  SHELL.$$('button[data-retire]').forEach(b => b.addEventListener('click', () => retire(b.dataset.retire)));
+}
+
+function rowHtml(it) {
+  const st = STATUSES.find(s => s.v === it.status);
+  const tone = (st && st.tone) || 'navy';
+  const loc = it.location ? (it.location.label || `${it.location.type}${it.location.value ? ': ' + it.location.value : ''}`) : '—';
+  return `<tr>
+    <td><b>${SHELL.escapeHtml(it.name || '')}</b>${it.serial ? `<div style="font-size:11px;color:var(--muted)">SN: ${SHELL.escapeHtml(it.serial)}</div>` : ''}</td>
+    <td><span class="mono" style="font-size:12px">${SHELL.escapeHtml(it.assetCode || '—')}</span></td>
+    <td>${SHELL.escapeHtml(it.category || '')}</td>
+    <td><span class="pill pill-${tone}"><span class="pill-dot"></span>${SHELL.escapeHtml(it.status || '')}</span></td>
+    <td style="font-size:12px;color:var(--ink-2)">${SHELL.escapeHtml(loc)}</td>
+    <td style="display:flex;gap:6px;justify-content:flex-end">
+      <button class="btn btn-sm" data-edit="${SHELL.escapeHtml(it.id)}">Edit</button>
+      <button class="btn btn-sm btn-danger" data-retire="${SHELL.escapeHtml(it.id)}">Retire</button>
+    </td>
+  </tr>`;
+}
+
+function editPanel(id) {
+  const cur = id ? (STATE.items.find(x => x.id === id) || {}) : {};
+  const panel = SHELL.openPanel({
+    title: id ? 'Edit asset' : 'New asset',
+    body: `
+      <div class="field"><label class="field-lbl">Name *</label><input class="input" id="t-name" autofocus value="${SHELL.escapeHtml(cur.name || '')}" placeholder="e.g. Hilti TE 7-A22"></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Asset code</label><input class="input" id="t-code" value="${SHELL.escapeHtml(cur.assetCode || '')}" placeholder="e.g. T-001"></div>
+        <div class="field"><label class="field-lbl">Category</label><input class="input" id="t-cat" value="${SHELL.escapeHtml(cur.category || '')}" placeholder="Power tools, leads, ladders…"></div>
+      </div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Serial number</label><input class="input" id="t-serial" value="${SHELL.escapeHtml(cur.serial || '')}"></div>
+        <div class="field"><label class="field-lbl">Status</label>
+          <select class="select" id="t-status">
+            ${['available','deployed','missing','damaged','repair','retired'].map(s => `<option value="${s}"${(cur.status || 'available') === s ? ' selected' : ''}>${s}</option>`).join('')}
+          </select></div>
+      </div>
+      <div class="field"><label class="field-lbl">Notes</label><textarea class="textarea" id="t-notes" rows="3">${SHELL.escapeHtml(cur.notes || '')}</textarea></div>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px">Deployment, return, and damage flows live on the legacy <a href="/admin.html#tab-temps">temps tab</a> for now — they include photo capture and per-job movement logs.</p>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="t-save">${id ? 'Save' : 'Create'}</button>`,
+  });
+  panel.querySelector('#t-save').addEventListener('click', async () => {
+    const body = {
+      name: panel.querySelector('#t-name').value.trim(),
+      assetCode: panel.querySelector('#t-code').value.trim(),
+      category: panel.querySelector('#t-cat').value.trim(),
+      serial: panel.querySelector('#t-serial').value.trim(),
+      status: panel.querySelector('#t-status').value,
+      notes: panel.querySelector('#t-notes').value.trim(),
+    };
+    if (!body.name) { SHELL.toast('Name required', 'bad'); return; }
+    try {
+      if (id) await SHELL.api('/api/temps?id=' + encodeURIComponent(id), { method: 'PATCH', body });
+      else    await SHELL.api('/api/temps', { method: 'POST', body });
+      SHELL.toast('Saved', 'ok');
+      SHELL.closePanel();
+      const [a, s] = await Promise.all([SHELL.api('/api/temps?includeRetired=0'), SHELL.api('/api/temps?action=summary').catch(() => null)]);
+      STATE.items = a.items || []; STATE.summary = s && s.counts; paint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+
+async function retire(id) {
+  if (!confirm('Retire this asset? Soft delete — sets status=retired and removes from active register.')) return;
+  try {
+    await fetch('/api/temps?id=' + encodeURIComponent(id), { method: 'DELETE', credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('Failed'); });
+    SHELL.toast('Retired', 'ok');
+    const [a, s] = await Promise.all([SHELL.api('/api/temps?includeRetired=0'), SHELL.api('/api/temps?action=summary').catch(() => null)]);
+    STATE.items = a.items || []; STATE.summary = s && s.counts; paint();
+  } catch (e) { SHELL.toast('Retire failed — ' + e.message, 'bad'); }
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>

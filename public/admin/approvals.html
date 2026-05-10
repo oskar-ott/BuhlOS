@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · approvals</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+let STATE = {
+  filterJob: 'all',
+  showApproved: false,
+  pending: [],
+  approvedThisWeek: [],
+};
+
+window.PAGE = {
+  id: 'approvals',
+  title: 'Approvals',
+  crumb: 'Approvals',
+
+  async render() {
+    // Re-fetch fresh — sidebar count came from boot but approve/reject can
+    // happen in the middle of a session.
+    await loadAll();
+    paint();
+  }
+};
+
+async function loadAll() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('job')) STATE.filterJob = params.get('job');
+
+  // Pending entries via the dedicated approver scope (server gates by role + LH job ownership).
+  try {
+    const r = await SHELL.api('/api/time-entries?status=submitted&scope=approver');
+    STATE.pending = r.entries || [];
+  } catch (e) { STATE.pending = []; }
+
+  // Approved-this-week — for the "show what I just approved" toggle. Uses
+  // the existing overview rollup; cheap.
+  if (STATE.showApproved) {
+    try {
+      const monday = SHELL.isoWeekMonday();
+      const r = await SHELL.api(`/api/time-entries-overview?fromDate=${SHELL._iso(monday)}&toDate=${SHELL._iso(new Date())}`);
+      STATE.approvedThisWeek = (r.entries || []).filter(e => e.status === 'approved');
+    } catch { STATE.approvedThisWeek = []; }
+  }
+}
+
+function paint() {
+  // Filter pending list by job (from URL or chip).
+  const filtered = STATE.pending.filter(e => {
+    if (STATE.filterJob === 'all') return true;
+    return (e.allocations || []).some(a => a.jobId === STATE.filterJob);
+  });
+
+  // Group by submitter so admin can approve a person's whole week in one tap.
+  const byUser = {};
+  for (const e of filtered) {
+    const k = e.userId;
+    if (!byUser[k]) byUser[k] = { userId: k, userName: e.userName || k, role: e.userRole, entries: [] };
+    byUser[k].entries.push(e);
+  }
+  const groups = Object.values(byUser).sort((a, b) =>
+    (b.entries[0] && b.entries[0].submittedAt || '').localeCompare(a.entries[0] && a.entries[0].submittedAt || ''));
+
+  const totalHours = filtered.reduce((s, e) => s + (Number(e.totalHours) || 0), 0);
+  const now = Date.now();
+  const staleCount = filtered.filter(e => e.submittedAt && (now - Date.parse(e.submittedAt)) >= 24 * 3600 * 1000).length;
+  const staleTone = staleCount === 0 ? 'green' : staleCount >= 5 ? 'red' : 'amber';
+
+  // Job filter dropdown options — derive from JOBS shared from the shell.
+  const jobOpts = ['<option value="all">All jobs</option>']
+    .concat((SHELL.JOBS || [])
+      .map(j => `<option value="${SHELL.escapeHtml(j.id)}" ${STATE.filterJob === j.id ? 'selected' : ''}>${SHELL.escapeHtml((j.ref || j.id).toUpperCase())} — ${SHELL.escapeHtml(j.name)}</option>`))
+    .join('');
+
+  SHELL.$('#page').innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Approvals</div>
+        <div class="page-sub">Hours awaiting approval — approve here so the tradies get paid.</div>
+      </div>
+      <div class="page-actions">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">
+          <input type="checkbox" id="show-approved" ${STATE.showApproved ? 'checked' : ''}> Show approved this week
+        </label>
+      </div>
+    </div>
+
+    <div class="kgrid">
+      <div class="kpi"><div class="kpi-l">Pending entries</div><div class="kpi-v">${filtered.length}</div><div class="kpi-d">${STATE.filterJob === 'all' ? 'across all jobs' : 'on this job'}</div></div>
+      <div class="kpi"><div class="kpi-l">Pending hours</div><div class="kpi-v">${totalHours.toFixed(1)}<sup>h</sup></div><div class="kpi-d">at submitted rates</div></div>
+      <div class="kpi"><div class="kpi-l">Submitters</div><div class="kpi-v">${groups.length}</div><div class="kpi-d">distinct people</div></div>
+      <div class="kpi"><div class="kpi-l">Waiting &gt; 24h</div><div class="kpi-v ${staleTone}">${staleCount}</div><div class="kpi-d">prioritise these</div></div>
+    </div>
+
+    <div class="toolbar">
+      <select class="select" id="job-filter" style="width:auto;min-width:240px">${jobOpts}</select>
+      <div class="toolbar-spacer"></div>
+      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(filtered.length, 'entry', 'entries')}</span>
+    </div>
+
+    ${groups.length === 0 ? `
+      <div class="empty">
+        <div class="empty-icon">${SHELL.ICONS.approval}</div>
+        <div class="empty-title">All caught up</div>
+        <div class="empty-sub">${STATE.filterJob === 'all' ? 'Nothing to approve right now.' : 'No pending entries on this job.'}</div>
+      </div>
+    ` : groups.map(renderGroup).join('')}
+
+    ${STATE.showApproved && STATE.approvedThisWeek.length ? renderApprovedThisWeek() : ''}
+  `;
+
+  // Wire controls
+  SHELL.$('#show-approved').addEventListener('change', async (e) => {
+    STATE.showApproved = e.target.checked;
+    if (STATE.showApproved && !STATE.approvedThisWeek.length) {
+      try {
+        const monday = SHELL.isoWeekMonday();
+        const r = await SHELL.api(`/api/time-entries-overview?fromDate=${SHELL._iso(monday)}&toDate=${SHELL._iso(new Date())}`);
+        STATE.approvedThisWeek = (r.entries || []).filter(e => e.status === 'approved');
+      } catch {}
+    }
+    paint();
+  });
+  SHELL.$('#job-filter').addEventListener('change', (e) => {
+    STATE.filterJob = e.target.value;
+    paint();
+  });
+  // Per-row buttons.
+  SHELL.$$('[data-action="approve"]').forEach(b => b.addEventListener('click', onApprove));
+  SHELL.$$('[data-action="reject"]').forEach(b => b.addEventListener('click', onReject));
+  SHELL.$$('[data-action="approve-all"]').forEach(b => b.addEventListener('click', onApproveAllForUser));
+}
+
+function renderGroup(g) {
+  const groupApprovable = g.entries.filter(canApprove).length;
+  const groupHours = g.entries.reduce((s, e) => s + (Number(e.totalHours) || 0), 0);
+  return `
+    <div class="card" style="padding:0;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line);background:var(--surface-2)">
+        <div class="avatar ${g.role || 'tradie'}">${SHELL.initials(g.userName)}</div>
+        <div style="flex:1">
+          <div style="font-weight:600">${SHELL.escapeHtml(g.userName)}</div>
+          <div style="font-size:12px;color:var(--muted)">${SHELL.pluralize(g.entries.length, 'entry', 'entries')} · ${groupHours.toFixed(1)}h${g.role === 'leadingHand' ? ' · Leading hand' : ''}</div>
+        </div>
+        ${groupApprovable >= 2 ? `<button class="btn btn-sm btn-primary" data-action="approve-all" data-userid="${SHELL.escapeHtml(g.userId)}">Approve all (${groupApprovable})</button>` : ''}
+      </div>
+      ${g.entries.map(renderEntryCard).join('')}
+    </div>
+  `;
+}
+
+function renderEntryCard(entry) {
+  const blocked = !canApprove(entry);
+  const blockReason = SHELL.ME.role === 'leadingHand'
+    ? (entry.userRole === 'leadingHand' ? 'LH-on-LH approval is admin-only' : 'Includes work outside your jobs — admin only')
+    : '';
+  const submittedMs = entry.submittedAt ? Date.parse(entry.submittedAt) : NaN;
+  let staleBadge = '';
+  if (Number.isFinite(submittedMs)) {
+    const ageHrs = Math.floor((Date.now() - submittedMs) / (1000 * 60 * 60));
+    if (ageHrs >= 48)      staleBadge = `<span class="pill pill-bad">${Math.floor(ageHrs / 24)}d waiting</span>`;
+    else if (ageHrs >= 24) staleBadge = `<span class="pill pill-warn">${ageHrs}h waiting</span>`;
+  }
+  return `
+    <div style="padding:14px 18px;border-bottom:1px solid var(--line)" data-entryid="${SHELL.escapeHtml(entry.id || '')}" data-userid="${SHELL.escapeHtml(entry.userId)}" data-date="${SHELL.escapeHtml(entry.date)}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+        <div>
+          <div style="font-weight:600;font-size:14px" class="tabular">${SHELL.escapeHtml(formatDate(entry.date))} ${staleBadge}</div>
+          <div style="font-size:12px;color:var(--muted)" class="tabular">
+            ${Number(entry.totalHours).toFixed(2)}h · ord ${Number(entry.ordinaryHours).toFixed(2)} · OT ${Number(entry.overtimeHours).toFixed(2)}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm btn-danger" data-action="reject">Reject</button>
+          <button class="btn btn-sm btn-primary" data-action="approve" ${blocked ? `disabled title="${SHELL.escapeHtml(blockReason)}"` : ''}>${SHELL.ICONS.check}Approve</button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--ink-2)">
+        ${(entry.allocations || []).map(a => `
+          <div style="display:flex;justify-content:space-between;padding:4px 0;border-top:1px dashed var(--line)">
+            <span>${a.jobId
+              ? `<b>${SHELL.escapeHtml(a.jobName || a.jobId)}</b>${SHELL.ME.role === 'leadingHand' && a._jobLedByMe === false ? ' <span style="color:var(--bad);font-size:11px;font-weight:700">not your job</span>' : ''}`
+              : `<em style="color:var(--muted)">Internal — no job</em>${SHELL.ME.role === 'leadingHand' ? ' <span style="color:var(--bad);font-size:11px;font-weight:700">admin-only</span>' : ''}`}
+            </span>
+            <span class="tabular" style="font-weight:600">${Number(a.hours).toFixed(2)}h</span>
+          </div>
+        `).join('')}
+      </div>
+      ${entry.notes ? `<div style="margin-top:8px;padding:8px 10px;background:var(--surface-2);border-radius:6px;font-size:12px;color:var(--muted);font-style:italic">"${SHELL.escapeHtml(entry.notes)}"</div>` : ''}
+      <div data-region="reject"></div>
+    </div>
+  `;
+}
+
+function renderApprovedThisWeek() {
+  const total = STATE.approvedThisWeek.reduce((s, e) => s + Number(e.totalHours || 0), 0);
+  return `
+    <div class="card" style="padding:0;margin-top:18px">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--line)">
+        <div class="card-title">Approved this week</div>
+        <div class="card-sub">${SHELL.pluralize(STATE.approvedThisWeek.length, 'entry', 'entries')} · ${total.toFixed(1)}h</div>
+      </div>
+      <div style="padding:0">
+        ${STATE.approvedThisWeek
+          .sort((a,b) => (b.approvedAt || '').localeCompare(a.approvedAt || ''))
+          .slice(0, 30)
+          .map(e => `
+            <div style="display:grid;grid-template-columns:1.5fr 1fr 80px;gap:12px;padding:8px 18px;border-bottom:1px solid var(--line);font-size:13px">
+              <div><b>${SHELL.escapeHtml(e.userName || e.userId)}</b> <span style="color:var(--muted)">${SHELL.escapeHtml(formatDate(e.date))}</span></div>
+              <div style="color:var(--muted);font-size:12px">approved ${SHELL._ago(e.approvedAt)}${e.approvedBy ? ' by ' + SHELL.escapeHtml(e.approvedBy) : ''}</div>
+              <div class="tabular" style="text-align:right;font-weight:600">${Number(e.totalHours).toFixed(1)}h</div>
+            </div>
+          `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function canApprove(e) {
+  if (SHELL.ME.role === 'admin') return true;
+  if (SHELL.ME.role !== 'leadingHand') return false;
+  if (e.userRole === 'leadingHand') return false;
+  return (e.allocations || []).every(a => a._jobLedByMe);
+}
+
+function formatDate(iso) {
+  try {
+    const d = new Date(iso + 'T00:00:00');
+    return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  } catch { return iso; }
+}
+
+async function onApprove(ev) {
+  const row = ev.target.closest('[data-userid]');
+  const userId = row.dataset.userid, date = row.dataset.date;
+  ev.target.disabled = true; ev.target.textContent = 'Approving…';
+  try {
+    await SHELL.api('/api/time-entries-approve', {
+      method: 'POST', body: { userId, date },
+    });
+    SHELL.toast('Approved', 'ok');
+    await loadAll();
+    await SHELL.refreshCounts();
+    paint();
+  } catch (e) {
+    SHELL.toast('Approve failed — ' + e.message, 'bad');
+    ev.target.disabled = false; ev.target.textContent = 'Approve';
+  }
+}
+
+function onReject(ev) {
+  const row = ev.target.closest('[data-userid]');
+  const region = row.querySelector('[data-region="reject"]');
+  region.innerHTML = `
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+      <textarea class="textarea" rows="2" placeholder="Reason (e.g. wrong job, hours don't match site sign-in)"></textarea>
+      <div style="display:flex;gap:6px;margin-top:8px;justify-content:flex-end">
+        <button class="btn btn-sm" data-action="cancel-reject">Cancel</button>
+        <button class="btn btn-sm btn-danger" data-action="confirm-reject">Confirm reject</button>
+      </div>
+    </div>
+  `;
+  region.querySelector('[data-action="cancel-reject"]').addEventListener('click', () => { region.innerHTML = ''; });
+  region.querySelector('[data-action="confirm-reject"]').addEventListener('click', async (e2) => {
+    const reason = region.querySelector('textarea').value.trim();
+    if (!reason) return;
+    e2.target.disabled = true; e2.target.textContent = 'Rejecting…';
+    try {
+      await SHELL.api('/api/time-entries-reject', {
+        method: 'POST', body: { userId: row.dataset.userid, date: row.dataset.date, reason },
+      });
+      SHELL.toast('Rejected', 'ok');
+      await loadAll();
+      await SHELL.refreshCounts();
+      paint();
+    } catch (e) {
+      SHELL.toast('Reject failed — ' + e.message, 'bad');
+      e2.target.disabled = false; e2.target.textContent = 'Confirm reject';
+    }
+  });
+}
+
+async function onApproveAllForUser(ev) {
+  const userId = ev.target.dataset.userid;
+  const approvable = STATE.pending.filter(e => e.userId === userId && canApprove(e));
+  if (!approvable.length) return;
+  if (!confirm(`Approve ${approvable.length} ${approvable.length === 1 ? 'entry' : 'entries'} from this person?`)) return;
+  ev.target.disabled = true;
+  let done = 0, failed = 0;
+  for (const e of approvable) {
+    ev.target.textContent = `Approving ${done + 1}/${approvable.length}…`;
+    try {
+      await SHELL.api('/api/time-entries-approve', { method: 'POST', body: { userId: e.userId, date: e.date } });
+      done++;
+    } catch { failed++; }
+  }
+  SHELL.toast(`Approved ${done}${failed ? ', failed ' + failed : ''}`, failed ? 'bad' : 'ok');
+  await loadAll();
+  await SHELL.refreshCounts();
+  paint();
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · quotes</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+const QUOTE_STATUSES = [
+  { v:'draft',            l:'Draft',           tone:'' },
+  { v:'reviewing',        l:'Reviewing',       tone:'amber' },
+  { v:'estimating',       l:'Estimating',      tone:'amber' },
+  { v:'submitted',        l:'Submitted',       tone:'navy' },
+  { v:'accepted',         l:'Accepted',        tone:'green' },
+  { v:'won',              l:'Won',             tone:'green' },
+  { v:'lost',             l:'Lost',            tone:'red' },
+  { v:'declined',         l:'Declined',        tone:'red' },
+  { v:'converted_to_job', l:'Converted',       tone:'green' },
+  { v:'archived',         l:'Archived',        tone:'' },
+];
+const STATUS_TONE = { '': 'navy', amber: 'warn', green: 'ok', red: 'bad', navy: 'navy' };
+
+let STATE = {
+  filterStatus: 'all',
+  search: '',
+  list: [],
+  metrics: null,
+};
+
+window.PAGE = {
+  id: 'quotes',
+  title: 'Quotes',
+  crumb: 'Quotes',
+  async render() {
+    SHELL.$('#page').innerHTML = `<div class="empty"><div class="empty-title">Loading quotes…</div></div>`;
+    try {
+      const [list, metrics] = await Promise.all([
+        SHELL.api('/api/quotes'),
+        SHELL.api('/api/quotes?action=metrics').catch(() => null),
+      ]);
+      STATE.list = list.quotes || [];
+      STATE.metrics = metrics && metrics.metrics;
+    } catch (e) {
+      SHELL.$('#page').innerHTML = `<div class="empty"><div class="empty-title">Failed to load quotes</div><div class="empty-sub">${SHELL.escapeHtml(e.message)}</div></div>`;
+      return;
+    }
+    paint();
+  }
+};
+
+function paint() {
+  const list = STATE.list;
+  const counts = { all: list.length };
+  QUOTE_STATUSES.forEach(s => counts[s.v] = list.filter(q => q.status === s.v).length);
+
+  const q = STATE.search.trim().toLowerCase();
+  const filtered = list.filter(qt => {
+    if (STATE.filterStatus !== 'all' && qt.status !== STATE.filterStatus) return false;
+    if (q && !((qt.name || '').toLowerCase().includes(q) || (qt.builder || '').toLowerCase().includes(q) || (qt.id || '').toLowerCase().includes(q))) return false;
+    return true;
+  });
+  filtered.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+
+  const m = STATE.metrics;
+
+  SHELL.$('#page').innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Quotes</div>
+        <div class="page-sub">Tender opportunities — draft, estimate, submit, win.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-accent" id="new-quote">${SHELL.ICONS.plus} New quote</button>
+      </div>
+    </div>
+
+    ${m ? `
+      <div class="kpi-row">
+        <div class="kpi"><div class="kpi-lbl">Total quotes</div><div class="kpi-val">${m.total || 0}</div></div>
+        <div class="kpi"><div class="kpi-lbl">Win rate</div><div class="kpi-val">${m.winRatePct != null ? m.winRatePct + '%' : '—'}</div><div class="kpi-sub">${m.winCount || 0} of ${m.conclusiveCount || 0} conclusive</div></div>
+        <div class="kpi"><div class="kpi-lbl">Last 30d new</div><div class="kpi-val">${m.recent30Count || 0}</div></div>
+        <div class="kpi"><div class="kpi-lbl">Last 90d won value</div><div class="kpi-val">${SHELL.fmtMoney(m.recent90Value || 0)}</div><div class="kpi-sub">${m.recent90Count || 0} job${m.recent90Count === 1 ? '' : 's'}</div></div>
+      </div>
+    ` : ''}
+
+    <div class="tabs" style="margin-top:18px">
+      ${[{v:'all',l:'All'},...QUOTE_STATUSES].map(s => `
+        <a class="tab ${STATE.filterStatus === s.v ? 'active' : ''}" href="#" data-status="${s.v}">
+          ${s.l || s.v}<span class="badge">${counts[s.v] || 0}</span>
+        </a>
+      `).join('')}
+    </div>
+
+    <div class="toolbar">
+      <div class="search">${SHELL.ICONS.search}<input id="search-i" placeholder="Search by name, builder, ref…" value="${SHELL.escapeHtml(STATE.search)}"></div>
+      <div class="toolbar-spacer"></div>
+      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(filtered.length, 'quote')}</span>
+    </div>
+
+    <div class="jobs-grid">
+      ${filtered.length ? filtered.map(quoteCard).join('') : `
+        <div class="empty" style="grid-column:1/-1">
+          <div class="empty-icon">${SHELL.ICONS.quotes}</div>
+          <div class="empty-title">${list.length ? 'No quotes match those filters' : 'No quotes yet'}</div>
+          <div class="empty-sub">${list.length ? 'Try a different status or clear the search.' : 'Create your first tender opportunity to get started.'}</div>
+        </div>
+      `}
+    </div>
+  `;
+
+  SHELL.$$('a[data-status]').forEach(t => t.addEventListener('click', e => {
+    e.preventDefault();
+    STATE.filterStatus = t.dataset.status;
+    paint();
+  }));
+  SHELL.$('#search-i').addEventListener('input', e => { STATE.search = e.target.value; paint(); });
+  SHELL.$('#new-quote').addEventListener('click', openNewQuotePanel);
+}
+
+function quoteCard(qt) {
+  const st = QUOTE_STATUSES.find(s => s.v === qt.status) || { l: qt.status, tone: '' };
+  const counts = qt.counts || {};
+  const chips = [
+    counts.documents ? `<span class="chip ok">${counts.documents} doc${counts.documents === 1 ? '' : 's'}</span>` : `<span class="chip warn">No documents</span>`,
+    counts.materials ? `<span class="chip ok">${counts.materials} material${counts.materials === 1 ? '' : 's'}</span>` : '',
+    counts.labourLines ? `<span class="chip ok">${(counts.labourHours || 0).toFixed(0)}h labour</span>` : '',
+  ].filter(Boolean).join('');
+
+  const due = qt.dueDate ? `<span>Due <b>${SHELL.escapeHtml(qt.dueDate)}</b></span>` : '';
+  const builder = qt.builder ? `<span>${SHELL.escapeHtml(qt.builder)}</span>` : '';
+  const rev = (qt.version && qt.version > 1) ? `<span class="chip">Rev ${qt.version}</span>` : '';
+
+  return `
+    <a href="/admin/quotes/${SHELL.escapeHtml(qt.id)}" class="job-card">
+      <div class="job-card-top">
+        <div style="flex:1">
+          <div class="job-card-name">${SHELL.escapeHtml(qt.name)}</div>
+          <div class="job-card-ref">${SHELL.escapeHtml(qt.id)}</div>
+        </div>
+        <span class="pill pill-${STATUS_TONE[st.tone] || 'navy'}"><span class="pill-dot"></span>${st.l}</span>
+        ${rev}
+      </div>
+      <div class="job-card-meta" style="margin-top:6px">
+        ${[builder, due].filter(Boolean).join('')}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">${chips}</div>
+    </a>
+  `;
+}
+
+function openNewQuotePanel() {
+  const panel = SHELL.openPanel({
+    title: 'New quote',
+    body: `
+      <div class="field"><label class="field-lbl">Quote name *</label>
+        <input class="input" id="qn-name" placeholder="e.g. 19-21 The Corso EOI" autofocus></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Builder / client</label>
+          <input class="input" id="qn-builder"></div>
+        <div class="field"><label class="field-lbl">Due date</label>
+          <input class="input" id="qn-due" type="date"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Site address</label>
+        <input class="input" id="qn-addr"></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Contact name</label>
+          <input class="input" id="qn-cname"></div>
+        <div class="field"><label class="field-lbl">Contact email</label>
+          <input class="input" id="qn-cemail" type="email"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Description</label>
+        <textarea class="textarea" id="qn-desc" rows="3" placeholder="Short scope summary"></textarea></div>
+    `,
+    footer: `
+      <button class="btn" onclick="SHELL.closePanel()">Cancel</button>
+      <button class="btn btn-primary" id="qn-create">Create quote</button>
+    `,
+  });
+  panel.querySelector('#qn-create').addEventListener('click', async () => {
+    const body = {
+      name:         panel.querySelector('#qn-name').value.trim(),
+      builder:      panel.querySelector('#qn-builder').value.trim(),
+      dueDate:      panel.querySelector('#qn-due').value,
+      siteAddress:  panel.querySelector('#qn-addr').value.trim(),
+      contactName:  panel.querySelector('#qn-cname').value.trim(),
+      contactEmail: panel.querySelector('#qn-cemail').value.trim(),
+      description:  panel.querySelector('#qn-desc').value.trim(),
+    };
+    if (!body.name) { SHELL.toast('Name required', 'bad'); return; }
+    try {
+      const r = await SHELL.api('/api/quotes', { method: 'POST', body });
+      SHELL.toast('Quote created', 'ok');
+      SHELL.closePanel();
+      location.href = '/admin/quotes/' + r.quote.id;
+    } catch (e) { SHELL.toast('Create failed — ' + e.message, 'bad'); }
+  });
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>

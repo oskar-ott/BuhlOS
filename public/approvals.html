@@ -173,6 +173,22 @@
 </style>
 </head>
 <body>
+<!-- Admin-only banner — show a path back to the new admin shell.
+     Shown for admins via the inline init script below. -->
+<div id="adminBanner" style="display:none;background:#e08a1a;color:#2a1a05;padding:10px 18px;font-size:13px;align-items:center;gap:14px;border-bottom:2px solid #f5f3ee;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+  <b>New admin available.</b>
+  <span>The redesigned approvals queue at <a href="/admin/approvals" style="color:#2a1a05;text-decoration:underline;font-weight:700">/admin/approvals</a> has inline approve/reject and per-user batch actions.</span>
+  <span style="flex:1"></span>
+  <a href="/admin/approvals" style="background:#2a1a05;color:#e08a1a;padding:5px 11px;border-radius:6px;text-decoration:none;font-weight:700;font-size:12px">Open new queue →</a>
+</div>
+<script>
+  // Reveal the admin banner only for admins. Cheap fetch — same /api/auth?action=me
+  // call that the rest of the page makes, so it won't double-charge.
+  fetch('/api/auth?action=me', { credentials:'same-origin' })
+    .then(r => r.ok ? r.json() : null)
+    .then(j => { if (j && j.user && j.user.role === 'admin') document.getElementById('adminBanner').style.display = 'flex'; })
+    .catch(() => {});
+</script>
 <header class="app-header">
   <div class="hdr-left">
     <a href="/approvals" class="wordmark hdr-mark" aria-label="BuhlOS — approvals">b&uuml;hl<span class="os">OS</span></a>

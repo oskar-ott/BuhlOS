@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · jobs</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+let STATE = {
+  filterStatus: 'active',
+  filterSetupGaps: false,
+  search: '',
+  jobs: [],
+  jobTypes: {},
+};
+
+window.PAGE = {
+  id: 'jobs',
+  title: 'Jobs',
+  crumb: 'Jobs',
+  async render() {
+    const params = new URLSearchParams(location.search);
+    if (params.get('filter') === 'setup-gaps') STATE.filterSetupGaps = true;
+
+    STATE.jobs = SHELL.JOBS || [];
+    try {
+      const r = await SHELL.api('/api/job-types');
+      ((r.jobTypes || r.types || [])).forEach(t => { STATE.jobTypes[t.id] = t; });
+    } catch {}
+    paint();
+  }
+};
+
+function paint() {
+  const jobs = STATE.jobs;
+  const counts = {
+    all:      jobs.length,
+    active:   jobs.filter(j => (j.status || 'active') === 'active').length,
+    paused:   jobs.filter(j => j.status === 'paused').length,
+    complete: jobs.filter(j => j.status === 'complete').length,
+    archived: jobs.filter(j => j.status === 'archived').length,
+  };
+  const setupGapCount = jobs.filter(j => (j.status || 'active') === 'active' && hasSetupGaps(j)).length;
+
+  const q = STATE.search.toLowerCase();
+  const list = jobs.filter(j => {
+    const s = j.status || 'active';
+    if (STATE.filterStatus !== 'all' && s !== STATE.filterStatus) return false;
+    if (STATE.filterSetupGaps && !hasSetupGaps(j)) return false;
+    if (q) {
+      const blob = `${j.name || ''} ${j.id || ''} ${j.ref || ''} ${(STATE.jobTypes[j.type] || {}).name || ''}`.toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  });
+
+  SHELL.$('#page').innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Jobs</div>
+        <div class="page-sub">${SHELL.pluralize(counts.active, 'live job')} · ${counts.paused} paused · ${counts.complete} complete${counts.archived ? ' · ' + counts.archived + ' archived' : ''}${setupGapCount ? ' · <b style="color:var(--warn)">' + setupGapCount + ' need setup</b>' : ''}</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-accent" id="new-job">${SHELL.ICONS.plus} New job</button>
+      </div>
+    </div>
+
+    <div class="tabs">
+      ${['active','all','paused','complete','archived'].map(s => `
+        <a class="tab ${STATE.filterStatus === s ? 'active' : ''}" href="#" data-status="${s}">
+          ${s[0].toUpperCase() + s.slice(1)}
+          <span class="badge">${counts[s] || 0}</span>
+        </a>
+      `).join('')}
+    </div>
+
+    <div class="toolbar">
+      <div class="search">${SHELL.ICONS.search}<input id="search-i" placeholder="Search by name, ref, type…" value="${SHELL.escapeHtml(STATE.search)}"></div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">
+        <input type="checkbox" id="setup-gaps-i" ${STATE.filterSetupGaps ? 'checked' : ''}> Setup gaps only
+      </label>
+      <div class="toolbar-spacer"></div>
+      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(list.length, 'job')}</span>
+    </div>
+
+    <div class="jobs-grid">
+      ${list.length ? list.map(jobCard).join('') : `
+        <div class="empty" style="grid-column:1/-1">
+          <div class="empty-icon">${SHELL.ICONS.jobs}</div>
+          <div class="empty-title">No jobs match those filters</div>
+          <div class="empty-sub">Try a different status or clear the search.</div>
+        </div>
+      `}
+    </div>
+  `;
+
+  SHELL.$$('a[data-status]').forEach(t => t.addEventListener('click', e => {
+    e.preventDefault();
+    STATE.filterStatus = t.dataset.status;
+    paint();
+  }));
+  SHELL.$('#search-i').addEventListener('input', e => { STATE.search = e.target.value; paint(); });
+  SHELL.$('#setup-gaps-i').addEventListener('change', e => { STATE.filterSetupGaps = e.target.checked; paint(); });
+  SHELL.$('#new-job').addEventListener('click', openNewJobPanel);
+}
+
+function hasSetupGaps(j) {
+  if (!(j.areaGroups && j.areaGroups.length)) return true;
+  if (!(j.roughInTasks && j.roughInTasks.length)) return true;
+  if (!(j.fitOffTasks && j.fitOffTasks.length)) return true;
+  const hasCrew = (SHELL.USERS || []).some(u => (u.assignedJobIds || []).includes(j.id) && (u.role === 'tradie' || u.role === 'leadingHand'));
+  if (!hasCrew) return true;
+  if (!j.clientUserId) return true;
+  return false;
+}
+
+function jobCard(j) {
+  const ref = (j.ref || j.id || '').toUpperCase();
+  const typeName = j.typeName || (STATE.jobTypes[j.type] || {}).name || '';
+  const gaps = hasSetupGaps(j) ? '<span class="pill pill-warn" style="margin-left:6px"><span class="pill-dot"></span>Needs setup</span>' : '';
+  return `
+    <a href="/admin/jobs/${SHELL.escapeHtml(j.id)}" class="job-card">
+      <div class="job-card-top">
+        <div style="flex:1">
+          <div class="job-card-name">${SHELL.escapeHtml(j.name)}</div>
+          <div class="job-card-ref">${SHELL.escapeHtml(ref)}${typeName ? ' · ' + SHELL.escapeHtml(typeName) : ''}</div>
+        </div>
+        ${SHELL.jobStatusPill(j.status || 'active')}${gaps}
+      </div>
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:10px">
+        <div class="job-card-pct">${j.statsPct || 0}%</div>
+        ${j.statsDwellingCount ? `<div style="font-size:12px;color:var(--muted)"><b style="color:var(--ink)">${j.statsDwellingsDone || 0}</b>/${j.statsDwellingCount} dwellings done</div>` : ''}
+      </div>
+      ${SHELL.bar(j.statsPct || 0)}
+      <div class="job-card-meta">
+        <span>This week <b>${Number(j.statsWeekHours || 0).toFixed(1)}h</b></span>
+        <span>Open snags <b ${(j.statsOpenSnags || 0) > 0 ? 'style="color:var(--bad)"' : ''}>${j.statsOpenSnags || 0}</b></span>
+        ${j.startDate ? `<span>Started <b>${SHELL.escapeHtml(String(j.startDate).slice(0,10))}</b></span>` : ''}
+        ${j.lastActivityIso ? `<span>Activity <b>${SHELL.escapeHtml(SHELL._ago(j.lastActivityIso))}</b></span>` : ''}
+      </div>
+    </a>
+  `;
+}
+
+function openNewJobPanel() {
+  const clients = (SHELL.USERS || []).filter(u => u.role === 'client');
+  const types = Object.values(STATE.jobTypes);
+  const panel = SHELL.openPanel({
+    title: 'New job',
+    body: `
+      <div class="field"><label class="field-lbl">Job name</label>
+        <input class="input" id="nj-name" placeholder="e.g. North Sydney T2" autofocus></div>
+      <div class="field"><label class="field-lbl">Job ref / ID (optional)</label>
+        <input class="input" id="nj-id" placeholder="auto-generated from name (slug)"></div>
+      ${types.length ? `
+        <div class="field"><label class="field-lbl">Type</label>
+          <select class="select" id="nj-type">
+            <option value="">— none —</option>
+            ${types.map(t => `<option value="${SHELL.escapeHtml(t.id)}">${SHELL.escapeHtml(t.name)}</option>`).join('')}
+          </select>
+        </div>` : ''}
+      <div class="field"><label class="field-lbl">Client</label>
+        <select class="select" id="nj-client">
+          <option value="">— none —</option>
+          ${clients.map(u => `<option value="${SHELL.escapeHtml(u.id)}">${SHELL.escapeHtml(u.username)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="margin-top:14px;font-size:12px;color:var(--muted);padding:10px 12px;background:var(--surface-2);border-radius:8px;line-height:1.5">
+        ${SHELL.ICONS.warn} The job opens with no structure — you'll set up area groups, tasks, plans, materials and crew on the workspace.
+      </div>
+    `,
+    footer: `
+      <button class="btn" onclick="SHELL.closePanel()">Cancel</button>
+      <button class="btn btn-primary" id="nj-create">Create job</button>
+    `,
+  });
+  panel.querySelector('#nj-create').addEventListener('click', async () => {
+    const body = {
+      name: panel.querySelector('#nj-name').value.trim(),
+      id:   panel.querySelector('#nj-id').value.trim() || undefined,
+      type: (panel.querySelector('#nj-type') || {}).value || undefined,
+      clientUserId: panel.querySelector('#nj-client').value || null,
+    };
+    if (!body.name) { SHELL.toast('Name required', 'bad'); return; }
+    try {
+      const r = await SHELL.api('/api/jobs', { method: 'POST', body });
+      SHELL.toast('Job created', 'ok');
+      SHELL.closePanel();
+      // Land on the new workspace.
+      location.href = '/admin/jobs/' + r.job.id;
+    } catch (e) { SHELL.toast('Create failed — ' + e.message, 'bad'); }
+  });
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>
