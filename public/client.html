@@ -375,20 +375,36 @@ async function renderPortal(job) {
   const data = dRes.ok ? await dRes.json() : { dwellings:{}, snags:[] };
 
   // Compute job % (rough/fit averaged) and per-stage %.
+  // Per-area effective task lists: an area with its own roughInTasks /
+  // fitOffTasks (set in /admin/jobs/<id>?s=setup) reports against its own
+  // checklist. Falls back to the job-level defaults when no override.
+  // Areas with no applicable tasks (no override + no defaults) are
+  // excluded from the average so they don't drag the percentage to 0%.
   const areas = (job.areaGroups || []).flatMap(g => g.areas || []);
   const dwellings = data.dwellings || {};
-  const rt = job.roughInTasks || [];
-  const ft = job.fitOffTasks  || [];
-  let rSum = 0, fSum = 0;
+  const jobRt = job.roughInTasks || [];
+  const jobFt = job.fitOffTasks  || [];
+  const effRough = (a) => (Array.isArray(a.roughInTasks) && a.roughInTasks.length) ? a.roughInTasks : jobRt;
+  const effFit   = (a) => (Array.isArray(a.fitOffTasks)  && a.fitOffTasks.length)  ? a.fitOffTasks  : jobFt;
+  let rSum = 0, fSum = 0, rCount = 0, fCount = 0;
   for (const a of areas) {
     const rMap = ((dwellings[a.id]||{}).roughIn||{}).tasks || {};
     const fMap = ((dwellings[a.id]||{}).fitOff ||{}).tasks || {};
-    rSum += rt.length ? rt.filter(t => rMap[t.id] === 'complete').length / rt.length : 0;
-    fSum += ft.length ? ft.filter(t => fMap[t.id] === 'complete').length / ft.length : 0;
+    const aRt = effRough(a), aFt = effFit(a);
+    if (aRt.length) {
+      rSum += aRt.filter(t => rMap[t.id] === 'complete').length / aRt.length;
+      rCount++;
+    }
+    if (aFt.length) {
+      fSum += aFt.filter(t => fMap[t.id] === 'complete').length / aFt.length;
+      fCount++;
+    }
   }
-  const roughPct = areas.length ? Math.round(rSum / areas.length * 100) : 0;
-  const fitPct   = areas.length ? Math.round(fSum / areas.length * 100) : 0;
-  const overallPct = Math.round((roughPct + fitPct) / 2);
+  const roughPct = rCount ? Math.round(rSum / rCount * 100) : 0;
+  const fitPct   = fCount ? Math.round(fSum / fCount * 100) : 0;
+  const overallPct = (rCount || fCount)
+    ? Math.round((rCount && fCount) ? (roughPct + fitPct) / 2 : (rCount ? roughPct : fitPct))
+    : 0;
 
   // Curated client-visible snags.  We show snags marked clientVisible:true,
   // OR — fallback — open snags with photos (most complete picture for client).

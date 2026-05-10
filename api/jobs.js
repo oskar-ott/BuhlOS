@@ -1,44 +1,36 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, getCurrentUser, canManageJob } = require('./_lib/auth');
 const { validateAreaGroups, validateTasks } = require('./_lib/validation');
+const { areaProgressPct } = require('./_lib/job-tasks');
 
 function slugify(s) {
   return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-// Aggregate job-level stats matching the per-job dashboard's formula:
-//   per-area pct = avg(rough-in task %, fit-off task %)
-//   job pct      = avg of all area pcts
+// Aggregate job-level stats. Uses the shared `areaProgressPct` helper so
+// per-area custom checklists are respected — an area with its own
+// rough-in / fit-off list contributes its own pct to the job average,
+// not a stat derived from the (possibly-different) job-level defaults.
+// Areas with no applicable checklist (no override, no defaults) are
+// excluded from the average — they don't pull the number down to 0%.
+//
 // Snags counted as those with status === 'Open'.
 // Returns { pct, openSnags, areaCount }. pct is null for jobs with no areas.
 function computeJobStats(job, data) {
   const dwellings = (data && data.dwellings) || {};
   const snags     = (data && data.snags)     || [];
   const groups    = (job && job.areaGroups)  || [];
-  const rough     = (job && job.roughInTasks) || [];
-  const fit       = (job && job.fitOffTasks)  || [];
-
   const areas = groups.flatMap(g => (g.areas || []));
   const areaCount = areas.length;
   let pct = null;
-  if (areaCount && (rough.length || fit.length)) {
-    let sum = 0;
+  if (areaCount) {
+    let sum = 0, counted = 0;
     for (const a of areas) {
-      const dw = dwellings[a.id] || {};
-      const rTasks = ((dw.roughIn || {}).tasks) || {};
-      const fTasks = ((dw.fitOff  || {}).tasks) || {};
-      const rPct = rough.length
-        ? Math.round(rough.filter(t => rTasks[t.id] === 'complete').length / rough.length * 100)
-        : 0;
-      const fPct = fit.length
-        ? Math.round(fit.filter(t => fTasks[t.id] === 'complete').length / fit.length * 100)
-        : 0;
-      const both = (rough.length && fit.length);
-      sum += both ? Math.round((rPct + fPct) / 2)
-           : rough.length ? rPct
-           : fPct;
+      const p = areaProgressPct(job, a, dwellings);
+      if (p == null) continue;
+      sum += p; counted++;
     }
-    pct = Math.round(sum / areaCount);
+    if (counted) pct = Math.round(sum / counted);
   }
   const openSnags = snags.filter(s => s && s.status === 'Open').length;
   return { pct, openSnags, areaCount };
@@ -254,10 +246,21 @@ module.exports = async (req, res) => {
       if (!parsed.ok) return res.status(400).json({ error: parsed.error });
       // Merge: preserve existing ids for groups/areas already on the job,
       // only generate new ids for newly-added entries (matched by name).
+      // Also preserve per-area override task IDs so renaming a task doesn't
+      // erase recorded progress (same name → same id).
       const existingGroupsByName = {};
       for (const eg of (job.areaGroups || [])) {
         existingGroupsByName[eg.name] = eg;
       }
+      const preserveTaskIds = (existingArr, newArr) => {
+        if (!Array.isArray(newArr) || !newArr.length) return undefined;
+        const byName = {};
+        for (const t of (existingArr || [])) byName[t.name] = t;
+        return newArr.map(t => ({
+          id: (byName[t.name] && byName[t.name].id) ? byName[t.name].id : t.id,
+          name: t.name,
+        }));
+      };
       job.areaGroups = parsed.groups.map(g => {
         const existing = existingGroupsByName[g.name];
         const groupId = (existing && existing.id) ? existing.id : g.id;
@@ -267,7 +270,14 @@ module.exports = async (req, res) => {
         }
         const areas = g.areas.map(a => {
           const ea = existingAreasByName[a.name];
-          return { id: (ea && ea.id) ? ea.id : a.id, name: a.name };
+          const out = { id: (ea && ea.id) ? ea.id : a.id, name: a.name };
+          if (a.spaceType) out.spaceType = a.spaceType;
+          // Per-area overrides: preserve task ids by name where possible.
+          const newRough = preserveTaskIds(ea && ea.roughInTasks, a.roughInTasks);
+          if (newRough && newRough.length) out.roughInTasks = newRough;
+          const newFit = preserveTaskIds(ea && ea.fitOffTasks, a.fitOffTasks);
+          if (newFit && newFit.length) out.fitOffTasks = newFit;
+          return out;
         });
         return { id: groupId, name: g.name, areas };
       });
