@@ -14,7 +14,8 @@
 // Admin only — payroll data, hourly rates exposed.
 
 const { list, put } = require('@vercel/blob');
-const { readBlob, setNoCache } = require('./_lib/blob');
+const crypto = require('crypto');
+const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
 const { writeEntry, appendAudit } = require('./_lib/time-entries');
 
@@ -169,10 +170,19 @@ module.exports = async (req, res) => {
   }
   const csv = lines.join('\n') + '\n';
 
+  // Brief §08 (payroll export): write a SHA-256 hash of the CSV
+  // contents to the response + the append-only payroll-runs log. The
+  // hash is deterministic across runs — re-running with no changes
+  // produces the same hash; any new entry / edit shifts it. Gives
+  // the admin a tamper-evident audit trail without an extra database.
+  const csvHash = crypto.createHash('sha256').update(csv, 'utf8').digest('hex');
+  res.setHeader('X-Export-Hash', csvHash);
+
   // Stamp the entries with exportedAt + exportId so the same payroll run
   // isn't double-exported. Skipped for dryRun previews.
+  let exportId = null;
   if (!dryRun && rows.length) {
-    const exportId = 'exp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    exportId = 'exp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const stampedAt = new Date().toISOString();
     // Group rows by entry (userId + date) so we update each entry once.
     const touched = new Map();
@@ -190,6 +200,30 @@ module.exports = async (req, res) => {
       } catch {}
     }));
     res.setHeader('X-Export-Id', exportId);
+
+    // Append-only payroll-runs log (brief §08 + §14 audit).
+    try {
+      const runs = await readBlob('payroll-runs.json', { runs: [] });
+      runs.runs = runs.runs || [];
+      runs.runs.push({
+        exportId,
+        hash: csvHash,
+        actor: me.id,
+        actorName: me.username || me.id,
+        at: stampedAt,
+        range: { fromDate, toDate, status },
+        userId: userId || null,
+        jobId:  jobId  || null,
+        rowCount: rows.length,
+        summary: summarise(rows),
+      });
+      await writeBlob('payroll-runs.json', runs);
+    } catch (e) {
+      // Run still ships even if the log write fails — the per-entry
+      // audit rows above are the primary record. We just lose the
+      // hash-indexed roll-up for this run.
+      console.error('payroll-runs append failed', e);
+    }
   }
 
   const filename = 'buhl-payroll_' + fromDate + '_to_' + toDate + (status === 'approved' ? '' : '_' + status) + '.csv';
