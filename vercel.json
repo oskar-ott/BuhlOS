@@ -36,6 +36,7 @@
   ],
   "crons": [
     { "path": "/api/notifications?action=send-daily-reminders", "schedule": "30 5 * * 1-5" },
-    { "path": "/api/notifications?action=send-tag-reminders",   "schedule": "0 22 * * 0"   }
+    { "path": "/api/notifications?action=send-tag-reminders",   "schedule": "0 22 * * 0"   },
+    { "path": "/api/users?action=sweep",                        "schedule": "0 19 * * *"   }
   ]
 }
