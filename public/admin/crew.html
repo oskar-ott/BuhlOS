@@ -237,7 +237,10 @@ function paint() {
         <h1>People</h1>
         <div class="sub">${counts.tradie + counts.leadingHand} crew · ${counts.admin} admin${counts.admin === 1 ? '' : 's'} · ${counts.client} client${counts.client === 1 ? '' : 's'}. Rates and Xero IDs are admin-only and never visible to tradies or clients.</div>
       </div>
-      <button class="btn btn-primary" id="add-user">+ Add person</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="archived-users" title="Archived users (last 30 days, restorable)">Archived ▾</button>
+        <button class="btn btn-primary" id="add-user">+ Add person</button>
+      </div>
     </div>
 
     <div class="ppl-tabs">
@@ -279,6 +282,7 @@ function paint() {
   }));
   SHELL.$('#se-i').addEventListener('input', e => { STATE.search = e.target.value; paint(); });
   SHELL.$('#add-user').addEventListener('click', () => addUserPanel());
+  SHELL.$('#archived-users').addEventListener('click', () => openArchivedUsersPanel());
 }
 
 function peopleForView() {
@@ -510,17 +514,76 @@ function editUserPanel(id) {
   });
   if (u.role !== 'admin') {
     panel.querySelector('#eu-delete').addEventListener('click', async () => {
-      if (!confirm('Remove ' + u.username + '? This cannot be undone.')) return;
+      // Brief §08: soft-archive by default; 30-day window to restore.
+      if (!confirm(`Archive ${u.username}? They drop out of active lists but stay restorable for 30 days. Hours stay on file.`)) return;
       try {
-        await fetch('/api/users?id=' + encodeURIComponent(u.id), { method: 'DELETE', credentials: 'same-origin' })
-          .then(r => { if (!r.ok) throw new Error('Failed'); });
-        SHELL.toast('Removed', 'ok');
+        const res = await fetch('/api/users?id=' + encodeURIComponent(u.id), { method: 'DELETE', credentials: 'same-origin' });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || ('HTTP ' + res.status));
+        }
+        SHELL.toast('Archived — 30 days to restore', 'ok');
         SHELL.closePanel();
         try { const r = await SHELL.api('/api/users'); STATE.users = r.users || []; SHELL.USERS = STATE.users; } catch {}
         paint();
-      } catch (e) { SHELL.toast('Remove failed — ' + e.message, 'bad'); }
+      } catch (e) { SHELL.toast('Archive failed — ' + e.message, 'bad'); }
     });
   }
+}
+
+// Brief §08: list users archived but still inside the 30-day restore
+// window. Restore button flips them back; the row falls out of the
+// panel after a successful restore.
+async function openArchivedUsersPanel() {
+  let archived = [];
+  try {
+    const r = await SHELL.api('/api/users?action=archived');
+    archived = r.users || [];
+  } catch (e) {
+    SHELL.toast('Couldn\'t load archived users — ' + e.message, 'bad');
+    return;
+  }
+  const panel = SHELL.openPanel({
+    title: `Archived users (${archived.length})`,
+    body: archived.length
+      ? `
+        <p style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">
+          Users archived in the last 30 days. Restore to put them back in active lists.
+          A nightly sweep hard-deletes anyone past 30 days who has no unapproved hours.
+        </p>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${archived.map(u => `
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)">
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:600;font-size:14px">${SHELL.escapeHtml(u.username || u.id)}</div>
+                <div style="font-size:11px;color:var(--muted);font-family:var(--ff-mono);margin-top:2px">
+                  ${SHELL.escapeHtml(u.role || '?')} · archived ${u.archivedAt ? SHELL._ago(u.archivedAt) : '—'} · <b>${u.restoreWindowDaysRemaining}d</b> left
+                </div>
+              </div>
+              <button class="btn btn-sm btn-primary" data-restore="${SHELL.escapeHtml(u.id)}">Restore</button>
+            </div>
+          `).join('')}
+        </div>
+      `
+      : '<div class="empty"><div class="empty-title">No archived users</div><div class="empty-sub">Archived users appear here for 30 days before they\'re cleared.</div></div>',
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Close</button>`,
+  });
+  panel.querySelectorAll('[data-restore]').forEach(b => b.addEventListener('click', async () => {
+    const id = b.dataset.restore;
+    b.disabled = true; b.textContent = 'Restoring…';
+    try {
+      await SHELL.api('/api/users?action=restore&id=' + encodeURIComponent(id), { method: 'POST', body: {} });
+      SHELL.toast('Restored', 'ok');
+      try { const r = await SHELL.api('/api/users'); STATE.users = r.users || []; SHELL.USERS = STATE.users; } catch {}
+      paint();
+      // Refresh the panel in place.
+      SHELL.closePanel();
+      openArchivedUsersPanel();
+    } catch (e) {
+      b.disabled = false; b.textContent = 'Restore';
+      SHELL.toast('Restore failed — ' + e.message, 'bad');
+    }
+  }));
 }
 
 /* ── Per-view palette commands (Phase 04 hook) ─────────── */
