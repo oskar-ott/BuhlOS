@@ -69,6 +69,17 @@
       + '.lh-min-chip:hover{background:#f8fafc}'
       + '.lh-min-chip.on{background:#0d1f35;border-color:#0d1f35;color:#fff}'
       + '.lh-quick{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}'
+      // Phase 08 polish (brief §13): delta-chip row gives one-tap
+      // increments without going via the number input. Five chips,
+      // equal-width grid: −0.5 / +0.5 / +1 / +2 / RDO.
+      + '.lh-deltas{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:10px}'
+      + '.lh-delta-chip{appearance:none;-webkit-appearance:none;border:1px solid #d2ccbf;background:#f3efe7;color:#0d1b34;'
+      + '  font-family:Inter Tight,Inter,sans-serif;font-weight:700;font-size:14px;min-height:44px;border-radius:6px;cursor:pointer;'
+      + '  -webkit-tap-highlight-color:transparent;transition:background .14s,border-color .14s}'
+      + '.lh-delta-chip:hover{background:#ebe7df}'
+      + '.lh-delta-chip:active{background:#dfdacf}'
+      + '.lh-delta-chip.rdo{color:#1d1700;border-color:#c5beaf;background:#ebe7df;font-size:12px;letter-spacing:.06em}'
+      + '.lh-delta-chip.rdo:hover{background:#dfdacf}'
       + '.lh-quick-lbl{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;padding:6px 0;flex-shrink:0}'
       + '.lh-quick-chip{appearance:none;-webkit-appearance:none;border:1px solid #e2e8f0;background:#fff;color:#0d1f35;'
       +   'border-radius:999px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;line-height:1;min-height:36px;flex:1;min-width:60px}'
@@ -237,6 +248,18 @@
           }).join('')
         + '</div>';
 
+      // Phase 08 polish (brief §13): delta-chip row. −0.5 / +0.5 / +1 /
+      // +2 nudge the current total relative; RDO sets it to 0 (rostered
+      // day off). Keeps the worker out of the number keyboard for the
+      // common case of "I worked 30 minutes more than last time".
+      var deltaChipsHtml = '<div class="lh-deltas">'
+        + '<button type="button" class="lh-delta-chip" data-delta="-0.5">−.5</button>'
+        + '<button type="button" class="lh-delta-chip" data-delta="0.5">+.5</button>'
+        + '<button type="button" class="lh-delta-chip" data-delta="1">+1</button>'
+        + '<button type="button" class="lh-delta-chip" data-delta="2">+2</button>'
+        + '<button type="button" class="lh-delta-chip rdo" data-delta="rdo">RDO</button>'
+        + '</div>';
+
       // Minute chips: 0/15/30/45 — workers don't need finer granularity, and
       // a chip row is faster to tap than a number stepper on phones.
       var MIN_CHOICES = [0, 15, 30, 45];
@@ -294,6 +317,7 @@
         +     '</div>'
         +     '<div class="lh-min-chips" role="group" aria-label="Minutes">' + minChipsHtml + '</div>'
         +   '</div>'
+        +   deltaChipsHtml
         +   quickChipsHtml
         + '</div>'
         // Allocation section. For the common single-job case the header
@@ -398,6 +422,31 @@
           state.hoursH = Math.floor(targetH);
           var rawMin = Math.round((targetH - state.hoursH) * 60);
           // Snap to nearest 15 so the minute chips stay accurate.
+          state.hoursM = [0, 15, 30, 45].reduce(function (best, m) {
+            return Math.abs(m - rawMin) < Math.abs(best - rawMin) ? m : best;
+          }, 0);
+          rerender();
+        });
+      });
+
+      // Phase 08 polish (brief §13): delta chips nudge the current total
+      // relative. RDO snaps to 0. Snaps the resulting total to the
+      // 15-minute grid so the minute chips stay accurate.
+      sheet.querySelectorAll('[data-delta]').forEach(function (el) {
+        el.addEventListener('click', function (e) {
+          e.preventDefault();
+          var k = el.dataset.delta;
+          var cur = totalHours();
+          var next;
+          if (k === 'rdo') {
+            next = 0;
+          } else {
+            var d = parseFloat(k);
+            if (isNaN(d)) return;
+            next = Math.max(0, cur + d);
+          }
+          state.hoursH = Math.floor(next);
+          var rawMin = Math.round((next - state.hoursH) * 60);
           state.hoursM = [0, 15, 30, 45].reduce(function (best, m) {
             return Math.abs(m - rawMin) < Math.abs(best - rawMin) ? m : best;
           }, 0);
