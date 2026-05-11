@@ -1492,6 +1492,13 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
         <span class="nav-menu-item-lbl">Materials</span>
         <span class="nav-menu-item-badge" id="matsnavBadge"></span>
       </button>
+      <!-- Contacts — admin + LH + tradie read-only. Clients never see
+           this (server returns 403 for them anyway). Tap-to-call /
+           tap-to-email phone numbers are the main field-side use case. -->
+      <button class="nav-menu-item" role="menuitem" data-sec="contacts"
+        id="contactsMenuItem" onclick="goNav('contacts')" hidden>
+        <span class="nav-menu-item-lbl">Contacts</span>
+      </button>
       <!-- Mobile job-rebuild: with the header pills hidden on phones, the
            Tools menu becomes the single home for navigation off this job
            (My Day / Setup / Sign out). Each is shown only when relevant —
@@ -1530,6 +1537,7 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
   <div id="temps" class="sc"></div>
   <div id="hours" class="sc"></div>
   <div id="materials" class="sc"></div>
+  <div id="contacts" class="sc"></div>
 </div>
 
 <!-- ── Worker quick-action bar ─────────────────────────────────────────────
@@ -1615,6 +1623,12 @@ async function bootstrapAuth() {
       const mm = document.getElementById('materialsMenuItem');
       if (mm) mm.hidden = false;
     }
+    // Contacts Tools-menu item: admin + LH + tradie (read-only for
+    // tradies + LHs). Clients never see it — the server returns 403 too.
+    if (user && (user.role === 'admin' || user.role === 'leadingHand' || user.role === 'tradie')) {
+      const cm = document.getElementById('contactsMenuItem');
+      if (cm) cm.hidden = false;
+    }
     // Tradies get a one-tap "My Day" pill back to their daily home
     if (user && user.role === 'tradie') {
       const md = document.getElementById('hdr-myday');
@@ -1664,6 +1678,10 @@ async function bootstrapAuth() {
     // Materials never exposed to clients — financial / job-cost surface.
     const mm = document.getElementById('materialsMenuItem');
     if (mm) mm.hidden = true;
+    // Contacts hidden from clients too — internal supplier numbers + PM
+    // details aren't a client-facing surface (server returns 403 anyway).
+    const cm = document.getElementById('contactsMenuItem');
+    if (cm) cm.hidden = true;
     // Clients see a clean project-progress header — no internal job ID.
     const sub = document.getElementById('hdr-sub');
     if (sub) sub.textContent = 'Progress portal';
@@ -5319,6 +5337,7 @@ function show(id){
   if(id==='temps')_lazyTemps();
   if(id==='hours')_lazyHours();
   if(id==='materials')_lazyMaterials();
+  if(id==='contacts')_lazyContacts();
   updateBadge();window.scrollTo(0,0);
   closeNavMenu();
 }
@@ -5921,6 +5940,96 @@ async function _lazyHours() {
   _setSectionLoading('hours', 'Loading hours…');
   try { await loadHours(); _hoursLoaded = true; renderHours(); }
   finally { _hoursLoading = false; }
+}
+
+// ── Field-side Contacts surface ────────────────────────────────────────
+//
+// Read-only for tradies + LHs (admin can also use the surface inside the
+// per-job admin page). Project + supplier sections. Tap-to-call /
+// tap-to-email phone numbers are the main onsite use case.
+let _contactsCache = null;
+let _contactsLoading = false;
+async function _lazyContacts() {
+  if (CURRENT_USER && CURRENT_USER.role === 'client') return;
+  if (_contactsCache) { renderContactsField(); return; }
+  if (_contactsLoading) return;
+  _contactsLoading = true;
+  _setSectionLoading('contacts', 'Loading contacts…');
+  try {
+    const r = await fetch('/api/contacts?jobId=' + encodeURIComponent(JOB_ID), { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _contactsCache = await r.json();
+    renderContactsField();
+  } catch (e) {
+    document.getElementById('contacts').innerHTML =
+      '<div class="empty"><div class="empty-title">Couldn\'t load contacts</div><div style="color:var(--muted);font-size:13px;margin-top:6px">' + esc(e.message) + '</div></div>';
+  } finally { _contactsLoading = false; }
+}
+
+function renderContactsField() {
+  const all = (_contactsCache && _contactsCache.contacts) || [];
+  // Same role-priority sort as admin so the LH always sees PM/Site/
+  // Builder at the top regardless of order added.
+  const projectRank = (c) => {
+    const r = String((c && c.role) || '').toLowerCase();
+    if (r.includes('project manager')) return 0;
+    if (r.includes('site manager') || r.includes('site supervisor')) return 1;
+    if (r.includes('builder'))   return 2;
+    if (r.includes('foreman'))   return 3;
+    return 4;
+  };
+  const project = all.filter(c => c.category === 'project').sort((a, b) => {
+    const r = projectRank(a) - projectRank(b);
+    return r !== 0 ? r : (a.name || '').localeCompare(b.name || '');
+  });
+  const supplier = all.filter(c => c.category === 'supplier').sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  const projectCard = (c) => `<a class="dash-row" style="text-decoration:none;color:inherit;display:flex;align-items:flex-start;gap:10px;padding:14px 16px">
+    <div style="flex:1;min-width:0">
+      <div style="font-family:var(--display);font-size:15px;font-weight:600;color:var(--navy)">${esc(c.name)}</div>
+      <div style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-top:2px">${esc(c.role || '—')}${c.company ? ' · ' + esc(c.company) : ''}</div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        ${c.phone ? '<a href="tel:' + esc(c.phone) + '" style="flex:1;min-width:140px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 12px;background:var(--yellow);color:var(--yellow-ink);font-weight:700;border-radius:8px;text-decoration:none;font-size:13.5px">📞 ' + esc(c.phone) + '</a>' : ''}
+        ${c.email ? '<a href="mailto:' + esc(c.email) + '" style="flex:1;min-width:140px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 12px;background:var(--paper);color:var(--navy);font-weight:600;border:1px solid var(--rule-2);border-radius:8px;text-decoration:none;font-size:13.5px">✉ Email</a>' : ''}
+      </div>
+      ${c.notes ? `<div style="font-size:12px;color:var(--ink-2);margin-top:8px;font-style:italic">"${esc(c.notes)}"</div>` : ''}
+    </div>
+  </a>`;
+
+  const supplierCard = (c) => `<div style="padding:14px 16px;border-bottom:1px solid var(--rule)">
+    <div style="font-family:var(--display);font-size:13px;font-weight:600;color:var(--ink);line-height:1.35;margin-bottom:2px">${esc(c.description || '')}</div>
+    <div style="font-family:var(--display);font-size:16px;font-weight:700;color:var(--navy);letter-spacing:-.012em">${esc(c.name)}</div>
+    ${c.contactPerson ? `<div style="font-size:12px;color:var(--ink-2);margin-top:4px">Ask for <b>${esc(c.contactPerson)}</b></div>` : ''}
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      ${c.phone ? '<a href="tel:' + esc(c.phone) + '" style="flex:1;min-width:140px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 12px;background:var(--yellow);color:var(--yellow-ink);font-weight:700;border-radius:8px;text-decoration:none;font-size:13.5px">📞 ' + esc(c.phone) + '</a>' : ''}
+      ${c.email ? '<a href="mailto:' + esc(c.email) + '" style="flex:1;min-width:140px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 12px;background:var(--paper);color:var(--navy);font-weight:600;border:1px solid var(--rule-2);border-radius:8px;text-decoration:none;font-size:13.5px">✉ Email</a>' : ''}
+    </div>
+    ${c.notes ? `<div style="font-size:12px;color:var(--ink-2);margin-top:8px;font-style:italic">"${esc(c.notes)}"</div>` : ''}
+  </div>`;
+
+  const sec = document.getElementById('contacts');
+  sec.innerHTML =
+    '<div class="hero" style="margin-bottom:14px">' +
+      '<div class="hero-row" style="margin-bottom:6px">' +
+        '<div>' +
+          '<div class="hero-lbl">Job contacts</div>' +
+          '<div style="font-family:var(--display);font-weight:700;font-size:18px;color:var(--navy);letter-spacing:-.018em;margin-top:2px">Who to call onsite</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--ink-3);line-height:1.5">Tap a number to call. Admin manages this list from /admin.</div>' +
+    '</div>' +
+
+    '<div class="dash-section">' +
+      '<div class="section-hdr"><h3>Project contacts <span style="color:var(--ink-3);font-weight:400;font-family:var(--mono);font-size:11px;letter-spacing:.06em">' + project.length + '</span></h3></div>' +
+      (project.length ? '<div class="card" style="padding:0;display:flex;flex-direction:column">' + project.map(projectCard).join('') + '</div>'
+        : '<div class="empty" style="padding:20px;font-size:13px"><b style="display:block;color:var(--navy);margin-bottom:4px">No project contacts yet</b>Ask admin to add the PM, builder, or site manager so you can call them from here.</div>') +
+    '</div>' +
+
+    '<div class="dash-section">' +
+      '<div class="section-hdr"><h3>Suppliers <span style="color:var(--ink-3);font-weight:400;font-family:var(--mono);font-size:11px;letter-spacing:.06em">' + supplier.length + '</span></h3></div>' +
+      (supplier.length ? '<div class="card" style="padding:0">' + supplier.map(supplierCard).join('') + '</div>'
+        : '<div class="empty" style="padding:20px;font-size:13px"><b style="display:block;color:var(--navy);margin-bottom:4px">No suppliers yet</b>Admin adds wholesalers + suppliers for this job here.</div>') +
+    '</div>';
 }
 
 // ── Field-side Materials surface ───────────────────────────────────────
