@@ -213,18 +213,55 @@ function openAssetPanel(asset) {
           ${tradiesAndLHs.map(u => `<option value="${SHELL.escapeHtml(u.id)}">${SHELL.escapeHtml(u.username)} ${u.role === 'leadingHand' ? '(LH)' : ''}</option>`).join('')}
         </select></div>` : ''}
       <div class="field"><label class="field-lbl">Expected return <span style="font-weight:400;color:var(--muted)">(optional — leave blank for open-ended)</span></label><input class="input" id="na-return" type="date" value="${SHELL.escapeHtml((asset && asset.expectedReturn) || '')}"></div>
+
+      <!-- Polish (brief §12): inputs for the hire fields so the
+           dead-rent flag from Phase 12 is reachable from the UI. -->
+      <div class="field"><label class="field-lbl">Ownership</label>
+        <select class="select" id="na-ownership">
+          <option value="owned"${(asset && asset.ownership === 'hired') ? '' : ' selected'}>Owned (company asset)</option>
+          <option value="hired"${(asset && asset.ownership === 'hired') ? ' selected' : ''}>Hired (rental)</option>
+        </select>
+      </div>
+      <div class="two-col" id="na-hire-fields" ${(asset && asset.ownership === 'hired') ? '' : 'style="display:none"'}>
+        <div class="field"><label class="field-lbl">Hire end date</label><input class="input" id="na-hire-end" type="date" value="${SHELL.escapeHtml((asset && asset.hireEndDate) || '')}"></div>
+        <div class="field"><label class="field-lbl">Day rate ex-GST ($)</label><input class="input" id="na-hire-rate" type="number" step="0.01" min="0" value="${asset && asset.hireRateExGst != null ? asset.hireRateExGst : ''}"></div>
+      </div>
+      <div class="field" id="na-hire-supplier-wrap" ${(asset && asset.ownership === 'hired') ? '' : 'style="display:none"'}>
+        <label class="field-lbl">Hire supplier</label>
+        <input class="input" id="na-hire-supplier" value="${SHELL.escapeHtml((asset && asset.hireSupplier) || '')}" placeholder="e.g. Coates Hire">
+      </div>
+
       <div class="field"><label class="field-lbl">Notes</label><textarea class="textarea" id="na-notes" rows="3">${SHELL.escapeHtml((asset && asset.notes) || '')}</textarea></div>
     `,
     footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button>${isEdit && !asset.archived ? '<button class="btn btn-danger" id="na-archive">Archive</button>' : ''}<button class="btn btn-primary" id="na-save">${isEdit ? 'Save' : 'Create'}</button>`,
   });
+  // Toggle hire-field visibility on ownership change.
+  panel.querySelector('#na-ownership').addEventListener('change', e => {
+    const hired = e.target.value === 'hired';
+    panel.querySelector('#na-hire-fields').style.display = hired ? '' : 'none';
+    panel.querySelector('#na-hire-supplier-wrap').style.display = hired ? '' : 'none';
+  });
   panel.querySelector('#na-save').addEventListener('click', async () => {
+    const ownership = panel.querySelector('#na-ownership').value;
     const body = {
       name: panel.querySelector('#na-name').value.trim(),
       type: panel.querySelector('#na-type').value,
       identifier: panel.querySelector('#na-identifier').value.trim(),
       expectedReturn: panel.querySelector('#na-return').value || null,
       notes: panel.querySelector('#na-notes').value.trim(),
+      ownership,
     };
+    if (ownership === 'hired') {
+      body.hireEndDate   = panel.querySelector('#na-hire-end').value || null;
+      const rate = panel.querySelector('#na-hire-rate').value;
+      body.hireRateExGst = rate === '' ? null : Number(rate);
+      body.hireSupplier  = panel.querySelector('#na-hire-supplier').value.trim() || null;
+    } else {
+      // Clear hire fields when toggling back to owned.
+      body.hireEndDate = null;
+      body.hireRateExGst = null;
+      body.hireSupplier = null;
+    }
     if (!body.name) { SHELL.toast('Name required', 'bad'); return; }
     if (!isEdit) {
       const holder = panel.querySelector('#na-holder').value;

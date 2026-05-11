@@ -209,7 +209,14 @@ module.exports = async (req, res) => {
 
   // PUT — update (patch): admin OR leadingHand on that job (restricted fields)
   if (req.method === 'PUT') {
-    const { id, name, clientUserId, type, areaGroups, status, roughInTasks, fitOffTasks } = req.body || {};
+    const {
+      id, name, clientUserId, type, areaGroups, status, roughInTasks, fitOffTasks,
+      // Polish (brief §13 prereq): contract + claims fields drive
+      // the Cash & margin rollup. Admin-only writable (per-role
+      // gate runs below alongside name/type/status).
+      contractValue, labourEstimate, materialEstimate,
+      claimedToDate, paidToDate, oldestClaimDays,
+    } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id required' });
     const job = data.jobs.find(j => j.id === id);
     if (!job) return res.status(404).json({ error: 'job not found' });
@@ -219,9 +226,26 @@ module.exports = async (req, res) => {
 
     // leadingHand may only patch areaGroups, roughInTasks, fitOffTasks, clientUserId
     if (me.role === 'leadingHand') {
-      if (name !== undefined || type !== undefined || status !== undefined) {
-        return res.status(403).json({ error: 'leadingHand cannot change name, type or status' });
+      if (name !== undefined || type !== undefined || status !== undefined ||
+          contractValue !== undefined || labourEstimate !== undefined ||
+          materialEstimate !== undefined || claimedToDate !== undefined ||
+          paidToDate !== undefined || oldestClaimDays !== undefined) {
+        return res.status(403).json({ error: 'leadingHand cannot change job money fields' });
       }
+    }
+
+    // Polish (brief §13 prereq): contract + claims numeric fields.
+    // null clears; numbers persist. Negative values rejected.
+    const moneyFields = { contractValue, labourEstimate, materialEstimate,
+                          claimedToDate, paidToDate, oldestClaimDays };
+    for (const [k, v] of Object.entries(moneyFields)) {
+      if (v === undefined) continue;
+      if (v === null) { delete job[k]; continue; }
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0) {
+        return res.status(400).json({ error: `${k} must be a non-negative number or null` });
+      }
+      job[k] = n;
     }
 
     if (name !== undefined) {
