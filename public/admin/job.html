@@ -190,7 +190,7 @@ function paint() {
   SHELL.$('#edit-basics').addEventListener('click', openEditBasics);
 
   const body = SHELL.$('#ws-body');
-  if      (STATE.section === 'overview')  body.innerHTML = renderOverview();
+  if      (STATE.section === 'overview')  { body.innerHTML = renderOverview(); wireContractClaimsCard(); }
   else if (STATE.section === 'snags')     body.innerHTML = renderSnags();
   else if (STATE.section === 'hours')     renderHoursTab(body);
   else if (STATE.section === 'plans')     renderPlans(body);
@@ -393,9 +393,68 @@ function renderOverview() {
           ${setupChecklist(j)}
         </div>
       </div>
+
+      <!-- Polish (brief §13 prereq): contract + claims editor so the
+           Cash & margin page has data to roll up. Inline form because
+           these fields don't warrant a separate modal. -->
+      <div class="card" style="padding:0;margin-top:18px">
+        <div class="card-hdr" style="padding:14px 18px;border-bottom:1px solid var(--line)">
+          <div>
+            <div class="card-title">Contract &amp; claims</div>
+            <div class="card-sub">Drives the Margin / Burn / Cash lenses on /admin/cash.</div>
+          </div>
+          <button class="btn btn-sm" id="cv-save" disabled>Save</button>
+        </div>
+        <div style="padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:14px">
+          <div class="field"><label class="field-lbl">Contract value ex-GST ($)</label>
+            <input class="input cv-input" id="cv-contractValue" type="number" step="0.01" min="0" value="${j.contractValue || ''}" placeholder="0"></div>
+          <div class="field"><label class="field-lbl">Labour estimate ($)</label>
+            <input class="input cv-input" id="cv-labourEstimate" type="number" step="0.01" min="0" value="${j.labourEstimate || ''}" placeholder="0"></div>
+          <div class="field"><label class="field-lbl">Material estimate ($)</label>
+            <input class="input cv-input" id="cv-materialEstimate" type="number" step="0.01" min="0" value="${j.materialEstimate || ''}" placeholder="0"></div>
+          <div class="field"><label class="field-lbl">Claimed to date ($)</label>
+            <input class="input cv-input" id="cv-claimedToDate" type="number" step="0.01" min="0" value="${j.claimedToDate || ''}" placeholder="0"></div>
+          <div class="field"><label class="field-lbl">Paid to date ($)</label>
+            <input class="input cv-input" id="cv-paidToDate" type="number" step="0.01" min="0" value="${j.paidToDate || ''}" placeholder="0"></div>
+          <div class="field"><label class="field-lbl">Oldest claim (days)</label>
+            <input class="input cv-input" id="cv-oldestClaimDays" type="number" step="1" min="0" value="${j.oldestClaimDays || ''}" placeholder="0"></div>
+        </div>
+      </div>
     </div>
   `;
 }
+
+// Polish: wire the contract/claims save (called from paint() once the
+// overview HTML is in the DOM). Save lights up once any field changes.
+function wireContractClaimsCard() {
+  const inputs = document.querySelectorAll('.cv-input');
+  if (!inputs.length) return;
+  const saveBtn = document.getElementById('cv-save');
+  inputs.forEach(i => i.addEventListener('input', () => { if (saveBtn) saveBtn.disabled = false; }));
+  if (!saveBtn) return;
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+    const body = {
+      contractValue:    numOrNull(document.getElementById('cv-contractValue').value),
+      labourEstimate:   numOrNull(document.getElementById('cv-labourEstimate').value),
+      materialEstimate: numOrNull(document.getElementById('cv-materialEstimate').value),
+      claimedToDate:    numOrNull(document.getElementById('cv-claimedToDate').value),
+      paidToDate:       numOrNull(document.getElementById('cv-paidToDate').value),
+      oldestClaimDays:  numOrNull(document.getElementById('cv-oldestClaimDays').value),
+    };
+    try {
+      const r = await SHELL.api('/api/jobs', { method: 'PUT', body: { id: STATE.jobId, ...body } });
+      if (r && r.job) STATE.job = r.job;
+      SHELL.toast('Saved', 'ok');
+      saveBtn.textContent = 'Save';
+    } catch (e) {
+      saveBtn.textContent = 'Save';
+      saveBtn.disabled = false;
+      SHELL.toast('Save failed — ' + e.message, 'bad');
+    }
+  });
+}
+function numOrNull(v) { return (v === '' || v == null) ? null : Number(v); }
 
 // Compact subtitle for the Setup completeness card — surfaces "ready"
 // or "N to fix" up-front so the admin doesn't have to scan every row.
