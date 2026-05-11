@@ -503,19 +503,86 @@
   async function registerBaselineCommands() {
     if (_baselineRegistered) return;
     const { CmdRegistry } = await import('/components/cmd-palette.js');
-    const cmds = [
-      // Jump to every admin page the current role can see.
-      ...NAV.filter(n => !n.section && (!n.roles || n.roles.includes(SHELL.ME?.role)))
-            .map(n => ({
-              id: 'jump-' + n.id,
-              verb: 'Open',
-              group: 'Jump',
-              label: n.label,
-              href: n.href,
-            })),
-      // Density switches.
+    const role = SHELL.ME?.role;
+    const isAdmin = role === 'admin';
+
+    const cmds = [];
+
+    // ── Jumps to admin pages the current role can see. ──
+    NAV.filter(n => !n.section && (!n.roles || n.roles.includes(role)))
+       .forEach(n => cmds.push({
+         id: 'jump-' + n.id,
+         verb: 'Open',
+         group: 'Jump',
+         label: n.label,
+         href: n.href,
+       }));
+
+    // ── Job jumps (brief §06: type "iv32" → jump to IV3232). ──
+    // Active jobs first, then setup/paused. Archived stays out — the
+    // boss doesn't think about old jobs day-to-day.
+    const jobs = (SHELL.JOBS || []).filter(j => j.status !== 'archived');
+    jobs.sort((a, b) => {
+      const order = { active: 0, setup: 1, paused: 2, complete: 3 };
+      return (order[a.status] ?? 4) - (order[b.status] ?? 4);
+    });
+    jobs.forEach(j => cmds.push({
+      id: 'jump-job-' + j.id,
+      verb: 'Open',
+      group: 'Jobs',
+      label: `${j.code ? j.code + ' · ' : ''}${j.name || j.id}`,
+      detail: j.client || j.address || '',
+      href: `/admin/jobs/${encodeURIComponent(j.id)}`,
+    }));
+
+    // ── User jumps (admin only — LH doesn't manage people). ──
+    if (isAdmin) {
+      const users = (SHELL.USERS || []).filter(u => !u.archived);
+      users.sort((a, b) => (a.username || '').localeCompare(b.username || ''));
+      users.forEach(u => cmds.push({
+        id: 'jump-user-' + u.id,
+        verb: 'Open',
+        group: 'People',
+        label: u.username || u.id,
+        detail: u.role === 'leadingHand' ? 'Leading hand' :
+                u.role ? (u.role.charAt(0).toUpperCase() + u.role.slice(1)) : '',
+        href: `/admin/crew?u=${encodeURIComponent(u.id)}`,
+      }));
+    }
+
+    // ── Open snag jumps — typed "snag" or the title. ──
+    (SHELL.OPEN_SNAGS || []).slice(0, 20).forEach(s => cmds.push({
+      id: 'jump-snag-' + s.id,
+      verb: 'Open',
+      group: 'Snags',
+      label: s.title || s.description || 'Snag',
+      detail: s.location || s.jobName || '',
+      href: `/admin/snags?id=${encodeURIComponent(s.id)}`,
+    }));
+
+    // ── Do commands (brief §06 "do" verbs). ──
+    if (isAdmin) {
+      cmds.push(
+        { id: 'do-new-job',     verb: 'Create', group: 'Actions',
+          label: 'New job', href: '/admin/jobs?new=1' },
+        { id: 'do-new-quote',   verb: 'Create', group: 'Actions',
+          label: 'New quote', href: '/admin/quotes?new=1' },
+        { id: 'do-new-person',  verb: 'Create', group: 'Actions',
+          label: 'New person', href: '/admin/crew?new=1' },
+        { id: 'do-export-payroll', verb: 'Export', group: 'Actions',
+          label: 'Payroll CSV · this week', href: '/admin/hours?export=this-week' },
+      );
+    }
+    // Snag-raising is available to admin + LH.
+    cmds.push(
+      { id: 'do-new-snag', verb: 'Raise', group: 'Actions',
+        label: 'New snag', href: '/admin/snags?new=1' },
+    );
+
+    // ── Switches. ──
+    cmds.push(
       { id: 'density-compact', verb: 'Set', group: 'Density',
-        label: 'Density · Compact',
+        label: 'Density · Compact', shortcut: '',
         run: () => setTweak('density', 'compact') },
       { id: 'density-regular', verb: 'Set', group: 'Density',
         label: 'Density · Regular',
@@ -523,17 +590,18 @@
       { id: 'density-roomy', verb: 'Set', group: 'Density',
         label: 'Density · Roomy',
         run: () => setTweak('density', 'roomy') },
-      // Open in field (LH only — admin doesn't have a personal field surface).
-      ...(SHELL.ME?.role === 'leadingHand'
-        ? [{ id: 'open-in-field-myday', verb: 'Open', group: 'Field',
-             label: 'My Day · field interface',
-             href: '/my-day' }]
-        : []),
-      // Sign out.
-      { id: 'sign-out', verb: 'Sign', group: 'Account',
-        label: 'Sign out',
-        run: () => signOut() },
-    ];
+    );
+
+    // ── LH-only: deep-link to their field interface. ──
+    if (role === 'leadingHand') {
+      cmds.push({ id: 'open-in-field-myday', verb: 'Open', group: 'Field',
+                  label: 'My Day · field interface', href: '/my-day' });
+    }
+
+    // ── Sign out — always last. ──
+    cmds.push({ id: 'sign-out', verb: 'Sign', group: 'Account',
+                label: 'Sign out', run: () => signOut() });
+
     CmdRegistry.registerMany(cmds);
     _baselineRegistered = true;
   }
@@ -659,6 +727,15 @@
     // Phase 02 — command palette helpers.
     openCmdPalette,
     ensurePalette,
+    // Phase 04 — per-view command registration.
+    //   const unreg = await SHELL.registerCommands('hours', [...]);
+    //   // returns a teardown function; the same scope key clears
+    //   // any commands previously registered under that key.
+    registerCommands: async (scopeKey, cmds) => {
+      const { CmdRegistry } = await import('/components/cmd-palette.js');
+      if (scopeKey) return CmdRegistry.scope(scopeKey)(cmds);
+      return CmdRegistry.registerMany(cmds);
+    },
     // Re-render the sidebar (for after a write that changes a count)
     refreshCounts: async () => {
       const c = await fetchSidebarCounts();
