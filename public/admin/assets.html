@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · assets</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+let STATE = {
+  assets: [],
+  filterType: 'all',
+  filterHolder: 'all',     // 'all' | 'storage' | 'assigned' | <userId>
+  filterStatus: 'active',  // 'active' | 'archived' | 'all' | 'overdue'
+  search: '',
+};
+
+const TYPE_LABELS = {
+  vehicle: 'Vehicle', key: 'Key', tool: 'Tool',
+  accessory: 'Accessory', ppe: 'PPE', other: 'Other',
+};
+
+window.PAGE = {
+  id: 'assets',
+  title: 'Assets',
+  crumb: 'Assets',
+  async render() {
+    SHELL.$('#page').innerHTML = '<div class="empty"><div class="empty-title">Loading assets…</div></div>';
+    await loadAll();
+    paint();
+  }
+};
+
+async function loadAll() {
+  try {
+    const r = await SHELL.api('/api/assets' + (STATE.filterStatus === 'archived' || STATE.filterStatus === 'all' ? '?archived=1' : ''));
+    STATE.assets = r.assets || [];
+  } catch (e) {
+    SHELL.$('#page').innerHTML = '<div class="empty"><div class="empty-title">Couldn\'t load</div><div class="empty-sub">' + SHELL.escapeHtml(e.message) + '</div></div>';
+    STATE.assets = [];
+  }
+}
+
+function paint() {
+  const today = new Date().toISOString().slice(0, 10);
+  const filtered = STATE.assets.filter(a => {
+    if (STATE.filterStatus === 'active' && a.archived) return false;
+    if (STATE.filterStatus === 'archived' && !a.archived) return false;
+    if (STATE.filterStatus === 'overdue') {
+      if (!a.expectedReturn || a.expectedReturn >= today) return false;
+    }
+    if (STATE.filterType !== 'all' && a.type !== STATE.filterType) return false;
+    if (STATE.filterHolder === 'storage' && a.currentHolderId) return false;
+    if (STATE.filterHolder === 'assigned' && !a.currentHolderId) return false;
+    if (STATE.filterHolder !== 'all' && STATE.filterHolder !== 'storage' && STATE.filterHolder !== 'assigned' && a.currentHolderId !== STATE.filterHolder) return false;
+    if (STATE.search) {
+      const q = STATE.search.toLowerCase();
+      const blob = (a.name + ' ' + (a.identifier || '') + ' ' + (a.notes || '') + ' ' + (a.currentHolderName || '')).toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const counts = {
+    total: STATE.assets.filter(a => !a.archived).length,
+    assigned: STATE.assets.filter(a => !a.archived && a.currentHolderId).length,
+    storage: STATE.assets.filter(a => !a.archived && !a.currentHolderId).length,
+    overdue: STATE.assets.filter(a => !a.archived && a.expectedReturn && a.expectedReturn < today).length,
+  };
+
+  const holdersInUse = [...new Set(STATE.assets.filter(a => a.currentHolderId).map(a => a.currentHolderId))]
+    .map(id => {
+      const u = (SHELL.USERS || []).find(x => x.id === id);
+      return { id, name: u ? u.username : '(unknown)' };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  SHELL.$('#page').innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Assets</div>
+        <div class="page-sub">Company gear: vehicles, keys, tools, accessories, PPE. Who has what, who's overdue.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-accent" id="new-asset">${SHELL.ICONS.plus} New asset</button>
+      </div>
+    </div>
+
+    <div class="kgrid">
+      <div class="kpi"><div class="kpi-l">Active</div><div class="kpi-v">${counts.total}</div><div class="kpi-d">assets in the register</div></div>
+      <div class="kpi"><div class="kpi-l">Assigned</div><div class="kpi-v">${counts.assigned}</div><div class="kpi-d">currently held</div></div>
+      <div class="kpi"><div class="kpi-l">In storage</div><div class="kpi-v">${counts.storage}</div><div class="kpi-d">unassigned</div></div>
+      <div class="kpi"><div class="kpi-l">Overdue</div><div class="kpi-v ${counts.overdue ? 'red' : 'green'}">${counts.overdue}</div><div class="kpi-d">past expected return</div></div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search">${SHELL.ICONS.search}<input id="se-i" placeholder="Search by name, identifier, holder…" value="${SHELL.escapeHtml(STATE.search)}"></div>
+      <select class="select" id="type-i" style="max-width:160px">
+        <option value="all"${STATE.filterType === 'all' ? ' selected' : ''}>All types</option>
+        ${Object.entries(TYPE_LABELS).map(([v, l]) => `<option value="${v}"${STATE.filterType === v ? ' selected' : ''}>${l}</option>`).join('')}
+      </select>
+      <select class="select" id="holder-i" style="max-width:200px">
+        <option value="all"${STATE.filterHolder === 'all' ? ' selected' : ''}>All holders</option>
+        <option value="storage"${STATE.filterHolder === 'storage' ? ' selected' : ''}>In storage</option>
+        <option value="assigned"${STATE.filterHolder === 'assigned' ? ' selected' : ''}>Currently assigned</option>
+        ${holdersInUse.length ? '<optgroup label="People holding gear">' + holdersInUse.map(h => `<option value="${SHELL.escapeHtml(h.id)}"${STATE.filterHolder === h.id ? ' selected' : ''}>${SHELL.escapeHtml(h.name)}</option>`).join('') + '</optgroup>' : ''}
+      </select>
+      <select class="select" id="status-i" style="max-width:160px">
+        <option value="active"${STATE.filterStatus === 'active' ? ' selected' : ''}>Active</option>
+        <option value="overdue"${STATE.filterStatus === 'overdue' ? ' selected' : ''}>Overdue only</option>
+        <option value="archived"${STATE.filterStatus === 'archived' ? ' selected' : ''}>Archived</option>
+        <option value="all"${STATE.filterStatus === 'all' ? ' selected' : ''}>All (incl. archived)</option>
+      </select>
+      <div class="toolbar-spacer"></div>
+      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(filtered.length, 'asset')}</span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr>
+          <th>Name</th><th>Type</th><th>Identifier</th><th>Current holder</th><th>Assigned since</th><th>Expected return</th><th>Status</th><th></th>
+        </tr></thead>
+        <tbody>${filtered.length ? filtered.map(assetRow).join('') : '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">No assets match those filters.</td></tr>'}</tbody>
+      </table>
+    </div>
+  `;
+
+  SHELL.$('#se-i').addEventListener('input', e => { STATE.search = e.target.value; paint(); });
+  SHELL.$('#type-i').addEventListener('change', e => { STATE.filterType = e.target.value; paint(); });
+  SHELL.$('#holder-i').addEventListener('change', e => { STATE.filterHolder = e.target.value; paint(); });
+  SHELL.$('#status-i').addEventListener('change', async e => {
+    STATE.filterStatus = e.target.value;
+    // Archived/all needs a re-fetch with ?archived=1; active/overdue don't.
+    if (STATE.filterStatus === 'archived' || STATE.filterStatus === 'all') await loadAll();
+    paint();
+  });
+  SHELL.$('#new-asset').addEventListener('click', () => openAssetPanel(null));
+  SHELL.$$('button[data-open-asset]').forEach(b => b.addEventListener('click', () => openAssetDetail(b.dataset.openAsset)));
+}
+
+function assetRow(a) {
+  const today = new Date().toISOString().slice(0, 10);
+  const overdue = a.expectedReturn && a.expectedReturn < today && a.currentHolderId;
+  const statusPill = a.archived
+    ? '<span class="pill">Archived</span>'
+    : (a.currentHolderId
+      ? (overdue ? '<span class="pill pill-bad"><span class="pill-dot"></span>Overdue</span>' : '<span class="pill pill-info"><span class="pill-dot"></span>Assigned</span>')
+      : '<span class="pill pill-ok"><span class="pill-dot"></span>In storage</span>');
+  return `<tr>
+    <td><b>${SHELL.escapeHtml(a.name)}</b>${a.notes ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + SHELL.escapeHtml(a.notes.slice(0, 80)) + (a.notes.length > 80 ? '…' : '') + '</div>' : ''}</td>
+    <td>${SHELL.escapeHtml(TYPE_LABELS[a.type] || a.type)}</td>
+    <td><span class="mono" style="font-size:12px">${SHELL.escapeHtml(a.identifier || '—')}</span></td>
+    <td>${a.currentHolderName ? SHELL.escapeHtml(a.currentHolderName) : '<span style="color:var(--muted)">— storage —</span>'}</td>
+    <td>${a.assignedAt ? SHELL._ago(a.assignedAt) : '—'}</td>
+    <td>${a.expectedReturn ? '<span style="' + (overdue ? 'color:var(--bad);font-weight:600' : '') + '">' + SHELL.escapeHtml(a.expectedReturn) + '</span>' : '<span style="color:var(--muted)">open-ended</span>'}</td>
+    <td>${statusPill}</td>
+    <td style="text-align:right"><button class="btn btn-sm" data-open-asset="${SHELL.escapeHtml(a.id)}">Open</button></td>
+  </tr>`;
+}
+
+// ── New/edit asset panel ───────────────────────────────────────────────
+function openAssetPanel(asset) {
+  const isEdit = !!asset;
+  const tradiesAndLHs = (SHELL.USERS || []).filter(u => u.role === 'tradie' || u.role === 'leadingHand').sort((a, b) => a.username.localeCompare(b.username));
+  const panel = SHELL.openPanel({
+    title: isEdit ? 'Edit asset' : 'New asset',
+    body: `
+      <div class="field"><label class="field-lbl">Name *</label><input class="input" id="na-name" value="${SHELL.escapeHtml((asset && asset.name) || '')}" placeholder="e.g. Hilux ute · ABC-123" autofocus></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Type *</label>
+          <select class="select" id="na-type">
+            ${Object.entries(TYPE_LABELS).map(([v, l]) => `<option value="${v}"${(asset && asset.type === v) ? ' selected' : ''}>${l}</option>`).join('')}
+          </select></div>
+        <div class="field"><label class="field-lbl">Identifier <span style="font-weight:400;color:var(--muted)">(rego, serial, key tag)</span></label><input class="input" id="na-identifier" value="${SHELL.escapeHtml((asset && asset.identifier) || '')}"></div>
+      </div>
+      ${!isEdit ? `<div class="field"><label class="field-lbl">Initial holder <span style="font-weight:400;color:var(--muted)">(optional — leave blank for storage)</span></label>
+        <select class="select" id="na-holder">
+          <option value="">— storage —</option>
+          ${tradiesAndLHs.map(u => `<option value="${SHELL.escapeHtml(u.id)}">${SHELL.escapeHtml(u.username)} ${u.role === 'leadingHand' ? '(LH)' : ''}</option>`).join('')}
+        </select></div>` : ''}
+      <div class="field"><label class="field-lbl">Expected return <span style="font-weight:400;color:var(--muted)">(optional — leave blank for open-ended)</span></label><input class="input" id="na-return" type="date" value="${SHELL.escapeHtml((asset && asset.expectedReturn) || '')}"></div>
+      <div class="field"><label class="field-lbl">Notes</label><textarea class="textarea" id="na-notes" rows="3">${SHELL.escapeHtml((asset && asset.notes) || '')}</textarea></div>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button>${isEdit && !asset.archived ? '<button class="btn btn-danger" id="na-archive">Archive</button>' : ''}<button class="btn btn-primary" id="na-save">${isEdit ? 'Save' : 'Create'}</button>`,
+  });
+  panel.querySelector('#na-save').addEventListener('click', async () => {
+    const body = {
+      name: panel.querySelector('#na-name').value.trim(),
+      type: panel.querySelector('#na-type').value,
+      identifier: panel.querySelector('#na-identifier').value.trim(),
+      expectedReturn: panel.querySelector('#na-return').value || null,
+      notes: panel.querySelector('#na-notes').value.trim(),
+    };
+    if (!body.name) { SHELL.toast('Name required', 'bad'); return; }
+    if (!isEdit) {
+      const holder = panel.querySelector('#na-holder').value;
+      if (holder) body.currentHolderId = holder;
+    }
+    try {
+      if (isEdit) await SHELL.api('/api/assets?id=' + encodeURIComponent(asset.id), { method: 'PUT', body });
+      else        await SHELL.api('/api/assets', { method: 'POST', body });
+      SHELL.toast(isEdit ? 'Saved' : 'Asset created', 'ok');
+      SHELL.closePanel();
+      await loadAll(); paint();
+    } catch (e) { SHELL.toast(isEdit ? 'Save failed — ' + e.message : 'Create failed — ' + e.message, 'bad'); }
+  });
+  if (isEdit && !asset.archived) {
+    panel.querySelector('#na-archive').addEventListener('click', async () => {
+      if (!confirm('Archive "' + asset.name + '"? It stays in the register but won\'t show in Active.')) return;
+      try {
+        await fetch('/api/assets?id=' + encodeURIComponent(asset.id), { method: 'DELETE', credentials: 'same-origin' })
+          .then(r => { if (!r.ok) throw new Error('Archive failed'); });
+        SHELL.toast('Archived', 'ok');
+        SHELL.closePanel();
+        await loadAll(); paint();
+      } catch (e) { SHELL.toast('Archive failed — ' + e.message, 'bad'); }
+    });
+  }
+}
+
+// ── Asset detail drawer (record + transfer history) ────────────────────
+async function openAssetDetail(id) {
+  let res;
+  try { res = await SHELL.api('/api/assets?id=' + encodeURIComponent(id)); }
+  catch (e) { SHELL.toast('Couldn\'t load — ' + e.message, 'bad'); return; }
+  const a = res.asset; const history = res.history || [];
+  const today = new Date().toISOString().slice(0, 10);
+  const overdue = a.expectedReturn && a.expectedReturn < today && a.currentHolderId;
+  const tradiesAndLHs = (SHELL.USERS || []).filter(u => u.role === 'tradie' || u.role === 'leadingHand').sort((x, y) => x.username.localeCompare(y.username));
+  const panel = SHELL.openPanel({
+    title: a.name,
+    body: `
+      <div style="display:grid;grid-template-columns:140px 1fr;gap:6px 14px;font-size:13px;margin-bottom:16px">
+        <div style="color:var(--muted)">Type</div><div>${SHELL.escapeHtml(TYPE_LABELS[a.type] || a.type)}</div>
+        <div style="color:var(--muted)">Identifier</div><div class="mono">${SHELL.escapeHtml(a.identifier || '—')}</div>
+        <div style="color:var(--muted)">Current holder</div><div>${a.currentHolderName ? '<b>' + SHELL.escapeHtml(a.currentHolderName) + '</b>' : '<span style="color:var(--muted)">— storage —</span>'}</div>
+        <div style="color:var(--muted)">Assigned since</div><div>${a.assignedAt ? SHELL.escapeHtml(SHELL._ago(a.assignedAt)) : '—'}</div>
+        <div style="color:var(--muted)">Expected return</div><div ${overdue ? 'style="color:var(--bad);font-weight:600"' : ''}>${a.expectedReturn ? SHELL.escapeHtml(a.expectedReturn) + (overdue ? ' · OVERDUE' : '') : '<span style="color:var(--muted)">open-ended</span>'}</div>
+        ${a.notes ? '<div style="color:var(--muted)">Notes</div><div>' + SHELL.escapeHtml(a.notes) + '</div>' : ''}
+      </div>
+
+      <div class="card-hdr" style="margin-top:8px"><div><div class="card-title">Transfer</div><div class="card-sub">Hand over to another person or return to storage. Logged as audit history.</div></div></div>
+      <div class="field"><label class="field-lbl">Transfer to</label>
+        <select class="select" id="tx-to">
+          <option value="">— Storage (return) —</option>
+          ${tradiesAndLHs.map(u => `<option value="${SHELL.escapeHtml(u.id)}"${a.currentHolderId === u.id ? ' disabled' : ''}>${SHELL.escapeHtml(u.username)}${u.role === 'leadingHand' ? ' (LH)' : ''}${a.currentHolderId === u.id ? ' — current' : ''}</option>`).join('')}
+        </select></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Expected return <span style="font-weight:400;color:var(--muted)">(optional)</span></label><input class="input" id="tx-return" type="date" value="${SHELL.escapeHtml(a.expectedReturn || '')}"></div>
+        <div class="field"><label class="field-lbl">Note <span style="font-weight:400;color:var(--muted)">(optional)</span></label><input class="input" id="tx-note" placeholder="e.g. for Birdwood week"></div>
+      </div>
+      <button class="btn btn-primary" id="tx-do" style="width:100%;margin-top:4px">Transfer</button>
+
+      <div class="card-hdr" style="margin-top:24px"><div><div class="card-title">History <span class="card-count">${history.length}</span></div><div class="card-sub">Newest first</div></div></div>
+      <div style="display:grid;gap:6px;margin-top:8px">
+        ${history.length ? history.map(h => `<div style="padding:8px 12px;background:var(--surface-2);border-radius:6px;font-size:12px">
+          <b>${SHELL.escapeHtml(h.fromName || 'Storage')}</b> → <b>${SHELL.escapeHtml(h.toName || 'Storage')}</b>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">by ${SHELL.escapeHtml(h.byName || '—')} · ${SHELL.escapeHtml(SHELL._ago(h.at) || '')}${h.note ? ' · "' + SHELL.escapeHtml(h.note) + '"' : ''}</div>
+        </div>`).join('') : '<div style="padding:14px;color:var(--muted);font-size:12px;text-align:center">No transfers yet.</div>'}
+      </div>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Close</button><button class="btn" id="ad-edit">Edit metadata</button>`,
+  });
+  panel.querySelector('#ad-edit').addEventListener('click', () => { SHELL.closePanel(); openAssetPanel(a); });
+  panel.querySelector('#tx-do').addEventListener('click', async () => {
+    const toUserId = panel.querySelector('#tx-to').value || null;
+    if (toUserId === a.currentHolderId) { SHELL.toast('Already held by that person', 'warn'); return; }
+    if (!toUserId && !a.currentHolderId) { SHELL.toast('Already in storage', 'warn'); return; }
+    try {
+      await SHELL.api('/api/assets?action=transfer', {
+        method: 'POST',
+        body: {
+          assetId: a.id,
+          toUserId: toUserId,
+          expectedReturn: panel.querySelector('#tx-return').value || null,
+          note: panel.querySelector('#tx-note').value.trim() || null,
+        },
+      });
+      SHELL.toast('Transferred', 'ok');
+      SHELL.closePanel();
+      await loadAll(); paint();
+    } catch (e) { SHELL.toast('Transfer failed — ' + e.message, 'bad'); }
+  });
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>

@@ -182,6 +182,7 @@
     { id: 'hours',      label: 'Hours & costs',  href: '/admin/hours',      icon: 'hours' },
     { section: 'People', roles: ['admin'] },
     { id: 'crew',       label: 'Crew',           href: '/admin/crew',       icon: 'crew',     countKey: 'crewCount', roles: ['admin'] },
+    { id: 'assets',     label: 'Assets register', href: '/admin/assets',    icon: 'temp',     countKey: 'overdueAssets', badgeBad: true, roles: ['admin'] },
     { section: 'Win', roles: ['admin'] },
     { id: 'quotes',     label: 'Quotes',         href: '/admin/quotes',     icon: 'quote',    countKey: 'liveQuotes', roles: ['admin'] },
     { section: 'Settings', roles: ['admin'] },
@@ -203,6 +204,7 @@
     suppliers:  ['admin'],
     settings:   ['admin'],
     support:    ['admin'],
+    assets:     ['admin'],
   };
 
   /* ── Boot ──────────────────────────────────────────────── */
@@ -264,7 +266,7 @@
   async function fetchSidebarCounts() {
     // Admin gets the Support badge too (LH doesn't see Support — gated).
     const isAdmin = SHELL.ME && SHELL.ME.role === 'admin';
-    const [jobsR, pendingR, snagsR, usersR, quotesR, supportAccessR, supportPwdR] = await Promise.all([
+    const [jobsR, pendingR, snagsR, usersR, quotesR, supportAccessR, supportPwdR, assetsR] = await Promise.all([
       fetch('/api/jobs?withStats=1', { credentials: 'same-origin' }).catch(() => null),
       fetch('/api/time-entries?status=submitted&scope=approver', { credentials: 'same-origin' }).catch(() => null),
       fetch('/api/snags-all?status=Open', { credentials: 'same-origin' }).catch(() => null),
@@ -272,8 +274,9 @@
       fetch('/api/quotes', { credentials: 'same-origin' }).catch(() => null),
       isAdmin ? fetch('/api/access-requests?status=open', { credentials: 'same-origin' }).catch(() => null) : null,
       isAdmin ? fetch('/api/password-resets?status=open',  { credentials: 'same-origin' }).catch(() => null) : null,
+      isAdmin ? fetch('/api/assets',                       { credentials: 'same-origin' }).catch(() => null) : null,
     ]);
-    const out = { activeJobs: 0, pendingHours: 0, openSnags: 0, unassignedSnags: 0, crewCount: 0, liveQuotes: 0, openSupport: 0 };
+    const out = { activeJobs: 0, pendingHours: 0, openSnags: 0, unassignedSnags: 0, crewCount: 0, liveQuotes: 0, openSupport: 0, overdueAssets: 0 };
     try {
       if (jobsR && jobsR.ok) {
         const jobs = (await jobsR.json()).jobs || [];
@@ -323,6 +326,17 @@
       if (supportPwdR && supportPwdR.ok) {
         const rs = (await supportPwdR.json()).resets || [];
         out.openSupport += rs.length;
+      }
+    } catch {}
+    // Overdue-assets badge — assets past their expected return date.
+    // Only fired for admins (LH/tradie see their own gear in /my-gear,
+    // which has its own overdue surfacing). Same pattern as the other
+    // bad-tone badges.
+    try {
+      if (assetsR && assetsR.ok) {
+        const items = (await assetsR.json()).assets || [];
+        const today = new Date().toISOString().slice(0, 10);
+        out.overdueAssets = items.filter(a => !a.archived && a.expectedReturn && a.expectedReturn < today && a.currentHolderId).length;
       }
     } catch {}
     return out;

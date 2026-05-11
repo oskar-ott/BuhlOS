@@ -18,11 +18,13 @@
     { "source": "/admin/temps",           "destination": "/admin/temps.html" },
     { "source": "/admin/settings",        "destination": "/admin/settings.html" },
     { "source": "/admin/support",         "destination": "/admin/support.html" },
+    { "source": "/admin/assets",          "destination": "/admin/assets.html" },
 
     { "source": "/admin-legacy", "destination": "/admin.html" },
 
     { "source": "/overview",  "destination": "/admin/operations.html" },
     { "source": "/my-day",    "destination": "/my-day.html" },
+    { "source": "/my-gear",   "destination": "/my-gear.html" },
     { "source": "/install",   "destination": "/install.html" },
     { "source": "/approvals", "destination": "/admin/approvals.html" },
     { "source": "/client", "destination": "/client.html" },
