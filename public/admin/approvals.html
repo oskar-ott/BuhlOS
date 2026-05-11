@@ -11,6 +11,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/admin/_shell.css">
 <script src="/admin/_shell.js"></script>
+<!-- Phase 07 (brief §09): the rebuilt hours-approval surface uses
+     <rate-flag> for over-threshold entries (yellow chip, never red,
+     never refusable). -->
+<script type="module" src="/components/rate-flag.js"></script>
 </head>
 <body>
 <script>
@@ -77,6 +81,13 @@ function paint() {
   const staleCount = filtered.filter(e => e.submittedAt && (now - Date.parse(e.submittedAt)) >= 24 * 3600 * 1000).length;
   const staleTone = staleCount === 0 ? 'green' : staleCount >= 5 ? 'red' : 'amber';
 
+  // Phase 07 (brief §09 H-02): anomaly detection. Entries over 9h, on a
+  // weekend, or on a public holiday get a yellow flag. Not a block. We
+  // count them so the rule-based bulk panel can preview what passes.
+  const POLICY_HRS = 9;
+  const under = filtered.filter(e => canApprove(e) && !isAnomaly(e, POLICY_HRS));
+  const flagged = filtered.filter(e => canApprove(e) && isAnomaly(e, POLICY_HRS));
+
   // Job filter dropdown options — derive from JOBS shared from the shell.
   const jobOpts = ['<option value="all">All jobs</option>']
     .concat((SHELL.JOBS || [])
@@ -102,6 +113,20 @@ function paint() {
       <div class="kpi"><div class="kpi-l">Submitters</div><div class="kpi-v">${groups.length}</div><div class="kpi-d">distinct people</div></div>
       <div class="kpi"><div class="kpi-l">Waiting &gt; 24h</div><div class="kpi-v ${staleTone}">${staleCount}</div><div class="kpi-d">prioritise these</div></div>
     </div>
+
+    ${under.length || flagged.length ? `
+      <div class="card" style="padding:14px 18px;margin-bottom:18px;display:flex;flex-wrap:wrap;align-items:center;gap:14px">
+        <div style="flex:1;min-width:240px">
+          <div style="font-family:var(--ff-display);font-weight:700;font-size:15px;color:var(--ink);letter-spacing:-.005em">Rule-based bulk</div>
+          <div style="font-family:var(--ff-mono);font-size:11px;letter-spacing:.04em;color:var(--muted);margin-top:3px">
+            ${under.length} under ${POLICY_HRS}h · ${flagged.length} flagged for a look · ${POLICY_HRS}h policy threshold
+          </div>
+        </div>
+        <button class="btn btn-accent" id="bulk-under"${under.length ? '' : ' disabled'}>
+          ${under.length ? `Approve all ≤ ${POLICY_HRS}h · ${under.length} entries` : `Nothing eligible to bulk-approve`}
+        </button>
+      </div>
+    ` : ''}
 
     <div class="toolbar">
       <select class="select" id="job-filter" style="width:auto;min-width:240px">${jobOpts}</select>
@@ -140,6 +165,35 @@ function paint() {
   SHELL.$$('[data-action="approve"]').forEach(b => b.addEventListener('click', onApprove));
   SHELL.$$('[data-action="reject"]').forEach(b => b.addEventListener('click', onReject));
   SHELL.$$('[data-action="approve-all"]').forEach(b => b.addEventListener('click', onApproveAllForUser));
+  const bulkBtn = SHELL.$('#bulk-under');
+  if (bulkBtn) bulkBtn.addEventListener('click', () => onBulkApproveUnder(POLICY_HRS));
+}
+
+/* ── Phase 07 anomaly detection (brief §09 H-02) ──────────────────
+   Over policy threshold, weekend, or public holiday → yellow flag.
+   Reviewable, not refusable. The list below is the AU public-holiday
+   set the admin uses today; expand via /api/holidays in a later phase. */
+
+const AU_PUBLIC_HOLIDAYS = new Set([
+  // 2026 — kept short for the demo run; the boss can add more.
+  '2026-01-01', '2026-01-26', '2026-04-03', '2026-04-06', '2026-04-25',
+  '2026-06-08', '2026-08-03', '2026-10-05', '2026-12-25', '2026-12-26',
+]);
+
+function isAnomaly(entry, policyHrs) {
+  return anomalyReasons(entry, policyHrs).length > 0;
+}
+function anomalyReasons(entry, policyHrs) {
+  const out = [];
+  const h = Number(entry.totalHours) || 0;
+  if (h > policyHrs) out.push({ kind: 'over', label: `Over ${policyHrs}h`, hours: h });
+  const d = entry.date ? new Date(entry.date + 'T00:00:00') : null;
+  if (d && !isNaN(d)) {
+    const dow = d.getDay();
+    if (dow === 0 || dow === 6) out.push({ kind: 'weekend', label: 'Weekend' });
+    if (AU_PUBLIC_HOLIDAYS.has(entry.date)) out.push({ kind: 'holiday', label: 'Public holiday' });
+  }
+  return out;
 }
 
 function renderGroup(g) {
@@ -172,11 +226,20 @@ function renderEntryCard(entry) {
     if (ageHrs >= 48)      staleBadge = `<span class="pill pill-bad">${Math.floor(ageHrs / 24)}d waiting</span>`;
     else if (ageHrs >= 24) staleBadge = `<span class="pill pill-warn">${ageHrs}h waiting</span>`;
   }
+  // Phase 07 (brief §09 H-02): yellow <rate-flag> for anomalies.
+  // Reviewable not refusable — never a block.
+  const anomalies = anomalyReasons(entry, 9);
+  const flagHtml = anomalies.length
+    ? `<rate-flag hours="${Number(entry.totalHours).toFixed(1)}" note="${SHELL.escapeHtml(anomalies.map(a => a.label).join(' · ').toLowerCase())}"></rate-flag>`
+    : '';
   return `
     <div style="padding:14px 18px;border-bottom:1px solid var(--line)" data-entryid="${SHELL.escapeHtml(entry.id || '')}" data-userid="${SHELL.escapeHtml(entry.userId)}" data-date="${SHELL.escapeHtml(entry.date)}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:8px">
         <div>
-          <div style="font-weight:600;font-size:14px" class="tabular">${SHELL.escapeHtml(formatDate(entry.date))} ${staleBadge}</div>
+          <div style="font-weight:600;font-size:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap" class="tabular">
+            ${SHELL.escapeHtml(formatDate(entry.date))} ${staleBadge}
+            ${flagHtml}
+          </div>
           <div style="font-size:12px;color:var(--muted)" class="tabular">
             ${Number(entry.totalHours).toFixed(2)}h · ord ${Number(entry.ordinaryHours).toFixed(2)} · OT ${Number(entry.overtimeHours).toFixed(2)}
           </div>
@@ -259,36 +322,101 @@ async function onApprove(ev) {
   }
 }
 
+// Phase 07 (brief §09 reject contract): preset reasons + free-form
+// override. The brief specifies the four canonical reasons; "Other…"
+// reveals a textarea. One reject = one reason, server-validated.
+const REJECT_REASONS = [
+  'Wrong job code',
+  'Hours look high — confirm?',
+  'Need a note about overtime',
+  "Doesn't match site sign-in",
+  'Other…',
+];
+
 function onReject(ev) {
   const row = ev.target.closest('[data-userid]');
   const region = row.querySelector('[data-region="reject"]');
   region.innerHTML = `
     <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
-      <textarea class="textarea" rows="2" placeholder="Reason (e.g. wrong job, hours don't match site sign-in)"></textarea>
+      <div style="font-family:var(--ff-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Reason</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" data-region="reject-chips">
+        ${REJECT_REASONS.map((r, i) => `
+          <button type="button" class="btn btn-sm" data-reason-i="${i}" style="font-weight:500">${SHELL.escapeHtml(r)}</button>
+        `).join('')}
+      </div>
+      <textarea class="textarea" rows="2" placeholder="Add detail (optional)" data-region="reject-text"></textarea>
       <div style="display:flex;gap:6px;margin-top:8px;justify-content:flex-end">
         <button class="btn btn-sm" data-action="cancel-reject">Cancel</button>
-        <button class="btn btn-sm btn-danger" data-action="confirm-reject">Confirm reject</button>
+        <button class="btn btn-sm btn-danger" data-action="confirm-reject" disabled>Reject &amp; send back</button>
       </div>
     </div>
   `;
+  const confirmBtn = region.querySelector('[data-action="confirm-reject"]');
+  const txt = region.querySelector('[data-region="reject-text"]');
+  let pickedReason = '';
+  region.querySelectorAll('[data-reason-i]').forEach(b => {
+    b.addEventListener('click', () => {
+      pickedReason = REJECT_REASONS[Number(b.dataset.reasonI)];
+      region.querySelectorAll('[data-reason-i]').forEach(x => x.classList.remove('btn-primary'));
+      b.classList.add('btn-primary');
+      confirmBtn.disabled = false;
+      // "Other…" requires free text; everything else just uses the preset
+      // unless the admin adds a detail line.
+      if (pickedReason === 'Other…') { txt.focus(); }
+    });
+  });
   region.querySelector('[data-action="cancel-reject"]').addEventListener('click', () => { region.innerHTML = ''; });
-  region.querySelector('[data-action="confirm-reject"]').addEventListener('click', async (e2) => {
-    const reason = region.querySelector('textarea').value.trim();
+  confirmBtn.addEventListener('click', async (e2) => {
+    let reason = pickedReason || '';
+    const detail = txt.value.trim();
+    if (reason === 'Other…') {
+      if (!detail) { SHELL.toast('Add a reason in the detail field', 'bad'); return; }
+      reason = detail;
+    } else if (detail) {
+      reason = `${reason} — ${detail}`;
+    }
     if (!reason) return;
     e2.target.disabled = true; e2.target.textContent = 'Rejecting…';
     try {
       await SHELL.api('/api/time-entries-reject', {
         method: 'POST', body: { userId: row.dataset.userid, date: row.dataset.date, reason },
       });
-      SHELL.toast('Rejected', 'ok');
+      SHELL.toast('Rejected — sent back to phone', 'ok');
       await loadAll();
       await SHELL.refreshCounts();
       paint();
     } catch (e) {
       SHELL.toast('Reject failed — ' + e.message, 'bad');
-      e2.target.disabled = false; e2.target.textContent = 'Confirm reject';
+      e2.target.disabled = false; e2.target.textContent = 'Reject & send back';
     }
   });
+}
+
+/* Phase 07 rule-based bulk (brief §09):
+   "auto-approve under 9h, flag over". Iterates over filtered + canApprove
+   + non-anomaly entries; each hits the existing /api/time-entries-approve
+   endpoint sequentially (so per-entry server gating still applies). */
+async function onBulkApproveUnder(policyHrs) {
+  const eligible = STATE.pending.filter(e => {
+    if (STATE.filterJob !== 'all' && !(e.allocations || []).some(a => a.jobId === STATE.filterJob)) return false;
+    return canApprove(e) && !isAnomaly(e, policyHrs);
+  });
+  if (!eligible.length) return;
+  if (!confirm(`Approve ${eligible.length} ${eligible.length === 1 ? 'entry' : 'entries'} ≤ ${policyHrs}h?\nAnomalies (over ${policyHrs}h, weekend, public holiday) stay in the queue for a human look.`)) return;
+  const btn = SHELL.$('#bulk-under');
+  if (btn) btn.disabled = true;
+  let done = 0, failed = 0;
+  for (const e of eligible) {
+    if (btn) btn.textContent = `Approving ${done + 1}/${eligible.length}…`;
+    try {
+      await SHELL.api('/api/time-entries-approve', { method: 'POST', body: { userId: e.userId, date: e.date } });
+      done++;
+    } catch { failed++; }
+  }
+  SHELL.toast(`Approved ${done}${failed ? ', failed ' + failed : ''}`, failed ? 'bad' : 'ok');
+  await loadAll();
+  await SHELL.refreshCounts();
+  paint();
 }
 
 async function onApproveAllForUser(ev) {
