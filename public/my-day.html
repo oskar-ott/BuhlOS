@@ -397,6 +397,58 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   text-decoration:none;font-size:10px;font-weight:600;
 }
 .tb svg{width:22px;height:22px}
+
+/* ── Me action sheet ────────────────────────────────────────
+   Bottom-sheet pop-up triggered by the "Me" tab. Guards the
+   sign-out action with one extra tap so a misaimed thumb at the
+   right edge of the screen doesn't end the session. Same warm
+   cream / navy / yellow tokens as the rest of the page. */
+.me-scrim{
+  position:fixed;inset:0;background:rgba(13,31,53,.45);
+  z-index:50;display:flex;align-items:flex-end;justify-content:center;
+  animation:me-fade .14s ease-out;
+}
+.me-scrim[hidden]{display:none}
+@keyframes me-fade{from{opacity:0}to{opacity:1}}
+.me-sheet{
+  background:var(--surface);
+  border-radius:18px 18px 0 0;
+  padding:8px 18px calc(18px + var(--safe-b));
+  width:100%;max-width:430px;
+  box-shadow:0 -8px 24px rgba(13,31,53,.18);
+  animation:me-slide .18s ease-out;
+}
+@keyframes me-slide{from{transform:translateY(20px);opacity:.6}to{transform:translateY(0);opacity:1}}
+.me-handle{
+  width:36px;height:4px;border-radius:2px;
+  background:var(--line-2);margin:6px auto 16px;
+}
+.me-who{
+  display:flex;align-items:center;gap:12px;
+  padding:6px 4px 14px;border-bottom:1px solid var(--line);
+  margin-bottom:10px;
+}
+.me-who-avatar{
+  width:44px;height:44px;border-radius:50%;
+  background:var(--accent);color:var(--accent-ink);
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;font-weight:700;flex-shrink:0;
+}
+.me-who-name{font-size:16px;font-weight:700;color:var(--ink);letter-spacing:-.2px;line-height:1.2}
+.me-who-role{font-size:12px;color:var(--muted);margin-top:2px}
+.me-action{
+  width:100%;display:flex;align-items:center;gap:12px;
+  padding:13px 14px;border-radius:12px;
+  background:var(--surface-2);border:1px solid var(--line);
+  font:inherit;font-size:14.5px;font-weight:600;color:var(--bad);
+  cursor:pointer;margin-bottom:8px;text-align:left;
+}
+.me-action:active{transform:scale(.99)}
+.me-cancel{
+  width:100%;padding:13px;border-radius:12px;background:transparent;
+  border:0;font:inherit;font-size:14.5px;font-weight:600;color:var(--ink-2);
+  cursor:pointer;
+}
 .tb.active{color:var(--ink)}
 .tb.active::before{
   content:"";position:absolute;top:-1px;left:50%;transform:translateX(-50%);
@@ -570,20 +622,47 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   <!-- Bottom tab bar — picker page nuked; the only "Jobs" surface in the
        app now is /admin/jobs (admin-only). For tradies, the My jobs
        section above already lists every assigned job, so no Jobs tab here. -->
-  <nav class="tabbar" style="grid-template-columns:repeat(3,1fr)">
+  <!-- Bottom tab bar — three columns initially. The "My gear" tab is
+       auto-hidden in JS when the user holds zero assets; the tabbar
+       then collapses to two columns. The "Me" tab opens a small action
+       sheet instead of signing out instantly (was: instant logout on
+       tap, easy to mis-tap when reaching for "My gear"). -->
+  <nav class="tabbar" id="tabbar" style="grid-template-columns:repeat(3,1fr)">
     <a href="/my-day" class="tb active">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
       My day
     </a>
-    <a href="/my-gear" class="tb">
+    <a href="/my-gear" class="tb" id="tab-gear">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>
       My gear
     </a>
-    <button class="tb" type="button" onclick="document.getElementById('logout').click()">
+    <button class="tb" type="button" id="tab-me">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
       Me
     </button>
   </nav>
+
+  <!-- Me sheet — opens from the bottom tab bar's "Me" button. Three
+       actions: see the signed-in name, optional reminders toggle, and a
+       guarded Sign out. Previously "Me" called the logout button
+       directly which destructively signed users out on accidental tap. -->
+  <div class="me-scrim" id="me-scrim" hidden>
+    <div class="me-sheet" role="dialog" aria-modal="true" aria-labelledby="me-title">
+      <div class="me-handle"></div>
+      <div class="me-who">
+        <div class="me-who-avatar" id="me-avatar">?</div>
+        <div style="flex:1;min-width:0">
+          <div class="me-who-name" id="me-who-name">…</div>
+          <div class="me-who-role" id="me-who-role"></div>
+        </div>
+      </div>
+      <button type="button" class="me-action" id="me-signout">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M16 17l5-5-5-5M21 12H9M13 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/></svg>
+        <span>Sign out</span>
+      </button>
+      <button type="button" class="me-cancel" id="me-cancel">Cancel</button>
+    </div>
+  </div>
 </div>
 
 <!-- Push opt-in card -->
@@ -689,6 +768,16 @@ async function load(){
   document.getElementById('today').innerHTML = 'Today · <b>' + new Date().toLocaleDateString('en-AU', {
     weekday:'short', day:'numeric', month:'short'
   }) + '</b>';
+
+  // Tabbar: populate Me-sheet identity + wire actions.
+  // Done here (not in the inline script at the bottom) because ME is the
+  // truthful source of role/username and we already have it in hand.
+  setupMeSheet();
+  // "My gear" tab auto-hides when the user holds zero assets. Tabbar
+  // collapses to 2-column grid in that case so the remaining tabs stay
+  // even-sized rather than orphaning a blank third column. Fired in
+  // parallel — doesn't block first paint.
+  loadAndApplyGearTabVisibility();
 
   // Parallel: jobs + activity + my time-entries (last ~3 weeks for week strip + history)
   const fromIso = (() => {
@@ -1754,6 +1843,70 @@ document.getElementById('logout').addEventListener('click', async () => {
   await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' });
   location.href = '/login';
 });
+
+// ─── Me action sheet ─────────────────────────────────────────────────────
+// Replaces the previous "Me" tab behaviour (instant logout on tap). Now:
+// tap "Me" → bottom sheet shows identity + a guarded Sign out + Cancel.
+// Sign out flow goes through the existing #logout handler so all
+// teardown behaviour (cookie clear + redirect) stays in one place.
+function setupMeSheet() {
+  const tab    = document.getElementById('tab-me');
+  const scrim  = document.getElementById('me-scrim');
+  const cancel = document.getElementById('me-cancel');
+  const signOut = document.getElementById('me-signout');
+  const nameEl = document.getElementById('me-who-name');
+  const roleEl = document.getElementById('me-who-role');
+  const avEl   = document.getElementById('me-avatar');
+  if (!tab || !scrim) return;
+  // Identity — pulled from the in-memory ME object that auth resolves.
+  const name = (ME && ME.username) || 'You';
+  const roleLabel = ME && ME.role === 'leadingHand' ? 'Leading hand'
+                  : ME && ME.role === 'admin' ? 'Admin'
+                  : ME && ME.role === 'tradie' ? 'Tradie'
+                  : ME && ME.role === 'client' ? 'Client'
+                  : '';
+  nameEl.textContent = name;
+  roleEl.textContent = roleLabel;
+  // Initials in the avatar circle.
+  const initials = String(name).split(/[\s._-]+/).filter(Boolean).slice(0, 2)
+    .map(w => w[0]).join('').toUpperCase() || '?';
+  avEl.textContent = initials;
+  // Open + close handlers.
+  function open()  { scrim.hidden = false; document.body.style.overflow = 'hidden'; }
+  function close() { scrim.hidden = true;  document.body.style.overflow = ''; }
+  tab.addEventListener('click', open);
+  cancel.addEventListener('click', close);
+  scrim.addEventListener('click', e => { if (e.target === scrim) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !scrim.hidden) close(); });
+  signOut.addEventListener('click', () => {
+    // Funnel through the existing handler so cookie clear stays consistent.
+    document.getElementById('logout').click();
+  });
+}
+
+// Auto-hide the "My gear" tab when the user POSITIVELY has zero assets.
+// The tab defaults to visible — a fetch failure should never silently
+// remove functionality. We only hide when /api/assets returns OK with
+// an empty list, and we collapse the tabbar to 2 columns so the
+// remaining tabs stay evenly sized.
+async function loadAndApplyGearTabVisibility() {
+  // Admins are redirected from /my-gear → /admin/assets anyway. Clients
+  // have no business in My Gear. Both keep the tab visible as a no-op.
+  if (!ME || ME.role === 'admin' || ME.role === 'client') return;
+  try {
+    const r = await fetch('/api/assets', { credentials: 'same-origin' });
+    if (!r.ok) return; // network/auth flake — leave tab visible
+    const j = await r.json();
+    const heldCount = (j.assets || []).filter(a => !a.archived).length;
+    if (heldCount === 0) {
+      const tab = document.getElementById('tab-gear');
+      const bar = document.getElementById('tabbar');
+      if (tab) tab.hidden = true;
+      if (bar) bar.style.gridTemplateColumns = 'repeat(2,1fr)';
+    }
+    // else: tab stays visible (default)
+  } catch (e) { /* silent — leave tab visible */ }
+}
 
 load();
 </script>
