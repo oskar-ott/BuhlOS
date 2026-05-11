@@ -57,6 +57,45 @@ function sanitiseAsset(body, existing) {
       next.expectedReturn = s;
     }
   }
+
+  // Phase 12 (brief §12): hired-gear fields. owned (default) vs hired,
+  // hire end-date, day-rate ex-GST. Used by the dead-rent flag on
+  // the admin assets register.
+  if (body.ownership !== undefined) {
+    if (body.ownership === '' || body.ownership === null) next.ownership = 'owned';
+    else if (body.ownership !== 'owned' && body.ownership !== 'hired') {
+      return { error: 'ownership must be "owned" or "hired"' };
+    } else {
+      next.ownership = body.ownership;
+    }
+  }
+  if (body.hireEndDate !== undefined) {
+    if (body.hireEndDate === null || body.hireEndDate === '') next.hireEndDate = null;
+    else {
+      const s = String(body.hireEndDate);
+      if (!/^\d{4}-\d{2}-\d{2}/.test(s)) return { error: 'hireEndDate must be an ISO date (YYYY-MM-DD) or null' };
+      next.hireEndDate = s;
+    }
+  }
+  if (body.hireRateExGst !== undefined) {
+    if (body.hireRateExGst === null || body.hireRateExGst === '') next.hireRateExGst = null;
+    else {
+      const n = Number(body.hireRateExGst);
+      if (!Number.isFinite(n) || n < 0) return { error: 'hireRateExGst must be a non-negative number' };
+      next.hireRateExGst = Math.round(n * 100) / 100;
+    }
+  }
+  if (body.hireSupplier !== undefined) next.hireSupplier = String(body.hireSupplier || '').trim().slice(0, 120) || null;
+
+  // Default ownership to 'owned' on new records so the dead-rent
+  // calculator doesn't accidentally flag a missing field.
+  if (existing && existing.ownership === undefined && next.ownership === undefined) {
+    next.ownership = 'owned';
+  }
+  if (!existing && next.ownership === undefined) {
+    next.ownership = 'owned';
+  }
+
   return { asset: next };
 }
 
