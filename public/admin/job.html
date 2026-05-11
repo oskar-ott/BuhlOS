@@ -11,6 +11,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/admin/_shell.css">
 <script src="/admin/_shell.js"></script>
+<!-- Site-office completion: <open-in-field> is the brief §02 topbar
+     action for every detail page. The component lazy-renders a deep
+     link to /jobs/:id (the field surface) for the current record. -->
+<script type="module" src="/components/open-in-field.js"></script>
 </head>
 <body>
 <script>
@@ -46,8 +50,27 @@ window.PAGE = {
     STATE.section = (new URLSearchParams(location.search).get('s')) || 'overview';
     await loadAll();
     paint();
+    mountOpenInField();
   }
 };
+
+// Brief §02 + §17 (S-08): every detail page gets an "Open in field ↗"
+// in the topbar, contextual to the current record. Mounted once after
+// the shell has rendered; the component reads job + falls through to
+// /my-day?job=… in a new tab.
+function mountOpenInField() {
+  if (!STATE.jobId) return;
+  const topbar = document.getElementById('topbar');
+  if (!topbar) return;
+  let oif = topbar.querySelector('open-in-field');
+  if (!oif) {
+    oif = document.createElement('open-in-field');
+    oif.setAttribute('label', 'Open in field');
+    // Place it as the right-hand action — after the density toggle.
+    topbar.appendChild(oif);
+  }
+  oif.setAttribute('job', STATE.jobId);
+}
 
 async function loadAll() {
   // Job from /api/jobs (already in shell cache)
