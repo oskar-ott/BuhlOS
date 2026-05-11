@@ -191,6 +191,16 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .logcard-chip[aria-pressed="true"]{
   background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700;
 }
+/* "Other" chip — visually quieter than the duration chips so it reads
+   as a fallback escape hatch, not a peer of 4h/6h/8h. Still gets the
+   yellow pressed state when active so the relationship is consistent. */
+.logcard-chip-other{
+  margin-left:auto;color:var(--muted);
+  font-size:12.5px;font-weight:500;
+}
+.logcard-chip-other[aria-pressed="true"]{
+  background:var(--surface-3);border-color:var(--line-2);color:var(--ink);
+}
 
 /* Save button (primary yellow) */
 .logcard-save{
@@ -468,13 +478,32 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
       <button class="logcard-edit" type="button" id="logcard-edit">Edit</button>
     </div>
 
-    <!-- Inline entry (shown when not yet logged or when editing) -->
+    <!-- Inline entry (shown when not yet logged or when editing).
+         Simplified flow: chip-first. Tradies tap a duration → Save.
+         "Other duration" expands a fine-grained hours+minutes editor
+         for the rare custom-time case. The previous three-input layout
+         (hours stepper + minute pills + chips) gave three ways to do
+         the same thing and made the card feel cluttered for a once-a-
+         day action. -->
     <div class="logcard-entry" id="logcard-entry">
       <!-- Job picker — single chip when 1 job, select when 2+ -->
       <div class="logcard-job" id="logcard-job"></div>
 
-      <!-- Hours + minutes + chips -->
-      <div class="logcard-time">
+      <!-- Primary input: quick chips. Always one is pressed. -->
+      <div class="logcard-chips" role="group" aria-label="Today's hours">
+        <button type="button" class="logcard-chip" data-h="4">4h</button>
+        <button type="button" class="logcard-chip" data-h="6">6h</button>
+        <button type="button" class="logcard-chip" data-h="7.5">7.5h</button>
+        <button type="button" class="logcard-chip" data-h="8" aria-pressed="true">8h</button>
+        <button type="button" class="logcard-chip" data-h="9">9h</button>
+        <button type="button" class="logcard-chip logcard-chip-other" id="logcard-other-toggle" aria-expanded="false">Other ↓</button>
+      </div>
+
+      <!-- "Other duration" — collapsed by default. Expands to a fine-
+           grained hours+minutes editor. Auto-expands when the current
+           total is non-standard so the chip selection still matches the
+           saved value when editing. -->
+      <div class="logcard-time" id="logcard-time" hidden>
         <div class="logcard-hm">
           <button type="button" class="logcard-step" id="logcard-h-down" aria-label="−1h">−</button>
           <input type="number" id="logcard-h-input" min="0" max="14" step="1" value="8" inputmode="numeric" aria-label="Hours">
@@ -486,13 +515,6 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
           <button type="button" class="logcard-min" data-m="30">30</button>
           <button type="button" class="logcard-min" data-m="45">45</button>
         </div>
-      </div>
-      <div class="logcard-chips" role="group" aria-label="Quick durations">
-        <button type="button" class="logcard-chip" data-h="4">4h</button>
-        <button type="button" class="logcard-chip" data-h="6">6h</button>
-        <button type="button" class="logcard-chip" data-h="7.5">7.5h</button>
-        <button type="button" class="logcard-chip" data-h="8">8h</button>
-        <button type="button" class="logcard-chip" data-h="9">9h</button>
       </div>
 
       <button type="button" id="logcard-save" class="logcard-save">
@@ -885,12 +907,30 @@ function paintLogCardEntry(mine){
     b.setAttribute('aria-pressed', m === LH_FORM.minutes ? 'true' : 'false');
   });
 
-  // Quick chips
+  // Quick chips — primary input. "Other" is pressed when the current
+  // total doesn't match any of the standard chips (4 / 6 / 7.5 / 8 / 9).
   const total = LH_FORM.hours + LH_FORM.minutes / 60;
+  const STANDARD_CHIPS = [4, 6, 7.5, 8, 9];
+  const matchesChip = STANDARD_CHIPS.some(h => Math.abs(h - total) < 0.001);
   document.querySelectorAll('.logcard-chip').forEach(b => {
+    if (b.id === 'logcard-other-toggle') {
+      b.setAttribute('aria-pressed', !matchesChip ? 'true' : 'false');
+      return;
+    }
     const h = Number(b.dataset.h);
     b.setAttribute('aria-pressed', Math.abs(h - total) < 0.001 ? 'true' : 'false');
   });
+
+  // Auto-expand "Other duration" panel when value is non-standard,
+  // so editing a 7h 15m entry shows the controls that can produce it.
+  const timePanel = document.getElementById('logcard-time');
+  const otherBtn = document.getElementById('logcard-other-toggle');
+  if (timePanel && otherBtn) {
+    const shouldExpand = !matchesChip;
+    timePanel.hidden = !shouldExpand;
+    otherBtn.setAttribute('aria-expanded', shouldExpand ? 'true' : 'false');
+    otherBtn.textContent = shouldExpand ? 'Other ↑' : 'Other ↓';
+  }
 
   // Save button label
   document.getElementById('logcard-save').textContent = 'Save ' + fmtHM(total);
@@ -1002,6 +1042,19 @@ function wireLogCardOnce(){
     LH_FORM.editing = true;
     paintLogCard();
   });
+  // "Other duration ↓" — toggles the fine-grained hours+minutes editor.
+  // We don't change LH_FORM here; the panel-open state is purely visual
+  // and paintLogCardEntry re-evaluates on every keystroke / chip tap.
+  const otherBtn = document.getElementById('logcard-other-toggle');
+  if (otherBtn) {
+    otherBtn.addEventListener('click', () => {
+      const timePanel = document.getElementById('logcard-time');
+      const isOpen = !timePanel.hidden;
+      timePanel.hidden = isOpen;
+      otherBtn.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+      otherBtn.textContent = isOpen ? 'Other ↓' : 'Other ↑';
+    });
+  }
 }
 
 // ─── Banner: today's hours, click opens modal ────────────────────────────
