@@ -103,6 +103,10 @@ async function _enqueue(req) {
         headers: req.headers || null,
         body: req.body || null,
         replaceKey: req.replaceKey || null,
+        // Optional tag — echoed back in the queue:drained event so
+        // async-callback consumers can correlate the eventual server
+        // response with the original local entity (e.g. a temp photo id).
+        tag: req.tag || null,
         attempts: 0,
         lastError: null,
         queuedAt: Date.now(),
@@ -231,6 +235,26 @@ async function _drainNow() {
         // 4xx is a permanent client error — discard with a console log.
         console.warn('queue: discarded ' + item.url + ' (status ' + res.status + ')');
       }
+      // Async-callback hook: fire a queue:drained CustomEvent so
+      // consumers (e.g. offline snag-photo upload) can patch their
+      // local state with the eventual server response. Only fires on
+      // a 2xx response, and only when the item carried a tag.
+      if (item.tag && res.status >= 200 && res.status < 300) {
+        let body = null;
+        try { body = await res.clone().json(); }
+        catch { try { body = await res.text(); } catch {} }
+        try {
+          document.dispatchEvent(new CustomEvent('queue:drained', {
+            detail: {
+              url: item.url,
+              method: item.method,
+              tag: item.tag,
+              status: res.status,
+              body,
+            },
+          }));
+        } catch {}
+      }
       await _remove(item.id);
       drained++;
     } catch (e) {
@@ -259,6 +283,7 @@ async function queuedFetch(url, opts) {
     headers:     opts.headers || null,
     body:        opts.body || null,
     replaceKey:  opts.replaceKey || null,
+    tag:         opts.tag        || null,
   };
   // GETs pass straight through.
   if (req.method === 'GET') return fetch(url, opts);
