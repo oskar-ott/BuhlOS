@@ -29,6 +29,7 @@
     { "source": "/install",   "destination": "/install.html" },
     { "source": "/approvals", "destination": "/admin/approvals.html" },
     { "source": "/client", "destination": "/client.html" },
+    { "source": "/client/jobs/:jobId", "destination": "/client.html" },
 
     { "source": "/dev/components", "destination": "/dev/components/index.html" },
 
