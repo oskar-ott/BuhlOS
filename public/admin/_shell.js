@@ -176,6 +176,7 @@
     { id: 'operations', label: 'Command centre', href: '/admin/operations', icon: 'today' },
     { id: 'approvals',  label: 'Approvals',      href: '/admin/approvals',  icon: 'approval', countKey: 'pendingHours', badgeBad: true },
     { id: 'snags',      label: 'Snag triage',    href: '/admin/snags',      icon: 'snag',     countKey: 'openSnags',    badgeBad: 'unassigned' },
+    { id: 'support',    label: 'Support',        href: '/admin/support',    icon: 'bell',     countKey: 'openSupport',  badgeBad: true, roles: ['admin'] },
     { section: 'Deliver' },
     { id: 'jobs',       label: 'Jobs',           href: '/admin/jobs',       icon: 'jobs',     countKey: 'activeJobs' },
     { id: 'hours',      label: 'Hours & costs',  href: '/admin/hours',      icon: 'hours' },
@@ -201,6 +202,7 @@
     crew:       ['admin'],
     suppliers:  ['admin'],
     settings:   ['admin'],
+    support:    ['admin'],
   };
 
   /* ── Boot ──────────────────────────────────────────────── */
@@ -260,14 +262,18 @@
   }
 
   async function fetchSidebarCounts() {
-    const [jobsR, pendingR, snagsR, usersR, quotesR] = await Promise.all([
+    // Admin gets the Support badge too (LH doesn't see Support — gated).
+    const isAdmin = SHELL.ME && SHELL.ME.role === 'admin';
+    const [jobsR, pendingR, snagsR, usersR, quotesR, supportAccessR, supportPwdR] = await Promise.all([
       fetch('/api/jobs?withStats=1', { credentials: 'same-origin' }).catch(() => null),
       fetch('/api/time-entries?status=submitted&scope=approver', { credentials: 'same-origin' }).catch(() => null),
       fetch('/api/snags-all?status=Open', { credentials: 'same-origin' }).catch(() => null),
       fetch('/api/users', { credentials: 'same-origin' }).catch(() => null),
       fetch('/api/quotes', { credentials: 'same-origin' }).catch(() => null),
+      isAdmin ? fetch('/api/access-requests?status=open', { credentials: 'same-origin' }).catch(() => null) : null,
+      isAdmin ? fetch('/api/password-resets?status=open',  { credentials: 'same-origin' }).catch(() => null) : null,
     ]);
-    const out = { activeJobs: 0, pendingHours: 0, openSnags: 0, unassignedSnags: 0, crewCount: 0, liveQuotes: 0 };
+    const out = { activeJobs: 0, pendingHours: 0, openSnags: 0, unassignedSnags: 0, crewCount: 0, liveQuotes: 0, openSupport: 0 };
     try {
       if (jobsR && jobsR.ok) {
         const jobs = (await jobsR.json()).jobs || [];
@@ -302,6 +308,21 @@
         const quotes = (await quotesR.json()).quotes || [];
         out.liveQuotes = quotes.filter(q => !['archived','converted_to_job','lost','declined'].includes(q.status)).length;
         SHELL.QUOTES = quotes;
+      }
+    } catch {}
+    // Support inbox count = open access requests + open password resets.
+    // Single number on the sidebar pill so the admin sees "something
+    // needs attention" without having to think about which kind.
+    try {
+      if (supportAccessR && supportAccessR.ok) {
+        const reqs = (await supportAccessR.json()).requests || [];
+        out.openSupport += reqs.length;
+      }
+    } catch {}
+    try {
+      if (supportPwdR && supportPwdR.ok) {
+        const rs = (await supportPwdR.json()).resets || [];
+        out.openSupport += rs.length;
       }
     } catch {}
     return out;

@@ -365,6 +365,122 @@ a { color: inherit; text-decoration: none; }
   font-size: 11.5px; color: var(--muted);
 }
 
+/* ── Support links (Request access · Forgot password?) ──────
+   Sit beneath the primary CTA on both PIN and password modes. Plain
+   text-button feel — understated, not competing with the yellow primary.
+*/
+.support-links {
+  display: flex; justify-content: center; gap: 18px;
+  margin-top: 14px;
+  font-size: 13px;
+}
+.support-links button {
+  appearance: none; background: none; border: 0;
+  color: var(--ink); cursor: pointer; padding: 6px 4px;
+  font: inherit; text-decoration: underline; text-underline-offset: 3px;
+  text-decoration-color: rgba(13,31,53,.25);
+  transition: text-decoration-color .15s, color .15s;
+}
+.support-links button:hover { color: var(--header); text-decoration-color: var(--header); }
+.support-links span { color: var(--muted); }
+
+/* ── Support modals (Request access + Forgot password) ─────
+   Same shape as the existing snag modal, scoped under .auth-modal so
+   the login page styles don't have to cohabit with admin styles.
+*/
+.auth-modal-scrim {
+  position: fixed; inset: 0; background: rgba(13,31,53,.55);
+  display: none; align-items: center; justify-content: center;
+  padding: 16px; z-index: 100;
+}
+.auth-modal-scrim.open { display: flex; }
+.auth-modal {
+  background: #fff; border-radius: 14px;
+  max-width: 460px; width: 100%; max-height: 90vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 30px 60px -20px rgba(13,31,53,.4);
+}
+.auth-modal-hdr {
+  padding: 16px 20px; border-bottom: 1px solid var(--rule);
+  display: flex; align-items: center; gap: 10px;
+}
+.auth-modal-hdr h2 {
+  font-size: 16px; font-weight: 700; color: var(--ink);
+  margin: 0; flex: 1; letter-spacing: -.018em;
+}
+.auth-modal-close {
+  appearance: none; background: none; border: 0; cursor: pointer;
+  font-size: 22px; line-height: 1; color: var(--muted); padding: 4px 8px;
+}
+.auth-modal-body {
+  padding: 16px 20px; overflow-y: auto; flex: 1;
+  font-size: 13.5px; line-height: 1.5; color: var(--ink-2);
+}
+.auth-modal-body p { margin: 0 0 12px; }
+.auth-modal-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+.auth-modal-field label {
+  font-size: 11.5px; font-weight: 600; color: var(--ink-2);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.auth-modal-field label .req { color: var(--bad); margin-left: 2px; }
+.auth-modal-field input,
+.auth-modal-field select,
+.auth-modal-field textarea {
+  font: inherit; font-size: 14px;
+  padding: 9px 12px; border: 1px solid var(--rule);
+  border-radius: 8px; background: #fff; color: var(--ink);
+  outline: none; transition: border-color .15s, box-shadow .15s;
+}
+.auth-modal-field input:focus,
+.auth-modal-field select:focus,
+.auth-modal-field textarea:focus {
+  border-color: var(--header); box-shadow: 0 0 0 3px rgba(13,31,53,.08);
+}
+.auth-modal-radio-row {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.auth-modal-radio-row label {
+  flex: 1; min-width: 120px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border: 1px solid var(--rule);
+  border-radius: 8px; cursor: pointer; font-size: 13.5px;
+  font-weight: 500; text-transform: none; letter-spacing: 0;
+  color: var(--ink); background: #fff;
+  transition: background .12s, border-color .12s;
+}
+.auth-modal-radio-row label:has(input:checked) {
+  background: rgba(255,204,0,.16); border-color: var(--header); font-weight: 700;
+}
+.auth-modal-radio-row input[type="radio"] { margin: 0 }
+.auth-modal-err {
+  display: none; margin-top: 6px; padding: 8px 12px;
+  background: rgba(192,49,47,.08); color: var(--bad);
+  border-radius: 6px; font-size: 12.5px;
+}
+.auth-modal-err.show { display: block; }
+.auth-modal-ok {
+  display: none; margin-top: 6px; padding: 8px 12px;
+  background: rgba(31,139,90,.08); color: var(--green);
+  border-radius: 6px; font-size: 12.5px;
+}
+.auth-modal-ok.show { display: block; }
+.auth-modal-foot {
+  padding: 12px 20px; border-top: 1px solid var(--rule);
+  display: flex; gap: 8px; background: var(--paper-2);
+}
+.auth-modal-foot button {
+  font: inherit; cursor: pointer;
+  padding: 10px 16px; border-radius: 8px;
+  border: 1px solid var(--rule); background: #fff;
+  font-size: 14px; font-weight: 600; color: var(--ink);
+}
+.auth-modal-foot button.primary {
+  background: var(--header); color: #fff; border-color: var(--header);
+  flex: 1;
+}
+.auth-modal-foot button.primary:disabled { opacity: .55; cursor: not-allowed; }
+.auth-modal-foot button.primary:hover:not(:disabled) { background: #182a4d; }
+
 /* Mode panels — only one visible at a time */
 .panel { display: none; }
 .panel.active { display: block; }
@@ -466,15 +582,14 @@ a { color: inherit; text-decoration: none; }
     <div class="panel active" id="panel-pin" role="tabpanel" aria-labelledby="tab-pin">
       <div class="field">
         <div class="field-row">
-          <label class="field-l" for="pin-username">Username</label>
-          <button type="button" class="field-link" id="forgot-pin">Forgot?</button>
+          <label class="field-l" for="pin-username">Name</label>
+          <button type="button" class="field-link" id="notyou-pin" hidden>Not you?</button>
         </div>
         <div class="input-wrap">
           <svg class="input-lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
           <input type="text" id="pin-username" placeholder="firstname.lastname"
                  autocomplete="username" autocapitalize="off" spellcheck="false">
         </div>
-        <div class="field-hint" id="forgot-pin-hint">Ask Karen or Daniel to reset your PIN from the admin console.</div>
       </div>
 
       <div class="field-row" style="margin-bottom: 4px">
@@ -514,8 +629,8 @@ a { color: inherit; text-decoration: none; }
     <div class="panel" id="panel-pwd" role="tabpanel" aria-labelledby="tab-pwd">
       <div class="field">
         <div class="field-row">
-          <label class="field-l" for="pwd-username">Username</label>
-          <button type="button" class="field-link" id="forgot-pwd">Forgot?</button>
+          <label class="field-l" for="pwd-username">Name</label>
+          <button type="button" class="field-link" id="notyou-pwd" hidden>Not you?</button>
         </div>
         <div class="input-wrap">
           <svg class="input-lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
@@ -536,7 +651,6 @@ a { color: inherit; text-decoration: none; }
             <svg id="pwd-eye-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
-        <div class="field-hint" id="forgot-pwd-hint">Ask Karen or Daniel to reset your password from the admin console.</div>
       </div>
 
       <label class="checkrow" for="pwd-remember">
@@ -550,6 +664,15 @@ a { color: inherit; text-decoration: none; }
       </button>
       <span class="cta-helper">Office staff &amp; admin only.</span>
     </div>
+
+    <!-- Support links — shared across both modes. Open the request-access
+         + forgot-password modals defined below. Understated to keep the
+         primary login action visually dominant. -->
+    <div class="support-links">
+      <button type="button" id="req-access-link">Request access</button>
+      <span>·</span>
+      <button type="button" id="forgot-pwd-link">Forgot password?</button>
+    </div>
   </div>
 
   <!-- Footer -->
@@ -557,6 +680,86 @@ a { color: inherit; text-decoration: none; }
     <div class="foot-env">Production · v0.41</div>
     <div>bühl electrical · Site office console</div>
     <div class="foot-aup">By signing in you accept the site office acceptable-use policy.</div>
+  </div>
+</div>
+
+<!-- ── Request Access modal ─────────────────────────────────────────────
+     For people who don't have an account yet — admin sees the request in
+     /admin/support and creates the user manually.
+-->
+<div class="auth-modal-scrim" id="req-access-scrim" role="dialog" aria-modal="true" aria-labelledby="req-access-title">
+  <div class="auth-modal">
+    <div class="auth-modal-hdr">
+      <h2 id="req-access-title">Request access</h2>
+      <button type="button" class="auth-modal-close" id="req-access-close" aria-label="Close">×</button>
+    </div>
+    <div class="auth-modal-body">
+      <p>Ask Karen or Daniel to create your account. They'll be alerted the moment you submit this — usually back to you the same day.</p>
+      <div class="auth-modal-field">
+        <label for="ra-name">Name <span class="req">*</span></label>
+        <input type="text" id="ra-name" autocomplete="name" required>
+      </div>
+      <div class="auth-modal-field">
+        <label for="ra-phone">Phone <span class="req">*</span></label>
+        <input type="tel" id="ra-phone" autocomplete="tel" required>
+      </div>
+      <div class="auth-modal-field">
+        <label for="ra-email">Email <span class="req">*</span></label>
+        <input type="email" id="ra-email" autocomplete="email" required>
+      </div>
+      <div class="auth-modal-field">
+        <label>Role <span class="req">*</span></label>
+        <div class="auth-modal-radio-row">
+          <label><input type="radio" name="ra-role" value="tradie" checked> Tradie</label>
+          <label><input type="radio" name="ra-role" value="client"> Client</label>
+        </div>
+      </div>
+      <div class="auth-modal-field">
+        <label for="ra-job">Job / site <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--muted)">(optional)</span></label>
+        <input type="text" id="ra-job" placeholder="e.g. Birdwood Ave, or just the builder's name">
+      </div>
+      <div class="auth-modal-field">
+        <label for="ra-msg">Message <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--muted)">(optional)</span></label>
+        <textarea id="ra-msg" rows="3" placeholder="Anything Karen or Daniel should know"></textarea>
+      </div>
+      <div class="auth-modal-err" id="ra-err"></div>
+      <div class="auth-modal-ok" id="ra-ok">✓ Request sent. Karen or Daniel will be in touch shortly.</div>
+    </div>
+    <div class="auth-modal-foot">
+      <button type="button" id="ra-cancel">Cancel</button>
+      <button type="button" class="primary" id="ra-submit">Send request</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Forgot Password modal ───────────────────────────────────────────
+     No self-serve reset — admin resets manually and tells the user
+     out-of-band. Server returns success regardless of whether the name
+     matches an account, to prevent enumeration.
+-->
+<div class="auth-modal-scrim" id="forgot-pwd-scrim" role="dialog" aria-modal="true" aria-labelledby="forgot-pwd-title">
+  <div class="auth-modal">
+    <div class="auth-modal-hdr">
+      <h2 id="forgot-pwd-title">Forgot password / PIN</h2>
+      <button type="button" class="auth-modal-close" id="forgot-pwd-close" aria-label="Close">×</button>
+    </div>
+    <div class="auth-modal-body">
+      <p>Send Karen or Daniel a heads-up and they'll reset your password or PIN. They'll text or call you on the contact below with the new one.</p>
+      <div class="auth-modal-field">
+        <label for="fp-name">Name <span class="req">*</span></label>
+        <input type="text" id="fp-name" autocomplete="username" placeholder="The name you normally log in with" required>
+      </div>
+      <div class="auth-modal-field">
+        <label for="fp-contact">Phone or email <span class="req">*</span></label>
+        <input type="text" id="fp-contact" placeholder="So they can reach you with the new password" required>
+      </div>
+      <div class="auth-modal-err" id="fp-err"></div>
+      <div class="auth-modal-ok" id="fp-ok">✓ Request sent. Karen or Daniel will reach out shortly.</div>
+    </div>
+    <div class="auth-modal-foot">
+      <button type="button" id="fp-cancel">Cancel</button>
+      <button type="button" class="primary" id="fp-submit">Send request</button>
+    </div>
   </div>
 </div>
 
@@ -591,11 +794,18 @@ function setMode(next) {
   hideError();
   // Reset the PIN entry when leaving the mode (no stale digits if you flip back)
   if (MODE === 'pwd') resetPin();
-  // Auto-focus the username field for whichever mode is active
+  // Auto-focus: when we have a remembered name, jump straight to the
+  // secret field so the user can type their PIN/password without
+  // re-typing their name. Otherwise focus the name field.
   setTimeout(() => {
-    const id = MODE === 'pin' ? 'pin-username' : 'pwd-username';
-    const el = document.getElementById(id);
-    if (el) el.focus({ preventScroll: true });
+    const haveName = !!rememberedName();
+    let id;
+    if (MODE === 'pin') id = haveName ? null : 'pin-username'; // PIN entry is via on-screen keypad — no focusable secret input
+    else id = haveName ? 'pwd-password' : 'pwd-username';
+    if (id) {
+      const el = document.getElementById(id);
+      if (el) el.focus({ preventScroll: true });
+    }
   }, 50);
 }
 document.getElementById('tab-pin').addEventListener('click', () => setMode('pin'));
@@ -611,13 +821,50 @@ function hideError() {
   document.getElementById('err').classList.remove('show');
 }
 
-// ── Forgot reveals ──────────────────────────────────────────────────────
-document.getElementById('forgot-pin').addEventListener('click', () => {
-  document.getElementById('forgot-pin-hint').classList.toggle('show');
-});
-document.getElementById('forgot-pwd').addEventListener('click', () => {
-  document.getElementById('forgot-pwd-hint').classList.toggle('show');
-});
+// ── Remember last user (per-device, opt-in via "Not you?") ─────────────
+//
+// On a successful login we stash the entered name to localStorage; on
+// reload we pre-fill both name fields and shift focus straight to the
+// secret. Reveals a "Not you?" link beside the field that clears the
+// stash + the field + refocuses the name input. Crucially this is NOT
+// autocomplete against the user list — only the device's own previous
+// successful login. The user list must remain non-enumerable from the
+// login page.
+const LAST_NAME_KEY = 'buhlos.lastLoginName';
+function rememberedName() {
+  try { return localStorage.getItem(LAST_NAME_KEY) || ''; }
+  catch (e) { return ''; }
+}
+function stashName(name) {
+  try { localStorage.setItem(LAST_NAME_KEY, String(name || '').trim()); } catch (e) {}
+}
+function clearStashedName() {
+  try { localStorage.removeItem(LAST_NAME_KEY); } catch (e) {}
+}
+function applyRememberedName() {
+  const name = rememberedName();
+  if (!name) return false;
+  const pinInp = document.getElementById('pin-username');
+  const pwdInp = document.getElementById('pwd-username');
+  if (pinInp) pinInp.value = name;
+  if (pwdInp) pwdInp.value = name;
+  document.getElementById('notyou-pin').hidden = false;
+  document.getElementById('notyou-pwd').hidden = false;
+  return true;
+}
+function notYou() {
+  clearStashedName();
+  document.getElementById('pin-username').value = '';
+  document.getElementById('pwd-username').value = '';
+  document.getElementById('notyou-pin').hidden = true;
+  document.getElementById('notyou-pwd').hidden = true;
+  // Refocus the name field for whichever mode is active
+  const id = MODE === 'pin' ? 'pin-username' : 'pwd-username';
+  const el = document.getElementById(id);
+  if (el) el.focus({ preventScroll: true });
+}
+document.getElementById('notyou-pin').addEventListener('click', notYou);
+document.getElementById('notyou-pwd').addEventListener('click', notYou);
 
 // ── Eye toggle (password mode) ──────────────────────────────────────────
 document.getElementById('pwd-eye').addEventListener('click', () => {
@@ -750,6 +997,9 @@ async function postLogin(username, secret, isPin) {
     if (isPin) {
       document.getElementById('pin-cells').classList.add('success');
     }
+    // Stash the name for next time on this device. Not used for auto-login —
+    // just pre-fill, so the user still has to enter their secret.
+    stashName(username);
     const role = j.user && j.user.role;
     setTimeout(() => { location.href = landingFor(role); }, 380);
   } catch (e) {
@@ -779,11 +1029,141 @@ fetch('/api/auth?action=me', { credentials: 'same-origin' })
   .then(d => { if (d && d.user) location.href = landingFor(d.user.role); })
   .catch(() => {});
 
-// Initial focus into username (PIN mode default)
+// Apply remembered name (if any) on first paint, then choose initial focus.
+const _haveRemembered = applyRememberedName();
 setTimeout(() => {
-  const el = document.getElementById('pin-username');
-  if (el) el.focus({ preventScroll: true });
+  // With remembered name, PIN mode's secret entry is the on-screen
+  // keypad — no input to focus. Password mode jumps to the password
+  // field. With no remembered name, focus the name field.
+  if (_haveRemembered) {
+    if (MODE === 'pwd') {
+      const el = document.getElementById('pwd-password');
+      if (el) el.focus({ preventScroll: true });
+    }
+    // PIN mode: keypad is tap-only, nothing to focus.
+  } else {
+    const el = document.getElementById('pin-username');
+    if (el) el.focus({ preventScroll: true });
+  }
 }, 200);
+
+// ── Support modals (Request access + Forgot password) ─────────────────
+// Both modals POST to dedicated public endpoints; the password-reset
+// endpoint always returns success regardless of whether the name exists
+// (server-side enforcement to prevent enumeration). The access-request
+// endpoint validates required fields server-side too.
+
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// Request access
+document.getElementById('req-access-link').addEventListener('click', () => {
+  document.getElementById('ra-err').classList.remove('show');
+  document.getElementById('ra-ok').classList.remove('show');
+  openModal('req-access-scrim');
+  setTimeout(() => document.getElementById('ra-name').focus({ preventScroll: true }), 50);
+});
+document.getElementById('req-access-close').addEventListener('click', () => closeModal('req-access-scrim'));
+document.getElementById('ra-cancel').addEventListener('click', () => closeModal('req-access-scrim'));
+document.getElementById('req-access-scrim').addEventListener('click', e => {
+  if (e.target.id === 'req-access-scrim') closeModal('req-access-scrim');
+});
+
+document.getElementById('ra-submit').addEventListener('click', async () => {
+  const name  = document.getElementById('ra-name').value.trim();
+  const phone = document.getElementById('ra-phone').value.trim();
+  const email = document.getElementById('ra-email').value.trim();
+  const role  = document.querySelector('input[name="ra-role"]:checked').value;
+  const job   = document.getElementById('ra-job').value.trim();
+  const msg   = document.getElementById('ra-msg').value.trim();
+  const err   = document.getElementById('ra-err');
+  const ok    = document.getElementById('ra-ok');
+  err.classList.remove('show'); ok.classList.remove('show');
+  if (!name || !phone || !email) { err.textContent = 'Name, phone and email are all required.'; err.classList.add('show'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent = "That doesn't look like a valid email address."; err.classList.add('show'); return; }
+  const btn = document.getElementById('ra-submit');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const r = await fetch('/api/access-requests', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, phone, email, requestedRole: role, jobOrSite: job, message: msg }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    ok.classList.add('show');
+    btn.textContent = 'Sent ✓';
+    // Auto-close after a beat
+    setTimeout(() => closeModal('req-access-scrim'), 1800);
+  } catch (e) {
+    err.textContent = "Couldn't send — " + e.message;
+    err.classList.add('show');
+    btn.disabled = false; btn.textContent = 'Send request';
+  }
+});
+
+// Forgot password / PIN
+document.getElementById('forgot-pwd-link').addEventListener('click', () => {
+  document.getElementById('fp-err').classList.remove('show');
+  document.getElementById('fp-ok').classList.remove('show');
+  // Pre-fill name with whatever's in the active mode's name field
+  const cur = MODE === 'pin'
+    ? document.getElementById('pin-username').value.trim()
+    : document.getElementById('pwd-username').value.trim();
+  if (cur) document.getElementById('fp-name').value = cur;
+  openModal('forgot-pwd-scrim');
+  setTimeout(() => {
+    const focusId = cur ? 'fp-contact' : 'fp-name';
+    document.getElementById(focusId).focus({ preventScroll: true });
+  }, 50);
+});
+document.getElementById('forgot-pwd-close').addEventListener('click', () => closeModal('forgot-pwd-scrim'));
+document.getElementById('fp-cancel').addEventListener('click', () => closeModal('forgot-pwd-scrim'));
+document.getElementById('forgot-pwd-scrim').addEventListener('click', e => {
+  if (e.target.id === 'forgot-pwd-scrim') closeModal('forgot-pwd-scrim');
+});
+
+document.getElementById('fp-submit').addEventListener('click', async () => {
+  const name    = document.getElementById('fp-name').value.trim();
+  const contact = document.getElementById('fp-contact').value.trim();
+  const err     = document.getElementById('fp-err');
+  const ok      = document.getElementById('fp-ok');
+  err.classList.remove('show'); ok.classList.remove('show');
+  if (!name || !contact) { err.textContent = 'Name and a contact method are required.'; err.classList.add('show'); return; }
+  const btn = document.getElementById('fp-submit');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    // Server always returns success regardless of whether the name
+    // exists, to prevent enumeration. We don't surface any branch.
+    const r = await fetch('/api/password-resets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, contact }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || ('HTTP ' + r.status));
+    }
+    ok.classList.add('show');
+    btn.textContent = 'Sent ✓';
+    setTimeout(() => closeModal('forgot-pwd-scrim'), 1800);
+  } catch (e) {
+    err.textContent = "Couldn't send — " + e.message;
+    err.classList.add('show');
+    btn.disabled = false; btn.textContent = 'Send request';
+  }
+});
+
+// Escape key closes any open support modal
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('req-access-scrim').classList.contains('open')) closeModal('req-access-scrim');
+  if (document.getElementById('forgot-pwd-scrim').classList.contains('open')) closeModal('forgot-pwd-scrim');
+});
 </script>
 </body>
 </html>
