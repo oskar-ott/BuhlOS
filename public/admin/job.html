@@ -121,6 +121,7 @@ function paint() {
     { id: 'overview',  label: 'Overview' },
     { id: 'setup',     label: 'Setup', count: setupMissing || null, countTone: setupMissing ? 'warn' : null },
     { id: 'crew',      label: 'Crew & client' },
+    { id: 'contacts',  label: 'Contacts' },
     { id: 'snags',     label: 'Snags', count: openSnagCount, countTone: openSnagCount ? 'bad' : null },
     { id: 'hours',     label: 'Hours' },
     { id: 'plans',     label: 'Plans & takeoff', count: pendingDwellings || null },
@@ -172,6 +173,7 @@ function paint() {
   else if (STATE.section === 'plans')     renderPlans(body);
   else if (STATE.section === 'materials') renderMaterials(body);
   else if (STATE.section === 'crew')      renderCrew(body);
+  else if (STATE.section === 'contacts')  renderContactsTab(body);
   else if (STATE.section === 'setup')     renderSetup(body);
 
   // Wire snags-tab inline triage (same handlers as /admin/snags)
@@ -3368,6 +3370,189 @@ async function invoiceStatusChange(invId, status, confirmMsg) {
     SHELL.closePanel();
     await loadAll(); paint();
   } catch (e) { SHELL.toast('Failed — ' + e.message, 'bad'); }
+}
+
+// ── Contacts tab ───────────────────────────────────────────────────────
+//
+// Per-job project + supplier contacts. Admin-only management; tradies +
+// LHs get a read-only view inside the field interface. Data lives at
+// jobs/<jobId>/contacts.json and is shared with the legacy snag-email
+// composer's contact picker (uncategorised contacts coexist there).
+
+let CONTACTS_STATE = { project: [], supplier: [], loaded: false };
+
+async function renderContactsTab(host) {
+  host.innerHTML = '<div class="empty"><div class="empty-title">Loading contacts…</div></div>';
+  try {
+    const r = await SHELL.api('/api/contacts?jobId=' + encodeURIComponent(STATE.jobId));
+    const all = (r.contacts || []);
+    CONTACTS_STATE.project  = all.filter(c => c.category === 'project').sort((a, b) => sortProject(a, b));
+    CONTACTS_STATE.supplier = all.filter(c => c.category === 'supplier').sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    CONTACTS_STATE.loaded = true;
+  } catch (e) {
+    host.innerHTML = '<div class="empty"><div class="empty-title">Couldn\'t load contacts</div><div class="empty-sub">' + SHELL.escapeHtml(e.message) + '</div></div>';
+    return;
+  }
+  paintContactsTab(host);
+}
+
+// Role-priority sort for project contacts — PM first, then Site,
+// Builder, then alphabetical for the rest. Matches the field-side
+// ordering so admin and tradies see the same sequence.
+function sortProject(a, b) {
+  const rank = (c) => {
+    const r = String((c && c.role) || '').toLowerCase();
+    if (r.includes('project manager')) return 0;
+    if (r.includes('site manager') || r.includes('site supervisor')) return 1;
+    if (r.includes('builder'))   return 2;
+    if (r.includes('foreman'))   return 3;
+    return 4;
+  };
+  const ra = rank(a), rb = rank(b);
+  if (ra !== rb) return ra - rb;
+  return (a.name || '').localeCompare(b.name || '');
+}
+
+function paintContactsTab(host) {
+  const proj = CONTACTS_STATE.project;
+  const supp = CONTACTS_STATE.supplier;
+  host.innerHTML = `
+    <div class="page-head" style="margin-top:8px">
+      <div>
+        <div class="card-title" style="font-size:13px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.06em">Project contacts</div>
+        <div class="card-sub">PMs, builders, site managers — anyone the LH might need to call about the build.</div>
+      </div>
+      <button class="btn btn-accent" id="ct-new-project">${SHELL.ICONS.plus} Add project contact</button>
+    </div>
+    ${proj.length ? `<div class="card" style="padding:0;margin-bottom:24px">${proj.map(projectRow).join('')}</div>`
+      : `<div class="empty" style="margin-bottom:24px"><div class="empty-title">No project contacts yet</div><div class="empty-sub">Add the project manager, site manager, builder, anyone the leading hand might need to call.</div></div>`}
+
+    <div class="page-head" style="margin-top:8px">
+      <div>
+        <div class="card-title" style="font-size:13px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.06em">Suppliers</div>
+        <div class="card-sub">Wholesalers + suppliers for this job — each with a short description of what they're supplying.</div>
+      </div>
+      <button class="btn btn-accent" id="ct-new-supplier">${SHELL.ICONS.plus} Add supplier</button>
+    </div>
+    ${supp.length ? `<div class="card" style="padding:0">${supp.map(supplierRow).join('')}</div>`
+      : `<div class="empty"><div class="empty-title">No suppliers yet</div><div class="empty-sub">Add each wholesaler / supplier with the description of what they're providing on this job — e.g. "wall lights for units 1–8", "switchboards", "general electrical".</div></div>`}
+  `;
+  SHELL.$('#ct-new-project').addEventListener('click', () => openContactPanel('project'));
+  SHELL.$('#ct-new-supplier').addEventListener('click', () => openContactPanel('supplier'));
+  SHELL.$$('button[data-edit-contact]').forEach(b => b.addEventListener('click', () => {
+    const id = b.dataset.editContact;
+    const c = [...CONTACTS_STATE.project, ...CONTACTS_STATE.supplier].find(x => x.id === id);
+    if (c) openContactPanel(c.category, c);
+  }));
+  SHELL.$$('button[data-rm-contact]').forEach(b => b.addEventListener('click', () => removeContact(b.dataset.rmContact)));
+}
+
+function projectRow(c) {
+  return `<div style="display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:13px">
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:baseline;gap:8px"><b style="font-size:14px">${SHELL.escapeHtml(c.name)}</b>${c.role ? '<span style="font-size:11px;color:var(--ink-2);font-weight:600">' + SHELL.escapeHtml(c.role) + '</span>' : ''}</div>
+      ${c.company ? `<div style="font-size:12px;color:var(--muted);margin-top:2px">${SHELL.escapeHtml(c.company)}</div>` : ''}
+      <div style="display:flex;gap:14px;margin-top:4px;font-size:12px;color:var(--ink-2);flex-wrap:wrap">
+        ${c.phone ? '📞 <a href="tel:' + SHELL.escapeHtml(c.phone) + '" style="color:inherit">' + SHELL.escapeHtml(c.phone) + '</a>' : ''}
+        ${c.email ? '✉ <a href="mailto:' + SHELL.escapeHtml(c.email) + '" style="color:inherit">' + SHELL.escapeHtml(c.email) + '</a>' : ''}
+      </div>
+      ${c.notes ? `<div style="font-size:12px;color:var(--ink-2);margin-top:4px;font-style:italic">"${SHELL.escapeHtml(c.notes)}"</div>` : ''}
+    </div>
+    <div style="display:flex;gap:6px;flex-shrink:0">
+      <button class="btn btn-sm" data-edit-contact="${SHELL.escapeHtml(c.id)}">Edit</button>
+      <button class="btn btn-sm btn-danger" data-rm-contact="${SHELL.escapeHtml(c.id)}">×</button>
+    </div>
+  </div>`;
+}
+
+function supplierRow(c) {
+  return `<div style="display:flex;align-items:flex-start;gap:14px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:13px">
+    <div style="flex:1;min-width:0">
+      <div style="font-size:14px;font-weight:700">${SHELL.escapeHtml(c.name)}</div>
+      <div style="font-size:13px;color:var(--ink);font-weight:500;margin-top:4px">${SHELL.escapeHtml(c.description || '')}</div>
+      ${c.contactPerson ? `<div style="font-size:12px;color:var(--ink-2);margin-top:4px">Contact: <b>${SHELL.escapeHtml(c.contactPerson)}</b></div>` : ''}
+      <div style="display:flex;gap:14px;margin-top:4px;font-size:12px;color:var(--ink-2);flex-wrap:wrap">
+        ${c.phone ? '📞 <a href="tel:' + SHELL.escapeHtml(c.phone) + '" style="color:inherit">' + SHELL.escapeHtml(c.phone) + '</a>' : ''}
+        ${c.email ? '✉ <a href="mailto:' + SHELL.escapeHtml(c.email) + '" style="color:inherit">' + SHELL.escapeHtml(c.email) + '</a>' : ''}
+      </div>
+      ${c.notes ? `<div style="font-size:12px;color:var(--ink-2);margin-top:4px;font-style:italic">"${SHELL.escapeHtml(c.notes)}"</div>` : ''}
+    </div>
+    <div style="display:flex;gap:6px;flex-shrink:0">
+      <button class="btn btn-sm" data-edit-contact="${SHELL.escapeHtml(c.id)}">Edit</button>
+      <button class="btn btn-sm btn-danger" data-rm-contact="${SHELL.escapeHtml(c.id)}">×</button>
+    </div>
+  </div>`;
+}
+
+function openContactPanel(category, existing) {
+  const isProject = category === 'project';
+  const isEdit = !!existing;
+  const panel = SHELL.openPanel({
+    title: (isEdit ? 'Edit ' : 'New ') + (isProject ? 'project contact' : 'supplier'),
+    body: isProject ? `
+      <div class="field"><label class="field-lbl">Name *</label><input class="input" id="ct-name" autofocus value="${SHELL.escapeHtml((existing && existing.name) || '')}" placeholder="e.g. Sam Walker"></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Role</label><input class="input" id="ct-role" value="${SHELL.escapeHtml((existing && existing.role) || '')}" placeholder="Project manager, Site manager, Builder…"></div>
+        <div class="field"><label class="field-lbl">Company</label><input class="input" id="ct-company" value="${SHELL.escapeHtml((existing && existing.company) || '')}" placeholder="e.g. Birdwood Constructions"></div>
+      </div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Phone</label><input class="input" id="ct-phone" type="tel" value="${SHELL.escapeHtml((existing && existing.phone) || '')}"></div>
+        <div class="field"><label class="field-lbl">Email</label><input class="input" id="ct-email" type="email" value="${SHELL.escapeHtml((existing && existing.email) || '')}"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Notes</label><textarea class="textarea" id="ct-notes" rows="3">${SHELL.escapeHtml((existing && existing.notes) || '')}</textarea></div>
+    ` : `
+      <div class="field"><label class="field-lbl">Supplier / company *</label><input class="input" id="ct-name" autofocus value="${SHELL.escapeHtml((existing && existing.name) || '')}" placeholder="e.g. TLE, Lawrence &amp; Hanson"></div>
+      <div class="field"><label class="field-lbl">What they're supplying * <span style="font-weight:400;color:var(--muted)">(shown to the LH first)</span></label><input class="input" id="ct-description" value="${SHELL.escapeHtml((existing && existing.description) || '')}" placeholder="e.g. Wall lights for units 1–8 · Switchboards · General electrical"></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Contact person</label><input class="input" id="ct-contactPerson" value="${SHELL.escapeHtml((existing && existing.contactPerson) || '')}" placeholder="Optional — who to ask for"></div>
+        <div class="field"><label class="field-lbl">Phone</label><input class="input" id="ct-phone" type="tel" value="${SHELL.escapeHtml((existing && existing.phone) || '')}"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Email</label><input class="input" id="ct-email" type="email" value="${SHELL.escapeHtml((existing && existing.email) || '')}"></div>
+      <div class="field"><label class="field-lbl">Notes</label><textarea class="textarea" id="ct-notes" rows="3">${SHELL.escapeHtml((existing && existing.notes) || '')}</textarea></div>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="ct-save">${isEdit ? 'Save' : 'Add'}</button>`,
+  });
+  panel.querySelector('#ct-save').addEventListener('click', async () => {
+    const body = {
+      category,
+      name:  panel.querySelector('#ct-name').value.trim(),
+      phone: panel.querySelector('#ct-phone').value.trim(),
+      email: panel.querySelector('#ct-email').value.trim(),
+      notes: panel.querySelector('#ct-notes').value.trim(),
+    };
+    if (isProject) {
+      body.role    = panel.querySelector('#ct-role').value.trim();
+      body.company = panel.querySelector('#ct-company').value.trim();
+    } else {
+      body.contactPerson = panel.querySelector('#ct-contactPerson').value.trim();
+      body.description   = panel.querySelector('#ct-description').value.trim();
+    }
+    if (!body.name) { SHELL.toast(isProject ? 'Name required' : 'Supplier name required', 'bad'); return; }
+    if (!isProject && !body.description) { SHELL.toast('Description required (what they\'re supplying)', 'bad'); return; }
+    try {
+      if (isEdit) {
+        body.id = existing.id;
+        await SHELL.api('/api/contacts?jobId=' + encodeURIComponent(STATE.jobId), { method: 'PUT', body });
+      } else {
+        await SHELL.api('/api/contacts?jobId=' + encodeURIComponent(STATE.jobId), { method: 'POST', body });
+      }
+      SHELL.toast(isEdit ? 'Saved' : 'Added', 'ok');
+      SHELL.closePanel();
+      renderContactsTab(SHELL.$('#ws-body'));
+    } catch (e) { SHELL.toast((isEdit ? 'Save failed — ' : 'Add failed — ') + e.message, 'bad'); }
+  });
+}
+
+async function removeContact(id) {
+  const c = [...CONTACTS_STATE.project, ...CONTACTS_STATE.supplier].find(x => x.id === id);
+  if (!c) return;
+  if (!confirm('Remove "' + (c.name || 'contact') + '"?')) return;
+  try {
+    await fetch('/api/contacts?jobId=' + encodeURIComponent(STATE.jobId) + '&id=' + encodeURIComponent(id), { method: 'DELETE', credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('Failed'); });
+    SHELL.toast('Removed', 'ok');
+    renderContactsTab(SHELL.$('#ws-body'));
+  } catch (e) { SHELL.toast('Remove failed — ' + e.message, 'bad'); }
 }
 
 SHELL.boot();
