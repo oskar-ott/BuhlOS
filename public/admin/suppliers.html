@@ -14,113 +14,628 @@
 </head>
 <body>
 <script>
-let STATE = { search: '', list: [] };
+let STATE = {
+  suppliers: [],
+  legacyWholesalers: [],   // /api/wholesalers — used to surface "uncategorised" suppliers from the old materials list
+  categories: [],
+  search: '',
+  filterCategory: 'all',
+  filterType: 'all',
+  filterPreferred: false,
+  // Detail drawer state
+  selectedId: null,
+  selected: null,
+  selectedProducts: [],
+  selectedLoading: false,
+};
+
+const TYPE_LABELS = {
+  wholesaler: 'Wholesaler',
+  supplier: 'Supplier',
+  manufacturer: 'Manufacturer',
+  distributor: 'Distributor',
+  other: 'Other',
+};
 
 window.PAGE = {
   id: 'suppliers',
-  title: 'Wholesalers',
-  crumb: 'Wholesalers',
+  title: 'Suppliers',
+  crumb: 'Suppliers',
   async render() {
-    SHELL.$('#page').innerHTML = '<div class="empty"><div class="empty-title">Loading…</div></div>';
-    try {
-      const r = await SHELL.api('/api/wholesalers');
-      STATE.list = r.wholesalers || [];
-    } catch (e) {
-      SHELL.$('#page').innerHTML = `<div class="empty"><div class="empty-title">Failed to load</div><div class="empty-sub">${SHELL.escapeHtml(e.message)}</div></div>`;
-      return;
-    }
+    SHELL.$('#page').innerHTML = '<div class="empty"><div class="empty-title">Loading suppliers…</div></div>';
+    await loadAll();
     paint();
   }
 };
 
+async function loadAll() {
+  try {
+    const [a, b] = await Promise.all([
+      SHELL.api('/api/suppliers'),
+      SHELL.api('/api/wholesalers').catch(() => ({ wholesalers: [] })),
+    ]);
+    STATE.suppliers = a.suppliers || [];
+    STATE.categories = a.categories || [];
+    STATE.legacyWholesalers = b.wholesalers || [];
+  } catch (e) {
+    SHELL.$('#page').innerHTML = '<div class="empty"><div class="empty-title">Couldn\'t load</div><div class="empty-sub">' + SHELL.escapeHtml(e.message) + '</div></div>';
+    return;
+  }
+}
+
 function paint() {
   const q = STATE.search.toLowerCase();
-  const list = STATE.list.filter(w => {
-    if (!q) return true;
-    return `${w.name} ${w.email || ''} ${w.branch || ''} ${w.notes || ''}`.toLowerCase().includes(q);
-  }).sort((a, b) => a.name.localeCompare(b.name));
+  const list = STATE.suppliers.filter(s => {
+    if (STATE.filterCategory !== 'all' && !(s.categories || []).includes(STATE.filterCategory)) return false;
+    if (STATE.filterType !== 'all' && s.type !== STATE.filterType) return false;
+    if (STATE.filterPreferred && !s.preferred) return false;
+    if (q) {
+      const blob = (s.name + ' ' + (s.websiteUrl || '') + ' ' + (s.notes || '') + ' ' + (s.categories || []).join(' ')).toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  });
 
   SHELL.$('#page').innerHTML = `
     <div class="page-head">
       <div>
-        <div class="page-h1">Wholesalers</div>
-        <div class="page-sub">Electrical suppliers used for sourcing on quotes. Email is required to draft a price-request mailto.</div>
+        <div class="page-h1">Suppliers</div>
+        <div class="page-sub">Wholesalers, suppliers, manufacturers — with branches, contacts, account info, and saved product references.</div>
       </div>
       <div class="page-actions">
-        <button class="btn btn-accent" id="add-w">${SHELL.ICONS.plus} Add wholesaler</button>
+        <button class="btn btn-accent" id="new-supplier">${SHELL.ICONS.plus} New supplier</button>
       </div>
     </div>
 
     <div class="toolbar">
-      <div class="search">${SHELL.ICONS.search}<input id="se-i" placeholder="Search by name, branch, email…" value="${SHELL.escapeHtml(STATE.search)}"></div>
+      <div class="search">${SHELL.ICONS.search}<input id="se-i" placeholder="Search by name, website, notes…" value="${SHELL.escapeHtml(STATE.search)}"></div>
+      <select class="select" id="type-i" style="max-width:160px">
+        <option value="all"${STATE.filterType === 'all' ? ' selected' : ''}>All types</option>
+        ${Object.entries(TYPE_LABELS).map(([v, l]) => `<option value="${v}"${STATE.filterType === v ? ' selected' : ''}>${l}</option>`).join('')}
+      </select>
+      <select class="select" id="cat-i" style="max-width:200px">
+        <option value="all"${STATE.filterCategory === 'all' ? ' selected' : ''}>All categories</option>
+        ${STATE.categories.map(c => `<option value="${SHELL.escapeHtml(c)}"${STATE.filterCategory === c ? ' selected' : ''}>${SHELL.escapeHtml(c)}</option>`).join('')}
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">
+        <input type="checkbox" id="pref-i" ${STATE.filterPreferred ? 'checked' : ''}> Preferred only
+      </label>
       <div class="toolbar-spacer"></div>
-      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(list.length, 'wholesaler')}</span>
+      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(list.length, 'supplier')}</span>
     </div>
 
-    <div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>Name</th><th>Branch</th><th>Email</th><th>Notes</th><th></th></tr></thead>
-        <tbody>${list.length ? list.map(rowHtml).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">${STATE.list.length ? 'No wholesalers match the search.' : 'No wholesalers yet — add your usual suppliers so they\'re one tap away on quotes.'}</td></tr>`}</tbody>
-      </table>
+    <div class="two-col" style="grid-template-columns:1fr;gap:14px">
+      ${list.length ? list.map(supplierCard).join('') : `
+        <div class="empty">
+          <div class="empty-title">No suppliers added yet</div>
+          <div class="empty-sub">Add wholesalers and supplier contacts so materials and quotes can be linked back to the right source.</div>
+        </div>
+      `}
     </div>
+
+    ${STATE.legacyWholesalers.length ? `
+      <div class="card" style="padding:0;margin-top:24px;background:var(--surface-2)">
+        <div style="padding:12px 14px;border-bottom:1px solid var(--line)">
+          <div class="card-title" style="font-size:13px">Legacy wholesalers <span class="card-count">${STATE.legacyWholesalers.length}</span></div>
+          <div class="card-sub">From the older materials pricing-email list. These don't have branches, contacts or product references yet — promote them to the new supplier register to unlock the full workflow.</div>
+        </div>
+        <div style="padding:8px 14px">
+          ${STATE.legacyWholesalers.slice(0, 10).map(w => `
+            <div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13px">
+              <span style="flex:1"><b>${SHELL.escapeHtml(w.name)}</b>${w.branch ? ' · ' + SHELL.escapeHtml(w.branch) : ''}${w.email ? ' · <span style="color:var(--muted)">' + SHELL.escapeHtml(w.email) + '</span>' : ''}</span>
+              <button class="btn btn-sm" data-promote="${SHELL.escapeHtml(w.id)}">Promote →</button>
+            </div>
+          `).join('')}
+          ${STATE.legacyWholesalers.length > 10 ? '<div style="font-size:11px;color:var(--muted);padding:4px 0">…and ' + (STATE.legacyWholesalers.length - 10) + ' more</div>' : ''}
+        </div>
+      </div>
+    ` : ''}
   `;
+
   SHELL.$('#se-i').addEventListener('input', e => { STATE.search = e.target.value; paint(); });
-  SHELL.$('#add-w').addEventListener('click', () => editPanel(null));
-  SHELL.$$('button[data-edit]').forEach(b => b.addEventListener('click', () => editPanel(b.dataset.edit)));
-  SHELL.$$('button[data-del]').forEach(b => b.addEventListener('click', () => removeOne(b.dataset.del)));
+  SHELL.$('#type-i').addEventListener('change', e => { STATE.filterType = e.target.value; paint(); });
+  SHELL.$('#cat-i').addEventListener('change', e => { STATE.filterCategory = e.target.value; paint(); });
+  SHELL.$('#pref-i').addEventListener('change', e => { STATE.filterPreferred = e.target.checked; paint(); });
+  SHELL.$('#new-supplier').addEventListener('click', () => openSupplierPanel(null));
+  SHELL.$$('button[data-open]').forEach(b => b.addEventListener('click', () => openSupplierDetail(b.dataset.open)));
+  SHELL.$$('button[data-promote]').forEach(b => b.addEventListener('click', () => promoteLegacy(b.dataset.promote)));
 }
 
-function rowHtml(w) {
-  return `<tr>
-    <td><b>${SHELL.escapeHtml(w.name)}</b></td>
-    <td>${w.branch ? SHELL.escapeHtml(w.branch) : '<span style="color:var(--muted)">—</span>'}</td>
-    <td>${w.email ? `<a href="mailto:${SHELL.escapeHtml(w.email)}">${SHELL.escapeHtml(w.email)}</a>` : '<span style="color:var(--warn);font-style:italic">no email</span>'}</td>
-    <td style="color:var(--muted);font-size:12px">${SHELL.escapeHtml(w.notes || '')}</td>
-    <td style="display:flex;gap:6px;justify-content:flex-end">
-      <button class="btn btn-sm" data-edit="${SHELL.escapeHtml(w.id)}">Edit</button>
-      <button class="btn btn-sm btn-danger" data-del="${SHELL.escapeHtml(w.id)}">Remove</button>
-    </td>
-  </tr>`;
+function supplierCard(s) {
+  const branchCount = (s.branches || []).length;
+  const contactCount = (s.contacts || []).length;
+  const archived = s.status === 'archived';
+  return `<div class="card" style="display:flex;align-items:flex-start;gap:14px;padding:14px 18px;${archived ? 'opacity:.55' : ''}">
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px;flex-wrap:wrap">
+        <b style="font-size:15px">${SHELL.escapeHtml(s.name)}</b>
+        <span class="pill pill-info" style="font-size:10px">${SHELL.escapeHtml(TYPE_LABELS[s.type] || s.type)}</span>
+        ${s.preferred ? '<span class="pill pill-ok" style="font-size:10px">★ Preferred</span>' : ''}
+        ${archived ? '<span class="pill" style="font-size:10px">Archived</span>' : ''}
+        ${s.websiteUrl ? '<a href="' + SHELL.escapeHtml(s.websiteUrl) + '" target="_blank" rel="noopener" style="font-size:11px;color:var(--muted)">' + SHELL.escapeHtml(new URL(s.websiteUrl).hostname.replace(/^www\./, '')) + '</a>' : ''}
+      </div>
+      ${(s.categories || []).length ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">${(s.categories || []).map(c => '<span style="font-size:10px;color:var(--ink-2);background:var(--surface-3);padding:2px 8px;border-radius:999px">' + SHELL.escapeHtml(c) + '</span>').join('')}</div>` : ''}
+      <div style="font-size:12px;color:var(--muted)">
+        <b>${branchCount}</b> ${branchCount === 1 ? 'branch' : 'branches'} · <b>${contactCount}</b> ${contactCount === 1 ? 'contact' : 'contacts'}
+        ${s.accountNumber ? ' · Account <span class="mono" style="color:var(--ink-2)">' + SHELL.escapeHtml(s.accountNumber) + '</span>' : ''}
+        ${s.paymentTerms ? ' · ' + SHELL.escapeHtml(s.paymentTerms) : ''}
+      </div>
+    </div>
+    <button class="btn" data-open="${SHELL.escapeHtml(s.id)}">Open ${SHELL.ICONS.arrow}</button>
+  </div>`;
 }
 
-function editPanel(id) {
-  const cur = id ? (STATE.list.find(w => w.id === id) || {}) : {};
+// ── Supplier create/edit panel ─────────────────────────────────────────
+function openSupplierPanel(existing) {
+  const isEdit = !!existing;
+  const allCats = STATE.categories;
+  const myCats = new Set(existing && existing.categories || []);
   const panel = SHELL.openPanel({
-    title: id ? 'Edit wholesaler' : 'Add wholesaler',
+    title: isEdit ? 'Edit ' + existing.name : 'New supplier',
     body: `
-      <div class="field"><label class="field-lbl">Name *</label><input class="input" id="w-name" autofocus value="${SHELL.escapeHtml(cur.name || '')}"></div>
-      <div class="field"><label class="field-lbl">Email (used for price-request mailto)</label><input class="input" id="w-email" type="email" value="${SHELL.escapeHtml(cur.email || '')}"></div>
-      <div class="field"><label class="field-lbl">Branch / location</label><input class="input" id="w-branch" value="${SHELL.escapeHtml(cur.branch || '')}"></div>
-      <div class="field"><label class="field-lbl">Notes</label><textarea class="textarea" id="w-notes" rows="3" placeholder="e.g. best for switchgear">${SHELL.escapeHtml(cur.notes || '')}</textarea></div>
+      <div class="field"><label class="field-lbl">Name *</label><input class="input" id="sp-name" autofocus value="${SHELL.escapeHtml((existing && existing.name) || '')}" placeholder="e.g. TLE Electrical"></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Type</label>
+          <select class="select" id="sp-type">
+            ${Object.entries(TYPE_LABELS).map(([v, l]) => `<option value="${v}"${(existing && existing.type === v) || (!existing && v === 'wholesaler') ? ' selected' : ''}>${l}</option>`).join('')}
+          </select></div>
+        <div class="field"><label class="field-lbl">Website</label><input class="input" id="sp-website" type="url" value="${SHELL.escapeHtml((existing && existing.websiteUrl) || '')}" placeholder="https://example.com.au"></div>
+      </div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Account number</label><input class="input" id="sp-account" value="${SHELL.escapeHtml((existing && existing.accountNumber) || '')}"></div>
+        <div class="field"><label class="field-lbl">Payment terms</label><input class="input" id="sp-terms" value="${SHELL.escapeHtml((existing && existing.paymentTerms) || '')}" placeholder="e.g. Net 30 EOM"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Categories</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2)">
+          ${allCats.map(c => `<label style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--line);background:#fff;border-radius:999px;cursor:pointer;font-size:12.5px"><input type="checkbox" data-cat value="${SHELL.escapeHtml(c)}"${myCats.has(c) ? ' checked' : ''}> ${SHELL.escapeHtml(c)}</label>`).join('')}
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;padding:8px 0;font-size:13px;font-weight:600">
+        <input type="checkbox" id="sp-preferred" ${existing && existing.preferred ? 'checked' : ''}> Mark as preferred supplier
+      </label>
+      <div class="field"><label class="field-lbl">Notes</label><textarea class="textarea" id="sp-notes" rows="3">${SHELL.escapeHtml((existing && existing.notes) || '')}</textarea></div>
     `,
-    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="w-save">${id ? 'Save' : 'Add'}</button>`,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button>${isEdit && existing.status !== 'archived' ? '<button class="btn btn-danger" id="sp-archive">Archive</button>' : ''}<button class="btn btn-primary" id="sp-save">${isEdit ? 'Save' : 'Create'}</button>`,
   });
-  panel.querySelector('#w-save').addEventListener('click', async () => {
+  panel.querySelector('#sp-save').addEventListener('click', async () => {
     const body = {
-      name: panel.querySelector('#w-name').value.trim(),
-      email: panel.querySelector('#w-email').value.trim(),
-      branch: panel.querySelector('#w-branch').value.trim(),
-      notes: panel.querySelector('#w-notes').value.trim(),
+      name: panel.querySelector('#sp-name').value.trim(),
+      type: panel.querySelector('#sp-type').value,
+      websiteUrl: panel.querySelector('#sp-website').value.trim(),
+      accountNumber: panel.querySelector('#sp-account').value.trim(),
+      paymentTerms: panel.querySelector('#sp-terms').value.trim(),
+      preferred: panel.querySelector('#sp-preferred').checked,
+      categories: [...panel.querySelectorAll('input[data-cat]:checked')].map(i => i.value),
+      notes: panel.querySelector('#sp-notes').value.trim(),
     };
     if (!body.name) { SHELL.toast('Name required', 'bad'); return; }
     try {
-      if (id) await SHELL.api('/api/wholesalers?id=' + encodeURIComponent(id), { method: 'PATCH', body });
-      else    await SHELL.api('/api/wholesalers', { method: 'POST', body });
-      SHELL.toast('Saved', 'ok');
+      const r = isEdit
+        ? await SHELL.api('/api/suppliers?id=' + encodeURIComponent(existing.id), { method: 'PATCH', body })
+        : await SHELL.api('/api/suppliers', { method: 'POST', body });
+      SHELL.toast(isEdit ? 'Saved' : 'Supplier created', 'ok');
       SHELL.closePanel();
-      const r = await SHELL.api('/api/wholesalers'); STATE.list = r.wholesalers || []; paint();
+      await loadAll(); paint();
+      if (!isEdit && r.supplier) openSupplierDetail(r.supplier.id);
+    } catch (e) { SHELL.toast((isEdit ? 'Save failed — ' : 'Create failed — ') + e.message, 'bad'); }
+  });
+  if (isEdit && existing.status !== 'archived') {
+    panel.querySelector('#sp-archive').addEventListener('click', async () => {
+      if (!confirm('Archive "' + existing.name + '"? It stays in the register but won\'t show in the active list.')) return;
+      try {
+        await fetch('/api/suppliers?id=' + encodeURIComponent(existing.id), { method: 'DELETE', credentials: 'same-origin' })
+          .then(r => { if (!r.ok) throw new Error('Archive failed'); });
+        SHELL.toast('Archived', 'ok');
+        SHELL.closePanel();
+        await loadAll(); paint();
+      } catch (e) { SHELL.toast('Archive failed — ' + e.message, 'bad'); }
+    });
+  }
+}
+
+// ── Supplier detail drawer ─────────────────────────────────────────────
+async function openSupplierDetail(id) {
+  STATE.selectedId = id;
+  // Read fresh — detail panel needs the latest branches/contacts.
+  let s = null;
+  try {
+    const r = await SHELL.api('/api/suppliers?id=' + encodeURIComponent(id));
+    s = r.supplier;
+  } catch (e) { SHELL.toast('Couldn\'t load — ' + e.message, 'bad'); return; }
+  STATE.selected = s;
+  STATE.selectedProducts = [];
+  STATE.selectedLoading = true;
+  paintDetail();
+  // Lazy-load products in parallel
+  try {
+    const r = await SHELL.api('/api/supplier-products?supplierId=' + encodeURIComponent(id));
+    STATE.selectedProducts = r.products || [];
+  } catch (e) { /* not fatal */ }
+  STATE.selectedLoading = false;
+  paintDetail();
+}
+
+function paintDetail() {
+  const s = STATE.selected; if (!s) return;
+  const branches = s.branches || [];
+  const contacts = s.contacts || [];
+  const products = STATE.selectedProducts;
+  const panel = SHELL.openPanel({
+    title: s.name,
+    body: `
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <span class="pill pill-info" style="font-size:10px">${SHELL.escapeHtml(TYPE_LABELS[s.type] || s.type)}</span>
+        ${s.preferred ? '<span class="pill pill-ok" style="font-size:10px">★ Preferred</span>' : ''}
+        ${s.status === 'archived' ? '<span class="pill" style="font-size:10px">Archived</span>' : ''}
+        ${s.websiteUrl ? '<a href="' + SHELL.escapeHtml(s.websiteUrl) + '" target="_blank" rel="noopener" style="font-size:12px;color:var(--ink-2);text-decoration:underline">' + SHELL.escapeHtml(new URL(s.websiteUrl).hostname.replace(/^www\./, '')) + ' ↗</a>' : ''}
+      </div>
+
+      ${(s.accountNumber || s.paymentTerms) ? `<div class="card" style="padding:10px 14px;margin-bottom:14px;background:var(--surface-2)">
+        <div style="display:grid;grid-template-columns:120px 1fr;gap:6px 14px;font-size:13px">
+          ${s.accountNumber ? '<div style="color:var(--muted)">Account #</div><div class="mono">' + SHELL.escapeHtml(s.accountNumber) + '</div>' : ''}
+          ${s.paymentTerms ? '<div style="color:var(--muted)">Terms</div><div>' + SHELL.escapeHtml(s.paymentTerms) + '</div>' : ''}
+        </div>
+      </div>` : ''}
+
+      ${(s.categories || []).length ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:14px">${(s.categories || []).map(c => '<span style="font-size:11px;color:var(--ink-2);background:var(--surface-3);padding:3px 9px;border-radius:999px">' + SHELL.escapeHtml(c) + '</span>').join('')}</div>` : ''}
+
+      ${s.notes ? `<div style="font-size:13px;color:var(--ink-2);margin-bottom:14px;padding:10px 12px;background:var(--surface-2);border-radius:8px;font-style:italic">"${SHELL.escapeHtml(s.notes)}"</div>` : ''}
+
+      <!-- Branches -->
+      <div class="card-hdr"><div><div class="card-title">Branches <span class="card-count">${branches.length}</span></div></div><button class="btn btn-sm" id="sd-add-branch">+ Add branch</button></div>
+      ${branches.length ? '<div style="display:grid;gap:6px;margin-top:6px">' + branches.map(branchRow).join('') + '</div>' : '<div style="padding:14px;color:var(--muted);font-size:12px;text-align:center">No branches added yet.</div>'}
+
+      <!-- Contacts -->
+      <div class="card-hdr" style="margin-top:18px"><div><div class="card-title">Contacts <span class="card-count">${contacts.length}</span></div><div class="card-sub">Account managers, branch staff, sales reps.</div></div><button class="btn btn-sm" id="sd-add-contact">+ Add contact</button></div>
+      ${contacts.length ? '<div style="display:grid;gap:6px;margin-top:6px">' + contacts.map(c => contactRow(c, branches)).join('') + '</div>' : '<div style="padding:14px;color:var(--muted);font-size:12px;text-align:center">No contacts added for this supplier.<br>Add an account manager, branch contact, or sales contact.</div>'}
+
+      <!-- Product references -->
+      <div class="card-hdr" style="margin-top:18px"><div><div class="card-title">Product references <span class="card-count">${products.length}</span></div><div class="card-sub">Saved product/material entries. Import from supplier URL or add manually.</div></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" id="sd-add-product">+ Add manually</button>
+          <button class="btn btn-sm btn-primary" id="sd-lookup">Import from URL…</button>
+        </div>
+      </div>
+      ${STATE.selectedLoading
+        ? '<div style="padding:14px;color:var(--muted);font-size:12px;text-align:center">Loading products…</div>'
+        : (products.length
+          ? '<div style="display:grid;gap:6px;margin-top:6px">' + products.map(productRow).join('') + '</div>'
+          : '<div style="padding:14px;color:var(--muted);font-size:12px;text-align:center">No product references saved yet.<br>Import a product URL or add a product manually.</div>')}
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Close</button><button class="btn" id="sd-edit">Edit supplier</button>`,
+  });
+
+  panel.querySelector('#sd-edit').addEventListener('click', () => { SHELL.closePanel(); openSupplierPanel(s); });
+  panel.querySelector('#sd-add-branch').addEventListener('click', () => openBranchPanel(s.id, null));
+  panel.querySelector('#sd-add-contact').addEventListener('click', () => openContactPanel(s.id, null, branches));
+  panel.querySelector('#sd-add-product').addEventListener('click', () => openProductPanel(s.id, null));
+  panel.querySelector('#sd-lookup').addEventListener('click', () => openLookupPanel(s));
+  panel.querySelectorAll('button[data-edit-branch]').forEach(b => b.addEventListener('click', () => {
+    const branch = branches.find(x => x.id === b.dataset.editBranch);
+    if (branch) openBranchPanel(s.id, branch);
+  }));
+  panel.querySelectorAll('button[data-rm-branch]').forEach(b => b.addEventListener('click', () => removeBranch(s.id, b.dataset.rmBranch)));
+  panel.querySelectorAll('button[data-edit-contact]').forEach(b => b.addEventListener('click', () => {
+    const contact = contacts.find(x => x.id === b.dataset.editContact);
+    if (contact) openContactPanel(s.id, contact, branches);
+  }));
+  panel.querySelectorAll('button[data-rm-contact]').forEach(b => b.addEventListener('click', () => removeContact(s.id, b.dataset.rmContact)));
+  panel.querySelectorAll('button[data-edit-product]').forEach(b => b.addEventListener('click', () => {
+    const p = products.find(x => x.id === b.dataset.editProduct);
+    if (p) openProductPanel(s.id, p);
+  }));
+  panel.querySelectorAll('button[data-rm-product]').forEach(b => b.addEventListener('click', () => removeProduct(s.id, b.dataset.rmProduct)));
+}
+
+function branchRow(b) {
+  return `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--surface-2);border-radius:8px;font-size:13px">
+    <div style="flex:1;min-width:0">
+      <b>${SHELL.escapeHtml(b.name)}</b>
+      ${b.address ? '<div style="font-size:12px;color:var(--ink-2);margin-top:2px">' + SHELL.escapeHtml(b.address) + '</div>' : ''}
+      <div style="display:flex;gap:12px;font-size:11.5px;color:var(--muted);margin-top:4px;flex-wrap:wrap">
+        ${b.phone ? '<a href="tel:' + SHELL.escapeHtml(b.phone) + '" style="color:inherit">📞 ' + SHELL.escapeHtml(b.phone) + '</a>' : ''}
+        ${b.email ? '<a href="mailto:' + SHELL.escapeHtml(b.email) + '" style="color:inherit">✉ ' + SHELL.escapeHtml(b.email) + '</a>' : ''}
+      </div>
+      ${b.notes ? '<div style="font-size:11px;color:var(--muted);margin-top:4px;font-style:italic">' + SHELL.escapeHtml(b.notes) + '</div>' : ''}
+    </div>
+    <button class="btn btn-sm" data-edit-branch="${SHELL.escapeHtml(b.id)}">Edit</button>
+    <button class="btn btn-sm btn-danger" data-rm-branch="${SHELL.escapeHtml(b.id)}">×</button>
+  </div>`;
+}
+
+function contactRow(c, branches) {
+  const b = c.branchId ? branches.find(x => x.id === c.branchId) : null;
+  return `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--surface-2);border-radius:8px;font-size:13px">
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:baseline;gap:8px"><b>${SHELL.escapeHtml(c.name)}</b>${c.role ? '<span style="font-size:11px;color:var(--ink-2);font-weight:600">' + SHELL.escapeHtml(c.role) + '</span>' : ''}</div>
+      ${b ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">@ ' + SHELL.escapeHtml(b.name) + '</div>' : ''}
+      <div style="display:flex;gap:12px;font-size:11.5px;color:var(--muted);margin-top:4px;flex-wrap:wrap">
+        ${c.phone ? '<a href="tel:' + SHELL.escapeHtml(c.phone) + '" style="color:inherit">📞 ' + SHELL.escapeHtml(c.phone) + '</a>' : ''}
+        ${c.email ? '<a href="mailto:' + SHELL.escapeHtml(c.email) + '" style="color:inherit">✉ ' + SHELL.escapeHtml(c.email) + '</a>' : ''}
+      </div>
+      ${c.notes ? '<div style="font-size:11px;color:var(--muted);margin-top:4px;font-style:italic">' + SHELL.escapeHtml(c.notes) + '</div>' : ''}
+    </div>
+    <button class="btn btn-sm" data-edit-contact="${SHELL.escapeHtml(c.id)}">Edit</button>
+    <button class="btn btn-sm btn-danger" data-rm-contact="${SHELL.escapeHtml(c.id)}">×</button>
+  </div>`;
+}
+
+function productRow(p) {
+  const sourceLabel = p.source === 'url_lookup'
+    ? '<span style="font-size:10px;color:var(--info);background:var(--surface-3);padding:1px 7px;border-radius:999px">URL-sourced</span>'
+    : '<span style="font-size:10px;color:var(--muted)">manual</span>';
+  return `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--surface-2);border-radius:8px;font-size:13px">
+    ${p.imageUrl ? '<img src="' + SHELL.escapeHtml(p.imageUrl) + '" style="width:48px;height:48px;border-radius:6px;object-fit:cover;background:var(--surface-3);flex-shrink:0" alt="" loading="lazy">' : ''}
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><b>${SHELL.escapeHtml(p.name)}</b>${sourceLabel}</div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:2px">
+        ${p.brand ? SHELL.escapeHtml(p.brand) : ''}${p.partNumber ? (p.brand ? ' · ' : '') + 'PN ' + SHELL.escapeHtml(p.partNumber) : ''}${p.category ? ' · ' + SHELL.escapeHtml(p.category) : ''}
+      </div>
+      ${p.price != null ? '<div style="font-size:12px;font-weight:600;color:var(--ink);margin-top:4px">$' + Number(p.price).toFixed(2) + (p.unit ? '/' + SHELL.escapeHtml(p.unit) : '') + (p.priceNote ? ' <span style="font-weight:500;color:var(--muted)">· ' + SHELL.escapeHtml(p.priceNote) + '</span>' : '') + '</div>' : ''}
+      ${p.lastCheckedAt ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">Last checked ' + SHELL.escapeHtml(SHELL._ago(p.lastCheckedAt) || '') + '</div>' : ''}
+      <div style="display:flex;gap:10px;font-size:11px;margin-top:4px">
+        ${p.publicUrl ? '<a href="' + SHELL.escapeHtml(p.publicUrl) + '" target="_blank" rel="noopener" style="color:var(--ink-2)">View page ↗</a>' : ''}
+        ${p.datasheetUrl ? '<a href="' + SHELL.escapeHtml(p.datasheetUrl) + '" target="_blank" rel="noopener" style="color:var(--ink-2)">Datasheet ↗</a>' : ''}
+      </div>
+    </div>
+    <button class="btn btn-sm" data-edit-product="${SHELL.escapeHtml(p.id)}">Edit</button>
+    <button class="btn btn-sm btn-danger" data-rm-product="${SHELL.escapeHtml(p.id)}">×</button>
+  </div>`;
+}
+
+// ── Branch panel ───────────────────────────────────────────────────────
+function openBranchPanel(supplierId, existing) {
+  const isEdit = !!existing;
+  const panel = SHELL.openPanel({
+    title: isEdit ? 'Edit branch' : 'Add branch',
+    body: `
+      <div class="field"><label class="field-lbl">Branch name *</label><input class="input" id="b-name" autofocus value="${SHELL.escapeHtml((existing && existing.name) || '')}" placeholder="e.g. Chatswood"></div>
+      <div class="field"><label class="field-lbl">Address</label><input class="input" id="b-address" value="${SHELL.escapeHtml((existing && existing.address) || '')}"></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Phone</label><input class="input" id="b-phone" type="tel" value="${SHELL.escapeHtml((existing && existing.phone) || '')}"></div>
+        <div class="field"><label class="field-lbl">Email</label><input class="input" id="b-email" type="email" value="${SHELL.escapeHtml((existing && existing.email) || '')}"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Notes</label><textarea class="textarea" id="b-notes" rows="2">${SHELL.escapeHtml((existing && existing.notes) || '')}</textarea></div>
+    `,
+    footer: `<button class="btn" onclick="openSupplierDetail('${SHELL.escapeHtml(supplierId)}')">Cancel</button><button class="btn btn-primary" id="b-save">${isEdit ? 'Save' : 'Add'}</button>`,
+  });
+  panel.querySelector('#b-save').addEventListener('click', async () => {
+    const branch = {
+      name: panel.querySelector('#b-name').value.trim(),
+      address: panel.querySelector('#b-address').value.trim(),
+      phone: panel.querySelector('#b-phone').value.trim(),
+      email: panel.querySelector('#b-email').value.trim(),
+      notes: panel.querySelector('#b-notes').value.trim(),
+    };
+    if (isEdit) branch.id = existing.id;
+    if (!branch.name) { SHELL.toast('Name required', 'bad'); return; }
+    try {
+      const action = isEdit ? 'update-branch' : 'add-branch';
+      const body = isEdit ? { branchId: existing.id, branch } : { branch };
+      await SHELL.api('/api/suppliers?id=' + encodeURIComponent(supplierId) + '&action=' + action, { method: 'POST', body });
+      SHELL.toast(isEdit ? 'Saved' : 'Added', 'ok');
+      await openSupplierDetail(supplierId);
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+async function removeBranch(supplierId, branchId) {
+  if (!confirm('Remove this branch? Contacts linked to it will become unlinked but kept.')) return;
+  try {
+    await SHELL.api('/api/suppliers?id=' + encodeURIComponent(supplierId) + '&action=delete-branch', { method: 'POST', body: { branchId } });
+    await openSupplierDetail(supplierId);
+  } catch (e) { SHELL.toast('Remove failed — ' + e.message, 'bad'); }
+}
+
+// ── Contact panel ──────────────────────────────────────────────────────
+function openContactPanel(supplierId, existing, branches) {
+  const isEdit = !!existing;
+  const panel = SHELL.openPanel({
+    title: isEdit ? 'Edit contact' : 'Add contact',
+    body: `
+      <div class="field"><label class="field-lbl">Name *</label><input class="input" id="c-name" autofocus value="${SHELL.escapeHtml((existing && existing.name) || '')}"></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Role</label><input class="input" id="c-role" value="${SHELL.escapeHtml((existing && existing.role) || '')}" placeholder="Account manager, Branch contact…"></div>
+        <div class="field"><label class="field-lbl">Branch</label>
+          <select class="select" id="c-branch">
+            <option value="">— None —</option>
+            ${(branches || []).map(b => `<option value="${SHELL.escapeHtml(b.id)}"${existing && existing.branchId === b.id ? ' selected' : ''}>${SHELL.escapeHtml(b.name)}</option>`).join('')}
+          </select></div>
+      </div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Phone</label><input class="input" id="c-phone" type="tel" value="${SHELL.escapeHtml((existing && existing.phone) || '')}"></div>
+        <div class="field"><label class="field-lbl">Email</label><input class="input" id="c-email" type="email" value="${SHELL.escapeHtml((existing && existing.email) || '')}"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Notes</label><textarea class="textarea" id="c-notes" rows="2">${SHELL.escapeHtml((existing && existing.notes) || '')}</textarea></div>
+    `,
+    footer: `<button class="btn" onclick="openSupplierDetail('${SHELL.escapeHtml(supplierId)}')">Cancel</button><button class="btn btn-primary" id="c-save">${isEdit ? 'Save' : 'Add'}</button>`,
+  });
+  panel.querySelector('#c-save').addEventListener('click', async () => {
+    const contact = {
+      name: panel.querySelector('#c-name').value.trim(),
+      role: panel.querySelector('#c-role').value.trim(),
+      branchId: panel.querySelector('#c-branch').value || null,
+      phone: panel.querySelector('#c-phone').value.trim(),
+      email: panel.querySelector('#c-email').value.trim(),
+      notes: panel.querySelector('#c-notes').value.trim(),
+    };
+    if (isEdit) contact.id = existing.id;
+    if (!contact.name) { SHELL.toast('Name required', 'bad'); return; }
+    try {
+      const action = isEdit ? 'update-contact' : 'add-contact';
+      const body = isEdit ? { contactId: existing.id, contact } : { contact };
+      await SHELL.api('/api/suppliers?id=' + encodeURIComponent(supplierId) + '&action=' + action, { method: 'POST', body });
+      SHELL.toast(isEdit ? 'Saved' : 'Added', 'ok');
+      await openSupplierDetail(supplierId);
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+async function removeContact(supplierId, contactId) {
+  if (!confirm('Remove this contact?')) return;
+  try {
+    await SHELL.api('/api/suppliers?id=' + encodeURIComponent(supplierId) + '&action=delete-contact', { method: 'POST', body: { contactId } });
+    await openSupplierDetail(supplierId);
+  } catch (e) { SHELL.toast('Remove failed — ' + e.message, 'bad'); }
+}
+
+// ── Product panel ──────────────────────────────────────────────────────
+function openProductPanel(supplierId, existing) {
+  const isEdit = !!existing;
+  const panel = SHELL.openPanel({
+    title: isEdit ? 'Edit product reference' : 'Add product reference',
+    body: `
+      <div class="field"><label class="field-lbl">Product name *</label><input class="input" id="p-name" autofocus value="${SHELL.escapeHtml((existing && existing.name) || '')}" placeholder="e.g. 10A Double GPO White"></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Brand</label><input class="input" id="p-brand" value="${SHELL.escapeHtml((existing && existing.brand) || '')}"></div>
+        <div class="field"><label class="field-lbl">Part number / SKU</label><input class="input" id="p-pn" value="${SHELL.escapeHtml((existing && existing.partNumber) || '')}"></div>
+      </div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Category</label><input class="input" id="p-category" value="${SHELL.escapeHtml((existing && existing.category) || '')}"></div>
+        <div class="field"><label class="field-lbl">Unit</label><input class="input" id="p-unit" value="${SHELL.escapeHtml((existing && existing.unit) || 'ea')}"></div>
+      </div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Price (ex-GST)</label><input class="input" id="p-price" type="number" step="0.01" inputmode="decimal" value="${existing && existing.price != null ? existing.price : ''}"></div>
+        <div class="field"><label class="field-lbl">Price note</label><input class="input" id="p-priceNote" value="${SHELL.escapeHtml((existing && existing.priceNote) || '')}" placeholder="e.g. trade price · 100+ qty"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Product URL</label><input class="input" id="p-url" type="url" value="${SHELL.escapeHtml((existing && existing.publicUrl) || '')}"></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Image URL</label><input class="input" id="p-image" type="url" value="${SHELL.escapeHtml((existing && existing.imageUrl) || '')}"></div>
+        <div class="field"><label class="field-lbl">Datasheet URL</label><input class="input" id="p-datasheet" type="url" value="${SHELL.escapeHtml((existing && existing.datasheetUrl) || '')}"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Description</label><textarea class="textarea" id="p-description" rows="3">${SHELL.escapeHtml((existing && existing.description) || '')}</textarea></div>
+    `,
+    footer: `<button class="btn" onclick="openSupplierDetail('${SHELL.escapeHtml(supplierId)}')">Cancel</button><button class="btn btn-primary" id="p-save">${isEdit ? 'Save' : 'Add'}</button>`,
+  });
+  panel.querySelector('#p-save').addEventListener('click', async () => {
+    const body = {
+      name: panel.querySelector('#p-name').value.trim(),
+      brand: panel.querySelector('#p-brand').value.trim(),
+      partNumber: panel.querySelector('#p-pn').value.trim(),
+      category: panel.querySelector('#p-category').value.trim(),
+      unit: panel.querySelector('#p-unit').value.trim(),
+      price: panel.querySelector('#p-price').value || null,
+      priceNote: panel.querySelector('#p-priceNote').value.trim(),
+      publicUrl: panel.querySelector('#p-url').value.trim(),
+      imageUrl: panel.querySelector('#p-image').value.trim(),
+      datasheetUrl: panel.querySelector('#p-datasheet').value.trim(),
+      description: panel.querySelector('#p-description').value.trim(),
+      source: (existing && existing.source) || 'manual',
+    };
+    if (!body.name) { SHELL.toast('Name required', 'bad'); return; }
+    try {
+      const url = '/api/supplier-products?supplierId=' + encodeURIComponent(supplierId) + (isEdit ? '&id=' + encodeURIComponent(existing.id) : '');
+      await SHELL.api(url, { method: isEdit ? 'PATCH' : 'POST', body });
+      SHELL.toast(isEdit ? 'Saved' : 'Added', 'ok');
+      await openSupplierDetail(supplierId);
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+async function removeProduct(supplierId, productId) {
+  if (!confirm('Archive this product reference? Materials linked to it stay intact.')) return;
+  try {
+    await fetch('/api/supplier-products?supplierId=' + encodeURIComponent(supplierId) + '&id=' + encodeURIComponent(productId), { method: 'DELETE', credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('Archive failed'); });
+    await openSupplierDetail(supplierId);
+  } catch (e) { SHELL.toast('Archive failed — ' + e.message, 'bad'); }
+}
+
+// ── URL lookup panel ───────────────────────────────────────────────────
+function openLookupPanel(supplier) {
+  if (!supplier.websiteUrl) {
+    SHELL.toast('Add a websiteUrl to this supplier first so we can scope the lookup to its own domain.', 'warn');
+    return;
+  }
+  const supplierHost = (() => { try { return new URL(supplier.websiteUrl).hostname.replace(/^www\./, ''); } catch (e) { return ''; } })();
+  const panel = SHELL.openPanel({
+    title: 'Import product from URL',
+    body: `
+      <div style="font-size:13px;color:var(--ink-2);margin-bottom:14px;padding:10px 12px;background:var(--surface-2);border-radius:8px;line-height:1.5">
+        Paste a public product page URL from <b>${SHELL.escapeHtml(supplierHost)}</b>. We'll try to extract the name, brand, part number, image and datasheet — you'll review before saving.
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">⚠ Login-only pages, account pricing, paywalls and bot-protected pages are deliberately not supported. If the page can't be read, fall back to manual entry.</div>
+      </div>
+      <div class="field"><label class="field-lbl">Product page URL</label><input class="input" id="lk-url" type="url" autofocus placeholder="https://${SHELL.escapeHtml(supplierHost)}/products/…"></div>
+      <button class="btn btn-primary" id="lk-go" style="width:100%">Look up →</button>
+      <div id="lk-result" style="margin-top:14px"></div>
+    `,
+    footer: `<button class="btn" onclick="openSupplierDetail('${SHELL.escapeHtml(supplier.id)}')">Close</button>`,
+  });
+  panel.querySelector('#lk-go').addEventListener('click', () => runLookup(supplier, panel));
+  panel.querySelector('#lk-url').addEventListener('keydown', e => { if (e.key === 'Enter') runLookup(supplier, panel); });
+}
+
+async function runLookup(supplier, panel) {
+  const url = panel.querySelector('#lk-url').value.trim();
+  if (!url) { SHELL.toast('Enter a URL', 'warn'); return; }
+  const btn = panel.querySelector('#lk-go');
+  btn.disabled = true; btn.textContent = 'Fetching…';
+  const result = panel.querySelector('#lk-result');
+  result.innerHTML = '<div style="padding:14px;color:var(--muted);font-size:13px;text-align:center">Reading the page…</div>';
+  let r;
+  try {
+    r = await SHELL.api('/api/supplier-lookup', { method: 'POST', body: { supplierId: supplier.id, url } });
+  } catch (e) {
+    result.innerHTML = '<div style="padding:12px 14px;background:var(--bad-bg, #fbeae8);color:var(--bad);border-radius:8px;font-size:13px">Lookup failed — ' + SHELL.escapeHtml(e.message) + '<br><br>You can still <button class="btn btn-sm" id="lk-manual">add it manually</button> below.</div>';
+    btn.disabled = false; btn.textContent = 'Look up →';
+    const m = result.querySelector('#lk-manual');
+    if (m) m.addEventListener('click', () => { SHELL.closePanel(); openProductPanel(supplier.id, { publicUrl: url, source: 'manual' }); });
+    return;
+  }
+  btn.disabled = false; btn.textContent = 'Look up →';
+  const draft = r.draft || { publicUrl: url, source: 'url_lookup' };
+  const warnings = r.warnings || [];
+  const ok = r.ok !== false;
+  result.innerHTML = `
+    ${ok ? '<div style="padding:10px 12px;background:var(--ok-bg);color:var(--ok);border-radius:8px;font-size:12px;margin-bottom:10px">✓ Extracted — review before saving. ' + (warnings.length ? warnings.length + ' warning' + (warnings.length === 1 ? '' : 's') + '.' : 'Looks good.') + '</div>' :
+      '<div style="padding:10px 12px;background:var(--warn-bg, #fbf1de);color:var(--warn);border-radius:8px;font-size:12px;margin-bottom:10px">⚠ ' + SHELL.escapeHtml(r.error || 'Extraction failed') + '<br>Edit the fields below or add manually.</div>'}
+    ${warnings.length ? '<div style="font-size:11.5px;color:var(--warn);margin-bottom:10px">' + warnings.map(w => '• ' + SHELL.escapeHtml(w)).join('<br>') + '</div>' : ''}
+    ${draft.imageUrl ? '<img src="' + SHELL.escapeHtml(draft.imageUrl) + '" style="max-width:100%;max-height:180px;border-radius:8px;background:var(--surface-2);margin-bottom:10px" alt="" loading="lazy">' : ''}
+    <div class="field"><label class="field-lbl">Product name</label><input class="input" id="dr-name" value="${SHELL.escapeHtml(draft.name || '')}"></div>
+    <div class="two-col">
+      <div class="field"><label class="field-lbl">Brand</label><input class="input" id="dr-brand" value="${SHELL.escapeHtml(draft.brand || '')}"></div>
+      <div class="field"><label class="field-lbl">Part number</label><input class="input" id="dr-pn" value="${SHELL.escapeHtml(draft.partNumber || '')}"></div>
+    </div>
+    <div class="field"><label class="field-lbl">Description</label><textarea class="textarea" id="dr-description" rows="3">${SHELL.escapeHtml(draft.description || '')}</textarea></div>
+    <div class="field"><label class="field-lbl">Category</label><input class="input" id="dr-category" value="${SHELL.escapeHtml(draft.category || '')}"></div>
+    <div class="two-col">
+      <div class="field"><label class="field-lbl">Image URL</label><input class="input" id="dr-image" type="url" value="${SHELL.escapeHtml(draft.imageUrl || '')}"></div>
+      <div class="field"><label class="field-lbl">Datasheet URL</label><input class="input" id="dr-datasheet" type="url" value="${SHELL.escapeHtml(draft.datasheetUrl || '')}"></div>
+    </div>
+    <div class="field"><label class="field-lbl">Source URL</label><input class="input" id="dr-source" type="url" value="${SHELL.escapeHtml(draft.sourceUrl || url)}" readonly style="background:var(--surface-2)"></div>
+    <button class="btn btn-primary" id="dr-save" style="width:100%;margin-top:6px">Save product reference</button>
+  `;
+  result.querySelector('#dr-save').addEventListener('click', async () => {
+    const body = {
+      name:         result.querySelector('#dr-name').value.trim(),
+      brand:        result.querySelector('#dr-brand').value.trim(),
+      partNumber:   result.querySelector('#dr-pn').value.trim(),
+      description:  result.querySelector('#dr-description').value.trim(),
+      category:     result.querySelector('#dr-category').value.trim(),
+      imageUrl:     result.querySelector('#dr-image').value.trim(),
+      datasheetUrl: result.querySelector('#dr-datasheet').value.trim(),
+      publicUrl:    result.querySelector('#dr-source').value.trim(),
+      sourceUrl:    result.querySelector('#dr-source').value.trim(),
+      source:       'url_lookup',
+      lastCheckedAt: draft.lastCheckedAt || new Date().toISOString(),
+    };
+    if (!body.name) { SHELL.toast('Product name required', 'bad'); return; }
+    try {
+      await SHELL.api('/api/supplier-products?supplierId=' + encodeURIComponent(supplier.id), { method: 'POST', body });
+      SHELL.toast('Product reference saved', 'ok');
+      await openSupplierDetail(supplier.id);
     } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
   });
 }
 
-async function removeOne(id) {
-  if (!confirm('Remove this wholesaler? Existing quote price-requests pointed at them are kept.')) return;
-  try {
-    await fetch('/api/wholesalers?id=' + encodeURIComponent(id), { method: 'DELETE', credentials: 'same-origin' })
-      .then(r => { if (!r.ok) throw new Error('Failed'); });
-    SHELL.toast('Removed', 'ok');
-    const r = await SHELL.api('/api/wholesalers'); STATE.list = r.wholesalers || []; paint();
-  } catch (e) { SHELL.toast('Remove failed — ' + e.message, 'bad'); }
+// ── Promote a legacy wholesaler to the new register ─────────────────────
+async function promoteLegacy(id) {
+  const w = STATE.legacyWholesalers.find(x => x.id === id);
+  if (!w) return;
+  openSupplierPanel({
+    name: w.name,
+    type: 'wholesaler',
+    branches: w.branch ? [{ name: w.branch }] : [],
+    contacts: w.email ? [{ name: w.branch || w.name, email: w.email, role: 'General' }] : [],
+    notes: w.notes,
+  });
 }
 
 SHELL.boot();
