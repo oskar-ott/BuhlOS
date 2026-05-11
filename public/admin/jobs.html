@@ -386,53 +386,344 @@ function hasSetupGaps(j) { return setupHealth(j).gaps > 0; }
    the existing endpoint. Wizard expansion pairs with template
    selection and the area builder — landing in a follow-up. */
 
+/* ── New-job wizard (brief §07) ───────────────────────────────────
+   Four steps, never more:
+     1 · Name + code + client + type
+     2 · Template (existing job's structure, or blank)
+     3 · Areas (named + grouped)
+     4 · Crew (assign tradies + LH)
+
+   Each step is one screen, < 60s for an experienced admin. Back/
+   Next at the bottom; the final step ships the whole thing in
+   one POST + (optional) PUT to apply the template's structure
+   + a PUT per crew member to set assignedJobIds.
+
+   The wizard keeps draft state on the in-memory NJ_STATE object
+   so the admin can flip between steps without losing input.
+*/
+
+let NJ_STATE = null;
+function njReset() {
+  NJ_STATE = {
+    step: 1,
+    // Step 1
+    name: '', code: '', clientUserId: '', type: '',
+    // Step 2
+    templateMode: 'blank',  // 'blank' | 'copy' | 'type-default'
+    templateJobId: '',
+    // Step 3
+    areaGroups: [{ name: 'Areas', areas: [{ name: '' }] }],
+    // Step 4
+    crewIds: new Set(),
+    leadingHandId: '',
+  };
+}
+
 function openNewJobPanel() {
+  njReset();
+  njPaint();
+}
+
+function njPaint() {
+  const s = NJ_STATE;
+  if (!s) return;
+  const panel = SHELL.openPanel({
+    title: `New job · step ${s.step} of 4`,
+    body: njStepBody(s.step),
+    footer: njStepFooter(s.step),
+  });
+  // Step indicator hint at the top.
+  const head = panel.querySelector('.side-panel-body') || panel;
+  const indicator = document.createElement('div');
+  indicator.style.cssText = 'display:flex;gap:6px;margin-bottom:14px';
+  for (let i = 1; i <= 4; i++) {
+    const dot = document.createElement('div');
+    dot.style.cssText = `flex:1;height:3px;border-radius:2px;background:${i <= s.step ? 'var(--accent)' : 'var(--line)'}`;
+    indicator.appendChild(dot);
+  }
+  head.insertBefore(indicator, head.firstChild);
+
+  njWireStep(s.step, panel);
+}
+
+function njStepBody(step) {
+  const s = NJ_STATE;
+  switch (step) {
+    case 1: return njBodyStep1();
+    case 2: return njBodyStep2();
+    case 3: return njBodyStep3();
+    case 4: return njBodyStep4();
+  }
+  return '';
+}
+
+function njBodyStep1() {
   const clients = (SHELL.USERS || []).filter(u => u.role === 'client');
   const types = Object.values(STATE.jobTypes);
-  const panel = SHELL.openPanel({
-    title: 'New job',
-    body: `
-      <div class="field"><label class="field-lbl">Job name</label>
-        <input class="input" id="nj-name" placeholder="e.g. 19–23 Birdwood Ave" autofocus></div>
+  const s = NJ_STATE;
+  return `
+    <div style="margin-bottom:14px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Step 1 · The basics</div>
+    <div class="field"><label class="field-lbl">Job name *</label>
+      <input class="input" id="nj-name" placeholder="e.g. 19–23 Birdwood Ave" value="${SHELL.escapeHtml(s.name)}" autofocus></div>
+    <div class="two-col">
       <div class="field"><label class="field-lbl">Job code (optional)</label>
-        <input class="input" id="nj-id" placeholder="auto-generated from name"></div>
+        <input class="input" id="nj-id" placeholder="auto from name" value="${SHELL.escapeHtml(s.code)}"></div>
       ${types.length ? `
         <div class="field"><label class="field-lbl">Type</label>
           <select class="select" id="nj-type">
             <option value="">— none —</option>
-            ${types.map(t => `<option value="${SHELL.escapeHtml(t.id)}">${SHELL.escapeHtml(t.name)}</option>`).join('')}
+            ${types.map(t => `<option value="${SHELL.escapeHtml(t.id)}"${s.type === t.id ? ' selected' : ''}>${SHELL.escapeHtml(t.name)}</option>`).join('')}
           </select>
-        </div>` : ''}
-      <div class="field"><label class="field-lbl">Client</label>
-        <select class="select" id="nj-client">
-          <option value="">— none —</option>
-          ${clients.map(u => `<option value="${SHELL.escapeHtml(u.id)}">${SHELL.escapeHtml(u.username)}</option>`).join('')}
-        </select>
+        </div>` : '<div></div>'}
+    </div>
+    <div class="field"><label class="field-lbl">Client</label>
+      <select class="select" id="nj-client">
+        <option value="">— none —</option>
+        ${clients.map(u => `<option value="${SHELL.escapeHtml(u.id)}"${s.clientUserId === u.id ? ' selected' : ''}>${SHELL.escapeHtml(u.username)}</option>`).join('')}
+      </select>
+    </div>
+  `;
+}
+
+function njBodyStep2() {
+  const s = NJ_STATE;
+  const candidates = (STATE.jobs || [])
+    .filter(j => (j.areaGroups || []).length || (j.roughInTasks || []).length || (j.fitOffTasks || []).length)
+    .slice(0, 50)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  return `
+    <div style="margin-bottom:14px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Step 2 · Template</div>
+    <div class="field"><label class="field-lbl">How should this job start?</label>
+      <div style="display:grid;gap:8px">
+        ${[
+          ['blank', 'Blank — set up areas + tasks myself'],
+          ['copy', 'Copy structure from another job'],
+        ].map(([k, lab]) => `
+          <label style="display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:8px;padding:12px 14px;cursor:pointer;${s.templateMode === k ? 'background:var(--surface-2);border-color:var(--accent)' : ''}">
+            <input type="radio" name="nj-tmpl" value="${k}" ${s.templateMode === k ? 'checked' : ''}>
+            <span>${lab}</span>
+          </label>
+        `).join('')}
       </div>
-      <div style="margin-top:14px;font-size:12px;color:var(--muted);padding:10px 12px;background:var(--surface-2);border-radius:8px;line-height:1.5">
-        The job opens with no structure — set up areas, tasks, plans, materials and crew on the workspace next.
+    </div>
+    <div class="field" id="nj-template-picker" ${s.templateMode === 'copy' ? '' : 'style="display:none"'}>
+      <label class="field-lbl">Copy from</label>
+      <select class="select" id="nj-template-id">
+        <option value="">— pick a job —</option>
+        ${candidates.map(j => `<option value="${SHELL.escapeHtml(j.id)}"${s.templateJobId === j.id ? ' selected' : ''}>${SHELL.escapeHtml(j.name)} <small>(${(j.areaGroups || []).flatMap(g => g.areas || []).length} areas)</small></option>`).join('')}
+      </select>
+      ${!candidates.length ? '<div style="font-size:12px;color:var(--muted);margin-top:6px">No existing jobs with structure to copy from.</div>' : ''}
+    </div>
+  `;
+}
+
+function njBodyStep3() {
+  const s = NJ_STATE;
+  return `
+    <div style="margin-bottom:14px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Step 3 · Areas</div>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+      Group rooms by floor, building, or trade type. Tradies see this list on their phone.
+      ${s.templateMode === 'copy' && s.templateJobId ? '<br><b style="color:var(--ink-2)">Note:</b> template areas will be applied after create — leave this blank or override.' : ''}
+    </div>
+    <div id="nj-areas">
+      ${s.areaGroups.map((g, gi) => `
+        <div class="card" style="padding:12px;margin-bottom:10px" data-grp="${gi}">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <input class="input" data-grp-name="${gi}" value="${SHELL.escapeHtml(g.name)}" placeholder="Group name (e.g. Level 1)" style="flex:1">
+            <button class="btn btn-sm" data-grp-del="${gi}" ${s.areaGroups.length === 1 ? 'disabled' : ''}>Remove</button>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px" data-areas="${gi}">
+            ${g.areas.map((a, ai) => `
+              <div style="display:flex;gap:6px;align-items:center">
+                <input class="input" data-area="${gi}.${ai}" value="${SHELL.escapeHtml(a.name)}" placeholder="Area name (e.g. Unit 14)">
+                <button class="btn btn-sm" data-area-del="${gi}.${ai}" ${g.areas.length === 1 ? 'disabled' : ''}>×</button>
+              </div>
+            `).join('')}
+          </div>
+          <button class="btn btn-sm" data-area-add="${gi}" style="margin-top:8px">+ Add area</button>
+        </div>
+      `).join('')}
+    </div>
+    <button class="btn" id="nj-grp-add">+ Add area group</button>
+  `;
+}
+
+function njBodyStep4() {
+  const s = NJ_STATE;
+  const crew = (SHELL.USERS || []).filter(u => u.role === 'tradie' || u.role === 'leadingHand');
+  return `
+    <div style="margin-bottom:14px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Step 4 · Crew</div>
+    <div class="field"><label class="field-lbl">Leading hand</label>
+      <select class="select" id="nj-lh">
+        <option value="">— not assigned —</option>
+        ${crew.filter(u => u.role === 'leadingHand').map(u => `<option value="${SHELL.escapeHtml(u.id)}"${s.leadingHandId === u.id ? ' selected' : ''}>${SHELL.escapeHtml(u.username)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label class="field-lbl">Crew on this job</label>
+      <div style="border:1px solid var(--line);border-radius:8px;padding:8px;max-height:280px;overflow-y:auto;background:var(--surface)">
+        ${crew.map(u => `
+          <label style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13.5px">
+            <input type="checkbox" data-crew="${SHELL.escapeHtml(u.id)}" ${s.crewIds.has(u.id) ? 'checked' : ''}>
+            <span style="flex:1">${SHELL.escapeHtml(u.username)} <span style="color:var(--muted);font-size:11px">${u.role === 'leadingHand' ? '(LH)' : ''}</span></span>
+          </label>
+        `).join('')}
       </div>
-    `,
-    footer: `
-      <button class="btn" onclick="SHELL.closePanel()">Cancel</button>
-      <button class="btn btn-primary" id="nj-create">Create job</button>
-    `,
-  });
-  panel.querySelector('#nj-create').addEventListener('click', async () => {
+    </div>
+    <div style="margin-top:14px;font-size:12px;color:var(--muted);padding:10px 12px;background:var(--surface-2);border-radius:8px;line-height:1.5">
+      Create → job opens immediately on its workspace. You can edit areas + crew there.
+    </div>
+  `;
+}
+
+function njStepFooter(step) {
+  const back  = step === 1 ? '' : '<button class="btn" id="nj-back">← Back</button>';
+  const cancel = '<button class="btn" onclick="SHELL.closePanel()">Cancel</button>';
+  const next = step === 4
+    ? '<button class="btn btn-primary" id="nj-create">Create job</button>'
+    : '<button class="btn btn-primary" id="nj-next">Next →</button>';
+  return `${cancel}<span style="flex:1"></span>${back}${next}`;
+}
+
+function njWireStep(step, panel) {
+  const s = NJ_STATE;
+  switch (step) {
+    case 1:
+      panel.querySelector('#nj-next').addEventListener('click', () => {
+        s.name = panel.querySelector('#nj-name').value.trim();
+        s.code = panel.querySelector('#nj-id').value.trim();
+        s.type = panel.querySelector('#nj-type')?.value || '';
+        s.clientUserId = panel.querySelector('#nj-client').value;
+        if (!s.name) { SHELL.toast('Name required', 'bad'); return; }
+        s.step = 2; njPaint();
+      });
+      break;
+    case 2:
+      panel.querySelectorAll('input[name="nj-tmpl"]').forEach(r => r.addEventListener('change', () => {
+        s.templateMode = r.value;
+        panel.querySelector('#nj-template-picker').style.display = s.templateMode === 'copy' ? '' : 'none';
+      }));
+      panel.querySelector('#nj-back').addEventListener('click', () => { s.step = 1; njPaint(); });
+      panel.querySelector('#nj-next').addEventListener('click', () => {
+        s.templateJobId = (panel.querySelector('#nj-template-id') || {}).value || '';
+        if (s.templateMode === 'copy' && !s.templateJobId) {
+          SHELL.toast('Pick a job to copy from, or switch to Blank.', 'bad'); return;
+        }
+        s.step = 3; njPaint();
+      });
+      break;
+    case 3:
+      // Bind area inputs
+      panel.querySelectorAll('input[data-area]').forEach(el => el.addEventListener('input', () => {
+        const [g, a] = el.dataset.area.split('.').map(Number);
+        s.areaGroups[g].areas[a].name = el.value;
+      }));
+      panel.querySelectorAll('input[data-grp-name]').forEach(el => el.addEventListener('input', () => {
+        s.areaGroups[+el.dataset.grpName].name = el.value;
+      }));
+      panel.querySelectorAll('[data-area-add]').forEach(b => b.addEventListener('click', () => {
+        s.areaGroups[+b.dataset.areaAdd].areas.push({ name: '' });
+        njPaint();
+      }));
+      panel.querySelectorAll('[data-area-del]').forEach(b => b.addEventListener('click', () => {
+        const [g, a] = b.dataset.areaDel.split('.').map(Number);
+        s.areaGroups[g].areas.splice(a, 1);
+        if (!s.areaGroups[g].areas.length) s.areaGroups[g].areas.push({ name: '' });
+        njPaint();
+      }));
+      panel.querySelectorAll('[data-grp-del]').forEach(b => b.addEventListener('click', () => {
+        s.areaGroups.splice(+b.dataset.grpDel, 1);
+        if (!s.areaGroups.length) s.areaGroups.push({ name: 'Areas', areas: [{ name: '' }] });
+        njPaint();
+      }));
+      panel.querySelector('#nj-grp-add').addEventListener('click', () => {
+        s.areaGroups.push({ name: 'Group ' + (s.areaGroups.length + 1), areas: [{ name: '' }] });
+        njPaint();
+      });
+      panel.querySelector('#nj-back').addEventListener('click', () => { s.step = 2; njPaint(); });
+      panel.querySelector('#nj-next').addEventListener('click', () => { s.step = 4; njPaint(); });
+      break;
+    case 4:
+      panel.querySelector('#nj-lh').addEventListener('change', e => {
+        s.leadingHandId = e.target.value;
+        if (s.leadingHandId) s.crewIds.add(s.leadingHandId);
+      });
+      panel.querySelectorAll('[data-crew]').forEach(cb => cb.addEventListener('change', () => {
+        if (cb.checked) s.crewIds.add(cb.dataset.crew);
+        else s.crewIds.delete(cb.dataset.crew);
+      }));
+      panel.querySelector('#nj-back').addEventListener('click', () => { s.step = 3; njPaint(); });
+      panel.querySelector('#nj-create').addEventListener('click', () => njFinalCreate(panel));
+      break;
+  }
+}
+
+async function njFinalCreate(panel) {
+  const s = NJ_STATE;
+  // Build the cleaned areaGroups payload (skip empty rows).
+  const cleanedGroups = s.areaGroups.map(g => ({
+    name: (g.name || '').trim() || 'Areas',
+    areas: (g.areas || [])
+      .map(a => ({ name: (a.name || '').trim() }))
+      .filter(a => a.name),
+  })).filter(g => g.areas.length);
+
+  const createBtn = panel.querySelector('#nj-create');
+  createBtn.disabled = true; createBtn.textContent = 'Creating…';
+  try {
+    // Step A — create the job with the basics + optional area groups.
     const body = {
-      name: panel.querySelector('#nj-name').value.trim(),
-      id:   panel.querySelector('#nj-id').value.trim() || undefined,
-      type: (panel.querySelector('#nj-type') || {}).value || undefined,
-      clientUserId: panel.querySelector('#nj-client').value || null,
+      name: s.name,
+      id:   s.code || undefined,
+      type: s.type || undefined,
+      clientUserId: s.clientUserId || null,
     };
-    if (!body.name) { SHELL.toast('Name required', 'bad'); return; }
-    try {
-      const r = await SHELL.api('/api/jobs', { method: 'POST', body });
-      SHELL.toast('Job created', 'ok');
-      SHELL.closePanel();
-      location.href = '/admin/jobs/' + r.job.id;
-    } catch (e) { SHELL.toast('Create failed — ' + e.message, 'bad'); }
-  });
+    if (cleanedGroups.length) body.areaGroups = cleanedGroups;
+    const created = await SHELL.api('/api/jobs', { method: 'POST', body });
+    const jobId = created.job.id;
+
+    // Step B — if "copy from", overlay the template's structure.
+    if (s.templateMode === 'copy' && s.templateJobId) {
+      try {
+        const src = await SHELL.api('/api/jobs?id=' + encodeURIComponent(s.templateJobId));
+        const tpl = src.job || {};
+        const overlayBody = { id: jobId };
+        if (Array.isArray(tpl.areaGroups) && tpl.areaGroups.length && !cleanedGroups.length) {
+          overlayBody.areaGroups = tpl.areaGroups.map(g => ({
+            name: g.name,
+            areas: (g.areas || []).map(a => ({ name: a.name })),
+          }));
+        }
+        if (Array.isArray(tpl.roughInTasks) && tpl.roughInTasks.length) overlayBody.roughInTasks = tpl.roughInTasks.map(t => ({ name: t.name }));
+        if (Array.isArray(tpl.fitOffTasks)  && tpl.fitOffTasks.length)  overlayBody.fitOffTasks  = tpl.fitOffTasks.map(t => ({ name: t.name }));
+        if (Object.keys(overlayBody).length > 1) {
+          await SHELL.api('/api/jobs', { method: 'PUT', body: overlayBody });
+        }
+      } catch (e) {
+        console.warn('template copy failed', e);
+        SHELL.toast('Template copy partially failed — review on workspace', 'bad');
+      }
+    }
+
+    // Step C — assign crew. PUT each user with assignedJobIds.
+    const assignments = [];
+    for (const userId of s.crewIds) {
+      const u = (SHELL.USERS || []).find(x => x.id === userId);
+      if (!u) continue;
+      const next = Array.from(new Set([...(u.assignedJobIds || []), jobId]));
+      assignments.push(
+        SHELL.api('/api/users', { method: 'PUT', body: { id: u.id, assignedJobIds: next } })
+          .catch(e => console.warn('assign failed for ' + u.username, e))
+      );
+    }
+    if (assignments.length) await Promise.all(assignments);
+
+    SHELL.toast('Job created', 'ok');
+    SHELL.closePanel();
+    location.href = '/admin/jobs/' + jobId;
+  } catch (e) {
+    createBtn.disabled = false; createBtn.textContent = 'Create job';
+    SHELL.toast('Create failed — ' + e.message, 'bad');
+  }
 }
 
 /* ── Per-view command registration (Phase 04 hook) ────────── */
