@@ -54,6 +54,36 @@ function notify() {
   reg.listeners.forEach(fn => { try { fn(); } catch (e) { /* swallow */ } });
 }
 
+// ── Recent-use tracking ─────────────────────────────────────────────
+// We persist the last N command IDs the user ran so the palette can
+// boost frequently-used verbs to the top. Per brief §06: "ranked by
+// recent use." The store lives in localStorage and survives reloads.
+
+const RECENT_KEY = 'buhl-cmd-recent';
+const RECENT_MAX = 24;
+
+function readRecent() {
+  try {
+    const v = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch { return []; }
+}
+function pushRecent(id) {
+  if (!id) return;
+  try {
+    let list = readRecent().filter(x => x !== id);
+    list.unshift(id);
+    if (list.length > RECENT_MAX) list = list.slice(0, RECENT_MAX);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  } catch {}
+}
+function recentBoost(id) {
+  const i = readRecent().indexOf(id);
+  if (i < 0) return 0;
+  // Most-recent first: index 0 = +5, index 20 = +0.
+  return Math.max(0, 5 - (i * 0.25));
+}
+
 export const CmdRegistry = {
   /** Register a single command. Returns an unregister function. */
   register(cmd) {
@@ -366,6 +396,7 @@ class CmdPalette extends HTMLElement {
 
   _run(cmd) {
     if (!cmd) return;
+    pushRecent(cmd.id);
     this.close();
     if (typeof cmd.run === 'function') {
       try { cmd.run(); } catch (e) { console.error('cmd-palette run failed', cmd.id, e); }
@@ -377,15 +408,21 @@ class CmdPalette extends HTMLElement {
   _renderResults() {
     const q = this._inputEl.value.trim();
     const cmds = CmdRegistry.list();
-    let scored = cmds.map(c => ({
-      c,
-      score: fuzzyScore(q, [c.verb, c.label, c.group].filter(Boolean).join(' ')),
-    })).filter(x => x.score != null);
 
-    // If no query, show all in registered order.
+    let scored;
     if (!q) {
-      scored = cmds.map(c => ({ c, score: 0 }));
+      // No query: sort by recent-use, then registration order.
+      // Boost > 0 means "in recents"; the most recent gets the biggest
+      // boost. Everything else stays in registration order.
+      scored = cmds.map(c => ({ c, score: recentBoost(c.id) }));
+      scored.sort((a, b) => b.score - a.score);
     } else {
+      scored = cmds.map(c => ({
+        c,
+        score: fuzzyScore(q, [c.verb, c.label, c.group].filter(Boolean).join(' ')),
+      })).filter(x => x.score != null);
+      // Boost recently-used commands so frequently-typed verbs surface.
+      scored.forEach(x => { x.score += recentBoost(x.c.id); });
       scored.sort((a, b) => b.score - a.score);
     }
 
