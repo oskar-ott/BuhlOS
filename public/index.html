@@ -1852,6 +1852,14 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
 }
 .sr-seg-btn.active.inprog { background: var(--amber, #d68a1a) !important; }
 .sr-seg-btn.active.done   { background: var(--green, #1f8b5a) !important; }
+/* Brief §11 echo: previously-selected segment stays faintly highlighted
+   for 2s after tap so the worker confirms "yes that's what I did"
+   while the save toast fires. */
+.sr-seg-btn.echo {
+  background: var(--paper-3, #dfdacf) !important;
+  color: var(--ink-2, #2a3958) !important;
+  transition: background 1.4s ease, color 1.4s ease;
+}
 </style>
 </head>
 <body>
@@ -7104,8 +7112,23 @@ function setTaskStatus(areaId,stageKey,taskId,v,opts){
     if(seg){
       seg.querySelectorAll('.sr-seg-btn').forEach(b=>{
         const isActive = b.dataset.st === v;
+        const wasActive = b.dataset.st === prev;
         b.classList.toggle('active', isActive);
         b.setAttribute('aria-pressed', String(isActive));
+        // Brief §11: the previously-selected segment stays highlighted
+        // faintly for 2s after tap so the worker confirms "yes that's
+        // what I did" while the save toast fires. We mark the prior
+        // segment with .echo and a timer clears it.
+        if (prev !== v && wasActive && !isActive) {
+          b.classList.add('echo');
+          if (b._echoTimer) clearTimeout(b._echoTimer);
+          b._echoTimer = setTimeout(() => {
+            b.classList.remove('echo');
+            b._echoTimer = null;
+          }, 2000);
+        } else {
+          b.classList.remove('echo');
+        }
       });
     }
   }
