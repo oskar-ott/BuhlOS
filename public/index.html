@@ -1312,6 +1312,241 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
   .hdr.v2 .hdr-name { font-size: 16px; }
   .hdr.v2 .hdr-pct { font-size: 14px; padding: 6px 4px; }
 }
+
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║ Phase 03 Job Home layout (brief §05–§08).                        ║
+   ║ Vertical order, no exceptions:                                   ║
+   ║   1 Header (.hdr.v2 — phase 02)                                  ║
+   ║   2 Primary CTA (.jh-cta — yellow, 52px, full-width)             ║
+   ║   3 Secondary row (.jh-row — outlined, 46px, 50/50)              ║
+   ║   4 Health strip (.jh-strip — 4 cells, single bordered)          ║
+   ║   5 Needs attention (.jh-attn — auto-built, capped at 5 rows)    ║
+   ║   6 Admin block (.jh-admin — admin/LH only)                      ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+
+.jh {
+  padding: 14px 14px 24px;
+  display: flex; flex-direction: column;
+  gap: 14px;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+/* 2 · Primary CTA — the only yellow on Job Home. */
+.jh-cta {
+  display: flex; align-items: center; justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  background: var(--yellow, #f5d020);
+  border: 1px solid var(--navy, #0d1b34);
+  color: var(--yellow-ink, #1d1700);
+  border-radius: 6px;
+  font-family: var(--display, "Inter Tight", sans-serif);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -.012em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .14s;
+}
+.jh-cta:hover, .jh-cta:active { background: var(--yellow-2, #e8c000); }
+.jh-cta-chev { font-family: var(--mono, monospace); font-weight: 600; font-size: 14px; opacity: .8; }
+
+/* 3 · Secondary row. */
+.jh-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.jh-half {
+  min-height: 46px;
+  background: var(--paper, #f3efe7);
+  border: 1px solid var(--rule-2, #c5beaf);
+  color: var(--ink, #0d1b34);
+  border-radius: 6px;
+  font-family: var(--display, sans-serif);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.jh-half:hover, .jh-half:active { background: var(--paper-2, #ebe7df); }
+
+/* 4 · Health strip — one bordered card, 4 cells sharing dividers. */
+.jh-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: var(--paper, #f3efe7);
+  border: 1px solid var(--rule, #d2ccbf);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.jh-cell {
+  padding: 10px 8px;
+  text-align: center;
+  text-decoration: none;
+  color: inherit;
+  border-right: 1px solid var(--rule, #d2ccbf);
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  transition: background .14s;
+  min-height: 56px;
+  display: flex; flex-direction: column; justify-content: center; gap: 4px;
+}
+.jh-cell:last-child { border-right: 0; }
+.jh-cell:hover, .jh-cell:active { background: var(--paper-2, #ebe7df); }
+.jh-cell-lab {
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-3, #6a7591);
+  font-weight: 600;
+}
+.jh-cell-val {
+  font-family: var(--display, sans-serif);
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--navy, #0d1b34);
+  letter-spacing: -.018em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.jh-cell-val.yellow { color: var(--yellow-ink, #1d1700); background: var(--yellow, #f5d020); border-radius: 4px; padding: 2px 6px; display: inline-block; }
+.jh-cell-val.bad { color: var(--red, #c0312f); }
+
+/* 5 · Needs attention. */
+.jh-attn {
+  border: 1px solid var(--rule, #d2ccbf);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--paper, #f3efe7);
+}
+.jh-attn-h {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px;
+  background: var(--paper-2, #ebe7df);
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-3, #6a7591);
+  border-bottom: 1px solid var(--rule, #d2ccbf);
+}
+.jh-attn-h b { color: var(--navy, #0d1b34); font-family: var(--display, sans-serif); font-weight: 700; font-size: 13px; letter-spacing: -.005em; text-transform: none; }
+.jh-attn-ct {
+  background: var(--paper-3, #dfdacf);
+  color: var(--navy, #0d1b34);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.jh-attn-row {
+  display: grid;
+  grid-template-columns: 14px 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--paper, #f3efe7);
+  border: 0;
+  border-bottom: 1px solid var(--rule, #d2ccbf);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 56px;
+  -webkit-tap-highlight-color: transparent;
+}
+.jh-attn-row:last-of-type { border-bottom: 0; }
+.jh-attn-row:hover, .jh-attn-row:active { background: var(--paper-2, #ebe7df); }
+.jh-attn-row-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--ink-3, #6a7591);
+  justify-self: center;
+}
+.jh-attn-row-dot.r { background: var(--red, #c0312f); }
+.jh-attn-row-dot.a { background: var(--amber, #d68a1a); }
+.jh-attn-row-dot.g { background: var(--green, #1f8b5a); }
+.jh-attn-row-dot.h {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ink-3, #6a7591);
+}
+.jh-attn-row-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.jh-attn-row-nm {
+  font-family: var(--display, sans-serif);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--navy, #0d1b34);
+  letter-spacing: -.005em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.jh-attn-row-rs {
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  color: var(--ink-3, #6a7591);
+}
+.jh-attn-row-chip {
+  background: var(--red, #c0312f);
+  color: #fff;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.jh-attn-row-chev { color: var(--ink-3, #6a7591); font-family: var(--mono, monospace); font-size: 16px; }
+.jh-attn-more {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--paper, #f3efe7);
+  border: 0;
+  border-top: 1px solid var(--rule, #d2ccbf);
+  font-family: var(--display, sans-serif);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink-2, #2a3958);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.jh-attn-more:hover { background: var(--paper-2, #ebe7df); }
+
+/* 6 · Admin / LH block — appears below the worker view. */
+.jh-admin {
+  border: 1px dashed var(--rule, #d2ccbf);
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: rgba(13, 27, 52, .02);
+}
+.jh-admin-h {
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-3, #6a7591);
+  margin-bottom: 8px;
+}
+.jh-admin-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+.jh-admin-link {
+  font-family: var(--display, sans-serif);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--navy, #0d1b34);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--ink-3, #6a7591);
+  padding: 2px 0;
+}
+.jh-admin-meta { color: var(--ink-3, #6a7591); font-family: var(--mono, monospace); font-size: 11px; margin-left: auto; }
 </style>
 </head>
 <body>
@@ -2287,9 +2522,82 @@ function renderDash(){
   paintHeaderPct(op);
   const inProgressCount = areas.filter(a => { const s=stats(a.id); return s.pct>0 && s.pct<100; }).length;
 
-  let h='';
+  // ╔══════════════════════════════════════════════════════════════════╗
+  // ║ Phase 03 Job Home (brief §05) — fixed vertical order:            ║
+  // ║   1 Header (already in DOM — navy band, phase 02)                ║
+  // ║   2 Primary action — yellow "Open work areas · N ▸"              ║
+  // ║   3 Secondary row — Log hours + Raise snag (50/50, outline)      ║
+  // ║   4 Health strip  — 4 cells, %Complete is the only yellow number ║
+  // ║   5 Needs attention — auto-built; empty → <empty-state>          ║
+  // ║   6 (admin/LH) sixth block — weekly trend + labour vs estimate   ║
+  // ║                                                                  ║
+  // ║ The page MUST be short. If the worker has to scroll to find the  ║
+  // ║ primary action, the rebuild is wrong (brief §05 pull-quote).    ║
+  // ╚══════════════════════════════════════════════════════════════════╝
 
-  // ── Continue here (tradies + LH only) — most recent area I touched ─────
+  const myUserId = (CURRENT_USER && CURRENT_USER.id) || '';
+  const attention = computeAttention(areas, role, myUserId);
+  const primaryDest = jobHomePrimaryDest(groups);
+  const secondaryRow = isLH
+    ? `<button class="jh-half" type="button" onclick="goNav('snags')">Triage snags</button>
+       <button class="jh-half" type="button" onclick="goNav('hours')">Crew today</button>`
+    : (isClient
+        ? ''
+        : `<button class="jh-half" type="button" onclick="openWorkerLogHours()">Log hours</button>
+           <button class="jh-half" type="button" onclick="openWorkerRaiseSnag()">Raise snag</button>`);
+
+  const h = `
+    <section class="jh">
+      <!-- 2 · PRIMARY ACTION (yellow, full-width, 52px) — brief §06 -->
+      <button class="jh-cta" type="button" onclick="${primaryDest.handler}">
+        ${esc(primaryDest.label)} · ${areas.length} <span class="jh-cta-chev" aria-hidden="true">▸</span>
+      </button>
+
+      <!-- 3 · SECONDARY ROW (outline, 50/50, 46px) -->
+      ${secondaryRow ? `<div class="jh-row">${secondaryRow}</div>` : ''}
+
+      <!-- 4 · JOB HEALTH STRIP (brief §07) — 4 cells, single border -->
+      <div class="jh-strip" role="group" aria-label="Job health">
+        <a class="jh-cell" href="#" onclick="goNav('snags');return false">
+          <div class="jh-cell-lab">Open snags</div>
+          <div class="jh-cell-val${os > 0 && hasMineOpenSnags(myUserId) ? ' bad' : ''}">${os}</div>
+        </a>
+        <a class="jh-cell" href="#" onclick="${jobHomeJumpHandler(primaryDest, 'not-started')}">
+          <div class="jh-cell-lab">Not started</div>
+          <div class="jh-cell-val">${ns}</div>
+        </a>
+        <a class="jh-cell" href="#" onclick="return false">
+          <div class="jh-cell-lab">Complete</div>
+          <div class="jh-cell-val yellow">${op}%</div>
+        </a>
+        <a class="jh-cell" href="#" onclick="${primaryDest.handler.replace(/;return false$/, ';return false')}">
+          <div class="jh-cell-lab">Work areas</div>
+          <div class="jh-cell-val">${areas.length}</div>
+        </a>
+      </div>
+
+      <!-- 5 · NEEDS ATTENTION (brief §08) — empty → empty-state, never empty card -->
+      ${attention.length ? `
+        <div class="jh-attn">
+          <div class="jh-attn-h"><b>Needs attention</b><span class="jh-attn-ct">${attention.length}</span></div>
+          ${attention.slice(0, 5).map(jhAttnRow).join('')}
+          ${attention.length > 5 ? `<button class="jh-attn-more" type="button" onclick="${primaryDest.handler}">View all · ${attention.length} ▸</button>` : ''}
+        </div>
+      ` : `
+        <empty-state
+          title="All clear."
+          caption="Nothing flagged for you today."></empty-state>
+      `}
+
+      ${(isAdmin || isLH) ? jhAdminBlock(areas, op, os, role) : ''}
+    </section>
+  `;
+  document.getElementById('dashboard').innerHTML = h;
+  return;
+
+  // Legacy renderDash body (preserved one cycle for reference, fenced
+  // off so the parser doesn't see the duplicate-declaration code below).
+  /* PHASE_03_LEGACY_START
   if (!isClient && !isAdmin && Array.isArray(MY_ACTIVITY) && MY_ACTIVITY.length){
     let pick = null;
     for (const e of MY_ACTIVITY){
@@ -2571,6 +2879,161 @@ function renderDash(){
   }
 
   document.getElementById('dashboard').innerHTML=h;
+  PHASE_03_LEGACY_END */
+}
+
+/* ── Phase 03 Job Home helpers (brief §05 + §08) ──────────────── */
+
+function jobHomePrimaryDest(groups){
+  // Multi-group jobs: jump to the first area group's section.
+  // Single-group / no-group jobs: stay on dashboard (the work-areas
+  // list is rendered there until phase 04 ships the standalone tab).
+  if (Array.isArray(groups) && groups.length > 1){
+    return {
+      label: 'Open work areas',
+      handler: "show('grp-0');return false",
+    };
+  }
+  return {
+    label: 'Open work areas',
+    handler: "document.querySelector('.jh').scrollIntoView({behavior:'smooth',block:'start'});return false",
+  };
+}
+
+function jobHomeJumpHandler(primaryDest, /* filter */ _f){
+  // Phase 04 will route to /jobs/:id/areas?filter=... ; for now we
+  // delegate to the primary destination.
+  return primaryDest.handler;
+}
+
+function hasMineOpenSnags(myUserId){
+  if (!myUserId) return false;
+  return (D.snags || []).some(s => s.status === 'Open' && (s.assignedTo === myUserId || s.raisedBy === myUserId));
+}
+
+function computeAttention(areas, role, myUserId){
+  // Auto-built list, brief §08 priority order:
+  //   1. Areas with open snags assigned to me
+  //   2. Stale areas — no task update in 5+ days
+  //   3. (TBD) overdue Test & Tag / Temps not signed in
+  //   4. Areas at 0% past job start
+  // Each entry: { areaId, areaName, state, reason, count }
+  // state: 'snagged' | 'stale' | 'idle' | 'inprog' | 'complete'
+  const out = [];
+  const snags = D.snags || [];
+
+  // 1) Snags assigned to me (or raised by me when no assignee tracked).
+  if (myUserId){
+    const byArea = new Map();
+    for (const s of snags){
+      if (s.status !== 'Open') continue;
+      const mine = s.assignedTo === myUserId || s.raisedBy === myUserId;
+      if (!mine) continue;
+      const k = s.dwelling || s.areaId;
+      if (!k) continue;
+      byArea.set(k, (byArea.get(k) || 0) + 1);
+    }
+    for (const [areaId, n] of byArea){
+      const area = areas.find(a => a.id === areaId);
+      if (!area) continue;
+      const s = stats(area.id);
+      out.push({
+        areaId,
+        areaName: area.name,
+        state: 'snagged',
+        reason: `${n} open snag${n === 1 ? '' : 's'} for you · ${s.pct}% complete`,
+        count: n,
+        sortKey: 0,
+      });
+    }
+  }
+
+  // 2) Stale areas — no recent activity in 5+ days. Use MY_ACTIVITY when
+  //    available (gives a per-user signal); otherwise skip rather than
+  //    surfacing every untouched area as stale.
+  if (Array.isArray(MY_ACTIVITY) && MY_ACTIVITY.length){
+    const lastByArea = new Map();
+    for (const e of MY_ACTIVITY){
+      if (!e.areaId || !e.ts) continue;
+      const cur = lastByArea.get(e.areaId);
+      if (!cur || cur < e.ts) lastByArea.set(e.areaId, e.ts);
+    }
+    const fiveDaysMs = 5 * 86400000;
+    for (const a of areas){
+      const last = lastByArea.get(a.id);
+      const s = stats(a.id);
+      if (s.pct === 100) continue;
+      if (s.pct === 0)   continue;          // covered by rule 4
+      if (last && (Date.now() - last) < fiveDaysMs) continue;
+      if (!last) continue;                  // only flag stale if I ever touched it
+      if (out.some(x => x.areaId === a.id)) continue;
+      out.push({
+        areaId: a.id,
+        areaName: a.name,
+        state: 'stale',
+        reason: `Stale · ${s.pct}% · last touched 5+ days ago`,
+        count: 0,
+        sortKey: 1,
+      });
+    }
+  }
+
+  // 4) Areas at 0% — keep these last; only surface if job has actually started.
+  for (const a of areas){
+    const s = stats(a.id);
+    if (s.pct !== 0 || s.ip !== 0) continue;
+    if (out.some(x => x.areaId === a.id)) continue;
+    out.push({
+      areaId: a.id,
+      areaName: a.name,
+      state: 'idle',
+      reason: 'Not started · 0%',
+      count: 0,
+      sortKey: 3,
+    });
+  }
+
+  out.sort((a, b) => a.sortKey - b.sortKey || (b.count - a.count));
+  return out;
+}
+
+function jhAttnRow(item){
+  const dotCls = item.state === 'snagged' ? 'r'
+               : item.state === 'stale'   ? 'a'
+               : item.state === 'complete' ? 'g'
+               : item.state === 'inprog'  ? 'a'
+               : 'h';
+  const chip = item.count > 0
+    ? `<span class="jh-attn-row-chip">${item.count}</span>`
+    : '';
+  return `
+    <button class="jh-attn-row" type="button" onclick="openDw('${esc(item.areaId)}')">
+      <span class="jh-attn-row-dot ${dotCls}"></span>
+      <span class="jh-attn-row-body">
+        <span class="jh-attn-row-nm">${esc(item.areaName)}</span>
+        <span class="jh-attn-row-rs">${esc(item.reason)}</span>
+      </span>
+      ${chip}
+      <span class="jh-attn-row-chev" aria-hidden="true">▸</span>
+    </button>
+  `;
+}
+
+function jhAdminBlock(areas, overallPct, openSnags, role){
+  // Sixth block for admin / LH — weekly trend, labour vs estimate,
+  // client comms link. Phase 03 ships a minimal version pointing at
+  // existing surfaces; phase 13 (cash & margin) will replace it.
+  const inProg = areas.filter(a => { const s=stats(a.id); return s.pct>0 && s.pct<100; }).length;
+  return `
+    <div class="jh-admin">
+      <div class="jh-admin-h">${role === 'admin' ? 'Admin' : 'Leading hand'} · ${overallPct}% complete</div>
+      <div class="jh-admin-row">
+        <a href="/admin/operations" class="jh-admin-link">Operations →</a>
+        <a href="/admin/hours" class="jh-admin-link">Hours queue →</a>
+        <span class="jh-admin-meta">${inProg} in-progress · ${openSnags} open snags</span>
+      </div>
+    </div>
+  `;
 }
 
 // Tradie → new self-log modal for hours, scoped to this job by default.
