@@ -2344,7 +2344,10 @@ window.showToast = window.showToast || function(msg, kind, ms){
 };
 
 // ── buhl multi-job shim ────────────────────────────────────────────────
+// /jobs/:id and /jobs/:id/log-hours both land on this page; the suffix
+// drives whether the log-hours sheet auto-opens once data is loaded.
 const JOB_ID = (location.pathname.match(/^\/jobs\/([^/]+)/) || [])[1] || '';
+const JOB_AUTO_OPEN = /\/log-hours\/?$/.test(location.pathname) ? 'log-hours' : null;
 let CURRENT_USER = null;
 let CURRENT_JOB = null;
 const state = { type: null, areaGroups: [], activeGroupId: null };
@@ -2698,6 +2701,12 @@ async function load(){
   el.classList.add('out');setTimeout(()=>el.style.display='none',450);
   if(migrateSnags())sched();
   renderAll();
+  // Phase 08 (brief §13): /jobs/:id/log-hours opens the sheet directly.
+  if (JOB_AUTO_OPEN === 'log-hours' && typeof openWorkerLogHours === 'function'){
+    // Defer one tick so renderAll's DOM is in place; log-hours-sheet picks
+    // up the current JOB_ID and pre-fills today's entry when one exists.
+    setTimeout(() => { try { openWorkerLogHours(); } catch (e) { /* noop */ } }, 60);
+  }
 }
 async function persist(){
   sync('syncing');
