@@ -28,6 +28,9 @@
     { "source": "/install",   "destination": "/install.html" },
     { "source": "/approvals", "destination": "/admin/approvals.html" },
     { "source": "/client", "destination": "/client.html" },
+
+    { "source": "/dev/components", "destination": "/dev/components/index.html" },
+
     { "source": "/", "destination": "/login.html" }
   ],
   "crons": [

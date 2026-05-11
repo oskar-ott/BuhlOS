@@ -1,0 +1,256 @@
+/* ╔════════════════════════════════════════════════════════════════════╗
+   ║  BuhlOS · Job Interface (mobile) — design tokens + base.           ║
+   ║                                                                    ║
+   ║  Per brief §16 (visual hierarchy) + §17 (component rules).         ║
+   ║  Loaded by the mobile job interface (index.html, job.html,         ║
+   ║  client.html, my-day.html) and by /dev/components.                 ║
+   ║                                                                    ║
+   ║  THE RULE OF ONE                                                   ║
+   ║  One display-xl per screen. One yellow per screen. One primary     ║
+   ║  action per screen. Colour is meaning, never decoration.           ║
+   ║                                                                    ║
+   ║  TYPE                                                              ║
+   ║  No bold body text — use display weights (Inter Tight) for         ║
+   ║  emphasis. Mono caps only at small sizes for meta. Tabular         ║
+   ║  numerics throughout.                                              ║
+   ╚════════════════════════════════════════════════════════════════════╝ */
+
+:root {
+  /* ── Colour tokens (§16) ──────────────────────────────────────── */
+  --paper:    #f3efe7;   /* App background. Sunlight-friendly. */
+  --paper-2:  #ebe7df;   /* Alt rows, sheets. */
+  --paper-3:  #dfdacf;   /* Inset wells, bars unfilled. */
+  --rule:     #d2ccbf;   /* Borders. */
+  --rule-2:   #c5beaf;
+
+  --navy:     #0d1b34;   /* Ink + structure. Header, bottom nav. */
+  --navy-2:   #182a4d;
+  --ink:      #0d1b34;
+  --ink-2:    #2a3958;
+  --ink-3:    #6a7591;   /* Secondary text, meta. */
+  --ink-4:    #98a0b3;
+
+  --yellow:     #f5d020;   /* Primary action + ONE number per screen. */
+  --yellow-2:   #e8c000;
+  --yellow-ink: #1d1700;
+
+  --red:    #c0312f;   /* Snags, conflicts. Never decorative. */
+  --green:  #1f8b5a;   /* Complete, saved, success. */
+  --amber:  #d68a1a;   /* In progress, warning, queued. */
+
+  /* ── Typography ───────────────────────────────────────────────── */
+  --display: "Inter Tight", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --body:    "Inter Tight", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* ── Type scale (§16) ────────────────────────────────────────── */
+  --t-xl: 44px;     /* display-xl — one per screen */
+  --t-l:  24px;     /* display-l  — area header */
+  --t-m:  18px;     /* display-m  — job name */
+  --t-b:  15px;     /* body */
+  --t-meta: 11px;
+  --t-caps: 10px;
+
+  /* ── Layout ───────────────────────────────────────────────────── */
+  --tap:  44px;       /* minimum tap target */
+  --tap-l: 52px;      /* comfortable phone primary action */
+  --header-h: 52px;
+  --tabbar-h: 60px;
+  --r-sm: 4px;
+  --r:    6px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+
+  /* ── Motion ───────────────────────────────────────────────────── */
+  --tx: .16s cubic-bezier(.2, .6, .2, 1);
+}
+
+/* ── Reset ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  font-family: var(--body);
+  font-size: var(--t-b);
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.4;
+  font-weight: 500;
+  /* No font-weight: 700 by default — display weights live on .display only. */
+}
+button, input, select, textarea { font-family: inherit; color: inherit; }
+button {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: inherit;
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+a { color: inherit; text-decoration: none; }
+
+/* All numbers tabular — tradies scan columns of hours/percents. */
+.tabular, td, th, .meta, .num, .mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Reusable atoms ───────────────────────────────────────────────── */
+
+.display { font-family: var(--display); font-weight: 700; letter-spacing: -.01em; }
+.display.xl { font-weight: 800; font-size: var(--t-xl); letter-spacing: -.03em; line-height: 1; }
+.display.l  { font-weight: 700; font-size: var(--t-l);  letter-spacing: -.024em; }
+.display.m  { font-weight: 700; font-size: var(--t-m);  letter-spacing: -.018em; }
+.display.s  { font-weight: 600; font-size: var(--t-b); }
+
+.mono { font-family: var(--mono); }
+.meta {
+  font-family: var(--mono);
+  font-size: var(--t-meta);
+  letter-spacing: .06em;
+  color: var(--ink-3);
+}
+.caps {
+  font-family: var(--mono);
+  font-size: var(--t-caps);
+  font-weight: 600;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The single button system (§18 cut list rule).
+   One primary (yellow), one secondary (outline), one tertiary (text). */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: var(--tap);
+  padding: 0 16px;
+  border-radius: var(--r);
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 15px;
+  white-space: nowrap;
+  transition: background var(--tx), border-color var(--tx);
+}
+.btn:active { transform: translateY(0); }
+.btn:hover { background: var(--paper-2); }
+.btn.primary {
+  background: var(--yellow);
+  border-color: var(--yellow);
+  color: var(--yellow-ink);
+  font-weight: 700;
+  min-height: var(--tap-l);
+  font-size: 16px;
+  letter-spacing: -.005em;
+}
+.btn.primary:hover { background: var(--yellow-2); border-color: var(--yellow-2); }
+.btn.danger {
+  border-color: var(--red);
+  color: var(--red);
+}
+.btn.danger:hover { background: rgba(192, 49, 47, .06); }
+.btn.tertiary {
+  background: transparent;
+  border: 0;
+  color: var(--ink-2);
+  min-height: var(--tap);
+  padding: 0 8px;
+}
+.btn.tertiary:hover { color: var(--ink); }
+.btn.full { width: 100%; }
+
+/* Status dot — 8px solid. Used everywhere. */
+.dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--ink-4);
+  flex-shrink: 0;
+}
+.dot.green  { background: var(--green); }
+.dot.amber  { background: var(--amber); }
+.dot.red    { background: var(--red); }
+.dot.yellow { background: var(--yellow); }
+.dot.navy   { background: var(--navy); }
+
+/* Count chip — used on tabs / area cards / etc. Mono. */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--paper-3);
+  color: var(--navy);
+  font-family: var(--mono);
+  font-size: var(--t-meta);
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+.chip.red   { background: var(--red);    color: #fff; }
+.chip.amber { background: var(--amber);  color: #fff; }
+.chip.green { background: var(--green);  color: #fff; }
+.chip.yellow { background: var(--yellow); color: var(--yellow-ink); }
+
+/* Focus ring — keyboard only. */
+:focus-visible {
+  outline: 2px solid var(--navy);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* ── App layout — phone-first, tablet-rail fallback ──────────────── */
+
+.app-shell {
+  min-height: 100dvh;
+  min-height: 100vh;
+  display: flex; flex-direction: column;
+  background: var(--paper);
+}
+.app-body {
+  flex: 1;
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+}
+@media (min-width: 880px) {
+  .app-body { padding-bottom: 0; }
+}
+
+/* Sheet (bottom-sheet modal). One sheet at a time — non-negotiable. */
+.sheet-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(13, 27, 52, .42);
+  z-index: 80;
+  display: flex; align-items: flex-end; justify-content: center;
+  animation: sheet-in .18s ease;
+}
+.sheet {
+  width: 100%;
+  max-width: 560px;
+  background: var(--paper);
+  border-radius: 16px 16px 0 0;
+  padding: 22px 18px calc(22px + env(safe-area-inset-bottom));
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 -8px 32px rgba(13, 27, 52, .24);
+  animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1);
+}
+.sheet-handle {
+  display: block; margin: -10px auto 12px;
+  width: 36px; height: 4px;
+  background: var(--rule-2);
+  border-radius: 2px;
+}
+@keyframes sheet-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheet-up { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* ── Reduced motion — kill animations ────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+  }
+}
