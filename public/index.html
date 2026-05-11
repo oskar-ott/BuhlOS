@@ -1685,6 +1685,165 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
   outline-offset: 2px;
   border-radius: 7px;
 }
+
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║ Phase 05 Area detail + task controls (brief §10, §11)            ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+
+/* New area header — name (24px display) · yellow % · snag chip. */
+.dh.dh-v2 {
+  padding: 14px 16px 10px;
+  background: var(--paper, #f3efe7);
+  border-bottom: 1px solid var(--rule, #d2ccbf);
+}
+.dh.dh-v2 .dh-row {
+  display: flex; align-items: baseline; gap: 12px;
+  margin-bottom: 10px;
+}
+.dh.dh-v2 .dh-name {
+  font-family: var(--display, sans-serif);
+  font-weight: 700;
+  font-size: 24px;
+  letter-spacing: -.024em;
+  color: var(--navy, #0d1b34);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dh.dh-v2 .dh-pct-v2 {
+  font-family: var(--display, sans-serif);
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--yellow-ink, #1d1700);
+  background: var(--yellow, #f5d020);
+  border-radius: 4px;
+  padding: 2px 8px;
+  letter-spacing: -.018em;
+  font-variant-numeric: tabular-nums;
+}
+.dh.dh-v2 .dh-pct-v2 b { font-weight: 700; }
+.dh.dh-v2 .dh-snag-chip {
+  background: var(--red, #c0312f);
+  color: #fff;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.dh.dh-v2 .dh-bar-bg {
+  height: 4px;
+  background: var(--paper-3, #dfdacf);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.dh.dh-v2 .dh-bar { height: 100%; }
+
+/* Area-level snag banner (brief §10 — only when open_snag_count > 0). */
+.dh-snags {
+  margin: 10px 16px 0;
+  border: 1px solid var(--red, #c0312f);
+  border-radius: 6px;
+  background: rgba(192, 49, 47, .04);
+  padding: 8px 12px;
+}
+.dh-snags-h {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.dh-snags-lab {
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  color: var(--red, #c0312f);
+}
+.dh-snags-add {
+  background: transparent;
+  border: 0;
+  color: var(--navy, #0d1b34);
+  font-family: var(--display, sans-serif);
+  font-weight: 600;
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.dh-snags-add:hover { background: rgba(13, 27, 52, .05); }
+.dh-snags-list { display: flex; flex-direction: column; gap: 4px; }
+.dh-snags-row {
+  display: flex; align-items: center; gap: 8px;
+  background: transparent;
+  border: 0;
+  color: var(--navy, #0d1b34);
+  font-family: var(--display, sans-serif);
+  font-weight: 600;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  padding: 4px 0;
+  width: 100%;
+}
+.dh-snags-row:hover { color: var(--red, #c0312f); }
+.dh-snags-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--red, #c0312f);
+  flex-shrink: 0;
+}
+.dh-snags-row-t {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dh-snags-more {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-3, #6a7591);
+  padding-left: 14px;
+}
+
+/* Re-tone the existing .sr-seg seg-status buttons to match brief §11.
+   Three labelled segments, 44px tall, equal width. Amber fill for
+   in-progress, green for complete, paper for not-started. */
+.sr-seg {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  min-height: 44px;
+  background: var(--paper, #f3efe7) !important;
+  border: 1px solid var(--rule, #d2ccbf) !important;
+  border-radius: 6px !important;
+  overflow: hidden;
+}
+.sr-seg-btn {
+  flex: 1 !important;
+  width: auto !important;
+  min-height: 44px !important;
+  padding: 0 8px !important;
+  font-family: var(--mono, monospace) !important;
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .06em !important;
+  text-transform: uppercase !important;
+  background: var(--paper, #f3efe7) !important;
+  color: var(--ink-3, #6a7591) !important;
+  border-right: 1px solid var(--rule, #d2ccbf) !important;
+  cursor: pointer;
+  transition: background var(--tx, .16s), color var(--tx, .16s);
+  -webkit-tap-highlight-color: transparent;
+  line-height: 1;
+}
+.sr-seg-btn:last-child { border-right: 0 !important; }
+.sr-seg-btn:hover { background: var(--paper-2, #ebe7df) !important; color: var(--ink, #0d1b34) !important; }
+.sr-seg-btn.active {
+  color: var(--paper, #f3efe7) !important;
+}
+.sr-seg-btn.active[data-st="not_started"] {
+  background: var(--paper-2, #ebe7df) !important;
+  color: var(--ink, #0d1b34) !important;
+}
+.sr-seg-btn.active.inprog { background: var(--amber, #d68a1a) !important; }
+.sr-seg-btn.active.done   { background: var(--green, #1f8b5a) !important; }
 </style>
 </head>
 <body>
@@ -3668,12 +3827,45 @@ function openDw(areaId){
   const nextBtn = _next
     ? `<button class="dw-step" onclick="openDw('${esc(_next.id)}')" aria-label="Next unit"><span class="dw-step-lbl">${esc(_next.name)}</span><span class="dw-step-arr">&#8594;</span></button>`
     : `<button class="dw-step" disabled aria-label="No next unit"><span class="dw-step-lbl">Last</span><span class="dw-step-arr">&#8594;</span></button>`;
+  // Phase 05 (brief §10): area header now shows name + yellow % +
+  // snag count + back chevron. The area-level snag banner appears
+  // only when open_snag_count > 0 — red border, short list of snag
+  // titles, inline "+ raise another" link.
+  const _openSnags = (D.snags || []).filter(snag =>
+    snag.status === 'Open' && (snag.dwelling === areaId || snag.areaId === areaId)
+  );
+  const _snagCount = _openSnags.length;
+  const _snagBanner = _snagCount > 0 ? `
+    <div class="dh-snags" role="region" aria-label="Open snags for this area">
+      <div class="dh-snags-h">
+        <span class="dh-snags-lab">${_snagCount} OPEN SNAG${_snagCount === 1 ? '' : 'S'}</span>
+        <button type="button" class="dh-snags-add"
+                onclick="openSnagModal(null, { dwelling: '${esc(areaId)}' })">+ Raise another</button>
+      </div>
+      <div class="dh-snags-list">
+        ${_openSnags.slice(0, 3).map(snag => `
+          <button type="button" class="dh-snags-row"
+                  onclick="goNav('snags');return false"
+                  title="${esc(snag.description || snag.title || '')}">
+            <span class="dh-snags-dot"></span>
+            <span class="dh-snags-row-t">${esc(snag.title || snag.description || 'Snag')}</span>
+          </button>
+        `).join('')}
+        ${_snagCount > 3 ? `<div class="dh-snags-more">+ ${_snagCount - 3} more</div>` : ''}
+      </div>
+    </div>
+  ` : '';
+
   let h=`<button class="back" onclick="show('${sec}')">&#8592; Back to ${esc(groupName)}</button>
-  <div class="dh">
-    <div class="dh-name">${esc(areaName)}</div>
+  <div class="dh dh-v2">
+    <div class="dh-row">
+      <div class="dh-name">${esc(areaName)}</div>
+      <div class="dh-pct dh-pct-v2" id="dhp"><b>${s.pct}%</b></div>
+      ${_snagCount > 0 ? `<span class="dh-snag-chip">${_snagCount}</span>` : ''}
+    </div>
     <div class="dh-bar-bg"><div class="dh-bar" id="dhb" style="width:${s.pct}%;background:${bc(s.pct)}"></div></div>
-    <div class="dh-pct" id="dhp"><b>${s.pct}%</b> complete</div>
   </div>
+  ${_snagBanner}
   <div class="dw-stepper">
     ${prevBtn}
     <span class="dw-step-pos">${_ai+1} of ${_gAreas.length}</span>
@@ -6805,16 +6997,20 @@ function stageTaskRows(areaId,stageKey,tasks){
     // Segmented control: 3 buttons for not-started / in-progress / complete.
     // Each is a real <button> for accessibility + taller tap target. The
     // active option is filled; others are outlined. No native picker.
+    // Phase 05 (brief §11): seg-status — 3 labelled segments, 44px
+    // tall, no Unicode glyphs. Tap selects. No confirm. The whole row
+    // is tappable in §10's vision but we keep the button-only hit
+    // zone for now since the existing layout uses a 3-column grid.
     const seg = isClient ? '' : `<div class="sr-seg" role="group" aria-label="${esc(t.name)} status">
       <button type="button" class="sr-seg-btn${v==='not_started'?' active':''}" data-st="not_started"
         onclick="setTaskStatus('${safeArea}','${safeStage}','${safeTask}','not_started')"
-        aria-pressed="${v==='not_started'}" title="Not started">○</button>
+        aria-pressed="${v==='not_started'}">Not started</button>
       <button type="button" class="sr-seg-btn inprog${v==='in_progress'?' active':''}" data-st="in_progress"
         onclick="setTaskStatus('${safeArea}','${safeStage}','${safeTask}','in_progress')"
-        aria-pressed="${v==='in_progress'}" title="In progress">◐</button>
+        aria-pressed="${v==='in_progress'}">In progress</button>
       <button type="button" class="sr-seg-btn done${v==='complete'?' active':''}" data-st="complete"
         onclick="setTaskStatus('${safeArea}','${safeStage}','${safeTask}','complete')"
-        aria-pressed="${v==='complete'}" title="Complete">✓</button>
+        aria-pressed="${v==='complete'}">Complete</button>
     </div>`;
     // "Snag this task" inline button — opens snag modal pre-filled with this
     // dwelling + stage + task. Client-hidden because clients can't raise snags.
