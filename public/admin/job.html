@@ -2417,8 +2417,16 @@ function renderMaterials(host) {
   const items = (STATE.materials && STATE.materials.items) || [];
   const requests = (STATE.materials && STATE.materials.emailRequests) || [];
   const pos = (STATE.materials && STATE.materials.purchaseOrders) || [];
-  const invoices = (STATE.materials && STATE.materials.invoices) || [];
-  const cr = STATE.costRollup || { itemsCount: 0, pricedCount: 0, unpricedCount: 0, totalCostExGst: 0, committedExGst: 0, receivedExGst: 0, openPoCount: 0, invoicedExGst: 0, paidExGst: 0, varianceExGst: 0, pendingInvoiceCount: 0 };
+  const allInvoices = (STATE.materials && STATE.materials.invoices) || [];
+  // Split: field-captured invoices (LH uploads from a phone) get their
+  // own review panel + their own cost-rollup tracks; PO-flow invoices
+  // keep the existing 3-way-match section.
+  const captured = allInvoices.filter(i => i.source === 'field_capture');
+  const invoices = allInvoices.filter(i => i.source !== 'field_capture');
+  const pendingCaptures   = captured.filter(i => i.reviewStatus === 'pending_review');
+  const needsInfoCaptures = captured.filter(i => i.reviewStatus === 'needs_info');
+  const approvedCaptures  = captured.filter(i => i.reviewStatus === 'approved');
+  const cr = STATE.costRollup || { itemsCount: 0, pricedCount: 0, unpricedCount: 0, totalCostExGst: 0, committedExGst: 0, receivedExGst: 0, openPoCount: 0, invoicedExGst: 0, paidExGst: 0, varianceExGst: 0, pendingInvoiceCount: 0, approvedActualExGst: 0, pendingReviewExGst: 0 };
   const stale = items.filter(i => i.staleAfter).length;
   const fromTakeoff = items.filter(i => i.source === 'plan-takeoff').length;
   const manual = items.filter(i => i.source !== 'plan-takeoff').length;
@@ -2436,6 +2444,7 @@ function renderMaterials(host) {
       <div class="kpi"><div class="kpi-l">Committed (POs sent)</div><div class="kpi-v">${SHELL.fmtMoney(cr.committedExGst || 0)}</div><div class="kpi-d">${cr.openPoCount || 0} open of ${cr.poCount || 0} PO${(cr.poCount || 0) === 1 ? '' : 's'}</div></div>
       <div class="kpi"><div class="kpi-l">Received</div><div class="kpi-v ${cr.receivedExGst > 0 ? 'green' : ''}">${SHELL.fmtMoney(cr.receivedExGst || 0)}</div><div class="kpi-d">${received}/${ordered || cr.itemsCount} item${(ordered || cr.itemsCount) === 1 ? '' : 's'} delivered</div></div>
       ${invoices.length ? `<div class="kpi"><div class="kpi-l">Invoiced / paid</div><div class="kpi-v">${SHELL.fmtMoney(cr.invoicedExGst || 0)}</div><div class="kpi-d"><b style="color:var(--ok)">${SHELL.fmtMoney(cr.paidExGst || 0)}</b> paid · ${cr.pendingInvoiceCount || 0} pending${(cr.varianceExGst || 0) !== 0 ? ' · <b style="color:var(--' + (varianceTone === 'red' ? 'bad' : 'ok') + ')">' + ((cr.varianceExGst || 0) > 0 ? '+' : '') + SHELL.fmtMoney2(cr.varianceExGst) + '</b> vs PO' : ''}</div></div>` : ''}
+      ${captured.length ? `<div class="kpi"><div class="kpi-l">Captured receipts</div><div class="kpi-v ${pendingCaptures.length ? 'amber' : ''}">${SHELL.fmtMoney(cr.approvedActualExGst || 0)}</div><div class="kpi-d">${pendingCaptures.length || needsInfoCaptures.length ? '<b style="color:var(--warn)">' + SHELL.fmtMoney(cr.pendingReviewExGst || 0) + '</b> pending · ' : ''}<b style="color:var(--ok)">${approvedCaptures.length}</b> approved${needsInfoCaptures.length ? ' · <b style="color:var(--warn)">' + needsInfoCaptures.length + '</b> need info' : ''}</div></div>` : ''}
     </div>
 
     <div class="card" style="margin-bottom:14px">
@@ -2467,17 +2476,33 @@ function renderMaterials(host) {
       ${pos.slice().reverse().map(poRow).join('')}
     </div>` : ''}
 
+    ${captured.length ? `<div class="card" style="margin-bottom:14px;border-left:3px solid ${pendingCaptures.length || needsInfoCaptures.length ? 'var(--warn)' : 'var(--line)'}">
+      <div class="card-hdr">
+        <div><div class="card-title">Field-captured receipts <span class="card-count">${captured.length}</span></div>
+          <div class="card-sub">Receipts uploaded onsite by leading hands — admin approval needed before the cost rolls into job actuals.</div></div>
+      </div>
+      ${pendingCaptures.length ? `<div style="padding:6px 14px 0;font-size:11px;color:var(--warn);text-transform:uppercase;letter-spacing:.6px;font-weight:700">${pendingCaptures.length} awaiting review</div>` : ''}
+      <div class="table-wrap" style="margin-top:8px">
+        <table class="table">
+          <thead><tr>
+            <th></th><th>Supplier · invoice</th><th>Date</th><th class="table-num">Total inc GST</th><th>Captured by</th><th>Status</th><th></th>
+          </tr></thead>
+          <tbody>${captured.slice().reverse().map(capturedInvoiceRow).join('')}</tbody>
+        </table>
+      </div>
+    </div>` : ''}
+
     <div class="card" style="margin-bottom:14px">
       <div class="card-hdr">
         <div><div class="card-title">Supplier invoices <span class="card-count">${invoices.length}</span></div>
-          <div class="card-sub">Match each supplier invoice to its PO to spot price/qty drift before payment goes out. Variance threshold: $50 or 5% of PO total.</div></div>
+          <div class="card-sub">PO-matched invoices for 3-way match. Variance threshold: $50 or 5% of PO total.</div></div>
         <div style="display:flex;gap:6px">
           <button class="btn btn-primary" id="add-invoice" ${havePos ? '' : 'disabled title="Send a PO first"'}>+ New invoice</button>
         </div>
       </div>
       ${invoices.length ? invoices.slice().reverse().map(invoiceRow).join('') : `<div class="empty">
-        <div class="empty-title">No invoices yet</div>
-        <div class="empty-sub">When the supplier bills you, capture the invoice + match it to the PO to validate the charge.</div>
+        <div class="empty-title">No PO-matched invoices yet</div>
+        <div class="empty-sub">When a supplier bills against a PO, capture the invoice here to validate the charge.</div>
       </div>`}
     </div>
 
@@ -2507,6 +2532,73 @@ function renderMaterials(host) {
   if (SHELL.$('#add-invoice')) SHELL.$('#add-invoice').addEventListener('click', () => openInvoicePanel(null));
   SHELL.$$('button[data-open-invoice]').forEach(b =>
     b.addEventListener('click', () => openInvoicePanel(b.dataset.openInvoice)));
+  // Field-captured invoice review (Phase 13)
+  SHELL.$$('button[data-review-capture]').forEach(b =>
+    b.addEventListener('click', () => reviewCapturedInvoice(b.dataset.reviewCapture, b.dataset.reviewStatus)));
+}
+
+// One row in the field-captured receipts table. Admin-only review controls
+// (approve / needs info / reject) drive the cost rollup via /api/materials-list
+// ?action=review-captured-invoice. Photo opens in a new tab; PDFs open
+// inline via the browser's PDF viewer.
+function capturedInvoiceRow(inv) {
+  const totalIncGst = Number(inv.totalIncGst) || 0;
+  const rs = inv.reviewStatus || 'pending_review';
+  const statusPill = rs === 'approved'
+    ? '<span class="pill pill-ok"><span class="pill-dot"></span>Approved</span>'
+    : rs === 'needs_info'
+    ? '<span class="pill pill-warn"><span class="pill-dot"></span>Needs info</span>'
+    : rs === 'rejected'
+    ? '<span class="pill pill-bad"><span class="pill-dot"></span>Rejected</span>'
+    : '<span class="pill pill-warn"><span class="pill-dot"></span>Pending review</span>';
+  const isPending = rs === 'pending_review' || rs === 'needs_info';
+  const photoCell = inv.photoUrl
+    ? `<a href="${SHELL.escapeHtml(inv.photoUrl)}" target="_blank" rel="noopener" title="Open receipt photo" style="display:block;width:40px;height:40px;border-radius:6px;overflow:hidden;background:var(--surface-3)"><img src="${SHELL.escapeHtml(inv.photoUrl)}" style="width:40px;height:40px;object-fit:cover" alt=""></a>`
+    : '<div style="width:40px;height:40px;border-radius:6px;background:var(--surface-3);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px;text-align:center;line-height:1.1">no<br>photo</div>';
+  return `<tr>
+    <td>${photoCell}</td>
+    <td>
+      <div style="font-weight:600">${SHELL.escapeHtml(inv.wholesalerName || 'Unknown supplier')}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--ff-mono)">${inv.invoiceNumber ? '#' + SHELL.escapeHtml(inv.invoiceNumber) : 'no invoice number'}</div>
+      ${inv.notes ? `<div style="font-size:11px;color:var(--ink-2);margin-top:4px;font-style:italic">"${SHELL.escapeHtml(inv.notes)}"</div>` : ''}
+    </td>
+    <td style="font-size:12px;color:var(--ink-2)">${SHELL.escapeHtml(inv.invoiceDate || inv.receivedDate || '—')}</td>
+    <td class="table-num"><b>${totalIncGst ? '$' + totalIncGst.toFixed(2) : '—'}</b>${inv.subtotalExGst != null ? `<div style="font-size:10px;color:var(--muted)">${SHELL.fmtMoney(inv.subtotalExGst)} ex-GST</div>` : ''}</td>
+    <td style="font-size:12px;color:var(--ink-2)">${SHELL.escapeHtml(inv.capturedBy || '—')}<div style="font-size:10px;color:var(--muted)">${SHELL._ago(inv.capturedAt) || ''}</div></td>
+    <td>${statusPill}${inv.reviewedBy ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">by ${SHELL.escapeHtml(inv.reviewedBy)}</div>` : ''}${inv.reviewNote ? `<div style="font-size:11px;color:var(--ink-2);margin-top:4px;font-style:italic">"${SHELL.escapeHtml(inv.reviewNote)}"</div>` : ''}</td>
+    <td style="text-align:right;white-space:nowrap">
+      ${isPending ? `
+        <button class="btn btn-sm btn-ok" data-review-capture="${SHELL.escapeHtml(inv.id)}" data-review-status="approved" title="Approve — counts toward job actual cost">✓ Approve</button>
+        <button class="btn btn-sm" data-review-capture="${SHELL.escapeHtml(inv.id)}" data-review-status="needs_info" title="Send back to capturer for more detail">? Needs info</button>
+        <button class="btn btn-sm btn-danger" data-review-capture="${SHELL.escapeHtml(inv.id)}" data-review-status="rejected" title="Reject — drops from cost rollup">✕ Reject</button>
+      ` : `
+        <button class="btn btn-sm" data-review-capture="${SHELL.escapeHtml(inv.id)}" data-review-status="pending_review" title="Move back to pending review">↺ Re-review</button>
+      `}
+    </td>
+  </tr>`;
+}
+
+async function reviewCapturedInvoice(invId, reviewStatus) {
+  const labels = { approved: 'approve', needs_info: 'send back as Needs info', rejected: 'reject', pending_review: 'move back to pending review' };
+  const ok = confirm('Are you sure you want to ' + labels[reviewStatus] + ' this receipt?');
+  if (!ok) return;
+  let reviewNote = '';
+  if (reviewStatus === 'needs_info' || reviewStatus === 'rejected') {
+    reviewNote = prompt('Note for the capturer (optional):') || '';
+  }
+  try {
+    await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=review-captured-invoice&invId=' + encodeURIComponent(invId), {
+      method: 'POST',
+      body: { reviewStatus, reviewNote },
+    });
+    SHELL.toast('Receipt review saved', 'ok');
+    // Refresh materials data + cost rollup so the KPI tile + panel both update.
+    STATE.materials = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId));
+    STATE.costRollup = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=cost-rollup');
+    paint();
+  } catch (e) {
+    SHELL.toast('Review failed — ' + e.message, 'bad');
+  }
 }
 
 function materialRow(it) {

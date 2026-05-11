@@ -144,9 +144,19 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob } = require('./_lib/auth');
+const { put } = require('@vercel/blob');
 
 const VALID_STATUSES = ['draft', 'ready_to_price', 'priced', 'ordered', 'received', 'cancelled'];
 const VALID_SOURCES  = ['manual', 'plan-takeoff'];
+
+// Field-captured invoices live alongside PO-driven invoices in
+// list.invoices. The two flows distinguish themselves by `source`:
+//   'po_match'      — created from a PO via the procurement workflow
+//                     (invoice → matchedPoId → variance → approve → paid)
+//   'field_capture' — uploaded onsite by an LH or admin from a phone:
+//                     just a photo + supplier + amount, with a
+//                     reviewStatus field driving admin sign-off.
+const CAPTURED_REVIEW_STATUSES = ['pending_review', 'approved', 'needs_info', 'rejected'];
 
 function newId(prefix) {
   return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -352,10 +362,23 @@ function rollupCost(list) {
   // invoicedExGst (the supplier still says we owe them); only cancelled
   // ones drop. Variance = invoicedExGst - committedExGst, but only counts
   // matched invoices (so unmatched extras are visible separately).
+  //
+  // Field-capture additions (Phase 13): a separate accounting track for
+  // invoices the LH/admin captured from a phone, keyed off reviewStatus.
+  // approvedActualExGst counts ONLY field-captured invoices the admin
+  // has signed off; pendingReviewExGst counts pending_review and
+  // needs_info captures so the admin sees "what's waiting on me" without
+  // it landing in the approved cost number. PO-flow invoices don't
+  // double-count here (they have no reviewStatus).
   let invoicedExGst = 0;
   let paidExGst = 0;
   let pendingInvoiceCount = 0;
   let varianceExGst = 0;
+  let approvedActualExGst = 0;
+  let pendingReviewExGst  = 0;
+  let needsInfoCount = 0;
+  let pendingReviewCount = 0;
+  let capturedCount = 0;
   for (const inv of invoices) {
     if (inv.status === 'cancelled') continue;
     const sub = Number(inv.subtotalExGst) || 0;
@@ -364,6 +387,14 @@ function rollupCost(list) {
     if (inv.status === 'paid') paidExGst += sub;
     if (inv.matchedPoId && inv.variance && Number.isFinite(inv.variance.diffExGst)) {
       varianceExGst += inv.variance.diffExGst;
+    }
+    if (inv.source === 'field_capture') {
+      capturedCount++;
+      if (inv.reviewStatus === 'approved')      approvedActualExGst += sub;
+      else if (inv.reviewStatus === 'pending_review') { pendingReviewExGst += sub; pendingReviewCount++; }
+      else if (inv.reviewStatus === 'needs_info')     { pendingReviewExGst += sub; needsInfoCount++; }
+      // rejected captures get inv.status='cancelled' so they're already
+      // skipped above — no need to handle here.
     }
   }
   return {
@@ -377,6 +408,12 @@ function rollupCost(list) {
     invoicedExGst:   Math.round(invoicedExGst   * 100) / 100,
     paidExGst:       Math.round(paidExGst       * 100) / 100,
     varianceExGst:   Math.round(varianceExGst   * 100) / 100,
+    // Field-capture totals — admin reviews these separately.
+    approvedActualExGst: Math.round(approvedActualExGst * 100) / 100,
+    pendingReviewExGst:  Math.round(pendingReviewExGst  * 100) / 100,
+    needsInfoCount,
+    pendingReviewCount,
+    capturedCount,
     poCount: pos.length,
     openPoCount: openPos,
     invoiceCount: invoices.length,
@@ -844,6 +881,151 @@ async function recordReply(jobId, body, user) {
   return { request: req, itemsTouched };
 }
 
+// ─── Field-captured invoices (mobile-friendly receipt capture) ────────────
+//
+// The PO-driven createInvoice flow above is admin-grade: it requires an
+// invoice number, line items, dueDate, optional 3-way match against a
+// PO. That's the right shape for planned procurement. But onsite, an LH
+// often gets a small wholesaler receipt with just supplier + total +
+// date (or hands an admin a phone photo of a docket from a runner).
+// Forcing those through the full flow burns a workday.
+//
+// Field capture stores those receipts as invoices with `source:
+// 'field_capture'` + `reviewStatus: 'pending_review'`. They live in the
+// same list.invoices array as PO-matched invoices so admin payroll/cost
+// rollups see them in one place — but they're tagged so the UI can
+// route them to a separate review queue.
+//
+// Permission: any user with manager-level access to the job (admin or
+// LH on assigned job) can capture. Only admin can set reviewStatus.
+
+async function captureInvoice(jobId, body, user) {
+  const list = await readList(jobId);
+  list.invoices = list.invoices || [];
+  // Soft duplicate guard — same supplier + same invoice number on the
+  // same job almost always means double-capture (LH and admin both
+  // grabbing the same docket). Allowed past a `force: true` flag.
+  const supplier = body.wholesalerName ? String(body.wholesalerName).trim() : '';
+  const invNum   = body.invoiceNumber  ? String(body.invoiceNumber).trim()  : '';
+  if (supplier && invNum && !body.force) {
+    const dupe = list.invoices.find(x =>
+      String(x.invoiceNumber || '').trim().toLowerCase() === invNum.toLowerCase() &&
+      String(x.wholesalerName || '').trim().toLowerCase() === supplier.toLowerCase() &&
+      x.status !== 'cancelled');
+    if (dupe) {
+      return {
+        error: 'invoice number already exists for this supplier',
+        status: 409,
+        existingId: dupe.id,
+        hint: 'pass force:true to capture anyway (rarely needed)',
+      };
+    }
+  }
+  // Photo upload — accepts a base64 data URL the same way snag photos do.
+  // Stored at jobs/<jobId>/materials/invoices/<invId>.<ext>; the public
+  // blob URL is persisted on the invoice as photoUrl/fileUrl so admin
+  // and the original capturer can both open it later.
+  const now = new Date().toISOString();
+  const invId = newId('inv');
+  let photoUrl = null;
+  let fileType = null;
+  if (body.photoDataUrl && typeof body.photoDataUrl === 'string') {
+    try {
+      const m = body.photoDataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (!m) return { error: 'photoDataUrl must be a base64 data URL', status: 400 };
+      const mimeType = m[1] || 'image/jpeg';
+      const buf = Buffer.from(m[2], 'base64');
+      // Cap at ~10MB to protect blob quota — same intent as snag photos.
+      if (buf.length > 10 * 1024 * 1024) return { error: 'invoice photo too large (max 10MB)', status: 400 };
+      const ext = mimeType.includes('pdf') ? 'pdf'
+                : mimeType.includes('png') ? 'png'
+                : mimeType.includes('webp') ? 'webp'
+                : 'jpg';
+      const blob = await put(`jobs/${jobId}/materials/invoices/${invId}.${ext}`, buf, {
+        access: 'public',
+        contentType: mimeType,
+        token: process.env.BLOB_READ_WRITE_TOKEN,
+      });
+      photoUrl = blob.url;
+      fileType = mimeType;
+    } catch (e) {
+      return { error: 'photo upload failed: ' + e.message, status: 500 };
+    }
+  }
+
+  const totalIncGst = body.totalIncGst != null && body.totalIncGst !== ''
+    ? Math.round(Number(body.totalIncGst) * 100) / 100 : null;
+  const totalExGst  = body.totalExGst != null && body.totalExGst !== ''
+    ? Math.round(Number(body.totalExGst) * 100) / 100  : null;
+  const gstAmount   = body.gstAmount != null && body.gstAmount !== ''
+    ? Math.round(Number(body.gstAmount) * 100) / 100   : null;
+
+  const inv = {
+    id: invId, jobId,
+    source: 'field_capture',
+    reviewStatus: 'pending_review',
+    invoiceNumber:  invNum,
+    wholesalerName: supplier,
+    invoiceDate:    body.invoiceDate    || '',
+    receivedDate:   body.receivedDate   || now.slice(0, 10),
+    // Field captures rarely have line items — store the totals directly
+    // and keep the line-items array empty. recomputeInvoiceTotals would
+    // overwrite our totals from line items, so we don't call it here.
+    lineItems:      [],
+    subtotalExGst:  totalExGst != null ? totalExGst : (totalIncGst != null && gstAmount != null ? totalIncGst - gstAmount : (totalIncGst != null ? Math.round(totalIncGst / 1.1 * 100) / 100 : 0)),
+    gstAmount:      gstAmount != null ? gstAmount : (totalIncGst != null && totalExGst != null ? totalIncGst - totalExGst : (totalIncGst != null ? Math.round(totalIncGst - totalIncGst / 1.1) * 100 / 100 : null)),
+    totalIncGst:    totalIncGst != null ? totalIncGst : (totalExGst != null ? Math.round(totalExGst * 1.1 * 100) / 100 : 0),
+    notes:          body.notes ? String(body.notes).trim() : '',
+    photoUrl,
+    fileUrl:        photoUrl,
+    fileType,
+    blobPath:       photoUrl ? `jobs/${jobId}/materials/invoices/${invId}` : null,
+    linkedItemIds:  Array.isArray(body.linkedItemIds) ? body.linkedItemIds.filter(Boolean) : [],
+    matchedPoId:    null,
+    perLineMap:     null,
+    variance:       null,
+    // Status mirrors `pending` so the existing PO-based UI doesn't break;
+    // the new reviewStatus is what the field-capture flow reads.
+    status:         'pending',
+    capturedBy:     user.username,
+    capturedByUserId: user.id,
+    capturedRole:   user.role,
+    capturedAt:     now,
+    createdAt:      now,
+    createdBy:      user.username,
+  };
+  list.invoices.push(inv);
+  await writeList(jobId, list);
+  return { invoice: inv };
+}
+
+async function reviewCapturedInvoice(jobId, invId, body, user) {
+  const list = await readList(jobId);
+  const inv = (list.invoices || []).find(x => x.id === invId);
+  if (!inv) return { error: 'invoice not found', status: 404 };
+  if (inv.source !== 'field_capture') {
+    return { error: 'invoice is not a field capture; use update-invoice instead', status: 400 };
+  }
+  const next = body.reviewStatus;
+  if (!CAPTURED_REVIEW_STATUSES.includes(next)) {
+    return { error: 'reviewStatus must be one of: ' + CAPTURED_REVIEW_STATUSES.join(', '), status: 400 };
+  }
+  inv.reviewStatus = next;
+  inv.reviewedBy   = user.username;
+  inv.reviewedByUserId = user.id;
+  inv.reviewedAt   = new Date().toISOString();
+  if (body.reviewNote !== undefined) inv.reviewNote = String(body.reviewNote || '').trim();
+  // When admin approves a field-captured invoice, also flip the
+  // PO-flow `status` so the existing approved-cost surfaces (paid
+  // tracking, future Xero export) pick it up automatically. Rejected
+  // → cancelled so it drops out of cost rollups too.
+  if (next === 'approved') inv.status = 'approved';
+  else if (next === 'rejected') inv.status = 'cancelled';
+  else inv.status = 'pending';
+  await writeList(jobId, list);
+  return { invoice: inv };
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────
 
 module.exports = async (req, res) => {
@@ -917,6 +1099,24 @@ module.exports = async (req, res) => {
       const poId = (req.query && req.query.poId) || body.poId;
       if (!poId) return res.status(400).json({ error: 'poId required' });
       const result = await recordReceipt(jobId, poId, body, user);
+      if (result.error) return res.status(result.status || 400).json({ error: result.error });
+      return res.status(200).json(result);
+    }
+
+    // Field-capture invoices — manager-level (admin + LH on assigned job).
+    // The router has already enforced canManageJob above so we just hand off.
+    if (action === 'capture-invoice') {
+      const result = await captureInvoice(jobId, body, user);
+      if (result.error) return res.status(result.status || 400).json(result);
+      return res.status(201).json(result);
+    }
+
+    // Review a field-captured invoice (admin only — moves money).
+    if (action === 'review-captured-invoice') {
+      if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+      const invId = (req.query && req.query.invId) || body.invId;
+      if (!invId) return res.status(400).json({ error: 'invId required' });
+      const result = await reviewCapturedInvoice(jobId, invId, body, user);
       if (result.error) return res.status(result.status || 400).json({ error: result.error });
       return res.status(200).json(result);
     }
