@@ -182,6 +182,7 @@
     { section: 'Deliver' },
     { id: 'jobs',       label: 'Jobs',           href: '/admin/jobs',       icon: 'jobs',     countKey: 'activeJobs' },
     { id: 'hours',      label: 'Hours & costs',  href: '/admin/hours',      icon: 'hours' },
+    { id: 'materials',  label: 'Materials',      href: '/admin/materials',  icon: 'suppliers' },
     { section: 'People', roles: ['admin'] },
     { id: 'crew',       label: 'People',         href: '/admin/crew',       icon: 'crew',     countKey: 'crewCount', roles: ['admin'] },
     { id: 'assets',     label: 'Assets register', href: '/admin/assets',    icon: 'temp',     countKey: 'overdueAssets', badgeBad: true, roles: ['admin'] },
