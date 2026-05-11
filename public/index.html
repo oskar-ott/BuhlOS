@@ -1077,31 +1077,68 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
   button.hdr-job { padding-right: 16px; }
   .hdr-name { font-size: 15px; font-weight: 700; letter-spacing: -.018em; }
 
-  /* Drop noisy admin-style dashboard sections — keep KPIs, quick CTAs,
-     attention list. Module shortcuts duplicate the Tools menu; In progress
-     duplicates the area list a tap away; Continue here is a power-user
-     nicety that adds vertical scroll for tradies who already know which
-     unit they were on. */
-  #dashboard .dash-modules,
-  #dashboard .dash-continue,
-  body.role-tradie #dashboard .dash-section + .dash-section,  /* the second .dash-section is "In progress" */
+  /* Tradie dashboard — ruthless cut. The brief target is < 8s to first
+     task update. The previous layout had Compliance banner + KPI grid
+     + Continue card + Quick actions + Needs attention + In progress +
+     Module shortcuts = 7 stacked sections before the worker reaches
+     a task. We now hide everything that isn't a direct path to
+     "tap area → update task":
+       - .dash-modules (duplicates Tools menu)
+       - .dash-continue (admin power-user; tradies just open work areas)
+       - .dash-kpis (admin-thinking metrics; worker sees % in area list)
+       - .dash-section after the first (In progress duplicates area list)
+       - .dash-compliance-banner UNLESS something is actually expired
+         (we tighten the trigger in renderDash; this is a backstop)
+     Leading hands get the same cut — they're also workers on this page,
+     not admins. Admin role still sees the full dashboard for triage. */
+  body.role-tradie #dashboard .dash-modules,
+  body.role-leadingHand #dashboard .dash-modules,
+  body.role-tradie #dashboard .dash-continue,
+  body.role-leadingHand #dashboard .dash-continue,
+  body.role-tradie #dashboard .dash-kpis,
+  body.role-leadingHand #dashboard .dash-kpis,
+  body.role-tradie #dashboard .dash-section + .dash-section,  /* In progress */
   body.role-leadingHand #dashboard .dash-section + .dash-section { display: none !important; }
 
-  /* Promote the dashboard primary CTAs above the KPI strip — log hours +
-     raise snag are the worker's two reasons to open this page; they
-     should be one swipe from the top, not buried under stats. We keep
-     the existing .dash-quick row and just give it primary-row weight. */
-  #dashboard .dash-quick { margin-bottom: 14px; order: -1; }
-  #dashboard {
-    display: flex; flex-direction: column;
-    /* Continue card lives inside flex too; explicit order keeps it
-       visually de-emphasized if it ever does render. */
+  /* Tradie/LH layout order:
+       1. Compliance banner (only when actually expired — render-time gated)
+       2. Quick actions row — "Open work areas" yellow primary, full width
+       3. Needs attention list (only when there's anything to fix)
+     Everything else is hidden above. */
+  body.role-tradie #dashboard,
+  body.role-leadingHand #dashboard { display: flex; flex-direction: column; }
+  body.role-tradie #dashboard > *,
+  body.role-leadingHand #dashboard > * { order: 0; }
+  body.role-tradie #dashboard .dash-compliance-banner,
+  body.role-leadingHand #dashboard .dash-compliance-banner { order: -2; }
+  body.role-tradie #dashboard .dash-quick,
+  body.role-leadingHand #dashboard .dash-quick { order: -1; margin-bottom: 14px; }
+  body.role-tradie #dashboard .dash-section,
+  body.role-leadingHand #dashboard .dash-section { order: 1; }
+
+  /* Tradie/LH "Open work areas" — full-width yellow CTA. The brief made
+     this the primary action on the page; previously it shared a row with
+     Log hours + Raise snag at flex:1 each and lost visual dominance.
+     Now: primary takes the whole first row; the two secondary buttons
+     split the row below it. Big tap targets, no ambiguity. */
+  body.role-tradie #dashboard .dash-quick,
+  body.role-leadingHand #dashboard .dash-quick { gap: 8px; }
+  body.role-tradie #dashboard .dash-quick-btn.primary,
+  body.role-leadingHand #dashboard .dash-quick-btn.primary {
+    flex-basis: 100%; height: 56px; font-size: 16px; font-weight: 700;
+    letter-spacing: -.014em;
   }
-  #dashboard > * { order: 0; }
-  #dashboard .dash-compliance-banner { order: -3; }    /* compliance alerts always first */
-  #dashboard .dash-quick { order: -2; }                 /* primary CTAs second */
-  #dashboard .dash-kpis { order: -1; }                  /* KPIs third */
-  #dashboard .dash-section { order: 1; }                /* attention list, etc */
+
+  /* Admin keeps the original layout (KPIs at top etc — they want overview) */
+  body.role-admin #dashboard .dash-quick { margin-bottom: 14px; order: -1; }
+  body.role-admin #dashboard { display: flex; flex-direction: column; }
+  body.role-admin #dashboard > * { order: 0; }
+  body.role-admin #dashboard .dash-compliance-banner { order: -3; }
+  body.role-admin #dashboard .dash-quick { order: -2; }
+  body.role-admin #dashboard .dash-kpis { order: -1; }
+  body.role-admin #dashboard .dash-section { order: 1; }
+  body.role-admin #dashboard .dash-modules,
+  body.role-admin #dashboard .dash-continue { display: revert; }
 
   /* Hide the worker FAB on the dashboard (the CTAs are already inline)
      but keep it on snag/area/etc screens where the dashboard's CTAs
@@ -2079,27 +2116,22 @@ function renderDash(){
     }
   }
 
-  // ── Compliance banner: expired or expiring T&T tags ───────────────────
-  // Tradies/LH/admin only — clients don't manage tags. Hidden when the
-  // register is clean. Red when anything's expired, amber when only
-  // approaching due. One tap → Test & Tag tab.
+  // ── Compliance banner: tag expired (action required) ─────────────────
+  // Tradies/LH/admin only — clients don't manage tags. We used to show
+  // this banner for *expiring* tags too (≤30 days), but that meant every
+  // job with active tags had a permanent amber banner regardless of
+  // whether the worker could act on it. Now: red when ANY tag is past
+  // its expiry. "Approaching due" is admin's problem and lives in the
+  // T&T tab badge, not on the worker's dashboard.
   if (!isClient && Array.isArray(tagData) && tagData.length) {
-    let expired = 0, expiring = 0;
+    let expired = 0;
     for (const t of tagData) {
-      const st = tagStatus(t.expiryDate).cls;
-      if (st === 'expired') expired++;
-      else if (st === 'expiring') expiring++;
+      if (tagStatus(t.expiryDate).cls === 'expired') expired++;
     }
-    if (expired || expiring) {
-      const tone = expired ? 'red' : 'amber';
-      const ico  = expired ? '⚠' : '⏰';
-      const label = expired && expiring
-        ? `<b>${expired}</b> expired &middot; <b>${expiring}</b> due in 30 days`
-        : expired
-          ? `<b>${expired}</b> tag${expired===1?'':'s'} expired — retest required`
-          : `<b>${expiring}</b> tag${expiring===1?'':'s'} due for retest in 30 days`;
-      h += `<button class="dash-compliance-banner ${tone}" onclick="show('tags')">
-        <span class="dash-cb-ico">${ico}</span>
+    if (expired) {
+      const label = `<b>${expired}</b> tag${expired===1?'':'s'} expired — retest required`;
+      h += `<button class="dash-compliance-banner red" onclick="show('tags')">
+        <span class="dash-cb-ico">⚠</span>
         <span class="dash-cb-body">
           <span class="dash-cb-title">Test &amp; Tag — action needed</span>
           <span class="dash-cb-meta">${label}</span>
