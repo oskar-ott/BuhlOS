@@ -14,6 +14,10 @@
 -->
 <link rel="stylesheet" href="/css/buhlos.css">
 <script type="module" src="/components/buhl-mark.js"></script>
+<!-- Offline-first write queue (Job Mobile brief mandate). Loaded as
+     an ES module; the singleton exposes itself on window.BuhlQueue
+     so the inline (non-module) persist() can fall back through it. -->
+<script type="module" src="/components/queue.js"></script>
 <!-- Phase 04: Work Areas list components. <area-card> hosts the row
      shape per brief §09. <empty-state> handles the no-match case. -->
 <script type="module" src="/components/area-card.js"></script>
@@ -2721,21 +2725,47 @@ async function load(){
   }
 }
 async function persist(){
+  // Offline-first per Job Mobile brief: every mutating call goes via
+  // the IndexedDB write queue. The persist() POSTs the whole D blob,
+  // so we set replaceKey='data' — earlier queued copies are collapsed
+  // into the latest before drain. <buhl-mark> shows the sync state
+  // via the Sync bus that BuhlQueue.fetch already drives.
   sync('syncing');
-  try{await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(D)});sync('ok');}
-  catch(e){sync('error');}
+  try {
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    const res = await fetcher('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(D),
+      replaceKey: 'data',
+    });
+    if (res && res.status === 202) {
+      // Queued for replay when we're back online.
+      sync('queued');
+    } else {
+      sync('ok');
+    }
+  } catch (e) { sync('error'); }
 }
 function sched(){clearTimeout(saveT);saveT=setTimeout(persist,800);}
 function sync(s){
   // Legacy sync-pill (kept for non-phone fallback rendering).
   const d=document.getElementById('sdot'),t=document.getElementById('stxt');
-  if (d) d.className='sdot'+(s==='syncing'?' syncing':s==='error'?' err':'');
-  if (t) t.textContent=s==='syncing'?'Saving…':s==='error'?'Offline':'Saved';
-  // Phase 02: fan-out to <buhl-mark> via the Sync bus.
+  if (d) d.className='sdot'+(s==='syncing'?' syncing':s==='error' || s==='queued'?' err':'');
+  if (t) {
+    t.textContent = s==='syncing' ? 'Saving…'
+                  : s==='queued'  ? 'Queued · offline'
+                  : s==='error'   ? 'Offline'
+                                  : 'Saved';
+  }
+  // Phase 02 + offline-queue: fan-out to <buhl-mark> via the Sync bus.
+  // The Queue module already calls Sync.offline() on its own when the
+  // network fails — this branch keeps the legacy code path consistent.
   try {
     const BS = window.BuhlSync;
     if (BS) {
       if (s === 'syncing')      BS.pulse();
+      else if (s === 'queued')  BS.offline();
       else if (s === 'error')   BS.fail('persist');
       else                      BS.idle();
     }
