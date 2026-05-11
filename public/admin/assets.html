@@ -56,6 +56,12 @@ function paint() {
     if (STATE.filterStatus === 'overdue') {
       if (!a.expectedReturn || a.expectedReturn >= today) return false;
     }
+    if (STATE.filterStatus === 'hired') {
+      if (a.ownership !== 'hired') return false;
+    }
+    if (STATE.filterStatus === 'deadrent') {
+      if (!isDeadRent(a, today)) return false;
+    }
     if (STATE.filterType !== 'all' && a.type !== STATE.filterType) return false;
     if (STATE.filterHolder === 'storage' && a.currentHolderId) return false;
     if (STATE.filterHolder === 'assigned' && !a.currentHolderId) return false;
@@ -73,6 +79,7 @@ function paint() {
     assigned: STATE.assets.filter(a => !a.archived && a.currentHolderId).length,
     storage: STATE.assets.filter(a => !a.archived && !a.currentHolderId).length,
     overdue: STATE.assets.filter(a => !a.archived && a.expectedReturn && a.expectedReturn < today).length,
+    deadRent: STATE.assets.filter(a => !a.archived && isDeadRent(a, today)).length,
   };
 
   const holdersInUse = [...new Set(STATE.assets.filter(a => a.currentHolderId).map(a => a.currentHolderId))]
@@ -98,6 +105,7 @@ function paint() {
       <div class="kpi"><div class="kpi-l">Assigned</div><div class="kpi-v">${counts.assigned}</div><div class="kpi-d">currently held</div></div>
       <div class="kpi"><div class="kpi-l">In storage</div><div class="kpi-v">${counts.storage}</div><div class="kpi-d">unassigned</div></div>
       <div class="kpi"><div class="kpi-l">Overdue</div><div class="kpi-v ${counts.overdue ? 'red' : 'green'}">${counts.overdue}</div><div class="kpi-d">past expected return</div></div>
+      <div class="kpi"><div class="kpi-l">Dead rent</div><div class="kpi-v ${counts.deadRent ? 'red' : 'green'}">${counts.deadRent}</div><div class="kpi-d">hired gear past hire-end</div></div>
     </div>
 
     <div class="toolbar">
@@ -115,6 +123,8 @@ function paint() {
       <select class="select" id="status-i" style="max-width:160px">
         <option value="active"${STATE.filterStatus === 'active' ? ' selected' : ''}>Active</option>
         <option value="overdue"${STATE.filterStatus === 'overdue' ? ' selected' : ''}>Overdue only</option>
+        <option value="hired"${STATE.filterStatus === 'hired' ? ' selected' : ''}>Hired gear</option>
+        <option value="deadrent"${STATE.filterStatus === 'deadrent' ? ' selected' : ''}>Dead rent</option>
         <option value="archived"${STATE.filterStatus === 'archived' ? ' selected' : ''}>Archived</option>
         <option value="all"${STATE.filterStatus === 'all' ? ' selected' : ''}>All (incl. archived)</option>
       </select>
@@ -145,14 +155,31 @@ function paint() {
   SHELL.$$('button[data-open-asset]').forEach(b => b.addEventListener('click', () => openAssetDetail(b.dataset.openAsset)));
 }
 
+// Phase 12 (brief §12): dead-rent helper. A hired asset is dead-rent
+// when today is past its hire-end-date (still paying rental even
+// though contracted hire period is over) OR past expectedReturn
+// (job no longer needs it but the clock is still ticking).
+function isDeadRent(a, today) {
+  if (!a || a.ownership !== 'hired') return false;
+  if (a.hireEndDate && a.hireEndDate < today) return true;
+  if (a.expectedReturn && a.expectedReturn < today && a.currentHolderId) return true;
+  return false;
+}
+
 function assetRow(a) {
   const today = new Date().toISOString().slice(0, 10);
   const overdue = a.expectedReturn && a.expectedReturn < today && a.currentHolderId;
+  const deadRent = isDeadRent(a, today);
   const statusPill = a.archived
     ? '<span class="pill">Archived</span>'
     : (a.currentHolderId
       ? (overdue ? '<span class="pill pill-bad"><span class="pill-dot"></span>Overdue</span>' : '<span class="pill pill-info"><span class="pill-dot"></span>Assigned</span>')
       : '<span class="pill pill-ok"><span class="pill-dot"></span>In storage</span>');
+  const ownershipPill = a.ownership === 'hired'
+    ? (deadRent
+        ? '<span class="pill pill-bad" style="margin-left:6px"><span class="pill-dot"></span>Dead rent</span>'
+        : '<span class="pill pill-warn" style="margin-left:6px"><span class="pill-dot"></span>Hired</span>')
+    : '';
   return `<tr>
     <td><b>${SHELL.escapeHtml(a.name)}</b>${a.notes ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + SHELL.escapeHtml(a.notes.slice(0, 80)) + (a.notes.length > 80 ? '…' : '') + '</div>' : ''}</td>
     <td>${SHELL.escapeHtml(TYPE_LABELS[a.type] || a.type)}</td>
@@ -160,7 +187,7 @@ function assetRow(a) {
     <td>${a.currentHolderName ? SHELL.escapeHtml(a.currentHolderName) : '<span style="color:var(--muted)">— storage —</span>'}</td>
     <td>${a.assignedAt ? SHELL._ago(a.assignedAt) : '—'}</td>
     <td>${a.expectedReturn ? '<span style="' + (overdue ? 'color:var(--bad);font-weight:600' : '') + '">' + SHELL.escapeHtml(a.expectedReturn) + '</span>' : '<span style="color:var(--muted)">open-ended</span>'}</td>
-    <td>${statusPill}</td>
+    <td>${statusPill}${ownershipPill}</td>
     <td style="text-align:right"><button class="btn btn-sm" data-open-asset="${SHELL.escapeHtml(a.id)}">Open</button></td>
   </tr>`;
 }
