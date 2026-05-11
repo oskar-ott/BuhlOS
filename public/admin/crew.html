@@ -3,197 +3,415 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>bühl admin · crew</title>
+<title>bühl · people</title>
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#0d1f35">
+<meta name="theme-color" content="#0d1b34">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/admin/_shell.css">
 <script src="/admin/_shell.js"></script>
+<script type="module" src="/components/list-row.js"></script>
+<script type="module" src="/components/role-pill.js"></script>
+
+<!--
+  /admin/crew · Users & access (phase 06 of the rebuild)
+  ──────────────────────────────────────────────────────
+
+  Per brief §08: "People, rates, and what they can touch."
+
+  Same <list-row> component as Jobs (one list shape for the whole
+  console). Role chip uses <role-pill> from phase 01. Soft warnings
+  are YELLOW chips, not red banners — "no rate", "not assigned",
+  "stale" — per the brief's "soft warnings (yellow, not red)" rule.
+
+  Tabs: All · Admin · Office · Tradie · LH · Client.
+  (Office is a new role from §05 — we accept it in the schema today;
+  the user just needs to be invited with that role.)
+
+  Phone-number invite path (§08 "One field: phone number") needs an
+  SMS provider — kept as a follow-up. Existing username/secret/role
+  panel still works.
+-->
+
+<style>
+  .ppl-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 18px; gap: 14px; flex-wrap: wrap;
+  }
+  .ppl-head h1 {
+    font-family: var(--ff-display);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: -.012em;
+    color: var(--ink);
+    margin: 0;
+  }
+  .ppl-head .sub { color: var(--muted); font-size: 13px; margin-top: 4px; max-width: 60ch; }
+
+  .ppl-tabs {
+    display: flex; gap: 4px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 14px;
+    overflow-x: auto;
+  }
+  .ppl-tab {
+    padding: 9px 14px;
+    font-family: var(--ff-display);
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .ppl-tab:hover { color: var(--ink-2); }
+  .ppl-tab.on { color: var(--ink); border-bottom-color: var(--accent); }
+  .ppl-tab .ct {
+    background: var(--surface-2);
+    color: var(--muted);
+    font-family: var(--ff-mono);
+    font-size: 10.5px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    margin-left: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ppl-tab.on .ct { background: var(--ink); color: var(--surface); }
+
+  .ppl-tools {
+    display: flex; gap: 10px; align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .ppl-tools .search {
+    flex: 1; min-width: 220px; max-width: 420px;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 10px;
+  }
+  .ppl-tools .search input {
+    flex: 1; border: 0; outline: 0; background: transparent;
+    font-size: 13px; color: var(--ink);
+  }
+  .ppl-tools .filter-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-family: var(--ff-mono);
+    font-size: 11.5px;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .ppl-tools .filter-chip:hover { color: var(--ink-2); }
+  .ppl-tools .filter-chip.on {
+    background: var(--accent);
+    color: var(--accent-ink);
+    border-color: transparent;
+    font-weight: 700;
+  }
+  .ppl-tools .spacer { flex: 1; }
+  .ppl-tools .count {
+    font-family: var(--ff-mono);
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ppl-list {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    overflow: hidden;
+  }
+  .ppl-empty {
+    padding: 50px 22px;
+    text-align: center;
+    color: var(--muted);
+  }
+  .ppl-empty b { color: var(--ink); font-family: var(--ff-display); font-weight: 700; font-size: 16px; }
+
+  /* Yellow soft-warning chip — never red. Brief §08: "Soft warnings". */
+  .warn-chip {
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-family: var(--ff-mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 1px 8px;
+    border-radius: 999px;
+    margin-left: 6px;
+  }
+  .meta-chip {
+    background: var(--surface-2);
+    color: var(--ink-2);
+    font-family: var(--ff-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 999px;
+    margin-right: 6px;
+  }
+
+  list-row .lr-action .btn-sm {
+    font-family: var(--ff-display);
+    font-weight: 600;
+    font-size: 12px;
+  }
+</style>
 </head>
 <body>
+
 <script>
+'use strict';
+
 let STATE = {
   filterRole: 'all',
+  filterFlag: '',   // '' | 'no-rate' | 'unassigned' | 'stale'
   search: '',
   users: [],
 };
 
 window.PAGE = {
   id: 'crew',
-  title: 'Crew & people',
-  crumb: 'Crew',
+  title: 'People',
+  crumb: 'People',
   async render() {
     STATE.users = (SHELL.USERS || []).slice();
-    paint();
-    // If we arrived from /admin/support with a "Create user" intent,
-    // pop the new-user panel pre-filled with the request's name + role
-    // + email + the sourceRequestId so we can mark the request resolved
-    // once the user lands.
     const params = new URLSearchParams(location.search);
-    if (params.get('newFromRequest')) {
-      try {
-        const raw = sessionStorage.getItem('buhlos.newUserPrefill');
-        if (raw) {
-          const prefill = JSON.parse(raw);
-          // One-shot — clear so a refresh doesn't re-pop the panel.
-          sessionStorage.removeItem('buhlos.newUserPrefill');
-          // Clean the URL so a refresh doesn't reapply the hint.
-          const u = new URL(location.href); u.searchParams.delete('newFromRequest');
-          history.replaceState(null, '', u);
-          if (prefill && prefill.username) addUserPanel(prefill);
-        }
-      } catch (e) {}
+    if (params.get('filter') === 'no-rate')     STATE.filterFlag = 'no-rate';
+    if (params.get('filter') === 'unassigned')  STATE.filterFlag = 'unassigned';
+    if (params.get('filter') === 'stale')       STATE.filterFlag = 'stale';
+    if (params.get('new') === '1' || params.get('newFromRequest')) {
+      paint();
+      // Pre-fill from /admin/support if applicable.
+      if (params.get('newFromRequest')) {
+        try {
+          const raw = sessionStorage.getItem('buhlos.newUserPrefill');
+          if (raw) {
+            const prefill = JSON.parse(raw);
+            sessionStorage.removeItem('buhlos.newUserPrefill');
+            const u = new URL(location.href); u.searchParams.delete('newFromRequest');
+            history.replaceState(null, '', u);
+            if (prefill && prefill.username) addUserPanel(prefill);
+            return;
+          }
+        } catch {}
+      }
+      addUserPanel();
+    } else {
+      paint();
     }
+    registerPeopleCommands();
   }
 };
 
+/* ── Render ──────────────────────────────────────────────────── */
+
 function paint() {
   const counts = {
-    all: STATE.users.length,
-    admin: STATE.users.filter(u => u.role === 'admin').length,
+    all:         STATE.users.length,
+    admin:       STATE.users.filter(u => u.role === 'admin').length,
+    office:      STATE.users.filter(u => u.role === 'office').length,
     leadingHand: STATE.users.filter(u => u.role === 'leadingHand').length,
-    tradie: STATE.users.filter(u => u.role === 'tradie').length,
-    client: STATE.users.filter(u => u.role === 'client').length,
+    tradie:      STATE.users.filter(u => u.role === 'tradie').length,
+    client:      STATE.users.filter(u => u.role === 'client').length,
   };
-  const q = STATE.search.toLowerCase();
-  const matches = (u) => {
-    if (!q) return true;
-    const blob = `${u.username} ${u.email || ''} ${u.role}`.toLowerCase();
-    return blob.includes(q);
+  const flagged = {
+    'no-rate':    STATE.users.filter(u => isPaidRole(u.role) && !Number(u.hourlyRate)).length,
+    'unassigned': STATE.users.filter(u => (u.role === 'tradie' || u.role === 'leadingHand') && !hasAssignedActiveJob(u)).length,
+    'stale':      STATE.users.filter(u => isStale(u)).length,
   };
 
-  // Per the admin redesign brief: "Users should be organised by role and
-  // responsibility, not just listed." When the user picks "All", we
-  // render a grouped view (Admins → LHs → Tradies → Clients). When they
-  // pick a single role, we render a flat list with the table headers.
-  const sorted = (xs) => xs.slice().sort((a, b) => a.username.localeCompare(b.username));
-  const grouped = STATE.filterRole === 'all';
-  const list = grouped
-    ? null
-    : sorted(STATE.users.filter(u => u.role === STATE.filterRole && matches(u)));
-
-  const groups = grouped ? [
-    { key: 'admin',       label: 'Admins',         desc: 'Full access — can edit jobs, users, hours, settings.', users: sorted(STATE.users.filter(u => u.role === 'admin' && matches(u))) },
-    { key: 'leadingHand', label: 'Leading hands',  desc: 'Scoped to assigned jobs — can approve hours, raise snags.', users: sorted(STATE.users.filter(u => u.role === 'leadingHand' && matches(u))) },
-    { key: 'tradie',      label: 'Tradies',        desc: 'Assigned-job access — log hours, update tasks, raise snags.', users: sorted(STATE.users.filter(u => u.role === 'tradie' && matches(u))) },
-    { key: 'client',      label: 'Clients',        desc: 'Read-only progress portal for one job.', users: sorted(STATE.users.filter(u => u.role === 'client' && matches(u))) },
-  ] : null;
+  const list = peopleForView();
 
   SHELL.$('#page').innerHTML = `
-    <div class="page-head">
+    <div class="ppl-head">
       <div>
-        <div class="page-h1">People</div>
-        <div class="page-sub">${counts.tradie + counts.leadingHand} crew · ${counts.admin} admin${counts.admin === 1 ? '' : 's'} · ${counts.client} client${counts.client === 1 ? '' : 's'}. Rates + Xero IDs are admin-only and never exposed to tradies/clients.</div>
+        <h1>People</h1>
+        <div class="sub">${counts.tradie + counts.leadingHand} crew · ${counts.admin} admin${counts.admin === 1 ? '' : 's'} · ${counts.client} client${counts.client === 1 ? '' : 's'}. Rates and Xero IDs are admin-only and never visible to tradies or clients.</div>
       </div>
-      <div class="page-actions">
-        <button class="btn btn-accent" id="add-user">${SHELL.ICONS.plus} Add person</button>
-      </div>
+      <button class="btn btn-primary" id="add-user">+ Add person</button>
     </div>
 
-    <div class="tabs">
+    <div class="ppl-tabs">
       ${[
-        { v: 'all', l: 'All' },
-        { v: 'tradie', l: 'Tradies' },
+        { v: 'all',         l: 'All' },
+        { v: 'tradie',      l: 'Tradies' },
         { v: 'leadingHand', l: 'Leading hands' },
-        { v: 'admin', l: 'Admins' },
-        { v: 'client', l: 'Clients' },
-      ].map(s => `<a class="tab ${STATE.filterRole === s.v ? 'active' : ''}" href="#" data-role="${s.v}">${s.l}<span class="badge">${counts[s.v] || 0}</span></a>`).join('')}
+        { v: 'admin',       l: 'Admins' },
+        { v: 'office',      l: 'Office' },
+        { v: 'client',      l: 'Clients' },
+      ].map(s => `<a class="ppl-tab ${STATE.filterRole === s.v ? 'on' : ''}" href="#" data-role="${s.v}">${s.l}<span class="ct">${counts[s.v] || 0}</span></a>`).join('')}
     </div>
 
-    <div class="toolbar">
-      <div class="search">${SHELL.ICONS.search}<input id="se-i" placeholder="Search by name, email…" value="${SHELL.escapeHtml(STATE.search)}"></div>
-      <div class="toolbar-spacer"></div>
-      <span style="color:var(--muted);font-size:12px">${grouped ? 'grouped by role' : SHELL.pluralize(list.length, 'person', 'people')}</span>
-    </div>
-
-    ${grouped ? groups.map(groupBlock).join('') : `
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr>
-            <th>Name</th><th>Role</th><th>Email</th><th>Assigned jobs</th><th class="table-num">Rate</th><th></th>
-          </tr></thead>
-          <tbody>${list.length ? list.map(userRow).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No people match those filters.</td></tr>'}</tbody>
-        </table>
+    <div class="ppl-tools">
+      <div class="search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5"/></svg>
+        <input id="se-i" placeholder="Search by name, email…" value="${SHELL.escapeHtml(STATE.search)}">
       </div>
-    `}
+      <label class="filter-chip ${STATE.filterFlag === 'no-rate' ? 'on' : ''}" data-flag="no-rate">No rate · ${flagged['no-rate']}</label>
+      <label class="filter-chip ${STATE.filterFlag === 'unassigned' ? 'on' : ''}" data-flag="unassigned">Unassigned · ${flagged.unassigned}</label>
+      <label class="filter-chip ${STATE.filterFlag === 'stale' ? 'on' : ''}" data-flag="stale">Stale &gt;14d · ${flagged.stale}</label>
+      <div class="spacer"></div>
+      <span class="count">${SHELL.pluralize(list.length, 'person', 'people')}</span>
+    </div>
+
+    <div class="ppl-list" id="ppl-list"></div>
   `;
-  SHELL.$$('a[data-role]').forEach(t => t.addEventListener('click', e => { e.preventDefault(); STATE.filterRole = t.dataset.role; paint(); }));
+
+  paintList(list);
+
+  SHELL.$$('a[data-role]').forEach(t => t.addEventListener('click', e => {
+    e.preventDefault();
+    STATE.filterRole = t.dataset.role;
+    paint();
+  }));
+  SHELL.$$('.filter-chip[data-flag]').forEach(c => c.addEventListener('click', () => {
+    STATE.filterFlag = (STATE.filterFlag === c.dataset.flag) ? '' : c.dataset.flag;
+    paint();
+  }));
   SHELL.$('#se-i').addEventListener('input', e => { STATE.search = e.target.value; paint(); });
-  SHELL.$('#add-user').addEventListener('click', addUserPanel);
-  SHELL.$$('button[data-edit-user]').forEach(b => b.addEventListener('click', () => editUserPanel(b.dataset.editUser)));
+  SHELL.$('#add-user').addEventListener('click', () => addUserPanel());
 }
 
-// Render one role-section (admin / LH / tradie / client) with its members
-// laid out as compact cards. Each card surfaces: name, role pill, assigned
-// jobs (clickable chips), rate (admin-only data, fine because this whole
-// page is admin-gated), and Edit button. Empty groups still render so the
-// admin sees the empty state and knows the role exists.
-function groupBlock(g) {
-  return `<div class="card" style="padding:0;margin-bottom:16px">
-    <div style="padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:10px">
-      <div class="card-title">${SHELL.escapeHtml(g.label)}</div>
-      <span style="font-size:11px;color:var(--muted)">${g.users.length} · ${SHELL.escapeHtml(g.desc)}</span>
-    </div>
-    ${g.users.length
-      ? g.users.map(u => userCard(u, g.key)).join('')
-      : `<div style="padding:18px;color:var(--muted);font-size:12px;text-align:center">No ${g.label.toLowerCase()} yet.</div>`}
-  </div>`;
+function peopleForView() {
+  const q = STATE.search.toLowerCase().trim();
+  return STATE.users.filter(u => {
+    if (STATE.filterRole !== 'all' && u.role !== STATE.filterRole) return false;
+    if (STATE.filterFlag === 'no-rate'    && !(isPaidRole(u.role) && !Number(u.hourlyRate))) return false;
+    if (STATE.filterFlag === 'unassigned' && !((u.role === 'tradie' || u.role === 'leadingHand') && !hasAssignedActiveJob(u))) return false;
+    if (STATE.filterFlag === 'stale'      && !isStale(u)) return false;
+    if (q) {
+      const blob = `${u.username || ''} ${u.email || ''} ${u.role || ''}`.toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => (a.username || '').localeCompare(b.username || ''));
 }
 
-function userCard(u, roleKey) {
-  const jobs = SHELL.JOBS || [];
-  const jobById = {}; jobs.forEach(j => { jobById[j.id] = j; });
-  const assigned = (u.assignedJobIds || []).map(id => jobById[id]).filter(Boolean);
-  const isPaid = (u.role === 'tradie' || u.role === 'leadingHand');
-  const showRate = isPaid;
-  return `<div style="display:flex;align-items:flex-start;gap:14px;padding:12px 16px;border-bottom:1px solid var(--line)">
-    <div class="avatar ${u.role}" style="flex-shrink:0">${SHELL.initials(u.username)}</div>
-    <div style="flex:1;min-width:0">
-      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
-        <b style="font-size:14px">${SHELL.escapeHtml(u.username)}</b>
-        ${u.email ? `<a href="mailto:${SHELL.escapeHtml(u.email)}" style="font-size:11px;color:var(--muted)">${SHELL.escapeHtml(u.email)}</a>` : ''}
-        ${showRate && u.xeroEmployeeId ? `<span style="font-size:10px;color:var(--muted);font-family:var(--ff-mono)">Xero: ${SHELL.escapeHtml(u.xeroEmployeeId)}</span>` : ''}
+function paintList(list) {
+  const wrap = document.getElementById('ppl-list');
+  if (!list.length) {
+    wrap.innerHTML = `
+      <div class="ppl-empty">
+        <b>No people match those filters.</b><br>
+        <span style="font-size:13px">Try a different tab or clear the search.</span>
       </div>
-      ${assigned.length
-        ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">
-            ${assigned.slice(0, 6).map(j => `<a href="/admin/jobs/${SHELL.escapeHtml(j.id)}" style="font-size:11px;background:var(--surface-2);border:1px solid var(--line);padding:2px 8px;border-radius:999px;color:var(--ink-2);text-decoration:none">${SHELL.escapeHtml(j.name)}</a>`).join('')}
-            ${assigned.length > 6 ? `<span style="font-size:11px;color:var(--muted);align-self:center">+${assigned.length - 6} more</span>` : ''}
-          </div>`
-        : roleKey === 'admin'
-          ? '<div style="font-size:11px;color:var(--muted);margin-top:6px">No job restriction — sees everything.</div>'
-          : `<div style="font-size:11px;color:var(--warn);margin-top:6px">Not assigned to any job — won't see jobs in field app.</div>`}
-    </div>
-    ${showRate ? `<div class="tabular" style="font-size:13px;font-weight:600;text-align:right;flex-shrink:0;min-width:70px">${u.hourlyRate ? '$' + u.hourlyRate + '/h' : '<span style="color:var(--warn)">no rate</span>'}</div>` : ''}
-    <button class="btn btn-sm" data-edit-user="${SHELL.escapeHtml(u.id)}" style="flex-shrink:0">Edit</button>
-  </div>`;
-}
+    `;
+    return;
+  }
+  wrap.innerHTML = '';
 
-function userRow(u) {
-  const isPaid = (u.role === 'tradie' || u.role === 'leadingHand');
+  // Head row.
+  const head = document.createElement('list-row');
+  head.setAttribute('head', '');
+  head.setAttribute('name', 'Name');
+  const headMetric = document.createElement('div');
+  headMetric.setAttribute('slot', 'metric');
+  headMetric.textContent = 'Jobs · rate';
+  head.appendChild(headMetric);
+  const headAction = document.createElement('div');
+  headAction.setAttribute('slot', 'action');
+  headAction.textContent = 'Edit';
+  head.appendChild(headAction);
+  wrap.appendChild(head);
+
   const jobs = SHELL.JOBS || [];
   const jobById = {}; jobs.forEach(j => { jobById[j.id] = j; });
-  const assigned = (u.assignedJobIds || []).map(id => jobById[id]).filter(Boolean);
-  const jobChips = assigned.length
-    ? assigned.slice(0, 3).map(j => `<a href="/admin/jobs/${SHELL.escapeHtml(j.id)}" style="font-size:11px;background:var(--surface-2);border:1px solid var(--line);padding:2px 8px;border-radius:999px;color:var(--ink-2);text-decoration:none;margin-right:4px">${SHELL.escapeHtml(j.name)}</a>`).join('') + (assigned.length > 3 ? `<span style="font-size:11px;color:var(--muted)">+${assigned.length - 3}</span>` : '')
-    : '<span style="color:var(--muted);font-size:11px">—</span>';
-  return `<tr>
-    <td><b>${SHELL.escapeHtml(u.username)}</b>${isPaid && u.xeroEmployeeId ? `<div style="font-size:11px;color:var(--muted);font-family:var(--ff-mono)">Xero: ${SHELL.escapeHtml(u.xeroEmployeeId)}</div>` : ''}</td>
-    <td>${SHELL.rolePill(u.role)}</td>
-    <td>${u.email ? `<a href="mailto:${SHELL.escapeHtml(u.email)}">${SHELL.escapeHtml(u.email)}</a>` : '<span style="color:var(--muted)">—</span>'}</td>
-    <td>${jobChips}</td>
-    <td class="table-num">${isPaid ? (u.hourlyRate ? '$' + u.hourlyRate + '/h' : '<span style="color:var(--warn)">—</span>') : '—'}</td>
-    <td><button class="btn btn-sm" data-edit-user="${SHELL.escapeHtml(u.id)}">Edit</button></td>
-  </tr>`;
+
+  for (const u of list) {
+    const isPaid = isPaidRole(u.role);
+    const assigned = (u.assignedJobIds || []).map(id => jobById[id]).filter(Boolean);
+    const activeAssigned = assigned.filter(j => (j.status || 'active') === 'active');
+    const warnings = [];
+    if (isPaid && !Number(u.hourlyRate))                                    warnings.push('no rate');
+    if ((u.role === 'tradie' || u.role === 'leadingHand') && !activeAssigned.length) warnings.push('not assigned');
+    if (isStale(u))                                                         warnings.push('stale');
+
+    const row = document.createElement('list-row');
+    row.setAttribute('status', warnings.length ? 'yellow' : 'none');
+    row.setAttribute('name', u.username || u.id);
+    if (u.email) row.setAttribute('sub', u.email);
+
+    // identity-extra slot: role pill + warning chips inline with the name.
+    const identityExtra = document.createElement('div');
+    identityExtra.setAttribute('slot', 'identity-extra');
+    identityExtra.style.cssText = 'display:flex;align-items:center;gap:6px;margin-left:8px';
+    const pill = document.createElement('role-pill');
+    pill.setAttribute('role', u.role || '');
+    pill.setAttribute('size', 'sm');
+    identityExtra.appendChild(pill);
+    for (const w of warnings) {
+      const chip = document.createElement('span');
+      chip.className = 'warn-chip';
+      chip.textContent = w;
+      identityExtra.appendChild(chip);
+    }
+    row.appendChild(identityExtra);
+
+    // metric: jobs + rate (admin-visible only — page is admin-gated anyway).
+    const metric = document.createElement('div');
+    metric.setAttribute('slot', 'metric');
+    const jobsText = activeAssigned.length
+      ? activeAssigned.slice(0, 3).map(j => `<span class="meta-chip">${SHELL.escapeHtml(j.name)}</span>`).join('') +
+        (activeAssigned.length > 3 ? `<span style="color:var(--muted);font-size:11px">+${activeAssigned.length - 3}</span>` : '')
+      : (u.role === 'admin' ? '<span style="color:var(--muted);font-size:11px">sees all</span>' : '');
+    const rateText = isPaid
+      ? (u.hourlyRate
+          ? `<b>$${Number(u.hourlyRate).toFixed(2)}/h</b>`
+          : '<span style="color:var(--muted)">—</span>')
+      : '';
+    metric.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end">${jobsText}</span>${rateText ? '<span style="margin-left:14px">' + rateText + '</span>' : ''}`;
+    row.appendChild(metric);
+
+    // action.
+    const action = document.createElement('div');
+    action.setAttribute('slot', 'action');
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn btn-sm';
+    editBtn.textContent = 'Edit';
+    editBtn.addEventListener('click', () => editUserPanel(u.id));
+    action.appendChild(editBtn);
+    row.appendChild(action);
+
+    wrap.appendChild(row);
+  }
 }
+
+/* ── Soft-warning helpers ─────────────────────────────────── */
+
+function isPaidRole(role) { return role === 'tradie' || role === 'leadingHand'; }
+
+function hasAssignedActiveJob(u) {
+  const assigned = u.assignedJobIds || [];
+  if (!assigned.length) return false;
+  const jobs = SHELL.JOBS || [];
+  const activeIds = new Set(jobs.filter(j => (j.status || 'active') === 'active').map(j => j.id));
+  return assigned.some(id => activeIds.has(id));
+}
+
+function isStale(u) {
+  // Last seen tracking isn't implemented yet; treat archived/disabled as not stale.
+  if (u.archived) return false;
+  const t = u.lastSeenAt || u.lastLoginAt;
+  if (!t) return false;
+  const days = (Date.now() - new Date(t).getTime()) / 86400000;
+  return days > 14;
+}
+
+/* ── Add user panel (kept as username/secret form) ────────────
+   Brief §08 wants phone-number magic-link invites; needs an SMS
+   provider integration. Lands as a follow-up. The schema accepts
+   role='office' so users can be invited with that role today. */
 
 function addUserPanel(prefill) {
-  // `prefill` is passed when the admin arrived here from /admin/support
-  // ("Create user…" on an open access request). The panel opens with the
-  // suggested username + role + email, and on successful create we mark
-  // the originating access request resolved so it drops out of the
-  // open-queue badge automatically.
   prefill = prefill || {};
   const panel = SHELL.openPanel({
     title: prefill.sourceRequestId ? 'Add person · from access request' : 'Add person',
@@ -204,6 +422,7 @@ function addUserPanel(prefill) {
         <select class="select" id="nu-role">
           <option value="tradie"${prefill.role === 'tradie' ? ' selected' : ''}>Tradie</option>
           <option value="leadingHand"${prefill.role === 'leadingHand' ? ' selected' : ''}>Leading hand</option>
+          <option value="office"${prefill.role === 'office' ? ' selected' : ''}>Office</option>
           <option value="admin"${prefill.role === 'admin' ? ' selected' : ''}>Admin</option>
           <option value="client"${prefill.role === 'client' ? ' selected' : ''}>Client</option>
         </select></div>
@@ -223,20 +442,18 @@ function addUserPanel(prefill) {
       role,
       secret: panel.querySelector('#nu-secret').value,
       email: panel.querySelector('#nu-email').value.trim(),
-      hourlyRate: (role === 'tradie' || role === 'leadingHand') ? Number(panel.querySelector('#nu-rate').value) || 0 : undefined,
+      hourlyRate: isPaidRole(role) ? Number(panel.querySelector('#nu-rate').value) || 0 : undefined,
     };
     if (!body.username || !body.secret) { SHELL.toast('Username + secret required', 'bad'); return; }
     try {
       await SHELL.api('/api/users', { method: 'POST', body });
-      // Mark the originating access request resolved (best-effort —
-      // user is already created, this is bookkeeping).
       if (prefill.sourceRequestId) {
         try {
           await SHELL.api('/api/access-requests?id=' + encodeURIComponent(prefill.sourceRequestId), {
             method: 'PUT',
             body: { status: 'resolved', adminNotes: 'User created in /admin/crew on ' + new Date().toISOString().slice(0, 10) },
           });
-        } catch (e) { /* leave the request open for manual resolution */ }
+        } catch {}
       }
       SHELL.toast('Created', 'ok');
       SHELL.closePanel();
@@ -250,7 +467,7 @@ function editUserPanel(id) {
   const u = STATE.users.find(x => x.id === id);
   if (!u) return;
   const jobs = SHELL.JOBS || [];
-  const showRate = (u.role === 'tradie' || u.role === 'leadingHand');
+  const showRate = isPaidRole(u.role);
   const showJobs = (u.role === 'tradie' || u.role === 'leadingHand' || u.role === 'client');
   const panel = SHELL.openPanel({
     title: 'Edit ' + u.username,
@@ -259,7 +476,7 @@ function editUserPanel(id) {
       <div class="field"><label class="field-lbl">Email</label><input class="input" id="eu-email" type="email" value="${SHELL.escapeHtml(u.email || '')}"></div>
       ${showRate ? `<div class="two-col">
         <div class="field"><label class="field-lbl">Hourly rate ($)</label><input class="input" id="eu-rate" type="number" min="0" step="0.5" value="${u.hourlyRate || 0}"></div>
-        <div class="field"><label class="field-lbl">Xero employee ID <span style="color:var(--muted);font-weight:400;font-size:11px">(optional — for payroll CSV)</span></label><input class="input" id="eu-xero" value="${SHELL.escapeHtml(u.xeroEmployeeId || '')}" placeholder="e.g. EMP-042 or UUID"></div>
+        <div class="field"><label class="field-lbl">Xero employee ID <span style="color:var(--muted);font-weight:400;font-size:11px">(optional)</span></label><input class="input" id="eu-xero" value="${SHELL.escapeHtml(u.xeroEmployeeId || '')}" placeholder="e.g. EMP-042"></div>
       </div>` : ''}
       ${showJobs ? `<div class="field"><label class="field-lbl">Assigned jobs</label>
         <div style="border:1px solid var(--line);border-radius:8px;padding:8px;max-height:240px;overflow:auto;background:var(--surface)">
@@ -304,6 +521,25 @@ function editUserPanel(id) {
       } catch (e) { SHELL.toast('Remove failed — ' + e.message, 'bad'); }
     });
   }
+}
+
+/* ── Per-view palette commands (Phase 04 hook) ─────────── */
+
+async function registerPeopleCommands() {
+  await SHELL.registerCommands('people-page', [
+    { id: 'ppl-filter-no-rate',    verb: 'Filter', group: 'People',
+      label: 'People with no rate',
+      run: () => { STATE.filterFlag = 'no-rate'; STATE.filterRole = 'all'; paint(); } },
+    { id: 'ppl-filter-unassigned', verb: 'Filter', group: 'People',
+      label: 'People not on any active job',
+      run: () => { STATE.filterFlag = 'unassigned'; STATE.filterRole = 'all'; paint(); } },
+    { id: 'ppl-filter-stale',      verb: 'Filter', group: 'People',
+      label: 'People stale > 14 days',
+      run: () => { STATE.filterFlag = 'stale'; STATE.filterRole = 'all'; paint(); } },
+    { id: 'ppl-new',               verb: 'Create', group: 'Actions',
+      label: 'New person',
+      run: () => addUserPanel() },
+  ]);
 }
 
 SHELL.boot();
