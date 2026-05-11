@@ -4,51 +4,67 @@
    ║  Tokens · reset · layout · components · views.                   ║
    ╚══════════════════════════════════════════════════════════════════╝ */
 
-/* ── Tokens ──────────────────────────────────────────────── */
+/* Bring in the canonical design tokens (paper / navy / rule / yellow…)
+   so the web components in /public/components/ inherit the same palette
+   the chrome uses. The :root block below adds legacy token aliases
+   (--bg / --surface / --ink / --line / --accent…) on top, so every
+   existing admin page keeps working without changes. */
+@import url("/css/buhlos-admin.css");
+
+/* ── Tokens ──────────────────────────────────────────────────
+   Re-toned to BuhlOS site office v2 (brief §16).
+   - Admin-amber is gone (was #e08a1a).
+   - Warm-neutral surfaces dominate; cards sit on paper, separated
+     by rule borders rather than a brighter card colour.
+   - Yellow is the only accent and is used sparingly (one per screen).
+   - The token NAMES are preserved so every existing admin page keeps
+     working without per-page changes.  ──────────────────────────── */
 :root {
-  --bg: #f5f3ee;
-  --surface: #ffffff;
-  --surface-2: #faf8f3;
-  --surface-3: #f0ede5;
-  --shell: #0d1f35;
-  --shell-2: #152840;
-  --shell-3: #1d324c;
+  --bg: #f3efe7;
+  --surface: #f3efe7;
+  --surface-2: #ebe7df;
+  --surface-3: #dfdacf;
+  --shell: #0d1b34;
+  --shell-2: #182a4d;
+  --shell-3: #2a3958;
 
-  --ink: #0d1f35;
-  --ink-2: #2a3a52;
-  --muted: #6b7689;
-  --muted-2: #8a93a4;
-  --line: #e6e1d5;
-  --line-2: #d8d2c1;
+  --ink: #0d1b34;
+  --ink-2: #2a3958;
+  --muted: #6a7591;
+  --muted-2: #98a0b3;
+  --line: #d2ccbf;
+  --line-2: #c5beaf;
 
-  --accent: #e08a1a;
-  --accent-2: #f4a93b;
-  --accent-ink: #2a1a05;
+  --accent: #f5d020;
+  --accent-2: #e8c000;
+  --accent-ink: #1d1700;
 
-  --ok: #1f8a4c;   --ok-bg: #e8f4ec;   --ok-bd: #c2e2ce;
-  --warn: #b76b00; --warn-bg: #fbf1de; --warn-bd: #f3dca1;
-  --bad: #b3261e;  --bad-bg: #fbeae8;  --bad-bd: #f0c4be;
-  --info: #1c5fb8; --info-bg: #e7eef9; --info-bd: #c4d4ee;
+  --ok: #1f8b5a;   --ok-bg: #dff0e5;   --ok-bd: #c2e2ce;
+  --warn: #d68a1a; --warn-bg: #fbecd2; --warn-bd: #f3dca1;
+  --bad: #c0312f;  --bad-bg: #f7dedc;  --bad-bd: #f0c4be;
+  --info: #1c5fb8; --info-bg: #dde6f4; --info-bd: #c4d4ee;
 
   --role-admin: #5b3a8a;       --role-admin-bg: #efeaf6;
-  --role-tradie: #1c5fb8;      --role-tradie-bg: #e7eef9;
+  --role-tradie: #2557a3;      --role-tradie-bg: #e7eef9;
   --role-leadingHand: #b76b00; --role-leadingHand-bg: #fbf1de;
-  --role-client: #1f8a4c;      --role-client-bg: #e8f4ec;
+  --role-client: #186e48;      --role-client-bg: #e8f4ec;
 
   --ff-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --ff-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --ff-display: "Inter Tight", "Inter", -apple-system, system-ui, sans-serif;
 
   --r-sm: 6px;
   --r: 10px;
   --r-lg: 14px;
-  --pad-cell: 14px 16px;
-  --pad-card: 18px 20px;
+  --pad-cell: 12px 14px;
+  --pad-card: 16px 18px;
   --gap: 14px;
-  --shadow:    0 1px 0 rgba(13, 31, 53, .04), 0 1px 2px rgba(13, 31, 53, .04);
-  --shadow-lg: 0 1px 0 rgba(13, 31, 53, .04), 0 8px 24px rgba(13, 31, 53, .08);
+  --shadow:    0 1px 0 rgba(13, 27, 52, .04), 0 1px 2px rgba(13, 27, 52, .05);
+  --shadow-lg: 0 1px 0 rgba(13, 27, 52, .04), 0 12px 32px rgba(13, 27, 52, .12);
 }
-:root[data-density="compact"] { --pad-cell: 9px 12px;  --pad-card: 14px 16px; --gap: 10px; }
-:root[data-density="roomy"]   { --pad-cell: 18px 22px; --pad-card: 24px 28px; --gap: 18px; }
+:root[data-density="compact"] { --pad-cell: 8px 12px;  --pad-card: 14px 16px; --gap: 10px; }
+:root[data-density="regular"] { --pad-cell: 12px 14px; --pad-card: 16px 18px; --gap: 14px; }
+:root[data-density="roomy"]   { --pad-cell: 16px 20px; --pad-card: 22px 26px; --gap: 18px; }
 
 :root[data-theme="dark"] {
   --bg: #0b0d10;
@@ -140,14 +156,20 @@ svg { width: 18px; height: 18px; flex-shrink: 0; display: inline-block; vertical
   background: var(--accent); border-radius: 2px;
 }
 .side-key   { margin-left: auto; font-size: 10px; color: #5e6a7e; font-family: var(--ff-mono); }
+/* Sidebar count badge — calm by default. Per brief F-01 + §02:
+   counts are NEUTRAL grey, go yellow once the queue ages past 24h,
+   go red only at SLA breach. Never both at once. */
 .side-badge {
   margin-left: auto;
-  background: var(--accent); color: var(--accent-ink);
-  font-size: 10px; font-weight: 700;
-  border-radius: 10px; padding: 1px 7px;
+  background: rgba(255, 255, 255, .08);
+  color: rgba(255, 255, 255, .7);
+  font-size: 10.5px; font-weight: 600;
+  border-radius: 999px; padding: 1px 7px;
   font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
 }
-.side-badge.bad { background: var(--bad); color: #fff; }
+.side-badge.warn { background: var(--accent); color: var(--accent-ink); }
+.side-badge.bad  { background: var(--bad);    color: #fff; }
 .side-foot {
   margin-top: auto; padding: 12px 10px;
   border-top: 1px solid rgba(255,255,255,.06);
@@ -493,7 +515,8 @@ svg { width: 18px; height: 18px; flex-shrink: 0; display: inline-block; vertical
   content: ""; position: absolute;
   top: -80px; right: -80px;
   width: 280px; height: 280px;
-  background: radial-gradient(circle, rgba(224,138,26,.18), transparent 70%);
+  /* Re-toned: was orange (.18α) — admin-amber is removed per brief §17. */
+  background: radial-gradient(circle, rgba(245, 208, 32, .12), transparent 70%);
   border-radius: 50%; pointer-events: none;
 }
 .hero-eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: #8a93a4; font-weight: 600; margin-bottom: 6px; }
@@ -783,3 +806,78 @@ svg { width: 18px; height: 18px; flex-shrink: 0; display: inline-block; vertical
   text-decoration: none; font-weight: 600; font-size: 12px;
 }
 .legacy-banner a:hover { background: var(--shell-2); }
+
+/* ── Phase 02 chrome additions ────────────────────────────────────
+   Replaces the old .search field (inert quick-find) with a real ⌘K
+   trigger that opens the <cmd-palette> singleton. Adds the density
+   toggle to the topbar. Per brief §02 + §06. The bell (F-05) is
+   no longer rendered; its CSS class .icon-btn is kept for other
+   surfaces (panel headers etc) that still use it. ───────────── */
+
+.topbar-cmd {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  height: 34px;
+  min-width: 260px;
+  max-width: 360px;
+  cursor: pointer;
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  color: var(--muted);
+  transition: background .14s, border-color .14s;
+}
+.topbar-cmd:hover { background: var(--surface-3); border-color: var(--line-2); }
+.topbar-cmd .topbar-cmd-arr {
+  font-family: var(--ff-mono); font-weight: 600;
+  color: var(--muted-2);
+}
+.topbar-cmd .topbar-cmd-ph { flex: 1; text-align: left; color: var(--muted); }
+.topbar-cmd .topbar-cmd-kb {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  color: var(--ink-2);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.topbar-density {
+  display: inline-flex; align-items: center; gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.topbar-density button {
+  padding: 4px 9px;
+  border-radius: 5px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  letter-spacing: .04em;
+  transition: background .14s, color .14s;
+}
+.topbar-density button:hover { color: var(--ink-2); }
+.topbar-density button.on {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+@media (max-width: 900px) {
+  .topbar-cmd { min-width: 0; flex: 1; max-width: none; }
+  .topbar-cmd .topbar-cmd-ph { display: none; }
+  .topbar-density { display: none; }
+}
