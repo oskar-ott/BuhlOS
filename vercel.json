@@ -20,6 +20,9 @@
     { "source": "/admin/support",         "destination": "/admin/support.html" },
     { "source": "/admin/assets",          "destination": "/admin/assets.html" },
 
+    { "source": "/dev/site-office",            "destination": "/dev/site-office/components.html" },
+    { "source": "/dev/site-office/components", "destination": "/dev/site-office/components.html" },
+
     { "source": "/admin-legacy", "destination": "/admin.html" },
 
     { "source": "/overview",  "destination": "/admin/operations.html" },

@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl site office · components</title>
+<meta name="theme-color" content="#0d1b34">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/css/buhlos-admin.css">
+
+<!--
+  /dev/site-office/components · Phase 01 verification surface
+  ───────────────────────────────────────────────────────────
+  Per brief §15: "this rebuild does not start with screens. It starts
+  with components mounted on a single /dev/components page. No view
+  ships until the pieces it uses are signed off."
+
+  Mounts S-01..S-08 in their canonical states + a few realistic
+  variants. Renders against /css/buhlos-admin.css tokens only. No
+  network calls; no API dependencies. This page should still work
+  when the rest of the build is broken.
+-->
+
+<style>
+  body { padding: 0; }
+  .dev-head {
+    background: var(--navy);
+    color: #fff;
+    padding: 24px 28px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .dev-head .crumb {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,.6);
+    margin-bottom: 8px;
+  }
+  .dev-head h1 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 28px;
+    letter-spacing: -.012em;
+    margin: 0;
+  }
+  .dev-head p {
+    color: rgba(255,255,255,.72);
+    font-size: 13.5px;
+    max-width: 64ch;
+    margin: 8px 0 0;
+  }
+
+  .dev-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 18px;
+    padding: 28px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  .spec {
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    padding: 18px;
+    display: flex; flex-direction: column;
+    gap: 14px;
+  }
+  .spec.wide { grid-column: 1 / -1; }
+  .spec .id {
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .spec .id b {
+    color: var(--ink);
+    font-family: var(--mono);
+    font-weight: 700;
+    letter-spacing: .02em;
+    font-size: 12px;
+    text-transform: none;
+  }
+  .spec .id .tag {
+    background: var(--paper-2);
+    color: var(--ink-2);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 700;
+  }
+  .spec h3 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 17px;
+    margin: 0;
+    letter-spacing: -.005em;
+  }
+  .spec p {
+    font-size: 13.5px;
+    color: var(--ink-2);
+    margin: 0;
+    line-height: 1.5;
+  }
+  .demo {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r);
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 60px;
+  }
+  .demo.col { flex-direction: column; align-items: stretch; gap: 8px; }
+  .demo.list {
+    padding: 0;
+    background: var(--paper);
+    overflow: hidden;
+  }
+  .demo.dark {
+    background: var(--navy);
+    color: #fff;
+  }
+  .demo-caption {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--ink-3);
+    letter-spacing: .04em;
+  }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 8px 0 0;
+  }
+  .controls button {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    color: var(--ink-2);
+    border-radius: 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .controls button:hover { background: var(--paper-3); }
+
+  /* Inline shell demo — uses real <workspace-shell> in light DOM. */
+  .shell-demo {
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    background: var(--paper);
+    box-shadow: var(--shadow);
+    height: 360px;
+    display: grid;
+    grid-template-rows: 100%;
+  }
+  .shell-demo workspace-shell { min-height: 100%; }
+</style>
+</head>
+<body>
+
+<div class="dev-head">
+  <div class="crumb">/dev/site-office/components</div>
+  <h1>Site office · components</h1>
+  <p>Phase 01 verification surface. Each spec card mounts the live custom element built in <code>/components/&lt;name&gt;.js</code> against the design tokens in <code>/css/buhlos-admin.css</code>. No views ship until these eight pieces are signed off.</p>
+</div>
+
+<div class="dev-grid">
+
+  <!-- ──────────────────────────────  S-01  ────────────────────────────── -->
+  <div class="spec wide">
+    <div class="id">
+      <b>&lt;workspace-shell&gt;</b>
+      <span class="tag">S-01</span>
+    </div>
+    <h3>The chrome.</h3>
+    <p>Sidebar + topbar + density toggle + command-palette mount + role-aware nav. Owns the layout. Page content goes in the default slot, topbar action goes in <code>slot="topbar-action"</code> (defaults to <code>&lt;open-in-field&gt;</code>).</p>
+
+    <div class="shell-demo">
+      <workspace-shell role="admin" page="overview" me-name="Daniel Bühl"
+                       crumb="Site Office › Overview">
+        <span slot="topbar-action">
+          <open-in-field job="iv3232"></open-in-field>
+        </span>
+        <div style="padding: 8px 0">
+          <h2 class="page-h1">Tuesday, 12 Nov</h2>
+          <p class="page-sub">All jobs · 5 of 6 tradies active</p>
+        </div>
+      </workspace-shell>
+    </div>
+
+    <div class="controls">
+      <button data-role="admin">Role · Admin</button>
+      <button data-role="office">Role · Office</button>
+      <button data-role="accounts">Role · Accounts</button>
+      <button data-role="leadingHand">Role · LH</button>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  S-02  ────────────────────────────── -->
+  <div class="spec">
+    <div class="id">
+      <b>&lt;list-row&gt;</b>
+      <span class="tag">S-02</span>
+    </div>
+    <h3>One row component. Three slots.</h3>
+    <p>Identity · metric · action. Used by Jobs, Users, Hours, Snags, Activity. Click to navigate (when <code>href</code> is set) or fires <code>list-row:select</code>.</p>
+    <div class="demo list">
+      <list-row head name="Job" status="none">
+        <div slot="metric">Pulse</div>
+        <div slot="action">Open</div>
+      </list-row>
+      <list-row status="green" name="19–23 Birdwood Ave" sub="IV3232 · Lane Cove">
+        <div slot="metric"><b>64%</b> · 86h · 4 snags</div>
+        <div slot="action"><a href="#" style="font-family:var(--mono);color:var(--navy);font-weight:600">↗</a></div>
+      </list-row>
+      <list-row status="yellow" name="7 Crows Nest Rd" sub="IV3198">
+        <div slot="metric"><b>22%</b> · 124h · 6 snags</div>
+        <div slot="action"><a href="#" style="font-family:var(--mono);color:var(--navy);font-weight:600">↗</a></div>
+      </list-row>
+      <list-row status="green" name="Mosman duplex" sub="IV3187">
+        <div slot="metric"><b>81%</b> · 46h · 0 snags</div>
+        <div slot="action"><a href="#" style="font-family:var(--mono);color:var(--navy);font-weight:600">↗</a></div>
+      </list-row>
+      <list-row status="red" name="Smoke alarm wiring" sub="IV3232 · Unit 14">
+        <div slot="metric">Sam · 1h ago</div>
+        <div slot="action"><button class="btn sm">Resolve</button></div>
+      </list-row>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  S-03  ────────────────────────────── -->
+  <div class="spec">
+    <div class="id">
+      <b>&lt;inbox-stack&gt;</b>
+      <span class="tag">S-03</span>
+    </div>
+    <h3>A queue with a drain-it button.</h3>
+    <p>Used on Overview and as the head of any inbox view. Severity raises the visual register only when the queue ages past 24h (warn) or breaches SLA (bad).</p>
+    <div class="demo col">
+      <inbox-stack
+        label="Hours pending"
+        count="15"
+        severity="warn"
+        summary="5 tradies · oldest 3 days"
+        action-label="Review →"
+        action-href="#"></inbox-stack>
+      <inbox-stack
+        label="Snags open"
+        count="10"
+        severity="bad"
+        summary="4 priority · risk of payment hold"
+        action-label="Triage →"
+        action-href="#"></inbox-stack>
+      <inbox-stack
+        label="Awaiting setup"
+        count="2"
+        summary="2 new jobs · template missing"
+        action-label="Set up →"
+        action-href="#"></inbox-stack>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  S-04  ────────────────────────────── -->
+  <div class="spec">
+    <div class="id">
+      <b>&lt;cmd-palette&gt;</b>
+      <span class="tag">S-04</span>
+    </div>
+    <h3><code>⌘K</code> surface. Verb-first.</h3>
+    <p>Reads commands from <code>CmdRegistry</code>. Views register their commands on mount; the palette filters fuzzy across verb + label + group. Press <kbd class="kbd">⌘K</kbd> anywhere on this page to open it.</p>
+    <div class="demo col">
+      <div class="demo-caption">Try the verbs:</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="btn sm" data-cmd-open>Open palette ⌘K</button>
+        <button class="btn sm" data-cmd-jump="iv3232">Try "iv32"</button>
+        <button class="btn sm" data-cmd-jump="approve">Try "approve"</button>
+        <button class="btn sm" data-cmd-jump="setup">Try "setup"</button>
+      </div>
+      <div class="demo-caption">Active registry · <span id="cmd-count">0</span> commands</div>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  S-05  ────────────────────────────── -->
+  <div class="spec">
+    <div class="id">
+      <b>&lt;pulse-strip&gt;</b>
+      <span class="tag">S-05</span>
+    </div>
+    <h3>Four numbers, equal weight.</h3>
+    <p>At-a-glance pulse of the business. Used at the top of Overview and per-job detail. Each cell links to its queue.</p>
+    <div class="demo col">
+      <pulse-strip>
+        <a href="#" data-label="Hours"   data-value="256.5" data-sub="this week"></a>
+        <a href="#" data-label="Pending" data-value="15"    data-sub="approvals"></a>
+        <a href="#" data-label="Snags"   data-value="10"    data-sub="open"></a>
+        <a href="#" data-label="Jobs"    data-value="3"     data-sub="active"></a>
+      </pulse-strip>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  S-06  ────────────────────────────── -->
+  <div class="spec">
+    <div class="id">
+      <b>&lt;rate-flag&gt;</b>
+      <span class="tag">S-06</span>
+    </div>
+    <h3>Yellow flag on hour anomalies.</h3>
+    <p>Reviewable, not refusable. Hours over the threshold get a yellow chip + reason text. Never blocks; admin can override.</p>
+    <div class="demo col">
+      <div><rate-flag hours="11.0" threshold="9"></rate-flag></div>
+      <div><rate-flag hours="9.5" note="weekend"></rate-flag></div>
+      <div><rate-flag hours="13.5" note="long day · confirm"></rate-flag></div>
+      <div><rate-flag hours="8.0" severity="info" note="standard"></rate-flag></div>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  S-07  ────────────────────────────── -->
+  <div class="spec">
+    <div class="id">
+      <b>&lt;role-pill&gt;</b>
+      <span class="tag">S-07</span>
+    </div>
+    <h3>Subtle tints. Mono caps.</h3>
+    <p>Same component as the field interface. Never a stack of three reds. Roles: admin, office, accounts, leadingHand, tradie, client.</p>
+    <div class="demo">
+      <role-pill role="admin"></role-pill>
+      <role-pill role="office"></role-pill>
+      <role-pill role="accounts"></role-pill>
+      <role-pill role="leadingHand"></role-pill>
+      <role-pill role="tradie"></role-pill>
+      <role-pill role="client"></role-pill>
+    </div>
+    <div class="demo">
+      <role-pill role="admin" size="sm"></role-pill>
+      <role-pill role="tradie" size="sm"></role-pill>
+      <role-pill role="client" size="sm" label="EXTERNAL"></role-pill>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  S-08  ────────────────────────────── -->
+  <div class="spec">
+    <div class="id">
+      <b>&lt;open-in-field&gt;</b>
+      <span class="tag">S-08</span>
+    </div>
+    <h3>Topbar deep-link to the phone surface.</h3>
+    <p>Context-aware. Knows the current job/area; opens it in a new tab on the field surface (<code>/my-day?job=…</code>). The fix for F-09 — never retype a URL to see what the LH sees.</p>
+    <div class="demo col">
+      <div class="demo-caption">With a job:</div>
+      <div><open-in-field job="iv3232"></open-in-field></div>
+      <div class="demo-caption">With job + area:</div>
+      <div><open-in-field job="iv3232" area="unit-14"></open-in-field></div>
+      <div class="demo-caption">No context — disabled:</div>
+      <div><open-in-field></open-in-field></div>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  Tokens audit  ────────────────────────────── -->
+  <div class="spec wide">
+    <div class="id">
+      <b>tokens · /css/buhlos-admin.css</b>
+      <span class="tag">§16</span>
+    </div>
+    <h3>The palette. Same as the field. <em>Calmer</em> by default.</h3>
+    <p>Warm neutrals dominate the surface. Yellow is rare (one per screen). Red only at SLA breach.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));gap:10px">
+      <div style="display:flex;flex-direction:column;gap:6px"><div style="height:48px;background:#f3efe7;border:1px solid var(--rule);border-radius:6px"></div><div style="font-family:var(--mono);font-size:11px"><b>paper</b> · #f3efe7</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div style="height:48px;background:#ebe7df;border:1px solid var(--rule);border-radius:6px"></div><div style="font-family:var(--mono);font-size:11px"><b>paper-2</b> · #ebe7df</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div style="height:48px;background:#dfdacf;border:1px solid var(--rule);border-radius:6px"></div><div style="font-family:var(--mono);font-size:11px"><b>paper-3</b> · #dfdacf</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div style="height:48px;background:#0d1b34;border-radius:6px"></div><div style="font-family:var(--mono);font-size:11px"><b>navy</b> · #0d1b34</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div style="height:48px;background:#f5d020;border-radius:6px"></div><div style="font-family:var(--mono);font-size:11px"><b>yellow</b> · #f5d020</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div style="height:48px;background:#c0312f;border-radius:6px"></div><div style="font-family:var(--mono);font-size:11px"><b>red</b> · #c0312f</div></div>
+    </div>
+    <div class="demo" style="display:flex;gap:14px;flex-wrap:wrap">
+      <button class="btn primary">Primary · navy</button>
+      <button class="btn yellow">Yellow · drain queue</button>
+      <button class="btn">Default</button>
+      <button class="btn quiet">Quiet</button>
+      <span class="chip">chip · default</span>
+      <span class="chip ok">chip · ok</span>
+      <span class="chip warn">chip · warn</span>
+      <span class="chip bad">chip · bad</span>
+      <span class="chip flag">flag</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- Import every component. ES modules. customElements.define at bottom. -->
+<script type="module" src="/components/list-row.js"></script>
+<script type="module" src="/components/inbox-stack.js"></script>
+<script type="module" src="/components/pulse-strip.js"></script>
+<script type="module" src="/components/rate-flag.js"></script>
+<script type="module" src="/components/role-pill.js"></script>
+<script type="module" src="/components/open-in-field.js"></script>
+<script type="module" src="/components/workspace-shell.js"></script>
+
+<!-- Demo wiring for the cmd-palette: register a handful of sample commands,
+     wire the demo buttons. The shell will lazy-mount <cmd-palette> for us. -->
+<script type="module">
+  import { CmdRegistry } from '/components/cmd-palette.js';
+
+  // Sample commands — what the registry will look like in production.
+  CmdRegistry.registerMany([
+    { id: 'approve-under-9', verb: 'Approve', group: 'Actions',
+      label: 'Approve all hours under 9h',
+      run: () => alert('would approve all hours ≤ 9h') },
+    { id: 'approve-jake', verb: 'Approve', group: 'Actions',
+      label: "Approve Jake's hours · 4 entries",
+      shortcut: '⌘1',
+      run: () => alert('would approve Jake') },
+    { id: 'approve-sam', verb: 'Approve', group: 'Actions',
+      label: "Approve Sam's hours · 3 entries",
+      shortcut: '⌘2',
+      run: () => alert('would approve Sam') },
+    { id: 'raise-snag', verb: 'Raise',  group: 'Actions',
+      label: 'Raise a snag on the current job',
+      run: () => alert('would raise a snag') },
+    { id: 'export-payroll', verb: 'Export', group: 'Actions',
+      label: 'Export payroll CSV · this week',
+      run: () => alert('would export payroll') },
+
+    { id: 'jump-approvals', verb: 'Open', group: 'Jump',
+      label: 'Approvals queue · 15',
+      href: '/admin/approvals' },
+    { id: 'jump-iv3232', verb: 'Open', group: 'Jump',
+      label: 'IV3232 · 19–23 Birdwood Ave',
+      href: '/admin/job?id=iv3232' },
+    { id: 'jump-iv3198', verb: 'Open', group: 'Jump',
+      label: 'IV3198 · 7 Crows Nest Rd',
+      href: '/admin/job?id=iv3198' },
+
+    { id: 'setup-iv3201', verb: 'Setup', group: 'Awaiting setup',
+      label: 'IV3201 · template + areas + LH',
+      href: '#' },
+
+    { id: 'density-compact', verb: 'Set', group: 'Density',
+      label: 'Density · Compact',
+      run: () => { localStorage.setItem('buhl-site-office-density','compact'); document.documentElement.dataset.density='compact'; } },
+    { id: 'density-regular', verb: 'Set', group: 'Density',
+      label: 'Density · Regular',
+      run: () => { localStorage.setItem('buhl-site-office-density','regular'); document.documentElement.dataset.density='regular'; } },
+    { id: 'density-roomy', verb: 'Set', group: 'Density',
+      label: 'Density · Roomy',
+      run: () => { localStorage.setItem('buhl-site-office-density','roomy'); document.documentElement.dataset.density='roomy'; } },
+  ]);
+
+  // Update the count display.
+  const updateCount = () => {
+    const el = document.getElementById('cmd-count');
+    if (el) el.textContent = CmdRegistry.list().length;
+  };
+  CmdRegistry.subscribe(updateCount);
+  updateCount();
+
+  // Wire the demo buttons.
+  document.querySelectorAll('[data-cmd-open]').forEach(b => {
+    b.addEventListener('click', () => document.querySelector('cmd-palette')?.open());
+  });
+  document.querySelectorAll('[data-cmd-jump]').forEach(b => {
+    b.addEventListener('click', () => {
+      const p = document.querySelector('cmd-palette');
+      if (!p) return;
+      p.open();
+      // Pre-fill the search via the input inside the shadow root.
+      queueMicrotask(() => {
+        const input = p.shadowRoot?.querySelector('input');
+        if (input) {
+          input.value = b.dataset.cmdJump;
+          input.dispatchEvent(new Event('input'));
+        }
+      });
+    });
+  });
+
+  // Role swap demo.
+  document.querySelectorAll('[data-role]').forEach(b => {
+    b.addEventListener('click', () => {
+      const shell = document.querySelector('workspace-shell');
+      if (shell) shell.setAttribute('role', b.dataset.role);
+    });
+  });
+</script>
+
+</body>
+</html>

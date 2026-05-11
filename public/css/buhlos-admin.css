@@ -1,0 +1,262 @@
+/* ╔════════════════════════════════════════════════════════════════════╗
+   ║  BuhlOS site office — design tokens + base.                        ║
+   ║                                                                    ║
+   ║  Per brief §16 (tokens) and the rules of restraint in §17.         ║
+   ║  Imported by every admin page from phase 02 onward. Components in  ║
+   ║  /public/components/ are styled against these tokens — they own    ║
+   ║  layout but never colour.                                          ║
+   ║                                                                    ║
+   ║  Density ladder: compact (32px row, 13px) · regular (40px, 14px)   ║
+   ║  · roomy (48px, 15px). Icons locked at 16px through every step so  ║
+   ║  hit targets don't collapse on the laptop.                         ║
+   ╚════════════════════════════════════════════════════════════════════╝ */
+
+:root {
+  /* ── Surfaces — warm neutrals dominate ────────────────────────── */
+  --paper:    #f3efe7;
+  --paper-2:  #ebe7df;
+  --paper-3:  #dfdacf;
+  --rule:     #d2ccbf;
+  --rule-2:   #c5beaf;
+
+  /* ── Ink — single navy family ─────────────────────────────────── */
+  --navy:     #0d1b34;
+  --navy-2:   #182a4d;
+  --ink:      #0d1b34;
+  --ink-2:    #2a3958;
+  --ink-3:    #6a7591;
+  --ink-4:    #98a0b3;
+
+  /* ── Accents — one yellow, used sparingly ─────────────────────── */
+  --yellow:     #f5d020;
+  --yellow-2:   #e8c000;
+  --yellow-ink: #1d1700;
+
+  /* ── Status — used only where they mean something ─────────────── */
+  --red:    #c0312f;  --red-bg:    #f7dedc;
+  --green:  #1f8b5a;  --green-bg:  #dff0e5;
+  --amber:  #d68a1a;  --amber-bg:  #fbecd2;
+  --blue:   #1c5fb8;  --blue-bg:   #dde6f4;
+
+  /* ── Role tints (matches field interface) ─────────────────────── */
+  --role-admin:        #5b3a8a;  --role-admin-bg:        #efeaf6;
+  --role-office:       #1c5fb8;  --role-office-bg:       #e0e9f7;
+  --role-accounts:     #1f8b5a;  --role-accounts-bg:     #e0ede5;
+  --role-tradie:       #2557a3;  --role-tradie-bg:       #e7eef9;
+  --role-leadingHand:  #b76b00;  --role-leadingHand-bg:  #fbf1de;
+  --role-client:       #186e48;  --role-client-bg:       #e8f4ec;
+
+  /* ── Typography ───────────────────────────────────────────────── */
+  --display: "Inter Tight", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --body:    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* ── Layout ───────────────────────────────────────────────────── */
+  --sidebar-w:      220px;
+  --sidebar-w-mini: 56px;
+  --topbar-h:       54px;
+
+  /* ── Density (regular default) ────────────────────────────────── */
+  --row-h:   40px;
+  --pad-y:   10px;
+  --pad-x:   14px;
+  --type-base: 14px;
+  --type-meta: 12px;
+
+  /* ── Shape ────────────────────────────────────────────────────── */
+  --r-sm: 4px;
+  --r:    6px;
+  --r-lg: 10px;
+
+  /* ── Shadows ──────────────────────────────────────────────────── */
+  --shadow:    0 1px 0 rgba(13, 27, 52, .04), 0 1px 2px rgba(13, 27, 52, .05);
+  --shadow-lg: 0 1px 0 rgba(13, 27, 52, .04), 0 12px 32px rgba(13, 27, 52, .12);
+
+  /* ── Motion ───────────────────────────────────────────────────── */
+  --tx: .14s cubic-bezier(.2, .6, .2, 1);
+}
+
+:root[data-density="compact"] {
+  --row-h: 32px;
+  --pad-y: 8px;
+  --pad-x: 12px;
+  --type-base: 13px;
+  --type-meta: 11.5px;
+}
+:root[data-density="roomy"] {
+  --row-h: 48px;
+  --pad-y: 14px;
+  --pad-x: 18px;
+  --type-base: 15px;
+  --type-meta: 12.5px;
+}
+
+/* ── Reset ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-size-adjust: 100%;
+}
+body {
+  font-family: var(--body);
+  font-size: var(--type-base);
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.45;
+  font-feature-settings: "ss01", "cv11";
+}
+body, button, input, select, textarea { font-family: var(--body); }
+button { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; }
+a { color: inherit; text-decoration: none; }
+
+/* All numbers in tables/lists/meta tabular by default — admins read columns. */
+.tabular, td, th, .meta, .num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); letter-spacing: -.01em; }
+.display { font-family: var(--display); font-weight: 700; letter-spacing: -.01em; }
+
+/* ── Reusable atoms ───────────────────────────────────────────────── */
+.kbd {
+  display: inline-flex; align-items: center; gap: 2px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  padding: 1px 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  line-height: 1.2;
+}
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.chip.ok    { background: var(--green-bg);  color: var(--green);  border-color: transparent; }
+.chip.warn  { background: var(--amber-bg);  color: var(--amber);  border-color: transparent; }
+.chip.bad   { background: var(--red-bg);    color: var(--red);    border-color: transparent; }
+.chip.info  { background: var(--blue-bg);   color: var(--blue);   border-color: transparent; }
+.chip.flag  { background: var(--yellow);    color: var(--yellow-ink); border-color: transparent; font-weight: 700; }
+
+/* Status dot — used by list-row identity slot. 8px. */
+.dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--ink-4);
+  flex-shrink: 0;
+}
+.dot.green   { background: var(--green); }
+.dot.yellow  { background: var(--yellow); }
+.dot.red     { background: var(--red); }
+.dot.blue    { background: var(--blue); }
+.dot.amber   { background: var(--amber); }
+
+/* Primary / secondary / quiet buttons.
+   The rule of restraint: one yellow per screen, one primary per screen. */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: var(--row-h);
+  padding: 0 14px;
+  border-radius: var(--r);
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: var(--type-base);
+  white-space: nowrap;
+  transition: background var(--tx), border-color var(--tx);
+}
+.btn:hover { background: var(--paper-2); }
+.btn.primary {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+.btn.primary:hover { background: var(--navy-2); border-color: var(--navy-2); }
+.btn.yellow {
+  background: var(--yellow);
+  border-color: var(--yellow);
+  color: var(--yellow-ink);
+}
+.btn.yellow:hover { background: var(--yellow-2); border-color: var(--yellow-2); }
+.btn.quiet { border-color: transparent; background: transparent; color: var(--ink-2); }
+.btn.quiet:hover { background: var(--paper-2); color: var(--ink); }
+.btn.sm { height: 28px; padding: 0 10px; font-size: 12.5px; }
+
+/* Screen-reader-only utility */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0, 0, 0, 0);
+  white-space: nowrap; border: 0;
+}
+
+/* Page heads. Use sparingly — the rule is "no hero". */
+.page-h1 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: -.012em;
+  color: var(--ink);
+  margin: 0;
+}
+.page-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+/* Reusable inset well — for empty states & previews. */
+.well {
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  padding: 18px 20px;
+}
+
+/* "Section" caption above a list — small uppercase. */
+.caption {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 2px;
+}
+.caption b { color: var(--ink-2); }
+
+/* Divider line. */
+hr.rule {
+  border: 0; height: 1px;
+  background: var(--rule);
+  margin: 18px 0;
+}
+
+/* When focusing keyboard-only, we let buttons & inputs glow navy. */
+:focus-visible {
+  outline: 2px solid var(--navy);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* ── Reduced motion — kill all transitions ────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }
+}
