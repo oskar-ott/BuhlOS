@@ -1483,6 +1483,15 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
         id="hoursMenuItem" onclick="goNav('hours')">
         <span class="nav-menu-item-lbl">Hours</span>
       </button>
+      <!-- Materials — field-side capture + read-only view. Admin + LH on
+           this job get this entry; tradies and clients don't (the brief
+           explicitly keeps cost/financial visibility scoped). JS hides
+           the item for those roles in initCurrentUser. -->
+      <button class="nav-menu-item" role="menuitem" data-sec="materials"
+        id="materialsMenuItem" onclick="goNav('materials')" hidden>
+        <span class="nav-menu-item-lbl">Materials</span>
+        <span class="nav-menu-item-badge" id="matsnavBadge"></span>
+      </button>
       <!-- Mobile job-rebuild: with the header pills hidden on phones, the
            Tools menu becomes the single home for navigation off this job
            (My Day / Setup / Sign out). Each is shown only when relevant —
@@ -1520,6 +1529,7 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
   <div id="tags" class="sc"></div>
   <div id="temps" class="sc"></div>
   <div id="hours" class="sc"></div>
+  <div id="materials" class="sc"></div>
 </div>
 
 <!-- ── Worker quick-action bar ─────────────────────────────────────────────
@@ -1600,6 +1610,11 @@ async function bootstrapAuth() {
     // Body class drives role-aware mobile CSS (e.g. hiding admin-style
     // dashboard sections for tradies, exposing Setup tile for admin/LH).
     document.body.classList.add('role-' + (user.role || 'unknown'));
+    // Materials Tools-menu item is admin + LH only (financial surface).
+    if (user && (user.role === 'admin' || user.role === 'leadingHand')) {
+      const mm = document.getElementById('materialsMenuItem');
+      if (mm) mm.hidden = false;
+    }
     // Tradies get a one-tap "My Day" pill back to their daily home
     if (user && user.role === 'tradie') {
       const md = document.getElementById('hdr-myday');
@@ -1646,6 +1661,9 @@ async function bootstrapAuth() {
     // Hours moved into the hamburger menu — hide the menu item for clients.
     const hm = document.getElementById('hoursMenuItem');
     if (hm) hm.style.display = 'none';
+    // Materials never exposed to clients — financial / job-cost surface.
+    const mm = document.getElementById('materialsMenuItem');
+    if (mm) mm.hidden = true;
     // Clients see a clean project-progress header — no internal job ID.
     const sub = document.getElementById('hdr-sub');
     if (sub) sub.textContent = 'Progress portal';
@@ -5300,6 +5318,7 @@ function show(id){
   if(id==='tags')_lazyTags();
   if(id==='temps')_lazyTemps();
   if(id==='hours')_lazyHours();
+  if(id==='materials')_lazyMaterials();
   updateBadge();window.scrollTo(0,0);
   closeNavMenu();
 }
@@ -5903,6 +5922,299 @@ async function _lazyHours() {
   try { await loadHours(); _hoursLoaded = true; renderHours(); }
   finally { _hoursLoading = false; }
 }
+
+// ── Field-side Materials surface ───────────────────────────────────────
+//
+// Lean tool — the heavyweight materials/PO/invoice/receipt management
+// stays on /admin/jobs/<id>?s=materials for admin. This field-side
+// surface is for LHs onsite who need to:
+//   1. Snap a phone photo of a wholesaler receipt → save for review
+//   2. Glance at what's planned / ordered / onsite
+// Costs are admin-only — LHs see status, supplier, what they entered
+// themselves, and the review status of their uploads, NEVER total
+// labour cost or job financials.
+let _materialsCache = null;
+let _materialsLoading = false;
+async function _lazyMaterials() {
+  if (CURRENT_USER && (CURRENT_USER.role === 'tradie' || CURRENT_USER.role === 'client')) return;
+  if (_materialsCache) { renderMaterialsField(); return; }
+  if (_materialsLoading) return;
+  _materialsLoading = true;
+  _setSectionLoading('materials', 'Loading materials…');
+  try {
+    const r = await fetch('/api/materials-list?jobId=' + encodeURIComponent(JOB_ID), { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _materialsCache = await r.json();
+    renderMaterialsField();
+  } catch (e) {
+    document.getElementById('materials').innerHTML =
+      '<div class="empty"><div class="empty-title">Couldn\'t load materials</div><div style="color:var(--muted);font-size:13px;margin-top:6px">' + esc(e.message) + '</div></div>';
+  } finally { _materialsLoading = false; }
+}
+
+function renderMaterialsField() {
+  const data = _materialsCache || { items: [], invoices: [] };
+  const items = data.items || [];
+  const invoices = data.invoices || [];
+  const isAdmin = CURRENT_USER && CURRENT_USER.role === 'admin';
+  const myUid = CURRENT_USER && CURRENT_USER.id;
+  const captured = invoices.filter(inv => inv.source === 'field_capture');
+  const myCaptures = isAdmin ? captured : captured.filter(inv => inv.capturedByUserId === myUid);
+  const pendingMine = myCaptures.filter(inv => inv.reviewStatus === 'pending_review' || inv.reviewStatus === 'needs_info');
+  const onsite     = items.filter(i => i.status === 'received' || i.status === 'onsite');
+  const ordered    = items.filter(i => i.status === 'ordered' || i.status === 'priced');
+
+  const statusPill = (s) => {
+    const tone = (s === 'received' || s === 'onsite') ? 'complete'
+              : (s === 'ordered' || s === 'priced')   ? 'in-progress'
+              : (s === 'cancelled')                    ? 'not-started'
+              : 'in-progress';
+    const label = s === 'received' ? 'Onsite'
+                : s === 'priced'   ? 'Priced'
+                : s === 'ready_to_price' ? 'Pricing'
+                : (s || 'draft').charAt(0).toUpperCase() + (s || 'draft').slice(1);
+    return '<span class="status-badge ' + tone + '">' + esc(label) + '</span>';
+  };
+  const reviewPill = (rs) => {
+    if (rs === 'approved')      return '<span class="status-badge complete">Approved</span>';
+    if (rs === 'needs_info')    return '<span class="status-badge snagged">Needs info</span>';
+    if (rs === 'rejected')      return '<span class="status-badge snagged">Rejected</span>';
+    return '<span class="status-badge in-progress">Pending review</span>';
+  };
+
+  const itemRow = (i) => '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--rule);font-size:13px">' +
+    '<div style="flex:1;min-width:0">' +
+      '<div style="font-weight:600;color:var(--navy)">' + esc(i.name || i.description || '(unnamed)') + '</div>' +
+      '<div style="font-size:11px;color:var(--ink-3);margin-top:2px">' +
+        (i.quantity || 0) + (i.unit ? ' ' + esc(i.unit) : '') +
+        (i.selectedWholesaler ? ' · ' + esc(i.selectedWholesaler) : '') +
+        (i.area ? ' · ' + esc(i.area) : '') +
+      '</div>' +
+    '</div>' +
+    statusPill(i.status || 'draft') +
+  '</div>';
+
+  const invRow = (inv) => '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--rule);font-size:13px">' +
+    (inv.photoUrl
+      ? '<a href="' + esc(inv.photoUrl) + '" target="_blank" rel="noopener" style="flex-shrink:0;width:46px;height:46px;border-radius:6px;overflow:hidden;background:var(--paper-3);display:flex;align-items:center;justify-content:center;text-decoration:none"><img src="' + esc(inv.photoUrl) + '" style="width:46px;height:46px;object-fit:cover" alt="receipt"></a>'
+      : '<div style="flex-shrink:0;width:46px;height:46px;border-radius:6px;background:var(--paper-3);display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-size:10px;font-weight:600;text-align:center">no<br>photo</div>') +
+    '<div style="flex:1;min-width:0">' +
+      '<div style="font-weight:600;color:var(--navy)">' + esc(inv.wholesalerName || 'Unknown supplier') +
+        (inv.invoiceNumber ? ' <span style="font-family:var(--mono);font-size:10px;color:var(--ink-3);font-weight:500">#' + esc(inv.invoiceNumber) + '</span>' : '') + '</div>' +
+      '<div style="font-size:11px;color:var(--ink-3);margin-top:2px">' +
+        (inv.totalIncGst ? '$' + Number(inv.totalIncGst).toFixed(2) + ' inc GST' : 'no amount') +
+        (inv.invoiceDate ? ' · ' + esc(inv.invoiceDate) : '') +
+        (inv.capturedBy && (isAdmin || inv.capturedByUserId !== myUid) ? ' · by ' + esc(inv.capturedBy) : '') +
+      '</div>' +
+    '</div>' +
+    reviewPill(inv.reviewStatus || 'pending_review') +
+  '</div>';
+
+  const sec = document.getElementById('materials');
+  sec.innerHTML =
+    '<div class="hero" style="margin-bottom:14px">' +
+      '<div class="hero-row" style="margin-bottom:8px">' +
+        '<div>' +
+          '<div class="hero-lbl">Materials</div>' +
+          '<div style="font-family:var(--display);font-weight:700;font-size:18px;color:var(--navy);letter-spacing:-.018em;margin-top:2px">Job materials &amp; receipts</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--ink-3);line-height:1.5">' +
+        'Snap a photo of any supplier receipt or invoice and it goes straight into the admin review queue. Materials list is read-only here — admin manages the full catalogue from /admin.' +
+      '</div>' +
+    '</div>' +
+
+    '<div style="display:flex;gap:8px;margin-bottom:14px">' +
+      '<button type="button" class="dash-quick-btn primary" onclick="openInvoiceCapture()" style="flex:1">' +
+        '<span class="dash-quick-ico">📷</span><span>Upload invoice / receipt</span>' +
+      '</button>' +
+    '</div>' +
+
+    (pendingMine.length ? '<div class="dash-section">' +
+      '<div class="section-hdr"><h3>' + (isAdmin ? 'Awaiting review' : 'Your uploads in review') + '</h3></div>' +
+      '<div class="card" style="padding:0">' + pendingMine.slice(0, 8).map(invRow).join('') + '</div>' +
+    '</div>' : '') +
+
+    (myCaptures.filter(inv => inv.reviewStatus === 'approved').length ? '<div class="dash-section">' +
+      '<div class="section-hdr"><h3>Approved</h3></div>' +
+      '<div class="card" style="padding:0">' + myCaptures.filter(inv => inv.reviewStatus === 'approved').slice(0, 6).map(invRow).join('') + '</div>' +
+    '</div>' : '') +
+
+    '<div class="dash-section">' +
+      '<div class="section-hdr"><h3>Onsite <span style="color:var(--ink-3);font-weight:400;font-family:var(--mono);font-size:11px;letter-spacing:.06em">' + onsite.length + '</span></h3></div>' +
+      '<div class="card" style="padding:0">' + (onsite.length ? onsite.slice(0, 30).map(itemRow).join('') : '<div class="empty" style="padding:20px;border:0;font-size:13px">No materials marked onsite.</div>') + '</div>' +
+    '</div>' +
+
+    '<div class="dash-section">' +
+      '<div class="section-hdr"><h3>Ordered <span style="color:var(--ink-3);font-weight:400;font-family:var(--mono);font-size:11px;letter-spacing:.06em">' + ordered.length + '</span></h3></div>' +
+      '<div class="card" style="padding:0">' + (ordered.length ? ordered.slice(0, 30).map(itemRow).join('') : '<div class="empty" style="padding:20px;border:0;font-size:13px">Nothing on order yet.</div>') + '</div>' +
+    '</div>' +
+
+    (items.length === 0 ? '<div class="empty" style="margin-top:14px">' +
+      '<div class="empty-title">No materials added yet</div>' +
+      '<div style="color:var(--muted);font-size:13px;margin-top:6px">Admin builds the materials list from /admin/jobs. You can still upload receipts above as you grab things from the wholesaler.</div>' +
+    '</div>' : '');
+}
+
+// Invoice capture modal — phone-first. Camera/file picker, supplier,
+// amount, save-for-review.
+window.openInvoiceCapture = function openInvoiceCapture() {
+  const overlay = document.createElement('div');
+  overlay.id = 'invcap-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(13,27,52,.5);z-index:1000;display:flex;align-items:flex-end;justify-content:center';
+  const sheet = document.createElement('div');
+  sheet.style.cssText = 'background:#fff;width:100%;max-width:480px;max-height:90vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column;overflow:hidden';
+  sheet.innerHTML =
+    '<div style="padding:14px 18px;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:10px">' +
+      '<div style="flex:1">' +
+        '<div style="font-family:var(--display);font-size:15px;font-weight:700;color:var(--navy)">Upload invoice / receipt</div>' +
+        '<div style="font-family:var(--mono);font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.12em;margin-top:2px">Job: ' + esc((CURRENT_JOB && CURRENT_JOB.name) || JOB_ID) + '</div>' +
+      '</div>' +
+      '<button type="button" id="invcap-close" aria-label="Close" style="background:none;border:0;font-size:22px;line-height:1;color:var(--ink-3);cursor:pointer;padding:4px 8px">&times;</button>' +
+    '</div>' +
+    '<div style="padding:14px 16px;overflow-y:auto;flex:1">' +
+      '<label class="photo-pick" id="invcap-pick" style="display:flex;flex-direction:column;gap:8px;padding:18px;text-align:center;cursor:pointer">' +
+        '<input type="file" accept="image/*,application/pdf" capture="environment" id="invcap-file" style="position:absolute;inset:0;opacity:0;cursor:pointer">' +
+        '<div class="photo-pick-icon" style="font-size:24px">📷</div>' +
+        '<div class="photo-pick-txt" id="invcap-pick-text">Tap to take a photo or choose a file</div>' +
+      '</label>' +
+      '<img id="invcap-preview" style="display:none;width:100%;max-height:220px;object-fit:contain;border-radius:6px;margin-top:10px;background:var(--paper-3)">' +
+      '<div id="invcap-pdfname" style="display:none;margin-top:10px;padding:10px 12px;background:var(--paper-3);border-radius:6px;font-size:12px;color:var(--navy)"></div>' +
+
+      '<div class="snag-field" style="margin-top:14px">' +
+        '<label class="snag-field-label" for="invcap-supplier">Supplier <span style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted)">(optional but helpful)</span></label>' +
+        '<input id="invcap-supplier" type="text" placeholder="e.g. TLE, Lawrence &amp; Hanson" autocomplete="off">' +
+      '</div>' +
+
+      '<div class="snag-row-2">' +
+        '<div class="snag-field">' +
+          '<label class="snag-field-label" for="invcap-amount">Total inc GST</label>' +
+          '<input id="invcap-amount" type="number" step="0.01" inputmode="decimal" placeholder="0.00">' +
+        '</div>' +
+        '<div class="snag-field">' +
+          '<label class="snag-field-label" for="invcap-date">Invoice date</label>' +
+          '<input id="invcap-date" type="date" value="' + new Date().toISOString().slice(0,10) + '">' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="snag-field">' +
+        '<label class="snag-field-label" for="invcap-invnum">Invoice number <span style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted)">(optional)</span></label>' +
+        '<input id="invcap-invnum" type="text" autocomplete="off">' +
+      '</div>' +
+
+      '<div class="snag-field">' +
+        '<label class="snag-field-label" for="invcap-notes">Notes <span style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted)">(optional)</span></label>' +
+        '<textarea id="invcap-notes" rows="2" placeholder="e.g. Variation — extra GPOs in Unit 7"></textarea>' +
+      '</div>' +
+
+      '<div id="invcap-error" style="display:none;margin-top:10px;padding:8px 12px;background:var(--red-bg, #fef2f2);color:var(--red);border-radius:6px;font-size:12.5px"></div>' +
+    '</div>' +
+    '<div style="padding:12px 16px;border-top:1px solid var(--rule);display:flex;gap:8px;background:var(--paper-2)">' +
+      '<button type="button" id="invcap-cancel" class="snag-modal-cancel" style="flex:0">Cancel</button>' +
+      '<button type="button" id="invcap-save" class="snag-modal-save" style="flex:1" disabled>Save for admin review</button>' +
+    '</div>';
+  overlay.appendChild(sheet);
+  document.body.appendChild(overlay);
+  document.body.style.overflow = 'hidden';
+
+  let photoDataUrl = null;
+
+  function close() {
+    overlay.remove();
+    document.body.style.overflow = '';
+  }
+  function showErr(msg) {
+    const el = document.getElementById('invcap-error');
+    el.style.display = 'block';
+    el.textContent = msg;
+  }
+  function hideErr() { document.getElementById('invcap-error').style.display = 'none'; }
+  function refreshSaveBtn() {
+    const supplier = document.getElementById('invcap-supplier').value.trim();
+    const amount   = document.getElementById('invcap-amount').value.trim();
+    // Need a photo OR (supplier + amount) — either path is enough for
+    // admin to review the receipt without it being a placeholder.
+    document.getElementById('invcap-save').disabled = !(photoDataUrl || (supplier && amount));
+  }
+
+  document.getElementById('invcap-close').addEventListener('click', close);
+  document.getElementById('invcap-cancel').addEventListener('click', close);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+  document.getElementById('invcap-file').addEventListener('change', e => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    if (f.size > 10 * 1024 * 1024) { showErr('File too large (max 10MB).'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      photoDataUrl = reader.result;
+      hideErr();
+      const isPdf = (f.type || '').includes('pdf');
+      if (isPdf) {
+        document.getElementById('invcap-preview').style.display = 'none';
+        const nameEl = document.getElementById('invcap-pdfname');
+        nameEl.textContent = '📄 ' + f.name + ' · ' + Math.round(f.size / 1024) + ' KB';
+        nameEl.style.display = 'block';
+      } else {
+        document.getElementById('invcap-pdfname').style.display = 'none';
+        const img = document.getElementById('invcap-preview');
+        img.src = photoDataUrl;
+        img.style.display = 'block';
+      }
+      document.getElementById('invcap-pick-text').textContent = 'Tap to choose a different file';
+      refreshSaveBtn();
+    };
+    reader.readAsDataURL(f);
+  });
+
+  ['invcap-supplier','invcap-amount'].forEach(id => {
+    document.getElementById(id).addEventListener('input', refreshSaveBtn);
+  });
+
+  document.getElementById('invcap-save').addEventListener('click', async () => {
+    const btn = document.getElementById('invcap-save');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    hideErr();
+    const body = {
+      wholesalerName: document.getElementById('invcap-supplier').value.trim(),
+      totalIncGst:    document.getElementById('invcap-amount').value || null,
+      invoiceDate:    document.getElementById('invcap-date').value || null,
+      invoiceNumber:  document.getElementById('invcap-invnum').value.trim(),
+      notes:          document.getElementById('invcap-notes').value.trim(),
+      photoDataUrl:   photoDataUrl,
+    };
+    try {
+      let r = await fetch('/api/materials-list?jobId=' + encodeURIComponent(JOB_ID) + '&action=capture-invoice', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      let j = await r.json().catch(() => ({}));
+      if (r.status === 409 && j && j.existingId) {
+        if (!confirm('An invoice with this number already exists for this supplier. Capture another anyway?')) {
+          btn.disabled = false; btn.textContent = 'Save for admin review';
+          return;
+        }
+        body.force = true;
+        r = await fetch('/api/materials-list?jobId=' + encodeURIComponent(JOB_ID) + '&action=capture-invoice', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        j = await r.json().catch(() => ({}));
+      }
+      if (!r.ok) throw new Error((j && j.error) || 'HTTP ' + r.status);
+      if (window.showToast) showToast('Saved for admin review.', 'success');
+      _materialsCache = null;
+      close();
+      if (document.getElementById('materials').classList.contains('active')) _lazyMaterials();
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'Save for admin review';
+      showErr('Save failed: ' + e.message);
+    }
+  });
+};
 // Tags badge on the hamburger menu still needs to be accurate. Fire a
 // lightweight tags load in the background so the badge is correct without
 // blocking the Dashboard render. If the user clicks Tags before this
