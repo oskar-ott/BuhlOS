@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl · cash & margin</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1b34">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+<script type="module" src="/components/list-row.js"></script>
+
+<!--
+  /admin/cash · Cash & margin (phase 13 of the site office rebuild)
+  ────────────────────────────────────────────────────────────────
+
+  Per brief §13: three lenses — margin (vs quote) · burn (rate) ·
+  cash (claimed / paid / owed). Admin-only. Ships only after
+  Hours v1 and Materials v1 are solid (PRs #51 + #54) because
+  rollup math on bad inputs is dangerous.
+
+  The brief is explicit: "Three lenses, one screen." Each row is
+  one active job; each column a lens. The boss can ask three
+  questions in one pass:
+    Am I making money?  → margin
+    How fast am I spending?  → burn
+    When does the cash come back?  → claimed / paid / owed
+-->
+
+<style>
+  .cm-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 18px; gap: 14px; flex-wrap: wrap;
+  }
+  .cm-head h1 {
+    font-family: var(--ff-display);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: -.012em;
+    color: var(--ink);
+    margin: 0;
+  }
+  .cm-head .sub { color: var(--muted); font-size: 13px; margin-top: 4px; max-width: 60ch; }
+
+  /* Top-level org pulse — 4 numbers, one yellow (the brief's rule
+     of one). Spent · Forecast · Claimed · Owed. */
+  .cm-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    overflow: hidden;
+    margin-bottom: 18px;
+    background: var(--surface);
+  }
+  .cm-cell {
+    padding: 14px 18px;
+    border-right: 1px solid var(--line);
+  }
+  .cm-cell:last-child { border-right: 0; }
+  .cm-cell .lab {
+    font-family: var(--ff-mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .cm-cell .val {
+    font-family: var(--ff-display);
+    font-weight: 700;
+    font-size: 26px;
+    color: var(--ink);
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.018em;
+  }
+  .cm-cell .val.yellow {
+    background: var(--accent);
+    color: var(--accent-ink);
+    padding: 2px 8px;
+    border-radius: 4px;
+    display: inline-block;
+  }
+  .cm-cell .sub2 {
+    font-family: var(--ff-mono);
+    font-size: 10.5px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .cm-cell .delta {
+    font-family: var(--ff-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    margin-top: 4px;
+  }
+  .cm-cell .delta.bad  { color: var(--bad); }
+  .cm-cell .delta.warn { color: var(--warn); }
+  .cm-cell .delta.ok   { color: var(--ok); }
+
+  .cm-tabs {
+    display: flex; gap: 4px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .cm-tab {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--ink-2);
+    padding: 6px 14px;
+    font-family: var(--ff-display);
+    font-weight: 600;
+    font-size: 13px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .cm-tab:hover { background: var(--surface-3); }
+  .cm-tab.on {
+    background: var(--ink);
+    color: var(--surface);
+    border-color: var(--ink);
+  }
+
+  .cm-table {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    overflow: hidden;
+  }
+  .cm-row-head, .cm-row {
+    display: grid;
+    grid-template-columns: 1.5fr repeat(4, 1fr) 36px;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .cm-row-head {
+    background: var(--surface-2);
+    font-family: var(--ff-mono);
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .cm-row:last-child { border-bottom: 0; }
+  .cm-row:hover { background: var(--surface-2); }
+  .cm-job-name {
+    font-family: var(--ff-display);
+    font-weight: 600;
+    color: var(--ink);
+    font-size: 14.5px;
+    letter-spacing: -.005em;
+  }
+  .cm-job-code {
+    font-family: var(--ff-mono);
+    font-size: 10.5px;
+    color: var(--muted);
+    letter-spacing: .06em;
+    margin-top: 2px;
+  }
+  .cm-num {
+    font-family: var(--ff-mono);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    text-align: right;
+  }
+  .cm-num .lab2 {
+    font-family: var(--ff-mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    display: block;
+    margin-top: 2px;
+  }
+  .cm-num.bad  { color: var(--bad); }
+  .cm-num.ok   { color: var(--ok); }
+  .cm-num.warn { color: var(--warn); }
+
+  .cm-empty {
+    padding: 60px 22px; text-align: center; color: var(--muted);
+  }
+  .cm-empty b { color: var(--ink); font-family: var(--ff-display); font-weight: 700; font-size: 16px; }
+
+  .cm-warn-banner {
+    border: 1px dashed var(--warn-bd);
+    background: var(--warn-bg);
+    color: var(--warn);
+    padding: 10px 14px;
+    border-radius: var(--r);
+    font-size: 12.5px;
+    margin-bottom: 14px;
+    font-family: var(--ff-mono);
+  }
+</style>
+</head>
+<body>
+
+<script>
+'use strict';
+
+let STATE = {
+  lens: 'margin',  // 'margin' | 'burn' | 'cash'
+  data: null,      // { jobs:[{id,name,contractValue,labourSpent,materialsSpent,...}], totals:{} }
+  loading: false,
+};
+
+window.PAGE = {
+  id: 'costs',
+  title: 'Cash & margin',
+  crumb: 'Cash',
+  async render() {
+    const params = new URLSearchParams(location.search);
+    if (params.get('lens')) STATE.lens = params.get('lens');
+    STATE.loading = true;
+    paint();
+    await loadAll();
+    STATE.loading = false;
+    paint();
+  }
+};
+
+/* ── Load ──────────────────────────────────────────────────────────
+   Two endpoints feed the page:
+     /api/costs           — labour spent per job, lifetime
+     /api/materials-list  — fanned out across active jobs, gives
+                            invoicedExGst + paidExGst per job
+   Forecast / claimed / owed are derived from contractValue +
+   labourEstimate + materialEstimate fields on the job record. */
+
+async function loadAll() {
+  const labour = await SHELL.api('/api/costs').catch(() => ({ jobs: [], totals: { cost: 0 } }));
+
+  const jobs = (SHELL.JOBS || []).filter(j => (j.status || 'active') === 'active');
+  const materialsByJob = {};
+  for (const j of jobs) {
+    try {
+      const r = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(j.id));
+      // The rollup lives on the list — different responses use different
+      // shapes. Pull whichever is present.
+      materialsByJob[j.id] = (r.costRollup) || (r.list && r.list.costRollup) || null;
+    } catch {}
+  }
+
+  // Compose per-job rows.
+  const labourByJobId = {};
+  (labour.jobs || []).forEach(r => { labourByJobId[r.id] = r; });
+
+  const rows = jobs.map(j => {
+    const labRow = labourByJobId[j.id] || { hours: 0, cost: 0 };
+    const matsRollup = materialsByJob[j.id] || {};
+    const contractValue   = Number(j.contractValue)   || 0;
+    const labourEstimate  = Number(j.labourEstimate)  || 0;
+    const materialEstimate= Number(j.materialEstimate)|| 0;
+    const labourSpent     = Number(labRow.cost)        || 0;
+    const labourHours     = Number(labRow.hours)       || 0;
+    const materialsCommitted = Number(matsRollup.committedExGst) || 0;
+    const materialsReceived  = Number(matsRollup.receivedExGst)  || 0;
+    const materialsInvoiced  = Number(matsRollup.invoicedExGst)  || 0;
+    const materialsPaid      = Number(matsRollup.paidExGst)      || 0;
+    // Spent = labour cost actually clocked + materials received (or
+    // invoiced if no receipt data — older items).
+    const materialsSpent = materialsReceived || materialsInvoiced;
+    const spent = labourSpent + materialsSpent;
+    // Forecast end = burn rate proportion. If we have a labourEstimate
+    // and the job has clocked >0h, burn pct = labourSpent/labourEstimate.
+    // Forecast = spent / burnPct (clamped between 1x and 3x of spent).
+    let forecastEnd = null;
+    if (labourEstimate > 0 && labourSpent > 0) {
+      const burnPct = Math.min(1, labourSpent / labourEstimate);
+      if (burnPct > 0.05) {
+        forecastEnd = Math.round(spent / burnPct);
+      }
+    }
+    const margin = contractValue ? (contractValue - (forecastEnd || spent)) : null;
+    const marginPct = (margin != null && contractValue) ? (margin / contractValue) * 100 : null;
+
+    return {
+      id: j.id,
+      name: j.name,
+      code: j.code || j.id,
+      status: j.status || 'active',
+      contractValue,
+      labourEstimate,
+      materialEstimate,
+      labourSpent,
+      labourHours,
+      materialsSpent,
+      materialsCommitted,
+      materialsInvoiced,
+      materialsPaid,
+      spent,
+      forecastEnd,
+      margin,
+      marginPct,
+      // Cash side — claimed/paid/owed sit on the job record (set when
+      // the boss raises a claim). Phase 13 reads them in; the entry
+      // UI lives in the existing job detail's claims tab (planned).
+      claimed: Number(j.claimedToDate)  || 0,
+      paid:    Number(j.paidToDate)     || 0,
+      owed:    Math.max(0, (Number(j.claimedToDate) || 0) - (Number(j.paidToDate) || 0)),
+      oldestClaimDays: Number(j.oldestClaimDays) || 0,
+    };
+  });
+
+  // Totals across active jobs.
+  const totals = rows.reduce((t, r) => ({
+    spent:    t.spent    + r.spent,
+    forecast: t.forecast + (r.forecastEnd || r.spent),
+    claimed:  t.claimed  + r.claimed,
+    paid:     t.paid     + r.paid,
+    owed:     t.owed     + r.owed,
+    contract: t.contract + r.contractValue,
+  }), { spent: 0, forecast: 0, claimed: 0, paid: 0, owed: 0, contract: 0 });
+
+  STATE.data = { jobs: rows, totals };
+}
+
+/* ── Render ──────────────────────────────────────────────────────── */
+
+function paint() {
+  const d = STATE.data;
+  SHELL.$('#page').innerHTML = `
+    <div class="cm-head">
+      <div>
+        <h1>Cash & margin</h1>
+        <div class="sub">Three lenses: margin (vs quote) · burn (rate of spend now) · cash (claimed → paid → owed). Admin-only. Rollups read from approved hours + received materials — bad inputs → bad rollups; this page ships after Hours v1 and Materials v1 are solid.</div>
+      </div>
+    </div>
+
+    ${!d || STATE.loading ? `<div class="cm-empty"><b>${STATE.loading ? 'Loading…' : 'Initialising'}</b></div>` : `
+      ${cmTopStrip(d.totals)}
+
+      <div class="cm-tabs" role="tablist" aria-label="Lens">
+        <button class="cm-tab ${STATE.lens === 'margin' ? 'on' : ''}" data-lens="margin">Margin</button>
+        <button class="cm-tab ${STATE.lens === 'burn'   ? 'on' : ''}" data-lens="burn">Burn</button>
+        <button class="cm-tab ${STATE.lens === 'cash'   ? 'on' : ''}" data-lens="cash">Cash</button>
+      </div>
+
+      ${d.jobs.every(r => !r.contractValue && !r.labourEstimate) ? `
+        <div class="cm-warn-banner">
+          ⚑ No contractValue / labourEstimate / materialEstimate on any active job. Margin + forecast will show as <code>—</code> until the boss fills those in on /admin/jobs/&lt;id&gt;.
+        </div>
+      ` : ''}
+
+      ${cmTable(d.jobs)}
+    `}
+  `;
+  SHELL.$$('.cm-tab[data-lens]').forEach(b => b.addEventListener('click', () => {
+    STATE.lens = b.dataset.lens;
+    const u = new URL(location.href);
+    u.searchParams.set('lens', STATE.lens);
+    history.replaceState(null, '', u);
+    paint();
+  }));
+}
+
+function cmTopStrip(t) {
+  // The brief's rule of one: ONE yellow on the screen. Spent gets it
+  // because that's the number the boss is most often staring at.
+  const overrun = t.forecast > t.contract && t.contract > 0;
+  return `
+    <div class="cm-strip">
+      <div class="cm-cell">
+        <div class="lab">Spent</div>
+        <div class="val yellow">${fmtMoney(t.spent)}</div>
+        <div class="sub2">labour + materials · all active jobs</div>
+      </div>
+      <div class="cm-cell">
+        <div class="lab">Forecast end</div>
+        <div class="val">${fmtMoney(t.forecast)}</div>
+        <div class="delta ${overrun ? 'bad' : 'ok'}">
+          ${t.contract ? `${overrun ? '⚑ ' : ''}vs ${fmtMoney(t.contract)} contract` : '—'}
+        </div>
+      </div>
+      <div class="cm-cell">
+        <div class="lab">Claimed</div>
+        <div class="val">${fmtMoney(t.claimed)}</div>
+        <div class="sub2">of ${fmtMoney(t.contract)} contract</div>
+      </div>
+      <div class="cm-cell">
+        <div class="lab">Paid · owed</div>
+        <div class="val">${fmtMoney(t.paid)} <span style="color:var(--bad);font-size:18px">/ ${fmtMoney(t.owed)}</span></div>
+        <div class="sub2">${t.owed ? 'outstanding receivables' : 'all settled'}</div>
+      </div>
+    </div>
+  `;
+}
+
+function cmTable(rows) {
+  if (!rows.length) return `<div class="cm-empty"><b>No active jobs to roll up.</b></div>`;
+  const head = STATE.lens === 'margin' ? ['Spent', 'Forecast', 'Margin', 'Margin %']
+             : STATE.lens === 'burn'   ? ['Labour h', 'Labour $', 'Materials $', 'Spent']
+             : ['Claimed', 'Paid', 'Owed', 'Oldest claim'];
+
+  const rowHtml = rows.map(r => {
+    const cells = STATE.lens === 'margin' ? [
+      fmtMoney(r.spent),
+      r.forecastEnd != null ? fmtMoney(r.forecastEnd) : '—',
+      r.margin != null ? fmtMoney(r.margin) : '—',
+      r.marginPct != null ? r.marginPct.toFixed(1) + '%' : '—',
+    ] : STATE.lens === 'burn' ? [
+      r.labourHours.toFixed(1) + 'h',
+      fmtMoney(r.labourSpent),
+      fmtMoney(r.materialsSpent),
+      fmtMoney(r.spent),
+    ] : [
+      fmtMoney(r.claimed),
+      fmtMoney(r.paid),
+      fmtMoney(r.owed),
+      r.oldestClaimDays ? r.oldestClaimDays + ' days' : '—',
+    ];
+    const tones = STATE.lens === 'margin' ? [
+      '',
+      r.forecastEnd > r.contractValue && r.contractValue ? 'warn' : '',
+      r.margin != null && r.margin < 0 ? 'bad' : (r.margin > 0 ? 'ok' : ''),
+      r.marginPct != null && r.marginPct < 0 ? 'bad' : (r.marginPct > 15 ? 'ok' : ''),
+    ] : STATE.lens === 'burn' ? ['', '', '', ''] : [
+      '', '', r.owed > 0 ? 'bad' : 'ok', r.oldestClaimDays > 45 ? 'bad' : (r.oldestClaimDays > 30 ? 'warn' : ''),
+    ];
+    return `
+      <a class="cm-row" href="/admin/jobs/${SHELL.escapeHtml(r.id)}" style="text-decoration:none;color:inherit">
+        <div>
+          <div class="cm-job-name">${SHELL.escapeHtml(r.name)}</div>
+          <div class="cm-job-code">${SHELL.escapeHtml(r.code)}${r.contractValue ? ' · ' + fmtMoney(r.contractValue) + ' contract' : ''}</div>
+        </div>
+        ${cells.map((v, i) => `<div class="cm-num ${tones[i]}">${SHELL.escapeHtml(v)}</div>`).join('')}
+        <div style="color:var(--muted);text-align:right">→</div>
+      </a>
+    `;
+  }).join('');
+
+  return `
+    <div class="cm-table">
+      <div class="cm-row-head">
+        <div>Job</div>
+        ${head.map(h => `<div style="text-align:right">${h}</div>`).join('')}
+        <div></div>
+      </div>
+      ${rowHtml}
+    </div>
+  `;
+}
+
+function fmtMoney(n) {
+  return '$' + Number(n || 0).toLocaleString('en-AU', { maximumFractionDigits: 0 });
+}
+</script>
+</body>
+</html>

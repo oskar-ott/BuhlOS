@@ -22,6 +22,7 @@
     { "source": "/admin/assets",          "destination": "/admin/assets.html" },
     { "source": "/admin/activity",        "destination": "/admin/activity.html" },
     { "source": "/admin/materials",       "destination": "/admin/materials.html" },
+    { "source": "/admin/cash",            "destination": "/admin/cash.html" },
 
     { "source": "/dev/site-office",            "destination": "/dev/site-office/components.html" },
     { "source": "/dev/site-office/components", "destination": "/dev/site-office/components.html" },
