@@ -1007,6 +1007,17 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
   .nb { padding: 11px 14px; font-size: 12.5px; }
   .nb-menu { padding: 11px 12px; }
 
+  /* Hide the area-search bar on the dashboard view — it's a "find a
+     unit / dwelling" tool that's only useful when looking at a group
+     of areas. On the dashboard (the worker's landing), it's just
+     ~44px of wasted vertical space. When the user opens Work Areas,
+     the search bar reappears. Uses :has() (Safari 15.4+, Chrome 105+);
+     older browsers keep the always-on behaviour. */
+  body:has(#dashboard.sc.active) .dw-find { display: none; }
+  /* Nav strip becomes the only thing under the header on dashboard view,
+     so anchor it to top:54 (header height). */
+  body:has(#dashboard.sc.active) .nav { top: 54px; }
+
   /* Hero compresses: smaller %, single-row layout, tighter padding */
   .hero { padding: 14px 16px; }
   .hero-row { margin-bottom: 10px; gap: 8px; }
