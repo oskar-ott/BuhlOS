@@ -23,6 +23,9 @@ let STATE = {
   showApproved: false,
   pending: [],
   approvedThisWeek: [],
+  // Hours policy threshold — fetched from /api/policy; falls back to 9
+  // if the policy endpoint is unreachable so the bulk rule still works.
+  policyHrs: 9,
 };
 
 window.PAGE = {
@@ -39,6 +42,14 @@ window.PAGE = {
 };
 
 async function loadAll() {
+  // Fetch org-wide policy first so the per-paint anomaly + bulk rule
+  // see the right threshold on initial render.
+  try {
+    const r = await SHELL.api('/api/policy');
+    if (r && r.policy && r.policy.hours && Number.isFinite(r.policy.hours.dailyThreshold)) {
+      STATE.policyHrs = r.policy.hours.dailyThreshold;
+    }
+  } catch {}
   const params = new URLSearchParams(location.search);
   if (params.get('job')) STATE.filterJob = params.get('job');
 
@@ -81,10 +92,11 @@ function paint() {
   const staleCount = filtered.filter(e => e.submittedAt && (now - Date.parse(e.submittedAt)) >= 24 * 3600 * 1000).length;
   const staleTone = staleCount === 0 ? 'green' : staleCount >= 5 ? 'red' : 'amber';
 
-  // Phase 07 (brief §09 H-02): anomaly detection. Entries over 9h, on a
-  // weekend, or on a public holiday get a yellow flag. Not a block. We
-  // count them so the rule-based bulk panel can preview what passes.
-  const POLICY_HRS = 9;
+  // Phase 07 (brief §09 H-02): anomaly detection. Entries over the
+  // configurable daily threshold, on a weekend, or on a public holiday
+  // get a yellow flag. Not a block. We count them so the rule-based
+  // bulk panel can preview what passes.
+  const POLICY_HRS = STATE.policyHrs;
   const under = filtered.filter(e => canApprove(e) && !isAnomaly(e, POLICY_HRS));
   const flagged = filtered.filter(e => canApprove(e) && isAnomaly(e, POLICY_HRS));
 
@@ -228,7 +240,7 @@ function renderEntryCard(entry) {
   }
   // Phase 07 (brief §09 H-02): yellow <rate-flag> for anomalies.
   // Reviewable not refusable — never a block.
-  const anomalies = anomalyReasons(entry, 9);
+  const anomalies = anomalyReasons(entry, STATE.policyHrs);
   const flagHtml = anomalies.length
     ? `<rate-flag hours="${Number(entry.totalHours).toFixed(1)}" note="${SHELL.escapeHtml(anomalies.map(a => a.label).join(' · ').toLowerCase())}"></rate-flag>`
     : '';
