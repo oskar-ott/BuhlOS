@@ -18,6 +18,7 @@ const crypto = require('crypto');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
 const { writeEntry, appendAudit } = require('./_lib/time-entries');
+const { appendActivity } = require('./_lib/activity');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -224,6 +225,22 @@ module.exports = async (req, res) => {
       // hash-indexed roll-up for this run.
       console.error('payroll-runs append failed', e);
     }
+    // Phase 09 (brief §14): single activity row records the whole run.
+    await appendActivity({
+      action: 'payroll.exported',
+      scope:  'payroll',
+      actor:  me.id,
+      actorName: me.username,
+      target: `payroll/${exportId}`,
+      targetLabel: `${fromDate} → ${toDate}`,
+      meta: {
+        exportId,
+        hash: csvHash,
+        rowCount: rows.length,
+        range: { fromDate, toDate, status },
+        summary: summarise(rows),
+      },
+    });
   }
 
   const filename = 'buhl-payroll_' + fromDate + '_to_' + toDate + (status === 'approved' ? '' : '_' + status) + '.csv';
