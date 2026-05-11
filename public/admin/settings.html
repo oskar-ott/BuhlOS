@@ -78,6 +78,24 @@ function paint() {
       </div>
     </div>
 
+    <!-- Brief §09 H-02: configurable hours-anomaly threshold (was
+         hardcoded 9h in approvals.html). Admin-only edit; LH/office/
+         accounts read it but only admins can move the bar. -->
+    <div class="card">
+      <div class="card-hdr"><div><div class="card-title">Hours policy</div>
+        <div class="card-sub">Daily threshold for the bulk-approve rule + anomaly flag. Entries at or below auto-approve; entries above need a human look.</div></div>
+        <button class="btn btn-primary" id="hp-save" disabled>Save</button></div>
+      <div style="display:grid;grid-template-columns:140px 1fr;gap:14px;align-items:center">
+        <label class="field-lbl" for="hp-threshold" style="margin:0">Daily threshold</label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input class="input" id="hp-threshold" type="number" step="0.25" min="1" max="24"
+                 value="9" style="max-width:120px">
+          <span style="font-family:var(--ff-mono);color:var(--muted);font-size:12px">hours per day</span>
+        </div>
+      </div>
+      <div id="hp-meta" style="margin-top:10px;font-size:11.5px;color:var(--muted);font-family:var(--ff-mono)"></div>
+    </div>
+
     <div class="card">
       <div class="card-hdr"><div><div class="card-title">Migration notes</div>
         <div class="card-sub">This redesign consolidates three older admin surfaces.</div></div></div>
@@ -94,9 +112,51 @@ function paint() {
   SHELL.$('#jt-add').addEventListener('click', addType);
   SHELL.$$('button[data-jt-edit]').forEach(b => b.addEventListener('click', () => editType(b.dataset.jtEdit)));
   SHELL.$$('button[data-jt-del]').forEach(b => b.addEventListener('click', () => delType(b.dataset.jtDel)));
+  wireHoursPolicyCard();
   SHELL.$('#me-save').addEventListener('click', saveProfile);
   SHELL.$('#pw-save').addEventListener('click', savePassword);
   SHELL.$('#open-tweaks').addEventListener('click', () => { if (SHELL.toggleTweaks) SHELL.toggleTweaks(); });
+}
+
+// Brief §09 H-02 hours-policy editor. Loads from /api/policy, enables
+// save on dirty, PUTs the new threshold. Best-effort — failure leaves
+// the input at the server's prior value.
+async function wireHoursPolicyCard() {
+  const inp  = document.getElementById('hp-threshold');
+  const btn  = document.getElementById('hp-save');
+  const meta = document.getElementById('hp-meta');
+  if (!inp || !btn) return;
+  try {
+    const r = await SHELL.api('/api/policy');
+    const v = r && r.policy && r.policy.hours && r.policy.hours.dailyThreshold;
+    if (Number.isFinite(v)) inp.value = v;
+    if (r && r.policy && r.policy.updatedAt) {
+      meta.textContent = `Last updated ${SHELL._ago(r.policy.updatedAt)}${r.policy.updatedBy ? ' · by ' + SHELL.escapeHtml(r.policy.updatedBy) : ''}`;
+    }
+  } catch {}
+  inp.addEventListener('input', () => { btn.disabled = false; });
+  btn.addEventListener('click', async () => {
+    const n = Number(inp.value);
+    if (!Number.isFinite(n) || n < 1 || n > 24) {
+      SHELL.toast('Threshold must be between 1 and 24', 'bad');
+      return;
+    }
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const r = await SHELL.api('/api/policy', {
+        method: 'PUT',
+        body: { hours: { dailyThreshold: n } },
+      });
+      btn.textContent = 'Save';
+      if (r && r.policy && r.policy.updatedAt) {
+        meta.textContent = `Last updated ${SHELL._ago(r.policy.updatedAt)}`;
+      }
+      SHELL.toast(`Threshold set to ${n}h`, 'ok');
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'Save';
+      SHELL.toast('Save failed — ' + e.message, 'bad');
+    }
+  });
 }
 
 function jobTypesHtml() {
