@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>buhl electrical</title>
 <link rel="stylesheet" href="/theme.css">
+<!--
+  Phase 02 (job-mobile rebuild) — bring in the new design tokens
+  on top of the legacy theme. The buhlos.css :root tokens override
+  --paper / --navy / --yellow / etc and supply Inter Tight + the
+  type ramp. Web components import lazily; only the chrome shim
+  styles + <buhl-mark> are needed eagerly. (Brief §02 + §04 + §16.)
+-->
+<link rel="stylesheet" href="/css/buhlos.css">
+<script type="module" src="/components/buhl-mark.js"></script>
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1167,6 +1176,142 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
   /* Tools menu items get a slightly bigger tap target (44pt = Apple HIG). */
   .nav-menu-item { padding: 12px 16px; min-height: 44px; }
 }
+
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║  Phase 02 chrome override (brief §02 + §04 + §16)                ║
+   ║                                                                  ║
+   ║  Re-skins the navy band header and tightens the bottom nav. The  ║
+   ║  legacy DOM (My Day pill, Setup pill, sync-pill, sign-out) is    ║
+   ║  kept for JS compatibility but visually hidden via .hdr-legacy.  ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+
+body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
+
+/* The new header — solid navy band, 54px tall on phones. */
+.hdr.v2 {
+  background: var(--navy, #0d1b34);
+  height: 54px;
+  min-height: 54px;
+  padding: 0 14px;
+  gap: 12px;
+  display: flex; align-items: center;
+  position: sticky; top: 0; z-index: 200;
+  padding-top: env(safe-area-inset-top);
+  /* When safe-area-inset-top is non-zero the bar gets pushed down naturally. */
+  border-bottom: 0;
+}
+.hdr.v2 .hdr-mark { color: rgba(255, 255, 255, .82); flex-shrink: 0; }
+.hdr.v2 .hdr-job {
+  flex: 1; min-width: 0;
+  background: transparent; border: 0; padding: 0;
+  display: flex; flex-direction: column; justify-content: center;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  position: relative;
+  padding-right: 16px;
+}
+.hdr.v2 .hdr-job:focus-visible {
+  outline: 1px solid rgba(245, 208, 32, .7);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.hdr.v2 .hdr-name {
+  color: #fff;
+  font-family: var(--display, "Inter Tight", sans-serif);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -.018em;
+  line-height: 1.15;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hdr.v2 .hdr-sub {
+  color: rgba(255, 255, 255, .55);
+  font-family: var(--mono, "JetBrains Mono", monospace);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hdr.v2 .hdr-job-chev {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  color: rgba(255, 255, 255, .42);
+  font-size: 12px;
+}
+.hdr.v2 .hdr-job[aria-expanded="true"] .hdr-job-chev {
+  color: var(--yellow, #f5d020);
+  transform: translateY(-50%) rotate(180deg);
+}
+.hdr.v2 .hdr-pct {
+  font-family: var(--display, sans-serif);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--yellow, #f5d020);
+  letter-spacing: -.005em;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  text-decoration: none;
+  padding: 6px 8px;
+  min-height: 44px;
+  display: inline-flex; align-items: center;
+}
+.hdr.v2 .hdr-pct:empty,
+.hdr.v2 .hdr-pct[aria-hidden="true"]:empty { display: none; }
+
+/* Hide legacy chrome bits — they stay in the DOM so JS that targets
+   them keeps working, just not visible on the new chrome. */
+.hdr.v2 .hdr-legacy { display: none !important; }
+
+/* Re-tone the bottom nav to use the new tokens. Structural changes
+   (3-tab Home · Areas · Tools) land in phase 04 — for now we keep
+   the dynamic group buttons in place but give them the new look. */
+.nav {
+  background: var(--paper, #f3efe7);
+  border-top: 1px solid var(--rule, #d2ccbf);
+  border-bottom: 1px solid var(--rule, #d2ccbf);
+}
+.nav .nb {
+  font-family: var(--display, sans-serif);
+  font-weight: 600;
+  color: var(--ink-3, #6a7591);
+}
+.nav .nb.active {
+  color: var(--navy, #0d1b34);
+  border-bottom-color: var(--yellow, #f5d020);
+}
+.nav .nb-menu {
+  color: var(--ink-2, #2a3958);
+}
+.nav-menu {
+  background: var(--paper, #f3efe7) !important;
+  border: 1px solid var(--rule, #d2ccbf) !important;
+}
+.nav-menu-section {
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  letter-spacing: .14em;
+  color: var(--ink-3, #6a7591);
+}
+.nav-menu-item {
+  color: var(--ink, #0d1b34);
+  font-family: var(--display, sans-serif);
+  font-weight: 500;
+}
+
+/* Job-switcher sheet — re-tone to the new palette. */
+.js-overlay { top: 54px; }
+.js-sheet { background: var(--paper, #f3efe7); }
+.js-row .js-name { color: var(--navy, #0d1b34); font-family: var(--display, sans-serif); }
+.js-row .js-pct  { color: var(--navy, #0d1b34); font-family: var(--display, sans-serif); }
+.js-row.cur     { border-left-color: var(--yellow, #f5d020); }
+
+@media (max-width: 600px) {
+  .hdr.v2 { height: 54px; min-height: 54px; padding: 0 12px; gap: 10px; }
+  .hdr.v2 .hdr-name { font-size: 16px; }
+  .hdr.v2 .hdr-pct { font-size: 14px; padding: 6px 4px; }
+}
 </style>
 </head>
 <body>
@@ -1455,11 +1600,23 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
   </div>
 </div>
 
-<div class="hdr">
-  <a href="/my-day" class="hdr-logo-link wordmark invert" style="display:inline-flex;align-items:baseline;gap:.04em;text-decoration:none;flex-shrink:0;font-size:22px" title="Back to My Day">b&uuml;hl<span class="os">OS</span></a>
-  <a href="/my-day" id="hdr-myday" class="hdr-myday" title="Back to My Day">My Day</a>
-  <a id="hdr-setup" class="hdr-setup" title="Edit job setup (areas, checklists, crew, client)">Setup</a>
-  <div class="hdr-div"></div>
+<!--
+  Phase 02 job header (brief §02):
+    Solid navy 54px (56 with safe-area). bühl mark (sync indicator)
+    on the far left. Job name + code stacked. Yellow % on the right.
+
+  IDs preserved so the existing JS keeps working:
+    #hdr-name  — set from job.name
+    #hdr-sub   — set from job.id (or 'Progress portal' for clients)
+    #hdr-job-trigger — the job-switcher button
+    #sdot, #stxt — legacy sync-pill markers, used by setSync()
+
+  My Day pill / Setup pill / Sign-out / sync-pill text move into the
+  Tools menu (Phase 07). The legacy #logoutBtn stays in the DOM
+  (hidden by CSS) so other code paths that call .click() still work.
+-->
+<div class="hdr v2">
+  <buhl-mark size="sm" class="hdr-mark" aria-label="Sync state"></buhl-mark>
   <button class="hdr-job" id="hdr-job-trigger" type="button"
           aria-haspopup="dialog" aria-expanded="false"
           title="Switch job — tap to see your other jobs">
@@ -1467,11 +1624,16 @@ button.kpi-tile.kpi-tile-tap:active{transform:scale(.985)}
     <div class="hdr-sub" id="hdr-sub"></div>
     <span class="hdr-job-chev" aria-hidden="true">&#9662;</span>
   </button>
-  <div class="sync-pill">
+  <a href="#dashboard" class="hdr-pct" id="hdr-pct" title="Jump to KPI strip" aria-hidden="true"></a>
+
+  <!-- Legacy hooks kept for JS compatibility — visually hidden on phones. -->
+  <a href="/my-day" id="hdr-myday" class="hdr-myday hdr-legacy" title="Back to My Day">My Day</a>
+  <a id="hdr-setup" class="hdr-setup hdr-legacy" title="Edit job setup (areas, checklists, crew, client)">Setup</a>
+  <div class="sync-pill hdr-legacy">
     <div class="sdot" id="sdot"></div>
     <div class="stxt" id="stxt">Live</div>
   </div>
-  <button id="logoutBtn" class="hdr-signout" title="Sign out">Sign out</button>
+  <button id="logoutBtn" class="hdr-signout hdr-legacy" title="Sign out">Sign out</button>
 </div>
 
 <!-- Job switcher slide-down sheet — Sheet 03 moment 04 -->
@@ -1992,9 +2154,34 @@ async function persist(){
 }
 function sched(){clearTimeout(saveT);saveT=setTimeout(persist,800);}
 function sync(s){
+  // Legacy sync-pill (kept for non-phone fallback rendering).
   const d=document.getElementById('sdot'),t=document.getElementById('stxt');
-  d.className='sdot'+(s==='syncing'?' syncing':s==='error'?' err':'');
-  t.textContent=s==='syncing'?'Saving…':s==='error'?'Offline':'Saved';
+  if (d) d.className='sdot'+(s==='syncing'?' syncing':s==='error'?' err':'');
+  if (t) t.textContent=s==='syncing'?'Saving…':s==='error'?'Offline':'Saved';
+  // Phase 02: fan-out to <buhl-mark> via the Sync bus.
+  try {
+    const BS = window.BuhlSync;
+    if (BS) {
+      if (s === 'syncing')      BS.pulse();
+      else if (s === 'error')   BS.fail('persist');
+      else                      BS.idle();
+    }
+  } catch {}
+}
+
+/* Phase 02: keep #hdr-pct in sync with the current overall progress.
+   Called whenever D or the dashboard repaints; falls back to '' (the
+   element hides) when the percent isn't known yet. */
+function paintHeaderPct(pct) {
+  const el = document.getElementById('hdr-pct');
+  if (!el) return;
+  if (pct == null || isNaN(pct)) {
+    el.textContent = '';
+    el.setAttribute('aria-hidden', 'true');
+    return;
+  }
+  el.textContent = Math.round(pct) + '%';
+  el.removeAttribute('aria-hidden');
 }
 function inf(dw){return D.dwellings[dw]||{};}
 function stv(dw,st){const i=inf(dw);return(i[st]&&i[st].status)||'Not Started';}
@@ -2096,6 +2283,8 @@ function renderDash(){
   const ns=areas.filter(a=>{const s=stats(a.id);return s.pct===0&&s.ip===0;}).length;
   const os=(D.snags||[]).filter(s=>s.status==='Open').length;
   const op=Math.round(areas.reduce((acc,a)=>acc+stats(a.id).pct,0)/areas.length);
+  // Phase 02: mirror the overall % onto the navy header band.
+  paintHeaderPct(op);
   const inProgressCount = areas.filter(a => { const s=stats(a.id); return s.pct>0 && s.pct<100; }).length;
 
   let h='';
