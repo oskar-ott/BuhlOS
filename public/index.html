@@ -2210,64 +2210,74 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
       <span class="nb-menu-lbl" id="navMenuLbl">Tools</span>
       <span class="nb-menu-marker" id="navMenuMarker" hidden></span>
     </button>
+    <!--
+      Phase 07 Tools menu (brief §14).
+      Three groups, fixed order: Job tools · Documents · Admin.
+      Empty groups don't render — hideEmptyToolGroups() runs after
+      role detection and removes a .nav-menu-section header when no
+      visible item follows it before the next section/end.
+
+      Account (sign-out) sits below, never inside a group.
+    -->
     <div class="nav-menu" id="navMenu" role="menu" hidden>
-      <div class="nav-menu-section">Job tools</div>
+
+      <!-- ── Job tools — day-to-day. All roles with job access. ── -->
+      <div class="nav-menu-section" data-grp="job-tools">Job tools</div>
       <button class="nav-menu-item" role="menuitem" data-sec="snags"
         onclick="goNav('snags')">
         <span class="nav-menu-item-lbl">Snags</span>
         <span class="nav-menu-item-badge" id="snavBadge"></span>
+      </button>
+      <button class="nav-menu-item" role="menuitem" data-sec="hours"
+        id="hoursMenuItem" onclick="goNav('hours')">
+        <span class="nav-menu-item-lbl">Hours</span>
+      </button>
+      <button class="nav-menu-item" role="menuitem" data-sec="temps"
+        onclick="goNav('temps')">
+        <span class="nav-menu-item-lbl">Temps</span>
       </button>
       <button class="nav-menu-item" role="menuitem" data-sec="tags"
         onclick="goNav('tags')">
         <span class="nav-menu-item-lbl">Test &amp; Tag</span>
         <span class="nav-menu-item-badge" id="ttnavBadge"></span>
       </button>
-      <button class="nav-menu-item" role="menuitem" data-sec="temps"
-        onclick="goNav('temps')">
-        <span class="nav-menu-item-lbl">Temps</span>
+
+      <!-- ── Documents — reference material. Read-only for tradies. ── -->
+      <div class="nav-menu-section" data-grp="documents"
+           style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">Documents</div>
+      <button class="nav-menu-item" role="menuitem"
+        onclick="if(currentDwellingId){switchTab(document.querySelector('.dtab:nth-of-type(2)'),'tp-itp');toggleNavMenu()}else{goNav('snags')}">
+        <span class="nav-menu-item-lbl">Photos &amp; ITP</span>
       </button>
-      <button class="nav-menu-item" role="menuitem" data-sec="hours"
-        id="hoursMenuItem" onclick="goNav('hours')">
-        <span class="nav-menu-item-lbl">Hours</span>
-      </button>
-      <!-- Materials — field-side capture + read-only view. Admin + LH on
-           this job get this entry; tradies and clients don't (the brief
-           explicitly keeps cost/financial visibility scoped). JS hides
-           the item for those roles in initCurrentUser. -->
       <button class="nav-menu-item" role="menuitem" data-sec="materials"
         id="materialsMenuItem" onclick="goNav('materials')" hidden>
         <span class="nav-menu-item-lbl">Materials</span>
         <span class="nav-menu-item-badge" id="matsnavBadge"></span>
       </button>
-      <!-- Contacts — admin + LH + tradie read-only. Clients never see
-           this (server returns 403 for them anyway). Tap-to-call /
-           tap-to-email phone numbers are the main field-side use case. -->
       <button class="nav-menu-item" role="menuitem" data-sec="contacts"
         id="contactsMenuItem" onclick="goNav('contacts')" hidden>
         <span class="nav-menu-item-lbl">Contacts</span>
       </button>
-      <!-- Mobile job-rebuild: with the header pills hidden on phones, the
-           Tools menu becomes the single home for navigation off this job
-           (My Day / Setup / Sign out). Each is shown only when relevant —
-           tradies don't see Setup, admins/LH see the full set. JS toggles
-           visibility once role is known so the menu stays uncluttered. -->
-      <div class="nav-menu-section" id="navMenuMoveSection" style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">Switch context</div>
+
+      <!-- ── Admin — hidden entirely from tradies/clients. ── -->
+      <div class="nav-menu-section" data-grp="admin" id="navMenuMoveSection"
+           style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">Admin</div>
       <a class="nav-menu-item" role="menuitem" id="navMenuMyDay"
          href="/my-day" hidden>
         <span class="nav-menu-item-lbl">← My Day</span>
       </a>
       <a class="nav-menu-item" role="menuitem" id="navMenuSetup"
          href="#" hidden>
-        <span class="nav-menu-item-lbl">⚙ Edit job setup</span>
+        <span class="nav-menu-item-lbl">Edit job setup</span>
       </a>
       <a class="nav-menu-item" role="menuitem" id="navMenuOps"
          href="/admin/operations" hidden>
-        <span class="nav-menu-item-lbl">↺ Admin operations</span>
+        <span class="nav-menu-item-lbl">Admin operations</span>
       </a>
-      <!-- Design brief #04 — sign-out moves into Job Tools so it stops
-           crowding the header. The original #logoutBtn stays in the DOM
-           for desktop / fallback; CSS hides it on small viewports. -->
-      <div class="nav-menu-section" style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">Account</div>
+
+      <!-- ── Account — separate, always visible. ── -->
+      <div class="nav-menu-section" data-grp="account"
+           style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">Account</div>
       <button class="nav-menu-item" role="menuitem"
         onclick="document.getElementById('logoutBtn').click()">
         <span class="nav-menu-item-lbl" style="color:#475569">Sign out</span>
@@ -6588,9 +6598,32 @@ function openNavMenu(){
   const menu = document.getElementById('navMenu');
   const btn  = document.getElementById('navMenuBtn');
   if (!menu || !btn) return;
+  // Phase 07: hide group headers when nothing's visible inside.
+  hideEmptyToolGroups();
   menu.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
   _positionNavMenu();
+}
+
+/* Empty group hiding (brief §14 — "An empty group does not render.")
+   Run on every open so dynamic hide/show of items by role-init still
+   collapses the headers above them. */
+function hideEmptyToolGroups(){
+  const menu = document.getElementById('navMenu');
+  if (!menu) return;
+  const headers = menu.querySelectorAll('.nav-menu-section[data-grp]');
+  headers.forEach(h => {
+    // Walk forward until the next .nav-menu-section or end of menu.
+    let hasVisible = false;
+    let n = h.nextElementSibling;
+    while (n && !n.classList.contains('nav-menu-section')){
+      if (!n.hidden && getComputedStyle(n).display !== 'none'){
+        hasVisible = true; break;
+      }
+      n = n.nextElementSibling;
+    }
+    h.hidden = !hasVisible;
+  });
 }
 // Anchor the menu directly under the hamburger button. We use fixed
 // positioning so the parent `.nav` overflow can't clip it. The right edge
