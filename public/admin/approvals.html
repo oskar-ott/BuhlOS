@@ -377,17 +377,81 @@ function onReject(ev) {
     }
     if (!reason) return;
     e2.target.disabled = true; e2.target.textContent = 'Rejecting…';
+    const userId = row.dataset.userid, date = row.dataset.date;
     try {
       await SHELL.api('/api/time-entries-reject', {
-        method: 'POST', body: { userId: row.dataset.userid, date: row.dataset.date, reason },
+        method: 'POST', body: { userId, date, reason },
       });
-      SHELL.toast('Rejected — sent back to phone', 'ok');
+      // Reject undo: show a 30s toast that the admin can tap to revert.
+      // Server enforces the same 30s window + same-actor check.
+      showRejectUndo(userId, date);
       await loadAll();
       await SHELL.refreshCounts();
       paint();
     } catch (e) {
       SHELL.toast('Reject failed — ' + e.message, 'bad');
       e2.target.disabled = false; e2.target.textContent = 'Reject & send back';
+    }
+  });
+}
+
+/* Reject undo (brief §09 follow-up). Shows a transient pill at the
+   top of the screen with a "Undo" link that hits the same endpoint
+   with ?undo=1. Auto-dismisses at 30s (the server-side window). */
+let _rejectUndoTimer = null;
+function showRejectUndo(userId, date) {
+  // Remove any existing undo pill so multiple rejects don't stack.
+  const existing = document.getElementById('reject-undo-pill');
+  if (existing) existing.remove();
+  if (_rejectUndoTimer) clearTimeout(_rejectUndoTimer);
+
+  const pill = document.createElement('div');
+  pill.id = 'reject-undo-pill';
+  pill.style.cssText = `
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--ink); color: var(--surface);
+    padding: 10px 14px; border-radius: 10px;
+    box-shadow: var(--shadow-lg);
+    display: flex; align-items: center; gap: 12px;
+    font-family: var(--ff-display); font-weight: 500; font-size: 13px;
+    z-index: 500;
+  `;
+  pill.innerHTML = `
+    <span>Rejected — sent back to phone</span>
+    <span id="reject-undo-timer" style="font-family:var(--ff-mono);font-size:11px;color:rgba(255,255,255,.6);min-width:24px;text-align:right">30s</span>
+    <button id="reject-undo-btn" style="background:var(--yellow);color:var(--yellow-ink);border:0;border-radius:6px;padding:4px 12px;font-family:var(--ff-display);font-weight:700;font-size:12px;cursor:pointer">Undo</button>
+  `;
+  document.body.appendChild(pill);
+
+  let remaining = 30;
+  const tEl = document.getElementById('reject-undo-timer');
+  _rejectUndoTimer = setInterval(() => {
+    remaining--;
+    if (tEl) tEl.textContent = remaining + 's';
+    if (remaining <= 0) {
+      clearInterval(_rejectUndoTimer);
+      _rejectUndoTimer = null;
+      pill.remove();
+    }
+  }, 1000);
+
+  document.getElementById('reject-undo-btn').addEventListener('click', async () => {
+    if (_rejectUndoTimer) { clearInterval(_rejectUndoTimer); _rejectUndoTimer = null; }
+    pill.querySelector('#reject-undo-btn').disabled = true;
+    pill.querySelector('#reject-undo-btn').textContent = 'Undoing…';
+    try {
+      await SHELL.api('/api/time-entries-reject?undo=1', {
+        method: 'POST',
+        body: { userId, date },
+      });
+      pill.remove();
+      SHELL.toast('Reject undone — back in the queue', 'ok');
+      await loadAll();
+      await SHELL.refreshCounts();
+      paint();
+    } catch (e) {
+      pill.remove();
+      SHELL.toast('Undo failed — ' + e.message, 'bad');
     }
   });
 }
