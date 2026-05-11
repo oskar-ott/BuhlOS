@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0d1f35">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BuhlOS">
+<title>My Gear · bühl</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* /my-gear — mirrors /my-day's brief tokens. Tradie-facing, mobile-only,
+   warm cream background, navy ink, yellow accent. */
+:root{
+  --bg:#f5f3ee; --surface:#fff; --surface-2:#faf8f3; --surface-3:#efece4;
+  --shell:#0d1f35; --ink:#0d1f35; --ink-2:#2a3a52; --muted:#6b7689;
+  --line:#ece7da; --line-2:#dcd5c4;
+  --accent:#ffcc00; --accent-ink:#2a1a05;
+  --ok:#1f8a4c; --bad:#b3261e; --warn:#b76b00;
+  --safe-t: env(safe-area-inset-top, 0);
+  --safe-b: env(safe-area-inset-bottom, 0);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{min-height:100%}
+body{
+  font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:var(--bg);color:var(--ink);font-size:15px;line-height:1.4;
+  -webkit-font-smoothing:antialiased; overflow-x:hidden;
+}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.tabular{font-variant-numeric:tabular-nums}
+.frame{max-width:430px;margin:0 auto;min-height:100vh;background:var(--bg);position:relative;padding-bottom:calc(82px + var(--safe-b))}
+
+.top{display:flex;align-items:center;gap:12px;padding:calc(14px + var(--safe-t)) 18px 12px}
+.top h1{font-size:22px;font-weight:700;letter-spacing:-.4px;color:var(--ink)}
+.top-sub{font-size:12px;font-weight:500;color:var(--muted);margin-top:3px}
+
+.sec{display:flex;align-items:baseline;gap:8px;padding:14px 18px 6px}
+.sec-h{font-size:13px;font-weight:700;color:var(--ink);letter-spacing:.1px}
+.sec-c{font-size:11px;color:var(--muted);font-weight:600}
+
+.empty{margin:0 14px;padding:24px 18px;border-radius:14px;background:var(--surface);border:1px dashed var(--line-2);text-align:center;font-size:13px;color:var(--muted)}
+.empty b{display:block;color:var(--ink);font-weight:600;margin-bottom:4px;font-size:14px}
+
+.card{margin:0 14px 10px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.card-top{display:flex;align-items:flex-start;gap:10px}
+.card-name{flex:1;min-width:0}
+.card-name b{font-size:15px;font-weight:600;color:var(--ink);display:block;line-height:1.25}
+.card-name .meta{font-size:11px;color:var(--muted);margin-top:3px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.card-pill{
+  flex-shrink:0;font-size:10px;font-weight:700;padding:3px 9px;border-radius:999px;
+  background:var(--surface-3);color:var(--ink-2);text-transform:uppercase;letter-spacing:.06em;
+}
+.card-pill.overdue{background:#fbeae8;color:var(--bad)}
+.card-pill.fresh{background:#e6f4ec;color:var(--ok)}
+.card-row{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2)}
+.card-row .l{color:var(--muted);font-weight:500}
+.card-row .v{font-weight:600}
+.card-row .v.warn{color:var(--bad)}
+.card-actions{display:flex;gap:8px;margin-top:4px}
+.btn{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px 14px;background:var(--surface-2);border:1px solid var(--line-2);border-radius:10px;color:var(--ink);font-size:14px;font-weight:600;cursor:pointer;min-height:44px}
+.btn:active{transform:scale(.98)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+
+/* Bottom tab bar (matches my-day) */
+.tabbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:10;
+  display:grid;grid-template-columns:repeat(3,1fr);
+  background:var(--surface);border-top:1px solid var(--line);
+  padding:6px 6px calc(6px + var(--safe-b));
+  max-width:430px;margin:0 auto;
+}
+.tb{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px 4px;font-size:10.5px;font-weight:600;color:var(--muted);text-decoration:none;border-radius:10px}
+.tb.active{color:var(--ink);background:var(--surface-2)}
+.tb svg{width:22px;height:22px}
+
+/* Transfer modal — kept very simple */
+.scrim{position:fixed;inset:0;background:rgba(13,31,53,.5);z-index:100;display:none;align-items:flex-end;justify-content:center}
+.scrim.open{display:flex}
+.sheet{background:#fff;width:100%;max-width:430px;max-height:90vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column;overflow:hidden}
+.sheet-h{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+.sheet-h h2{flex:1;font-size:15px;font-weight:700;color:var(--ink);margin:0}
+.sheet-h button{font-size:22px;color:var(--muted);padding:4px 8px}
+.sheet-body{padding:14px 18px;overflow-y:auto;flex:1}
+.sheet-field{margin-bottom:14px}
+.sheet-field label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+.sheet-field select,.sheet-field input,.sheet-field textarea{width:100%;padding:11px 12px;border:1px solid var(--line-2);border-radius:10px;font:inherit;font-size:14px;background:#fff;color:var(--ink);outline:none}
+.sheet-foot{padding:12px 18px calc(12px + var(--safe-b));border-top:1px solid var(--line);background:var(--surface-2);display:flex;gap:8px}
+.sheet-foot button{flex:1;padding:12px 14px;border-radius:10px;font-weight:700;font-size:14px}
+.sheet-foot button.primary{background:var(--accent);color:var(--accent-ink)}
+.sheet-foot button.cancel{background:#fff;border:1px solid var(--line-2)}
+.sheet-err{margin-top:8px;padding:8px 12px;background:#fbeae8;color:var(--bad);border-radius:8px;font-size:12.5px;display:none}
+.sheet-err.show{display:block}
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="top">
+    <div>
+      <h1>My Gear</h1>
+      <div class="top-sub" id="top-sub">Loading…</div>
+    </div>
+  </div>
+
+  <div id="gear-list"></div>
+
+  <nav class="tabbar">
+    <a href="/my-day" class="tb">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      My day
+    </a>
+    <a href="/my-gear" class="tb active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>
+      My gear
+    </a>
+    <button class="tb" type="button" id="logout">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+      Me
+    </button>
+  </nav>
+</div>
+
+<!-- Transfer sheet -->
+<div class="scrim" id="tx-scrim" role="dialog" aria-modal="true">
+  <div class="sheet">
+    <div class="sheet-h">
+      <h2 id="tx-title">Transfer</h2>
+      <button type="button" id="tx-close" aria-label="Close">×</button>
+    </div>
+    <div class="sheet-body">
+      <p style="font-size:13px;color:var(--ink-2);margin:0 0 14px">Hand this gear over to another tradie, or return it to storage. Admin sees the change in the asset register.</p>
+      <div class="sheet-field">
+        <label for="tx-to">Who's taking it</label>
+        <select id="tx-to">
+          <option value="">— Return to storage —</option>
+        </select>
+      </div>
+      <div class="sheet-field">
+        <label for="tx-return">Expected back (optional)</label>
+        <input type="date" id="tx-return">
+      </div>
+      <div class="sheet-field">
+        <label for="tx-note">Note (optional)</label>
+        <input type="text" id="tx-note" placeholder="e.g. for Birdwood next week">
+      </div>
+      <div class="sheet-err" id="tx-err"></div>
+    </div>
+    <div class="sheet-foot">
+      <button class="cancel" type="button" id="tx-cancel">Cancel</button>
+      <button class="primary" type="button" id="tx-do">Transfer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function fmtAgo(iso){
+  if (!iso) return '—';
+  const d = new Date(iso); if (isNaN(d)) return '—';
+  const s = Math.floor((Date.now() - d) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s/60) + ' min ago';
+  if (s < 86400) return Math.floor(s/3600) + ' hr ago';
+  const days = Math.floor(s/86400);
+  if (days < 14) return days + ' days ago';
+  return d.toLocaleDateString('en-AU', { day:'numeric', month:'short' });
+}
+
+const TYPE_LABELS = { vehicle: 'Vehicle', key: 'Key', tool: 'Tool', accessory: 'Accessory', ppe: 'PPE', other: 'Other' };
+
+let ME = null;
+let CREW = [];   // tradies + LHs we can transfer to
+let ASSETS = []; // mine
+
+async function load() {
+  try {
+    const r = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
+    if (!r.ok) { location.href = '/login'; return; }
+    ME = (await r.json()).user;
+    if (ME.role === 'client') { location.href = '/client'; return; }
+    if (ME.role === 'admin') { location.href = '/admin/assets'; return; }
+
+    const [aRes, cRes] = await Promise.all([
+      fetch('/api/assets', { credentials: 'same-origin' }),
+      fetch('/api/users?action=listTradies', { credentials: 'same-origin' }).catch(() => null),
+    ]);
+    if (aRes.ok) ASSETS = (await aRes.json()).assets || [];
+    if (cRes && cRes.ok) CREW = ((await cRes.json()).users || []).filter(u => u.id !== ME.id && (u.role === 'tradie' || u.role === 'leadingHand'));
+    render();
+  } catch (e) {
+    document.getElementById('gear-list').innerHTML = '<div class="empty"><b>Couldn\'t load</b>' + esc(e.message) + '</div>';
+  }
+}
+
+function render() {
+  const today = new Date().toISOString().slice(0, 10);
+  const list = ASSETS.slice().sort((a, b) => {
+    // Overdue first, then assigned-recent.
+    const aOverdue = a.expectedReturn && a.expectedReturn < today;
+    const bOverdue = b.expectedReturn && b.expectedReturn < today;
+    if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+    return (b.assignedAt || '').localeCompare(a.assignedAt || '');
+  });
+  document.getElementById('top-sub').textContent = list.length
+    ? (list.length + (list.length === 1 ? ' item' : ' items') + ' held in your name')
+    : 'Nothing in your name right now';
+
+  if (!list.length) {
+    document.getElementById('gear-list').innerHTML = `<div class="empty"><b>No gear assigned to you</b>When admin or a leading hand transfers something to you, it'll show here.</div>`;
+    document.getElementById('logout').addEventListener('click', logout);
+    return;
+  }
+
+  document.getElementById('gear-list').innerHTML = list.map(cardHtml).join('');
+  list.forEach(a => {
+    const btn = document.querySelector('button[data-tx="' + a.id + '"]');
+    if (btn) btn.addEventListener('click', () => openTransfer(a));
+  });
+  document.getElementById('logout').addEventListener('click', logout);
+}
+
+function cardHtml(a) {
+  const today = new Date().toISOString().slice(0, 10);
+  const overdue = a.expectedReturn && a.expectedReturn < today;
+  const pill = overdue
+    ? '<span class="card-pill overdue">Overdue</span>'
+    : a.expectedReturn
+      ? '<span class="card-pill">Back ' + esc(a.expectedReturn) + '</span>'
+      : '<span class="card-pill fresh">Open-ended</span>';
+  return `<div class="card">
+    <div class="card-top">
+      <div class="card-name">
+        <b>${esc(a.name)}</b>
+        <div class="meta">${esc(TYPE_LABELS[a.type] || a.type)}${a.identifier ? ' · ' + esc(a.identifier) : ''}</div>
+      </div>
+      ${pill}
+    </div>
+    ${a.notes ? '<div style="font-size:12px;color:var(--ink-2);font-style:italic">' + esc(a.notes) + '</div>' : ''}
+    <div class="card-row"><span class="l">In your name since</span><span class="v">${esc(fmtAgo(a.assignedAt))}</span></div>
+    ${a.expectedReturn ? '<div class="card-row"><span class="l">Expected return</span><span class="v ' + (overdue ? 'warn' : '') + '">' + esc(a.expectedReturn) + (overdue ? ' (overdue)' : '') + '</span></div>' : ''}
+    <div class="card-actions">
+      <button class="btn primary" data-tx="${esc(a.id)}">Transfer</button>
+    </div>
+  </div>`;
+}
+
+// ── Transfer sheet ─────────────────────────────────────────────────────
+let TX_ASSET = null;
+function openTransfer(asset) {
+  TX_ASSET = asset;
+  document.getElementById('tx-title').textContent = 'Transfer ' + asset.name;
+  // Populate destination dropdown — only OTHER tradies/LHs + storage.
+  const sel = document.getElementById('tx-to');
+  sel.innerHTML = '<option value="">— Return to storage —</option>' +
+    CREW.map(u => `<option value="${esc(u.id)}">${esc(u.username)}${u.role === 'leadingHand' ? ' (LH)' : ''}</option>`).join('');
+  document.getElementById('tx-return').value = asset.expectedReturn || '';
+  document.getElementById('tx-note').value = '';
+  document.getElementById('tx-err').classList.remove('show');
+  document.getElementById('tx-scrim').classList.add('open');
+}
+function closeTransfer() {
+  document.getElementById('tx-scrim').classList.remove('open');
+  TX_ASSET = null;
+}
+document.getElementById('tx-close').addEventListener('click', closeTransfer);
+document.getElementById('tx-cancel').addEventListener('click', closeTransfer);
+document.getElementById('tx-scrim').addEventListener('click', e => {
+  if (e.target.id === 'tx-scrim') closeTransfer();
+});
+document.getElementById('tx-do').addEventListener('click', async () => {
+  if (!TX_ASSET) return;
+  const toUserId = document.getElementById('tx-to').value || null;
+  const expectedReturn = document.getElementById('tx-return').value || null;
+  const note = document.getElementById('tx-note').value.trim() || null;
+  const err = document.getElementById('tx-err');
+  err.classList.remove('show');
+  const btn = document.getElementById('tx-do');
+  btn.disabled = true; btn.textContent = 'Transferring…';
+  try {
+    const r = await fetch('/api/assets?action=transfer', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assetId: TX_ASSET.id, toUserId, expectedReturn, note }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    closeTransfer();
+    await load();
+  } catch (e) {
+    err.textContent = 'Couldn\'t transfer — ' + e.message;
+    err.classList.add('show');
+    btn.disabled = false; btn.textContent = 'Transfer';
+  }
+});
+
+async function logout() {
+  await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' });
+  location.href = '/login';
+}
+
+load();
+</script>
+</body>
+</html>

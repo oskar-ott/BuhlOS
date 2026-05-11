@@ -548,10 +548,14 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   <!-- Bottom tab bar — picker page nuked; the only "Jobs" surface in the
        app now is /admin/jobs (admin-only). For tradies, the My jobs
        section above already lists every assigned job, so no Jobs tab here. -->
-  <nav class="tabbar" style="grid-template-columns:repeat(2,1fr)">
+  <nav class="tabbar" style="grid-template-columns:repeat(3,1fr)">
     <a href="/my-day" class="tb active">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
       My day
+    </a>
+    <a href="/my-gear" class="tb">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>
+      My gear
     </a>
     <button class="tb" type="button" onclick="document.getElementById('logout').click()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
