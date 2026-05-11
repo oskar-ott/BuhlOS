@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · support</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+let STATE = {
+  view: 'access',          // 'access' | 'resets'
+  filterStatus: 'open',    // 'open' | 'resolved' | 'rejected' | 'all'
+  access: [],
+  resets: [],
+  loaded: false,
+};
+
+window.PAGE = {
+  id: 'support',
+  title: 'Support',
+  crumb: 'Support',
+  async render() {
+    const params = new URLSearchParams(location.search);
+    if (params.get('view') === 'resets') STATE.view = 'resets';
+    if (params.get('status')) STATE.filterStatus = params.get('status');
+    SHELL.$('#page').innerHTML = '<div class="empty"><div class="empty-title">Loading support inbox…</div></div>';
+    await loadAll();
+    paint();
+  }
+};
+
+async function loadAll() {
+  try {
+    // Always fetch ALL for both inboxes so the per-view filter chips can
+    // count open vs resolved without re-hitting the API.
+    const [a, r] = await Promise.all([
+      SHELL.api('/api/access-requests?status=all').catch(() => ({ requests: [] })),
+      SHELL.api('/api/password-resets?status=all').catch(() => ({ resets: [] })),
+    ]);
+    STATE.access = a.requests || [];
+    STATE.resets = r.resets   || [];
+    STATE.loaded = true;
+  } catch (e) {
+    SHELL.toast('Failed to load support inbox — ' + e.message, 'bad');
+  }
+}
+
+function paint() {
+  const openAccess = STATE.access.filter(x => x.status === 'open').length;
+  const openResets = STATE.resets.filter(x => x.status === 'open').length;
+  const accessRows = STATE.access.filter(r => STATE.filterStatus === 'all' ? true : r.status === STATE.filterStatus);
+  const resetRows  = STATE.resets.filter(r => STATE.filterStatus === 'all' ? true : r.status === STATE.filterStatus);
+
+  SHELL.$('#page').innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-h1">Support inbox</div>
+        <div class="page-sub">People asking for access or password resets. Email alerts go to <code>${SHELL.escapeHtml(window.ADMIN_ALERT_EMAIL || 'office@buhlapp.xyz')}</code> (override via the <code>ADMIN_ALERT_EMAIL</code> env var).</div>
+      </div>
+    </div>
+
+    <div class="kgrid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      <div class="kpi"><div class="kpi-l">Access requests</div><div class="kpi-v ${openAccess ? 'amber' : 'green'}">${openAccess}</div><div class="kpi-d">open · ${STATE.access.length} total</div></div>
+      <div class="kpi"><div class="kpi-l">Password resets</div><div class="kpi-v ${openResets ? 'amber' : 'green'}">${openResets}</div><div class="kpi-d">open · ${STATE.resets.length} total</div></div>
+    </div>
+
+    <div class="tabs">
+      <a class="tab ${STATE.view === 'access' ? 'active' : ''}" href="#" data-view="access">
+        Access requests <span class="badge ${openAccess ? '' : ''}">${openAccess}</span>
+      </a>
+      <a class="tab ${STATE.view === 'resets' ? 'active' : ''}" href="#" data-view="resets">
+        Password resets <span class="badge ${openResets ? '' : ''}">${openResets}</span>
+      </a>
+    </div>
+
+    <div class="toolbar">
+      ${['open', 'resolved', 'rejected', 'all'].map(s => {
+        // Reset inbox doesn't have a 'rejected' status — hide the chip
+        // when we're viewing resets to avoid implying it does.
+        if (STATE.view === 'resets' && s === 'rejected') return '';
+        return `<a class="tab ${STATE.filterStatus === s ? 'active' : ''}" href="#" data-status="${s}" style="border:0;padding:6px 12px;border-radius:999px;background:${STATE.filterStatus === s ? 'var(--accent)' : 'var(--surface-2)'};color:${STATE.filterStatus === s ? 'var(--accent-ink)' : 'var(--ink)'};font-size:12px;text-decoration:none">${s[0].toUpperCase() + s.slice(1)}</a>`;
+      }).join('')}
+      <div class="toolbar-spacer"></div>
+      <span style="color:var(--muted);font-size:12px">${STATE.view === 'access' ? SHELL.pluralize(accessRows.length, 'request') : SHELL.pluralize(resetRows.length, 'request')}</span>
+    </div>
+
+    <div id="support-body"></div>
+  `;
+  SHELL.$$('a[data-view]').forEach(t => t.addEventListener('click', e => {
+    e.preventDefault(); STATE.view = t.dataset.view;
+    const u = new URL(location.href); u.searchParams.set('view', STATE.view); history.replaceState(null, '', u);
+    paint();
+  }));
+  SHELL.$$('a[data-status]').forEach(t => t.addEventListener('click', e => {
+    e.preventDefault(); STATE.filterStatus = t.dataset.status; paint();
+  }));
+  if (STATE.view === 'access') paintAccess(accessRows);
+  else paintResets(resetRows);
+}
+
+function paintAccess(rows) {
+  const body = SHELL.$('#support-body');
+  if (!rows.length) {
+    body.innerHTML = '<div class="empty"><div class="empty-title">No '+ SHELL.escapeHtml(STATE.filterStatus) +' access requests</div><div class="empty-sub">When someone fills the form on the login page, it lands here.</div></div>';
+    return;
+  }
+  body.innerHTML = '<div class="card" style="padding:0">' + rows.map(accessRowHtml).join('') + '</div>';
+  SHELL.$$('button[data-create-user]').forEach(b => b.addEventListener('click', () => createUserFromRequest(b.dataset.createUser)));
+  SHELL.$$('button[data-mark]').forEach(b => b.addEventListener('click', () => updateAccess(b.dataset.mark, b.dataset.status)));
+}
+
+function accessRowHtml(r) {
+  const tone = r.status === 'open' ? 'warn' : r.status === 'resolved' ? 'ok' : r.status === 'rejected' ? 'bad' : '';
+  const roleLabel = r.requestedRole === 'client' ? 'Client' : 'Tradie';
+  const created = SHELL._ago(r.createdAt) || '—';
+  return `<div style="padding:14px 16px;border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:flex-start">
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+        <b style="font-size:14px">${SHELL.escapeHtml(r.name)}</b>
+        <span class="pill pill-${tone}"><span class="pill-dot"></span>${SHELL.escapeHtml(r.status)}</span>
+        <span style="font-size:11px;color:var(--muted)">${SHELL.escapeHtml(roleLabel)} · ${SHELL.escapeHtml(created)}</span>
+      </div>
+      <div style="font-size:13px;color:var(--ink-2);display:flex;gap:14px;flex-wrap:wrap">
+        <span>📞 <a href="tel:${SHELL.escapeHtml(r.phone)}" style="color:inherit">${SHELL.escapeHtml(r.phone)}</a></span>
+        <span>✉ <a href="mailto:${SHELL.escapeHtml(r.email)}" style="color:inherit">${SHELL.escapeHtml(r.email)}</a></span>
+        ${r.jobOrSite ? `<span>🏗 ${SHELL.escapeHtml(r.jobOrSite)}</span>` : ''}
+      </div>
+      ${r.message ? `<div style="font-size:13px;color:var(--ink);margin-top:8px;padding:8px 12px;background:var(--surface-2);border-radius:6px;font-style:italic">"${SHELL.escapeHtml(r.message)}"</div>` : ''}
+      ${r.adminNotes ? `<div style="font-size:12px;color:var(--muted);margin-top:6px"><b>Notes:</b> ${SHELL.escapeHtml(r.adminNotes)}</div>` : ''}
+      ${r.resolvedByName ? `<div style="font-size:11px;color:var(--muted);margin-top:4px">${r.status === 'rejected' ? 'Rejected' : 'Resolved'} by ${SHELL.escapeHtml(r.resolvedByName)} · ${SHELL.escapeHtml(SHELL._ago(r.resolvedAt) || '')}</div>` : ''}
+    </div>
+    ${r.status === 'open' ? `<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+      <button class="btn btn-sm btn-primary" data-create-user="${SHELL.escapeHtml(r.id)}" title="Open the new-user panel pre-filled with this request's name + role">Create user…</button>
+      <button class="btn btn-sm btn-ok" data-mark="${SHELL.escapeHtml(r.id)}" data-status="resolved">Mark resolved</button>
+      <button class="btn btn-sm btn-danger" data-mark="${SHELL.escapeHtml(r.id)}" data-status="rejected">Reject</button>
+    </div>` : `<div style="flex-shrink:0">
+      <button class="btn btn-sm" data-mark="${SHELL.escapeHtml(r.id)}" data-status="open" title="Move back to open queue">Reopen</button>
+    </div>`}
+  </div>`;
+}
+
+function paintResets(rows) {
+  const body = SHELL.$('#support-body');
+  if (!rows.length) {
+    body.innerHTML = '<div class="empty"><div class="empty-title">No '+ SHELL.escapeHtml(STATE.filterStatus) +' password resets</div><div class="empty-sub">When someone forgets their password and submits the form on /login, it lands here.</div></div>';
+    return;
+  }
+  body.innerHTML = '<div class="card" style="padding:0">' + rows.map(resetRowHtml).join('') + '</div>';
+  SHELL.$$('a[data-open-crew]').forEach(a => {
+    // These already navigate via href — no JS handler needed, just
+    // present so we can audit the binding count.
+  });
+  SHELL.$$('button[data-mark-reset]').forEach(b => b.addEventListener('click', () => updateReset(b.dataset.markReset, b.dataset.status)));
+}
+
+function resetRowHtml(r) {
+  const tone = r.status === 'open' ? 'warn' : 'ok';
+  const matchBadge = r.nameMatchesAccount
+    ? '<span class="pill pill-ok" style="font-size:10px"><span class="pill-dot"></span>matches account</span>'
+    : '<span class="pill pill-warn" style="font-size:10px"><span class="pill-dot"></span>no account match</span>';
+  const created = SHELL._ago(r.createdAt) || '—';
+  return `<div style="padding:14px 16px;border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:flex-start">
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap">
+        <b style="font-size:14px">${SHELL.escapeHtml(r.name)}</b>
+        <span class="pill pill-${tone}"><span class="pill-dot"></span>${SHELL.escapeHtml(r.status)}</span>
+        ${matchBadge}
+        <span style="font-size:11px;color:var(--muted)">${SHELL.escapeHtml(created)}</span>
+      </div>
+      <div style="font-size:13px;color:var(--ink-2)">📞 / ✉ ${SHELL.escapeHtml(r.contact)}</div>
+      ${r.adminNotes ? `<div style="font-size:12px;color:var(--muted);margin-top:6px"><b>Notes:</b> ${SHELL.escapeHtml(r.adminNotes)}</div>` : ''}
+      ${r.resolvedByName ? `<div style="font-size:11px;color:var(--muted);margin-top:4px">Resolved by ${SHELL.escapeHtml(r.resolvedByName)} · ${SHELL.escapeHtml(SHELL._ago(r.resolvedAt) || '')}</div>` : ''}
+    </div>
+    ${r.status === 'open' ? `<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+      <a class="btn btn-sm btn-primary" href="/admin/crew" title="Find this user on the Crew page and edit them — set a new secret + tell them out-of-band">Reset password…</a>
+      <button class="btn btn-sm btn-ok" data-mark-reset="${SHELL.escapeHtml(r.id)}" data-status="resolved">Mark resolved</button>
+    </div>` : `<div style="flex-shrink:0">
+      <button class="btn btn-sm" data-mark-reset="${SHELL.escapeHtml(r.id)}" data-status="open">Reopen</button>
+    </div>`}
+  </div>`;
+}
+
+async function updateAccess(id, status) {
+  let adminNotes = '';
+  if (status === 'rejected' || status === 'resolved') {
+    adminNotes = prompt('Optional note to log (admin-only):') || '';
+  }
+  try {
+    await SHELL.api('/api/access-requests?id=' + encodeURIComponent(id), {
+      method: 'PUT',
+      body: { status, adminNotes: adminNotes || undefined },
+    });
+    SHELL.toast('Updated', 'ok');
+    await loadAll(); paint();
+    SHELL.refreshCounts && SHELL.refreshCounts();
+  } catch (e) { SHELL.toast('Update failed — ' + e.message, 'bad'); }
+}
+
+async function updateReset(id, status) {
+  let adminNotes = '';
+  if (status === 'resolved') {
+    adminNotes = prompt('Optional note to log (admin-only):') || '';
+  }
+  try {
+    await SHELL.api('/api/password-resets?id=' + encodeURIComponent(id), {
+      method: 'PUT',
+      body: { status, adminNotes: adminNotes || undefined },
+    });
+    SHELL.toast('Updated', 'ok');
+    await loadAll(); paint();
+    SHELL.refreshCounts && SHELL.refreshCounts();
+  } catch (e) { SHELL.toast('Update failed — ' + e.message, 'bad'); }
+}
+
+// Pre-fill new-user panel from an access request. We don't have a
+// cross-page mechanism for this (each admin page is its own module), so
+// we stash the prefill in sessionStorage and navigate to /admin/crew —
+// the crew page reads sessionStorage on load and pops the new-user
+// panel pre-filled if a request is queued.
+function createUserFromRequest(id) {
+  const req = STATE.access.find(r => r.id === id);
+  if (!req) { SHELL.toast('Request not found', 'bad'); return; }
+  try {
+    sessionStorage.setItem('buhlos.newUserPrefill', JSON.stringify({
+      sourceRequestId: req.id,
+      username: (req.name || '').toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, ''),
+      role: req.requestedRole === 'client' ? 'client' : 'tradie',
+      email: req.email,
+    }));
+  } catch (e) {}
+  location.href = '/admin/crew?newFromRequest=' + encodeURIComponent(req.id);
+}
+
+SHELL.boot();
+</script>
+</body>
+</html>

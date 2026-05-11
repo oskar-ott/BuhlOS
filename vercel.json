@@ -17,6 +17,7 @@
     { "source": "/admin/suppliers",       "destination": "/admin/suppliers.html" },
     { "source": "/admin/temps",           "destination": "/admin/temps.html" },
     { "source": "/admin/settings",        "destination": "/admin/settings.html" },
+    { "source": "/admin/support",         "destination": "/admin/support.html" },
 
     { "source": "/admin-legacy", "destination": "/admin.html" },
 

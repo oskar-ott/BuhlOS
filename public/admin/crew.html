@@ -27,6 +27,25 @@ window.PAGE = {
   async render() {
     STATE.users = (SHELL.USERS || []).slice();
     paint();
+    // If we arrived from /admin/support with a "Create user" intent,
+    // pop the new-user panel pre-filled with the request's name + role
+    // + email + the sourceRequestId so we can mark the request resolved
+    // once the user lands.
+    const params = new URLSearchParams(location.search);
+    if (params.get('newFromRequest')) {
+      try {
+        const raw = sessionStorage.getItem('buhlos.newUserPrefill');
+        if (raw) {
+          const prefill = JSON.parse(raw);
+          // One-shot — clear so a refresh doesn't re-pop the panel.
+          sessionStorage.removeItem('buhlos.newUserPrefill');
+          // Clean the URL so a refresh doesn't reapply the hint.
+          const u = new URL(location.href); u.searchParams.delete('newFromRequest');
+          history.replaceState(null, '', u);
+          if (prefill && prefill.username) addUserPanel(prefill);
+        }
+      } catch (e) {}
+    }
   }
 };
 
@@ -169,21 +188,28 @@ function userRow(u) {
   </tr>`;
 }
 
-function addUserPanel() {
+function addUserPanel(prefill) {
+  // `prefill` is passed when the admin arrived here from /admin/support
+  // ("Create user…" on an open access request). The panel opens with the
+  // suggested username + role + email, and on successful create we mark
+  // the originating access request resolved so it drops out of the
+  // open-queue badge automatically.
+  prefill = prefill || {};
   const panel = SHELL.openPanel({
-    title: 'Add person',
+    title: prefill.sourceRequestId ? 'Add person · from access request' : 'Add person',
     body: `
-      <div class="field"><label class="field-lbl">Username *</label><input class="input" id="nu-name" autofocus></div>
+      ${prefill.sourceRequestId ? `<div style="margin-bottom:12px;padding:10px 12px;background:var(--surface-2);border-radius:8px;font-size:12px;color:var(--ink-2)">Pre-filled from access request <code>${SHELL.escapeHtml(prefill.sourceRequestId)}</code>. Creating the user will mark the request resolved.</div>` : ''}
+      <div class="field"><label class="field-lbl">Username *</label><input class="input" id="nu-name" autofocus value="${SHELL.escapeHtml(prefill.username || '')}"></div>
       <div class="field"><label class="field-lbl">Role *</label>
         <select class="select" id="nu-role">
-          <option value="tradie">Tradie</option>
-          <option value="leadingHand">Leading hand</option>
-          <option value="admin">Admin</option>
-          <option value="client">Client</option>
+          <option value="tradie"${prefill.role === 'tradie' ? ' selected' : ''}>Tradie</option>
+          <option value="leadingHand"${prefill.role === 'leadingHand' ? ' selected' : ''}>Leading hand</option>
+          <option value="admin"${prefill.role === 'admin' ? ' selected' : ''}>Admin</option>
+          <option value="client"${prefill.role === 'client' ? ' selected' : ''}>Client</option>
         </select></div>
       <div class="field"><label class="field-lbl">Secret (PIN for tradie/LH, password for admin) *</label><input class="input" id="nu-secret" type="text"></div>
-      <div class="field"><label class="field-lbl">Email (optional)</label><input class="input" id="nu-email" type="email"></div>
-      <div class="field" id="nu-rate-wrap"><label class="field-lbl">Hourly rate ($) — tradies / LHs only</label><input class="input" id="nu-rate" type="number" min="0" step="0.5" value="0"></div>
+      <div class="field"><label class="field-lbl">Email (optional)</label><input class="input" id="nu-email" type="email" value="${SHELL.escapeHtml(prefill.email || '')}"></div>
+      <div class="field" id="nu-rate-wrap"${(prefill.role && prefill.role !== 'tradie' && prefill.role !== 'leadingHand') ? ' style="display:none"' : ''}><label class="field-lbl">Hourly rate ($) — tradies / LHs only</label><input class="input" id="nu-rate" type="number" min="0" step="0.5" value="0"></div>
     `,
     footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="nu-save">Create</button>`,
   });
@@ -202,6 +228,16 @@ function addUserPanel() {
     if (!body.username || !body.secret) { SHELL.toast('Username + secret required', 'bad'); return; }
     try {
       await SHELL.api('/api/users', { method: 'POST', body });
+      // Mark the originating access request resolved (best-effort —
+      // user is already created, this is bookkeeping).
+      if (prefill.sourceRequestId) {
+        try {
+          await SHELL.api('/api/access-requests?id=' + encodeURIComponent(prefill.sourceRequestId), {
+            method: 'PUT',
+            body: { status: 'resolved', adminNotes: 'User created in /admin/crew on ' + new Date().toISOString().slice(0, 10) },
+          });
+        } catch (e) { /* leave the request open for manual resolution */ }
+      }
       SHELL.toast('Created', 'ok');
       SHELL.closePanel();
       try { const r = await SHELL.api('/api/users'); STATE.users = r.users || []; SHELL.USERS = STATE.users; } catch {}
