@@ -91,6 +91,8 @@ function paint() {
       </div>
     ` : ''}
 
+    ${lessonsLearnedCard(list)}
+
     <div class="tabs" style="margin-top:18px">
       ${[{v:'all',l:'All'},...QUOTE_STATUSES].map(s => `
         <a class="tab ${STATE.filterStatus === s.v ? 'active' : ''}" href="#" data-status="${s.v}">
@@ -123,6 +125,64 @@ function paint() {
   }));
   SHELL.$('#search-i').addEventListener('input', e => { STATE.search = e.target.value; paint(); });
   SHELL.$('#new-quote').addEventListener('click', openNewQuotePanel);
+}
+
+// Brief §11 follow-up: the reasonLost data captured in PR #55 now
+// powers a "Lessons learned" panel. Aggregates lost quotes from the
+// last 6 months by category so the boss can spot patterns before
+// pricing the next one.
+const LESSON_LABELS = {
+  price:        'Priced too high',
+  scope:        'Scope mismatch',
+  timeline:     'Timeline mismatch',
+  relationship: 'Existing relationship',
+  'no-go':      'Job didn\'t go ahead',
+  other:        'Other',
+};
+function lessonsLearnedCard(list) {
+  const sixMonthsAgoMs = Date.now() - 182 * 86400000;
+  const lost = (list || []).filter(qt => {
+    if (qt.status !== 'lost' && qt.status !== 'declined') return false;
+    if (!qt.reasonLost) return false;
+    const t = qt.reasonLost.at ? Date.parse(qt.reasonLost.at) : 0;
+    return t >= sixMonthsAgoMs;
+  });
+  if (!lost.length) return '';
+
+  // Group by category.
+  const byCat = new Map();
+  for (const qt of lost) {
+    const cat = (qt.reasonLost && qt.reasonLost.category) || 'other';
+    if (!byCat.has(cat)) byCat.set(cat, []);
+    byCat.get(cat).push(qt);
+  }
+  const cats = Array.from(byCat.entries()).sort((a, b) => b[1].length - a[1].length);
+  const top = cats.slice(0, 3);
+
+  return `
+    <div class="card" style="padding:0;margin-top:18px;border-left:3px solid var(--accent)">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div class="card-title">Lessons learned · last 6 months</div>
+          <div class="card-sub">${lost.length} lost ${lost.length === 1 ? 'quote' : 'quotes'} with a captured reason. Watch for these on the next opportunity.</div>
+        </div>
+      </div>
+      <div style="padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:14px">
+        ${top.map(([cat, qts]) => {
+          const recent = qts.slice().sort((a, b) => (b.reasonLost.at || '').localeCompare(a.reasonLost.at || '')).slice(0, 2);
+          return `
+            <div style="background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:12px 14px">
+              <div style="font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px">${SHELL.escapeHtml(LESSON_LABELS[cat] || cat)}</div>
+              <div style="font-family:var(--ff-display);font-weight:700;font-size:22px;color:var(--ink);font-variant-numeric:tabular-nums">${qts.length}</div>
+              <div style="margin-top:8px;font-size:12px;color:var(--muted);line-height:1.5">
+                ${recent.map(q => `<div style="margin-bottom:4px"><b style="color:var(--ink-2)">${SHELL.escapeHtml(q.name || q.id || '')}</b>${q.reasonLost.reason ? ': ' + SHELL.escapeHtml(q.reasonLost.reason.slice(0, 60)) + (q.reasonLost.reason.length > 60 ? '…' : '') : ''}</div>`).join('')}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
 }
 
 function quoteCard(qt) {
