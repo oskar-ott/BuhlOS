@@ -47,6 +47,7 @@
     { "path": "/api/notifications?action=send-daily-digest",    "schedule": "0 7 * * 1-5"  },
     { "path": "/api/notifications?action=send-stale-snags",     "schedule": "0 23 * * 0"   },
     { "path": "/api/notifications?action=send-inactive-users",  "schedule": "0 23 * * 1"   },
-    { "path": "/api/cash-watch?action=check-overruns",          "schedule": "30 22 * * *"  }
+    { "path": "/api/cash-watch?action=check-overruns",          "schedule": "30 22 * * *"  },
+    { "path": "/api/users?action=sweep",                        "schedule": "0 19 * * *"   }
   ]
 }

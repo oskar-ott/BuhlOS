@@ -1,4 +1,5 @@
 const bcrypt = require('bcryptjs');
+const { list } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, getCurrentUser, canManageJob } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
@@ -202,10 +203,137 @@ module.exports = async (req, res) => {
     const { id } = req.query || {};
     if (!id) return res.status(400).json({ error: 'id required' });
     if (id === me.id) return res.status(400).json({ error: 'cannot delete self' });
-    data.users = data.users.filter(u => u.id !== id);
+    const u = data.users.find(x => x.id === id);
+    if (!u) return res.status(404).json({ error: 'user not found' });
+
+    // Brief §08: "Deactivation is reversible for 30 days then becomes
+    // deletion — and deletion is hard-blocked if the user has any
+    // unapproved hours. Saves the boss from accidentally torching a
+    // payroll record."
+    const hardDelete = req.query && (req.query.hard === '1' || req.query.hard === 'true');
+    if (hardDelete) {
+      const pending = await userHasUnapprovedHours(id);
+      if (pending) {
+        return res.status(409).json({
+          error: 'cannot hard-delete — user has unapproved hours. Approve or reject them first.',
+          pendingDates: pending,
+        });
+      }
+      data.users = data.users.filter(x => x.id !== id);
+      await writeBlob('users.json', data);
+      return res.status(200).json({ ok: true, mode: 'hard' });
+    }
+
+    // Soft-archive — flip the user out of active lists but keep
+    // them on file so we can restore within 30 days.
+    if (u.archived) {
+      return res.status(400).json({ error: 'already archived (use ?action=restore to revert, or ?hard=1 to remove permanently)' });
+    }
+    u.archived = true;
+    u.archivedAt = new Date().toISOString();
+    u.archivedBy = me.id;
     await writeBlob('users.json', data);
-    return res.status(200).json({ ok: true });
+    return res.status(200).json({ ok: true, mode: 'soft', restoreUntil: addDaysIso(u.archivedAt, 30) });
+  }
+
+  // POST ?action=restore — un-archive within the 30-day window.
+  if (req.method === 'POST' && action === 'restore') {
+    const { id } = req.query || req.body || {};
+    if (!id) return res.status(400).json({ error: 'id required' });
+    const u = data.users.find(x => x.id === id);
+    if (!u) return res.status(404).json({ error: 'user not found' });
+    if (!u.archived) return res.status(400).json({ error: 'user is not archived' });
+    const archivedAt = u.archivedAt ? Date.parse(u.archivedAt) : 0;
+    const ageDays = Number.isFinite(archivedAt) ? (Date.now() - archivedAt) / 86400000 : Infinity;
+    if (ageDays > 30) {
+      return res.status(410).json({ error: 'restore window expired (30 days)' });
+    }
+    delete u.archived;
+    delete u.archivedAt;
+    delete u.archivedBy;
+    u.updatedAt = new Date().toISOString();
+    await writeBlob('users.json', data);
+    const { passwordHash, ...safe } = u;
+    return res.status(200).json({ user: safe });
+  }
+
+  // GET ?action=archived — list users archived but still inside the
+  // restore window. Used by the admin "Restore" UI on /admin/crew.
+  if (req.method === 'GET' && action === 'archived') {
+    const archived = (data.users || []).filter(u => u.archived).map(u => {
+      const { passwordHash, ...safe } = u;
+      const at = safe.archivedAt ? Date.parse(safe.archivedAt) : 0;
+      const ageDays = Number.isFinite(at) ? (Date.now() - at) / 86400000 : Infinity;
+      return { ...safe, restoreWindowDaysRemaining: Math.max(0, Math.ceil(30 - ageDays)) };
+    });
+    return res.status(200).json({ users: archived });
+  }
+
+  // GET ?action=sweep — cron-only: hard-delete archived users past the
+  // 30-day window (unless they have unapproved hours; those stay
+  // archived until a human clears them).
+  if (req.method === 'GET' && action === 'sweep') {
+    if (!sweepAuthorised(req)) return res.status(401).json({ error: 'unauthorised' });
+    const cutoffMs = Date.now() - 30 * 86400000;
+    const removed = [];
+    const kept = [];
+    for (const u of (data.users || [])) {
+      if (!u.archived) { kept.push(u); continue; }
+      const at = u.archivedAt ? Date.parse(u.archivedAt) : 0;
+      if (!Number.isFinite(at) || at > cutoffMs) { kept.push(u); continue; }
+      const pending = await userHasUnapprovedHours(u.id);
+      if (pending && pending.length) { kept.push(u); continue; }
+      removed.push({ id: u.id, username: u.username, archivedAt: u.archivedAt });
+    }
+    if (removed.length) {
+      data.users = kept;
+      await writeBlob('users.json', data);
+    }
+    return res.status(200).json({ ok: true, removed, removedCount: removed.length });
   }
 
   res.status(405).end();
 };
+
+// ── Helpers ──────────────────────────────────────────────────────
+
+async function userHasUnapprovedHours(userId) {
+  // Returns an array of dates with status='submitted' (or 'rejected')
+  // — anything not yet approved. Empty array means no blocker.
+  try {
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    const r = await list({ prefix: `users/${userId}/time-entries/`, token, limit: 1000 });
+    const blobs = (r.blobs || []).filter(b =>
+      b.pathname.endsWith('.json') && !b.pathname.includes('/time-entries-audit/'));
+    const out = [];
+    for (const b of blobs) {
+      try {
+        const rr = await fetch(b.url + '?t=' + Date.now(), { cache: 'no-store' });
+        if (!rr.ok) continue;
+        const e = await rr.json();
+        if (e && e.status && e.status !== 'approved') out.push(e.date);
+      } catch {}
+    }
+    return out;
+  } catch (e) {
+    // Be conservative: if the check fails, treat as "has pending" so
+    // we don't accidentally hard-delete a payroll record.
+    console.error('userHasUnapprovedHours failed', e);
+    return ['__check_failed__'];
+  }
+}
+
+function addDaysIso(iso, days) {
+  const d = new Date(iso);
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
+
+function sweepAuthorised(req) {
+  const expected = process.env.CRON_SECRET;
+  if (!expected) return true;
+  const hdr = req.headers['authorization'] || '';
+  if (hdr === `Bearer ${expected}`) return true;
+  if ((req.headers['x-cron-secret'] || '') === expected) return true;
+  return false;
+}
