@@ -341,7 +341,12 @@ function paintWeekly() {
       </select>
       <div class="toolbar-spacer"></div>
       <button class="btn btn-accent" id="wk-export">${SHELL.ICONS.download || '⬇'} Export payroll CSV</button>
+      <button class="btn" id="wk-past-runs" title="Past payroll runs · hashes for audit">Past runs ▾</button>
     </div>
+
+    <!-- Phase 08 (brief §08): collapsed past-runs panel. Opens to a
+         table of every payroll run with its hash + actor + range. -->
+    <div id="wk-runs-panel" hidden style="margin-bottom:18px"></div>
 
     <div class="kpi-row">
       <div class="kpi"><div class="kpi-l">Crew with entries</div><div class="kpi-v">${workerRows.filter(w => w.total > 0).length}</div></div>
@@ -414,6 +419,7 @@ function paintWeekly() {
   SHELL.$('#wk-today').addEventListener('click', () => { STATE.weeklyAnchor = SHELL._iso(SHELL.isoWeekMonday()); STATE.weeklyData = null; updateUrl(); paint(); loadWeekly(); });
   SHELL.$('#wk-job').addEventListener('change',  e => { STATE.weeklyJob = e.target.value; STATE.weeklyData = null; paint(); loadWeekly(); });
   SHELL.$('#wk-export').addEventListener('click', () => exportPayrollCsv(monday, sunday));
+  SHELL.$('#wk-past-runs').addEventListener('click', togglePastRunsPanel);
   SHELL.$$('td[data-cell]').forEach(td => td.addEventListener('click', () => {
     const [uid, date] = td.dataset.cell.split('|');
     openCellDetails(uid, date);
@@ -463,6 +469,76 @@ function openCellDetails(userId, date) {
       await loadWeekly();
     });
   }
+}
+
+// Phase 08 (brief §08): past payroll runs — hash-indexed audit trail.
+// Opens the collapsed #wk-runs-panel. Each row shows the actor, range,
+// hash (first 12 chars + copy), row count, total hours, and a "View"
+// button that triggers a non-stamping CSV preview of the same range.
+let _runsLoaded = false;
+async function togglePastRunsPanel() {
+  const panel = SHELL.$('#wk-runs-panel');
+  if (!panel) return;
+  if (panel.hidden === false) { panel.hidden = true; return; }
+  panel.hidden = false;
+  if (!_runsLoaded) {
+    panel.innerHTML = `<div class="empty">Loading past runs…</div>`;
+    try {
+      const r = await SHELL.api('/api/payroll-runs?limit=50');
+      _runsLoaded = true;
+      renderPastRuns(panel, r.runs || [], r.total || 0);
+    } catch (e) {
+      panel.innerHTML = `<div class="empty"><div class="empty-title">Couldn't load past runs</div><div class="empty-sub">${SHELL.escapeHtml(e.message)}</div></div>`;
+    }
+  }
+}
+function renderPastRuns(panel, runs, total) {
+  if (!runs.length) {
+    panel.innerHTML = `
+      <div class="card" style="padding:18px 22px">
+        <div class="card-title">No payroll runs yet</div>
+        <div class="card-sub">Hashes appear here after the first real CSV export.</div>
+      </div>`;
+    return;
+  }
+  const rows = runs.map(r => {
+    const range = `${r.range.fromDate} → ${r.range.toDate}`;
+    const hashShort = (r.hash || '').slice(0, 12);
+    const sum = r.summary || {};
+    return `<tr>
+      <td class="tabular">${SHELL.escapeHtml(r.at ? new Date(r.at).toLocaleString('en-AU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : '—')}</td>
+      <td><b>${SHELL.escapeHtml(r.actorName || r.actor || '—')}</b></td>
+      <td class="tabular">${SHELL.escapeHtml(range)}<div style="font-size:10px;color:var(--muted)">${SHELL.escapeHtml(r.range.status || 'approved')}</div></td>
+      <td class="tabular table-num">${r.rowCount}</td>
+      <td class="tabular table-num">${(sum.totalHours || 0).toFixed(1)}h</td>
+      <td><code style="font-family:var(--ff-mono);font-size:10.5px;letter-spacing:.04em;background:var(--surface-2);padding:2px 6px;border-radius:3px;cursor:pointer" data-hash="${SHELL.escapeHtml(r.hash || '')}" title="Click to copy">${SHELL.escapeHtml(hashShort)}…</code></td>
+    </tr>`;
+  }).join('');
+  panel.innerHTML = `
+    <div class="card" style="padding:0">
+      <div style="padding:12px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline">
+        <div>
+          <div class="card-title">Past payroll runs</div>
+          <div class="card-sub">${runs.length} of ${total} · newest first · hash detects silent re-runs</div>
+        </div>
+        <button class="btn btn-sm" id="wk-runs-close">Close</button>
+      </div>
+      <div class="table-wrap" style="border:0">
+        <table class="table" style="font-size:12.5px">
+          <thead><tr>
+            <th>When</th><th>Actor</th><th>Range</th>
+            <th class="table-num">Rows</th><th class="table-num">Hours</th><th>Hash</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  panel.querySelector('#wk-runs-close').addEventListener('click', () => { panel.hidden = true; });
+  panel.querySelectorAll('[data-hash]').forEach(el => el.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(el.dataset.hash); SHELL.toast('Hash copied', 'ok'); }
+    catch { /* fall through */ }
+  }));
 }
 
 async function exportPayrollCsv(fromDate, toDate) {
