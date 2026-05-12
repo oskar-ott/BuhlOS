@@ -978,8 +978,16 @@ function renderSetup(host) {
 
     <div class="card" style="margin-bottom:14px">
       <div class="card-hdr">
+        <div><div class="card-title">Modules</div>
+          <div class="card-sub">Turn concepts on or off on this job. A small service job can hide what it doesn't need — a multi-level fitout keeps everything.</div></div>
+      </div>
+      <div id="setup-modules">${modulesEditorHtml(j)}</div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr">
         <div><div class="card-title">Areas <span class="card-count">${countAreas(j)}</span></div>
-          <div class="card-sub">Groups + areas. Add new ones any time. Areas with progress can't be deleted — rename instead.</div></div>
+          <div class="card-sub">Groups + areas. Add new ones any time. Archive areas with recorded progress instead of deleting — keeps the historical record clean.</div></div>
         <button class="btn btn-primary" id="setup-add-group">+ Add group</button>
       </div>
       <div id="areas-list">${areasEditorHtml(j, data)}</div>
@@ -1020,6 +1028,15 @@ function renderSetup(host) {
       </div>
     </div>
 
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr">
+        <div><div class="card-title">Setup activity</div>
+          <div class="card-sub">Who changed what, when. Last 50 structural edits on this job.</div></div>
+        <button class="btn btn-sm" id="setup-audit-refresh">Refresh</button>
+      </div>
+      <div id="setup-audit-list" style="font-size:13px;color:var(--muted)">Loading…</div>
+    </div>
+
     <div class="card">
       <div class="card-hdr"><div><div class="card-title">Open in field</div>
         <div class="card-sub">See this job the way the tradies do.</div></div></div>
@@ -1042,6 +1059,104 @@ function renderSetup(host) {
   SHELL.$$('button[data-dup-area]').forEach(b => b.addEventListener('click', () => duplicateArea(b.dataset.dupArea)));
   SHELL.$$('button[data-rename-task]').forEach(b => b.addEventListener('click', () => renameTask(b.dataset.renameTask, b.dataset.stage)));
   SHELL.$$('button[data-rm-task]').forEach(b => b.addEventListener('click', () => removeTask(b.dataset.rmTask, b.dataset.stage)));
+  // Modules toggles — wire each checkbox to a PUT that merges the
+  // single flag and re-renders. Light, no panel, no save button.
+  SHELL.$$('input[data-module]').forEach(cb => cb.addEventListener('change', () => toggleModule(cb.dataset.module, cb.checked)));
+  // Setup activity load — lazy fetch so it doesn't slow the page paint.
+  loadSetupAudit();
+  SHELL.$('#setup-audit-refresh').addEventListener('click', loadSetupAudit);
+}
+
+// ── Modules editor ─────────────────────────────────────────────────────
+// Reads `j.modules` (hydrated by the API) and shows a checkbox per
+// concept. A click PATCHes the job with the single flag and reloads.
+//
+// Future-only modules (switchboards, circuits, ITPs, levels) are still
+// surfaced as toggles — flipping them on doesn't break anything because
+// the backend schemas exist (PRs #159, #160) and the field-side UIs
+// degrade gracefully when the arrays are empty.
+const MODULE_DEFS = [
+  { key: 'snags',        label: 'Snags',          hint: 'Field-raised defect tracking' },
+  { key: 'photos',       label: 'Photos',         hint: 'ITP / dwelling photo capture' },
+  { key: 'hours',        label: 'Hours',          hint: 'Tradie time entries on this job' },
+  { key: 'materials',    label: 'Materials',      hint: 'Takeoff / PO / invoice' },
+  { key: 'tags',         label: 'Test & tag',     hint: 'Compliance tag register' },
+  { key: 'temps',        label: 'Temp register',  hint: 'Temporary power + hire items' },
+  { key: 'plans',        label: 'Plans',          hint: 'PDF / drawing register' },
+  { key: 'contacts',     label: 'Contacts',       hint: 'Project + supplier contacts' },
+  { key: 'levels',       label: 'Levels (beta)',     hint: 'Floor-level structure (R1 future module)' },
+  { key: 'switchboards', label: 'Switchboards (beta)', hint: 'DB + MSB register (data: PR #159)' },
+  { key: 'circuits',     label: 'Circuits (beta)',     hint: 'Circuit schedule (data: PR #159)' },
+  { key: 'itps',         label: 'ITPs (beta)',       hint: 'Inspection Test Plans (data: PR #160)' },
+];
+function modulesEditorHtml(j) {
+  const m = (j && j.modules) || {};
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">
+      ${MODULE_DEFS.map(def => {
+        const on = (def.key in m) ? !!m[def.key] : (
+          def.key === 'levels' || def.key === 'switchboards' || def.key === 'circuits' || def.key === 'itps'
+            ? false : true
+        );
+        return `
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;cursor:pointer;${on ? 'background:var(--surface-2)' : ''}">
+            <input type="checkbox" data-module="${SHELL.escapeHtml(def.key)}" ${on ? 'checked' : ''} style="margin-top:2px;flex-shrink:0">
+            <span style="flex:1;min-width:0">
+              <span style="font-weight:600;font-size:13.5px">${SHELL.escapeHtml(def.label)}</span>
+              <span style="display:block;color:var(--muted);font-size:11.5px;margin-top:2px">${SHELL.escapeHtml(def.hint)}</span>
+            </span>
+          </label>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+async function toggleModule(key, on) {
+  try {
+    const r = await SHELL.api('/api/jobs', { method: 'PUT', body: { id: STATE.jobId, modules: { [key]: on } } });
+    STATE.job = r.job;
+    SHELL.toast(`${key}: ${on ? 'on' : 'off'}`, 'ok');
+    paint();
+  } catch (e) {
+    SHELL.toast('Couldn\'t toggle — ' + e.message, 'bad');
+    paint(); // re-render to bounce the checkbox back
+  }
+}
+
+// ── Setup activity (audit log) ─────────────────────────────────────────
+// Hits /api/job-audit and renders the last 50 entries. Read-only. Lazy
+// loaded so the Setup tab paints first and the audit comes in after.
+async function loadSetupAudit() {
+  const host = SHELL.$('#setup-audit-list');
+  if (!host) return;
+  host.textContent = 'Loading…';
+  try {
+    const r = await SHELL.api('/api/job-audit?jobId=' + encodeURIComponent(STATE.jobId) + '&limit=50');
+    const entries = r.entries || [];
+    if (!entries.length) {
+      host.innerHTML = '<div style="padding:10px 0;color:var(--muted);font-size:13px">No setup changes recorded yet.</div>';
+      return;
+    }
+    host.innerHTML = `
+      <div style="display:grid;gap:6px">
+        ${entries.map(e => {
+          const ts = new Date(e.ts || 0);
+          const when = isNaN(ts.getTime()) ? '' : ts.toLocaleString();
+          return `
+            <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-2)">
+              <div style="flex-shrink:0;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;width:80px">${SHELL.escapeHtml(e.kind || '')}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;color:var(--ink-2)">${SHELL.escapeHtml(e.summary || '')}</div>
+                <div style="font-size:11.5px;color:var(--muted);margin-top:2px">${SHELL.escapeHtml(e.byUsername || e.byUserId || '')} · ${SHELL.escapeHtml(when)}</div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  } catch (e) {
+    host.innerHTML = '<div style="padding:10px 0;color:var(--bad);font-size:13px">Couldn\'t load activity — ' + SHELL.escapeHtml(e.message) + '</div>';
+  }
 }
 
 // ── Setup helpers ──────────────────────────────────────────────────────
