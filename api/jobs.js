@@ -44,6 +44,67 @@ function effectiveModules(job) {
   return sanitizeModules((job && job.modules) || {});
 }
 
+// Job Basics field validators (audit C-1 / M-2 / M-3 / L-4). All optional;
+// validation only runs on the values that *were* provided. Caps lengths
+// so a malicious POST can't bloat storage; coerces types so callers
+// don't need to be perfect.
+//
+// Returns { ok: true, patch } where `patch` is a partial object the
+// caller can `Object.assign` into the job, or { ok: false, error }.
+const BASIC_TEXT = {
+  ref:               { max: 60 },
+  serviceM8JobId:    { max: 60 },
+  siteAddress:       { max: 240 },
+  accessNotes:       { max: 1000 },
+  parkingNotes:      { max: 240 },
+  siteContactName:   { max: 120 },
+  safetyNotes:       { max: 1000 },
+};
+function validateJobBasics(body) {
+  const patch = {};
+  for (const [k, spec] of Object.entries(BASIC_TEXT)) {
+    if (body[k] === undefined) continue;
+    if (body[k] === null) { patch[k] = ''; continue; }
+    if (typeof body[k] !== 'string') return { ok: false, error: `${k} must be a string` };
+    patch[k] = body[k].trim().slice(0, spec.max);
+  }
+  if (body.siteContactPhone !== undefined) {
+    if (body.siteContactPhone === null) patch.siteContactPhone = '';
+    else if (typeof body.siteContactPhone !== 'string') return { ok: false, error: 'siteContactPhone must be a string' };
+    else {
+      const v = body.siteContactPhone.trim().slice(0, 40);
+      if (v && !/^[+\d\s\-()/]{6,}$/.test(v)) return { ok: false, error: 'siteContactPhone format' };
+      patch.siteContactPhone = v;
+    }
+  }
+  if (body.inductionRequired !== undefined) {
+    patch.inductionRequired = !!body.inductionRequired;
+  }
+  if (body.startDate !== undefined) {
+    if (body.startDate === null || body.startDate === '') patch.startDate = '';
+    else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.startDate))) return { ok: false, error: 'startDate must be YYYY-MM-DD' };
+    else patch.startDate = String(body.startDate);
+  }
+  if (body.dueDate !== undefined) {
+    if (body.dueDate === null || body.dueDate === '') patch.dueDate = '';
+    else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate))) return { ok: false, error: 'dueDate must be YYYY-MM-DD' };
+    else patch.dueDate = String(body.dueDate);
+  }
+  if (body.programmedDurationDays !== undefined) {
+    if (body.programmedDurationDays === null || body.programmedDurationDays === '') patch.programmedDurationDays = null;
+    else {
+      const n = Number(body.programmedDurationDays);
+      if (!Number.isFinite(n) || n < 0) return { ok: false, error: 'programmedDurationDays must be a non-negative number' };
+      patch.programmedDurationDays = Math.round(n);
+    }
+  }
+  // Cross-check dates if both provided.
+  if (patch.startDate && patch.dueDate && patch.startDate > patch.dueDate) {
+    return { ok: false, error: 'dueDate must be on or after startDate' };
+  }
+  return { ok: true, patch };
+}
+
 // Project a job for response — filter archived areaGroups/areas/tasks
 // (R2) and apply explicit `order` (R4). Returns a copy; never mutates.
 // Pass { includeArchived: true } on admin editor reads.
@@ -222,7 +283,17 @@ module.exports = async (req, res) => {
   // POST — create (admin only)
   if (req.method === 'POST') {
     if (me.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
-    const { name, id, clientUserId, type, areaGroups, roughInTasks, fitOffTasks, modules, customFields } = req.body || {};
+    const {
+      name, id, clientUserId, type,
+      areaGroups, roughInTasks, fitOffTasks,
+      modules, customFields,
+      // Job Basics (audit C-1, M-2, M-3, L-4) — all optional.
+      ref, serviceM8JobId,
+      siteAddress, accessNotes, parkingNotes,
+      siteContactName, siteContactPhone,
+      safetyNotes, inductionRequired,
+      startDate, dueDate, programmedDurationDays,
+    } = req.body || {};
     if (!name) return res.status(400).json({ error: 'name required' });
     const jobId = slugify(id || name);
     if (!jobId) return res.status(400).json({ error: 'invalid id' });
@@ -266,6 +337,11 @@ module.exports = async (req, res) => {
       parsedCustomFields = cf.fields;
     }
 
+    // Job Basics (audit C-1 / M-2 / M-3 / L-4) — validate everything
+    // the caller provided.
+    const basicsResult = validateJobBasics(req.body || {});
+    if (!basicsResult.ok) return res.status(400).json({ error: basicsResult.error });
+
     // Per-job module flags (rigidity audit R1). Lets a "rewire pub"
     // hide concepts it doesn't need (switchboards, temps, ITPs) and a
     // 14-storey fitout keep them. Defaults to "everything on" so existing
@@ -282,6 +358,7 @@ module.exports = async (req, res) => {
       status: 'active',
       modules: sanitizeModules(modules),
       customFields: parsedCustomFields,
+      ...basicsResult.patch,
       createdAt: new Date().toISOString(),
     };
     data.jobs.push(job);
@@ -307,6 +384,14 @@ module.exports = async (req, res) => {
       modules,
       // Custom fields on the Job (rigidity audit R3). Admin or LH writable.
       customFields,
+      // Job Basics (audit C-1 / M-2 / M-3 / L-4). Admin / LH writable —
+      // site address + access notes are field-needed information, LH
+      // should be able to fix typos on site.
+      ref, serviceM8JobId,
+      siteAddress, accessNotes, parkingNotes,
+      siteContactName, siteContactPhone,
+      safetyNotes, inductionRequired,
+      startDate, dueDate, programmedDurationDays,
     } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id required' });
     const job = data.jobs.find(j => j.id === id);
@@ -333,6 +418,14 @@ module.exports = async (req, res) => {
         s + ((g.areas || []).filter(a => a.archived).length) + (g.archived ? 1 : 0), 0),
       roughInTasksCount: (job.roughInTasks || []).length,
       fitOffTasksCount:  (job.fitOffTasks  || []).length,
+      // Basics — tracked so the audit can show "address changed" etc.
+      basicsJson: JSON.stringify({
+        ref: job.ref || '', siteAddress: job.siteAddress || '',
+        startDate: job.startDate || '', dueDate: job.dueDate || '',
+        siteContactName: job.siteContactName || '',
+        siteContactPhone: job.siteContactPhone || '',
+        inductionRequired: !!job.inductionRequired,
+      }),
     };
 
     // leadingHand may only patch areaGroups, roughInTasks, fitOffTasks, clientUserId
@@ -360,6 +453,13 @@ module.exports = async (req, res) => {
       if (!cf.ok) return res.status(400).json({ error: cf.error });
       job.customFields = cf.fields;
     }
+
+    // Job Basics — assign any of the validated fields the caller provided.
+    // Field-by-field so a PUT with just { id, siteAddress: '...' } only
+    // touches that one slot.
+    const basicsPatch = validateJobBasics(req.body || {});
+    if (!basicsPatch.ok) return res.status(400).json({ error: basicsPatch.error });
+    Object.assign(job, basicsPatch.patch);
 
     // Polish (brief §13 prereq): contract + claims numeric fields.
     // null clears; numbers persist. Negative values rejected.
@@ -477,6 +577,13 @@ module.exports = async (req, res) => {
           s + ((g.areas || []).filter(a => a.archived).length) + (g.archived ? 1 : 0), 0),
         roughInTasksCount: (job.roughInTasks || []).length,
         fitOffTasksCount:  (job.fitOffTasks  || []).length,
+        basicsJson: JSON.stringify({
+          ref: job.ref || '', siteAddress: job.siteAddress || '',
+          startDate: job.startDate || '', dueDate: job.dueDate || '',
+          siteContactName: job.siteContactName || '',
+          siteContactPhone: job.siteContactPhone || '',
+          inductionRequired: !!job.inductionRequired,
+        }),
       };
       const audits = [];
       if (_before.name !== _now.name) {
@@ -511,6 +618,14 @@ module.exports = async (req, res) => {
       const fDelta = _now.fitOffTasksCount  - _before.fitOffTasksCount;
       if (rDelta !== 0) audits.push({ kind: 'rough-tasks', summary: `Rough-in tasks ${_before.roughInTasksCount} → ${_now.roughInTasksCount}` });
       if (fDelta !== 0) audits.push({ kind: 'fit-tasks',   summary: `Fit-off tasks ${_before.fitOffTasksCount} → ${_now.fitOffTasksCount}` });
+      if (_before.basicsJson !== _now.basicsJson) {
+        audits.push({
+          kind: 'basics',
+          summary: 'Updated job basics (address / dates / contact / safety)',
+          before: JSON.parse(_before.basicsJson),
+          after: JSON.parse(_now.basicsJson),
+        });
+      }
       for (const a of audits) {
         await appendAudit(job.id, {
           byUserId: me.id, byUsername: me.username,
