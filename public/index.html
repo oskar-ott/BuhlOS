@@ -4223,7 +4223,20 @@ function closeLightbox(){document.getElementById('lightbox').classList.remove('o
 
 async function deletePhoto(photoId){
   if(!confirm('Delete this photo?'))return;
-  await fetch('/api/photos',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({photoId})});
+  // Route through BuhlQueue so a delete in a basement persists and
+  // drains when online. replaceKey collapses dupe taps. The reload
+  // runs unconditionally — when offline it'll just re-render the
+  // cached set; once online the photo will be gone after the next
+  // loadPhotos roundtrip.
+  const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+  try {
+    await fetcher('/api/photos',{
+      method:'DELETE',
+      headers:{'Content-Type':'application/json'},
+      replaceKey:'photo-delete:'+photoId,
+      body:JSON.stringify({photoId}),
+    });
+  } catch (e) { /* swallow — BuhlQueue persists, online fetch logged error already */ }
   if(currentDwellingId)loadPhotos(currentDwellingId);
 }
 
@@ -6514,8 +6527,12 @@ async function openTempDeployModal() {
     if (!tempItemId) { showToast('Pick an item first.', 'warn'); return; }
     saveBtn.disabled = true; saveBtn.textContent = 'Deploying…';
     try {
-      const r = await fetch('/api/temps?action=deploy&jobId=' + encodeURIComponent(JOB_ID), {
+      // Offline-first: deploying a generator from a site cabin shouldn't
+      // bounce as "Deploy failed" when reception's patchy. Queue it.
+      const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+      const r = await fetcher('/api/temps?action=deploy&jobId=' + encodeURIComponent(JOB_ID), {
         method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        replaceKey: 'temp-deploy:' + JOB_ID + ':' + tempItemId,
         body: JSON.stringify({
           jobId: JOB_ID, tempItemId,
           locationOnSite: document.getElementById('td-loc').value.trim(),
@@ -6523,6 +6540,11 @@ async function openTempDeployModal() {
           notes: document.getElementById('td-notes').value.trim(),
         }),
       });
+      if (r && r.status === 202) {
+        tempsAssetsCache = null; _closeTempModal(overlay);
+        showToast('Deploy queued offline · syncing when online.', 'warn', 3500);
+        return;
+      }
       if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || ('HTTP '+r.status)); }
       tempsAssetsCache = null;
       _closeTempModal(overlay);
@@ -6562,13 +6584,20 @@ function openTempReturnModal(deploymentId) {
     if (conditionReturn === 'damaged' && !notes) { showToast('Add a note about the damage.', 'warn'); return; }
     saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
     try {
-      const r = await fetch('/api/temps?action=return&jobId=' + encodeURIComponent(JOB_ID), {
+      const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+      const r = await fetcher('/api/temps?action=return&jobId=' + encodeURIComponent(JOB_ID), {
         method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        replaceKey: 'temp-return:' + deploymentId,
         body: JSON.stringify({
           jobId: JOB_ID, deploymentId, conditionReturn,
           returnLocationType: document.getElementById('tr-locType').value, notes,
         }),
       });
+      if (r && r.status === 202) {
+        tempsAssetsCache = null; _closeTempModal(overlay);
+        showToast('Return queued offline · syncing when online.', 'warn', 3500);
+        return;
+      }
       if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || ('HTTP '+r.status)); }
       tempsAssetsCache = null;
       _closeTempModal(overlay);
@@ -6599,14 +6628,21 @@ function openTempReportModal(deploymentId) {
   saveBtn.onclick = async () => {
     saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
     try {
-      const r = await fetch('/api/temps?action=report&jobId=' + encodeURIComponent(JOB_ID), {
+      const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+      const r = await fetcher('/api/temps?action=report&jobId=' + encodeURIComponent(JOB_ID), {
         method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        replaceKey: 'temp-report:' + deploymentId,
         body: JSON.stringify({
           jobId: JOB_ID, deploymentId,
           reason: document.getElementById('tp-reason').value,
           notes: document.getElementById('tp-rnotes').value.trim(),
         }),
       });
+      if (r && r.status === 202) {
+        tempsAssetsCache = null; _closeTempModal(overlay);
+        showToast('Report queued offline · syncing when online.', 'warn', 3500);
+        return;
+      }
       if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.error || ('HTTP '+r.status)); }
       tempsAssetsCache = null;
       _closeTempModal(overlay);
