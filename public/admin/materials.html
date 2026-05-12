@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl · materials</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1b34">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+<script type="module" src="/components/list-row.js"></script>
+
+<!--
+  /admin/materials · Materials & invoices (phase 10 of the rebuild)
+  ────────────────────────────────────────────────────────────────
+
+  Per brief §10. Replaces "materials live in WhatsApp" with a single
+  cross-job admin surface:
+    Planned  → Ordered → Delivered → Used   (4 states per item)
+    Site-purchase capture → office reconciles → cost coded to job
+
+  This page is the aggregate view. Per-job materials editing lives
+  on the job detail's Materials tab (admin/job.html § materials).
+-->
+
+<style>
+  .mat-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 18px; gap: 14px; flex-wrap: wrap;
+  }
+  .mat-head h1 {
+    font-family: var(--ff-display);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: -.012em;
+    color: var(--ink);
+    margin: 0;
+  }
+  .mat-head .sub { color: var(--muted); font-size: 13px; margin-top: 4px; max-width: 60ch; }
+
+  .mat-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    overflow: hidden;
+    margin-bottom: 16px;
+    background: var(--surface);
+  }
+  .mat-cell {
+    padding: 12px 16px;
+    border-right: 1px solid var(--line);
+    cursor: pointer;
+    background: transparent;
+    border-top: 0; border-left: 0; border-bottom: 0;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+  }
+  .mat-cell:last-child { border-right: 0; }
+  .mat-cell:hover { background: var(--surface-2); }
+  .mat-cell.on { background: var(--surface-2); }
+  .mat-cell .lab {
+    font-family: var(--ff-mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .mat-cell .val {
+    font-family: var(--ff-display);
+    font-weight: 700;
+    font-size: 24px;
+    color: var(--ink);
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.012em;
+  }
+  .mat-cell .sub2 {
+    font-family: var(--ff-mono);
+    font-size: 10.5px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .mat-cell.on { border-top: 3px solid var(--accent); margin-top: -3px; }
+
+  .mat-tools {
+    display: flex; gap: 10px; align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .mat-tools .job-sel {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-family: var(--ff-display);
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--ink);
+    min-width: 220px;
+  }
+  .mat-tools .spacer { flex: 1; }
+  .mat-tools .count {
+    font-family: var(--ff-mono);
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mat-list {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    overflow: hidden;
+  }
+  .mat-empty {
+    padding: 60px 22px;
+    text-align: center;
+    color: var(--muted);
+  }
+  .mat-empty b { color: var(--ink); font-family: var(--ff-display); font-weight: 700; font-size: 16px; }
+
+  /* Inline state chip used inside list rows. */
+  .state-chip {
+    font-family: var(--ff-mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    letter-spacing: .04em;
+  }
+  .state-chip.planned   { background: var(--surface-2); color: var(--ink-2); }
+  .state-chip.ordered   { background: var(--info-bg);   color: var(--info); }
+  .state-chip.delivered { background: var(--ok-bg);     color: var(--ok); }
+  .state-chip.used      { background: var(--accent);    color: var(--accent-ink); }
+  .state-chip.variance  { background: var(--bad-bg);    color: var(--bad); }
+</style>
+</head>
+<body>
+
+<script>
+'use strict';
+
+let STATE = {
+  filterStatus: 'all',    // 'all' | 'planned' | 'ordered' | 'delivered' | 'used' | 'variance'
+  filterJob:    'all',
+  items: [],              // flat: { jobId, jobName, ...item }
+  invoices: [],           // flat across jobs
+  loading: false,
+};
+
+window.PAGE = {
+  id: 'materials',
+  title: 'Materials',
+  crumb: 'Materials',
+  async render() {
+    const params = new URLSearchParams(location.search);
+    if (params.get('status')) STATE.filterStatus = params.get('status');
+    if (params.get('job'))    STATE.filterJob = params.get('job');
+    STATE.loading = true;
+    paint();
+    await loadAll();
+    STATE.loading = false;
+    paint();
+  }
+};
+
+/* ── Load ──────────────────────────────────────────────────────────
+   Fan-out across active jobs (sequential to keep blob calls cheap on
+   the dev/preview deployment). Each /api/materials-list?jobId returns
+   the items + invoices + cost rollup; we only need items + invoices. */
+
+async function loadAll() {
+  const activeJobs = (SHELL.JOBS || []).filter(j => (j.status || 'active') === 'active');
+  const items = [];
+  const invoices = [];
+  for (const j of activeJobs) {
+    try {
+      const r = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(j.id));
+      const list = (r.list && r.list.items) || r.items || [];
+      list.forEach(it => items.push({ ...it, jobId: j.id, jobName: j.name }));
+      const invs = (r.list && r.list.invoices) || r.invoices || [];
+      invs.forEach(inv => invoices.push({ ...inv, jobId: j.id, jobName: j.name }));
+    } catch (e) {
+      // Skip unreadable jobs — usually means the job has no list yet.
+    }
+  }
+  STATE.items = items;
+  STATE.invoices = invoices;
+}
+
+/* ── State derivation ─────────────────────────────────────────────
+   Brief §10 4-state model. Backed by item.status when present, but
+   the existing schema uses { priced, ordered, received, ... } so we
+   derive a single label per item. */
+
+function deriveState(item) {
+  // Phase 12 (invoice match) introduces 'variance' as a non-terminal
+  // flag layered over delivered/used items where invoice ≠ PO.
+  if (item.invoiceVariance) return 'variance';
+  if (item.usedAt)                       return 'used';
+  if (item.receivedAt || item.deliveredAt) return 'delivered';
+  if (item.poId || item.orderedAt)       return 'ordered';
+  return 'planned';
+}
+function stateLabel(s) {
+  return s === 'planned'   ? 'Planned'
+       : s === 'ordered'   ? 'Ordered'
+       : s === 'delivered' ? 'Delivered'
+       : s === 'used'      ? 'Used'
+       : s === 'variance'  ? 'Variance'
+       : s;
+}
+
+/* ── Paint ─────────────────────────────────────────────────────── */
+
+function paint() {
+  const counts = {
+    all:       STATE.items.length,
+    planned:   STATE.items.filter(i => deriveState(i) === 'planned').length,
+    ordered:   STATE.items.filter(i => deriveState(i) === 'ordered').length,
+    delivered: STATE.items.filter(i => deriveState(i) === 'delivered').length,
+    used:      STATE.items.filter(i => deriveState(i) === 'used').length,
+    variance:  STATE.items.filter(i => deriveState(i) === 'variance').length,
+  };
+  const jobs = Array.from(new Set(STATE.items.map(i => i.jobId)))
+    .map(jid => ({ id: jid, name: STATE.items.find(i => i.jobId === jid).jobName }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const visible = STATE.items.filter(i => {
+    if (STATE.filterStatus !== 'all' && deriveState(i) !== STATE.filterStatus) return false;
+    if (STATE.filterJob !== 'all' && i.jobId !== STATE.filterJob) return false;
+    return true;
+  });
+
+  SHELL.$('#page').innerHTML = `
+    <div class="mat-head">
+      <div>
+        <h1>Materials</h1>
+        <div class="sub">Track every line item: planned, ordered, delivered, used. Variance flags catch invoice ≠ PO before money goes out the door.</div>
+      </div>
+    </div>
+
+    <div class="mat-strip" role="tablist" aria-label="Status filter">
+      ${[
+        ['all',       'All',       counts.all,       'across active jobs'],
+        ['planned',   'Planned',   counts.planned,   'lifted from quote'],
+        ['ordered',   'Ordered',   counts.ordered,   'PO sent'],
+        ['delivered', 'Delivered', counts.delivered, 'on site'],
+        ['used',      'Used',      counts.used,      'committed'],
+        ['variance',  'Variance',  counts.variance,  'invoice vs PO'],
+      ].map(([k, lab, c, sub]) => `
+        <button class="mat-cell ${STATE.filterStatus === k ? 'on' : ''}" data-status="${k}">
+          <div class="lab">${lab}</div>
+          <div class="val">${c}</div>
+          <div class="sub2">${sub}</div>
+        </button>
+      `).join('')}
+    </div>
+
+    <div class="mat-tools">
+      <select class="job-sel" id="job-sel">
+        <option value="all">All active jobs</option>
+        ${jobs.map(j => `<option value="${SHELL.escapeHtml(j.id)}"${STATE.filterJob === j.id ? ' selected' : ''}>${SHELL.escapeHtml(j.name)}</option>`).join('')}
+      </select>
+      <div class="spacer"></div>
+      <span class="count">${visible.length} ${visible.length === 1 ? 'item' : 'items'}</span>
+    </div>
+
+    <div class="mat-list" id="mat-list"></div>
+  `;
+
+  paintList(visible);
+
+  SHELL.$$('.mat-cell[data-status]').forEach(b => b.addEventListener('click', () => {
+    STATE.filterStatus = b.dataset.status;
+    paint();
+  }));
+  SHELL.$('#job-sel').addEventListener('change', e => {
+    STATE.filterJob = e.target.value;
+    paint();
+  });
+}
+
+function paintList(visible) {
+  const wrap = document.getElementById('mat-list');
+  if (!wrap) return;
+  if (STATE.loading) {
+    wrap.innerHTML = `<div class="mat-empty">Loading…</div>`;
+    return;
+  }
+  if (!visible.length) {
+    wrap.innerHTML = `
+      <div class="mat-empty">
+        <b>No items match those filters.</b><br>
+        <span style="font-size:13px">Try a different status or job.</span>
+      </div>
+    `;
+    return;
+  }
+  wrap.innerHTML = '';
+
+  const head = document.createElement('list-row');
+  head.setAttribute('head', '');
+  head.setAttribute('name', 'Item');
+  const hm = document.createElement('div'); hm.setAttribute('slot','metric'); hm.textContent = 'Job · qty · price'; head.appendChild(hm);
+  const ha = document.createElement('div'); ha.setAttribute('slot','action'); ha.textContent = 'Status';            head.appendChild(ha);
+  wrap.appendChild(head);
+
+  for (const it of visible) {
+    const st = deriveState(it);
+    const dot = st === 'variance'  ? 'red'
+              : st === 'used'      ? 'yellow'
+              : st === 'delivered' ? 'green'
+              : st === 'ordered'   ? 'blue'
+              : 'none';
+    const row = document.createElement('list-row');
+    row.setAttribute('status', dot);
+    row.setAttribute('name', it.description || it.name || '(unnamed)');
+    if (it.wholesalerName || it.supplier) row.setAttribute('sub', it.wholesalerName || it.supplier);
+    row.setAttribute('href', `/admin/jobs/${encodeURIComponent(it.jobId)}?s=materials`);
+
+    const metric = document.createElement('div');
+    metric.setAttribute('slot', 'metric');
+    const qty = it.quantity != null ? `${it.quantity} ${it.unit || ''}`.trim() : '';
+    const price = it.quotedUnitPrice != null
+      ? `$${(Number(it.quantity || 1) * Number(it.quotedUnitPrice)).toFixed(2)}`
+      : '';
+    metric.innerHTML = `
+      <span><b>${SHELL.escapeHtml(it.jobName || it.jobId || '')}</b></span>
+      ${qty ? `<span>${SHELL.escapeHtml(qty)}</span>` : ''}
+      ${price ? `<span>${SHELL.escapeHtml(price)}</span>` : ''}
+    `;
+    row.appendChild(metric);
+
+    const action = document.createElement('div');
+    action.setAttribute('slot', 'action');
+    action.innerHTML = `<span class="state-chip ${st}">${stateLabel(st)}</span>`;
+    row.appendChild(action);
+
+    wrap.appendChild(row);
+  }
+}
+</script>
+</body>
+</html>
