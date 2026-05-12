@@ -340,5 +340,98 @@ module.exports = async (req, res) => {
     });
   }
 
+  // ── send-stale-snags: Monday-morning triage push for admins ───────────
+  // Snags rot in silence. A snag opened three weeks ago without a follow-up
+  // is the kind of thing that costs money at handover. This cron walks all
+  // open snags on active jobs and pushes admins a single line: "N stale
+  // snags · X high priority", with a link straight to /admin/snags.
+  //
+  // Age thresholds are tuned to priority — a High open >3 days is louder
+  // than a Low at the same age, because real defects don't wait a fortnight.
+  //   High:   stale after 3 days
+  //   Medium: stale after 7 days
+  //   Low:    stale after 14 days
+  //
+  // Runs Mon 09:00 Sydney (= Sun 23:00 UTC). Skipped entirely when nothing
+  // qualifies — same "silence is the signal" rule as the daily digest.
+  if (action === 'send-stale-snags' && req.method === 'GET') {
+    if (!cronAuthorised(req)) return res.status(401).json({ error: 'unauthorised' });
+    if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
+
+    const now = Date.now();
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const thresholdDays = { High: 3, Medium: 7, Low: 14 };
+
+    let stale = [];
+    try {
+      const jobs = (await readBlob('jobs.json', { jobs: [] })).jobs || [];
+      const active = jobs.filter(j => (j.status || 'active') === 'active');
+      for (const j of active) {
+        let d;
+        try { d = await readBlob(`jobs/${j.id}/data.json`, { snags: [] }); }
+        catch { continue; }
+        for (const s of (d.snags || [])) {
+          if ((s.status || 'Open') !== 'Open') continue;
+          const created = s.createdAt || s.date || '';
+          if (!created) continue;
+          const t = Date.parse(created);
+          if (!Number.isFinite(t)) continue;
+          const ageDays = (now - t) / DAY_MS;
+          const prio = s.priority || 'Medium';
+          const threshold = thresholdDays[prio] ?? thresholdDays.Medium;
+          if (ageDays < threshold) continue;
+          stale.push({ jobId: j.id, jobName: j.name, priority: prio, ageDays });
+        }
+      }
+    } catch (e) { console.error('stale-snags walk failed', e); }
+
+    const usersData = await readBlob(USERS_KEY, { users: [] });
+    const admins = (usersData.users || []).filter(u =>
+      u.role === 'admin' &&
+      !u.archived &&
+      Array.isArray(u.pushSubscriptions) && u.pushSubscriptions.length);
+
+    if (!admins.length) {
+      return res.status(200).json({ ok: true, sent: 0, skipped: 'no admin subscribers', staleCount: stale.length });
+    }
+    if (!stale.length) {
+      return res.status(200).json({ ok: true, sent: 0, skipped: 'no stale snags' });
+    }
+
+    const byPriority = { High: 0, Medium: 0, Low: 0 };
+    const jobSet = new Set();
+    let oldestDays = 0;
+    for (const s of stale) {
+      byPriority[s.priority] = (byPriority[s.priority] || 0) + 1;
+      jobSet.add(s.jobId);
+      if (s.ageDays > oldestDays) oldestDays = s.ageDays;
+    }
+
+    const bits = [];
+    bits.push(`${stale.length} stale snag${stale.length === 1 ? '' : 's'}`);
+    if (byPriority.High) bits.push(`${byPriority.High} high priority`);
+    if (jobSet.size > 1) bits.push(`across ${jobSet.size} jobs`);
+    bits.push(`oldest ${Math.floor(oldestDays)}d`);
+
+    const payload = {
+      title: 'Snags need triage',
+      body: bits.join(' · '),
+      url: '/admin/snags',
+      tag: 'buhl-stale-snags-' + new Date().toISOString().slice(0, 10),
+    };
+
+    let sent = 0, pruned = 0;
+    for (const u of admins) {
+      const r = await sendPushToUserId(u.id, payload);
+      sent   += (r.sent   || 0);
+      pruned += (r.pruned || 0);
+    }
+
+    return res.status(200).json({
+      ok: true, sent, pruned,
+      stale: { total: stale.length, byPriority, jobs: jobSet.size, oldestDays: Math.floor(oldestDays) },
+    });
+  }
+
   return res.status(400).json({ error: 'unknown action' });
 };
