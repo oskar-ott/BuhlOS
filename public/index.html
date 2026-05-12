@@ -3709,8 +3709,15 @@ window.openTradieLogForThisJob = async function openTradieLogForThisJob(){
   BuhlLogHours.open({
     scheduledJobId: JOB_ID,
     entry: existing || undefined,
-    onSaved: (e) => {
+    onSaved: (e, meta) => {
       const jobName = (document.getElementById('hdr-name').textContent || '').trim();
+      if (meta && meta.queued) {
+        // BuhlQueue persisted the write offline — surface that explicitly
+        // so the worker doesn't refresh and re-enter (which would just queue
+        // again). The job's <buhl-mark> sync stamp shows the same state.
+        if (window.showToast) showToast('Hours queued offline · syncing when online.', 'warn', 3500);
+        return;
+      }
       const lbl = e ? `Logged ${_formatLogged(e)}${jobName ? ' for ' + jobName : ''}.` : 'Hours logged.';
       if (window.showToast) showToast(lbl,'success');
     },
@@ -3838,8 +3845,12 @@ window.openCrewLogPicker = async function openCrewLogPicker(){
       targetUserName: targetName,
       scheduledJobId: JOB_ID,
       entry: existing || undefined,
-      onSaved: (e) => {
+      onSaved: (e, meta) => {
         const jobName = (document.getElementById('hdr-name').textContent || '').trim();
+        if (meta && meta.queued) {
+          if (window.showToast) showToast(`Hours for ${targetName} queued offline · syncing when online.`, 'warn', 3500);
+          return;
+        }
         const total = Number(e && e.totalHours) || 0;
         const h = Math.floor(total), m = Math.round((total - h) * 60);
         const fmt = m ? `${h}h ${m}m` : `${h}h`;
@@ -7070,7 +7081,11 @@ window.openHoursRowEdit = function openHoursRowEdit(userId, dateIso) {
     targetUserId:   isOwn ? null : entry.userId,
     targetUserName: isOwn ? null : (entry.userName || entry.userId),
     scheduledJobId: JOB_ID,
-    onSaved: async () => {
+    onSaved: async (savedEntry, meta) => {
+      if (meta && meta.queued) {
+        if (window.showToast) showToast('Hours queued offline · syncing when online.', 'warn', 3500);
+        return;
+      }
       await loadHours();
       renderHours();
     },

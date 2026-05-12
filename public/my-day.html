@@ -15,6 +15,11 @@
      this, hour mutations from /my-day (Submit, Approve, edit) fail
      silently when the phone has no signal. -->
 <script type="module" src="/components/queue.js"></script>
+<!-- <buhl-mark> renders the sync indicator next to the greeting. It
+     subscribes to the same Sync bus that BuhlQueue.fetch drives, so
+     a write pulse / offline state / failed drain shows up visually
+     without anything in this page touching it directly. -->
+<script type="module" src="/components/buhl-mark.js"></script>
 <script src="/install-prompt.js" defer></script>
 <script src="/lib/compliments.js" defer></script>
 <script src="/log-hours-sheet.js" defer></script>
@@ -81,6 +86,16 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   margin-top:3px;letter-spacing:.1px;
 }
 .top-day b{font-weight:600;color:var(--ink-2)}
+/* Sync stamp — right of the greeting on the .top row. <buhl-mark>
+   renders two dots that pulse / go stroked / turn red driven by
+   the BuhlSync bus (which BuhlQueue.fetch already drives). Calm
+   when idle, animates while writes are in flight, stroked when
+   the phone has no signal. */
+.top-sync{
+  flex-shrink:0; color:var(--muted-2);
+  display:inline-flex;align-items:center;justify-content:center;
+  width:38px;height:38px;
+}
 .top-bell{
   width:38px;height:38px;border-radius:50%;
   background:var(--surface);border:1px solid var(--line);
@@ -513,6 +528,11 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
       <div class="top-name" id="top-name">My Day</div>
       <div class="top-day" id="today">Today</div>
     </div>
+    <!-- Sync stamp — pulses while BuhlQueue is sending a write, goes
+         stroked when the phone has no signal, turns red on a failed
+         drain. Driven by the Sync event bus that queue.js + buhl-mark
+         already wire. -->
+    <buhl-mark size="sm" class="top-sync" aria-label="Sync state"></buhl-mark>
   </div>
 
   <!-- 1. Log Hours card (PRIMARY action) — brief: "the main action".
@@ -1700,7 +1720,13 @@ function _scheduledJobIdHint(){
   return active[0]?.id || null;
 }
 
-async function _refreshAfterTimeEntrySave(){
+async function _refreshAfterTimeEntrySave(savedEntry, meta){
+  // log-hours-sheet now signals offline-persistence via meta.queued = true
+  // when BuhlQueue holds onto the write. Surface that to the user — silent
+  // success would leave them wondering why their hours aren't in the list.
+  if (meta && meta.queued && window.showToast) {
+    showToast('Hours queued offline · will sync when online.', 'warn', 3500);
+  }
   // Re-fetch my time-entries window (Mon-2w..today) and re-render dependent strips.
   const fromIso = (() => {
     const d = isoWeekMonday();
