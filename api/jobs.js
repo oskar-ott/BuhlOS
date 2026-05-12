@@ -2,6 +2,7 @@ const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, getCurrentUser, canManageJob } = require('./_lib/auth');
 const { validateAreaGroups, validateTasks, validateCustomFields, visibleStructural } = require('./_lib/validation');
 const { areaProgressPct } = require('./_lib/job-tasks');
+const { appendAudit } = require('./_lib/job-audit');
 
 function slugify(s) {
   return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -314,6 +315,26 @@ module.exports = async (req, res) => {
     // Permission: admin OR leadingHand on this specific job
     if (!canManageJob(me, id)) return res.status(403).json({ error: 'forbidden' });
 
+    // Snapshot the fields we'll audit before any mutation runs. We compare
+    // shallow values (name, status, type, clientUserId, modules, custom-
+    // fields length, area-group count, task count) — enough to produce a
+    // useful "renamed", "archived 2 areas", "tasks +1/-0" entry without
+    // bloating the audit blob with full JSON diffs.
+    const _before = {
+      name: job.name,
+      status: job.status,
+      type: job.type,
+      clientUserId: job.clientUserId,
+      modulesJson: JSON.stringify(effectiveModules(job)),
+      customFieldsLen: (job.customFields || []).length,
+      areaGroupsCount: (job.areaGroups || []).length,
+      areasCount: (job.areaGroups || []).reduce((s, g) => s + ((g.areas || []).length), 0),
+      areasArchivedCount: (job.areaGroups || []).reduce((s, g) =>
+        s + ((g.areas || []).filter(a => a.archived).length) + (g.archived ? 1 : 0), 0),
+      roughInTasksCount: (job.roughInTasks || []).length,
+      fitOffTasksCount:  (job.fitOffTasks  || []).length,
+    };
+
     // leadingHand may only patch areaGroups, roughInTasks, fitOffTasks, clientUserId
     if (me.role === 'leadingHand') {
       if (name !== undefined || type !== undefined || status !== undefined ||
@@ -438,6 +459,67 @@ module.exports = async (req, res) => {
     }
 
     await writeBlob('jobs.json', data);
+
+    // Audit log (rigidity audit R5). One entry per meaningful field
+    // change. Fire-and-forget — a logging failure must never block the
+    // response or roll back the mutation.
+    try {
+      const _now = {
+        name: job.name,
+        status: job.status,
+        type: job.type,
+        clientUserId: job.clientUserId,
+        modulesJson: JSON.stringify(effectiveModules(job)),
+        customFieldsLen: (job.customFields || []).length,
+        areaGroupsCount: (job.areaGroups || []).length,
+        areasCount: (job.areaGroups || []).reduce((s, g) => s + ((g.areas || []).length), 0),
+        areasArchivedCount: (job.areaGroups || []).reduce((s, g) =>
+          s + ((g.areas || []).filter(a => a.archived).length) + (g.archived ? 1 : 0), 0),
+        roughInTasksCount: (job.roughInTasks || []).length,
+        fitOffTasksCount:  (job.fitOffTasks  || []).length,
+      };
+      const audits = [];
+      if (_before.name !== _now.name) {
+        audits.push({ kind: 'rename', summary: `Renamed "${_before.name}" → "${_now.name}"`, before: _before.name, after: _now.name });
+      }
+      if (_before.status !== _now.status) {
+        audits.push({ kind: 'status', summary: `Status ${_before.status || 'active'} → ${_now.status || 'active'}` });
+      }
+      if (_before.type !== _now.type) {
+        audits.push({ kind: 'type', summary: `Type ${_before.type || '—'} → ${_now.type || '—'}` });
+      }
+      if (_before.clientUserId !== _now.clientUserId) {
+        audits.push({ kind: 'client', summary: `Client link ${_before.clientUserId || '—'} → ${_now.clientUserId || '—'}` });
+      }
+      if (_before.modulesJson !== _now.modulesJson) {
+        audits.push({ kind: 'modules', summary: 'Module flags changed', before: JSON.parse(_before.modulesJson), after: JSON.parse(_now.modulesJson) });
+      }
+      if (_before.customFieldsLen !== _now.customFieldsLen) {
+        audits.push({ kind: 'custom-fields', summary: `Custom fields ${_before.customFieldsLen} → ${_now.customFieldsLen}` });
+      }
+      const areaDelta = _now.areasCount - _before.areasCount;
+      const grpDelta  = _now.areaGroupsCount - _before.areaGroupsCount;
+      const archDelta = _now.areasArchivedCount - _before.areasArchivedCount;
+      if (areaDelta !== 0 || grpDelta !== 0 || archDelta !== 0) {
+        const bits = [];
+        if (grpDelta)  bits.push(`${grpDelta > 0 ? '+' : ''}${grpDelta} area group${Math.abs(grpDelta) === 1 ? '' : 's'}`);
+        if (areaDelta) bits.push(`${areaDelta > 0 ? '+' : ''}${areaDelta} area${Math.abs(areaDelta) === 1 ? '' : 's'}`);
+        if (archDelta) bits.push(`${archDelta > 0 ? '+' : ''}${archDelta} archived`);
+        audits.push({ kind: 'structure', summary: bits.join(' · ') });
+      }
+      const rDelta = _now.roughInTasksCount - _before.roughInTasksCount;
+      const fDelta = _now.fitOffTasksCount  - _before.fitOffTasksCount;
+      if (rDelta !== 0) audits.push({ kind: 'rough-tasks', summary: `Rough-in tasks ${_before.roughInTasksCount} → ${_now.roughInTasksCount}` });
+      if (fDelta !== 0) audits.push({ kind: 'fit-tasks',   summary: `Fit-off tasks ${_before.fitOffTasksCount} → ${_now.fitOffTasksCount}` });
+      for (const a of audits) {
+        await appendAudit(job.id, {
+          byUserId: me.id, byUsername: me.username,
+          kind: a.kind, summary: a.summary,
+          before: a.before, after: a.after,
+        });
+      }
+    } catch (e) { console.warn('job audit write failed', e); }
+
     // PUT mutations should return the *complete* server-side view so
     // admin editors get archived rows back too — they want to see what
     // they just archived. Mobile-facing GETs filter via the default.
