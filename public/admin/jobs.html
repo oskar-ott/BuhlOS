@@ -407,8 +407,12 @@ let NJ_STATE = null;
 function njReset() {
   NJ_STATE = {
     step: 1,
-    // Step 1
+    // Step 1 — identity
     name: '', code: '', clientUserId: '', type: '',
+    // Step 1 — basics (audit C-1 / M-2 / M-3)
+    ref: '', siteAddress: '', accessNotes: '',
+    siteContactName: '', siteContactPhone: '',
+    startDate: '', dueDate: '',
     // Step 2
     templateMode: 'blank',  // 'blank' | 'copy' | 'type-default'
     templateJobId: '',
@@ -467,8 +471,12 @@ function njBodyStep1() {
     <div class="field"><label class="field-lbl">Job name *</label>
       <input class="input" id="nj-name" placeholder="e.g. 19–23 Birdwood Ave" value="${SHELL.escapeHtml(s.name)}" autofocus></div>
     <div class="two-col">
-      <div class="field"><label class="field-lbl">Job code (optional)</label>
-        <input class="input" id="nj-id" placeholder="auto from name" value="${SHELL.escapeHtml(s.code)}"></div>
+      <div class="field"><label class="field-lbl">Job code <span style="color:var(--muted);font-weight:500">(URL slug — auto from name)</span></label>
+        <input class="input" id="nj-id" placeholder="auto" value="${SHELL.escapeHtml(s.code)}"></div>
+      <div class="field"><label class="field-lbl">Job ref / ServiceM8 number</label>
+        <input class="input" id="nj-ref" placeholder="e.g. IV3232" value="${SHELL.escapeHtml(s.ref || '')}"></div>
+    </div>
+    <div class="two-col">
       ${types.length ? `
         <div class="field"><label class="field-lbl">Type</label>
           <select class="select" id="nj-type">
@@ -476,12 +484,32 @@ function njBodyStep1() {
             ${types.map(t => `<option value="${SHELL.escapeHtml(t.id)}"${s.type === t.id ? ' selected' : ''}>${SHELL.escapeHtml(t.name)}</option>`).join('')}
           </select>
         </div>` : '<div></div>'}
+      <div class="field"><label class="field-lbl">Client</label>
+        <select class="select" id="nj-client">
+          <option value="">— none —</option>
+          ${clients.map(u => `<option value="${SHELL.escapeHtml(u.id)}"${s.clientUserId === u.id ? ' selected' : ''}>${SHELL.escapeHtml(u.username)}</option>`).join('')}
+        </select>
+      </div>
     </div>
-    <div class="field"><label class="field-lbl">Client</label>
-      <select class="select" id="nj-client">
-        <option value="">— none —</option>
-        ${clients.map(u => `<option value="${SHELL.escapeHtml(u.id)}"${s.clientUserId === u.id ? ' selected' : ''}>${SHELL.escapeHtml(u.username)}</option>`).join('')}
-      </select>
+
+    <div style="margin:18px 0 12px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Site</div>
+    <div class="field"><label class="field-lbl">Site address</label>
+      <input class="input" id="nj-addr" placeholder="19–23 Birdwood Ave, Lane Cove NSW 2066" value="${SHELL.escapeHtml(s.siteAddress || '')}"></div>
+    <div class="field"><label class="field-lbl">Access notes <span style="color:var(--muted);font-weight:500">(side gate code, lift access hours)</span></label>
+      <textarea class="input" id="nj-access" rows="2">${SHELL.escapeHtml(s.accessNotes || '')}</textarea></div>
+    <div class="two-col">
+      <div class="field"><label class="field-lbl">Site contact</label>
+        <input class="input" id="nj-contact-name" placeholder="Foreman name" value="${SHELL.escapeHtml(s.siteContactName || '')}"></div>
+      <div class="field"><label class="field-lbl">Phone</label>
+        <input class="input" id="nj-contact-phone" placeholder="0400 000 000" value="${SHELL.escapeHtml(s.siteContactPhone || '')}"></div>
+    </div>
+
+    <div style="margin:18px 0 12px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Programme</div>
+    <div class="two-col">
+      <div class="field"><label class="field-lbl">Start date</label>
+        <input class="input" id="nj-start" type="date" value="${SHELL.escapeHtml(s.startDate || '')}"></div>
+      <div class="field"><label class="field-lbl">Due date</label>
+        <input class="input" id="nj-due" type="date" value="${SHELL.escapeHtml(s.dueDate || '')}"></div>
     </div>
   `;
 }
@@ -579,25 +607,54 @@ function njBodyStep4() {
 function njStepFooter(step) {
   const back  = step === 1 ? '' : '<button class="btn" id="nj-back">← Back</button>';
   const cancel = '<button class="btn" onclick="SHELL.closePanel()">Cancel</button>';
+  // Save as draft — available from any step once name is set. Skips
+  // remaining steps and writes the job with status 'active' but a
+  // sparser body. Tradies stay hidden from sparse drafts via the
+  // role gates in /api/jobs (clients/tradies only see jobs they're
+  // assigned to, so an unassigned new job is invisible by default).
+  const saveDraft = '<button class="btn" id="nj-save-draft" title="Save what you have so far — finish setup later">Save as draft</button>';
   const next = step === 4
     ? '<button class="btn btn-primary" id="nj-create">Create job</button>'
     : '<button class="btn btn-primary" id="nj-next">Next →</button>';
-  return `${cancel}<span style="flex:1"></span>${back}${next}`;
+  return `${cancel}<span style="flex:1"></span>${saveDraft}${back}${next}`;
 }
 
 function njWireStep(step, panel) {
   const s = NJ_STATE;
   switch (step) {
-    case 1:
-      panel.querySelector('#nj-next').addEventListener('click', () => {
+    case 1: {
+      const captureStep1 = () => {
         s.name = panel.querySelector('#nj-name').value.trim();
         s.code = panel.querySelector('#nj-id').value.trim();
+        s.ref  = panel.querySelector('#nj-ref').value.trim();
         s.type = panel.querySelector('#nj-type')?.value || '';
-        s.clientUserId = panel.querySelector('#nj-client').value;
+        s.clientUserId    = panel.querySelector('#nj-client').value;
+        s.siteAddress     = panel.querySelector('#nj-addr').value.trim();
+        s.accessNotes     = panel.querySelector('#nj-access').value.trim();
+        s.siteContactName = panel.querySelector('#nj-contact-name').value.trim();
+        s.siteContactPhone= panel.querySelector('#nj-contact-phone').value.trim();
+        s.startDate       = panel.querySelector('#nj-start').value || '';
+        s.dueDate         = panel.querySelector('#nj-due').value || '';
+        if (s.startDate && s.dueDate && s.startDate > s.dueDate) {
+          SHELL.toast('Due date must be on or after start date', 'bad'); return false;
+        }
+        return true;
+      };
+      panel.querySelector('#nj-next').addEventListener('click', () => {
+        if (!captureStep1()) return;
         if (!s.name) { SHELL.toast('Name required', 'bad'); return; }
         s.step = 2; njPaint();
       });
+      // "Save as draft" button — also wired by njStepFooter. Capture
+      // step 1 state then call njFinalCreate with a draft flag.
+      const draftBtn = panel.querySelector('#nj-save-draft');
+      if (draftBtn) draftBtn.addEventListener('click', () => {
+        if (!captureStep1()) return;
+        if (!s.name) { SHELL.toast('Name required to save draft', 'bad'); return; }
+        njFinalCreate(panel, { draft: true });
+      });
       break;
+    }
     case 2:
       panel.querySelectorAll('input[name="nj-tmpl"]').forEach(r => r.addEventListener('change', () => {
         s.templateMode = r.value;
@@ -656,10 +713,24 @@ function njWireStep(step, panel) {
       panel.querySelector('#nj-create').addEventListener('click', () => njFinalCreate(panel));
       break;
   }
+  // Save-as-draft is universally wired (button rendered on every step
+  // by njStepFooter). On steps 2-4 the in-step state has already been
+  // captured by the time the admin clicks, so we just create with what
+  // we have. Step 1 has its own draft handler that runs captureStep1
+  // first (validates the date pair).
+  if (step !== 1) {
+    const draftBtn = panel.querySelector('#nj-save-draft');
+    if (draftBtn) draftBtn.addEventListener('click', () => {
+      if (!NJ_STATE.name) { SHELL.toast('Name required to save draft', 'bad'); return; }
+      njFinalCreate(panel, { draft: true });
+    });
+  }
 }
 
-async function njFinalCreate(panel) {
+async function njFinalCreate(panel, opts) {
+  opts = opts || {};
   const s = NJ_STATE;
+  const isDraft = !!opts.draft;
   // Build the cleaned areaGroups payload (skip empty rows).
   const cleanedGroups = s.areaGroups.map(g => ({
     name: (g.name || '').trim() || 'Areas',
@@ -668,8 +739,13 @@ async function njFinalCreate(panel) {
       .filter(a => a.name),
   })).filter(g => g.areas.length);
 
-  const createBtn = panel.querySelector('#nj-create');
-  createBtn.disabled = true; createBtn.textContent = 'Creating…';
+  // Disable whichever button triggered this; the draft path uses
+  // #nj-save-draft, the full create uses #nj-create.
+  const triggerBtn = panel.querySelector(isDraft ? '#nj-save-draft' : '#nj-create');
+  if (triggerBtn) {
+    triggerBtn.disabled = true;
+    triggerBtn.textContent = isDraft ? 'Saving…' : 'Creating…';
+  }
   try {
     // Step A — create the job with the basics + optional area groups.
     const body = {
@@ -677,6 +753,15 @@ async function njFinalCreate(panel) {
       id:   s.code || undefined,
       type: s.type || undefined,
       clientUserId: s.clientUserId || null,
+      // Job Basics (audit C-1 / M-2 / M-3) — only send keys that have a
+      // value so the server doesn't see blank patches it'd clear out.
+      ...(s.ref               ? { ref: s.ref }                             : {}),
+      ...(s.siteAddress       ? { siteAddress: s.siteAddress }             : {}),
+      ...(s.accessNotes       ? { accessNotes: s.accessNotes }             : {}),
+      ...(s.siteContactName   ? { siteContactName: s.siteContactName }     : {}),
+      ...(s.siteContactPhone  ? { siteContactPhone: s.siteContactPhone }   : {}),
+      ...(s.startDate         ? { startDate: s.startDate }                 : {}),
+      ...(s.dueDate           ? { dueDate: s.dueDate }                     : {}),
     };
     if (cleanedGroups.length) body.areaGroups = cleanedGroups;
     const created = await SHELL.api('/api/jobs', { method: 'POST', body });
@@ -718,12 +803,15 @@ async function njFinalCreate(panel) {
     }
     if (assignments.length) await Promise.all(assignments);
 
-    SHELL.toast('Job created', 'ok');
+    SHELL.toast(isDraft ? 'Draft saved' : 'Job created', 'ok');
     SHELL.closePanel();
-    location.href = '/admin/jobs/' + jobId;
+    location.href = '/admin/jobs/' + jobId + (isDraft ? '?s=setup' : '');
   } catch (e) {
-    createBtn.disabled = false; createBtn.textContent = 'Create job';
-    SHELL.toast('Create failed — ' + e.message, 'bad');
+    if (triggerBtn) {
+      triggerBtn.disabled = false;
+      triggerBtn.textContent = isDraft ? 'Save as draft' : 'Create job';
+    }
+    SHELL.toast((isDraft ? 'Save draft failed — ' : 'Create failed — ') + e.message, 'bad');
   }
 }
 
