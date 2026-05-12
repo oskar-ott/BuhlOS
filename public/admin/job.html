@@ -141,16 +141,22 @@ function paint() {
   // brief: see the job → fix setup → assign crew → triage problems →
   // review labour → see drawings → check materials. Setup gets an early
   // amber badge when incomplete so a half-built job demands attention.
+  // Per-job module flags (rigidity audit R1). Tabs the admin has turned
+  // off on this job get filtered out. Defaults assume "on" for back-compat
+  // — old jobs without `modules` keep every tab visible. The module map
+  // is hydrated by the API (api/jobs.js sanitizeModules + effectiveModules).
+  const mods = (j.modules && typeof j.modules === 'object') ? j.modules : {};
+  const modOn = (key, defaultOn) => (key in mods) ? !!mods[key] : !!defaultOn;
   const sections = [
     { id: 'overview',  label: 'Overview' },
     { id: 'setup',     label: 'Setup', count: setupMissing || null, countTone: setupMissing ? 'warn' : null },
     { id: 'crew',      label: 'Crew & client' },
-    { id: 'contacts',  label: 'Contacts' },
-    { id: 'snags',     label: 'Snags', count: openSnagCount, countTone: openSnagCount ? 'bad' : null },
-    { id: 'hours',     label: 'Hours' },
-    { id: 'plans',     label: 'Plans & takeoff', count: pendingDwellings || null },
-    { id: 'materials', label: 'Materials', count: matsCount || null },
-  ];
+    modOn('contacts',  true)  && { id: 'contacts',  label: 'Contacts' },
+    modOn('snags',     true)  && { id: 'snags',     label: 'Snags', count: openSnagCount, countTone: openSnagCount ? 'bad' : null },
+    modOn('hours',     true)  && { id: 'hours',     label: 'Hours' },
+    modOn('plans',     true)  && { id: 'plans',     label: 'Plans & takeoff', count: pendingDwellings || null },
+    modOn('materials', true)  && { id: 'materials', label: 'Materials', count: matsCount || null },
+  ].filter(Boolean);
 
   SHELL.$('#page').innerHTML = `
     <div class="ws-head">
