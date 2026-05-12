@@ -1854,10 +1854,15 @@ async function enablePush(){
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(publicKey),
     });
-    await fetch('/api/notifications?action=subscribe', {
+    // Route through BuhlQueue so a subscribe-while-offline persists and
+    // syncs once the device reconnects. replaceKey keyed on endpoint
+    // collapses duplicates if the user re-enables push later.
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    await fetcher('/api/notifications?action=subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
+      replaceKey: 'push-subscribe:' + (sub && sub.endpoint || ''),
       body: JSON.stringify(sub),
     });
     localStorage.setItem('push-asked', 'enabled');
