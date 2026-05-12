@@ -1,6 +1,6 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, getCurrentUser, canManageJob } = require('./_lib/auth');
-const { validateAreaGroups, validateTasks } = require('./_lib/validation');
+const { validateAreaGroups, validateTasks, visibleStructural } = require('./_lib/validation');
 const { areaProgressPct } = require('./_lib/job-tasks');
 
 function slugify(s) {
@@ -41,6 +41,27 @@ function effectiveModules(job) {
   // without `modules` get the default set, so the rest of the code
   // can rely on `effective.tags` being a real boolean.
   return sanitizeModules((job && job.modules) || {});
+}
+
+// Project a job for response — filter archived areaGroups/areas/tasks
+// (R2) and apply explicit `order` (R4). Returns a copy; never mutates.
+// Pass { includeArchived: true } on admin editor reads.
+function projectJobStructure(job, { includeArchived = false } = {}) {
+  if (!job) return job;
+  const out = { ...job };
+  if (Array.isArray(job.areaGroups)) {
+    out.areaGroups = visibleStructural(job.areaGroups, { includeArchived }).map(g => ({
+      ...g,
+      areas: visibleStructural(g.areas || [], { includeArchived }),
+    }));
+  }
+  if (Array.isArray(job.roughInTasks)) {
+    out.roughInTasks = visibleStructural(job.roughInTasks, { includeArchived });
+  }
+  if (Array.isArray(job.fitOffTasks)) {
+    out.fitOffTasks = visibleStructural(job.fitOffTasks, { includeArchived });
+  }
+  return out;
 }
 
 // Aggregate job-level stats. Uses the shared `areaProgressPct` helper so
@@ -93,8 +114,14 @@ module.exports = async (req, res) => {
         (me.assignedJobIds || []).includes(id) ||
         (me.role === 'client' && job.clientUserId === me.id);
       if (!canSee) return res.status(403).json({ error: 'forbidden' });
-      // Hydrate modules so callers can rely on the shape.
-      return res.status(200).json({ job: { ...job, modules: effectiveModules(job) } });
+      // Hydrate modules + filter archived structural items unless the
+      // caller passes ?includeArchived=1 (admin editor only). Mobile +
+      // tradie surfaces see the live structure; archived rooms / tasks
+      // disappear from their lists without ever being deleted (rigidity
+      // audit R2 — archive is the universal "remove" verb).
+      const includeArchived = req.query && req.query.includeArchived === '1';
+      const cleaned = projectJobStructure(job, { includeArchived });
+      return res.status(200).json({ job: { ...cleaned, modules: effectiveModules(job) } });
     }
     let visible;
     if (me.role === 'admin') {
@@ -111,11 +138,15 @@ module.exports = async (req, res) => {
       const jt = await readBlob('job-types.json', { jobTypes: [] });
       (jt.jobTypes || []).forEach(t => { typeMap[t.id] = t.name; });
     }
+    // Listing surface filters archived structural items by default.
+    // The admin job-list page doesn't need them; if a future surface
+    // does it can opt in (?includeArchived=1) like the single-job GET.
+    const includeArchivedList = req.query && req.query.includeArchived === '1';
     let enriched = visible.map(j => {
-      const out = j.type && typeMap[j.type] ? { ...j, typeName: typeMap[j.type] } : { ...j };
-      // Hydrate modules so list consumers can decide which tabs to show.
-      out.modules = effectiveModules(j);
-      return out;
+      const base = j.type && typeMap[j.type] ? { ...j, typeName: typeMap[j.type] } : { ...j };
+      const projected = projectJobStructure(base, { includeArchived: includeArchivedList });
+      projected.modules = effectiveModules(j);
+      return projected;
     });
 
     // Optional stats enrichment — used by the /jobs list page so users can scan
@@ -250,7 +281,7 @@ module.exports = async (req, res) => {
     await writeBlob(`jobs/${jobId}/temps.json`, { temps: [] });
     // Legacy jobs/<id>/hours.json no longer seeded — hours live in
     // users/<userId>/time-entries/<date>.json (per-user, per-day).
-    return res.status(200).json({ job: { ...job, modules: effectiveModules(job) } });
+    return res.status(200).json({ job: { ...projectJobStructure(job), modules: effectiveModules(job) } });
   }
 
   // PUT — update (patch): admin OR leadingHand on that job (restricted fields)
@@ -387,7 +418,10 @@ module.exports = async (req, res) => {
     }
 
     await writeBlob('jobs.json', data);
-    return res.status(200).json({ job: { ...job, modules: effectiveModules(job) } });
+    // PUT mutations should return the *complete* server-side view so
+    // admin editors get archived rows back too — they want to see what
+    // they just archived. Mobile-facing GETs filter via the default.
+    return res.status(200).json({ job: { ...projectJobStructure(job, { includeArchived: true }), modules: effectiveModules(job) } });
   }
 
   res.status(405).end();
