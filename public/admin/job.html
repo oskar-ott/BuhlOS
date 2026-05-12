@@ -999,6 +999,15 @@ function renderSetup(host) {
 
     <div class="card" style="margin-bottom:14px">
       <div class="card-hdr">
+        <div><div class="card-title">Custom fields <span class="card-count">${(j.customFields || []).length}</span></div>
+          <div class="card-sub">Capture anything the schema doesn't model directly — wifi password, fire rating, switchboard schedule ref, key cabinet location.</div></div>
+        <button class="btn btn-primary" id="setup-add-cf">+ Add field</button>
+      </div>
+      <div id="setup-cf-list">${customFieldsEditorHtml(j)}</div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr">
         <div><div class="card-title">Areas <span class="card-count">${countAreas(j)}</span></div>
           <div class="card-sub">Groups + areas. Add new ones any time. Archive areas with recorded progress instead of deleting — keeps the historical record clean.</div></div>
         <button class="btn btn-primary" id="setup-add-group">+ Add group</button>
@@ -1075,9 +1084,140 @@ function renderSetup(host) {
   // Modules toggles — wire each checkbox to a PUT that merges the
   // single flag and re-renders. Light, no panel, no save button.
   SHELL.$$('input[data-module]').forEach(cb => cb.addEventListener('change', () => toggleModule(cb.dataset.module, cb.checked)));
+  // Custom fields — add / edit / remove. Each action persists via a
+  // PUT that ships the whole array (the endpoint is replace-style).
+  SHELL.$('#setup-add-cf').addEventListener('click', () => openCustomFieldEditor(null));
+  SHELL.$$('button[data-cf-edit]').forEach(b => b.addEventListener('click', () => openCustomFieldEditor(b.dataset.cfEdit)));
+  SHELL.$$('button[data-cf-rm]').forEach(b => b.addEventListener('click', () => removeCustomField(b.dataset.cfRm)));
   // Setup activity load — lazy fetch so it doesn't slow the page paint.
   loadSetupAudit();
   SHELL.$('#setup-audit-refresh').addEventListener('click', loadSetupAudit);
+}
+
+// ── Custom fields editor (audit R3 — UI for #153) ──────────────────────
+// Renders an inline-edit table; opens a modal for add / edit; PUTs the
+// whole customFields array on save (the endpoint validates + replaces
+// wholesale).
+function customFieldsEditorHtml(j) {
+  const fields = j.customFields || [];
+  if (!fields.length) {
+    return `<div style="padding:14px 0;color:var(--muted);font-size:13px;font-style:italic">No custom fields yet. Add fields like "client unit no", "fire rating", "wifi password" — anything you want to record on the job.</div>`;
+  }
+  // Group by `group` for readability when the admin has set one.
+  const byGroup = {};
+  for (const f of fields) {
+    const g = f.group || '';
+    (byGroup[g] = byGroup[g] || []).push(f);
+  }
+  const groupOrder = Object.keys(byGroup).sort((a, b) => a.localeCompare(b));
+  return groupOrder.map(g => {
+    const list = byGroup[g];
+    return `
+      ${g ? `<div style="margin:8px 0 4px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">${SHELL.escapeHtml(g)}</div>` : ''}
+      <div style="display:grid;grid-template-columns:160px 1fr auto;gap:6px 14px;font-size:13px;align-items:center">
+        ${list.map(f => `
+          <div style="color:var(--muted);font-weight:500">${SHELL.escapeHtml(f.label || f.key)}</div>
+          <div style="word-wrap:break-word">${renderCustomFieldValue(f)}</div>
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <button class="btn btn-sm" data-cf-edit="${SHELL.escapeHtml(f.key)}" title="Edit">${SHELL.ICONS.edit}</button>
+            <button class="btn btn-sm" data-cf-rm="${SHELL.escapeHtml(f.key)}" title="Remove" style="color:var(--bad)">×</button>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }).join('');
+}
+function renderCustomFieldValue(f) {
+  if (f.value === '' || f.value == null) return '<span style="color:var(--muted-2)">—</span>';
+  if (f.type === 'bool') return f.value ? '<span style="color:var(--ok);font-weight:600">Yes</span>' : '<span style="color:var(--muted)">No</span>';
+  if (f.type === 'longtext') return `<div style="white-space:pre-wrap;font-size:12.5px;color:var(--ink-2)">${SHELL.escapeHtml(String(f.value))}</div>`;
+  return SHELL.escapeHtml(String(f.value));
+}
+function openCustomFieldEditor(existingKey) {
+  const j = STATE.job || {};
+  const fields = j.customFields || [];
+  const existing = existingKey ? fields.find(f => f.key === existingKey) : null;
+  const panel = SHELL.openPanel({
+    title: existing ? 'Edit custom field' : 'Add custom field',
+    body: `
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Label *</label>
+          <input class="input" id="cf-label" placeholder="e.g. Fire rating"
+                 value="${SHELL.escapeHtml(existing ? (existing.label || existing.key) : '')}" autofocus></div>
+        <div class="field"><label class="field-lbl">Type</label>
+          <select class="select" id="cf-type">
+            ${[
+              ['text','Text (short)'],
+              ['longtext','Text (long)'],
+              ['number','Number'],
+              ['bool','Yes / No'],
+              ['date','Date'],
+            ].map(([k, lab]) => `<option value="${k}" ${(existing && existing.type === k) || (!existing && k === 'text') ? 'selected' : ''}>${lab}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="field"><label class="field-lbl">Group <span style="color:var(--muted);font-weight:500">(optional — groups fields together in the readout)</span></label>
+        <input class="input" id="cf-group" placeholder="e.g. Compliance, Access"
+               value="${SHELL.escapeHtml(existing ? (existing.group || '') : '')}"></div>
+      <div class="field"><label class="field-lbl">Value</label>
+        <div id="cf-value-host"></div></div>
+      ${existing ? '' : `<div style="font-size:12px;color:var(--muted);margin-top:6px">Key (slug) auto-generated from the label. Existing fields keep their key when renamed.</div>`}
+    `,
+    footer: `
+      <button class="btn" onclick="SHELL.closePanel()">Cancel</button>
+      <button class="btn btn-primary" id="cf-save">${existing ? 'Save' : 'Add field'}</button>
+    `,
+  });
+  const renderValueInput = () => {
+    const t = panel.querySelector('#cf-type').value;
+    const host = panel.querySelector('#cf-value-host');
+    const cur = existing ? existing.value : '';
+    if (t === 'longtext') host.innerHTML = `<textarea class="input" id="cf-value" rows="3">${SHELL.escapeHtml(cur == null ? '' : String(cur))}</textarea>`;
+    else if (t === 'bool') host.innerHTML = `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px"><input type="checkbox" id="cf-value" ${cur ? 'checked' : ''}>Yes</label>`;
+    else if (t === 'number') host.innerHTML = `<input class="input" id="cf-value" type="number" value="${SHELL.escapeHtml(cur == null ? '' : String(cur))}">`;
+    else if (t === 'date') host.innerHTML = `<input class="input" id="cf-value" type="date" value="${SHELL.escapeHtml(cur || '')}">`;
+    else host.innerHTML = `<input class="input" id="cf-value" value="${SHELL.escapeHtml(cur == null ? '' : String(cur))}">`;
+  };
+  renderValueInput();
+  panel.querySelector('#cf-type').addEventListener('change', renderValueInput);
+  panel.querySelector('#cf-save').addEventListener('click', async () => {
+    const label = panel.querySelector('#cf-label').value.trim();
+    if (!label) { SHELL.toast('Label required', 'bad'); return; }
+    const type = panel.querySelector('#cf-type').value;
+    const group = panel.querySelector('#cf-group').value.trim();
+    const valEl = panel.querySelector('#cf-value');
+    let value;
+    if (type === 'bool')        value = !!(valEl && valEl.checked);
+    else if (type === 'number') value = valEl.value === '' ? null : Number(valEl.value);
+    else if (type === 'date')   value = valEl.value || null;
+    else                        value = valEl.value;
+    // Slug from label (server will dedupe + lowercase anyway).
+    const key = existing ? existing.key : label.toLowerCase().trim().replace(/[^a-z0-9_]+/g, '_').slice(0, 40);
+    const next = (j.customFields || []).filter(f => f.key !== key);
+    next.push({ key, label: label.slice(0, 80), value, type, ...(group ? { group: group.slice(0, 40) } : {}) });
+    try {
+      const r = await SHELL.api('/api/jobs', { method: 'PUT', body: { id: STATE.jobId, customFields: next } });
+      STATE.job = r.job;
+      SHELL.toast(existing ? 'Field saved' : 'Field added', 'ok');
+      SHELL.closePanel();
+      paint();
+    } catch (e) {
+      SHELL.toast('Save failed — ' + e.message, 'bad');
+    }
+  });
+}
+async function removeCustomField(key) {
+  if (!confirm('Remove this field? Recorded values will be lost.')) return;
+  const j = STATE.job || {};
+  const next = (j.customFields || []).filter(f => f.key !== key);
+  try {
+    const r = await SHELL.api('/api/jobs', { method: 'PUT', body: { id: STATE.jobId, customFields: next } });
+    STATE.job = r.job;
+    SHELL.toast('Field removed', 'ok');
+    paint();
+  } catch (e) {
+    SHELL.toast('Remove failed — ' + e.message, 'bad');
+  }
 }
 
 // ── Modules editor ─────────────────────────────────────────────────────
