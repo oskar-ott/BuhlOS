@@ -8046,12 +8046,13 @@ async function _backgroundTagsBadge() {
 function paintSiteInfoPill(job) {
   const pill = document.getElementById('hdr-siteinfo');
   if (!pill) return;
+  const hasCustomFields = !!(job && Array.isArray(job.customFields) && job.customFields.length);
   const hasAny = !!(job && (
     job.siteAddress || job.accessNotes || job.parkingNotes ||
     job.siteContactName || job.siteContactPhone ||
     job.safetyNotes || job.inductionRequired ||
     job.startDate || job.dueDate
-  ));
+  )) || hasCustomFields;
   pill.hidden = !hasAny;
   if (!hasAny) return;
 
@@ -8088,6 +8089,34 @@ function paintSiteInfoPill(job) {
     }
     if (job.safetyNotes) {
       html += `<div class="si-row"><div class="si-row-label">Safety</div><div class="si-row-value" style="color:#b3261e;font-weight:600">${esc(job.safetyNotes)}</div></div>`;
+    }
+    // Custom fields (#153) — surface anything admin captured on this
+    // job that the schema doesn't model directly. Grouped by `group`
+    // when set, else flat. Booleans render Yes/No; longtext preserves
+    // newlines via white-space:pre-wrap (which is already on .si-row-value).
+    if (Array.isArray(job.customFields) && job.customFields.length) {
+      const byGroup = {};
+      for (const f of job.customFields) {
+        const g = f.group || '';
+        (byGroup[g] = byGroup[g] || []).push(f);
+      }
+      const renderValue = (f) => {
+        if (f.value === '' || f.value == null) return '<span style="color:#9ca3af">—</span>';
+        if (f.type === 'bool')     return f.value ? '<b style="color:#1f8a4c">Yes</b>' : 'No';
+        return esc(String(f.value));
+      };
+      const groupOrder = Object.keys(byGroup).sort((a, b) => a.localeCompare(b));
+      let cfHtml = '';
+      for (const g of groupOrder) {
+        if (g) cfHtml += `<div style="margin-top:8px;font-family:monospace;font-size:10.5px;color:#6b7280;letter-spacing:.06em;text-transform:uppercase;font-weight:600">${esc(g)}</div>`;
+        cfHtml += byGroup[g].map(f => `
+          <div class="si-row">
+            <div class="si-row-label">${esc(f.label || f.key)}</div>
+            <div class="si-row-value">${renderValue(f)}</div>
+          </div>
+        `).join('');
+      }
+      html += cfHtml;
     }
     body.innerHTML = html || `<div class="si-empty">No site info recorded yet.</div>`;
   }
