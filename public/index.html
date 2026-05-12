@@ -683,6 +683,29 @@ textarea:focus{border-color:var(--navy);background:var(--paper);outline:2px soli
 .snag-modal-cancel:hover{background:var(--paper-3);color:var(--navy)}
 .snag-field{margin-bottom:14px}
 .snag-field-label{display:block;font-family:var(--mono);font-size:10px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.12em;margin-bottom:6px}
+/* Brief §12 step 2 — voice button sits in the top-right of the
+   description box. Floats over the textarea so the field stays
+   full-width but the mic is one tap reach. */
+.snag-desc-wrap{position:relative}
+.snag-desc-wrap textarea{padding-right:48px}
+.snag-voice-btn{
+  position:absolute;top:6px;right:6px;
+  width:36px;height:36px;min-height:36px;
+  border-radius:50%;border:1px solid var(--rule);
+  background:var(--paper);color:var(--ink);font-size:16px;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;
+  -webkit-tap-highlight-color:transparent;
+  transition:background var(--tx, .14s), border-color var(--tx, .14s);
+}
+.snag-voice-btn:hover{background:var(--paper-2)}
+.snag-voice-btn[aria-pressed="true"]{
+  background:var(--red);border-color:var(--red);color:#fff;
+  animation:snag-voice-pulse 1.2s infinite ease-in-out;
+}
+@keyframes snag-voice-pulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(192,49,47,.4)}
+  50%{box-shadow:0 0 0 6px rgba(192,49,47,0)}
+}
 .snag-field textarea,.snag-field select,.snag-field input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:#fafafa;color:var(--ink);outline:none;box-sizing:border-box}
 .snag-field textarea:focus,.snag-field select:focus,.snag-field input:focus{border-color:var(--header);background:#fff}
 .snag-field textarea{resize:vertical;min-height:70px}
@@ -1897,7 +1920,14 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
     <div class="snag-modal-body">
       <div class="snag-field">
         <label class="snag-field-label" for="snm-desc">Description</label>
-        <textarea id="snm-desc" rows="3" placeholder="e.g. PowerPoint missing in master bedroom"></textarea>
+        <div class="snag-desc-wrap">
+          <textarea id="snm-desc" rows="3" placeholder="e.g. PowerPoint missing in master bedroom"></textarea>
+          <!-- Brief §12 step 2: voice-to-text icon "visible". Uses the
+               Web Speech API (free, no provider). Hidden when the
+               browser doesn't support it. -->
+          <button type="button" id="snm-voice" class="snag-voice-btn" hidden
+                  aria-label="Dictate" title="Dictate description">🎙</button>
+        </div>
       </div>
 
       <div class="snag-field">
@@ -4502,6 +4532,11 @@ function openSnagModal(snagId, prefill){
   document.getElementById('snm-status-seg').style.opacity=readOnly?'.7':'';
   document.getElementById('snm-save').style.display=readOnly?'none':'';
   document.querySelector('.snag-modal-cancel').textContent=readOnly?'Close':'Cancel';
+
+  // Brief §12 step 2: voice-to-text. Wire up only when the browser
+  // supports webkitSpeechRecognition (Chromium / Safari) and the
+  // user isn't read-only. Hidden otherwise — graceful degradation.
+  initSnagVoiceButton(readOnly);
 
   // Email button: only for existing (saved) snags, for non-clients with canWrite role.
   const emailBtn=document.getElementById('snm-email');
@@ -7112,6 +7147,84 @@ function stageTaskRows(areaId,stageKey,tasks){
       ${snagBtn}
     </div>`;
   }).join('');
+}
+
+// Brief §12 step 2 — voice-to-text on the snag description box.
+// Uses the Web Speech API (webkitSpeechRecognition on Safari/Chromium,
+// no external provider). Each press of the mic button starts an
+// interim-results stream; pressing it again stops + commits the final
+// transcript into the textarea. Hidden when the API isn't available
+// (older Android browsers, Firefox).
+let _snagVoiceRec = null;
+let _snagVoiceListening = false;
+function initSnagVoiceButton(readOnly) {
+  const btn = document.getElementById('snm-voice');
+  if (!btn) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR || readOnly) {
+    btn.hidden = true;
+    return;
+  }
+  btn.hidden = false;
+  btn.setAttribute('aria-pressed', 'false');
+  btn.onclick = () => toggleSnagVoice();
+}
+function toggleSnagVoice() {
+  const btn = document.getElementById('snm-voice');
+  const txt = document.getElementById('snm-desc');
+  if (!btn || !txt) return;
+  if (_snagVoiceListening && _snagVoiceRec) {
+    try { _snagVoiceRec.stop(); } catch {}
+    return;
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  const rec = new SR();
+  rec.lang = 'en-AU';
+  rec.continuous = false;
+  rec.interimResults = true;
+  let basis = txt.value;
+  let lastInterim = '';
+  rec.onstart = () => {
+    _snagVoiceListening = true;
+    btn.setAttribute('aria-pressed', 'true');
+  };
+  rec.onresult = (ev) => {
+    let interim = '';
+    let final = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) final += r[0].transcript;
+      else           interim += r[0].transcript;
+    }
+    if (final) {
+      basis = (basis ? basis + ' ' : '') + final.trim();
+      lastInterim = '';
+    } else {
+      lastInterim = interim.trim();
+    }
+    txt.value = lastInterim ? (basis ? basis + ' ' + lastInterim : lastInterim) : basis;
+    // Stay synced with the working snag so save() picks up dictation
+    // even if the user hits Save before clicking the button to stop.
+    if (snagModalWorking) snagModalWorking.desc = txt.value.trim();
+  };
+  rec.onerror = (ev) => {
+    // Permission denied / no-speech / network — quiet failure, just
+    // reset the visual state so the worker can tap to retry.
+    console.warn('voice rec error:', ev.error);
+  };
+  rec.onend = () => {
+    _snagVoiceListening = false;
+    _snagVoiceRec = null;
+    btn.setAttribute('aria-pressed', 'false');
+  };
+  _snagVoiceRec = rec;
+  try { rec.start(); }
+  catch (e) {
+    _snagVoiceListening = false;
+    btn.setAttribute('aria-pressed', 'false');
+    console.warn('voice rec start failed:', e);
+  }
 }
 
 // Update the stored status from a segmented-control click. v is the new
