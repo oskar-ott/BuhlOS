@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  BuhlOS app icon — Australian / NZ 3-pin plug face (AS/NZS 3112).
+
+  Design:
+    - Navy rounded-square background matching the app theme.
+    - Three yellow pin "blades":
+        active + neutral as an inverted-V (Λ) at the top, 30° from vertical
+        earth pin vertical below
+    - Geometry chosen so a maskable circle (~45% radius) keeps the three
+      pins visible on Android adaptive icons.
+
+  Source of truth. The PNG fallbacks (icon-192.png, icon-512.png) are
+  rasterised from this same geometry by scripts/make-icons.js so the
+  three sizes never drift apart.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="90" ry="90" fill="#0d1b34"/>
+  <g fill="#f5d020">
+    <rect x="-15" y="-60" width="30" height="120" rx="15" ry="15"
+          transform="translate(186 200) rotate(-30)"/>
+    <rect x="-15" y="-60" width="30" height="120" rx="15" ry="15"
+          transform="translate(326 200) rotate(30)"/>
+    <rect x="-15" y="-60" width="30" height="120" rx="15" ry="15"
+          transform="translate(256 370)"/>
+  </g>
+</svg>
