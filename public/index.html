@@ -14,6 +14,11 @@
 -->
 <link rel="stylesheet" href="/css/buhlos.css">
 <script type="module" src="/components/buhl-mark.js"></script>
+<!-- Phase 04: Work Areas list components. <area-card> hosts the row
+     shape per brief §09. <empty-state> handles the no-match case. -->
+<script type="module" src="/components/area-card.js"></script>
+<script type="module" src="/components/empty-state.js"></script>
+<script type="module" src="/components/progress-bar.js"></script>
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1547,6 +1552,139 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
   padding: 2px 0;
 }
 .jh-admin-meta { color: var(--ink-3, #6a7591); font-family: var(--mono, monospace); font-size: 11px; margin-left: auto; }
+
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║ Phase 04 Work Areas list (brief §09)                             ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+
+#areas { padding: 0; }
+.wa {
+  padding: 12px 14px 24px;
+  display: flex; flex-direction: column;
+  gap: 10px;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+/* Group chips — scrollable row at the top. */
+.wa-chips {
+  display: flex; gap: 6px;
+  overflow-x: auto;
+  margin: 0 -14px;
+  padding: 0 14px 4px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.wa-chips::-webkit-scrollbar { display: none; }
+.wa-chip {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--rule, #d2ccbf);
+  border-radius: 999px;
+  background: var(--paper, #f3efe7);
+  color: var(--ink-2, #2a3958);
+  font-family: var(--display, sans-serif);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: -.005em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .14s, color .14s, border-color .14s;
+}
+.wa-chip:hover { background: var(--paper-2, #ebe7df); }
+.wa-chip.on {
+  background: var(--navy, #0d1b34);
+  color: var(--paper, #f3efe7);
+  border-color: var(--navy, #0d1b34);
+}
+
+/* Search row — 44px tall, sticky to the top of the list. */
+.wa-search {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--paper-2, #ebe7df);
+  border: 1px solid var(--rule, #d2ccbf);
+  border-radius: 6px;
+  padding: 0 12px;
+  min-height: 44px;
+  position: sticky;
+  top: 54px;
+  z-index: 5;
+}
+.wa-search-ic {
+  color: var(--ink-3, #6a7591);
+  font-family: var(--mono, monospace);
+  font-size: 17px;
+}
+.wa-search input {
+  flex: 1;
+  border: 0; outline: 0; background: transparent;
+  font-family: var(--body, sans-serif);
+  font-size: 15px;
+  color: var(--ink, #0d1b34);
+  padding: 10px 0;
+  min-height: 44px;
+}
+.wa-search input::placeholder { color: var(--ink-3, #6a7591); }
+
+/* State filter row — multi-select chips. */
+.wa-state {
+  display: flex; gap: 6px; flex-wrap: wrap;
+}
+.wa-state-chip {
+  flex: 1 0 calc(50% - 3px);
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--rule, #d2ccbf);
+  border-radius: 999px;
+  background: var(--paper, #f3efe7);
+  color: var(--ink-3, #6a7591);
+  font-family: var(--mono, monospace);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .14s, color .14s, border-color .14s;
+}
+.wa-state-chip:hover { color: var(--ink-2, #2a3958); }
+.wa-state-chip.on {
+  background: var(--paper-3, #dfdacf);
+  color: var(--navy, #0d1b34);
+  border-color: var(--paper-3, #dfdacf);
+}
+@media (min-width: 480px) { .wa-state-chip { flex: 0 0 auto; } }
+
+/* Meta strip (count + sort). */
+.wa-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-3, #6a7591);
+  padding: 4px 2px 0;
+}
+.wa-count { font-variant-numeric: tabular-nums; }
+.wa-sort {
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: var(--ink-2, #2a3958);
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+/* List of <area-card>s. */
+.wa-list {
+  display: flex; flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.wa-list area-card { outline: none; }
+.wa-list area-card:focus-visible {
+  outline: 2px solid var(--navy, #0d1b34);
+  outline-offset: 2px;
+  border-radius: 7px;
+}
 </style>
 </head>
 <body>
@@ -1896,7 +2034,8 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
 
 <div class="nav">
   <div class="nav-scroll" id="navScroll">
-    <button class="nb active" data-sec="dashboard" onclick="show('dashboard')">Dashboard</button>
+    <button class="nb active" data-sec="dashboard" onclick="show('dashboard')">Home</button>
+    <button class="nb" data-sec="areas" onclick="show('areas')">Work areas</button>
     <!-- area group buttons inserted here by buildGroupNav(), before #navMenuAnchor -->
     <span id="navMenuAnchor" hidden></span>
   </div>
@@ -1976,6 +2115,11 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
 
 <div class="pg">
   <div id="dashboard" class="sc active"></div>
+  <!-- Phase 04: Work Areas list (brief §09). Hosts area-group chips +
+       search + state filter + <area-card> rows. The legacy per-group
+       sections (#grp-0, #grp-1...) stay below for now; phase 05 routes
+       area detail through this tab instead. -->
+  <div id="areas" class="sc"></div>
   <!-- area group sections inserted here by buildGroupNav() -->
   <div id="snags" class="sc"></div>
   <div id="tags" class="sc"></div>
@@ -2882,21 +3026,214 @@ function renderDash(){
   PHASE_03_LEGACY_END */
 }
 
+/* ── Phase 04 Work Areas surface (brief §09) ──────────────────── */
+
+const AREAS_VIEW = {
+  groupId: 'all',   // 'all' | <group.id>
+  state: new Set(), // empty = all; entries from {'in-progress','snagged','complete','not-started'}
+  q: '',
+  sort: 'recent',   // 'recent' | 'alpha'
+};
+
+function goAreas(){
+  show('areas');
+  renderAreas();
+}
+
+function renderAreas(){
+  const groups = (CURRENT_JOB && CURRENT_JOB.areaGroups) || [];
+  const areas  = allAreas();
+  const host   = document.getElementById('areas');
+  if (!host) return;
+  if (!areas.length){
+    host.innerHTML = '<div class="empty">No work areas configured.</div>';
+    return;
+  }
+
+  /* Compute filtered list once. */
+  const q = (AREAS_VIEW.q || '').trim().toLowerCase();
+  const filtered = areas.filter(a => {
+    if (AREAS_VIEW.groupId !== 'all'){
+      const g = groups.find(g => g.id === AREAS_VIEW.groupId);
+      if (!g || !g.areas.some(x => x.id === a.id)) return false;
+    }
+    if (q){
+      const blob = `${a.name} ${a.id} ${a.code || ''}`.toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    if (AREAS_VIEW.state.size){
+      const st = areaState(a);
+      if (!AREAS_VIEW.state.has(st)) return false;
+    }
+    return true;
+  });
+
+  /* Sort. */
+  if (AREAS_VIEW.sort === 'alpha'){
+    filtered.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+  } else {
+    // most-recently touched (falls back to alpha)
+    const lastT = (id) => {
+      let t = 0;
+      for (const e of (Array.isArray(MY_ACTIVITY) ? MY_ACTIVITY : [])){
+        if (e.areaId === id && e.ts && e.ts > t) t = e.ts;
+      }
+      return t;
+    };
+    filtered.sort((a,b) => {
+      const da = lastT(a.id), db = lastT(b.id);
+      if (da !== db) return db - da;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  }
+
+  /* Group-chip counts (always show on full set, not filtered). */
+  const groupCounts = { all: areas.length };
+  for (const g of groups) groupCounts[g.id] = (g.areas || []).length;
+
+  /* Build the layout. */
+  const chips = groups.length > 1 ? `
+    <div class="wa-chips" role="tablist" aria-label="Area group">
+      <button class="wa-chip ${AREAS_VIEW.groupId === 'all' ? 'on' : ''}"
+              type="button" data-grp="all" role="tab">All · ${groupCounts.all}</button>
+      ${groups.map(g => `
+        <button class="wa-chip ${AREAS_VIEW.groupId === g.id ? 'on' : ''}"
+                type="button" data-grp="${esc(g.id)}" role="tab">
+          ${esc(g.name || g.id)} · ${groupCounts[g.id] || 0}
+        </button>
+      `).join('')}
+    </div>
+  ` : '';
+
+  const stateChips = `
+    <div class="wa-state" role="group" aria-label="State filter">
+      ${[
+        ['in-progress','In progress'],
+        ['snagged','Snagged'],
+        ['complete','Complete'],
+        ['not-started','Not started'],
+      ].map(([k, lab]) => `
+        <button class="wa-state-chip ${AREAS_VIEW.state.has(k) ? 'on' : ''}"
+                type="button" data-state="${k}">${lab}</button>
+      `).join('')}
+    </div>
+  `;
+
+  host.innerHTML = `
+    <section class="wa">
+      ${chips}
+      <div class="wa-search">
+        <span class="wa-search-ic" aria-hidden="true">⌕</span>
+        <input id="wa-q" type="search"
+               placeholder="Search work areas…"
+               value="${esc(AREAS_VIEW.q)}"
+               autocomplete="off" spellcheck="false">
+      </div>
+      ${stateChips}
+      <div class="wa-meta">
+        <span class="wa-count">${filtered.length} of ${areas.length}</span>
+        <button class="wa-sort" type="button" id="wa-sort"
+                title="Toggle sort">${AREAS_VIEW.sort === 'recent' ? 'Recent ▾' : 'A→Z ▾'}</button>
+      </div>
+      <div class="wa-list" id="wa-list"></div>
+    </section>
+  `;
+
+  /* Paint the rows using <area-card>. We build a fragment so the
+     custom elements aren't re-instantiated for unrelated state
+     changes (search keystrokes). */
+  const list = document.getElementById('wa-list');
+  if (!filtered.length){
+    list.innerHTML = `
+      <empty-state
+        title="No areas match those filters"
+        caption="Try a different group, clear the state chips, or shorten the search."
+        action-label="Clear filters"
+        action-href="#"></empty-state>
+    `;
+    const es = list.querySelector('empty-state');
+    if (es) es.addEventListener('empty-state:action', (ev) => {
+      ev.preventDefault();
+      AREAS_VIEW.groupId = 'all';
+      AREAS_VIEW.state = new Set();
+      AREAS_VIEW.q = '';
+      renderAreas();
+    });
+  } else {
+    const frag = document.createDocumentFragment();
+    for (const a of filtered){
+      const s = stats(a.id);
+      const st = areaState(a);
+      const snagCount = (D.snags || []).filter(x => x.status === 'Open' && (x.dwelling === a.id || x.areaId === a.id)).length;
+      const card = document.createElement('area-card');
+      card.setAttribute('name', a.name || a.id);
+      card.setAttribute('sub', `${areaStateLabel(st)} · ${s.pct}%`);
+      card.setAttribute('status', st);
+      if (snagCount > 0) card.setAttribute('snag-count', String(snagCount));
+      card.setAttribute('percent', String(s.pct));
+      card.addEventListener('area-card:tap', () => openDw(a.id));
+      // Make it keyboard-accessible too.
+      card.setAttribute('tabindex', '0');
+      card.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openDw(a.id); }
+      });
+      frag.appendChild(card);
+    }
+    list.appendChild(frag);
+  }
+
+  /* Wire interactions. */
+  host.querySelectorAll('.wa-chip').forEach(b => b.addEventListener('click', () => {
+    AREAS_VIEW.groupId = b.dataset.grp;
+    renderAreas();
+  }));
+  host.querySelectorAll('.wa-state-chip').forEach(b => b.addEventListener('click', () => {
+    const k = b.dataset.state;
+    if (AREAS_VIEW.state.has(k)) AREAS_VIEW.state.delete(k);
+    else AREAS_VIEW.state.add(k);
+    renderAreas();
+  }));
+  const qEl = document.getElementById('wa-q');
+  if (qEl){
+    qEl.addEventListener('input', () => {
+      AREAS_VIEW.q = qEl.value;
+      renderAreas();
+      // Keep focus + caret position after re-render.
+      const el = document.getElementById('wa-q');
+      if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    });
+  }
+  const sortBtn = document.getElementById('wa-sort');
+  if (sortBtn) sortBtn.addEventListener('click', () => {
+    AREAS_VIEW.sort = AREAS_VIEW.sort === 'recent' ? 'alpha' : 'recent';
+    renderAreas();
+  });
+}
+
+function areaState(a){
+  const s = stats(a.id);
+  const snags = (D.snags || []).some(x => x.status === 'Open' && (x.dwelling === a.id || x.areaId === a.id));
+  if (snags) return 'snagged';
+  if (s.pct === 100) return 'complete';
+  if (s.pct === 0 && s.ip === 0) return 'not-started';
+  return 'in-progress';
+}
+function areaStateLabel(st){
+  return st === 'snagged'     ? 'Snagged'
+       : st === 'complete'    ? 'Complete'
+       : st === 'not-started' ? 'Not started'
+       : 'In progress';
+}
+
 /* ── Phase 03 Job Home helpers (brief §05 + §08) ──────────────── */
 
 function jobHomePrimaryDest(groups){
-  // Multi-group jobs: jump to the first area group's section.
-  // Single-group / no-group jobs: stay on dashboard (the work-areas
-  // list is rendered there until phase 04 ships the standalone tab).
-  if (Array.isArray(groups) && groups.length > 1){
-    return {
-      label: 'Open work areas',
-      handler: "show('grp-0');return false",
-    };
-  }
+  // Phase 04: every job — single-group or multi — now routes to the
+  // unified #areas tab. The legacy per-group sections stay around
+  // for back-compat but the boss-facing primary CTA points here.
   return {
     label: 'Open work areas',
-    handler: "document.querySelector('.jh').scrollIntoView({behavior:'smooth',block:'start'});return false",
+    handler: "goAreas();return false",
   };
 }
 
@@ -6021,6 +6358,7 @@ function show(id){
   _syncNavMenuLabel(id);
 
   if(id==='dashboard')renderDash();
+  else if(id==='areas') renderAreas();
   else if(id.startsWith('grp-')){
     const gi=parseInt(id.slice(4));
     const g=(state.areaGroups||[])[gi];
