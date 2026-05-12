@@ -588,6 +588,12 @@ module.exports = async (req, res) => {
       category:      body.category ? String(body.category).trim() : '',
       status:        'current',
       notes:         body.notes ? String(body.notes).trim() : '',
+      // Rigidity audit R9 — explicit revision lineage. `supersedes` points
+      // at the previous revision's plan id. Caller can pass it on POST;
+      // we'll also auto-detect by drawingNumber if not provided. The back-
+      // reference (`supersededBy`) is set on the older plan below.
+      supersedes:    body.supersedes ? String(body.supersedes).trim() : '',
+      supersededBy:  '',
       uploadedAt:    now,
       uploadedBy:    user.username,
       uploadedByUserId: user.id,
@@ -601,7 +607,28 @@ module.exports = async (req, res) => {
       const dupe = data.plans.find(p =>
         p.drawingNumber && p.drawingNumber === plan.drawingNumber && p.status === 'current'
       );
-      if (dupe) revisionWarning = 'Existing current drawing with this number — mark new one current?';
+      if (dupe) {
+        revisionWarning = 'Existing current drawing with this number — mark new one current?';
+        // Auto-fill `supersedes` if the caller didn't provide one — the
+        // current plan on this drawing number is the obvious target. This
+        // makes "upload a new revision" Just Work without admin extra step.
+        if (!plan.supersedes) plan.supersedes = dupe.id;
+      }
+    }
+
+    // If we have a supersedes link, set the back-pointer on the older
+    // plan and flip its status. Validation: the target must be a plan on
+    // this job; otherwise we drop the link silently (don't fail the
+    // upload — the file is already saved).
+    if (plan.supersedes) {
+      const target = data.plans.find(p => p.id === plan.supersedes);
+      if (target) {
+        target.supersededBy = plan.id;
+        target.status = 'superseded';
+        target.updatedAt = now;
+      } else {
+        plan.supersedes = ''; // bad reference — clear it
+      }
     }
 
     data.plans.push(plan);
@@ -618,9 +645,32 @@ module.exports = async (req, res) => {
     const idx = (data.plans || []).findIndex(p => p.id === id);
     if (idx < 0) return res.status(404).json({ error: 'not found' });
 
-    const editable = ['drawingNumber', 'revision', 'title', 'level', 'category', 'notes'];
+    const editable = ['drawingNumber', 'revision', 'title', 'level', 'category', 'notes', 'supersedes'];
     for (const k of editable) {
       if (body[k] !== undefined) data.plans[idx][k] = String(body[k] || '').trim();
+    }
+    // Maintain the back-reference symmetry: if admin set `supersedes`,
+    // bidirectionally link the older plan and flip its status. Reset the
+    // back-pointer on any previously-linked plan (admin can re-target).
+    if (body.supersedes !== undefined) {
+      const newTarget = String(body.supersedes || '').trim();
+      // Clear any old reverse-link that pointed at THIS plan from a
+      // previous supersession setup.
+      for (const p of data.plans) {
+        if (p.id !== data.plans[idx].id && p.supersededBy === data.plans[idx].id && p.id !== newTarget) {
+          p.supersededBy = '';
+          // Don't auto-flip status back to current — admin may have
+          // intentionally archived the older plan. Just clear the link.
+        }
+      }
+      if (newTarget) {
+        const target = data.plans.find(p => p.id === newTarget);
+        if (target) {
+          target.supersededBy = data.plans[idx].id;
+          target.status = 'superseded';
+          target.updatedAt = new Date().toISOString();
+        }
+      }
     }
     if (Array.isArray(body.linkedAreaGroups)) {
       data.plans[idx].linkedAreaGroups = body.linkedAreaGroups
