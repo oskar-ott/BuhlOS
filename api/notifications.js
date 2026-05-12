@@ -237,5 +237,108 @@ module.exports = async (req, res) => {
     return res.status(200).json({ ok: true, sent, skipped, pruned });
   }
 
+  // ── send-daily-digest: end-of-day push for admins ─────────────────────
+  // Daniel lies awake wondering "did Sam log hours? did materials arrive?
+  // did we price that variation?". This cron answers all three before he
+  // asks. Runs ~5pm Sydney; one push per admin with today's roll-up.
+  //
+  // Aggregated from the same blobs the admin Overview already reads — no
+  // new endpoints, no new schemas. Best-effort; cron failures don't queue.
+  if (action === 'send-daily-digest' && req.method === 'GET') {
+    if (!cronAuthorised(req)) return res.status(401).json({ error: 'unauthorised' });
+    if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
+
+    const today = sydneyToday();
+    const { list } = require('@vercel/blob');
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+
+    // Hours submitted today (across all users) — walk every per-user
+    // time-entries blob for today's date. Same path /api/time-entries-overview
+    // walks; inlined here so the cron stays self-contained.
+    let hoursSubmittedCount = 0;
+    let hoursSubmittedTotal = 0;
+    let hoursPendingCount   = 0;
+    try {
+      const r = await list({ prefix: 'users/', token, limit: 5000 });
+      const blobs = (r.blobs || []).filter(b =>
+        b.pathname.endsWith(`/time-entries/${today}.json`));
+      const entries = (await Promise.all(blobs.map(async b => {
+        try {
+          const rr = await fetch(b.url + '?t=' + Date.now(), { cache: 'no-store' });
+          if (!rr.ok) return null;
+          return await rr.json();
+        } catch { return null; }
+      }))).filter(Boolean);
+      for (const e of entries) {
+        if (e.status === 'submitted' || e.status === 'approved') {
+          hoursSubmittedCount++;
+          hoursSubmittedTotal += Number(e.totalHours) || 0;
+        }
+        if (e.status === 'submitted') hoursPendingCount++;
+      }
+    } catch (e) { console.error('digest hours walk failed', e); }
+
+    // Snags opened/resolved today — walk per-job data blobs.
+    let snagsOpenedToday = 0;
+    let snagsResolvedToday = 0;
+    try {
+      const jobs = (await readBlob('jobs.json', { jobs: [] })).jobs || [];
+      const active = jobs.filter(j => (j.status || 'active') === 'active');
+      for (const j of active) {
+        let d;
+        try { d = await readBlob(`jobs/${j.id}/data.json`, { snags: [] }); }
+        catch { continue; }
+        for (const s of (d.snags || [])) {
+          const created = (s.createdAt || s.date || '').slice(0, 10);
+          const closed  = (s.closedAt  || '').slice(0, 10);
+          if (created === today) snagsOpenedToday++;
+          if (closed  === today) snagsResolvedToday++;
+        }
+      }
+    } catch (e) { console.error('digest snags walk failed', e); }
+
+    const usersData = await readBlob(USERS_KEY, { users: [] });
+    const admins = (usersData.users || []).filter(u =>
+      u.role === 'admin' &&
+      !u.archived &&
+      Array.isArray(u.pushSubscriptions) && u.pushSubscriptions.length);
+
+    if (!admins.length) {
+      return res.status(200).json({ ok: true, date: today, sent: 0, skipped: 'no admin subscribers' });
+    }
+
+    // Nothing-to-report case: skip the push entirely. Brief §17 rule —
+    // don't make him read "0 hours, 0 snags". Silence is the signal.
+    if (!hoursSubmittedCount && !hoursPendingCount && !snagsOpenedToday && !snagsResolvedToday) {
+      return res.status(200).json({ ok: true, date: today, sent: 0, skipped: 'nothing to report' });
+    }
+
+    // Compose a single tight line — "5 entries · 24.5h · 2 pending · 1 snag opened · 1 resolved".
+    const bits = [];
+    if (hoursSubmittedCount) bits.push(`${hoursSubmittedCount} entr${hoursSubmittedCount === 1 ? 'y' : 'ies'} · ${hoursSubmittedTotal.toFixed(1)}h`);
+    if (hoursPendingCount)   bits.push(`${hoursPendingCount} pending`);
+    if (snagsOpenedToday)    bits.push(`${snagsOpenedToday} snag${snagsOpenedToday === 1 ? '' : 's'} opened`);
+    if (snagsResolvedToday)  bits.push(`${snagsResolvedToday} resolved`);
+
+    const payload = {
+      title: 'End of day',
+      body: bits.join(' · '),
+      url: '/admin/operations',
+      tag: 'buhl-daily-digest-' + today,
+    };
+
+    let sent = 0, pruned = 0;
+    for (const u of admins) {
+      const r = await sendPushToUserId(u.id, payload);
+      sent   += (r.sent   || 0);
+      pruned += (r.pruned || 0);
+    }
+
+    return res.status(200).json({
+      ok: true, date: today, sent, pruned,
+      digest: { hoursSubmittedCount, hoursSubmittedTotal, hoursPendingCount, snagsOpenedToday, snagsResolvedToday },
+    });
+  }
+
   return res.status(400).json({ error: 'unknown action' });
 };
