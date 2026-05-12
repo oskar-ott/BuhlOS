@@ -9,6 +9,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
+<!-- Offline-first write queue (Job Mobile brief mandate). Asset transfer
+     requests from this page persist to IndexedDB and replay when online. -->
+<script type="module" src="/components/queue.js"></script>
 <title>My Gear · bühl</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -283,11 +286,25 @@ document.getElementById('tx-do').addEventListener('click', async () => {
   const btn = document.getElementById('tx-do');
   btn.disabled = true; btn.textContent = 'Transferring…';
   try {
-    const r = await fetch('/api/assets?action=transfer', {
+    // Offline-first: a transfer on a flaky site connection persists to
+    // IndexedDB and replays when online. replaceKey keeps the latest
+    // intent if the tradie taps Transfer twice before the queue drains.
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    const r = await fetcher('/api/assets?action=transfer', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
+      replaceKey: 'asset-transfer:' + TX_ASSET.id,
       body: JSON.stringify({ assetId: TX_ASSET.id, toUserId, expectedReturn, note }),
     });
+    if (r && r.status === 202) {
+      // Persisted offline — close the sheet, tell the user it's queued.
+      err.textContent = 'Queued offline · will transfer when online.';
+      err.classList.add('show');
+      btn.disabled = false; btn.textContent = 'Transfer';
+      // Optimistically close so the queue badge can convey the state.
+      setTimeout(closeTransfer, 1200);
+      return;
+    }
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
     closeTransfer();

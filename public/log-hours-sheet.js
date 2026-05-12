@@ -484,12 +484,35 @@
         if (state.targetUserId) qs.push('userId=' + encodeURIComponent(state.targetUserId));
         var url = '/api/time-entries' + (qs.length ? '?' + qs.join('&') : '');
         var method = state.mode === 'edit' ? 'PATCH' : 'POST';
-        var res = await fetch(url, {
+        // Offline-first per the Job Mobile brief: route the write through
+        // BuhlQueue when it's available so a "Save" tap on a flaky
+        // 3G connection persists to IndexedDB and replays once online,
+        // instead of bouncing back as a "Save failed" the worker has
+        // to redo on a clipboard later. Falls back to raw fetch on
+        // pages that haven't loaded /components/queue.js.
+        var fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+        var res = await fetcher(url, {
           method: method,
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
+          // Edits to the same (user, date) collapse to the latest in the
+          // queue — only the most recent save survives a drain, which
+          // matches the user's intent ("save again to override").
+          replaceKey: 'time-entry:' + (state.targetUserId || 'me') + ':' + state.date,
           body: JSON.stringify(payload),
         });
+        // 202 from BuhlQueue means "persisted offline" — treat as success
+        // for the UX (sheet closes, "queued" toast), but the savedEntry
+        // body won't be available until the drain succeeds.
+        if (res && res.status === 202) {
+          if (typeof opts.onSaved === 'function') {
+            // Pass null + a marker so callers can show "queued" instead of
+            // "logged". Existing callers tolerate null already.
+            opts.onSaved(null, { queued: true });
+          }
+          closeSheet();
+          return;
+        }
         // Friendly 409: an entry for this user+date already exists. Instead of
         // erroring, fetch it and switch the modal into edit mode in-place.
         if (res.status === 409 && state.mode === 'create') {

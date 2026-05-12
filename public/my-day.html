@@ -9,6 +9,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
+<!-- Offline-first write queue (Job Mobile brief mandate). Loaded as an ES
+     module before the classic deferred scripts so window.BuhlQueue is on
+     the global by the time log-hours-sheet.js wires its fetch. Without
+     this, hour mutations from /my-day (Submit, Approve, edit) fail
+     silently when the phone has no signal. -->
+<script type="module" src="/components/queue.js"></script>
 <script src="/install-prompt.js" defer></script>
 <script src="/lib/compliments.js" defer></script>
 <script src="/log-hours-sheet.js" defer></script>
@@ -1754,25 +1760,37 @@ async function submitAllDrafts(){
   const btn = document.getElementById('myweek-submit-drafts');
   if (btn) { btn.disabled = true; btn.textContent = 'Submitting 0/' + drafts.length + '…'; }
 
-  let ok = 0, failed = 0;
+  let ok = 0, failed = 0, queued = 0;
   // Sequential to keep stable progress text and avoid hammering blob writes.
+  // Use BuhlQueue.fetch when available so a draft submit on a flaky 3G
+  // connection persists to IndexedDB instead of vanishing — the queue
+  // drains automatically once the phone's back online.
+  const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
   for (let i = 0; i < drafts.length; i++) {
     const e = drafts[i];
     if (btn) btn.textContent = 'Submitting ' + (i + 1) + '/' + drafts.length + '…';
     try {
-      const r = await fetch('/api/time-entries?date=' + encodeURIComponent(e.date), {
+      const r = await fetcher('/api/time-entries?date=' + encodeURIComponent(e.date), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({ status: 'submitted' }),
       });
-      if (r.ok) ok++; else failed++;
+      // 202 from the queue = persisted offline, will replay when online.
+      if (r && r.status === 202) queued++;
+      else if (r && r.ok) ok++;
+      else failed++;
     } catch (_) { failed++; }
   }
 
   if (btn) btn.textContent = 'Done';
   if (failed > 0 && window.showToast) {
     showToast('Submitted ' + ok + ', failed ' + failed + '. Check the rejected/draft rows below.', 'warn', 4500);
+  } else if (queued > 0 && window.showToast) {
+    // Queued offline — will sync on next online tick. Tell the user so
+    // they don't refresh and re-submit (which would just re-queue).
+    const part = ok > 0 ? (ok + ' submitted · ') : '';
+    showToast(part + queued + ' queued offline · will sync when online.', 'warn', 4500);
   } else if (window.showToast) {
     showToast('Submitted ' + ok + ' entries for approval.', 'success');
   }
