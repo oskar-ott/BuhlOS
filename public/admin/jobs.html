@@ -3,17 +3,163 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>bühl admin · jobs</title>
+<title>bühl · jobs</title>
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#0d1f35">
+<meta name="theme-color" content="#0d1b34">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/admin/_shell.css">
 <script src="/admin/_shell.js"></script>
+<script type="module" src="/components/list-row.js"></script>
+
+<!--
+  /admin/jobs · Jobs list (phase 05 of the rebuild)
+  ───────────────────────────────────────────────────
+
+  Per brief §07: "Today every list looks different. From now on every
+  list is the same <list-row> with three slots — identity, metric,
+  action." Tabs: Active · Setup · Paused · Complete · Archived. A
+  Setup-gaps filter chip + search complete the toolbar. Default sort:
+  most recent activity.
+
+  Cards waste vertical space when there are 30+ jobs — this is dense
+  by default. Per-row metric column is scannable column-style.
+
+  Detail page rewrite (§07 right-column live progress + sparkline +
+  costs sliver) lands in a follow-up — kept out of this PR so the
+  diff stays reviewable.
+-->
+
+<style>
+  .jobs-tabs {
+    display: flex; gap: 4px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 14px;
+  }
+  .jobs-tab {
+    padding: 9px 14px;
+    font-family: var(--ff-display);
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    position: relative;
+    transition: color .14s, border-color .14s;
+  }
+  .jobs-tab:hover { color: var(--ink-2); }
+  .jobs-tab.on { color: var(--ink); border-bottom-color: var(--accent); }
+  .jobs-tab .ct {
+    background: var(--surface-2);
+    color: var(--muted);
+    font-family: var(--ff-mono);
+    font-size: 10.5px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    margin-left: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .jobs-tab.on .ct { background: var(--ink); color: var(--surface); }
+
+  .jobs-tools {
+    display: flex; gap: 10px; align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .jobs-tools .search {
+    flex: 1; min-width: 220px; max-width: 420px;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 10px;
+  }
+  .jobs-tools .search input {
+    flex: 1; border: 0; outline: 0; background: transparent;
+    font-size: 13px; color: var(--ink);
+  }
+  .jobs-tools .filter-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-family: var(--ff-mono);
+    font-size: 11.5px;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .jobs-tools .filter-chip:hover { color: var(--ink-2); }
+  .jobs-tools .filter-chip.on {
+    background: var(--accent);
+    color: var(--accent-ink);
+    border-color: transparent;
+    font-weight: 700;
+  }
+  .jobs-tools .spacer { flex: 1; }
+  .jobs-tools .count {
+    font-family: var(--ff-mono);
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .jobs-list {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    overflow: hidden;
+  }
+  .jobs-empty {
+    padding: 60px 22px;
+    text-align: center;
+    color: var(--muted);
+  }
+  .jobs-empty b { color: var(--ink); font-family: var(--ff-display); font-weight: 700; font-size: 16px; }
+
+  /* The action slot hosts the field-open arrow link. */
+  list-row .lr-action a.field-link {
+    font-family: var(--ff-mono); font-size: 14px;
+    color: var(--ink-2); font-weight: 600;
+    padding: 4px 8px; border-radius: 4px;
+    text-decoration: none;
+  }
+  list-row .lr-action a.field-link:hover { background: var(--surface-3); color: var(--ink); }
+
+  /* "Setup gaps" inline chip used in the metric slot. */
+  .gap-chip {
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-family: var(--ff-mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 1px 8px;
+    border-radius: 999px;
+  }
+
+  .page-h-row {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 18px; gap: 14px; flex-wrap: wrap;
+  }
+  .page-h-row h1 {
+    font-family: var(--ff-display);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: -.012em;
+    color: var(--ink);
+    margin: 0;
+  }
+  .page-h-row .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+</style>
 </head>
 <body>
+
 <script>
+'use strict';
+
 let STATE = {
   filterStatus: 'active',
   filterSetupGaps: false,
@@ -22,6 +168,9 @@ let STATE = {
   jobTypes: {},
 };
 
+let _pendingOpenNewJob = false;
+function queueOpenNewJob() { _pendingOpenNewJob = true; }
+
 window.PAGE = {
   id: 'jobs',
   title: 'Jobs',
@@ -29,94 +178,191 @@ window.PAGE = {
   async render() {
     const params = new URLSearchParams(location.search);
     if (params.get('filter') === 'setup-gaps') STATE.filterSetupGaps = true;
+    if (params.get('new') === '1') queueOpenNewJob();
 
     STATE.jobs = SHELL.JOBS || [];
     try {
       const r = await SHELL.api('/api/job-types');
-      ((r.jobTypes || r.types || [])).forEach(t => { STATE.jobTypes[t.id] = t; });
+      (r.jobTypes || r.types || []).forEach(t => { STATE.jobTypes[t.id] = t; });
     } catch {}
     paint();
+
+    // Phase 04 hook — register per-view commands.
+    registerJobCommands();
   }
 };
+
+/* ── Render ─────────────────────────────────────────────────── */
 
 function paint() {
   const jobs = STATE.jobs;
   const counts = {
     all:      jobs.length,
     active:   jobs.filter(j => (j.status || 'active') === 'active').length,
+    setup:    jobs.filter(j => (j.status || 'active') === 'active' && hasSetupGaps(j)).length,
     paused:   jobs.filter(j => j.status === 'paused').length,
     complete: jobs.filter(j => j.status === 'complete').length,
     archived: jobs.filter(j => j.status === 'archived').length,
   };
-  const setupGapCount = jobs.filter(j => (j.status || 'active') === 'active' && hasSetupGaps(j)).length;
 
-  const q = STATE.search.toLowerCase();
-  const list = jobs.filter(j => {
-    const s = j.status || 'active';
-    if (STATE.filterStatus !== 'all' && s !== STATE.filterStatus) return false;
-    if (STATE.filterSetupGaps && !hasSetupGaps(j)) return false;
-    if (q) {
-      const blob = `${j.name || ''} ${j.id || ''} ${j.ref || ''} ${(STATE.jobTypes[j.type] || {}).name || ''}`.toLowerCase();
-      if (!blob.includes(q)) return false;
-    }
-    return true;
-  });
+  const list = jobsForView(jobs);
 
   SHELL.$('#page').innerHTML = `
-    <div class="page-head">
+    <div class="page-h-row">
       <div>
-        <div class="page-h1">Jobs</div>
-        <div class="page-sub">${SHELL.pluralize(counts.active, 'live job')} · ${counts.paused} paused · ${counts.complete} complete${counts.archived ? ' · ' + counts.archived + ' archived' : ''}${setupGapCount ? ' · <b style="color:var(--warn)">' + setupGapCount + ' need setup</b>' : ''}</div>
+        <h1>Jobs</h1>
+        <div class="sub">${SHELL.pluralize(counts.active, 'live job')} · ${counts.paused} paused · ${counts.complete} complete${counts.setup ? ' · <b style="color:var(--ink-2)">' + counts.setup + ' need setup</b>' : ''}</div>
       </div>
-      <div class="page-actions">
-        <button class="btn btn-accent" id="new-job">${SHELL.ICONS.plus} New job</button>
-      </div>
+      <button class="btn btn-primary" id="new-job">+ New job</button>
     </div>
 
-    <div class="tabs">
-      ${['active','all','paused','complete','archived'].map(s => `
-        <a class="tab ${STATE.filterStatus === s ? 'active' : ''}" href="#" data-status="${s}">
-          ${s[0].toUpperCase() + s.slice(1)}
-          <span class="badge">${counts[s] || 0}</span>
+    <div class="jobs-tabs">
+      ${['active','setup','paused','complete','archived'].map(s => `
+        <a class="jobs-tab ${STATE.filterStatus === s ? 'on' : ''}" href="#" data-status="${s}">
+          ${s[0].toUpperCase() + s.slice(1)}<span class="ct">${counts[s] || 0}</span>
         </a>
       `).join('')}
     </div>
 
-    <div class="toolbar">
-      <div class="search">${SHELL.ICONS.search}<input id="search-i" placeholder="Search by name, ref, type…" value="${SHELL.escapeHtml(STATE.search)}"></div>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">
-        <input type="checkbox" id="setup-gaps-i" ${STATE.filterSetupGaps ? 'checked' : ''}> Setup gaps only
+    <div class="jobs-tools">
+      <div class="search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5"/></svg>
+        <input id="search-i" placeholder="Search by name, code, type…" value="${SHELL.escapeHtml(STATE.search)}">
+      </div>
+      <label class="filter-chip ${STATE.filterSetupGaps ? 'on' : ''}" id="setup-gaps-chip">
+        Setup gaps only
       </label>
-      <div class="toolbar-spacer"></div>
-      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(list.length, 'job')}</span>
+      <div class="spacer"></div>
+      <span class="count">${SHELL.pluralize(list.length, 'job')}</span>
     </div>
 
-    <div class="jobs-grid">
-      ${list.length ? list.map(jobCard).join('') : `
-        <div class="empty" style="grid-column:1/-1">
-          <div class="empty-icon">${SHELL.ICONS.jobs}</div>
-          <div class="empty-title">No jobs match those filters</div>
-          <div class="empty-sub">Try a different status or clear the search.</div>
-        </div>
-      `}
-    </div>
+    <div class="jobs-list" id="jobs-list"></div>
   `;
+
+  paintList(list);
 
   SHELL.$$('a[data-status]').forEach(t => t.addEventListener('click', e => {
     e.preventDefault();
     STATE.filterStatus = t.dataset.status;
+    if (t.dataset.status === 'setup') STATE.filterSetupGaps = true;
     paint();
   }));
-  SHELL.$('#search-i').addEventListener('input', e => { STATE.search = e.target.value; paint(); });
-  SHELL.$('#setup-gaps-i').addEventListener('change', e => { STATE.filterSetupGaps = e.target.checked; paint(); });
+  SHELL.$('#search-i').addEventListener('input', e => {
+    STATE.search = e.target.value;
+    paintList(jobsForView(STATE.jobs));
+    paintToolbarCount();
+  });
+  SHELL.$('#setup-gaps-chip').addEventListener('click', () => { STATE.filterSetupGaps = !STATE.filterSetupGaps; paint(); });
   SHELL.$('#new-job').addEventListener('click', openNewJobPanel);
+
+  if (_pendingOpenNewJob) { _pendingOpenNewJob = false; openNewJobPanel(); }
 }
 
-// Setup-health: structured breakdown so we can render per-item ✓/✗ rather
-// than a single pill. Returns { areas, tasks, crew, client } booleans + a
-// `gaps` count. Per the redesign brief, "If something is missing, the fix
-// button should be right there" — so each missing item gets its own
-// deep-link to the matching setup tab.
+function paintToolbarCount() {
+  const n = jobsForView(STATE.jobs).length;
+  const el = document.querySelector('.jobs-tools .count');
+  if (el) el.textContent = `${n} ${n === 1 ? 'job' : 'jobs'}`;
+}
+
+function jobsForView(jobs) {
+  const q = STATE.search.toLowerCase().trim();
+  return jobs.filter(j => {
+    const s = j.status || 'active';
+    if (STATE.filterStatus === 'setup') {
+      if (s !== 'active' || !hasSetupGaps(j)) return false;
+    } else if (STATE.filterStatus !== 'all' && s !== STATE.filterStatus) {
+      return false;
+    }
+    if (STATE.filterSetupGaps && !hasSetupGaps(j)) return false;
+    if (q) {
+      const blob = `${j.name || ''} ${j.id || ''} ${j.ref || ''} ${j.code || ''} ${(STATE.jobTypes[j.type] || {}).name || ''}`.toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  }).sort(sortByActivity);
+}
+
+function sortByActivity(a, b) {
+  // Most-recent activity first. Falls back to startDate, then name.
+  const aT = a.lastActivityIso || a.startDate || '';
+  const bT = b.lastActivityIso || b.startDate || '';
+  if (aT !== bT) return bT.localeCompare(aT);
+  return (a.name || '').localeCompare(b.name || '');
+}
+
+function paintList(list) {
+  const wrap = document.getElementById('jobs-list');
+  if (!list.length) {
+    wrap.innerHTML = `
+      <div class="jobs-empty">
+        <b>No jobs match those filters.</b><br>
+        <span style="font-size:13px">Try a different tab or clear the search.</span>
+      </div>
+    `;
+    return;
+  }
+  wrap.innerHTML = '';
+
+  // Head row.
+  const head = document.createElement('list-row');
+  head.setAttribute('head', '');
+  head.setAttribute('name', 'Job');
+  const headMetric = document.createElement('div');
+  headMetric.setAttribute('slot', 'metric');
+  headMetric.textContent = 'Pulse';
+  head.appendChild(headMetric);
+  const headAction = document.createElement('div');
+  headAction.setAttribute('slot', 'action');
+  headAction.textContent = '↗';
+  head.appendChild(headAction);
+  wrap.appendChild(head);
+
+  // Data rows.
+  for (const j of list) {
+    const sh = setupHealth(j);
+    const pct = Number(j.statsPct) || 0;
+    const status = j.status || 'active';
+    const dot = status === 'complete' ? 'green'
+              : status === 'paused' ? 'amber'
+              : status === 'archived' ? 'none'
+              : (sh.gaps ? 'yellow' : 'green');
+
+    const row = document.createElement('list-row');
+    row.setAttribute('status', dot);
+    row.setAttribute('name', j.name || j.id);
+    if (j.code || j.ref) row.setAttribute('sub', String(j.code || j.ref).toUpperCase());
+    row.setAttribute('href', `/admin/jobs/${encodeURIComponent(j.id)}`);
+
+    const metric = document.createElement('div');
+    metric.setAttribute('slot', 'metric');
+    const weekHrs = Number(j.statsWeekHours || 0);
+    const snags = Number(j.statsOpenSnags || 0);
+    metric.innerHTML = `
+      <span><b>${pct}%</b></span>
+      <span>${weekHrs.toFixed(1)}h wk</span>
+      <span${snags > 0 ? ' style="color:var(--ink-2)"' : ''}><b>${snags}</b> snag${snags === 1 ? '' : 's'}</span>
+      ${sh.gaps ? `<span class="gap-chip">${sh.gaps} setup ${sh.gaps === 1 ? 'gap' : 'gaps'}</span>` : ''}
+    `;
+    row.appendChild(metric);
+
+    const action = document.createElement('div');
+    action.setAttribute('slot', 'action');
+    const link = document.createElement('a');
+    link.className = 'field-link';
+    link.href = `/my-day?job=${encodeURIComponent(j.id)}`;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.title = 'Open in field (new tab)';
+    link.textContent = '↗';
+    action.appendChild(link);
+    row.appendChild(action);
+
+    wrap.appendChild(row);
+  }
+}
+
+/* ── Setup health ───────────────────────────────────────────── */
+
 function setupHealth(j) {
   const allUsers = SHELL.USERS || [];
   const hasCrew = allUsers.some(u =>
@@ -134,47 +380,11 @@ function setupHealth(j) {
 }
 function hasSetupGaps(j) { return setupHealth(j).gaps > 0; }
 
-function jobCard(j) {
-  const ref = (j.ref || j.id || '').toUpperCase();
-  const typeName = j.typeName || (STATE.jobTypes[j.type] || {}).name || '';
-  const sh = setupHealth(j);
-  const gapsPill = sh.gaps > 0 ? `<span class="pill pill-warn" style="margin-left:6px"><span class="pill-dot"></span>${sh.gaps} setup gap${sh.gaps === 1 ? '' : 's'}</span>` : '';
-  // Compact ✓/✗ checklist row — green tick if set, amber dot + click-to-fix
-  // link if missing. Stops the click bubbling up to the card-level link
-  // so the fix-button takes you to the right tab, not the dashboard.
-  const fix = (target) => `event.preventDefault();event.stopPropagation();location.href='/admin/jobs/${SHELL.escapeHtml(j.id)}?s=${target}';`;
-  const item = (label, ok, target) => ok
-    ? `<span class="setup-tick" style="color:var(--ok)" title="${label} configured">✓ ${label}</span>`
-    : `<a class="setup-fix" href="/admin/jobs/${SHELL.escapeHtml(j.id)}?s=${target}" onclick="${fix(target)}" title="Click to fix">+ ${label}</a>`;
-  return `
-    <a href="/admin/jobs/${SHELL.escapeHtml(j.id)}" class="job-card">
-      <div class="job-card-top">
-        <div style="flex:1;min-width:0">
-          <div class="job-card-name">${SHELL.escapeHtml(j.name)}</div>
-          <div class="job-card-ref">${SHELL.escapeHtml(ref)}${typeName ? ' · ' + SHELL.escapeHtml(typeName) : ''}</div>
-        </div>
-        ${SHELL.jobStatusPill(j.status || 'active')}${gapsPill}
-      </div>
-      <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:10px">
-        <div class="job-card-pct">${j.statsPct || 0}%</div>
-        ${j.statsDwellingCount ? `<div style="font-size:12px;color:var(--muted)"><b style="color:var(--ink)">${j.statsDwellingsDone || 0}</b>/${j.statsDwellingCount} dwellings done</div>` : ''}
-      </div>
-      ${SHELL.bar(j.statsPct || 0)}
-      <div class="job-card-meta">
-        <span>This week <b>${Number(j.statsWeekHours || 0).toFixed(1)}h</b></span>
-        <span>Open snags <b ${(j.statsOpenSnags || 0) > 0 ? 'style="color:var(--bad)"' : ''}>${j.statsOpenSnags || 0}</b></span>
-        ${j.startDate ? `<span>Started <b>${SHELL.escapeHtml(String(j.startDate).slice(0,10))}</b></span>` : ''}
-        ${j.lastActivityIso ? `<span>Activity <b>${SHELL.escapeHtml(SHELL._ago(j.lastActivityIso))}</b></span>` : ''}
-      </div>
-      <div class="setup-health">
-        ${item('Areas',  sh.areas,  'setup')}
-        ${item('Tasks',  sh.tasks,  'setup')}
-        ${item('Crew',   sh.crew,   'crew')}
-        ${item('Client', sh.client, 'crew')}
-      </div>
-    </a>
-  `;
-}
+/* ── New-job side panel ──────────────────────────────────────
+   The brief calls for a 4-step wizard (name+code+client → template
+   → areas → crew+LH); phase 05 ships the single-pane version using
+   the existing endpoint. Wizard expansion pairs with template
+   selection and the area builder — landing in a follow-up. */
 
 function openNewJobPanel() {
   const clients = (SHELL.USERS || []).filter(u => u.role === 'client');
@@ -183,9 +393,9 @@ function openNewJobPanel() {
     title: 'New job',
     body: `
       <div class="field"><label class="field-lbl">Job name</label>
-        <input class="input" id="nj-name" placeholder="e.g. North Sydney T2" autofocus></div>
-      <div class="field"><label class="field-lbl">Job ref / ID (optional)</label>
-        <input class="input" id="nj-id" placeholder="auto-generated from name (slug)"></div>
+        <input class="input" id="nj-name" placeholder="e.g. 19–23 Birdwood Ave" autofocus></div>
+      <div class="field"><label class="field-lbl">Job code (optional)</label>
+        <input class="input" id="nj-id" placeholder="auto-generated from name"></div>
       ${types.length ? `
         <div class="field"><label class="field-lbl">Type</label>
           <select class="select" id="nj-type">
@@ -200,7 +410,7 @@ function openNewJobPanel() {
         </select>
       </div>
       <div style="margin-top:14px;font-size:12px;color:var(--muted);padding:10px 12px;background:var(--surface-2);border-radius:8px;line-height:1.5">
-        ${SHELL.ICONS.warn} The job opens with no structure — you'll set up area groups, tasks, plans, materials and crew on the workspace.
+        The job opens with no structure — set up areas, tasks, plans, materials and crew on the workspace next.
       </div>
     `,
     footer: `
@@ -220,10 +430,31 @@ function openNewJobPanel() {
       const r = await SHELL.api('/api/jobs', { method: 'POST', body });
       SHELL.toast('Job created', 'ok');
       SHELL.closePanel();
-      // Land on the new workspace.
       location.href = '/admin/jobs/' + r.job.id;
     } catch (e) { SHELL.toast('Create failed — ' + e.message, 'bad'); }
   });
+}
+
+/* ── Per-view command registration (Phase 04 hook) ────────── */
+
+async function registerJobCommands() {
+  await SHELL.registerCommands('jobs-page', [
+    { id: 'jobs-tab-active', verb: 'Filter', group: 'Jobs',
+      label: 'Active jobs',
+      run: () => { STATE.filterStatus = 'active'; paint(); } },
+    { id: 'jobs-tab-setup', verb: 'Filter', group: 'Jobs',
+      label: 'Jobs needing setup',
+      run: () => { STATE.filterStatus = 'setup'; STATE.filterSetupGaps = true; paint(); } },
+    { id: 'jobs-tab-paused', verb: 'Filter', group: 'Jobs',
+      label: 'Paused jobs',
+      run: () => { STATE.filterStatus = 'paused'; paint(); } },
+    { id: 'jobs-tab-complete', verb: 'Filter', group: 'Jobs',
+      label: 'Complete jobs',
+      run: () => { STATE.filterStatus = 'complete'; paint(); } },
+    { id: 'jobs-action-new', verb: 'Create', group: 'Actions',
+      label: 'New job · open wizard',
+      run: () => openNewJobPanel() },
+  ]);
 }
 
 SHELL.boot();
