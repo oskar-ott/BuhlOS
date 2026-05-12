@@ -1272,12 +1272,100 @@ function renderSummary(host) {
       </div>
     </div>
     ${acceptanceBlock}${acceptCta}${convertBlock}
+
+    <!-- Phase 11 (brief §11): mark-as-lost with structured reason
+         capture. Stored on the quote so future quotes can learn. -->
+    ${q.quote.status === 'lost' && q.quote.reasonLost ? `
+      <div class="card" style="margin-top:14px;border-color:var(--bad-bd);background:var(--bad-bg)">
+        <div class="card-hdr"><div>
+          <div class="card-title">Marked lost · ${SHELL.escapeHtml(q.quote.reasonLost.category || 'other')}</div>
+          <div class="card-sub">${SHELL.escapeHtml(q.quote.reasonLost.reason || '(no reason)')}</div>
+        </div><button class="btn btn-sm" id="qsm-reopen">Reopen</button></div>
+      </div>
+    ` : (q.quote.status !== 'won' && q.quote.status !== 'archived' && !q.quote.convertedJobId ? `
+      <div class="card" style="margin-top:14px;border-color:var(--rule-2);background:transparent">
+        <div class="card-hdr"><div>
+          <div class="card-title">Mark lost</div>
+          <div class="card-sub">Capture the reason — next quote in this category will surface the lesson.</div>
+        </div><button class="btn" id="qsm-lost">Mark lost</button></div>
+      </div>
+    ` : '')}
   `;
   if (SHELL.$('#qsm-internal')) SHELL.$('#qsm-internal').addEventListener('click', printInternal);
   if (SHELL.$('#qsm-client'))   SHELL.$('#qsm-client').addEventListener('click', printClient);
   if (SHELL.$('#qsm-accept'))   SHELL.$('#qsm-accept').addEventListener('click', acceptQuote);
   if (SHELL.$('#qsm-unaccept')) SHELL.$('#qsm-unaccept').addEventListener('click', unacceptQuote);
   if (SHELL.$('#qsm-convert'))  SHELL.$('#qsm-convert').addEventListener('click', convertQuote);
+  if (SHELL.$('#qsm-lost'))     SHELL.$('#qsm-lost').addEventListener('click', openLostPanel);
+  if (SHELL.$('#qsm-reopen'))   SHELL.$('#qsm-reopen').addEventListener('click', reopenLost);
+}
+
+// Phase 11 (brief §11): structured reason-lost panel.
+// Categories match the brief's typical post-mortem buckets so the
+// next quote in the same category surfaces the lesson.
+const LOST_CATEGORIES = [
+  ['price',       'Price too high'],
+  ['scope',       'Scope mismatch / wanted more'],
+  ['timeline',    'Couldn\'t meet timeline'],
+  ['relationship','Existing relationship with another sparkie'],
+  ['no-go',       'Job didn\'t go ahead'],
+  ['other',       'Other'],
+];
+function openLostPanel() {
+  const q = STATE.open && STATE.open.quote;
+  if (!q) return;
+  const panel = SHELL.openPanel({
+    title: 'Mark quote lost',
+    body: `
+      <div class="field"><label class="field-lbl">Why?</label>
+        <select class="select" id="qlc-cat">
+          ${LOST_CATEGORIES.map(([k, lab]) => `<option value="${k}">${SHELL.escapeHtml(lab)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label class="field-lbl">Detail (optional)</label>
+        <textarea class="textarea" id="qlc-detail" rows="3" placeholder="What did you learn?"></textarea>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--muted);padding:10px 12px;background:var(--surface-2);border-radius:8px;line-height:1.5">
+        Stored on the quote. Next quote in the same category will surface the lesson on the Pipeline overview.
+      </div>
+    `,
+    footer: `
+      <button class="btn" onclick="SHELL.closePanel()">Cancel</button>
+      <button class="btn btn-danger" id="qlc-save">Mark lost</button>
+    `,
+  });
+  panel.querySelector('#qlc-save').addEventListener('click', async () => {
+    const category = panel.querySelector('#qlc-cat').value;
+    const detail   = panel.querySelector('#qlc-detail').value.trim();
+    try {
+      await SHELL.api('/api/quotes?id=' + encodeURIComponent(q.id), {
+        method: 'PATCH',
+        body: { status: 'lost', reasonLost: { category, reason: detail } },
+      });
+      SHELL.toast('Marked lost', 'ok');
+      SHELL.closePanel();
+      await loadQuote(q.id);
+      paint();
+    } catch (e) {
+      SHELL.toast('Couldn\'t save — ' + e.message, 'bad');
+    }
+  });
+}
+async function reopenLost() {
+  const q = STATE.open && STATE.open.quote;
+  if (!q) return;
+  if (!confirm('Reopen this quote? Status will move back to Drafted.')) return;
+  try {
+    await SHELL.api('/api/quotes?id=' + encodeURIComponent(q.id), {
+      method: 'PATCH',
+      body: { status: 'drafted' },
+    });
+    SHELL.toast('Reopened', 'ok');
+    await loadQuote(q.id);
+    paint();
+  } catch (e) {
+    SHELL.toast('Couldn\'t reopen — ' + e.message, 'bad');
+  }
 }
 async function acceptQuote() {
   const q = STATE.open && STATE.open.quote;

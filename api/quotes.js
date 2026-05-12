@@ -258,8 +258,26 @@ async function handleUpdateQuote(req, res, user) {
   for (const k of editable) {
     if (body[k] !== undefined) data.quotes[idx][k] = String(body[k] || '').trim();
   }
+  // Phase 11 (brief §11): capture reason-lost when the quote moves to
+  // a terminal "not won" state. Stored as { reason, category, at, by }
+  // so future quotes can learn from it without manual reconciliation.
+  const prevStatus = data.quotes[idx].status;
   if (body.status && VALID_STATUSES.includes(body.status)) {
     data.quotes[idx].status = body.status;
+    if ((body.status === 'lost' || body.status === 'declined') && body.reasonLost) {
+      data.quotes[idx].reasonLost = {
+        category: String((body.reasonLost && body.reasonLost.category) || body.lostCategory || 'other'),
+        reason:   String((body.reasonLost && body.reasonLost.reason)   || body.lostReason   || '').trim(),
+        at:       new Date().toISOString(),
+        by:       user && user.id || null,
+        prevStatus,
+      };
+    }
+    if (body.status === 'won' && data.quotes[idx].reasonLost) {
+      // Win after a previously-lost mark: clear the reason so it doesn't
+      // hang around as stale context.
+      delete data.quotes[idx].reasonLost;
+    }
   }
   data.quotes[idx].updatedAt = new Date().toISOString();
   await writeQuotes(data);
