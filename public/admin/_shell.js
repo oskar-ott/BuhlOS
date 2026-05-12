@@ -15,34 +15,36 @@
 (function () {
   'use strict';
 
-  /* ── Tweaks (theme/density/accent) — persisted in localStorage ── */
+  /* ── Tweaks (theme/density) — persisted in localStorage ──
+     Phase 02: dropped the .accent picker. Admin-amber is forbidden
+     (brief §17). The single yellow lives in tokens; rotating it
+     defeats the "one yellow per screen" rule. Density names match
+     buhlos-admin.css: compact / regular / roomy. Legacy values
+     ('default') migrate to 'regular' on load. */
   const TWEAK_KEY = 'buhl-site-office-tweaks';
-  const TWEAK_DEFAULTS = { theme: 'light', density: 'default', accent: '#e08a1a' };
+  const TWEAK_DEFAULTS = { theme: 'light', density: 'regular' };
   let tweaks = (() => {
-    try { return Object.assign({}, TWEAK_DEFAULTS, JSON.parse(localStorage.getItem(TWEAK_KEY) || '{}')); }
+    try {
+      const stored = JSON.parse(localStorage.getItem(TWEAK_KEY) || '{}');
+      // Migrate legacy density values.
+      if (stored.density === 'default' || stored.density == null) stored.density = 'regular';
+      // Drop legacy .accent if present — yellow is now token-driven.
+      if (stored.accent) delete stored.accent;
+      return Object.assign({}, TWEAK_DEFAULTS, stored);
+    }
     catch { return { ...TWEAK_DEFAULTS }; }
   })();
-  function shadeAccent(hex, amt) {
-    const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-    const t = n => Math.min(255, Math.round(n + (255-n)*amt));
-    return '#' + [t(r),t(g),t(b)].map(n => n.toString(16).padStart(2,'0')).join('');
-  }
   function applyTweaks() {
     document.documentElement.dataset.density = tweaks.density;
     document.documentElement.dataset.theme   = tweaks.theme;
-    document.documentElement.style.setProperty('--accent',   tweaks.accent);
-    document.documentElement.style.setProperty('--accent-2', shadeAccent(tweaks.accent, 0.18));
-    const r = parseInt(tweaks.accent.slice(1,3),16),
-          g = parseInt(tweaks.accent.slice(3,5),16),
-          b = parseInt(tweaks.accent.slice(5,7),16);
-    const lum = (0.299*r + 0.587*g + 0.114*b);
-    document.documentElement.style.setProperty('--accent-ink', lum > 160 ? '#2a1a05' : '#fff');
   }
   function setTweak(k, v) {
     tweaks[k] = v;
     applyTweaks();
     try { localStorage.setItem(TWEAK_KEY, JSON.stringify(tweaks)); } catch {}
     if (tweakOpen) renderTweaksPanel();
+    // Repaint the density toggle if the topbar is up.
+    paintDensityToggle();
   }
   applyTweaks();
   let tweakOpen = false;
@@ -209,6 +211,16 @@
 
   /* ── Boot ──────────────────────────────────────────────── */
   async function boot() {
+    // Phase 02: ensure the Inter Tight display font is loaded for the
+    // new chrome. Pages typically only pull Inter + JetBrains Mono; the
+    // new shell adds Inter Tight for headings + cmd-palette labels.
+    if (!document.querySelector('link[href*="Inter+Tight"]')) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&display=swap';
+      document.head.appendChild(link);
+    }
+
     // Auth gate — admin and leadingHand only.
     let me;
     try {
@@ -252,6 +264,9 @@
     renderSidebar();
     renderTopbar();
     bindKeyboard();
+    // Mount the command palette + register baseline commands. The
+    // palette owns the global ⌘K listener — see /components/cmd-palette.js.
+    ensurePalette();
 
     // Hand off to the page.
     if (window.PAGE && typeof window.PAGE.render === 'function') {
@@ -363,10 +378,19 @@
       const count = item.countKey ? C[item.countKey] : null;
       let badge = '';
       if (count != null && count > 0) {
-        let bad = false;
-        if (item.badgeBad === true) bad = true;
-        else if (item.badgeBad === 'unassigned') bad = (C.unassignedSnags || 0) > 0;
-        badge = `<span class="side-badge ${bad ? 'bad' : ''}">${count}</span>`;
+        // Brief F-01 + §02 severity rules:
+        //   - Default: neutral grey (calm by default).
+        //   - .warn (yellow): "needs attention" categories.
+        //   - .bad (red): true SLA breach.
+        // Until we have age data, most queues land on .warn. Assets is
+        // the only one where the count itself means "literally past
+        // due" — so it gets the only red badge.
+        let kind = '';
+        if (item.id === 'assets')                kind = 'bad';
+        else if (item.badgeBad === true)         kind = 'warn';
+        else if (item.badgeBad === 'unassigned'
+                 && (C.unassignedSnags || 0) > 0) kind = 'warn';
+        badge = `<span class="side-badge ${kind}">${count}</span>`;
       }
       return `<a href="${item.href}" class="${isActive ? 'active' : ''}">
         ${ICONS[item.icon] || ''}<span>${escapeHtml(item.label)}</span>${badge}
@@ -410,47 +434,114 @@
   }
 
   function renderTopbar() {
-    const C = SHELL.COUNTS || {};
     const crumb = (window.PAGE && window.PAGE.crumb) || (window.PAGE && window.PAGE.title) || '';
-    const showDot = (C.pendingHours || 0) > 0 || (C.unassignedSnags || 0) > 0;
-    // Single command-centre landing for both admin + LH. The legacy
-    // /admin/ "Today" page redirects to /admin/operations on load — see
-    // public/admin/index.html — so the bell always lands on the live
-    // command centre, not a half-stale duplicate.
-    const homeHref = '/admin/operations';
+    // Phase 02 chrome (brief §02 + §06):
+    //   - Crumb on the left.
+    //   - Real ⌘K trigger replaces the inert "Quick find" field (F-04).
+    //   - Density toggle (compact / regular / roomy).
+    //   - Bell (F-05) removed — no notification system behind it.
     $('#topbar').innerHTML = `
       <div class="topbar-crumb">
         <span>${SHELL.ME && SHELL.ME.role === 'leadingHand' ? 'Site office' : 'Admin'}</span><span>›</span><b>${escapeHtml(crumb)}</b>
       </div>
-      <div class="topbar-spacer"></div>
-      <div class="search">
-        ${ICONS.search}
-        <input id="topbar-search" placeholder="Quick find — job, user, snag…" autocomplete="off">
-        <span class="search-key">⌘K</span>
-      </div>
-      <button class="icon-btn" title="${C.pendingHours} pending hours, ${C.unassignedSnags || 0} unassigned snags" style="position:relative" onclick="location.href='${homeHref}'">
-        ${ICONS.bell}
-        ${showDot ? `<span style="position:absolute;top:6px;right:6px;width:7px;height:7px;background:var(--bad);border-radius:50%;border:1.5px solid var(--surface)"></span>` : ''}
+      <button class="topbar-cmd" id="topbar-cmd" type="button"
+              title="Open command palette (⌘K)" aria-haspopup="dialog">
+        <span class="topbar-cmd-arr">⌘K</span>
+        <span class="topbar-cmd-ph">Jump or do…</span>
+        <span class="topbar-cmd-kb">⌘K</span>
       </button>
+      <div class="topbar-density" role="tablist" aria-label="Density">
+        <button data-d="compact" type="button" title="Compact (32px row)">·</button>
+        <button data-d="regular" type="button" title="Regular (40px row)">··</button>
+        <button data-d="roomy"   type="button" title="Roomy (48px row)">···</button>
+      </div>
     `;
-    // Wire the topbar search to dispatch a custom event the page can listen for.
-    const search = $('#topbar-search');
-    if (search) {
-      search.addEventListener('input', () => {
-        document.dispatchEvent(new CustomEvent('shell-search', { detail: { q: search.value } }));
-      });
-    }
+    // Open palette when the trigger is clicked.
+    const cmdTrigger = $('#topbar-cmd');
+    if (cmdTrigger) cmdTrigger.addEventListener('click', () => openCmdPalette());
+    // Wire density toggle.
+    $$('.topbar-density button[data-d]').forEach(b => {
+      b.addEventListener('click', () => setTweak('density', b.dataset.d));
+    });
+    paintDensityToggle();
+  }
+
+  function paintDensityToggle() {
+    $$('.topbar-density button[data-d]').forEach(b => {
+      b.classList.toggle('on', b.dataset.d === tweaks.density);
+    });
+  }
+
+  /* ── Command palette (brief §06) ────────────────────────────────
+     Phase 02 ships the chrome — the singleton <cmd-palette> mount,
+     the topbar trigger, and a baseline command registry (jump-to
+     pages + density switches + sign out). Per-view commands come in
+     phase 04. */
+
+  let _palettePromise = null;
+  function ensurePalette() {
+    if (_palettePromise) return _palettePromise;
+    _palettePromise = (async () => {
+      // Lazy-load the module. Component self-registers on import.
+      await import('/components/cmd-palette.js');
+      let p = document.querySelector('cmd-palette');
+      if (!p) {
+        p = document.createElement('cmd-palette');
+        document.body.appendChild(p);
+      }
+      registerBaselineCommands();
+      return p;
+    })();
+    return _palettePromise;
+  }
+  async function openCmdPalette() {
+    const p = await ensurePalette();
+    if (p && typeof p.open === 'function') p.open();
+  }
+
+  let _baselineRegistered = false;
+  async function registerBaselineCommands() {
+    if (_baselineRegistered) return;
+    const { CmdRegistry } = await import('/components/cmd-palette.js');
+    const cmds = [
+      // Jump to every admin page the current role can see.
+      ...NAV.filter(n => !n.section && (!n.roles || n.roles.includes(SHELL.ME?.role)))
+            .map(n => ({
+              id: 'jump-' + n.id,
+              verb: 'Open',
+              group: 'Jump',
+              label: n.label,
+              href: n.href,
+            })),
+      // Density switches.
+      { id: 'density-compact', verb: 'Set', group: 'Density',
+        label: 'Density · Compact',
+        run: () => setTweak('density', 'compact') },
+      { id: 'density-regular', verb: 'Set', group: 'Density',
+        label: 'Density · Regular',
+        run: () => setTweak('density', 'regular') },
+      { id: 'density-roomy', verb: 'Set', group: 'Density',
+        label: 'Density · Roomy',
+        run: () => setTweak('density', 'roomy') },
+      // Open in field (LH only — admin doesn't have a personal field surface).
+      ...(SHELL.ME?.role === 'leadingHand'
+        ? [{ id: 'open-in-field-myday', verb: 'Open', group: 'Field',
+             label: 'My Day · field interface',
+             href: '/my-day' }]
+        : []),
+      // Sign out.
+      { id: 'sign-out', verb: 'Sign', group: 'Account',
+        label: 'Sign out',
+        run: () => signOut() },
+    ];
+    CmdRegistry.registerMany(cmds);
+    _baselineRegistered = true;
   }
 
   function bindKeyboard() {
+    // ⌘K is owned by <cmd-palette> — see /components/cmd-palette.js.
+    // We only handle escape-to-close-tweaks here.
     document.addEventListener('keydown', (e) => {
-      // Cmd/Ctrl-K — focus topbar search.
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        const input = $('#topbar-search');
-        if (input) { input.focus(); input.select(); }
-      }
-      // Escape — close tweaks panel.
       if (e.key === 'Escape' && tweakOpen) { tweakOpen = false; renderTweaksPanel(); }
     });
   }
@@ -515,9 +606,11 @@
       document.body.appendChild(host);
     }
     if (!tweakOpen) { host.innerHTML = ''; return; }
-    const ACCENTS = ['#e08a1a','#f5d020','#1c5fb8','#1f8a4c','#b3261e','#5b3a8a'];
+    // Phase 02: dropped accent picker. The yellow accent is token-
+    // driven and shouldn't be rotated (brief §17: one yellow per
+    // screen — rotating defeats the rule).
     host.innerHTML = `
-      <div style="position:fixed;bottom:20px;right:20px;width:300px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow-lg);padding:18px;z-index:300">
+      <div style="position:fixed;bottom:20px;right:20px;width:280px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow-lg);padding:18px;z-index:300">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div style="font-weight:600;font-size:14px">Tweaks</div>
           <button class="btn-icon btn-ghost" onclick="SHELL.toggleTweaks()">${ICONS.x}</button>
@@ -530,18 +623,11 @@
         <div class="field-lbl" style="margin:12px 0 6px">Density</div>
         <div class="chip-group" style="display:grid;grid-template-columns:1fr 1fr 1fr">
           <button class="chip ${tweaks.density==='compact'?'active':''}" onclick="SHELL.setTweak('density','compact')">Compact</button>
-          <button class="chip ${tweaks.density==='default'?'active':''}" onclick="SHELL.setTweak('density','default')">Default</button>
+          <button class="chip ${tweaks.density==='regular'?'active':''}" onclick="SHELL.setTweak('density','regular')">Regular</button>
           <button class="chip ${tweaks.density==='roomy'?'active':''}"   onclick="SHELL.setTweak('density','roomy')">Roomy</button>
         </div>
-        <div class="field-lbl" style="margin:12px 0 6px">Accent</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          ${ACCENTS.map(c => `
-            <button onclick="SHELL.setTweak('accent','${c}')" title="${c}"
-              style="width:28px;height:28px;border-radius:50%;background:${c};border:2px solid ${tweaks.accent===c?'var(--ink)':'var(--line)'};cursor:pointer"></button>
-          `).join('')}
-        </div>
         <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);line-height:1.5">
-          Saved on this device. <kbd style="font-family:var(--ff-mono);background:var(--surface-2);padding:1px 5px;border:1px solid var(--line);border-radius:3px">⌘K</kbd> focuses search · <kbd style="font-family:var(--ff-mono);background:var(--surface-2);padding:1px 5px;border:1px solid var(--line);border-radius:3px">Esc</kbd> closes panels.
+          Saved on this device. Press <kbd style="font-family:var(--ff-mono);background:var(--surface-2);padding:1px 5px;border:1px solid var(--line);border-radius:3px">⌘K</kbd> anywhere to open the command palette · <kbd style="font-family:var(--ff-mono);background:var(--surface-2);padding:1px 5px;border:1px solid var(--line);border-radius:3px">Esc</kbd> to close panels.
         </div>
       </div>
     `;
@@ -570,6 +656,9 @@
     openPanel, closePanel, openDialog, closeDialog,
     toggleTweaks, setTweak,
     signOut,
+    // Phase 02 — command palette helpers.
+    openCmdPalette,
+    ensurePalette,
     // Re-render the sidebar (for after a write that changes a count)
     refreshCounts: async () => {
       const c = await fetchSidebarCounts();
