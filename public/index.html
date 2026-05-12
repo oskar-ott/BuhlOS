@@ -5960,11 +5960,25 @@ async function saveTagModal(){
   try{
     const url=`/api/tags?jobId=${encodeURIComponent(JOB_ID)}`;
     let r;
+    // Offline-first: scanning a tag in a basement should queue, not fail.
+    // replaceKey collapses repeat saves of the same tag (by id on edit,
+    // by tagNumber on create) so duplicate submissions don't pile up.
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    const replaceKey = _tagModalState.mode === 'edit'
+      ? 'tag-edit:' + JOB_ID + ':' + _tagModalState.id
+      : 'tag-create:' + JOB_ID + ':' + (payload.tagNumber || '');
     if(_tagModalState.mode==='edit'){
       payload.id=_tagModalState.id;
-      r=await fetch(url,{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      r=await fetcher(url,{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},replaceKey,body:JSON.stringify(payload)});
     }else{
-      r=await fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      r=await fetcher(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},replaceKey,body:JSON.stringify(payload)});
+    }
+    if (r && r.status === 202) {
+      // Persisted offline \u2014 the queue drains when online.
+      closeTagModal();
+      showToast(_tagModalState&&_tagModalState.mode==='edit'?'Tag update queued offline \u00b7 syncing when online.':'Tag queued offline \u00b7 syncing when online.','warn',3500);
+      btn.disabled=false;btn.textContent='Save';
+      return;
     }
     const j=await r.json().catch(()=>({}));
     if(!r.ok){
