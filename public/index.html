@@ -19,6 +19,10 @@
 <script type="module" src="/components/area-card.js"></script>
 <script type="module" src="/components/empty-state.js"></script>
 <script type="module" src="/components/progress-bar.js"></script>
+<!-- Phase 09: in-app product spec drawer (brief §17 + §20). No app-leave
+     for product specs — any <product-chip> opens this drawer. -->
+<script type="module" src="/components/product-chip.js"></script>
+<script type="module" src="/components/product-drawer.js"></script>
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -7628,5 +7632,11 @@ async function _backgroundTagsBadge() {
   }
 })();
 </script>
+
+<!-- Phase 09 product spec drawer — always present, listens at document
+     level for product-chip:open events. Brief §20: app-leave for
+     product specs = 0. -->
+<product-drawer></product-drawer>
+
 </body>
 </html>
