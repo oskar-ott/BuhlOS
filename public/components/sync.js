@@ -72,3 +72,10 @@ export const Sync = {
   },
   current() { return { state: bus.state, reason: bus.reason }; },
 };
+
+// Expose on window for legacy inline scripts that can't import ES modules
+// (e.g. the giant <script> blocks in index.html). Module consumers should
+// import { Sync } from '/components/sync.js' as usual.
+if (typeof window !== 'undefined') {
+  window.BuhlSync = Sync;
+}
