@@ -330,8 +330,14 @@ async function load() {
   if (!jr.ok) { renderError('We couldn\'t load your job right now.'); return; }
   JOBS = ((await jr.json()).jobs) || [];
 
-  // Honour ?jobId= when given; else: 1 job → straight in, multiple → list
-  const want = new URLSearchParams(location.search).get('jobId');
+  // Phase 10 (brief §15 + §20): support both /client?jobId=... and the
+  // new /client/jobs/:id path. The path-based URL is bookmark-friendly
+  // and lets the admin link a client directly to their job from email
+  // / SMS without a query string the user can mangle.
+  const pathMatch = location.pathname.match(/^\/client\/jobs\/([^/]+)/);
+  const want = pathMatch
+    ? decodeURIComponent(pathMatch[1])
+    : new URLSearchParams(location.search).get('jobId');
   let target = null;
   if (want) target = JOBS.find(j => j.id === want);
   else if (JOBS.length === 1) target = JOBS[0];
@@ -354,7 +360,10 @@ function renderError(msg) {
 }
 function renderJobList() {
   const cards = JOBS.map(j => {
-    return `<a class="cp-job-card" href="/client?jobId=${esc(j.id)}">
+    // Phase 10: new bookmark-friendly path. /client?jobId=... still works
+    // (older bookmarks won't break) — the load() function above accepts
+    // both forms.
+    return `<a class="cp-job-card" href="/client/jobs/${encodeURIComponent(j.id)}">
       <div>
         <div class="cp-job-card-name">${esc(j.name)}</div>
         <div class="cp-job-card-sub">${esc(j.type || 'job')}</div>
