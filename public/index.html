@@ -97,6 +97,33 @@ button.hdr-job[aria-expanded="true"] .hdr-job-chev{color:var(--yellow);transform
 .hdr-setup:hover{background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.3)}
 .hdr-setup::before{content:'\2699';font-size:14px;line-height:1}
 @media(max-width:420px){.hdr-setup{padding:0 9px;font-size:10px;height:28px;letter-spacing:0;text-transform:none}}
+
+/* Site info pill — appears between header job-info and right-side
+   actions when the loaded Job carries any siteAddress / access /
+   contact / safety field. Tap → slide-down drawer with everything. */
+.hdr-siteinfo{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 11px;background:rgba(255,204,0,.12);border:1px solid rgba(255,204,0,.32);color:#fcd34d;border-radius:999px;font-family:var(--mono);font-size:10px;font-weight:600;flex-shrink:0;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap;cursor:pointer}
+.hdr-siteinfo[hidden]{display:none}
+.hdr-siteinfo:hover{background:rgba(255,204,0,.18);color:#ffd84a}
+.hdr-siteinfo:active{transform:scale(.97)}
+.hdr-siteinfo-icon{font-size:13px;line-height:1}
+@media(max-width:420px){.hdr-siteinfo{padding:0 9px;height:28px}.hdr-siteinfo-label{display:none}}
+
+.si-overlay{position:fixed;inset:0;z-index:9000;background:rgba(13,27,52,.55);opacity:0;pointer-events:none;transition:opacity .18s ease;display:flex;flex-direction:column}
+.si-overlay.open{opacity:1;pointer-events:auto}
+.si-sheet{margin-top:env(safe-area-inset-top,0);background:#fff;color:#0d1b34;border-bottom-left-radius:18px;border-bottom-right-radius:18px;transform:translateY(-100%);transition:transform .22s cubic-bezier(.2,.7,.2,1);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 12px 36px rgba(0,0,0,.32)}
+.si-overlay.open .si-sheet{transform:translateY(0)}
+.si-head{display:flex;align-items:center;gap:10px;padding:14px 16px 8px;border-bottom:1px solid #e9ecef}
+.si-title{flex:1;font-weight:700;font-size:15px}
+.si-close{width:34px;height:34px;border:1px solid #e0e3e9;background:#fff;border-radius:999px;font-size:22px;line-height:1;color:#6b7280;cursor:pointer}
+.si-close:active{transform:scale(.92)}
+.si-body{padding:8px 16px 18px;overflow-y:auto;font-size:14px;line-height:1.45}
+.si-body .si-row{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #f0f2f5}
+.si-body .si-row:last-child{border-bottom:0}
+.si-body .si-row-label{width:90px;flex-shrink:0;color:#6b7280;font-size:11.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding-top:2px}
+.si-body .si-row-value{flex:1;color:#0d1b34;font-size:14px;word-wrap:break-word;white-space:pre-wrap}
+.si-body .si-row-value a{color:#1c5fb8;text-decoration:underline}
+.si-body .si-induction{display:flex;align-items:center;gap:8px;margin:10px 0 0;padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;color:#92400e;font-size:13px;font-weight:600}
+.si-body .si-empty{padding:20px 0;text-align:center;color:#9ca3af;font-size:13px}
 .sdot{width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0}
 .sdot.syncing{background:#f59e0b;animation:blink 1s infinite}
 .sdot.err{background:#ef4444}
@@ -2207,6 +2234,14 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
     <span class="hdr-job-chev" aria-hidden="true">&#9662;</span>
   </button>
   <a href="#dashboard" class="hdr-pct" id="hdr-pct" title="Jump to KPI strip" aria-hidden="true"></a>
+  <!-- Site-info pill (audit C-1 follow-up): one-tap drawer with address,
+       access, parking, key-holder, induction + safety. Hidden by default
+       until JOB carries any of those fields — populated by paintSiteInfoPill
+       after the /api/jobs?id= read lands. -->
+  <button type="button" id="hdr-siteinfo" class="hdr-siteinfo" aria-haspopup="dialog" title="Site info" hidden>
+    <span class="hdr-siteinfo-icon" aria-hidden="true">📍</span>
+    <span class="hdr-siteinfo-label">Site info</span>
+  </button>
 
   <!-- Legacy hooks kept for JS compatibility — visually hidden on phones. -->
   <a href="/my-day" id="hdr-myday" class="hdr-myday hdr-legacy" title="Back to My Day">My Day</a>
@@ -2216,6 +2251,21 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
     <div class="stxt" id="stxt">Live</div>
   </div>
   <button id="logoutBtn" class="hdr-signout hdr-legacy" title="Sign out">Sign out</button>
+</div>
+
+<!-- Site info drawer — slide-down from header, dim backdrop. Built from
+     Job basics (siteAddress, accessNotes, parkingNotes, siteContactName/
+     Phone, safetyNotes, inductionRequired, startDate, dueDate). Empty
+     fields are skipped. tel: link on the phone for one-tap calling.
+     Closes on backdrop tap or top "Close" tap. -->
+<div id="site-info-overlay" class="si-overlay" aria-hidden="true">
+  <div class="si-sheet" role="dialog" aria-label="Site info">
+    <div class="si-head">
+      <div class="si-title">Site info</div>
+      <button class="si-close" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="si-body" id="site-info-body">Loading…</div>
+  </div>
 </div>
 
 <!-- Job switcher slide-down sheet — Sheet 03 moment 04 -->
@@ -2480,6 +2530,10 @@ async function bootstrapAuth() {
     document.getElementById('hdr-name').textContent = job.name || JOB_ID;
     document.getElementById('hdr-sub').textContent = job.id;
     document.title = (job.name || JOB_ID) + ' — bühl electrical';
+    // Site info pill — populated from Job basics (PR #162). Pill only
+    // shows when there's something useful to surface; otherwise stays
+    // hidden so it doesn't visually compete with the job name.
+    paintSiteInfoPill(job);
   } catch (e) { location.href = '/login'; return false; }
 
   if (CURRENT_USER.role === 'client') {
@@ -7982,6 +8036,75 @@ async function _backgroundTagsBadge() {
   } else {
     setTimeout(_backgroundTagsBadge, 800);
   }
+})();
+
+// ── Site info pill + drawer ───────────────────────────────────────────
+// Audit C-1 follow-up. Builds the pill visibility + drawer body from
+// the Job's basics (siteAddress, accessNotes, parkingNotes,
+// siteContactName, siteContactPhone, safetyNotes, inductionRequired,
+// startDate, dueDate). Pill stays hidden when the job has none of these.
+function paintSiteInfoPill(job) {
+  const pill = document.getElementById('hdr-siteinfo');
+  if (!pill) return;
+  const hasAny = !!(job && (
+    job.siteAddress || job.accessNotes || job.parkingNotes ||
+    job.siteContactName || job.siteContactPhone ||
+    job.safetyNotes || job.inductionRequired ||
+    job.startDate || job.dueDate
+  ));
+  pill.hidden = !hasAny;
+  if (!hasAny) return;
+
+  // Build the drawer body once per paint. esc() is the existing helper
+  // higher in this file (defined in the same script block).
+  const rows = [];
+  const push = (label, valueHtml) => rows.push(
+    `<div class="si-row"><div class="si-row-label">${esc(label)}</div><div class="si-row-value">${valueHtml}</div></div>`
+  );
+  if (job.siteAddress) {
+    // Tap-to-open in maps. Both iOS + Android understand https://maps.google
+    // — phone OS picks the right app.
+    const mapsUrl = 'https://maps.google.com/?q=' + encodeURIComponent(job.siteAddress);
+    push('Address', `<a href="${esc(mapsUrl)}" target="_blank" rel="noopener">${esc(job.siteAddress)}</a>`);
+  }
+  if (job.accessNotes)  push('Access',  esc(job.accessNotes));
+  if (job.parkingNotes) push('Parking', esc(job.parkingNotes));
+  if (job.siteContactName || job.siteContactPhone) {
+    let v = job.siteContactName ? esc(job.siteContactName) : '';
+    if (job.siteContactPhone) {
+      const tel = String(job.siteContactPhone).replace(/[^+\d]/g, '');
+      v = (v ? v + ' · ' : '') + `<a href="tel:${esc(tel)}">${esc(job.siteContactPhone)}</a>`;
+    }
+    push('Contact', v);
+  }
+  if (job.startDate || job.dueDate) {
+    push('Programme', `${esc(job.startDate || '—')} → ${esc(job.dueDate || '—')}`);
+  }
+  const body = document.getElementById('site-info-body');
+  if (body) {
+    let html = rows.join('');
+    if (job.inductionRequired) {
+      html = `<div class="si-induction">⚠ Site induction required before attending</div>` + html;
+    }
+    if (job.safetyNotes) {
+      html += `<div class="si-row"><div class="si-row-label">Safety</div><div class="si-row-value" style="color:#b3261e;font-weight:600">${esc(job.safetyNotes)}</div></div>`;
+    }
+    body.innerHTML = html || `<div class="si-empty">No site info recorded yet.</div>`;
+  }
+}
+
+(function wireSiteInfoDrawer() {
+  const pill = document.getElementById('hdr-siteinfo');
+  const overlay = document.getElementById('site-info-overlay');
+  if (!pill || !overlay) return;
+  const close = overlay.querySelector('.si-close');
+  const open = () => { overlay.classList.add('open'); overlay.setAttribute('aria-hidden', 'false'); };
+  const dismiss = () => { overlay.classList.remove('open'); overlay.setAttribute('aria-hidden', 'true'); };
+  pill.addEventListener('click', open);
+  close && close.addEventListener('click', dismiss);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
+  // Escape closes the drawer when focus is in it.
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') dismiss(); });
 })();
 </script>
 
