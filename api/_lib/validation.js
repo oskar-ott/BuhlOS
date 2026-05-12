@@ -58,6 +58,13 @@ function validateAreaGroups(raw, fieldName) {
       if (typeof a.order === 'number' && Number.isFinite(a.order)) {
         out.order = a.order;
       }
+      // Custom fields per area (rigidity audit R3) — admin can stash
+      // anything the schema doesn't model directly.
+      if (a.customFields !== undefined) {
+        const cf = validateCustomFields(a.customFields, `${f}[${gi}].areas[${ai}].customFields`);
+        if (!cf.ok) return cf;
+        if (cf.fields.length) out.customFields = cf.fields;
+      }
       // Optional per-area task overrides. Validate via validateTasks but
       // allow empty arrays (which we collapse — empty == "use defaults").
       if (a.roughInTasks !== undefined && a.roughInTasks !== null) {
@@ -120,6 +127,55 @@ function validateTasks(raw, prefix) {
   return { ok: true, tasks };
 }
 
+// Custom fields (rigidity audit R3). Generic free-form metadata bag —
+// admin can capture per-job or per-area information the system doesn't
+// model: "wifi password", "fire-rating", "client unit number",
+// "switchboard schedule ref". Keeps the data model flexible without
+// requiring a schema change for every new ask.
+//
+// Each entry:
+//   key       lowercase slug, unique within the entity
+//   label     human-readable display name
+//   value     string / number / bool (coerced) — no nested objects
+//   type      'text' | 'number' | 'bool' | 'date' | 'longtext'
+//   group     optional category for grouped rendering
+//
+// Returns { ok: true, fields } or { ok: false, error }. Caps fields to
+// 50 entries per entity so a malformed POST can't blow up storage.
+const CUSTOM_FIELD_TYPES = new Set(['text', 'number', 'bool', 'date', 'longtext']);
+const MAX_CUSTOM_FIELDS = 50;
+function validateCustomFields(raw, fieldName) {
+  const f = fieldName || 'customFields';
+  if (raw == null) return { ok: true, fields: [] };
+  if (!Array.isArray(raw)) return { ok: false, error: `${f} must be an array` };
+  if (raw.length > MAX_CUSTOM_FIELDS) {
+    return { ok: false, error: `${f}: too many entries (max ${MAX_CUSTOM_FIELDS})` };
+  }
+  const out = [];
+  const seenKeys = new Set();
+  for (let i = 0; i < raw.length; i++) {
+    const e = raw[i];
+    if (!e || typeof e !== 'object') return { ok: false, error: `${f}[${i}] must be an object` };
+    const key = String(e.key || '').toLowerCase().trim().replace(/[^a-z0-9_]+/g, '_').slice(0, 40);
+    if (!key) return { ok: false, error: `${f}[${i}].key required` };
+    if (seenKeys.has(key)) return { ok: false, error: `${f}[${i}].key duplicate: ${key}` };
+    seenKeys.add(key);
+    const label = String(e.label || e.key || '').slice(0, 80);
+    const type = CUSTOM_FIELD_TYPES.has(e.type) ? e.type : 'text';
+    let value = e.value;
+    // Type-coerce. Trim text; clamp number; coerce bool.
+    if (type === 'bool')           value = !!value;
+    else if (type === 'number')    { value = (value === '' || value == null) ? null : Number(value); if (value !== null && !Number.isFinite(value)) value = null; }
+    else if (type === 'longtext')  value = (value == null) ? '' : String(value).slice(0, 4000);
+    else if (type === 'date')      { value = (value == null) ? null : String(value).slice(0, 10); if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) value = null; }
+    else /* text */                value = (value == null) ? '' : String(value).slice(0, 240);
+    const row = { key, label, value, type };
+    if (e.group) row.group = String(e.group).slice(0, 40);
+    out.push(row);
+  }
+  return { ok: true, fields: out };
+}
+
 // Sort + filter helpers consumers can apply to archived/ordered lists.
 // Pure functions — accept arrays + return new ones; don't mutate.
 function visibleStructural(arr, { includeArchived = false } = {}) {
@@ -137,5 +193,6 @@ module.exports = {
   nanoid,
   validateAreaGroups,
   validateTasks,
+  validateCustomFields,
   visibleStructural,
 };
