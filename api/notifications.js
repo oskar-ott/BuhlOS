@@ -433,5 +433,120 @@ module.exports = async (req, res) => {
     });
   }
 
+  // ── send-inactive-users: Tuesday-morning crew-health push ─────────────
+  // Walks every active tradie / LH and finds the date of their most recent
+  // time-entry. If it's >7 calendar days ago (and the user has been on the
+  // system for at least 7 days — no false-flagging fresh hires), they're
+  // counted as inactive. One bundled push goes to admins.
+  //
+  // Why a Tuesday morning push (and not Monday): Mondays are often light
+  // logging days. By Tuesday 09:00 Sydney we know who actually went
+  // missing-in-action last week. Cron at "0 23 * * 1" (= Mon 23:00 UTC).
+  //
+  // Why this matters: a tradie who hasn't logged hours in two weeks is
+  // either sick, on leave, working off-the-books, or has effectively
+  // quit. None of those are things Daniel wants to discover at payroll.
+  //
+  // Silent when nothing qualifies — same rule as the digest.
+  if (action === 'send-inactive-users' && req.method === 'GET') {
+    if (!cronAuthorised(req)) return res.status(401).json({ error: 'unauthorised' });
+    if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
+
+    const STALE_DAYS = 7;
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    const usersData = await readBlob(USERS_KEY, { users: [] });
+    const candidates = (usersData.users || []).filter(u =>
+      (u.role === 'tradie' || u.role === 'leadingHand') &&
+      !u.archived);
+
+    // Only flag users who have actually been around long enough to have logged.
+    const eligible = candidates.filter(u => {
+      const c = u.createdAt ? Date.parse(u.createdAt) : NaN;
+      return !Number.isFinite(c) || (now - c) / DAY_MS >= STALE_DAYS;
+    });
+
+    const { list } = require('@vercel/blob');
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+
+    // Per-user list call. Cheap — scoped prefix, sorted in storage so
+    // we only care about the newest pathname.
+    const inactive = [];
+    await Promise.all(eligible.map(async u => {
+      let latest = '';
+      try {
+        const r = await list({ prefix: `users/${u.id}/time-entries/`, token, limit: 200 });
+        for (const b of (r.blobs || [])) {
+          const m = b.pathname.match(/\/time-entries\/(\d{4}-\d{2}-\d{2})\.json$/);
+          if (m && m[1] > latest) latest = m[1];
+        }
+      } catch (e) { /* treat as no entries */ }
+
+      // No entries ever AND created >7d ago → inactive.
+      // Has entries → check date.
+      let isStale = false;
+      if (!latest) {
+        isStale = true;
+      } else {
+        const t = Date.parse(latest + 'T00:00:00Z');
+        if (Number.isFinite(t) && (now - t) / DAY_MS >= STALE_DAYS) isStale = true;
+      }
+      if (isStale) {
+        inactive.push({
+          id: u.id, username: u.username, role: u.role,
+          lastEntryDate: latest || null,
+        });
+      }
+    }));
+
+    const admins = (usersData.users || []).filter(u =>
+      u.role === 'admin' &&
+      !u.archived &&
+      Array.isArray(u.pushSubscriptions) && u.pushSubscriptions.length);
+
+    if (!admins.length) {
+      return res.status(200).json({ ok: true, sent: 0, skipped: 'no admin subscribers', inactiveCount: inactive.length });
+    }
+    if (!inactive.length) {
+      return res.status(200).json({ ok: true, sent: 0, skipped: 'no inactive crew' });
+    }
+
+    // Body: list names if ≤4, else "N crew · Sam, Riley, Casey, +3".
+    inactive.sort((a, b) => (a.username || '').localeCompare(b.username || ''));
+    const names = inactive.map(u => u.username).filter(Boolean);
+    let body;
+    if (names.length <= 4) {
+      body = names.join(', ');
+    } else {
+      body = `${names.length} crew · ${names.slice(0, 3).join(', ')}, +${names.length - 3}`;
+    }
+    const title = inactive.length === 1
+      ? `${names[0]} hasn’t logged hours in 7+ days`
+      : `${inactive.length} crew inactive 7+ days`;
+
+    const payload = {
+      title, body,
+      url: '/admin/crew',
+      tag: 'buhl-inactive-crew-' + new Date().toISOString().slice(0, 10),
+    };
+
+    let sent = 0, pruned = 0;
+    for (const u of admins) {
+      const r = await sendPushToUserId(u.id, payload);
+      sent   += (r.sent   || 0);
+      pruned += (r.pruned || 0);
+    }
+
+    return res.status(200).json({
+      ok: true, sent, pruned,
+      inactiveCount: inactive.length,
+      inactive: inactive.map(u => ({
+        id: u.id, username: u.username, role: u.role,
+        lastEntryDate: u.lastEntryDate,
+      })),
+    });
+  }
+
   return res.status(400).json({ error: 'unknown action' });
 };
