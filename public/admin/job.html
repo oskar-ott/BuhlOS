@@ -140,6 +140,20 @@ async function loadAll() {
       STATE.circuits = r.circuits || [];
     } catch { /* leave empty */ }
   }
+  // ITPs (#160) — instances per job + company template library. Same
+  // pattern: only fetch when the module is on.
+  STATE.itpInstances = [];
+  STATE.itpTemplates = [];
+  if (mods.itps) {
+    try {
+      const r = await SHELL.api('/api/job-itps?jobId=' + encodeURIComponent(STATE.jobId));
+      STATE.itpInstances = (r.instances || []).filter(x => !x.archived);
+    } catch { /* leave empty */ }
+    try {
+      const r = await SHELL.api('/api/itp-templates');
+      STATE.itpTemplates = r.templates || [];
+    } catch { /* leave empty */ }
+  }
 }
 
 function paint() {
@@ -1065,6 +1079,18 @@ function renderSetup(host) {
       <div id="fit-list">${tasksEditorHtml(j, data, 'fitOff')}</div>
     </div>
 
+    ${(j.modules && j.modules.itps) ? `
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr">
+        <div><div class="card-title">ITPs <span class="card-count">${(STATE.itpInstances || []).length}</span></div>
+          <div class="card-sub">Inspection Test Plans attached to this job. Status flows pending → in-progress → witnessed → signed-off.</div></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn" id="setup-attach-itp" ${!(STATE.itpTemplates || []).filter(t => !t.archived).length ? 'disabled title="No ITP templates yet — create one in /admin/settings"' : ''}>+ Attach ITP</button>
+        </div>
+      </div>
+      <div id="setup-itp-list">${itpsEditorHtml(j)}</div>
+    </div>` : ''}
+
     ${(j.modules && (j.modules.switchboards || j.modules.circuits)) ? `
     <div class="card" style="margin-bottom:14px">
       <div class="card-hdr">
@@ -1138,9 +1164,162 @@ function renderSetup(host) {
   SHELL.$$('button[data-circuit-edit]').forEach(b => b.addEventListener('click', () => openCircuitEditor(b.dataset.circuitEdit)));
   SHELL.$$('select[data-circuit-status]').forEach(sel => sel.addEventListener('change', () => setCircuitStatus(sel.dataset.circuitStatus, sel.value)));
   SHELL.$$('button[data-circuit-archive]').forEach(b => b.addEventListener('click', () => archiveCircuit(b.dataset.circuitArchive)));
+  // ITPs — attach via template picker, sign off / reopen / archive.
+  const itpAttach = SHELL.$('#setup-attach-itp');
+  if (itpAttach && !itpAttach.disabled) itpAttach.addEventListener('click', openAttachItp);
+  SHELL.$$('button[data-itp-signoff]').forEach(b => b.addEventListener('click', () => signoffItp(b.dataset.itpSignoff)));
+  SHELL.$$('button[data-itp-reopen]').forEach(b => b.addEventListener('click', () => reopenItp(b.dataset.itpReopen)));
+  SHELL.$$('button[data-itp-archive]').forEach(b => b.addEventListener('click', () => archiveItp(b.dataset.itpArchive)));
   // Setup activity load — lazy fetch so it doesn't slow the page paint.
   loadSetupAudit();
   SHELL.$('#setup-audit-refresh').addEventListener('click', loadSetupAudit);
+}
+
+// ── ITPs editor (UI for #160) ──────────────────────────────────────────
+// Renders attached ITP instances with completion % + status pill +
+// witnessed-points count. Admin actions: sign-off (when witnessed),
+// reopen (when signed-off), archive.
+const ITP_STATUS_LABELS = {
+  pending: 'Pending', 'in-progress': 'In progress', witnessed: 'Witnessed', 'signed-off': 'Signed off',
+};
+function itpsEditorHtml(j) {
+  const instances = (STATE.itpInstances || []);
+  if (!instances.length) {
+    const templatesAvailable = (STATE.itpTemplates || []).filter(t => !t.archived).length;
+    return `<div style="padding:14px 0;color:var(--muted);font-size:13px;font-style:italic">No ITPs attached yet. ${templatesAvailable ? 'Tap "+ Attach ITP" to pick a template and scope it to the job, a level, an area, or a switchboard.' : 'Create an ITP template in /admin/settings first.'}</div>`;
+  }
+  return `
+    <div style="display:grid;gap:8px">
+      ${instances.map(inst => {
+        const tpl = inst.templateSnapshot || {};
+        const points = (tpl.points || []).filter(p => !p.archived);
+        const required = points.filter(p => p.required !== false);
+        const completed = required.filter(p => inst.results && inst.results[p.id]).length;
+        const pct = required.length ? Math.round((completed / required.length) * 100) : 0;
+        const statusColor = inst.status === 'signed-off' ? 'var(--ok)'
+                          : inst.status === 'witnessed'   ? 'var(--info, #1c5fb8)'
+                          : inst.status === 'in-progress' ? 'var(--warn)'
+                          : 'var(--muted)';
+        const scopeLabel = inst.scope === 'job' ? 'Whole job'
+                         : inst.scope === 'level'        ? 'Level ' + (inst.scopeId || '')
+                         : inst.scope === 'area'         ? (((j.areaGroups || []).flatMap(g => g.areas || []).find(a => a.id === inst.scopeId) || {}).name || 'Area')
+                         : inst.scope === 'switchboard'  ? (((STATE.switchboards || []).find(s => s.id === inst.scopeId) || {}).code || 'Switchboard')
+                         : inst.scope;
+        return `
+          <div style="padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)">
+            <div style="display:flex;align-items:flex-start;gap:10px">
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:600;font-size:13.5px">${SHELL.escapeHtml(tpl.name || 'ITP')}</div>
+                <div style="color:var(--muted);font-size:11.5px;margin-top:2px">
+                  ${SHELL.escapeHtml(scopeLabel)} · ${completed}/${required.length} required points · ${pct}%
+                </div>
+                ${inst.signedOffBy ? `<div style="color:var(--muted);font-size:11px;margin-top:2px">Signed off by ${SHELL.escapeHtml(inst.signedOffBy)} · ${SHELL.escapeHtml(new Date(inst.signedOffAt || 0).toLocaleString())}</div>` : ''}
+              </div>
+              <span style="padding:3px 8px;border-radius:999px;background:rgba(0,0,0,.04);color:${statusColor};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;flex-shrink:0">${ITP_STATUS_LABELS[inst.status] || inst.status}</span>
+            </div>
+            <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+              ${inst.status === 'witnessed' ? `<button class="btn btn-sm btn-primary" data-itp-signoff="${SHELL.escapeHtml(inst.id)}">Sign off</button>` : ''}
+              ${inst.status === 'signed-off' ? `<button class="btn btn-sm" data-itp-reopen="${SHELL.escapeHtml(inst.id)}">Reopen</button>` : ''}
+              <button class="btn btn-sm" data-itp-archive="${SHELL.escapeHtml(inst.id)}" style="color:var(--bad)">Archive</button>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+function openAttachItp() {
+  const templates = (STATE.itpTemplates || []).filter(t => !t.archived);
+  if (!templates.length) { SHELL.toast('No ITP templates available', 'bad'); return; }
+  const sbs = (STATE.switchboards || []).filter(s => !s.archived);
+  const areas = ((STATE.job && STATE.job.areaGroups) || []).flatMap(g => g.areas || []).filter(a => !a.archived);
+  const panel = SHELL.openPanel({
+    title: 'Attach ITP',
+    body: `
+      <div class="field"><label class="field-lbl">Template *</label>
+        <select class="select" id="itp-template" autofocus>
+          ${templates.map(t => `<option value="${SHELL.escapeHtml(t.id)}">${SHELL.escapeHtml(t.name)}${t.category ? ` (${SHELL.escapeHtml(t.category)})` : ''} · ${(t.points || []).filter(p => !p.archived).length} pts</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label class="field-lbl">Scope *</label>
+        <select class="select" id="itp-scope">
+          <option value="job">Whole job</option>
+          ${areas.length ? '<option value="area">Specific area</option>' : ''}
+          ${sbs.length   ? '<option value="switchboard">Specific switchboard</option>' : ''}
+          <option value="level">Specific level (name)</option>
+        </select>
+      </div>
+      <div class="field" id="itp-scope-target-wrap" style="display:none">
+        <label class="field-lbl">Target</label>
+        <select class="select" id="itp-scope-target"></select>
+      </div>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="itp-attach">Attach</button>`,
+  });
+  const renderScopeTarget = () => {
+    const scope = panel.querySelector('#itp-scope').value;
+    const wrap = panel.querySelector('#itp-scope-target-wrap');
+    const sel = panel.querySelector('#itp-scope-target');
+    if (scope === 'job') { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    if (scope === 'area') {
+      sel.innerHTML = areas.map(a => `<option value="${SHELL.escapeHtml(a.id)}">${SHELL.escapeHtml(a.name)}</option>`).join('');
+    } else if (scope === 'switchboard') {
+      sel.innerHTML = sbs.map(s => `<option value="${SHELL.escapeHtml(s.id)}">${SHELL.escapeHtml(s.code)}${s.name ? ' — ' + SHELL.escapeHtml(s.name) : ''}</option>`).join('');
+    } else if (scope === 'level') {
+      // Levels aren't yet a first-class entity; admin types a label.
+      sel.outerHTML = '<input class="input" id="itp-scope-target" placeholder="e.g. Level 1">';
+    }
+  };
+  renderScopeTarget();
+  panel.querySelector('#itp-scope').addEventListener('change', renderScopeTarget);
+  panel.querySelector('#itp-attach').addEventListener('click', async () => {
+    const templateId = panel.querySelector('#itp-template').value;
+    const scope = panel.querySelector('#itp-scope').value;
+    let scopeId = '';
+    if (scope !== 'job') {
+      const t = panel.querySelector('#itp-scope-target');
+      scopeId = (t ? t.value : '').trim();
+      if (!scopeId) { SHELL.toast('Pick a target for this scope', 'bad'); return; }
+    }
+    try {
+      await SHELL.api('/api/job-itps?jobId=' + encodeURIComponent(STATE.jobId) + '&action=attach', {
+        method: 'POST', body: { templateId, scope, scopeId },
+      });
+      SHELL.toast('ITP attached', 'ok');
+      SHELL.closePanel();
+      await loadAll();
+      paint();
+    } catch (e) { SHELL.toast('Attach failed — ' + e.message, 'bad'); }
+  });
+}
+async function signoffItp(instanceId) {
+  if (!confirm('Sign off this ITP? Once signed, the builder can rely on it for handover.')) return;
+  try {
+    await SHELL.api('/api/job-itps?jobId=' + encodeURIComponent(STATE.jobId) + '&action=signoff', {
+      method: 'POST', body: { instanceId },
+    });
+    SHELL.toast('Signed off', 'ok');
+    await loadAll(); paint();
+  } catch (e) { SHELL.toast('Sign-off failed — ' + e.message, 'bad'); }
+}
+async function reopenItp(instanceId) {
+  if (!confirm('Reopen this signed-off ITP? Status reverts to witnessed.')) return;
+  try {
+    await SHELL.api('/api/job-itps?jobId=' + encodeURIComponent(STATE.jobId) + '&action=reopen', {
+      method: 'POST', body: { instanceId },
+    });
+    SHELL.toast('Reopened', 'ok');
+    await loadAll(); paint();
+  } catch (e) { SHELL.toast('Reopen failed — ' + e.message, 'bad'); }
+}
+async function archiveItp(instanceId) {
+  if (!confirm('Archive this ITP? Results stay on file but the entry hides from the active list.')) return;
+  try {
+    await SHELL.api('/api/job-itps?jobId=' + encodeURIComponent(STATE.jobId) + '&id=' + encodeURIComponent(instanceId), { method: 'DELETE' });
+    SHELL.toast('Archived', 'ok');
+    await loadAll(); paint();
+  } catch (e) { SHELL.toast('Archive failed — ' + e.message, 'bad'); }
 }
 
 // ── Switchboards + circuits editor (UI for #159) ───────────────────────
