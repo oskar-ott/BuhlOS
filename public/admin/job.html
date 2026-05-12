@@ -521,6 +521,12 @@ function setupChecks(j) {
       ok: !!j.clientUserId,
       value: j.clientUserId ? 'Linked' : 'no client',
       action: { text: 'Link client', href: '?s=crew' } },
+    // Basics — captured here so the workflow surface knows when the
+    // site information is good enough for tradies to actually attend.
+    { k: 'address', label: 'Site address',
+      ok: !!(j.siteAddress && j.siteAddress.trim()),
+      value: (j.siteAddress && j.siteAddress.trim()) ? 'Set' : 'no address',
+      action: { text: 'Edit basics', href: '?s=setup' } },
   ];
 }
 
@@ -965,14 +971,21 @@ function renderSetup(host) {
     <div class="card" style="margin-bottom:14px">
       <div class="card-hdr">
         <div><div class="card-title">Job basics</div>
-          <div class="card-sub">Name, type, status, client.</div></div>
+          <div class="card-sub">Identity, site, programme, safety. Edit any time.</div></div>
         <button class="btn btn-primary" id="setup-edit-basics">${SHELL.ICONS.edit} Edit</button>
       </div>
-      <div style="display:grid;grid-template-columns:120px 1fr;gap:6px 14px;font-size:13px">
+      <div style="display:grid;grid-template-columns:140px 1fr;gap:6px 14px;font-size:13px">
         <div style="color:var(--muted)">Name</div><div><b>${SHELL.escapeHtml(j.name || '—')}</b></div>
+        <div style="color:var(--muted)">Job ref</div><div>${SHELL.escapeHtml(j.ref || '—')}${j.serviceM8JobId ? ` <span style="color:var(--muted)">· ServiceM8 ${SHELL.escapeHtml(j.serviceM8JobId)}</span>` : ''}</div>
         <div style="color:var(--muted)">Type</div><div>${SHELL.escapeHtml((STATE.jobTypes.find(t => t.id === j.type) || {}).name || '—')}</div>
         <div style="color:var(--muted)">Status</div><div>${SHELL.jobStatusPill(j.status || 'active')}</div>
         <div style="color:var(--muted)">Client</div><div>${j.clientUserId ? SHELL.escapeHtml((SHELL.USERS || []).find(u => u.id === j.clientUserId)?.username || j.clientUserId) : '<span style="color:var(--warn)">No client linked</span>'}</div>
+        <div style="color:var(--muted)">Site address</div><div>${j.siteAddress ? SHELL.escapeHtml(j.siteAddress) : '<span style="color:var(--warn)">No address</span>'}</div>
+        ${j.accessNotes ? `<div style="color:var(--muted)">Access</div><div style="white-space:pre-wrap">${SHELL.escapeHtml(j.accessNotes)}</div>` : ''}
+        ${j.parkingNotes ? `<div style="color:var(--muted)">Parking</div><div>${SHELL.escapeHtml(j.parkingNotes)}</div>` : ''}
+        ${(j.siteContactName || j.siteContactPhone) ? `<div style="color:var(--muted)">Site contact</div><div>${SHELL.escapeHtml(j.siteContactName || '—')}${j.siteContactPhone ? ` · <a href="tel:${SHELL.escapeHtml(j.siteContactPhone)}" style="color:inherit">${SHELL.escapeHtml(j.siteContactPhone)}</a>` : ''}</div>` : ''}
+        ${j.startDate || j.dueDate ? `<div style="color:var(--muted)">Programme</div><div>${SHELL.escapeHtml(j.startDate || '—')} → ${SHELL.escapeHtml(j.dueDate || '—')}${j.programmedDurationDays != null ? ` <span style="color:var(--muted)">(${j.programmedDurationDays}d)</span>` : ''}</div>` : ''}
+        ${j.safetyNotes || j.inductionRequired ? `<div style="color:var(--muted)">Safety</div><div${j.inductionRequired ? ' style="color:var(--warn);font-weight:600"' : ''}>${j.inductionRequired ? '⚠ Induction required. ' : ''}${j.safetyNotes ? SHELL.escapeHtml(j.safetyNotes) : ''}</div>` : ''}
       </div>
     </div>
 
@@ -2053,17 +2066,26 @@ function openEditBasics() {
   const panel = SHELL.openPanel({
     title: 'Edit job basics',
     body: `
-      <div class="field"><label class="field-lbl">Name</label><input class="input" id="ej-name" value="${SHELL.escapeHtml(j.name)}"></div>
-      <div class="field"><label class="field-lbl">Type</label>
-        <select class="select" id="ej-type">
-          <option value="">— none —</option>
-          ${types.map(t => `<option value="${SHELL.escapeHtml(t.id)}" ${j.type === t.id ? 'selected' : ''}>${SHELL.escapeHtml(t.name)}</option>`).join('')}
-        </select>
+      <div style="margin-bottom:14px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Identity</div>
+      <div class="field"><label class="field-lbl">Name *</label><input class="input" id="ej-name" value="${SHELL.escapeHtml(j.name)}"></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Type</label>
+          <select class="select" id="ej-type">
+            <option value="">— none —</option>
+            ${types.map(t => `<option value="${SHELL.escapeHtml(t.id)}" ${j.type === t.id ? 'selected' : ''}>${SHELL.escapeHtml(t.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label class="field-lbl">Status</label>
+          <select class="select" id="ej-status">
+            ${['active','paused','complete','archived'].map(s => `<option value="${s}" ${(j.status || 'active') === s ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('')}
+          </select>
+        </div>
       </div>
-      <div class="field"><label class="field-lbl">Status</label>
-        <select class="select" id="ej-status">
-          ${['active','paused','complete','archived'].map(s => `<option value="${s}" ${(j.status || 'active') === s ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('')}
-        </select>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Job ref / number</label>
+          <input class="input" id="ej-ref" placeholder="e.g. IV3232 or Xero ref" value="${SHELL.escapeHtml(j.ref || '')}"></div>
+        <div class="field"><label class="field-lbl">ServiceM8 ID</label>
+          <input class="input" id="ej-sm8" placeholder="optional" value="${SHELL.escapeHtml(j.serviceM8JobId || '')}"></div>
       </div>
       <div class="field"><label class="field-lbl">Client</label>
         <select class="select" id="ej-client">
@@ -2071,6 +2093,38 @@ function openEditBasics() {
           ${clients.map(c => `<option value="${SHELL.escapeHtml(c.id)}" ${j.clientUserId === c.id ? 'selected' : ''}>${SHELL.escapeHtml(c.username)}</option>`).join('')}
         </select>
       </div>
+
+      <div style="margin:18px 0 12px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Site</div>
+      <div class="field"><label class="field-lbl">Site address</label>
+        <input class="input" id="ej-addr" placeholder="19–23 Birdwood Ave, Lane Cove NSW 2066" value="${SHELL.escapeHtml(j.siteAddress || '')}"></div>
+      <div class="field"><label class="field-lbl">Access notes</label>
+        <textarea class="input" id="ej-access" rows="2" placeholder="Side gate, code 4321. Lift access 7am–5pm.">${SHELL.escapeHtml(j.accessNotes || '')}</textarea></div>
+      <div class="field"><label class="field-lbl">Parking</label>
+        <input class="input" id="ej-parking" placeholder="Loading zone bay 2 weekdays" value="${SHELL.escapeHtml(j.parkingNotes || '')}"></div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Site contact</label>
+          <input class="input" id="ej-contact-name" placeholder="Builder / foreman name" value="${SHELL.escapeHtml(j.siteContactName || '')}"></div>
+        <div class="field"><label class="field-lbl">Site contact phone</label>
+          <input class="input" id="ej-contact-phone" placeholder="0400 000 000" value="${SHELL.escapeHtml(j.siteContactPhone || '')}"></div>
+      </div>
+
+      <div style="margin:18px 0 12px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Programme</div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Start date</label>
+          <input class="input" id="ej-start" type="date" value="${SHELL.escapeHtml(j.startDate || '')}"></div>
+        <div class="field"><label class="field-lbl">Due date</label>
+          <input class="input" id="ej-due" type="date" value="${SHELL.escapeHtml(j.dueDate || '')}"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Programmed duration (days)</label>
+        <input class="input" id="ej-duration" type="number" min="0" step="1" placeholder="optional" value="${SHELL.escapeHtml(j.programmedDurationDays != null ? String(j.programmedDurationDays) : '')}"></div>
+
+      <div style="margin:18px 0 12px;font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Safety</div>
+      <div class="field"><label class="field-lbl">Safety notes</label>
+        <textarea class="input" id="ej-safety" rows="2" placeholder="Asbestos sample in switchboard cabinet — do not disturb">${SHELL.escapeHtml(j.safetyNotes || '')}</textarea></div>
+      <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px">
+        <input type="checkbox" id="ej-induction" ${j.inductionRequired ? 'checked' : ''}>
+        Site induction required before workers attend
+      </label></div>
     `,
     footer: `
       <button class="btn" onclick="SHELL.closePanel()">Cancel</button>
@@ -2084,13 +2138,31 @@ function openEditBasics() {
       type: panel.querySelector('#ej-type').value || null,
       status: panel.querySelector('#ej-status').value,
       clientUserId: panel.querySelector('#ej-client').value || null,
+      // Basics — send only if changed-ish. We send all of them; backend
+      // is a partial-merge on each field, so empty string clears the slot.
+      ref: panel.querySelector('#ej-ref').value.trim(),
+      serviceM8JobId: panel.querySelector('#ej-sm8').value.trim(),
+      siteAddress: panel.querySelector('#ej-addr').value.trim(),
+      accessNotes: panel.querySelector('#ej-access').value.trim(),
+      parkingNotes: panel.querySelector('#ej-parking').value.trim(),
+      siteContactName: panel.querySelector('#ej-contact-name').value.trim(),
+      siteContactPhone: panel.querySelector('#ej-contact-phone').value.trim(),
+      startDate: panel.querySelector('#ej-start').value || '',
+      dueDate: panel.querySelector('#ej-due').value || '',
+      programmedDurationDays: panel.querySelector('#ej-duration').value === ''
+        ? null
+        : Number(panel.querySelector('#ej-duration').value),
+      safetyNotes: panel.querySelector('#ej-safety').value.trim(),
+      inductionRequired: panel.querySelector('#ej-induction').checked,
     };
     if (!body.name) { SHELL.toast('Name required', 'bad'); return; }
+    if (body.startDate && body.dueDate && body.startDate > body.dueDate) {
+      SHELL.toast('Due date must be on or after start date', 'bad'); return;
+    }
     try {
       await SHELL.api('/api/jobs', { method: 'PUT', body });
       SHELL.toast('Saved', 'ok');
       SHELL.closePanel();
-      // Refresh shell counts so status/job changes propagate.
       await SHELL.refreshCounts();
       await loadAll();
       paint();
