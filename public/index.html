@@ -5001,12 +5001,26 @@ async function saveAddContact(){
   }
   const btn=document.getElementById('ec-save');btn.disabled=true;btn.textContent='Saving\u2026';
   try{
-    const r=await fetch(`/api/contacts?jobId=${encodeURIComponent(JOB_ID)}`,{
+    // Offline-first: adding a client contact while standing at the
+    // wall plate shouldn't bounce. Queue it.
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    const r=await fetcher(`/api/contacts?jobId=${encodeURIComponent(JOB_ID)}`,{
       method:'POST',
       credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
+      replaceKey: 'contact-create:' + JOB_ID + ':' + email.toLowerCase(),
       body:JSON.stringify({name,email,role}),
     });
+    if (r && r.status === 202) {
+      // Persisted offline \u2014 still attach the contact locally so the
+      // composer can include it now. Server reconciles on drain.
+      if(emComposerState)emComposerState.to.add(email.toLowerCase());
+      renderEmChips('em-to-chips', emComposerState.to, 'to');
+      closeAddContact();
+      showToast('Contact queued offline \u00b7 syncing when online.', 'warn', 3500);
+      btn.disabled=false;btn.textContent='Save';
+      return;
+    }
     const j=await r.json().catch(()=>({}));
     if(!r.ok){
       banner.className='em-banner err';banner.textContent=(j&&j.error)||`Failed (${r.status})`;banner.style.display='';
@@ -5350,8 +5364,13 @@ async function deleteSnagModalPhoto(photoId){
   snagModalWorking.photos=snagModalWorking.photos.filter(x=>x.id!==photoId);
   renderSnagModalPhotos();
   try{
-    await fetch('/api/photos?action=delete-snag-photo',{
+    // Queue delete so it persists if the tradie is in the basement.
+    // replaceKey collapses repeat taps; the soft-fail catch covers
+    // both "no queue, no network" and "queued, status=202".
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    await fetcher('/api/photos?action=delete-snag-photo',{
       method:'POST',headers:{'Content-Type':'application/json'},
+      replaceKey:'snag-photo-delete:'+snagModalWorking.id+':'+photoId,
       body:JSON.stringify({snagId:snagModalWorking.id,photoId}),
     });
   }catch(e){/* soft-fail */}
@@ -6013,9 +6032,16 @@ async function deleteTagFromModal(){
   if(!confirm('Remove this tag from the register?'))return;
   const btn=document.getElementById('ttm-delete');btn.disabled=true;btn.textContent='Deleting\u2026';
   try{
-    const r=await fetch(`/api/tags?jobId=${encodeURIComponent(JOB_ID)}&id=${encodeURIComponent(_tagModalState.id)}`,{
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    const r=await fetcher(`/api/tags?jobId=${encodeURIComponent(JOB_ID)}&id=${encodeURIComponent(_tagModalState.id)}`,{
       method:'DELETE',credentials:'same-origin',
+      replaceKey: 'tag-delete:' + JOB_ID + ':' + _tagModalState.id,
     });
+    if (r && r.status === 202) {
+      closeTagModal();
+      showToast('Tag delete queued offline \u00b7 syncing when online.', 'warn', 3500);
+      return;
+    }
     const j=await r.json().catch(()=>({}));
     if(!r.ok)throw new Error((j&&j.error)||`Failed (${r.status})`);
     await loadTags();renderTags();closeTagModal();
@@ -6029,9 +6055,15 @@ async function deleteTagFromModal(){
 async function deleteTag(id){
   if(!confirm('Remove this tag?'))return;
   try{
-    const r=await fetch(`/api/tags?jobId=${encodeURIComponent(JOB_ID)}&id=${encodeURIComponent(id)}`,{
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    const r=await fetcher(`/api/tags?jobId=${encodeURIComponent(JOB_ID)}&id=${encodeURIComponent(id)}`,{
       method:'DELETE',credentials:'same-origin',
+      replaceKey: 'tag-delete:' + JOB_ID + ':' + id,
     });
+    if (r && r.status === 202) {
+      showToast('Tag delete queued offline · syncing when online.', 'warn', 3500);
+      return;
+    }
     if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error((j&&j.error)||`Failed (${r.status})`);}
     await loadTags();renderTags();
   }catch(e){showToast('Delete failed: '+e.message,'error');}
