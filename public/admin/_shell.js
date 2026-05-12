@@ -188,6 +188,7 @@
     { section: 'Win', roles: ['admin'] },
     { id: 'quotes',     label: 'Quotes',         href: '/admin/quotes',     icon: 'quote',    countKey: 'liveQuotes', roles: ['admin'] },
     { section: 'Settings', roles: ['admin'] },
+    { id: 'activity',   label: 'Activity',       href: '/admin/activity',   icon: 'today' },
     { id: 'suppliers',  label: 'Suppliers',      href: '/admin/suppliers',  icon: 'suppliers', roles: ['admin'] },
     { id: 'temps',      label: 'Temps & assets', href: '/admin/temps',      icon: 'temp' },
     { id: 'settings',   label: 'Settings',       href: '/admin/settings',   icon: 'settings', roles: ['admin'] },

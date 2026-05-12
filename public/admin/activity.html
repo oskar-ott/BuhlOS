@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl · activity</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1b34">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+<script type="module" src="/components/list-row.js"></script>
+
+<!--
+  /admin/activity · Activity & audit (phase 09 of the rebuild)
+  ──────────────────────────────────────────────────────────────
+
+  Per brief §14: scoped views, append-only server log, CSV export.
+  Reads from /api/activity (gated server-side by role); writes
+  happen from every mutating endpoint via api/_lib/activity.
+
+  The page is a single <list-row> stream. Filter chips up top
+  (All · Hours · Payroll · Snags · Users · Jobs). CSV export per
+  scope. Merkle-chain verify button for admins.
+-->
+
+<style>
+  .act-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 18px; gap: 14px; flex-wrap: wrap;
+  }
+  .act-head h1 {
+    font-family: var(--ff-display);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: -.012em;
+    color: var(--ink);
+    margin: 0;
+  }
+  .act-head .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+  .act-chips {
+    display: flex; gap: 6px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .act-chip {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--ink-2);
+    padding: 5px 12px;
+    font-family: var(--ff-display);
+    font-weight: 600;
+    font-size: 12.5px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .act-chip:hover { background: var(--surface-3); }
+  .act-chip.on {
+    background: var(--ink);
+    color: var(--surface);
+    border-color: var(--ink);
+  }
+
+  .act-list {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    overflow: hidden;
+  }
+  .act-empty {
+    padding: 60px 22px;
+    text-align: center;
+    color: var(--muted);
+  }
+  .act-empty b { color: var(--ink); font-family: var(--ff-display); font-weight: 700; font-size: 16px; }
+
+  .act-actions {
+    display: flex; gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* Action label colour cues. */
+  .act-action {
+    font-family: var(--ff-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    padding: 2px 7px;
+    border-radius: 3px;
+  }
+  .act-action.approved   { background: var(--ok-bg);   color: var(--ok); }
+  .act-action.rejected   { background: var(--bad-bg);  color: var(--bad); }
+  .act-action.exported   { background: var(--info-bg); color: var(--info); }
+  .act-action.snag       { background: var(--warn-bg); color: var(--warn); }
+  .act-action.default    { background: var(--surface-2); color: var(--ink-2); }
+</style>
+</head>
+<body>
+
+<script>
+'use strict';
+
+let STATE = {
+  scope: 'all',  // 'all' | 'hours' | 'payroll' | ...
+  entries: [],
+  total: 0,
+  loading: false,
+};
+
+window.PAGE = {
+  id: 'activity',
+  title: 'Activity',
+  crumb: 'Activity',
+  async render() {
+    const params = new URLSearchParams(location.search);
+    if (params.get('scope')) STATE.scope = params.get('scope');
+    paint();
+    loadEntries();
+  }
+};
+
+async function loadEntries() {
+  STATE.loading = true;
+  paintList();
+  try {
+    const scopeQs = STATE.scope === 'all' ? '' : `&scope=${encodeURIComponent(STATE.scope)}`;
+    const r = await SHELL.api(`/api/activity?limit=200${scopeQs}`);
+    STATE.entries = r.entries || [];
+    STATE.total = r.total || 0;
+  } catch (e) {
+    STATE.entries = [];
+    STATE.total = 0;
+    SHELL.toast('Failed to load — ' + e.message, 'bad');
+  }
+  STATE.loading = false;
+  paint();
+}
+
+function paint() {
+  const isAdmin = SHELL.ME && SHELL.ME.role === 'admin';
+  const scopes = [
+    ['all',     'All'],
+    ['hours',   'Hours'],
+    ['payroll', 'Payroll'],
+    ['snags',   'Snags'],
+    ['users',   'Users'],
+    ['jobs',    'Jobs'],
+  ];
+  const chipsHtml = scopes.map(([k, lab]) => `
+    <button class="act-chip ${STATE.scope === k ? 'on' : ''}" data-scope="${k}">${lab}</button>
+  `).join('');
+  SHELL.$('#page').innerHTML = `
+    <div class="act-head">
+      <div>
+        <h1>Activity</h1>
+        <div class="sub">Append-only server log · ${STATE.total} ${STATE.total === 1 ? 'event' : 'events'} on file.</div>
+      </div>
+      <div class="act-actions">
+        <a class="btn btn-sm" href="/api/activity?format=csv${STATE.scope === 'all' ? '' : '&scope=' + encodeURIComponent(STATE.scope)}" download>
+          ${SHELL.ICONS.download || '⬇'} Export CSV
+        </a>
+        ${isAdmin ? '<button class="btn btn-sm" id="verify-chain">Verify chain</button>' : ''}
+      </div>
+    </div>
+
+    <div class="act-chips">${chipsHtml}</div>
+
+    <div class="act-list" id="act-list"></div>
+  `;
+  SHELL.$$('.act-chip[data-scope]').forEach(b => b.addEventListener('click', () => {
+    STATE.scope = b.dataset.scope;
+    const u = new URL(location.href);
+    if (STATE.scope === 'all') u.searchParams.delete('scope');
+    else u.searchParams.set('scope', STATE.scope);
+    history.replaceState(null, '', u);
+    loadEntries();
+  }));
+  const verifyBtn = SHELL.$('#verify-chain');
+  if (verifyBtn) verifyBtn.addEventListener('click', verifyChain);
+  paintList();
+}
+
+function paintList() {
+  const wrap = document.getElementById('act-list');
+  if (!wrap) return;
+  if (STATE.loading) {
+    wrap.innerHTML = `<div class="act-empty">Loading…</div>`;
+    return;
+  }
+  if (!STATE.entries.length) {
+    wrap.innerHTML = `
+      <div class="act-empty">
+        <b>Nothing logged yet for this scope.</b><br>
+        <span style="font-size:13px">Events appear here as approvals, rejections, exports and snag updates happen.</span>
+      </div>
+    `;
+    return;
+  }
+  wrap.innerHTML = '';
+  for (const e of STATE.entries) {
+    const row = document.createElement('list-row');
+    row.setAttribute('status', dotForAction(e.action));
+    row.setAttribute('name', humanAction(e));
+    if (e.targetLabel) row.setAttribute('sub', e.targetLabel);
+
+    const metric = document.createElement('div');
+    metric.setAttribute('slot', 'metric');
+    metric.innerHTML = `
+      <span><b>${SHELL.escapeHtml(e.actorName || e.actor || '—')}</b></span>
+      <span>${SHELL.escapeHtml(SHELL._ago(e.ts))}</span>
+    `;
+    row.appendChild(metric);
+
+    const action = document.createElement('div');
+    action.setAttribute('slot', 'action');
+    const cls = actionCls(e.action);
+    action.innerHTML = `<span class="act-action ${cls}">${SHELL.escapeHtml(e.action)}</span>`;
+    row.appendChild(action);
+
+    wrap.appendChild(row);
+  }
+}
+
+function dotForAction(a) {
+  if (!a) return 'none';
+  if (a.includes('approved')) return 'green';
+  if (a.includes('rejected')) return 'red';
+  if (a.includes('exported')) return 'blue';
+  if (a.includes('snag'))     return 'yellow';
+  return 'none';
+}
+function actionCls(a) {
+  if (!a) return 'default';
+  if (a.includes('approved')) return 'approved';
+  if (a.includes('rejected')) return 'rejected';
+  if (a.includes('exported')) return 'exported';
+  if (a.includes('snag'))     return 'snag';
+  return 'default';
+}
+function humanAction(e) {
+  const a = e.action || '';
+  switch (a) {
+    case 'hours.approved':  return `Hours approved · ${(e.meta && e.meta.totalHours ? e.meta.totalHours.toFixed(1) + 'h' : '')}`;
+    case 'hours.rejected':  return `Hours rejected${e.reason ? ' · ' + e.reason : ''}`;
+    case 'payroll.exported':return `Payroll exported · ${(e.meta && e.meta.rowCount) || 0} rows`;
+    default: return a;
+  }
+}
+
+async function verifyChain() {
+  try {
+    const r = await SHELL.api('/api/activity?action=verify');
+    if (r.valid) {
+      SHELL.toast(`Chain valid · ${r.count} entries`, 'ok');
+    } else {
+      SHELL.toast(`Chain broken at #${r.brokenAt}: ${r.reason}`, 'bad');
+    }
+  } catch (e) {
+    SHELL.toast('Verify failed — ' + e.message, 'bad');
+  }
+}
+</script>
+</body>
+</html>

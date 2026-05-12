@@ -7,6 +7,7 @@ const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
 const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
 const { sendPushToUserId } = require('./_lib/push');
+const { appendActivity } = require('./_lib/activity');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -51,6 +52,22 @@ module.exports = async (req, res) => {
   };
   await writeEntry(userId, updated);
   await appendAudit(userId, entry.id, 'approved', user.id);
+  // Phase 09 (brief §14): global activity log row. Best-effort —
+  // failure here doesn't fail the approval. The per-entry audit
+  // above remains the primary record.
+  await appendActivity({
+    action: 'hours.approved',
+    scope:  'hours',
+    actor:  user.id,
+    actorName: user.username,
+    target: `user:${userId}/${entry.date}`,
+    targetLabel: `${entry.userName || userId} · ${entry.date}`,
+    meta: {
+      entryId: entry.id || null,
+      totalHours: Number(entry.totalHours) || 0,
+      jobIds: (entry.allocations || []).map(a => a.jobId).filter(Boolean),
+    },
+  });
 
   // Fire-and-forget push to the tradie. Failures don't affect the response.
   sendPushToUserId(userId, {
