@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d1b34">
+<title>bühl · components</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/css/buhlos.css">
+
+<!--
+  /dev/components — Phase 01 verification surface for the Job
+  Interface (mobile) rebuild.
+
+  Per brief §17 and the prompt: "Build these first, fully styled,
+  against hardcoded data. Mount them on a /dev/components page and
+  approve. Then every surface composes from this kit and nowhere
+  else."
+
+  All 9 components mounted with canonical states and realistic
+  variants. The buhl-mark + sync.js plumbing is exercised via the
+  state-cycle buttons.
+-->
+
+<style>
+  body { background: var(--paper); }
+  .dev-head {
+    background: var(--navy);
+    color: var(--paper);
+    padding: 22px 18px env(safe-area-inset-top);
+    padding-top: max(22px, env(safe-area-inset-top));
+    border-bottom: 1px solid var(--rule);
+  }
+  .dev-head .crumb {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, .55);
+    margin-bottom: 6px;
+  }
+  .dev-head h1 {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 28px;
+    letter-spacing: -.024em;
+    margin: 0;
+  }
+  .dev-head p {
+    color: rgba(255, 255, 255, .72);
+    font-size: 13px;
+    max-width: 60ch;
+    margin: 8px 0 0;
+  }
+
+  .dev-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 14px;
+    padding: 18px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .spec {
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    padding: 16px;
+    display: flex; flex-direction: column;
+    gap: 12px;
+  }
+  .spec.wide { grid-column: 1 / -1; }
+  .spec .id {
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--ink-3);
+    letter-spacing: .04em;
+  }
+  .spec .id b { color: var(--ink); font-family: var(--mono); font-weight: 700; }
+  .spec .id .tag {
+    background: var(--paper-2);
+    color: var(--ink-2);
+    border-radius: 3px;
+    padding: 2px 7px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .spec h3 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: -.005em;
+    margin: 0;
+  }
+  .spec p {
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.5;
+    margin: 0;
+  }
+  .demo {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r);
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .demo.col { flex-direction: column; align-items: stretch; gap: 10px; }
+  .demo.dark {
+    background: var(--navy);
+    color: var(--paper);
+  }
+  .demo.compact { padding: 0; background: transparent; border: 0; }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .controls button {
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 4px 9px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .controls button:hover { background: var(--paper-3); }
+  .ev-log {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--ink-3);
+    padding: 6px 8px;
+    background: var(--paper-2);
+    border-radius: 3px;
+    line-height: 1.4;
+    max-height: 64px;
+    overflow-y: auto;
+  }
+
+  .tokens-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+  }
+  .tk {
+    display: flex; flex-direction: column; gap: 5px;
+  }
+  .tk .sw {
+    height: 48px;
+    border-radius: 6px;
+    border: 1px solid var(--rule);
+  }
+  .tk .nm { font-family: var(--mono); font-size: 11px; font-weight: 700; }
+  .tk .hex { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+</style>
+</head>
+<body>
+
+<div class="dev-head">
+  <div class="crumb">/dev/components</div>
+  <h1>Job interface · components</h1>
+  <p>Phase 01 verification surface. Each spec card mounts the live custom element built in <code>/components/&lt;name&gt;.js</code> against the design tokens in <code>/css/buhlos.css</code>. No screens ship until these nine pieces are signed off (brief §17).</p>
+</div>
+
+<div class="dev-grid">
+
+  <!-- ──────────────────────────────  C-01  ────────────────────────────── -->
+  <div class="spec wide">
+    <div class="id"><b>&lt;job-header&gt;</b><span class="tag">C-01</span></div>
+    <h3>Sticky top navy band.</h3>
+    <p>Job name · code · % · sync stamp. Used by every job-side screen. No bell, no red dot.</p>
+    <div class="demo compact">
+      <job-header
+        name="19–23 Birdwood Ave"
+        code="IV3232"
+        percent="64"
+        sync="idle"
+        back-href="#"
+        id="hdr-1"></job-header>
+    </div>
+    <div class="controls">
+      <button data-sync="idle">Idle</button>
+      <button data-sync="pulsing">Pulsing</button>
+      <button data-sync="offline">Offline</button>
+      <button data-sync="failed">Failed</button>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  C-02  ────────────────────────────── -->
+  <div class="spec">
+    <div class="id"><b>&lt;progress-bar&gt;</b><span class="tag">C-02</span></div>
+    <h3>Yellow fill on paper-3 track.</h3>
+    <p>Default 6px; small variant 2px (used inside area cards). Tone overrides for green/amber/red.</p>
+    <div class="demo col">
+      <progress-bar label="Overall" percent="64"></progress-bar>
+      <progress-bar label="Rough-in" percent="100" tone="green"></progress-bar>
+      <progress-bar label="Fit-off" percent="22" tone="amber"></progress-bar>
+      <progress-bar percent="42" size="small"></progress-bar>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  C-03  ────────────────────────────── -->
+  <div class="spec">
+    <div class="id"><b>&lt;area-card&gt;</b><span class="tag">C-03</span></div>
+    <h3>Dot · name · meta · count · chevron.</h3>
+    <p>Two densities — card (Work Areas list) or row (compact). Snagged areas get a red border.</p>
+    <div class="demo col" style="background:transparent;border:0;padding:0">
+      <area-card name="Unit 14" sub="In progress · 67%" status="in-progress" percent="67" href="#"></area-card>
+      <area-card name="Unit 15" sub="Complete · 100%" status="complete" percent="100" href="#"></area-card>
+      <area-card name="Common areas" sub="Not started" status="not-started" href="#"></area-card>
+      <area-card name="Stair core" sub="3 snags open · 42%" status="snagged" snag-count="3" percent="42" href="#"></area-card>
+      <area-card name="Switchboard cupboard" sub="row density" status="in-progress" density="row" href="#"></area-card>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  C-04 + C-05  ──────────────────────────── -->
+  <div class="spec">
+    <div class="id"><b>&lt;task-row&gt; + &lt;seg-status&gt;</b><span class="tag">C-04 · C-05</span></div>
+    <h3>Hosts seg-status on expand. Hosts snag-button on the inline action.</h3>
+    <p>Snagged is derived — never stored. Tap the row to expand; tap a segment to change status (optimistic).</p>
+    <div class="demo col" style="background:transparent;border:0;padding:0">
+      <task-row name="Smoke alarms" product-code="Clipsal 756"
+                status="complete"
+                job-id="iv3232" area-id="unit-14" task-id="smoke"></task-row>
+      <task-row name="Light fittings" product-code="Clipsal 30 series"
+                status="in-progress" expanded
+                job-id="iv3232" area-id="unit-14" task-id="lights"></task-row>
+      <task-row name="GPOs and switches"
+                status="not-started" snag-count="2"
+                job-id="iv3232" area-id="unit-14" task-id="gpo"></task-row>
+    </div>
+    <div class="ev-log" id="task-log">last event: —</div>
+  </div>
+
+  <!-- ──────────────────────────────  C-06  ────────────────────────────── -->
+  <div class="spec">
+    <div class="id"><b>&lt;snag-button&gt;</b><span class="tag">C-06</span></div>
+    <h3>Red outline. Compact + full-width.</h3>
+    <p>Always carries job/area/task in the event detail. Consumer renders the snag form sheet.</p>
+    <div class="demo col">
+      <div>
+        <snag-button job-id="iv3232" area-id="unit-14"></snag-button>
+      </div>
+      <snag-button size="md" job-id="iv3232" area-id="unit-14" task-id="lights" label="Raise snag · this task"></snag-button>
+    </div>
+    <div class="ev-log" id="snag-log">last snag-button:open: —</div>
+  </div>
+
+  <!-- ──────────────────────────────  C-07  ────────────────────────────── -->
+  <div class="spec">
+    <div class="id"><b>&lt;product-chip&gt;</b><span class="tag">C-07</span></div>
+    <h3>Mono code chip.</h3>
+    <p>Hangs off task names. Tap → product spec inline drawer. Brief §20: app-leave for product specs = 0.</p>
+    <div class="demo">
+      <product-chip code="Clipsal 30 series" label="Light switch"></product-chip>
+      <product-chip code="HPM 768" label="LED downlight"></product-chip>
+      <product-chip code="3M Sika 11FC" label="Sealant"></product-chip>
+    </div>
+    <div class="ev-log" id="product-log">last product-chip:open: —</div>
+  </div>
+
+  <!-- ──────────────────────────────  C-08  ────────────────────────────── -->
+  <div class="spec wide">
+    <div class="id"><b>&lt;tools-menu&gt;</b><span class="tag">C-08</span></div>
+    <h3>Three groups, fixed order. Sheet on phone, rail on desktop.</h3>
+    <p>Run · Capture · Look up. Empty groups never render. Role-aware. Same component in both layouts.</p>
+    <div class="demo col" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+      <div>
+        <div class="caps" style="margin-bottom:8px">Phone (sheet)</div>
+        <tools-menu role="tradie" job-id="iv3232" id="tools-phone"></tools-menu>
+      </div>
+      <div>
+        <div class="caps" style="margin-bottom:8px">Desktop (rail)</div>
+        <tools-menu role="tradie" job-id="iv3232" variant="rail" id="tools-rail"></tools-menu>
+      </div>
+    </div>
+    <div class="controls">
+      <button data-role="tradie">Role · Tradie</button>
+      <button data-role="leadingHand">Role · LH</button>
+      <button data-role="client">Role · Client</button>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  C-09  ────────────────────────────── -->
+  <div class="spec">
+    <div class="id"><b>&lt;empty-state&gt;</b><span class="tag">C-09</span></div>
+    <h3>Plain navy headline, mono caption, optional action.</h3>
+    <p>Never an empty card frame. Every list that can be empty gets one.</p>
+    <div class="demo col">
+      <empty-state
+        title="No work areas set up"
+        caption="The job needs at least one area before tasks can be tracked."
+        action-label="Set up work areas"
+        action-href="#"></empty-state>
+      <hr style="border:0;border-top:1px dashed var(--rule);margin:0">
+      <empty-state
+        title="No open snags"
+        caption="Everything that's been raised has been resolved or closed."></empty-state>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  buhl-mark  ────────────────────────────── -->
+  <div class="spec">
+    <div class="id"><b>&lt;buhl-mark&gt;</b><span class="tag">SYNC</span></div>
+    <h3>Brand mark + sync indicator.</h3>
+    <p>Subscribes to <code>/components/sync.js</code>. Pulse on upload, both dots stroked when offline.</p>
+    <div class="demo" style="gap:24px;align-items:center">
+      <buhl-mark size="sm"></buhl-mark>
+      <buhl-mark size="md" label></buhl-mark>
+      <buhl-mark size="lg" label></buhl-mark>
+    </div>
+    <div class="controls">
+      <button data-bus="idle">Idle</button>
+      <button data-bus="pulse">Pulse</button>
+      <button data-bus="offline">Offline</button>
+      <button data-bus="fail">Fail</button>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────────  Tokens  ────────────────────────────── -->
+  <div class="spec wide">
+    <div class="id"><b>tokens · /css/buhlos.css</b><span class="tag">§16</span></div>
+    <h3>The palette + the rule of one.</h3>
+    <p>One display-xl, one yellow, one primary per screen. Colour is meaning, never decoration.</p>
+    <div class="tokens-grid">
+      <div class="tk"><div class="sw" style="background:#f3efe7"></div><div class="nm">paper</div><div class="hex">#f3efe7</div></div>
+      <div class="tk"><div class="sw" style="background:#ebe7df"></div><div class="nm">paper-2</div><div class="hex">#ebe7df</div></div>
+      <div class="tk"><div class="sw" style="background:#dfdacf"></div><div class="nm">paper-3</div><div class="hex">#dfdacf</div></div>
+      <div class="tk"><div class="sw" style="background:#0d1b34"></div><div class="nm">navy</div><div class="hex">#0d1b34</div></div>
+      <div class="tk"><div class="sw" style="background:#f5d020"></div><div class="nm">yellow</div><div class="hex">#f5d020</div></div>
+      <div class="tk"><div class="sw" style="background:#c0312f"></div><div class="nm">red</div><div class="hex">#c0312f</div></div>
+      <div class="tk"><div class="sw" style="background:#1f8b5a"></div><div class="nm">green</div><div class="hex">#1f8b5a</div></div>
+      <div class="tk"><div class="sw" style="background:#d68a1a"></div><div class="nm">amber</div><div class="hex">#d68a1a</div></div>
+    </div>
+    <div class="demo" style="flex-wrap:wrap;gap:10px">
+      <button class="btn primary">Primary · open work areas</button>
+      <button class="btn">Secondary</button>
+      <button class="btn danger">Danger · raise snag</button>
+      <button class="btn tertiary">Tertiary · skip</button>
+    </div>
+    <div class="demo" style="flex-wrap:wrap">
+      <span class="chip">3 open</span>
+      <span class="chip red">2 snags</span>
+      <span class="chip amber">In progress</span>
+      <span class="chip green">Complete</span>
+      <span class="chip yellow">12 due</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- Imports — every component, ES modules, self-registering. -->
+<script type="module" src="/components/job-header.js"></script>
+<script type="module" src="/components/progress-bar.js"></script>
+<script type="module" src="/components/area-card.js"></script>
+<script type="module" src="/components/task-row.js"></script>
+<script type="module" src="/components/seg-status.js"></script>
+<script type="module" src="/components/snag-button.js"></script>
+<script type="module" src="/components/product-chip.js"></script>
+<script type="module" src="/components/tools-menu.js"></script>
+<script type="module" src="/components/empty-state.js"></script>
+<script type="module" src="/components/buhl-mark.js"></script>
+
+<script type="module">
+  import { Sync } from '/components/sync.js';
+
+  // Event log wires.
+  function log(id, msg) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = msg;
+  }
+  document.addEventListener('task-row:change', (ev) => {
+    log('task-log', `task-row:change → ${ev.detail.value} (was ${ev.detail.previous})`);
+  });
+  document.addEventListener('snag-button:open', (ev) => {
+    log('snag-log', `snag-button:open → ${JSON.stringify(ev.detail)}`);
+  });
+  document.addEventListener('product-chip:open', (ev) => {
+    log('product-log', `product-chip:open → ${ev.detail.code}`);
+  });
+
+  // C-01 sync toggle.
+  document.querySelectorAll('[data-sync]').forEach(b => {
+    b.addEventListener('click', () => {
+      document.getElementById('hdr-1').setAttribute('sync', b.dataset.sync);
+    });
+  });
+
+  // C-08 role swap.
+  document.querySelectorAll('[data-role]').forEach(b => {
+    b.addEventListener('click', () => {
+      ['tools-phone', 'tools-rail'].forEach(id => {
+        document.getElementById(id).setAttribute('role', b.dataset.role);
+      });
+    });
+  });
+
+  // <buhl-mark> sync bus exerciser.
+  document.querySelectorAll('[data-bus]').forEach(b => {
+    b.addEventListener('click', () => {
+      const k = b.dataset.bus;
+      if (k === 'idle')    Sync.idle();
+      if (k === 'pulse')   Sync.pulse();
+      if (k === 'offline') Sync.offline();
+      if (k === 'fail')    Sync.fail('demo');
+    });
+  });
+</script>
+
+</body>
+</html>
