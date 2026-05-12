@@ -7179,12 +7179,19 @@ window.openHoursRowEdit = function openHoursRowEdit(userId, dateIso) {
 // page action; refreshes the local view so the pill flips immediately.
 window._inlineApproveHours = async function (userId, dateIso) {
   try {
-    const r = await fetch('/api/time-entries-approve', {
+    // LH on site approving a junior's entry — queue if signal's flaky.
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    const r = await fetcher('/api/time-entries-approve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
+      replaceKey: 'hours-approve:' + userId + ':' + dateIso,
       body: JSON.stringify({ userId, date: dateIso }),
     });
+    if (r && r.status === 202) {
+      if (window.showToast) showToast('Approval queued offline · syncing when online.', 'warn', 3500);
+      return;
+    }
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
       throw new Error(j.error || ('HTTP ' + r.status));
@@ -7203,12 +7210,18 @@ window._inlineRejectHours = async function (userId, dateIso) {
   const reason = prompt('Reason for rejection (required — visible to the worker):');
   if (!reason || !reason.trim()) return;
   try {
-    const r = await fetch('/api/time-entries-reject', {
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    const r = await fetcher('/api/time-entries-reject', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
+      replaceKey: 'hours-reject:' + userId + ':' + dateIso,
       body: JSON.stringify({ userId, date: dateIso, reason: reason.trim() }),
     });
+    if (r && r.status === 202) {
+      if (window.showToast) showToast('Rejection queued offline · syncing when online.', 'warn', 3500);
+      return;
+    }
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
       throw new Error(j.error || ('HTTP ' + r.status));
@@ -7225,8 +7238,17 @@ window._inlineRejectHours = async function (userId, dateIso) {
 window.deleteHoursEntry = async function deleteHoursEntry(userId, dateIso) {
   if (!confirm('Delete this entry? This removes the whole day for this user.')) return;
   try {
-    const r = await fetch('/api/time-entries?date=' + encodeURIComponent(dateIso) + '&userId=' + encodeURIComponent(userId),
-                         { method: 'DELETE', credentials: 'same-origin' });
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    const r = await fetcher('/api/time-entries?date=' + encodeURIComponent(dateIso) + '&userId=' + encodeURIComponent(userId),
+                         {
+                           method: 'DELETE',
+                           credentials: 'same-origin',
+                           replaceKey: 'hours-delete:' + userId + ':' + dateIso,
+                         });
+    if (r && r.status === 202) {
+      if (window.showToast) showToast('Delete queued offline · syncing when online.', 'warn', 3500);
+      return;
+    }
     if (!r.ok && r.status !== 204) {
       const j = await r.json().catch(() => ({}));
       throw new Error(j.error || ('Failed (' + r.status + ')'));
