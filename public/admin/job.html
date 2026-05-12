@@ -121,6 +121,13 @@ async function loadAll() {
   try {
     STATE.costRollup = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=cost-rollup');
   } catch { STATE.costRollup = { itemsCount: 0, pricedCount: 0, unpricedCount: 0, totalCostExGst: 0, unpricedQty: 0 }; }
+  // Draft layer (#156) — non-null when admin has staged structural
+  // revisions that haven't been published yet. We render a banner +
+  // Publish/Discard buttons when this exists.
+  try {
+    const r = await SHELL.api('/api/job-draft?jobId=' + encodeURIComponent(STATE.jobId));
+    STATE.draft = r.draft || null;
+  } catch { STATE.draft = null; }
 }
 
 function paint() {
@@ -169,6 +176,7 @@ function paint() {
         <a class="btn btn-sm btn-ghost" href="/jobs/${SHELL.escapeHtml(j.id)}" target="_blank" rel="noopener" title="Open the field/worker view of this job in a new tab">${SHELL.ICONS.external} Open worker view</a>
       </div>
     </div>
+    ${draftBannerHtml()}
 
     <div class="tabs">
       ${sections.map(s => {
@@ -205,6 +213,12 @@ function paint() {
   else if (STATE.section === 'crew')      renderCrew(body);
   else if (STATE.section === 'contacts')  renderContactsTab(body);
   else if (STATE.section === 'setup')     renderSetup(body);
+
+  // Draft banner buttons — present any time STATE.draft is non-null.
+  const dPub = document.getElementById('draft-publish');
+  const dDis = document.getElementById('draft-discard');
+  if (dPub) dPub.addEventListener('click', () => publishDraft());
+  if (dDis) dDis.addEventListener('click', () => discardDraft());
 
   // Wire snags-tab inline triage (same handlers as /admin/snags)
   if (STATE.section === 'snags') {
@@ -1092,6 +1106,51 @@ function renderSetup(host) {
   // Setup activity load — lazy fetch so it doesn't slow the page paint.
   loadSetupAudit();
   SHELL.$('#setup-audit-refresh').addEventListener('click', loadSetupAudit);
+}
+
+// ── Draft banner (UI for #156) ─────────────────────────────────────────
+// Shows a yellow strip under the workspace header any time the job has
+// an active draft of pending structural changes. Includes Publish +
+// Discard buttons; lists the fields that have pending edits so admin
+// knows what's about to be released.
+function draftBannerHtml() {
+  const d = STATE.draft;
+  if (!d || !d.pending || !Object.keys(d.pending).length) return '';
+  const fields = Object.keys(d.pending);
+  const summary = d.summary ? ` · ${SHELL.escapeHtml(d.summary)}` : '';
+  return `
+    <div style="background:var(--warn-bg);border:1px solid var(--warn-bd);border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span style="flex-shrink:0;width:22px;height:22px;border-radius:50%;background:var(--warn);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">!</span>
+      <div style="flex:1;min-width:200px;font-size:13px;color:var(--ink)">
+        <b>Pending changes</b> · ${fields.length} field${fields.length === 1 ? '' : 's'} (${fields.map(SHELL.escapeHtml).join(', ')})${summary}
+        <div style="color:var(--muted);font-size:11.5px;margin-top:2px">
+          Edited by ${SHELL.escapeHtml(d.lastEditedBy || d.createdBy || '')} ·
+          ${SHELL.escapeHtml(new Date(d.lastEditedAt || d.createdAt || 0).toLocaleString())}
+        </div>
+      </div>
+      <button class="btn btn-sm" id="draft-discard">Discard</button>
+      <button class="btn btn-sm btn-primary" id="draft-publish">Publish to workers</button>
+    </div>
+  `;
+}
+async function publishDraft() {
+  if (!confirm('Publish the pending changes? Tradies will see the new structure immediately.')) return;
+  try {
+    await SHELL.api('/api/job-draft?jobId=' + encodeURIComponent(STATE.jobId) + '&action=publish', { method: 'POST' });
+    SHELL.toast('Published', 'ok');
+    STATE.draft = null;
+    await loadAll();
+    paint();
+  } catch (e) { SHELL.toast('Publish failed — ' + e.message, 'bad'); }
+}
+async function discardDraft() {
+  if (!confirm('Discard pending changes? The live job stays as-is.')) return;
+  try {
+    await SHELL.api('/api/job-draft?jobId=' + encodeURIComponent(STATE.jobId) + '&action=discard', { method: 'POST' });
+    SHELL.toast('Discarded', 'ok');
+    STATE.draft = null;
+    paint();
+  } catch (e) { SHELL.toast('Discard failed — ' + e.message, 'bad'); }
 }
 
 // ── Custom fields editor (audit R3 — UI for #153) ──────────────────────
