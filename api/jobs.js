@@ -1,6 +1,6 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, getCurrentUser, canManageJob } = require('./_lib/auth');
-const { validateAreaGroups, validateTasks, visibleStructural } = require('./_lib/validation');
+const { validateAreaGroups, validateTasks, validateCustomFields, visibleStructural } = require('./_lib/validation');
 const { areaProgressPct } = require('./_lib/job-tasks');
 
 function slugify(s) {
@@ -221,7 +221,7 @@ module.exports = async (req, res) => {
   // POST — create (admin only)
   if (req.method === 'POST') {
     if (me.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
-    const { name, id, clientUserId, type, areaGroups, roughInTasks, fitOffTasks, modules } = req.body || {};
+    const { name, id, clientUserId, type, areaGroups, roughInTasks, fitOffTasks, modules, customFields } = req.body || {};
     if (!name) return res.status(400).json({ error: 'name required' });
     const jobId = slugify(id || name);
     if (!jobId) return res.status(400).json({ error: 'invalid id' });
@@ -257,6 +257,14 @@ module.exports = async (req, res) => {
       parsedFitOff = v.tasks;
     }
 
+    // Custom fields on the Job itself (rigidity audit R3). Optional.
+    let parsedCustomFields = [];
+    if (customFields !== undefined) {
+      const cf = validateCustomFields(customFields, 'customFields');
+      if (!cf.ok) return res.status(400).json({ error: cf.error });
+      parsedCustomFields = cf.fields;
+    }
+
     // Per-job module flags (rigidity audit R1). Lets a "rewire pub"
     // hide concepts it doesn't need (switchboards, temps, ITPs) and a
     // 14-storey fitout keep them. Defaults to "everything on" so existing
@@ -272,6 +280,7 @@ module.exports = async (req, res) => {
       fitOffTasks: parsedFitOff,
       status: 'active',
       modules: sanitizeModules(modules),
+      customFields: parsedCustomFields,
       createdAt: new Date().toISOString(),
     };
     data.jobs.push(job);
@@ -295,6 +304,8 @@ module.exports = async (req, res) => {
       claimedToDate, paidToDate, oldestClaimDays,
       // Per-job module flags (rigidity audit R1). Admin-only.
       modules,
+      // Custom fields on the Job (rigidity audit R3). Admin or LH writable.
+      customFields,
     } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id required' });
     const job = data.jobs.find(j => j.id === id);
@@ -318,6 +329,15 @@ module.exports = async (req, res) => {
     // over the existing set so a partial PUT doesn't wipe other modules.
     if (modules !== undefined) {
       job.modules = sanitizeModules({ ...effectiveModules(job), ...modules });
+    }
+
+    // Custom fields — full replacement. Caller sends the new array (or
+    // an empty array to clear). Validated as a whole; partial-merge is
+    // a UI concern, not API responsibility.
+    if (customFields !== undefined) {
+      const cf = validateCustomFields(customFields, 'customFields');
+      if (!cf.ok) return res.status(400).json({ error: cf.error });
+      job.customFields = cf.fields;
     }
 
     // Polish (brief §13 prereq): contract + claims numeric fields.
