@@ -2521,7 +2521,44 @@ async function bootstrapAuth() {
   // jobs. Tap a row → navigate. Outside-tap / Escape → close. The list
   // is fetched once and cached on first open for instant subsequent opens.
   setupJobSwitcher();
+  registerQueueDrainHandlers();
   return true;
+}
+
+// Offline-photo replay: when a queued snag-photo upload finally lands,
+// patch the snag's photo entry with the real server URL + persist.
+// Tag shape: 'snag-photo:<snagId>:<tempId>'.
+function registerQueueDrainHandlers() {
+  document.addEventListener('queue:drained', (ev) => {
+    const d = ev.detail || {};
+    if (!d.tag || !d.tag.startsWith || !d.tag.startsWith('snag-photo:')) return;
+    const parts = d.tag.split(':');
+    if (parts.length < 3) return;
+    const snagId = parts[1];
+    const tempId = parts[2];
+    if (!D || !Array.isArray(D.snags)) return;
+    const snag = D.snags.find(s => s.id === snagId);
+    if (!snag || !Array.isArray(snag.photos)) return;
+    const idx = snag.photos.findIndex(p => p.id === tempId);
+    if (idx < 0) return;
+    const real = d.body || {};
+    if (!real.url) return;
+    snag.photos[idx] = {
+      id: real.id || tempId,
+      url: real.url,
+      addedBy: real.addedBy || snag.photos[idx].addedBy,
+      addedAt: real.addedAt || snag.photos[idx].addedAt,
+      // pending: false (omitted = falsy)
+    };
+    // Persist via the queue too — this swaps the dataUrl out of D so
+    // future loads pull the lighter server URL.
+    if (typeof sched === 'function') sched();
+    // If the snag modal is open on this snag, refresh thumbs.
+    if (snagModalWorking && snagModalWorking.id === snagId) {
+      snagModalWorking.photos = snag.photos;
+      if (typeof renderSnagModalPhotos === 'function') renderSnagModalPhotos();
+    }
+  });
 }
 
 let _jsCache = null;        // { jobs, fetchedAt }
@@ -5227,11 +5264,18 @@ async function handleSnagPhotoSelect(input){
   const timer=controller ? setTimeout(()=>{ try{controller.abort();}catch(_){ } }, 30000) : null;
 
   try{
-    const r=await fetch('/api/photos?action=upload-snag-photo',{
+    // Offline-aware fetch: route through BuhlQueue so a basement-shoot
+    // doesn't lose the photo. Online → identical to a direct POST.
+    // Offline → 202 queued; the photo's dataUrl stays inline in the
+    // snag entry until drain replaces it with the server URL (see
+    // queue:drained handler registered at boot).
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    const r=await fetcher('/api/photos?action=upload-snag-photo',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({snagId:snagModalWorking.id,dataUrl}),
       signal: controller ? controller.signal : undefined,
+      tag: 'snag-photo:' + snagModalWorking.id + ':' + tempId,
     });
     if(!r.ok){
       let err={};
@@ -5239,6 +5283,22 @@ async function handleSnagPhotoSelect(input){
       // Friendly message for the classic "too big" failure mode.
       if (r.status === 413) throw new Error('Photo too large. Try again with a smaller image.');
       throw new Error(err.error || ('HTTP '+r.status));
+    }
+    // 202 = queued by BuhlQueue for replay when back online. Keep the
+    // dataUrl inline on the photo entry so the tradie sees the thumb;
+    // the queue:drained listener at boot patches the entry with the
+    // real server URL when the upload eventually lands.
+    if (r.status === 202) {
+      const idx = snagModalWorking.photos.findIndex(x => x.id === tempId);
+      if (idx >= 0) snagModalWorking.photos[idx] = {
+        id: tempId, url: dataUrl,
+        addedBy: (CURRENT_USER && CURRENT_USER.username) || 'me',
+        addedAt: new Date().toISOString(),
+        pending: true,
+      };
+      renderSnagModalPhotos();
+      showToast('Saved — will upload when online','success');
+      return;
     }
     const p=await r.json();
     const idx=snagModalWorking.photos.findIndex(x=>x.id===tempId);
