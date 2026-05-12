@@ -128,6 +128,18 @@ async function loadAll() {
     const r = await SHELL.api('/api/job-draft?jobId=' + encodeURIComponent(STATE.jobId));
     STATE.draft = r.draft || null;
   } catch { STATE.draft = null; }
+  // Switchboards + circuits (#159). Only loaded when the module is on,
+  // saves the network call for jobs that have it disabled.
+  STATE.switchboards = [];
+  STATE.circuits = [];
+  const mods = (STATE.job && STATE.job.modules) || {};
+  if (mods.switchboards || mods.circuits) {
+    try {
+      const r = await SHELL.api('/api/job-circuits?jobId=' + encodeURIComponent(STATE.jobId));
+      STATE.switchboards = r.switchboards || [];
+      STATE.circuits = r.circuits || [];
+    } catch { /* leave empty */ }
+  }
 }
 
 function paint() {
@@ -1053,6 +1065,19 @@ function renderSetup(host) {
       <div id="fit-list">${tasksEditorHtml(j, data, 'fitOff')}</div>
     </div>
 
+    ${(j.modules && (j.modules.switchboards || j.modules.circuits)) ? `
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hdr">
+        <div><div class="card-title">Switchboards & circuits <span class="card-count">${(STATE.switchboards || []).filter(s => !s.archived).length}/${(STATE.circuits || []).filter(c => !c.archived).length}</span></div>
+          <div class="card-sub">MSB → DB hierarchy + circuit schedule. Status flows planned → roughed-in → energised → commissioned. Turn off via Modules when not needed.</div></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn" id="setup-add-sb">+ Switchboard</button>
+          <button class="btn" id="setup-add-circuit" ${!(STATE.switchboards || []).filter(s => !s.archived).length ? 'disabled title="Add a switchboard first"' : ''}>+ Circuit</button>
+        </div>
+      </div>
+      <div id="setup-sb-list">${switchboardsEditorHtml(j)}</div>
+    </div>` : ''}
+
     <div class="card" style="margin-bottom:14px">
       <div class="card-hdr">
         <div><div class="card-title">Crew & client</div>
@@ -1103,9 +1128,230 @@ function renderSetup(host) {
   SHELL.$('#setup-add-cf').addEventListener('click', () => openCustomFieldEditor(null));
   SHELL.$$('button[data-cf-edit]').forEach(b => b.addEventListener('click', () => openCustomFieldEditor(b.dataset.cfEdit)));
   SHELL.$$('button[data-cf-rm]').forEach(b => b.addEventListener('click', () => removeCustomField(b.dataset.cfRm)));
+  // Switchboards / circuits — present only when the module is on.
+  const sbAdd = SHELL.$('#setup-add-sb');
+  if (sbAdd) sbAdd.addEventListener('click', () => openSwitchboardEditor(null));
+  const ciAdd = SHELL.$('#setup-add-circuit');
+  if (ciAdd && !ciAdd.disabled) ciAdd.addEventListener('click', () => openCircuitEditor(null));
+  SHELL.$$('button[data-sb-edit]').forEach(b => b.addEventListener('click', () => openSwitchboardEditor(b.dataset.sbEdit)));
+  SHELL.$$('button[data-sb-archive]').forEach(b => b.addEventListener('click', () => archiveSwitchboard(b.dataset.sbArchive)));
+  SHELL.$$('button[data-circuit-edit]').forEach(b => b.addEventListener('click', () => openCircuitEditor(b.dataset.circuitEdit)));
+  SHELL.$$('select[data-circuit-status]').forEach(sel => sel.addEventListener('change', () => setCircuitStatus(sel.dataset.circuitStatus, sel.value)));
+  SHELL.$$('button[data-circuit-archive]').forEach(b => b.addEventListener('click', () => archiveCircuit(b.dataset.circuitArchive)));
   // Setup activity load — lazy fetch so it doesn't slow the page paint.
   loadSetupAudit();
   SHELL.$('#setup-audit-refresh').addEventListener('click', loadSetupAudit);
+}
+
+// ── Switchboards + circuits editor (UI for #159) ───────────────────────
+// Renders a compact two-section card: switchboards (top) + circuits
+// grouped under their parent SB. Each row has inline edit / archive
+// buttons. Circuits also get an inline status select so admin can flip
+// planned → energised without opening a modal.
+const CIRCUIT_STATUS_LABELS = {
+  planned: 'Planned', 'roughed-in': 'Roughed-in', energised: 'Energised', commissioned: 'Commissioned',
+};
+const CIRCUIT_TYPE_LABELS = {
+  power: 'Power', light: 'Light', emergency: 'Emergency', data: 'Data', fire: 'Fire', mech: 'Mech', other: 'Other',
+};
+function switchboardsEditorHtml(j) {
+  const sbs = (STATE.switchboards || []).filter(s => !s.archived);
+  const cis = (STATE.circuits     || []).filter(c => !c.archived);
+  if (!sbs.length && !cis.length) {
+    return `<div style="padding:14px 0;color:var(--muted);font-size:13px;font-style:italic">No switchboards yet. Start with the MSB (e.g. "MSB-01 — Main Switchboard"), then add DBs that feed from it.</div>`;
+  }
+  return sbs.map(sb => {
+    const myCircuits = cis.filter(c => c.switchboardId === sb.id);
+    return `
+      <div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line-2)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <div style="flex:1;min-width:0">
+            <span style="font-weight:600;font-size:13.5px">${SHELL.escapeHtml(sb.code)}</span>
+            ${sb.name ? `<span style="color:var(--muted);margin-left:6px">${SHELL.escapeHtml(sb.name)}</span>` : ''}
+            ${sb.location ? `<span style="color:var(--muted);font-size:11.5px;margin-left:6px">· ${SHELL.escapeHtml(sb.location)}</span>` : ''}
+            ${sb.feedsFromId ? `<span style="color:var(--muted);font-size:11.5px;margin-left:6px">· feeds from ${SHELL.escapeHtml((STATE.switchboards.find(x => x.id === sb.feedsFromId) || {}).code || sb.feedsFromId)}</span>` : ''}
+          </div>
+          <span style="font-size:11px;color:var(--muted)">${myCircuits.length} ckt</span>
+          <button class="btn btn-sm" data-sb-edit="${SHELL.escapeHtml(sb.id)}">${SHELL.ICONS.edit}</button>
+          <button class="btn btn-sm" data-sb-archive="${SHELL.escapeHtml(sb.id)}" title="Archive" style="color:var(--bad)">×</button>
+        </div>
+        ${myCircuits.length ? `
+          <div style="display:grid;grid-template-columns:90px 1fr 110px 140px auto;gap:6px 10px;font-size:12.5px;align-items:center;padding-left:8px">
+            ${myCircuits.map(c => `
+              <div style="font-family:var(--ff-mono);font-weight:600">${SHELL.escapeHtml(c.number)}</div>
+              <div style="color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${SHELL.escapeHtml(c.description || CIRCUIT_TYPE_LABELS[c.type] || c.type)}</div>
+              <div style="font-size:11px;color:var(--muted);text-transform:capitalize">${SHELL.escapeHtml(c.type)}</div>
+              <select class="select" data-circuit-status="${SHELL.escapeHtml(c.id)}" style="height:26px;font-size:11.5px">
+                ${Object.entries(CIRCUIT_STATUS_LABELS).map(([k, lab]) => `<option value="${k}" ${c.status === k ? 'selected' : ''}>${lab}</option>`).join('')}
+              </select>
+              <div style="display:flex;gap:4px;flex-shrink:0">
+                <button class="btn btn-sm" data-circuit-edit="${SHELL.escapeHtml(c.id)}" title="Edit">${SHELL.ICONS.edit}</button>
+                <button class="btn btn-sm" data-circuit-archive="${SHELL.escapeHtml(c.id)}" title="Archive" style="color:var(--bad)">×</button>
+              </div>
+            `).join('')}
+          </div>
+        ` : '<div style="color:var(--muted);font-size:12px;padding-left:8px">No circuits yet.</div>'}
+      </div>
+    `;
+  }).join('');
+}
+function openSwitchboardEditor(sbId) {
+  const sbs = STATE.switchboards || [];
+  const existing = sbId ? sbs.find(s => s.id === sbId) : null;
+  const panel = SHELL.openPanel({
+    title: existing ? 'Edit switchboard' : 'Add switchboard',
+    body: `
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Code *</label>
+          <input class="input" id="sb-code" placeholder="MSB-01" value="${SHELL.escapeHtml(existing ? existing.code : '')}" autofocus></div>
+        <div class="field"><label class="field-lbl">Name</label>
+          <input class="input" id="sb-name" placeholder="Main switchboard" value="${SHELL.escapeHtml(existing ? (existing.name || '') : '')}"></div>
+      </div>
+      <div class="field"><label class="field-lbl">Location</label>
+        <input class="input" id="sb-loc" placeholder="Plant room L1 east" value="${SHELL.escapeHtml(existing ? (existing.location || '') : '')}"></div>
+      <div class="field"><label class="field-lbl">Feeds from <span style="color:var(--muted);font-weight:500">(parent switchboard, optional)</span></label>
+        <select class="select" id="sb-feeds">
+          <option value="">— top of tree —</option>
+          ${sbs.filter(x => !x.archived && (!existing || x.id !== existing.id)).map(x => `
+            <option value="${SHELL.escapeHtml(x.id)}" ${existing && existing.feedsFromId === x.id ? 'selected' : ''}>${SHELL.escapeHtml(x.code)}${x.name ? ' — ' + SHELL.escapeHtml(x.name) : ''}</option>
+          `).join('')}
+        </select>
+      </div>
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="sb-save">${existing ? 'Save' : 'Add'}</button>`,
+  });
+  panel.querySelector('#sb-save').addEventListener('click', async () => {
+    const code = panel.querySelector('#sb-code').value.trim();
+    if (!code) { SHELL.toast('Code required', 'bad'); return; }
+    const next = sbs.map(s => ({ ...s })); // shallow copy
+    const payload = {
+      id: existing ? existing.id : undefined,
+      code,
+      name:        panel.querySelector('#sb-name').value.trim(),
+      location:    panel.querySelector('#sb-loc').value.trim(),
+      feedsFromId: panel.querySelector('#sb-feeds').value,
+    };
+    if (existing) {
+      const idx = next.findIndex(s => s.id === existing.id);
+      next[idx] = { ...next[idx], ...payload };
+    } else {
+      next.push(payload);
+    }
+    try {
+      const r = await SHELL.api('/api/job-circuits?jobId=' + encodeURIComponent(STATE.jobId), {
+        method: 'PUT', body: { switchboards: next },
+      });
+      STATE.switchboards = r.switchboards || [];
+      STATE.circuits     = r.circuits     || [];
+      SHELL.toast(existing ? 'Switchboard saved' : 'Switchboard added', 'ok');
+      SHELL.closePanel();
+      paint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+async function archiveSwitchboard(sbId) {
+  if (!confirm('Archive this switchboard? Its circuits stay visible but the SB hides from the active list.')) return;
+  try {
+    await SHELL.api('/api/job-circuits?jobId=' + encodeURIComponent(STATE.jobId) + '&action=bulk-edit', {
+      method: 'POST', body: { operations: [{ op: 'archive-switchboard', switchboardId: sbId }] },
+    });
+    SHELL.toast('Archived', 'ok');
+    await loadAll();
+    paint();
+  } catch (e) { SHELL.toast('Archive failed — ' + e.message, 'bad'); }
+}
+function openCircuitEditor(circuitId) {
+  const cis = STATE.circuits || [];
+  const existing = circuitId ? cis.find(c => c.id === circuitId) : null;
+  const sbs = (STATE.switchboards || []).filter(s => !s.archived);
+  const areas = ((STATE.job && STATE.job.areaGroups) || []).flatMap(g => g.areas || []).filter(a => !a.archived);
+  const panel = SHELL.openPanel({
+    title: existing ? 'Edit circuit' : 'Add circuit',
+    body: `
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Number *</label>
+          <input class="input" id="ci-number" placeholder="L1-L24" value="${SHELL.escapeHtml(existing ? existing.number : '')}" autofocus></div>
+        <div class="field"><label class="field-lbl">Switchboard *</label>
+          <select class="select" id="ci-sb">
+            ${sbs.map(s => `<option value="${SHELL.escapeHtml(s.id)}" ${existing && existing.switchboardId === s.id ? 'selected' : ''}>${SHELL.escapeHtml(s.code)}${s.name ? ' — ' + SHELL.escapeHtml(s.name) : ''}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="field"><label class="field-lbl">Type</label>
+          <select class="select" id="ci-type">
+            ${Object.entries(CIRCUIT_TYPE_LABELS).map(([k, lab]) => `<option value="${k}" ${existing ? (existing.type === k ? 'selected' : '') : (k === 'power' ? 'selected' : '')}>${lab}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label class="field-lbl">Status</label>
+          <select class="select" id="ci-status">
+            ${Object.entries(CIRCUIT_STATUS_LABELS).map(([k, lab]) => `<option value="${k}" ${existing ? (existing.status === k ? 'selected' : '') : (k === 'planned' ? 'selected' : '')}>${lab}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="field"><label class="field-lbl">Description</label>
+        <input class="input" id="ci-desc" placeholder="e.g. Unit 14 power + lights" value="${SHELL.escapeHtml(existing ? (existing.description || '') : '')}"></div>
+      ${areas.length ? `<div class="field"><label class="field-lbl">Area served <span style="color:var(--muted);font-weight:500">(optional)</span></label>
+        <select class="select" id="ci-area">
+          <option value="">— none —</option>
+          ${areas.map(a => `<option value="${SHELL.escapeHtml(a.id)}" ${existing && existing.areaId === a.id ? 'selected' : ''}>${SHELL.escapeHtml(a.name)}</option>`).join('')}
+        </select></div>` : ''}
+    `,
+    footer: `<button class="btn" onclick="SHELL.closePanel()">Cancel</button><button class="btn btn-primary" id="ci-save">${existing ? 'Save' : 'Add'}</button>`,
+  });
+  panel.querySelector('#ci-save').addEventListener('click', async () => {
+    const number = panel.querySelector('#ci-number').value.trim();
+    if (!number) { SHELL.toast('Number required', 'bad'); return; }
+    const sb = panel.querySelector('#ci-sb').value;
+    if (!sb) { SHELL.toast('Switchboard required', 'bad'); return; }
+    const next = cis.map(c => ({ ...c }));
+    const payload = {
+      id: existing ? existing.id : undefined,
+      number,
+      switchboardId: sb,
+      type:        panel.querySelector('#ci-type').value,
+      status:      panel.querySelector('#ci-status').value,
+      description: panel.querySelector('#ci-desc').value.trim(),
+      areaId:      panel.querySelector('#ci-area') ? panel.querySelector('#ci-area').value : '',
+    };
+    if (existing) {
+      const idx = next.findIndex(c => c.id === existing.id);
+      next[idx] = { ...next[idx], ...payload };
+    } else {
+      next.push(payload);
+    }
+    try {
+      const r = await SHELL.api('/api/job-circuits?jobId=' + encodeURIComponent(STATE.jobId), {
+        method: 'PUT', body: { circuits: next },
+      });
+      STATE.switchboards = r.switchboards || [];
+      STATE.circuits     = r.circuits     || [];
+      SHELL.toast(existing ? 'Circuit saved' : 'Circuit added', 'ok');
+      SHELL.closePanel();
+      paint();
+    } catch (e) { SHELL.toast('Save failed — ' + e.message, 'bad'); }
+  });
+}
+async function archiveCircuit(circuitId) {
+  if (!confirm('Archive this circuit? You can unarchive later if needed.')) return;
+  try {
+    await SHELL.api('/api/job-circuits?jobId=' + encodeURIComponent(STATE.jobId) + '&action=bulk-edit', {
+      method: 'POST', body: { operations: [{ op: 'archive-circuit', circuitId }] },
+    });
+    SHELL.toast('Archived', 'ok');
+    await loadAll();
+    paint();
+  } catch (e) { SHELL.toast('Archive failed — ' + e.message, 'bad'); }
+}
+async function setCircuitStatus(circuitId, status) {
+  try {
+    await SHELL.api('/api/job-circuits?jobId=' + encodeURIComponent(STATE.jobId) + '&action=bulk-edit', {
+      method: 'POST', body: { operations: [{ op: 'set-circuit-status', circuitId, status }] },
+    });
+    SHELL.toast('Status updated', 'ok');
+    await loadAll();
+    paint();
+  } catch (e) { SHELL.toast('Status update failed — ' + e.message, 'bad'); paint(); }
 }
 
 // ── Draft banner (UI for #156) ─────────────────────────────────────────
