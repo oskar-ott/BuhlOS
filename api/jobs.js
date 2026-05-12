@@ -7,6 +7,42 @@ function slugify(s) {
   return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
+// Per-job module flags (rigidity audit R1).
+//
+// The full set the system supports — admin can turn any of these off on
+// a job that doesn't need the concept ("rewire small pub" wouldn't track
+// switchboards or temps; an industrial job might hide hours-on-job from
+// the field UI). Defaults to everything on so existing jobs and callers
+// that don't pass `modules` get current behaviour unchanged.
+//
+// Coerces input to booleans, drops unknown keys, fills missing keys true.
+const MODULE_KEYS = [
+  'areas', 'snags', 'photos', 'hours', 'materials',
+  'tags',  'temps', 'plans', 'contacts',
+  // Modular concepts to come — opt-in by default false so they don't
+  // appear in the UI until the job actively enables them.
+  'switchboards', 'circuits', 'itps', 'levels',
+];
+const MODULE_DEFAULTS_TRUE = new Set([
+  'areas', 'snags', 'photos', 'hours', 'materials',
+  'tags',  'temps', 'plans', 'contacts',
+]);
+function sanitizeModules(input) {
+  const out = {};
+  const src = (input && typeof input === 'object') ? input : {};
+  for (const k of MODULE_KEYS) {
+    if (k in src) out[k] = !!src[k];
+    else          out[k] = MODULE_DEFAULTS_TRUE.has(k);
+  }
+  return out;
+}
+function effectiveModules(job) {
+  // Read helper that hydrates a job loaded from storage — old records
+  // without `modules` get the default set, so the rest of the code
+  // can rely on `effective.tags` being a real boolean.
+  return sanitizeModules((job && job.modules) || {});
+}
+
 // Aggregate job-level stats. Uses the shared `areaProgressPct` helper so
 // per-area custom checklists are respected — an area with its own
 // rough-in / fit-off list contributes its own pct to the job average,
@@ -57,7 +93,8 @@ module.exports = async (req, res) => {
         (me.assignedJobIds || []).includes(id) ||
         (me.role === 'client' && job.clientUserId === me.id);
       if (!canSee) return res.status(403).json({ error: 'forbidden' });
-      return res.status(200).json({ job });
+      // Hydrate modules so callers can rely on the shape.
+      return res.status(200).json({ job: { ...job, modules: effectiveModules(job) } });
     }
     let visible;
     if (me.role === 'admin') {
@@ -74,9 +111,12 @@ module.exports = async (req, res) => {
       const jt = await readBlob('job-types.json', { jobTypes: [] });
       (jt.jobTypes || []).forEach(t => { typeMap[t.id] = t.name; });
     }
-    let enriched = visible.map(j => (
-      j.type && typeMap[j.type] ? { ...j, typeName: typeMap[j.type] } : j
-    ));
+    let enriched = visible.map(j => {
+      const out = j.type && typeMap[j.type] ? { ...j, typeName: typeMap[j.type] } : { ...j };
+      // Hydrate modules so list consumers can decide which tabs to show.
+      out.modules = effectiveModules(j);
+      return out;
+    });
 
     // Optional stats enrichment — used by the /jobs list page so users can scan
     // progress + open-snag count without drilling in. Opt-in via ?withStats=1
@@ -150,7 +190,7 @@ module.exports = async (req, res) => {
   // POST — create (admin only)
   if (req.method === 'POST') {
     if (me.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
-    const { name, id, clientUserId, type, areaGroups, roughInTasks, fitOffTasks } = req.body || {};
+    const { name, id, clientUserId, type, areaGroups, roughInTasks, fitOffTasks, modules } = req.body || {};
     if (!name) return res.status(400).json({ error: 'name required' });
     const jobId = slugify(id || name);
     if (!jobId) return res.status(400).json({ error: 'invalid id' });
@@ -186,6 +226,11 @@ module.exports = async (req, res) => {
       parsedFitOff = v.tasks;
     }
 
+    // Per-job module flags (rigidity audit R1). Lets a "rewire pub"
+    // hide concepts it doesn't need (switchboards, temps, ITPs) and a
+    // 14-storey fitout keep them. Defaults to "everything on" so existing
+    // jobs and any caller that doesn't know about modules keeps current
+    // behaviour. Unknown keys are dropped; values coerced to boolean.
     const job = {
       id: jobId,
       name,
@@ -195,6 +240,7 @@ module.exports = async (req, res) => {
       roughInTasks: parsedRoughIn,
       fitOffTasks: parsedFitOff,
       status: 'active',
+      modules: sanitizeModules(modules),
       createdAt: new Date().toISOString(),
     };
     data.jobs.push(job);
@@ -204,7 +250,7 @@ module.exports = async (req, res) => {
     await writeBlob(`jobs/${jobId}/temps.json`, { temps: [] });
     // Legacy jobs/<id>/hours.json no longer seeded — hours live in
     // users/<userId>/time-entries/<date>.json (per-user, per-day).
-    return res.status(200).json({ job });
+    return res.status(200).json({ job: { ...job, modules: effectiveModules(job) } });
   }
 
   // PUT — update (patch): admin OR leadingHand on that job (restricted fields)
@@ -216,6 +262,8 @@ module.exports = async (req, res) => {
       // gate runs below alongside name/type/status).
       contractValue, labourEstimate, materialEstimate,
       claimedToDate, paidToDate, oldestClaimDays,
+      // Per-job module flags (rigidity audit R1). Admin-only.
+      modules,
     } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id required' });
     const job = data.jobs.find(j => j.id === id);
@@ -229,9 +277,16 @@ module.exports = async (req, res) => {
       if (name !== undefined || type !== undefined || status !== undefined ||
           contractValue !== undefined || labourEstimate !== undefined ||
           materialEstimate !== undefined || claimedToDate !== undefined ||
-          paidToDate !== undefined || oldestClaimDays !== undefined) {
-        return res.status(403).json({ error: 'leadingHand cannot change job money fields' });
+          paidToDate !== undefined || oldestClaimDays !== undefined ||
+          modules !== undefined) {
+        return res.status(403).json({ error: 'leadingHand cannot change job money or module fields' });
       }
+    }
+
+    // Module flags — admin-only patch (LH check above blocks LH). Merge
+    // over the existing set so a partial PUT doesn't wipe other modules.
+    if (modules !== undefined) {
+      job.modules = sanitizeModules({ ...effectiveModules(job), ...modules });
     }
 
     // Polish (brief §13 prereq): contract + claims numeric fields.
@@ -332,7 +387,7 @@ module.exports = async (req, res) => {
     }
 
     await writeBlob('jobs.json', data);
-    return res.status(200).json({ job });
+    return res.status(200).json({ job: { ...job, modules: effectiveModules(job) } });
   }
 
   res.status(405).end();
