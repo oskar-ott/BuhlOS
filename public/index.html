@@ -5481,10 +5481,17 @@ function saveSnagModal(){
 // Fire-and-forget push helper for snag lifecycle events.
 function _firePushSnagNotify(userId, snag, jobName, kind) {
   try {
-    fetch('/api/snag-notify', {
+    // Route through BuhlQueue so the assignee gets the push even if
+    // the worker who triggered the event is currently offline — the
+    // notify lands when the queue drains. replaceKey keyed on (snag,
+    // kind, recipient) so toggling a snag back-and-forth collapses to
+    // the latest intent.
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    fetcher('/api/snag-notify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
+      replaceKey: 'snag-notify:' + snag.id + ':' + kind + ':' + userId,
       body: JSON.stringify({
         userId,
         kind,
