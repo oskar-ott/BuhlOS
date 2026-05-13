@@ -7504,9 +7504,14 @@ function renderHours(){
           ? `role="button" tabindex="0" style="cursor:pointer" onclick="openHoursRowEdit('${esc(e.userId)}','${esc(e.date)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openHoursRowEdit('${esc(e.userId)}','${esc(e.date)}')}"`
           : '';
 
-        // Inline approve/reject — admin only, on submitted entries. Saves a
-        // round-trip to /approvals when admin spots a pending row in context.
-        const canApproveInline = isAdmin && e.status === 'submitted' && e.userId !== CURRENT_USER.id;
+        // Inline approve/reject — admin always, LH on their crew's
+        // submitted entries (server enforces "LH can't approve another
+        // LH, must be on their job" — api/time-entries-approve.js
+        // line 31+). Workers viewing /jobs/:id Hours can now triage
+        // submitted entries inline without bouncing to /admin.
+        // The submitter check (e.userId !== CURRENT_USER.id) prevents
+        // self-approval which the API also rejects.
+        const canApproveInline = isAdminOrLH && e.status === 'submitted' && e.userId !== CURRENT_USER.id;
         const inlineApproveBtns = canApproveInline ? `
           <button class="reg-icon-btn approve" onclick="event.stopPropagation();_inlineApproveHours('${esc(e.userId)}','${esc(e.date)}')" title="Approve">&#10003;</button>
           <button class="reg-icon-btn reject"  onclick="event.stopPropagation();_inlineRejectHours('${esc(e.userId)}','${esc(e.date)}')"  title="Reject">&#10005;</button>` : '';
