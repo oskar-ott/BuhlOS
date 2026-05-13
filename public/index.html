@@ -8522,6 +8522,16 @@ function paintSiteInfoPill(job) {
       }
       html += cfHtml;
     }
+    // Admin / LH get a small "Edit setup" link at the bottom of the drawer
+    // so they can fix incorrect address / access / safety details without
+    // backing out and navigating to the builder. Hidden for tradies and
+    // clients — read-only for them.
+    const role = (CURRENT_USER && CURRENT_USER.role) || '';
+    if (role === 'admin' || role === 'leadingHand') {
+      html += `<div style="margin-top:14px;padding-top:14px;border-top:1px solid #f0f2f5;text-align:center">
+        <a href="/admin/job?id=${esc(job.id)}" style="display:inline-block;font-size:12px;font-weight:600;color:#1c5fb8;text-decoration:underline;text-underline-offset:3px">Edit site info →</a>
+      </div>`;
+    }
     body.innerHTML = html || `<div class="si-empty">No site info recorded yet.</div>`;
   }
 }
