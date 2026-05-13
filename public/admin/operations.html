@@ -180,8 +180,18 @@ async function loadOverview() {
     console.warn('overview: failed to fetch week hours', e);
   }
 
+  // Materials roll-up. Surfaces "items waiting to be ordered" + "POs out
+  // for delivery" as exception rows below. Cheap call (one /api read);
+  // failure mode is silent (materials exceptions just don't render).
+  let materials = null;
+  try {
+    materials = await SHELL.api('/api/materials-summary');
+  } catch (e) {
+    console.warn('overview: materials summary unavailable', e);
+  }
+
   return {
-    jobs, users, snags, pending, quotes,
+    jobs, users, snags, pending, quotes, materials,
     weekHoursTotal, yesterdaySubmitters, recentEntries,
     todayIso, yestIso,
   };
@@ -353,12 +363,38 @@ function paintOverview(d) {
       action: { href: '/admin/crew?filter=no-rate', label: 'Set rates →' },
     });
   }
+  // Materials waiting in the funnel. Each surfaces a different stuck-
+  // state: items that need to be ordered (admin hasn't placed the PO
+  // yet) and POs that have been sent but not yet fulfilled (waiting
+  // on the supplier). Hidden when zero — same pattern as the other
+  // exception rows.
+  if (d.materials && d.materials.items && d.materials.items.pending > 0) {
+    const n = d.materials.items.pending;
+    exceptions.push({
+      status: 'yellow',
+      label: `${n} material item${n === 1 ? '' : 's'} waiting to be ordered`,
+      sub: `${d.materials.jobsWithMaterials || 0} job${(d.materials.jobsWithMaterials || 0) === 1 ? '' : 's'} have outstanding orders`,
+      action: { href: '/admin/materials?status=pending', label: 'Order →' },
+    });
+  }
+  if (d.materials && d.materials.purchaseOrders) {
+    const po = d.materials.purchaseOrders;
+    const openPos = (po.sent || 0) + (po.confirmed || 0) + (po.partial || 0);
+    if (openPos > 0) {
+      exceptions.push({
+        status: 'yellow',
+        label: `${openPos} purchase order${openPos === 1 ? '' : 's'} awaiting delivery`,
+        sub: `${po.sent || 0} sent · ${po.confirmed || 0} confirmed · ${po.partial || 0} partial`,
+        action: { href: '/admin/materials?status=open-pos', label: 'Chase →' },
+      });
+    }
+  }
 
   if (!exceptions.length) {
     exList.innerHTML = `
       <div class="ov-empty">
         <b>Nothing exceptional.</b><br>
-        No old snags, no missing hours, no quotes due, no rate gaps.
+        No old snags, no missing hours, no materials in limbo, no rate gaps.
       </div>
     `;
   } else {
