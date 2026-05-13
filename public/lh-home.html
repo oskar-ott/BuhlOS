@@ -209,6 +209,77 @@ a { color: inherit; text-decoration: none; }
 }
 .sec-h-link:hover { color: var(--ink); }
 
+/* ── LH Tools bottom sheet ──
+   Opened from the header Tools button. Brief §14: three groups in
+   fixed order, empty groups hide entirely. Slides up from the bottom
+   on mobile and on desktop. */
+.lh-tools-scrim {
+  position: fixed; inset: 0; background: rgba(13,31,53,.42);
+  z-index: 998; animation: lhScrimIn .18s ease-out;
+}
+.lh-tools-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  background: var(--paper);
+  border-radius: 18px 18px 0 0;
+  padding: 8px 0 max(16px, var(--safe-b));
+  max-height: 80vh; overflow-y: auto;
+  z-index: 999;
+  box-shadow: 0 -10px 32px rgba(15,23,42,.18);
+  animation: lhSheetIn .22s cubic-bezier(.16,1,.3,1);
+}
+@media (min-width: 600px) {
+  .lh-tools-sheet {
+    left: 50%; right: auto; bottom: 24px;
+    transform: translateX(-50%);
+    max-width: 420px; width: calc(100% - 32px);
+    border-radius: 18px;
+  }
+}
+@keyframes lhScrimIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lhSheetIn { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.lh-tools-grab {
+  width: 36px; height: 4px; background: var(--rule);
+  border-radius: 2px; margin: 6px auto 8px;
+}
+.lh-tools-h {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 18px 8px;
+  font-family: var(--ff-mono);
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.lh-tools-x {
+  background: none; border: 0; cursor: pointer;
+  font-size: 24px; line-height: 1; color: var(--ink-3);
+  padding: 4px 8px;
+}
+.lh-tools-x:hover { color: var(--ink); }
+.lh-tools-grp-h {
+  padding: 12px 18px 6px;
+  font-family: var(--ff-mono);
+  font-size: 10px; font-weight: 700;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.lh-tools-item {
+  display: flex; align-items: center; gap: 14px;
+  width: 100%; padding: 12px 18px;
+  background: none; border: 0; cursor: pointer;
+  text-decoration: none; color: var(--ink);
+  font-size: 14.5px; font-weight: 500;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.lh-tools-item:hover { background: var(--paper-2); }
+.lh-tools-item:active { background: var(--paper-3); }
+.lh-tools-item:last-child { border-bottom: 0; }
+.lh-tools-item svg { width: 20px; height: 20px; color: var(--ink-2); flex-shrink: 0; }
+.lh-tools-item-arrow { margin-left: auto; color: var(--ink-3); }
+.lh-tools-item.danger { color: var(--red); }
+.lh-tools-item.danger svg { color: var(--red); }
+
 /* ── Quick-stats strip ── */
 .stats {
   display: grid;
@@ -603,7 +674,23 @@ a { color: inherit; text-decoration: none; }
     <div class="hdr-title" id="hdr-title">Leading hand</div>
     <div class="hdr-date" id="hdr-date"></div>
   </div>
-  <a href="/admin/operations" class="hdr-action" id="hdr-action" title="Switch to site office view">Site office →</a>
+  <button type="button" class="hdr-action" id="hdr-action" title="Open the leading-hand tools sheet" aria-haspopup="dialog">Tools</button>
+  <a href="/admin/operations" class="hdr-action hdr-action-admin" id="hdr-action-admin" title="Switch to site office view" style="display:none;margin-left:8px">Site office →</a>
+</div>
+
+<!-- LH Tools bottom sheet — anchored to the Tools button in the header.
+     Three groups in fixed order per brief §14: Tools (Temps & Assets,
+     Activity, optionally Plans/Test&Tag per active job), Account
+     (profile, sign out). Empty groups don't render. Mounted lazily on
+     first open — no DOM cost until the LH taps Tools. -->
+<div class="lh-tools-scrim" id="lh-tools-scrim" hidden></div>
+<div class="lh-tools-sheet" id="lh-tools-sheet" hidden role="dialog" aria-label="Field control tools">
+  <div class="lh-tools-grab"></div>
+  <div class="lh-tools-h">
+    <span>Tools</span>
+    <button type="button" class="lh-tools-x" id="lh-tools-x" aria-label="Close">×</button>
+  </div>
+  <div class="lh-tools-body" id="lh-tools-body"></div>
 </div>
 
 <div class="canvas">
@@ -745,20 +832,96 @@ async function boot() {
   document.getElementById('hdr-title').textContent = `Hi, ${firstName(ME)}.`;
   document.getElementById('hdr-date').textContent = todayDate();
 
-  // When an admin is previewing, flip the eyebrow + action label so it's
-  // obvious this is the LH surface, not their normal home.
+  // When an admin is previewing, flip the eyebrow and show the
+  // dedicated "Site office →" link alongside Tools (admin previews
+  // benefit from a fast escape hatch back to /admin/operations; LH
+  // doesn't need one).
   if (ME.role === 'admin') {
     const eyebrow = document.querySelector('.hdr-eyebrow');
     if (eyebrow) eyebrow.textContent = 'Field control · admin preview';
-    const action = document.getElementById('hdr-action');
-    if (action) {
-      action.textContent = '← Back to site office';
-      action.style.display = '';
-    }
+    const adminLink = document.getElementById('hdr-action-admin');
+    if (adminLink) adminLink.style.display = '';
   }
+
+  // Wire the Tools sheet. Open from header button, close on backdrop
+  // or X. Mount the sheet body lazily on first open so a worker who
+  // never taps Tools doesn't pay the DOM cost.
+  initToolsSheet();
 
   await loadAndPaint();
   initPullToRefresh();
+}
+
+/* ── LH Tools bottom sheet ────────────────────────────────────────── */
+function initToolsSheet() {
+  const btn    = document.getElementById('hdr-action');
+  const scrim  = document.getElementById('lh-tools-scrim');
+  const sheet  = document.getElementById('lh-tools-sheet');
+  const closeX = document.getElementById('lh-tools-x');
+  const body   = document.getElementById('lh-tools-body');
+  if (!btn || !scrim || !sheet) return;
+
+  let mounted = false;
+  function mountBody() {
+    if (mounted) return;
+    mounted = true;
+    // Three groups, fixed order per brief §14. Items that route through
+    // the admin shell rely on the shell's per-page role gate (admin/
+    // _shell.js PAGE_ROLES) — anything LH isn't allowed bounces back
+    // to /lh automatically. We only list items LH actually has access
+    // to so the sheet stays honest.
+    body.innerHTML = `
+      <div class="lh-tools-grp-h">Tools</div>
+      <a class="lh-tools-item" href="/admin/temps">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>
+        <span>Temps &amp; assets</span>
+        <span class="lh-tools-item-arrow">›</span>
+      </a>
+      <a class="lh-tools-item" href="/admin/activity">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>
+        <span>Activity log</span>
+        <span class="lh-tools-item-arrow">›</span>
+      </a>
+      <div class="lh-tools-grp-h">Documents</div>
+      <a class="lh-tools-item" href="/admin/jobs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        <span>Plans &amp; takeoff</span>
+        <span class="lh-tools-item-arrow" style="font-size:11px">via job</span>
+      </a>
+      <div class="lh-tools-grp-h">Account</div>
+      <button type="button" class="lh-tools-item danger" id="lh-tools-signout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 17l5-5-5-5M21 12H9M13 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/></svg>
+        <span>Sign out</span>
+      </button>
+    `;
+    // Wire the sign-out button. Hits the auth logout endpoint and
+    // sends the worker back to /login.
+    const signOut = document.getElementById('lh-tools-signout');
+    if (signOut) {
+      signOut.addEventListener('click', async () => {
+        try {
+          await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' });
+        } catch (e) {}
+        location.href = '/login';
+      });
+    }
+  }
+
+  function open() {
+    mountBody();
+    scrim.hidden = false;
+    sheet.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+  }
+  function close() {
+    scrim.hidden = true;
+    sheet.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+  }
+  btn.addEventListener('click', () => sheet.hidden ? open() : close());
+  scrim.addEventListener('click', close);
+  closeX && closeX.addEventListener('click', close);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !sheet.hidden) close(); });
 }
 
 /* ── Data load ──────────────────────────────────────────────────────── */
@@ -987,20 +1150,11 @@ function initPullToRefresh() {
   });
 }
 
-// Admin can dip into /lh to see the LH experience but doesn't get
-// stuck — the "Site office →" header link is always live for them.
-// LH role hides the link via setupRoleAffordances.
-function setupRoleAffordances() {
-  if (ME && ME.role === 'leadingHand') {
-    // Keep "Site office →" link hidden for pure LH — they don't have
-    // admin permissions on the operations queues. Will re-enable once
-    // the LH-only Tools sheet ships.
-    const el = document.getElementById('hdr-action');
-    if (el) el.style.display = 'none';
-  }
-}
-
-boot().then(() => { setupRoleAffordances(); });
+// LH role gets the Tools button by default. Admin previewing /lh also
+// gets a dedicated "Site office →" link (shown in boot() above) for a
+// fast escape back to /admin/operations. No additional role gating
+// needed here now that Tools handles every role's needs.
+boot();
 </script>
 </body>
 </html>
