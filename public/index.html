@@ -2482,6 +2482,11 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
         onclick="if(currentDwellingId){switchTab(document.querySelector('.dtab:nth-of-type(2)'),'tp-itp');toggleNavMenu()}else{goNav('snags')}">
         <span class="nav-menu-item-lbl">Photos &amp; ITP</span>
       </button>
+      <button class="nav-menu-item" role="menuitem" data-sec="itps"
+        id="itpsMenuItem" onclick="goNav('itps')" hidden>
+        <span class="nav-menu-item-lbl">ITPs</span>
+        <span class="nav-menu-item-badge" id="itpsnavBadge"></span>
+      </button>
       <button class="nav-menu-item" role="menuitem" data-sec="materials"
         id="materialsMenuItem" onclick="goNav('materials')" hidden>
         <span class="nav-menu-item-lbl">Materials</span>
@@ -2533,6 +2538,10 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
   <div id="hours" class="sc"></div>
   <div id="materials" class="sc"></div>
   <div id="contacts" class="sc"></div>
+  <!-- ITP execution surface (brief: mobile ITP flow). Hosts the per-job
+       list of attached ITP instances + the read/record view. Hidden by
+       default; populated by renderItps() when the user navigates here. -->
+  <div id="itps" class="sc"></div>
 </div>
 
 <!-- ── Worker quick-action bar ─────────────────────────────────────────────
@@ -2671,6 +2680,16 @@ async function bootstrapAuth() {
     // shows when there's something useful to surface; otherwise stays
     // hidden so it doesn't visually compete with the job name.
     paintSiteInfoPill(job);
+    // ITPs menu item — reveal proactively if the job has the itps
+    // module enabled. Without this the menu item only appears after
+    // the user navigates to /itps, which is a chicken-and-egg
+    // problem (they don't know to navigate there). Hidden by default
+    // for clients (no read access) and for jobs without the module.
+    const modulesEff = (job && job.modules) || {};
+    if (modulesEff.itps && CURRENT_USER && CURRENT_USER.role !== 'client') {
+      const im = document.getElementById('itpsMenuItem');
+      if (im) im.hidden = false;
+    }
   } catch (e) { location.href = '/login'; return false; }
 
   if (CURRENT_USER.role === 'client') {
@@ -7288,6 +7307,7 @@ function show(id){
   if(id==='hours')_lazyHours();
   if(id==='materials')_lazyMaterials();
   if(id==='contacts')_lazyContacts();
+  if(id==='itps')_lazyItps();
   updateBadge();window.scrollTo(0,0);
   closeNavMenu();
 }
@@ -8072,6 +8092,164 @@ async function _lazyHours() {
 // ── Field-side Contacts surface ────────────────────────────────────────
 //
 // Read-only for tradies + LHs (admin can also use the surface inside the
+// ── Job ITPs (brief mandate — mobile ITP execution flow) ──
+// Per-job ITP instances are managed under admin (Setup tab). On
+// mobile we surface the attached list as read-only with status +
+// progress per instance, plus a one-tap link to the per-area
+// detail. Editing points lives on the admin page for now;
+// recording from mobile lands in a follow-up PR that fits a
+// small inline recorder under each point.
+let _itpsCache = null;
+let _itpsLoading = false;
+async function _lazyItps() {
+  if (CURRENT_USER && CURRENT_USER.role === 'client') return;
+  if (_itpsCache) { renderItps(); return; }
+  if (_itpsLoading) return;
+  _itpsLoading = true;
+  _setSectionLoading('itps', 'Loading ITPs…');
+  try {
+    const r = await fetch('/api/job-itps?jobId=' + encodeURIComponent(JOB_ID), { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _itpsCache = await r.json();
+    renderItps();
+  } catch (e) {
+    document.getElementById('itps').innerHTML =
+      '<div class="empty"><div class="empty-title">Couldn\'t load ITPs</div><div style="color:var(--muted);font-size:13px;margin-top:6px">' + esc(e.message) + '</div></div>';
+  } finally { _itpsLoading = false; }
+}
+
+function renderItps() {
+  const host = document.getElementById('itps');
+  const instances = ((_itpsCache && _itpsCache.instances) || []).filter(i => !i.archived);
+  // Hide menu item entirely when the job has no ITPs attached AND
+  // the user can't attach (only admin/LH can attach — done from
+  // the desktop builder).
+  const itpsMenu = document.getElementById('itpsMenuItem');
+  if (itpsMenu) itpsMenu.hidden = instances.length === 0;
+  if (!instances.length) {
+    host.innerHTML = `
+      <div class="feat-empty">
+        <div class="feat-empty-title">No ITPs attached to this job yet</div>
+        <div class="feat-empty-sub">Admin attaches ITP templates from the job builder.</div>
+      </div>`;
+    return;
+  }
+  // Sort by status (in-progress → pending → witnessed → signed-off),
+  // then by template name for stable ordering. Workers triage active
+  // ones first.
+  const STATUS_RANK = { 'in-progress': 0, 'pending': 1, 'witnessed': 2, 'signed-off': 3 };
+  instances.sort((a, b) => {
+    const sa = STATUS_RANK[a.status] ?? 4;
+    const sb = STATUS_RANK[b.status] ?? 4;
+    if (sa !== sb) return sa - sb;
+    return ((a.templateSnapshot && a.templateSnapshot.name) || '').localeCompare(
+      (b.templateSnapshot && b.templateSnapshot.name) || '');
+  });
+  const STATUS_LBL = { 'pending': 'Pending', 'in-progress': 'In progress', 'witnessed': 'Witnessed', 'signed-off': 'Signed off' };
+  const STATUS_CLS = { 'pending': 'in-progress', 'in-progress': 'in-progress', 'witnessed': 'complete', 'signed-off': 'complete' };
+  host.innerHTML = `
+    <div class="feat-header">
+      <div>
+        <h1 class="feat-title">ITPs</h1>
+        <span class="feat-sub">${instances.length} attached · tap to view points</span>
+      </div>
+    </div>
+    <div class="reg-list">
+      ${instances.map(i => {
+        const tpl = i.templateSnapshot || {};
+        const points = Array.isArray(tpl.points) ? tpl.points : [];
+        const recorded = i.results ? Object.keys(i.results).length : 0;
+        const pct = points.length ? Math.round(recorded / points.length * 100) : 0;
+        const scope = i.scope === 'area'   ? (areaLabel(i.scopeId) || 'area')
+                    : i.scope === 'level'  ? ('level ' + (i.scopeId || ''))
+                    : i.scope === 'switchboard' ? ('switchboard ' + (i.scopeId || ''))
+                    : 'whole job';
+        return `<div class="reg-row" onclick="openItpInstance('${esc(i.id)}')">
+          <div class="reg-row-body">
+            <div class="reg-row-title">
+              <span class="reg-row-name">${esc(tpl.name || '(untitled ITP)')}</span>
+              <span class="status-badge ${STATUS_CLS[i.status] || ''}" style="font-size:9px;padding:1px 7px;margin-left:6px">${esc(STATUS_LBL[i.status] || i.status || 'pending')}</span>
+            </div>
+            <div class="reg-row-meta">
+              <span><b>Scope</b> ${esc(scope)}</span>
+              <span><b>Points</b> ${recorded}/${points.length}${pct > 0 ? ' · ' + pct + '%' : ''}</span>
+              ${i.signedOffBy ? `<span><b>Signed off by</b> ${esc(i.signedOffBy)}</span>` : ''}
+            </div>
+          </div>
+          <div class="reg-row-actions">
+            <a class="btn btn-sm btn-ghost" href="#" onclick="event.stopPropagation();openItpInstance('${esc(i.id)}');return false">View →</a>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+// Open a single ITP instance — modal showing the point list with
+// status indicators. Read-only for now; admin signs off from the
+// builder.
+function openItpInstance(instanceId) {
+  if (!_itpsCache) return;
+  const inst = (_itpsCache.instances || []).find(i => i.id === instanceId);
+  if (!inst) return;
+  const tpl = inst.templateSnapshot || {};
+  const points = Array.isArray(tpl.points) ? tpl.points : [];
+  const results = inst.results || {};
+  // Reuse the existing snag-modal scrim for layout; it's a generic
+  // bottom-sheet on mobile and centred modal on desktop. We swap the
+  // body in via .snag-modal-body which exists in the existing modal.
+  const scrim = document.createElement('div');
+  scrim.className = 'snag-modal-overlay open';
+  scrim.style.cssText = 'position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center';
+  scrim.innerHTML = `
+    <div class="snag-modal" style="background:var(--paper);border-radius:16px 16px 0 0;width:100%;max-width:520px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+      <div class="snag-modal-hdr" style="padding:14px 16px;border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-family:var(--display, sans-serif);font-weight:700;font-size:17px;color:var(--navy);letter-spacing:-.018em">${esc(tpl.name || 'ITP')}</div>
+          <div style="font-size:11px;color:var(--ink-3);font-family:var(--mono);letter-spacing:.04em;text-transform:uppercase;margin-top:2px">${esc(inst.status || 'pending')} · ${points.length} point${points.length === 1 ? '' : 's'}</div>
+        </div>
+        <button type="button" class="snag-modal-close" onclick="this.closest('.snag-modal-overlay').remove()" style="background:none;border:none;color:var(--ink-3);font-size:22px;cursor:pointer">&times;</button>
+      </div>
+      <div class="snag-modal-body" style="overflow-y:auto;padding:8px 0;flex:1">
+        ${points.map((p, idx) => {
+          const r = results[p.id] || {};
+          const recorded = r.at != null;
+          return `<div style="padding:12px 16px;border-bottom:1px solid var(--rule);display:flex;gap:12px;align-items:flex-start">
+            <div style="flex-shrink:0;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:${recorded ? 'var(--green-bg, #e6f4ec)' : 'var(--paper-3, #efece4)'};color:${recorded ? 'var(--green, #1f8b5a)' : 'var(--ink-3)'};font-family:var(--mono);font-size:11px;font-weight:700">${recorded ? '✓' : idx + 1}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:14px;font-weight:600;color:var(--ink)">${esc(p.label || p.name || ('Point ' + (idx + 1)))}</div>
+              ${p.note ? `<div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">${esc(p.note)}</div>` : ''}
+              ${recorded ? `<div style="font-size:11.5px;color:var(--ink-2);margin-top:4px">${r.value != null ? esc(String(r.value)) + ' · ' : ''}${esc(r.byUsername || '')} · ${esc(agoStr(new Date(r.at).getTime()))}</div>` : ''}
+            </div>
+          </div>`;
+        }).join('') || '<div style="padding:32px 16px;text-align:center;color:var(--ink-3);font-size:13px">No points defined on this ITP.</div>'}
+      </div>
+      <div style="padding:12px 16px;border-top:1px solid var(--rule);background:var(--paper-2);font-family:var(--mono);font-size:11px;color:var(--ink-3);text-align:center">
+        Recording from mobile lands in a follow-up. For now, complete points from the admin job page.
+      </div>
+    </div>
+  `;
+  document.body.appendChild(scrim);
+  scrim.addEventListener('click', (e) => {
+    if (e.target === scrim) scrim.remove();
+  });
+}
+
+// agoStr — shared helper for relative time labels. Used by the ITP
+// modal; duplicates the formatter at the top of this file to keep the
+// modal self-contained. If the existing _ago/_dashTimeAgo helpers
+// match these semantics they can replace this in a future cleanup.
+function agoStr(ms) {
+  if (!ms) return '';
+  const s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
+  if (s < 60)        return 'just now';
+  if (s < 3600)      return Math.floor(s / 60) + 'm ago';
+  if (s < 86400)     return Math.floor(s / 3600) + 'h ago';
+  if (s < 86400 * 7) return Math.floor(s / 86400) + 'd ago';
+  const d = new Date(ms);
+  return d.toLocaleDateString('en-AU', { day:'numeric', month:'short' });
+}
+
 // per-job admin page). Project + supplier sections. Tap-to-call /
 // tap-to-email phone numbers are the main onsite use case.
 let _contactsCache = null;
