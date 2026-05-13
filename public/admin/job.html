@@ -180,6 +180,12 @@ function paint() {
   // is hydrated by the API (api/jobs.js sanitizeModules + effectiveModules).
   const mods = (j.modules && typeof j.modules === 'object') ? j.modules : {};
   const modOn = (key, defaultOn) => (key in mods) ? !!mods[key] : !!defaultOn;
+  // Tab order matches the brief §03 admin job-detail recommendation:
+  //   Overview → Setup → Crew & Client → Contacts → Snags → Hours →
+  //   Materials → Plans & takeoff
+  // The previous order had Materials AFTER Plans, but the brief reads
+  // delivery work (hours → materials) before reference docs (plans).
+  // Reordering keeps the daily-action tabs to the left of the tab row.
   const sections = [
     { id: 'overview',  label: 'Overview' },
     { id: 'setup',     label: 'Setup', count: setupMissing || null, countTone: setupMissing ? 'warn' : null },
@@ -187,8 +193,8 @@ function paint() {
     modOn('contacts',  true)  && { id: 'contacts',  label: 'Contacts' },
     modOn('snags',     true)  && { id: 'snags',     label: 'Snags', count: openSnagCount, countTone: openSnagCount ? 'bad' : null },
     modOn('hours',     true)  && { id: 'hours',     label: 'Hours' },
-    modOn('plans',     true)  && { id: 'plans',     label: 'Plans & takeoff', count: pendingDwellings || null },
     modOn('materials', true)  && { id: 'materials', label: 'Materials', count: matsCount || null },
+    modOn('plans',     true)  && { id: 'plans',     label: 'Plans & takeoff', count: pendingDwellings || null },
   ].filter(Boolean);
 
   SHELL.$('#page').innerHTML = `
