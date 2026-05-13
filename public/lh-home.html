@@ -671,7 +671,13 @@ let SNAGS = [];   // all open snags across my jobs
 
 /* ── Bootstrap ──────────────────────────────────────────────────────── */
 async function boot() {
-  // Auth gate — leadingHand only. Other roles bounce home.
+  // Auth gate. Leading hands are the primary audience here, but admin
+  // is allowed in too: the operations page has a "Field control →" link
+  // that lets admin preview the LH surface without re-logging. If we
+  // redirected admin away (the original behaviour), the preview link
+  // would bounce admin straight back to /admin/operations — a redirect
+  // loop. Tradies and clients still get sent home; they don't have
+  // permission to view cross-job LH data.
   try {
     const meRes = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
     if (!meRes.ok) { location.href = '/login'; return; }
@@ -680,14 +686,27 @@ async function boot() {
   } catch {
     location.href = '/login'; return;
   }
-  if (ME.role === 'admin')   { location.href = '/admin/operations'; return; }
   if (ME.role === 'tradie')  { location.href = '/my-day'; return; }
   if (ME.role === 'client')  { location.href = '/client'; return; }
-  if (ME.role !== 'leadingHand') { location.href = '/login'; return; }
+  if (ME.role !== 'leadingHand' && ME.role !== 'admin') {
+    location.href = '/login'; return;
+  }
 
   // Paint the header copy as soon as identity is known.
   document.getElementById('hdr-title').textContent = `Hi, ${firstName(ME)}.`;
   document.getElementById('hdr-date').textContent = todayDate();
+
+  // When an admin is previewing, flip the eyebrow + action label so it's
+  // obvious this is the LH surface, not their normal home.
+  if (ME.role === 'admin') {
+    const eyebrow = document.querySelector('.hdr-eyebrow');
+    if (eyebrow) eyebrow.textContent = 'Field control · admin preview';
+    const action = document.getElementById('hdr-action');
+    if (action) {
+      action.textContent = '← Back to site office';
+      action.style.display = '';
+    }
+  }
 
   await loadAndPaint();
   initPullToRefresh();
