@@ -4478,10 +4478,25 @@ async function deletePhoto(photoId){
 }
 
 // ── Snags ───────────────────────────────────────────────────
-// Filter state — persists for the page session, defaults to "Open" because
-// open snags are the ones that need attention.
+// Filter state — persists for the page session. Defaults to "open"
+// but switchSnagFilterDefault() promotes the default to "mine" the
+// first time the user navigates to the snag list while they have
+// open snags assigned to them. Workers with no assigned snags fall
+// through to "open" (the broad triage view).
 let snagFilter='open'; // 'open' | 'high' | 'mine' | 'unassigned' | 'resolved' | 'all'
+let snagFilterDefaultApplied = false;
 let snagSearch='';
+function switchSnagFilterDefault(){
+  if (snagFilterDefaultApplied) return;
+  snagFilterDefaultApplied = true;
+  const role = CURRENT_USER && CURRENT_USER.role;
+  const myId = CURRENT_USER && CURRENT_USER.id;
+  if (!myId || !['tradie','leadingHand'].includes(role)) return;
+  const mineOpen = (D.snags || []).filter(s =>
+    s.status === 'Open' && s.assignedToUserId === myId
+  ).length;
+  if (mineOpen > 0) snagFilter = 'mine';
+}
 
 function snagPrioRank(p){return p==='High'?0:p==='Medium'?1:2;}
 function snagAgeLabel(s){
@@ -4523,6 +4538,10 @@ function snagFiltered(){
 }
 
 function renderSnags(){
+  // Promote the default filter to "mine" on first render when the
+  // worker has at least one assigned open snag. Idempotent — only
+  // runs once per page-load.
+  switchSnagFilterDefault();
   const sn=D.snags||[];
   const isClient=CURRENT_USER&&CURRENT_USER.role==='client';
   const isAdmin =CURRENT_USER&&CURRENT_USER.role==='admin';
