@@ -4735,12 +4735,21 @@ function initSnagSwipe(){
     const onEnd = () => {
       if (!dragging) return;
       dragging = false;
+      // Subtle haptic on commit so the worker feels the action lands.
+      // 12ms is a short single tap — matches iOS UISelectionFeedback /
+      // Android default tick. Silent on devices without Vibration API
+      // (desktop, iOS Safari before user activates the page).
+      const vibrate = (ms) => {
+        try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {}
+      };
       if (deltaX <= -COMMIT_PX){
+        vibrate(12);
         row.style.transform = 'translateX(-100%)';
         setTimeout(() => {
           if (typeof closeSnag === 'function') closeSnag(idx);
         }, 160);
       } else if (deltaX >= COMMIT_PX && canClaim){
+        vibrate(12);
         row.style.transform = 'translateX(100%)';
         setTimeout(() => {
           if (typeof claimSnag === 'function') claimSnag(idx);
