@@ -251,11 +251,33 @@ button.hdr-job[aria-expanded="true"] .hdr-job-chev{color:var(--yellow);transform
   min-width:18px;height:18px;padding:0 6px;
 }
 @media(max-width:600px){
+  /* On phones, Tools renders as a bottom sheet (brief mandate: "mobile
+     sheet + desktop rail share component"). Slides up from the bottom
+     with a backdrop. Grab bar at top mirrors the existing snag/log
+     sheets so the gesture vocabulary is consistent. */
   .nav-menu{
-    /* On phones the dropdown right-aligns to the screen edge, with a small
-       inset so it doesn't touch the bezel. */
-    right:8px;
-    min-width:200px;
+    position:fixed;
+    left:0;right:0;bottom:0;top:auto;
+    min-width:0;width:100%;max-height:80vh;
+    border-radius:18px 18px 0 0;
+    padding:8px 0 max(16px, env(safe-area-inset-bottom, 0));
+    box-shadow:0 -8px 32px rgba(15,23,42,.18);
+    animation:navSheetIn .22s cubic-bezier(.16,1,.3,1);
+    overflow-y:auto;
+  }
+  .nav-menu::before{
+    content:'';display:block;width:36px;height:4px;
+    background:var(--rule);border-radius:2px;
+    margin:4px auto 10px;
+  }
+  @keyframes navSheetIn{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  .nav-menu-backdrop{
+    position:fixed;inset:0;background:rgba(15,23,42,.42);z-index:999;
+    animation:navBackdropIn .22s ease-out;
+  }
+  @keyframes navBackdropIn{from{opacity:0}to{opacity:1}}
+  .nav-menu-item{
+    padding:13px 18px;min-height:48px;font-size:15px;
   }
 }
 
@@ -7094,6 +7116,19 @@ function openNavMenu(){
   menu.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
   _positionNavMenu();
+  // Mobile bottom-sheet mode (≤600px) gets a backdrop. Tapping anywhere
+  // outside the sheet closes it — same gesture as the snag/log sheets.
+  if (window.matchMedia('(max-width: 600px)').matches) {
+    let bd = document.getElementById('navMenuBackdrop');
+    if (!bd) {
+      bd = document.createElement('div');
+      bd.id = 'navMenuBackdrop';
+      bd.className = 'nav-menu-backdrop';
+      bd.addEventListener('click', closeNavMenu);
+      document.body.appendChild(bd);
+    }
+    bd.hidden = false;
+  }
 }
 
 /* Empty group hiding (brief §14 — "An empty group does not render.")
@@ -7126,6 +7161,16 @@ function _positionNavMenu(){
   const menu = document.getElementById('navMenu');
   const btn  = document.getElementById('navMenuBtn');
   if (!menu || !btn || menu.hidden) return;
+  // Mobile bottom-sheet mode (≤600px) — positioning is handled
+  // entirely in CSS (fixed, full-width, bottom). Clear any inline
+  // styles left over from a previous desktop open so they don't
+  // leak through to the sheet.
+  if (window.matchMedia('(max-width: 600px)').matches) {
+    menu.style.top = '';
+    menu.style.right = '';
+    menu.style.left = '';
+    return;
+  }
   const rect = btn.getBoundingClientRect();
   const menuW = Math.max(menu.offsetWidth, 200);
   const inset = 8; // viewport-edge safety on phones
@@ -7152,6 +7197,9 @@ function closeNavMenu(){
   if (!menu || !btn) return;
   if (!menu.hidden) menu.hidden = true;
   btn.setAttribute('aria-expanded', 'false');
+  // Remove the bottom-sheet backdrop if present.
+  const bd = document.getElementById('navMenuBackdrop');
+  if (bd) bd.remove();
 }
 // goNav: identical to show() from the user's perspective but lives in the
 // menu's onclick so the click handler is unambiguous (and trivially closes
