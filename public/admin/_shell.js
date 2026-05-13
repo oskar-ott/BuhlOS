@@ -237,11 +237,14 @@
       location.href = me.role === 'tradie' ? '/my-day' : (me.role === 'client' ? '/client' : '/login');
       return;
     }
-    // Per-page role enforcement. Admin-only pages bounce LHs to their default landing.
+    // Per-page role enforcement. Admin-only pages bounce LHs to their
+    // role-specific landing. Admin/LH rebuild (see /lh-home.html): the
+    // leadingHand role no longer shares the command-centre with admin;
+    // they get the field-control surface at /lh instead. Admin role
+    // continues to land in /admin/operations.
     const pageId = (window.PAGE && window.PAGE.id) || '';
     if (PAGE_ROLES[pageId] && !PAGE_ROLES[pageId].includes(me.role)) {
-      // Single command-centre landing for both admin + LH.
-      location.href = '/admin/operations';
+      location.href = me.role === 'leadingHand' ? '/lh' : '/admin/operations';
       return;
     }
 

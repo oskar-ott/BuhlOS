@@ -30,6 +30,8 @@
     { "source": "/admin-legacy", "destination": "/admin.html" },
 
     { "source": "/overview",  "destination": "/admin/operations.html" },
+    { "source": "/lh",        "destination": "/lh-home.html" },
+    { "source": "/lh-home",   "destination": "/lh-home.html" },
     { "source": "/my-day",    "destination": "/my-day.html" },
     { "source": "/my-gear",   "destination": "/my-gear.html" },
     { "source": "/install",   "destination": "/install.html" },

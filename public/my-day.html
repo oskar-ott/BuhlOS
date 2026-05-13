@@ -862,9 +862,13 @@ async function load(){
   const { user } = await meRes.json();
   ME = user;
 
-  // Role gate — /my-day is for tradies. Others get redirected.
-  if (ME.role === 'admin' || ME.role === 'leadingHand') { location.href = '/admin/operations'; return; }
-  if (ME.role === 'client') { location.href = '/client'; return; }
+  // Role gate — /my-day is for tradies. Others get redirected to their
+  // role-specific landing (see Admin/LH rebuild — /lh-home.html for the
+  // field-control surface, /admin/operations.html for the command
+  // centre, /client.html for the client portal).
+  if (ME.role === 'admin')       { location.href = '/admin/operations'; return; }
+  if (ME.role === 'leadingHand') { location.href = '/lh';                return; }
+  if (ME.role === 'client')      { location.href = '/client';            return; }
 
   // Header bits — visible greeting + secondary date line.
   // Greeting upgrades from the bootstrapped "My Day" to a personalised

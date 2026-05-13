@@ -7,17 +7,28 @@
 <meta name="theme-color" content="#0d1f35">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<!-- Admin landing consolidation: there used to be two competing landings
-     (/admin/ "Today" and /admin/operations "Operations"). They had ~70%
-     overlap but different layouts, and the sidebar listed both side-by-side
-     so admins flip-flopped between them. The new single command centre
-     lives at /admin/operations — this page just redirects there.
-
-     Keeping the file (rather than deleting it) means any external
-     bookmarks, push-notification URLs, or hardcoded `/admin/` references
-     in older code paths still land somewhere useful. -->
-<meta http-equiv="refresh" content="0; url=/admin/operations">
-<script>location.replace('/admin/operations');</script>
+<!-- /admin entry — role-aware redirect. Admin/LH rebuild: leading hand
+     users no longer share the command centre; they land on the field-
+     control surface at /lh. /api/auth?action=me decides which surface
+     to send them to. The script falls back to /admin/operations if the
+     check fails so an unauthenticated visitor still hits the auth gate
+     on the sidebar. -->
+<script>
+(async function () {
+  try {
+    const r = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
+    if (!r.ok) { location.replace('/login'); return; }
+    const { user } = await r.json();
+    const role = user && user.role;
+    if (role === 'leadingHand') location.replace('/lh');
+    else if (role === 'tradie') location.replace('/my-day');
+    else if (role === 'client') location.replace('/client');
+    else location.replace('/admin/operations');
+  } catch (e) {
+    location.replace('/admin/operations');
+  }
+})();
+</script>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
          background: #f5f3ee; color: #0d1f35; margin: 0; padding: 40px;
