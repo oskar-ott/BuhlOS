@@ -142,10 +142,41 @@ window.PAGE = {
   crumb: 'Overview',
   async render() {
     SHELL.$('#page').innerHTML = `<div class="ov-empty"><b>Loading…</b></div>`;
-    const data = await loadOverview();
-    paintOverview(data);
+    // Wrap the whole load+paint in a try so a failure in either path
+    // surfaces an actual error message instead of leaving the page on
+    // the "Loading…" placeholder forever (the symptom users reported
+    // as a "blank" page).
+    try {
+      const data = await loadOverview();
+      paintOverview(data);
+    } catch (e) {
+      console.error('operations render failed', e);
+      SHELL.$('#page').innerHTML = `
+        <div class="ov-empty" style="padding:60px 24px">
+          <b>Couldn't load the command centre.</b><br>
+          <span style="font-family:var(--ff-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">
+            ${SHELL.escapeHtml(e && e.message || 'Try refreshing the page.')}
+          </span>
+        </div>
+      `;
+    }
   }
 };
+
+// Promise.race timeout helper. Materials-summary walks every job's
+// materials-list.json blob; for orgs with lots of jobs this can take
+// several seconds. We don't want a slow materials read to leave the
+// whole page stuck on "Loading…", so each optional fetch races a
+// timeout and resolves to null if it's late.
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(
+      () => reject(new Error((label || 'request') + ' timed out after ' + ms + 'ms')),
+      ms
+    )),
+  ]);
+}
 
 async function loadOverview() {
   const now = new Date();
@@ -167,7 +198,11 @@ async function loadOverview() {
   let yesterdaySubmitters = new Set();
   let recentEntries = [];
   try {
-    const r = await SHELL.api(`/api/time-entries-overview?fromDate=${encodeURIComponent(weekFrom)}&toDate=${encodeURIComponent(weekTo)}`);
+    const r = await withTimeout(
+      SHELL.api(`/api/time-entries-overview?fromDate=${encodeURIComponent(weekFrom)}&toDate=${encodeURIComponent(weekTo)}`),
+      8000,
+      'week hours'
+    );
     const entries = r.entries || [];
     recentEntries = entries;
     for (const e of entries) {
@@ -183,9 +218,11 @@ async function loadOverview() {
   // Materials roll-up. Surfaces "items waiting to be ordered" + "POs out
   // for delivery" as exception rows below. Cheap call (one /api read);
   // failure mode is silent (materials exceptions just don't render).
+  // Race a short timeout so a slow materials read doesn't keep the page
+  // on the Loading placeholder.
   let materials = null;
   try {
-    materials = await SHELL.api('/api/materials-summary');
+    materials = await withTimeout(SHELL.api('/api/materials-summary'), 6000, 'materials summary');
   } catch (e) {
     console.warn('overview: materials summary unavailable', e);
   }
