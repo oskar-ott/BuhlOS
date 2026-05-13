@@ -875,32 +875,43 @@ function mkAttnRow({ dot, label, sub, href }) {
   return a;
 }
 
-/* ── Pull-to-refresh ────────────────────────────────────────────────── */
+/* ── Pull-to-refresh ──────────────────────────────────────────────────
+   Tightened to avoid false triggers from finger drift on taps. See
+   public/my-day.html for the matching change — same gesture, same
+   thresholds, applied to the LH home as well so the field-control
+   surface doesn't flash a stray indicator on every card tap. */
 function initPullToRefresh() {
   const ptr = document.getElementById('ptr');
   if (!ptr) return;
+  const VISIBLE_PX = 32;
   const TRIGGER_PX = 64;
-  let startY = 0, deltaY = 0, dragging = false, locked = null;
+  let startY = 0, deltaY = 0, dragging = false;
+
+  function isInteractive(el) {
+    if (!el || el === document.body) return false;
+    const tag = el.tagName;
+    if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'A' || tag === 'LABEL') return true;
+    if (el.getAttribute && el.getAttribute('role') === 'button') return true;
+    if (el.classList && (el.classList.contains('job') || el.classList.contains('atn-row') || el.classList.contains('tab'))) return true;
+    return isInteractive(el.parentElement);
+  }
 
   document.addEventListener('touchstart', (e) => {
     if (window.scrollY > 0) return;
+    if (isInteractive(e.target)) return;
     const t = e.touches[0];
-    startY = t.clientY; deltaY = 0; dragging = true; locked = null;
+    startY = t.clientY; deltaY = 0; dragging = true;
   }, { passive: true });
 
   document.addEventListener('touchmove', (e) => {
     if (!dragging) return;
-    const t = e.touches[0];
-    const dy = t.clientY - startY;
-    if (locked === null && Math.abs(dy) > 8) locked = 'y';
-    if (locked !== 'y' || dy < 0) {
-      dragging = false;
-      ptr.style.height = '';
-      ptr.classList.remove('armed');
+    const dy = e.touches[0].clientY - startY;
+    if (dy < VISIBLE_PX) {
+      if (dy < 0) dragging = false;
       return;
     }
     deltaY = Math.min(dy, 120);
-    ptr.style.height = deltaY + 'px';
+    ptr.style.height = (deltaY - VISIBLE_PX) + 'px';
     ptr.classList.toggle('armed', deltaY >= TRIGGER_PX);
     const lbl = ptr.querySelector('.ptr-label');
     if (lbl) lbl.textContent = deltaY >= TRIGGER_PX ? 'Release to refresh' : 'Pull to refresh';
