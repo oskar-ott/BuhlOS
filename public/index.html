@@ -71,6 +71,9 @@ button.hdr-job[aria-expanded="true"] .hdr-job-chev{color:var(--yellow);transform
 .js-sheet{background:#fff;border-bottom:1px solid var(--rule);max-height:min(70vh,520px);overflow-y:auto;animation:js-down .18s ease-out;padding-top:max(0px,env(safe-area-inset-top))}
 @keyframes js-down{from{transform:translateY(-12px);opacity:0}to{transform:translateY(0);opacity:1}}
 .js-sheet-hdr{padding:12px 16px 8px;display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--rule)}
+.js-search{padding:10px 12px;border-bottom:1px solid var(--rule);background:#fff}
+.js-search input{appearance:none;width:100%;border:1px solid var(--rule);border-radius:8px;padding:9px 12px;font:inherit;font-size:14px;color:var(--ink);outline:none;background:var(--paper)}
+.js-search input:focus{border-color:var(--navy);box-shadow:0 0 0 3px rgba(13,27,52,.08)}
 .js-sheet-hdr b{color:var(--ink);font-weight:600}
 .js-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule);text-decoration:none;color:inherit;cursor:pointer;background:#fff;transition:background .12s}
 .js-row:hover{background:var(--paper-2)}
@@ -2365,6 +2368,12 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
       <span><b>Switch job</b></span>
       <span id="jsCount">…</span>
     </div>
+    <!-- Search filter — auto-shown when the assigned-job list is long
+         enough that scanning becomes slow (≥5 jobs). Filters .js-row
+         entries by name + ref code as the worker types. -->
+    <div id="jsSearchWrap" class="js-search" hidden>
+      <input id="jsSearch" type="search" placeholder="Find a job — name or code…" autocomplete="off" spellcheck="false">
+    </div>
     <div id="jsList"></div>
     <div class="js-foot">
       <a href="/my-day">Open My Day &rarr;</a>
@@ -2740,6 +2749,29 @@ function _jsRender(jobs) {
   if (!visible.length) {
     list.innerHTML = '<div class="js-empty">No other jobs to switch to.</div>';
     return;
+  }
+  // Show the search filter when scanning is slow (≥5 jobs). Wire the
+  // input handler idempotently — guard with data-bound so we don't
+  // double-attach on re-renders.
+  const searchWrap = document.getElementById('jsSearchWrap');
+  const searchInp = document.getElementById('jsSearch');
+  if (searchWrap && searchInp) {
+    if (visible.length >= 5) {
+      searchWrap.hidden = false;
+      if (!searchInp.dataset.bound) {
+        searchInp.dataset.bound = '1';
+        searchInp.addEventListener('input', () => {
+          const q = (searchInp.value || '').trim().toLowerCase();
+          document.querySelectorAll('#jsList .js-row').forEach(row => {
+            const text = (row.textContent || '').toLowerCase();
+            row.style.display = (!q || text.includes(q)) ? '' : 'none';
+          });
+        });
+      }
+    } else {
+      searchWrap.hidden = true;
+      searchInp.value = '';
+    }
   }
   list.innerHTML = visible.map(j => {
     const isCur = j.id === JOB_ID;
