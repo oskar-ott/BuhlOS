@@ -644,7 +644,25 @@ textarea:focus{border-color:var(--navy);background:var(--paper);outline:2px soli
 .reg-icon-btn.primary:hover{background:#1a3050;color:#fff;border-color:#1a3050}
 
 /* ── Snag row (list) — desktop: inline actions, mobile: stacked ───── */
-.snag-row{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--rule);position:relative;transition:background .12s;flex-wrap:wrap;border-left:3px solid var(--red)}
+.snag-row{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--rule);position:relative;transition:background .12s, transform .15s;flex-wrap:wrap;border-left:3px solid var(--red);touch-action:pan-y}
+/* Mobile swipe-to-resolve: a worker drags the snag row left to reveal a
+   green "✓ Resolve" strip underneath. Releasing past ~96px commits the
+   resolve action. The strip is absolutely positioned beneath the row
+   via a sibling .snag-swipe-bg element; the row itself just gets
+   transform on the X axis. Only Open snags get the affordance — resolved
+   rows show nothing on swipe. */
+.snag-swipe-host{position:relative;overflow:hidden}
+.snag-swipe-bg{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-end;
+  padding-right:22px;background:var(--green);color:#fff;
+  font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;
+  pointer-events:none;opacity:0;transition:opacity .15s;
+}
+.snag-swipe-host.swiping .snag-swipe-bg{opacity:1}
+.snag-swipe-host.swiping .snag-row{transition:none}
+.snag-swipe-bg span{display:inline-flex;align-items:center;gap:8px}
+.snag-swipe-bg svg{width:16px;height:16px}
 .snag-row.resolved{border-left-color:var(--green)}
 .snag-row.in-progress{border-left-color:var(--amber)}
 .snag-row:last-child{border-bottom:none}
@@ -4467,7 +4485,15 @@ function renderSnags(){
         ${!isOpen&&isAdmin?`<button class="snag-act reopen" onclick="reopenSnag(${idx})">&#8635; Reopen</button>`:''}
         ${isAdmin?`<button class="snag-act del" onclick="deleteSnag(${idx})">Delete</button>`:''}
       </div>`;
-      h+=`<div class="snag-row${isOpen?'':' muted'}" id="snag-row-${esc(s.id)}"${rowClick}>
+      // Open snag rows are wrapped in a .snag-swipe-host so the
+      // touch-swipe handlers (wired below in initSnagSwipe) can
+      // animate the row sliding left and reveal the green Resolve
+      // strip beneath. Closed snags skip the wrap — there's nothing
+      // to reveal.
+      const swipeBg = isOpen && !isClient
+        ? `<div class="snag-swipe-bg"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"/></svg>Resolve</span></div>`
+        : '';
+      const rowMarkup = `<div class="snag-row${isOpen?'':' muted'}" id="snag-row-${esc(s.id)}"${rowClick} data-snag-idx="${idx}">
         <div class="reg-row-accent ${accent}"></div>
         <div class="snag-row-main">
           <div class="reg-row-body" style="padding-left:6px">
@@ -4487,6 +4513,9 @@ function renderSnags(){
         </div>
         ${actions}
       </div>`;
+      h += (isOpen && !isClient)
+        ? `<div class="snag-swipe-host">${swipeBg}${rowMarkup}</div>`
+        : rowMarkup;
     });
     h+=`</div>`;
   }
@@ -4495,6 +4524,72 @@ function renderSnags(){
   // notification), scroll to that row and flash it. We consume the param so
   // subsequent re-renders don't keep scrolling back.
   _focusSnagFromQuery();
+  initSnagSwipe();
+}
+
+// Wire swipe-to-resolve on any .snag-swipe-host that hasn't been wired
+// yet (data-swipe-init). Touch-only — desktop users still use the
+// Resolve button in .snag-row-actions. Commits at ~96px of leftward
+// travel; partial swipes spring back. Idempotent.
+function initSnagSwipe(){
+  document.querySelectorAll('.snag-swipe-host:not([data-swipe-init])').forEach(host => {
+    host.setAttribute('data-swipe-init', '1');
+    const row = host.querySelector('.snag-row');
+    if (!row) return;
+    const idx = parseInt(row.getAttribute('data-snag-idx'), 10);
+    if (isNaN(idx)) return;
+
+    let startX = 0, startY = 0, deltaX = 0, dragging = false, locked = null;
+    const COMMIT_PX = 96;
+
+    const onStart = (e) => {
+      const t = e.touches ? e.touches[0] : e;
+      startX = t.clientX;
+      startY = t.clientY;
+      deltaX = 0;
+      dragging = true;
+      locked = null;
+      host.classList.remove('swiping');
+    };
+    const onMove = (e) => {
+      if (!dragging) return;
+      const t = e.touches ? e.touches[0] : e;
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+      // Decide whether this is a horizontal swipe or a vertical scroll
+      // — once locked vertical, we don't claim further events.
+      if (locked === null){
+        if (Math.abs(dx) > 8 || Math.abs(dy) > 8){
+          locked = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        }
+      }
+      if (locked !== 'x'){ return; }
+      // Only allow leftward drag (resolve gesture).
+      deltaX = Math.min(0, dx);
+      host.classList.add('swiping');
+      row.style.transform = `translateX(${deltaX}px)`;
+      if (e.cancelable) e.preventDefault();
+    };
+    const onEnd = () => {
+      if (!dragging) return;
+      dragging = false;
+      const commit = deltaX <= -COMMIT_PX;
+      if (commit){
+        row.style.transform = 'translateX(-100%)';
+        setTimeout(() => {
+          if (typeof closeSnag === 'function') closeSnag(idx);
+        }, 160);
+      } else {
+        row.style.transform = '';
+        host.classList.remove('swiping');
+      }
+    };
+
+    host.addEventListener('touchstart', onStart, { passive: true });
+    host.addEventListener('touchmove', onMove, { passive: false });
+    host.addEventListener('touchend', onEnd);
+    host.addEventListener('touchcancel', onEnd);
+  });
 }
 
 // Reads ?snag=<id> from the URL once on render. If present, finds the row,
