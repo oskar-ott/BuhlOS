@@ -746,6 +746,19 @@ textarea:focus{border-color:var(--navy);background:var(--paper);outline:2px soli
 .snag-status-seg button.active.resolved{color:var(--green)}
 /* Photo grid */
 .snag-photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:8px}
+/* Brief §12 photo-first: when the snag has zero photos yet, the photo
+   tile is the visual anchor on the modal — a tall full-width primary
+   block with the camera CTA. After the first photo lands the grid
+   compresses back to the regular 72px thumbs + small "+ Add" tile. */
+.snag-photos.empty{display:block}
+.snag-photos.empty .snag-photo-add{
+  aspect-ratio:auto;min-height:140px;width:100%;
+  border-style:solid;border-width:1px;
+  background:var(--paper-2);color:var(--navy);
+  border-color:var(--rule);gap:8px;font-size:14px;font-weight:600;
+}
+.snag-photos.empty .snag-photo-add:hover{background:var(--paper);border-color:var(--ink-3)}
+.snag-photos.empty .snag-photo-add-icon{font-size:36px;font-weight:400;color:var(--ink-3)}
 .snag-photo-thumb{position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;background:#f1f5f9;cursor:pointer;border:1px solid var(--border)}
 .snag-photo-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .snag-photo-del{position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:none;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;line-height:1}
@@ -1945,6 +1958,17 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
       <button class="snag-modal-close" onclick="closeSnagModal()" title="Close">&#10005;</button>
     </div>
     <div class="snag-modal-body">
+      <!-- Photo first — brief §12 mandates the snag flow optimises for
+           median time-to-file < 30s. Tradies on site nearly always have
+           the issue in front of them; show it, then add a one-line note.
+           The big "+ Add" tile lives at the top so a single tap launches
+           the rear camera (capture="environment") without scrolling. -->
+      <div class="snag-field">
+        <label class="snag-field-label">Photos <span id="snm-photo-cap" style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted)">(0 of 5)</span></label>
+        <div class="snag-photos" id="snm-photos"></div>
+        <div class="snag-photo-hint">Tap a photo to view full size &middot; camera or gallery both supported</div>
+      </div>
+
       <div class="snag-field">
         <label class="snag-field-label" for="snm-desc">Description</label>
         <div class="snag-desc-wrap">
@@ -2009,12 +2033,6 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
              action. Hidden when an explicit assignee is already set, when
              there's no LH on the job, or for clients (who can't see crew). -->
         <div id="snm-autoassign-hint" class="snag-autoassign-hint" hidden></div>
-      </div>
-
-      <div class="snag-field">
-        <label class="snag-field-label">Photos <span id="snm-photo-cap" style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted)">(0 of 5)</span></label>
-        <div class="snag-photos" id="snm-photos"></div>
-        <div class="snag-photo-hint">Tap a photo to view full size &middot; camera or gallery both supported</div>
       </div>
 
       <div class="snag-meta-footer" id="snm-meta-footer"></div>
@@ -4665,7 +4683,11 @@ function openSnagModal(snagId, prefill){
 
   document.getElementById('snag-modal').classList.add('open');
   document.body.style.overflow='hidden';
-  if(!snagId&&!readOnly){setTimeout(()=>{const t=document.getElementById('snm-desc');if(t)t.focus();},80);}
+  // Auto-focus removed: the field-keyboard popping up on iOS used to
+  // obscure the "Take a photo" CTA that now anchors the modal (brief §12
+  // photo-first). Workers tap the photo tile first; description goes
+  // last, with optional voice-to-text. Tradies can still tap the
+  // description field manually when they're ready.
 }
 
 // ── Communications strip: lists sent emails for this snag ────────────
@@ -5240,6 +5262,24 @@ function renderSnagModalPhotos(){
   const isClient=CURRENT_USER&&CURRENT_USER.role==='client';
   const photos=snagModalWorking.photos||[];
   document.getElementById('snm-photo-cap').textContent=`(${photos.length} of 5)`;
+  // Empty / photo-first mode: zero photos and the user can add → show a
+  // tall, single primary tile saying "Take a photo". The brief calls
+  // this out as the snag flow's anchor (§12, median time-to-file <30s).
+  // Once any photo lands the container reverts to the grid layout with
+  // small thumbs + a compact "+ Add" tile.
+  const wrap = document.getElementById('snm-photos');
+  const empty = photos.length === 0 && !isClient;
+  wrap.classList.toggle('empty', empty);
+
+  if (empty) {
+    wrap.innerHTML = `<label class="snag-photo-add" title="Take a photo">
+      <span class="snag-photo-add-icon">＋</span>
+      <span>Take a photo</span>
+      <input type="file" accept="image/*" capture="environment" onchange="handleSnagPhotoSelect(this)">
+    </label>`;
+    return;
+  }
+
   let h='';
   photos.forEach(p=>{
     const clickHandler=p.uploading?'':`onclick="openSnagPhotoLightbox('${esc(p.url)}','${esc(p.addedBy||'')}','${esc(p.addedAt||'')}')"`;
@@ -5259,7 +5299,7 @@ function renderSnagModalPhotos(){
       <input type="file" accept="image/*" capture="environment" onchange="handleSnagPhotoSelect(this)">
     </label>`;
   }
-  document.getElementById('snm-photos').innerHTML=h||'<div style="font-size:12px;color:var(--muted)">No photos yet.</div>';
+  wrap.innerHTML = h || '<div style="font-size:12px;color:var(--muted)">No photos yet.</div>';
 }
 
 function renderSnagModalMeta(){
