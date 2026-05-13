@@ -1913,9 +1913,17 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
 .sr-seg-btn.active {
   color: var(--paper, #f3efe7) !important;
 }
+/* "Not started" active state — the previous --paper-2 fill was almost
+   indistinguishable from the inactive --paper fill (#f3efe7 vs #ebe7df).
+   The brief calls for the active segment to read distinctly even in
+   sun glare. We darken to --paper-3, add a navy ring, and force the
+   bold display weight so the worker sees instantly which state the
+   task is in without squinting. */
 .sr-seg-btn.active[data-st="not_started"] {
-  background: var(--paper-2, #ebe7df) !important;
+  background: var(--paper-3, #dfdacf) !important;
   color: var(--ink, #0d1b34) !important;
+  box-shadow: inset 0 0 0 2px var(--ink, #0d1b34) !important;
+  font-weight: 700 !important;
 }
 .sr-seg-btn.active.inprog { background: var(--amber, #d68a1a) !important; }
 .sr-seg-btn.active.done   { background: var(--green, #1f8b5a) !important; }
