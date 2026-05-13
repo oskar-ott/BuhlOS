@@ -336,6 +336,25 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .day-h{font-size:13px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1}
 .day-h.empty{color:var(--muted-2);font-weight:500}
 .day.today .day-d{color:var(--ink)}
+/* Rejected-entries banner inside the week card. Soft red surface +
+   inline icon + body text, ":hover" / ":active" feedback so it
+   reads as actionable. The worker taps it → openLhForDate on the
+   first rejected day → the worker can fix and resubmit. */
+.myweek-banner{
+  display:flex;align-items:center;gap:10px;
+  margin-top:12px;padding:10px 12px;
+  background:var(--bad-bg);border:1px solid var(--bad-bd);
+  border-radius:10px;color:var(--bad);
+  font-size:13px;cursor:pointer;
+  transition:background .12s, border-color .12s;
+}
+.myweek-banner:hover{background:#fdd6d2}
+.myweek-banner:active{transform:scale(.99)}
+.myweek-banner-ico{font-size:16px;flex-shrink:0}
+.myweek-banner-body{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3}
+.myweek-banner-body b{color:var(--bad);font-weight:700;font-size:13px}
+.myweek-banner-body span{font-size:11px;color:var(--bad);opacity:.8;font-weight:500}
+.myweek-banner-chev{font-size:16px;color:var(--bad);flex-shrink:0;opacity:.7}
 .week-cta{
   display:flex;align-items:center;justify-content:center;gap:8px;
   width:100%;padding:13px;border-radius:12px;
@@ -679,6 +698,18 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
       </div>
     </div>
     <div class="days" id="days"></div>
+    <!-- Rejected-entries banner. Surfaces when the worker has 1+
+         time entries from the current week marked rejected by an
+         admin/LH. Tapping it scrolls + opens the rejected day's
+         entry pre-filled. Hidden by default; renderMyWeek toggles. -->
+    <div id="myweek-rejected-banner" class="myweek-banner" hidden>
+      <span class="myweek-banner-ico" aria-hidden="true">⚠</span>
+      <span class="myweek-banner-body">
+        <b id="myweek-rejected-title">1 rejected entry</b>
+        <span id="myweek-rejected-sub">Tap to fix and resubmit</span>
+      </span>
+      <span class="myweek-banner-chev" aria-hidden="true">›</span>
+    </div>
     <button id="myweek-submit-drafts" style="display:none;width:100%;margin-top:14px;padding:13px;border-radius:12px;background:var(--ink);color:#fff;font-size:14.5px;font-weight:600" onclick="submitAllDrafts()"></button>
     <!-- Hidden — kept for legacy compat -->
     <div id="myweek-list" hidden></div>
@@ -1713,6 +1744,28 @@ function renderMyWeek(){
       ctaPip.textContent = '+' + missingCount + (missingCount === 1 ? ' day' : ' days');
     } else {
       ctaPip.style.display = 'none';
+    }
+  }
+
+  // ── Rejected-entries banner ──
+  // Surface inside the week card when 1+ time entries from the current
+  // 7-day window are marked rejected. Tapping the banner opens the
+  // first rejected day's entry pre-filled so the worker can fix
+  // (note → resubmit). Hidden when nothing's rejected.
+  const rejectedDays = days.filter(d => d.entry && d.entry.status === 'rejected');
+  const banner = document.getElementById('myweek-rejected-banner');
+  if (banner) {
+    if (rejectedDays.length > 0) {
+      banner.hidden = false;
+      const title = document.getElementById('myweek-rejected-title');
+      if (title) {
+        const n = rejectedDays.length;
+        title.textContent = n + ' rejected entr' + (n === 1 ? 'y' : 'ies');
+      }
+      banner.onclick = () => openLhForDate(rejectedDays[0].iso);
+    } else {
+      banner.hidden = true;
+      banner.onclick = null;
     }
   }
 
