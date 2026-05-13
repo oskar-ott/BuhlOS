@@ -1522,6 +1522,15 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
   -webkit-tap-highlight-color: transparent;
 }
 .jh-half:hover, .jh-half:active { background: var(--paper-2, #ebe7df); }
+/* "Log hours" button switches to a soft green confirmation when today's
+   hours are already on this job — fewer panic-relog opens for tradies
+   checking they didn't miss the submission. */
+.jh-half.done {
+  background: rgba(31, 139, 90, 0.08);
+  border-color: rgba(31, 139, 90, 0.32);
+  color: var(--green, #1f8b5a);
+}
+.jh-half.done:hover, .jh-half.done:active { background: rgba(31, 139, 90, 0.14); }
 
 /* 4 · Health strip — one bordered card, 4 cells sharing dividers. */
 .jh-strip {
@@ -3160,12 +3169,26 @@ function renderDash(){
   const myUserId = (CURRENT_USER && CURRENT_USER.id) || '';
   const attention = computeAttention(areas, role, myUserId);
   const primaryDest = jobHomePrimaryDest(groups);
+  // Tradie button label flips when today's hours are already logged
+  // on this job — "Log hours" → "✓ 8h logged". Saves the worker
+  // re-opening the sheet just to confirm they didn't forget. Pulled
+  // from hoursData which loadHours() already populates on this page.
+  const today = typeof _localToday === 'function' ? _localToday() : new Date().toISOString().slice(0,10);
+  const myEntryToday = Array.isArray(hoursData)
+    ? hoursData.find(e => e.date === today && e.userId === myUserId)
+    : null;
+  const thisJobHoursToday = myEntryToday && Array.isArray(myEntryToday.allocations)
+    ? myEntryToday.allocations.filter(a => a.jobId === JOB_ID).reduce((s, a) => s + (Number(a.hours) || 0), 0)
+    : 0;
+  const loggedLabel = thisJobHoursToday > 0
+    ? `✓ ${(Number.isInteger(thisJobHoursToday) ? thisJobHoursToday : thisJobHoursToday.toFixed(1))}h logged`
+    : 'Log hours';
   const secondaryRow = isLH
     ? `<button class="jh-half" type="button" onclick="goNav('snags')">Triage snags</button>
        <button class="jh-half" type="button" onclick="goNav('hours')">Crew today</button>`
     : (isClient
         ? ''
-        : `<button class="jh-half" type="button" onclick="openWorkerLogHours()">Log hours</button>
+        : `<button class="jh-half${thisJobHoursToday > 0 ? ' done' : ''}" type="button" onclick="openWorkerLogHours()">${loggedLabel}</button>
            <button class="jh-half" type="button" onclick="openWorkerRaiseSnag()">Raise snag</button>`);
 
   const h = `
