@@ -216,6 +216,26 @@ function paintOverview(d) {
   const dueSoonQ     = (d.quotes || []).filter(q => isQuoteDueSoon(q));
   const noRateTrad   = activeTrad.filter(u => !Number(u.hourlyRate));
 
+  // Jobs starting in the next 7 days that don't have crew assigned. The
+  // brief flagged this as a "critical gap" — a job that's about to
+  // start with no one on the books is the highest-cost setup gap. We
+  // already include "crew" in computeSetupGaps but bury it inside the
+  // Awaiting setup inbox; promoting just the imminent ones to an
+  // exception row makes them impossible to miss.
+  const crew = (d.users || []).filter(u =>
+    (u.role === 'tradie' || u.role === 'leadingHand') && !u.archived
+  );
+  const SEVEN_DAYS = 7 * 86400000;
+  const imminentNoCrew = activeJobs.filter(j => {
+    if (!j.startDate) return false;
+    const start = new Date(j.startDate).getTime();
+    if (!isFinite(start)) return false;
+    const delta = start - Date.now();
+    if (delta < -86400000 || delta > SEVEN_DAYS) return false; // started today through next 7d
+    const crewN = crew.filter(u => (u.assignedJobIds || []).includes(j.id)).length;
+    return crewN === 0;
+  });
+
   const page = SHELL.$('#page');
   page.innerHTML = `
     <div class="ov-head">
@@ -323,6 +343,19 @@ function paintOverview(d) {
   const exList = document.getElementById('ov-exceptions-list');
   const exceptions = [];
 
+  // Imminent jobs with no crew — top of the exception list because
+  // they block the work from starting at all. Sorted ahead of old-snags
+  // (which only block payment) because no-crew is the bigger fire.
+  if (imminentNoCrew.length) {
+    const n = imminentNoCrew.length;
+    const names = imminentNoCrew.slice(0, 2).map(j => j.name || j.id).join(' · ');
+    exceptions.push({
+      status: 'red',
+      label: `${n} job${n === 1 ? '' : 's'} starting this week with no crew`,
+      sub: names + (n > 2 ? ` · +${n - 2}` : ''),
+      action: { href: '/admin/jobs?filter=setup-gaps', label: 'Assign →' },
+    });
+  }
   // Blocks payment first (oldest snags → reputation, payment hold risk).
   if (oldSnags.length) {
     exceptions.push({
