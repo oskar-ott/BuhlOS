@@ -674,15 +674,22 @@ textarea:focus{border-color:var(--navy);background:var(--paper);outline:2px soli
    transform on the X axis. Only Open snags get the affordance — resolved
    rows show nothing on swipe. */
 .snag-swipe-host{position:relative;overflow:hidden}
+/* Swipe-left → Resolve (green, right-aligned strip).
+   Swipe-right → Assign me (navy, left-aligned strip, only when the
+   row is unassigned and the worker isn't already the assignee). */
 .snag-swipe-bg{
-  position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-end;
-  padding-right:22px;background:var(--green);color:#fff;
+  position:absolute;inset:0;display:flex;align-items:center;
+  background:var(--green);color:#fff;
   font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;
   text-transform:uppercase;
   pointer-events:none;opacity:0;transition:opacity .15s;
 }
-.snag-swipe-host.swiping .snag-swipe-bg{opacity:1}
-.snag-swipe-host.swiping .snag-row{transition:none}
+.snag-swipe-bg.resolve{justify-content:flex-end;padding-right:22px}
+.snag-swipe-bg.claim{justify-content:flex-start;padding-left:22px;background:var(--navy)}
+.snag-swipe-host.swiping-left .snag-swipe-bg.resolve{opacity:1}
+.snag-swipe-host.swiping-right .snag-swipe-bg.claim{opacity:1}
+.snag-swipe-host.swiping-left .snag-row,
+.snag-swipe-host.swiping-right .snag-row{transition:none}
 .snag-swipe-bg span{display:inline-flex;align-items:center;gap:8px}
 .snag-swipe-bg svg{width:16px;height:16px}
 .snag-row.resolved{border-left-color:var(--green)}
@@ -4549,12 +4556,17 @@ function renderSnags(){
       </div>`;
       // Open snag rows are wrapped in a .snag-swipe-host so the
       // touch-swipe handlers (wired below in initSnagSwipe) can
-      // animate the row sliding left and reveal the green Resolve
-      // strip beneath. Closed snags skip the wrap — there's nothing
-      // to reveal.
+      // animate the row sliding sideways and reveal an action strip
+      // beneath. Swipe-left = Resolve (always for open snags), swipe-
+      // right = Assign me (only when the worker can claim — open,
+      // not already assigned to them, and not a client).
       const swipeBg = isOpen && !isClient
-        ? `<div class="snag-swipe-bg"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"/></svg>Resolve</span></div>`
+        ? `<div class="snag-swipe-bg resolve"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"/></svg>Resolve</span></div>`
         : '';
+      const claimSwipeBg = (isOpen && !isClient && CURRENT_USER && s.assignedToUserId !== CURRENT_USER.id)
+        ? `<div class="snag-swipe-bg claim"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>Assign me</span></div>`
+        : '';
+      const claimDataAttr = claimSwipeBg ? ' data-claim="1"' : '';
       const rowMarkup = `<div class="snag-row${isOpen?'':' muted'}" id="snag-row-${esc(s.id)}"${rowClick} data-snag-idx="${idx}">
         <div class="reg-row-accent ${accent}"></div>
         ${photoThumb}
@@ -4577,7 +4589,7 @@ function renderSnags(){
         ${actions}
       </div>`;
       h += (isOpen && !isClient)
-        ? `<div class="snag-swipe-host">${swipeBg}${rowMarkup}</div>`
+        ? `<div class="snag-swipe-host"${claimDataAttr}>${claimSwipeBg}${swipeBg}${rowMarkup}</div>`
         : rowMarkup;
     });
     h+=`</div>`;
@@ -4590,10 +4602,12 @@ function renderSnags(){
   initSnagSwipe();
 }
 
-// Wire swipe-to-resolve on any .snag-swipe-host that hasn't been wired
-// yet (data-swipe-init). Touch-only — desktop users still use the
-// Resolve button in .snag-row-actions. Commits at ~96px of leftward
-// travel; partial swipes spring back. Idempotent.
+// Wire swipe gestures on any .snag-swipe-host not already wired.
+// Swipe-left  = Resolve     (commit > 96px left)
+// Swipe-right = Assign me   (commit > 96px right, only when the host
+//                            opted-in via data-claim="1")
+// Touch-only — desktop users still use the buttons in .snag-row-actions.
+// Idempotent (data-swipe-init flag).
 function initSnagSwipe(){
   document.querySelectorAll('.snag-swipe-host:not([data-swipe-init])').forEach(host => {
     host.setAttribute('data-swipe-init', '1');
@@ -4601,6 +4615,7 @@ function initSnagSwipe(){
     if (!row) return;
     const idx = parseInt(row.getAttribute('data-snag-idx'), 10);
     if (isNaN(idx)) return;
+    const canClaim = host.getAttribute('data-claim') === '1';
 
     let startX = 0, startY = 0, deltaX = 0, dragging = false, locked = null;
     const COMMIT_PX = 96;
@@ -4612,39 +4627,52 @@ function initSnagSwipe(){
       deltaX = 0;
       dragging = true;
       locked = null;
-      host.classList.remove('swiping');
+      host.classList.remove('swiping-left', 'swiping-right');
     };
     const onMove = (e) => {
       if (!dragging) return;
       const t = e.touches ? e.touches[0] : e;
       const dx = t.clientX - startX;
       const dy = t.clientY - startY;
-      // Decide whether this is a horizontal swipe or a vertical scroll
-      // — once locked vertical, we don't claim further events.
       if (locked === null){
         if (Math.abs(dx) > 8 || Math.abs(dy) > 8){
           locked = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
         }
       }
       if (locked !== 'x'){ return; }
-      // Only allow leftward drag (resolve gesture).
-      deltaX = Math.min(0, dx);
-      host.classList.add('swiping');
+      // Clamp to allowed directions: always allow left (resolve);
+      // allow right only when the host opted in (canClaim).
+      if (dx < 0) {
+        deltaX = dx;
+        host.classList.add('swiping-left');
+        host.classList.remove('swiping-right');
+      } else if (dx > 0 && canClaim) {
+        deltaX = dx;
+        host.classList.add('swiping-right');
+        host.classList.remove('swiping-left');
+      } else {
+        deltaX = 0;
+        host.classList.remove('swiping-left', 'swiping-right');
+      }
       row.style.transform = `translateX(${deltaX}px)`;
       if (e.cancelable) e.preventDefault();
     };
     const onEnd = () => {
       if (!dragging) return;
       dragging = false;
-      const commit = deltaX <= -COMMIT_PX;
-      if (commit){
+      if (deltaX <= -COMMIT_PX){
         row.style.transform = 'translateX(-100%)';
         setTimeout(() => {
           if (typeof closeSnag === 'function') closeSnag(idx);
         }, 160);
+      } else if (deltaX >= COMMIT_PX && canClaim){
+        row.style.transform = 'translateX(100%)';
+        setTimeout(() => {
+          if (typeof claimSnag === 'function') claimSnag(idx);
+        }, 160);
       } else {
         row.style.transform = '';
-        host.classList.remove('swiping');
+        host.classList.remove('swiping-left', 'swiping-right');
       }
     };
 
