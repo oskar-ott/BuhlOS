@@ -110,6 +110,20 @@
     margin: 0;
   }
   .ov-head .sub { color: var(--muted); font-size: 13.5px; }
+  .ov-head .ov-head-spacer { flex: 1; }
+  /* Admin-only preview link to the leading-hand surface so admin can
+     spot-check what their LHs see without re-logging. Hidden for any
+     other role via JS. */
+  .ov-head-link {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink-2);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: rgba(13,27,52,.25);
+    transition: text-decoration-color .15s, color .15s;
+  }
+  .ov-head-link:hover { color: var(--ink); text-decoration-color: var(--ink); }
 </style>
 </head>
 <body>
@@ -197,6 +211,8 @@ function paintOverview(d) {
     <div class="ov-head">
       <h1>${SHELL.escapeHtml(headlineDate())}</h1>
       <span class="sub">${activeJobs.length} active ${activeJobs.length === 1 ? 'job' : 'jobs'} · ${(d.users || []).length} on the books</span>
+      <span class="ov-head-spacer"></span>
+      ${(SHELL.ME && SHELL.ME.role === 'admin') ? `<a class="ov-head-link" href="/lh" title="Preview the leading-hand surface">Field control →</a>` : ''}
     </div>
 
     <div class="ov-pulse" id="ov-pulse"></div>
@@ -263,11 +279,23 @@ function paintOverview(d) {
     }));
   }
   if (setupGaps.length) {
+    // Compute the dominant gap category across all setup-gaps so the
+    // inbox-summary can name the actual missing piece ("3 jobs · client
+    // missing") rather than a generic catch-all. Falls back to a
+    // mixed-list label when the gaps span multiple categories.
+    const tally = {};
+    for (const sg of setupGaps) {
+      for (const m of sg.missing) tally[m] = (tally[m] || 0) + 1;
+    }
+    const topGaps = Object.entries(tally).sort((a, b) => b[1] - a[1]).slice(0, 2);
+    const summary = topGaps.length
+      ? `${setupGaps.length} ${setupGaps.length === 1 ? 'job' : 'jobs'} · ` + topGaps.map(([k, n]) => `${n} ${k}`).join(' · ')
+      : `${setupGaps.length} ${setupGaps.length === 1 ? 'job' : 'jobs'} · template / areas / crew missing`;
     inboxesEl.appendChild(mkInbox({
       label: 'Awaiting setup',
       count: setupGaps.length,
       severity: 'warn',
-      summary: `${setupGaps.length} ${setupGaps.length === 1 ? 'job' : 'jobs'} · template / areas / crew missing`,
+      summary,
       actionLabel: 'Set up →',
       actionHref: '/admin/jobs?filter=setup-gaps',
     }));
@@ -426,6 +454,7 @@ function paintActivity(d, container) {
 function computeSetupGaps(activeJobs) {
   const out = [];
   const tradies = (SHELL.USERS || []).filter(u => u.role === 'tradie' || u.role === 'leadingHand');
+  const clients = (SHELL.USERS || []).filter(u => u.role === 'client' && !u.archived);
   for (const j of activeJobs) {
     const missing = [];
     if (!(j.areaGroups || []).length)     missing.push('areas');
@@ -433,6 +462,15 @@ function computeSetupGaps(activeJobs) {
     if (!(j.fitOffTasks || []).length)    missing.push('fit-off');
     const crewN = tradies.filter(u => (u.assignedJobIds || []).includes(j.id)).length;
     if (!crewN) missing.push('crew');
+    // Client + contacts + site address aren't strictly "rigidity" gaps —
+    // the job can run without them — but they're the business gaps
+    // admin needs to chase before invoicing or scheduling. Surfacing
+    // them as part of setup-gaps means the admin's queue includes
+    // "Birdwood has no client" alongside "Birdwood has no areas".
+    const hasClient = j.clientUserId && clients.some(c => c.id === j.clientUserId);
+    if (!hasClient) missing.push('client');
+    if (!j.siteAddress) missing.push('address');
+    if (!j.siteContactName && !j.siteContactPhone) missing.push('contacts');
     if (missing.length) out.push({ job: j, missing });
   }
   return out;
