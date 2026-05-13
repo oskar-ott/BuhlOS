@@ -241,21 +241,30 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   font-size:13px;font-weight:600;
 }
 
-/* Logged-state summary (replaces entry when today's hours exist) */
-.logcard-summary{display:flex;flex-direction:column;gap:10px}
-.logcard-summary-line{display:flex;align-items:baseline;gap:8px;font-size:14px;color:var(--ink-2)}
-.logcard-summary-line b{font-size:30px;font-weight:700;letter-spacing:-.8px;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1}
+/* Logged-state summary — compressed to a single row.
+   Big tabular number on the left ("8h"), micro-context underneath
+   ("on Birdwood Ave · entered by Joe"), and a compact pill-shaped
+   Edit button on the right. The previous 4-line stack (label/total/
+   job/Edit button on its own row) felt heavier than the confirmation
+   warranted; the worker has already done the work — the summary just
+   needs to read at a glance. */
+.logcard-summary{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px}
+.logcard-summary-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.logcard-summary-line{display:flex;align-items:baseline;gap:6px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.7px}
+.logcard-summary-line b{font-size:30px;font-weight:700;letter-spacing:-.8px;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1;text-transform:none}
 .logcard.logged .logcard-summary-line b{color:var(--ok)}
 .logcard.draft .logcard-summary-line b{color:#7a5400}
 .logcard-summary-job{
   font-size:12px;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .logcard-summary-job b{color:var(--ink);font-weight:600}
 .logcard-edit{
   appearance:none;border:1px solid var(--line);background:var(--surface);
-  padding:11px;border-radius:10px;width:100%;
-  font:inherit;font-size:14px;font-weight:600;color:var(--ink);
-  cursor:pointer;
+  padding:8px 14px;border-radius:999px;
+  font:inherit;font-size:13px;font-weight:600;color:var(--ink);
+  cursor:pointer;flex-shrink:0;
+  transition:background .12s, border-color .12s;
 }
 .logcard-edit:hover{background:var(--surface-2);border-color:var(--line-2)}
 .logcard.logged .logcard-edit{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -546,19 +555,18 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
       <span class="logcard-status" id="logcard-status">Not logged</span>
     </div>
 
-    <!-- Logged-state summary (shown when today's entry exists). The
-         initial placeholder for the total is intentionally blank: if a
-         render race ever unhides this card before the entry is paint-
-         filled, "Logged today:" with nothing after it reads more
-         honestly than "Logged today: —" (which the user reported
-         seeing on the field). paintLogCard sets it to the real value
-         in one frame; an empty span never reaches the user. -->
+    <!-- Logged-state summary (shown when today's entry exists). Single
+         row layout: big total + tiny context on the left, compact Edit
+         pill on the right. paintLogCard fills both spans in one frame
+         so the worker never sees the placeholder. -->
     <div class="logcard-summary" id="logcard-summary" hidden>
-      <div class="logcard-summary-line">
-        <span>Logged today:</span>
-        <b id="logcard-summary-total"></b>
+      <div class="logcard-summary-main">
+        <div class="logcard-summary-line">
+          <b id="logcard-summary-total"></b>
+          <span>logged</span>
+        </div>
+        <div class="logcard-summary-job" id="logcard-summary-job"></div>
       </div>
-      <div class="logcard-summary-job" id="logcard-summary-job"></div>
       <button class="logcard-edit" type="button" id="logcard-edit">Edit</button>
     </div>
 
@@ -980,12 +988,15 @@ function paintLogCard(){
     // they don't need to log a duplicate. Old entries (pre-PR #25)
     // don't carry enteredByUserId; we silently skip the line for them.
     const delegated = entry.enteredByUserId && entry.enteredByUserId !== entry.userId;
-    const enteredByLine = delegated
-      ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">Entered by <b style="color:var(--ink-2);font-weight:600">${esc(entry.enteredByName || 'leading hand')}</b></div>`
+    // Single-line context inside the compressed summary. When an LH/admin
+    // logged on behalf, the trailing "(by Joe)" preserves chain-of-custody
+    // without needing a second row.
+    const delegatedSuffix = delegated
+      ? ` <span style="color:var(--ink-2);font-weight:600">(by ${esc(entry.enteredByName || 'leading hand')})</span>`
       : '';
     document.getElementById('logcard-summary-job').innerHTML = (job
-      ? `On <b>${esc(job.name)}</b>`
-      : '<i style="color:var(--muted)">Internal — no job</i>') + enteredByLine;
+      ? `on <b>${esc(job.name)}</b>`
+      : '<i style="color:var(--muted)">internal — no job</i>') + delegatedSuffix;
   } else {
     summary.hidden = true;
     entryEl.hidden = false;
