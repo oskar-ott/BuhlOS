@@ -209,6 +209,125 @@ a { color: inherit; text-decoration: none; }
 }
 .sec-h-link:hover { color: var(--ink); }
 
+/* ── Notification bell + drawer ──
+   Bell sits in the header. Red pip when unread items exist. Drawer
+   slides in from the right on desktop, up from the bottom on mobile. */
+.hdr-bell {
+  flex-shrink: 0;
+  width: 36px; height: 36px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.1);
+  border: 1px solid rgba(255,255,255,.18);
+  color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.hdr-bell:hover { background: rgba(255,255,255,.18); }
+.hdr-bell-pip {
+  position: absolute;
+  top: 6px; right: 7px;
+  min-width: 14px; height: 14px; padding: 0 4px;
+  background: var(--red); color: #fff;
+  border-radius: 999px;
+  font-family: var(--ff-mono);
+  font-size: 9px; font-weight: 700;
+  line-height: 14px;
+  border: 2px solid var(--navy);
+  text-align: center;
+}
+.lh-notif-scrim {
+  position: fixed; inset: 0; background: rgba(13,31,53,.42);
+  z-index: 998; animation: lhScrimIn .18s ease-out;
+}
+.lh-notif-drawer {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: var(--paper);
+  z-index: 999;
+  border-radius: 18px 18px 0 0;
+  max-height: 85vh;
+  display: flex; flex-direction: column;
+  animation: lhSheetIn .22s cubic-bezier(.16,1,.3,1);
+  box-shadow: 0 -10px 32px rgba(15,23,42,.18);
+  padding-bottom: var(--safe-b);
+}
+@media (min-width: 720px) {
+  .lh-notif-drawer {
+    top: 0; bottom: 0; right: 0; left: auto;
+    width: 380px; max-height: none;
+    border-radius: 0;
+    animation: lhDrawerSlide .22s cubic-bezier(.16,1,.3,1);
+    box-shadow: -10px 0 32px rgba(15,23,42,.18);
+  }
+  @keyframes lhDrawerSlide { from { transform: translateX(100%); } to { transform: translateX(0); } }
+}
+.lh-notif-h {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: calc(14px + var(--safe-t)) 18px 14px;
+  font-family: var(--ff-display);
+  font-size: 17px; font-weight: 700;
+  letter-spacing: -.012em;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.lh-notif-x {
+  background: none; border: 0; cursor: pointer;
+  font-size: 24px; line-height: 1; color: var(--ink-3);
+  padding: 4px 8px;
+}
+.lh-notif-x:hover { color: var(--ink); }
+.lh-notif-body { overflow-y: auto; flex: 1; }
+.lh-notif-grp {
+  font-family: var(--ff-mono);
+  font-size: 10px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 14px 18px 8px;
+  border-top: 1px solid var(--line);
+}
+.lh-notif-grp:first-child { border-top: 0; }
+.lh-notif-item {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 18px;
+  text-decoration: none;
+  color: inherit;
+  border-bottom: 1px solid var(--line);
+  transition: background .12s;
+}
+.lh-notif-item:hover { background: var(--paper-2); }
+.lh-notif-item:last-child { border-bottom: 0; }
+.lh-notif-item-dot {
+  flex-shrink: 0; margin-top: 4px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ink-3);
+}
+.lh-notif-item-dot.red { background: var(--red); }
+.lh-notif-item-dot.amber { background: var(--amber); }
+.lh-notif-item-dot.green { background: var(--green); }
+.lh-notif-item-body { flex: 1; min-width: 0; }
+.lh-notif-item-l {
+  font-size: 14px; font-weight: 600;
+  color: var(--ink); line-height: 1.3;
+}
+.lh-notif-item-sub {
+  font-size: 11.5px; color: var(--ink-3);
+  margin-top: 2px;
+}
+.lh-notif-empty {
+  padding: 60px 24px;
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+.lh-notif-empty b {
+  display: block;
+  font-family: var(--ff-display);
+  color: var(--ink);
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+
 /* ── LH Tools bottom sheet ──
    Opened from the header Tools button. Brief §14: three groups in
    fixed order, empty groups hide entirely. Slides up from the bottom
@@ -674,9 +793,31 @@ a { color: inherit; text-decoration: none; }
     <div class="hdr-title" id="hdr-title">Leading hand</div>
     <div class="hdr-date" id="hdr-date"></div>
   </div>
+  <button type="button" class="hdr-bell" id="hdr-bell" title="Notifications" aria-haspopup="dialog" style="position:relative;margin-right:6px">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2H4.5L6 16z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+    <span class="hdr-bell-pip" id="hdr-bell-pip" hidden></span>
+  </button>
   <button type="button" class="hdr-action" id="hdr-action" title="Open the leading-hand tools sheet" aria-haspopup="dialog">Tools</button>
   <a href="/admin/operations" class="hdr-action hdr-action-admin" id="hdr-action-admin" title="Switch to site office view" style="display:none;margin-left:8px">Site office →</a>
 </div>
+
+<!-- Notification inbox drawer. Slides in from the right (desktop) or
+     up as a sheet (mobile). Composes a virtual inbox from existing
+     endpoints — snags assigned to me, snags I raised that closed
+     recently, pending crew-hour approvals (LH can approve own crew
+     per PR #183). No new backend; just aggregates what's already
+     read for the home page's attention column plus a couple of
+     extra targeted reads. -->
+<div class="lh-notif-scrim" id="lh-notif-scrim" hidden></div>
+<aside class="lh-notif-drawer" id="lh-notif-drawer" hidden role="dialog" aria-label="Notifications">
+  <div class="lh-notif-h">
+    <span>Inbox</span>
+    <button type="button" class="lh-notif-x" id="lh-notif-x" aria-label="Close">×</button>
+  </div>
+  <div class="lh-notif-body" id="lh-notif-body">
+    <div style="padding:32px 22px;color:var(--ink-3);text-align:center">Loading…</div>
+  </div>
+</aside>
 
 <!-- LH Tools bottom sheet — anchored to the Tools button in the header.
      Three groups in fixed order per brief §14: Tools (Temps & Assets,
@@ -847,9 +988,210 @@ async function boot() {
   // or X. Mount the sheet body lazily on first open so a worker who
   // never taps Tools doesn't pay the DOM cost.
   initToolsSheet();
+  // Wire the notification bell + drawer. Fires a background fetch
+  // for the unread-pip count even when the drawer is closed.
+  initNotifInbox();
 
   await loadAndPaint();
   initPullToRefresh();
+}
+
+/* ── Notification inbox ────────────────────────────────────────────
+   Bell in the header opens a drawer that aggregates:
+     • Snags assigned to me (active blockers)
+     • Pending crew-hour approvals (LH/admin only — per PR #183 LH
+       can approve own crew, scoped server-side)
+     • Snags I raised that closed recently (last 14 days, soft "FYI"
+       category that doesn't carry an unread pip)
+   No new backend — each item comes from an endpoint that already
+   exists (snags-mine, time-entries scope=approver).
+   Unread tracking is local-only: last-seen timestamp in localStorage,
+   anything newer counts toward the red pip. */
+const NOTIF_SEEN_KEY = 'lh.notifInbox.lastSeenAt';
+function notifLastSeen() {
+  try { return Number(localStorage.getItem(NOTIF_SEEN_KEY)) || 0; }
+  catch (e) { return 0; }
+}
+function notifMarkSeen() {
+  try { localStorage.setItem(NOTIF_SEEN_KEY, String(Date.now())); }
+  catch (e) {}
+}
+
+function initNotifInbox() {
+  const bell    = document.getElementById('hdr-bell');
+  const scrim   = document.getElementById('lh-notif-scrim');
+  const drawer  = document.getElementById('lh-notif-drawer');
+  const closeX  = document.getElementById('lh-notif-x');
+  const body    = document.getElementById('lh-notif-body');
+  const pipEl   = document.getElementById('hdr-bell-pip');
+  if (!bell || !drawer) return;
+
+  function open() {
+    scrim.hidden = false;
+    drawer.hidden = false;
+    bell.setAttribute('aria-expanded', 'true');
+    loadInbox();
+  }
+  function close() {
+    scrim.hidden = true;
+    drawer.hidden = true;
+    bell.setAttribute('aria-expanded', 'false');
+    // Mark everything as seen on close so the next render zeros the pip.
+    notifMarkSeen();
+    refreshPip();
+  }
+  bell.addEventListener('click', () => drawer.hidden ? open() : close());
+  scrim.addEventListener('click', close);
+  closeX && closeX.addEventListener('click', close);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !drawer.hidden) close(); });
+
+  // Initial pip refresh — fires the same composition the drawer uses
+  // but only counts unread (items with ts > lastSeen) toward the pip.
+  refreshPip();
+}
+
+async function fetchInboxData() {
+  const tasks = [
+    fetch('/api/snags-mine?view=assigned&status=Open', { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : { snags: [] })
+      .catch(() => ({ snags: [] })),
+    fetch('/api/snags-mine?view=raised&status=Closed', { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : { snags: [] })
+      .catch(() => ({ snags: [] })),
+    // Pending approvals — only meaningful for LH/admin. The server
+    // 403s tradies/clients on the approver scope, which the catch
+    // turns into an empty list.
+    fetch('/api/time-entries?status=submitted&scope=approver', { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : { entries: [] })
+      .catch(() => ({ entries: [] })),
+  ];
+  const [assigned, resolved, pending] = await Promise.all(tasks);
+  return {
+    assigned: assigned.snags || [],
+    resolved: resolved.snags || [],
+    pending:  pending.entries || [],
+  };
+}
+
+async function refreshPip() {
+  const pipEl = document.getElementById('hdr-bell-pip');
+  if (!pipEl) return;
+  try {
+    const { assigned, pending } = await fetchInboxData();
+    // Anything created/updated after the last-seen timestamp counts.
+    // Resolved-snags don't carry a pip — they're FYI, not actionable.
+    const since = notifLastSeen();
+    const unreadAssigned = assigned.filter(s => {
+      const t = new Date(s.createdAt || s.updatedAt || 0).getTime();
+      return t > since;
+    }).length;
+    const unreadPending = pending.filter(p => {
+      const t = new Date(p.submittedAt || p.updatedAt || 0).getTime();
+      return t > since;
+    }).length;
+    const total = unreadAssigned + unreadPending;
+    if (total > 0) {
+      pipEl.textContent = total > 9 ? '9+' : String(total);
+      pipEl.hidden = false;
+    } else {
+      pipEl.hidden = true;
+    }
+  } catch (e) {
+    pipEl.hidden = true;
+  }
+}
+
+async function loadInbox() {
+  const body = document.getElementById('lh-notif-body');
+  if (!body) return;
+  body.innerHTML = '<div style="padding:32px 22px;color:var(--ink-3);text-align:center">Loading…</div>';
+  try {
+    const { assigned, resolved, pending } = await fetchInboxData();
+    if (!assigned.length && !resolved.length && !pending.length) {
+      body.innerHTML = `<div class="lh-notif-empty">
+        <b>All caught up.</b>
+        <span>No snags assigned, no pending approvals, no recent resolutions.</span>
+      </div>`;
+      return;
+    }
+    let html = '';
+
+    // Assigned to me — actionable, top of the inbox.
+    if (assigned.length) {
+      html += `<div class="lh-notif-grp">Assigned to me · ${assigned.length}</div>`;
+      html += assigned.slice(0, 12).map(s => {
+        const t = new Date(s.createdAt || 0);
+        const when = isFinite(t.getTime()) ? agoStr(t.getTime()) : '';
+        const dot = (s.priority || '').toLowerCase() === 'high' ? 'red' : 'amber';
+        return `<a class="lh-notif-item" href="/jobs/${esc(s.jobId)}?snag=${esc(s.id)}">
+          <span class="lh-notif-item-dot ${dot}"></span>
+          <div class="lh-notif-item-body">
+            <div class="lh-notif-item-l">${esc(s.desc || '(no description)')}</div>
+            <div class="lh-notif-item-sub">${esc(s.jobName || '')}${s.dwellingName ? ' · ' + esc(s.dwellingName) : ''}${when ? ' · ' + esc(when) : ''}</div>
+          </div>
+        </a>`;
+      }).join('');
+    }
+
+    // Pending hour approvals — admin / LH only. Server already gated.
+    if (pending.length) {
+      html += `<div class="lh-notif-grp">Hours pending approval · ${pending.length}</div>`;
+      html += pending.slice(0, 12).map(p => {
+        const t = new Date(p.submittedAt || p.date || 0);
+        const when = isFinite(t.getTime()) ? agoStr(t.getTime()) : '';
+        const hrs = Number(p.totalHours || 0).toFixed(1);
+        return `<a class="lh-notif-item" href="/admin/approvals">
+          <span class="lh-notif-item-dot amber"></span>
+          <div class="lh-notif-item-body">
+            <div class="lh-notif-item-l">${esc(p.userName || p.userId || 'Crew')} · ${esc(hrs)}h</div>
+            <div class="lh-notif-item-sub">Submitted ${esc(when)}</div>
+          </div>
+        </a>`;
+      }).join('');
+    }
+
+    // Recently resolved (snags I raised, closed in last 14 days).
+    // FYI category — no pip.
+    if (resolved.length) {
+      const recent = resolved.filter(s => {
+        const t = new Date(s.closedAt || 0).getTime();
+        if (!isFinite(t)) return false;
+        return (Date.now() - t) < 14 * 86400000;
+      }).slice(0, 6);
+      if (recent.length) {
+        html += `<div class="lh-notif-grp">Recently resolved · ${recent.length}</div>`;
+        html += recent.map(s => {
+          const t = new Date(s.closedAt || 0);
+          const when = isFinite(t.getTime()) ? agoStr(t.getTime()) : '';
+          return `<a class="lh-notif-item" href="/jobs/${esc(s.jobId)}?snag=${esc(s.id)}">
+            <span class="lh-notif-item-dot green"></span>
+            <div class="lh-notif-item-body">
+              <div class="lh-notif-item-l">${esc(s.desc || '(no description)')}</div>
+              <div class="lh-notif-item-sub">${esc(s.jobName || '')} · resolved ${esc(when)}</div>
+            </div>
+          </a>`;
+        }).join('');
+      }
+    }
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = `<div class="lh-notif-empty">
+      <b>Couldn't load inbox.</b>
+      <span>${esc(e && e.message || 'Try again later.')}</span>
+    </div>`;
+  }
+}
+
+// Shared "X mins/hours/days ago" formatter — used by inbox rows.
+function agoStr(ms) {
+  if (!ms) return '';
+  const s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
+  if (s < 60)        return 'just now';
+  if (s < 3600)      return Math.floor(s / 60) + 'm ago';
+  if (s < 86400)     return Math.floor(s / 3600) + 'h ago';
+  if (s < 86400 * 7) return Math.floor(s / 86400) + 'd ago';
+  const d = new Date(ms);
+  return d.toLocaleDateString('en-AU', { day:'numeric', month:'short' });
 }
 
 /* ── LH Tools bottom sheet ────────────────────────────────────────── */
