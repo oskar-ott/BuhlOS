@@ -3210,9 +3210,20 @@ function renderDash(){
   const loggedLabel = thisJobHoursToday > 0
     ? `✓ ${(Number.isInteger(thisJobHoursToday) ? thisJobHoursToday : thisJobHoursToday.toFixed(1))}h logged`
     : 'Log hours';
+  // LH gets two contextual pips on Job Home:
+  //   "Triage snags · 4" when there are open snags on this job
+  //   "Crew today · 3" when 2+ workers (other than self) have logged
+  //     hours against this job today — gives the LH an at-a-glance
+  //     sense of how many are on site without opening the Hours tab.
+  // Tradies still get the inline confirmation on Log hours from PR
+  // #190; their secondary row label logic is unchanged.
+  const myUserIdSec = (CURRENT_USER && CURRENT_USER.id) || '';
+  const lhCrewToday = isLH && Array.isArray(hoursData)
+    ? new Set(hoursData.filter(e => e.date === (typeof _localToday === 'function' ? _localToday() : new Date().toISOString().slice(0,10)) && e.userId !== myUserIdSec && (e.allocations || []).some(a => a.jobId === JOB_ID)).map(e => e.userId)).size
+    : 0;
   const secondaryRow = isLH
-    ? `<button class="jh-half" type="button" onclick="goNav('snags')">Triage snags</button>
-       <button class="jh-half" type="button" onclick="goNav('hours')">Crew today</button>`
+    ? `<button class="jh-half" type="button" onclick="goNav('snags')">Triage snags${os > 0 ? ` · ${os}` : ''}</button>
+       <button class="jh-half" type="button" onclick="goNav('hours')">Crew today${lhCrewToday > 0 ? ` · ${lhCrewToday}` : ''}</button>`
     : (isClient
         ? ''
         : `<button class="jh-half${thisJobHoursToday > 0 ? ' done' : ''}" type="button" onclick="openWorkerLogHours()">${loggedLabel}</button>
