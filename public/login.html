@@ -735,13 +735,23 @@ a { color: inherit; text-decoration: none; }
 
 <script>
 // ── Auth landing routing ────────────────────────────────────────────────
-// Same shape as the previous login: admin → /admin/operations,
-// leadingHand → /admin/operations, tradie → /my-day, client → /client.
+// Each role lands in a deliberate, role-specific surface (the "Admin/LH
+// rebuild" — see /lh-home.html and /admin/operations.html). Sharing the
+// command-centre between admin and LH meant the LH had to mentally
+// filter the page on every load; the field-control vs site-office split
+// keeps each user in their own context.
+//
+//   admin       → /admin/operations  (Site Office / Command Centre)
+//   leadingHand → /lh                 (Field Control / Leading Hand Home)
+//   tradie      → /my-day             (Worker Home — unchanged)
+//   client      → /client             (Client read-only portal — unchanged)
+//
 // /jobs picker was nuked in PR #14 so it isn't a landing target anymore.
 function landingFor(role) {
-  if (role === 'admin' || role === 'leadingHand') return '/admin/operations';
-  if (role === 'tradie') return '/my-day';
-  if (role === 'client') return '/client';
+  if (role === 'admin')       return '/admin/operations';
+  if (role === 'leadingHand') return '/lh';
+  if (role === 'tradie')      return '/my-day';
+  if (role === 'client')      return '/client';
   return '/login';
 }
 

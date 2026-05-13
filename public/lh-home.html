@@ -1,0 +1,927 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d1f35">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BuhlOS">
+<title>Field Control · bühl</title>
+<script type="module" src="/components/queue.js"></script>
+<script type="module" src="/components/buhl-mark.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║  /lh-home — Leading Hand Field Control                          ║
+   ║                                                                  ║
+   ║  Purpose-built landing for the leadingHand role. NOT a shrunken ║
+   ║  admin dashboard. Answers four questions in order:               ║
+   ║                                                                  ║
+   ║    1. Which jobs am I running today?                             ║
+   ║    2. What needs my attention across them?                       ║
+   ║    3. What's blocking the crew?                                  ║
+   ║    4. What action do I take next?                                ║
+   ║                                                                  ║
+   ║  Mobile-first responsive: phone shows vertical card stack with   ║
+   ║  primary actions inline; tablet/desktop floats Attention column  ║
+   ║  alongside the job stack so both read in one viewport.           ║
+   ║                                                                  ║
+   ║  Data sources (all permission-scoped on the server):             ║
+   ║    /api/auth?action=me           — identity + role gate          ║
+   ║    /api/jobs?withStats=1         — assigned jobs + per-job stats ║
+   ║    /api/snags-all?status=Open    — open snags across my jobs     ║
+   ║    /api/time-entries-overview    — this week's hours             ║
+   ║                                                                  ║
+   ║  Falls back to honest empty states for every section so a fresh  ║
+   ║  LH with no jobs yet sees "No jobs assigned" instead of NaN.     ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+
+:root {
+  --bg:        #f3efe7;
+  --paper:     #ffffff;
+  --paper-2:   #faf8f3;
+  --paper-3:   #efece4;
+
+  --navy:      #0d1f35;
+  --navy-2:    #152840;
+  --navy-3:    #2a3958;
+
+  --ink:       #0d1f35;
+  --ink-2:     #2a3958;
+  --ink-3:     #6a7591;
+  --ink-4:     #9aa3bc;
+
+  --rule:      #d2ccbf;
+  --rule-2:    #c5beaf;
+  --line:      #ece7da;
+
+  --yellow:    #f5d020;
+  --yellow-2:  #e8c000;
+  --yellow-ink:#1d1700;
+  --yellow-bg: #fff8d8;
+  --yellow-edge:#f3e3a4;
+
+  --red:       #c0312f;
+  --red-bg:    #fbeae8;
+  --red-edge:  #f0c4be;
+
+  --amber:     #d18b1c;
+  --amber-bg:  #fbf1de;
+
+  --green:     #1f8b5a;
+  --green-bg:  #e6f4ec;
+
+  --info:      #1c5fb8;
+  --info-bg:   #e7eef9;
+
+  --ff-display: "Inter Tight", system-ui, sans-serif;
+  --ff-sans:    "Inter", system-ui, sans-serif;
+  --ff-mono:    "JetBrains Mono", ui-monospace, monospace;
+
+  --safe-t: env(safe-area-inset-top, 0);
+  --safe-b: env(safe-area-inset-bottom, 0);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { min-height: 100%; }
+body {
+  font-family: var(--ff-sans);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01","cv11";
+  overflow-x: hidden;
+}
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* ── Header (solid navy band — same vocabulary as the mobile job page) ── */
+.hdr {
+  background: var(--navy);
+  color: #fff;
+  padding: calc(12px + var(--safe-t)) 16px 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.hdr-mark {
+  flex-shrink: 0;
+  color: rgba(255,255,255,.7);
+}
+.hdr-body { flex: 1; min-width: 0; }
+.hdr-eyebrow {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.55);
+  margin-bottom: 1px;
+}
+.hdr-title {
+  font-family: var(--ff-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -.018em;
+  color: #fff;
+  line-height: 1.05;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hdr-date {
+  font-size: 11.5px;
+  color: rgba(255,255,255,.6);
+  margin-top: 2px;
+}
+.hdr-action {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 13px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.1);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid rgba(255,255,255,.18);
+}
+.hdr-action:hover { background: rgba(255,255,255,.18); }
+
+/* ── Main canvas ── */
+.canvas {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 16px 14px calc(96px + var(--safe-b));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+@media (min-width: 880px) {
+  .canvas {
+    grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
+    padding: 22px 24px calc(40px + var(--safe-b));
+    gap: 22px;
+  }
+}
+
+/* ── Section heading ── */
+.sec-h {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 8px 4px 10px;
+}
+.sec-h-l {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.sec-h-c {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--paper-3);
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+.sec-h-link {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.sec-h-link:hover { color: var(--ink); }
+
+/* ── Quick-stats strip ── */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.stat {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.stat-l {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.stat-v {
+  font-family: var(--ff-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.stat-v small {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+  margin-left: 2px;
+}
+.stat-v.bad { color: var(--red); }
+.stat-v.warn { color: var(--amber); }
+
+/* ── Job card ── */
+.job {
+  display: block;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color .12s, transform .08s;
+  cursor: pointer;
+}
+.job:hover { border-color: var(--rule-2); }
+.job:active { transform: scale(.99); }
+.job-top {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.job-name {
+  font-family: var(--ff-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -.018em;
+  color: var(--ink);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job-ref {
+  flex-shrink: 0;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  background: var(--paper-3);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.job-meta {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  margin-bottom: 12px;
+}
+.job-meta b {
+  color: var(--ink);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.job-meta .bad b { color: var(--red); }
+.job-meta .warn b { color: var(--amber); }
+.job-progress {
+  height: 6px;
+  background: var(--paper-3);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.job-progress i {
+  display: block;
+  height: 100%;
+  background: var(--yellow);
+  border-radius: 3px;
+}
+.job-actions {
+  display: flex;
+  gap: 8px;
+}
+.job-cta {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 42px;
+  border-radius: 10px;
+  background: var(--yellow);
+  color: var(--yellow-ink);
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: -.005em;
+}
+.job-cta:hover { background: var(--yellow-2); }
+.job-2nd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule-2);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.job-2nd:hover { background: var(--paper-3); }
+
+/* ── Attention card ── */
+.atn {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.atn-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--line);
+}
+.atn-head b {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  flex: 1;
+}
+.atn-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  text-decoration: none;
+  color: inherit;
+  transition: background .12s;
+}
+.atn-row:last-child { border-bottom: 0; }
+.atn-row:hover { background: var(--paper-2); }
+.atn-row-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+.atn-row-dot.red    { background: var(--red); }
+.atn-row-dot.amber  { background: var(--amber); }
+.atn-row-dot.yellow { background: var(--yellow-2); }
+.atn-row-dot.green  { background: var(--green); }
+.atn-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.atn-row-l {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.3;
+}
+.atn-row-sub {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+.atn-row-chev {
+  color: var(--ink-3);
+  font-family: var(--ff-mono);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+/* ── Empty state ── */
+.empty {
+  padding: 32px 22px;
+  text-align: center;
+  background: var(--paper);
+  border: 1px dashed var(--rule-2);
+  border-radius: 14px;
+  color: var(--ink-2);
+}
+.empty b {
+  display: block;
+  font-family: var(--ff-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -.018em;
+  margin-bottom: 8px;
+}
+.empty span {
+  display: block;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ── Bottom tab bar (mobile only) ── */
+.tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(255, 255, 255, .96);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-top: 1px solid var(--line);
+  padding: 8px 8px calc(8px + var(--safe-b));
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+  z-index: 30;
+}
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border-radius: 10px;
+  color: var(--ink-3);
+  text-decoration: none;
+  position: relative;
+}
+.tab svg {
+  width: 20px;
+  height: 20px;
+}
+.tab-l {
+  font-size: 10px;
+  font-weight: 600;
+}
+.tab.active {
+  color: var(--ink);
+}
+.tab.active::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 3px;
+  background: var(--yellow);
+  border-radius: 0 0 3px 3px;
+}
+@media (min-width: 880px) {
+  .tabbar { display: none; }
+  body { padding-bottom: 0; }
+  .canvas { padding-bottom: 60px; }
+}
+
+/* ── Pull-to-refresh affordance ── */
+.ptr {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 0;
+  overflow: hidden;
+  background: var(--paper);
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  pointer-events: none;
+  transition: height .2s ease-out;
+}
+.ptr.armed { color: var(--ink); }
+.ptr.loading { height: 48px; }
+.ptr-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--rule);
+  border-top-color: var(--ink);
+  border-radius: 50%;
+  animation: ptrSpin .8s linear infinite;
+  display: none;
+}
+.ptr.loading .ptr-spinner { display: block; }
+@keyframes ptrSpin { to { transform: rotate(360deg); } }
+
+/* ── Loading skeleton — shown before fetches resolve ── */
+.skel-row {
+  height: 90px;
+  background: linear-gradient(90deg, var(--paper-2), var(--paper-3), var(--paper-2));
+  background-size: 200% 100%;
+  animation: skelShimmer 1.4s ease-in-out infinite;
+  border-radius: 14px;
+  margin-bottom: 10px;
+}
+@keyframes skelShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+</style>
+</head>
+<body>
+
+<!-- Pull-to-refresh indicator -->
+<div class="ptr" id="ptr" aria-hidden="true">
+  <div class="ptr-spinner"></div>
+  <span class="ptr-label">Release to refresh</span>
+</div>
+
+<!-- Header — navy band identical to /jobs/:id so workers don't context-switch -->
+<div class="hdr">
+  <buhl-mark size="sm" class="hdr-mark" aria-label="Sync state"></buhl-mark>
+  <div class="hdr-body">
+    <div class="hdr-eyebrow">Field control</div>
+    <div class="hdr-title" id="hdr-title">Leading hand</div>
+    <div class="hdr-date" id="hdr-date"></div>
+  </div>
+  <a href="/admin/operations" class="hdr-action" id="hdr-action" title="Switch to site office view">Site office →</a>
+</div>
+
+<div class="canvas">
+  <!-- Main column: jobs + open snags inbox -->
+  <div>
+    <!-- Quick stats: jobs / snags assigned to me / crew missing hours -->
+    <div class="stats" id="lh-stats">
+      <div class="stat"><div class="stat-l">Jobs</div><div class="stat-v tabular" id="stat-jobs">–</div></div>
+      <div class="stat"><div class="stat-l">My snags</div><div class="stat-v tabular" id="stat-mine">–</div></div>
+      <div class="stat"><div class="stat-l">Open snags</div><div class="stat-v tabular" id="stat-open">–</div></div>
+    </div>
+
+    <!-- Assigned jobs section -->
+    <div class="sec-h">
+      <span class="sec-h-l">Assigned jobs</span>
+      <span class="sec-h-c" id="jobs-count">0</span>
+    </div>
+    <div id="jobs-list">
+      <div class="skel-row"></div>
+      <div class="skel-row"></div>
+    </div>
+  </div>
+
+  <!-- Attention column: snags + missing hours, calmer surface for desktop -->
+  <aside>
+    <div class="sec-h">
+      <span class="sec-h-l">Needs my attention</span>
+    </div>
+    <div id="attn-list">
+      <div class="skel-row" style="height:48px"></div>
+      <div class="skel-row" style="height:48px"></div>
+    </div>
+  </aside>
+</div>
+
+<!-- Bottom tab bar — mobile-only field control nav. Five surfaces:
+     Home (this page), Jobs (list), Snags (triage), Hours (review),
+     More (Tools / Materials / Settings if granted). Active state on
+     "Home" by default. The "More" tab routes to /admin/temps as a
+     placeholder — a dedicated LH-only Tools sheet will land in a
+     follow-up PR (the existing admin shell already filters tools by
+     role so it's a reasonable fallback for now). -->
+<nav class="tabbar" id="tabbar">
+  <a href="/lh" class="tab active">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V8l8-5 8 5v12"/><path d="M9 20v-6h6v6"/></svg>
+    <span class="tab-l">Home</span>
+  </a>
+  <a href="/admin/jobs" class="tab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+    <span class="tab-l">Jobs</span>
+  </a>
+  <a href="/admin/snags" class="tab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16v.5"/></svg>
+    <span class="tab-l">Snags</span>
+  </a>
+  <a href="/admin/hours" class="tab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>
+    <span class="tab-l">Hours</span>
+  </a>
+  <a href="/admin/temps" class="tab">
+    <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>
+    <span class="tab-l">More</span>
+  </a>
+</nav>
+
+<script>
+'use strict';
+
+/* ── Helpers ─────────────────────────────────────────────────────────── */
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+function firstName(u) {
+  if (!u) return 'there';
+  const raw = u.username || u.name || '';
+  return raw.split(/[\s._-]/)[0] || 'there';
+}
+function todayDate() {
+  return new Date().toLocaleDateString('en-AU', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  });
+}
+function _localToday() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+/* ── State ──────────────────────────────────────────────────────────── */
+let ME = null;
+let JOBS = [];
+let SNAGS = [];   // all open snags across my jobs
+
+/* ── Bootstrap ──────────────────────────────────────────────────────── */
+async function boot() {
+  // Auth gate — leadingHand only. Other roles bounce home.
+  try {
+    const meRes = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
+    if (!meRes.ok) { location.href = '/login'; return; }
+    const j = await meRes.json();
+    ME = j.user;
+  } catch {
+    location.href = '/login'; return;
+  }
+  if (ME.role === 'admin')   { location.href = '/admin/operations'; return; }
+  if (ME.role === 'tradie')  { location.href = '/my-day'; return; }
+  if (ME.role === 'client')  { location.href = '/client'; return; }
+  if (ME.role !== 'leadingHand') { location.href = '/login'; return; }
+
+  // Paint the header copy as soon as identity is known.
+  document.getElementById('hdr-title').textContent = `Hi, ${firstName(ME)}.`;
+  document.getElementById('hdr-date').textContent = todayDate();
+
+  await loadAndPaint();
+  initPullToRefresh();
+}
+
+/* ── Data load ──────────────────────────────────────────────────────── */
+async function loadAndPaint() {
+  // Three parallel reads — sidebar counts come from /api/jobs (LH-scoped)
+  // and /api/snags-all (LH-scoped). Time-entries-overview is admin/LH
+  // gated and powers the "X missing hours today" attention row.
+  const [jobsR, snagsR] = await Promise.allSettled([
+    fetch('/api/jobs?withStats=1', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { jobs: [] }),
+    fetch('/api/snags-all?status=Open', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { snags: [] }),
+  ]);
+  JOBS  = (jobsR.status === 'fulfilled' ? (jobsR.value.jobs || []) : []).filter(j => (j.status || 'active') !== 'archived');
+  SNAGS = (snagsR.status === 'fulfilled' ? (snagsR.value.snags || []) : []);
+
+  paintStats();
+  paintJobs();
+  paintAttention();
+}
+
+/* ── Stats ──────────────────────────────────────────────────────────── */
+function paintStats() {
+  const myId = ME && ME.id;
+  const minePending = SNAGS.filter(s => s.assignedToUserId === myId).length;
+  const open = SNAGS.length;
+  document.getElementById('stat-jobs').textContent = JOBS.length;
+  const mineEl = document.getElementById('stat-mine');
+  mineEl.textContent = minePending;
+  mineEl.className = 'stat-v tabular' + (minePending > 0 ? ' bad' : '');
+  const openEl = document.getElementById('stat-open');
+  openEl.textContent = open;
+  openEl.className = 'stat-v tabular' + (open > 5 ? ' warn' : '');
+}
+
+/* ── Job list ───────────────────────────────────────────────────────── */
+function paintJobs() {
+  const list = document.getElementById('jobs-list');
+  document.getElementById('jobs-count').textContent = String(JOBS.length);
+  if (!JOBS.length) {
+    list.innerHTML = `<div class="empty">
+      <b>No jobs assigned yet</b>
+      <span>Ask admin to add you as a leading hand on a job</span>
+    </div>`;
+    return;
+  }
+  // Sort: jobs with open snags first, then most-areas, then alpha
+  const myId = ME && ME.id;
+  const jobs = JOBS.slice().sort((a, b) => {
+    const sa = (SNAGS.filter(s => s.jobId === a.id).length > 0) ? 0 : 1;
+    const sb = (SNAGS.filter(s => s.jobId === b.id).length > 0) ? 0 : 1;
+    if (sa !== sb) return sa - sb;
+    const pa = Number(a.statsPct || 0);
+    const pb = Number(b.statsPct || 0);
+    if (pa !== pb) return pa - pb;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+  list.innerHTML = jobs.map(j => {
+    const ref = (j.ref || j.shortRef || j.id || '').toUpperCase();
+    const pct = (typeof j.statsPct === 'number' && j.statsPct >= 0) ? j.statsPct : null;
+    const dw  = Number(j.statsDwellingCount || 0);
+    const sn  = SNAGS.filter(s => s.jobId === j.id).length;
+    const mine = SNAGS.filter(s => s.jobId === j.id && s.assignedToUserId === myId).length;
+    const metaBits = [];
+    if (dw > 0) metaBits.push(`<span><b>${dw}</b> ${dw === 1 ? 'area' : 'areas'}</span>`);
+    if (pct != null) metaBits.push(`<span><b>${pct}%</b> complete</span>`);
+    if (sn > 0) metaBits.push(`<span class="${mine > 0 ? 'bad' : 'warn'}"><b>${sn}</b> open ${sn === 1 ? 'snag' : 'snags'}${mine > 0 ? ` · ${mine} mine` : ''}</span>`);
+    if (!metaBits.length) metaBits.push('<span><b>Setup pending</b></span>');
+    return `<a class="job" href="/jobs/${esc(j.id)}">
+      <div class="job-top">
+        <div class="job-name">${esc(j.name || '(unnamed)')}</div>
+        <div class="job-ref">${esc(ref)}</div>
+      </div>
+      <div class="job-meta">${metaBits.join('')}</div>
+      ${pct != null ? `<div class="job-progress"><i style="width:${pct}%"></i></div>` : ''}
+      <div class="job-actions">
+        <span class="job-cta">Open job →</span>
+      </div>
+    </a>`;
+  }).join('');
+}
+
+/* ── Attention list ─────────────────────────────────────────────────── */
+function paintAttention() {
+  const myId = ME && ME.id;
+  const list = document.getElementById('attn-list');
+  const rows = [];
+
+  // Mine first — snags I'm assigned to.
+  const mineSnags = SNAGS.filter(s => s.assignedToUserId === myId);
+  if (mineSnags.length) {
+    rows.push({
+      dot: 'red',
+      label: `${mineSnags.length} snag${mineSnags.length === 1 ? '' : 's'} assigned to me`,
+      sub: 'Tap to triage',
+      href: '/admin/snags?assignedToUserId=' + encodeURIComponent(myId),
+    });
+  }
+
+  // Then unassigned snags on my jobs.
+  const unassigned = SNAGS.filter(s => !s.assignedToUserId);
+  if (unassigned.length) {
+    rows.push({
+      dot: 'amber',
+      label: `${unassigned.length} unassigned snag${unassigned.length === 1 ? '' : 's'}`,
+      sub: 'Across my jobs',
+      href: '/admin/snags?assignedToUserId=unassigned',
+    });
+  }
+
+  // Then high-priority snags.
+  const high = SNAGS.filter(s => (s.priority || '').toLowerCase() === 'high');
+  if (high.length) {
+    rows.push({
+      dot: 'red',
+      label: `${high.length} high-priority snag${high.length === 1 ? '' : 's'}`,
+      sub: 'Open across my jobs',
+      href: '/admin/snags?priority=High',
+    });
+  }
+
+  // Pending approvals (LHs can approve their crew's hours per PR #183).
+  // Fire-and-forget — silently skip if the endpoint returns nothing.
+  fetch('/api/time-entries?status=submitted&scope=approver', { credentials: 'same-origin' })
+    .then(r => r.ok ? r.json() : { entries: [] })
+    .then(j => {
+      const pending = (j.entries || []).length;
+      if (pending > 0) {
+        const row = mkAttnRow({
+          dot: 'yellow',
+          label: `${pending} hour entr${pending === 1 ? 'y' : 'ies'} pending approval`,
+          sub: 'From my crew',
+          href: '/admin/approvals',
+        });
+        list.insertBefore(row, list.firstChild);
+      }
+    })
+    .catch(() => {});
+
+  // Render the synchronous rows first; the async pending-approvals row
+  // gets prepended above when it lands.
+  if (!rows.length) {
+    list.innerHTML = `<div class="empty">
+      <b>Quiet day</b>
+      <span>Nothing flagged across your jobs</span>
+    </div>`;
+    return;
+  }
+  list.innerHTML = '';
+  rows.forEach(r => list.appendChild(mkAttnRow(r)));
+}
+
+function mkAttnRow({ dot, label, sub, href }) {
+  const a = document.createElement('a');
+  a.className = 'atn-row';
+  a.href = href || '#';
+  a.innerHTML = `
+    <span class="atn-row-dot ${esc(dot || '')}"></span>
+    <div class="atn-row-body">
+      <div class="atn-row-l">${esc(label)}</div>
+      ${sub ? `<div class="atn-row-sub">${esc(sub)}</div>` : ''}
+    </div>
+    <span class="atn-row-chev">›</span>
+  `;
+  return a;
+}
+
+/* ── Pull-to-refresh ────────────────────────────────────────────────── */
+function initPullToRefresh() {
+  const ptr = document.getElementById('ptr');
+  if (!ptr) return;
+  const TRIGGER_PX = 64;
+  let startY = 0, deltaY = 0, dragging = false, locked = null;
+
+  document.addEventListener('touchstart', (e) => {
+    if (window.scrollY > 0) return;
+    const t = e.touches[0];
+    startY = t.clientY; deltaY = 0; dragging = true; locked = null;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!dragging) return;
+    const t = e.touches[0];
+    const dy = t.clientY - startY;
+    if (locked === null && Math.abs(dy) > 8) locked = 'y';
+    if (locked !== 'y' || dy < 0) {
+      dragging = false;
+      ptr.style.height = '';
+      ptr.classList.remove('armed');
+      return;
+    }
+    deltaY = Math.min(dy, 120);
+    ptr.style.height = deltaY + 'px';
+    ptr.classList.toggle('armed', deltaY >= TRIGGER_PX);
+    const lbl = ptr.querySelector('.ptr-label');
+    if (lbl) lbl.textContent = deltaY >= TRIGGER_PX ? 'Release to refresh' : 'Pull to refresh';
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    if (!dragging) return;
+    dragging = false;
+    if (deltaY >= TRIGGER_PX) {
+      ptr.classList.add('loading');
+      ptr.classList.remove('armed');
+      ptr.style.height = '';
+      const lbl = ptr.querySelector('.ptr-label');
+      if (lbl) lbl.textContent = 'Refreshing…';
+      try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) {}
+      loadAndPaint().finally(() => {
+        ptr.classList.remove('loading');
+        ptr.style.height = '';
+      });
+    } else {
+      ptr.style.height = '';
+      ptr.classList.remove('armed');
+    }
+  });
+}
+
+// Admin can dip into /lh to see the LH experience but doesn't get
+// stuck — the "Site office →" header link is always live for them.
+// LH role hides the link via setupRoleAffordances.
+function setupRoleAffordances() {
+  if (ME && ME.role === 'leadingHand') {
+    // Keep "Site office →" link hidden for pure LH — they don't have
+    // admin permissions on the operations queues. Will re-enable once
+    // the LH-only Tools sheet ships.
+    const el = document.getElementById('hdr-action');
+    if (el) el.style.display = 'none';
+  }
+}
+
+boot().then(() => { setupRoleAffordances(); });
+</script>
+</body>
+</html>
