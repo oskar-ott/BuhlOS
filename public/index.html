@@ -886,6 +886,23 @@ textarea:focus{border-color:var(--navy);background:var(--paper);outline:2px soli
 .tt-scanning-sub{font-size:12px;color:rgba(255,255,255,.7)}
 /* Camera icon + count in snag list rows */
 .snag-photo-count{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;color:var(--muted);background:#f1f5f9;border-radius:6px;padding:2px 7px;line-height:1;height:20px}
+/* Snag list row thumbnail — shows the first photo on the left of the
+   row so workers spot the issue at a glance without opening the modal.
+   Square 40×40, soft rounded corners, count overlay when >1 photo. */
+.snag-row-thumb{
+  position:relative;flex-shrink:0;width:40px;height:40px;border-radius:8px;
+  overflow:hidden;background:var(--paper-3);border:1px solid var(--rule);
+  align-self:center;
+}
+.snag-row-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.snag-row-thumb-count{
+  position:absolute;bottom:1px;right:1px;
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:16px;height:14px;padding:0 4px;
+  background:rgba(0,0,0,.7);color:#fff;
+  font-family:var(--mono);font-size:9px;font-weight:700;line-height:1;
+  border-radius:3px;
+}
 /* Assignee pill on snag rows — calm grey by default, yellow when "you" */
 .snag-assignee{display:inline-flex;align-items:center;font-size:11px;font-weight:700;color:var(--header);background:#f1f5f9;border:1px solid var(--border);border-radius:999px;padding:1px 8px;line-height:1;height:20px;letter-spacing:.2px}
 .snag-assignee.mine{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
@@ -4470,8 +4487,22 @@ function renderSnags(){
       const prioBadge = isOpen
         ? `<span class="snag-pri snag-pri-${(s.priority||'medium').toLowerCase()}">${esc(s.priority||'Medium')}</span>`
         : '';
-      const photoN = (s.photos||[]).length;
-      const photoPill = photoN ? `<span class="snag-photo-count" title="${photoN} photo${photoN!==1?'s':''}">&#128247; ${photoN}</span>` : '';
+      const photos = s.photos || [];
+      const photoN = photos.length;
+      // Replaced the count pill ("📷 3") with an actual thumbnail of the
+      // first photo. Workers spot what the issue looks like at a glance
+      // — sparkies often raise snags about specific gear, and seeing the
+      // damaged unit in the list saves opening every row.
+      const photoThumb = photoN && photos[0] && photos[0].url
+        ? `<div class="snag-row-thumb" title="${photoN} photo${photoN!==1?'s':''}"><img src="${esc(photos[0].url)}" alt="" loading="lazy">${photoN > 1 ? `<span class="snag-row-thumb-count">+${photoN-1}</span>` : ''}</div>`
+        : '';
+      // The legacy count pill is dropped from the title row when a thumb
+      // is present; if photos exist but no URL (queued-offline state),
+      // fall back to the count pill so the worker still knows something
+      // is attached.
+      const photoPill = (!photoThumb && photoN)
+        ? `<span class="snag-photo-count" title="${photoN} photo${photoN!==1?'s':''}">&#128247; ${photoN}</span>`
+        : '';
       // Assignee pill — surfaces who's responsible for fixing the snag.
       // Highlighted as "you" when the current user is the assignee, so tradies
       // can spot their own work at a glance.
@@ -4504,6 +4535,7 @@ function renderSnags(){
         : '';
       const rowMarkup = `<div class="snag-row${isOpen?'':' muted'}" id="snag-row-${esc(s.id)}"${rowClick} data-snag-idx="${idx}">
         <div class="reg-row-accent ${accent}"></div>
+        ${photoThumb}
         <div class="snag-row-main">
           <div class="reg-row-body" style="padding-left:6px">
             <div class="reg-row-title">
