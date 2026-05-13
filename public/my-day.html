@@ -376,12 +376,24 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   overflow:hidden;margin-top:4px;
 }
 .job-pct .mini-bar i{display:block;height:100%;background:var(--accent);border-radius:2px}
+/* Empty state — matches the feat-empty pattern in theme.css used by
+   /jobs/:id snag/tag/temps/hours lists so the visual language stays
+   consistent across surfaces. Dashed border, title in display weight,
+   sub line in mono uppercase. */
 .job-empty{
-  margin:0 14px;padding:18px 16px;text-align:center;
+  margin:0 14px;padding:32px 18px;text-align:center;
   background:var(--surface);border:1px dashed var(--line-2);border-radius:14px;
-  color:var(--muted);font-size:13px;
+  color:var(--ink-2);
 }
-.job-empty b{display:block;color:var(--ink);font-weight:600;margin-bottom:3px}
+.job-empty b{
+  display:block;color:var(--ink);font-weight:700;margin-bottom:8px;
+  font-size:16px;letter-spacing:-.018em;
+}
+.job-empty span{
+  display:block;font-family:ui-monospace,Menlo,monospace;
+  font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);
+}
 
 /* ── Snag rows (kept from existing functionality, restyled to match brief) ── */
 #mysnags-list,#resolved-list{padding:0 14px}
@@ -1540,7 +1552,7 @@ function renderJobs(){
   document.getElementById('jobs-count').textContent = String(active.length);
   const wrap = document.getElementById('jobs-list');
   if (!active.length) {
-    wrap.innerHTML = `<div class="job-empty"><b>No jobs assigned yet</b>Ask an admin to put you on a job.</div>`;
+    wrap.innerHTML = `<div class="job-empty"><b>No jobs assigned yet</b><span>Ask an admin to add you to a job</span></div>`;
     return;
   }
   let html = '';
