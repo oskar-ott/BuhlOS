@@ -924,8 +924,10 @@ textarea:focus{border-color:var(--navy);background:var(--paper);outline:2px soli
 .snag-row-thumb{
   position:relative;flex-shrink:0;width:40px;height:40px;border-radius:8px;
   overflow:hidden;background:var(--paper-3);border:1px solid var(--rule);
-  align-self:center;
+  align-self:center;cursor:pointer;transition:transform .08s, box-shadow .12s;
 }
+.snag-row-thumb:hover{box-shadow:0 0 0 2px var(--yellow)}
+.snag-row-thumb:active{transform:scale(.95)}
 .snag-row-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .snag-row-thumb-count{
   position:absolute;bottom:1px;right:1px;
@@ -4597,8 +4599,12 @@ function renderSnags(){
       // first photo. Workers spot what the issue looks like at a glance
       // — sparkies often raise snags about specific gear, and seeing the
       // damaged unit in the list saves opening every row.
+      // Tap on the thumb opens the lightbox directly instead of the
+      // modal — fastest path for "what's this snag look like?". The
+      // outer row click handler still opens the modal for everything
+      // else (text, buttons), thanks to event.stopPropagation.
       const photoThumb = photoN && photos[0] && photos[0].url
-        ? `<div class="snag-row-thumb" title="${photoN} photo${photoN!==1?'s':''}"><img src="${esc(photos[0].url)}" alt="" loading="lazy">${photoN > 1 ? `<span class="snag-row-thumb-count">+${photoN-1}</span>` : ''}</div>`
+        ? `<div class="snag-row-thumb" title="${photoN} photo${photoN!==1?'s':''}" onclick="event.stopPropagation();openSnagPhotoLightbox('${esc(photos[0].url)}','${esc(photos[0].addedBy||'')}','${esc(photos[0].addedAt||'')}')"><img src="${esc(photos[0].url)}" alt="" loading="lazy">${photoN > 1 ? `<span class="snag-row-thumb-count">+${photoN-1}</span>` : ''}</div>`
         : '';
       // The legacy count pill is dropped from the title row when a thumb
       // is present; if photos exist but no URL (queued-offline state),
