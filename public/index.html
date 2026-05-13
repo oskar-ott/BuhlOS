@@ -954,6 +954,25 @@ textarea:focus{border-color:var(--navy);background:var(--paper);outline:2px soli
 .log-hrs-btn:active{opacity:.85}
 
 /* Lightbox */
+/* Pull-to-refresh affordance — matches /my-day's PTR for gesture
+   consistency across mobile surfaces. */
+.ptr{
+  position:fixed;top:0;left:0;right:0;z-index:50;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  height:0;overflow:hidden;background:var(--paper, #f3efe7);
+  font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3, #6a7591);
+  pointer-events:none;transition:height .2s ease-out;
+}
+.ptr.armed{color:var(--ink, #0d1b34)}
+.ptr.loading{height:48px}
+.ptr-spinner{
+  width:14px;height:14px;border:2px solid var(--rule, #d2ccbf);
+  border-top-color:var(--ink, #0d1b34);border-radius:50%;
+  animation:ptrSpin .8s linear infinite;display:none;
+}
+.ptr.loading .ptr-spinner{display:block}
+@keyframes ptrSpin{to{transform:rotate(360deg)}}
 .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:500;display:none;flex-direction:column;align-items:center;justify-content:center;padding:16px}
 .lightbox.open{display:flex}
 .lightbox-img{max-width:100%;max-height:70vh;object-fit:contain;border-radius:8px}
@@ -2016,6 +2035,14 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
 </style>
 </head>
 <body>
+
+<!-- Pull-to-refresh indicator. Mirrors /my-day's PTR (same gesture
+     vocabulary). Wires after load() resolves so the SW doesn't race
+     against the initial render. -->
+<div class="ptr" id="ptr" aria-hidden="true">
+  <div class="ptr-spinner"></div>
+  <span class="ptr-label">Release to refresh</span>
+</div>
 
 <div id="loading">
   <img src="/BUHL_LOGO.png" class="ll" alt="bühl electrical">
@@ -8433,6 +8460,7 @@ async function _backgroundTagsBadge() {
   // their tab is opened (or via _backgroundTagsBadge for the count badge).
   await load();
   _applyHashNav(); // honour the URL hash on first paint, after all renders are wired
+  initJobPullToRefresh();
   // Idle-time: fire the tags badge update so admins see the warning count
   // without slowing first paint.
   if (window.requestIdleCallback) {
@@ -8441,6 +8469,61 @@ async function _backgroundTagsBadge() {
     setTimeout(_backgroundTagsBadge, 800);
   }
 })();
+
+// Pull-to-refresh for /jobs/:id. Same gesture as /my-day — drag down
+// from scrollY=0, release past 64px to re-load(). Vibrates briefly
+// on commit (Android only). Disarms when scrolled mid-page so users
+// scrolling through long lists don't trigger refresh accidentally.
+function initJobPullToRefresh(){
+  const ptr = document.getElementById('ptr');
+  if (!ptr) return;
+  const TRIGGER_PX = 64;
+  let startY = 0, deltaY = 0, dragging = false, locked = null;
+
+  document.addEventListener('touchstart', (e) => {
+    if (window.scrollY > 0) return;
+    const t = e.touches[0];
+    startY = t.clientY; deltaY = 0; dragging = true; locked = null;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!dragging) return;
+    const t = e.touches[0];
+    const dy = t.clientY - startY;
+    if (locked === null && Math.abs(dy) > 8){ locked = 'y'; }
+    if (locked !== 'y' || dy < 0){
+      dragging = false;
+      ptr.style.height = '';
+      ptr.classList.remove('armed');
+      return;
+    }
+    deltaY = Math.min(dy, 120);
+    ptr.style.height = deltaY + 'px';
+    ptr.classList.toggle('armed', deltaY >= TRIGGER_PX);
+    const lbl = ptr.querySelector('.ptr-label');
+    if (lbl) lbl.textContent = deltaY >= TRIGGER_PX ? 'Release to refresh' : 'Pull to refresh';
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    if (!dragging) return;
+    dragging = false;
+    if (deltaY >= TRIGGER_PX){
+      ptr.classList.add('loading');
+      ptr.classList.remove('armed');
+      ptr.style.height = '';
+      const lbl = ptr.querySelector('.ptr-label');
+      if (lbl) lbl.textContent = 'Refreshing…';
+      try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) {}
+      load().finally(() => {
+        ptr.classList.remove('loading');
+        ptr.style.height = '';
+      });
+    } else {
+      ptr.style.height = '';
+      ptr.classList.remove('armed');
+    }
+  });
+}
 
 // ── Site info pill + drawer ───────────────────────────────────────────
 // Audit C-1 follow-up. Builds the pill visibility + drawer body from
