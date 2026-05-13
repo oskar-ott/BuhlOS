@@ -237,7 +237,7 @@ function paint() {
   SHELL.$('#edit-basics').addEventListener('click', openEditBasics);
 
   const body = SHELL.$('#ws-body');
-  if      (STATE.section === 'overview')  { body.innerHTML = renderOverview(); wireContractClaimsCard(); }
+  if      (STATE.section === 'overview')  { body.innerHTML = renderOverview(); wireContractClaimsCard(); loadOverviewRecent(); }
   else if (STATE.section === 'snags')     body.innerHTML = renderSnags();
   else if (STATE.section === 'hours')     renderHoursTab(body);
   else if (STATE.section === 'plans')     renderPlans(body);
@@ -473,8 +473,59 @@ function renderOverview() {
             <input class="input cv-input" id="cv-oldestClaimDays" type="number" step="1" min="0" value="${j.oldestClaimDays || ''}" placeholder="0"></div>
         </div>
       </div>
+
+      <!-- Recent activity rail — last few audit entries for this job so
+           admin can spot "what changed and when" without clicking
+           through to Setup. Lazy-loaded after the Overview paints; the
+           rail shows a skeleton until /api/job-audit returns. Same
+           data source as the Setup tab's activity feed — they stay in
+           sync without an extra blob read. -->
+      <div class="card" style="padding:0;margin-top:18px" id="ov-recent-card">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div class="card-title">Recent activity</div>
+            <div class="card-sub">Last few setup changes on this job</div>
+          </div>
+          <a class="btn btn-sm btn-ghost" href="?s=setup" data-go="setup">All activity ${SHELL.ICONS.arrow}</a>
+        </div>
+        <div id="ov-recent-list" style="padding:6px 18px">
+          <div style="padding:14px 0;color:var(--muted);font-size:13px">Loading…</div>
+        </div>
+      </div>
     </div>
   `;
+}
+
+// Lazy-load the most recent audit entries for the Overview's Recent
+// activity card. Called by paint() once the Overview HTML is in the
+// DOM. Soft-fails — the card stays at "no recent activity" if the
+// read errors out.
+async function loadOverviewRecent() {
+  const host = document.getElementById('ov-recent-list');
+  if (!host) return;
+  try {
+    const r = await SHELL.api('/api/job-audit?jobId=' + encodeURIComponent(STATE.jobId) + '&limit=5');
+    const entries = (r && r.entries) || [];
+    if (!entries.length) {
+      host.innerHTML = '<div style="padding:14px 0;color:var(--muted);font-size:13px">No recorded changes yet.</div>';
+      return;
+    }
+    host.innerHTML = `<div style="display:grid;gap:6px">${entries.slice(0, 5).map(e => {
+      const ts = new Date(e.ts || 0);
+      const when = isNaN(ts.getTime()) ? '' : SHELL._ago(e.ts);
+      return `
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-2)">
+          <div style="flex-shrink:0;font-family:var(--ff-mono);font-size:10px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;width:74px">${SHELL.escapeHtml(e.kind || '')}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;color:var(--ink-2);line-height:1.35">${SHELL.escapeHtml(e.summary || '')}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${SHELL.escapeHtml(e.byUsername || e.byUserId || '')} · ${SHELL.escapeHtml(when)}</div>
+          </div>
+        </div>
+      `;
+    }).join('')}</div>`;
+  } catch (e) {
+    host.innerHTML = '';
+  }
 }
 
 // Polish: wire the contract/claims save (called from paint() once the
