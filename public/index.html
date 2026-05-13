@@ -3897,8 +3897,24 @@ window.openWorkerLogHours = function openWorkerLogHours(){
 // looking at without re-picking from the dropdown. Falls back to a fresh
 // modal otherwise.
 window.openWorkerRaiseSnag = function openWorkerRaiseSnag(){
-  const prefill = currentDwellingId ? { dwelling: currentDwellingId } : undefined;
-  openSnagModal(null, prefill);
+  // Snag-flow prefill priority (brief §12 — median time-to-file <30s):
+  //   1. Current dwelling context (inside an area page → use that area)
+  //   2. Most-recently touched area in MY_ACTIVITY (worker on Job Home
+  //      raising a snag → usually they want to flag the unit they were
+  //      just working on, not pick from the dropdown)
+  //   3. No prefill (server falls back to first available area)
+  // Saves a tap on the Location dropdown for the common case.
+  let prefill = currentDwellingId ? { dwelling: currentDwellingId } : null;
+  if (!prefill && Array.isArray(MY_ACTIVITY) && MY_ACTIVITY.length) {
+    const recent = MY_ACTIVITY.find(e => e && e.areaId);
+    if (recent && recent.areaId) {
+      // Verify the area still exists on this job before prefilling.
+      const groups = (CURRENT_JOB && CURRENT_JOB.areaGroups) || [];
+      const exists = groups.some(g => (g.areas || []).some(a => a.id === recent.areaId));
+      if (exists) prefill = { dwelling: recent.areaId };
+    }
+  }
+  openSnagModal(null, prefill || undefined);
 };
 
 window.openTradieLogForThisJob = async function openTradieLogForThisJob(){
