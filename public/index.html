@@ -3616,9 +3616,36 @@ function renderAreas(){
       const s = stats(a.id);
       const st = areaState(a);
       const snagCount = (D.snags || []).filter(x => x.status === 'Open' && (x.dwelling === a.id || x.areaId === a.id)).length;
+      // Build a richer sub-line per brief v1 §06 ("the metadata reads
+      // 'Switchboard fit-off · 2 snags', putting the bad news in the
+      // sentence"). Priority order:
+      //   snagged  → "<state> · N snag(s)"
+      //   in-prog  → "<state> · last touched <ago>" (when recent)
+      //   default  → "<state> · X%"
+      let subText;
+      if (st === 'snagged' && snagCount > 0) {
+        subText = `${areaStateLabel(st)} · ${snagCount} snag${snagCount !== 1 ? 's' : ''}`;
+      } else if (st === 'in-progress') {
+        let touchedT = 0;
+        for (const e of (Array.isArray(MY_ACTIVITY) ? MY_ACTIVITY : [])) {
+          if (e.areaId === a.id && e.ts && e.ts > touchedT) touchedT = e.ts;
+        }
+        if (touchedT > 0) {
+          const mins = Math.floor((Date.now() - touchedT) / 60000);
+          const ago = mins < 1 ? 'just now'
+                    : mins < 60 ? `${mins}m ago`
+                    : mins < 1440 ? `${Math.floor(mins/60)}h ago`
+                    : `${Math.floor(mins/1440)}d ago`;
+          subText = `${areaStateLabel(st)} · last touched ${ago}`;
+        } else {
+          subText = `${areaStateLabel(st)} · ${s.pct}%`;
+        }
+      } else {
+        subText = `${areaStateLabel(st)} · ${s.pct}%`;
+      }
       const card = document.createElement('area-card');
       card.setAttribute('name', a.name || a.id);
-      card.setAttribute('sub', `${areaStateLabel(st)} · ${s.pct}%`);
+      card.setAttribute('sub', subText);
       card.setAttribute('status', st);
       if (snagCount > 0) card.setAttribute('snag-count', String(snagCount));
       card.setAttribute('percent', String(s.pct));
