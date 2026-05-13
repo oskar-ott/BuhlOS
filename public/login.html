@@ -537,96 +537,66 @@ a { color: inherit; text-decoration: none; }
 
 <div class="frame">
 
-  <!-- Fake mobile status bar — decorative; hidden in PWA mode -->
-  <div class="statusbar" aria-hidden="true">
-    <span class="statusbar-time">9:41</span>
-    <span class="statusbar-icons">
-      <svg viewBox="0 0 18 12" width="16" height="11" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx=".5"/><rect x="4.5" y="6" width="3" height="6" rx=".5"/><rect x="9" y="3" width="3" height="9" rx=".5"/><rect x="13.5" y="0" width="3" height="12" rx=".5"/></svg>
-      <svg viewBox="0 0 18 14" width="14" height="11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5a10 10 0 0 1 14 0"/><path d="M5 8a6 6 0 0 1 8 0"/><circle cx="9" cy="11" r="1.2" fill="currentColor"/></svg>
-      <svg viewBox="0 0 24 12" width="22" height="10" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1" width="20" height="10" rx="2.4"/><rect x="22" y="3.5" width="1.5" height="5" rx=".4" fill="currentColor"/><rect x="3" y="3" width="14" height="6" rx="1" fill="currentColor"/></svg>
-    </span>
-  </div>
-
-  <!-- Brand band -->
+  <!-- Brand band — single mark, no eyebrow. The user explicitly asked
+       for the cluttered top stripped away ("I hate this login page"). The
+       fake mobile status bar, "Site office · BuhlOS" eyebrow, and big
+       "Sign in" title above the form are all gone; the brand mark IS the
+       page title now. -->
   <div class="brand">
-    <div class="brand-eyebrow">Site office · BuhlOS</div>
     <div class="brand-mark">bühl<small>electrical</small></div>
   </div>
 
-  <!-- Sign-in card -->
+  <!-- Sign-in card. Single mode: name + password + Sign in.
+       The previous tabbed toggle (Crew PIN ↔ Admin password) and the
+       on-screen 12-key PIN pad lived here before; both are gone per
+       direct user feedback ("Remove pin panel"). The backend's auth
+       endpoint accepts either a 4-digit PIN or a longer password as
+       `secret`, so tradies type their PIN into the same field using
+       their phone's numeric keyboard — no UX divergence on the server. -->
   <div class="card">
-    <div class="card-head">
+    <!-- Hidden card-head/sub kept only so the JS that writes "Signing
+         in…" / "Signed in. Loading your jobs…" to #card-sub still finds
+         its target. The visible card no longer needs a "Sign in" title
+         (redundant with the brand mark above and the button below). -->
+    <div class="card-head" hidden>
       <div class="card-title">Sign in</div>
-      <div class="card-sub" id="card-sub">Use your 4-digit site PIN to log in.</div>
+      <div class="card-sub" id="card-sub">Use your account password.</div>
     </div>
 
-    <!-- Role toggle -->
-    <div class="toggle" role="tablist" aria-label="Sign-in mode">
-      <button type="button" id="tab-pin" role="tab" aria-selected="true" aria-controls="panel-pin">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
-        Crew (PIN)
-      </button>
-      <button type="button" id="tab-pwd" role="tab" aria-selected="false" aria-controls="panel-pwd">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
-        Admin / Office
-      </button>
+    <!-- Role toggle hidden — kept in DOM so JS that calls setMode() and
+         touches tab-pin/tab-pwd doesn't throw. Always password mode.
+         The .toggle class sets display:grid which beats the bare `hidden`
+         attribute, so we also set display:none inline. -->
+    <div class="toggle" role="tablist" aria-label="Sign-in mode" hidden style="display:none">
+      <button type="button" id="tab-pin" role="tab" aria-selected="false" aria-controls="panel-pin"></button>
+      <button type="button" id="tab-pwd" role="tab" aria-selected="true" aria-controls="panel-pwd"></button>
     </div>
 
     <!-- Error banner -->
     <div class="err-banner" id="err" role="alert">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
-      <span id="err-text">Wrong PIN. Try again or ask your LH.</span>
+      <span id="err-text">Sign-in failed. Check your details and try again.</span>
     </div>
 
-    <!-- ─────────── PIN MODE PANEL ─────────── -->
-    <div class="panel active" id="panel-pin" role="tabpanel" aria-labelledby="tab-pin">
-      <div class="field">
-        <div class="field-row">
-          <label class="field-l" for="pin-username">Name</label>
-          <button type="button" class="field-link" id="notyou-pin" hidden>Not you?</button>
-        </div>
-        <div class="input-wrap">
-          <svg class="input-lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
-          <input type="text" id="pin-username" placeholder="firstname.lastname"
-                 autocomplete="username" autocapitalize="off" spellcheck="false">
-        </div>
-      </div>
-
-      <div class="field-row" style="margin-bottom: 4px">
-        <span class="field-l">Site PIN — 4 digits</span>
-      </div>
-      <div class="pin" id="pin-cells" aria-live="polite" aria-label="PIN, 4 digits">
+    <!-- PIN panel removed per direct user feedback ("Remove pin panel").
+         Stub DOM kept (display:none via .panel — no .active class) so
+         the JS that wires submitPin / paintPin / pushDigit / popDigit /
+         pad-clear / pad-del / faceid-btn doesn't blow up looking for
+         them. None of these elements ever become visible. -->
+    <div class="panel" id="panel-pin" role="tabpanel" aria-labelledby="tab-pin" hidden>
+      <input type="text" id="pin-username" hidden>
+      <div id="pin-cells" hidden>
         <div class="pin-cell"></div><div class="pin-cell"></div><div class="pin-cell"></div><div class="pin-cell"></div>
       </div>
-
-      <div class="pad" id="pin-pad">
-        <button type="button" class="pad-key" data-d="1">1<small>&nbsp;</small></button>
-        <button type="button" class="pad-key" data-d="2">2<small>ABC</small></button>
-        <button type="button" class="pad-key" data-d="3">3<small>DEF</small></button>
-        <button type="button" class="pad-key" data-d="4">4<small>GHI</small></button>
-        <button type="button" class="pad-key" data-d="5">5<small>JKL</small></button>
-        <button type="button" class="pad-key" data-d="6">6<small>MNO</small></button>
-        <button type="button" class="pad-key" data-d="7">7<small>PQRS</small></button>
-        <button type="button" class="pad-key" data-d="8">8<small>TUV</small></button>
-        <button type="button" class="pad-key" data-d="9">9<small>WXYZ</small></button>
-        <button type="button" class="pad-key ghost" id="pad-clear">Clear</button>
-        <button type="button" class="pad-key" data-d="0">0<small>&nbsp;</small></button>
-        <button type="button" class="pad-key icon" id="pad-del" aria-label="Delete last digit">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 5h-13l-7 7 7 7h13a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/><path d="M14 9l5 6M19 9l-5 6"/></svg>
-        </button>
-      </div>
-
-      <div class="pad-helper">
-        <span class="pad-helper-text">4-digit PIN issued by your LH.</span>
-        <button type="button" class="faceid" id="faceid-btn" aria-label="Sign in with Face ID">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M21 7V5a2 2 0 0 0-2-2h-2"/><path d="M3 17v2a2 2 0 0 0 2 2h2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M9 10v2"/><path d="M15 10v2"/><path d="M12 9v4"/><path d="M9 16s1 1 3 1 3-1 3-1"/></svg>
-          Face ID
-        </button>
-      </div>
+      <div id="pin-pad" hidden></div>
+      <button type="button" id="pad-clear" hidden></button>
+      <button type="button" id="pad-del" hidden></button>
+      <button type="button" id="faceid-btn" hidden></button>
+      <button type="button" class="field-link" id="notyou-pin" hidden>Not you?</button>
     </div>
 
-    <!-- ─────────── PASSWORD MODE PANEL ─────────── -->
-    <div class="panel" id="panel-pwd" role="tabpanel" aria-labelledby="tab-pwd">
+    <!-- ─────────── SIGN IN — the only visible panel ─────────── -->
+    <div class="panel active" id="panel-pwd" role="tabpanel" aria-labelledby="tab-pwd">
       <div class="field">
         <div class="field-row">
           <label class="field-l" for="pwd-username">Name</label>
@@ -655,14 +625,13 @@ a { color: inherit; text-decoration: none; }
 
       <label class="checkrow" for="pwd-remember">
         <input type="checkbox" id="pwd-remember" checked>
-        <span>Keep me signed in on this site office device</span>
+        <span>Keep me signed in on this device</span>
       </label>
 
       <button class="cta" id="pwd-submit" type="button">
         Sign in
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
       </button>
-      <span class="cta-helper">Office staff &amp; admin only.</span>
     </div>
 
     <!-- Support links — shared across both modes. Open the request-access
@@ -675,11 +644,12 @@ a { color: inherit; text-decoration: none; }
     </div>
   </div>
 
-  <!-- Footer -->
+  <!-- Footer — slimmed to a single mono environment chip. The acceptable-
+       use policy text and the second "bühl electrical · Site office
+       console" line were removed; AUP links are surfaced from /admin
+       once signed in, and the brand mark above already names the app. -->
   <div class="foot">
     <div class="foot-env">Production · v0.41</div>
-    <div>bühl electrical · Site office console</div>
-    <div class="foot-aup">By signing in you accept the site office acceptable-use policy.</div>
   </div>
 </div>
 
@@ -776,7 +746,12 @@ function landingFor(role) {
 }
 
 // ── State ───────────────────────────────────────────────────────────────
-let MODE = 'pin';        // 'pin' | 'pwd'
+// Default mode is 'pwd' since the PIN panel was removed (user request).
+// PIN auth still works through the same /api/auth?action=login endpoint
+// — workers just type their 4-digit secret into the password field using
+// the phone's numeric keyboard. MODE / setMode / tab-* DOM elements are
+// kept for code stability but the toggle is hidden visually.
+let MODE = 'pwd';        // 'pin' | 'pwd'
 let PIN = '';            // current entered PIN
 let LOADING = false;
 let SUCCEEDED = false;
@@ -1030,21 +1005,14 @@ fetch('/api/auth?action=me', { credentials: 'same-origin' })
   .catch(() => {});
 
 // Apply remembered name (if any) on first paint, then choose initial focus.
+// Password mode is the only visible mode now (PIN panel removed), so
+// the focus logic collapses to "remembered name → focus password;
+// no remembered name → focus username".
 const _haveRemembered = applyRememberedName();
 setTimeout(() => {
-  // With remembered name, PIN mode's secret entry is the on-screen
-  // keypad — no input to focus. Password mode jumps to the password
-  // field. With no remembered name, focus the name field.
-  if (_haveRemembered) {
-    if (MODE === 'pwd') {
-      const el = document.getElementById('pwd-password');
-      if (el) el.focus({ preventScroll: true });
-    }
-    // PIN mode: keypad is tap-only, nothing to focus.
-  } else {
-    const el = document.getElementById('pin-username');
-    if (el) el.focus({ preventScroll: true });
-  }
+  const id = _haveRemembered ? 'pwd-password' : 'pwd-username';
+  const el = document.getElementById(id);
+  if (el) el.focus({ preventScroll: true });
 }, 200);
 
 // ── Support modals (Request access + Forgot password) ─────────────────
