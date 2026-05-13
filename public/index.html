@@ -2805,23 +2805,32 @@ function areaLabel(id){
 
 // Inserts one nav button + one page section per area group.
 // Called once after bootstrapAuth() sets CURRENT_JOB.
+//
+// Brief v1 §04 mandate: "Three tabs only — Job Home · Work Areas ·
+// Tools. Area-group chips moved *inside* Work Areas." The nav buttons
+// per group used to render here for multi-group jobs (top-level
+// horizontal scroll); the chip filter inside Work Areas covers the
+// same functionality without adding tab clutter. We keep the per-group
+// .sc placeholder sections so deep-links to #grp-0 / #grp-1 from the
+// legacy dashboard still resolve to *something* (empty section,
+// safe), but the visible nav row is now strictly the three brief tabs.
 function buildGroupNav(){
   const groups=(CURRENT_JOB&&CURRENT_JOB.areaGroups)||[];
   // Remove any previously inserted items (safe to call again)
   document.querySelectorAll('.nb[data-grp-nav]').forEach(b=>b.remove());
   document.querySelectorAll('.sc[data-grp-sec]').forEach(s=>s.remove());
-  // Area-group buttons live INSIDE the scrollable strip (.nav-scroll), so
-  // when overflow happens, the user can horizontally scroll through them
-  // while the Tools hamburger stays pinned to the right.
   const scroll=document.getElementById('navScroll') || document.querySelector('.nav');
   const anchor=document.getElementById('navMenuAnchor');
   const pg=document.querySelector('.pg');
   const snagsSec=document.getElementById('snags');
   groups.forEach((g,gi)=>{
     const secId='grp-'+gi;
-    // Only render a nav tab when there are multiple groups; single-group jobs
-    // show everything on the dashboard so the extra tab would be redundant.
-    if(groups.length>1){
+    // Brief: NEVER insert a nav button for an area group. The Work
+    // Areas chip filter handles inter-group navigation. The single-group
+    // / multi-group branching below is left as a no-op so the rest of
+    // the function's control flow stays readable. If any deep-link
+    // somewhere tries to .show('grp-0'), the section still exists below.
+    if(false){
       const btn=document.createElement('button');
       btn.className='nb';
       btn.dataset.grpNav=gi;
