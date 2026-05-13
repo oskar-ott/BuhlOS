@@ -2096,45 +2096,59 @@ async function loadAndApplyGearTabVisibility() {
 
 load();
 
-// Pull-to-refresh — only active when scrollY=0 (top of page). Pulls
-// down to show the indicator; release past 64px to fire a fresh
-// load() and re-paint the page. Vertical scroll past the first 8px
-// of horizontal movement releases the gesture so the worker doesn't
-// accidentally trigger a refresh while scrolling sideways within a
-// card.
+// Pull-to-refresh — tightened to avoid false triggers. The original
+// implementation (PR #189) armed on every touchstart at scrollY=0 and
+// updated the indicator height on every touchmove with dy > 8px. That
+// meant a tap with normal finger drift (10–20px downward) flashed the
+// indicator briefly, which read as a glitch — the user reported the
+// app "feels broken".
+//
+// Fixes:
+//   1. Don't arm if the touchstart target is interactive (button,
+//      input, anchor, [role=button]). Those elements handle their
+//      own taps; PTR shouldn't compete.
+//   2. Lift the visible threshold to 32px so accidental drift never
+//      renders the indicator.
+//   3. Keep the commit threshold at 64px so an intentional pull is
+//      still required to fire.
 (function initPullToRefresh(){
   const ptr = document.getElementById('ptr');
   if (!ptr) return;
+  const VISIBLE_PX = 32;
   const TRIGGER_PX = 64;
-  let startY = 0, deltaY = 0, dragging = false, locked = null;
+  let startY = 0, deltaY = 0, dragging = false;
+
+  function isInteractive(el) {
+    if (!el || el === document.body) return false;
+    const tag = el.tagName;
+    if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'A' || tag === 'LABEL') return true;
+    if (el.getAttribute && el.getAttribute('role') === 'button') return true;
+    if (el.classList && (el.classList.contains('day') || el.classList.contains('logcard-chip') || el.classList.contains('logcard-min'))) return true;
+    return isInteractive(el.parentElement);
+  }
 
   document.addEventListener('touchstart', (e) => {
-    // Only arm when at top of page
     if (window.scrollY > 0) return;
+    if (isInteractive(e.target)) return;
     const t = e.touches[0];
     startY = t.clientY;
     deltaY = 0;
     dragging = true;
-    locked = null;
   }, { passive: true });
 
   document.addEventListener('touchmove', (e) => {
     if (!dragging) return;
-    const t = e.touches[0];
-    const dy = t.clientY - startY;
-    const dx = Math.abs(t.clientX - (e.touches[0].clientX));
-    if (locked === null && (Math.abs(dy) > 8 || dx > 8)){
-      locked = Math.abs(dy) > dx ? 'y' : 'x';
-    }
-    // Only respond to downward pull at top of scroll
-    if (locked !== 'y' || dy < 0){
-      dragging = false;
-      ptr.style.height = '';
-      ptr.classList.remove('armed');
+    const dy = e.touches[0].clientY - startY;
+    if (dy < VISIBLE_PX) {
+      // Below the visible threshold — keep the indicator hidden so
+      // accidental finger drift never flashes a "Pull to refresh"
+      // overlay. Disarm if the user is actually moving up (vertical
+      // scroll) so we don't keep listening for the rest of the gesture.
+      if (dy < 0) dragging = false;
       return;
     }
     deltaY = Math.min(dy, 120);
-    ptr.style.height = deltaY + 'px';
+    ptr.style.height = (deltaY - VISIBLE_PX) + 'px';
     ptr.classList.toggle('armed', deltaY >= TRIGGER_PX);
     const lbl = ptr.querySelector('.ptr-label');
     if (lbl) lbl.textContent = deltaY >= TRIGGER_PX ? 'Release to refresh' : 'Pull to refresh';
