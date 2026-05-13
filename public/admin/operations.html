@@ -357,11 +357,20 @@ function paintOverview(d) {
     });
   }
   // Blocks payment first (oldest snags → reputation, payment hold risk).
+  // Sub-line now names the oldest snag's age + assignee (or "unassigned")
+  // so admin can spot the dragging item without opening the snag tab.
   if (oldSnags.length) {
+    const oldestAge = oldestAgeDaysSnag(oldSnags);
+    const oldestSnag = oldSnags.slice().sort((a, b) =>
+      new Date(a.createdAt || a.date).getTime() - new Date(b.createdAt || b.date).getTime()
+    )[0];
+    const oldestWho = oldestSnag && oldestSnag.assignedToName
+      ? `assigned ${oldestSnag.assignedToName}`
+      : (oldestSnag && oldestSnag.assignedToUserId ? 'assigned' : 'unassigned');
     exceptions.push({
       status: 'red',
       label: `${oldSnags.length} snag${oldSnags.length === 1 ? '' : 's'} older than 7 days`,
-      sub: 'risking payment hold',
+      sub: `oldest ${oldestAge} day${oldestAge === 1 ? '' : 's'} · ${oldestWho} · risking payment hold`,
       action: { href: '/admin/snags?age=7', label: 'Triage →' },
     });
   }
