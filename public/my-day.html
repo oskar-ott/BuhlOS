@@ -546,11 +546,17 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
       <span class="logcard-status" id="logcard-status">Not logged</span>
     </div>
 
-    <!-- Logged-state summary (shown when today's entry exists) -->
+    <!-- Logged-state summary (shown when today's entry exists). The
+         initial placeholder for the total is intentionally blank: if a
+         render race ever unhides this card before the entry is paint-
+         filled, "Logged today:" with nothing after it reads more
+         honestly than "Logged today: —" (which the user reported
+         seeing on the field). paintLogCard sets it to the real value
+         in one frame; an empty span never reaches the user. -->
     <div class="logcard-summary" id="logcard-summary" hidden>
       <div class="logcard-summary-line">
         <span>Logged today:</span>
-        <b id="logcard-summary-total">—</b>
+        <b id="logcard-summary-total"></b>
       </div>
       <div class="logcard-summary-job" id="logcard-summary-job"></div>
       <button class="logcard-edit" type="button" id="logcard-edit">Edit</button>
@@ -602,22 +608,35 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
     </div>
   </div>
 
-  <!-- 2. My Week — compact summary + 7-cell day strip. Tap a day to
-       add/edit hours for that date. -->
-  <div class="sec">
-    <div class="sec-h">My week</div>
-    <span class="sec-c" id="myweek-summary-b">0.0h</span>
-    <span class="sec-link" id="week-pay" style="display:none;color:#7a5400">
-      <span id="week-pay-text">Pay day</span>
-    </span>
-  </div>
+  <!-- 2. My Week — single cohesive hero card matching brief v1
+       (~/Downloads/briefv1/my-day). Title row (label + pay-day pill),
+       totals row (big hours + "X days not logged yet" sub), 7-cell
+       day strip, optional "Submit drafts" CTA. The "My week" header
+       lives INSIDE the card — pulling it outside (as a .sec block)
+       fragmented the visual unit the brief calls for and made the
+       weekly view feel like a loose strip of chips. -->
   <div class="week">
+    <div class="week-top">
+      <div class="week-l">My week</div>
+      <span class="week-pay" id="week-pay" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <span id="week-pay-text">Pay day</span>
+      </span>
+    </div>
+    <div class="week-totals">
+      <div class="week-h tabular"><span id="week-hours-total">0.0</span><small>h</small></div>
+      <div class="week-sub">
+        <b id="week-missing-count">No hours yet</b>
+        <span id="week-missing-suffix">this week</span>
+      </div>
+    </div>
     <div class="days" id="days"></div>
-    <button id="myweek-submit-drafts" style="display:none;width:100%;margin-top:10px;padding:11px;border-radius:10px;background:var(--accent);color:var(--accent-ink);font-size:13px;font-weight:700" onclick="submitAllDrafts()"></button>
+    <button id="myweek-submit-drafts" style="display:none;width:100%;margin-top:14px;padding:13px;border-radius:12px;background:var(--ink);color:#fff;font-size:14.5px;font-weight:600" onclick="submitAllDrafts()"></button>
     <!-- Hidden — kept for legacy compat -->
     <div id="myweek-list" hidden></div>
     <span id="myweek-total" hidden></span>
     <span id="myweek-summary" hidden></span>
+    <span id="myweek-summary-b" hidden></span>
   </div>
 
   <!-- 3. Assigned jobs — entry point only, not a dashboard. -->
@@ -998,10 +1017,15 @@ function paintLogCardEntry(mine){
   if (!mine.length) {
     jobEl.innerHTML = '<i style="color:var(--muted)">No assigned jobs — contact admin if this looks wrong.</i>';
   } else if (mine.length === 1) {
+    // Single assigned job — show name only. The ref code chip used to
+    // sit to the right (e.g. "Birdwood Ave" + "IV3232") but the same
+    // job ref is already visible on the "My jobs" list below, and the
+    // user flagged the double-display as redundant noise. Keep the
+    // ref accessible via aria-label for screen readers.
     const j = mine[0];
     LH_FORM.jobId = j.id;
     const ref = (j.ref || j.id || '').toUpperCase();
-    jobEl.innerHTML = `<b>${esc(j.name)}</b><span class="jobref">${esc(ref)}</span>`;
+    jobEl.innerHTML = `<b aria-label="${esc(j.name)} (${esc(ref)})">${esc(j.name)}</b>`;
   } else {
     // Multi-job — render a select
     jobEl.innerHTML = `<select id="logcard-job-select">${mine.map(j =>
@@ -1547,7 +1571,6 @@ function renderMyWeek(){
   const wrap = document.getElementById('myweek-list');     // hidden legacy fallback
   const totalEl = document.getElementById('myweek-total'); // header number in the hero
   const daysEl = document.getElementById('days');          // 7-cell day strip (brief)
-  const summaryB = document.getElementById('myweek-summary-b');
   const ctaPip = document.getElementById('myweek-cta-pip');
 
   const monday = isoWeekMonday();
@@ -1611,20 +1634,26 @@ function renderMyWeek(){
     }).join('');
   }
 
-  // ── Summary text + CTA pip ──
-  // "X days not logged yet" if ≥1 weekday past today is missing; else
-  // "Up to date" if all past weekdays are logged.
+  // ── Week totals + summary text ──
+  // Brief v1: big hours total (e.g. "31.5h") + smaller sub line ("2 days
+  // not logged yet" / "All caught up" / "No hours yet"). Title and pay-day
+  // pill live INSIDE the card top row now, so we don't need the loose
+  // .sec header chip count anymore.
   const missingCount = days.filter(d => !d.hasHours && !d.isFuture && !d.isWeekend).length;
-  if (summaryB) {
+  const hoursTotalEl   = document.getElementById('week-hours-total');
+  const missingBEl     = document.getElementById('week-missing-count');
+  const missingSuffixE = document.getElementById('week-missing-suffix');
+  if (hoursTotalEl) hoursTotalEl.textContent = total.toFixed(1);
+  if (missingBEl && missingSuffixE) {
     if (missingCount > 0) {
-      summaryB.textContent = missingCount + (missingCount === 1 ? ' day' : ' days') + ' missing';
-      summaryB.parentElement.lastChild.textContent = ' not logged yet';
+      missingBEl.textContent = missingCount + (missingCount === 1 ? ' day' : ' days');
+      missingSuffixE.textContent = 'not logged yet';
     } else if (total > 0) {
-      summaryB.textContent = 'All caught up';
-      summaryB.parentElement.lastChild.textContent = ' for this week';
+      missingBEl.textContent = 'All caught up';
+      missingSuffixE.textContent = 'for this week';
     } else {
-      summaryB.textContent = 'No hours yet';
-      summaryB.parentElement.lastChild.textContent = ' this week';
+      missingBEl.textContent = 'No hours yet';
+      missingSuffixE.textContent = 'this week';
     }
   }
   if (ctaPip) {
