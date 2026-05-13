@@ -216,6 +216,34 @@ a { color: inherit; text-decoration: none; }
   gap: 8px;
   margin-bottom: 4px;
 }
+
+/* ── Quick-actions row — three direct shortcuts above the job stack. */
+.qa {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+.qa-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 6px 10px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -.005em;
+  transition: background .12s, border-color .12s;
+}
+.qa-btn:hover { background: var(--paper-2); border-color: var(--rule-2); }
+.qa-btn:active { transform: scale(.98); }
+.qa-btn svg { width: 20px; height: 20px; color: var(--ink-2); }
 .stat {
   background: var(--paper);
   border: 1px solid var(--line);
@@ -586,6 +614,26 @@ a { color: inherit; text-decoration: none; }
       <div class="stat"><div class="stat-l">Jobs</div><div class="stat-v tabular" id="stat-jobs">–</div></div>
       <div class="stat"><div class="stat-l">My snags</div><div class="stat-v tabular" id="stat-mine">–</div></div>
       <div class="stat"><div class="stat-l">Open snags</div><div class="stat-v tabular" id="stat-open">–</div></div>
+    </div>
+
+    <!-- Quick actions — direct shortcuts to the three things LHs do on
+         their phone every day: triage snags across all their jobs, check
+         crew hour approvals, or raise a snag on the closest active job.
+         Sits above the job stack so the LH doesn't need to drill into a
+         specific job first when the action is cross-job by nature. -->
+    <div class="qa">
+      <a href="/admin/snags" class="qa-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16v.5"/></svg>
+        <span>Triage snags</span>
+      </a>
+      <a href="/admin/approvals" class="qa-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>
+        <span>Approve hours</span>
+      </a>
+      <a href="/admin/hours" class="qa-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>
+        <span>Crew hours</span>
+      </a>
     </div>
 
     <!-- Assigned jobs section -->
