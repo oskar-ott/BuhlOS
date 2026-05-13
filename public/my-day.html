@@ -63,6 +63,27 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   background:var(--bg);position:relative;
   padding-bottom:calc(82px + var(--safe-b));
 }
+/* Pull-to-refresh affordance — slides down from the top when the
+   worker pulls the page while at scroll = 0. Hidden by default. */
+.ptr{
+  position:absolute;top:0;left:0;right:0;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  height:0;overflow:hidden;
+  font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  pointer-events:none;
+  transition:height .2s ease-out;
+}
+.ptr.armed{color:var(--ink)}
+.ptr.loading{height:48px}
+.ptr-spinner{
+  width:14px;height:14px;border:2px solid var(--line);
+  border-top-color:var(--ink);border-radius:50%;
+  animation:ptrSpin .8s linear infinite;
+  display:none;
+}
+.ptr.loading .ptr-spinner{display:block}
+@keyframes ptrSpin{to{transform:rotate(360deg)}}
 
 /* ── Top bar ───────────────────────────────────────────────
    Personalised greeting + secondary date line. Compact, no
@@ -537,6 +558,13 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 <body>
 
 <div class="frame">
+
+<!-- Pull-to-refresh indicator. Inserted by initPullToRefresh; visible
+     only when the worker pulls the page from scrollY=0. -->
+<div class="ptr" id="ptr" aria-hidden="true">
+  <div class="ptr-spinner"></div>
+  <span class="ptr-label">Release to refresh</span>
+</div>
 
   <!-- Header — Personalised greeting ("Good morning, Oskar") above a
        compact date line ("Today · Mon, 12 May"). Calm, mobile-first,
@@ -2010,6 +2038,71 @@ async function loadAndApplyGearTabVisibility() {
 }
 
 load();
+
+// Pull-to-refresh — only active when scrollY=0 (top of page). Pulls
+// down to show the indicator; release past 64px to fire a fresh
+// load() and re-paint the page. Vertical scroll past the first 8px
+// of horizontal movement releases the gesture so the worker doesn't
+// accidentally trigger a refresh while scrolling sideways within a
+// card.
+(function initPullToRefresh(){
+  const ptr = document.getElementById('ptr');
+  if (!ptr) return;
+  const TRIGGER_PX = 64;
+  let startY = 0, deltaY = 0, dragging = false, locked = null;
+
+  document.addEventListener('touchstart', (e) => {
+    // Only arm when at top of page
+    if (window.scrollY > 0) return;
+    const t = e.touches[0];
+    startY = t.clientY;
+    deltaY = 0;
+    dragging = true;
+    locked = null;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!dragging) return;
+    const t = e.touches[0];
+    const dy = t.clientY - startY;
+    const dx = Math.abs(t.clientX - (e.touches[0].clientX));
+    if (locked === null && (Math.abs(dy) > 8 || dx > 8)){
+      locked = Math.abs(dy) > dx ? 'y' : 'x';
+    }
+    // Only respond to downward pull at top of scroll
+    if (locked !== 'y' || dy < 0){
+      dragging = false;
+      ptr.style.height = '';
+      ptr.classList.remove('armed');
+      return;
+    }
+    deltaY = Math.min(dy, 120);
+    ptr.style.height = deltaY + 'px';
+    ptr.classList.toggle('armed', deltaY >= TRIGGER_PX);
+    const lbl = ptr.querySelector('.ptr-label');
+    if (lbl) lbl.textContent = deltaY >= TRIGGER_PX ? 'Release to refresh' : 'Pull to refresh';
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    if (!dragging) return;
+    dragging = false;
+    if (deltaY >= TRIGGER_PX){
+      ptr.classList.add('loading');
+      ptr.classList.remove('armed');
+      ptr.style.height = '';
+      const lbl = ptr.querySelector('.ptr-label');
+      if (lbl) lbl.textContent = 'Refreshing…';
+      try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) {}
+      load().finally(() => {
+        ptr.classList.remove('loading');
+        ptr.style.height = '';
+      });
+    } else {
+      ptr.style.height = '';
+      ptr.classList.remove('armed');
+    }
+  });
+})();
 </script>
 </body>
 </html>
