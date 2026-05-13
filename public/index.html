@@ -3439,24 +3439,31 @@ function renderAreas(){
     return true;
   });
 
-  /* Sort. */
-  if (AREAS_VIEW.sort === 'alpha'){
-    filtered.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
-  } else {
-    // most-recently touched (falls back to alpha)
-    const lastT = (id) => {
-      let t = 0;
-      for (const e of (Array.isArray(MY_ACTIVITY) ? MY_ACTIVITY : [])){
-        if (e.areaId === id && e.ts && e.ts > t) t = e.ts;
-      }
-      return t;
-    };
-    filtered.sort((a,b) => {
-      const da = lastT(a.id), db = lastT(b.id);
-      if (da !== db) return db - da;
+  /* Sort. Brief v1 §06 mandate: "Default sort is Snagged → In progress
+     → Not started → Done". Problem areas float to the top so the
+     worker never has to scroll past quiet rows to find what blocks
+     them. Within a state bucket the previous tiebreakers still apply
+     (most-recently touched, then alpha) when sort === 'recent', or
+     pure alpha when the user has opted into alpha mode. */
+  const STATE_PRIORITY = { 'snagged': 0, 'in-progress': 1, 'not-started': 2, 'complete': 3 };
+  const lastT = (id) => {
+    let t = 0;
+    for (const e of (Array.isArray(MY_ACTIVITY) ? MY_ACTIVITY : [])){
+      if (e.areaId === id && e.ts && e.ts > t) t = e.ts;
+    }
+    return t;
+  };
+  filtered.sort((a, b) => {
+    const sa = STATE_PRIORITY[areaState(a)] ?? 4;
+    const sb = STATE_PRIORITY[areaState(b)] ?? 4;
+    if (sa !== sb) return sa - sb;
+    if (AREAS_VIEW.sort === 'alpha'){
       return (a.name || '').localeCompare(b.name || '');
-    });
-  }
+    }
+    const da = lastT(a.id), db = lastT(b.id);
+    if (da !== db) return db - da;
+    return (a.name || '').localeCompare(b.name || '');
+  });
 
   /* Group-chip counts (always show on full set, not filtered). */
   const groupCounts = { all: areas.length };
