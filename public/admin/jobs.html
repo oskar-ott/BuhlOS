@@ -181,12 +181,29 @@ window.PAGE = {
     if (params.get('filter') === 'setup-gaps') STATE.filterSetupGaps = true;
     if (params.get('new') === '1') queueOpenNewJob();
 
+    // SHELL.JOBS now comes lightweight (no per-job stats) so the
+    // shell's fan-out doesn't pay for blob reads every admin page
+    // needs. This page DOES want per-job stats (progress, snag
+    // counts, area counts) so we paint the registry first then
+    // fetch with-stats in the background and re-paint.
     STATE.jobs = SHELL.JOBS || [];
     try {
       const r = await SHELL.api('/api/job-types');
       (r.jobTypes || r.types || []).forEach(t => { STATE.jobTypes[t.id] = t; });
     } catch {}
     paint();
+
+    // Background stats fetch. The registry is already painted so
+    // counts + status pills appear instantly; stat tiles (progress
+    // %, open snag count) fill in once /api/jobs?withStats=1
+    // resolves. Soft-fails — the page is still usable without
+    // stats.
+    SHELL.api('/api/jobs?withStats=1').then(r => {
+      if (r && r.jobs) {
+        STATE.jobs = r.jobs;
+        paint();
+      }
+    }).catch(() => {});
 
     // Phase 04 hook — register per-view commands.
     registerJobCommands();
