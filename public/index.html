@@ -8201,54 +8201,259 @@ function renderItps() {
   `;
 }
 
-// Open a single ITP instance — modal showing the point list with
-// status indicators. Read-only for now; admin signs off from the
-// builder.
+// Open a single ITP instance — modal showing each point with an
+// inline recorder. Points have four types per the template schema
+// (api/itp-templates.js VALID_POINT_TYPES):
+//   value   — free-text reading (e.g. "23.4 V"), input + Save
+//   note    — textarea observation
+//   signoff — "I confirm" timestamp + actor, single button
+//   photo   — image upload (deferred to v2 — link to admin builder)
+//
+// Each point's saved state shows ✓ + value/note + actor + time.
+// Editing an already-recorded point just overwrites — the server
+// auto-stamps byUserId/byUsername/at on every record.
 function openItpInstance(instanceId) {
   if (!_itpsCache) return;
   const inst = (_itpsCache.instances || []).find(i => i.id === instanceId);
   if (!inst) return;
+  const role = CURRENT_USER && CURRENT_USER.role;
+  const isClient = role === 'client';
+  // canRecord: anyone with write access to the job. /api/job-itps's
+  // record action gates by canWrite server-side, which is admin / LH /
+  // tradie on assigned jobs. We mirror it client-side so the form
+  // simply doesn't render for clients (who'd 403 anyway).
+  const canRecord = !isClient && (role === 'admin' || role === 'leadingHand' || role === 'tradie');
+  const canSignoff = role === 'admin' || role === 'leadingHand';
+
+  const scrim = document.createElement('div');
+  scrim.className = 'snag-modal-overlay open';
+  scrim.dataset.itpInstance = instanceId;
+  scrim.style.cssText = 'position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center';
+  document.body.appendChild(scrim);
+  scrim.addEventListener('click', (e) => { if (e.target === scrim) scrim.remove(); });
+  paintItpModal(scrim, inst, { canRecord, canSignoff });
+}
+
+// Renders / re-renders the ITP modal body. Called on first open and
+// after every successful record so the ✓ marks update without a
+// page reload.
+function paintItpModal(scrim, inst, opts) {
   const tpl = inst.templateSnapshot || {};
   const points = Array.isArray(tpl.points) ? tpl.points : [];
   const results = inst.results || {};
-  // Reuse the existing snag-modal scrim for layout; it's a generic
-  // bottom-sheet on mobile and centred modal on desktop. We swap the
-  // body in via .snag-modal-body which exists in the existing modal.
-  const scrim = document.createElement('div');
-  scrim.className = 'snag-modal-overlay open';
-  scrim.style.cssText = 'position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center';
+  const canRecord = opts && opts.canRecord;
+  const canSignoff = opts && opts.canSignoff;
+  const status = inst.status || 'pending';
+  const isSignedOff = status === 'signed-off';
+
   scrim.innerHTML = `
     <div class="snag-modal" style="background:var(--paper);border-radius:16px 16px 0 0;width:100%;max-width:520px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
       <div class="snag-modal-hdr" style="padding:14px 16px;border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between">
         <div>
           <div style="font-family:var(--display, sans-serif);font-weight:700;font-size:17px;color:var(--navy);letter-spacing:-.018em">${esc(tpl.name || 'ITP')}</div>
-          <div style="font-size:11px;color:var(--ink-3);font-family:var(--mono);letter-spacing:.04em;text-transform:uppercase;margin-top:2px">${esc(inst.status || 'pending')} · ${points.length} point${points.length === 1 ? '' : 's'}</div>
+          <div style="font-size:11px;color:var(--ink-3);font-family:var(--mono);letter-spacing:.04em;text-transform:uppercase;margin-top:2px">${esc(status)} · ${points.length} point${points.length === 1 ? '' : 's'}</div>
         </div>
         <button type="button" class="snag-modal-close" onclick="this.closest('.snag-modal-overlay').remove()" style="background:none;border:none;color:var(--ink-3);font-size:22px;cursor:pointer">&times;</button>
       </div>
-      <div class="snag-modal-body" style="overflow-y:auto;padding:8px 0;flex:1">
-        ${points.map((p, idx) => {
-          const r = results[p.id] || {};
-          const recorded = r.at != null;
-          return `<div style="padding:12px 16px;border-bottom:1px solid var(--rule);display:flex;gap:12px;align-items:flex-start">
-            <div style="flex-shrink:0;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:${recorded ? 'var(--green-bg, #e6f4ec)' : 'var(--paper-3, #efece4)'};color:${recorded ? 'var(--green, #1f8b5a)' : 'var(--ink-3)'};font-family:var(--mono);font-size:11px;font-weight:700">${recorded ? '✓' : idx + 1}</div>
-            <div style="flex:1;min-width:0">
-              <div style="font-size:14px;font-weight:600;color:var(--ink)">${esc(p.label || p.name || ('Point ' + (idx + 1)))}</div>
-              ${p.note ? `<div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">${esc(p.note)}</div>` : ''}
-              ${recorded ? `<div style="font-size:11.5px;color:var(--ink-2);margin-top:4px">${r.value != null ? esc(String(r.value)) + ' · ' : ''}${esc(r.byUsername || '')} · ${esc(agoStr(new Date(r.at).getTime()))}</div>` : ''}
-            </div>
-          </div>`;
-        }).join('') || '<div style="padding:32px 16px;text-align:center;color:var(--ink-3);font-size:13px">No points defined on this ITP.</div>'}
+      <div class="snag-modal-body" id="itp-points" style="overflow-y:auto;padding:8px 0;flex:1">
+        ${points.map((p, idx) => renderItpPointRow(inst.id, p, idx, results[p.id], { canRecord: canRecord && !isSignedOff, isSignedOff })).join('') || '<div style="padding:32px 16px;text-align:center;color:var(--ink-3);font-size:13px">No points defined on this ITP.</div>'}
       </div>
-      <div style="padding:12px 16px;border-top:1px solid var(--rule);background:var(--paper-2);font-family:var(--mono);font-size:11px;color:var(--ink-3);text-align:center">
-        Recording from mobile lands in a follow-up. For now, complete points from the admin job page.
-      </div>
+      ${canSignoff && status === 'witnessed' ? `
+        <div style="padding:12px 16px;border-top:1px solid var(--rule);background:var(--ok-bg, #e6f4ec)">
+          <button type="button" class="logcard-save" style="width:100%;padding:12px;border-radius:10px;background:var(--green, #1f8b5a);color:#fff;border:0;font-size:14px;font-weight:700;cursor:pointer" onclick="signoffItpInstance('${esc(inst.id)}')">Sign off ITP</button>
+        </div>` :
+        canSignoff && isSignedOff ? `
+        <div style="padding:12px 16px;border-top:1px solid var(--rule);background:var(--paper-2);display:flex;align-items:center;justify-content:space-between">
+          <div style="font-size:12px;color:var(--ink-2)">Signed off by <b>${esc(inst.signedOffBy || '')}</b>${inst.signedOffAt ? ' · ' + esc(agoStr(new Date(inst.signedOffAt).getTime())) : ''}</div>
+          <button type="button" class="btn btn-sm" style="font-size:11px;background:transparent;border:1px solid var(--rule);color:var(--ink-2);padding:4px 10px;border-radius:6px;cursor:pointer" onclick="reopenItpInstance('${esc(inst.id)}')">Reopen</button>
+        </div>` :
+        '<div style="padding:10px 16px;border-top:1px solid var(--rule);background:var(--paper-2);font-family:var(--mono);font-size:11px;color:var(--ink-3);text-align:center">' +
+          (canRecord ? 'Record each point as you complete it.' : 'Read-only view.') +
+        '</div>'
+      }
     </div>
   `;
-  document.body.appendChild(scrim);
-  scrim.addEventListener('click', (e) => {
-    if (e.target === scrim) scrim.remove();
+  // Wire each point's record action. Delegation via data-* attrs lets
+  // us rebuild rows in place without re-wiring per-row listeners.
+  scrim.querySelectorAll('[data-itp-record]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pointId = btn.dataset.itpRecord;
+      const rowEl = btn.closest('.itp-row');
+      const valueEl = rowEl && rowEl.querySelector('[data-itp-value]');
+      const noteEl  = rowEl && rowEl.querySelector('[data-itp-note]');
+      const body = { instanceId: inst.id, pointId };
+      if (valueEl && valueEl.value) body.value = valueEl.value;
+      if (noteEl  && noteEl.value)  body.note  = noteEl.value;
+      recordItpPoint(scrim, inst.id, body, btn);
+    });
   });
+}
+
+// Render a single point row with an inline recorder appropriate to
+// its type. The whole row re-paints after a save via paintItpModal.
+function renderItpPointRow(instanceId, point, idx, result, opts) {
+  const recorded = result && result.at != null;
+  const canRecord = opts && opts.canRecord;
+  const type = (point.type || 'value').toLowerCase();
+  const dot = recorded ? '✓' : (idx + 1);
+  const dotBg = recorded ? 'var(--ok-bg, #e6f4ec)' : 'var(--paper-3, #efece4)';
+  const dotFg = recorded ? 'var(--green, #1f8b5a)' : 'var(--ink-3)';
+  const label = esc(point.label || point.name || ('Point ' + (idx + 1)));
+  const hint  = point.note ? `<div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">${esc(point.note)}</div>` : '';
+  const stamp = recorded ? `<div style="font-size:11.5px;color:var(--ink-2);margin-top:4px">${result.value != null && result.value !== '' ? '<b>' + esc(String(result.value)) + '</b> · ' : ''}${esc(result.byUsername || '')} · ${esc(agoStr(new Date(result.at).getTime()))}${result.note ? '<div style=\"font-style:italic;color:var(--ink-3);margin-top:2px\">' + esc(result.note) + '</div>' : ''}</div>` : '';
+
+  // Recorder controls. Skipped when the user can't record (client +
+  // signed-off state) — they just see the stamp + ✓ mark.
+  let recorder = '';
+  if (canRecord) {
+    if (type === 'value') {
+      recorder = `
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input type="text" data-itp-value placeholder="Reading / value" value="${esc(result && result.value || '')}" style="flex:1;padding:8px 10px;border:1px solid var(--rule);border-radius:6px;font-size:14px;background:#fff">
+          <button type="button" class="btn btn-sm btn-primary" data-itp-record="${esc(point.id)}" style="padding:8px 14px;font-size:13px;font-weight:600">${recorded ? 'Update' : 'Save'}</button>
+        </div>`;
+    } else if (type === 'note') {
+      recorder = `
+        <div style="display:grid;gap:6px;margin-top:8px">
+          <textarea data-itp-note rows="2" placeholder="Observation" style="padding:8px 10px;border:1px solid var(--rule);border-radius:6px;font-size:13.5px;background:#fff;font-family:inherit;resize:vertical;min-height:60px">${esc(result && result.note || '')}</textarea>
+          <button type="button" class="btn btn-sm btn-primary" data-itp-record="${esc(point.id)}" style="padding:8px 14px;font-size:13px;font-weight:600;align-self:flex-end">${recorded ? 'Update' : 'Save'}</button>
+        </div>`;
+    } else if (type === 'signoff') {
+      recorder = `
+        <div style="margin-top:8px">
+          <button type="button" class="btn btn-sm btn-primary" data-itp-record="${esc(point.id)}" style="padding:8px 14px;font-size:13px;font-weight:600">${recorded ? 'Confirmed ✓ (tap to re-stamp)' : 'I confirm'}</button>
+        </div>`;
+    } else if (type === 'photo') {
+      // Photo upload deferred — direct workers to the admin builder
+      // where the upload pipeline already exists.
+      recorder = `
+        <div style="margin-top:8px;padding:8px 10px;background:var(--paper-2);border:1px dashed var(--rule);border-radius:6px;font-size:11.5px;color:var(--ink-3);text-align:center">
+          Photo points are recorded from the admin job page (v2 mobile upload pending).
+        </div>`;
+    }
+  }
+  return `<div class="itp-row" style="padding:12px 16px;border-bottom:1px solid var(--rule);display:flex;gap:12px;align-items:flex-start">
+    <div style="flex-shrink:0;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:${dotBg};color:${dotFg};font-family:var(--mono);font-size:11px;font-weight:700;margin-top:2px">${dot}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:14px;font-weight:600;color:var(--ink)">${label}<span style="margin-left:6px;font-family:var(--mono);font-size:10px;letter-spacing:.04em;color:var(--ink-3);text-transform:uppercase">${esc(type)}</span></div>
+      ${hint}
+      ${stamp}
+      ${recorder}
+    </div>
+  </div>`;
+}
+
+// POST a point record. On success, update the cache and re-paint the
+// modal body so the ✓ flips in place.
+async function recordItpPoint(scrim, instanceId, body, btn) {
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    const r = await fetcher('/api/job-itps?jobId=' + encodeURIComponent(JOB_ID) + '&action=record', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(body),
+    });
+    if (r.status === 202) {
+      // Queued offline — surface that and skip the re-paint (cache
+      // won't have the new state until the queue drains).
+      if (window.showToast) showToast('Record queued offline · syncing when online.', 'warn', 3000);
+      btn.disabled = false;
+      btn.textContent = orig;
+      return;
+    }
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || ('HTTP ' + r.status));
+    }
+    const j = await r.json();
+    // Update the cache + repaint with the fresh instance. The server
+    // returns { instance: ... } on success.
+    if (j && j.instance && _itpsCache && _itpsCache.instances) {
+      const idx = _itpsCache.instances.findIndex(i => i.id === instanceId);
+      if (idx >= 0) _itpsCache.instances[idx] = j.instance;
+      paintItpModal(scrim, j.instance, {
+        canRecord: true,
+        canSignoff: CURRENT_USER && (CURRENT_USER.role === 'admin' || CURRENT_USER.role === 'leadingHand'),
+      });
+      // Re-render the section's list too so progress chips update.
+      renderItps();
+    }
+    if (window.showToast) showToast('Recorded.', 'success', 1400);
+    try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) {}
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = orig;
+    if (window.showToast) showToast('Save failed — ' + e.message, 'error');
+    else alert('Save failed — ' + e.message);
+  }
+}
+
+// Admin / LH sign-off. Status flips from witnessed → signed-off,
+// server stamps signedOffBy + signedOffAt.
+async function signoffItpInstance(instanceId) {
+  const scrim = document.querySelector('.snag-modal-overlay[data-itp-instance="' + instanceId + '"]');
+  try {
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    const r = await fetcher('/api/job-itps?jobId=' + encodeURIComponent(JOB_ID) + '&action=signoff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ instanceId }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || ('HTTP ' + r.status));
+    }
+    const j = await r.json();
+    if (j && j.instance && _itpsCache && _itpsCache.instances) {
+      const idx = _itpsCache.instances.findIndex(i => i.id === instanceId);
+      if (idx >= 0) _itpsCache.instances[idx] = j.instance;
+      if (scrim) paintItpModal(scrim, j.instance, {
+        canRecord: true,
+        canSignoff: CURRENT_USER && (CURRENT_USER.role === 'admin' || CURRENT_USER.role === 'leadingHand'),
+      });
+      renderItps();
+    }
+    if (window.showToast) showToast('ITP signed off.', 'success');
+  } catch (e) {
+    if (window.showToast) showToast('Sign-off failed — ' + e.message, 'error');
+  }
+}
+
+// Reopen a signed-off instance. Same modal flow, opposite verb.
+async function reopenItpInstance(instanceId) {
+  const scrim = document.querySelector('.snag-modal-overlay[data-itp-instance="' + instanceId + '"]');
+  if (!confirm('Reopen this ITP? Sign-off stamps will clear; points stay recorded.')) return;
+  try {
+    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+    const r = await fetcher('/api/job-itps?jobId=' + encodeURIComponent(JOB_ID) + '&action=reopen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ instanceId }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || ('HTTP ' + r.status));
+    }
+    const j = await r.json();
+    if (j && j.instance && _itpsCache && _itpsCache.instances) {
+      const idx = _itpsCache.instances.findIndex(i => i.id === instanceId);
+      if (idx >= 0) _itpsCache.instances[idx] = j.instance;
+      if (scrim) paintItpModal(scrim, j.instance, {
+        canRecord: true,
+        canSignoff: true,
+      });
+      renderItps();
+    }
+    if (window.showToast) showToast('ITP reopened.', 'success');
+  } catch (e) {
+    if (window.showToast) showToast('Reopen failed — ' + e.message, 'error');
+  }
 }
 
 // ── Plans (brief mandate — plans page rebuild) ──
