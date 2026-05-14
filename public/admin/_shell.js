@@ -224,6 +224,15 @@
       document.head.appendChild(link);
     }
 
+    // Register the service worker so subsequent admin loads serve
+    // _shell.css/.js + theme + key brand assets from the SW cache
+    // (stale-while-revalidate). First admin load registers; cold
+    // loads after that paint chrome from disk while the network
+    // refreshes in the background.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+
     // Auth gate — admin and leadingHand only.
     let me;
     try {
