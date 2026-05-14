@@ -1,0 +1,1011 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>buhl · job</title>
+<style>
+:root{
+  --navy:#0d1f35;--navy2:#152840;
+  --yellow:#ffcc00;--yellow-dk:#e6b800;
+  --cream:#f7f4ec;--card:#ffffff;
+  --text:#0f172a;--muted:#64748b;--border:#e2e8f0;
+  --green:#16a34a;--green-bg:#f0fdf4;--green-bd:#bbf7d0;
+  --amber:#d97706;--amber-bg:#fffbeb;--amber-bd:#fde68a;
+  --red:#dc2626;--red-bg:#fef2f2;--red-bd:#fecaca;
+  --r:14px;--rs:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{-webkit-font-smoothing:antialiased}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--cream);color:var(--text);min-height:100vh;padding-bottom:calc(80px + env(safe-area-inset-bottom))}
+
+/* ---------- Top bar ---------- */
+.topbar{background:var(--navy);color:#fff;padding:12px 14px 12px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100;padding-top:max(12px, env(safe-area-inset-top))}
+.tb-back{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:9px;padding:6px 10px;font-size:18px;font-weight:600;cursor:pointer;flex-shrink:0;line-height:1}
+.tb-back:active{background:rgba(255,255,255,.2)}
+.tb-job{flex:1;min-width:0}
+.tb-job .name{font-weight:700;font-size:15px;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb-job .sub{color:#94a3b8;font-size:11px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb-tools{background:var(--yellow);color:var(--navy);border:none;border-radius:9px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0}
+
+/* ---------- Page wrap ---------- */
+.wrap{max-width:560px;margin:0 auto;padding:14px 14px 24px}
+.view{display:none}
+.view.active{display:block}
+
+/* ---------- Job Home: primary action ---------- */
+.hero-action{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--navy);color:#fff;border-radius:var(--r);padding:18px 18px 18px;margin-bottom:10px;cursor:pointer;transition:transform .05s;border:1px solid var(--navy);text-decoration:none}
+.hero-action:active{transform:scale(.99)}
+.hero-action .l{flex:1;min-width:0}
+.hero-action .ttl{font-size:12px;font-weight:700;color:var(--yellow);letter-spacing:.6px;text-transform:uppercase;margin-bottom:4px}
+.hero-action .big{font-size:22px;font-weight:800;letter-spacing:-.3px}
+.hero-action .sub{font-size:13px;color:#94a3b8;margin-top:3px}
+.hero-action .chev{font-size:34px;color:var(--yellow);font-weight:600;line-height:.6;flex-shrink:0}
+
+.quick-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.qbtn{background:var(--card);border:1px solid var(--border);border-radius:var(--rs);padding:14px 12px;display:flex;flex-direction:column;align-items:flex-start;gap:3px;cursor:pointer;text-align:left;color:var(--text);text-decoration:none}
+.qbtn:active{transform:scale(.99)}
+.qbtn:hover{border-color:#a5b4fc}
+.qbtn .ico{font-size:20px;line-height:1;margin-bottom:6px;color:var(--navy);font-weight:800}
+.qbtn .ttl{font-size:14px;font-weight:700;color:var(--navy)}
+.qbtn .sub{font-size:11px;color:var(--muted)}
+.qbtn.full{grid-column:1 / -1}
+
+.summary-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px 14px;margin-bottom:14px}
+.summary-row{display:grid;grid-template-columns:repeat(3,1fr);gap:0;padding:4px 0}
+.summary-cell{text-align:center}
+.summary-cell .v{font-size:22px;font-weight:800;color:var(--navy);line-height:1;letter-spacing:-.3px}
+.summary-cell .l{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;margin-top:4px;letter-spacing:.4px}
+.summary-cell.snag .v{color:var(--red)}
+.summary-cell.done .v{color:var(--green)}
+.summary-cell .v.skel{display:inline-block;width:36px;height:22px}
+
+/* ---------- Areas list ---------- */
+.list-tools{position:sticky;top:60px;background:var(--cream);padding:6px 0 10px;z-index:50;margin-bottom:0}
+.search{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:9px 12px}
+.search input{flex:1;border:none;background:none;outline:none;font-size:14px;color:var(--text)}
+.search .ico{color:var(--muted);font-size:14px;font-weight:600}
+.filter-chips{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:8px 0 2px;margin:0 -2px}
+.filter-chips::-webkit-scrollbar{display:none}
+.fchip{flex-shrink:0;padding:7px 12px;border:1px solid var(--border);background:var(--card);border-radius:999px;font-size:12px;font-weight:600;color:var(--text);cursor:pointer;white-space:nowrap}
+.fchip.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+.fchip .c{margin-left:5px;opacity:.65;font-weight:600}
+
+.area-row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:var(--rs);padding:11px 12px;margin-bottom:6px;cursor:pointer;color:var(--text);text-decoration:none;transition:transform .04s, border-color .12s}
+.area-row:active{transform:scale(.99)}
+.area-row:hover{border-color:#a5b4fc}
+.area-row.snag{border-left:3px solid var(--red)}
+.dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.dot.grey{background:#cbd5e1}.dot.amber{background:#f59e0b}.dot.green{background:#22c55e}.dot.red{background:#ef4444}
+.ar-body{flex:1;min-width:0}
+.ar-name{font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ar-sub{font-size:12px;color:var(--muted);margin-top:2px;display:flex;align-items:center;gap:6px}
+.ar-snag{color:var(--red);font-weight:700}
+.ar-pct{font-size:13px;font-weight:700;color:var(--muted);flex-shrink:0;min-width:36px;text-align:right}
+.ar-chev{color:#94a3b8;font-size:18px;flex-shrink:0;font-weight:600}
+
+/* ---------- Area Detail ---------- */
+.area-hdr{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px 14px;margin-bottom:12px}
+.area-hdr .name{font-size:20px;font-weight:800;color:var(--navy);letter-spacing:-.3px;margin-bottom:8px}
+.bar-bg{background:#f1f5f9;border-radius:8px;height:8px;overflow:hidden;margin-bottom:6px}
+.bar{height:8px;border-radius:8px;background:linear-gradient(90deg,#3b82f6,#22c55e);transition:width .5s}
+.area-hdr .meta{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+.area-hdr .meta b{color:var(--text);font-weight:700}
+
+.group-h{display:flex;align-items:center;gap:8px;margin:14px 0 8px}
+.group-pill{padding:3px 10px;border-radius:999px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px}
+.group-pill.rough{background:#dcfce7;color:#166534}
+.group-pill.fitoff{background:#fef3c7;color:#92400e}
+.group-line{flex:1;height:1px;background:var(--border)}
+
+.task-row{background:var(--card);border:1px solid var(--border);border-radius:var(--rs);padding:11px 12px;margin-bottom:6px}
+.task-row.snagged{border-color:var(--red-bd);background:#fff7f7}
+.task-row.done{background:#f7fdf8;border-color:var(--green-bd)}
+.task-top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.task-name{flex:1;font-size:14px;font-weight:700;color:var(--text)}
+.task-snagbtn{background:var(--red-bg);border:1px solid var(--red-bd);color:var(--red);border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.3px;text-transform:uppercase}
+.task-snagbtn.open{background:var(--red);color:#fff;border-color:var(--red)}
+.task-snagbtn:active{transform:translateY(1px)}
+.status-row{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.status-btn{padding:9px 4px;border:1px solid var(--border);background:#fff;border-radius:8px;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;text-align:center;line-height:1.1}
+.status-btn:active{transform:translateY(1px)}
+.status-btn.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+.status-btn.ns.active{background:#475569;border-color:#475569}
+.status-btn.ip.active{background:var(--amber);border-color:var(--amber);color:#fff}
+.status-btn.dn.active{background:var(--green);border-color:var(--green);color:#fff}
+
+/* ---------- Bottom sheet (snag, log hours) ---------- */
+.sheet-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:300;opacity:0;pointer-events:none;transition:opacity .2s}
+.sheet-backdrop.open{opacity:1;pointer-events:auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-radius:18px 18px 0 0;z-index:301;transform:translateY(100%);transition:transform .25s cubic-bezier(.25,.8,.4,1);max-height:78vh;display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -10px 30px rgba(15,23,42,.18)}
+.sheet.open{transform:translateY(0)}
+.sheet-handle{width:42px;height:5px;border-radius:3px;background:#cbd5e1;margin:8px auto 4px}
+.sheet-hdr{padding:8px 18px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)}
+.sheet-hdr h3{font-size:17px;font-weight:800;color:var(--navy);letter-spacing:-.2px}
+.sheet-close{background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;padding:0 4px;line-height:1}
+.sheet-body{padding:14px 18px 4px;overflow-y:auto;flex:1}
+.sheet-foot{padding:12px 18px 16px;border-top:1px solid var(--border);display:flex;gap:8px;background:var(--card);position:sticky;bottom:0}
+
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+.field input,.field select,.field textarea{width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--text);font-size:15px;font-family:inherit;outline:none}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--navy)}
+.field textarea{min-height:90px;resize:vertical}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:9px 14px;background:#fff;border:1px solid var(--border);border-radius:999px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;text-align:center}
+.chip.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+.chip:active{transform:translateY(1px)}
+
+/* ---------- Tools sheet ---------- */
+.tool-row{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid var(--border);cursor:pointer}
+.tool-row:last-child{border-bottom:none}
+.tool-ico{width:38px;height:38px;border-radius:9px;background:var(--cream);color:var(--navy);display:flex;align-items:center;justify-content:center;font-weight:800}
+.tool-name{flex:1;font-weight:700;font-size:14px}
+.tool-sub{font-size:12px;color:var(--muted);margin-top:1px;font-weight:500}
+.tool-chev{color:#94a3b8;font-size:18px;font-weight:600}
+.tool-group{margin-top:6px}
+.tool-group-l{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:14px 4px 4px}
+
+/* ---------- Btn ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:13px 18px;border-radius:var(--rs);border:1px solid transparent;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;flex:1;line-height:1}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:var(--yellow);color:var(--navy);border-color:var(--yellow-dk)}
+.btn-primary:hover{background:var(--yellow-dk)}
+.btn-ghost{background:var(--card);color:var(--navy);border-color:var(--border)}
+.btn-danger{background:var(--red);color:#fff}
+.btn-navy{background:var(--navy);color:#fff}
+.btn-w{width:100%;flex:none}
+
+.empty{text-align:center;padding:30px 14px;color:var(--muted);font-size:13px;background:var(--card);border:1px dashed var(--border);border-radius:var(--r)}
+.empty b{display:block;color:var(--text);font-size:14px;font-weight:700;margin-bottom:4px}
+
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--navy);color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:500;opacity:0;transition:all .25s;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.error{background:var(--red)}
+
+/* skeleton */
+.skel{background:linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%);background-size:200% 100%;animation:skel 1.4s infinite;border-radius:6px;display:inline-block}
+@keyframes skel{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* ---------- Bottom nav ---------- */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);display:flex;justify-content:space-around;padding:6px 0 calc(6px + env(safe-area-inset-bottom));z-index:90}
+.bn-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 4px;color:var(--muted);font-size:11px;font-weight:600;background:none;border:none;cursor:pointer;text-decoration:none}
+.bn-item.active{color:var(--navy)}
+.bn-ico{font-size:20px;line-height:1}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <button class="tb-back" id="tb-back" title="Back">‹</button>
+  <div class="tb-job">
+    <div class="name" id="job-name">…</div>
+    <div class="sub" id="job-sub">…</div>
+  </div>
+  <button class="tb-tools" id="tb-tools">Tools</button>
+</div>
+
+<div class="wrap">
+
+  <!-- HOME VIEW -->
+  <div id="view-home" class="view active">
+    <a class="hero-action" href="#areas" id="open-areas">
+      <div class="l">
+        <div class="ttl">Where you work</div>
+        <div class="big">Open work areas</div>
+        <div class="sub" id="hero-sub">…</div>
+      </div>
+      <div class="chev">›</div>
+    </a>
+    <div class="quick-row">
+      <button class="qbtn" id="quick-log">
+        <div class="ico">＋</div>
+        <div class="ttl">Log hours</div>
+        <div class="sub" id="quick-log-sub">Today</div>
+      </button>
+      <button class="qbtn" id="quick-snag">
+        <div class="ico">!</div>
+        <div class="ttl">Raise snag</div>
+        <div class="sub">Open issue on site</div>
+      </button>
+    </div>
+
+    <div class="summary-card">
+      <div class="summary-row">
+        <div class="summary-cell"><div class="v" id="home-progress"><span class="skel"></span></div><div class="l">Complete</div></div>
+        <div class="summary-cell snag"><div class="v" id="home-snags"><span class="skel"></span></div><div class="l">Open snags</div></div>
+        <div class="summary-cell"><div class="v" id="home-week-hrs"><span class="skel"></span></div><div class="l">My week</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AREAS VIEW -->
+  <div id="view-areas" class="view">
+    <div class="list-tools">
+      <div class="search">
+        <span class="ico">⌕</span>
+        <input id="areaSearch" placeholder="Search work areas…" autocomplete="off">
+      </div>
+      <div class="filter-chips" id="filterChips"></div>
+    </div>
+    <div id="areas-list"></div>
+  </div>
+
+  <!-- AREA DETAIL VIEW -->
+  <div id="view-detail" class="view">
+    <div id="detail-mount"></div>
+  </div>
+
+</div>
+
+<!-- ===== Bottom sheets ===== -->
+
+<!-- TOOLS SHEET -->
+<div class="sheet-backdrop" id="toolsBackdrop" onclick="closeSheet('toolsSheet')"></div>
+<div class="sheet" id="toolsSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-hdr">
+    <h3>Job tools</h3>
+    <button class="sheet-close" onclick="closeSheet('toolsSheet')">×</button>
+  </div>
+  <div class="sheet-body">
+    <div class="tool-group">
+      <div class="tool-group-l">On site</div>
+      <button class="tool-row" data-tool="snag" style="border:none;background:none;width:100%;text-align:left">
+        <div class="tool-ico">!</div>
+        <div style="flex:1"><div class="tool-name">Raise snag</div><div class="tool-sub">Open issue on site</div></div>
+        <div class="tool-chev">›</div>
+      </button>
+      <button class="tool-row" data-tool="log" style="border:none;background:none;width:100%;text-align:left">
+        <div class="tool-ico">＋</div>
+        <div style="flex:1"><div class="tool-name">Log hours</div><div class="tool-sub">Total hours for today</div></div>
+        <div class="tool-chev">›</div>
+      </button>
+      <button class="tool-row" data-tool="snaglist" style="border:none;background:none;width:100%;text-align:left">
+        <div class="tool-ico">▣</div>
+        <div style="flex:1"><div class="tool-name" id="tool-snags-name">View open snags</div><div class="tool-sub" id="tool-snags-sub">All snags on this job</div></div>
+        <div class="tool-chev">›</div>
+      </button>
+      <a class="tool-row" href="/my-day" style="text-decoration:none;color:inherit">
+        <div class="tool-ico">●</div>
+        <div style="flex:1"><div class="tool-name">My day</div><div class="tool-sub">My week and other jobs</div></div>
+        <div class="tool-chev">›</div>
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- SNAG SHEET -->
+<div class="sheet-backdrop" id="snagBackdrop" onclick="closeSheet('snagSheet')"></div>
+<div class="sheet" id="snagSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-hdr">
+    <h3 id="snag-title">Raise snag</h3>
+    <button class="sheet-close" onclick="closeSheet('snagSheet')">×</button>
+  </div>
+  <div class="sheet-body">
+    <div class="field">
+      <label for="snagDwelling">Work area</label>
+      <select id="snagDwelling"></select>
+    </div>
+    <div class="field">
+      <label for="snagStage">Task / stage <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted)">(optional)</span></label>
+      <select id="snagStage">
+        <option value="">— Not stage-specific —</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Priority</label>
+      <div class="chips" id="snagPriority">
+        <button class="chip" data-p="High">High</button>
+        <button class="chip active" data-p="Medium">Medium</button>
+        <button class="chip" data-p="Low">Low</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="snagDesc">What's wrong?</label>
+      <textarea id="snagDesc" placeholder="e.g. Loose conduit at ceiling joint, needs re-fixing"></textarea>
+    </div>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn btn-ghost" onclick="closeSheet('snagSheet')">Cancel</button>
+    <button class="btn btn-danger" id="snagSave">Raise snag</button>
+  </div>
+</div>
+
+<!-- LOG HOURS SHEET -->
+<div class="sheet-backdrop" id="logBackdrop" onclick="closeSheet('logSheet')"></div>
+<div class="sheet" id="logSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-hdr">
+    <h3>Log hours</h3>
+    <button class="sheet-close" onclick="closeSheet('logSheet')">×</button>
+  </div>
+  <div class="sheet-body">
+    <div class="field">
+      <label for="logDate">Date</label>
+      <input id="logDate" type="date">
+    </div>
+    <div class="field">
+      <label>Total hours</label>
+      <div class="chips" id="logHourChips" style="margin-bottom:8px"></div>
+      <input id="logHours" type="number" min="0" max="24" step="0.25" placeholder="e.g. 7.5" inputmode="decimal">
+    </div>
+    <div class="field">
+      <label for="logNotes">Notes (optional)</label>
+      <textarea id="logNotes" placeholder="e.g. Lighting rough-in unit 3"></textarea>
+    </div>
+    <div id="logExisting" class="empty" style="display:none;text-align:left;border-style:solid;background:var(--amber-bg);border-color:var(--amber-bd);color:#92400e">
+      <b id="logExistingTitle">Already logged today</b>
+      <span id="logExistingBody"></span>
+    </div>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn btn-ghost" onclick="closeSheet('logSheet')">Cancel</button>
+    <button class="btn btn-primary" id="logSave">Save hours</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav">
+  <a class="bn-item" href="/my-day"><span class="bn-ico">●</span>My Day</a>
+  <button class="bn-item active" id="bn-areas"><span class="bn-ico">▦</span>Areas</button>
+  <button class="bn-item" id="bn-log"><span class="bn-ico">＋</span>Log hours</button>
+</nav>
+
+<script>
+// ============================================
+// Job ID + auth
+// ============================================
+const PATH_RE = /^\/my-job\/([^\/?#]+)/;
+const jobIdMatch = location.pathname.match(PATH_RE);
+const JOB_ID = jobIdMatch ? decodeURIComponent(jobIdMatch[1]) : '';
+
+const ROUGH_STAGES = ['AC Rough-In','Lighting Rough-In','Power Rough-In','NBN','Rough-In Inspection'];
+const FITOFF_STAGES = ['AC Fit-Off','GPO / Switch Install','Lighting Install','Switchboard Fit-Off','Final Test & Commission','Certificate of Compliance','Handover'];
+const ALL_STAGES = [...ROUGH_STAGES, ...FITOFF_STAGES];
+
+// Birdwood-style default area set. If job.dwellings is populated, those drive instead.
+const DEFAULT_UNITS = Array.from({length: 15}, (_, i) => `Unit ${i+1}`);
+const DEFAULT_TH    = Array.from({length: 7},  (_, i) => `Townhouse ${i+1}`);
+
+const HOUR_CHIPS = [4, 6, 7.5, 8, 9];
+
+const state = {
+  user: null,
+  job: null,
+  data: null,
+  myHours: [],
+  areas: [],           // list of area names (groups inferred from name)
+  filter: 'all',       // all | snag | inprogress | notstarted | complete
+  query: '',
+  currentArea: null,
+};
+
+const $ = (id) => document.getElementById(id);
+const escHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function toast(msg, kind) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (kind === 'error' ? ' error' : '');
+  setTimeout(() => t.classList.remove('show'), kind === 'error' ? 2800 : 1600);
+}
+
+function todayIso() {
+  const d = new Date();
+  return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+function startOfWeek(d) {
+  const dt = new Date(d);
+  const day = dt.getDay() || 7;
+  dt.setHours(0, 0, 0, 0);
+  dt.setDate(dt.getDate() - (day - 1));
+  return dt;
+}
+
+// ============================================
+// Data fetching
+// ============================================
+async function loadMe() {
+  const r = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
+  if (!r.ok) { location.href = '/login'; return null; }
+  const { user } = await r.json();
+  if (user.role === 'client') { location.href = '/jobs'; return null; }
+  return user;
+}
+
+async function loadJob() {
+  const r = await fetch(`/api/jobs?id=${encodeURIComponent(JOB_ID)}`, { credentials: 'same-origin' });
+  if (!r.ok) {
+    if (r.status === 403) {
+      toast('No access to this job', 'error');
+      setTimeout(() => location.href = '/my-day', 1200);
+    } else if (r.status === 404) {
+      toast('Job not found', 'error');
+      setTimeout(() => location.href = '/my-day', 1200);
+    }
+    return null;
+  }
+  const { job } = await r.json();
+  return job;
+}
+
+async function loadJobData() {
+  const r = await fetch(`/api/data?jobId=${encodeURIComponent(JOB_ID)}`, { credentials: 'same-origin' });
+  if (!r.ok) return { dwellings: {}, snags: [], notes: [] };
+  return await r.json();
+}
+
+async function loadMyHours() {
+  const r = await fetch(`/api/hours?jobId=${encodeURIComponent(JOB_ID)}&mine=1`, { credentials: 'same-origin' });
+  if (!r.ok) return [];
+  const { entries } = await r.json();
+  return entries || [];
+}
+
+// ============================================
+// Area / stage helpers
+// ============================================
+function statusOf(area, stage) {
+  return (state.data && state.data.dwellings && state.data.dwellings[area] && state.data.dwellings[area][stage] && state.data.dwellings[area][stage].status) || 'Not Started';
+}
+
+function areaStats(area) {
+  let done = 0, ip = 0, sn = 0;
+  ALL_STAGES.forEach(s => {
+    const v = statusOf(area, s);
+    if (v === 'Done') done++;
+    else if (v === 'In Progress') ip++;
+    else if (v === 'Snagged') sn++;
+  });
+  const pct = Math.round((done / ALL_STAGES.length) * 100);
+  return { done, ip, sn, pct };
+}
+
+function openSnagsForArea(area) {
+  return (state.data && state.data.snags || []).filter(s => s.dwelling === area && s.status === 'Open');
+}
+
+function areaDotClass(area) {
+  const s = areaStats(area);
+  const sn = openSnagsForArea(area).length;
+  if (sn > 0) return 'red';
+  if (s.pct === 100) return 'green';
+  if (s.pct > 0 || s.ip > 0) return 'amber';
+  return 'grey';
+}
+
+function getAllAreas() {
+  // Prefer keys that exist in data.dwellings, else fall back to defaults.
+  const fromData = Object.keys((state.data && state.data.dwellings) || {});
+  if (fromData.length) return fromData;
+  return [...DEFAULT_UNITS, ...DEFAULT_TH];
+}
+
+function inferGroup(area) {
+  const lc = area.toLowerCase();
+  if (lc.includes('townhouse')) return 'Townhouses';
+  if (/^unit\b/.test(lc) || lc.startsWith('unit ')) return 'Units';
+  if (lc.includes('nbn') || lc.includes('common') || lc.includes('comms')) return 'Services & common';
+  return 'Other';
+}
+
+// ============================================
+// Views
+// ============================================
+function showView(name) {
+  ['home', 'areas', 'detail', 'snags'].forEach(v => {
+    const node = $(`view-${v}`);
+    if (node) node.classList.toggle('active', v === name);
+  });
+  // bottom nav active mark
+  $('bn-areas').classList.toggle('active', name === 'areas' || name === 'detail' || name === 'snags');
+  window.scrollTo(0, 0);
+}
+
+// ---- Home ----
+function renderHome() {
+  const sn = (state.data.snags || []).filter(s => s.status === 'Open').length;
+  const areas = getAllAreas();
+  const totalDone = areas.filter(a => areaStats(a).pct === 100).length;
+  const progress = areas.length ? Math.round(areas.reduce((acc, a) => acc + areaStats(a).pct, 0) / areas.length) : 0;
+  const monday = startOfWeek(new Date());
+  const weekHrs = state.myHours
+    .filter(e => new Date(e.date) >= monday)
+    .reduce((a, e) => a + (Number(e.hours) || 0), 0);
+
+  $('hero-sub').textContent = `${areas.length} area${areas.length !== 1 ? 's' : ''} · ${progress}% complete`;
+  $('home-progress').textContent = `${progress}%`;
+  $('home-snags').textContent = sn;
+  $('home-week-hrs').textContent = `${weekHrs.toFixed(weekHrs % 1 ? 1 : 0)}h`;
+
+  // quick-log sub
+  const todayHrs = state.myHours
+    .filter(e => e.date === todayIso())
+    .reduce((a, e) => a + (Number(e.hours) || 0), 0);
+  $('quick-log-sub').textContent = todayHrs > 0 ? `${todayHrs}h logged today` : 'Today';
+}
+
+// ---- Areas list ----
+function renderAreasList() {
+  const areas = getAllAreas();
+  const counts = {
+    all: areas.length,
+    snag: areas.filter(a => openSnagsForArea(a).length > 0).length,
+    inprogress: areas.filter(a => { const s = areaStats(a); return s.pct < 100 && (s.done > 0 || s.ip > 0); }).length,
+    notstarted: areas.filter(a => areaStats(a).pct === 0 && areaStats(a).ip === 0 && openSnagsForArea(a).length === 0).length,
+    complete: areas.filter(a => areaStats(a).pct === 100).length,
+  };
+
+  $('filterChips').innerHTML = [
+    ['all', 'All'],
+    ['snag', 'Snags'],
+    ['inprogress', 'In progress'],
+    ['notstarted', 'Not started'],
+    ['complete', 'Complete'],
+  ].map(([k, lbl]) => `
+    <button class="fchip ${state.filter === k ? 'active' : ''}" data-f="${k}">
+      ${lbl}<span class="c">${counts[k]}</span>
+    </button>`).join('');
+
+  $('filterChips').querySelectorAll('.fchip').forEach(c => {
+    c.onclick = () => { state.filter = c.dataset.f; renderAreasList(); };
+  });
+
+  // group + filter + search
+  const q = state.query.trim().toLowerCase();
+  let filtered = areas.filter(a => {
+    if (q && !a.toLowerCase().includes(q)) return false;
+    const s = areaStats(a);
+    const hasSnag = openSnagsForArea(a).length > 0;
+    switch (state.filter) {
+      case 'snag': return hasSnag;
+      case 'inprogress': return s.pct < 100 && (s.done > 0 || s.ip > 0);
+      case 'notstarted': return s.pct === 0 && s.ip === 0 && !hasSnag;
+      case 'complete': return s.pct === 100;
+      default: return true;
+    }
+  });
+
+  const groups = {};
+  filtered.forEach(a => {
+    const g = inferGroup(a);
+    (groups[g] = groups[g] || []).push(a);
+  });
+  const ORDER = ['Townhouses', 'Units', 'Services & common', 'Other'];
+  const html = [];
+  ORDER.forEach(g => {
+    if (!groups[g]) return;
+    html.push(`<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:14px 4px 6px">${escHtml(g)} <span style="color:#94a3b8;font-weight:600">· ${groups[g].length}</span></div>`);
+    groups[g].forEach(a => html.push(areaRowHtml(a)));
+  });
+  // any group keys not in ORDER
+  Object.keys(groups).forEach(g => {
+    if (ORDER.includes(g)) return;
+    html.push(`<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:14px 4px 6px">${escHtml(g)}</div>`);
+    groups[g].forEach(a => html.push(areaRowHtml(a)));
+  });
+  if (!filtered.length) {
+    html.push(`<div class="empty"><b>No areas match.</b>Try a different filter or search.</div>`);
+  }
+  $('areas-list').innerHTML = html.join('');
+  $('areas-list').querySelectorAll('[data-area]').forEach(el => {
+    el.onclick = () => openArea(el.dataset.area);
+  });
+}
+
+function areaRowHtml(area) {
+  const s = areaStats(area);
+  const sn = openSnagsForArea(area).length;
+  const dot = areaDotClass(area);
+  const sub = [];
+  if (sn > 0) sub.push(`<span class="ar-snag">${sn} open snag${sn>1?'s':''}</span>`);
+  if (s.pct === 100) sub.push('Complete');
+  else if (s.pct > 0) sub.push(`${s.pct}% complete`);
+  else if (s.ip > 0) sub.push('In progress');
+  else sub.push('Not started');
+  return `
+    <div class="area-row ${sn > 0 ? 'snag' : ''}" data-area="${escHtml(area)}">
+      <div class="dot ${dot}"></div>
+      <div class="ar-body">
+        <div class="ar-name">${escHtml(area)}</div>
+        <div class="ar-sub">${sub.join(' · ')}</div>
+      </div>
+      <div class="ar-pct">${s.pct}%</div>
+      <div class="ar-chev">›</div>
+    </div>`;
+}
+
+// ---- Area Detail ----
+function openArea(area) {
+  state.currentArea = area;
+  showView('detail');
+  renderAreaDetail();
+}
+
+function renderAreaDetail() {
+  const area = state.currentArea;
+  if (!area) return;
+  const s = areaStats(area);
+  const snagsForArea = openSnagsForArea(area);
+  const html = `
+    <button class="tb-back" style="background:none;border:1px solid var(--border);color:var(--navy);margin-bottom:10px" id="detail-back">‹ Back to areas</button>
+    <div class="area-hdr">
+      <div class="name">${escHtml(area)}</div>
+      <div class="bar-bg"><div class="bar" style="width:${s.pct}%"></div></div>
+      <div class="meta">
+        <span><b>${s.pct}%</b> complete · ${s.done}/${ALL_STAGES.length} done</span>
+        ${snagsForArea.length > 0 ? `<span style="color:var(--red);font-weight:700">${snagsForArea.length} open snag${snagsForArea.length>1?'s':''}</span>` : ''}
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <button class="btn btn-ghost" onclick="openSnagSheet('${escHtml(area)}')">＋ Raise snag</button>
+      <button class="btn btn-primary" onclick="openLogSheet()">＋ Log hours</button>
+    </div>
+
+    <div class="group-h">
+      <span class="group-pill rough">Rough-in</span>
+      <span class="group-line"></span>
+    </div>
+    ${ROUGH_STAGES.map(st => taskRowHtml(area, st)).join('')}
+
+    <div class="group-h">
+      <span class="group-pill fitoff">Fit-off</span>
+      <span class="group-line"></span>
+    </div>
+    ${FITOFF_STAGES.map(st => taskRowHtml(area, st)).join('')}
+
+    ${snagsForArea.length ? `
+      <div class="group-h" style="margin-top:18px"><span class="group-pill" style="background:#fee2e2;color:#991b1b">Snags in this area</span><span class="group-line"></span></div>
+      ${snagsForArea.map(s => snagItemHtml(s)).join('')}
+    ` : ''}
+  `;
+  $('detail-mount').innerHTML = html;
+  $('detail-back').onclick = () => { showView('areas'); };
+  $('detail-mount').querySelectorAll('[data-status-btn]').forEach(btn => {
+    btn.onclick = () => updateTask(btn.dataset.area, btn.dataset.stage, btn.dataset.status);
+  });
+  $('detail-mount').querySelectorAll('[data-snagtask]').forEach(btn => {
+    btn.onclick = () => openSnagSheet(btn.dataset.area, btn.dataset.stage);
+  });
+  $('detail-mount').querySelectorAll('[data-close-snag]').forEach(btn => {
+    btn.onclick = () => closeSnag(btn.dataset.closeSnag);
+  });
+}
+
+function taskRowHtml(area, stage) {
+  const status = statusOf(area, stage);
+  const taskOpenSnags = openSnagsForArea(area).filter(s => s.stage === stage).length;
+  const rowCls = status === 'Done' ? 'done' : (taskOpenSnags > 0 ? 'snagged' : '');
+  return `
+    <div class="task-row ${rowCls}">
+      <div class="task-top">
+        <div class="task-name">${escHtml(stage)}</div>
+        <button class="task-snagbtn ${taskOpenSnags > 0 ? 'open' : ''}"
+          data-snagtask="1" data-area="${escHtml(area)}" data-stage="${escHtml(stage)}">
+          ${taskOpenSnags > 0 ? taskOpenSnags + ' snag' + (taskOpenSnags>1?'s':'') : 'Snag'}
+        </button>
+      </div>
+      <div class="status-row">
+        <button class="status-btn ns ${status === 'Not Started' ? 'active' : ''}"
+          data-status-btn="1" data-area="${escHtml(area)}" data-stage="${escHtml(stage)}" data-status="Not Started">Not started</button>
+        <button class="status-btn ip ${status === 'In Progress' ? 'active' : ''}"
+          data-status-btn="1" data-area="${escHtml(area)}" data-stage="${escHtml(stage)}" data-status="In Progress">In progress</button>
+        <button class="status-btn dn ${status === 'Done' ? 'active' : ''}"
+          data-status-btn="1" data-area="${escHtml(area)}" data-stage="${escHtml(stage)}" data-status="Done">Done</button>
+      </div>
+    </div>`;
+}
+
+function snagItemHtml(s) {
+  return `
+    <div class="area-row snag" style="cursor:default;align-items:flex-start">
+      <div class="dot red"></div>
+      <div class="ar-body">
+        <div class="ar-name">${escHtml(s.desc)}</div>
+        <div class="ar-sub">${escHtml(s.stage || '—')} · ${escHtml(s.priority || 'Medium')} · ${escHtml(s.by || '')}</div>
+      </div>
+      <button class="status-btn" style="flex:none;padding:7px 11px;font-size:11px" data-close-snag="${escHtml(s.id || '')}">Close</button>
+    </div>`;
+}
+
+// ---- Server actions ----
+async function updateTask(area, stage, status) {
+  const prev = statusOf(area, stage);
+  // optimistic
+  state.data.dwellings = state.data.dwellings || {};
+  state.data.dwellings[area] = state.data.dwellings[area] || {};
+  state.data.dwellings[area][stage] = state.data.dwellings[area][stage] || {};
+  state.data.dwellings[area][stage].status = status;
+  renderAreaDetail();
+  try {
+    const r = await fetch(`/api/data?jobId=${encodeURIComponent(JOB_ID)}&op=task-update`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dwelling: area, stage, status }),
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'save failed');
+    toast(`${stage}: ${status}`);
+  } catch (e) {
+    state.data.dwellings[area][stage].status = prev;
+    renderAreaDetail();
+    toast(e.message || 'Save failed', 'error');
+  }
+}
+
+async function closeSnag(id) {
+  if (!id) return;
+  try {
+    const r = await fetch(`/api/data?jobId=${encodeURIComponent(JOB_ID)}&op=snag-close`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'close failed');
+    // Reload data
+    state.data = await loadJobData();
+    renderAreaDetail();
+    toast('Snag closed');
+  } catch (e) {
+    toast(e.message || 'Failed', 'error');
+  }
+}
+
+// ============================================
+// Snag sheet
+// ============================================
+function openSnagSheet(area, stage) {
+  const sel = $('snagDwelling');
+  const stageSel = $('snagStage');
+  const areas = getAllAreas();
+  sel.innerHTML = areas.map(a => `<option value="${escHtml(a)}"${a === area ? ' selected' : ''}>${escHtml(a)}</option>`).join('');
+  if (areas.length === 1) sel.value = areas[0];
+  stageSel.innerHTML = `<option value="">— Not stage-specific —</option>
+    <optgroup label="Rough-in">${ROUGH_STAGES.map(s => `<option${s === stage ? ' selected' : ''}>${escHtml(s)}</option>`).join('')}</optgroup>
+    <optgroup label="Fit-off">${FITOFF_STAGES.map(s => `<option${s === stage ? ' selected' : ''}>${escHtml(s)}</option>`).join('')}</optgroup>`;
+  $('snagDesc').value = '';
+  const t = document.getElementById('snag-title');
+  if (t) t.textContent = stage ? `Snag on ${stage}` : 'Raise snag';
+  $('snagPriority').querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.p === 'Medium'));
+  openSheet('snagSheet');
+}
+
+async function saveSnag() {
+  const dwelling = $('snagDwelling').value;
+  const stage = $('snagStage').value;
+  const desc = $('snagDesc').value.trim();
+  const priority = ($('snagPriority').querySelector('.chip.active') || {}).dataset?.p || 'Medium';
+  if (!dwelling) { toast('Pick an area', 'error'); return; }
+  if (!desc) { toast('Describe the issue', 'error'); return; }
+  const btn = $('snagSave');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const r = await fetch(`/api/data?jobId=${encodeURIComponent(JOB_ID)}&op=snag-add`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dwelling, stage, desc, priority }),
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'failed');
+    state.data = await loadJobData();
+    toast('Snag raised');
+    closeSheet('snagSheet');
+    if ($('view-detail').classList.contains('active')) renderAreaDetail();
+    else if ($('view-areas').classList.contains('active')) renderAreasList();
+    else renderHome();
+    refreshToolsCounts();
+  } catch (e) {
+    toast(e.message || 'Failed', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Raise snag';
+  }
+}
+
+// ============================================
+// Log hours sheet
+// ============================================
+function openLogSheet(forDate) {
+  $('logDate').value = forDate || todayIso();
+  $('logHours').value = '';
+  $('logNotes').value = '';
+  // hour chips
+  $('logHourChips').innerHTML = HOUR_CHIPS.map(h => `<button class="chip" data-h="${h}">${h}h</button>`).join('');
+  $('logHourChips').querySelectorAll('.chip').forEach(c => {
+    c.onclick = () => {
+      $('logHourChips').querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+      $('logHours').value = c.dataset.h;
+      refreshLogExisting();
+    };
+  });
+  refreshLogExisting();
+  $('logDate').onchange = refreshLogExisting;
+  openSheet('logSheet');
+}
+
+function refreshLogExisting() {
+  const date = $('logDate').value;
+  const existing = state.myHours.find(e => e.date === date);
+  const box = $('logExisting');
+  if (existing) {
+    const enteredByOther = existing.enteredBy && existing.enteredBy !== state.user.username;
+    $('logExistingTitle').textContent = enteredByOther
+      ? `Already logged by ${existing.enteredBy}`
+      : 'Already logged for that day';
+    $('logExistingBody').textContent = ` ${existing.hours}h on ${date}. Saving will not duplicate.`;
+    box.style.display = '';
+  } else {
+    box.style.display = 'none';
+  }
+}
+
+async function saveHours() {
+  const date = $('logDate').value;
+  const hours = parseFloat($('logHours').value);
+  const notes = $('logNotes').value.trim();
+  if (!date) { toast('Pick a date', 'error'); return; }
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 24) {
+    toast('Enter hours (0–24)', 'error'); return;
+  }
+  const btn = $('logSave');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const r = await fetch(`/api/hours?jobId=${encodeURIComponent(JOB_ID)}&op=add`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, hours, notes }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 409) {
+      toast('Already logged for that day', 'error');
+      state.myHours = await loadMyHours();
+      renderHome();
+      closeSheet('logSheet');
+      return;
+    }
+    if (!r.ok) throw new Error(j.error || 'save failed');
+    toast(`${hours}h saved`);
+    state.myHours = await loadMyHours();
+    renderHome();
+    closeSheet('logSheet');
+  } catch (e) {
+    toast(e.message || 'Save failed', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save hours';
+  }
+}
+
+// ============================================
+// Sheet helpers
+// ============================================
+const SHEET_IDS = ['toolsSheet', 'snagSheet', 'logSheet'];
+function closeAllSheets() {
+  let closedAny = false;
+  SHEET_IDS.forEach(id => {
+    const sheet = $(id);
+    const back = $(id.replace('Sheet', 'Backdrop'));
+    if (sheet && sheet.classList.contains('open')) closedAny = true;
+    if (sheet) sheet.classList.remove('open');
+    if (back) back.classList.remove('open');
+  });
+  document.body.style.overflow = '';
+  return closedAny;
+}
+function openSheet(id) {
+  // Only one sheet at a time. Close any others first.
+  SHEET_IDS.forEach(other => {
+    if (other === id) return;
+    const s = $(other);
+    const b = $(other.replace('Sheet', 'Backdrop'));
+    if (s) s.classList.remove('open');
+    if (b) b.classList.remove('open');
+  });
+  const sheet = $(id);
+  const back = $(id.replace('Sheet', 'Backdrop'));
+  if (sheet) sheet.classList.add('open');
+  if (back) back.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeSheet(id) {
+  const sheet = $(id);
+  const back = $(id.replace('Sheet', 'Backdrop'));
+  if (sheet) sheet.classList.remove('open');
+  if (back) back.classList.remove('open');
+  // If no other sheets remain open, release scroll lock.
+  const stillOpen = SHEET_IDS.some(sid => {
+    const el = $(sid);
+    return el && el.classList.contains('open');
+  });
+  if (!stillOpen) document.body.style.overflow = '';
+}
+
+// ESC closes any open sheet
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeAllSheets();
+});
+
+function refreshToolsCounts() {
+  const sn = (state.data.snags || []).filter(s => s.status === 'Open').length;
+  $('tool-snags-name').textContent = sn > 0 ? `View open snags (${sn})` : 'Snag register';
+  $('tool-snags-sub').textContent = sn > 0 ? 'Tap to see the open list' : 'All snags on this job';
+}
+
+// ============================================
+// Init
+// ============================================
+async function init() {
+  if (!JOB_ID) {
+    location.href = '/my-day';
+    return;
+  }
+  state.user = await loadMe();
+  if (!state.user) return;
+
+  // Parallel load
+  const [job, data, myHours] = await Promise.all([loadJob(), loadJobData(), loadMyHours()]);
+  if (!job) return;
+  state.job = job;
+  state.data = data || { dwellings: {}, snags: [], notes: [] };
+  state.myHours = myHours || [];
+
+  $('job-name').textContent = job.name;
+  $('job-sub').textContent = job.id;
+
+  $('tb-back').onclick = () => { location.href = '/my-day'; };
+  $('tb-tools').onclick = () => openSheet('toolsSheet');
+  $('open-areas').onclick = (e) => { e.preventDefault(); showView('areas'); renderAreasList(); };
+  $('quick-snag').onclick = () => openSnagSheet();
+  $('quick-log').onclick = () => openLogSheet();
+  $('bn-areas').onclick = () => { showView('areas'); renderAreasList(); };
+  $('bn-log').onclick = () => openLogSheet();
+  $('areaSearch').oninput = (e) => { state.query = e.target.value; renderAreasList(); };
+
+  // Tools sheet items — each closes the tools sheet first, then runs its action.
+  document.querySelectorAll('#toolsSheet [data-tool]').forEach(el => {
+    el.addEventListener('click', () => {
+      const tool = el.dataset.tool;
+      if (tool === 'snag') { openSnagSheet(); }
+      else if (tool === 'log') { openLogSheet(); }
+      else if (tool === 'snaglist') {
+        closeSheet('toolsSheet');
+        showView('areas');
+        state.filter = 'snag';
+        renderAreasList();
+      }
+    });
+  });
+
+  // priority chips
+  document.querySelectorAll('#snagPriority .chip').forEach(c => {
+    c.onclick = () => {
+      document.querySelectorAll('#snagPriority .chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+    };
+  });
+
+  $('snagSave').onclick = saveSnag;
+  $('logSave').onclick = saveHours;
+
+  renderHome();
+  refreshToolsCounts();
+}
+
+init().catch(err => {
+  console.error(err);
+  toast('Could not load job', 'error');
+});
+</script>
+</body>
+</html>

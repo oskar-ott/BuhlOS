@@ -53,6 +53,8 @@ async function load() {
   const meRes = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
   if (!meRes.ok) { location.href = '/login'; return; }
   const { user } = await meRes.json();
+  // Tradies have their own field UI
+  if (user.role === 'tradie') { location.href = '/my-day'; return; }
   document.getElementById('me').textContent =
     user.username + ' · ' + user.role;
   if (user.role === 'admin') document.getElementById('adminBar').style.display = 'flex';

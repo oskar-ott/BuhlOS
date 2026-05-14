@@ -57,6 +57,11 @@
 const f = document.getElementById('f');
 const err = document.getElementById('err');
 const btn = document.getElementById('btn');
+function landingFor(user) {
+  if (!user) return '/login';
+  if (user.role === 'tradie') return '/my-day';
+  return '/jobs';
+}
 f.addEventListener('submit', async (e) => {
   e.preventDefault();
   err.textContent = '';
@@ -74,18 +79,17 @@ f.addEventListener('submit', async (e) => {
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'Sign in failed');
-    // Go to jobs list
-    location.href = '/jobs';
+    location.href = landingFor(j.user);
   } catch (e) {
     err.textContent = e.message;
     btn.disabled = false;
     btn.textContent = 'Sign in';
   }
 });
-// If already logged in, redirect
+// If already logged in, redirect based on role
 fetch('/api/auth?action=me', { credentials: 'same-origin' })
   .then(r => r.ok ? r.json() : null)
-  .then(d => { if (d && d.user) location.href = '/jobs'; })
+  .then(d => { if (d && d.user) location.href = landingFor(d.user); })
   .catch(() => {});
 </script>
 </body>

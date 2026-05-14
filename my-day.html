@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>buhl · my day</title>
+<style>
+:root{
+  --navy:#0d1f35;--navy2:#152840;
+  --yellow:#ffcc00;--yellow-dk:#e6b800;
+  --cream:#f7f4ec;--card:#ffffff;
+  --text:#0f172a;--muted:#64748b;--border:#e2e8f0;
+  --green:#16a34a;--green-bg:#f0fdf4;--green-bd:#bbf7d0;
+  --amber:#d97706;--amber-bg:#fffbeb;--amber-bd:#fde68a;
+  --red:#dc2626;--red-bg:#fef2f2;--red-bd:#fecaca;
+  --r:14px;--rs:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{-webkit-font-smoothing:antialiased}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--cream);color:var(--text);min-height:100vh;padding-bottom:calc(80px + env(safe-area-inset-bottom))}
+
+/* ---------- Top bar ---------- */
+.topbar{background:var(--navy);color:#fff;padding:14px 16px 12px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;padding-top:max(14px, env(safe-area-inset-top))}
+.topbar-left{display:flex;align-items:center;gap:10px;min-width:0}
+.topbar-logo{height:30px;width:30px;background:#fff;border-radius:7px;padding:3px;flex-shrink:0;object-fit:contain}
+.topbar-title{font-weight:700;font-size:16px;letter-spacing:-.1px}
+.topbar-sub{color:#94a3b8;font-size:11px;margin-top:1px}
+.iconbtn{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer}
+.iconbtn:active{background:rgba(255,255,255,.15)}
+
+/* ---------- Page wrap ---------- */
+.wrap{max-width:560px;margin:0 auto;padding:14px 14px 24px}
+
+/* ---------- Greeting ---------- */
+.greeting{margin:4px 2px 12px}
+.greeting-h{font-size:22px;font-weight:800;color:var(--navy);letter-spacing:-.4px}
+.greeting-d{color:var(--muted);font-size:13px;margin-top:2px}
+
+/* ---------- Hours hero card ---------- */
+.hours-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px;box-shadow:0 1px 0 rgba(15,23,42,.02)}
+.hours-card.logged{background:linear-gradient(135deg,#fffbe6 0%,#fff 90%);border-color:#fde68a}
+.hc-row1{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:10px}
+.hc-lbl{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+.hc-state-bd{display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;color:var(--muted);font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.4px}
+.hc-state-bd.ok{background:var(--green-bg);color:var(--green);border:1px solid var(--green-bd)}
+.hc-state-bd .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.hc-amount{display:flex;align-items:flex-end;gap:6px;margin-bottom:4px}
+.hc-num{font-size:38px;font-weight:800;color:var(--navy);line-height:1;letter-spacing:-1.5px}
+.hc-unit{font-size:18px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.hc-sub{font-size:13px;color:var(--muted);margin-bottom:14px;min-height:18px}
+.hc-sub b{color:var(--text);font-weight:600}
+.hc-actions{display:flex;gap:8px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:13px 18px;border-radius:var(--rs);border:1px solid transparent;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:transform .05s, opacity .15s;flex:1;line-height:1}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:var(--yellow);color:var(--navy);border-color:var(--yellow-dk)}
+.btn-primary:hover{background:var(--yellow-dk)}
+.btn-ghost{background:var(--card);color:var(--navy);border-color:var(--border)}
+.btn-ghost:hover{background:#f8fafc}
+.btn-navy{background:var(--navy);color:#fff}
+.btn-navy:hover{background:var(--navy2)}
+.btn-danger{background:var(--red);color:#fff}
+
+/* ---------- Section heading ---------- */
+.section-h{display:flex;justify-content:space-between;align-items:baseline;margin:18px 4px 8px}
+.section-h h2{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.7px}
+.section-h .action{font-size:12px;color:var(--navy);font-weight:600;text-decoration:none;background:none;border:none;cursor:pointer}
+
+/* ---------- Assigned job cards ---------- */
+.job-card{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px 14px;text-decoration:none;color:var(--text);margin-bottom:8px;transition:border-color .12s, transform .05s}
+.job-card:active{transform:scale(.99)}
+.job-card:hover{border-color:#c7d2fe}
+.job-icon{flex-shrink:0;width:42px;height:42px;border-radius:10px;background:var(--navy);color:var(--yellow);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800}
+.job-body{flex:1;min-width:0}
+.job-name{font-size:15px;font-weight:700;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.job-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;font-size:12px;color:var(--muted);align-items:center}
+.job-meta .sep{opacity:.5}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.2px}
+.pill.red{background:var(--red-bg);color:var(--red);border:1px solid var(--red-bd)}
+.pill.amber{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)}
+.pill.green{background:var(--green-bg);color:var(--green);border:1px solid var(--green-bd)}
+.pill.grey{background:#f1f5f9;color:var(--muted)}
+.chev{color:#94a3b8;font-size:20px;flex-shrink:0;font-weight:600}
+
+/* ---------- My Week ---------- */
+.week-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.week-summary{display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);background:#fafbfc}
+.week-summary div{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+.week-summary b{display:block;font-size:18px;color:var(--navy);font-weight:800;margin-top:2px;letter-spacing:-.3px}
+.day-row{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px}
+.day-row:last-child{border-bottom:none}
+.day-row.today{background:#fffce0}
+.day-date{flex:0 0 78px;color:var(--text);font-weight:600}
+.day-date small{display:block;color:var(--muted);font-size:11px;font-weight:500;margin-top:1px}
+.day-job{flex:1;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.day-hours{font-weight:700;font-size:13px;color:var(--navy);flex-shrink:0;min-width:56px;text-align:right}
+.day-status{flex-shrink:0;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:.4px}
+.day-status.logged{background:var(--green-bg);color:var(--green)}
+.day-status.missing{background:var(--amber-bg);color:var(--amber)}
+.day-status.today{background:#fef3c7;color:#92400e}
+.day-status.future{background:#f1f5f9;color:var(--muted)}
+.day-add{background:none;border:1px solid var(--border);color:var(--navy);padding:5px 9px;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0}
+.day-add:hover{background:#f8fafc}
+
+/* ---------- Empty states ---------- */
+.empty{text-align:center;padding:24px 14px;color:var(--muted);font-size:13px;background:var(--card);border:1px solid var(--border);border-radius:var(--r);border-style:dashed}
+.empty b{display:block;color:var(--text);font-size:14px;font-weight:700;margin-bottom:3px}
+
+/* ---------- Bottom sheet ---------- */
+.sheet-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:300;opacity:0;pointer-events:none;transition:opacity .2s}
+.sheet-backdrop.open{opacity:1;pointer-events:auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-radius:18px 18px 0 0;z-index:301;transform:translateY(100%);transition:transform .25s cubic-bezier(.25,.8,.4,1);max-height:88vh;display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom)}
+.sheet.open{transform:translateY(0)}
+.sheet-handle{width:42px;height:5px;border-radius:3px;background:#cbd5e1;margin:8px auto 4px}
+.sheet-hdr{padding:8px 18px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)}
+.sheet-hdr h3{font-size:17px;font-weight:800;color:var(--navy);letter-spacing:-.2px}
+.sheet-close{background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;padding:0 4px;line-height:1}
+.sheet-body{padding:14px 18px 4px;overflow-y:auto;flex:1}
+.sheet-foot{padding:12px 18px 16px;border-top:1px solid var(--border);display:flex;gap:8px;background:var(--card);position:sticky;bottom:0}
+
+/* ---------- Form bits ---------- */
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+.field input,.field select,.field textarea{width:100%;padding:12px 12px;border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--text);font-size:15px;font-family:inherit;outline:none}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--navy)}
+.field textarea{min-height:80px;resize:vertical}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:8px 14px;background:#fff;border:1px solid var(--border);border-radius:999px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;flex:1 0 auto;text-align:center;min-width:60px}
+.chip.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+.chip:active{transform:translateY(1px)}
+.chip-row{display:flex;gap:6px;margin-bottom:8px}
+.kv{display:flex;justify-content:space-between;padding:9px 0;font-size:14px}
+.kv span{color:var(--muted)}
+.kv b{color:var(--text);font-weight:700}
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--navy);color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:500;opacity:0;transition:all .25s;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.error{background:var(--red)}
+
+/* ---------- Bottom nav ---------- */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);display:flex;justify-content:space-around;padding:6px 0 calc(6px + env(safe-area-inset-bottom));z-index:90}
+.bn-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 4px;color:var(--muted);font-size:11px;font-weight:600;background:none;border:none;cursor:pointer;text-decoration:none}
+.bn-item.active{color:var(--navy)}
+.bn-ico{font-size:20px;line-height:1}
+
+/* skeleton */
+.skel{background:linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%);background-size:200% 100%;animation:skel 1.4s infinite;border-radius:6px}
+@keyframes skel{0%{background-position:200% 0}100%{background-position:-200% 0}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <img src="/logo.png" class="topbar-logo" alt="bühl" onerror="this.style.display='none'">
+    <div>
+      <div class="topbar-title">My Day</div>
+      <div class="topbar-sub" id="topbar-user">…</div>
+    </div>
+  </div>
+  <button class="iconbtn" id="signout">Sign out</button>
+</div>
+
+<div class="wrap">
+  <div class="greeting">
+    <div class="greeting-h" id="greeting">Good day</div>
+    <div class="greeting-d" id="today-date">…</div>
+  </div>
+
+  <div id="hours-mount">
+    <div class="hours-card">
+      <div class="hc-row1"><div class="hc-lbl">Today's hours</div><div class="hc-state-bd"><div class="skel" style="width:40px;height:10px"></div></div></div>
+      <div class="hc-amount"><div class="skel" style="width:80px;height:32px"></div></div>
+      <div class="hc-sub"><div class="skel" style="width:160px;height:12px"></div></div>
+      <div class="hc-actions">
+        <div class="skel" style="height:42px;flex:1"></div>
+        <div class="skel" style="height:42px;flex:1"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-h"><h2>My jobs</h2></div>
+  <div id="jobs-mount">
+    <div class="job-card"><div class="skel" style="width:42px;height:42px;border-radius:10px"></div><div class="job-body"><div class="skel" style="width:70%;height:14px;margin-bottom:6px"></div><div class="skel" style="width:50%;height:11px"></div></div></div>
+  </div>
+
+  <div class="section-h"><h2>My week</h2><button class="action" id="weekToggle" style="display:none">Show all</button></div>
+  <div id="week-mount">
+    <div class="empty">Loading…</div>
+  </div>
+</div>
+
+<!-- LOG HOURS SHEET -->
+<div class="sheet-backdrop" id="logBackdrop" onclick="closeLogSheet()"></div>
+<div class="sheet" id="logSheet" role="dialog" aria-modal="true" aria-label="Log hours">
+  <div class="sheet-handle"></div>
+  <div class="sheet-hdr">
+    <h3>Log hours</h3>
+    <button class="sheet-close" onclick="closeLogSheet()" aria-label="Close">×</button>
+  </div>
+  <div class="sheet-body">
+    <div class="field">
+      <label for="logDate">Date</label>
+      <input id="logDate" type="date">
+    </div>
+    <div class="field">
+      <label for="logJob">Job</label>
+      <select id="logJob"></select>
+    </div>
+    <div class="field">
+      <label>Total hours</label>
+      <div class="chip-row" id="logHourChips"></div>
+      <input id="logHours" type="number" min="0" max="24" step="0.25" placeholder="e.g. 7.5" inputmode="decimal">
+    </div>
+    <div class="field">
+      <label for="logNotes">Notes (optional)</label>
+      <textarea id="logNotes" placeholder="e.g. Lighting rough-in unit 3"></textarea>
+    </div>
+    <div id="logExisting" class="empty" style="display:none;text-align:left;padding:14px 14px;border-style:solid;background:var(--amber-bg);border-color:var(--amber-bd);color:#92400e">
+      <b id="logExistingTitle">Already logged today</b>
+      <span id="logExistingBody">…</span>
+    </div>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn btn-ghost" onclick="closeLogSheet()">Cancel</button>
+    <button class="btn btn-primary" id="logSave">Save hours</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav">
+  <button class="bn-item active"><span class="bn-ico">●</span>My Day</button>
+  <button class="bn-item" id="bn-job"><span class="bn-ico">▦</span>Job</button>
+  <button class="bn-item" id="bn-log"><span class="bn-ico">＋</span>Log hours</button>
+</nav>
+
+<script>
+const HOUR_CHIPS = [4, 6, 7.5, 8, 9];
+
+const state = {
+  user: null,
+  jobs: [],
+  myHours: {},        // { [jobId]: [entries] }
+  todayHoursTotal: 0,
+  weekRange: null,
+  showAllWeek: false,
+};
+
+const $ = (id) => document.getElementById(id);
+const escHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function toast(msg, kind) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (kind === 'error' ? ' error' : '');
+  setTimeout(() => t.classList.remove('show'), kind === 'error' ? 2800 : 1800);
+}
+
+function isoDate(d) {
+  return new Date(d).toISOString().slice(0, 10);
+}
+function todayLocalIso() {
+  const d = new Date();
+  const tz = d.getTimezoneOffset() * 60000;
+  return new Date(d - tz).toISOString().slice(0, 10);
+}
+
+function greetingFor(name) {
+  const h = new Date().getHours();
+  const part = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  return `${part}, ${name}`;
+}
+
+function formatTodayAU() {
+  const d = new Date();
+  return d.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+function startOfWeek(d) {
+  const dt = new Date(d);
+  const day = dt.getDay() || 7;
+  dt.setHours(0, 0, 0, 0);
+  dt.setDate(dt.getDate() - (day - 1));
+  return dt;
+}
+
+function diffDays(a, b) {
+  return Math.round((b - a) / (1000 * 60 * 60 * 24));
+}
+
+async function loadMe() {
+  const r = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
+  if (!r.ok) { location.href = '/login'; return null; }
+  const { user } = await r.json();
+  if (user.role !== 'tradie' && user.role !== 'admin') {
+    // Clients shouldn't be here.
+    location.href = '/jobs';
+    return null;
+  }
+  return user;
+}
+
+async function loadJobs() {
+  const r = await fetch('/api/jobs', { credentials: 'same-origin' });
+  if (!r.ok) return [];
+  const { jobs } = await r.json();
+  return jobs || [];
+}
+
+async function loadMyHoursFor(jobId) {
+  const r = await fetch(`/api/hours?jobId=${encodeURIComponent(jobId)}&mine=1`, { credentials: 'same-origin' });
+  if (!r.ok) return [];
+  const { entries } = await r.json();
+  return entries || [];
+}
+
+async function loadJobData(jobId) {
+  const r = await fetch(`/api/data?jobId=${encodeURIComponent(jobId)}`, { credentials: 'same-origin' });
+  if (!r.ok) return null;
+  return await r.json();
+}
+
+function jobSnagCount(data) {
+  if (!data || !Array.isArray(data.snags)) return 0;
+  return data.snags.filter(s => s.status === 'Open').length;
+}
+
+function jobProgress(data) {
+  if (!data || !data.dwellings) return null;
+  const dw = Object.keys(data.dwellings);
+  if (!dw.length) return null;
+  const STAGES = ['AC Rough-In','Lighting Rough-In','Power Rough-In','NBN','Rough-In Inspection','AC Fit-Off','GPO / Switch Install','Lighting Install','Switchboard Fit-Off','Final Test & Commission','Certificate of Compliance','Handover'];
+  let totalDone = 0, totalStages = 0;
+  dw.forEach(d => {
+    STAGES.forEach(s => {
+      totalStages++;
+      const v = (data.dwellings[d] && data.dwellings[d][s] && data.dwellings[d][s].status) || 'Not Started';
+      if (v === 'Done') totalDone++;
+    });
+  });
+  return totalStages ? Math.round(totalDone / totalStages * 100) : 0;
+}
+
+// ---------- Render: Hours card ----------
+function renderHoursCard() {
+  const todayIso = todayLocalIso();
+  // total hours across all jobs for today (mine)
+  let total = 0;
+  let entryToday = null;
+  let leadingHandEntry = null;
+  Object.entries(state.myHours).forEach(([jobId, entries]) => {
+    entries.forEach(e => {
+      if (e.date === todayIso) {
+        total += Number(e.hours) || 0;
+        if (!entryToday) entryToday = { ...e, jobId };
+        if (e.enteredByRole && e.enteredByRole !== 'tradie' && !leadingHandEntry) {
+          leadingHandEntry = { ...e, jobId };
+        }
+      }
+    });
+  });
+  state.todayHoursTotal = total;
+
+  const logged = total > 0;
+  const job = entryToday ? state.jobs.find(j => j.id === entryToday.jobId) : null;
+  const enteredBy = leadingHandEntry && leadingHandEntry.enteredBy !== state.user.username
+    ? leadingHandEntry.enteredBy : null;
+
+  const html = `
+    <div class="hours-card ${logged ? 'logged' : ''}">
+      <div class="hc-row1">
+        <div class="hc-lbl">Today's hours</div>
+        <div class="hc-state-bd ${logged ? 'ok' : ''}">
+          <div class="dot"></div>
+          ${logged ? 'Logged' : 'Not yet'}
+        </div>
+      </div>
+      <div class="hc-amount">
+        <div class="hc-num">${logged ? total.toFixed(total % 1 ? 1 : 0) : '0'}</div>
+        <div class="hc-unit">${logged ? 'hours' : 'hours'}</div>
+      </div>
+      <div class="hc-sub">
+        ${logged
+          ? `<b>${job ? escHtml(job.name) : 'Job'}</b>${enteredBy ? ' · Entered by ' + escHtml(enteredBy) : ''}`
+          : `Tap below to log your hours for today.`}
+      </div>
+      <div class="hc-actions">
+        <button class="btn btn-primary" onclick="openLogSheet()">${logged ? 'Edit' : 'Log hours'}</button>
+        <a class="btn btn-ghost" href="#week">My week</a>
+      </div>
+    </div>
+  `;
+  $('hours-mount').innerHTML = html;
+}
+
+// ---------- Render: Assigned jobs ----------
+async function renderAssignedJobs() {
+  const mount = $('jobs-mount');
+  if (!state.jobs.length) {
+    mount.innerHTML = `
+      <div class="empty">
+        <b>No jobs assigned today.</b>
+        Contact admin if this looks wrong.
+      </div>`;
+    return;
+  }
+  // For each job, render quickly with skeleton snag count then fill in
+  mount.innerHTML = state.jobs.map(j => jobCardHtml(j, null)).join('');
+  // Lazy-fill snag/progress
+  await Promise.all(state.jobs.map(async (j) => {
+    const data = await loadJobData(j.id);
+    const node = document.querySelector(`[data-jobcard="${j.id}"]`);
+    if (node) node.outerHTML = jobCardHtml(j, data);
+  }));
+}
+
+function jobCardHtml(j, data) {
+  const initials = (j.name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(s => s[0].toUpperCase()).join('') || '?';
+  const meta = [];
+  if (data) {
+    const sn = jobSnagCount(data);
+    const pct = jobProgress(data);
+    if (sn > 0) meta.push(`<span class="pill red">${sn} snag${sn>1?'s':''}</span>`);
+    if (pct !== null) meta.push(`<span class="pill ${pct === 100 ? 'green' : pct > 0 ? 'amber' : 'grey'}">${pct}% complete</span>`);
+  } else {
+    meta.push(`<span class="skel" style="width:80px;height:14px;border-radius:999px"></span>`);
+  }
+  return `
+    <a class="job-card" data-jobcard="${j.id}" href="/my-job/${encodeURIComponent(j.id)}">
+      <div class="job-icon">${initials}</div>
+      <div class="job-body">
+        <div class="job-name">${escHtml(j.name)}</div>
+        <div class="job-meta">${meta.join(' ')}</div>
+      </div>
+      <div class="chev">›</div>
+    </a>`;
+}
+
+// ---------- Render: My Week ----------
+function renderWeek() {
+  const monday = startOfWeek(new Date());
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // build all entries flat with job info, only this week
+  const all = [];
+  Object.entries(state.myHours).forEach(([jobId, entries]) => {
+    entries.forEach(e => {
+      const d = new Date(e.date);
+      d.setHours(0, 0, 0, 0);
+      if (d >= monday) {
+        all.push({ ...e, jobId, _d: d });
+      }
+    });
+  });
+
+  // sum
+  const weekTotal = all.reduce((a, e) => a + (Number(e.hours) || 0), 0);
+  // days logged
+  const daysLogged = new Set(all.map(e => e.date)).size;
+
+  // build day list Mon..today (+ optionally remaining week)
+  const days = [];
+  const numDays = state.showAllWeek ? 7 : 7; // always show all 7
+  for (let i = 0; i < numDays; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    d.setHours(0, 0, 0, 0);
+    const iso = d.toISOString().slice(0, 10);
+    const entries = all.filter(e => e.date === iso);
+    const isFuture = d > today;
+    const isToday = d.getTime() === today.getTime();
+    days.push({ d, iso, entries, isFuture, isToday });
+  }
+
+  const summaryHtml = `
+    <div class="week-summary">
+      <div>Total<b>${weekTotal.toFixed(weekTotal % 1 ? 1 : 0)}h</b></div>
+      <div>Days<b>${daysLogged}/${7}</b></div>
+      <div>Week of<b>${monday.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</b></div>
+    </div>`;
+
+  const rowsHtml = days.map(day => {
+    const totalForDay = day.entries.reduce((a, e) => a + (Number(e.hours) || 0), 0);
+    const jobNames = [...new Set(day.entries.map(e => {
+      const job = state.jobs.find(j => j.id === e.jobId);
+      return job ? job.name : e.jobId;
+    }))].join(', ');
+    let statusKind, statusLabel;
+    if (day.isToday) { statusKind = 'today'; statusLabel = totalForDay > 0 ? 'Today' : 'Today'; }
+    else if (day.isFuture) { statusKind = 'future'; statusLabel = '—'; }
+    else if (totalForDay > 0) { statusKind = 'logged'; statusLabel = 'Logged'; }
+    else { statusKind = 'missing'; statusLabel = 'Missing'; }
+    const dayName = day.d.toLocaleDateString('en-AU', { weekday: 'short' });
+    const dayDate = day.d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+    return `
+      <div class="day-row ${day.isToday ? 'today' : ''}">
+        <div class="day-date">${dayName}<small>${dayDate}</small></div>
+        <div class="day-job">${escHtml(jobNames || (day.isFuture ? '' : ''))}</div>
+        <div class="day-hours">${totalForDay > 0 ? totalForDay.toFixed(totalForDay % 1 ? 1 : 0) + 'h' : '—'}</div>
+        ${!day.isFuture && totalForDay === 0
+          ? `<button class="day-add" onclick="openLogSheet('${day.iso}')">Add</button>`
+          : `<span class="day-status ${statusKind}">${statusLabel}</span>`}
+      </div>`;
+  }).join('');
+
+  $('week-mount').innerHTML = `<div class="week-card" id="week">${summaryHtml}${rowsHtml}</div>`;
+}
+
+// ---------- Log Hours Sheet ----------
+function openLogSheet(forDate) {
+  const date = forDate || todayLocalIso();
+  $('logDate').value = date;
+
+  // populate jobs
+  const sel = $('logJob');
+  sel.innerHTML = state.jobs.map(j => `<option value="${escHtml(j.id)}">${escHtml(j.name)}</option>`).join('');
+  if (state.jobs.length === 1) {
+    sel.value = state.jobs[0].id;
+  }
+
+  // hour chips
+  const chipsWrap = $('logHourChips');
+  chipsWrap.innerHTML = HOUR_CHIPS.map(h => `<button class="chip" data-h="${h}">${h}h</button>`).join('');
+  chipsWrap.querySelectorAll('.chip').forEach(c => {
+    c.addEventListener('click', () => {
+      chipsWrap.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+      $('logHours').value = c.dataset.h;
+    });
+  });
+  // reset
+  $('logHours').value = '';
+  $('logNotes').value = '';
+
+  refreshLogExistingHint();
+  $('logDate').addEventListener('change', refreshLogExistingHint, { once: true });
+  $('logJob').addEventListener('change', refreshLogExistingHint, { once: true });
+
+  $('logBackdrop').classList.add('open');
+  $('logSheet').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeLogSheet() {
+  $('logBackdrop').classList.remove('open');
+  $('logSheet').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function refreshLogExistingHint() {
+  const date = $('logDate').value;
+  const jobId = $('logJob').value;
+  const entries = state.myHours[jobId] || [];
+  const existing = entries.find(e => e.date === date);
+  const box = $('logExisting');
+  if (existing) {
+    const enteredByOther = existing.enteredBy && existing.enteredBy !== state.user.username;
+    $('logExistingTitle').textContent = enteredByOther
+      ? `Already logged by ${existing.enteredBy}`
+      : 'Already logged';
+    $('logExistingBody').textContent = `${existing.hours}h on ${date}. Saving will not duplicate.`;
+    box.style.display = '';
+  } else {
+    box.style.display = 'none';
+  }
+}
+
+async function saveLogSheet() {
+  const date = $('logDate').value;
+  const jobId = $('logJob').value;
+  const hours = parseFloat($('logHours').value);
+  const notes = $('logNotes').value.trim();
+  if (!date) { toast('Pick a date', 'error'); return; }
+  if (!jobId) { toast('Pick a job', 'error'); return; }
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 24) {
+    toast('Enter hours (0–24)', 'error'); return;
+  }
+  const btn = $('logSave');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const r = await fetch(`/api/hours?jobId=${encodeURIComponent(jobId)}&op=add`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, hours, notes }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 409) {
+      toast('Already logged for that day', 'error');
+      // re-load to ensure UI matches
+      state.myHours[jobId] = await loadMyHoursFor(jobId);
+      renderHoursCard();
+      renderWeek();
+      closeLogSheet();
+      return;
+    }
+    if (!r.ok) throw new Error(j.error || 'save failed');
+    toast(`${hours}h saved`);
+    state.myHours[jobId] = await loadMyHoursFor(jobId);
+    renderHoursCard();
+    renderWeek();
+    closeLogSheet();
+  } catch (e) {
+    toast(e.message || 'Save failed', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save hours';
+  }
+}
+
+// ---------- Init ----------
+async function init() {
+  state.user = await loadMe();
+  if (!state.user) return;
+
+  $('topbar-user').textContent = `${state.user.username} · ${state.user.role}`;
+  $('greeting').textContent = greetingFor(state.user.username);
+  $('today-date').textContent = formatTodayAU();
+
+  state.jobs = await loadJobs();
+
+  // bottom-nav: link to first job if assigned
+  if (state.jobs.length) {
+    const bnJob = $('bn-job');
+    bnJob.onclick = () => { location.href = `/my-job/${encodeURIComponent(state.jobs[0].id)}`; };
+  } else {
+    $('bn-job').style.opacity = '.4';
+    $('bn-job').onclick = () => toast('No job assigned', 'error');
+  }
+  $('bn-log').onclick = () => openLogSheet();
+
+  // hours per job (parallel)
+  await Promise.all(state.jobs.map(async (j) => {
+    state.myHours[j.id] = await loadMyHoursFor(j.id);
+  }));
+
+  renderHoursCard();
+  renderAssignedJobs(); // intentionally not awaited; lets card layout settle
+  renderWeek();
+}
+
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'signout') {
+    fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' })
+      .then(() => location.href = '/login');
+  }
+});
+$('logSave').addEventListener('click', saveLogSheet);
+
+init().catch((err) => {
+  console.error(err);
+  toast('Could not load My Day', 'error');
+});
+</script>
+</body>
+</html>

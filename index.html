@@ -264,11 +264,12 @@ textarea:focus{border-color:var(--navy);background:#fff}
 </div>
 
 <div class="hdr">
+  <a href="/jobs" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:8px;padding:6px 9px;font-size:14px;text-decoration:none;line-height:1;flex-shrink:0" title="Back to jobs">‹</a>
   <img src="/logo.png" class="hdr-logo" alt="bühl electrical">
   <div class="hdr-div"></div>
   <div class="hdr-job">
-    <div class="hdr-name">19-23 Birdwood Ave Lane Cove</div>
-    <div class="hdr-sub">IV3232</div>
+    <div class="hdr-name" id="hdr-name">Loading…</div>
+    <div class="hdr-sub" id="hdr-sub">…</div>
   </div>
   <div class="sync-pill">
     <div class="sdot" id="sdot"></div>
@@ -297,6 +298,63 @@ textarea:focus{border-color:var(--navy);background:#fff}
 </div>
 
 <script>
+// ============================================
+// Job context, role gate, fetch helper
+// ============================================
+const _path = location.pathname;
+const _m = _path.match(/^\/jobs\/([^\/?#]+)/);
+const JOB_ID = _m ? decodeURIComponent(_m[1]) : '';
+
+// Endpoints that require a jobId query param.
+const _JOB_ENDPOINTS = ['/api/data', '/api/hours', '/api/tags', '/api/temps', '/api/photos'];
+// Wrap fetch so any call to a job-scoped endpoint without an explicit jobId
+// gets one appended automatically.
+const _origFetch = window.fetch.bind(window);
+window.fetch = function(input, init) {
+  if (!JOB_ID) return _origFetch(input, init);
+  let url = typeof input === 'string' ? input : (input && input.url) || '';
+  let needsJobId = false;
+  for (const ep of _JOB_ENDPOINTS) {
+    if (url.startsWith(ep)) { needsJobId = true; break; }
+  }
+  if (needsJobId && !/[?&]jobId=/.test(url)) {
+    url += (url.includes('?') ? '&' : '?') + 'jobId=' + encodeURIComponent(JOB_ID);
+    if (typeof input === 'string') input = url;
+    else input = new Request(url, input);
+  }
+  return _origFetch(input, init);
+};
+
+// Auth gate. Redirect:
+//   - not signed in → /login
+//   - tradies → tradie job UI at /my-job/<jobId>
+//   - clients with read-only on jobs they don't own → /jobs
+async function _bootstrap() {
+  try {
+    const r = await _origFetch('/api/auth?action=me', { credentials: 'same-origin' });
+    if (!r.ok) { location.href = '/login'; return false; }
+    const { user } = await r.json();
+    if (user.role === 'tradie' && JOB_ID) {
+      location.replace('/my-job/' + encodeURIComponent(JOB_ID));
+      return false;
+    }
+    return true;
+  } catch (_) {
+    return true; // fail open; per-call auth errors will still surface
+  }
+}
+
+// Load job metadata (name) for the header.
+async function _loadJobMeta() {
+  if (!JOB_ID) return null;
+  try {
+    const r = await _origFetch('/api/jobs?id=' + encodeURIComponent(JOB_ID), { credentials: 'same-origin' });
+    if (!r.ok) return null;
+    const { job } = await r.json();
+    return job || null;
+  } catch (_) { return null; }
+}
+
 const ROUGH=['AC Rough-In','Lighting Rough-In','Power Rough-In','NBN','Rough-In Inspection'];
 const FITOFF=['AC Fit-Off','GPO / Switch Install','Lighting Install','Switchboard Fit-Off','Final Test & Commission','Certificate of Compliance','Handover'];
 const ALL_STAGES=[...ROUGH,...FITOFF];
@@ -947,10 +1005,34 @@ async function deleteHours(id){
   await loadHours();renderHours();
 }
 
-load();
-loadTags();
-loadTemps();
-loadHours();
+(async () => {
+  const ok = await _bootstrap();
+  if (!ok) return;
+  const job = await _loadJobMeta();
+  const nameEl = document.getElementById('hdr-name');
+  const subEl = document.getElementById('hdr-sub');
+  if (job) {
+    if (nameEl) nameEl.textContent = job.name;
+    if (subEl) subEl.textContent = job.id;
+  } else if (JOB_ID) {
+    if (nameEl) nameEl.textContent = JOB_ID;
+    if (subEl) subEl.textContent = '';
+  } else {
+    // No job in URL — admin landed on /admin or similar. Just hide loading state.
+    if (nameEl) nameEl.textContent = 'Select a job';
+    if (subEl) subEl.textContent = 'Go to /jobs';
+  }
+
+  if (JOB_ID) {
+    load();
+    loadTags();
+    loadTemps();
+    loadHours();
+  } else {
+    const el = document.getElementById('loading');
+    if (el) { el.classList.add('out'); setTimeout(() => el.style.display = 'none', 450); }
+  }
+})();
 </script>
 </body>
 </html>
