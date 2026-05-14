@@ -77,7 +77,10 @@ async function loadAll() {
   // Job from /api/jobs (already in shell cache)
   STATE.job = (SHELL.JOBS || []).find(j => j.id === STATE.jobId) || null;
   if (!STATE.job) {
-    // Fallback: fetch fresh.
+    // Fallback: fetch fresh. This is the only step that has to run
+    // before the parallel batch — it determines which modules are
+    // enabled (drives the conditional circuits / ITPs fetches) and
+    // the page can't render at all without it.
     try {
       const r = await SHELL.api('/api/jobs?withStats=1');
       STATE.job = (r.jobs || []).find(j => j.id === STATE.jobId);
@@ -87,73 +90,68 @@ async function loadAll() {
     SHELL.$('#page').innerHTML = '<div class="empty"><div class="empty-title">Job not found</div><div class="empty-sub">It may have been archived. <a href="/admin/jobs" style="color:inherit;text-decoration:underline">Back to Jobs.</a></div></div>';
     return;
   }
-  // Per-job blob (snags + dwellings)
-  try {
-    const r = await fetch('/api/data?jobId=' + encodeURIComponent(STATE.jobId), { credentials: 'same-origin' });
-    if (r.ok) STATE.data = await r.json();
-  } catch {}
-  // Job types
-  try {
-    const r = await SHELL.api('/api/job-types');
-    STATE.jobTypes = r.jobTypes || r.types || [];
-  } catch {}
-  // Hours this week filtered to this job — for Overview KPI
-  try {
-    const monday = SHELL.isoWeekMonday();
-    const r = await SHELL.api(`/api/time-entries-overview?fromDate=${SHELL._iso(monday)}&toDate=${SHELL._iso(new Date())}`);
-    STATE.hoursThisWeek = (r.entries || []).filter(e =>
-      (e.allocations || []).some(a => a.jobId === STATE.jobId));
-  } catch { STATE.hoursThisWeek = []; }
-  // Crew assigned to this job
+  // Crew is in-memory only — uses SHELL.USERS already loaded by the
+  // shell fan-out. No network call needed.
   STATE.crew = (SHELL.USERS || []).filter(u => (u.assignedJobIds || []).includes(STATE.jobId));
-  // Plans + AI takeoff (Phase 9)
-  try {
-    const r = await SHELL.api('/api/plans?jobId=' + encodeURIComponent(STATE.jobId));
-    STATE.plans = (r.plans || []).filter(p => p.status !== 'archived');
-  } catch { STATE.plans = []; }
-  try {
-    STATE.takeoff = await SHELL.api('/api/plans?jobId=' + encodeURIComponent(STATE.jobId) + '&action=takeoff');
-  } catch { STATE.takeoff = null; }
-  // Materials list + cost rollup (Phase 10)
-  try {
-    STATE.materials = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId));
-  } catch { STATE.materials = { items: [], emailRequests: [] }; }
-  try {
-    STATE.costRollup = await SHELL.api('/api/materials-list?jobId=' + encodeURIComponent(STATE.jobId) + '&action=cost-rollup');
-  } catch { STATE.costRollup = { itemsCount: 0, pricedCount: 0, unpricedCount: 0, totalCostExGst: 0, unpricedQty: 0 }; }
-  // Draft layer (#156) — non-null when admin has staged structural
-  // revisions that haven't been published yet. We render a banner +
-  // Publish/Discard buttons when this exists.
-  try {
-    const r = await SHELL.api('/api/job-draft?jobId=' + encodeURIComponent(STATE.jobId));
-    STATE.draft = r.draft || null;
-  } catch { STATE.draft = null; }
-  // Switchboards + circuits (#159). Only loaded when the module is on,
-  // saves the network call for jobs that have it disabled.
-  STATE.switchboards = [];
-  STATE.circuits = [];
+
+  // Everything else fires in parallel. Previously this was 9-11
+  // sequential awaits, each adding its own network roundtrip to the
+  // page-paint wait time. With Promise.allSettled they all race; the
+  // page is interactive after the slowest one (typically /api/data)
+  // rather than after the sum of all of them.
   const mods = (STATE.job && STATE.job.modules) || {};
-  if (mods.switchboards || mods.circuits) {
-    try {
-      const r = await SHELL.api('/api/job-circuits?jobId=' + encodeURIComponent(STATE.jobId));
-      STATE.switchboards = r.switchboards || [];
-      STATE.circuits = r.circuits || [];
-    } catch { /* leave empty */ }
-  }
-  // ITPs (#160) — instances per job + company template library. Same
-  // pattern: only fetch when the module is on.
-  STATE.itpInstances = [];
-  STATE.itpTemplates = [];
-  if (mods.itps) {
-    try {
-      const r = await SHELL.api('/api/job-itps?jobId=' + encodeURIComponent(STATE.jobId));
-      STATE.itpInstances = (r.instances || []).filter(x => !x.archived);
-    } catch { /* leave empty */ }
-    try {
-      const r = await SHELL.api('/api/itp-templates');
-      STATE.itpTemplates = r.templates || [];
-    } catch { /* leave empty */ }
-  }
+  const jid = encodeURIComponent(STATE.jobId);
+  const monday = SHELL.isoWeekMonday();
+  const today = SHELL._iso(new Date());
+  const wkFrom = SHELL._iso(monday);
+
+  // Build the parallel task list. Each entry is [taskPromise,
+  // stateAssignment] so we can wire each result into STATE.* in one
+  // pass after Promise.allSettled lands.
+  const tasks = {
+    data: fetch('/api/data?jobId=' + jid, { credentials: 'same-origin' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    jobTypes: SHELL.api('/api/job-types').catch(() => null),
+    hours: SHELL.api(`/api/time-entries-overview?fromDate=${wkFrom}&toDate=${today}`).catch(() => null),
+    plans: SHELL.api('/api/plans?jobId=' + jid).catch(() => null),
+    takeoff: SHELL.api('/api/plans?jobId=' + jid + '&action=takeoff').catch(() => null),
+    materials: SHELL.api('/api/materials-list?jobId=' + jid).catch(() => null),
+    costRollup: SHELL.api('/api/materials-list?jobId=' + jid + '&action=cost-rollup').catch(() => null),
+    draft: SHELL.api('/api/job-draft?jobId=' + jid).catch(() => null),
+    // Module-gated calls: only fire when the module is on. The
+    // .catch (() => null) keeps the typeof check simple — null
+    // means "didn't run or failed", same fallback path.
+    circuits: (mods.switchboards || mods.circuits)
+      ? SHELL.api('/api/job-circuits?jobId=' + jid).catch(() => null)
+      : null,
+    itps: mods.itps
+      ? SHELL.api('/api/job-itps?jobId=' + jid).catch(() => null)
+      : null,
+    itpTemplates: mods.itps
+      ? SHELL.api('/api/itp-templates').catch(() => null)
+      : null,
+  };
+  // Await the lot at once. Promise.allSettled means a slow / failing
+  // call never blocks the others.
+  const results = {};
+  await Promise.all(Object.entries(tasks).map(async ([k, p]) => {
+    if (p == null) { results[k] = null; return; }
+    try { results[k] = await p; } catch { results[k] = null; }
+  }));
+
+  // Wire results into STATE.*. Fallbacks mirror the original code.
+  STATE.data        = results.data || { dwellings: {}, snags: [] };
+  STATE.jobTypes    = (results.jobTypes && (results.jobTypes.jobTypes || results.jobTypes.types)) || [];
+  STATE.hoursThisWeek = ((results.hours && results.hours.entries) || []).filter(e =>
+    (e.allocations || []).some(a => a.jobId === STATE.jobId));
+  STATE.plans       = ((results.plans && results.plans.plans) || []).filter(p => p.status !== 'archived');
+  STATE.takeoff     = results.takeoff || null;
+  STATE.materials   = results.materials || { items: [], emailRequests: [] };
+  STATE.costRollup  = results.costRollup || { itemsCount: 0, pricedCount: 0, unpricedCount: 0, totalCostExGst: 0, unpricedQty: 0 };
+  STATE.draft       = (results.draft && results.draft.draft) || null;
+  STATE.switchboards = (results.circuits && results.circuits.switchboards) || [];
+  STATE.circuits     = (results.circuits && results.circuits.circuits) || [];
+  STATE.itpInstances = ((results.itps && results.itps.instances) || []).filter(x => !x.archived);
+  STATE.itpTemplates = (results.itpTemplates && results.itpTemplates.templates) || [];
 }
 
 function paint() {
