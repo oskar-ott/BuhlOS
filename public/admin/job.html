@@ -1204,6 +1204,7 @@ function renderSetup(host) {
   SHELL.$$('button[data-add-area]').forEach(b => b.addEventListener('click', () => addAreaToGroup(b.dataset.addArea)));
   SHELL.$$('button[data-bulk-area]').forEach(b => b.addEventListener('click', () => bulkAddAreas(b.dataset.bulkArea)));
   SHELL.$$('button[data-rm-area]').forEach(b => b.addEventListener('click', () => removeAreaOrGroup(b.dataset.rmArea)));
+  SHELL.$$('button[data-mv-area]').forEach(b => b.addEventListener('click', () => moveArea(b.dataset.mvArea)));
   SHELL.$$('button[data-edit-checklist]').forEach(b => b.addEventListener('click', () => openAreaChecklistPanel(b.dataset.editChecklist)));
   SHELL.$$('button[data-dup-area]').forEach(b => b.addEventListener('click', () => duplicateArea(b.dataset.dupArea)));
   SHELL.$$('button[data-rename-task]').forEach(b => b.addEventListener('click', () => renameTask(b.dataset.renameTask, b.dataset.stage)));
@@ -1984,6 +1985,17 @@ function areaRowHtml(j, a, data) {
     ? `<span style="font-size:10px;color:var(--ink-2);background:var(--surface-3);padding:1px 7px;border-radius:999px">${SHELL.escapeHtml(a.spaceType)}</span>`
     : '';
   return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface-2);border-radius:6px;font-size:13px">
+    <!-- Reorder up/down arrows. Each arrow calls moveArea() which builds
+         a reorder-area op and posts to /api/jobs-bulk-edit. Buttons over
+         drag-drop chosen deliberately: arrow taps work on phone, tablet,
+         and desktop equally well, and the operation is unambiguous
+         (versus a half-finished drag). The endpoint accepts a single
+         reorder op per call when needed — no batching required for
+         step-by-step moves. -->
+    <div style="display:flex;flex-direction:column;gap:1px;flex-shrink:0">
+      <button class="btn btn-sm" data-mv-area="up:${SHELL.escapeHtml(a.id)}" style="padding:1px 6px;line-height:1.2;font-size:11px" title="Move up">▲</button>
+      <button class="btn btn-sm" data-mv-area="down:${SHELL.escapeHtml(a.id)}" style="padding:1px 6px;line-height:1.2;font-size:11px" title="Move down">▼</button>
+    </div>
     <div style="flex:1;min-width:0">
       <div style="display:flex;gap:8px;align-items:center">
         <b>${SHELL.escapeHtml(a.name)}</b>
@@ -2086,6 +2098,59 @@ async function duplicateArea(areaId) {
     return { ...g, areas: next };
   });
   await saveJobPatch({ areaGroups: groups });
+}
+
+// Single-area reorder. moveArea("up:<id>") shifts the area one slot
+// up within its group; "down:<id>" shifts it down. Posts a single
+// reorder-area op to /api/jobs-bulk-edit and reloads the job.
+//
+// The endpoint takes a numeric `order` value rather than a delta —
+// we compute the new order by interleaving with the sibling above/
+// below. Areas at the top/bottom of their group are no-ops.
+async function moveArea(token) {
+  const [dir, areaId] = token.split(':');
+  if (!dir || !areaId) return;
+  const j = STATE.job || {};
+  // Find this area's group + index within the group's live areas list.
+  let group = null, idx = -1, areas = [];
+  for (const g of (j.areaGroups || [])) {
+    const live = (g.areas || []).filter(a => !a.archived);
+    const i = live.findIndex(a => a.id === areaId);
+    if (i >= 0) { group = g; idx = i; areas = live; break; }
+  }
+  if (!group || idx < 0) return;
+  const targetIdx = dir === 'up' ? idx - 1 : idx + 1;
+  if (targetIdx < 0 || targetIdx >= areas.length) {
+    // Already at the edge — silent no-op rather than a toast spam.
+    return;
+  }
+  // New order = swap target index. We send the absolute integer
+  // because the bulk endpoint sorts by `order` then by insertion
+  // order; two areas with the same `order` are unstable so we
+  // assign a fresh sequence.
+  const neighbour = areas[targetIdx];
+  const myOrder = Number(areas[idx].order ?? idx);
+  const theirOrder = Number(neighbour.order ?? targetIdx);
+  // Equal orders → assign idx-based fallback distinct integers.
+  const newMine    = theirOrder;
+  const newTheirs  = myOrder === theirOrder ? (dir === 'up' ? theirOrder + 1 : theirOrder - 1) : myOrder;
+  const operations = [
+    { op: 'reorder-area', areaId: areaId,        order: newMine },
+    { op: 'reorder-area', areaId: neighbour.id, order: newTheirs },
+  ];
+  try {
+    const r = await SHELL.api('/api/jobs-bulk-edit?jobId=' + encodeURIComponent(STATE.jobId), {
+      method: 'POST',
+      body: { operations },
+    });
+    if (r && r.failed && r.failed.length) {
+      SHELL.toast('Reorder partially failed — ' + r.failed.length + ' op(s) rejected', 'warn');
+    }
+    const jr = await SHELL.api('/api/jobs?id=' + encodeURIComponent(STATE.jobId) + '&includeArchived=1');
+    if (jr && jr.job) { STATE.job = jr.job; paint(); }
+  } catch (e) {
+    SHELL.toast('Reorder failed — ' + e.message, 'bad');
+  }
 }
 
 // Bulk-edit modal — multi-select areas and apply one of three
