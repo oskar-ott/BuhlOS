@@ -43,32 +43,29 @@ window.PAGE = {
 };
 
 async function loadAll() {
-  // Fetch org-wide policy first so the per-paint anomaly + bulk rule
-  // see the right threshold on initial render.
-  try {
-    const r = await SHELL.api('/api/policy');
-    if (r && r.policy && r.policy.hours && Number.isFinite(r.policy.hours.dailyThreshold)) {
-      STATE.policyHrs = r.policy.hours.dailyThreshold;
-    }
-  } catch {}
   const params = new URLSearchParams(location.search);
   if (params.get('job')) STATE.filterJob = params.get('job');
 
-  // Pending entries via the dedicated approver scope (server gates by role + LH job ownership).
-  try {
-    const r = await SHELL.api('/api/time-entries?status=submitted&scope=approver');
-    STATE.pending = r.entries || [];
-  } catch (e) { STATE.pending = []; }
-
-  // Approved-this-week — for the "show what I just approved" toggle. Uses
-  // the existing overview rollup; cheap.
-  if (STATE.showApproved) {
-    try {
-      const monday = SHELL.isoWeekMonday();
-      const r = await SHELL.api(`/api/time-entries-overview?fromDate=${SHELL._iso(monday)}&toDate=${SHELL._iso(new Date())}`);
-      STATE.approvedThisWeek = (r.entries || []).filter(e => e.status === 'approved');
-    } catch { STATE.approvedThisWeek = []; }
+  // All three reads fire in parallel. Previously sequential — page
+  // waited for policy then pending then (sometimes) approvedThisWeek
+  // before any render. None depend on each other's results, so they
+  // race cleanly. Soft-fail per result via the same fallbacks the
+  // original sequential code had.
+  const monday = SHELL.isoWeekMonday();
+  const [policyR, pendingR, approvedR] = await Promise.allSettled([
+    SHELL.api('/api/policy'),
+    SHELL.api('/api/time-entries?status=submitted&scope=approver'),
+    STATE.showApproved
+      ? SHELL.api(`/api/time-entries-overview?fromDate=${SHELL._iso(monday)}&toDate=${SHELL._iso(new Date())}`)
+      : Promise.resolve(null),
+  ]);
+  if (policyR.status === 'fulfilled' && policyR.value && policyR.value.policy && policyR.value.policy.hours && Number.isFinite(policyR.value.policy.hours.dailyThreshold)) {
+    STATE.policyHrs = policyR.value.policy.hours.dailyThreshold;
   }
+  STATE.pending = (pendingR.status === 'fulfilled' && pendingR.value && pendingR.value.entries) || [];
+  STATE.approvedThisWeek = (approvedR.status === 'fulfilled' && approvedR.value && approvedR.value.entries)
+    ? approvedR.value.entries.filter(e => e.status === 'approved')
+    : [];
 }
 
 function paint() {
