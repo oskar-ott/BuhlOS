@@ -263,18 +263,41 @@
 
     SHELL.ME = me;
 
-    // Fetch sidebar counts in parallel — cheap reads, no per-section detail.
-    const counts = await fetchSidebarCounts();
-    SHELL.COUNTS = counts;
-
+    // Shell-first render. Previously sidebar + topbar awaited
+    // fetchSidebarCounts before painting — admin stared at a blank
+    // page for the whole fan-out duration. Now we paint the chrome
+    // immediately with zero counts so the user sees navigation and
+    // page title within a frame; the fan-out then kicks off and
+    // re-paints the sidebar badges when counts arrive.
+    //
+    // PAGE.render() still awaits the fan-out so pages reading
+    // SHELL.JOBS / USERS / OPEN_SNAGS / PENDING_ENTRIES / QUOTES
+    // (operations, jobs, snags, hours, etc.) see populated data.
+    // The win here is purely perceptual — the navigation chrome
+    // and active-section indicator appear instantly, the page body
+    // shows a "Loading…" placeholder while data lands.
+    SHELL.COUNTS = { activeJobs: 0, pendingHours: 0, openSnags: 0, unassignedSnags: 0, crewCount: 0, liveQuotes: 0, openSupport: 0, overdueAssets: 0 };
     renderSidebar();
     renderTopbar();
     bindKeyboard();
-    // Mount the command palette + register baseline commands. The
-    // palette owns the global ⌘K listener — see /components/cmd-palette.js.
     ensurePalette();
 
-    // Hand off to the page.
+    // Kick off the fan-out. Pages may also await SHELL.COUNTS_READY
+    // if they want to defer their own work until data is in hand.
+    SHELL.COUNTS_READY = (async () => {
+      const counts = await fetchSidebarCounts();
+      SHELL.COUNTS = counts;
+      try { renderSidebar(); } catch (e) {}
+      return counts;
+    })();
+
+    // Hand off to the page once counts (and SHELL.* shared state)
+    // are ready. The fan-out is cached for 15s in sessionStorage
+    // (PR #219) and individual blob reads are cached server-side
+    // for 5s (PR #218), so this usually resolves in <50ms after
+    // the first admin page load in a session.
+    await SHELL.COUNTS_READY;
+
     if (window.PAGE && typeof window.PAGE.render === 'function') {
       try { await window.PAGE.render(); }
       catch (e) {
