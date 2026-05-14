@@ -8399,6 +8399,58 @@ function paintItpModal(scrim, inst, opts) {
       recordItpPoint(scrim, inst.id, body, btn);
     });
   });
+  // Photo-type points — file inputs upload to blob then record the
+  // URL on the point. Same offline-aware queue pattern as snag
+  // photos: resize client-side, route through BuhlQueue.fetch when
+  // available, store the dataUrl inline as a fallback while waiting
+  // for the queue to drain.
+  scrim.querySelectorAll('[data-itp-photo]').forEach(input => {
+    input.addEventListener('change', async () => {
+      const pointId = input.dataset.itpPhoto;
+      const file = input.files && input.files[0];
+      if (!file) return;
+      input.value = '';
+      const rowEl = input.closest('.itp-row');
+      const triggerLabel = rowEl && rowEl.querySelector('label.btn, label[style*="dashed"]');
+      const trigBtn = triggerLabel ? triggerLabel.querySelector('span.btn, span:last-child') : null;
+      const orig = trigBtn ? trigBtn.textContent : '';
+      if (trigBtn) trigBtn.textContent = 'Uploading…';
+      try {
+        // Resize to keep base64 well under Vercel's 4.5 MB body cap.
+        // Reuses the same helper as the snag-photo path.
+        const dataUrl = await resizeImageFile(file, 1920, 0.7);
+        const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
+        const upRes = await fetcher('/api/photos?jobId=' + encodeURIComponent(JOB_ID) + '&action=upload-itp-photo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataUrl, instanceId, pointId }),
+          credentials: 'same-origin',
+        });
+        if (upRes.status === 202) {
+          // Queued offline — surface the state but skip the record
+          // call (we don't have a URL yet). Worker will see the
+          // record reflect once the queue drains and a follow-up
+          // sync replays the upload.
+          if (window.showToast) showToast('Photo queued offline · syncing when online.', 'warn', 2800);
+          if (trigBtn) trigBtn.textContent = orig;
+          return;
+        }
+        if (!upRes.ok) {
+          const j = await upRes.json().catch(() => ({}));
+          throw new Error(j.error || ('HTTP ' + upRes.status));
+        }
+        const { url } = await upRes.json();
+        // Now POST the URL via record so the point ✓-flips. Pass null
+        // for btn because recordItpPoint repaints the whole modal on
+        // success, which rebuilds the photo row from the updated
+        // result — there's no original button to restore.
+        await recordItpPoint(scrim, instanceId, { instanceId, pointId, photoUrl: url }, null);
+      } catch (e) {
+        if (trigBtn) trigBtn.textContent = orig;
+        if (window.showToast) showToast('Photo upload failed — ' + e.message, 'error');
+      }
+    });
+  });
 }
 
 // Render a single point row with an inline recorder appropriate to
@@ -8436,11 +8488,31 @@ function renderItpPointRow(instanceId, point, idx, result, opts) {
           <button type="button" class="btn btn-sm btn-primary" data-itp-record="${esc(point.id)}" style="padding:8px 14px;font-size:13px;font-weight:600">${recorded ? 'Confirmed ✓ (tap to re-stamp)' : 'I confirm'}</button>
         </div>`;
     } else if (type === 'photo') {
-      // Photo upload deferred — direct workers to the admin builder
-      // where the upload pipeline already exists.
+      // Photo point recorder. Two states: with-photo (show thumbnail
+      // + "Replace" button) and without (file input + "Take photo"
+      // CTA). The file input has capture="environment" so phones
+      // launch the rear camera directly. Image upload uses the new
+      // /api/photos?action=upload-itp-photo endpoint which stores
+      // the blob and returns a URL — that URL then rides /api/job-itps
+      // record via the existing photoUrl field.
+      const existingUrl = recorded && result && result.photoUrl;
       recorder = `
-        <div style="margin-top:8px;padding:8px 10px;background:var(--paper-2);border:1px dashed var(--rule);border-radius:6px;font-size:11.5px;color:var(--ink-3);text-align:center">
-          Photo points are recorded from the admin job page (v2 mobile upload pending).
+        <div style="margin-top:8px">
+          ${existingUrl ? `
+            <div style="display:flex;gap:10px;align-items:center">
+              <a href="${esc(existingUrl)}" target="_blank" rel="noopener" style="flex-shrink:0;width:60px;height:60px;border-radius:8px;overflow:hidden;background:var(--paper-3);border:1px solid var(--rule);display:block">
+                <img src="${esc(existingUrl)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover">
+              </a>
+              <label style="flex:1;cursor:pointer">
+                <input type="file" accept="image/*" capture="environment" data-itp-photo="${esc(point.id)}" style="display:none">
+                <span class="btn btn-sm" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;font-size:12.5px;font-weight:600;background:var(--paper-2);border:1px solid var(--rule);border-radius:6px;color:var(--ink)">Replace photo</span>
+              </label>
+            </div>` : `
+            <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--paper-2);border:1px dashed var(--rule);border-radius:8px;cursor:pointer;font-size:13px;color:var(--ink-2)">
+              <input type="file" accept="image/*" capture="environment" data-itp-photo="${esc(point.id)}" style="display:none">
+              <span style="font-size:20px;line-height:1">📷</span>
+              <span>Take or choose a photo</span>
+            </label>`}
         </div>`;
     }
   }
@@ -8456,11 +8528,15 @@ function renderItpPointRow(instanceId, point, idx, result, opts) {
 }
 
 // POST a point record. On success, update the cache and re-paint the
-// modal body so the ✓ flips in place.
+// modal body so the ✓ flips in place. btn is optional — photo
+// uploads pass null because their progress is shown on a different
+// element (the file-input trigger label).
 async function recordItpPoint(scrim, instanceId, body, btn) {
-  const orig = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Saving…';
+  const orig = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+  }
   try {
     const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
     const r = await fetcher('/api/job-itps?jobId=' + encodeURIComponent(JOB_ID) + '&action=record', {
@@ -8473,8 +8549,7 @@ async function recordItpPoint(scrim, instanceId, body, btn) {
       // Queued offline — surface that and skip the re-paint (cache
       // won't have the new state until the queue drains).
       if (window.showToast) showToast('Record queued offline · syncing when online.', 'warn', 3000);
-      btn.disabled = false;
-      btn.textContent = orig;
+      if (btn) { btn.disabled = false; btn.textContent = orig; }
       return;
     }
     if (!r.ok) {
@@ -8497,8 +8572,7 @@ async function recordItpPoint(scrim, instanceId, body, btn) {
     if (window.showToast) showToast('Recorded.', 'success', 1400);
     try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) {}
   } catch (e) {
-    btn.disabled = false;
-    btn.textContent = orig;
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
     if (window.showToast) showToast('Save failed — ' + e.message, 'error');
     else alert('Save failed — ' + e.message);
   }
