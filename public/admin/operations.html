@@ -194,37 +194,40 @@ async function loadOverview() {
   const pending = SHELL.PENDING_ENTRIES || [];
   const quotes  = SHELL.QUOTES || [];
 
+  // Fire the two optional fetches in parallel. Previously they were
+  // sequential awaits: time-entries first, materials second. Even
+  // with the blob cache shaving server cost, each adds its own
+  // network roundtrip; running them concurrently halves the wall
+  // time on the page's first paint. Both still have individual
+  // timeouts + soft-fail behaviour so a slow one doesn't stall the
+  // other.
   let weekHoursTotal = 0;
   let yesterdaySubmitters = new Set();
   let recentEntries = [];
-  try {
-    const r = await withTimeout(
+  let materials = null;
+  const [hoursResult, materialsResult] = await Promise.allSettled([
+    withTimeout(
       SHELL.api(`/api/time-entries-overview?fromDate=${encodeURIComponent(weekFrom)}&toDate=${encodeURIComponent(weekTo)}`),
       8000,
       'week hours'
-    );
-    const entries = r.entries || [];
+    ),
+    withTimeout(SHELL.api('/api/materials-summary'), 6000, 'materials summary'),
+  ]);
+  if (hoursResult.status === 'fulfilled' && hoursResult.value) {
+    const entries = hoursResult.value.entries || [];
     recentEntries = entries;
     for (const e of entries) {
       if (!e.date) continue;
       weekHoursTotal += Number(e.totalHours) || 0;
       if (e.date === yestIso && e.userId) yesterdaySubmitters.add(e.userId);
     }
-  } catch (e) {
-    // Soft-fail — the rest of the page still renders.
-    console.warn('overview: failed to fetch week hours', e);
+  } else if (hoursResult.status === 'rejected') {
+    console.warn('overview: failed to fetch week hours', hoursResult.reason);
   }
-
-  // Materials roll-up. Surfaces "items waiting to be ordered" + "POs out
-  // for delivery" as exception rows below. Cheap call (one /api read);
-  // failure mode is silent (materials exceptions just don't render).
-  // Race a short timeout so a slow materials read doesn't keep the page
-  // on the Loading placeholder.
-  let materials = null;
-  try {
-    materials = await withTimeout(SHELL.api('/api/materials-summary'), 6000, 'materials summary');
-  } catch (e) {
-    console.warn('overview: materials summary unavailable', e);
+  if (materialsResult.status === 'fulfilled') {
+    materials = materialsResult.value;
+  } else if (materialsResult.status === 'rejected') {
+    console.warn('overview: materials summary unavailable', materialsResult.reason);
   }
 
   return {
