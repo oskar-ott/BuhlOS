@@ -110,6 +110,39 @@ module.exports = async (req, res) => {
     try { return await deleteSnagPhoto(req, res, user, jobId); }
     catch (e) { return res.status(500).json({ error: e.message }); }
   }
+  // ── ITP point photo upload ───────────────────────────────────────
+  // Uploads a single image data-url to blob storage and returns the
+  // public URL. The /api/job-itps?action=record endpoint then takes
+  // the URL via its existing photoUrl field. Separated from the snag
+  // upload action because the storage prefix is different
+  // (jobs/<id>/itp-photos/...) and the index isn't snag-shaped.
+  if (action === 'upload-itp-photo' && req.method === 'POST') {
+    if (!canWrite(user, jobId)) return res.status(403).json({ error: 'read-only' });
+    try {
+      const { dataUrl, instanceId, pointId } = req.body || {};
+      if (!dataUrl) return res.status(400).json({ error: 'dataUrl required' });
+      if (!instanceId || !pointId) return res.status(400).json({ error: 'instanceId + pointId required' });
+      const base64Data = dataUrl.split(',')[1];
+      if (!base64Data) return res.status(400).json({ error: 'malformed dataUrl' });
+      const mimeType = (dataUrl.match(/data:([^;]+)/) || [, 'image/jpeg'])[1];
+      const buffer = Buffer.from(base64Data, 'base64');
+      // Same 6MB ceiling as the snag-photo path. Phone cameras after
+      // client-side resize at 1920px@0.7 should land 300–700KB.
+      if (buffer.length > 6 * 1024 * 1024) {
+        return res.status(413).json({ error: 'photo too large — try a smaller image' });
+      }
+      const photoId = Date.now() + '_' + Math.random().toString(36).slice(2);
+      const ext = (mimeType.split('/')[1] || 'jpg').replace('+xml', '');
+      const blob = await put(`jobs/${jobId}/itp-photos/${instanceId}/${pointId}_${photoId}.${ext}`, buffer, {
+        access: 'public',
+        contentType: mimeType,
+        token: process.env.BLOB_READ_WRITE_TOKEN,
+      });
+      return res.status(200).json({ url: blob.url });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
 
   if (req.method === 'GET') {
     const index = await readIndex(jobId);
