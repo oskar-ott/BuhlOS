@@ -378,86 +378,131 @@
       return cached.counts || {};
     }
 
-    const [jobsR, pendingR, snagsR, usersR, quotesR, supportAccessR, supportPwdR, assetsR] = await Promise.all([
-      // Lightweight jobs list — no per-job blob reads. The shell only
-      // needs the registry + count; the jobs list page fetches its
-      // own ?withStats=1 in PAGE.render to populate progress / snag
-      // tiles. Dropping the stats off the shell call removes N×2
-      // per-job blob reads (data.json + tags.json) from every admin
-      // page boot. job.html falls back to ?withStats=1 if its
-      // SHELL.JOBS lookup misses (kept for resilience).
-      fetch('/api/jobs', { credentials: 'same-origin' }).catch(() => null),
-      fetch('/api/time-entries?status=submitted&scope=approver', { credentials: 'same-origin' }).catch(() => null),
-      fetch('/api/snags-all?status=Open', { credentials: 'same-origin' }).catch(() => null),
-      fetch('/api/users', { credentials: 'same-origin' }).catch(() => null),
-      fetch('/api/quotes', { credentials: 'same-origin' }).catch(() => null),
-      isAdmin ? fetch('/api/access-requests?status=open', { credentials: 'same-origin' }).catch(() => null) : null,
-      isAdmin ? fetch('/api/password-resets?status=open',  { credentials: 'same-origin' }).catch(() => null) : null,
-      isAdmin ? fetch('/api/assets',                       { credentials: 'same-origin' }).catch(() => null) : null,
-    ]);
+    // Progressive sidebar render. Previously this awaited Promise.all
+    // on 8 fetches then processed them sequentially — the slowest
+    // fetch determined when ANY badge could update. Now each fetch
+    // is wired to its own .then() that immediately writes SHELL.*
+    // + updates SHELL.COUNTS + re-renders the sidebar as soon as
+    // its data lands. Admins watching the page see badges fill in
+    // progressively (200ms for /api/users, 800ms for /api/snags-all,
+    // etc.) rather than all-or-nothing after the slowest.
+    //
+    // Promise.all on the resulting chain still gates COUNTS_READY,
+    // so pages awaiting it (operations, hours, etc.) see fully
+    // populated SHELL.* state before they render.
     const out = { activeJobs: 0, pendingHours: 0, openSnags: 0, unassignedSnags: 0, crewCount: 0, liveQuotes: 0, openSupport: 0, overdueAssets: 0 };
-    try {
-      if (jobsR && jobsR.ok) {
-        const jobs = (await jobsR.json()).jobs || [];
-        out.activeJobs = jobs.filter(j => (j.status || 'active') === 'active').length;
-        SHELL.JOBS = jobs;
-      }
-    } catch {}
-    try {
-      if (pendingR && pendingR.ok) {
-        const entries = (await pendingR.json()).entries || [];
-        out.pendingHours = entries.length;
-        SHELL.PENDING_ENTRIES = entries;
-      }
-    } catch {}
-    try {
-      if (snagsR && snagsR.ok) {
-        const snags = (await snagsR.json()).snags || [];
-        out.openSnags = snags.length;
-        out.unassignedSnags = snags.filter(s => !s.assignedTo).length;
-        SHELL.OPEN_SNAGS = snags;
-      }
-    } catch {}
-    try {
-      if (usersR && usersR.ok) {
-        const users = (await usersR.json()).users || [];
-        out.crewCount = users.length;
-        SHELL.USERS = users;
-      }
-    } catch {}
-    try {
-      if (quotesR && quotesR.ok) {
-        const quotes = (await quotesR.json()).quotes || [];
-        out.liveQuotes = quotes.filter(q => !['archived','converted_to_job','lost','declined'].includes(q.status)).length;
-        SHELL.QUOTES = quotes;
-      }
-    } catch {}
-    // Support inbox count = open access requests + open password resets.
-    // Single number on the sidebar pill so the admin sees "something
-    // needs attention" without having to think about which kind.
-    try {
-      if (supportAccessR && supportAccessR.ok) {
-        const reqs = (await supportAccessR.json()).requests || [];
-        out.openSupport += reqs.length;
-      }
-    } catch {}
-    try {
-      if (supportPwdR && supportPwdR.ok) {
-        const rs = (await supportPwdR.json()).resets || [];
-        out.openSupport += rs.length;
-      }
-    } catch {}
-    // Overdue-assets badge — assets past their expected return date.
-    // Only fired for admins (LH/tradie see their own gear in /my-gear,
-    // which has its own overdue surfacing). Same pattern as the other
-    // bad-tone badges.
-    try {
-      if (assetsR && assetsR.ok) {
-        const items = (await assetsR.json()).assets || [];
-        const today = new Date().toISOString().slice(0, 10);
-        out.overdueAssets = items.filter(a => !a.archived && a.expectedReturn && a.expectedReturn < today && a.currentHolderId).length;
-      }
-    } catch {}
+    function bump() {
+      // Live-update the shell counts + sidebar so badges fill in as
+      // each fetch lands. Cheap operation — sidebar re-render is a
+      // pure HTML template swap.
+      SHELL.COUNTS = out;
+      try { renderSidebar(); } catch (e) {}
+    }
+
+    const tasks = [];
+    tasks.push(
+      fetch('/api/jobs', { credentials: 'same-origin' })
+        .then(r => r && r.ok ? r.json() : null)
+        .then(j => {
+          if (!j) return;
+          const jobs = j.jobs || [];
+          out.activeJobs = jobs.filter(x => (x.status || 'active') === 'active').length;
+          SHELL.JOBS = jobs;
+          bump();
+        })
+        .catch(() => {})
+    );
+    tasks.push(
+      fetch('/api/time-entries?status=submitted&scope=approver', { credentials: 'same-origin' })
+        .then(r => r && r.ok ? r.json() : null)
+        .then(j => {
+          if (!j) return;
+          const entries = j.entries || [];
+          out.pendingHours = entries.length;
+          SHELL.PENDING_ENTRIES = entries;
+          bump();
+        })
+        .catch(() => {})
+    );
+    tasks.push(
+      fetch('/api/snags-all?status=Open', { credentials: 'same-origin' })
+        .then(r => r && r.ok ? r.json() : null)
+        .then(j => {
+          if (!j) return;
+          const snags = j.snags || [];
+          out.openSnags = snags.length;
+          out.unassignedSnags = snags.filter(s => !s.assignedTo).length;
+          SHELL.OPEN_SNAGS = snags;
+          bump();
+        })
+        .catch(() => {})
+    );
+    tasks.push(
+      fetch('/api/users', { credentials: 'same-origin' })
+        .then(r => r && r.ok ? r.json() : null)
+        .then(j => {
+          if (!j) return;
+          const users = j.users || [];
+          out.crewCount = users.length;
+          SHELL.USERS = users;
+          bump();
+        })
+        .catch(() => {})
+    );
+    tasks.push(
+      fetch('/api/quotes', { credentials: 'same-origin' })
+        .then(r => r && r.ok ? r.json() : null)
+        .then(j => {
+          if (!j) return;
+          const quotes = j.quotes || [];
+          out.liveQuotes = quotes.filter(q => !['archived','converted_to_job','lost','declined'].includes(q.status)).length;
+          SHELL.QUOTES = quotes;
+          bump();
+        })
+        .catch(() => {})
+    );
+    if (isAdmin) {
+      // Support inbox count = open access requests + open password
+      // resets. Single sidebar pill so admin sees "something needs
+      // attention" without thinking about kind.
+      tasks.push(
+        fetch('/api/access-requests?status=open', { credentials: 'same-origin' })
+          .then(r => r && r.ok ? r.json() : null)
+          .then(j => {
+            if (!j) return;
+            out.openSupport = (out.openSupport || 0) + ((j.requests || []).length);
+            bump();
+          })
+          .catch(() => {})
+      );
+      tasks.push(
+        fetch('/api/password-resets?status=open', { credentials: 'same-origin' })
+          .then(r => r && r.ok ? r.json() : null)
+          .then(j => {
+            if (!j) return;
+            out.openSupport = (out.openSupport || 0) + ((j.resets || []).length);
+            bump();
+          })
+          .catch(() => {})
+      );
+      // Overdue-assets badge — assets past expected return date.
+      // Admin-only (LH/tradie see their own gear in /my-gear with
+      // its own overdue surfacing).
+      tasks.push(
+        fetch('/api/assets', { credentials: 'same-origin' })
+          .then(r => r && r.ok ? r.json() : null)
+          .then(j => {
+            if (!j) return;
+            const today = new Date().toISOString().slice(0, 10);
+            out.overdueAssets = (j.assets || []).filter(a => !a.archived && a.expectedReturn && a.expectedReturn < today && a.currentHolderId).length;
+            bump();
+          })
+          .catch(() => {})
+      );
+    }
+    // Wait for all tasks before completing — pages awaiting
+    // COUNTS_READY get fully populated SHELL.* shared state.
+    await Promise.all(tasks);
 
     // Write the fresh fan-out result to sessionStorage so the next
     // admin nav within 15s skips the network entirely. Persists
