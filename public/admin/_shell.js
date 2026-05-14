@@ -284,9 +284,68 @@
     }
   }
 
+  // Cross-page sessionStorage cache for the shell fan-out. Every
+  // admin .html is a separate document so the in-memory SHELL.*
+  // globals reset on nav (operations → jobs → snags). Without a
+  // cross-document cache the same 8 endpoints fire every load. A
+  // 15-second sessionStorage cache keyed by user role makes admin
+  // nav feel instant: the first hit populates the cache, the next
+  // five+ admin pages opened within 15s read from it.
+  //
+  // Cache lifetime is intentionally short — counts move when users
+  // mutate (snag close, hour approve, job edit), and a 15s window
+  // is short enough that no surface goes stale long enough to
+  // matter. SHELL.invalidateSidebar() (exposed below) lets pages
+  // force-refresh after a write.
+  const SIDEBAR_CACHE_KEY = 'buhl.admin.sidebar.v1';
+  const SIDEBAR_CACHE_TTL_MS = 15000;
+
+  function _readSidebarCache(role) {
+    try {
+      const raw = sessionStorage.getItem(SIDEBAR_CACHE_KEY);
+      if (!raw) return null;
+      const j = JSON.parse(raw);
+      if (!j || j.role !== role) return null;
+      if (!j.ts || (Date.now() - j.ts) > SIDEBAR_CACHE_TTL_MS) return null;
+      return j;
+    } catch (e) { return null; }
+  }
+
+  function _writeSidebarCache(role, payload) {
+    try {
+      sessionStorage.setItem(SIDEBAR_CACHE_KEY, JSON.stringify({
+        role, ts: Date.now(), ...payload,
+      }));
+    } catch (e) {
+      // Quota / serialization failure — silently skip cache. Pages
+      // still work, just no nav speedup.
+    }
+  }
+
+  // Pages can call SHELL.invalidateSidebar() after a mutation that
+  // would shift the counts (snag resolve, hour approve, etc.) so
+  // the next admin nav sees fresh state.
+  SHELL.invalidateSidebar = function invalidateSidebar() {
+    try { sessionStorage.removeItem(SIDEBAR_CACHE_KEY); } catch (e) {}
+  };
+
   async function fetchSidebarCounts() {
     // Admin gets the Support badge too (LH doesn't see Support — gated).
     const isAdmin = SHELL.ME && SHELL.ME.role === 'admin';
+    const role = (SHELL.ME && SHELL.ME.role) || 'unknown';
+
+    // Cache hit? Hydrate SHELL.* + return cached counts. Skips the
+    // entire 8-call fan-out for the common admin-nav case.
+    const cached = _readSidebarCache(role);
+    if (cached) {
+      if (Array.isArray(cached.JOBS))            SHELL.JOBS            = cached.JOBS;
+      if (Array.isArray(cached.PENDING_ENTRIES)) SHELL.PENDING_ENTRIES = cached.PENDING_ENTRIES;
+      if (Array.isArray(cached.OPEN_SNAGS))      SHELL.OPEN_SNAGS      = cached.OPEN_SNAGS;
+      if (Array.isArray(cached.USERS))           SHELL.USERS           = cached.USERS;
+      if (Array.isArray(cached.QUOTES))          SHELL.QUOTES          = cached.QUOTES;
+      return cached.counts || {};
+    }
+
     const [jobsR, pendingR, snagsR, usersR, quotesR, supportAccessR, supportPwdR, assetsR] = await Promise.all([
       fetch('/api/jobs?withStats=1', { credentials: 'same-origin' }).catch(() => null),
       fetch('/api/time-entries?status=submitted&scope=approver', { credentials: 'same-origin' }).catch(() => null),
@@ -360,6 +419,20 @@
         out.overdueAssets = items.filter(a => !a.archived && a.expectedReturn && a.expectedReturn < today && a.currentHolderId).length;
       }
     } catch {}
+
+    // Write the fresh fan-out result to sessionStorage so the next
+    // admin nav within 15s skips the network entirely. Persists
+    // SHELL.* shared state alongside the counts so pages reading
+    // SHELL.JOBS / SHELL.USERS etc. work from the cache too.
+    _writeSidebarCache(role, {
+      counts:          out,
+      JOBS:            SHELL.JOBS || [],
+      PENDING_ENTRIES: SHELL.PENDING_ENTRIES || [],
+      OPEN_SNAGS:      SHELL.OPEN_SNAGS || [],
+      USERS:           SHELL.USERS || [],
+      QUOTES:          SHELL.QUOTES || [],
+    });
+
     return out;
   }
 
