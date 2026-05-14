@@ -346,6 +346,55 @@ textarea:focus{border-color:var(--navy);background:#fff}
 .mat-empty b{display:block;font-size:14px;color:var(--text);margin-bottom:4px;font-weight:600}
 
 .role-note{background:#fef3c7;border:1px solid #fde68a;border-radius:var(--rs);padding:9px 12px;margin-bottom:10px;font-size:12px;color:#92400e}
+
+/* Assets */
+.asset-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.asset-tb-btn{flex:1;min-width:120px;padding:11px 14px;background:var(--navy);color:#fff;border:none;border-radius:var(--rs);font-size:13px;font-weight:600;cursor:pointer}
+.asset-tb-btn.alt{background:#fff;color:var(--navy);border:1px solid var(--border)}
+.asset-tb-btn:hover{opacity:.9}
+.asset-card{background:var(--card);border:1px solid var(--border);border-radius:var(--rs);padding:12px 14px;margin-bottom:7px;cursor:pointer;transition:all .14s}
+.asset-card:hover{border-color:#a5b4fc;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.07)}
+.asset-card:active{transform:translateY(0)}
+.asset-card-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.asset-card-name{flex:1;min-width:0;font-size:14px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis}
+.asset-type{display:inline-flex;align-items:center;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap;flex-shrink:0}
+.asset-type-vehicle{background:#dbeafe;color:#1e40af}
+.asset-type-key{background:#fce7f3;color:#9d174d}
+.asset-type-tool{background:#fef3c7;color:#92400e}
+.asset-type-accessory{background:#f1f5f9;color:#475569}
+.asset-type-ppe{background:#d1fae5;color:#065f46}
+.asset-type-other{background:#f3f4f6;color:#6b7280}
+.asset-card-meta{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--muted)}
+.asset-card-meta b{color:var(--text);font-weight:600}
+.asset-holder-pill{display:inline-flex;align-items:center;gap:5px;background:#f1f5f9;border-radius:12px;padding:3px 9px;font-size:12px;font-weight:500;color:var(--text)}
+.asset-holder-pill.unassigned{color:var(--muted);background:#fafafa;border:1px dashed var(--border)}
+.asset-history{margin-top:6px}
+.asset-hist-row{display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
+.asset-hist-row:last-child{border-bottom:none}
+.asset-hist-row .at{min-width:80px;flex-shrink:0;color:var(--muted)}
+.asset-hist-row .evt{flex:1;color:var(--text)}
+.asset-empty{text-align:center;padding:32px 18px;color:var(--muted);font-size:13px;background:var(--card);border:1px dashed var(--border);border-radius:var(--rs)}
+.asset-empty b{display:block;font-size:14px;color:var(--text);margin-bottom:4px;font-weight:600}
+
+/* Contacts */
+.contact-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.contact-tb-btn{flex:1;min-width:120px;padding:11px 14px;background:var(--navy);color:#fff;border:none;border-radius:var(--rs);font-size:13px;font-weight:600;cursor:pointer}
+.contact-tb-btn.alt{background:#fff;color:var(--navy);border:1px solid var(--border)}
+.contact-tb-btn:hover{opacity:.9}
+.contact-card{background:var(--card);border:1px solid var(--border);border-radius:var(--rs);padding:12px 14px;margin-bottom:7px}
+.contact-card-top{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.contact-cat-badge{display:inline-flex;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap;flex-shrink:0}
+.contact-cat-project{background:#dbeafe;color:#1e40af}
+.contact-cat-supplier{background:#fce7f3;color:#9d174d}
+.contact-card-name{flex:1;font-size:14px;font-weight:700;color:var(--text)}
+.contact-card-meta{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.contact-card-meta a{color:var(--blue);text-decoration:none}
+.contact-card-actions{display:flex;gap:6px;margin-top:8px}
+.contact-action{padding:5px 10px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text);cursor:pointer;font-weight:500}
+.contact-action:hover{background:#f1f5f9}
+.contact-action.red{background:#fff;color:var(--red);border-color:var(--red-bd)}
+.contact-empty{text-align:center;padding:32px 18px;color:var(--muted);font-size:13px;background:var(--card);border:1px dashed var(--border);border-radius:var(--rs)}
+.contact-empty b{display:block;font-size:14px;color:var(--text);margin-bottom:4px;font-weight:600}
 </style>
 </head>
 <body>
@@ -388,6 +437,8 @@ textarea:focus{border-color:var(--navy);background:#fff}
   <button class="nb" onclick="show('temps')">Temps</button>
   <button class="nb" onclick="show('hours')">Hours</button>
   <button class="nb" id="mnav" onclick="show('materials')">Materials</button>
+  <button class="nb" id="anav" onclick="show('assets')">Assets</button>
+  <button class="nb" id="cnav" onclick="show('contacts')">Contacts</button>
 </div>
 
 <div class="pg">
@@ -399,11 +450,19 @@ textarea:focus{border-color:var(--navy);background:#fff}
   <div id="temps" class="sc"></div>
   <div id="hours" class="sc"></div>
   <div id="materials" class="sc"></div>
+  <div id="assets" class="sc"></div>
+  <div id="contacts" class="sc"></div>
 </div>
 
 <!-- Materials modals -->
 <div class="modal-bk" id="mat-modal" onclick="if(event.target===this)closeMatModal()">
   <div class="modal" id="mat-modal-inner"></div>
+</div>
+<div class="modal-bk" id="asset-modal" onclick="if(event.target===this)closeAssetModal()">
+  <div class="modal" id="asset-modal-inner"></div>
+</div>
+<div class="modal-bk" id="contact-modal" onclick="if(event.target===this)closeContactModal()">
+  <div class="modal" id="contact-modal-inner"></div>
 </div>
 
 <script>
@@ -431,13 +490,24 @@ let MAT_LOADED = false; // lazy load flag
 let MAT_FILTER = 'all'; // filter pill state
 let MAT_FILE = null;    // pending invoice upload file
 
+// Assets state
+let ASSETS = null;
+let ASSETS_LOADED = false;
+let ASSETS_USERS = null; // cached user list for transfer picker (admin only)
+
+// Contacts state
+let CONTACTS = null;
+let CONTACTS_LOADED = false;
+
 // ── Core data ───────────────────────────────────────────────
 async function loadMe(){
   try{const r=await fetch('/api/auth?action=me',{credentials:'same-origin'});
     if(r.ok){const j=await r.json();ME=j.user||null;}}
   catch(e){}
-  // Hide Materials tab for clients
-  if(ME&&ME.role==='client'){const m=document.getElementById('mnav');if(m)m.style.display='none';}
+  // Hide internal tabs for clients
+  if(ME&&ME.role==='client'){
+    ['mnav','anav','cnav'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+  }
 }
 async function load(){
   await loadMe();
@@ -960,7 +1030,7 @@ function show(id){
   document.querySelectorAll('.sc').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  ['dashboard','units','townhouses','snags','tags','temps','hours','materials'].forEach((s,i)=>{if(s===id){const nbs=document.querySelectorAll('.nb');if(nbs[i])nbs[i].classList.add('active');}});
+  ['dashboard','units','townhouses','snags','tags','temps','hours','materials','assets','contacts'].forEach((s,i)=>{if(s===id){const nbs=document.querySelectorAll('.nb');if(nbs[i])nbs[i].classList.add('active');}});
   if(id==='dashboard')renderDash();
   if(id==='units')renderList('units',UNITS,'Units 1–15');
   if(id==='townhouses')renderList('townhouses',TH,'Townhouses 1–7');
@@ -969,6 +1039,8 @@ function show(id){
   if(id==='temps')renderTemps();
   if(id==='hours')renderHours();
   if(id==='materials')openMaterials();
+  if(id==='assets')openAssets();
+  if(id==='contacts')openContacts();
   updateBadge();window.scrollTo(0,0);
 }
 
@@ -1672,6 +1744,402 @@ async function deleteInvoice(id){
     });
     if(!r.ok){alert('Failed to delete');return;}
     closeMatModal();await fetchMaterials();renderMaterials();
+  }catch(e){alert('Network error');}
+}
+
+// ── Assets ───────────────────────────────────────────────────
+const ASSET_TYPE_LABEL={vehicle:'Vehicle',key:'Key',tool:'Tool',accessory:'Accessory',ppe:'PPE',other:'Other'};
+const ASSET_TYPES_LIST=['vehicle','key','tool','accessory','ppe','other'];
+
+async function openAssets(){
+  const el=document.getElementById('assets');
+  el.innerHTML='<div class="asset-empty"><b>Loading…</b></div>';
+  if(!ASSETS_LOADED)await fetchAssets();
+  renderAssets();
+}
+
+async function fetchAssets(){
+  try{
+    const r=await fetch('/api/assets',{credentials:'same-origin'});
+    if(r.ok){ASSETS=await r.json();ASSETS_LOADED=true;}
+    else if(r.status===403){ASSETS={assets:[],_forbidden:true};ASSETS_LOADED=true;}
+    else{ASSETS={assets:[]};ASSETS_LOADED=true;}
+  }catch(e){ASSETS={assets:[]};ASSETS_LOADED=true;}
+  ASSETS.assets=ASSETS.assets||[];
+}
+
+function renderAssets(){
+  const el=document.getElementById('assets');
+  if(!ASSETS||ASSETS._forbidden){
+    el.innerHTML='<div class="asset-empty"><b>No access</b>You don\'t have access to assets.</div>';return;
+  }
+  const admin=isAdmin();
+  let h='';
+  if(admin){
+    h+=`<div class="asset-toolbar"><button class="asset-tb-btn" onclick="openNewAssetModal()">+ New Asset</button></div>`;
+  }else{
+    h+=`<div class="stitle">My Gear</div>`;
+  }
+  const list=ASSETS.assets||[];
+  if(!list.length){
+    h+=`<div class="asset-empty"><b>${admin?'No assets yet':'No gear assigned to you'}</b>${admin?'Add vehicles, keys, tools, and equipment.':'Assets assigned to you will appear here.'}</div>`;
+  }else{
+    list.forEach(a=>{h+=assetCard(a);});
+  }
+  el.innerHTML=h;
+}
+
+function assetCard(a){
+  const tClass='asset-type asset-type-'+(a.type||'other');
+  const tLabel=ASSET_TYPE_LABEL[a.type]||'Other';
+  const holderHtml=assetHolderHtml(a);
+  return`<div class="asset-card" onclick="openAssetDetail('${esc(a.id)}')">
+    <div class="asset-card-top">
+      <span class="${tClass}">${tLabel}</span>
+      <span class="asset-card-name">${esc(a.name)}</span>
+      ${a.identifier?`<span style="font-size:11px;color:var(--muted)">${esc(a.identifier)}</span>`:''}
+    </div>
+    <div class="asset-card-meta">
+      ${isAdmin()?`<span>${holderHtml}</span>`:''}
+      ${a.expectedReturn?`<span>Return by: <b>${a.expectedReturn.slice(0,10)}</b></span>`:''}
+      ${a.notes?`<span>${esc(a.notes.slice(0,80))}${a.notes.length>80?'…':''}</span>`:''}
+    </div>
+  </div>`;
+}
+
+function assetHolderHtml(a){
+  if(!a.currentHolderId)return'<span class="asset-holder-pill unassigned">In storage</span>';
+  const users=(ASSETS_USERS&&ASSETS_USERS.users)||[];
+  const u=users.find(x=>x.id===a.currentHolderId);
+  return`<span class="asset-holder-pill">${esc(u?u.username:a.currentHolderId)}</span>`;
+}
+
+async function openAssetDetail(id){
+  document.getElementById('asset-modal-inner').innerHTML='<div style="padding:20px;text-align:center;color:var(--muted)">Loading…</div>';
+  document.getElementById('asset-modal').classList.add('open');
+  if(isAdmin())await loadUsersIfNeeded();
+  try{
+    const r=await fetch('/api/assets?id='+encodeURIComponent(id),{credentials:'same-origin'});
+    if(!r.ok){document.getElementById('asset-modal-inner').innerHTML='<p style="padding:16px">Error loading asset.</p>';return;}
+    const j=await r.json();
+    renderAssetDetail(j.asset,j.history||[]);
+  }catch(e){document.getElementById('asset-modal-inner').innerHTML='<p style="padding:16px">Network error.</p>';}
+}
+
+function renderAssetDetail(a,history){
+  const admin=isAdmin();
+  const tradie=ME&&ME.role==='tradie';
+  const tLabel=ASSET_TYPE_LABEL[a.type]||a.type;
+  const users=(ASSETS_USERS&&ASSETS_USERS.users)||[];
+  const holder=a.currentHolderId?users.find(u=>u.id===a.currentHolderId):null;
+
+  let h=`<div class="modal-h">
+    <div class="modal-t">${esc(a.name)}</div>
+    <button class="modal-x" onclick="closeAssetModal()">✕</button>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+    <span class="asset-type asset-type-${a.type||'other'}">${tLabel}</span>
+    ${a.identifier?`<span style="font-size:12px;color:var(--muted)">${esc(a.identifier)}</span>`:''}
+  </div>
+  <div class="asset-card-meta" style="margin-bottom:14px">
+    <span>Held by: ${a.currentHolderId?(holder?`<b>${esc(holder.username)}</b>`:a.currentHolderId):'<em>In storage</em>'}</span>
+    ${a.assignedAt?`<span>Since: <b>${a.assignedAt.slice(0,10)}</b></span>`:''}
+    ${a.expectedReturn?`<span>Return by: <b>${a.expectedReturn.slice(0,10)}</b></span>`:''}
+    ${a.notes?`<span>Notes: ${esc(a.notes)}</span>`:''}
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">`;
+  if(admin){
+    h+=`<button class="mat-action primary" onclick="openEditAssetModal('${esc(a.id)}')">Edit</button>`;
+    h+=`<button class="mat-action" onclick="openTransferModal('${esc(a.id)}')">Transfer</button>`;
+    if(!a.archived)h+=`<button class="mat-action red" onclick="archiveAsset('${esc(a.id)}')">Archive</button>`;
+  }
+  h+=`</div>`;
+
+  h+=`<div class="stitle">Transfer history</div>`;
+  if(!history.length){
+    h+=`<p style="font-size:12px;color:var(--muted);padding:4px 0">No transfers recorded.</p>`;
+  }else{
+    h+=`<div class="asset-history">`;
+    history.slice().reverse().forEach(e=>{
+      const fromUser=e.from?(users.find(u=>u.id===e.from)||{username:e.from}).username:'Storage';
+      const toUser=e.to?(users.find(u=>u.id===e.to)||{username:e.to}).username:'Storage';
+      h+=`<div class="asset-hist-row">
+        <span class="at">${(e.at||'').slice(0,10)}</span>
+        <span class="evt">${esc(fromUser)} → ${esc(toUser)}${e.note?` — ${esc(e.note)}`:''}</span>
+      </div>`;
+    });
+    h+=`</div>`;
+  }
+  document.getElementById('asset-modal-inner').innerHTML=h;
+}
+
+async function loadUsersIfNeeded(){
+  if(ASSETS_USERS)return;
+  try{
+    const r=await fetch('/api/users',{credentials:'same-origin'});
+    if(r.ok)ASSETS_USERS=await r.json();
+    else ASSETS_USERS={users:[]};
+  }catch(e){ASSETS_USERS={users:[]};}
+}
+
+function closeAssetModal(){document.getElementById('asset-modal').classList.remove('open');}
+function openNewAssetModal(){openEditAssetModal(null);}
+
+async function openEditAssetModal(id){
+  const a=id?((ASSETS&&ASSETS.assets)||[]).find(x=>x.id===id)||null:null;
+  const typeOpts=ASSET_TYPES_LIST.map(t=>`<option value="${t}"${(a?a.type===t:t==='other')?' selected':''}>${ASSET_TYPE_LABEL[t]}</option>`).join('');
+  document.getElementById('asset-modal-inner').innerHTML=`
+    <div class="modal-h">
+      <div class="modal-t">${a?'Edit Asset':'New Asset'}</div>
+      <button class="modal-x" onclick="closeAssetModal()">✕</button>
+    </div>
+    <label>Name *</label>
+    <input id="af-name" value="${esc(a?a.name:'')}" placeholder="e.g. Ford Ranger">
+    <label>Type</label>
+    <select id="af-type">${typeOpts}</select>
+    <label>Identifier (rego, serial, etc.)</label>
+    <input id="af-ident" value="${esc(a&&a.identifier||'')}" placeholder="e.g. REG: 1AB 2CD">
+    <label>Notes</label>
+    <textarea id="af-notes">${esc(a&&a.notes||'')}</textarea>
+    <div class="modal-err" id="af-err"></div>
+    <div class="modal-foot">
+      <button class="cancel" onclick="closeAssetModal()">Cancel</button>
+      <button class="save" onclick="saveAsset('${id||''}')">Save</button>
+    </div>`;
+  document.getElementById('asset-modal').classList.add('open');
+}
+
+async function saveAsset(id){
+  const body={
+    name:document.getElementById('af-name').value.trim(),
+    type:document.getElementById('af-type').value,
+    identifier:document.getElementById('af-ident').value.trim()||null,
+    notes:document.getElementById('af-notes').value.trim()||null,
+  };
+  const err=document.getElementById('af-err');
+  if(!body.name){err.textContent='Name is required';return;}
+  try{
+    const url=id?`/api/assets?id=${encodeURIComponent(id)}`:'/api/assets';
+    const r=await fetch(url,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)});
+    const j=await r.json();
+    if(!r.ok){err.textContent=j.error||'Failed to save';return;}
+    closeAssetModal();ASSETS_LOADED=false;await fetchAssets();renderAssets();
+  }catch(e){err.textContent='Network error';}
+}
+
+async function openTransferModal(assetId){
+  await loadUsersIfNeeded();
+  const tradies=((ASSETS_USERS&&ASSETS_USERS.users)||[]).filter(u=>u.role==='tradie');
+  const userOpts=tradies.map(u=>`<option value="${u.id}">${esc(u.username)}</option>`).join('');
+  document.getElementById('asset-modal-inner').innerHTML=`
+    <div class="modal-h">
+      <div class="modal-t">Transfer Asset</div>
+      <button class="modal-x" onclick="closeAssetModal()">✕</button>
+    </div>
+    <label>Transfer to</label>
+    <select id="tf-to">
+      <option value="">— Return to storage —</option>
+      ${userOpts}
+    </select>
+    <label>Expected return date (optional)</label>
+    <input type="date" id="tf-return">
+    <label>Note (optional)</label>
+    <input id="tf-note" placeholder="e.g. Needed for site access">
+    <div class="modal-err" id="tf-err"></div>
+    <div class="modal-foot">
+      <button class="cancel" onclick="closeAssetModal()">Cancel</button>
+      <button class="save" onclick="doTransfer('${esc(assetId)}')">Transfer</button>
+    </div>`;
+  document.getElementById('asset-modal').classList.add('open');
+}
+
+async function doTransfer(assetId){
+  const toUserId=document.getElementById('tf-to').value||null;
+  const retVal=document.getElementById('tf-return').value;
+  const body={
+    assetId,
+    toUserId,
+    expectedReturn:retVal?retVal+'T00:00:00.000Z':null,
+    note:document.getElementById('tf-note').value.trim()||null,
+  };
+  const err=document.getElementById('tf-err');
+  try{
+    const r=await fetch('/api/assets/transfer',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)});
+    const j=await r.json();
+    if(!r.ok){err.textContent=j.error||'Failed to transfer';return;}
+    closeAssetModal();ASSETS_LOADED=false;await fetchAssets();renderAssets();
+  }catch(e){err.textContent='Network error';}
+}
+
+async function archiveAsset(id){
+  if(!confirm('Archive this asset? It will be hidden from the list.'))return;
+  try{
+    const r=await fetch('/api/assets?id='+encodeURIComponent(id),{method:'DELETE',credentials:'same-origin'});
+    if(!r.ok){alert('Failed to archive');return;}
+    closeAssetModal();ASSETS_LOADED=false;await fetchAssets();renderAssets();
+  }catch(e){alert('Network error');}
+}
+
+// ── Contacts ─────────────────────────────────────────────────
+async function openContacts(){
+  const el=document.getElementById('contacts');
+  el.innerHTML='<div class="contact-empty"><b>Loading…</b></div>';
+  if(!CONTACTS_LOADED)await fetchContacts();
+  renderContacts();
+}
+
+async function fetchContacts(){
+  try{
+    const r=await fetch('/api/contacts?jobId='+encodeURIComponent(JOB_ID),{credentials:'same-origin'});
+    if(r.ok){CONTACTS=await r.json();CONTACTS_LOADED=true;}
+    else if(r.status===403){CONTACTS={contacts:[],_forbidden:true};CONTACTS_LOADED=true;}
+    else{CONTACTS={contacts:[]};CONTACTS_LOADED=true;}
+  }catch(e){CONTACTS={contacts:[]};CONTACTS_LOADED=true;}
+  CONTACTS.contacts=CONTACTS.contacts||[];
+}
+
+function renderContacts(){
+  const el=document.getElementById('contacts');
+  if(!CONTACTS||CONTACTS._forbidden){
+    el.innerHTML='<div class="contact-empty"><b>No access</b>You don\'t have access to job contacts.</div>';return;
+  }
+  const admin=isAdmin();
+  let h='';
+  if(admin){
+    h+=`<div class="contact-toolbar">
+      <button class="contact-tb-btn" onclick="openNewContactModal('project')">+ Project Contact</button>
+      <button class="contact-tb-btn alt" onclick="openNewContactModal('supplier')">+ Supplier</button>
+    </div>`;
+  }
+  const all=CONTACTS.contacts||[];
+  const project=all.filter(c=>c.category==='project');
+  const suppliers=all.filter(c=>c.category==='supplier');
+  if(!all.length){
+    h+=`<div class="contact-empty"><b>No contacts yet</b>Add project contacts and suppliers for this job.</div>`;
+  }else{
+    if(project.length){
+      h+=`<div class="stitle">Project contacts <span class="ct">${project.length}</span></div>`;
+      project.forEach(c=>{h+=contactCard(c);});
+    }
+    if(suppliers.length){
+      h+=`<div class="stitle">Suppliers <span class="ct">${suppliers.length}</span></div>`;
+      suppliers.forEach(c=>{h+=contactCard(c);});
+    }
+  }
+  el.innerHTML=h;
+}
+
+function contactCard(c){
+  const admin=isAdmin();
+  const catClass='contact-cat-'+c.category;
+  const catLabel=c.category==='project'?'Project':'Supplier';
+  let meta='';
+  if(c.category==='project'){
+    const role=[c.role,c.company].filter(Boolean).map(esc).join(' · ');
+    if(role)meta+=`<span>${role}</span>`;
+    if(c.phone)meta+=`<span><a href="tel:${esc(c.phone)}">📞 ${esc(c.phone)}</a></span>`;
+    if(c.email)meta+=`<span><a href="mailto:${esc(c.email)}">✉ ${esc(c.email)}</a></span>`;
+    if(c.notes)meta+=`<span>${esc(c.notes.slice(0,120))}${c.notes.length>120?'…':''}</span>`;
+  }else{
+    if(c.description)meta+=`<span>${esc(c.description.slice(0,120))}${c.description.length>120?'…':''}</span>`;
+    if(c.contactPerson)meta+=`<span>Contact: ${esc(c.contactPerson)}</span>`;
+    if(c.phone)meta+=`<span><a href="tel:${esc(c.phone)}">📞 ${esc(c.phone)}</a></span>`;
+    if(c.email)meta+=`<span><a href="mailto:${esc(c.email)}">✉ ${esc(c.email)}</a></span>`;
+  }
+  return`<div class="contact-card">
+    <div class="contact-card-top">
+      <span class="contact-cat-badge ${catClass}">${catLabel}</span>
+      <span class="contact-card-name">${esc(c.name)}</span>
+    </div>
+    <div class="contact-card-meta">${meta}</div>
+    ${admin?`<div class="contact-card-actions">
+      <button class="contact-action" onclick="openEditContactModal('${esc(c.id)}')">Edit</button>
+      <button class="contact-action red" onclick="deleteContact('${esc(c.id)}',false)">Delete</button>
+    </div>`:''}
+  </div>`;
+}
+
+function closeContactModal(){document.getElementById('contact-modal').classList.remove('open');}
+function openNewContactModal(cat){openEditContactModal(null,cat);}
+
+function openEditContactModal(id,defaultCat){
+  const c=id?((CONTACTS&&CONTACTS.contacts)||[]).find(x=>x.id===id)||null:null;
+  const cat=c?c.category:(defaultCat||'project');
+  const isSupplier=cat==='supplier';
+  const title=c?`Edit ${isSupplier?'Supplier':'Contact'}`:`New ${isSupplier?'Supplier':'Contact'}`;
+  let fields='';
+  if(!isSupplier){
+    fields=`<label>Name *</label><input id="cf-name" value="${esc(c?c.name:'')}">
+      <div class="modal-row2">
+        <div><label>Role / Title</label><input id="cf-role" value="${esc(c&&c.role||'')}"></div>
+        <div><label>Company</label><input id="cf-company" value="${esc(c&&c.company||'')}"></div>
+      </div>
+      <div class="modal-row2">
+        <div><label>Phone</label><input id="cf-phone" type="tel" value="${esc(c&&c.phone||'')}"></div>
+        <div><label>Email</label><input id="cf-email" type="email" value="${esc(c&&c.email||'')}"></div>
+      </div>
+      <label>Notes</label><textarea id="cf-notes">${esc(c&&c.notes||'')}</textarea>`;
+  }else{
+    fields=`<label>Supplier Name *</label><input id="cf-name" value="${esc(c?c.name:'')}">
+      <label>Description * (what do they supply?)</label><input id="cf-desc" value="${esc(c&&c.description||'')}">
+      <label>Contact Person</label><input id="cf-contact-person" value="${esc(c&&c.contactPerson||'')}">
+      <div class="modal-row2">
+        <div><label>Phone</label><input id="cf-phone" type="tel" value="${esc(c&&c.phone||'')}"></div>
+        <div><label>Email</label><input id="cf-email" type="email" value="${esc(c&&c.email||'')}"></div>
+      </div>`;
+  }
+  document.getElementById('contact-modal-inner').innerHTML=`
+    <div class="modal-h">
+      <div class="modal-t">${title}</div>
+      <button class="modal-x" onclick="closeContactModal()">✕</button>
+    </div>
+    <input type="hidden" id="cf-cat" value="${cat}">
+    ${fields}
+    <div class="modal-err" id="cf-err"></div>
+    <div class="modal-foot">
+      ${id?`<button class="cancel" style="background:#fef2f2;color:var(--red);flex:0 0 auto;padding:11px 14px" onclick="deleteContact('${esc(id)}',true)">Delete</button>`:''}
+      <button class="cancel" onclick="closeContactModal()">Cancel</button>
+      <button class="save" onclick="saveContact('${id||''}')">Save</button>
+    </div>`;
+  document.getElementById('contact-modal').classList.add('open');
+}
+
+async function saveContact(id){
+  const cat=document.getElementById('cf-cat').value;
+  const isSupplier=cat==='supplier';
+  const body={category:cat};
+  body.name=document.getElementById('cf-name').value.trim();
+  body.phone=document.getElementById('cf-phone').value.trim()||null;
+  body.email=document.getElementById('cf-email').value.trim()||null;
+  if(isSupplier){
+    body.description=document.getElementById('cf-desc').value.trim();
+    body.contactPerson=document.getElementById('cf-contact-person').value.trim()||null;
+  }else{
+    body.role=document.getElementById('cf-role').value.trim()||null;
+    body.company=document.getElementById('cf-company').value.trim()||null;
+    body.notes=document.getElementById('cf-notes').value.trim()||null;
+  }
+  const err=document.getElementById('cf-err');
+  if(!body.name){err.textContent='Name is required';return;}
+  if(isSupplier&&!body.description){err.textContent='Description is required for suppliers';return;}
+  try{
+    const url=id
+      ?`/api/contacts?id=${encodeURIComponent(id)}&jobId=${encodeURIComponent(JOB_ID)}`
+      :`/api/contacts?jobId=${encodeURIComponent(JOB_ID)}`;
+    const r=await fetch(url,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)});
+    const j=await r.json();
+    if(!r.ok){err.textContent=j.error||'Failed to save';return;}
+    closeContactModal();CONTACTS_LOADED=false;await fetchContacts();renderContacts();
+  }catch(e){err.textContent='Network error';}
+}
+
+async function deleteContact(id,fromModal){
+  if(!confirm('Delete this contact?'))return;
+  try{
+    const r=await fetch(`/api/contacts?id=${encodeURIComponent(id)}&jobId=${encodeURIComponent(JOB_ID)}`,{method:'DELETE',credentials:'same-origin'});
+    if(!r.ok){alert('Failed to delete');return;}
+    if(fromModal)closeContactModal();
+    CONTACTS_LOADED=false;await fetchContacts();renderContacts();
   }catch(e){alert('Network error');}
 }
 </script>
