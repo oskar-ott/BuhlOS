@@ -2487,6 +2487,11 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
         <span class="nav-menu-item-lbl">ITPs</span>
         <span class="nav-menu-item-badge" id="itpsnavBadge"></span>
       </button>
+      <button class="nav-menu-item" role="menuitem" data-sec="plans"
+        id="plansMenuItem" onclick="goNav('plans')" hidden>
+        <span class="nav-menu-item-lbl">Plans</span>
+        <span class="nav-menu-item-badge" id="plansnavBadge"></span>
+      </button>
       <button class="nav-menu-item" role="menuitem" data-sec="materials"
         id="materialsMenuItem" onclick="goNav('materials')" hidden>
         <span class="nav-menu-item-lbl">Materials</span>
@@ -2542,6 +2547,10 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
        list of attached ITP instances + the read/record view. Hidden by
        default; populated by renderItps() when the user navigates here. -->
   <div id="itps" class="sc"></div>
+  <!-- Plans surface (brief: plans page rebuild). Read-only list of
+       uploaded PDFs / images per job, tap to view in a new tab. Plan
+       upload + AI takeoff stay on the admin builder. -->
+  <div id="plans" class="sc"></div>
 </div>
 
 <!-- ── Worker quick-action bar ─────────────────────────────────────────────
@@ -2689,6 +2698,12 @@ async function bootstrapAuth() {
     if (modulesEff.itps && CURRENT_USER && CURRENT_USER.role !== 'client') {
       const im = document.getElementById('itpsMenuItem');
       if (im) im.hidden = false;
+    }
+    // Plans menu item — same pattern. Plans module defaults true so
+    // the item shows by default for non-client roles.
+    if (modulesEff.plans !== false && CURRENT_USER && CURRENT_USER.role !== 'client') {
+      const pm = document.getElementById('plansMenuItem');
+      if (pm) pm.hidden = false;
     }
   } catch (e) { location.href = '/login'; return false; }
 
@@ -7308,6 +7323,7 @@ function show(id){
   if(id==='materials')_lazyMaterials();
   if(id==='contacts')_lazyContacts();
   if(id==='itps')_lazyItps();
+  if(id==='plans')_lazyPlans();
   updateBadge();window.scrollTo(0,0);
   closeNavMenu();
 }
@@ -8233,6 +8249,108 @@ function openItpInstance(instanceId) {
   scrim.addEventListener('click', (e) => {
     if (e.target === scrim) scrim.remove();
   });
+}
+
+// ── Plans (brief mandate — plans page rebuild) ──
+// Read-only list of uploaded plans for the current job. Tap to open
+// the PDF/image in a new tab. Upload, edit, and AI takeoff stay on
+// the admin builder — mobile is for sparkies who need to look up
+// what's been scoped onsite, not manage the register.
+let _plansCache = null;
+let _plansLoading = false;
+async function _lazyPlans() {
+  if (CURRENT_USER && CURRENT_USER.role === 'client') return;
+  if (_plansCache) { renderPlans(); return; }
+  if (_plansLoading) return;
+  _plansLoading = true;
+  _setSectionLoading('plans', 'Loading plans…');
+  try {
+    const r = await fetch('/api/plans?jobId=' + encodeURIComponent(JOB_ID), { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _plansCache = await r.json();
+    renderPlans();
+  } catch (e) {
+    document.getElementById('plans').innerHTML =
+      '<div class="empty"><div class="empty-title">Couldn\'t load plans</div><div style="color:var(--muted);font-size:13px;margin-top:6px">' + esc(e.message) + '</div></div>';
+  } finally { _plansLoading = false; }
+}
+
+function renderPlans() {
+  const host = document.getElementById('plans');
+  // Plans API returns { plans: [{ id, title, drawingNumber, revision,
+  // url, status, supersededBy, uploadedBy, uploadedAt, archivedAt }] }.
+  // Filter to current (non-archived, not superseded) by default —
+  // superseded plans are reference history that lives on the admin
+  // builder.
+  const all = ((_plansCache && _plansCache.plans) || []).filter(p => !p.archivedAt);
+  // Toggle: "Show superseded" — off by default
+  const showOld = host.dataset.showSuperseded === '1';
+  const current = showOld ? all : all.filter(p => !p.supersededBy);
+
+  // Surface the menu item proactively when plans exist.
+  const plansMenu = document.getElementById('plansMenuItem');
+  if (plansMenu) plansMenu.hidden = all.length === 0;
+
+  if (!all.length) {
+    host.innerHTML = `
+      <div class="feat-empty">
+        <div class="feat-empty-title">No plans uploaded yet</div>
+        <div class="feat-empty-sub">Admin uploads plans from the job builder.</div>
+      </div>`;
+    return;
+  }
+  if (!current.length) {
+    // All current plans are superseded — flip the toggle so the user
+    // sees the lineage.
+    host.dataset.showSuperseded = '1';
+    return renderPlans();
+  }
+  const supersededCount = all.length - current.length;
+  // Sort: current first (by drawing number ascending), superseded last.
+  current.sort((a, b) => {
+    const dna = (a.drawingNumber || '').toString();
+    const dnb = (b.drawingNumber || '').toString();
+    if (dna === dnb) return (a.title || '').localeCompare(b.title || '');
+    return dna.localeCompare(dnb, undefined, { numeric: true });
+  });
+  host.innerHTML = `
+    <div class="feat-header">
+      <div>
+        <h1 class="feat-title">Plans</h1>
+        <span class="feat-sub">${current.length} current${supersededCount ? ' · ' + supersededCount + ' superseded' : ''}</span>
+      </div>
+      ${supersededCount ? `<button class="tt-secondary-btn" onclick="document.getElementById('plans').dataset.showSuperseded='${showOld ? '0' : '1'}';renderPlans()">${showOld ? 'Hide superseded' : 'Show superseded'}</button>` : ''}
+    </div>
+    <div class="reg-list">
+      ${current.map(p => {
+        const isSuperseded = !!p.supersededBy;
+        const rev = p.revision ? ' rev ' + esc(p.revision) : '';
+        const drawNum = p.drawingNumber ? esc(p.drawingNumber) : '(no DRG #)';
+        const meta = [];
+        if (p.uploadedBy) meta.push('uploaded by ' + esc(p.uploadedBy));
+        if (p.uploadedAt) {
+          try { meta.push(new Date(p.uploadedAt).toLocaleDateString('en-AU')); } catch (e) {}
+        }
+        if (p.fileSizeBytes) {
+          const kb = Math.round(p.fileSizeBytes / 1024);
+          meta.push(kb > 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB');
+        }
+        return `<a class="reg-row" href="${esc(p.url || '#')}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit${isSuperseded ? ';opacity:.55' : ''}">
+          <div class="reg-row-body">
+            <div class="reg-row-title">
+              <span class="reg-row-name" style="font-family:var(--mono);font-size:12px">${drawNum}${rev}</span>
+              <span style="font-size:14px;margin-left:8px">${esc(p.title || '')}</span>
+              ${isSuperseded ? `<span class="status-badge" style="font-size:9px;padding:1px 7px;margin-left:6px;background:var(--paper-3);color:var(--muted)">Superseded</span>` : ''}
+            </div>
+            <div class="reg-row-meta">${meta.map(m => '<span>' + m + '</span>').join('')}</div>
+          </div>
+          <div class="reg-row-actions">
+            <span class="btn btn-sm btn-ghost">View →</span>
+          </div>
+        </a>`;
+      }).join('')}
+    </div>
+  `;
 }
 
 // agoStr — shared helper for relative time labels. Used by the ITP
