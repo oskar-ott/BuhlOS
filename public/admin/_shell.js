@@ -370,7 +370,14 @@
     }
 
     const [jobsR, pendingR, snagsR, usersR, quotesR, supportAccessR, supportPwdR, assetsR] = await Promise.all([
-      fetch('/api/jobs?withStats=1', { credentials: 'same-origin' }).catch(() => null),
+      // Lightweight jobs list — no per-job blob reads. The shell only
+      // needs the registry + count; the jobs list page fetches its
+      // own ?withStats=1 in PAGE.render to populate progress / snag
+      // tiles. Dropping the stats off the shell call removes N×2
+      // per-job blob reads (data.json + tags.json) from every admin
+      // page boot. job.html falls back to ?withStats=1 if its
+      // SHELL.JOBS lookup misses (kept for resilience).
+      fetch('/api/jobs', { credentials: 'same-origin' }).catch(() => null),
       fetch('/api/time-entries?status=submitted&scope=approver', { credentials: 'same-origin' }).catch(() => null),
       fetch('/api/snags-all?status=Open', { credentials: 'same-origin' }).catch(() => null),
       fetch('/api/users', { credentials: 'same-origin' }).catch(() => null),
