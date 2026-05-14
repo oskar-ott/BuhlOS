@@ -243,6 +243,109 @@ textarea:focus{border-color:var(--navy);background:#fff}
 .lb{height:3px;background:var(--blue);border-radius:2px;animation:lp 1.2s ease infinite}
 @keyframes lp{0%{width:0;margin-left:0}50%{width:55%;margin-left:20%}100%{width:0;margin-left:100%}}
 .lt{color:#64748b;font-size:11px}
+
+/* Materials */
+.mat-sum{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
+@media(min-width:600px){.mat-sum{grid-template-columns:repeat(3,1fr)}}
+@media(min-width:900px){.mat-sum{grid-template-columns:repeat(5,1fr)}}
+.mat-attn{background:#fffbeb;border:1px solid var(--amber-bd);border-radius:var(--rs);padding:12px 14px;margin-bottom:14px}
+.mat-attn-t{font-size:12px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.mat-attn-list{display:flex;flex-direction:column;gap:6px}
+.mat-attn-row{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fff;border:1px solid var(--amber-bd);border-radius:6px;padding:7px 10px;font-size:13px}
+.mat-attn-row .l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.mat-attn-row .b{font-size:11px;font-weight:600;background:var(--navy);color:#fff;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;flex-shrink:0}
+.mat-attn-row .b.amber{background:var(--amber)}
+.mat-attn-row .b.red{background:var(--red)}
+.mat-attn-row .b.green{background:var(--green)}
+
+.mat-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.mat-tb-btn{flex:1;min-width:120px;padding:11px 14px;background:var(--navy);color:#fff;border:none;border-radius:var(--rs);font-size:13px;font-weight:600;cursor:pointer}
+.mat-tb-btn.alt{background:#fff;color:var(--navy);border:1px solid var(--border)}
+.mat-tb-btn:hover{opacity:.9}
+
+.mat-filters{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin-bottom:10px;padding-bottom:2px}
+.mat-filters::-webkit-scrollbar{display:none}
+.mat-filter{flex-shrink:0;padding:7px 12px;background:#fff;border:1px solid var(--border);border-radius:18px;font-size:12px;font-weight:500;color:var(--muted);cursor:pointer;white-space:nowrap}
+.mat-filter.active{background:var(--navy);color:#fff;border-color:var(--navy);font-weight:600}
+.mat-filter .ct{display:inline-block;background:rgba(255,255,255,.18);color:inherit;border-radius:8px;padding:0 6px;margin-left:4px;font-size:10px;font-weight:700}
+.mat-filter:not(.active) .ct{background:#f1f5f9;color:var(--muted)}
+
+.mat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--rs);padding:12px 14px;margin-bottom:7px;display:flex;flex-direction:column;gap:6px}
+.mat-card.cancelled{opacity:.5}
+.mat-card-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mat-card-name{flex:1;min-width:0;font-size:14px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis}
+.mat-card-qty{font-size:12px;color:var(--muted);font-weight:500}
+.mat-status{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 9px;border-radius:14px;letter-spacing:.2px;white-space:nowrap}
+.mat-s-needed{background:#f1f5f9;color:#475569}
+.mat-s-ordered{background:#fef3c7;color:#92400e}
+.mat-s-to_be_delivered{background:#fef3c7;color:#92400e}
+.mat-s-delivered{background:#dbeafe;color:#1e40af}
+.mat-s-onsite{background:#dcfce7;color:#166534}
+.mat-s-used{background:#d1fae5;color:#065f46}
+.mat-s-cancelled{background:#f3f4f6;color:#6b7280}
+.inv-s-pending_review{background:#fef3c7;color:#92400e}
+.inv-s-approved{background:#dcfce7;color:#166534}
+.inv-s-needs_info{background:#fee2e2;color:#991b1b}
+.inv-s-rejected{background:#f3f4f6;color:#6b7280}
+
+.mat-card-meta{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--muted)}
+.mat-card-meta b{color:var(--text);font-weight:600}
+.mat-card-meta .var{background:#fce7f3;color:#9d174d;padding:1px 7px;border-radius:8px;font-size:11px;font-weight:600}
+.mat-card-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.mat-action{padding:6px 10px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text);cursor:pointer;font-weight:500}
+.mat-action:hover{background:#f1f5f9}
+.mat-action.primary{background:var(--navy);color:#fff;border-color:var(--navy);font-weight:600}
+.mat-action.green{background:var(--green);color:#fff;border-color:var(--green)}
+.mat-action.amber{background:var(--amber);color:#fff;border-color:var(--amber)}
+.mat-action.red{background:#fff;color:var(--red);border-color:var(--red-bd)}
+.mat-action select{border:none;background:transparent;font-size:12px;font-weight:600;color:inherit;outline:none;cursor:pointer}
+
+.mat-section{margin:18px 0 8px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;display:flex;align-items:center;gap:8px}
+.mat-section::after{content:'';flex:1;height:1px;background:var(--border)}
+.mat-section .ct{background:#f1f5f9;color:var(--muted);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+
+.inv-card{background:var(--card);border:1px solid var(--border);border-radius:var(--rs);padding:12px 14px;margin-bottom:7px}
+.inv-top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.inv-sup{font-size:14px;font-weight:700;color:var(--text)}
+.inv-meta{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--muted);margin-bottom:6px}
+.inv-meta b{color:var(--text);font-weight:600}
+.inv-meta .amt{color:var(--navy);font-weight:700;font-size:13px}
+.inv-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+
+/* Modal */
+.modal-bk{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:400;display:none;align-items:flex-end;justify-content:center;padding:0}
+@media(min-width:600px){.modal-bk{align-items:center;padding:24px}}
+.modal-bk.open{display:flex}
+.modal{background:#fff;border-radius:14px 14px 0 0;padding:18px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+@media(min-width:600px){.modal{border-radius:14px}}
+.modal-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.modal-t{font-size:16px;font-weight:700;color:var(--text)}
+.modal-x{background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer;line-height:1;padding:0;width:30px;height:30px}
+.modal label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:10px 0 4px}
+.modal input,.modal select,.modal textarea{width:100%;padding:9px 11px;border-radius:var(--rs);border:1px solid var(--border);font-size:14px;font-family:inherit;background:#fafafa;color:var(--text);outline:none}
+.modal input:focus,.modal select:focus,.modal textarea:focus{border-color:var(--navy);background:#fff}
+.modal textarea{min-height:60px;resize:vertical}
+.modal-row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.modal-foot{display:flex;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
+.modal-foot button{flex:1;padding:11px;border-radius:var(--rs);border:none;font-size:14px;font-weight:600;cursor:pointer}
+.modal-foot .save{background:var(--navy);color:#fff}
+.modal-foot .save:disabled{opacity:.5;cursor:not-allowed}
+.modal-foot .cancel{background:#f1f5f9;color:var(--text)}
+.modal-err{font-size:12px;color:var(--red);margin-top:8px;min-height:14px}
+
+.file-pick{display:flex;align-items:center;justify-content:center;gap:8px;border:2px dashed var(--border);border-radius:var(--rs);padding:18px;cursor:pointer;background:#fafafa;position:relative}
+.file-pick input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.file-pick.has{border-style:solid;background:#f0fdf4;border-color:var(--green-bd)}
+.file-preview{margin-top:8px;display:none;border-radius:var(--rs);overflow:hidden;border:1px solid var(--border);background:#fafafa}
+.file-preview.show{display:block}
+.file-preview img{width:100%;max-height:240px;object-fit:contain;background:#fff}
+.file-preview .fp-pdf{padding:14px 16px;font-size:13px;color:var(--text);display:flex;align-items:center;gap:8px}
+.file-preview .fp-clear{display:block;text-align:right;font-size:12px;padding:6px 10px;background:none;border:none;color:var(--red);cursor:pointer;width:100%}
+
+.mat-empty{text-align:center;padding:32px 18px;color:var(--muted);font-size:13px;background:var(--card);border:1px dashed var(--border);border-radius:var(--rs)}
+.mat-empty b{display:block;font-size:14px;color:var(--text);margin-bottom:4px;font-weight:600}
+
+.role-note{background:#fef3c7;border:1px solid #fde68a;border-radius:var(--rs);padding:9px 12px;margin-bottom:10px;font-size:12px;color:#92400e}
 </style>
 </head>
 <body>
@@ -284,6 +387,7 @@ textarea:focus{border-color:var(--navy);background:#fff}
   <button class="nb" id="ttnav" onclick="show('tags')">Test &amp; Tag</button>
   <button class="nb" onclick="show('temps')">Temps</button>
   <button class="nb" onclick="show('hours')">Hours</button>
+  <button class="nb" id="mnav" onclick="show('materials')">Materials</button>
 </div>
 
 <div class="pg">
@@ -294,6 +398,12 @@ textarea:focus{border-color:var(--navy);background:#fff}
   <div id="tags" class="sc"></div>
   <div id="temps" class="sc"></div>
   <div id="hours" class="sc"></div>
+  <div id="materials" class="sc"></div>
+</div>
+
+<!-- Materials modals -->
+<div class="modal-bk" id="mat-modal" onclick="if(event.target===this)closeMatModal()">
+  <div class="modal" id="mat-modal-inner"></div>
 </div>
 
 <script>
@@ -313,8 +423,24 @@ let selectedFile=null;
 let tempSelectedFile=null;
 let currentDwellingPhotos=[];
 
+// Materials state
+const JOB_ID = (location.pathname.match(/^\/jobs\/([^/]+)/) || [])[1] || 'birdwood-iv3232';
+let ME = null;          // { id, username, role, assignedJobIds }
+let MAT = null;         // { materials:[], invoices:[], summary }
+let MAT_LOADED = false; // lazy load flag
+let MAT_FILTER = 'all'; // filter pill state
+let MAT_FILE = null;    // pending invoice upload file
+
 // ── Core data ───────────────────────────────────────────────
+async function loadMe(){
+  try{const r=await fetch('/api/auth?action=me',{credentials:'same-origin'});
+    if(r.ok){const j=await r.json();ME=j.user||null;}}
+  catch(e){}
+  // Hide Materials tab for clients
+  if(ME&&ME.role==='client'){const m=document.getElementById('mnav');if(m)m.style.display='none';}
+}
 async function load(){
+  await loadMe();
   try{const r=await fetch('/api/data?t='+Date.now());if(r.ok){D=await r.json();if(!D.snags)D.snags=[];}}
   catch(e){sync('error');}
   const el=document.getElementById('loading');
@@ -834,7 +960,7 @@ function show(id){
   document.querySelectorAll('.sc').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  ['dashboard','units','townhouses','snags','tags','temps','hours'].forEach((s,i)=>{if(s===id)document.querySelectorAll('.nb')[i].classList.add('active');});
+  ['dashboard','units','townhouses','snags','tags','temps','hours','materials'].forEach((s,i)=>{if(s===id){const nbs=document.querySelectorAll('.nb');if(nbs[i])nbs[i].classList.add('active');}});
   if(id==='dashboard')renderDash();
   if(id==='units')renderList('units',UNITS,'Units 1–15');
   if(id==='townhouses')renderList('townhouses',TH,'Townhouses 1–7');
@@ -842,6 +968,7 @@ function show(id){
   if(id==='tags')renderTags();
   if(id==='temps')renderTemps();
   if(id==='hours')renderHours();
+  if(id==='materials')openMaterials();
   updateBadge();window.scrollTo(0,0);
 }
 
@@ -951,6 +1078,602 @@ load();
 loadTags();
 loadTemps();
 loadHours();
+
+// ── Materials ───────────────────────────────────────────────
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function fmtMoney(n){if(n==null||!isFinite(n))return '—';return '$'+Number(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmtDate(s){if(!s)return '';try{return new Date(s).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});}catch(e){return s;}}
+const MAT_STATUS_LABEL={needed:'Needed',ordered:'Ordered',to_be_delivered:'To be delivered',delivered:'Delivered',onsite:'Onsite',used:'Used / installed',cancelled:'Cancelled'};
+const MAT_STATUSES=['needed','ordered','to_be_delivered','delivered','onsite','used','cancelled'];
+const MAT_SOURCE_LABEL={planned:'Planned',site_purchase:'Site purchase',variation:'Variation / extra',workshop_stock:'Workshop stock',supplier_order:'Supplier order',manual:'Manual'};
+const MAT_SOURCES=['planned','site_purchase','variation','workshop_stock','supplier_order','manual'];
+const INV_STATUS_LABEL={pending_review:'Pending review',approved:'Approved',needs_info:'Needs info',rejected:'Rejected'};
+const FILTERS=[{k:'all',l:'All'},{k:'needed',l:'Needed'},{k:'ordered',l:'Ordered'},{k:'to_be_delivered',l:'To be delivered'},{k:'onsite',l:'Onsite'},{k:'used',l:'Used'},{k:'pending_invoices',l:'Pending invoices'},{k:'variations',l:'Variations'}];
+
+function isAdmin(){return ME&&ME.role==='admin';}
+function isTradie(){return ME&&ME.role==='tradie';}
+function canSeeCosts(){return isAdmin();}
+
+async function openMaterials(){
+  const el=document.getElementById('materials');
+  if(!MAT_LOADED){
+    el.innerHTML='<div class="mat-empty">Loading materials…</div>';
+    await fetchMaterials();
+  }
+  renderMaterials();
+}
+
+async function fetchMaterials(){
+  try{
+    const r=await fetch('/api/materials?jobId='+encodeURIComponent(JOB_ID)+'&t='+Date.now(),{credentials:'same-origin'});
+    if(r.ok){MAT=await r.json();MAT_LOADED=true;}
+    else if(r.status===403){MAT={materials:[],invoices:[],summary:{},_forbidden:true};MAT_LOADED=true;}
+    else {MAT={materials:[],invoices:[],summary:{}};MAT_LOADED=true;}
+  }catch(e){MAT={materials:[],invoices:[],summary:{}};MAT_LOADED=true;}
+  MAT.materials=MAT.materials||[];MAT.invoices=MAT.invoices||[];MAT.summary=MAT.summary||{};
+}
+
+function renderMaterials(){
+  const el=document.getElementById('materials');
+  if(!ME||ME.role==='client'){el.innerHTML='<div class="mat-empty"><b>No access</b>Materials are not available for this account.</div>';return;}
+  if(MAT&&MAT._forbidden){el.innerHTML='<div class="mat-empty"><b>No access</b>You don\'t have access to materials on this job.</div>';return;}
+  const s=MAT.summary||{};
+  const admin=isAdmin();
+  let h='';
+
+  if(admin){
+    h+=`<div class="mat-sum">
+      <div class="kpi"><div class="kpi-l">Approved actual</div><div class="kpi-v g">${fmtMoney(s.approvedActual||0)}</div></div>
+      <div class="kpi"><div class="kpi-l">Pending review</div><div class="kpi-v a">${fmtMoney(s.pendingReview||0)}</div></div>
+      <div class="kpi"><div class="kpi-l">Estimated</div><div class="kpi-v b">${fmtMoney(s.estimated||0)}</div></div>
+      <div class="kpi"><div class="kpi-l">Onsite</div><div class="kpi-v b">${s.materialsOnsite||0}</div></div>
+      <div class="kpi"><div class="kpi-l">To be delivered</div><div class="kpi-v a">${s.materialsToBeDelivered||0}</div></div>
+    </div>`;
+  }else{
+    h+=`<div class="mat-sum">
+      <div class="kpi"><div class="kpi-l">Needed</div><div class="kpi-v b">${s.materialsNeeded||0}</div></div>
+      <div class="kpi"><div class="kpi-l">To be delivered</div><div class="kpi-v a">${s.materialsToBeDelivered||0}</div></div>
+      <div class="kpi"><div class="kpi-l">Onsite</div><div class="kpi-v g">${s.materialsOnsite||0}</div></div>
+      <div class="kpi"><div class="kpi-l">Used</div><div class="kpi-v g">${s.materialsUsed||0}</div></div>
+      <div class="kpi"><div class="kpi-l">Pending invoices</div><div class="kpi-v a">${s.invoicesPending||0}</div></div>
+    </div>`;
+    if(!isAdmin())h+=`<div class="role-note">Field view — full costs visible to admin only. Upload invoices for admin review.</div>`;
+  }
+
+  // Toolbar
+  h+=`<div class="mat-toolbar">
+    <button class="mat-tb-btn" onclick="openAddMaterialModal()">+ Add material</button>
+    <button class="mat-tb-btn alt" onclick="openUploadInvoiceModal()">Upload invoice</button>
+  </div>`;
+
+  // Needs attention (admin only)
+  if(admin){
+    const attn=needsAttentionList();
+    if(attn.length){
+      h+=`<div class="mat-attn">
+        <div class="mat-attn-t">Needs attention · ${attn.length}</div>
+        <div class="mat-attn-list">`;
+      attn.forEach(a=>{h+=`<div class="mat-attn-row"><div class="l">${esc(a.label)}</div><button class="b ${a.tone||''}" onclick="${a.action}">${esc(a.btn)}</button></div>`;});
+      h+=`</div></div>`;
+    }
+  }
+
+  // Filters
+  h+=`<div class="mat-filters">`;
+  FILTERS.forEach(f=>{
+    const ct=filterCount(f.k);
+    h+=`<button class="mat-filter${MAT_FILTER===f.k?' active':''}" onclick="setMatFilter('${f.k}')">${esc(f.l)}${ct?`<span class="ct">${ct}</span>`:''}</button>`;
+  });
+  h+=`</div>`;
+
+  // Materials list
+  const filtered=applyFilter(MAT.materials);
+  if(MAT_FILTER==='pending_invoices'){
+    h+=renderInvoicesBlock(MAT.invoices.filter(i=>i.status==='pending_review'||i.status==='needs_info'),'Pending invoices');
+    h+=renderInvoicesBlock(MAT.invoices.filter(i=>i.status==='approved'||i.status==='rejected'),'Reviewed');
+  } else {
+    h+=`<div class="mat-section">Materials <span class="ct">${filtered.length}</span></div>`;
+    if(!filtered.length){
+      h+=`<div class="mat-empty"><b>No materials</b>${MAT.materials.length?'Nothing matches this filter.':'Add planned materials, site purchases, or upload an invoice.'}</div>`;
+    } else {
+      filtered.forEach(m=>h+=materialCard(m));
+    }
+    // Invoices section
+    h+=`<div class="mat-section">Invoices <span class="ct">${MAT.invoices.length}</span></div>`;
+    if(!MAT.invoices.length){
+      h+=`<div class="mat-empty"><b>No invoices uploaded yet</b>Leading hands can upload supplier receipts or invoices from site.</div>`;
+    } else {
+      MAT.invoices.slice().sort((a,b)=>(b.uploadedAt||'').localeCompare(a.uploadedAt||'')).forEach(i=>h+=invoiceCard(i));
+    }
+  }
+
+  el.innerHTML=h;
+}
+
+function renderInvoicesBlock(list,title){
+  let h=`<div class="mat-section">${esc(title)} <span class="ct">${list.length}</span></div>`;
+  if(!list.length){h+=`<div class="mat-empty"><b>No invoices waiting for review</b></div>`;return h;}
+  list.forEach(i=>h+=invoiceCard(i));
+  return h;
+}
+
+function filterCount(k){
+  if(k==='all')return MAT.materials.filter(m=>m.status!=='cancelled').length;
+  if(k==='pending_invoices')return MAT.invoices.filter(i=>i.status==='pending_review'||i.status==='needs_info').length;
+  if(k==='variations')return MAT.materials.filter(m=>m.status!=='cancelled'&&(m.isVariation||m.source==='variation')).length;
+  return MAT.materials.filter(m=>m.status===k).length;
+}
+function applyFilter(list){
+  const live=list.filter(m=>m.status!=='cancelled');
+  if(MAT_FILTER==='all')return live;
+  if(MAT_FILTER==='pending_invoices')return [];
+  if(MAT_FILTER==='variations')return live.filter(m=>m.isVariation||m.source==='variation');
+  return live.filter(m=>m.status===MAT_FILTER);
+}
+function setMatFilter(k){MAT_FILTER=k;renderMaterials();}
+
+function needsAttentionList(){
+  const out=[];
+  MAT.invoices.forEach(i=>{
+    if(i.status==='pending_review')out.push({label:`Invoice from ${i.supplier||'unknown supplier'} pending review`,btn:'Review',tone:'amber',action:`openReviewInvoiceModal('${i.id}')`});
+    if(i.status==='needs_info')out.push({label:`Invoice ${i.invoiceNumber?'#'+esc(i.invoiceNumber):''} from ${i.supplier||'unknown'} needs info`,btn:'Open',tone:'red',action:`openReviewInvoiceModal('${i.id}')`});
+  });
+  MAT.materials.filter(m=>m.status==='to_be_delivered').forEach(m=>{
+    out.push({label:`${m.name} — to be delivered`,btn:'Mark onsite',tone:'green',action:`quickMarkOnsite('${m.id}')`});
+  });
+  MAT.materials.filter(m=>m.status==='ordered'&&!m.supplier).forEach(m=>{
+    out.push({label:`${m.name} — ordered without supplier`,btn:'Edit',action:`openEditMaterialModal('${m.id}')`});
+  });
+  MAT.materials.filter(m=>(m.isVariation||m.source==='variation')&&m.reviewStatus!=='approved'&&m.status!=='cancelled').forEach(m=>{
+    out.push({label:`Variation: ${m.name} not reviewed`,btn:'Open',action:`openEditMaterialModal('${m.id}')`});
+  });
+  MAT.materials.filter(m=>m.actualTotalCost&&!(m.linkedInvoiceIds||[]).length).forEach(m=>{
+    out.push({label:`${m.name} has cost but no invoice`,btn:'Open',action:`openEditMaterialModal('${m.id}')`});
+  });
+  return out.slice(0,12);
+}
+
+function materialCard(m){
+  const isVar=m.isVariation||m.source==='variation';
+  const linkedCount=(m.linkedInvoiceIds||[]).length;
+  const adminCost=canSeeCosts()&&m.actualTotalCost!=null?fmtMoney(m.actualTotalCost):(canSeeCosts()&&m.estimatedTotalCost!=null?`est ${fmtMoney(m.estimatedTotalCost)}`:'');
+  let actions='';
+  // Status quick change
+  const opts=MAT_STATUSES.map(s=>`<option value="${s}"${s===m.status?' selected':''}>${MAT_STATUS_LABEL[s]}</option>`).join('');
+  actions+=`<label class="mat-action"><select onchange="quickStatus('${m.id}',this.value)">${opts}</select></label>`;
+  if(m.status!=='onsite'&&m.status!=='used'&&m.status!=='cancelled')actions+=`<button class="mat-action green" onclick="quickMarkOnsite('${m.id}')">Mark onsite</button>`;
+  if(isAdmin())actions+=`<button class="mat-action" onclick="openEditMaterialModal('${m.id}')">Edit</button>`;
+  return `<div class="mat-card${m.status==='cancelled'?' cancelled':''}">
+    <div class="mat-card-top">
+      <div class="mat-card-name">${esc(m.name)}</div>
+      ${m.quantity?`<div class="mat-card-qty">${esc(m.quantity)} ${esc(m.unit||'ea')}</div>`:''}
+      <span class="mat-status mat-s-${m.status}">${esc(MAT_STATUS_LABEL[m.status]||m.status)}</span>
+      ${isVar?'<span class="var">Variation</span>':''}
+    </div>
+    <div class="mat-card-meta">
+      ${m.supplier?`<span><b>${esc(m.supplier)}</b></span>`:''}
+      ${m.source&&m.source!=='manual'?`<span>${esc(MAT_SOURCE_LABEL[m.source]||m.source)}</span>`:''}
+      ${m.location?`<span>${esc(m.location)}</span>`:''}
+      ${linkedCount?`<span>📎 ${linkedCount} invoice${linkedCount>1?'s':''}</span>`:''}
+      ${adminCost?`<span><b>${adminCost}</b></span>`:''}
+    </div>
+    <div class="mat-card-actions">${actions}</div>
+  </div>`;
+}
+
+function invoiceCard(i){
+  const canShowAmount=canSeeCosts()||(ME&&i.uploadedBy===ME.id);
+  let actions='';
+  if(i.photoUrl)actions+=`<button class="mat-action" onclick="window.open('${esc(i.photoUrl)}','_blank')">Open file</button>`;
+  if(isAdmin()){
+    if(i.status!=='approved')actions+=`<button class="mat-action green" onclick="reviewInvoice('${i.id}','approved')">Approve</button>`;
+    if(i.status!=='needs_info')actions+=`<button class="mat-action amber" onclick="reviewInvoice('${i.id}','needs_info')">Needs info</button>`;
+    if(i.status!=='rejected')actions+=`<button class="mat-action red" onclick="reviewInvoice('${i.id}','rejected')">Reject</button>`;
+    actions+=`<button class="mat-action" onclick="openReviewInvoiceModal('${i.id}')">Edit</button>`;
+  } else {
+    if(ME&&i.uploadedBy===ME.id&&i.status==='pending_review')actions+=`<button class="mat-action" onclick="openReviewInvoiceModal('${i.id}')">Edit</button>`;
+  }
+  return `<div class="inv-card">
+    <div class="inv-top">
+      <div class="inv-sup">${esc(i.supplier||'(no supplier)')}${i.invoiceNumber?' · #'+esc(i.invoiceNumber):''}</div>
+      <span class="mat-status inv-s-${i.status}">${esc(INV_STATUS_LABEL[i.status]||i.status)}</span>
+    </div>
+    <div class="inv-meta">
+      ${i.invoiceDate?`<span><b>${esc(fmtDate(i.invoiceDate))}</b></span>`:''}
+      ${canShowAmount&&i.totalAmount!=null?`<span class="amt">${fmtMoney(i.totalAmount)}${i.gstIncluded?' inc GST':' ex GST'}</span>`:''}
+      ${i.fileName?`<span>${esc(i.fileName)}</span>`:'<span style="color:#94a3b8">no file</span>'}
+      ${i.notes?`<span>${esc(i.notes)}</span>`:''}
+    </div>
+    <div class="inv-actions">${actions}</div>
+  </div>`;
+}
+
+// ── Modals ──────────────────────────────────────────────────
+function openMatModal(html){
+  document.getElementById('mat-modal-inner').innerHTML=html;
+  document.getElementById('mat-modal').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeMatModal(){
+  document.getElementById('mat-modal').classList.remove('open');
+  document.body.style.overflow='';
+  MAT_FILE=null;
+}
+
+function statusSelectHtml(name,sel){
+  return `<select name="${name}">${MAT_STATUSES.map(s=>`<option value="${s}"${s===sel?' selected':''}>${MAT_STATUS_LABEL[s]}</option>`).join('')}</select>`;
+}
+function sourceSelectHtml(name,sel){
+  return `<select name="${name}">${MAT_SOURCES.map(s=>`<option value="${s}"${s===sel?' selected':''}>${MAT_SOURCE_LABEL[s]}</option>`).join('')}</select>`;
+}
+
+function openAddMaterialModal(){
+  const admin=isAdmin();
+  const html=`
+    <div class="modal-h">
+      <div class="modal-t">Add material</div>
+      <button class="modal-x" onclick="closeMatModal()">&times;</button>
+    </div>
+    <form onsubmit="event.preventDefault();submitNewMaterial();">
+      <label>Material name</label>
+      <input name="name" id="mf-name" required maxlength="200" placeholder="e.g. 10A double GPO">
+      <div class="modal-row2">
+        <div><label>Quantity</label><input name="quantity" id="mf-qty" type="number" min="0" step="0.01" placeholder="12"></div>
+        <div><label>Unit</label><input name="unit" id="mf-unit" maxlength="30" placeholder="ea" value="ea"></div>
+      </div>
+      <label>Status</label>
+      ${statusSelectHtml('status','needed').replace('<select','<select id="mf-status"')}
+      <label>Supplier</label>
+      <input name="supplier" id="mf-supplier" maxlength="200" placeholder="e.g. TLE">
+      <label>Source</label>
+      ${sourceSelectHtml('source','manual').replace('<select','<select id="mf-source"')}
+      <div class="modal-row2">
+        <div><label>Location</label><input name="location" id="mf-location" maxlength="200" placeholder="e.g. Unit 3"></div>
+        <div><label>Part number</label><input name="partNumber" id="mf-part" maxlength="100"></div>
+      </div>
+      ${admin?`<div class="modal-row2">
+        <div><label>Est. unit cost</label><input name="estimatedUnitCost" id="mf-eu" type="number" min="0" step="0.01"></div>
+        <div><label>Est. total</label><input name="estimatedTotalCost" id="mf-et" type="number" min="0" step="0.01"></div>
+      </div>
+      <div><label><input type="checkbox" id="mf-var" style="width:auto;margin-right:6px"> Variation / extra</label></div>`:''}
+      <label>Notes</label>
+      <textarea id="mf-notes" maxlength="5000"></textarea>
+      <div class="modal-err" id="mf-err"></div>
+      <div class="modal-foot">
+        <button type="button" class="cancel" onclick="closeMatModal()">Cancel</button>
+        <button type="submit" class="save">Save material</button>
+      </div>
+    </form>`;
+  openMatModal(html);
+}
+
+async function submitNewMaterial(){
+  const body={
+    name:document.getElementById('mf-name').value.trim(),
+    quantity:document.getElementById('mf-qty').value||null,
+    unit:document.getElementById('mf-unit').value.trim()||'ea',
+    status:document.getElementById('mf-status').value,
+    supplier:document.getElementById('mf-supplier').value.trim(),
+    source:document.getElementById('mf-source').value,
+    location:document.getElementById('mf-location').value.trim(),
+    partNumber:document.getElementById('mf-part').value.trim(),
+    notes:document.getElementById('mf-notes').value.trim(),
+  };
+  if(isAdmin()){
+    const eu=document.getElementById('mf-eu');const et=document.getElementById('mf-et');const vr=document.getElementById('mf-var');
+    if(eu&&eu.value)body.estimatedUnitCost=Number(eu.value);
+    if(et&&et.value)body.estimatedTotalCost=Number(et.value);
+    if(vr)body.isVariation=vr.checked;
+  }
+  const err=document.getElementById('mf-err');
+  if(!body.name){err.textContent='Material name required';return;}
+  try{
+    const r=await fetch('/api/materials?action=material&jobId='+encodeURIComponent(JOB_ID),{
+      method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)
+    });
+    const j=await r.json();
+    if(!r.ok){err.textContent=j.error||'Failed to save';return;}
+    closeMatModal();
+    await fetchMaterials();renderMaterials();
+  }catch(e){err.textContent='Network error';}
+}
+
+function openEditMaterialModal(id){
+  const m=MAT.materials.find(x=>x.id===id);if(!m)return;
+  const admin=isAdmin();
+  const html=`
+    <div class="modal-h">
+      <div class="modal-t">${admin?'Edit material':'Material'}</div>
+      <button class="modal-x" onclick="closeMatModal()">&times;</button>
+    </div>
+    <form onsubmit="event.preventDefault();submitEditMaterial('${id}');">
+      <label>Material name</label>
+      <input id="mf-name" value="${esc(m.name)}" ${admin?'':'disabled'} maxlength="200">
+      <div class="modal-row2">
+        <div><label>Quantity</label><input id="mf-qty" type="number" min="0" step="0.01" value="${esc(m.quantity!=null?m.quantity:'')}" ${admin?'':'disabled'}></div>
+        <div><label>Unit</label><input id="mf-unit" value="${esc(m.unit||'ea')}" ${admin?'':'disabled'} maxlength="30"></div>
+      </div>
+      <label>Status</label>
+      <select id="mf-status">${MAT_STATUSES.map(s=>`<option value="${s}"${s===m.status?' selected':''}>${MAT_STATUS_LABEL[s]}</option>`).join('')}</select>
+      <label>Supplier</label>
+      <input id="mf-supplier" value="${esc(m.supplier||'')}" ${admin?'':'disabled'} maxlength="200">
+      <label>Source</label>
+      <select id="mf-source" ${admin?'':'disabled'}>${MAT_SOURCES.map(s=>`<option value="${s}"${s===(m.source||'manual')?' selected':''}>${MAT_SOURCE_LABEL[s]}</option>`).join('')}</select>
+      <div class="modal-row2">
+        <div><label>Location</label><input id="mf-location" value="${esc(m.location||'')}" maxlength="200"></div>
+        <div><label>Part number</label><input id="mf-part" value="${esc(m.partNumber||'')}" ${admin?'':'disabled'} maxlength="100"></div>
+      </div>
+      ${admin?`<div class="modal-row2">
+        <div><label>Est. unit cost</label><input id="mf-eu" type="number" min="0" step="0.01" value="${m.estimatedUnitCost!=null?m.estimatedUnitCost:''}"></div>
+        <div><label>Est. total</label><input id="mf-et" type="number" min="0" step="0.01" value="${m.estimatedTotalCost!=null?m.estimatedTotalCost:''}"></div>
+      </div>
+      <div class="modal-row2">
+        <div><label>Actual unit cost</label><input id="mf-au" type="number" min="0" step="0.01" value="${m.actualUnitCost!=null?m.actualUnitCost:''}"></div>
+        <div><label>Actual total</label><input id="mf-at" type="number" min="0" step="0.01" value="${m.actualTotalCost!=null?m.actualTotalCost:''}"></div>
+      </div>
+      <label>Review status</label>
+      <select id="mf-rev">
+        ${['draft','pending_review','approved','needs_info','rejected'].map(s=>`<option value="${s}"${s===(m.reviewStatus||'draft')?' selected':''}>${s.replace('_',' ')}</option>`).join('')}
+      </select>
+      <div><label><input type="checkbox" id="mf-var" style="width:auto;margin-right:6px" ${m.isVariation?'checked':''}> Variation / extra</label></div>`:''}
+      <label>Notes</label>
+      <textarea id="mf-notes" maxlength="5000">${esc(m.notes||'')}</textarea>
+      <div class="modal-err" id="mf-err"></div>
+      <div class="modal-foot">
+        ${admin?`<button type="button" class="cancel" style="background:#fff;color:var(--red);border:1px solid var(--red-bd)" onclick="archiveMaterial('${id}')">Archive</button>`:''}
+        <button type="button" class="cancel" onclick="closeMatModal()">Cancel</button>
+        <button type="submit" class="save">Save</button>
+      </div>
+    </form>`;
+  openMatModal(html);
+}
+
+async function submitEditMaterial(id){
+  const body={
+    status:document.getElementById('mf-status').value,
+    location:document.getElementById('mf-location').value.trim(),
+    notes:document.getElementById('mf-notes').value.trim(),
+  };
+  if(isAdmin()){
+    body.name=document.getElementById('mf-name').value.trim();
+    const q=document.getElementById('mf-qty').value;body.quantity=q?Number(q):null;
+    body.unit=document.getElementById('mf-unit').value.trim()||'ea';
+    body.supplier=document.getElementById('mf-supplier').value.trim();
+    body.source=document.getElementById('mf-source').value;
+    body.partNumber=document.getElementById('mf-part').value.trim();
+    const eu=document.getElementById('mf-eu').value;body.estimatedUnitCost=eu?Number(eu):null;
+    const et=document.getElementById('mf-et').value;body.estimatedTotalCost=et?Number(et):null;
+    const au=document.getElementById('mf-au').value;body.actualUnitCost=au?Number(au):null;
+    const at=document.getElementById('mf-at').value;body.actualTotalCost=at?Number(at):null;
+    body.reviewStatus=document.getElementById('mf-rev').value;
+    body.isVariation=document.getElementById('mf-var').checked;
+  }
+  const err=document.getElementById('mf-err');
+  try{
+    const r=await fetch('/api/materials?action=material&id='+encodeURIComponent(id)+'&jobId='+encodeURIComponent(JOB_ID),{
+      method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)
+    });
+    const j=await r.json();
+    if(!r.ok){err.textContent=j.error||'Failed to save';return;}
+    closeMatModal();await fetchMaterials();renderMaterials();
+  }catch(e){err.textContent='Network error';}
+}
+
+async function archiveMaterial(id){
+  if(!confirm('Archive this material? It will be marked cancelled.'))return;
+  try{
+    const r=await fetch('/api/materials?action=material&id='+encodeURIComponent(id)+'&jobId='+encodeURIComponent(JOB_ID),{
+      method:'DELETE',credentials:'same-origin'
+    });
+    if(!r.ok){alert('Failed to archive');return;}
+    closeMatModal();await fetchMaterials();renderMaterials();
+  }catch(e){alert('Network error');}
+}
+
+async function quickStatus(id,status){
+  try{
+    const r=await fetch('/api/materials?action=material&id='+encodeURIComponent(id)+'&jobId='+encodeURIComponent(JOB_ID),{
+      method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({status})
+    });
+    if(!r.ok){alert('Failed to update status');return;}
+    const j=await r.json();
+    const idx=MAT.materials.findIndex(m=>m.id===id);if(idx>=0)MAT.materials[idx]=j.material;
+    // refresh summary
+    await fetchMaterials();renderMaterials();
+  }catch(e){alert('Network error');}
+}
+
+function quickMarkOnsite(id){return quickStatus(id,'onsite');}
+
+// ── Invoice upload ──────────────────────────────────────────
+function openUploadInvoiceModal(){
+  const html=`
+    <div class="modal-h">
+      <div class="modal-t">Upload invoice / receipt</div>
+      <button class="modal-x" onclick="closeMatModal()">&times;</button>
+    </div>
+    <form onsubmit="event.preventDefault();submitInvoiceUpload(false);">
+      <label>Photo or file</label>
+      <div class="file-pick" id="if-pick">
+        <input type="file" id="if-file" accept="image/*,application/pdf" capture="environment" onchange="handleInvFile(this)">
+        <div>📷 Tap to take photo or choose file</div>
+      </div>
+      <div class="file-preview" id="if-preview"></div>
+      <label>Supplier</label>
+      <input id="if-supplier" maxlength="200" placeholder="e.g. TLE">
+      <div class="modal-row2">
+        <div><label>Total amount</label><input id="if-amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+        <div><label>Invoice date</label><input id="if-date" type="date"></div>
+      </div>
+      <label>Invoice number (optional)</label>
+      <input id="if-num" maxlength="100">
+      <label>Notes (optional)</label>
+      <textarea id="if-notes" maxlength="5000"></textarea>
+      <div class="modal-err" id="if-err"></div>
+      <div class="modal-foot">
+        <button type="button" class="cancel" onclick="closeMatModal()">Cancel</button>
+        <button type="submit" class="save" id="if-save">Save for admin review</button>
+      </div>
+    </form>`;
+  openMatModal(html);
+}
+
+function handleInvFile(input){
+  const f=input.files&&input.files[0];if(!f)return;
+  MAT_FILE=f;
+  const prev=document.getElementById('if-preview');
+  const pick=document.getElementById('if-pick');
+  pick.classList.add('has');
+  if(f.type.startsWith('image/')){
+    const reader=new FileReader();
+    reader.onload=e=>{
+      prev.innerHTML=`<img src="${e.target.result}" alt=""><button type="button" class="fp-clear" onclick="clearInvFile()">Remove</button>`;
+      prev.classList.add('show');
+    };
+    reader.readAsDataURL(f);
+  } else {
+    prev.innerHTML=`<div class="fp-pdf">📄 ${esc(f.name)} <span style="margin-left:auto;color:var(--muted);font-size:12px">${(f.size/1024).toFixed(0)} KB</span></div><button type="button" class="fp-clear" onclick="clearInvFile()">Remove</button>`;
+    prev.classList.add('show');
+  }
+}
+function clearInvFile(){
+  MAT_FILE=null;
+  const inp=document.getElementById('if-file');if(inp)inp.value='';
+  document.getElementById('if-preview').classList.remove('show');
+  document.getElementById('if-preview').innerHTML='';
+  document.getElementById('if-pick').classList.remove('has');
+}
+
+async function submitInvoiceUpload(confirmDup){
+  const body={
+    supplier:document.getElementById('if-supplier').value.trim(),
+    totalAmount:document.getElementById('if-amount').value?Number(document.getElementById('if-amount').value):null,
+    invoiceDate:document.getElementById('if-date').value||'',
+    invoiceNumber:document.getElementById('if-num').value.trim(),
+    notes:document.getElementById('if-notes').value.trim(),
+  };
+  if(confirmDup)body.confirmDuplicate=true;
+  const err=document.getElementById('if-err');
+  const btn=document.getElementById('if-save');
+  err.textContent='';btn.disabled=true;btn.textContent='Saving…';
+  try{
+    let r,j;
+    if(MAT_FILE){
+      // Read as base64, send invoice-with-file action
+      const dataUrl=await new Promise(res=>{const fr=new FileReader();fr.onload=e=>res(e.target.result);fr.readAsDataURL(MAT_FILE);});
+      const b64=dataUrl.split(',')[1];
+      body.filename=MAT_FILE.name;
+      body.contentType=MAT_FILE.type||'application/octet-stream';
+      body.data=b64;
+      r=await fetch('/api/materials?action=invoice-with-file&jobId='+encodeURIComponent(JOB_ID),{
+        method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)
+      });
+    } else {
+      r=await fetch('/api/materials?action=invoice&jobId='+encodeURIComponent(JOB_ID),{
+        method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)
+      });
+    }
+    j=await r.json();
+    if(r.status===409&&j.error==='duplicate invoice'){
+      btn.disabled=false;btn.textContent='Save for admin review';
+      if(confirm((j.message||'A similar invoice already exists.')+'\n\nSave anyway?')){return submitInvoiceUpload(true);}
+      return;
+    }
+    if(!r.ok){err.textContent=j.error||'Upload failed';btn.disabled=false;btn.textContent='Save for admin review';return;}
+    closeMatModal();await fetchMaterials();renderMaterials();
+  }catch(e){
+    err.textContent='Upload failed: '+(e.message||'network error');
+    btn.disabled=false;btn.textContent='Save for admin review';
+  }
+}
+
+function openReviewInvoiceModal(id){
+  const i=MAT.invoices.find(x=>x.id===id);if(!i)return;
+  const admin=isAdmin();
+  const ownUpload=ME&&i.uploadedBy===ME.id;
+  const canEdit=admin||(ownUpload&&i.status==='pending_review');
+  const canShowAmount=canSeeCosts()||ownUpload;
+  const matOptions=MAT.materials.filter(m=>m.status!=='cancelled').map(m=>{
+    const sel=(i.linkedMaterialIds||[]).includes(m.id)?' selected':'';
+    return `<option value="${m.id}"${sel}>${esc(m.name)}${m.quantity?` · ${esc(m.quantity)} ${esc(m.unit||'ea')}`:''}</option>`;
+  }).join('');
+  const html=`
+    <div class="modal-h">
+      <div class="modal-t">${admin?'Review invoice':'Invoice'}</div>
+      <button class="modal-x" onclick="closeMatModal()">&times;</button>
+    </div>
+    <form onsubmit="event.preventDefault();submitInvoiceEdit('${id}');">
+      ${i.photoUrl?`<div style="margin-bottom:10px"><a href="${esc(i.photoUrl)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;background:#f1f5f9;border:1px solid var(--border);border-radius:var(--rs);color:var(--navy);font-weight:600;text-decoration:none;font-size:13px">📄 Open ${esc(i.fileName||'file')}</a></div>`:''}
+      <label>Supplier</label>
+      <input id="ie-supplier" value="${esc(i.supplier||'')}" ${canEdit?'':'disabled'} maxlength="200">
+      <div class="modal-row2">
+        <div><label>Total amount</label><input id="ie-amount" type="number" min="0" step="0.01" value="${canShowAmount&&i.totalAmount!=null?i.totalAmount:''}" ${canEdit?'':'disabled'}></div>
+        <div><label>Invoice date</label><input id="ie-date" type="date" value="${esc(i.invoiceDate||'')}" ${canEdit?'':'disabled'}></div>
+      </div>
+      <label>Invoice number</label>
+      <input id="ie-num" value="${esc(i.invoiceNumber||'')}" ${canEdit?'':'disabled'} maxlength="100">
+      ${admin?`<label>Status</label>
+      <select id="ie-status">
+        ${['pending_review','approved','needs_info','rejected'].map(s=>`<option value="${s}"${s===i.status?' selected':''}>${INV_STATUS_LABEL[s]}</option>`).join('')}
+      </select>
+      <label>Link to materials</label>
+      <select id="ie-link" multiple size="${Math.min(6,Math.max(3,MAT.materials.length))}" style="height:auto">${matOptions||'<option disabled>No materials yet</option>'}</select>`:''}
+      <label>Notes</label>
+      <textarea id="ie-notes" ${canEdit?'':'disabled'} maxlength="5000">${esc(i.notes||'')}</textarea>
+      <div class="modal-err" id="ie-err"></div>
+      <div class="modal-foot">
+        ${admin?`<button type="button" class="cancel" style="background:#fff;color:var(--red);border:1px solid var(--red-bd)" onclick="deleteInvoice('${id}')">Delete</button>`:''}
+        <button type="button" class="cancel" onclick="closeMatModal()">Close</button>
+        ${canEdit?`<button type="submit" class="save">Save</button>`:''}
+      </div>
+    </form>`;
+  openMatModal(html);
+}
+
+async function submitInvoiceEdit(id){
+  const body={
+    supplier:document.getElementById('ie-supplier').value.trim(),
+    totalAmount:document.getElementById('ie-amount').value?Number(document.getElementById('ie-amount').value):null,
+    invoiceDate:document.getElementById('ie-date').value||'',
+    invoiceNumber:document.getElementById('ie-num').value.trim(),
+    notes:document.getElementById('ie-notes').value.trim(),
+  };
+  if(isAdmin()){
+    body.status=document.getElementById('ie-status').value;
+    const sel=document.getElementById('ie-link');
+    if(sel){body.linkedMaterialIds=Array.from(sel.selectedOptions).map(o=>o.value);}
+  }
+  const err=document.getElementById('ie-err');
+  try{
+    const r=await fetch('/api/materials?action=invoice&id='+encodeURIComponent(id)+'&jobId='+encodeURIComponent(JOB_ID),{
+      method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)
+    });
+    const j=await r.json();
+    if(!r.ok){err.textContent=j.error||'Failed to save';return;}
+    closeMatModal();await fetchMaterials();renderMaterials();
+  }catch(e){err.textContent='Network error';}
+}
+
+async function reviewInvoice(id,status){
+  try{
+    const r=await fetch('/api/materials?action=invoice&id='+encodeURIComponent(id)+'&jobId='+encodeURIComponent(JOB_ID),{
+      method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({status})
+    });
+    if(!r.ok){alert('Failed to update');return;}
+    await fetchMaterials();renderMaterials();
+  }catch(e){alert('Network error');}
+}
+
+async function deleteInvoice(id){
+  if(!confirm('Delete this invoice record? The uploaded file will remain in storage.'))return;
+  try{
+    const r=await fetch('/api/materials?action=invoice&id='+encodeURIComponent(id)+'&jobId='+encodeURIComponent(JOB_ID),{
+      method:'DELETE',credentials:'same-origin'
+    });
+    if(!r.ok){alert('Failed to delete');return;}
+    closeMatModal();await fetchMaterials();renderMaterials();
+  }catch(e){alert('Network error');}
+}
 </script>
 </body>
 </html>
