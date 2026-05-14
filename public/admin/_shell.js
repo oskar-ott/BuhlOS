@@ -869,9 +869,34 @@
     location.href = '/login';
   }
 
+  // Defensive top-level wrapper around boot. Any uncaught throw in
+  // the boot chain (auth, fan-out, sidebar render, PAGE.render) used
+  // to leave the page completely blank — users reported the symptom
+  // as "/admin/operations is blank". Catching at the top surfaces
+  // a visible error message so the user knows the app is alive
+  // even when something's gone wrong, and gives them a recovery
+  // path (refresh, copy the error for support).
+  async function safeBoot() {
+    try { return await boot(); }
+    catch (e) {
+      console.error('SHELL.boot failed', e);
+      try {
+        document.body.innerHTML = `
+          <div style="max-width:520px;margin:80px auto;padding:32px 24px;font-family:-apple-system,Segoe UI,sans-serif;background:#fff;border:1px solid #e3e5dc;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.06)">
+            <div style="font-family:'Inter Tight',sans-serif;font-weight:700;font-size:22px;color:#0d1b34;letter-spacing:-.015em;margin-bottom:6px">Couldn't load the admin shell</div>
+            <div style="color:#6a7591;font-size:13.5px;margin-bottom:18px">${(e && e.message || 'Unknown error').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}</div>
+            <button onclick="location.reload()" style="padding:9px 16px;border-radius:8px;background:#0d1b34;color:#fff;border:0;font-weight:600;font-size:13px;cursor:pointer">Reload page</button>
+            <a href="/login" style="margin-left:8px;color:#6a7591;font-size:13px">Sign in again</a>
+            <details style="margin-top:18px;color:#9aa3bc;font-family:ui-monospace,Menlo,monospace;font-size:11px"><summary style="cursor:pointer">Show stack</summary><pre style="white-space:pre-wrap;word-break:break-word;margin-top:8px">${((e && e.stack) || '').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}</pre></details>
+          </div>
+        `;
+      } catch (_) {}
+    }
+  }
+
   /* ── Public surface ────────────────────────────────────── */
   window.SHELL = {
-    boot,
+    boot: safeBoot,
     ME: null,
     COUNTS: null,
     JOBS: [],

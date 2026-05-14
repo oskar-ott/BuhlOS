@@ -13,7 +13,12 @@
 // HTML pages, _shell.css/.js, and the components / theme that the
 // shell loads on every admin page.
 
-const CACHE_VERSION = 'buhl-shell-v1';
+// Bump on any change to the static-shell asset list or admin shell JS
+// behaviour so the activate handler purges old caches and the next
+// fetch re-pulls fresh. Reports of "blank /admin/operations" after
+// the perf-pass landings traced to SW serving stale _shell.js from
+// the v1 cache; bumping to v2 forces a clean refresh.
+const CACHE_VERSION = 'buhl-shell-v2';
 const STATIC_SHELL = [
   // Admin shell — every admin page boot needs these. Caching them
   // means cold loads paint sidebar + topbar from disk while the
