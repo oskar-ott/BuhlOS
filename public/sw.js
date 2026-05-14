@@ -1,18 +1,88 @@
-// Minimal service worker for buhl PWA:
-//   - Enables "Add to Home Screen" / standalone install
-//   - Handles Web Push notifications + click-to-open deep link
+// Service worker for buhl PWA.
 //
-// No offline caching yet (intentional — the app is online-first; stale data
-// would be worse than an honest "no connection"). Future: cache /theme.css
-// and logo for cold-start paint, never API responses.
+// Responsibilities:
+//   - Enable "Add to Home Screen" / standalone install
+//   - Handle Web Push notifications + click-to-open deep links
+//   - Stale-while-revalidate cache for the admin static shell (HTML +
+//     CSS + JS) so cold-start admin loads paint chrome from cache
+//     while the network fetches a fresh copy in the background.
+//
+// API responses are intentionally NEVER cached — the app is online-
+// first, and stale API data would be worse than an honest "no
+// connection". Only static-shell assets sit in this cache: the admin
+// HTML pages, _shell.css/.js, and the components / theme that the
+// shell loads on every admin page.
+
+const CACHE_VERSION = 'buhl-shell-v1';
+const STATIC_SHELL = [
+  // Admin shell — every admin page boot needs these. Caching them
+  // means cold loads paint sidebar + topbar from disk while the
+  // network roundtrip lands fresh CSS/JS in the background.
+  '/admin/_shell.css',
+  '/admin/_shell.js',
+  // Theme + key brand assets — used everywhere.
+  '/theme.css',
+  '/manifest.json',
+  '/BUHL_LOGO.png',
+  '/icon-192.png',
+];
 
 self.addEventListener('install', (event) => {
-  // Activate this SW immediately — we don't gate anything behind old versions.
+  event.waitUntil((async () => {
+    try {
+      const cache = await caches.open(CACHE_VERSION);
+      await cache.addAll(STATIC_SHELL);
+    } catch (e) {
+      // Pre-cache failure shouldn't block install — the SW still
+      // ships push handling and the fetch handler falls back to
+      // network for any URL that isn't in cache.
+      console.warn('SW pre-cache failed', e && e.message);
+    }
+  })());
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil((async () => {
+    // Purge old shell caches when CACHE_VERSION bumps.
+    const keys = await caches.keys();
+    await Promise.all(
+      keys.filter(k => k.startsWith('buhl-shell-') && k !== CACHE_VERSION)
+          .map(k => caches.delete(k))
+    );
+    await self.clients.claim();
+  })());
+});
+
+// Cache strategy:
+//   - GET requests to STATIC_SHELL paths: cache-first, revalidate in
+//     the background (stale-while-revalidate)
+//   - Everything else (API, dynamic content, photos, etc.): pass
+//     through to network with no caching
+//
+// We deliberately don't cache HTML pages themselves — they're tiny
+// and serving stale HTML can leak old role gates or routing logic.
+// Only the shared CSS/JS that every admin page loads is cached.
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  // Only intercept same-origin requests for the static shell list.
+  if (url.origin !== self.location.origin) return;
+  if (!STATIC_SHELL.includes(url.pathname)) return;
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_VERSION);
+    const cached = await cache.match(event.request);
+    // Kick off a background refresh so the next page load gets fresh.
+    const network = fetch(event.request).then(res => {
+      // Only cache successful responses. Errors fall through.
+      if (res && res.ok) cache.put(event.request, res.clone()).catch(() => {});
+      return res;
+    }).catch(() => null);
+    if (cached) return cached;
+    // First visit: no cached copy. Wait for the network response.
+    const fresh = await network;
+    return fresh || new Response('', { status: 504, statusText: 'offline' });
+  })());
 });
 
 // ── Push: show a notification ───────────────────────────────
