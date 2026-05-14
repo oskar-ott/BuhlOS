@@ -5434,7 +5434,7 @@ function renderEmailPhotos(){
   wrap.innerHTML=photos.map(p=>{
     const on=emComposerState.selectedPhotoIds.has(p.id);
     return `<div class="em-photo${on?' on':''}" onclick="toggleEmailPhoto('${esc(p.id)}')">
-      <img src="${esc(p.url)}" alt="">
+      <img src="${esc(p.url)}" alt="" loading="lazy">
       <span class="em-photo-check">&#10003;</span>
     </div>`;
   }).join('');
@@ -5785,7 +5785,7 @@ function renderSnagModalPhotos(){
     const clickHandler=p.uploading?'':`onclick="openSnagPhotoLightbox('${esc(p.url)}','${esc(p.addedBy||'')}','${esc(p.addedAt||'')}')"`;
     const delBtn=(p.uploading||isClient)?'':`<button class="snag-photo-del" onclick="event.stopPropagation();deleteSnagModalPhoto('${esc(p.id)}')" title="Remove">&#10005;</button>`;
     h+=`<div class="snag-photo-thumb${p.uploading?' uploading':''}" ${clickHandler}>
-      <img src="${esc(p.url)}" alt="">
+      <img src="${esc(p.url)}" alt="" loading="lazy">
       ${delBtn}
     </div>`;
   });
@@ -6256,7 +6256,7 @@ function renderTags(){
                      : cls==='expiring' ? `due in ${st.days} day${st.days!==1?'s':''}`
                      : `${st.days} day${st.days!==1?'s':''} left`;
       const thumb = t.photoUrl
-        ? `<div class="reg-row-thumb"><img src="${esc(t.photoUrl)}" alt=""></div>`
+        ? `<div class="reg-row-thumb"><img src="${esc(t.photoUrl)}" alt="" loading="lazy"></div>`
         : `<div class="reg-row-thumb">no<br>photo</div>`;
       const actions = isClient ? '' : `<div class="reg-row-actions">
           <button class="reg-icon-btn danger" onclick="event.stopPropagation();deleteTag('${esc(t.id)}')" title="Remove from register">&#10005;</button>
@@ -9142,7 +9142,7 @@ function renderMaterialsField() {
 
   const invRow = (inv) => '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--rule);font-size:13px">' +
     (inv.photoUrl
-      ? '<a href="' + esc(inv.photoUrl) + '" target="_blank" rel="noopener" style="flex-shrink:0;width:46px;height:46px;border-radius:6px;overflow:hidden;background:var(--paper-3);display:flex;align-items:center;justify-content:center;text-decoration:none"><img src="' + esc(inv.photoUrl) + '" style="width:46px;height:46px;object-fit:cover" alt="receipt"></a>'
+      ? '<a href="' + esc(inv.photoUrl) + '" target="_blank" rel="noopener" style="flex-shrink:0;width:46px;height:46px;border-radius:6px;overflow:hidden;background:var(--paper-3);display:flex;align-items:center;justify-content:center;text-decoration:none"><img src="' + esc(inv.photoUrl) + '" style="width:46px;height:46px;object-fit:cover" alt="receipt" loading="lazy"></a>'
       : '<div style="flex-shrink:0;width:46px;height:46px;border-radius:6px;background:var(--paper-3);display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-size:10px;font-weight:600;text-align:center">no<br>photo</div>') +
     '<div style="flex:1;min-width:0">' +
       '<div style="font-weight:600;color:var(--navy)">' + esc(inv.wholesalerName || 'Unknown supplier') +
