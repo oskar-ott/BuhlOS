@@ -1107,7 +1107,10 @@ function renderSetup(host) {
       <div class="card-hdr">
         <div><div class="card-title">Areas <span class="card-count">${countAreas(j)}</span></div>
           <div class="card-sub">Groups + areas. Add new ones any time. Archive areas with recorded progress instead of deleting — keeps the historical record clean.</div></div>
-        <button class="btn btn-primary" id="setup-add-group">+ Add group</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn" id="setup-bulk-areas" ${countAreas(j) === 0 ? 'disabled' : ''}>Bulk edit</button>
+          <button class="btn btn-primary" id="setup-add-group">+ Add group</button>
+        </div>
       </div>
       <div id="areas-list">${areasEditorHtml(j, data)}</div>
     </div>
@@ -1191,6 +1194,8 @@ function renderSetup(host) {
   // Wire actions
   SHELL.$('#setup-edit-basics').addEventListener('click', openEditBasics);
   SHELL.$('#setup-add-group').addEventListener('click', () => addAreaGroup());
+  const bulkAreasBtn = SHELL.$('#setup-bulk-areas');
+  if (bulkAreasBtn) bulkAreasBtn.addEventListener('click', openBulkAreaSheet);
   SHELL.$('#setup-add-rough').addEventListener('click', () => addTask('roughIn'));
   SHELL.$('#setup-bulk-rough').addEventListener('click', () => bulkAddTasks('roughIn'));
   SHELL.$('#setup-add-fit').addEventListener('click', () => addTask('fitOff'));
@@ -2081,6 +2086,119 @@ async function duplicateArea(areaId) {
     return { ...g, areas: next };
   });
   await saveJobPatch({ areaGroups: groups });
+}
+
+// Bulk-edit modal — multi-select areas and apply an action (archive
+// for v1) via /api/jobs-bulk-edit. The bulk endpoint accepts up to
+// 200 ops per call and applies them in one atomic blob write
+// (api/jobs-bulk-edit.js). Areas with recorded progress can still
+// be archived — that's the universal "remove" verb per the rigidity
+// audit; deletion only blocks for areas with progress to preserve
+// the historical record.
+function openBulkAreaSheet() {
+  const j = STATE.job || {};
+  // Flatten areas with their group context for the multi-select list.
+  const rows = ((j.areaGroups || []).flatMap(g =>
+    (g.areas || []).map(a => ({
+      groupId: g.id,
+      groupName: g.name || g.id,
+      areaId: a.id,
+      areaName: a.name || a.id,
+      archived: !!a.archived,
+    }))
+  )).filter(r => !r.archived); // only show live areas for v1
+  if (!rows.length) {
+    SHELL.toast('No live areas to bulk edit.', 'warn');
+    return;
+  }
+  const scrim = document.createElement('div');
+  scrim.id = 'bulk-area-scrim';
+  scrim.style.cssText = 'position:fixed;inset:0;z-index:600;background:rgba(13,27,52,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+  scrim.innerHTML = `
+    <div style="background:var(--surface);border-radius:12px;max-width:520px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.4)">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-family:var(--ff-display);font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.012em">Bulk edit areas</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">Select areas, then choose an action below.</div>
+        </div>
+        <button type="button" id="bulk-x" style="background:none;border:0;cursor:pointer;font-size:24px;color:var(--muted);padding:4px 8px">&times;</button>
+      </div>
+      <div style="padding:8px 14px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="btn btn-sm" id="bulk-all">Select all</button>
+        <button type="button" class="btn btn-sm" id="bulk-none">Select none</button>
+        <span style="margin-left:auto;font-family:var(--ff-mono);font-size:11px;color:var(--muted)" id="bulk-count">0 selected</span>
+      </div>
+      <div id="bulk-list" style="overflow-y:auto;flex:1;padding:4px 0">
+        ${rows.map((r, i) => `
+          <label style="display:flex;align-items:center;gap:12px;padding:9px 18px;border-bottom:1px solid var(--line-2);cursor:pointer;font-size:13.5px">
+            <input type="checkbox" class="bulk-area-cb" data-area-id="${SHELL.escapeHtml(r.areaId)}" style="width:18px;height:18px;accent-color:var(--accent)">
+            <span style="flex:1;min-width:0">
+              <b>${SHELL.escapeHtml(r.areaName)}</b>
+              <span style="color:var(--muted);font-family:var(--ff-mono);font-size:10.5px;letter-spacing:.04em;margin-left:8px">${SHELL.escapeHtml(r.groupName)}</span>
+            </span>
+          </label>
+        `).join('')}
+      </div>
+      <div style="padding:12px 18px;border-top:1px solid var(--line);background:var(--surface-2);display:flex;gap:8px;align-items:center">
+        <button type="button" class="btn" id="bulk-cancel" style="margin-right:auto">Cancel</button>
+        <button type="button" class="btn btn-warn" id="bulk-archive" disabled>Archive selected</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(scrim);
+
+  const cbs = scrim.querySelectorAll('.bulk-area-cb');
+  const countEl = scrim.querySelector('#bulk-count');
+  const archiveBtn = scrim.querySelector('#bulk-archive');
+  function refresh() {
+    const n = scrim.querySelectorAll('.bulk-area-cb:checked').length;
+    countEl.textContent = n + ' selected';
+    archiveBtn.disabled = n === 0;
+    archiveBtn.textContent = n > 0 ? `Archive ${n} selected` : 'Archive selected';
+  }
+  cbs.forEach(cb => cb.addEventListener('change', refresh));
+  scrim.querySelector('#bulk-all').addEventListener('click', () => {
+    cbs.forEach(cb => { cb.checked = true; });
+    refresh();
+  });
+  scrim.querySelector('#bulk-none').addEventListener('click', () => {
+    cbs.forEach(cb => { cb.checked = false; });
+    refresh();
+  });
+  function close() { scrim.remove(); }
+  scrim.querySelector('#bulk-cancel').addEventListener('click', close);
+  scrim.querySelector('#bulk-x').addEventListener('click', close);
+  scrim.addEventListener('click', (e) => { if (e.target === scrim) close(); });
+
+  archiveBtn.addEventListener('click', async () => {
+    const ids = [...scrim.querySelectorAll('.bulk-area-cb:checked')].map(cb => cb.dataset.areaId);
+    if (!ids.length) return;
+    if (!confirm(`Archive ${ids.length} area${ids.length === 1 ? '' : 's'}? They'll disappear from worker surfaces but stay reachable from the admin builder. You can unarchive any time.`)) return;
+    archiveBtn.disabled = true;
+    archiveBtn.textContent = 'Archiving…';
+    try {
+      const operations = ids.map(areaId => ({ op: 'archive-area', areaId }));
+      const r = await SHELL.api('/api/jobs-bulk-edit?jobId=' + encodeURIComponent(STATE.jobId), {
+        method: 'POST',
+        body: { operations },
+      });
+      const applied = (r && r.applied) || 0;
+      const failed = (r && r.failed) || [];
+      SHELL.toast(`Archived ${applied} area${applied === 1 ? '' : 's'}${failed.length ? ` · ${failed.length} failed` : ''}`, failed.length ? 'warn' : 'ok');
+      close();
+      // Reload the job so the Setup tab repaints with the archived
+      // items hidden. Cheaper than rebuilding the in-memory copy.
+      const jr = await SHELL.api('/api/jobs?id=' + encodeURIComponent(STATE.jobId) + '&includeArchived=1');
+      if (jr && jr.job) {
+        STATE.job = jr.job;
+        paint();
+      }
+    } catch (e) {
+      archiveBtn.disabled = false;
+      archiveBtn.textContent = 'Archive selected';
+      SHELL.toast('Archive failed — ' + e.message, 'bad');
+    }
+  });
 }
 
 async function bulkAddAreas(groupId) {
