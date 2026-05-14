@@ -2118,6 +2118,19 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
         <select id="snm-task"></select>
       </div>
 
+      <!-- Plan reference — links this snag to an uploaded plan so admin /
+           LH can see "which drawing did this issue come off". Pure data
+           field for now (no visual pinning on the PDF — that lands in a
+           v2 when the PDF viewer + click-to-pin UI ships). Default option
+           is no plan; the dropdown populates from the job's plans
+           register on modal open. -->
+      <div class="snag-field">
+        <label class="snag-field-label" for="snm-plan">Plan reference <span style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted)">(optional — which drawing this came off)</span></label>
+        <select id="snm-plan">
+          <option value="">— No plan reference —</option>
+        </select>
+      </div>
+
       <div class="snag-row-2">
         <div class="snag-field">
           <label class="snag-field-label" for="snm-priority">Priority</label>
@@ -4776,6 +4789,12 @@ function renderSnags(){
             </div>
             <div class="reg-row-meta">
               <span><b>Where</b> ${esc(areaLabel(s.dwelling))}${s.stage?` &middot; ${esc(s.stage)}`:''}</span>
+              ${s.planId && _plansCache ? (() => {
+                const p = (_plansCache.plans || []).find(x => x.id === s.planId);
+                if (!p) return '';
+                const dn = p.drawingNumber ? esc(p.drawingNumber) : '';
+                return `<span><b>📍 Plan</b> ${dn || esc(p.title || '')}</span>`;
+              })() : ''}
               ${s.by?`<span><b>By</b> ${esc(s.by)}</span>`:''}
               <span><b>${isOpen?'Raised':'Resolved'}</b> ${esc(snagAgeLabel(s))}${(!isOpen && s.updatedBy) ? ' by ' + esc(s.updatedBy) : ''}</span>
             </div>
@@ -5021,6 +5040,35 @@ function openSnagModal(snagId, prefill){
   }
   tkSel.innerHTML=tkOpts;
 
+  // Plan picker — populate from the lazy plans cache if available, else
+  // kick off a fetch. We don't await it: if the user submits before the
+  // plans land, the field just stays at "— No plan reference —" which
+  // is the safe default.
+  const planSel = document.getElementById('snm-plan');
+  if (planSel) {
+    function paintPlanOptions(plans) {
+      const live = (plans || []).filter(p => !p.archivedAt && !p.supersededBy);
+      live.sort((a, b) => (a.drawingNumber || '').localeCompare(b.drawingNumber || '', undefined, { numeric: true }));
+      planSel.innerHTML = '<option value="">— No plan reference —</option>' +
+        live.map(p => {
+          const dn = p.drawingNumber ? esc(p.drawingNumber) + (p.revision ? ' rev ' + esc(p.revision) : '') + ' · ' : '';
+          return `<option value="${esc(p.id)}">${dn}${esc(p.title || 'Plan')}</option>`;
+        }).join('');
+    }
+    if (_plansCache && _plansCache.plans) {
+      paintPlanOptions(_plansCache.plans);
+    } else {
+      planSel.innerHTML = '<option value="">— No plan reference —</option><option disabled>Loading plans…</option>';
+      fetch('/api/plans?jobId=' + encodeURIComponent(JOB_ID), { credentials: 'same-origin' })
+        .then(r => r.ok ? r.json() : { plans: [] })
+        .then(j => { _plansCache = j; paintPlanOptions(j.plans || []); })
+        .catch(() => {
+          // Keep the default option; silent failure mode.
+          planSel.innerHTML = '<option value="">— No plan reference —</option>';
+        });
+    }
+  }
+
   if(snagId){
     const s=(D.snags||[]).find(x=>x.id===snagId);
     if(!s){showToast('Snag not found.','error');return;}
@@ -5054,6 +5102,9 @@ function openSnagModal(snagId, prefill){
   const _taskKey=(snagModalWorking.stageKey&&snagModalWorking.taskId)
     ? `${snagModalWorking.stageKey}::${snagModalWorking.taskId}` : '';
   document.getElementById('snm-task').value=_taskKey;
+  if (document.getElementById('snm-plan')) {
+    document.getElementById('snm-plan').value = snagModalWorking.planId || '';
+  }
   document.getElementById('snm-priority').value=snagModalWorking.priority||'Medium';
   document.getElementById('snm-by').value=snagModalWorking.by||'';
   setSnagModalStatus(snagModalWorking.status||'Open');
@@ -5904,6 +5955,11 @@ function saveSnagModal(){
     delete snagModalWorking.stageKey;
     delete snagModalWorking.taskId;
   }
+  // Plan reference — annotation MVP. Stores just the plan id for now;
+  // future v2 adds page + normalized coordinates for visual pinning.
+  const _planVal = document.getElementById('snm-plan') ? document.getElementById('snm-plan').value : '';
+  if (_planVal) snagModalWorking.planId = _planVal;
+  else delete snagModalWorking.planId;
   snagModalWorking.priority=document.getElementById('snm-priority').value;
   snagModalWorking.by=document.getElementById('snm-by').value.trim();
   // Assignee: only admin/LH can change. Capture display name as a snapshot so
@@ -8482,17 +8538,10 @@ async function _lazyPlans() {
 
 function renderPlans() {
   const host = document.getElementById('plans');
-  // Plans API returns { plans: [{ id, title, drawingNumber, revision,
-  // url, status, supersededBy, uploadedBy, uploadedAt, archivedAt }] }.
-  // Filter to current (non-archived, not superseded) by default —
-  // superseded plans are reference history that lives on the admin
-  // builder.
   const all = ((_plansCache && _plansCache.plans) || []).filter(p => !p.archivedAt);
-  // Toggle: "Show superseded" — off by default
   const showOld = host.dataset.showSuperseded === '1';
   const current = showOld ? all : all.filter(p => !p.supersededBy);
 
-  // Surface the menu item proactively when plans exist.
   const plansMenu = document.getElementById('plansMenuItem');
   if (plansMenu) plansMenu.hidden = all.length === 0;
 
@@ -8505,19 +8554,27 @@ function renderPlans() {
     return;
   }
   if (!current.length) {
-    // All current plans are superseded — flip the toggle so the user
-    // sees the lineage.
     host.dataset.showSuperseded = '1';
     return renderPlans();
   }
   const supersededCount = all.length - current.length;
-  // Sort: current first (by drawing number ascending), superseded last.
   current.sort((a, b) => {
     const dna = (a.drawingNumber || '').toString();
     const dnb = (b.drawingNumber || '').toString();
     if (dna === dnb) return (a.title || '').localeCompare(b.title || '');
     return dna.localeCompare(dnb, undefined, { numeric: true });
   });
+  // Pre-compute snag counts per plan — annotation surface. Each snag
+  // with snag.planId pointing at this plan id counts. Open + closed
+  // both shown so admin can see the historical "what came off this
+  // drawing" thread.
+  const snagsByPlan = new Map();
+  for (const s of (D.snags || [])) {
+    if (s && s.planId) {
+      if (!snagsByPlan.has(s.planId)) snagsByPlan.set(s.planId, []);
+      snagsByPlan.get(s.planId).push(s);
+    }
+  }
   host.innerHTML = `
     <div class="feat-header">
       <div>
@@ -8540,22 +8597,74 @@ function renderPlans() {
           const kb = Math.round(p.fileSizeBytes / 1024);
           meta.push(kb > 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB');
         }
-        return `<a class="reg-row" href="${esc(p.url || '#')}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit${isSuperseded ? ';opacity:.55' : ''}">
+        const pinnedSnags = snagsByPlan.get(p.id) || [];
+        const openPinned = pinnedSnags.filter(s => s.status === 'Open').length;
+        const pinPill = pinnedSnags.length
+          ? `<span class="snag-photo-count" style="background:${openPinned > 0 ? 'rgba(192,49,47,.12)' : '#f1f5f9'};color:${openPinned > 0 ? 'var(--red)' : 'var(--muted)'};margin-left:8px" title="${pinnedSnags.length} snag${pinnedSnags.length === 1 ? '' : 's'} pinned to this plan">📍 ${pinnedSnags.length}${openPinned > 0 ? ` (${openPinned} open)` : ''}</span>`
+          : '';
+        return `<div class="reg-row" style="text-decoration:none;color:inherit${isSuperseded ? ';opacity:.55' : ''}">
           <div class="reg-row-body">
             <div class="reg-row-title">
               <span class="reg-row-name" style="font-family:var(--mono);font-size:12px">${drawNum}${rev}</span>
               <span style="font-size:14px;margin-left:8px">${esc(p.title || '')}</span>
               ${isSuperseded ? `<span class="status-badge" style="font-size:9px;padding:1px 7px;margin-left:6px;background:var(--paper-3);color:var(--muted)">Superseded</span>` : ''}
+              ${pinPill}
             </div>
             <div class="reg-row-meta">${meta.map(m => '<span>' + m + '</span>').join('')}</div>
           </div>
-          <div class="reg-row-actions">
-            <span class="btn btn-sm btn-ghost">View →</span>
+          <div class="reg-row-actions" style="gap:6px">
+            ${pinnedSnags.length ? `<button class="btn btn-sm btn-ghost" onclick="openPlanSnags('${esc(p.id)}')">${pinnedSnags.length} snag${pinnedSnags.length === 1 ? '' : 's'} →</button>` : ''}
+            <a class="btn btn-sm btn-ghost" href="${esc(p.url || '#')}" target="_blank" rel="noopener">View PDF →</a>
           </div>
-        </a>`;
+        </div>`;
       }).join('')}
     </div>
   `;
+}
+
+// Open the snag list scoped to one plan. Reuses the existing snag-modal
+// browse path — picks each pinned snag from D.snags and opens it. For
+// >1 pinned snags we render a small picker sheet first.
+function openPlanSnags(planId) {
+  const pinned = (D.snags || []).filter(s => s && s.planId === planId);
+  if (!pinned.length) return;
+  if (pinned.length === 1) {
+    openSnagModal(pinned[0].id);
+    return;
+  }
+  // Mini-picker sheet — list of pinned snags, tap to open the snag modal.
+  const plan = (_plansCache && _plansCache.plans || []).find(p => p.id === planId);
+  const planLabel = plan ? (plan.drawingNumber ? plan.drawingNumber + ' · ' : '') + (plan.title || 'Plan') : 'Plan';
+  const scrim = document.createElement('div');
+  scrim.className = 'snag-modal-overlay open';
+  scrim.style.cssText = 'position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center';
+  scrim.innerHTML = `
+    <div class="snag-modal" style="background:var(--paper);border-radius:16px 16px 0 0;width:100%;max-width:520px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">
+      <div class="snag-modal-hdr" style="padding:14px 16px;border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-family:var(--display, sans-serif);font-weight:700;font-size:17px;color:var(--navy);letter-spacing:-.018em">Snags on ${esc(planLabel)}</div>
+          <div style="font-size:11px;color:var(--ink-3);font-family:var(--mono);letter-spacing:.04em;text-transform:uppercase;margin-top:2px">${pinned.length} pinned</div>
+        </div>
+        <button type="button" onclick="this.closest('.snag-modal-overlay').remove()" style="background:none;border:none;color:var(--ink-3);font-size:22px;cursor:pointer">&times;</button>
+      </div>
+      <div class="snag-modal-body" style="overflow-y:auto;padding:8px 0;flex:1">
+        ${pinned.map(s => {
+          const stat = s.status === 'Open' ? 'red' : 'green';
+          const sub = [s.dwellingName || areaLabel(s.dwelling) || '', s.stage || '', s.priority ? s.priority + ' priority' : ''].filter(Boolean).join(' · ');
+          return `<div onclick="document.querySelector('.snag-modal-overlay').remove();openSnagModal('${esc(s.id)}')" style="padding:12px 16px;border-bottom:1px solid var(--rule);cursor:pointer;display:flex;gap:12px;align-items:flex-start">
+            <span style="flex-shrink:0;width:8px;height:8px;border-radius:50%;background:var(--${stat});margin-top:6px"></span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:14px;font-weight:500;color:var(--ink);line-height:1.3">${esc(s.desc || '(no description)')}</div>
+              <div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">${esc(sub)}${s.status === 'Closed' ? ' · resolved' : ''}</div>
+            </div>
+            <span style="color:var(--ink-3);font-family:var(--mono);font-size:14px">›</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(scrim);
+  scrim.addEventListener('click', (e) => { if (e.target === scrim) scrim.remove(); });
 }
 
 // agoStr — shared helper for relative time labels. Used by the ITP
