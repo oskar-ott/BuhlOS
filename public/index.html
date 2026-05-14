@@ -2119,16 +2119,34 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
       </div>
 
       <!-- Plan reference — links this snag to an uploaded plan so admin /
-           LH can see "which drawing did this issue come off". Pure data
-           field for now (no visual pinning on the PDF — that lands in a
-           v2 when the PDF viewer + click-to-pin UI ships). Default option
-           is no plan; the dropdown populates from the job's plans
-           register on modal open. -->
+           LH can see "which drawing did this issue come off". Selecting
+           a plan unlocks the pin panel below, which lazily loads pdf.js
+           and lets the worker tap the drawing where the issue lives.
+           Pin coordinates (page + normalized x,y) persist alongside
+           planId so the Plans view can render a marker. -->
       <div class="snag-field">
         <label class="snag-field-label" for="snm-plan">Plan reference <span style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted)">(optional — which drawing this came off)</span></label>
         <select id="snm-plan">
           <option value="">— No plan reference —</option>
         </select>
+      </div>
+      <!-- Pin location panel — appears when a plan is selected. Loads
+           pdf.js from CDN on first use, renders the chosen page, lets
+           the worker tap to drop a pin. Saved x/y are normalized 0..1
+           so the marker re-renders correctly regardless of canvas
+           size. Hidden when no plan is selected. -->
+      <div class="snag-field" id="snm-pin-wrap" hidden>
+        <label class="snag-field-label">Pin location <span style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted)">(tap the plan where the issue is)</span></label>
+        <div id="snm-pin-controls" style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+          <label style="font-size:12px;color:var(--muted)">Page
+            <input type="number" id="snm-pin-page" min="1" value="1" style="width:60px;padding:4px 8px;margin-left:6px;border:1px solid var(--rule);border-radius:6px;font-size:13.5px;background:#fff">
+          </label>
+          <span id="snm-pin-info" style="font-size:11.5px;color:var(--muted)"></span>
+          <button type="button" id="snm-pin-clear" style="margin-left:auto;background:none;border:1px solid var(--rule);padding:3px 9px;border-radius:6px;font-size:11.5px;color:var(--muted);cursor:pointer">Clear pin</button>
+        </div>
+        <div id="snm-pin-stage" style="position:relative;background:var(--paper-3);border:1px solid var(--rule);border-radius:8px;overflow:hidden;min-height:120px;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--ink-3);text-align:center;padding:20px">
+          Loading plan…
+        </div>
       </div>
 
       <div class="snag-row-2">
@@ -4793,7 +4811,9 @@ function renderSnags(){
                 const p = (_plansCache.plans || []).find(x => x.id === s.planId);
                 if (!p) return '';
                 const dn = p.drawingNumber ? esc(p.drawingNumber) : '';
-                return `<span><b>📍 Plan</b> ${dn || esc(p.title || '')}</span>`;
+                const pageBit = s.planPage ? ` p${s.planPage}` : '';
+                const pinBit  = (s.planX != null && s.planY != null) ? ' ●' : '';
+                return `<span><b>📍 Plan</b> ${dn || esc(p.title || '')}${pageBit}${pinBit}</span>`;
               })() : ''}
               ${s.by?`<span><b>By</b> ${esc(s.by)}</span>`:''}
               <span><b>${isOpen?'Raised':'Resolved'}</b> ${esc(snagAgeLabel(s))}${(!isOpen && s.updatedBy) ? ' by ' + esc(s.updatedBy) : ''}</span>
@@ -5043,7 +5063,8 @@ function openSnagModal(snagId, prefill){
   // Plan picker — populate from the lazy plans cache if available, else
   // kick off a fetch. We don't await it: if the user submits before the
   // plans land, the field just stays at "— No plan reference —" which
-  // is the safe default.
+  // is the safe default. When a plan is selected we kick off the pin
+  // panel render lazily — pdf.js loads on first need.
   const planSel = document.getElementById('snm-plan');
   if (planSel) {
     function paintPlanOptions(plans) {
@@ -5063,11 +5084,28 @@ function openSnagModal(snagId, prefill){
         .then(r => r.ok ? r.json() : { plans: [] })
         .then(j => { _plansCache = j; paintPlanOptions(j.plans || []); })
         .catch(() => {
-          // Keep the default option; silent failure mode.
           planSel.innerHTML = '<option value="">— No plan reference —</option>';
         });
     }
+    // Toggle the pin panel on every plan-select change. Initial state
+    // syncs further down once snagModalWorking is hydrated.
+    planSel.onchange = () => syncSnagPinPanel(planSel.value);
   }
+  // Wire the page input + clear button once per modal open.
+  const pageInp = document.getElementById('snm-pin-page');
+  if (pageInp) {
+    pageInp.onchange = () => renderSnagPinStage();
+    pageInp.oninput  = () => renderSnagPinStage();
+  }
+  const clearBtn = document.getElementById('snm-pin-clear');
+  if (clearBtn) clearBtn.onclick = () => {
+    if (snagModalWorking) {
+      delete snagModalWorking.planPage;
+      delete snagModalWorking.planX;
+      delete snagModalWorking.planY;
+      renderSnagPinStage();
+    }
+  };
 
   if(snagId){
     const s=(D.snags||[]).find(x=>x.id===snagId);
@@ -5105,6 +5143,12 @@ function openSnagModal(snagId, prefill){
   if (document.getElementById('snm-plan')) {
     document.getElementById('snm-plan').value = snagModalWorking.planId || '';
   }
+  // Pin panel — sync page input + render the stage. Hidden by
+  // syncSnagPinPanel when no planId is selected.
+  if (document.getElementById('snm-pin-page')) {
+    document.getElementById('snm-pin-page').value = String(snagModalWorking.planPage || 1);
+  }
+  syncSnagPinPanel(snagModalWorking.planId || '');
   document.getElementById('snm-priority').value=snagModalWorking.priority||'Medium';
   document.getElementById('snm-by').value=snagModalWorking.by||'';
   setSnagModalStatus(snagModalWorking.status||'Open');
@@ -5955,11 +5999,23 @@ function saveSnagModal(){
     delete snagModalWorking.stageKey;
     delete snagModalWorking.taskId;
   }
-  // Plan reference — annotation MVP. Stores just the plan id for now;
-  // future v2 adds page + normalized coordinates for visual pinning.
+  // Plan reference + pin coordinates. planX/Y are normalized 0..1 so
+  // the marker re-renders consistently regardless of viewer size.
+  // planPage is 1-indexed. When the user clears the pin the coords
+  // disappear but planId stays — they may want to reference the plan
+  // without an exact pin.
   const _planVal = document.getElementById('snm-plan') ? document.getElementById('snm-plan').value : '';
-  if (_planVal) snagModalWorking.planId = _planVal;
-  else delete snagModalWorking.planId;
+  if (_planVal) {
+    snagModalWorking.planId = _planVal;
+    // planPage / planX / planY are mutated directly by the canvas
+    // click handler; nothing extra to write here. Just make sure they
+    // disappear if the plan was deselected.
+  } else {
+    delete snagModalWorking.planId;
+    delete snagModalWorking.planPage;
+    delete snagModalWorking.planX;
+    delete snagModalWorking.planY;
+  }
   snagModalWorking.priority=document.getElementById('snm-priority').value;
   snagModalWorking.by=document.getElementById('snm-by').value.trim();
   // Assignee: only admin/LH can change. Capture display name as a snapshot so
@@ -8620,6 +8676,176 @@ function renderPlans() {
       }).join('')}
     </div>
   `;
+}
+
+// ── Plan pin panel (snag modal) ─────────────────────────────────────
+// Lazy-loads pdf.js from CDN on first use, renders the chosen page
+// of the plan PDF on a canvas inside the snag modal, and captures
+// tap coordinates as normalized (0..1) x/y stored on the snag.
+//
+// Why normalized: a marker drawn at (0.5, 0.5) re-renders at the
+// centre of any canvas size, so the Plans view can show a smaller
+// thumbnail and the snag still points at the right thing.
+const PIN_PDFJS_VER  = '4.0.379';
+const PIN_PDFJS_BASE = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PIN_PDFJS_VER}/legacy/build`;
+let _pinPdfjsReady = false;
+async function _pinLoadPdfjs() {
+  if (_pinPdfjsReady && window.pdfjsLib) return window.pdfjsLib;
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = PIN_PDFJS_BASE + '/pdf.min.js';
+    s.onload = res;
+    s.onerror = () => rej(new Error('PDF viewer failed to load'));
+    document.head.appendChild(s);
+  });
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = PIN_PDFJS_BASE + '/pdf.worker.min.js';
+  _pinPdfjsReady = true;
+  return window.pdfjsLib;
+}
+
+// Show / hide the pin panel based on whether a plan is selected.
+// Called on plan-select change and on modal open. Triggers the canvas
+// render once the panel becomes visible.
+function syncSnagPinPanel(planId) {
+  const wrap = document.getElementById('snm-pin-wrap');
+  if (!wrap) return;
+  if (!planId) {
+    wrap.hidden = true;
+    return;
+  }
+  wrap.hidden = false;
+  // If switching plans, page defaults back to 1 (or persists if the
+  // working snag carries an existing planPage).
+  const pageInp = document.getElementById('snm-pin-page');
+  if (pageInp && snagModalWorking && snagModalWorking.planId !== planId) {
+    pageInp.value = String(snagModalWorking.planPage || 1);
+  }
+  renderSnagPinStage();
+}
+
+// Load the plan PDF and render the current page on a canvas. Click
+// handler captures normalized x/y; existing pin re-draws as a marker.
+// Soft-fails — if pdf.js or the URL is unreachable, we replace the
+// stage with a short error message; the snag still saves with planId.
+async function renderSnagPinStage() {
+  const stage = document.getElementById('snm-pin-stage');
+  if (!stage || !snagModalWorking) return;
+  const planId = snagModalWorking.planId || (document.getElementById('snm-plan') && document.getElementById('snm-plan').value);
+  if (!planId) return;
+  const plan = (_plansCache && _plansCache.plans || []).find(p => p.id === planId);
+  if (!plan || !plan.url) {
+    stage.innerHTML = '<div style="padding:18px;text-align:center;color:var(--ink-3);font-size:12px">Plan URL not available.</div>';
+    return;
+  }
+  const pageNum = Math.max(1, Number(document.getElementById('snm-pin-page').value) || 1);
+  const info = document.getElementById('snm-pin-info');
+  stage.innerHTML = '<div style="padding:24px;text-align:center;color:var(--ink-3);font-size:12px">Loading PDF…</div>';
+  // Non-PDF assets (jpg/png plans) just render as an image — same
+  // click capture flow, no pdf.js needed.
+  const isPdf = /\.pdf(\?|$)/i.test(plan.url) || (plan.mimeType || '').includes('pdf');
+  try {
+    if (!isPdf) {
+      await _renderPinImage(stage, plan.url, pageNum, info);
+    } else {
+      await _renderPinPdf(stage, plan.url, pageNum, info);
+    }
+  } catch (e) {
+    stage.innerHTML = `<div style="padding:18px;text-align:center;color:var(--ink-3);font-size:12px">Couldn't load plan — ${esc(e.message || 'unknown error')}</div>`;
+  }
+}
+
+async function _renderPinPdf(stage, url, pageNum, info) {
+  const pdfjs = await _pinLoadPdfjs();
+  const pdf = await pdfjs.getDocument({ url }).promise;
+  const safePage = Math.min(Math.max(1, pageNum), pdf.numPages);
+  if (info) info.textContent = `Page ${safePage} of ${pdf.numPages}`;
+  const page = await pdf.getPage(safePage);
+  // Fit width to stage; cap at 800 to avoid huge canvases.
+  const stageWidth = Math.min(stage.clientWidth || 360, 800);
+  const baseViewport = page.getViewport({ scale: 1 });
+  const scale = stageWidth / baseViewport.width;
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  canvas.style.cssText = 'display:block;width:100%;height:auto;cursor:crosshair';
+  const ctx = canvas.getContext('2d');
+  stage.innerHTML = '';
+  stage.appendChild(canvas);
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  _wirePinCanvas(canvas, stage, safePage);
+}
+
+async function _renderPinImage(stage, url, pageNum, info) {
+  if (info) info.textContent = pageNum > 1 ? `Page ${pageNum} (image plans have a single page)` : 'Image plan';
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  await new Promise((res, rej) => {
+    img.onload = res;
+    img.onerror = () => rej(new Error('Image plan failed to load'));
+    img.src = url;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  canvas.style.cssText = 'display:block;width:100%;height:auto;cursor:crosshair';
+  canvas.getContext('2d').drawImage(img, 0, 0);
+  stage.innerHTML = '';
+  stage.appendChild(canvas);
+  _wirePinCanvas(canvas, stage, 1);
+}
+
+// Attach the tap-to-pin handler + draw any existing pin on top of
+// the canvas. Coords are stored normalized so the marker overlay
+// doesn't have to know the canvas size.
+function _wirePinCanvas(canvas, stage, pageNum) {
+  const draw = () => {
+    // Draw a red pin at the saved coordinates (if any AND if it's
+    // the current page). Done via overlay div positioned in the
+    // stage rather than on-canvas so it survives page swaps.
+    stage.querySelectorAll('.pin-marker').forEach(m => m.remove());
+    const onPage = (snagModalWorking.planPage || 1) === pageNum;
+    if (snagModalWorking.planX != null && snagModalWorking.planY != null && onPage) {
+      const marker = document.createElement('div');
+      marker.className = 'pin-marker';
+      marker.style.cssText = `
+        position:absolute;
+        left:${(snagModalWorking.planX * 100).toFixed(3)}%;
+        top:${(snagModalWorking.planY * 100).toFixed(3)}%;
+        transform:translate(-50%, -100%);
+        width:24px;height:32px;
+        pointer-events:none;
+        filter:drop-shadow(0 2px 4px rgba(0,0,0,.35));
+      `;
+      marker.innerHTML = `<svg viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg"><path fill="#c0312f" stroke="#fff" stroke-width="1.5" d="M12 1c5.5 0 10 4.5 10 10 0 7.5-10 19-10 19S2 18.5 2 11C2 5.5 6.5 1 12 1z"/><circle cx="12" cy="11" r="3" fill="#fff"/></svg>`;
+      stage.appendChild(marker);
+    }
+  };
+  const onTap = (ev) => {
+    // Use clientX/Y for both mouse + touch (capturing the first
+    // touch point) so the same handler works on phone + desktop.
+    const rect = canvas.getBoundingClientRect();
+    const point = ev.touches && ev.touches[0] ? ev.touches[0] : ev;
+    const x = (point.clientX - rect.left) / rect.width;
+    const y = (point.clientY - rect.top)  / rect.height;
+    // Clamp 0..1 in case of edge taps overshoot.
+    snagModalWorking.planX = Math.max(0, Math.min(1, x));
+    snagModalWorking.planY = Math.max(0, Math.min(1, y));
+    snagModalWorking.planPage = pageNum;
+    draw();
+    try { if (navigator.vibrate) navigator.vibrate(6); } catch (e) {}
+  };
+  canvas.addEventListener('click', onTap);
+  // Touch: prevent default scroll on the canvas tap so the pin lands
+  // exactly where the finger touched.
+  canvas.addEventListener('touchend', (ev) => {
+    if (ev.changedTouches && ev.changedTouches[0]) {
+      ev.preventDefault();
+      const synthetic = { clientX: ev.changedTouches[0].clientX, clientY: ev.changedTouches[0].clientY };
+      onTap(synthetic);
+    }
+  }, { passive: false });
+  draw();
 }
 
 // Open the snag list scoped to one plan. Reuses the existing snag-modal
