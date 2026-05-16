@@ -635,6 +635,285 @@ a { color: inherit; text-decoration: none; }
 
 /* ── Phil logo SVG ── */
 .phil-logo-sm { width: 28px; height: 28px; border-radius: 7px; overflow: hidden; flex-shrink: 0; }
+
+/* ══════════════════════════════════════════════
+   PHOTOS
+   ══════════════════════════════════════════════ */
+
+/* Capture sheet — the big take/upload screen */
+.cap-sheet { padding: 0 16px; }
+.cap-source-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  padding: 16px 0 0;
+}
+.cap-source {
+  background: var(--card-2);
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  padding: 22px 12px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.cap-source:active { background: #eef2f7; }
+.cap-source.primary {
+  background: var(--navy); border-color: var(--navy);
+}
+.cap-source.primary .cap-source-lbl,
+.cap-source.primary .cap-source-icon { color: #fff; }
+.cap-source input[type=file] {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; cursor: pointer;
+}
+.cap-source-icon { font-size: 30px; line-height: 1; }
+.cap-source-lbl {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 14px; font-weight: 700;
+  color: var(--ink);
+}
+
+/* Preview strip — selected photos before submit */
+.cap-strip {
+  display: flex; gap: 8px;
+  padding: 12px 0 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.cap-strip::-webkit-scrollbar { display: none; }
+.cap-strip:empty { padding: 0; }
+.cap-thumb {
+  position: relative;
+  width: 92px; height: 92px;
+  border-radius: 12px;
+  background: var(--card-2);
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+}
+.cap-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cap-thumb-x {
+  position: absolute; top: 4px; right: 4px;
+  width: 22px; height: 22px;
+  background: rgba(0,0,0,.6); color: #fff;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; line-height: 1; font-weight: 700;
+  border: none; padding: 0;
+}
+.cap-thumb-status {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: rgba(13,27,52,.85); color: #fff;
+  font-size: 10px; font-weight: 700;
+  text-align: center; padding: 3px 4px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.cap-thumb-status.up { background: rgba(31,139,90,.92); }
+.cap-thumb-status.err { background: rgba(192,49,47,.92); }
+
+/* Category chips — large, mobile-friendly */
+.cat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+.cat-chip {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 4px;
+  padding: 10px 4px;
+  border-radius: 12px;
+  background: var(--card-2);
+  border: 1.5px solid transparent;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+  min-height: 64px;
+}
+.cat-chip:active { background: #eef2f7; }
+.cat-chip.active {
+  background: var(--navy); border-color: var(--navy);
+}
+.cat-chip.active .cat-chip-lbl { color: #fff; }
+.cat-chip-icon { font-size: 18px; line-height: 1; }
+.cat-chip-lbl {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 11px; font-weight: 700;
+  color: var(--ink-2);
+  text-align: center;
+  line-height: 1.15;
+}
+
+/* Floating add button */
+.fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--tab-h) + var(--safe-b) + 16px);
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: var(--yellow);
+  color: var(--yellow-ink);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px;
+  box-shadow: 0 6px 16px rgba(13,27,52,.22);
+  z-index: 50;
+  -webkit-tap-highlight-color: transparent;
+  border: none;
+}
+.fab:active { transform: scale(.95); }
+
+/* Photo gallery grid */
+.ph-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 8px 8px 16px;
+}
+@media (min-width: 480px) {
+  .ph-grid { grid-template-columns: repeat(4, 1fr); }
+}
+.ph-tile {
+  position: relative;
+  aspect-ratio: 1;
+  background: var(--card-2);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ph-tile img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.ph-tile-cat {
+  position: absolute; top: 4px; left: 4px;
+  background: rgba(13,27,52,.78);
+  color: #fff;
+  font-size: 9px; font-weight: 700;
+  padding: 2px 6px; border-radius: 10px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.ph-tile-cat.defect, .ph-tile-cat.damage, .ph-tile-cat.safety {
+  background: rgba(192,49,47,.85);
+}
+.ph-tile-cat.completed, .ph-tile-cat.after {
+  background: rgba(31,139,90,.85);
+}
+.ph-tile-cat.variation {
+  background: rgba(180,60,140,.85);
+}
+
+/* Photo viewer (full-screen) */
+.viewer {
+  position: fixed; inset: 0; z-index: 200;
+  background: #000;
+  display: none;
+  flex-direction: column;
+}
+.viewer.open { display: flex; }
+.viewer-hdr {
+  display: flex; align-items: center;
+  padding: 10px 12px;
+  padding-top: calc(10px + var(--safe-t));
+  color: #fff;
+  background: linear-gradient(180deg, rgba(0,0,0,.55), transparent);
+  position: absolute; top: 0; left: 0; right: 0; z-index: 2;
+}
+.viewer-back, .viewer-act {
+  display: flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px;
+  background: rgba(255,255,255,.12);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 20px;
+  border: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.viewer-title { flex: 1; padding: 0 12px; font-size: 14px; font-weight: 600; }
+.viewer-img-wrap {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.viewer-img-wrap img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.viewer-info {
+  background: var(--navy);
+  color: #fff;
+  padding: 16px 16px;
+  padding-bottom: calc(16px + var(--safe-b));
+}
+.viewer-cat {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(255,255,255,.12);
+  padding: 4px 10px; border-radius: 10px;
+  font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em;
+  margin-bottom: 8px;
+}
+.viewer-notes { font-size: 15px; line-height: 1.4; margin-bottom: 8px; }
+.viewer-meta { font-size: 12px; color: var(--ink-4); }
+.viewer-meta b { color: #fff; font-weight: 600; }
+
+/* Upload queue — bottom snack */
+.up-queue {
+  position: fixed;
+  left: 14px; right: 14px;
+  bottom: calc(var(--tab-h) + var(--safe-b) + 12px);
+  background: var(--ink);
+  color: #fff;
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  z-index: 80;
+  display: none;
+  font-size: 13px;
+  align-items: center;
+  gap: 10px;
+}
+.up-queue.show { display: flex; }
+.up-queue-icon {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2.5px solid rgba(255,255,255,.3);
+  border-top-color: var(--yellow);
+  animation: spinq .8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spinq { to { transform: rotate(360deg); } }
+.up-queue-icon.done { border: none; background: var(--green); animation: none; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+.up-queue-icon.fail { border: none; background: var(--red); animation: none; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+.up-queue-msg { flex: 1; font-weight: 500; }
+.up-queue-retry {
+  background: var(--yellow); color: var(--yellow-ink);
+  border-radius: 8px; padding: 6px 10px;
+  font-size: 12px; font-weight: 700;
+  border: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Filter chips inside photo screens */
+.ph-filter-bar {
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  padding: 8px 0;
+}
+
+/* Big "Take photo" button on task / area screens */
+.btn-photo-cta {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--card);
+  border: 1.5px dashed var(--line-2);
+  border-radius: 12px;
+  padding: 13px 16px;
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 14px; font-weight: 700;
+  color: var(--ink-2);
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+  width: 100%;
+  justify-content: center;
+}
+.btn-photo-cta:active { background: var(--card-2); }
+.btn-photo-cta-icon { font-size: 18px; }
 </style>
 </head>
 <body>
@@ -655,9 +934,9 @@ a { color: inherit; text-decoration: none; }
         </div>
       </div>
       <div class="qactions" style="margin-top:20px;">
-        <div class="qa yellow" onclick="openSheet('sh-hours')">
-          <div class="qa-icon">⏱</div>
-          <div class="qa-label">Log hours</div>
+        <div class="qa yellow" onclick="openCapture()">
+          <div class="qa-icon">📷</div>
+          <div class="qa-label">Photo</div>
         </div>
         <div class="qa blue" onclick="switchTab('jobs')">
           <div class="qa-icon">📋</div>
@@ -667,9 +946,9 @@ a { color: inherit; text-decoration: none; }
           <div class="qa-icon">⚠️</div>
           <div class="qa-label">Snag</div>
         </div>
-        <div class="qa" onclick="switchTab('gear')">
-          <div class="qa-icon">🔧</div>
-          <div class="qa-label">My Gear</div>
+        <div class="qa" onclick="openSheet('sh-hours')">
+          <div class="qa-icon">⏱</div>
+          <div class="qa-label">Hours</div>
         </div>
       </div>
       <div class="sec-hdr">
@@ -721,17 +1000,27 @@ a { color: inherit; text-decoration: none; }
         </div>
       </div>
       <div class="qactions">
-        <div class="qa yellow" onclick="openSheet('sh-hours')">
-          <div class="qa-icon">⏱</div>
-          <div class="qa-label">Log hours</div>
+        <div class="qa yellow" onclick="openCapture()">
+          <div class="qa-icon">📷</div>
+          <div class="qa-label">Photo</div>
         </div>
-        <div class="qa" onclick="navTo('s-job-areas')">
+        <div class="qa" onclick="openDwellings()">
           <div class="qa-icon">🏗</div>
-          <div class="qa-label">Areas</div>
+          <div class="qa-label">Dwellings</div>
         </div>
         <div class="qa red" onclick="openSheet('sh-snag')">
           <div class="qa-icon">⚠️</div>
           <div class="qa-label">Snag</div>
+        </div>
+        <div class="qa blue" onclick="openJobPhotos()">
+          <div class="qa-icon">🖼️</div>
+          <div class="qa-label">Gallery</div>
+        </div>
+      </div>
+      <div class="qactions" style="grid-template-columns: 1fr 1fr; padding-top: 0;">
+        <div class="qa" onclick="openSheet('sh-hours')">
+          <div class="qa-icon">⏱</div>
+          <div class="qa-label">Log hours</div>
         </div>
         <div class="qa blue" onclick="navTo('s-job-plans')">
           <div class="qa-icon">📐</div>
@@ -751,31 +1040,15 @@ a { color: inherit; text-decoration: none; }
       <div style="height:16px;"></div>
     </div>
 
-    <!-- ══ JOB AREAS ══ -->
+    <!-- ══ JOB DWELLINGS (Site Office model — view-only summary in Phil) ══ -->
     <div id="s-job-areas" class="screen">
       <div class="hdr">
         <button class="hdr-back" onclick="back()">‹</button>
-        <div class="hdr-title">Areas</div>
-      </div>
-      <div class="chips" id="areas-chips">
-        <div class="chip active" onclick="filterAreas(this,'all')">All</div>
-        <div class="chip" onclick="filterAreas(this,'inprogress')">In progress</div>
-        <div class="chip" onclick="filterAreas(this,'not-started')">Not started</div>
-        <div class="chip" onclick="filterAreas(this,'done')">Done</div>
+        <div class="hdr-title">Dwellings</div>
       </div>
       <div class="card">
         <div id="areas-list"></div>
       </div>
-      <div style="height:16px;"></div>
-    </div>
-
-    <!-- ══ AREA DETAIL ══ -->
-    <div id="s-area-detail" class="screen">
-      <div class="hdr">
-        <button class="hdr-back" onclick="back()">‹</button>
-        <div class="hdr-title" id="area-detail-title">Area</div>
-      </div>
-      <div id="area-tasks-list"></div>
       <div style="height:16px;"></div>
     </div>
 
@@ -790,6 +1063,19 @@ a { color: inherit; text-decoration: none; }
         <div class="empty-msg">No plans uploaded yet</div>
         <div class="empty-sub">Plans and drawings will appear here when added by the office</div>
       </div>
+    </div>
+
+    <!-- ══ JOB PHOTOS ══ -->
+    <div id="s-job-photos" class="screen">
+      <div class="hdr">
+        <button class="hdr-back" onclick="back()">‹</button>
+        <div class="hdr-title" id="ph-title">Photos</div>
+        <button class="hdr-action" onclick="openCapture()">+ Add</button>
+      </div>
+      <div class="ph-filter-bar">
+        <div class="chips" id="ph-cat-chips"></div>
+      </div>
+      <div id="ph-content"></div>
     </div>
 
     <!-- ══ HOURS ══ -->
@@ -954,6 +1240,92 @@ a { color: inherit; text-decoration: none; }
   </div>
 </div>
 
+<!-- ── Bottom sheet: Capture Photo ── -->
+<div class="sheet-overlay" id="sh-capture" onclick="sheetBgClick(event,'sh-capture')">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Add Photo</div>
+    <div class="cap-sheet">
+      <div id="cap-context" style="font-size:13px;color:var(--ink-3);font-weight:500;margin-bottom:4px;display:none;"></div>
+
+      <!-- Source pickers (camera + gallery) -->
+      <div class="cap-source-grid">
+        <label class="cap-source primary">
+          <div class="cap-source-icon">📷</div>
+          <div class="cap-source-lbl">Take Photo</div>
+          <input type="file" accept="image/*" capture="environment" multiple onchange="onCaptureFiles(this.files, true)">
+        </label>
+        <label class="cap-source">
+          <div class="cap-source-icon">🖼️</div>
+          <div class="cap-source-lbl">From Gallery</div>
+          <input type="file" accept="image/*" multiple onchange="onCaptureFiles(this.files, false)">
+        </label>
+      </div>
+
+      <!-- Thumbnail strip -->
+      <div class="cap-strip" id="cap-strip"></div>
+
+      <!-- Job picker (only if no current job context) -->
+      <div class="form-group" id="cap-job-group" style="padding-left:0;padding-right:0;display:none;">
+        <label class="form-label">Job</label>
+        <select class="form-inp form-sel" id="cap-job">
+          <option value="">Select job…</option>
+        </select>
+      </div>
+
+      <!-- Area input -->
+      <div class="form-group" style="padding-left:0;padding-right:0;">
+        <label class="form-label">Area / location</label>
+        <input type="text" class="form-inp" id="cap-area" placeholder="e.g. Level 3, kitchen">
+      </div>
+
+      <!-- Category chips -->
+      <div class="form-group" style="padding-left:0;padding-right:0;">
+        <label class="form-label">Category</label>
+        <div class="cat-grid" id="cap-cats"></div>
+      </div>
+
+      <!-- Notes -->
+      <div class="form-group" style="padding-left:0;padding-right:0;">
+        <label class="form-label">Notes (optional)</label>
+        <input type="text" class="form-inp" id="cap-notes" placeholder="e.g. Sub-main terminations">
+      </div>
+
+      <!-- Actions -->
+      <div class="sheet-actions" style="padding-left:0;padding-right:0;">
+        <button class="btn btn-yellow btn-full" id="cap-submit" onclick="submitCapture()" disabled>
+          Submit photo
+        </button>
+      </div>
+      <div style="text-align:center;font-size:11px;color:var(--ink-4);margin-top:8px;">Photos are compressed before upload to save data</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Photo viewer ── -->
+<div class="viewer" id="viewer">
+  <div class="viewer-hdr">
+    <button class="viewer-back" onclick="closeViewer()">‹</button>
+    <div class="viewer-title" id="viewer-title">Photo</div>
+    <button class="viewer-act" onclick="deleteCurrentPhoto()" id="viewer-del" style="display:none;">🗑</button>
+  </div>
+  <div class="viewer-img-wrap">
+    <img id="viewer-img" alt="">
+  </div>
+  <div class="viewer-info">
+    <span class="viewer-cat" id="viewer-cat">—</span>
+    <div class="viewer-notes" id="viewer-notes"></div>
+    <div class="viewer-meta" id="viewer-meta"></div>
+  </div>
+</div>
+
+<!-- ── Upload queue ── -->
+<div class="up-queue" id="up-queue">
+  <div class="up-queue-icon" id="up-queue-icon"></div>
+  <div class="up-queue-msg" id="up-queue-msg">Uploading…</div>
+  <button class="up-queue-retry" id="up-queue-retry" style="display:none;" onclick="retryFailedUploads()">Retry</button>
+</div>
+
 <!-- ── Toast ── -->
 <div id="toast"></div>
 
@@ -969,68 +1341,47 @@ const APP = {
   gear: null,
   hours: null,
   currentJobId: null,
-  currentAreaId: null,
+  currentJob: null,
+  // currentArea / currentTask are intentionally absent — Phil has no real area/task model yet.
+  jobsError: null,
   hoursFilter: 'week',   // current week view
+  photos: {},            // { [jobId]: [photo, ...] }
+  photoFilter: { category: 'all' },
+  viewerPhoto: null,
+  captureCtx: null,      // { jobId, area, taskId, itpStage, defectId, dwelling, taskName }
+  captureFiles: [],      // queued before upload — [{ id, name, type, blob, thumbDataUrl, status, error }]
+  captureCategory: 'progress',
+  uploadQueue: [],       // failed uploads pending retry — [{ photo payload }]
 };
 
-// ── Mock data (replace with real API calls once endpoints exist) ──
-const MOCK_JOBS = [
-  { id: 'job1', name: 'Westfield Expansion', number: 'BW-041', status: 'active', address: '1 Pitt St, Sydney', phase: 'Rough-in', tasksDone: 34, tasksTotal: 67, snags: 3 },
-  { id: 'job2', name: 'Darling Quarter Fitout', number: 'BW-038', status: 'active', address: '1 Harbour St, Sydney', phase: 'First fix', tasksDone: 12, tasksTotal: 40, snags: 1 },
-  { id: 'job3', name: 'Barangaroo Office', number: 'BW-035', status: 'upcoming', address: '300 Barangaroo Ave', phase: 'Pending', tasksDone: 0, tasksTotal: 80, snags: 0 },
+// Photo categories — fast to pick, mobile-friendly.
+const PHOTO_CATS = [
+  { key: 'progress',  label: 'Progress',  icon: '📸' },
+  { key: 'before',    label: 'Before',    icon: '⏮️' },
+  { key: 'after',     label: 'After',     icon: '⏭️' },
+  { key: 'completed', label: 'Completed', icon: '✅' },
+  { key: 'defect',    label: 'Defect',    icon: '⚠️' },
+  { key: 'damage',    label: 'Damage',    icon: '💥' },
+  { key: 'safety',    label: 'Safety',    icon: '🦺' },
+  { key: 'asbuilt',   label: 'As-built',  icon: '📐' },
+  { key: 'itp',       label: 'ITP',       icon: '📋' },
+  { key: 'material',  label: 'Material',  icon: '📦' },
+  { key: 'site',      label: 'Site cond.',icon: '🌧️' },
+  { key: 'variation', label: 'Variation', icon: '🔀' },
+  { key: 'other',     label: 'Other',     icon: '📷' },
 ];
+const PHOTO_CAT_MAP = Object.fromEntries(PHOTO_CATS.map(c => [c.key, c]));
 
-const MOCK_AREAS = {
-  job1: [
-    { id: 'a1', name: 'Level 3 – Rough-in', tasksDone: 14, tasksTotal: 20, status: 'inprogress' },
-    { id: 'a2', name: 'Level 4 – Rough-in', tasksDone: 0, tasksTotal: 18, status: 'not-started' },
-    { id: 'a3', name: 'Ground – Fitout', tasksDone: 20, tasksTotal: 20, status: 'done' },
-    { id: 'a4', name: 'Basement – Conduit', tasksDone: 0, tasksTotal: 9, status: 'not-started' },
-  ],
-  job2: [
-    { id: 'a5', name: 'Level 1', tasksDone: 4, tasksTotal: 12, status: 'inprogress' },
-    { id: 'a6', name: 'Level 2', tasksDone: 8, tasksTotal: 12, status: 'inprogress' },
-    { id: 'a7', name: 'Level 3', tasksDone: 0, tasksTotal: 16, status: 'not-started' },
-  ],
-};
-
-const MOCK_TASKS = {
-  a1: [
-    { id: 't1', name: 'Install conduit runs – north wall', status: 'done', spec: '20mm EMT' },
-    { id: 't2', name: 'Pull cables – lights circuit', status: 'inprogress', spec: '2.5mm TPS' },
-    { id: 't3', name: 'Install DB frame', status: 'not-started', spec: null },
-    { id: 't4', name: 'Rough-in GPO boxes – east', status: 'not-started', spec: '56MA' },
-  ],
-  a2: [
-    { id: 't5', name: 'Mark out conduit runs', status: 'not-started', spec: null },
-    { id: 't6', name: 'Core drilling – 3 penetrations', status: 'not-started', spec: null },
-  ],
-  a3: [
-    { id: 't7', name: 'Install DB-G switchboard', status: 'done', spec: null },
-    { id: 't8', name: 'Terminate GPOs – ground floor', status: 'done', spec: '10A' },
-  ],
-};
-
-const MOCK_HOURS = [
-  { id: 'h1', date: '2026-05-13', jobId: 'job1', jobName: 'Westfield Expansion', start: '07:00', end: '15:30', type: 'ordinary', hours: 8.5, notes: 'Lvl 3 rough-in' },
-  { id: 'h2', date: '2026-05-12', jobId: 'job1', jobName: 'Westfield Expansion', start: '07:00', end: '15:00', type: 'ordinary', hours: 8, notes: '' },
-  { id: 'h3', date: '2026-05-12', jobId: 'job1', jobName: 'Westfield Expansion', start: '15:00', end: '17:30', type: 'overtime', hours: 2.5, notes: '' },
-  { id: 'h4', date: '2026-05-09', jobId: 'job2', jobName: 'Darling Quarter Fitout', start: '07:30', end: '16:00', type: 'ordinary', hours: 8.5, notes: '' },
-];
-
-const TODAY_TASKS = [
-  { id: 'tt1', name: 'Pull cables – lights circuit', area: 'Westfield · Level 3', status: 'inprogress' },
-  { id: 'tt2', name: 'Install DB frame', area: 'Westfield · Level 3', status: 'not-started' },
-  { id: 'tt3', name: 'Core drilling – 3 penetrations', area: 'Westfield · Level 4', status: 'not-started' },
-  { id: 'tt4', name: 'Install conduit runs – north wall', area: 'Westfield · Level 3', status: 'done' },
-];
+// Phil is a worker-wide app — there is no built-in mock data path.
+// All visible data is fetched from the backend or shown as an empty/loading state.
+// Areas/tasks have no backend yet; the Areas/Task screens are intentionally hidden.
+// TODO: Reconcile Phil tasks with Site Office dwellings/stages before wider rollout.
 
 const GEAR_TYPES = {
   vehicle: '🚐', key: '🔑', tool: '🔧', ppe: '🦺', other: '📦',
 };
 
 let jobsFilter = 'all';
-let areasFilter = 'all';
 
 // ══════════════════════════════════════════════
 // NAVIGATION
@@ -1108,14 +1459,18 @@ function prefillSheet(id) {
 
 function populateJobDropdown(selId) {
   const sel = document.getElementById(selId);
-  const jobs = APP.jobs || MOCK_JOBS;
-  // keep first blank option
+  const jobs = APP.jobs || [];
   while (sel.options.length > 1) sel.remove(1);
-  jobs.filter(j => j.status === 'active').forEach(j => {
+  jobs.filter(j => (j.status || 'active') === 'active').forEach(j => {
     const opt = new Option(j.name, j.id);
     sel.add(opt);
   });
   if (APP.currentJobId) sel.value = APP.currentJobId;
+}
+
+// Active assigned jobs the user can write to.
+function activeJobs() {
+  return (APP.jobs || []).filter(j => (j.status || 'active') === 'active');
 }
 
 // ══════════════════════════════════════════════
@@ -1165,29 +1520,36 @@ function hoursFromRange(start, end) {
 // ══════════════════════════════════════════════
 // TODAY SCREEN
 // ══════════════════════════════════════════════
+// Phil has no per-day-task backend yet. Today shows: count of assigned active jobs,
+// hours logged today, plus a CTA row. No fake task list.
 function renderToday() {
-  const job = (APP.jobs || MOCK_JOBS).find(j => j.status === 'active');
+  const jobs = activeJobs();
   const todayD = new Date();
   const todayStr = todayD.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' });
 
-  const activeTasks = TODAY_TASKS.filter(t => t.status !== 'done');
-  document.getElementById('today-count').textContent = activeTasks.length;
-  document.getElementById('today-meta').textContent = job
-    ? `${job.name} · ${job.phase}`
+  document.getElementById('today-count').textContent = jobs.length || (APP.jobs == null ? '—' : '0');
+  document.getElementById('today-meta').textContent = jobs.length
+    ? (jobs.length === 1 ? jobs[0].name : `${jobs.length} active jobs`)
     : todayStr;
 
   const el = document.getElementById('today-tasks');
-  if (!TODAY_TASKS.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><div class="empty-msg">All clear for today</div></div>';
+  if (APP.jobs == null) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon"><div class="skel" style="width:40px;height:40px;border-radius:50%;"></div></div><div class="empty-msg">Loading your jobs…</div></div>';
     return;
   }
-  el.innerHTML = TODAY_TASKS.map(t => `
-    <div class="task-row">
-      <div class="task-dot ${t.status === 'done' ? 'done' : t.status === 'inprogress' ? 'active' : ''}"></div>
-      <div>
-        <div class="task-name ${t.status === 'done' ? 'done' : ''}">${t.name}</div>
-        <div class="task-area">${t.area}</div>
+  if (!jobs.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">📋</div><div class="empty-msg">No active jobs assigned</div><div class="empty-sub">Ask the office to assign you to a job</div></div>';
+    return;
+  }
+  // Show each active job as a tappable row — entry point to job home.
+  el.innerHTML = jobs.map(j => `
+    <div class="job-row" onclick="openJob('${esc(j.id)}')">
+      <div class="job-dot">${esc((j.name || '').split(' ').slice(0,2).map(w => w[0] || '').join('').toUpperCase() || '?')}</div>
+      <div style="flex:1">
+        <div class="job-name">${esc(j.name || j.id)}</div>
+        <div class="job-sub">${esc(j.id)}</div>
       </div>
+      <div class="job-chev">›</div>
     </div>
   `).join('');
 }
@@ -1195,9 +1557,23 @@ function renderToday() {
 // ══════════════════════════════════════════════
 // JOBS SCREEN
 // ══════════════════════════════════════════════
-function renderJobs() {
-  if (!APP.jobs) APP.jobs = MOCK_JOBS;
+async function renderJobs() {
+  const el = document.getElementById('jobs-list');
+  if (APP.jobs == null) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon"><div class="skel" style="width:40px;height:40px;border-radius:50%;"></div></div><div class="empty-msg">Loading jobs…</div></div>';
+    await loadJobs();
+  }
   filterJobs(document.getElementById('jobs-search').value);
+}
+
+async function loadJobs() {
+  try {
+    const data = await api('GET', '/api/jobs');
+    APP.jobs = Array.isArray(data.jobs) ? data.jobs : [];
+  } catch (e) {
+    APP.jobs = [];
+    APP.jobsError = e.message || 'network';
+  }
 }
 
 function filterJobStatus(btn, val) {
@@ -1208,152 +1584,183 @@ function filterJobStatus(btn, val) {
 }
 
 function filterJobs(q) {
-  const jobs = (APP.jobs || MOCK_JOBS).filter(j => {
-    const matchQ = !q || j.name.toLowerCase().includes(q.toLowerCase()) || j.number.includes(q);
-    const matchStatus = jobsFilter === 'all' || j.status === jobsFilter;
+  const all = APP.jobs || [];
+  const jobs = all.filter(j => {
+    const hay = `${j.name || ''} ${j.id || ''}`.toLowerCase();
+    const matchQ = !q || hay.includes(q.toLowerCase());
+    const status = j.status || 'active';
+    const matchStatus = jobsFilter === 'all' || status === jobsFilter;
     return matchQ && matchStatus;
   });
   const el = document.getElementById('jobs-list');
+  if (!all.length) {
+    el.innerHTML = APP.jobsError
+      ? '<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-msg">Could not load jobs</div><div class="empty-sub">Check your connection and try again</div></div>'
+      : '<div class="empty"><div class="empty-icon">📋</div><div class="empty-msg">No jobs assigned</div><div class="empty-sub">Ask the office to assign you to a job</div></div>';
+    return;
+  }
   if (!jobs.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-msg">No jobs found</div></div>';
+    el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-msg">No jobs match that filter</div></div>';
     return;
   }
   el.innerHTML = jobs.map(j => {
-    const initials = j.name.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
-    const pct = j.tasksTotal ? Math.round(j.tasksDone / j.tasksTotal * 100) : 0;
-    return `<div class="job-row" onclick="openJob('${j.id}')">
-      <div class="job-dot">${initials}</div>
+    const initials = (j.name || j.id || '?').split(' ').slice(0,2).map(w => w[0] || '').join('').toUpperCase() || '?';
+    const status = j.status || 'active';
+    const badge = status === 'active' ? '' : `<span class="badge badge-grey" style="margin-left:6px;">${esc(status)}</span>`;
+    return `<div class="job-row" onclick="openJob('${esc(j.id)}')">
+      <div class="job-dot">${esc(initials)}</div>
       <div style="flex:1">
-        <div class="job-name">${j.name}</div>
-        <div class="job-sub">${j.number} · ${j.address}</div>
-        <div class="prog-bar" style="margin-top:6px;"><div class="prog-fill" style="width:${pct}%"></div></div>
+        <div class="job-name">${esc(j.name || j.id)} ${badge}</div>
+        <div class="job-sub">${esc(j.id)}</div>
       </div>
       <div class="job-chev">›</div>
     </div>`;
   }).join('');
 }
 
-function openJob(jobId) {
+async function openJob(jobId) {
+  const job = (APP.jobs || []).find(j => j.id === jobId);
+  if (!job) { toast('Job not found'); return; }
   APP.currentJobId = jobId;
-  const job = (APP.jobs || MOCK_JOBS).find(j => j.id === jobId);
-  if (!job) return;
+  APP.currentJob = job;
+  document.getElementById('job-home-title').textContent = job.name || job.id;
 
-  document.getElementById('job-home-title').textContent = job.name;
-  const pct = job.tasksTotal ? Math.round(job.tasksDone / job.tasksTotal * 100) : 0;
-  document.getElementById('job-home-bar').style.width = pct + '%';
-  document.getElementById('job-home-pct').textContent = pct + '%';
-  document.getElementById('job-home-tasks-done').textContent = `${job.tasksDone} / ${job.tasksTotal} tasks`;
-  document.getElementById('job-home-phase').textContent = job.phase;
-  document.getElementById('jh-tasks').textContent = job.tasksTotal - job.tasksDone;
-  document.getElementById('jh-snags').textContent = job.snags;
+  // Loading state for stats
+  document.getElementById('job-home-bar').style.width = '0%';
+  document.getElementById('job-home-pct').textContent = '—';
+  document.getElementById('job-home-tasks-done').textContent = '— / — dwellings done';
+  document.getElementById('job-home-phase').textContent = job.status || 'Active';
+  document.getElementById('jh-tasks').textContent = '—';
+  document.getElementById('jh-snags').textContent = '—';
 
-  renderAreasForJob(jobId);
   navTo('s-job-home');
+  loadJobStats(jobId);
+}
+
+async function loadJobStats(jobId) {
+  try {
+    const data = await api('GET', `/api/data?jobId=${encodeURIComponent(jobId)}`);
+    const dwellings = data.dwellings || {};
+    const snags = Array.isArray(data.snags) ? data.snags : [];
+    const dwNames = Object.keys(dwellings);
+    let doneDw = 0;
+    let totalStages = 0;
+    let doneStages = 0;
+    dwNames.forEach(dw => {
+      const info = dwellings[dw] || {};
+      let dwDone = 0; let dwTotal = 0;
+      Object.keys(info).forEach(k => {
+        if (k.startsWith('_')) return;
+        const v = info[k] && info[k].status;
+        if (!v) return;
+        dwTotal++;
+        if (v === 'Done') dwDone++;
+      });
+      if (dwTotal > 0) {
+        totalStages += dwTotal;
+        doneStages += dwDone;
+        if (dwDone === dwTotal) doneDw++;
+      }
+    });
+    const pct = totalStages ? Math.round(doneStages / totalStages * 100) : 0;
+    // Bail if user navigated away
+    if (APP.currentJobId !== jobId) return;
+    document.getElementById('job-home-bar').style.width = pct + '%';
+    document.getElementById('job-home-pct').textContent = pct + '%';
+    document.getElementById('job-home-tasks-done').textContent =
+      dwNames.length ? `${doneDw} / ${dwNames.length} dwellings done` : 'No dwellings yet';
+    document.getElementById('jh-tasks').textContent = Math.max(0, totalStages - doneStages);
+    document.getElementById('jh-snags').textContent = snags.filter(s => s.status === 'Open').length;
+  } catch (e) {
+    if (APP.currentJobId !== jobId) return;
+    document.getElementById('job-home-tasks-done').textContent = 'Could not load job data';
+    document.getElementById('jh-tasks').textContent = '—';
+    document.getElementById('jh-snags').textContent = '—';
+  }
 }
 
 // ══════════════════════════════════════════════
-// AREAS SCREEN
+// DWELLINGS (read-only view of Site Office data)
 // ══════════════════════════════════════════════
-function renderAreasForJob(jobId) {
-  const areas = MOCK_AREAS[jobId] || [];
-  renderAreasList(areas);
-}
-
-function filterAreas(btn, val) {
-  areasFilter = val;
-  document.querySelectorAll('#areas-chips .chip').forEach(c => c.classList.remove('active'));
-  btn.classList.add('active');
-  const areas = MOCK_AREAS[APP.currentJobId] || [];
-  renderAreasList(areas);
-}
-
-function renderAreasList(areas) {
-  const filtered = areasFilter === 'all'
-    ? areas
-    : areas.filter(a => a.status === areasFilter);
+async function openDwellings() {
+  if (!APP.currentJobId) { toast('Open a job first'); return; }
+  navTo('s-job-areas');
   const el = document.getElementById('areas-list');
-  if (!filtered.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-msg">No areas match</div></div>';
-    return;
-  }
-  el.innerHTML = filtered.map(a => {
-    const pct = a.tasksTotal ? Math.round(a.tasksDone / a.tasksTotal * 100) : 0;
-    const statusBadge = a.status === 'done'
-      ? '<span class="badge badge-green">Done</span>'
-      : a.status === 'inprogress'
-      ? '<span class="badge badge-amber">In progress</span>'
-      : '<span class="badge badge-grey">Not started</span>';
-    return `<div class="area-row" onclick="openArea('${a.id}','${a.name}')">
-      <div class="area-top">
-        <div class="area-name">${a.name}</div>
-        ${statusBadge}
-        <div class="area-pct">${pct}%</div>
-      </div>
-      <div class="prog-bar"><div class="prog-fill" style="width:${pct}%"></div></div>
-    </div>`;
-  }).join('');
-}
-
-function openArea(areaId, areaName) {
-  APP.currentAreaId = areaId;
-  document.getElementById('area-detail-title').textContent = areaName;
-  renderAreaTasks(areaId);
-  navTo('s-area-detail');
-}
-
-// ══════════════════════════════════════════════
-// AREA DETAIL (tasks)
-// ══════════════════════════════════════════════
-const STATUS_OPTS = ['Not started', 'In progress', 'Ready', 'Done'];
-const STATUS_KEYS = ['not-started', 'inprogress', 'ready', 'done'];
-
-function renderAreaTasks(areaId) {
-  const tasks = MOCK_TASKS[areaId] || [];
-  const el = document.getElementById('area-tasks-list');
-  if (!tasks.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><div class="empty-msg">No tasks yet</div></div>';
-    return;
-  }
-  el.innerHTML = tasks.map(t => {
-    const curIdx = STATUS_KEYS.indexOf(t.status);
-    const segOpts = STATUS_OPTS.map((lbl, i) => {
-      const cls = i === curIdx ? (i === 3 ? 'seg-opt active-green' : 'seg-opt active') : 'seg-opt';
-      return `<div class="${cls}" onclick="setTaskStatus('${areaId}','${t.id}',${i})">${lbl}</div>`;
+  el.innerHTML = '<div class="empty"><div class="empty-icon"><div class="skel" style="width:40px;height:40px;border-radius:50%;"></div></div><div class="empty-msg">Loading dwellings…</div></div>';
+  try {
+    const data = await api('GET', `/api/data?jobId=${encodeURIComponent(APP.currentJobId)}`);
+    const dwellings = data.dwellings || {};
+    const names = Object.keys(dwellings);
+    if (!names.length) {
+      el.innerHTML = '<div class="empty"><div class="empty-icon">🏗</div><div class="empty-msg">No dwellings yet</div><div class="empty-sub">Site Office hasn’t set up this job yet</div></div>';
+      return;
+    }
+    el.innerHTML = names.map(name => {
+      const info = dwellings[name] || {};
+      let total = 0, done = 0, snagged = 0;
+      Object.keys(info).forEach(k => {
+        if (k.startsWith('_')) return;
+        const v = info[k] && info[k].status;
+        if (!v) return;
+        total++;
+        if (v === 'Done') done++;
+        if (v === 'Snagged') snagged++;
+      });
+      const pct = total ? Math.round(done / total * 100) : 0;
+      const badge = total === 0
+        ? '<span class="badge badge-grey">Not started</span>'
+        : done === total
+        ? '<span class="badge badge-green">Done</span>'
+        : '<span class="badge badge-amber">In progress</span>';
+      return `<div class="area-row" onclick="openCapture({ area: ${JSON.stringify(name)}, dwelling: ${JSON.stringify(name)} })">
+        <div class="area-top">
+          <div class="area-name">${esc(name)}</div>
+          ${badge}
+          ${snagged ? `<span class="badge badge-red">${snagged} snagged</span>` : ''}
+          <div class="area-pct">${pct}%</div>
+        </div>
+        <div class="prog-bar"><div class="prog-fill" style="width:${pct}%"></div></div>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:6px;">Tap to add a photo for this dwelling</div>
+      </div>`;
     }).join('');
-    return `<div class="card" style="margin-bottom:0;border-radius:0;border-bottom:1px solid var(--line);">
-      <div class="card-pad" style="padding-bottom:12px;">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <span style="font-family:'Inter Tight',sans-serif;font-size:15px;font-weight:700;flex:1;">${t.name}</span>
-          ${t.spec ? `<span class="badge badge-blue">${t.spec}</span>` : ''}
-        </div>
-        <div class="seg" style="margin-top:10px;">${segOpts}</div>
-        <div style="display:flex;gap:8px;margin-top:10px;">
-          <button class="btn btn-ghost btn-sm">📷 Photo</button>
-          <button class="btn btn-red btn-sm" onclick="openSheet('sh-snag')">⚠️ Snag</button>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function setTaskStatus(areaId, taskId, idx) {
-  const tasks = MOCK_TASKS[areaId];
-  if (!tasks) return;
-  const t = tasks.find(x => x.id === taskId);
-  if (!t) return;
-  t.status = STATUS_KEYS[idx];
-  renderAreaTasks(areaId);
-  toast('Status updated');
-  // TODO: POST to real API when task-status endpoint exists
+  } catch (e) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-msg">Could not load dwellings</div><div class="empty-sub">Check your connection and try again</div></div>';
+  }
 }
 
 // ══════════════════════════════════════════════
-// HOURS SCREEN
+// HOURS SCREEN — backed by /api/hours per job
 // ══════════════════════════════════════════════
-function renderHours() {
-  const entries = APP.hours || MOCK_HOURS;
+async function renderHours() {
+  if (APP.hours == null) {
+    document.getElementById('hrs-entries').innerHTML = '<div class="empty"><div class="empty-icon"><div class="skel" style="width:40px;height:40px;border-radius:50%;"></div></div><div class="empty-msg">Loading hours…</div></div>';
+    await loadAllHours();
+  }
+  const entries = APP.hours || [];
   renderWeekStrip(entries);
   renderHrsEntries(entries, todayDate());
+}
+
+// Hours are stored per job. Phil aggregates the worker's entries from every assigned job.
+async function loadAllHours() {
+  if (APP.jobs == null) await loadJobs();
+  const myId = APP.me && APP.me.id;
+  const jobs = APP.jobs || [];
+  const all = [];
+  for (const j of jobs) {
+    try {
+      const data = await api('GET', `/api/hours?jobId=${encodeURIComponent(j.id)}`);
+      const entries = Array.isArray(data.entries) ? data.entries : [];
+      entries.forEach(e => {
+        // Only show entries this worker logged (admins see everything in admin)
+        if (!myId || e.userId === myId || !e.userId) {
+          all.push({ ...e, jobId: e.jobId || j.id, jobName: e.jobName || j.name });
+        }
+      });
+    } catch (e) { /* swallow per-job network errors */ }
+  }
+  all.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  APP.hours = all;
 }
 
 function renderWeekStrip(entries) {
@@ -1417,7 +1824,7 @@ function renderHrsEntries(entries, filterDate) {
 let _hrsDay = null;
 function filterHrsByDay(iso) {
   _hrsDay = (_hrsDay === iso) ? null : iso;
-  renderHrsEntries(APP.hours || MOCK_HOURS, _hrsDay);
+  renderHrsEntries(APP.hours || [], _hrsDay);
 }
 
 async function saveHours() {
@@ -1432,23 +1839,46 @@ async function saveHours() {
   const hrs = hoursFromRange(start, end);
   if (hrs <= 0) { toast('End must be after start'); return; }
 
-  const job = (APP.jobs || MOCK_JOBS).find(j => j.id === jobId);
+  // The job must be one of the worker's real assigned jobs.
+  const job = (APP.jobs || []).find(j => j.id === jobId);
+  if (!job) { toast('Select a real job'); return; }
+
+  const btn = document.querySelector('#sh-hours .btn-yellow');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
   const entry = {
-    id: 'h' + Date.now(),
-    date, jobId, jobName: job?.name || '', start, end, type, hours: hrs, notes,
+    id: 'h_' + Date.now().toString(36),
+    userId: APP.me && APP.me.id,
+    userName: APP.me && (APP.me.name || APP.me.username),
+    date, jobId,
+    jobName: job.name || jobId,
+    start, end, type, hours: hrs, notes,
+    loggedAt: new Date().toISOString(),
   };
 
-  // Add to local mock list
-  if (!APP.hours) APP.hours = [...MOCK_HOURS];
-  APP.hours.unshift(entry);
+  try {
+    // Backend stores hours as a per-job document of { entries: [...] }.
+    // Read-modify-write — last-writer-wins is acceptable at current crew size.
+    let existing = { entries: [] };
+    try {
+      existing = await api('GET', `/api/hours?jobId=${encodeURIComponent(jobId)}`);
+    } catch (_) {}
+    const entries = Array.isArray(existing.entries) ? existing.entries.slice() : [];
+    entries.push(entry);
+    await api('POST', `/api/hours?jobId=${encodeURIComponent(jobId)}`, { entries });
 
-  closeSheet('sh-hours');
-  toast(`${hrs}h logged`);
+    // Update local cache only after server confirms.
+    if (!APP.hours) APP.hours = [];
+    APP.hours.unshift(entry);
 
-  // TODO: POST to /api/hours (endpoint not yet built)
-  // await api('POST','/api/hours', { date, jobId, start, end, type, notes });
-
-  if (APP.tab === 'hours') renderHours();
+    closeSheet('sh-hours');
+    toast(`${hrs}h saved`);
+    if (APP.tab === 'hours') renderHours();
+  } catch (e) {
+    toast('Could not save hours');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save hours'; }
+  }
 }
 
 // ══════════════════════════════════════════════
@@ -1509,7 +1939,510 @@ async function doSignOut() {
 }
 
 // ══════════════════════════════════════════════
-// SNAG
+// PHOTOS — capture, compress, upload, gallery
+// ══════════════════════════════════════════════
+
+const PHOTO_MAX_DIM = 1600;   // long edge, px
+const PHOTO_THUMB_DIM = 320;
+const PHOTO_QUALITY = 0.82;
+
+// Open the capture sheet. Optionally pass context to pre-attach:
+//   openCapture({ jobId?, area?, itpStage?, defectId?, dwelling? })
+//
+// Guardrails:
+//   - Refuses to open if jobs haven't loaded yet.
+//   - Refuses to open if the worker has no real assigned jobs.
+//   - If only one active job, auto-selects it.
+//   - If the passed jobId isn't in the worker's real assigned jobs list, drops it
+//     (prevents photos being uploaded against a fake or stale job id).
+//   - Never accepts a client-supplied taskId — task IDs are not yet real in Phil.
+function openCapture(ctx) {
+  if (APP.jobs == null) {
+    toast('Load jobs before uploading photos');
+    return;
+  }
+  const real = activeJobs();
+  if (!real.length) {
+    toast('No active jobs assigned');
+    return;
+  }
+
+  const incoming = Object.assign({}, ctx || {});
+  // Reject any caller-supplied taskId until Phil has a real task model.
+  delete incoming.taskId;
+  delete incoming.taskName;
+
+  // Resolve job context — only accept real assigned jobs.
+  let jobId = incoming.jobId || APP.currentJobId || null;
+  if (jobId && !real.some(j => j.id === jobId)) jobId = null;
+  if (!jobId && real.length === 1) jobId = real[0].id;
+
+  const c = {
+    jobId,
+    area: incoming.area || '',
+    itpStage: incoming.itpStage || null,
+    defectId: incoming.defectId || null,
+    dwelling: incoming.dwelling || null,
+  };
+  APP.captureCtx = c;
+  APP.captureFiles = [];
+  APP.captureCategory = 'progress';
+
+  // Pre-fill the context line
+  const ctxEl = document.getElementById('cap-context');
+  const bits = [];
+  if (c.jobId) {
+    const j = real.find(x => x.id === c.jobId);
+    if (j) bits.push(j.name || j.id);
+  }
+  if (c.dwelling) bits.push('Dwelling: ' + c.dwelling);
+  else if (c.area) bits.push(c.area);
+  if (c.itpStage) bits.push('ITP: ' + c.itpStage);
+  if (bits.length) {
+    ctxEl.textContent = bits.join(' · ');
+    ctxEl.style.display = 'block';
+  } else {
+    ctxEl.style.display = 'none';
+  }
+  document.getElementById('cap-area').value = c.area || c.dwelling || '';
+  document.getElementById('cap-notes').value = '';
+
+  // Job dropdown — shown when more than one job and no preselected job.
+  const jobGroup = document.getElementById('cap-job-group');
+  if (c.jobId) {
+    jobGroup.style.display = 'none';
+  } else {
+    jobGroup.style.display = 'block';
+    populateJobDropdown('cap-job');
+  }
+
+  renderCaptureCats();
+  renderCaptureStrip();
+  document.getElementById('sh-capture').classList.add('open');
+  refreshCaptureSubmit();
+}
+
+function renderCaptureCats() {
+  const el = document.getElementById('cap-cats');
+  el.innerHTML = PHOTO_CATS.map(c =>
+    `<div class="cat-chip${c.key === APP.captureCategory ? ' active' : ''}" onclick="pickCat('${c.key}')">
+       <div class="cat-chip-icon">${c.icon}</div>
+       <div class="cat-chip-lbl">${c.label}</div>
+     </div>`
+  ).join('');
+}
+
+function pickCat(k) {
+  APP.captureCategory = k;
+  renderCaptureCats();
+}
+
+// File picker → compress → preview
+async function onCaptureFiles(filesList, fromCamera) {
+  const files = Array.from(filesList || []);
+  if (!files.length) return;
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) {
+      toast('Only image files allowed');
+      continue;
+    }
+    const id = 'cap_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const entry = {
+      id,
+      name: file.name || `photo_${Date.now()}.jpg`,
+      type: file.type,
+      origSize: file.size,
+      status: 'pending',  // pending | uploading | up | err
+      error: null,
+      blob: null,
+      thumbDataUrl: null,
+      width: null,
+      height: null,
+    };
+    APP.captureFiles.push(entry);
+    renderCaptureStrip();
+    try {
+      const { blob, thumbDataUrl, width, height } = await processImage(file);
+      entry.blob = blob;
+      entry.thumbDataUrl = thumbDataUrl;
+      entry.width = width;
+      entry.height = height;
+    } catch (e) {
+      entry.status = 'err';
+      entry.error = e.message || 'preview failed';
+    }
+    renderCaptureStrip();
+    refreshCaptureSubmit();
+  }
+}
+
+function removeCaptureFile(id) {
+  APP.captureFiles = APP.captureFiles.filter(e => e.id !== id);
+  renderCaptureStrip();
+  refreshCaptureSubmit();
+}
+
+function renderCaptureStrip() {
+  const strip = document.getElementById('cap-strip');
+  if (!APP.captureFiles.length) {
+    strip.innerHTML = '';
+    return;
+  }
+  strip.innerHTML = APP.captureFiles.map(e => {
+    let status = '';
+    if (e.status === 'uploading') status = `<div class="cap-thumb-status">${e.progress || 'Uploading'}</div>`;
+    else if (e.status === 'up') status = `<div class="cap-thumb-status up">✓ Sent</div>`;
+    else if (e.status === 'err') status = `<div class="cap-thumb-status err">Failed</div>`;
+    return `<div class="cap-thumb">
+      ${e.thumbDataUrl ? `<img src="${e.thumbDataUrl}" alt="">` : `<div class="skel" style="width:100%;height:100%;"></div>`}
+      <button class="cap-thumb-x" onclick="removeCaptureFile('${e.id}')" aria-label="Remove">×</button>
+      ${status}
+    </div>`;
+  }).join('');
+}
+
+function refreshCaptureSubmit() {
+  const btn = document.getElementById('cap-submit');
+  const ready = APP.captureFiles.some(e => e.blob && e.status === 'pending');
+  btn.disabled = !ready;
+  btn.textContent = APP.captureFiles.length > 1
+    ? `Submit ${APP.captureFiles.filter(e => e.status === 'pending').length} photos`
+    : 'Submit photo';
+}
+
+// Compress + thumbnail on the client. Returns a Blob (JPEG) and a thumb data URL.
+function processImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      try {
+        const { width: iw, height: ih } = img;
+        // Full-size compression
+        const scale = Math.min(1, PHOTO_MAX_DIM / Math.max(iw, ih));
+        const cw = Math.max(1, Math.round(iw * scale));
+        const ch = Math.max(1, Math.round(ih * scale));
+        const cnv = document.createElement('canvas');
+        cnv.width = cw; cnv.height = ch;
+        const ctx = cnv.getContext('2d');
+        ctx.drawImage(img, 0, 0, cw, ch);
+        cnv.toBlob(blob => {
+          if (!blob) { URL.revokeObjectURL(url); reject(new Error('encode failed')); return; }
+          // Thumb
+          const tScale = Math.min(1, PHOTO_THUMB_DIM / Math.max(cw, ch));
+          const tw = Math.max(1, Math.round(cw * tScale));
+          const th = Math.max(1, Math.round(ch * tScale));
+          const tcnv = document.createElement('canvas');
+          tcnv.width = tw; tcnv.height = th;
+          tcnv.getContext('2d').drawImage(cnv, 0, 0, tw, th);
+          const thumbDataUrl = tcnv.toDataURL('image/jpeg', 0.75);
+          URL.revokeObjectURL(url);
+          resolve({ blob, thumbDataUrl, width: cw, height: ch });
+        }, 'image/jpeg', PHOTO_QUALITY);
+      } catch (e) {
+        URL.revokeObjectURL(url);
+        reject(e);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image decode failed')); };
+    img.src = url;
+  });
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = r.result || '';
+      const idx = String(s).indexOf(',');
+      resolve(idx >= 0 ? String(s).slice(idx + 1) : String(s));
+    };
+    r.onerror = () => reject(r.error || new Error('read failed'));
+    r.readAsDataURL(blob);
+  });
+}
+function dataUrlToBase64(s) {
+  if (!s) return '';
+  const idx = s.indexOf(',');
+  return idx >= 0 ? s.slice(idx + 1) : s;
+}
+
+async function submitCapture() {
+  const ctx = APP.captureCtx || {};
+  // jobId comes from either pre-attached context or the dropdown — never from a free field.
+  let jobId = ctx.jobId || document.getElementById('cap-job').value;
+  if (!jobId) { toast('Select a job first'); return; }
+  // Final validation: the chosen jobId MUST be a real assigned job.
+  if (!(APP.jobs || []).some(j => j.id === jobId)) {
+    toast('That job is not available'); return;
+  }
+  const area = document.getElementById('cap-area').value.trim();
+  const notes = document.getElementById('cap-notes').value.trim();
+  const category = APP.captureCategory;
+  const queue = APP.captureFiles.filter(e => e.blob && e.status === 'pending');
+  if (!queue.length) { toast('Add at least one photo'); return; }
+
+  // Close the sheet immediately so the worker can keep moving — uploads continue in the background.
+  closeSheet('sh-capture');
+  showUploadQueue(`Uploading ${queue.length} photo${queue.length > 1 ? 's' : ''}…`, 'spin');
+
+  let success = 0, failed = 0;
+  for (const e of queue) {
+    e.status = 'uploading';
+    try {
+      const data = await blobToBase64(e.blob);
+      const thumbData = dataUrlToBase64(e.thumbDataUrl);
+      const payload = {
+        filename: (e.name || 'photo.jpg').replace(/\.[^.]+$/, '') + '.jpg',
+        contentType: 'image/jpeg',
+        data,
+        thumbData,
+        category,
+        area,
+        notes,
+        // Phil has no real task model yet — never send taskId.
+        itpStage: ctx.itpStage || null,
+        defectId: ctx.defectId || null,
+        dwelling: ctx.dwelling || null,
+        width: e.width,
+        height: e.height,
+      };
+      const r = await fetch(`/api/photos?jobId=${encodeURIComponent(jobId)}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const json = await r.json();
+      if (!APP.photos[jobId]) APP.photos[jobId] = [];
+      APP.photos[jobId].unshift(json.photo);
+      success++;
+      e.status = 'up';
+    } catch (err) {
+      e.status = 'err';
+      e.error = err.message || 'upload failed';
+      failed++;
+      // Keep the payload around for retry. Note: in-memory only — see honest UX below.
+      APP.uploadQueue.push({ jobId, payload: {
+        filename: (e.name || 'photo.jpg').replace(/\.[^.]+$/, '') + '.jpg',
+        contentType: 'image/jpeg',
+        _blob: e.blob,
+        _thumbDataUrl: e.thumbDataUrl,
+        category, area, notes,
+        itpStage: ctx.itpStage || null,
+        defectId: ctx.defectId || null,
+        dwelling: ctx.dwelling || null,
+        width: e.width,
+        height: e.height,
+      }});
+    }
+  }
+
+  if (failed === 0) {
+    showUploadQueue(`${success} photo${success > 1 ? 's' : ''} uploaded`, 'done');
+    hideUploadQueueSoon();
+  } else if (success === 0) {
+    // Be honest: the queue is memory-only. If the tab closes, photos are gone.
+    showUploadQueue(`Upload failed. Retry before closing Phil — ${failed} photo${failed > 1 ? 's' : ''} not saved.`, 'fail', true);
+  } else {
+    showUploadQueue(`${success} sent · ${failed} failed — retry before closing Phil`, 'fail', true);
+  }
+  // Refresh the gallery if user is looking at it for this job
+  if (APP.currentJobId === jobId && document.getElementById('s-job-photos').classList.contains('active')) {
+    renderPhotoGallery();
+  }
+}
+
+// Warn the worker if they try to close the tab while photos are still pending.
+window.addEventListener('beforeunload', (e) => {
+  if (APP.uploadQueue && APP.uploadQueue.length) {
+    e.preventDefault();
+    e.returnValue = 'You have unsaved photos. Retry uploads before closing.';
+    return e.returnValue;
+  }
+});
+
+function showUploadQueue(msg, state, showRetry) {
+  const q = document.getElementById('up-queue');
+  const ic = document.getElementById('up-queue-icon');
+  const m  = document.getElementById('up-queue-msg');
+  const r  = document.getElementById('up-queue-retry');
+  m.textContent = msg;
+  ic.className = 'up-queue-icon' + (state === 'done' ? ' done' : state === 'fail' ? ' fail' : '');
+  ic.textContent = state === 'done' ? '✓' : state === 'fail' ? '!' : '';
+  r.style.display = showRetry ? 'block' : 'none';
+  q.classList.add('show');
+}
+function hideUploadQueueSoon() {
+  setTimeout(() => document.getElementById('up-queue').classList.remove('show'), 2400);
+}
+function hideUploadQueue() {
+  document.getElementById('up-queue').classList.remove('show');
+}
+
+async function retryFailedUploads() {
+  const pending = APP.uploadQueue.slice();
+  APP.uploadQueue = [];
+  showUploadQueue(`Retrying ${pending.length}…`, 'spin');
+  let success = 0, failed = 0;
+  for (const item of pending) {
+    try {
+      const data = await blobToBase64(item.payload._blob);
+      const thumbData = dataUrlToBase64(item.payload._thumbDataUrl);
+      const body = { ...item.payload, data, thumbData };
+      delete body._blob; delete body._thumbDataUrl;
+      const r = await fetch(`/api/photos?jobId=${encodeURIComponent(item.jobId)}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const json = await r.json();
+      if (!APP.photos[item.jobId]) APP.photos[item.jobId] = [];
+      APP.photos[item.jobId].unshift(json.photo);
+      success++;
+    } catch (err) {
+      failed++;
+      APP.uploadQueue.push(item);
+    }
+  }
+  if (failed === 0) {
+    showUploadQueue(`${success} photo${success > 1 ? 's' : ''} uploaded`, 'done');
+    hideUploadQueueSoon();
+  } else {
+    showUploadQueue(`${success} sent · ${failed} still failed — retry before closing Phil`, 'fail', true);
+  }
+  if (APP.currentJobId && document.getElementById('s-job-photos').classList.contains('active')) {
+    renderPhotoGallery();
+  }
+}
+
+// ── Gallery ──────────────────────────────────────────────
+function openJobPhotos(opts) {
+  if (!APP.currentJobId) { toast('Open a job first'); return; }
+  APP.photoFilter = { category: 'all', area: (opts && opts.area) || null, taskId: (opts && opts.taskId) || null };
+  document.getElementById('ph-title').textContent = opts && opts.taskName
+    ? `Photos · ${opts.taskName}`
+    : 'Job Photos';
+  navTo('s-job-photos');
+  renderPhotoChips();
+  loadJobPhotos();
+}
+
+async function loadJobPhotos() {
+  const jobId = APP.currentJobId;
+  if (!jobId) return;
+  const content = document.getElementById('ph-content');
+  content.innerHTML = `<div class="ph-grid">${Array.from({length:9}).map(() => `<div class="ph-tile"><div class="skel" style="width:100%;height:100%;"></div></div>`).join('')}</div>`;
+  try {
+    const r = await fetch(`/api/photos?jobId=${encodeURIComponent(jobId)}`, { credentials: 'include' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    APP.photos[jobId] = data.photos || [];
+  } catch (e) {
+    if (!APP.photos[jobId]) APP.photos[jobId] = [];
+  }
+  renderPhotoGallery();
+}
+
+function renderPhotoChips() {
+  const wrap = document.getElementById('ph-cat-chips');
+  const counts = countPhotosByCategory();
+  const chips = [{ key: 'all', label: 'All', icon: '🖼️' }, ...PHOTO_CATS.filter(c => counts[c.key])];
+  wrap.innerHTML = chips.map(c => {
+    const active = c.key === (APP.photoFilter.category || 'all');
+    const count = c.key === 'all' ? (APP.photos[APP.currentJobId] || []).length : (counts[c.key] || 0);
+    return `<div class="chip${active ? ' active' : ''}" onclick="setPhotoFilter('${c.key}')">${c.icon || ''} ${c.label}${count ? ' · ' + count : ''}</div>`;
+  }).join('');
+}
+
+function countPhotosByCategory() {
+  const photos = APP.photos[APP.currentJobId] || [];
+  const c = {};
+  for (const p of photos) c[p.category] = (c[p.category] || 0) + 1;
+  return c;
+}
+
+function setPhotoFilter(key) {
+  APP.photoFilter.category = key;
+  renderPhotoChips();
+  renderPhotoGallery();
+}
+
+function renderPhotoGallery() {
+  const photos = (APP.photos[APP.currentJobId] || []).filter(p => {
+    if (APP.photoFilter.category && APP.photoFilter.category !== 'all' && p.category !== APP.photoFilter.category) return false;
+    if (APP.photoFilter.area && (p.area || '') !== APP.photoFilter.area) return false;
+    if (APP.photoFilter.taskId && p.taskId !== APP.photoFilter.taskId) return false;
+    return true;
+  });
+  const content = document.getElementById('ph-content');
+  if (!photos.length) {
+    content.innerHTML = `<div class="empty">
+      <div class="empty-icon">📷</div>
+      <div class="empty-msg">No photos yet</div>
+      <div class="empty-sub">Tap <b>+ Add</b> to capture or upload a photo for this job</div>
+    </div>`;
+    return;
+  }
+  content.innerHTML = `<div class="ph-grid">${photos.map((p, i) => {
+    const url = p.thumbUrl || p.url;
+    return `<div class="ph-tile" onclick="openViewer('${p.id}')">
+      <img src="${url}" alt="${esc(p.notes || p.category)}" loading="lazy">
+      <span class="ph-tile-cat ${p.category}">${(PHOTO_CAT_MAP[p.category] || {}).label || p.category}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+// ── Viewer ──────────────────────────────────────────────
+function openViewer(photoId) {
+  const photo = (APP.photos[APP.currentJobId] || []).find(p => p.id === photoId);
+  if (!photo) return;
+  APP.viewerPhoto = photo;
+  document.getElementById('viewer-img').src = photo.url;
+  document.getElementById('viewer-title').textContent = photo.area || 'Photo';
+  const cat = PHOTO_CAT_MAP[photo.category] || { label: photo.category, icon: '📷' };
+  document.getElementById('viewer-cat').innerHTML = `${cat.icon} ${cat.label}`;
+  document.getElementById('viewer-notes').textContent = photo.notes || '';
+  const when = photo.uploadedAt ? new Date(photo.uploadedAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+  const meta = [];
+  if (photo.uploadedByName) meta.push(`<b>${esc(photo.uploadedByName)}</b>`);
+  if (when) meta.push(when);
+  if (photo.area) meta.push(esc(photo.area));
+  if (photo.itpStage) meta.push(`ITP: ${esc(photo.itpStage)}`);
+  if (photo.dwelling && photo.dwelling !== photo.area) meta.push(`Dwelling: ${esc(photo.dwelling)}`);
+  document.getElementById('viewer-meta').innerHTML = meta.join(' · ');
+  const canDelete = APP.me && (APP.me.role === 'admin' || APP.me.id === photo.uploadedBy);
+  document.getElementById('viewer-del').style.display = canDelete ? 'flex' : 'none';
+  document.getElementById('viewer').classList.add('open');
+}
+function closeViewer() {
+  document.getElementById('viewer').classList.remove('open');
+  APP.viewerPhoto = null;
+}
+async function deleteCurrentPhoto() {
+  const p = APP.viewerPhoto;
+  if (!p) return;
+  if (!confirm('Delete this photo? This cannot be undone.')) return;
+  try {
+    const r = await fetch(`/api/photos?jobId=${encodeURIComponent(p.jobId)}&id=${encodeURIComponent(p.id)}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    APP.photos[p.jobId] = (APP.photos[p.jobId] || []).filter(x => x.id !== p.id);
+    closeViewer();
+    renderPhotoGallery();
+    renderPhotoChips();
+    toast('Photo deleted');
+  } catch (e) {
+    toast('Could not delete photo');
+  }
+}
+
+// ══════════════════════════════════════════════
+// SNAG — stored in jobs/<jobId>/data.json { snags: [...] }
 // ══════════════════════════════════════════════
 async function saveSnag() {
   const jobId = document.getElementById('sh-snag-job').value;
@@ -1517,11 +2450,44 @@ async function saveSnag() {
   const desc  = document.getElementById('sh-snag-desc').value.trim();
   if (!jobId || !desc) { toast('Job and description required'); return; }
 
-  closeSheet('sh-snag');
-  toast('Snag submitted');
-  document.getElementById('sh-snag-area').value = '';
-  document.getElementById('sh-snag-desc').value = '';
-  // TODO: POST to /api/snags (not yet built)
+  const job = (APP.jobs || []).find(j => j.id === jobId);
+  if (!job) { toast('Select a real job'); return; }
+
+  const btn = document.querySelector('#sh-snag .btn-red');
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+
+  try {
+    // Read-modify-write the per-job data doc.
+    let data = { dwellings: {}, snags: [], notes: [] };
+    try {
+      data = await api('GET', `/api/data?jobId=${encodeURIComponent(jobId)}`);
+    } catch (_) {}
+    if (!Array.isArray(data.snags)) data.snags = [];
+    data.snags.push({
+      id: 's_' + Date.now().toString(36),
+      dwelling: area || '',
+      stage: '',
+      desc,
+      by: (APP.me && (APP.me.name || APP.me.username)) || '',
+      byUserId: APP.me && APP.me.id,
+      priority: 'Medium',
+      status: 'Open',
+      date: new Date().toLocaleDateString('en-AU'),
+      loggedAt: new Date().toISOString(),
+    });
+    await api('POST', `/api/data?jobId=${encodeURIComponent(jobId)}`, data);
+
+    closeSheet('sh-snag');
+    toast('Snag submitted');
+    document.getElementById('sh-snag-area').value = '';
+    document.getElementById('sh-snag-desc').value = '';
+    // Refresh the job-home snag count if we're looking at this job
+    if (APP.currentJobId === jobId) loadJobStats(jobId);
+  } catch (e) {
+    toast('Could not submit snag');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '⚠️ Submit snag'; }
+  }
 }
 
 // ══════════════════════════════════════════════
@@ -1539,29 +2505,38 @@ async function init() {
   try {
     const data = await api('GET', '/api/auth?action=me');
     APP.me = data.user || data;
-    // Block non-tradie/non-admin (clients shouldn't be in Phil)
-    if (APP.me && APP.me.role === 'client') {
-      document.getElementById('app').innerHTML = `
-        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100dvh;gap:16px;padding:24px;text-align:center;">
-          <div style="font-size:48px;">🚫</div>
-          <div style="font-family:'Inter Tight',sans-serif;font-size:20px;font-weight:800;">Wrong app</div>
-          <div style="color:var(--ink-3);">Phil is for the crew. Clients use the Site Office portal.</div>
-          <a href="/" style="margin-top:8px;" class="btn btn-navy">Go to Site Office</a>
-        </div>`;
-      return;
-    }
-  } catch(e) {
-    if (e.status === 401) {
-      showLoginScreen();
-      return;
-    }
-    // Network error – still show the app with mock data
-    APP.me = { name: 'Demo User', role: 'tradie' };
+  } catch (e) {
+    if (e.status === 401) { showLoginScreen(); return; }
+    showOfflineScreen();
+    return;
+  }
+  // Block non-tradie/non-admin (clients shouldn't be in Phil)
+  if (APP.me && APP.me.role === 'client') {
+    document.getElementById('app').innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100dvh;gap:16px;padding:24px;text-align:center;">
+        <div style="font-size:48px;">🚫</div>
+        <div style="font-family:'Inter Tight',sans-serif;font-size:20px;font-weight:800;">Wrong app</div>
+        <div style="color:var(--ink-3);">Phil is for the crew. Clients use the Site Office portal.</div>
+        <a href="/" style="margin-top:8px;" class="btn btn-navy">Go to Site Office</a>
+      </div>`;
+    return;
   }
 
-  // Kick off initial screen
-  renderToday();
+  // Kick off initial screen and load the real jobs list once so it's available to
+  // hours / snags / photo capture etc. Empty array if the request fails.
   renderMore();
+  await loadJobs();
+  renderToday();
+}
+
+function showOfflineScreen() {
+  document.getElementById('app').innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100dvh;gap:16px;padding:24px;text-align:center;background:var(--card-2);">
+      <div style="font-size:48px;">📡</div>
+      <div style="font-family:'Inter Tight',sans-serif;font-size:20px;font-weight:800;">Can’t reach Phil</div>
+      <div style="color:var(--ink-3);max-width:280px;">Check your internet connection — Phil can’t be used without a connection to the server.</div>
+      <button class="btn btn-yellow" onclick="location.reload()" style="margin-top:8px;">Retry</button>
+    </div>`;
 }
 
 // ══════════════════════════════════════════════

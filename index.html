@@ -685,6 +685,42 @@ function renderList(sec,list,title){
 }
 
 // ── ITP Photos ──────────────────────────────────────────────
+// Uses the unified /api/photos endpoint:
+//   GET    ?jobId=X&dwelling=Y      → photos for this dwelling
+//   POST   ?jobId=X                 → upload (base64 + metadata)
+//   DELETE ?jobId=X&id=Y            → delete
+
+const PHOTO_MAX_DIM_ADMIN = 1600;
+const PHOTO_THUMB_DIM_ADMIN = 320;
+const PHOTO_QUALITY_ADMIN = 0.82;
+
+function _processImageAdmin(file){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();const url=URL.createObjectURL(file);
+    img.onload=()=>{try{
+      const {width:iw,height:ih}=img;
+      const scale=Math.min(1,PHOTO_MAX_DIM_ADMIN/Math.max(iw,ih));
+      const cw=Math.max(1,Math.round(iw*scale));const ch=Math.max(1,Math.round(ih*scale));
+      const cnv=document.createElement('canvas');cnv.width=cw;cnv.height=ch;
+      cnv.getContext('2d').drawImage(img,0,0,cw,ch);
+      cnv.toBlob(blob=>{
+        if(!blob){URL.revokeObjectURL(url);reject(new Error('encode failed'));return;}
+        const tScale=Math.min(1,PHOTO_THUMB_DIM_ADMIN/Math.max(cw,ch));
+        const tw=Math.max(1,Math.round(cw*tScale));const th=Math.max(1,Math.round(ch*tScale));
+        const t=document.createElement('canvas');t.width=tw;t.height=th;
+        t.getContext('2d').drawImage(cnv,0,0,tw,th);
+        const thumbDataUrl=t.toDataURL('image/jpeg',0.75);
+        URL.revokeObjectURL(url);
+        resolve({blob,thumbDataUrl,width:cw,height:ch});
+      },'image/jpeg',PHOTO_QUALITY_ADMIN);
+    }catch(e){URL.revokeObjectURL(url);reject(e);}};
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('decode failed'));};
+    img.src=url;
+  });
+}
+function _blobToB64(blob){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>{const s=r.result||'';const i=String(s).indexOf(',');res(i>=0?String(s).slice(i+1):String(s));};r.onerror=()=>rej(r.error);r.readAsDataURL(blob);});}
+function _dataUrlB64(s){const i=String(s||'').indexOf(',');return i>=0?String(s).slice(i+1):String(s||'');}
+
 function handleFile(input,dw){
   const file=input.files[0];if(!file)return;
   selectedFile=file;
@@ -704,49 +740,79 @@ async function uploadPhoto(dw){
   const prog=document.getElementById('upload-progress');
   btn.disabled=true;btn.style.display='none';prog.style.display='block';
   const stage=document.getElementById('itp-stage').value;
-  const group=ROUGH.includes(stage)?'rough':'fitoff';
-  const reader=new FileReader();
-  reader.onload=async e=>{
-    await fetch('/api/photos',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({dwelling:dw,stage,group,caption:document.getElementById('itp-cap').value,uploadedBy:document.getElementById('itp-by').value||'Unknown',dataUrl:e.target.result})});
+  const caption=document.getElementById('itp-cap').value.trim();
+  try{
+    const {blob,thumbDataUrl,width,height}=await _processImageAdmin(selectedFile);
+    const data=await _blobToB64(blob);
+    const thumbData=_dataUrlB64(thumbDataUrl);
+    const r=await fetch('/api/photos?jobId='+encodeURIComponent(JOB_ID),{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',
+      body:JSON.stringify({
+        filename:(selectedFile.name||'photo.jpg').replace(/\.[^.]+$/,'')+'.jpg',
+        contentType:'image/jpeg',
+        data,thumbData,
+        category:'itp',
+        dwelling:dw,
+        itpStage:stage,
+        area:dw,
+        notes:caption,
+        width,height,
+      }),
+    });
+    if(!r.ok)throw new Error('HTTP '+r.status);
     selectedFile=null;
     document.getElementById('photo-preview').style.display='none';
     document.getElementById('photo-pick-area').style.display='flex';
     document.getElementById('itp-cap').value='';
     btn.style.display='block';btn.disabled=true;prog.style.display='none';
     loadPhotos(dw);
-  };
-  reader.readAsDataURL(selectedFile);
+  }catch(e){
+    prog.style.display='none';btn.style.display='block';btn.disabled=false;
+    alert('Upload failed: '+(e.message||e));
+  }
 }
 
 async function loadPhotos(dw){
   try{
-    const r=await fetch(`/api/photos?dwelling=${encodeURIComponent(dw)}`);
-    currentDwellingPhotos=await r.json();
+    const r=await fetch(`/api/photos?jobId=${encodeURIComponent(JOB_ID)}&dwelling=${encodeURIComponent(dw)}`,{credentials:'same-origin'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const data=await r.json();
+    currentDwellingPhotos=(data.photos||[]).map(p=>{
+      // Surface the legacy "stage" field expected by the renderer.
+      return {...p, stage: p.itpStage || '', date: p.uploadedAt ? new Date(p.uploadedAt).toLocaleDateString('en-AU') : '', time: p.uploadedAt ? new Date(p.uploadedAt).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'}) : '', caption: p.notes || '', uploadedBy: p.uploadedByName || '', group: ROUGH.includes(p.itpStage||'')?'rough':(FITOFF.includes(p.itpStage||'')?'fitoff':'other')};
+    });
     renderGallery(dw,currentDwellingPhotos);
     const c=document.getElementById('itp-count');
     if(c)c.textContent=currentDwellingPhotos.length+' photo'+(currentDwellingPhotos.length!==1?'s':'');
-  }catch(e){}
+  }catch(e){
+    const el=document.getElementById('photo-gallery');
+    if(el)el.innerHTML='<div class="empty">Could not load photos</div>';
+  }
 }
 
 function renderGallery(dw,photos){
   const el=document.getElementById('photo-gallery');if(!el)return;
   if(!photos.length){el.innerHTML='<div class="empty">No photos yet</div>';return;}
-  const rough=photos.filter(p=>p.group==='rough'||ROUGH.includes(p.stage));
-  const fitoff=photos.filter(p=>p.group==='fitoff'||FITOFF.includes(p.stage));
+  const rough=photos.filter(p=>p.group==='rough');
+  const fitoff=photos.filter(p=>p.group==='fitoff');
+  const other=photos.filter(p=>p.group==='other');
   let h='';
   if(rough.length){h+=`<div class="photo-group"><div class="photo-group-title">Rough-In</div><div class="photo-grid">`;rough.forEach(p=>{h+=photoCard(p,photos.indexOf(p));});h+=`</div></div>`;}
   if(fitoff.length){h+=`<div class="photo-group"><div class="photo-group-title">Fit-Off</div><div class="photo-grid">`;fitoff.forEach(p=>{h+=photoCard(p,photos.indexOf(p));});h+=`</div></div>`;}
+  if(other.length){h+=`<div class="photo-group"><div class="photo-group-title">Other</div><div class="photo-grid">`;other.forEach(p=>{h+=photoCard(p,photos.indexOf(p));});h+=`</div></div>`;}
   el.innerHTML=h;
 }
 
 function photoCard(p,idx){
+  const thumb=p.thumbUrl||p.url;
   return`<div class="photo-card" onclick="openLightbox(${idx})">
-    <img src="${p.url}" alt="${p.stage}" loading="lazy">
+    <img src="${thumb}" alt="${p.stage||'photo'}" loading="lazy">
     <div class="photo-card-info">
-      <div class="photo-card-stage">${p.stage}</div>
+      <div class="photo-card-stage">${p.stage||p.category||'Photo'}</div>
       ${p.caption?`<div class="photo-card-cap">${p.caption}</div>`:''}
-      <div class="photo-card-meta">${p.uploadedBy} · ${p.date}</div>
+      <div class="photo-card-meta">${p.uploadedBy||''} · ${p.date||''}</div>
       <button class="photo-card-del" onclick="event.stopPropagation();deletePhoto('${p.id}')">Delete</button>
     </div>
   </div>`;
@@ -755,9 +821,9 @@ function photoCard(p,idx){
 function openLightbox(idx){
   const p=currentDwellingPhotos[idx];if(!p)return;
   document.getElementById('lb-img').src=p.url;
-  document.getElementById('lb-stage').textContent=p.stage;
+  document.getElementById('lb-stage').textContent=p.stage||p.category||'';
   document.getElementById('lb-cap').textContent=p.caption||'';
-  document.getElementById('lb-meta').textContent=`${p.uploadedBy} · ${p.date} ${p.time}`;
+  document.getElementById('lb-meta').textContent=`${p.uploadedBy||''}${p.date?' · '+p.date:''}${p.time?' '+p.time:''}`;
   document.getElementById('lightbox').classList.add('open');
   document.body.style.overflow='hidden';
 }
@@ -765,12 +831,17 @@ function openLightbox(idx){
 function closeLightbox(){document.getElementById('lightbox').classList.remove('open');document.body.style.overflow='';}
 
 async function deletePhoto(photoId){
-  const dw=currentDwellingPhotos.find(p=>p.id===photoId)?.dwelling;
+  const p=currentDwellingPhotos.find(x=>x.id===photoId);
+  if(!p)return;
   if(!confirm('Delete this photo?'))return;
-  await fetch('/api/photos',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({photoId})});
-  const sec=document.querySelector('.sc.active').id;
-  const dwName=document.querySelector('.dh-name')?.textContent;
-  if(dwName)loadPhotos(dwName);
+  try{
+    const r=await fetch(`/api/photos?jobId=${encodeURIComponent(JOB_ID)}&id=${encodeURIComponent(photoId)}`,{method:'DELETE',credentials:'same-origin'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const dwName=p.dwelling||document.querySelector('.dh-name')?.textContent;
+    if(dwName)loadPhotos(dwName);
+  }catch(e){
+    alert('Delete failed: '+(e.message||e));
+  }
 }
 
 // ── Snags ───────────────────────────────────────────────────
