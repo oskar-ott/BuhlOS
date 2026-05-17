@@ -1,5 +1,6 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, getCurrentUser } = require('./_lib/auth');
+const { normaliseStages, withRichStages, flattenForStorage } = require('./_lib/stages');
 
 function slugify(s) {
   return String(s || '')
@@ -30,7 +31,7 @@ module.exports = async (req, res) => {
         (me.assignedJobIds || []).includes(id) ||
         (me.role === 'client' && job.clientUserId === me.id);
       if (!canSee) return res.status(403).json({ error: 'forbidden' });
-      return res.status(200).json({ job });
+      return res.status(200).json({ job: withRichStages(job) });
     }
     let visible;
     if (me.role === 'admin') {
@@ -40,7 +41,7 @@ module.exports = async (req, res) => {
     } else {
       visible = data.jobs.filter(j => (me.assignedJobIds || []).includes(j.id));
     }
-    return res.status(200).json({ jobs: visible });
+    return res.status(200).json({ jobs: visible.map(withRichStages) });
   }
 
   // admin-only for writes
@@ -82,9 +83,13 @@ module.exports = async (req, res) => {
     if (name) job.name = name;
     if (clientUserId !== undefined) job.clientUserId = clientUserId;
     if (status) job.status = status;
-    if (stages) job.stages = stages;
+    if (stages) {
+      // Accept either flat strings or rich objects; persist flat-for-storage
+      // (rich objects without _extra wrappers) so the blob is editable.
+      job.stages = flattenForStorage(normaliseStages(stages));
+    }
     await writeBlob('jobs.json', data);
-    return res.status(200).json({ job });
+    return res.status(200).json({ job: withRichStages(job) });
   }
 
   res.status(405).end();

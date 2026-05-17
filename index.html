@@ -430,6 +430,7 @@ textarea:focus{border-color:var(--navy);background:#fff}
 
 <div class="nav">
   <button class="nb active" onclick="show('dashboard')">Dashboard</button>
+  <button class="nb" id="rvnav" onclick="show('review')">Review</button>
   <button class="nb" onclick="show('units')">Units (15)</button>
   <button class="nb" onclick="show('townhouses')">Townhouses (7)</button>
   <button class="nb" id="snav" onclick="show('snags')">Snags</button>
@@ -439,10 +440,12 @@ textarea:focus{border-color:var(--navy);background:#fff}
   <button class="nb" id="mnav" onclick="show('materials')">Materials</button>
   <button class="nb" id="anav" onclick="show('assets')">Assets</button>
   <button class="nb" id="cnav" onclick="show('contacts')">Contacts</button>
+  <button class="nb" id="stnav" onclick="show('stages')">Stages</button>
 </div>
 
 <div class="pg">
   <div id="dashboard" class="sc active"></div>
+  <div id="review" class="sc"></div>
   <div id="units" class="sc"></div>
   <div id="townhouses" class="sc"></div>
   <div id="snags" class="sc"></div>
@@ -452,6 +455,7 @@ textarea:focus{border-color:var(--navy);background:#fff}
   <div id="materials" class="sc"></div>
   <div id="assets" class="sc"></div>
   <div id="contacts" class="sc"></div>
+  <div id="stages" class="sc"></div>
 </div>
 
 <!-- Materials modals -->
@@ -466,9 +470,133 @@ textarea:focus{border-color:var(--navy);background:#fff}
 </div>
 
 <script>
-const ROUGH=['AC Rough-In','Lighting Rough-In','Power Rough-In','NBN','Rough-In Inspection'];
-const FITOFF=['AC Fit-Off','GPO / Switch Install','Lighting Install','Switchboard Fit-Off','Final Test & Commission','Certificate of Compliance','Handover'];
+// Fallback stage names — used only when the job has no configured stages.
+// The real source of truth is JOB.stages, loaded from /api/jobs?id=JOB_ID.
+const FALLBACK_ROUGH=['AC Rough-In','Lighting Rough-In','Power Rough-In','NBN','Rough-In Inspection'];
+const FALLBACK_FITOFF=['AC Fit-Off','GPO / Switch Install','Lighting Install','Switchboard Fit-Off','Final Test & Commission','Certificate of Compliance','Handover'];
+// Back-compat names so legacy code paths still work during the transition.
+const ROUGH=FALLBACK_ROUGH;
+const FITOFF=FALLBACK_FITOFF;
 const ALL_STAGES=[...ROUGH,...FITOFF];
+
+// Loaded job (rich stages). null until /api/jobs?id=JOB_ID resolves.
+let JOB=null;
+
+// ── Stage source-of-truth helpers ──────────────────────────────
+// Returns the active stage list as rich objects, ordered. Falls back to the
+// constant defaults when the job hasn't loaded or has no stages.
+function getAllJobStages(includeInactive){
+  if(!JOB||!JOB.stages){
+    return [...FALLBACK_ROUGH.map((n,i)=>normaliseClientStage(n,'roughIn',i)),
+            ...FALLBACK_FITOFF.map((n,i)=>normaliseClientStage(n,'fitOff',FALLBACK_ROUGH.length+i))];
+  }
+  const r=(JOB.stages.roughIn||[]).map((s,i)=>normaliseClientStage(s,'roughIn',i));
+  const f=(JOB.stages.fitOff ||[]).map((s,i)=>normaliseClientStage(s,'fitOff', r.length+i));
+  let all=[...r,...f];
+  all.sort((a,b)=>(a.order||0)-(b.order||0));
+  if(!includeInactive) all=all.filter(s=>s.active!==false);
+  return all;
+}
+// Returns { category: [stages] } in a stable display order. Custom
+// categories are preserved (rendered after the known ones).
+const CATEGORY_LABELS={roughIn:'Rough-In',fitOff:'Fit-Off',testing:'Testing',handover:'Handover',other:'Other'};
+const CATEGORY_ORDER=['roughIn','fitOff','testing','handover','other'];
+function getJobStageGroups(includeInactive){
+  const groups={};
+  getAllJobStages(includeInactive).forEach(s=>{
+    const cat=s.category||'other';
+    (groups[cat]=groups[cat]||[]).push(s);
+  });
+  // Stable ordering: known categories first, then anything custom alphabetically.
+  const ordered={};
+  CATEGORY_ORDER.forEach(c=>{if(groups[c])ordered[c]=groups[c];});
+  Object.keys(groups).sort().forEach(c=>{if(!ordered[c])ordered[c]=groups[c];});
+  return ordered;
+}
+function categoryLabel(cat){
+  if(CATEGORY_LABELS[cat])return CATEGORY_LABELS[cat];
+  // Convert camelCase / snake_case / kebab-case to a display label.
+  return String(cat||'Other').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ')
+    .replace(/\b\w/g,c=>c.toUpperCase());
+}
+function normaliseClientStage(s,category,index){
+  if(s&&typeof s==='object'){
+    return {
+      id:s.id||stableStageId(category,s.name||''),
+      name:String(s.name||'').trim(),
+      category:s.category||category||'other',
+      order:Number.isFinite(Number(s.order))?Number(s.order):index,
+      active:s.active===false?false:true,
+      requires:s.requires||{},
+      evidence:s.evidence||{minPhotos:0,minNotes:0},
+      itpTemplateId:s.itpTemplateId||null,
+      legacyNames:Array.isArray(s.legacyNames)?s.legacyNames:[],
+      // preserve anything else (workflow round-trips, future fields)
+      _orig:s,
+    };
+  }
+  const name=String(s||'').trim();
+  return {
+    id:stableStageId(category,name),
+    name,
+    category:category||'other',
+    order:index,
+    active:true,
+    requires:{},
+    evidence:{minPhotos:0,minNotes:0},
+    itpTemplateId:null,
+    legacyNames:[],
+    _orig:s,
+  };
+}
+function stableStageId(category,name){
+  const base=String(name||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')||'stage';
+  return 'stage_'+category+'_'+base;
+}
+// Tolerant lookup against existing data.dwellings[area][?]
+// Returns the existing row (status, notes) if any old key still matches.
+function findStageState(areaData,stage){
+  if(!areaData||!stage)return null;
+  if(areaData[stage.id]) return areaData[stage.id];
+  if(areaData[stage.name])return areaData[stage.name];
+  if(Array.isArray(stage.legacyNames)){
+    for(const n of stage.legacyNames){
+      if(areaData[n])return areaData[n];
+    }
+  }
+  // Case-insensitive fallback (people occasionally rename only by casing)
+  const lc=String(stage.name||'').toLowerCase();
+  for(const k of Object.keys(areaData)){
+    if(k.toLowerCase()===lc)return areaData[k];
+  }
+  return null;
+}
+// Storage key. Prefer stage.name for backward-compat with existing data
+// (status maps were keyed by stage name historically). Workflow API writes
+// by stage.name too, so the two stay aligned.
+function getStageKey(stage){return stage.name;}
+// Display name for the UI (used in headings, dots, etc.)
+function stageDisplayName(stage){return stage.name||'Stage';}
+// "Photo · ITP · Independent review" summary for the editor.
+function stageRequirementSummary(stage){
+  const r=stage.requires||{};
+  const parts=[];
+  if(r.photo) parts.push('Photo');
+  if(r.note) parts.push('Note');
+  if(r.itp) parts.push('ITP');
+  if(r.independentReview) parts.push('Independent review');
+  if(r.blockIfOpenSnags) parts.push('Blocks open snags');
+  if(r.adminSignoff) parts.push('Admin sign-off');
+  return parts.length?parts.join(' · '):'No requirements';
+}
+// Old code asked "does this stage belong to rough-in?". Replace with category lookup.
+function stageInCategory(stageName,category){
+  const s=getAllJobStages(true).find(x=>
+    x.name===stageName||x.id===stageName||
+    (x.legacyNames||[]).indexOf(stageName)>=0
+  );
+  return !!s && s.category===category;
+}
 const UNITS=Array.from({length:15},(_,i)=>`Unit ${i+1}`);
 const TH=Array.from({length:7},(_,i)=>`Townhouse ${i+1}`);
 const ALL=[...UNITS,...TH];
@@ -506,20 +634,39 @@ async function loadMe(){
   catch(e){}
   // Hide internal tabs for clients
   if(ME&&ME.role==='client'){
-    ['mnav','anav','cnav'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+    ['mnav','anav','cnav','rvnav','stnav'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+  }
+  // Hide stages editor for non-admins (workers don't configure rules)
+  if(ME&&ME.role!=='admin'){
+    const st=document.getElementById('stnav');if(st)st.style.display='none';
   }
 }
 async function load(){
   await loadMe();
-  try{const r=await fetch('/api/data?t='+Date.now());if(r.ok){D=await r.json();if(!D.snags)D.snags=[];}}
-  catch(e){sync('error');}
+  // Job (rich stages) + dwelling data in parallel — JOB drives every render.
+  const [jobR,dataR]=await Promise.allSettled([
+    fetch('/api/jobs?id='+encodeURIComponent(JOB_ID),{credentials:'same-origin'}),
+    fetch('/api/data?jobId='+encodeURIComponent(JOB_ID)+'&t='+Date.now(),{credentials:'same-origin'}),
+  ]);
+  try{
+    if(jobR.status==='fulfilled'&&jobR.value.ok){
+      const j=await jobR.value.json();
+      JOB=j.job||null;
+    }
+  }catch(e){}
+  try{
+    if(dataR.status==='fulfilled'&&dataR.value.ok){
+      D=await dataR.value.json();
+      if(!D.snags)D.snags=[];
+    }else if(dataR.status==='rejected'){sync('error');}
+  }catch(e){sync('error');}
   const el=document.getElementById('loading');
   el.classList.add('out');setTimeout(()=>el.style.display='none',450);
   renderAll();
 }
 async function persist(){
   sync('syncing');
-  try{await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(D)});sync('ok');}
+  try{await fetch('/api/data?jobId='+encodeURIComponent(JOB_ID),{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(D)});sync('ok');}
   catch(e){sync('error');}
 }
 function sched(){clearTimeout(saveT);saveT=setTimeout(persist,800);}
@@ -529,13 +676,47 @@ function sync(s){
   t.textContent=s==='syncing'?'Saving…':s==='error'?'Offline':'Saved';
 }
 function inf(dw){return D.dwellings[dw]||{};}
-function stv(dw,st){const i=inf(dw);return(i[st]&&i[st].status)||'Not Started';}
-function setSt(dw,st,v){if(!D.dwellings[dw])D.dwellings[dw]={};if(!D.dwellings[dw][st])D.dwellings[dw][st]={};D.dwellings[dw][st].status=v;sched();}
+// Tolerant value lookup — accepts a stage object OR a legacy stage name.
+function stv(dw,st){
+  const area=inf(dw);
+  const stage=(typeof st==='object'&&st)?st:getAllJobStages(true).find(x=>x.name===st||x.id===st||(x.legacyNames||[]).indexOf(st)>=0)||{name:String(st),legacyNames:[]};
+  const row=findStageState(area,stage);
+  return(row&&row.status)||'Not Started';
+}
+// Writes stage status. Uses stage.name as the storage key for back-compat
+// with existing data.dwellings shape. If the data only had a legacy key,
+// migrate the row to the current name on first write.
+function setSt(dw,st,v){
+  if(!D.dwellings[dw])D.dwellings[dw]={};
+  const area=D.dwellings[dw];
+  const stage=(typeof st==='object'&&st)?st:getAllJobStages(true).find(x=>x.name===st||x.id===st||(x.legacyNames||[]).indexOf(st)>=0)||{name:String(st),legacyNames:[]};
+  const key=getStageKey(stage);
+  // If an older alias holds the row, lift it onto the current name.
+  if(!area[key]){
+    if(stage.id&&area[stage.id]){area[key]={...area[stage.id]};delete area[stage.id];}
+    else if(Array.isArray(stage.legacyNames)){
+      for(const n of stage.legacyNames){
+        if(area[n]){area[key]={...area[n]};delete area[n];break;}
+      }
+    }
+  }
+  if(!area[key])area[key]={};
+  area[key].status=v;
+  sched();
+}
 function setN(dw,v){if(!D.dwellings[dw])D.dwellings[dw]={};D.dwellings[dw]._notes=v;sched();}
 function stats(dw){
-  let done=0,ip=0,sn=0;
-  ALL_STAGES.forEach(s=>{const v=stv(dw,s);if(v==='Done')done++;else if(v==='In Progress')ip++;else if(v==='Snagged')sn++;});
-  return{done,ip,sn,pct:Math.round(done/ALL_STAGES.length*100)};
+  let done=0,ip=0,sn=0,sub=0;
+  const stages=getAllJobStages();
+  stages.forEach(stage=>{
+    const v=stv(dw,stage);
+    if(v==='Done')done++;
+    else if(v==='In Progress'||v==='Reopened')ip++;
+    else if(v==='Snagged')sn++;
+    else if(v==='Submitted'||v==='Review')sub++;
+  });
+  const total=Math.max(1,stages.length);
+  return{done,ip,sn,sub,total:stages.length,pct:Math.round(done/total*100)};
 }
 function tlc(pct,sn){if(sn>0)return'red';if(pct===100)return'green';if(pct>0)return'amber';return'grey';}
 function bc(pct){if(pct===100)return'#22c55e';if(pct>=50)return'#f59e0b';return'#3b82f6';}
@@ -579,7 +760,11 @@ function renderDash(){
 function dwCard(dw){
   const s=stats(dw);const tc=tlc(s.pct,s.sn);
   const sc=(D.snags||[]).filter(x=>x.dwelling===dw&&x.status==='Open').length;
-  const dots=ALL_STAGES.map(st=>{const v=stv(dw,st);const c=v==='Done'?'done':v==='In Progress'?'inprog':v==='Snagged'?'snagged':'';return`<div class="sdot2 ${c}" title="${st}"></div>`;}).join('');
+  const dots=getAllJobStages().map(stage=>{
+    const v=stv(dw,stage);
+    const c=v==='Done'?'done':(v==='In Progress'||v==='Reopened')?'inprog':v==='Snagged'?'snagged':(v==='Submitted'||v==='Review')?'submitted':'';
+    return`<div class="sdot2 ${c}" title="${esc(stageDisplayName(stage))} — ${esc(v)}"></div>`;
+  }).join('');
   return`<div class="dc" onclick="openDw('${dw}')">
     <div class="dc-top"><div class="dot ${tc}"></div><div class="dc-name">${dw}</div>${sc>0?`<div class="dc-snag">${sc} snag${sc>1?'s':''}</div>`:''}<div class="dc-pct">${s.pct}%</div></div>
     <div class="bar-bg"><div class="bar" style="width:${s.pct}%;background:${bc(s.pct)}"></div></div>
@@ -592,22 +777,30 @@ function openDw(dw){
   const isU=UNITS.includes(dw);const sec=isU?'units':'townhouses';
   show(sec);
   const i=inf(dw);const s=stats(dw);
+  const groups=getJobStageGroups();
   let h=`<button class="back" onclick="show('${sec}')">&#8592; Back to ${isU?'Units':'Townhouses'}</button>
   <div class="dh">
-    <div class="dh-name">${dw}</div>
+    <div class="dh-name">${esc(dw)}</div>
     <div class="dh-bar-bg"><div class="dh-bar" id="dhb" style="width:${s.pct}%;background:${bc(s.pct)}"></div></div>
-    <div class="dh-pct" id="dhp"><b>${s.pct}%</b> complete — ${s.done} of ${ALL_STAGES.length} stages done</div>
+    <div class="dh-pct" id="dhp"><b>${s.pct}%</b> complete — ${s.done} of ${s.total} stages done${s.sub?` · ${s.sub} awaiting review`:''}</div>
   </div>
   <div class="dtabs">
     <button class="dtab active" onclick="switchTab(this,'tp-stages')">Stages</button>
-    <button class="dtab" onclick="switchTab(this,'tp-itp');loadPhotos('${dw}')">ITP Photos</button>
+    <button class="dtab" onclick="switchTab(this,'tp-itp');loadPhotos('${esc(dw)}')">ITP Photos</button>
     <button class="dtab" onclick="switchTab(this,'tp-notes')">Notes</button>
   </div>
-  <div id="tp-stages" class="dpanel active">
-    <div class="ghdr"><div class="gpill rough">Rough-In</div><div class="gline"></div></div>`;
-  ROUGH.forEach(st=>{h+=stRow(dw,st);});
-  h+=`<div class="ghdr"><div class="gpill fitoff">Fit-Off</div><div class="gline"></div></div>`;
-  FITOFF.forEach(st=>{h+=stRow(dw,st);});
+  <div id="tp-stages" class="dpanel active">`;
+  // Render each stage category with its own header. Custom categories are
+  // shown after the known ones (see CATEGORY_ORDER) — no hardcoded list here.
+  Object.entries(groups).forEach(([cat,list])=>{
+    const pillCls=cat==='roughIn'?'rough':cat==='fitOff'?'fitoff':'';
+    h+=`<div class="ghdr"><div class="gpill ${pillCls}">${esc(categoryLabel(cat))}</div><div class="gline"></div></div>`;
+    list.forEach(stage=>{h+=stRow(dw,stage);});
+  });
+  // Group-flat stage option list (used by the ITP photo dropdown below).
+  const stageOptGroups=Object.entries(groups).map(([cat,list])=>
+    `<optgroup label="${esc(categoryLabel(cat))}">${list.map(st=>`<option>${esc(stageDisplayName(st))}</option>`).join('')}</optgroup>`
+  ).join('');
   h+=`</div>
   <div id="tp-itp" class="dpanel">
     <div class="itp-header">
@@ -615,10 +808,7 @@ function openDw(dw){
       <div class="itp-upload-form">
         <div class="itp-row">
           <div><label class="itp-lbl">Stage</label>
-            <select class="itp-sel" id="itp-stage">
-              <optgroup label="Rough-In">${ROUGH.map(s=>`<option>${s}</option>`).join('')}</optgroup>
-              <optgroup label="Fit-Off">${FITOFF.map(s=>`<option>${s}</option>`).join('')}</optgroup>
-            </select>
+            <select class="itp-sel" id="itp-stage">${stageOptGroups}</select>
           </div>
           <div><label class="itp-lbl">Your name</label><input class="itp-inp" type="text" id="itp-by" placeholder="e.g. Jake"></div>
         </div>
@@ -651,26 +841,39 @@ function switchTab(btn,panelId){
   document.getElementById(panelId).classList.add('active');
 }
 
-function stRow(dw,st){
-  const v=stv(dw,st);
+// Accepts a stage object (preferred) or a legacy stage name for back-compat.
+function stRow(dw,stageOrName){
+  const stage=(typeof stageOrName==='object'&&stageOrName)
+    ? stageOrName
+    : (getAllJobStages(true).find(x=>x.name===stageOrName)||normaliseClientStage(stageOrName,'other',0));
+  const stName=stageDisplayName(stage);
+  const v=stv(dw,stage);
+  const safe=String(stName).replace(/\W/g,'_');
+  const reqs=stage.requires||{};
+  const hints=[];
+  if(reqs.photo)hints.push('📷');
+  if(reqs.note)hints.push('📝');
+  if(reqs.itp)hints.push('📋');
+  if(reqs.independentReview)hints.push('👥');
   return`<div class="sr">
-    <div class="sr-dot" style="background:${dc(v)}" id="d-${dw}-${st.replace(/\W/g,'_')}"></div>
-    <div class="sr-nm">${st}</div>
-    <select class="sr-sel ${sc2(v)}" onchange="hSel(this,'${dw}','${st}')">
-      ${OPTS.map(o=>`<option${o===v?' selected':''}>${o}</option>`).join('')}
+    <div class="sr-dot" style="background:${dc(v)}" id="d-${esc(dw)}-${esc(safe)}"></div>
+    <div class="sr-nm">${esc(stName)}${hints.length?` <span style="font-size:11px;opacity:.65;">${hints.join(' ')}</span>`:''}</div>
+    <select class="sr-sel ${sc2(v)}" onchange="hSel(this,'${esc(dw)}','${esc(stName)}')">
+      ${OPTS.map(o=>`<option${o===v?' selected':''}>${esc(o)}</option>`).join('')}
     </select>
   </div>`;
 }
 
-function hSel(el,dw,st){
+function hSel(el,dw,stName){
   const v=el.value;el.className='sr-sel '+sc2(v);
-  const d=document.getElementById('d-'+dw+'-'+st.replace(/\W/g,'_'));
+  const safe=stName.replace(/\W/g,'_');
+  const d=document.getElementById('d-'+dw+'-'+safe);
   if(d)d.style.background=dc(v);
-  setSt(dw,st,v);
+  setSt(dw,stName,v);
   const s=stats(dw);
   const b=document.getElementById('dhb'),p=document.getElementById('dhp');
   if(b){b.style.width=s.pct+'%';b.style.background=bc(s.pct);}
-  if(p)p.innerHTML=`<b>${s.pct}%</b> complete — ${s.done} of ${ALL_STAGES.length} stages done`;
+  if(p)p.innerHTML=`<b>${s.pct}%</b> complete — ${s.done} of ${s.total} stages done${s.sub?` · ${s.sub} awaiting review`:''}`;
 }
 
 function saveN(dw){
@@ -704,10 +907,14 @@ async function uploadPhoto(dw){
   const prog=document.getElementById('upload-progress');
   btn.disabled=true;btn.style.display='none';prog.style.display='block';
   const stage=document.getElementById('itp-stage').value;
-  const group=ROUGH.includes(stage)?'rough':'fitoff';
+  // Derive group from the job's configured stage category — not from
+  // hardcoded constants. Falls back to rough/fitoff/other.
+  const stageDef=getAllJobStages(true).find(x=>x.name===stage||x.id===stage||(x.legacyNames||[]).indexOf(stage)>=0);
+  const cat=(stageDef&&stageDef.category)||(ROUGH.includes(stage)?'roughIn':FITOFF.includes(stage)?'fitOff':'other');
+  const group=cat==='roughIn'?'rough':cat==='fitOff'?'fitoff':cat;
   const reader=new FileReader();
   reader.onload=async e=>{
-    await fetch('/api/photos',{method:'POST',headers:{'Content-Type':'application/json'},
+    await fetch('/api/photos?jobId='+encodeURIComponent(JOB_ID),{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
       body:JSON.stringify({dwelling:dw,stage,group,caption:document.getElementById('itp-cap').value,uploadedBy:document.getElementById('itp-by').value||'Unknown',dataUrl:e.target.result})});
     selectedFile=null;
     document.getElementById('photo-preview').style.display='none';
@@ -721,7 +928,7 @@ async function uploadPhoto(dw){
 
 async function loadPhotos(dw){
   try{
-    const r=await fetch(`/api/photos?dwelling=${encodeURIComponent(dw)}`);
+    const r=await fetch(`/api/photos?jobId=${encodeURIComponent(JOB_ID)}&dwelling=${encodeURIComponent(dw)}`,{credentials:'same-origin'});
     currentDwellingPhotos=await r.json();
     renderGallery(dw,currentDwellingPhotos);
     const c=document.getElementById('itp-count');
@@ -732,11 +939,30 @@ async function loadPhotos(dw){
 function renderGallery(dw,photos){
   const el=document.getElementById('photo-gallery');if(!el)return;
   if(!photos.length){el.innerHTML='<div class="empty">No photos yet</div>';return;}
-  const rough=photos.filter(p=>p.group==='rough'||ROUGH.includes(p.stage));
-  const fitoff=photos.filter(p=>p.group==='fitoff'||FITOFF.includes(p.stage));
+  // Group photos by the stage's *configured* category, with old `group`
+  // ('rough'/'fitoff') falling back to the legacy mapping.
+  const buckets={};
+  photos.forEach((p,i)=>{
+    const def=getAllJobStages(true).find(x=>x.name===p.stage||x.id===p.stage||(x.legacyNames||[]).indexOf(p.stage)>=0);
+    let cat=def&&def.category;
+    if(!cat){
+      if(p.group==='rough'||(p.stage&&FALLBACK_ROUGH.includes(p.stage)))cat='roughIn';
+      else if(p.group==='fitoff'||(p.stage&&FALLBACK_FITOFF.includes(p.stage)))cat='fitOff';
+      else cat='other';
+    }
+    (buckets[cat]=buckets[cat]||[]).push({p,i});
+  });
+  // Render in the same order the editor uses.
   let h='';
-  if(rough.length){h+=`<div class="photo-group"><div class="photo-group-title">Rough-In</div><div class="photo-grid">`;rough.forEach(p=>{h+=photoCard(p,photos.indexOf(p));});h+=`</div></div>`;}
-  if(fitoff.length){h+=`<div class="photo-group"><div class="photo-group-title">Fit-Off</div><div class="photo-grid">`;fitoff.forEach(p=>{h+=photoCard(p,photos.indexOf(p));});h+=`</div></div>`;}
+  const order=['roughIn','fitOff','testing','handover','other',...Object.keys(buckets)];
+  const seen=new Set();
+  order.forEach(cat=>{
+    if(seen.has(cat)||!buckets[cat])return;
+    seen.add(cat);
+    h+=`<div class="photo-group"><div class="photo-group-title">${esc(categoryLabel(cat))}</div><div class="photo-grid">`;
+    buckets[cat].forEach(({p,i})=>{h+=photoCard(p,i);});
+    h+=`</div></div>`;
+  });
   el.innerHTML=h;
 }
 
@@ -767,7 +993,7 @@ function closeLightbox(){document.getElementById('lightbox').classList.remove('o
 async function deletePhoto(photoId){
   const dw=currentDwellingPhotos.find(p=>p.id===photoId)?.dwelling;
   if(!confirm('Delete this photo?'))return;
-  await fetch('/api/photos',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({photoId})});
+  await fetch('/api/photos?jobId='+encodeURIComponent(JOB_ID),{method:'DELETE',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({photoId})});
   const sec=document.querySelector('.sc.active').id;
   const dwName=document.querySelector('.dh-name')?.textContent;
   if(dwName)loadPhotos(dwName);
@@ -779,8 +1005,8 @@ function renderSnags(){
   let h=`<div class="sform">
     <div class="sform-t red">Log a snag</div>
     <div class="fg">
-      <div><label>Dwelling</label><select id="sd">${ALL.map(d=>`<option>${d}</option>`).join('')}</select></div>
-      <div><label>Stage</label><select id="ss">${ALL_STAGES.map(s=>`<option>${s}</option>`).join('')}</select></div>
+      <div><label>Dwelling</label><select id="sd">${ALL.map(d=>`<option>${esc(d)}</option>`).join('')}</select></div>
+      <div><label>Stage</label><select id="ss">${Object.entries(getJobStageGroups()).map(([cat,list])=>`<optgroup label="${esc(categoryLabel(cat))}">${list.map(st=>`<option>${esc(stageDisplayName(st))}</option>`).join('')}</optgroup>`).join('')}</select></div>
     </div>
     <div class="fg full"><div><label>Description</label><textarea id="sdesc" rows="2" placeholder="Describe the issue…"></textarea></div></div>
     <div class="fg">
@@ -813,7 +1039,7 @@ function closeSnag(i){D.snags[i].status='Closed';sched();updateBadge();renderSna
 
 // ── Test & Tag ──────────────────────────────────────────────
 async function loadTags(){
-  try{const r=await fetch('/api/tags');if(r.ok)tagData=await r.json();}catch(e){}
+  try{const r=await fetch('/api/tags?jobId='+encodeURIComponent(JOB_ID),{credentials:'same-origin'});if(r.ok)tagData=await r.json();}catch(e){}
 }
 
 function tagStatus(expiryDate){
@@ -892,20 +1118,20 @@ async function addTag(){
   const expiry=document.getElementById('tt-expiry').value;
   if(!name||!expiry){alert('Please enter a tool name and expiry date.');return;}
   const fmt=d=>d?d.split('-').reverse().join('/'):'';
-  await fetch('/api/tags',{method:'POST',headers:{'Content-Type':'application/json'},
+  await fetch('/api/tags?jobId='+encodeURIComponent(JOB_ID),{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
     body:JSON.stringify({name,tagNumber:document.getElementById('tt-num').value.trim(),owner:document.getElementById('tt-owner').value.trim(),testDate:fmt(document.getElementById('tt-tested').value),expiryDate:fmt(expiry),testedBy:document.getElementById('tt-tester').value.trim()})});
   await loadTags();renderTags();
 }
 
 async function deleteTag(id){
   if(!confirm('Remove this tool?'))return;
-  await fetch('/api/tags',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+  await fetch('/api/tags?jobId='+encodeURIComponent(JOB_ID),{method:'DELETE',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({id})});
   await loadTags();renderTags();
 }
 
 // ── Temps ───────────────────────────────────────────────────
 async function loadTemps(){
-  try{const r=await fetch('/api/temps');if(r.ok)tempsData=await r.json();}catch(e){}
+  try{const r=await fetch('/api/temps?jobId='+encodeURIComponent(JOB_ID),{credentials:'same-origin'});if(r.ok)tempsData=await r.json();}catch(e){}
 }
 
 function tempTypeClass(type){
@@ -1004,7 +1230,7 @@ async function addTemp(){
   if(tempSelectedFile){
     dataUrl=await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(tempSelectedFile);});
   }
-  await fetch('/api/temps',{method:'POST',headers:{'Content-Type':'application/json'},
+  await fetch('/api/temps?jobId='+encodeURIComponent(JOB_ID),{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
     body:JSON.stringify({type:document.getElementById('tp-type').value,location:loc,loggedBy:document.getElementById('tp-by').value.trim(),dataUrl})});
   tempSelectedFile=null;btn.disabled=false;prog.style.display='none';
   await loadTemps();renderTemps();
@@ -1012,7 +1238,7 @@ async function addTemp(){
 
 async function deleteTemp(id){
   if(!confirm('Remove this item?'))return;
-  await fetch('/api/temps',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+  await fetch('/api/temps?jobId='+encodeURIComponent(JOB_ID),{method:'DELETE',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({id})});
   await loadTemps();renderTemps();
 }
 
@@ -1030,8 +1256,12 @@ function show(id){
   document.querySelectorAll('.sc').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  ['dashboard','units','townhouses','snags','tags','temps','hours','materials','assets','contacts'].forEach((s,i)=>{if(s===id){const nbs=document.querySelectorAll('.nb');if(nbs[i])nbs[i].classList.add('active');}});
+  // Map id → nav button (button order may differ from id list).
+  const navMap={dashboard:0,review:1,units:2,townhouses:3,snags:4,tags:5,temps:6,hours:7,materials:8,assets:9,contacts:10,stages:11};
+  const nbs=document.querySelectorAll('.nb');
+  if(navMap[id]!=null && nbs[navMap[id]])nbs[navMap[id]].classList.add('active');
   if(id==='dashboard')renderDash();
+  if(id==='review')openReview();
   if(id==='units')renderList('units',UNITS,'Units 1–15');
   if(id==='townhouses')renderList('townhouses',TH,'Townhouses 1–7');
   if(id==='snags')renderSnags();
@@ -1041,6 +1271,7 @@ function show(id){
   if(id==='materials')openMaterials();
   if(id==='assets')openAssets();
   if(id==='contacts')openContacts();
+  if(id==='stages')openStagesEditor();
   updateBadge();window.scrollTo(0,0);
 }
 
@@ -1048,7 +1279,7 @@ function show(id){
 let hoursData=[];
 let crewRows=[{name:'',hours:''}];
 
-async function loadHours(){try{const r=await fetch('/api/hours');if(r.ok)hoursData=await r.json();}catch(e){}}
+async function loadHours(){try{const r=await fetch('/api/hours?jobId='+encodeURIComponent(JOB_ID),{credentials:'same-origin'});if(r.ok)hoursData=await r.json();}catch(e){}}
 
 function renderCrewRows(){
   const wrap=document.getElementById('crew-rows');
@@ -1134,7 +1365,7 @@ async function submitHours(){
   const crew=crewRows.filter(r=>r.name.trim()&&r.hours).map(r=>({name:r.name.trim(),hours:parseFloat(r.hours)}));
   if(!date){alert('Please enter a date.');return;}
   if(!crew.length){alert('Please add at least one crew member.');return;}
-  await fetch('/api/hours',{method:'POST',headers:{'Content-Type':'application/json'},
+  await fetch('/api/hours?jobId='+encodeURIComponent(JOB_ID),{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
     body:JSON.stringify({date,crew,notes:document.getElementById('hr-notes').value})});
   crewRows=[{name:'',hours:''}];
   await loadHours();renderHours();
@@ -1142,7 +1373,7 @@ async function submitHours(){
 
 async function deleteHours(id){
   if(!confirm('Remove this day?'))return;
-  await fetch('/api/hours',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+  await fetch('/api/hours?jobId='+encodeURIComponent(JOB_ID),{method:'DELETE',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({id})});
   await loadHours();renderHours();
 }
 
@@ -2140,6 +2371,394 @@ async function deleteContact(id,fromModal){
     if(!r.ok){alert('Failed to delete');return;}
     if(fromModal)closeContactModal();
     CONTACTS_LOADED=false;await fetchContacts();renderContacts();
+  }catch(e){alert('Network error');}
+}
+
+// ════════════════════════════════════════════════════════════════
+// STAGES EDITOR — Switchboard configures Phil's per-stage rules.
+// BuhlOS decides; Switchboard configures; Phil executes onsite.
+// ════════════════════════════════════════════════════════════════
+let STAGES_JOB=null;        // last loaded job (rich stages)
+let STAGES_DRAFT=null;      // editable copy of {roughIn:[], fitOff:[]}
+let ITP_TEMPLATES=[];       // {id, name, items:[...]}
+
+const REQ_TOGGLES=[
+  ['photo',                 'Photo required'],
+  ['note',                  'Note required'],
+  ['itp',                   'ITP required'],
+  ['independentReview',     'Independent review required'],
+  ['blocksSelfReview',      'Block self-review'],
+  ['blockIfOpenSnags',      'Block if open snags'],
+  ['blockIfSupersededPlan', 'Block if superseded plan'],
+  ['blockIfMissingGear',    'Block if missing gear'],
+  ['adminSignoff',          'Admin sign-off required'],
+];
+
+function stageSummary(s){
+  const r=s.requires||{};
+  const parts=[];
+  if(r.photo) parts.push('Photo');
+  if(r.note) parts.push('Note');
+  if(r.itp) parts.push('ITP');
+  if(r.independentReview) parts.push('Independent review');
+  if(r.blockIfOpenSnags) parts.push('Blocks open snags');
+  if(r.adminSignoff) parts.push('Admin sign-off');
+  return parts.length?parts.join(' · '):'No requirements';
+}
+
+async function openStagesEditor(){
+  const el=document.getElementById('stages');
+  el.innerHTML='<div style="padding:20px;color:#888;">Loading stage requirements…</div>';
+  try{
+    const [jr,tr]=await Promise.all([
+      fetch('/api/jobs?id='+encodeURIComponent(JOB_ID),{credentials:'same-origin'}),
+      fetch('/api/itp?scope=templates',{credentials:'same-origin'}),
+    ]);
+    if(!jr.ok){el.innerHTML=`<div style="padding:20px;color:#c0312f;">Could not load job (${jr.status}). ${ME&&ME.role!=='admin'?'Requirements editing is admin-only.':''}</div>`;return;}
+    const jb=await jr.json();
+    STAGES_JOB=jb.job;
+    STAGES_DRAFT={
+      roughIn:(STAGES_JOB.stages&&STAGES_JOB.stages.roughIn||[]).map(s=>structuredCopy(s)),
+      fitOff: (STAGES_JOB.stages&&STAGES_JOB.stages.fitOff||[]).map(s=>structuredCopy(s)),
+    };
+    ITP_TEMPLATES=(tr.ok?((await tr.json()).templates||[]):[]);
+    renderStagesEditor();
+  }catch(e){
+    el.innerHTML='<div style="padding:20px;color:#c0312f;">Network error loading stages.</div>';
+  }
+}
+
+function structuredCopy(o){return JSON.parse(JSON.stringify(o));}
+
+function renderStagesEditor(){
+  const el=document.getElementById('stages');
+  if(!STAGES_DRAFT){el.innerHTML='';return;}
+  const groups=[
+    {key:'roughIn',label:'Rough-In'},
+    {key:'fitOff', label:'Fit-Off'},
+  ];
+  let h=`<div style="padding:18px 22px;max-width:1100px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+      <h2 style="margin:0;font-size:20px;">Stage requirements</h2>
+      <button onclick="saveStages()" style="margin-left:auto;background:#1f8b5a;color:#fff;border:0;padding:9px 14px;border-radius:6px;font-weight:600;cursor:pointer;">Save</button>
+      <button onclick="openStagesEditor()" style="background:none;border:1px solid #ccc;padding:9px 14px;border-radius:6px;cursor:pointer;">Reset</button>
+    </div>
+    <p style="margin:0 0 18px;color:#666;font-size:13px;">Phil will enforce these requirements before each stage can be marked done.</p>`;
+  groups.forEach(g=>{
+    h+=`<div style="margin-top:20px;"><h3 style="margin:0 0 8px;font-size:15px;color:#444;">${g.label}</h3>`;
+    const list=STAGES_DRAFT[g.key]||[];
+    if(!list.length){h+='<div style="color:#888;font-size:13px;padding:8px 0;">No stages.</div>';}
+    list.forEach((s,i)=>{h+=stageCardHtml(g.key,s,i,list.length);});
+    h+=`<button onclick="addStage('${g.key}')" style="margin-top:6px;background:none;border:1px dashed #aaa;padding:8px 14px;border-radius:6px;cursor:pointer;color:#666;">+ Add ${g.label} stage</button></div>`;
+  });
+  h+='</div>';
+  el.innerHTML=h;
+}
+
+function stageCardHtml(group,stage,idx,total){
+  const ev=stage.evidence||{minPhotos:0,minNotes:0};
+  const tplOpts=ITP_TEMPLATES.map(t=>`<option value="${esc(t.id)}" ${stage.itpTemplateId===t.id?'selected':''}>${esc(t.name)}</option>`).join('');
+  const togglesHtml=REQ_TOGGLES.map(([key,label])=>{
+    const checked=stage.requires&&stage.requires[key]?'checked':'';
+    return `<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:3px 0;">
+      <input type="checkbox" ${checked} onchange="setStageReq('${group}',${idx},'${key}',this.checked)"> ${label}
+    </label>`;
+  }).join('');
+  return `<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <input value="${esc(stage.name||'')}" onchange="setStageField('${group}',${idx},'name',this.value)" style="flex:1;font-weight:600;font-size:15px;border:1px solid #ddd;padding:6px 10px;border-radius:6px;">
+      <button onclick="moveStage('${group}',${idx},-1)" ${idx===0?'disabled':''} title="Move up" style="background:none;border:1px solid #ccc;padding:6px 9px;border-radius:6px;cursor:pointer;">↑</button>
+      <button onclick="moveStage('${group}',${idx},1)" ${idx===total-1?'disabled':''} title="Move down" style="background:none;border:1px solid #ccc;padding:6px 9px;border-radius:6px;cursor:pointer;">↓</button>
+      <button onclick="removeStage('${group}',${idx})" title="Remove" style="background:none;border:1px solid #c0312f;color:#c0312f;padding:6px 9px;border-radius:6px;cursor:pointer;">Remove</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin-top:10px;">${togglesHtml}</div>
+    <div style="display:flex;gap:14px;margin-top:8px;flex-wrap:wrap;align-items:center;">
+      <label style="font-size:13px;">Min photos
+        <input type="number" min="0" value="${Number(ev.minPhotos)||0}" onchange="setStageEv('${group}',${idx},'minPhotos',this.value)" style="width:60px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;margin-left:4px;">
+      </label>
+      <label style="font-size:13px;">Min notes
+        <input type="number" min="0" value="${Number(ev.minNotes)||0}" onchange="setStageEv('${group}',${idx},'minNotes',this.value)" style="width:60px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;margin-left:4px;">
+      </label>
+      <label style="font-size:13px;">ITP template
+        <select onchange="setStageField('${group}',${idx},'itpTemplateId',this.value)" style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;margin-left:4px;">
+          <option value="">— none —</option>${tplOpts}
+        </select>
+      </label>
+      <label style="font-size:13px;display:flex;align-items:center;gap:4px;">
+        <input type="checkbox" ${stage.active!==false?'checked':''} onchange="setStageField('${group}',${idx},'active',this.checked)"> Active
+      </label>
+    </div>
+    <div style="margin-top:8px;font-size:12px;color:#666;">${stageSummary(stage)}</div>
+  </div>`;
+}
+
+function setStageField(group,idx,key,val){
+  if(!STAGES_DRAFT[group][idx])return;
+  const stage=STAGES_DRAFT[group][idx];
+  // Preserve old name in legacyNames so existing dwelling data isn't orphaned.
+  if(key==='name'&&val&&stage.name&&val!==stage.name){
+    stage.legacyNames=Array.isArray(stage.legacyNames)?stage.legacyNames:[];
+    if(stage.legacyNames.indexOf(stage.name)===-1)stage.legacyNames.push(stage.name);
+  }
+  stage[key]=val;
+  if(key==='name')renderStagesEditor(); // summary may have changed
+}
+function setStageReq(group,idx,key,val){
+  if(!STAGES_DRAFT[group][idx])return;
+  STAGES_DRAFT[group][idx].requires=STAGES_DRAFT[group][idx].requires||{};
+  STAGES_DRAFT[group][idx].requires[key]=!!val;
+  // Independent review implies block self-review unless admin explicitly unchecks.
+  if(key==='independentReview'&&val&&STAGES_DRAFT[group][idx].requires.blocksSelfReview===undefined){
+    STAGES_DRAFT[group][idx].requires.blocksSelfReview=true;
+  }
+  renderStagesEditor();
+}
+function setStageEv(group,idx,key,val){
+  if(!STAGES_DRAFT[group][idx])return;
+  STAGES_DRAFT[group][idx].evidence=STAGES_DRAFT[group][idx].evidence||{};
+  STAGES_DRAFT[group][idx].evidence[key]=Math.max(0,parseInt(val,10)||0);
+}
+function moveStage(group,idx,dir){
+  const list=STAGES_DRAFT[group];
+  const j=idx+dir;
+  if(j<0||j>=list.length)return;
+  [list[idx],list[j]]=[list[j],list[idx]];
+  list.forEach((s,i)=>{s.order=i;});
+  renderStagesEditor();
+}
+function removeStage(group,idx){
+  if(!confirm('Remove this stage?'))return;
+  STAGES_DRAFT[group].splice(idx,1);
+  STAGES_DRAFT[group].forEach((s,i)=>{s.order=i;});
+  renderStagesEditor();
+}
+function addStage(group){
+  const name=prompt('New stage name:');
+  if(!name||!name.trim())return;
+  const list=STAGES_DRAFT[group];
+  list.push({
+    name:name.trim(), category:group, order:list.length, active:true,
+    requires:{photo:false,note:false,itp:false,independentReview:false,blocksSelfReview:false,blockIfOpenSnags:false,blockIfSupersededPlan:false,blockIfMissingGear:false,adminSignoff:false},
+    evidence:{minPhotos:0,minNotes:0}, itpTemplateId:null,
+  });
+  renderStagesEditor();
+}
+async function saveStages(){
+  if(!STAGES_DRAFT)return;
+  try{
+    const r=await fetch('/api/jobs',{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'same-origin',
+      body:JSON.stringify({id:JOB_ID,stages:STAGES_DRAFT})});
+    const j=await r.json();
+    if(!r.ok){alert('Save failed: '+(j.error||r.status));return;}
+    STAGES_JOB=j.job;
+    // Update the live JOB source so Dashboard/Units/Townhouses/Review/Missing
+    // Evidence immediately reflect the new stage config without a reload.
+    JOB=j.job;
+    STAGES_DRAFT={
+      roughIn:(j.job.stages&&j.job.stages.roughIn||[]).map(s=>structuredCopy(s)),
+      fitOff: (j.job.stages&&j.job.stages.fitOff||[]).map(s=>structuredCopy(s)),
+    };
+    renderStagesEditor();
+    renderAll();
+    alert('Requirements saved. Old completion data is preserved via stage aliases.');
+  }catch(e){alert('Network error saving stages.');}
+}
+
+// ════════════════════════════════════════════════════════════════
+// REVIEW QUEUE — admin reviews Phil's submitted work + resolved snags.
+// ════════════════════════════════════════════════════════════════
+let REVIEW_JOB=null, REVIEW_DATA=null, REVIEW_PHOTOS=[], REVIEW_NOTES=[], REVIEW_ITP=[];
+
+async function openReview(){
+  const el=document.getElementById('review');
+  el.innerHTML='<div style="padding:20px;color:#888;">Loading review queue…</div>';
+  try{
+    const [jr,dr,pr,ir]=await Promise.all([
+      fetch('/api/jobs?id='+encodeURIComponent(JOB_ID),{credentials:'same-origin'}),
+      fetch('/api/data?jobId='+encodeURIComponent(JOB_ID)+'&t='+Date.now(),{credentials:'same-origin'}),
+      fetch('/api/photos?jobId='+encodeURIComponent(JOB_ID),{credentials:'same-origin'}),
+      fetch('/api/itp?jobId='+encodeURIComponent(JOB_ID),{credentials:'same-origin'}),
+    ]);
+    REVIEW_JOB=jr.ok?(await jr.json()).job:null;
+    REVIEW_DATA=dr.ok?(await dr.json()):{dwellings:{},snags:[],notes:[]};
+    REVIEW_PHOTOS=pr.ok?((await pr.json()).photos||[]):[];
+    REVIEW_NOTES=Array.isArray(REVIEW_DATA.notes)?REVIEW_DATA.notes:[];
+    REVIEW_ITP=ir.ok?((await ir.json()).submissions||[]):[];
+    renderReview();
+  }catch(e){
+    el.innerHTML='<div style="padding:20px;color:#c0312f;">Network error loading review queue.</div>';
+  }
+}
+
+function allStagesForJob(j){
+  if(!j||!j.stages)return [];
+  return [...(j.stages.roughIn||[]),...(j.stages.fitOff||[])]
+    .filter(s=>!s||s.active!==false);
+}
+// Tolerant stage-def lookup by name, id, legacy alias, or case-insensitive name.
+function findStageDefByAnyKey(defs,key){
+  const lc=String(key||'').toLowerCase();
+  return defs.find(s=>s.name===key)
+      ||defs.find(s=>s.id===key)
+      ||defs.find(s=>Array.isArray(s.legacyNames)&&s.legacyNames.indexOf(key)>=0)
+      ||defs.find(s=>String(s.name||'').toLowerCase()===lc)
+      ||null;
+}
+// Names that should be treated as the same stage when matching photos/notes/snags.
+function stageReviewAliases(stage){
+  if(!stage)return [];
+  const out=[];
+  if(stage.name)out.push(stage.name);
+  if(stage.id)  out.push(stage.id);
+  if(Array.isArray(stage.legacyNames))out.push(...stage.legacyNames);
+  return out;
+}
+function reviewEq(a,b){return String(a||'').trim().toLowerCase()===String(b||'').trim().toLowerCase();}
+function evidenceFor(area,stage){
+  // stage may be a rich object (preferred) or a legacy string.
+  const aliases=typeof stage==='object'&&stage?stageReviewAliases(stage):[String(stage)];
+  const match=(...vals)=>vals.some(v=>v&&aliases.some(a=>reviewEq(a,v)));
+  const photos=REVIEW_PHOTOS.filter(p=>p.meta&&reviewEq(p.meta.area,area)&&match(p.meta.stage,p.meta.stageId));
+  const notes =REVIEW_NOTES.filter(n=>reviewEq(n.dwelling,area)&&match(n.stage,n.stageId));
+  const openSnags=(REVIEW_DATA.snags||[]).filter(s=>(s.status||'Open')==='Open'&&reviewEq(s.dwelling,area)&&match(s.stage,s.stageId));
+  return {photos,notes,openSnags};
+}
+
+function renderReview(){
+  const el=document.getElementById('review');
+  if(!REVIEW_JOB){el.innerHTML='<div style="padding:20px;">No job loaded.</div>';return;}
+
+  // 1. Stages waiting for review (alias-aware so renamed stages still match)
+  const waiting=[];
+  const missing=[];
+  const dws=REVIEW_DATA.dwellings||{};
+  const stageDefs=allStagesForJob(REVIEW_JOB);
+  Object.entries(dws).forEach(([area,row])=>{
+    Object.entries(row).forEach(([stageKey,info])=>{
+      if(!info||typeof info!=='object')return;
+      const def=findStageDefByAnyKey(stageDefs,stageKey);
+      // Display the *current* configured name when a def is found, falling
+      // back to the stored key for stages no longer in the config.
+      const stageName=def?def.name:stageKey;
+      const status=String(info.status||'Not started');
+      if(['Submitted','Reopened','Review'].includes(status)){
+        waiting.push({area,stageName,stageKey,status,info,def});
+      }
+      if(['In progress','Blocked'].includes(status)&&def){
+        const ev=evidenceFor(area,def);
+        const reqs=def.requires||{};
+        const minP=Math.max((def.evidence&&def.evidence.minPhotos)||0,reqs.photo?1:0);
+        const minN=Math.max((def.evidence&&def.evidence.minNotes)||0,reqs.note?1:0);
+        const gaps=[];
+        if(minP>ev.photos.length) gaps.push(`Missing photo (${ev.photos.length}/${minP})`);
+        if(minN>ev.notes.length)  gaps.push(`Missing note (${ev.notes.length}/${minN})`);
+        if(reqs.itp&&!REVIEW_ITP.some(s=>s.areaId===area&&stageReviewAliases(def).some(a=>reviewEq(s.stageId,a)||reviewEq(s.stageName,a))&&['submitted','approved'].includes(s.status))) gaps.push('ITP not submitted');
+        if(reqs.blockIfOpenSnags&&ev.openSnags.length) gaps.push(`${ev.openSnags.length} open snag${ev.openSnags.length===1?'':'s'}`);
+        if(gaps.length) missing.push({area,stageName,status,gaps});
+      }
+    });
+  });
+
+  // 2. Resolved snags awaiting closure
+  const resolved=(REVIEW_DATA.snags||[]).filter(s=>(s.status||'')==='Resolved');
+
+  let h=`<div style="padding:18px 22px;max-width:1100px;">
+    <h2 style="margin:0 0 14px;font-size:20px;">Review queue</h2>
+
+    <h3 style="font-size:14px;color:#444;margin:18px 0 6px;">Waiting for review (${waiting.length})</h3>`;
+  if(!waiting.length){h+='<div style="color:#888;font-size:13px;padding:6px 0;">Nothing waiting.</div>';}
+  waiting.forEach(w=>{
+    const def=w.def;
+    const ev=def?evidenceFor(w.area,def):{photos:[],notes:[],openSnags:[]};
+    const reqs=(def&&def.requires)||{};
+    const itpAliases=def?stageReviewAliases(def):[];
+    const itpHere=REVIEW_ITP.filter(s=>s.areaId===w.area&&itpAliases.some(a=>reviewEq(s.stageId,a)||reviewEq(s.stageName,a)));
+    const evidenceBits=[
+      reqs.photo||((def&&def.evidence&&def.evidence.minPhotos)||0)>0?`${ev.photos.length} photo${ev.photos.length===1?'':'s'}`:'',
+      reqs.note ||((def&&def.evidence&&def.evidence.minNotes )||0)>0?`${ev.notes.length} note${ev.notes.length===1?'':'s'}`:'',
+      reqs.itp?(itpHere.some(s=>s.status==='approved')?'ITP approved':itpHere.some(s=>s.status==='submitted')?'ITP submitted':'ITP missing'):'',
+      reqs.blockIfOpenSnags?(ev.openSnags.length?`${ev.openSnags.length} open snag${ev.openSnags.length===1?'':'s'}`:'no open snags'):'',
+    ].filter(Boolean).join(' · ')||'No specific requirements';
+    h+=`<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:160px;">
+          <div style="font-weight:600;">${esc(w.area)} — ${esc(w.stageName)}</div>
+          <div style="font-size:12px;color:#666;margin-top:2px;">Submitted by ${esc(w.info.completedByName||w.info.updatedBy||'—')} · ${esc(w.info.completedAt||w.info.updatedAt||'')}</div>
+        </div>
+        <button onclick="reviewStage('${esc(w.area)}','${esc(w.stageName)}','approve')" style="background:#1f8b5a;color:#fff;border:0;padding:7px 12px;border-radius:6px;font-weight:600;cursor:pointer;">Approve</button>
+        <button onclick="reviewStage('${esc(w.area)}','${esc(w.stageName)}','send-back')" style="background:#fff;border:1px solid #d68a1a;color:#d68a1a;padding:7px 12px;border-radius:6px;font-weight:600;cursor:pointer;">Send back</button>
+      </div>
+      <div style="font-size:12px;color:#666;margin-top:6px;">${esc(evidenceBits)}</div>
+      ${ev.photos.length?`<div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;">${ev.photos.slice(0,6).map(p=>`<a href="${esc(p.url)}" target="_blank"><img src="${esc(p.url)}" style="width:60px;height:60px;object-fit:cover;border-radius:4px;"></a>`).join('')}</div>`:''}
+      ${ev.notes.length?`<div style="margin-top:8px;font-size:12px;color:#444;">${ev.notes.slice(-3).map(n=>'↪ '+esc(n.desc||'')+' — '+esc(n.by||'')).join('<br>')}</div>`:''}
+    </div>`;
+  });
+
+  h+=`<h3 style="font-size:14px;color:#444;margin:18px 0 6px;">Resolved snags (${resolved.length})</h3>`;
+  if(!resolved.length){h+='<div style="color:#888;font-size:13px;padding:6px 0;">No resolved snags awaiting closure.</div>';}
+  resolved.forEach(s=>{
+    h+=`<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+        <div style="flex:1;min-width:160px;">
+          <div style="font-weight:600;">${esc(s.desc||'(no description)')}</div>
+          <div style="font-size:12px;color:#666;margin-top:2px;">${esc(s.dwelling||'—')}${s.stage?' · '+esc(s.stage):''} · raised by ${esc(s.by||'')} · ${esc(s.date||'')}</div>
+          ${s.resolution?`<div style="margin-top:6px;font-size:13px;color:#444;">↪ ${esc(s.resolution)} — ${esc(s.resolvedByName||'')} · ${esc(s.resolvedAt||'')}</div>`:''}
+        </div>
+        <button onclick="closeSnag('${esc(s.id||'')}')" style="background:#1f8b5a;color:#fff;border:0;padding:7px 12px;border-radius:6px;font-weight:600;cursor:pointer;">Close</button>
+        <button onclick="reopenSnag('${esc(s.id||'')}')" style="background:#fff;border:1px solid #c0312f;color:#c0312f;padding:7px 12px;border-radius:6px;font-weight:600;cursor:pointer;">Reopen</button>
+      </div>
+    </div>`;
+  });
+
+  h+=`<h3 style="font-size:14px;color:#444;margin:18px 0 6px;">Missing evidence (${missing.length})</h3>`;
+  if(!missing.length){h+='<div style="color:#888;font-size:13px;padding:6px 0;">Everything is on track.</div>';}
+  missing.forEach(m=>{
+    h+=`<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:10px 14px;margin-bottom:8px;">
+      <div style="font-weight:600;font-size:14px;">${esc(m.area)} — ${esc(m.stageName)}</div>
+      <div style="font-size:12px;color:#d68a1a;margin-top:4px;">${m.gaps.map(g=>esc(g)).join(' · ')}</div>
+    </div>`;
+  });
+
+  h+='</div>';
+  el.innerHTML=h;
+}
+
+async function reviewStage(area,stageName,decision){
+  let note='';
+  if(decision==='send-back'){
+    note=prompt('Why are you sending this back?');
+    if(note===null)return;
+  }
+  try{
+    const r=await fetch('/api/workflow?jobId='+encodeURIComponent(JOB_ID),{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
+      body:JSON.stringify({action:'review-stage',areaId:area,stageName,decision,note})});
+    const j=await r.json();
+    if(!r.ok){alert('Review failed: '+(j.error||r.status));return;}
+    openReview();
+  }catch(e){alert('Network error');}
+}
+async function closeSnag(snagId){
+  if(!snagId){alert('Snag has no id — refresh and try again.');return;}
+  const note=prompt('Optional closing note:');
+  if(note===null)return;
+  try{
+    const r=await fetch('/api/workflow?jobId='+encodeURIComponent(JOB_ID),{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
+      body:JSON.stringify({action:'close-snag',snagId,note})});
+    const j=await r.json();
+    if(!r.ok){alert('Close failed: '+(j.error||r.status));return;}
+    openReview();
+  }catch(e){alert('Network error');}
+}
+async function reopenSnag(snagId){
+  if(!snagId){alert('Snag has no id — refresh and try again.');return;}
+  const reason=prompt('Reason for reopening:');
+  if(!reason)return;
+  try{
+    const r=await fetch('/api/workflow?jobId='+encodeURIComponent(JOB_ID),{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
+      body:JSON.stringify({action:'reopen-snag',snagId,reason})});
+    const j=await r.json();
+    if(!r.ok){alert('Reopen failed: '+(j.error||r.status));return;}
+    openReview();
   }catch(e){alert('Network error');}
 }
 </script>

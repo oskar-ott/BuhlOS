@@ -635,6 +635,181 @@ a { color: inherit; text-decoration: none; }
 
 /* ── Phil logo SVG ── */
 .phil-logo-sm { width: 28px; height: 28px; border-radius: 7px; overflow: hidden; flex-shrink: 0; }
+
+/* ── Sync status pill (header) ── */
+.sync-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 11px; font-weight: 700;
+  padding: 4px 10px; border-radius: 12px;
+  background: rgba(255,255,255,.08);
+  color: var(--ink-4);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.sync-pill .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green); flex-shrink: 0;
+}
+.sync-pill.online .dot   { background: var(--green); }
+.sync-pill.pending .dot  { background: var(--amber); animation: pulse 1.2s infinite; }
+.sync-pill.offline .dot  { background: var(--red); }
+.sync-pill.pending { color: var(--amber); background: rgba(214,138,26,.18); }
+.sync-pill.offline { color: var(--red); background: rgba(192,49,47,.18); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* ── Sticky bottom action bar ── */
+.sticky-actions {
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(to top, var(--card-2) 60%, rgba(246,244,238,0));
+  padding: 14px 16px calc(14px + var(--safe-b));
+  display: flex; gap: 10px;
+  z-index: 5;
+}
+.sticky-actions .btn { flex: 1; }
+
+/* ── Active timer banner ── */
+.timer-banner {
+  background: var(--amber-bg);
+  border-left: 4px solid var(--amber);
+  margin: 12px 14px;
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex; align-items: center; gap: 12px;
+}
+.timer-banner .tb-icon { font-size: 22px; }
+.timer-banner .tb-body { flex: 1; min-width: 0; }
+.timer-banner .tb-title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 14px; font-weight: 700; color: var(--amber);
+  text-overflow: ellipsis; overflow: hidden; white-space: nowrap;
+}
+.timer-banner .tb-job { font-size: 12px; color: var(--ink-3); margin-top: 2px;
+  text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+.timer-banner .tb-clock {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 18px; font-weight: 700; color: var(--amber);
+}
+.timer-banner .tb-stop {
+  background: var(--amber); color: #fff;
+  padding: 8px 12px; border-radius: 9px;
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 13px; font-weight: 700;
+}
+
+/* ── Stage / task chips with reason codes ── */
+.status-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 11px; font-weight: 700;
+  padding: 4px 10px; border-radius: 12px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.status-chip.not-started { background: #eee; color: var(--ink-3); }
+.status-chip.ready       { background: var(--blue-bg);  color: var(--blue); }
+.status-chip.inprogress  { background: var(--amber-bg); color: var(--amber); }
+.status-chip.blocked     { background: var(--red-bg);   color: var(--red); }
+.status-chip.review      { background: #ede2f8;         color: #7d3ec8; }
+.status-chip.done        { background: var(--green-bg); color: var(--green); }
+
+/* ── Block / warn banner inside cards ── */
+.block-warn {
+  background: var(--red-bg); color: var(--red);
+  padding: 10px 12px; border-radius: 10px;
+  font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+  margin: 10px 0 0;
+}
+.block-warn.amber { background: var(--amber-bg); color: var(--amber); }
+.block-warn.blue  { background: var(--blue-bg);  color: var(--blue); }
+
+/* ── Photo preview thumbs ── */
+.photo-thumbs { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0 0; }
+.photo-thumbs .pt {
+  width: 56px; height: 56px; border-radius: 10px;
+  background: var(--card-2); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; color: var(--ink-4);
+  position: relative; overflow: hidden;
+}
+.photo-thumbs .pt img { width: 100%; height: 100%; object-fit: cover; }
+.photo-thumbs .pt .pt-x {
+  position: absolute; top: -4px; right: -4px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--red); color: #fff;
+  font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ── Stage row in area detail ── */
+.stage-row {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 12px;
+  -webkit-tap-highlight-color: transparent;
+}
+.stage-row:last-child { border-bottom: none; }
+.stage-row .sr-body { flex: 1; min-width: 0; }
+.stage-row .sr-name {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 15px; font-weight: 700; color: var(--ink);
+}
+.stage-row .sr-meta { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+.stage-row .sr-action {
+  flex-shrink: 0;
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 13px; font-weight: 700;
+  padding: 8px 12px; border-radius: 9px;
+  background: var(--yellow); color: var(--yellow-ink);
+}
+.stage-row .sr-action.done { background: var(--green-bg); color: var(--green); }
+.stage-row .sr-action.stop { background: var(--amber); color: #fff; }
+
+/* ── Sheet helper text ── */
+.sheet-help {
+  font-size: 12px; color: var(--ink-3);
+  padding: 0 16px 8px;
+  margin-top: 4px;
+}
+
+/* ── Material / Extra-work rows ── */
+.mat-row {
+  display: flex; align-items: center;
+  padding: 12px 16px;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.mat-row:last-child { border-bottom: none; }
+.mat-row .mr-body { flex: 1; min-width: 0; }
+.mat-row .mr-name {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 14px; font-weight: 700; color: var(--ink);
+}
+.mat-row .mr-meta { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+
+/* ── Hidden file input ── */
+.hidden-file { position: absolute; left: -9999px; opacity: 0; pointer-events: none; }
+
+/* ── Snag with photo helper ── */
+.snag-photo-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600;
+  color: var(--blue);
+  background: var(--blue-bg);
+  padding: 8px 12px; border-radius: 8px;
+  margin: 10px 16px 0;
+}
+
+/* ── Pending action badge ── */
+.pending-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 700;
+  color: var(--amber);
+  background: var(--amber-bg);
+  padding: 3px 8px; border-radius: 10px;
+  margin-left: 8px;
+}
 </style>
 </head>
 <body>
@@ -644,41 +819,66 @@ a { color: inherit; text-decoration: none; }
   <div id="screens">
 
     <!-- ══ TODAY ══ -->
-    <div id="s-today" class="screen">
+    <div id="s-today" class="screen active">
+      <div class="hdr">
+        <div class="hdr-logo" id="today-hdr-logo"></div>
+        <div class="hdr-title" id="today-greeting">Hi</div>
+        <span class="sync-pill online" id="sync-pill"><span class="dot"></span><span id="sync-label">Live</span></span>
+      </div>
       <div class="today-banner">
         <div class="tb-row">
           <div class="tb-num" id="today-count">—</div>
           <div>
-            <div class="tb-label">Things on today</div>
-            <div class="tb-meta" id="today-meta">Loading...</div>
+            <div class="tb-label" id="today-label">Things on today</div>
+            <div class="tb-meta" id="today-meta">Loading…</div>
           </div>
         </div>
       </div>
-      <div class="qactions" style="margin-top:20px;">
-        <div class="qa yellow" onclick="openSheet('sh-hours')">
+      <div id="today-timer-slot"></div>
+      <div class="qactions" style="margin-top:14px;">
+        <div class="qa yellow" onclick="quickStartOrLog()">
           <div class="qa-icon">⏱</div>
-          <div class="qa-label">Log hours</div>
+          <div class="qa-label" id="qa-time-label">Log hours</div>
         </div>
-        <div class="qa blue" onclick="switchTab('jobs')">
-          <div class="qa-icon">📋</div>
-          <div class="qa-label">Jobs</div>
+        <div class="qa blue" onclick="openSheet('sh-photo')">
+          <div class="qa-icon">📷</div>
+          <div class="qa-label">Photo</div>
         </div>
         <div class="qa red" onclick="openSheet('sh-snag')">
           <div class="qa-icon">⚠️</div>
           <div class="qa-label">Snag</div>
         </div>
+        <div class="qa" onclick="openSheet('sh-material')">
+          <div class="qa-icon">📦</div>
+          <div class="qa-label">Need material</div>
+        </div>
+      </div>
+      <div class="qactions" style="padding-top:0;">
+        <div class="qa" onclick="openSheet('sh-extra')">
+          <div class="qa-icon">➕</div>
+          <div class="qa-label">Log extra work</div>
+        </div>
+        <div class="qa" onclick="switchTab('jobs')">
+          <div class="qa-icon">📋</div>
+          <div class="qa-label">My jobs</div>
+        </div>
+        <div class="qa" onclick="switchTab('hours')">
+          <div class="qa-icon">📅</div>
+          <div class="qa-label">My hours</div>
+        </div>
         <div class="qa" onclick="switchTab('gear')">
           <div class="qa-icon">🔧</div>
-          <div class="qa-label">My Gear</div>
+          <div class="qa-label">My gear</div>
         </div>
       </div>
       <div class="sec-hdr">
-        <span class="sec-title">Today's tasks</span>
+        <span class="sec-title">On now</span>
+        <span class="sec-link" onclick="renderToday()">Refresh</span>
       </div>
       <div class="card">
         <div id="today-tasks"></div>
       </div>
-      <div style="height:16px;"></div>
+      <div style="height:24px;"></div>
     </div>
 
     <!-- ══ JOBS ══ -->
@@ -706,16 +906,18 @@ a { color: inherit; text-decoration: none; }
       <div class="hdr">
         <button class="hdr-back" onclick="back()">‹</button>
         <div class="hdr-title" id="job-home-title">Job</div>
+        <span class="sync-pill" id="job-sync"><span class="dot"></span><span>Live</span></span>
       </div>
+      <div id="job-home-timer-slot"></div>
       <div class="card" style="margin-top:14px;">
         <div class="card-pad" id="job-home-progress">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <span style="font-family:'Inter Tight',sans-serif;font-size:13px;font-weight:700;color:var(--ink-3);">OVERALL PROGRESS</span>
+            <span style="font-family:'Inter Tight',sans-serif;font-size:13px;font-weight:700;color:var(--ink-3);">PROGRESS</span>
             <span class="badge badge-amber" id="job-home-phase">Active</span>
           </div>
           <div class="prog-bar"><div class="prog-fill" id="job-home-bar" style="width:0%"></div></div>
           <div style="display:flex;justify-content:space-between;margin-top:6px;">
-            <span style="font-size:12px;color:var(--ink-3);" id="job-home-tasks-done">— / — tasks</span>
+            <span style="font-size:12px;color:var(--ink-3);" id="job-home-tasks-done">— / — stages</span>
             <span style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;" id="job-home-pct">0%</span>
           </div>
         </div>
@@ -729,26 +931,74 @@ a { color: inherit; text-decoration: none; }
           <div class="qa-icon">🏗</div>
           <div class="qa-label">Areas</div>
         </div>
+        <div class="qa blue" onclick="navTo('s-job-plans')">
+          <div class="qa-icon">📐</div>
+          <div class="qa-label">Plans</div>
+        </div>
+        <div class="qa" onclick="navTo('s-job-photos')">
+          <div class="qa-icon">📷</div>
+          <div class="qa-label">Photos</div>
+        </div>
+      </div>
+      <div class="qactions" style="padding-top:0;">
         <div class="qa red" onclick="openSheet('sh-snag')">
           <div class="qa-icon">⚠️</div>
           <div class="qa-label">Snag</div>
         </div>
-        <div class="qa blue" onclick="navTo('s-job-plans')">
-          <div class="qa-icon">📐</div>
-          <div class="qa-label">Plans</div>
+        <div class="qa" onclick="openSheet('sh-material')">
+          <div class="qa-icon">📦</div>
+          <div class="qa-label">Need material</div>
+        </div>
+        <div class="qa" onclick="openSheet('sh-extra')">
+          <div class="qa-icon">➕</div>
+          <div class="qa-label">Log extra</div>
+        </div>
+        <div class="qa" onclick="navTo('s-job-snags')">
+          <div class="qa-icon">📋</div>
+          <div class="qa-label">All snags</div>
         </div>
       </div>
       <div class="stat-grid">
         <div class="stat-tile">
           <div class="stat-num" id="jh-tasks">—</div>
-          <div class="stat-label">Tasks remaining</div>
+          <div class="stat-label">Stages to do</div>
         </div>
         <div class="stat-tile">
           <div class="stat-num" id="jh-snags">—</div>
           <div class="stat-label">Open snags</div>
         </div>
       </div>
-      <div style="height:16px;"></div>
+      <div style="height:24px;"></div>
+    </div>
+
+    <!-- ══ JOB PHOTOS ══ -->
+    <div id="s-job-photos" class="screen">
+      <div class="hdr">
+        <button class="hdr-back" onclick="back()">‹</button>
+        <div class="hdr-title">Photos</div>
+        <button class="hdr-action" onclick="openSheet('sh-photo')">+ Add</button>
+      </div>
+      <div id="job-photos-list"></div>
+      <div style="height:24px;"></div>
+    </div>
+
+    <!-- ══ JOB SNAGS ══ -->
+    <div id="s-job-snags" class="screen">
+      <div class="hdr">
+        <button class="hdr-back" onclick="back()">‹</button>
+        <div class="hdr-title">Snags</div>
+        <button class="hdr-action" onclick="openSheet('sh-snag')">+ Raise</button>
+      </div>
+      <div class="chips" id="snags-chips">
+        <div class="chip active" onclick="filterSnags(this,'open')">Open</div>
+        <div class="chip" onclick="filterSnags(this,'resolved')">Resolved</div>
+        <div class="chip" onclick="filterSnags(this,'all')">All</div>
+        <div class="chip" onclick="filterSnags(this,'closed')">Closed</div>
+      </div>
+      <div class="card">
+        <div id="snags-list"></div>
+      </div>
+      <div style="height:24px;"></div>
     </div>
 
     <!-- ══ JOB AREAS ══ -->
@@ -774,9 +1024,16 @@ a { color: inherit; text-decoration: none; }
       <div class="hdr">
         <button class="hdr-back" onclick="back()">‹</button>
         <div class="hdr-title" id="area-detail-title">Area</div>
+        <button class="hdr-action" onclick="openSheet('sh-photo')">📷</button>
       </div>
-      <div id="area-tasks-list"></div>
-      <div style="height:16px;"></div>
+      <div class="card" style="margin-top:14px;">
+        <div id="area-tasks-list"></div>
+      </div>
+      <div style="height:8px;"></div>
+      <div class="sticky-actions">
+        <button class="btn btn-ghost" onclick="openSheet('sh-snag')">⚠️ Snag</button>
+        <button class="btn btn-yellow" onclick="openSheet('sh-extra')">➕ Log extra</button>
+      </div>
     </div>
 
     <!-- ══ PLANS ══ -->
@@ -785,10 +1042,11 @@ a { color: inherit; text-decoration: none; }
         <button class="hdr-back" onclick="back()">‹</button>
         <div class="hdr-title">Plans</div>
       </div>
-      <div class="empty">
+      <div id="plans-list"></div>
+      <div id="plans-empty" class="empty" style="display:none;">
         <div class="empty-icon">📐</div>
         <div class="empty-msg">No plans uploaded yet</div>
-        <div class="empty-sub">Plans and drawings will appear here when added by the office</div>
+        <div class="empty-sub">Current plan revisions will appear here when Switchboard publishes them</div>
       </div>
     </div>
 
@@ -931,26 +1189,243 @@ a { color: inherit; text-decoration: none; }
 <div class="sheet-overlay" id="sh-snag" onclick="sheetBgClick(event,'sh-snag')">
   <div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
-    <div class="sheet-title">Raise a Snag</div>
+    <div class="sheet-title">Raise a snag</div>
+    <div class="sheet-help">Snags go straight to Switchboard for review. A photo helps a lot.</div>
     <div class="form-group">
       <label class="form-label">Job</label>
       <select class="form-inp form-sel" id="sh-snag-job">
         <option value="">Select job…</option>
       </select>
     </div>
-    <div class="form-group">
-      <label class="form-label">Location / Area</label>
-      <input type="text" class="form-inp" id="sh-snag-area" placeholder="e.g. Level 3, Bathroom">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Area</label>
+        <input type="text" class="form-inp" id="sh-snag-area" placeholder="e.g. Unit 3">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Stage</label>
+        <input type="text" class="form-inp" id="sh-snag-stage" placeholder="e.g. Rough-in">
+      </div>
     </div>
     <div class="form-group">
-      <label class="form-label">Description</label>
-      <textarea class="form-inp" id="sh-snag-desc" rows="3" placeholder="What's the issue?"></textarea>
+      <label class="form-label">Priority</label>
+      <select class="form-inp form-sel" id="sh-snag-pri">
+        <option value="Low">Low</option>
+        <option value="Medium" selected>Medium</option>
+        <option value="High">High</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">What's the issue?</label>
+      <textarea class="form-inp" id="sh-snag-desc" rows="3" placeholder="Describe what's wrong, where, and what's needed"></textarea>
+    </div>
+    <label class="snag-photo-btn" for="sh-snag-photo">📷 <span id="sh-snag-photo-label">Add photo (optional)</span>
+      <input id="sh-snag-photo" class="hidden-file" type="file" accept="image/*" capture="environment" onchange="onSnagPhotoPick(event)">
+    </label>
+    <div id="sh-snag-photo-preview" class="photo-thumbs" style="padding:0 16px;"></div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeSheet('sh-snag')" style="flex:0 0 auto;">Cancel</button>
+      <button class="btn btn-red btn-full" onclick="saveSnag()">⚠️ Submit snag</button>
+    </div>
+    <div style="height:8px;"></div>
+  </div>
+</div>
+
+<!-- ── Bottom sheet: Take Photo ── -->
+<div class="sheet-overlay" id="sh-photo" onclick="sheetBgClick(event,'sh-photo')">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Add a photo</div>
+    <div class="sheet-help">Photos are linked to the job, area, stage and you — so Switchboard knows where they came from.</div>
+    <div class="form-group">
+      <label class="form-label">Job</label>
+      <select class="form-inp form-sel" id="sh-photo-job">
+        <option value="">Select job…</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Area (optional)</label>
+        <input type="text" class="form-inp" id="sh-photo-area" placeholder="e.g. Unit 3">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Stage (optional)</label>
+        <input type="text" class="form-inp" id="sh-photo-stage" placeholder="e.g. Rough-in">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Note (optional)</label>
+      <input type="text" class="form-inp" id="sh-photo-note" placeholder="What does this show?">
+    </div>
+    <label class="snag-photo-btn" for="sh-photo-file">📷 <span id="sh-photo-label">Choose / take photo</span>
+      <input id="sh-photo-file" class="hidden-file" type="file" accept="image/*" capture="environment" onchange="onPhotoPick(event)">
+    </label>
+    <div id="sh-photo-preview" class="photo-thumbs" style="padding:0 16px;"></div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeSheet('sh-photo')" style="flex:0 0 auto;">Cancel</button>
+      <button class="btn btn-yellow btn-full" onclick="uploadPhoto()" id="sh-photo-save" disabled>Upload photo</button>
+    </div>
+    <div style="height:8px;"></div>
+  </div>
+</div>
+
+<!-- ── Bottom sheet: Need Material ── -->
+<div class="sheet-overlay" id="sh-material" onclick="sheetBgClick(event,'sh-material')">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Need material</div>
+    <div class="sheet-help">Request is sent to Switchboard for ordering. Status comes back here.</div>
+    <div class="form-group">
+      <label class="form-label">Job</label>
+      <select class="form-inp form-sel" id="sh-mat-job">
+        <option value="">Select job…</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">What do you need?</label>
+      <input type="text" class="form-inp" id="sh-mat-name" placeholder="e.g. 100m 2.5mm TPS">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Quantity</label>
+        <input type="number" class="form-inp" id="sh-mat-qty" placeholder="1" inputmode="decimal" min="0" step="any">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Unit</label>
+        <input type="text" class="form-inp" id="sh-mat-unit" placeholder="ea, m, box…" value="ea">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Needed by</label>
+        <input type="date" class="form-inp" id="sh-mat-by">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Urgency</label>
+        <select class="form-inp form-sel" id="sh-mat-urg">
+          <option value="standard">Standard</option>
+          <option value="urgent">Urgent</option>
+          <option value="critical">Critical</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Notes (optional)</label>
+      <textarea class="form-inp" id="sh-mat-notes" rows="2" placeholder="Supplier preference, part number, etc."></textarea>
     </div>
     <div class="sheet-actions">
-      <button class="btn btn-red btn-full" onclick="saveSnag()">
-        ⚠️ Submit snag
-      </button>
+      <button class="btn btn-ghost btn-sm" onclick="closeSheet('sh-material')" style="flex:0 0 auto;">Cancel</button>
+      <button class="btn btn-yellow btn-full" onclick="saveMaterial()">📦 Send request</button>
     </div>
+    <div style="height:8px;"></div>
+  </div>
+</div>
+
+<!-- ── Bottom sheet: Log Extra Work ── -->
+<div class="sheet-overlay" id="sh-extra" onclick="sheetBgClick(event,'sh-extra')">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Log extra work</div>
+    <div class="sheet-help">Use this for anything not in the original scope — builder asked extra, scope change, unplanned work. Switchboard turns it into a draft variation.</div>
+    <div class="form-group">
+      <label class="form-label">Job</label>
+      <select class="form-inp form-sel" id="sh-extra-job">
+        <option value="">Select job…</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Area</label>
+        <input type="text" class="form-inp" id="sh-extra-area" placeholder="e.g. Unit 3">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Stage</label>
+        <input type="text" class="form-inp" id="sh-extra-stage" placeholder="e.g. Fit-off">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">What was done / asked for?</label>
+      <textarea class="form-inp" id="sh-extra-desc" rows="3" placeholder="Short description"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Time spent (h)</label>
+        <input type="number" class="form-inp" id="sh-extra-hrs" placeholder="0.5" inputmode="decimal" min="0" step="0.25">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Who asked?</label>
+        <input type="text" class="form-inp" id="sh-extra-by" placeholder="e.g. Builder">
+      </div>
+    </div>
+    <label class="snag-photo-btn" for="sh-extra-photo">📷 <span id="sh-extra-photo-label">Add photo (optional)</span>
+      <input id="sh-extra-photo" class="hidden-file" type="file" accept="image/*" capture="environment" onchange="onExtraPhotoPick(event)">
+    </label>
+    <div id="sh-extra-photo-preview" class="photo-thumbs" style="padding:0 16px;"></div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeSheet('sh-extra')" style="flex:0 0 auto;">Cancel</button>
+      <button class="btn btn-yellow btn-full" onclick="saveExtraWork()">➕ Log work</button>
+    </div>
+    <div style="height:8px;"></div>
+  </div>
+</div>
+
+<!-- ── Bottom sheet: ITP checklist ── -->
+<div class="sheet-overlay" id="sh-itp" onclick="sheetBgClick(event,'sh-itp')">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="sh-itp-title">Inspection &amp; Test</div>
+    <div class="sheet-help" id="sh-itp-meta"></div>
+    <div id="sh-itp-body" style="padding:0 16px;"></div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeSheet('sh-itp')" style="flex:0 0 auto;">Cancel</button>
+      <button class="btn btn-yellow btn-full" onclick="submitItp()">📋 Submit checklist</button>
+    </div>
+    <div style="height:8px;"></div>
+  </div>
+</div>
+
+<!-- ── Bottom sheet: Resolve a snag ── -->
+<div class="sheet-overlay" id="sh-resolve" onclick="sheetBgClick(event,'sh-resolve')">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="sh-resolve-title">Resolve snag</div>
+    <div class="sheet-help" id="sh-resolve-meta"></div>
+    <div class="form-group">
+      <label class="form-label">What did you do? (required)</label>
+      <textarea class="form-inp" id="sh-resolve-note" rows="3" placeholder="What was the fix? Anything Switchboard should check?"></textarea>
+    </div>
+    <label class="snag-photo-btn" for="sh-resolve-photo">📷 <span id="sh-resolve-photo-label">Add resolution photo (recommended)</span>
+      <input id="sh-resolve-photo" class="hidden-file" type="file" accept="image/*" capture="environment" onchange="onResolvePhotoPick(event)">
+    </label>
+    <div id="sh-resolve-photo-preview" class="photo-thumbs" style="padding:0 16px;"></div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeSheet('sh-resolve')" style="flex:0 0 auto;">Cancel</button>
+      <button class="btn btn-yellow btn-full" onclick="saveResolution()">📤 Submit for review</button>
+    </div>
+    <div style="height:8px;"></div>
+  </div>
+</div>
+
+<!-- ── Bottom sheet: Complete Stage (with gates) ── -->
+<div class="sheet-overlay" id="sh-complete" onclick="sheetBgClick(event,'sh-complete')">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="sh-complete-title">Mark stage done</div>
+    <div class="sheet-help" id="sh-complete-meta"></div>
+    <div id="sh-complete-gates" style="padding:0 16px;"></div>
+    <div class="form-group">
+      <label class="form-label">Note (optional)</label>
+      <textarea class="form-inp" id="sh-complete-note" rows="2" placeholder="Anything Switchboard should know"></textarea>
+    </div>
+    <label class="snag-photo-btn" for="sh-complete-photo">📷 <span id="sh-complete-photo-label">Add evidence photo</span>
+      <input id="sh-complete-photo" class="hidden-file" type="file" accept="image/*" capture="environment" onchange="onCompletePhotoPick(event)">
+    </label>
+    <div id="sh-complete-photo-preview" class="photo-thumbs" style="padding:0 16px;"></div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeSheet('sh-complete')" style="flex:0 0 auto;">Cancel</button>
+      <button class="btn btn-yellow btn-full" id="sh-complete-save" onclick="completeStage()">✅ Mark done</button>
+    </div>
+    <div style="height:8px;"></div>
   </div>
 </div>
 
@@ -959,90 +1434,202 @@ a { color: inherit; text-decoration: none; }
 
 <script>
 // ══════════════════════════════════════════════
-// STATE
+// PHIL — site worker app for BuhlOS
+// ──────────────────────────────────────────────
+// Architecture: Phil reads from / writes to the BuhlOS backbone (/api/*).
+// Phil does not have its own data model. Switchboard writes to the same
+// backbone. Phil and Switchboard never sync directly — both go via BuhlOS.
 // ══════════════════════════════════════════════
+
 const APP = {
   tab: 'today',
   stack: ['s-today'],
   me: null,
-  jobs: null,
-  gear: null,
-  hours: null,
+  jobs: [],            // [{ id, name, status, stages:{roughIn:[], fitOff:[]} }]
+  jobData: {},         // { [jobId]: { dwellings, snags, notes } }
+  jobPhotos: {},       // { [jobId]: [{url, pathname, ...}] }
+  hoursByJob: {},      // { [jobId]: [hour entries] }
+  itpTemplates: [],    // [{ id, name, items }]
+  itpByJob: {},        // { [jobId]: [submissions] }
+  itpCtx: null,        // { jobId, dwelling, stage, templateId } when sh-itp open
+  itpAnswers: {},      // current answers in the open ITP sheet
+  gear: [],
   currentJobId: null,
   currentAreaId: null,
-  hoursFilter: 'week',   // current week view
+  timer: null,         // { jobId, dwelling, stage, startedAt, intervalId }
+  pending: [],         // [{ id, op, payload, ts }]
+  syncState: 'online', // 'online' | 'pending' | 'offline'
+  hoursFilter: null,
+  jobsFilter: 'all',
+  areasFilter: 'all',
+  snagsFilter: 'open',
+  pendingPhoto: null,
+  pendingSnagPhoto: null,
+  pendingExtraPhoto: null,
+  pendingCompletePhoto: null,
+  completeCtx: null,
 };
-
-// ── Mock data (replace with real API calls once endpoints exist) ──
-const MOCK_JOBS = [
-  { id: 'job1', name: 'Westfield Expansion', number: 'BW-041', status: 'active', address: '1 Pitt St, Sydney', phase: 'Rough-in', tasksDone: 34, tasksTotal: 67, snags: 3 },
-  { id: 'job2', name: 'Darling Quarter Fitout', number: 'BW-038', status: 'active', address: '1 Harbour St, Sydney', phase: 'First fix', tasksDone: 12, tasksTotal: 40, snags: 1 },
-  { id: 'job3', name: 'Barangaroo Office', number: 'BW-035', status: 'upcoming', address: '300 Barangaroo Ave', phase: 'Pending', tasksDone: 0, tasksTotal: 80, snags: 0 },
-];
-
-const MOCK_AREAS = {
-  job1: [
-    { id: 'a1', name: 'Level 3 – Rough-in', tasksDone: 14, tasksTotal: 20, status: 'inprogress' },
-    { id: 'a2', name: 'Level 4 – Rough-in', tasksDone: 0, tasksTotal: 18, status: 'not-started' },
-    { id: 'a3', name: 'Ground – Fitout', tasksDone: 20, tasksTotal: 20, status: 'done' },
-    { id: 'a4', name: 'Basement – Conduit', tasksDone: 0, tasksTotal: 9, status: 'not-started' },
-  ],
-  job2: [
-    { id: 'a5', name: 'Level 1', tasksDone: 4, tasksTotal: 12, status: 'inprogress' },
-    { id: 'a6', name: 'Level 2', tasksDone: 8, tasksTotal: 12, status: 'inprogress' },
-    { id: 'a7', name: 'Level 3', tasksDone: 0, tasksTotal: 16, status: 'not-started' },
-  ],
-};
-
-const MOCK_TASKS = {
-  a1: [
-    { id: 't1', name: 'Install conduit runs – north wall', status: 'done', spec: '20mm EMT' },
-    { id: 't2', name: 'Pull cables – lights circuit', status: 'inprogress', spec: '2.5mm TPS' },
-    { id: 't3', name: 'Install DB frame', status: 'not-started', spec: null },
-    { id: 't4', name: 'Rough-in GPO boxes – east', status: 'not-started', spec: '56MA' },
-  ],
-  a2: [
-    { id: 't5', name: 'Mark out conduit runs', status: 'not-started', spec: null },
-    { id: 't6', name: 'Core drilling – 3 penetrations', status: 'not-started', spec: null },
-  ],
-  a3: [
-    { id: 't7', name: 'Install DB-G switchboard', status: 'done', spec: null },
-    { id: 't8', name: 'Terminate GPOs – ground floor', status: 'done', spec: '10A' },
-  ],
-};
-
-const MOCK_HOURS = [
-  { id: 'h1', date: '2026-05-13', jobId: 'job1', jobName: 'Westfield Expansion', start: '07:00', end: '15:30', type: 'ordinary', hours: 8.5, notes: 'Lvl 3 rough-in' },
-  { id: 'h2', date: '2026-05-12', jobId: 'job1', jobName: 'Westfield Expansion', start: '07:00', end: '15:00', type: 'ordinary', hours: 8, notes: '' },
-  { id: 'h3', date: '2026-05-12', jobId: 'job1', jobName: 'Westfield Expansion', start: '15:00', end: '17:30', type: 'overtime', hours: 2.5, notes: '' },
-  { id: 'h4', date: '2026-05-09', jobId: 'job2', jobName: 'Darling Quarter Fitout', start: '07:30', end: '16:00', type: 'ordinary', hours: 8.5, notes: '' },
-];
-
-const TODAY_TASKS = [
-  { id: 'tt1', name: 'Pull cables – lights circuit', area: 'Westfield · Level 3', status: 'inprogress' },
-  { id: 'tt2', name: 'Install DB frame', area: 'Westfield · Level 3', status: 'not-started' },
-  { id: 'tt3', name: 'Core drilling – 3 penetrations', area: 'Westfield · Level 4', status: 'not-started' },
-  { id: 'tt4', name: 'Install conduit runs – north wall', area: 'Westfield · Level 3', status: 'done' },
-];
 
 const GEAR_TYPES = {
-  vehicle: '🚐', key: '🔑', tool: '🔧', ppe: '🦺', other: '📦',
+  vehicle: '🚐', key: '🔑', tool: '🔧', accessory: '🧰', ppe: '🦺', other: '📦',
 };
 
-let jobsFilter = 'all';
-let areasFilter = 'all';
+const STAGE_STATUS_KEYS = {
+  'Not started':        'not-started',
+  'In progress':        'inprogress',
+  'Blocked':            'blocked',
+  'Done':               'done',
+  'Ready':              'ready',
+  'Submitted':          'review',
+  'Review':             'review',
+  'Reopened':           'inprogress',
+  'Pending validation': 'inprogress',
+  'Pending sync':       'inprogress',
+};
+
+// Reason codes returned by API or generated client-side → plain site language.
+const REASONS = {
+  photo_required:      'Photo required before marking this done.',
+  note_required:       'Add a note before marking this done.',
+  itp_required:        'Complete the ITP before marking this done.',
+  review_required:     'Send to Switchboard for review before completing.',
+  self_review_blocked: 'You cannot review your own work — Switchboard signs this off.',
+  job_closed:          'This job is closed. Ask Switchboard to reopen it.',
+  permission_denied:   "You don't have permission to do this — ask Switchboard.",
+  defect_open:         'There is an open defect on this stage. Resolve it first.',
+  gear_not_returned:   'Some gear is still checked out. Return it before closing.',
+  superseded_plan:     'A newer plan has been published. Open the current revision first.',
+  calibration_expired: 'Tester / instrument calibration has expired.',
+  network:             'No connection — saved locally and will sync when online.',
+  'read-only':         "You can't edit this job.",
+  forbidden:           "You don't have permission to do this.",
+  'no access to job':  "You're not assigned to this job.",
+  'not authenticated': 'Your session ended — sign in again.',
+  unknown:             'Something went wrong. Try again or tell Switchboard.',
+};
+function reasonText(code) { return REASONS[code] || REASONS.unknown; }
+
+const PENDING_LS = 'phil:pending:v1';
+const TIMER_LS   = 'phil:timer:v1';
 
 // ══════════════════════════════════════════════
-// NAVIGATION
+// API
 // ══════════════════════════════════════════════
-function navTo(screenId) {
+async function api(method, path, body) {
+  const opts = { method, credentials: 'include', headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  let res;
+  try {
+    res = await fetch(path, opts);
+  } catch (e) {
+    throw Object.assign(new Error('network'), { status: 0, code: 'network' });
+  }
+  if (!res.ok) {
+    let detail = {};
+    try { detail = await res.json(); } catch {}
+    throw Object.assign(new Error(detail.error || ('http_' + res.status)), {
+      status: res.status,
+      code: detail.error || ('http_' + res.status),
+    });
+  }
+  if (res.status === 204) return null;
+  try { return await res.json(); } catch { return null; }
+}
+
+// ══════════════════════════════════════════════
+// PENDING QUEUE (offline-safe writes)
+// ══════════════════════════════════════════════
+function loadPending() {
+  try {
+    const raw = localStorage.getItem(PENDING_LS);
+    APP.pending = raw ? JSON.parse(raw) : [];
+  } catch { APP.pending = []; }
+}
+function savePending() {
+  try { localStorage.setItem(PENDING_LS, JSON.stringify(APP.pending)); } catch {}
+  updateSyncIndicator();
+}
+function queuePending(op, payload) {
+  APP.pending.push({
+    id: 'p' + Date.now() + Math.random().toString(36).slice(2, 5),
+    op, payload, ts: Date.now(),
+  });
+  savePending();
+}
+async function flushPending() {
+  if (!APP.pending.length) { updateSyncIndicator(); return; }
+  const next = [...APP.pending];
+  for (const item of next) {
+    try {
+      await dispatchOp(item.op, item.payload);
+      APP.pending = APP.pending.filter(x => x.id !== item.id);
+      savePending();
+    } catch (e) {
+      if (e.code === 'network') { updateSyncIndicator(); return; }
+      APP.pending = APP.pending.filter(x => x.id !== item.id);
+      savePending();
+      toast('Could not sync one item: ' + reasonText(e.code));
+    }
+  }
+  updateSyncIndicator();
+}
+async function dispatchOp(op, payload) {
+  switch (op) {
+    case 'snag':
+    case 'stageStatus':
+      return api('POST', `/api/data?jobId=${encodeURIComponent(payload.jobId)}`, payload.body);
+    case 'workflow':
+      return api('POST', `/api/workflow?jobId=${encodeURIComponent(payload.jobId)}`, payload.body);
+    case 'hours':
+      return api('POST', `/api/hours?jobId=${encodeURIComponent(payload.jobId)}`, payload.body);
+    case 'material':
+      return api('POST', `/api/materials?action=material&jobId=${encodeURIComponent(payload.jobId)}`, payload.body);
+    case 'photo':
+      return api('POST', `/api/photos?jobId=${encodeURIComponent(payload.jobId)}`, payload.body);
+    case 'itp-submit':
+      return api('POST', `/api/itp?action=submit&jobId=${encodeURIComponent(payload.jobId)}`, payload.body);
+    default:
+      throw new Error('unknown op ' + op);
+  }
+}
+
+// ══════════════════════════════════════════════
+// SYNC INDICATOR
+// ══════════════════════════════════════════════
+function updateSyncIndicator() {
+  const online = navigator.onLine;
+  let state, label;
+  if (!online)                  { state = 'offline'; label = 'Offline'; }
+  else if (APP.pending.length)  { state = 'pending'; label = APP.pending.length + ' pending'; }
+  else                          { state = 'online';  label = 'Live'; }
+  APP.syncState = state;
+  document.querySelectorAll('.sync-pill').forEach(p => {
+    p.classList.remove('online', 'pending', 'offline');
+    p.classList.add(state);
+    const lbl = p.querySelector('span:last-child');
+    if (lbl) lbl.textContent = label;
+  });
+}
+window.addEventListener('online',  () => { updateSyncIndicator(); flushPending(); });
+window.addEventListener('offline', updateSyncIndicator);
+
+// ══════════════════════════════════════════════
+// NAV
+// ══════════════════════════════════════════════
+function _navTo(screenId) {
   const prev = APP.stack[APP.stack.length - 1];
   if (prev === screenId) return;
   document.getElementById(prev).classList.remove('active');
   document.getElementById(screenId).classList.add('active');
   APP.stack.push(screenId);
 }
-
+function navTo(screenId) {
+  _navTo(screenId);
+  if (screenId === 's-job-areas')  showAreas();
+  if (screenId === 's-job-photos') openJobPhotos();
+  if (screenId === 's-job-snags')  openJobSnags();
+  if (screenId === 's-job-plans')  renderPlans();
+}
 function back() {
   if (APP.stack.length <= 1) return;
   const cur = APP.stack.pop();
@@ -1052,49 +1639,31 @@ function back() {
 }
 
 const TAB_ROOTS = {
-  today: 's-today',
-  jobs:  's-jobs',
-  hours: 's-hours',
-  gear:  's-gear',
-  more:  's-more',
+  today: 's-today', jobs: 's-jobs', hours: 's-hours', gear: 's-gear', more: 's-more',
 };
-
 function switchTab(name) {
-  // Deactivate current
-  const prevRoot = TAB_ROOTS[APP.tab];
   APP.stack.forEach(id => document.getElementById(id).classList.remove('active'));
-
-  // Update tabs
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
-
-  // Set new stack
   APP.tab = name;
   APP.stack = [TAB_ROOTS[name]];
   document.getElementById(TAB_ROOTS[name]).classList.add('active');
-
-  // Lazy-load tab content
   if (name === 'today') renderToday();
   if (name === 'jobs')  renderJobs();
   if (name === 'hours') renderHours();
-  if (name === 'gear')  loadGear();
+  if (name === 'gear')  loadAndRenderGear();
   if (name === 'more')  renderMore();
 }
 
 // ══════════════════════════════════════════════
-// BOTTOM SHEETS
+// SHEETS
 // ══════════════════════════════════════════════
 function openSheet(id) {
   document.getElementById(id).classList.add('open');
   prefillSheet(id);
 }
-function closeSheet(id) {
-  document.getElementById(id).classList.remove('open');
-}
-function sheetBgClick(e, id) {
-  if (e.target === document.getElementById(id)) closeSheet(id);
-}
-
+function closeSheet(id) { document.getElementById(id).classList.remove('open'); }
+function sheetBgClick(e, id) { if (e.target === document.getElementById(id)) closeSheet(id); }
 function prefillSheet(id) {
   if (id === 'sh-hours') {
     const d = document.getElementById('sh-hrs-date');
@@ -1103,19 +1672,43 @@ function prefillSheet(id) {
   }
   if (id === 'sh-snag') {
     populateJobDropdown('sh-snag-job');
+    const areaInp = document.getElementById('sh-snag-area');
+    if (APP.currentAreaId && !areaInp.value) areaInp.value = APP.currentAreaId;
+    APP.pendingSnagPhoto = null;
+    document.getElementById('sh-snag-photo-preview').innerHTML = '';
+    document.getElementById('sh-snag-photo-label').textContent = 'Add photo (optional)';
+  }
+  if (id === 'sh-photo') {
+    populateJobDropdown('sh-photo-job');
+    const areaInp = document.getElementById('sh-photo-area');
+    if (APP.currentAreaId && !areaInp.value) areaInp.value = APP.currentAreaId;
+    APP.pendingPhoto = null;
+    document.getElementById('sh-photo-preview').innerHTML = '';
+    document.getElementById('sh-photo-label').textContent = 'Choose / take photo';
+    document.getElementById('sh-photo-save').disabled = true;
+  }
+  if (id === 'sh-material') {
+    populateJobDropdown('sh-mat-job');
+  }
+  if (id === 'sh-extra') {
+    populateJobDropdown('sh-extra-job');
+    const areaInp = document.getElementById('sh-extra-area');
+    if (APP.currentAreaId && !areaInp.value) areaInp.value = APP.currentAreaId;
+    APP.pendingExtraPhoto = null;
+    document.getElementById('sh-extra-photo-preview').innerHTML = '';
+    document.getElementById('sh-extra-photo-label').textContent = 'Add photo (optional)';
   }
 }
-
 function populateJobDropdown(selId) {
   const sel = document.getElementById(selId);
-  const jobs = APP.jobs || MOCK_JOBS;
-  // keep first blank option
   while (sel.options.length > 1) sel.remove(1);
-  jobs.filter(j => j.status === 'active').forEach(j => {
-    const opt = new Option(j.name, j.id);
-    sel.add(opt);
-  });
-  if (APP.currentJobId) sel.value = APP.currentJobId;
+  const jobs = activeJobs();
+  jobs.forEach(j => sel.add(new Option(j.name, j.id)));
+  if (APP.currentJobId && jobs.find(j => j.id === APP.currentJobId)) sel.value = APP.currentJobId;
+  else if (jobs.length === 1) sel.value = jobs[0].id;
+}
+function activeJobs() {
+  return (APP.jobs || []).filter(j => j.status !== 'archived' && j.status !== 'closed');
 }
 
 // ══════════════════════════════════════════════
@@ -1133,9 +1726,7 @@ function toast(msg) {
 // ══════════════════════════════════════════════
 // DATE HELPERS
 // ══════════════════════════════════════════════
-function todayDate() {
-  return new Date().toISOString().slice(0, 10);
-}
+function todayDate() { return new Date().toISOString().slice(0, 10); }
 function fmtDate(iso) {
   if (!iso) return '';
   const d = new Date(iso + 'T00:00:00');
@@ -1144,16 +1735,16 @@ function fmtDate(iso) {
 function startOfWeek(d) {
   const day = d.getDay();
   const diff = (day === 0 ? -6 : 1 - day);
-  const m = new Date(d);
-  m.setDate(m.getDate() + diff);
+  const m = new Date(d); m.setDate(m.getDate() + diff); m.setHours(0, 0, 0, 0);
   return m;
 }
-function addDays(d, n) {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  return x;
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function isoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
-function isoDate(d) { return d.toISOString().slice(0, 10); }
 function hoursFromRange(start, end) {
   if (!start || !end) return 0;
   const [sh, sm] = start.split(':').map(Number);
@@ -1161,265 +1752,935 @@ function hoursFromRange(start, end) {
   const diff = (eh * 60 + em) - (sh * 60 + sm);
   return diff > 0 ? Math.round(diff / 60 * 10) / 10 : 0;
 }
+function fmtElapsed(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
 
 // ══════════════════════════════════════════════
-// TODAY SCREEN
+// JOB DATA HELPERS
+// ══════════════════════════════════════════════
+function findJob(jobId) { return (APP.jobs || []).find(j => j.id === jobId); }
+
+// Stages are returned by BuhlOS as { name, requires: {photo,note,itp,independentReview} }.
+// We also accept plain strings as a back-compat fallback.
+function allStageDefs(job) {
+  const fallback = [{ name: 'Rough-in', requires: {} }, { name: 'Fit-off', requires: {} }];
+  if (!job || !job.stages) return fallback;
+  const r = Array.isArray(job.stages.roughIn) ? job.stages.roughIn : [];
+  const f = Array.isArray(job.stages.fitOff)  ? job.stages.fitOff  : [];
+  // Preserve every field BuhlOS sends (id, category, order, active,
+  // evidence, itpTemplateId, ...). Phil's UI keys off name; the rest are
+  // needed for gates and ITP lookup.
+  const combined = [...r, ...f].map(s => {
+    if (s && typeof s === 'object') return { ...s, name: String(s.name || ''), requires: s.requires || {} };
+    return { name: String(s || ''), requires: {} };
+  }).filter(s => s.name);
+  return combined.length ? combined : fallback;
+}
+// Back-compat helper for callers that only need the names.
+function allStages(job) { return allStageDefs(job).map(s => s.name); }
+function findStageDef(job, stageName) {
+  return allStageDefs(job).find(s => s.name === stageName) || { name: stageName, requires: {} };
+}
+function getDwellingList(jobId) {
+  // dwellings: { [name]: { [stage]: { status, ... }, _notes } }
+  // If a job has no dwellings yet, fall back to one "Site" dwelling so the
+  // worker can still see the stages defined on the job.
+  const job = findJob(jobId);
+  const data = APP.jobData[jobId] || { dwellings: {} };
+  const names = Object.keys(data.dwellings || {});
+  if (names.length) return names.map(n => makeDwellingView(n, data.dwellings[n], job));
+  if (job) return [makeDwellingView('Site', {}, job)];
+  return [];
+}
+function makeDwellingView(name, dw, job) {
+  const stages = allStages(job);
+  const totals = stages.reduce((acc, st) => {
+    const s = (dw && dw[st] && dw[st].status) || 'Not started';
+    if (s === 'Done') acc.done++;
+    if (s === 'In progress' || s === 'Blocked') acc.active++;
+    return acc;
+  }, { done: 0, active: 0 });
+  return {
+    id: name, name, stages, dwellingData: dw || {},
+    tasksDone: totals.done, tasksTotal: stages.length, active: totals.active,
+    status: totals.done === stages.length && stages.length ? 'done'
+          : totals.done > 0 || totals.active > 0 ? 'inprogress' : 'not-started',
+  };
+}
+function findDwelling(jobId, dwellingId) {
+  return getDwellingList(jobId).find(d => d.id === dwellingId);
+}
+function jobProgress(jobId) {
+  const dws = getDwellingList(jobId);
+  let done = 0, total = 0;
+  dws.forEach(d => { done += d.tasksDone; total += d.tasksTotal; });
+  return { done, total, pct: total ? Math.round(done / total * 100) : 0 };
+}
+function jobSnagsOpen(jobId) {
+  const data = APP.jobData[jobId];
+  if (!data || !Array.isArray(data.snags)) return 0;
+  return data.snags.filter(s => (s.status || 'Open') === 'Open').length;
+}
+
+// ══════════════════════════════════════════════
+// DATA LOADING
+// ══════════════════════════════════════════════
+async function loadJobs() {
+  try {
+    const d = await api('GET', '/api/jobs');
+    APP.jobs = (d.jobs || []).map(j => ({ ...j, status: j.status || 'active' }));
+    return true;
+  } catch (e) {
+    if (e.code === 'network') { updateSyncIndicator(); return false; }
+    if (e.status === 401) { showLoginScreen(); return false; }
+    toast("Couldn't load jobs — " + reasonText(e.code));
+    return false;
+  }
+}
+async function loadJobData(jobId, { silent = false } = {}) {
+  if (!jobId) return;
+  try {
+    const d = await api('GET', `/api/data?jobId=${encodeURIComponent(jobId)}`);
+    APP.jobData[jobId] = {
+      dwellings: d.dwellings || {},
+      snags: Array.isArray(d.snags) ? d.snags : [],
+      notes: Array.isArray(d.notes) ? d.notes : [],
+    };
+  } catch (e) {
+    if (e.code === 'network') { updateSyncIndicator(); return; }
+    if (!silent) toast("Couldn't load job — " + reasonText(e.code));
+  }
+}
+async function loadJobPhotos(jobId) {
+  try {
+    const d = await api('GET', `/api/photos?jobId=${encodeURIComponent(jobId)}`);
+    APP.jobPhotos[jobId] = Array.isArray(d.photos) ? d.photos : [];
+  } catch (e) {
+    if (e.code !== 'network') console.warn('photos load failed', e);
+  }
+}
+async function loadHoursForJob(jobId) {
+  try {
+    const d = await api('GET', `/api/hours?jobId=${encodeURIComponent(jobId)}`);
+    APP.hoursByJob[jobId] = Array.isArray(d.entries) ? d.entries : [];
+  } catch (e) {
+    if (e.code !== 'network') console.warn('hours load failed', e);
+  }
+}
+async function loadAllHours() {
+  // Prefer the per-user aggregator: one round-trip rather than fanning out
+  // per job. Falls back to per-job fan-out if the endpoint is unavailable.
+  try {
+    const d = await api('GET', '/api/hours?mine=true');
+    const all = Array.isArray(d.entries) ? d.entries : [];
+    APP.hoursByJob = {};
+    all.forEach(e => {
+      const jid = e.jobId || '_';
+      (APP.hoursByJob[jid] = APP.hoursByJob[jid] || []).push(e);
+    });
+    return;
+  } catch (e) {
+    if (e.code !== 'network' && e.code !== 'http_404') {
+      console.warn('hours aggregator failed', e);
+    }
+  }
+  // Fallback path
+  const ids = (APP.jobs || []).map(j => j.id);
+  await Promise.all(ids.map(loadHoursForJob));
+}
+async function loadAndRenderGear() {
+  const el = document.getElementById('gear-list');
+  if (!APP.gear.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><div class="empty-msg">Loading…</div></div>';
+  }
+  try {
+    const d = await api('GET', '/api/assets');
+    APP.gear = Array.isArray(d.assets) ? d.assets : [];
+    renderGear();
+  } catch (e) {
+    if (e.code === 'network') {
+      renderGear();
+      toast('Showing cached gear (offline)');
+    } else {
+      el.innerHTML = `<div class="empty"><div class="empty-msg">Couldn't load gear</div><div class="empty-sub">${esc(reasonText(e.code))}</div></div>`;
+    }
+  }
+}
+
+// ══════════════════════════════════════════════
+// TODAY
 // ══════════════════════════════════════════════
 function renderToday() {
-  const job = (APP.jobs || MOCK_JOBS).find(j => j.status === 'active');
-  const todayD = new Date();
-  const todayStr = todayD.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' });
+  const me = APP.me || {};
+  document.getElementById('today-greeting').textContent =
+    'Hi ' + ((me.username || 'mate').split('@')[0].split(' ')[0]);
 
-  const activeTasks = TODAY_TASKS.filter(t => t.status !== 'done');
-  document.getElementById('today-count').textContent = activeTasks.length;
-  document.getElementById('today-meta').textContent = job
-    ? `${job.name} · ${job.phase}`
-    : todayStr;
+  // "On now" list: stages currently in progress or blocked, across all assigned jobs.
+  const items = [];
+  (APP.jobs || []).forEach(job => {
+    if (job.status === 'archived' || job.status === 'closed') return;
+    getDwellingList(job.id).forEach(d => {
+      d.stages.forEach(st => {
+        const s = (d.dwellingData[st] && d.dwellingData[st].status) || 'Not started';
+        if (s === 'In progress' || s === 'Blocked') {
+          items.push({
+            jobId: job.id, jobName: job.name,
+            dwelling: d.id, dwellingName: d.name,
+            stage: st, status: s,
+          });
+        }
+      });
+    });
+  });
 
-  const el = document.getElementById('today-tasks');
-  if (!TODAY_TASKS.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><div class="empty-msg">All clear for today</div></div>';
-    return;
+  document.getElementById('today-count').textContent = items.length || '0';
+  document.getElementById('today-label').textContent = items.length === 1 ? 'Thing on today' : 'Things on today';
+
+  const meta = [];
+  if ((APP.jobs || []).length) meta.push(APP.jobs.length + ' job' + (APP.jobs.length === 1 ? '' : 's'));
+  if (APP.pending.length)      meta.push(APP.pending.length + ' pending');
+  if (!meta.length) meta.push(new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' }));
+  document.getElementById('today-meta').textContent = meta.join(' · ');
+
+  const tEl = document.getElementById('today-tasks');
+  if (!items.length) {
+    tEl.innerHTML =
+      '<div class="empty">' +
+      '<div class="empty-icon">✅</div>' +
+      '<div class="empty-msg">Nothing in progress</div>' +
+      '<div class="empty-sub">Open a job and start a stage to get going.</div>' +
+      '</div>';
+  } else {
+    tEl.innerHTML = items.slice(0, 12).map(t => {
+      const dotStyle = t.status === 'Blocked' ? 'background:var(--red);' : '';
+      return (
+        '<div class="task-row" onclick="openJob(\'' + esc(t.jobId) + '\')">' +
+        '<div class="task-dot active" style="' + dotStyle + '"></div>' +
+        '<div style="flex:1;">' +
+        '<div class="task-name">' + esc(t.stage) + ' — ' + esc(t.dwellingName) + '</div>' +
+        '<div class="task-area">' + esc(t.jobName) + (t.status === 'Blocked' ? ' · Blocked' : '') + '</div>' +
+        '</div>' +
+        '<span class="status-chip ' + (t.status === 'Blocked' ? 'blocked' : 'inprogress') + '">' + esc(t.status) + '</span>' +
+        '</div>'
+      );
+    }).join('');
   }
-  el.innerHTML = TODAY_TASKS.map(t => `
-    <div class="task-row">
-      <div class="task-dot ${t.status === 'done' ? 'done' : t.status === 'inprogress' ? 'active' : ''}"></div>
-      <div>
-        <div class="task-name ${t.status === 'done' ? 'done' : ''}">${t.name}</div>
-        <div class="task-area">${t.area}</div>
-      </div>
-    </div>
-  `).join('');
+
+  const qaLbl = document.getElementById('qa-time-label');
+  if (qaLbl) qaLbl.textContent = APP.timer ? 'Stop timer' : 'Log hours';
+
+  renderTimerBanner(document.getElementById('today-timer-slot'));
+  updateSyncIndicator();
+}
+
+function quickStartOrLog() {
+  if (APP.timer) stopTimer();
+  else openSheet('sh-hours');
 }
 
 // ══════════════════════════════════════════════
-// JOBS SCREEN
+// TIMER
+// ══════════════════════════════════════════════
+function loadTimer() {
+  try {
+    const raw = localStorage.getItem(TIMER_LS);
+    if (!raw) return;
+    APP.timer = JSON.parse(raw);
+    APP.timer.intervalId = setInterval(updateTimerBanner, 1000);
+  } catch {}
+}
+function persistTimer() {
+  if (APP.timer) {
+    const { intervalId, ...rest } = APP.timer;
+    try { localStorage.setItem(TIMER_LS, JSON.stringify(rest)); } catch {}
+  } else {
+    try { localStorage.removeItem(TIMER_LS); } catch {}
+  }
+}
+function startTimer(jobId, dwelling, stage) {
+  if (APP.timer) {
+    if (!confirm('A timer is already running on "' + APP.timer.stage + '". Stop it first?')) return;
+    stopTimer(true);
+  }
+  APP.timer = { jobId, dwelling, stage, startedAt: Date.now() };
+  APP.timer.intervalId = setInterval(updateTimerBanner, 1000);
+  persistTimer();
+  toast('Timer started — ' + stage);
+  // Also flip stage status to In progress
+  setStageStatus(jobId, dwelling, stage, 'In progress', null);
+  renderToday();
+  if (APP.currentJobId === jobId) renderAreaTasks(APP.currentAreaId);
+}
+async function stopTimer(silent) {
+  if (!APP.timer) return;
+  const { jobId, dwelling, stage, startedAt } = APP.timer;
+  clearInterval(APP.timer.intervalId);
+  const ms = Date.now() - startedAt;
+  const hrs = Math.max(0.1, Math.round(ms / 1000 / 60 / 6) / 10); // round to 0.1h, min 0.1
+  APP.timer = null;
+  persistTimer();
+  const job = findJob(jobId);
+  const entry = {
+    id: 'h_' + Date.now(),
+    date: todayDate(),
+    jobId, jobName: job ? job.name : '',
+    start: new Date(startedAt).toTimeString().slice(0, 5),
+    end:   new Date().toTimeString().slice(0, 5),
+    type: 'ordinary',
+    hours: hrs,
+    notes: (dwelling ? dwelling + ' · ' : '') + stage,
+    userId: APP.me && APP.me.id,
+    by: APP.me && APP.me.username,
+  };
+  if (!APP.hoursByJob[jobId]) APP.hoursByJob[jobId] = [];
+  APP.hoursByJob[jobId].unshift(entry);
+  await postSingleHourEntry(jobId, entry);
+  if (!silent) toast('Logged ' + hrs + 'h on ' + stage);
+  renderToday();
+  if (APP.tab === 'hours') renderHours();
+  if (APP.currentJobId === jobId) renderAreaTasks(APP.currentAreaId);
+}
+function updateTimerBanner() {
+  document.querySelectorAll('.timer-banner .tb-clock').forEach(el => {
+    if (APP.timer) el.textContent = fmtElapsed(Date.now() - APP.timer.startedAt);
+  });
+}
+function renderTimerBanner(slot) {
+  if (!slot) return;
+  if (!APP.timer) { slot.innerHTML = ''; return; }
+  const { jobId, dwelling, stage, startedAt } = APP.timer;
+  const job = findJob(jobId);
+  slot.innerHTML =
+    '<div class="timer-banner">' +
+    '<div class="tb-icon">⏱</div>' +
+    '<div class="tb-body">' +
+    '<div class="tb-title">' + esc(stage) + ' — ' + esc(dwelling || '') + '</div>' +
+    '<div class="tb-job">' + esc(job ? job.name : '') + '</div>' +
+    '</div>' +
+    '<div class="tb-clock">' + fmtElapsed(Date.now() - startedAt) + '</div>' +
+    '<button class="tb-stop" onclick="stopTimer()">Stop</button>' +
+    '</div>';
+}
+
+// ══════════════════════════════════════════════
+// JOBS LIST
 // ══════════════════════════════════════════════
 function renderJobs() {
-  if (!APP.jobs) APP.jobs = MOCK_JOBS;
-  filterJobs(document.getElementById('jobs-search').value);
-}
-
-function filterJobStatus(btn, val) {
-  jobsFilter = val;
-  document.querySelectorAll('#jobs-chips .chip').forEach(c => c.classList.remove('active'));
-  btn.classList.add('active');
-  filterJobs(document.getElementById('jobs-search').value);
-}
-
-function filterJobs(q) {
-  const jobs = (APP.jobs || MOCK_JOBS).filter(j => {
-    const matchQ = !q || j.name.toLowerCase().includes(q.toLowerCase()) || j.number.includes(q);
-    const matchStatus = jobsFilter === 'all' || j.status === jobsFilter;
+  const q = (document.getElementById('jobs-search').value || '').toLowerCase();
+  const list = (APP.jobs || []).filter(j => {
+    const status = j.status || 'active';
+    const matchQ = !q || (j.name || '').toLowerCase().includes(q) || (j.id || '').toLowerCase().includes(q);
+    const matchStatus =
+      APP.jobsFilter === 'all' ||
+      (APP.jobsFilter === 'active' && status === 'active') ||
+      (APP.jobsFilter === 'upcoming' && (status === 'upcoming' || status === 'pending'));
     return matchQ && matchStatus;
   });
   const el = document.getElementById('jobs-list');
-  if (!jobs.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-msg">No jobs found</div></div>';
+  if (!list.length) {
+    el.innerHTML =
+      '<div class="empty">' +
+      '<div class="empty-icon">🔍</div>' +
+      '<div class="empty-msg">No jobs found</div>' +
+      '<div class="empty-sub">Ask Switchboard to assign you to a job.</div>' +
+      '</div>';
     return;
   }
-  el.innerHTML = jobs.map(j => {
-    const initials = j.name.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
-    const pct = j.tasksTotal ? Math.round(j.tasksDone / j.tasksTotal * 100) : 0;
-    return `<div class="job-row" onclick="openJob('${j.id}')">
-      <div class="job-dot">${initials}</div>
-      <div style="flex:1">
-        <div class="job-name">${j.name}</div>
-        <div class="job-sub">${j.number} · ${j.address}</div>
-        <div class="prog-bar" style="margin-top:6px;"><div class="prog-fill" style="width:${pct}%"></div></div>
-      </div>
-      <div class="job-chev">›</div>
-    </div>`;
+  el.innerHTML = list.map(j => {
+    const initials = (j.name || '?').split(/\s+/).slice(0, 2).map(w => (w[0] || '')).join('').toUpperCase();
+    const prog = jobProgress(j.id);
+    const sub = j.id + (j.status && j.status !== 'active' ? ' · ' + j.status : '');
+    return (
+      '<div class="job-row" onclick="openJob(\'' + esc(j.id) + '\')">' +
+      '<div class="job-dot">' + esc(initials || '?') + '</div>' +
+      '<div style="flex:1">' +
+      '<div class="job-name">' + esc(j.name) + '</div>' +
+      '<div class="job-sub">' + esc(sub) + '</div>' +
+      '<div class="prog-bar" style="margin-top:6px;"><div class="prog-fill" style="width:' + prog.pct + '%"></div></div>' +
+      '</div>' +
+      '<div class="job-chev">›</div>' +
+      '</div>'
+    );
   }).join('');
 }
+function filterJobs() { renderJobs(); }
+function filterJobStatus(btn, val) {
+  APP.jobsFilter = val;
+  document.querySelectorAll('#jobs-chips .chip').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  renderJobs();
+}
 
-function openJob(jobId) {
+async function openJob(jobId) {
   APP.currentJobId = jobId;
-  const job = (APP.jobs || MOCK_JOBS).find(j => j.id === jobId);
+  APP.currentAreaId = null;
+  _navTo('s-job-home');
+  document.getElementById('job-home-title').textContent = (findJob(jobId) || {}).name || 'Job';
+  renderJobHome(jobId);
+  await Promise.all([loadJobData(jobId), loadItpForJob(jobId)]);
+  renderJobHome(jobId);
+}
+function renderJobHome(jobId) {
+  const job = findJob(jobId);
   if (!job) return;
-
+  const prog = jobProgress(jobId);
   document.getElementById('job-home-title').textContent = job.name;
-  const pct = job.tasksTotal ? Math.round(job.tasksDone / job.tasksTotal * 100) : 0;
-  document.getElementById('job-home-bar').style.width = pct + '%';
-  document.getElementById('job-home-pct').textContent = pct + '%';
-  document.getElementById('job-home-tasks-done').textContent = `${job.tasksDone} / ${job.tasksTotal} tasks`;
-  document.getElementById('job-home-phase').textContent = job.phase;
-  document.getElementById('jh-tasks').textContent = job.tasksTotal - job.tasksDone;
-  document.getElementById('jh-snags').textContent = job.snags;
-
-  renderAreasForJob(jobId);
-  navTo('s-job-home');
+  document.getElementById('job-home-bar').style.width  = prog.pct + '%';
+  document.getElementById('job-home-pct').textContent  = prog.pct + '%';
+  document.getElementById('job-home-tasks-done').textContent = prog.done + ' / ' + prog.total + ' stages';
+  document.getElementById('job-home-phase').textContent = job.status || 'Active';
+  document.getElementById('jh-tasks').textContent = Math.max(0, prog.total - prog.done);
+  document.getElementById('jh-snags').textContent = jobSnagsOpen(jobId);
+  renderTimerBanner(document.getElementById('job-home-timer-slot'));
+  updateSyncIndicator();
 }
 
 // ══════════════════════════════════════════════
-// AREAS SCREEN
+// AREAS
 // ══════════════════════════════════════════════
-function renderAreasForJob(jobId) {
-  const areas = MOCK_AREAS[jobId] || [];
-  renderAreasList(areas);
+async function showAreas() {
+  if (!APP.currentJobId) return;
+  renderAreasList(getDwellingList(APP.currentJobId));
+  await loadJobData(APP.currentJobId, { silent: true });
+  renderAreasList(getDwellingList(APP.currentJobId));
 }
-
 function filterAreas(btn, val) {
-  areasFilter = val;
+  APP.areasFilter = val;
   document.querySelectorAll('#areas-chips .chip').forEach(c => c.classList.remove('active'));
   btn.classList.add('active');
-  const areas = MOCK_AREAS[APP.currentJobId] || [];
-  renderAreasList(areas);
+  if (APP.currentJobId) renderAreasList(getDwellingList(APP.currentJobId));
 }
-
 function renderAreasList(areas) {
-  const filtered = areasFilter === 'all'
+  const filtered = APP.areasFilter === 'all'
     ? areas
-    : areas.filter(a => a.status === areasFilter);
+    : areas.filter(a => a.status === APP.areasFilter);
   const el = document.getElementById('areas-list');
   if (!filtered.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-msg">No areas match</div></div>';
+    el.innerHTML =
+      '<div class="empty">' +
+      '<div class="empty-icon">🏗</div>' +
+      '<div class="empty-msg">No areas match</div>' +
+      '<div class="empty-sub">Switchboard sets up dwellings / areas for each job.</div>' +
+      '</div>';
     return;
   }
   el.innerHTML = filtered.map(a => {
     const pct = a.tasksTotal ? Math.round(a.tasksDone / a.tasksTotal * 100) : 0;
-    const statusBadge = a.status === 'done'
-      ? '<span class="badge badge-green">Done</span>'
-      : a.status === 'inprogress'
-      ? '<span class="badge badge-amber">In progress</span>'
-      : '<span class="badge badge-grey">Not started</span>';
-    return `<div class="area-row" onclick="openArea('${a.id}','${a.name}')">
-      <div class="area-top">
-        <div class="area-name">${a.name}</div>
-        ${statusBadge}
-        <div class="area-pct">${pct}%</div>
-      </div>
-      <div class="prog-bar"><div class="prog-fill" style="width:${pct}%"></div></div>
-    </div>`;
+    const chip =
+      a.status === 'done'        ? '<span class="status-chip done">Done</span>'        :
+      a.status === 'inprogress'  ? '<span class="status-chip inprogress">In progress</span>' :
+                                   '<span class="status-chip not-started">Not started</span>';
+    return (
+      '<div class="area-row" onclick="openArea(\'' + esc(a.id) + '\',\'' + esc(a.name) + '\')">' +
+      '<div class="area-top">' +
+      '<div class="area-name">' + esc(a.name) + '</div>' +
+      chip +
+      '<div class="area-pct">' + pct + '%</div>' +
+      '</div>' +
+      '<div class="prog-bar"><div class="prog-fill" style="width:' + pct + '%"></div></div>' +
+      '</div>'
+    );
   }).join('');
 }
-
 function openArea(areaId, areaName) {
   APP.currentAreaId = areaId;
   document.getElementById('area-detail-title').textContent = areaName;
+  _navTo('s-area-detail');
   renderAreaTasks(areaId);
-  navTo('s-area-detail');
 }
 
 // ══════════════════════════════════════════════
-// AREA DETAIL (tasks)
+// AREA DETAIL — stages
 // ══════════════════════════════════════════════
-const STATUS_OPTS = ['Not started', 'In progress', 'Ready', 'Done'];
-const STATUS_KEYS = ['not-started', 'inprogress', 'ready', 'done'];
-
 function renderAreaTasks(areaId) {
-  const tasks = MOCK_TASKS[areaId] || [];
   const el = document.getElementById('area-tasks-list');
-  if (!tasks.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><div class="empty-msg">No tasks yet</div></div>';
+  if (!el || !APP.currentJobId) return;
+  const dw = findDwelling(APP.currentJobId, areaId);
+  if (!dw) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">🏗</div><div class="empty-msg">Area not found</div></div>';
     return;
   }
-  el.innerHTML = tasks.map(t => {
-    const curIdx = STATUS_KEYS.indexOf(t.status);
-    const segOpts = STATUS_OPTS.map((lbl, i) => {
-      const cls = i === curIdx ? (i === 3 ? 'seg-opt active-green' : 'seg-opt active') : 'seg-opt';
-      return `<div class="${cls}" onclick="setTaskStatus('${areaId}','${t.id}',${i})">${lbl}</div>`;
-    }).join('');
-    return `<div class="card" style="margin-bottom:0;border-radius:0;border-bottom:1px solid var(--line);">
-      <div class="card-pad" style="padding-bottom:12px;">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <span style="font-family:'Inter Tight',sans-serif;font-size:15px;font-weight:700;flex:1;">${t.name}</span>
-          ${t.spec ? `<span class="badge badge-blue">${t.spec}</span>` : ''}
-        </div>
-        <div class="seg" style="margin-top:10px;">${segOpts}</div>
-        <div style="display:flex;gap:8px;margin-top:10px;">
-          <button class="btn btn-ghost btn-sm">📷 Photo</button>
-          <button class="btn btn-red btn-sm" onclick="openSheet('sh-snag')">⚠️ Snag</button>
-        </div>
-      </div>
-    </div>`;
+  if (!dw.stages.length) {
+    el.innerHTML =
+      '<div class="empty">' +
+      '<div class="empty-icon">📋</div>' +
+      '<div class="empty-msg">No stages configured</div>' +
+      '<div class="empty-sub">Switchboard sets up stages on the job.</div>' +
+      '</div>';
+    return;
+  }
+  const job = findJob(APP.currentJobId);
+  el.innerHTML = dw.stages.map(stage => {
+    const row = (dw.dwellingData[stage] || {});
+    const s = row.status || 'Not started';
+    const isMine = !!(APP.timer
+      && APP.timer.jobId === APP.currentJobId
+      && APP.timer.dwelling === areaId
+      && APP.timer.stage === stage);
+    const chipCls = isMine ? 'inprogress' : (STAGE_STATUS_KEYS[s] || 'not-started');
+    const indep = stageRequires(APP.currentJobId, stage, 'independentReview');
+    let action;
+    let rowClick = "askCompleteStage('" + esc(areaId) + "','" + esc(stage) + "')";
+    if (s === 'Done') {
+      action = '<button class="sr-action done" onclick="event.stopPropagation();reopenStage(\'' +
+               esc(areaId) + '\',\'' + esc(stage) + '\')">Reopen</button>';
+      rowClick = '';
+    } else if (s === 'Submitted') {
+      action = '<span class="status-chip review">Awaiting review</span>';
+      rowClick = '';
+    } else if (isMine) {
+      action = '<button class="sr-action stop" onclick="event.stopPropagation();stopTimer()">⏱ Stop</button>';
+    } else if (s === 'In progress' || s === 'Blocked') {
+      action = '<button class="sr-action" onclick="event.stopPropagation();askCompleteStage(\'' +
+               esc(areaId) + '\',\'' + esc(stage) + '\')">' + (indep ? 'Submit' : 'Done') + '</button>';
+    } else {
+      action = '<button class="sr-action" onclick="event.stopPropagation();startTimer(APP.currentJobId,\'' +
+               esc(areaId) + '\',\'' + esc(stage) + '\')">Start</button>';
+    }
+    let sub = isMine ? 'Running…' :
+              s === 'Done'      ? 'Completed' :
+              s === 'Submitted' ? 'Submitted · ' + esc(row.completedByName || row.updatedBy || '') :
+              s;
+    const reqHints = [];
+    if (s !== 'Done' && s !== 'Submitted') {
+      if (stageRequires(APP.currentJobId, stage, 'photo')) reqHints.push('📷');
+      if (stageRequires(APP.currentJobId, stage, 'note'))  reqHints.push('📝');
+      if (stageRequires(APP.currentJobId, stage, 'itp'))   reqHints.push('📋');
+      if (indep)                                           reqHints.push('👥');
+    }
+    return (
+      '<div class="stage-row"' + (rowClick ? ' onclick="' + rowClick + '"' : '') + '>' +
+      '<div class="sr-body">' +
+      '<div class="sr-name">' + esc(stage) +
+        (reqHints.length ? ' <span style="font-size:12px;opacity:.7;">' + reqHints.join(' ') + '</span>' : '') +
+      '</div>' +
+      '<div class="sr-meta"><span class="status-chip ' + chipCls + '">' + sub + '</span></div>' +
+      '</div>' +
+      action +
+      '</div>'
+    );
+  }).join('');
+  renderTimerBanner(document.getElementById('today-timer-slot'));
+}
+
+// Gate rules now live in BuhlOS: GET /api/jobs returns stages as
+// { name, requires: { photo, note, itp, independentReview } }. Phil asks,
+// BuhlOS decides. If a job hasn't been updated yet, requires is {} and Phil
+// falls through to the same legacy regex defaults BuhlOS uses on read.
+function stageRequires(jobId, stageName, key) {
+  const job = findJob(jobId);
+  const def = findStageDef(job, stageName);
+  if (def.requires && key in def.requires) return !!def.requires[key];
+  const s = (stageName || '').toLowerCase();
+  switch (key) {
+    case 'photo': return /test|complete|handover|rough-?in complete|certificate/.test(s);
+    case 'note':  return /handover|certificate/.test(s);
+    case 'itp':
+    case 'independentReview': return /test|certificate|handover/.test(s);
+    default: return false;
+  }
+}
+
+function askCompleteStage(dwellingId, stage) {
+  const jobId = APP.currentJobId;
+  const data  = APP.jobData[jobId] || { dwellings: {} };
+  const stageRow = (data.dwellings[dwellingId] || {})[stage] || {};
+  const meId = APP.me && APP.me.id;
+  const completedById = stageRow.completedBy || stageRow.updatedBy;
+
+  APP.completeCtx = {
+    jobId, dwelling: dwellingId, stage,
+    requirePhoto:        stageRequires(jobId, stage, 'photo'),
+    requireNote:         stageRequires(jobId, stage, 'note'),
+    requireItp:          stageRequires(jobId, stage, 'itp'),
+    independentReview:   stageRequires(jobId, stage, 'independentReview'),
+    completedById,
+  };
+  APP.pendingCompletePhoto = null;
+  document.getElementById('sh-complete-photo-preview').innerHTML = '';
+  document.getElementById('sh-complete-photo-label').textContent =
+    APP.completeCtx.requirePhoto ? '📷 Take evidence photo (required)' : '📷 Add evidence photo';
+  document.getElementById('sh-complete-note').value = '';
+  document.getElementById('sh-complete-title').textContent =
+    APP.completeCtx.independentReview
+      ? 'Submit "' + stage + '" for review'
+      : 'Mark "' + stage + '" done';
+  document.getElementById('sh-complete-meta').textContent =
+    ((findJob(jobId) || {}).name || '') + ' · ' + dwellingId;
+
+  const gates = [];
+  if (APP.completeCtx.requirePhoto)       gates.push('<div class="block-warn amber">📷 Photo required for this stage</div>');
+  if (APP.completeCtx.requireNote)        gates.push('<div class="block-warn blue">📝 Note required for this stage</div>');
+  if (APP.completeCtx.requireItp)         gates.push('<div class="block-warn">📋 ITP must be completed — submit for Switchboard review</div>');
+  if (APP.completeCtx.independentReview)  gates.push('<div class="block-warn">👥 Independent sign-off required — Switchboard will review your submission</div>');
+  document.getElementById('sh-complete-gates').innerHTML = gates.join('');
+
+  const saveBtn = document.getElementById('sh-complete-save');
+  if (saveBtn) {
+    saveBtn.textContent = APP.completeCtx.independentReview ? '📤 Submit for review' : '✅ Mark done';
+  }
+
+  openSheet('sh-complete');
+}
+
+async function completeStage() {
+  const ctx = APP.completeCtx;
+  if (!ctx) return;
+  const note = document.getElementById('sh-complete-note').value.trim();
+  const meId = APP.me && APP.me.id;
+
+  // Client-side fast feedback (server will also validate).
+  if (ctx.requirePhoto && !APP.pendingCompletePhoto) { toast(reasonText('photo_required')); return; }
+  if (ctx.requireNote  && !note)                     { toast(reasonText('note_required'));  return; }
+  if (ctx.independentReview && ctx.completedById && meId && ctx.completedById === meId) {
+    toast(reasonText('self_review_blocked')); return;
+  }
+
+  // ITP gate: if stage needs ITP, hand off to the ITP sheet which will come
+  // back to completeStage() once the checklist is submitted.
+  if (ctx.requireItp && !APP.itpSubmittedFor(ctx.jobId, ctx.dwelling, ctx.stage)) {
+    openItpSheet(ctx);
+    return;
+  }
+
+  if (APP.timer && APP.timer.jobId === ctx.jobId
+      && APP.timer.dwelling === ctx.dwelling
+      && APP.timer.stage === ctx.stage) {
+    await stopTimer(true);
+  }
+
+  // 1. Photo first so the server can count it during workflow validation.
+  let photoErr = null;
+  if (APP.pendingCompletePhoto) {
+    try {
+      await queueOrUploadPhoto(ctx.jobId,
+        { area: ctx.dwelling, stage: ctx.stage, note: note || 'Stage completion evidence' },
+        APP.pendingCompletePhoto);
+      APP.pendingCompletePhoto = null;
+    } catch (e) { photoErr = e; }
+  }
+
+  // 2. Stage transition through the workflow API. Server validates and
+  // returns reason codes on failure.
+  const nextStatus = ctx.independentReview ? 'submitted' : 'done';
+  try {
+    await callWorkflowSetStatus(ctx.jobId, ctx.dwelling, ctx.stage, nextStatus, note);
+  } catch (e) {
+    // Map server reason code to plain site language.
+    let msg = reasonText(e.code);
+    if (e.missing) {
+      if (e.missing.photos) msg = `Photo required (${e.missing.photos} more).`;
+      if (e.missing.notes)  msg = `Note required (${e.missing.notes} more).`;
+    }
+    toast(msg);
+    return;
+  }
+
+  closeSheet('sh-complete');
+  if (photoErr) {
+    toast("Stage saved, but photo didn't upload — " + reasonText(photoErr.code));
+  } else {
+    toast(ctx.independentReview ? 'Submitted for review' : 'Stage marked done');
+  }
+  renderAreaTasks(ctx.dwelling);
+  renderJobHome(ctx.jobId);
+}
+async function reopenStage(dwellingId, stage) {
+  if (!confirm('Reopen "' + stage + '"? It was marked done.')) return;
+  try {
+    await callWorkflowSetStatus(APP.currentJobId, dwellingId, stage, 'reopened', null);
+  } catch (e) {
+    toast("Couldn't reopen — " + reasonText(e.code));
+    return;
+  }
+  renderAreaTasks(dwellingId);
+  renderJobHome(APP.currentJobId);
+}
+
+// Call /api/workflow set-stage-status. On success, update local APP.jobData
+// with the server-confirmed status (so the UI reflects it without a full
+// reload). On network failure, mark the stage as Pending validation locally
+// and queue for replay — server is still the source of truth.
+async function callWorkflowSetStatus(jobId, dwelling, stageName, toStatus, note) {
+  const body = { action: 'set-stage-status', areaId: dwelling, stageName, toStatus, note };
+  try {
+    const resp = await api('POST', `/api/workflow?jobId=${encodeURIComponent(jobId)}`, body);
+    // Server confirmed; mirror its stage row into local state.
+    if (!APP.jobData[jobId]) APP.jobData[jobId] = { dwellings: {}, snags: [], notes: [] };
+    if (!APP.jobData[jobId].dwellings[dwelling]) APP.jobData[jobId].dwellings[dwelling] = {};
+    APP.jobData[jobId].dwellings[dwelling][stageName] = {
+      ...(APP.jobData[jobId].dwellings[dwelling][stageName] || {}),
+      ...(resp && resp.stage ? resp.stage : {}),
+      status: (resp && resp.stage && resp.stage.status) || labelFromKey(toStatus),
+    };
+    return resp;
+  } catch (e) {
+    if (e.code === 'network') {
+      // Optimistic: mark as pending-validation locally so the worker sees
+      // they did something. Server is the source of truth — when it comes
+      // back online, the queued workflow op will be replayed and the real
+      // status returned.
+      if (!APP.jobData[jobId]) APP.jobData[jobId] = { dwellings: {}, snags: [], notes: [] };
+      if (!APP.jobData[jobId].dwellings[dwelling]) APP.jobData[jobId].dwellings[dwelling] = {};
+      APP.jobData[jobId].dwellings[dwelling][stageName] = {
+        ...(APP.jobData[jobId].dwellings[dwelling][stageName] || {}),
+        status: 'Pending validation',
+        pendingAction: toStatus,
+        pendingNote: note,
+        updatedAt: new Date().toISOString(),
+      };
+      queuePending('workflow', { jobId, body });
+      toast('Saved offline — completion will be checked when online.');
+      return;
+    }
+    throw e;
+  }
+}
+function labelFromKey(k) {
+  const m = { 'not-started':'Not started', 'in-progress':'In progress', 'blocked':'Blocked',
+              'submitted':'Submitted', 'review':'Review', 'done':'Done',
+              'reopened':'Reopened', 'pending-validation':'Pending validation' };
+  return m[k] || 'Not started';
+}
+
+// ══════════════════════════════════════════════
+// JOB SNAGS
+// ══════════════════════════════════════════════
+async function openJobSnags() {
+  if (!APP.currentJobId) return;
+  renderSnagsList();
+  await loadJobData(APP.currentJobId, { silent: true });
+  renderSnagsList();
+}
+function filterSnags(btn, val) {
+  APP.snagsFilter = val;
+  document.querySelectorAll('#snags-chips .chip').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  renderSnagsList();
+}
+function renderSnagsList() {
+  const data = APP.jobData[APP.currentJobId];
+  const all = (data && Array.isArray(data.snags)) ? data.snags : [];
+  const filtered = APP.snagsFilter === 'all'
+    ? all
+    : all.filter(s => (s.status || 'Open').toLowerCase() === APP.snagsFilter);
+  const el = document.getElementById('snags-list');
+  if (!filtered.length) {
+    el.innerHTML =
+      '<div class="empty">' +
+      '<div class="empty-icon">✅</div>' +
+      '<div class="empty-msg">No snags</div>' +
+      '<div class="empty-sub">Raise one with the button above if you find an issue.</div>' +
+      '</div>';
+    return;
+  }
+  el.innerHTML = filtered.map(s => {
+    const status = s.status || 'Open';
+    const pri = s.priority || 'Medium';
+    const chip = status === 'Closed' ? 'done'
+               : status === 'Resolved' ? 'review'
+               : (pri === 'High' ? 'blocked' : 'inprogress');
+    const idx = all.indexOf(s); // index in the unfiltered job snags array
+    const resolveBtn = status === 'Open'
+      ? '<button class="sr-action" onclick="event.stopPropagation();askResolveSnag(' + idx + ')">Resolve</button>'
+      : '';
+    const reso = (status !== 'Open' && s.resolution)
+      ? '<div class="task-area" style="margin-top:4px;color:var(--ink-2);">↪ ' + esc(s.resolution) +
+        (s.resolvedByName ? ' · ' + esc(s.resolvedByName) : '') + '</div>'
+      : '';
+    return (
+      '<div class="stage-row">' +
+      '<div class="sr-body">' +
+      '<div style="margin-bottom:4px;"><span class="status-chip ' + chip + '">' + esc(pri) + ' · ' + esc(status) + '</span></div>' +
+      '<div class="sr-name">' + esc(s.desc || '(no description)') + '</div>' +
+      '<div class="sr-meta">' + esc(s.dwelling || '—') +
+        (s.stage ? ' · ' + esc(s.stage) : '') +
+        ' · ' + esc(s.by || '') + ' · ' + esc(s.date || '') + '</div>' +
+      reso +
+      '</div>' +
+      resolveBtn +
+      '</div>'
+    );
   }).join('');
 }
 
-function setTaskStatus(areaId, taskId, idx) {
-  const tasks = MOCK_TASKS[areaId];
-  if (!tasks) return;
-  const t = tasks.find(x => x.id === taskId);
-  if (!t) return;
-  t.status = STATUS_KEYS[idx];
-  renderAreaTasks(areaId);
-  toast('Status updated');
-  // TODO: POST to real API when task-status endpoint exists
+// ── RESOLVE SNAG ──
+function onResolvePhotoPick(e) {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  readFileAsBase64(f).then(({ dataUrl, base64 }) => {
+    APP.pendingResolvePhoto = { dataUrl, base64, name: f.name, type: f.type };
+    document.getElementById('sh-resolve-photo-label').textContent = 'Photo attached · tap to change';
+    document.getElementById('sh-resolve-photo-preview').innerHTML =
+      '<div class="pt"><img src="' + dataUrl + '" alt=""></div>';
+  });
+}
+function askResolveSnag(idx) {
+  const data = APP.jobData[APP.currentJobId];
+  const s = data && data.snags && data.snags[idx];
+  if (!s) return;
+  APP.resolveCtx = { jobId: APP.currentJobId, snagIdx: idx };
+  APP.pendingResolvePhoto = null;
+  document.getElementById('sh-resolve-photo-preview').innerHTML = '';
+  document.getElementById('sh-resolve-photo-label').textContent = 'Add resolution photo (recommended)';
+  document.getElementById('sh-resolve-note').value = '';
+  document.getElementById('sh-resolve-title').textContent = 'Resolve "' + (s.desc || 'snag').slice(0, 60) + '"';
+  document.getElementById('sh-resolve-meta').textContent =
+    ((findJob(APP.currentJobId) || {}).name || '') + ' · ' +
+    (s.dwelling || '—') + (s.stage ? ' · ' + s.stage : '');
+  openSheet('sh-resolve');
+}
+async function saveResolution() {
+  const ctx = APP.resolveCtx;
+  if (!ctx) return;
+  const note = document.getElementById('sh-resolve-note').value.trim();
+  if (!note) { toast('Describe what you did'); return; }
+  await loadJobData(ctx.jobId, { silent: true });
+  const data = APP.jobData[ctx.jobId] || { dwellings: {}, snags: [], notes: [] };
+  data.snags = Array.isArray(data.snags) ? data.snags : [];
+  const s = data.snags[ctx.snagIdx];
+  if (!s) { toast('Snag no longer exists — refresh'); return; }
+  s.status          = 'Resolved'; // Switchboard moves it to Closed after review.
+  s.resolution      = note;
+  s.resolvedBy      = APP.me && APP.me.id;
+  s.resolvedByName  = APP.me && APP.me.username;
+  s.resolvedAt      = new Date().toISOString();
+  APP.jobData[ctx.jobId] = data;
+  try {
+    await api('POST', `/api/data?jobId=${encodeURIComponent(ctx.jobId)}`, data);
+  } catch (e) {
+    if (e.code === 'network') {
+      queuePending('stageStatus', { jobId: ctx.jobId, body: data });
+      toast('Saved offline — will sync');
+    } else {
+      toast("Couldn't save — " + reasonText(e.code));
+      return;
+    }
+  }
+  let photoErr = null;
+  if (APP.pendingResolvePhoto) {
+    try {
+      await queueOrUploadPhoto(ctx.jobId, {
+        area: s.dwelling, stage: s.stage,
+        note: 'Snag resolution: ' + note.slice(0, 80),
+      }, APP.pendingResolvePhoto);
+      APP.pendingResolvePhoto = null;
+    } catch (e) { photoErr = e; }
+  }
+  closeSheet('sh-resolve');
+  toast(photoErr
+    ? "Snag resolved, but photo didn't upload — " + reasonText(photoErr.code)
+    : 'Snag submitted for review');
+  renderSnagsList();
+  renderJobHome(ctx.jobId);
 }
 
 // ══════════════════════════════════════════════
-// HOURS SCREEN
+// HOURS
 // ══════════════════════════════════════════════
-function renderHours() {
-  const entries = APP.hours || MOCK_HOURS;
+function allMyHours() {
+  const me = APP.me;
+  const merged = [];
+  Object.entries(APP.hoursByJob).forEach(([jobId, entries]) => {
+    const job = findJob(jobId);
+    entries.forEach(e => {
+      // Be safe: if entries from a shared blob aren't tagged with userId, show them.
+      if (me && me.id && e.userId && e.userId !== me.id) return;
+      merged.push({ ...e, jobId, jobName: e.jobName || (job ? job.name : '') });
+    });
+  });
+  return merged.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+}
+async function renderHours() {
+  if (!Object.keys(APP.hoursByJob).length) await loadAllHours();
+  const entries = allMyHours();
   renderWeekStrip(entries);
-  renderHrsEntries(entries, todayDate());
+  renderHrsEntries(entries, APP.hoursFilter);
 }
-
 function renderWeekStrip(entries) {
   const today = new Date();
   const mon = startOfWeek(today);
-  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  let totalHrs = 0;
-
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const strip = document.getElementById('week-strip');
+  if (!strip) return;
   strip.innerHTML = days.map((lbl, i) => {
     const d = addDays(mon, i);
     const iso = isoDate(d);
     const dayEntries = entries.filter(e => e.date === iso);
-    const hrs = dayEntries.reduce((s, e) => s + (e.hours || 0), 0);
+    const hrs = dayEntries.reduce((s, e) => s + (Number(e.hours) || 0), 0);
     const isToday = iso === todayDate();
-    const isPast = d < today && !isToday;
-
+    const isPast = d < new Date(today.getFullYear(), today.getMonth(), today.getDate()) && !isToday;
     let cls = 'wk';
-    let numLabel = d.getDate().toString();
+    let numLabel = String(d.getDate());
     let hrsLabel = hrs ? hrs + 'h' : '–';
-
-    if (isToday) cls += ' today';
-    else if (isPast && hrs > 0) { cls += ' done'; }
+    if (isToday)                          cls += ' today';
+    else if (isPast && hrs > 0)           cls += ' done';
     else if (isPast && hrs === 0 && i < 5) { cls += ' miss'; numLabel = '!'; hrsLabel = 'miss'; }
-
-    return `<div class="${cls}" onclick="filterHrsByDay('${iso}')">
-      <div class="wk-day">${lbl}</div>
-      <div class="wk-num">${numLabel}</div>
-      <div class="wk-hrs">${hrsLabel}</div>
-    </div>`;
+    return '<div class="' + cls + '" onclick="filterHrsByDay(\'' + iso + '\')">' +
+           '<div class="wk-day">' + lbl + '</div>' +
+           '<div class="wk-num">' + numLabel + '</div>' +
+           '<div class="wk-hrs">' + hrsLabel + '</div>' +
+           '</div>';
   }).join('');
-
-  // Week total
   const weekTotal = entries.filter(e => {
-    const d = new Date(e.date + 'T00:00:00');
-    return d >= mon && d <= today;
-  }).reduce((s, e) => s + (e.hours || 0), 0);
-
-  document.getElementById('hrs-total-num').textContent = weekTotal;
-  document.getElementById('hrs-target-txt').textContent = 'this week · target 40h';
+    const d = new Date((e.date || '') + 'T00:00:00');
+    return !isNaN(d) && d >= mon && d <= today;
+  }).reduce((s, e) => s + (Number(e.hours) || 0), 0);
+  document.getElementById('hrs-total-num').textContent = +weekTotal.toFixed(1);
+  document.getElementById('hrs-target-txt').textContent = 'this week · target 38h';
 }
-
 function renderHrsEntries(entries, filterDate) {
   const el = document.getElementById('hrs-entries');
-  const filtered = filterDate ? entries.filter(e => e.date === filterDate) : entries;
+  const filtered = filterDate ? entries.filter(e => e.date === filterDate) : entries.slice(0, 50);
   if (!filtered.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-msg">No entries</div><div class="empty-sub">Tap + Add to log hours</div></div>';
+    el.innerHTML =
+      '<div class="empty">' +
+      '<div class="empty-icon">⏱</div>' +
+      '<div class="empty-msg">No entries</div>' +
+      '<div class="empty-sub">Tap + Add to log hours, or start a stage timer.</div>' +
+      '</div>';
     return;
   }
-  el.innerHTML = filtered.map(e => `
-    <div class="hrs-row">
-      <div style="flex:1">
-        <div class="hrs-job">${e.jobName}</div>
-        <div class="hrs-type">${fmtDate(e.date)} · ${e.start}–${e.end} · ${e.type}${e.notes ? ' · ' + e.notes : ''}</div>
-      </div>
-      <div class="hrs-val">${e.hours}h</div>
-    </div>
-  `).join('');
+  el.innerHTML = filtered.map(e =>
+    '<div class="hrs-row">' +
+    '<div style="flex:1;">' +
+    '<div class="hrs-job">' + esc(e.jobName || '—') + '</div>' +
+    '<div class="hrs-type">' + fmtDate(e.date) + ' · ' + esc(e.start || '') + '–' + esc(e.end || '') +
+      ' · ' + esc(e.type || 'ordinary') +
+      (e.notes ? ' · ' + esc(e.notes) : '') +
+    '</div>' +
+    '</div>' +
+    '<div class="hrs-val">' + e.hours + 'h</div>' +
+    '</div>'
+  ).join('');
 }
-
-let _hrsDay = null;
 function filterHrsByDay(iso) {
-  _hrsDay = (_hrsDay === iso) ? null : iso;
-  renderHrsEntries(APP.hours || MOCK_HOURS, _hrsDay);
+  APP.hoursFilter = (APP.hoursFilter === iso) ? null : iso;
+  renderHrsEntries(allMyHours(), APP.hoursFilter);
 }
-
+// Append a single hours entry to the server (append-safe — the API merges
+// into the existing list). Falls back to queueing on network error. We
+// purposely don't send the whole entries blob anymore — that path used to
+// be racy across phones and is now admin-only on the server side.
+async function postSingleHourEntry(jobId, entry) {
+  try {
+    const resp = await api('POST', `/api/hours?jobId=${encodeURIComponent(jobId)}`, entry);
+    // Replace the local entry's id with the server-assigned one so future
+    // edits/deletes target the right record.
+    if (resp && resp.entry && Array.isArray(APP.hoursByJob[jobId])) {
+      const idx = APP.hoursByJob[jobId].findIndex(e => e.id === entry.id);
+      if (idx !== -1) APP.hoursByJob[jobId][idx] = resp.entry;
+    }
+  } catch (e) {
+    if (e.code === 'network') queuePending('hours', { jobId, body: entry });
+    else toast("Couldn't save hours — " + reasonText(e.code));
+  }
+}
 async function saveHours() {
   const date  = document.getElementById('sh-hrs-date').value;
   const jobId = document.getElementById('sh-hrs-job').value;
@@ -1427,65 +2688,50 @@ async function saveHours() {
   const end   = document.getElementById('sh-hrs-end').value;
   const type  = document.getElementById('sh-hrs-type').value;
   const notes = document.getElementById('sh-hrs-notes').value.trim();
-
-  if (!date || !jobId || !start || !end) { toast('Fill in all required fields'); return; }
+  if (!date || !jobId || !start || !end) { toast('Fill in date, job, start and finish'); return; }
   const hrs = hoursFromRange(start, end);
-  if (hrs <= 0) { toast('End must be after start'); return; }
-
-  const job = (APP.jobs || MOCK_JOBS).find(j => j.id === jobId);
+  if (hrs <= 0) { toast('Finish must be after start'); return; }
+  const job = findJob(jobId);
   const entry = {
-    id: 'h' + Date.now(),
-    date, jobId, jobName: job?.name || '', start, end, type, hours: hrs, notes,
+    id: 'h_' + Date.now(),
+    date, jobId, jobName: job ? job.name : '',
+    start, end, type, hours: hrs, notes,
+    userId: APP.me && APP.me.id,
+    by: APP.me && APP.me.username,
   };
-
-  // Add to local mock list
-  if (!APP.hours) APP.hours = [...MOCK_HOURS];
-  APP.hours.unshift(entry);
-
+  if (!APP.hoursByJob[jobId]) APP.hoursByJob[jobId] = [];
+  APP.hoursByJob[jobId].unshift(entry);
   closeSheet('sh-hours');
-  toast(`${hrs}h logged`);
-
-  // TODO: POST to /api/hours (endpoint not yet built)
-  // await api('POST','/api/hours', { date, jobId, start, end, type, notes });
-
+  toast(hrs + 'h logged');
+  await postSingleHourEntry(jobId, entry);
   if (APP.tab === 'hours') renderHours();
 }
 
 // ══════════════════════════════════════════════
-// GEAR SCREEN
+// GEAR
 // ══════════════════════════════════════════════
-async function loadGear() {
-  const el = document.getElementById('gear-list');
-  el.innerHTML = '<div class="empty"><div class="empty-icon"><div class="skel" style="width:40px;height:40px;border-radius:50%;"></div></div><div class="empty-msg">Loading…</div></div>';
-
-  try {
-    const res = await fetch('/api/assets', { credentials: 'include' });
-    if (!res.ok) throw new Error(res.status);
-    const data = await res.json();
-    APP.gear = data.assets || [];
-    renderGear();
-  } catch(e) {
-    el.innerHTML = '<div class="empty"><div class="empty-msg">Could not load gear</div><div class="empty-sub">Check your connection</div></div>';
-  }
-}
-
 function renderGear() {
   const el = document.getElementById('gear-list');
   const items = APP.gear || [];
   if (!items.length) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">🔧</div><div class="empty-msg">No gear assigned to you</div><div class="empty-sub">Contact your supervisor if something is missing</div></div>';
+    el.innerHTML =
+      '<div class="empty">' +
+      '<div class="empty-icon">🔧</div>' +
+      '<div class="empty-msg">No gear assigned to you</div>' +
+      '<div class="empty-sub">Contact your supervisor if something is missing.</div>' +
+      '</div>';
     return;
   }
-  el.innerHTML = items.map(a => `
-    <div class="gear-row">
-      <div class="gear-icon">${GEAR_TYPES[a.type] || '📦'}</div>
-      <div style="flex:1">
-        <div class="gear-name">${esc(a.name)}</div>
-        <div class="gear-id">${a.identifier ? esc(a.identifier) : a.type}</div>
-      </div>
-      <span class="badge badge-green">Mine</span>
-    </div>
-  `).join('');
+  el.innerHTML = items.map(a =>
+    '<div class="gear-row">' +
+    '<div class="gear-icon">' + (GEAR_TYPES[a.type] || '📦') + '</div>' +
+    '<div style="flex:1;">' +
+    '<div class="gear-name">' + esc(a.name) + '</div>' +
+    '<div class="gear-id">' + esc(a.identifier || a.type || '') + '</div>' +
+    '</div>' +
+    '<span class="status-chip done">Mine</span>' +
+    '</div>'
+  ).join('');
 }
 
 // ══════════════════════════════════════════════
@@ -1494,109 +2740,502 @@ function renderGear() {
 function renderMore() {
   const me = APP.me;
   if (!me) return;
-  const initials = (me.name || me.email || '?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+  const display = me.username || me.name || me.email || 'User';
+  const initials = display.split(/[ @._-]/).slice(0, 2).map(w => (w[0] || '')).join('').toUpperCase();
   document.getElementById('more-avatar').textContent = initials;
-  document.getElementById('more-name').textContent = me.name || me.email;
-  document.getElementById('more-role').textContent = (me.role || '').charAt(0).toUpperCase() + (me.role || '').slice(1);
+  document.getElementById('more-name').textContent   = display;
+  document.getElementById('more-role').textContent   = ((me.role || '').charAt(0).toUpperCase() + (me.role || '').slice(1)) || '';
 }
-
 async function doSignOut() {
   if (!confirm('Sign out?')) return;
-  try {
-    await fetch('/api/auth?action=signout', { method: 'POST', credentials: 'include' });
-  } catch(e) {}
+  try { await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'include' }); } catch {}
   window.location.href = '/phil.html';
 }
 
 // ══════════════════════════════════════════════
 // SNAG
 // ══════════════════════════════════════════════
+function onSnagPhotoPick(e) {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  readFileAsBase64(f).then(({ dataUrl, base64 }) => {
+    APP.pendingSnagPhoto = { dataUrl, base64, name: f.name, type: f.type };
+    document.getElementById('sh-snag-photo-label').textContent = 'Photo attached · tap to change';
+    document.getElementById('sh-snag-photo-preview').innerHTML =
+      '<div class="pt"><img src="' + dataUrl + '" alt=""></div>';
+  });
+}
 async function saveSnag() {
   const jobId = document.getElementById('sh-snag-job').value;
   const area  = document.getElementById('sh-snag-area').value.trim();
+  const stage = document.getElementById('sh-snag-stage').value.trim();
+  const pri   = document.getElementById('sh-snag-pri').value;
   const desc  = document.getElementById('sh-snag-desc').value.trim();
-  if (!jobId || !desc) { toast('Job and description required'); return; }
-
+  if (!jobId) { toast('Pick a job'); return; }
+  if (!desc)  { toast('Describe the issue'); return; }
+  await loadJobData(jobId, { silent: true });
+  const data = APP.jobData[jobId] || { dwellings: {}, snags: [], notes: [] };
+  data.snags = Array.isArray(data.snags) ? data.snags : [];
+  data.snags.push({
+    dwelling: area || '—',
+    stage: stage || '',
+    desc,
+    by: (APP.me && APP.me.username) || '',
+    priority: pri,
+    status: 'Open',
+    date: new Date().toLocaleDateString('en-AU'),
+    createdAt: new Date().toISOString(),
+  });
+  APP.jobData[jobId] = data;
+  try {
+    await api('POST', `/api/data?jobId=${encodeURIComponent(jobId)}`, data);
+  } catch (e) {
+    if (e.code === 'network') {
+      queuePending('snag', { jobId, body: data });
+    } else {
+      toast("Couldn't save — " + reasonText(e.code));
+      return;
+    }
+  }
+  if (APP.pendingSnagPhoto) {
+    await queueOrUploadPhoto(jobId, { area, stage, note: 'Snag photo: ' + desc.slice(0, 80) }, APP.pendingSnagPhoto);
+    APP.pendingSnagPhoto = null;
+  }
   closeSheet('sh-snag');
-  toast('Snag submitted');
-  document.getElementById('sh-snag-area').value = '';
   document.getElementById('sh-snag-desc').value = '';
-  // TODO: POST to /api/snags (not yet built)
+  document.getElementById('sh-snag-area').value = '';
+  document.getElementById('sh-snag-stage').value = '';
+  document.getElementById('sh-snag-photo-preview').innerHTML = '';
+  toast('Snag submitted');
+  if (APP.currentJobId === jobId) {
+    renderJobHome(jobId);
+    if (APP.stack.includes('s-job-snags')) renderSnagsList();
+  }
 }
 
 // ══════════════════════════════════════════════
-// API + AUTH
+// PHOTO
 // ══════════════════════════════════════════════
-async function api(method, path, body) {
-  const opts = { method, credentials: 'include', headers: { 'Content-Type': 'application/json' } };
-  if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(path, opts);
-  if (!res.ok) throw Object.assign(new Error(res.status), { status: res.status });
-  return res.json();
+function onPhotoPick(e) {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  readFileAsBase64(f).then(({ dataUrl, base64 }) => {
+    APP.pendingPhoto = { dataUrl, base64, name: f.name, type: f.type };
+    document.getElementById('sh-photo-label').textContent = f.name + ' · tap to change';
+    document.getElementById('sh-photo-preview').innerHTML =
+      '<div class="pt"><img src="' + dataUrl + '" alt=""></div>';
+    document.getElementById('sh-photo-save').disabled = false;
+  });
+}
+async function uploadPhoto() {
+  const jobId = document.getElementById('sh-photo-job').value;
+  const area  = document.getElementById('sh-photo-area').value.trim();
+  const stage = document.getElementById('sh-photo-stage').value.trim();
+  const note  = document.getElementById('sh-photo-note').value.trim();
+  if (!jobId)             { toast('Pick a job'); return; }
+  if (!APP.pendingPhoto)  { toast('Pick a photo first'); return; }
+  const btn = document.getElementById('sh-photo-save');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  try {
+    await queueOrUploadPhoto(jobId, { area, stage, note }, APP.pendingPhoto);
+    APP.pendingPhoto = null;
+    closeSheet('sh-photo');
+    toast('Photo uploaded');
+  } catch (e) {
+    toast("Couldn't upload — " + reasonText(e.code));
+  } finally {
+    btn.disabled = false; btn.textContent = 'Upload photo';
+  }
+}
+async function queueOrUploadPhoto(jobId, ctx, photo) {
+  const filename = photo.name || ('photo-' + Date.now() + '.jpg');
+  const tag = [ctx.area, ctx.stage].filter(Boolean).map(s => s.replace(/[^\w]+/g, '-')).join('-');
+  const safeName = (tag ? tag + '-' : '') + filename;
+  const body = {
+    filename: safeName,
+    data: photo.base64,
+    contentType: photo.type || 'image/jpeg',
+    meta: {
+      area: ctx.area || '', stage: ctx.stage || '',
+      note: ctx.note || '', by: (APP.me && APP.me.username) || '',
+    },
+  };
+  try {
+    await api('POST', `/api/photos?jobId=${encodeURIComponent(jobId)}`, body);
+  } catch (e) {
+    if (e.code === 'network') {
+      queuePending('photo', { jobId, body });
+      toast('Photo saved offline — will sync');
+    } else throw e;
+  }
+}
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload  = () => {
+      const dataUrl = r.result;
+      const base64  = String(dataUrl).split(',')[1];
+      resolve({ dataUrl, base64 });
+    };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
 }
 
+// ══════════════════════════════════════════════
+// ITP (Inspection & Test Plan) checklists
+// ══════════════════════════════════════════════
+async function loadItpTemplates() {
+  try {
+    const d = await api('GET', '/api/itp?scope=templates');
+    APP.itpTemplates = Array.isArray(d.templates) ? d.templates : [];
+  } catch { /* offline / no api in static harness */ }
+}
+async function loadItpForJob(jobId) {
+  if (!jobId) return;
+  try {
+    const d = await api('GET', `/api/itp?jobId=${encodeURIComponent(jobId)}`);
+    APP.itpByJob[jobId] = Array.isArray(d.submissions) ? d.submissions : [];
+  } catch { /* ignore */ }
+}
+function findItpTemplate(id) {
+  return (APP.itpTemplates || []).find(t => t.id === id);
+}
+APP.itpSubmittedFor = function (jobId, dwelling, stageName) {
+  const subs = APP.itpByJob[jobId] || [];
+  const job = findJob(jobId);
+  const def = findStageDef(job, stageName);
+  return subs.some(s =>
+    (s.areaId || '').toLowerCase() === String(dwelling).toLowerCase() &&
+    (s.stageId === def.id || s.stageName === stageName) &&
+    (s.status === 'submitted' || s.status === 'approved')
+  );
+};
+
+function openItpSheet(ctx) {
+  // ctx = { jobId, dwelling, stage, ... } from completeCtx
+  const job = findJob(ctx.jobId);
+  const def = findStageDef(job, ctx.stage);
+  if (!def.itpTemplateId) {
+    toast('ITP required — ask Switchboard to assign a checklist.');
+    return;
+  }
+  let tpl = findItpTemplate(def.itpTemplateId);
+  const proceed = () => {
+    tpl = findItpTemplate(def.itpTemplateId);
+    if (!tpl) {
+      toast('ITP template missing — ask Switchboard.');
+      return;
+    }
+    APP.itpCtx = { jobId: ctx.jobId, dwelling: ctx.dwelling, stage: ctx.stage,
+                   stageId: def.id, templateId: tpl.id };
+    APP.itpAnswers = {};
+    document.getElementById('sh-itp-title').textContent = tpl.name + ' — ' + ctx.stage;
+    document.getElementById('sh-itp-meta').textContent =
+      ((findJob(ctx.jobId) || {}).name || '') + ' · ' + ctx.dwelling;
+    renderItpSheet();
+    openSheet('sh-itp');
+  };
+  if (!tpl) loadItpTemplates().then(proceed);
+  else proceed();
+}
+function renderItpSheet() {
+  const ctx = APP.itpCtx;
+  if (!ctx) return;
+  const tpl = findItpTemplate(ctx.templateId);
+  const body = document.getElementById('sh-itp-body');
+  if (!tpl) { body.innerHTML = '<div style="padding:14px;color:var(--red);">Template missing</div>'; return; }
+  body.innerHTML = tpl.items.map(it => {
+    const req = it.required ? ' <span style="color:var(--red);">*</span>' : '';
+    if (it.type === 'pass_fail') {
+      const v = APP.itpAnswers[it.id] || '';
+      return `<div style="padding:10px 0;border-bottom:1px solid var(--line);">
+        <div style="font-family:'Inter Tight',sans-serif;font-size:14px;font-weight:600;margin-bottom:6px;">${esc(it.label)}${req}</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-sm ${v==='pass'?'btn-yellow':'btn-ghost'}" onclick="setItpAnswer('${esc(it.id)}','pass')">Pass</button>
+          <button class="btn btn-sm ${v==='fail'?'btn-red':'btn-ghost'}" onclick="setItpAnswer('${esc(it.id)}','fail')">Fail</button>
+          <button class="btn btn-sm ${v==='na'?'btn-navy':'btn-ghost'}"  onclick="setItpAnswer('${esc(it.id)}','na')">N/A</button>
+        </div>
+      </div>`;
+    }
+    if (it.type === 'number') {
+      const v = APP.itpAnswers[it.id] || '';
+      return `<div style="padding:10px 0;border-bottom:1px solid var(--line);">
+        <div style="font-family:'Inter Tight',sans-serif;font-size:14px;font-weight:600;margin-bottom:6px;">${esc(it.label)}${req}</div>
+        <input type="number" inputmode="decimal" value="${esc(v)}" class="form-inp" oninput="setItpAnswer('${esc(it.id)}',this.value)">
+      </div>`;
+    }
+    // text
+    const v = APP.itpAnswers[it.id] || '';
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--line);">
+      <div style="font-family:'Inter Tight',sans-serif;font-size:14px;font-weight:600;margin-bottom:6px;">${esc(it.label)}${req}</div>
+      <textarea class="form-inp" rows="2" oninput="setItpAnswer('${esc(it.id)}',this.value)">${esc(v)}</textarea>
+    </div>`;
+  }).join('');
+}
+function setItpAnswer(itemId, v) {
+  APP.itpAnswers[itemId] = v;
+  renderItpSheet();
+}
+async function submitItp() {
+  const ctx = APP.itpCtx;
+  if (!ctx) return;
+  const tpl = findItpTemplate(ctx.templateId);
+  if (!tpl) { toast('Template missing'); return; }
+  const missing = tpl.items.filter(it => it.required &&
+    (APP.itpAnswers[it.id] === undefined || APP.itpAnswers[it.id] === '' || APP.itpAnswers[it.id] === null));
+  if (missing.length) {
+    toast('Complete required items: ' + missing.map(m => m.label).slice(0, 2).join(', '));
+    return;
+  }
+  const body = {
+    templateId: tpl.id,
+    areaId: ctx.dwelling, stageId: ctx.stageId, stageName: ctx.stage,
+    answers: APP.itpAnswers,
+  };
+  try {
+    const resp = await api('POST', `/api/itp?action=submit&jobId=${encodeURIComponent(ctx.jobId)}`, body);
+    if (resp && resp.submission) {
+      APP.itpByJob[ctx.jobId] = APP.itpByJob[ctx.jobId] || [];
+      APP.itpByJob[ctx.jobId].push(resp.submission);
+    }
+  } catch (e) {
+    if (e.code === 'network') {
+      queuePending('itp-submit', { jobId: ctx.jobId, body });
+      // Optimistic local submission so Phil unblocks the worker offline.
+      APP.itpByJob[ctx.jobId] = APP.itpByJob[ctx.jobId] || [];
+      APP.itpByJob[ctx.jobId].push({
+        id: 'itp_local_' + Date.now(), ...body, status: 'submitted',
+        submittedBy: APP.me && APP.me.id, submittedByName: APP.me && APP.me.username,
+        submittedAt: new Date().toISOString(),
+      });
+      toast('Saved offline — will sync.');
+    } else {
+      toast("Couldn't submit ITP — " + reasonText(e.code));
+      return;
+    }
+  }
+  closeSheet('sh-itp');
+  toast('ITP submitted');
+  // Resume completion flow now that ITP is on file.
+  if (APP.completeCtx) askCompleteStage(APP.completeCtx.dwelling, APP.completeCtx.stage);
+}
+
+// ══════════════════════════════════════════════
+// MATERIAL REQUEST
+// ══════════════════════════════════════════════
+async function saveMaterial() {
+  const jobId = document.getElementById('sh-mat-job').value;
+  const name  = document.getElementById('sh-mat-name').value.trim();
+  const qty   = parseFloat(document.getElementById('sh-mat-qty').value) || null;
+  const unit  = document.getElementById('sh-mat-unit').value.trim() || 'ea';
+  const need  = document.getElementById('sh-mat-by').value;
+  const urg   = document.getElementById('sh-mat-urg').value;
+  const notes = document.getElementById('sh-mat-notes').value.trim();
+  if (!jobId) { toast('Pick a job'); return; }
+  if (!name)  { toast('What do you need?'); return; }
+  const body = {
+    name, quantity: qty, unit,
+    status: 'needed', source: 'site_purchase',
+    notes:
+      (need ? 'Needed by ' + need + '. ' : '') +
+      (urg !== 'standard' ? '[' + urg.toUpperCase() + '] ' : '') +
+      (notes || ''),
+  };
+  try {
+    await api('POST', `/api/materials?action=material&jobId=${encodeURIComponent(jobId)}`, body);
+  } catch (e) {
+    if (e.code === 'network') { queuePending('material', { jobId, body }); toast('Saved offline — will sync'); }
+    else { toast("Couldn't send — " + reasonText(e.code)); return; }
+  }
+  closeSheet('sh-material');
+  document.getElementById('sh-mat-name').value = '';
+  document.getElementById('sh-mat-qty').value  = '';
+  document.getElementById('sh-mat-notes').value = '';
+  toast('Request sent to Switchboard');
+}
+
+// ══════════════════════════════════════════════
+// LOG EXTRA WORK (variation draft)
+// ══════════════════════════════════════════════
+function onExtraPhotoPick(e) {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  readFileAsBase64(f).then(({ dataUrl, base64 }) => {
+    APP.pendingExtraPhoto = { dataUrl, base64, name: f.name, type: f.type };
+    document.getElementById('sh-extra-photo-label').textContent = 'Photo attached · tap to change';
+    document.getElementById('sh-extra-photo-preview').innerHTML =
+      '<div class="pt"><img src="' + dataUrl + '" alt=""></div>';
+  });
+}
+async function saveExtraWork() {
+  const jobId = document.getElementById('sh-extra-job').value;
+  const area  = document.getElementById('sh-extra-area').value.trim();
+  const stage = document.getElementById('sh-extra-stage').value.trim();
+  const desc  = document.getElementById('sh-extra-desc').value.trim();
+  const hrs   = parseFloat(document.getElementById('sh-extra-hrs').value) || null;
+  const by    = document.getElementById('sh-extra-by').value.trim();
+  if (!jobId) { toast('Pick a job'); return; }
+  if (!desc)  { toast('Add a short description'); return; }
+  const matName = 'Extra work: ' + desc.slice(0, 80);
+  const body = {
+    name: matName,
+    description: desc,
+    location: [area, stage].filter(Boolean).join(' · '),
+    isVariation: true,
+    source: 'variation',
+    quantity: hrs || 1,
+    unit: hrs ? 'h' : 'ea',
+    variationNote: (by ? 'Requested by ' + by + '. ' : '') + desc,
+    notes: 'Logged by ' + ((APP.me && APP.me.username) || '') + ' at ' + new Date().toLocaleString('en-AU') + '.',
+    status: 'needed',
+  };
+  try {
+    await api('POST', `/api/materials?action=material&jobId=${encodeURIComponent(jobId)}`, body);
+  } catch (e) {
+    if (e.code === 'network') { queuePending('material', { jobId, body }); toast('Saved offline — will sync'); }
+    else { toast("Couldn't save — " + reasonText(e.code)); return; }
+  }
+  if (APP.pendingExtraPhoto) {
+    await queueOrUploadPhoto(jobId, { area, stage, note: 'Extra work: ' + desc.slice(0, 80) }, APP.pendingExtraPhoto);
+    APP.pendingExtraPhoto = null;
+  }
+  closeSheet('sh-extra');
+  document.getElementById('sh-extra-desc').value = '';
+  document.getElementById('sh-extra-hrs').value  = '';
+  document.getElementById('sh-extra-by').value   = '';
+  document.getElementById('sh-extra-photo-preview').innerHTML = '';
+  toast('Extra work logged — Switchboard will price it');
+}
+
+// ══════════════════════════════════════════════
+// COMPLETE STAGE — photo handler
+// ══════════════════════════════════════════════
+function onCompletePhotoPick(e) {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  readFileAsBase64(f).then(({ dataUrl, base64 }) => {
+    APP.pendingCompletePhoto = { dataUrl, base64, name: f.name, type: f.type };
+    document.getElementById('sh-complete-photo-label').textContent = 'Photo attached · tap to change';
+    document.getElementById('sh-complete-photo-preview').innerHTML =
+      '<div class="pt"><img src="' + dataUrl + '" alt=""></div>';
+  });
+}
+
+// ══════════════════════════════════════════════
+// PLANS
+// ══════════════════════════════════════════════
+function renderPlans() {
+  document.getElementById('plans-list').innerHTML = '';
+  document.getElementById('plans-empty').style.display = '';
+}
+
+// ══════════════════════════════════════════════
+// JOB PHOTOS LIST
+// ══════════════════════════════════════════════
+async function openJobPhotos() {
+  if (!APP.currentJobId) return;
+  const el = document.getElementById('job-photos-list');
+  el.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><div class="empty-msg">Loading…</div></div>';
+  await loadJobPhotos(APP.currentJobId);
+  const photos = APP.jobPhotos[APP.currentJobId] || [];
+  if (!photos.length) {
+    el.innerHTML =
+      '<div class="empty">' +
+      '<div class="empty-icon">📷</div>' +
+      '<div class="empty-msg">No photos yet</div>' +
+      '<div class="empty-sub">Tap + Add to take or upload one.</div>' +
+      '</div>';
+    return;
+  }
+  el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:6px;">' +
+    photos.map(p =>
+      '<a href="' + esc(p.url) + '" target="_blank" rel="noopener" ' +
+      'style="display:block;aspect-ratio:1/1;overflow:hidden;border-radius:6px;background:var(--card);">' +
+      '<img src="' + esc(p.url) + '" alt="" style="width:100%;height:100%;object-fit:cover;">' +
+      '</a>'
+    ).join('') +
+    '</div>';
+}
+
+// ══════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════
 async function init() {
+  loadPending();
   try {
     const data = await api('GET', '/api/auth?action=me');
     APP.me = data.user || data;
-    // Block non-tradie/non-admin (clients shouldn't be in Phil)
     if (APP.me && APP.me.role === 'client') {
-      document.getElementById('app').innerHTML = `
-        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100dvh;gap:16px;padding:24px;text-align:center;">
-          <div style="font-size:48px;">🚫</div>
-          <div style="font-family:'Inter Tight',sans-serif;font-size:20px;font-weight:800;">Wrong app</div>
-          <div style="color:var(--ink-3);">Phil is for the crew. Clients use the Site Office portal.</div>
-          <a href="/" style="margin-top:8px;" class="btn btn-navy">Go to Site Office</a>
-        </div>`;
+      document.getElementById('app').innerHTML =
+        '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100dvh;gap:16px;padding:24px;text-align:center;">' +
+        '<div style="font-size:48px;">🚫</div>' +
+        '<div style="font-family:\'Inter Tight\',sans-serif;font-size:20px;font-weight:800;">Wrong app</div>' +
+        '<div style="color:var(--ink-3);">Phil is for the crew. Clients use the Switchboard portal.</div>' +
+        '<a href="/" style="margin-top:8px;" class="btn btn-navy">Go to Switchboard</a>' +
+        '</div>';
       return;
     }
-  } catch(e) {
-    if (e.status === 401) {
-      showLoginScreen();
-      return;
-    }
-    // Network error – still show the app with mock data
-    APP.me = { name: 'Demo User', role: 'tradie' };
+  } catch (e) {
+    if (e.status === 401) { showLoginScreen(); return; }
+    APP.me = APP.me || { username: 'Offline', role: 'tradie' };
   }
 
-  // Kick off initial screen
+  loadTimer();
+  const logoSlot = document.getElementById('today-hdr-logo');
+  if (logoSlot) logoSlot.innerHTML = philLogoSvg(28);
+  await loadJobs();
+  // Pre-load job data for assigned jobs (helps Today / Areas feel instant)
+  (APP.jobs || []).slice(0, 5).forEach(j =>
+    loadJobData(j.id, { silent: true }).then(() => {
+      if (APP.tab === 'today') renderToday();
+    })
+  );
+  // ITP templates are global; load once. Worker can't progress past an ITP
+  // gate without them.
+  loadItpTemplates();
   renderToday();
   renderMore();
+  updateSyncIndicator();
+  if (navigator.onLine) flushPending();
 }
 
-// ══════════════════════════════════════════════
-// LOGIN SCREEN
-// ══════════════════════════════════════════════
 function showLoginScreen() {
-  document.getElementById('app').innerHTML = `
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100dvh;padding:32px;gap:24px;background:var(--navy);">
-      ${philLogoSvg(60)}
-      <div style="font-family:'Inter Tight',sans-serif;font-size:32px;font-weight:800;color:#fff;letter-spacing:-.02em;">Phil</div>
-      <div style="color:var(--ink-4);font-size:14px;text-align:center;">Sign in to access your jobs, hours and gear.</div>
-      <div style="width:100%;display:flex;flex-direction:column;gap:12px;margin-top:8px;">
-        <input type="email" id="li-email" class="form-inp" placeholder="Email" autocomplete="email" autofocus style="font-size:16px;">
-        <input type="password" id="li-pw" class="form-inp" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
-        <button class="btn btn-yellow btn-full" style="font-size:17px;padding:16px;" onclick="doLogin()">Sign in</button>
-        <div id="li-err" style="color:var(--red-bg);font-size:13px;text-align:center;min-height:18px;"></div>
-      </div>
-    </div>`;
+  document.getElementById('app').innerHTML =
+    '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100dvh;padding:32px;gap:24px;background:var(--navy);">' +
+    philLogoSvg(60) +
+    '<div style="font-family:\'Inter Tight\',sans-serif;font-size:32px;font-weight:800;color:#fff;letter-spacing:-.02em;">Phil</div>' +
+    '<div style="color:var(--ink-4);font-size:14px;text-align:center;">Sign in to access your jobs, hours and gear.</div>' +
+    '<div style="width:100%;display:flex;flex-direction:column;gap:12px;margin-top:8px;">' +
+    '<input type="text" id="li-user" class="form-inp" placeholder="Username" autocomplete="username" ' +
+      'autocapitalize="none" autocorrect="off" inputmode="text" autofocus style="font-size:16px;">' +
+    '<input type="password" id="li-pw" class="form-inp" placeholder="Password or 4-digit PIN" ' +
+      'autocomplete="current-password" inputmode="text" onkeydown="if(event.key===\'Enter\')doLogin()">' +
+    '<button class="btn btn-yellow btn-full" style="font-size:17px;padding:16px;" onclick="doLogin()">Sign in</button>' +
+    '<div id="li-err" style="color:#ffb3b3;font-size:13px;text-align:center;min-height:18px;font-weight:600;"></div>' +
+    '<div style="color:var(--ink-4);font-size:12px;text-align:center;margin-top:4px;">' +
+      'Tradies: use your 4-digit PIN. Admin: use your password.' +
+    '</div>' +
+    '</div>' +
+    '</div>';
 }
-
 async function doLogin() {
-  const email = document.getElementById('li-email').value.trim();
-  const pw    = document.getElementById('li-pw').value;
-  const errEl = document.getElementById('li-err');
+  const username = document.getElementById('li-user').value.trim();
+  const secret   = document.getElementById('li-pw').value;
+  const errEl    = document.getElementById('li-err');
   errEl.textContent = '';
-  if (!email || !pw) { errEl.textContent = 'Email and password required'; return; }
+  if (!username || !secret) { errEl.textContent = 'Username and password required'; return; }
+  const btn = document.querySelector('#app .btn-yellow');
   try {
-    const btn = document.querySelector('#app .btn-yellow');
     btn.textContent = 'Signing in…'; btn.disabled = true;
-    await api('POST', '/api/auth?action=signin', { email, password: pw });
+    await api('POST', '/api/auth?action=login', { username, secret });
     window.location.reload();
-  } catch(e) {
-    const btn = document.querySelector('#app .btn-yellow');
+  } catch (e) {
     if (btn) { btn.textContent = 'Sign in'; btn.disabled = false; }
-    document.getElementById('li-err').textContent = e.status === 401 ? 'Incorrect email or password' : 'Sign in failed';
+    errEl.textContent =
+      e.status === 401 ? 'Incorrect username or password'
+      : e.status === 0 ? 'No connection — check signal'
+      : 'Sign in failed';
   }
 }
 
@@ -1604,16 +3243,31 @@ async function doLogin() {
 // UTILS
 // ══════════════════════════════════════════════
 function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  if (s === undefined || s === null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
-
 function philLogoSvg(size) {
-  return `<svg width="${size}" height="${size}" viewBox="0 0 86 86" xmlns="http://www.w3.org/2000/svg" style="border-radius:${Math.round(size*.23)}px;overflow:hidden;">
-    <rect width="86" height="86" fill="#0d1b34"/>
-    <rect x="26.5" y="15" width="5" height="22" rx="2.2" fill="#f5d020" transform="rotate(-30 29 26)"/>
-    <rect x="54.5" y="15" width="5" height="22" rx="2.2" fill="#f5d020" transform="rotate(30 57 26)"/>
-    <rect x="40.5" y="47" width="5" height="22" rx="2.2" fill="#f5d020"/>
-  </svg>`;
+  // Phil logo — AS/NZS 3112 3-pin plug face. A yellow rounded body with
+  // three dark pin slots: two angled at the top (active + neutral) and one
+  // straight at the bottom (earth). The big body shape reads as a plug
+  // even at very small sizes.
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 86 86" xmlns="http://www.w3.org/2000/svg" ' +
+         'style="border-radius:' + Math.round(size * 0.23) + 'px;overflow:hidden;display:block;">' +
+         '<rect width="86" height="86" fill="#0d1b34"/>' +
+         // Plug face — yellow rounded square
+         '<rect x="11" y="11" width="64" height="64" rx="14" fill="#f5d020"/>' +
+         // Active pin slot (top-left, angled inward)
+         '<rect x="25" y="20" width="6" height="22" rx="2" fill="#0d1b34" transform="rotate(-30 28 31)"/>' +
+         // Neutral pin slot (top-right, angled inward)
+         '<rect x="55" y="20" width="6" height="22" rx="2" fill="#0d1b34" transform="rotate(30 58 31)"/>' +
+         // Earth pin slot (bottom-center, straight)
+         '<rect x="40" y="48" width="6" height="22" rx="2" fill="#0d1b34"/>' +
+         '</svg>';
 }
 
 // ══════════════════════════════════════════════
