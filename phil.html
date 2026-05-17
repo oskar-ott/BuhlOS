@@ -835,6 +835,11 @@ a { color: inherit; text-decoration: none; }
         </div>
       </div>
       <div id="today-timer-slot"></div>
+      <div class="sec-hdr" style="padding-bottom:4px;">
+        <span class="sec-title">This week</span>
+        <span class="sec-link" id="today-week-total" onclick="switchTab('hours')">—</span>
+      </div>
+      <div class="week-strip" id="today-week-strip"></div>
       <div class="qactions" style="margin-top:14px;">
         <div class="qa yellow" onclick="quickStartOrLog()">
           <div class="qa-icon">⏱</div>
@@ -1146,10 +1151,16 @@ a { color: inherit; text-decoration: none; }
 <div class="sheet-overlay" id="sh-hours" onclick="sheetBgClick(event,'sh-hours')">
   <div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
-    <div class="sheet-title">Log Hours</div>
+    <div class="sheet-title">Log hours</div>
     <div class="form-group">
-      <label class="form-label">Date</label>
-      <input type="date" class="form-inp" id="sh-hrs-date">
+      <label class="form-label">Day</label>
+      <div class="chips" id="sh-hrs-day-chips" style="padding:0;gap:6px;margin-bottom:6px;">
+        <div class="chip active" onclick="setHrsDayQuick(this,'today')">Today</div>
+        <div class="chip" onclick="setHrsDayQuick(this,'yesterday')">Yesterday</div>
+        <div class="chip" onclick="setHrsDayQuick(this,'pick')">Pick date</div>
+      </div>
+      <input type="date" class="form-inp" id="sh-hrs-date" oninput="onHrsDateInput()" style="display:none;">
+      <div id="sh-hrs-date-display" style="font-size:14px;color:var(--ink-3);font-weight:600;margin-top:4px;"></div>
     </div>
     <div class="form-group">
       <label class="form-label">Job</label>
@@ -1160,12 +1171,27 @@ a { color: inherit; text-decoration: none; }
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Start</label>
-        <input type="time" class="form-inp" id="sh-hrs-start" value="07:00">
+        <input type="time" class="form-inp" id="sh-hrs-start" value="07:00" oninput="updateHrsTotal()">
       </div>
       <div class="form-group">
         <label class="form-label">Finish</label>
-        <input type="time" class="form-inp" id="sh-hrs-end" value="15:30">
+        <input type="time" class="form-inp" id="sh-hrs-end" value="15:30" oninput="updateHrsTotal()">
       </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Quick duration</label>
+      <div class="chips" id="sh-hrs-dur-chips" style="padding:0;gap:6px;">
+        <div class="chip" onclick="setHrsDuration(this,4)">4h</div>
+        <div class="chip" onclick="setHrsDuration(this,6)">6h</div>
+        <div class="chip" onclick="setHrsDuration(this,8)">8h</div>
+        <div class="chip" onclick="setHrsDuration(this,8.5)">8.5h</div>
+        <div class="chip" onclick="setHrsDuration(this,9)">9h</div>
+        <div class="chip" onclick="setHrsDuration(this,10)">10h</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:baseline;justify-content:center;gap:6px;padding:8px 16px 4px;">
+      <span id="sh-hrs-total" style="font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;color:var(--ink);">0</span>
+      <span style="font-size:14px;color:var(--ink-3);">h</span>
     </div>
     <div class="form-group">
       <label class="form-label">Type</label>
@@ -1180,8 +1206,10 @@ a { color: inherit; text-decoration: none; }
       <input type="text" class="form-inp" id="sh-hrs-notes" placeholder="e.g. Lvl 3 rough-in">
     </div>
     <div class="sheet-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeSheet('sh-hours')" style="flex:0 0 auto;">Cancel</button>
       <button class="btn btn-yellow btn-full" onclick="saveHours()">Save hours</button>
     </div>
+    <div style="height:8px;"></div>
   </div>
 </div>
 
@@ -1666,9 +1694,14 @@ function closeSheet(id) { document.getElementById(id).classList.remove('open'); 
 function sheetBgClick(e, id) { if (e.target === document.getElementById(id)) closeSheet(id); }
 function prefillSheet(id) {
   if (id === 'sh-hours') {
+    // Default to today, set chip + display, refresh duration preview.
     const d = document.getElementById('sh-hrs-date');
-    if (!d.value) d.value = todayDate();
+    d.value = todayDate();
+    setHrsDayQuick(document.querySelector('#sh-hrs-day-chips .chip[onclick*="\'today\'"]'), 'today');
+    // Reset duration chip selection on each open.
+    document.querySelectorAll('#sh-hrs-dur-chips .chip').forEach(c => c.classList.remove('active'));
     populateJobDropdown('sh-hrs-job');
+    updateHrsTotal();
   }
   if (id === 'sh-snag') {
     populateJobDropdown('sh-snag-job');
@@ -1726,7 +1759,7 @@ function toast(msg) {
 // ══════════════════════════════════════════════
 // DATE HELPERS
 // ══════════════════════════════════════════════
-function todayDate() { return new Date().toISOString().slice(0, 10); }
+function todayDate() { return isoDate(new Date()); }
 function fmtDate(iso) {
   if (!iso) return '';
   const d = new Date(iso + 'T00:00:00');
@@ -1975,12 +2008,120 @@ function renderToday() {
   if (qaLbl) qaLbl.textContent = APP.timer ? 'Stop timer' : 'Log hours';
 
   renderTimerBanner(document.getElementById('today-timer-slot'));
+  renderTodayWeekStrip();
   updateSyncIndicator();
+}
+
+// Week strip on the Today page — same visual language as the Hours tab but
+// always rendered there so workers see what they've logged this week at a
+// glance. Tapping a day jumps to the Hours tab filtered to that day.
+function renderTodayWeekStrip() {
+  const stripEl = document.getElementById('today-week-strip');
+  const totalEl = document.getElementById('today-week-total');
+  if (!stripEl) return;
+  // Pull entries from already-loaded hours (if any). If hoursByJob is empty,
+  // kick a background load and re-render when it lands.
+  if (!Object.keys(APP.hoursByJob).length) {
+    loadAllHours().then(() => renderTodayWeekStrip());
+  }
+  const entries = allMyHours();
+  const today = new Date();
+  const mon = startOfWeek(today);
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  stripEl.innerHTML = days.map((lbl, i) => {
+    const d = addDays(mon, i);
+    const iso = isoDate(d);
+    const dayEntries = entries.filter(e => e.date === iso);
+    const hrs = dayEntries.reduce((s, e) => s + (Number(e.hours) || 0), 0);
+    const isToday = iso === todayDate();
+    const isPast = d < new Date(today.getFullYear(), today.getMonth(), today.getDate()) && !isToday;
+    let cls = 'wk';
+    let numLabel = String(d.getDate());
+    let hrsLabel = hrs ? (+hrs.toFixed(1)) + 'h' : '–';
+    if (isToday) cls += ' today';
+    else if (isPast && hrs > 0) cls += ' done';
+    else if (isPast && hrs === 0 && i < 5) { cls += ' miss'; numLabel = '!'; hrsLabel = 'miss'; }
+    return '<div class="' + cls + '" onclick="goToHoursDay(\'' + iso + '\')">' +
+           '<div class="wk-day">' + lbl + '</div>' +
+           '<div class="wk-num">' + numLabel + '</div>' +
+           '<div class="wk-hrs">' + hrsLabel + '</div>' +
+           '</div>';
+  }).join('');
+  // Week total
+  const weekTotal = entries.filter(e => {
+    const d = new Date((e.date || '') + 'T00:00:00');
+    return !isNaN(d) && d >= mon && d <= today;
+  }).reduce((s, e) => s + (Number(e.hours) || 0), 0);
+  if (totalEl) totalEl.textContent = (+weekTotal.toFixed(1)) + 'h / 38h →';
+}
+
+function goToHoursDay(iso) {
+  APP.hoursFilter = iso;
+  switchTab('hours');
 }
 
 function quickStartOrLog() {
   if (APP.timer) stopTimer();
   else openSheet('sh-hours');
+}
+
+// ── Log Hours sheet helpers ──────────────────────────────────
+function setHrsDayQuick(btn, mode) {
+  const dateInp = document.getElementById('sh-hrs-date');
+  document.querySelectorAll('#sh-hrs-day-chips .chip').forEach(c => c.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  if (mode === 'today')     { dateInp.value = todayDate(); dateInp.style.display = 'none'; }
+  else if (mode === 'yesterday') {
+    const y = new Date(); y.setDate(y.getDate() - 1);
+    dateInp.value = isoDate(y); dateInp.style.display = 'none';
+  } else {
+    // Show the date picker so the worker can choose any day.
+    dateInp.style.display = '';
+    setTimeout(() => { try { dateInp.focus(); dateInp.showPicker && dateInp.showPicker(); } catch {} }, 0);
+  }
+  renderHrsDateDisplay();
+}
+function onHrsDateInput() {
+  // User picked a custom date — clear the chip selection.
+  document.querySelectorAll('#sh-hrs-day-chips .chip').forEach(c => c.classList.remove('active'));
+  renderHrsDateDisplay();
+}
+function renderHrsDateDisplay() {
+  const dateInp = document.getElementById('sh-hrs-date');
+  const dispEl  = document.getElementById('sh-hrs-date-display');
+  if (!dateInp || !dispEl) return;
+  const iso = dateInp.value || todayDate();
+  const d = new Date(iso + 'T00:00:00');
+  if (isNaN(d)) { dispEl.textContent = ''; return; }
+  dispEl.textContent = d.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+function setHrsDuration(btn, hours) {
+  document.querySelectorAll('#sh-hrs-dur-chips .chip').forEach(c => c.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  // Anchor on the current start time; compute the finish.
+  const startInp = document.getElementById('sh-hrs-start');
+  const endInp   = document.getElementById('sh-hrs-end');
+  const start = startInp.value || '07:00';
+  const [sh, sm] = start.split(':').map(Number);
+  const totalMin = sh * 60 + sm + Math.round(hours * 60);
+  const eh = Math.floor((totalMin / 60) % 24);
+  const em = totalMin % 60;
+  endInp.value = String(eh).padStart(2, '0') + ':' + String(em).padStart(2, '0');
+  updateHrsTotal();
+}
+function updateHrsTotal() {
+  const totEl = document.getElementById('sh-hrs-total');
+  if (!totEl) return;
+  const start = document.getElementById('sh-hrs-start').value;
+  const end   = document.getElementById('sh-hrs-end').value;
+  const hrs   = hoursFromRange(start, end);
+  totEl.textContent = +hrs.toFixed(1);
+  // De-highlight duration chips if the actual delta no longer matches.
+  document.querySelectorAll('#sh-hrs-dur-chips .chip').forEach(c => {
+    const txt = c.textContent.trim();
+    const val = parseFloat(txt);
+    if (Math.abs(val - hrs) > 0.05) c.classList.remove('active');
+  });
 }
 
 // ══════════════════════════════════════════════
