@@ -1594,12 +1594,39 @@ body { background: var(--paper, #f3efe7); color: var(--ink, #0d1b34); }
 .jh-cell-val.yellow { color: var(--yellow-ink, #1d1700); background: var(--yellow, #f5d020); border-radius: 4px; padding: 2px 6px; display: inline-block; }
 .jh-cell-val.bad { color: var(--red, #c0312f); }
 
-/* 5 · Needs attention. */
+/* Overall progress bar — sits between the secondary row and the health
+   strip. Mute-toned (amber while in progress, green at 100%) — the
+   primary CTA above remains the only yellow on the page (brief §16). */
+.jh-overall { display: block; padding: 2px 2px 0; }
+
+/* 5 · Needs attention.
+   The list rows are <area-card density="row"> components (brief §17 / C-03)
+   — we just wrap them in a bordered, rounded container with a header. */
 .jh-attn {
   border: 1px solid var(--rule, #d2ccbf);
   border-radius: 6px;
   overflow: hidden;
   background: var(--paper, #f3efe7);
+}
+.jh-attn area-card {
+  /* Component renders its own border; null ours so dividers stay clean. */
+  border: 0;
+  border-bottom: 1px solid var(--rule, #d2ccbf);
+  border-radius: 0;
+  background: var(--paper, #f3efe7);
+}
+.jh-attn area-card:last-of-type { border-bottom: 0; }
+.jh-attn area-card[href]:hover,
+.jh-attn area-card[href]:active { background: var(--paper-2, #ebe7df); }
+/* brief §16 com·03 — 4px left accent on cards needing attention.
+   We set border:0 above to clean up dividers, so re-paint the colour
+   cue via an inset box-shadow instead. Red wins over yellow when both
+   conditions apply (a snagged card is always more urgent than stale). */
+.jh-attn area-card[data-flag="stale"] {
+  box-shadow: inset 4px 0 0 var(--yellow, #f5d020);
+}
+.jh-attn area-card[status="snagged"] {
+  box-shadow: inset 4px 0 0 var(--red, #c0312f);
 }
 .jh-attn-h {
   display: flex; justify-content: space-between; align-items: center;
@@ -3240,12 +3267,21 @@ function updateBadge(){
   refreshNavMenuMarker();
 }
 
-// ── Dashboard ───────────────────────────────────────────────
-// Role-aware structure (top → bottom):
-//   Tradie:  Continue here · KPI strip · Quick actions · Needs attention · In progress · Module shortcuts
-//   LH:      Continue here · KPI strip · Quick actions (LH variant) · Needs attention · In progress · Module shortcuts
-//   Admin:   KPI strip · Quick actions (admin variant) · Needs attention · In progress · Module shortcuts
-//   Client:  KPI strip (calmer) · Needs attention (only if anything to show) · In progress
+// ── Dashboard (Job Home) ─────────────────────────────────────
+// Composed from the brief-§17 kit (/components/*) — every list, every
+// strip, every empty pattern is a custom element rather than handwritten
+// markup. Vertical order is fixed (brief §05) and identical for every
+// role; the secondary row swaps labels (tradie/LH/client) and the sixth
+// block only renders for admin / leadingHand.
+//
+// Vertical order (top → bottom):
+//   1 Header           — already in DOM (navy band, phase 02)
+//   2 Primary CTA      — yellow "Open work areas · N ▸" (the only yellow)
+//   3 Secondary row    — role-aware 50/50 outline buttons
+//   4 Overall progress — <progress-bar> mute tone (amber/green)
+//   5 Health strip     — 4 cells, single bordered (brief §07)
+//   6 Needs attention  — <area-card> rows, capped at 5; empty → <empty-state>
+//   7 Admin block      — admin/LH only (weekly trend, labour vs estimate)
 function renderDash(){
   const role = (CURRENT_USER && CURRENT_USER.role) || '';
   const isTradie = role === 'tradie';
@@ -3255,10 +3291,14 @@ function renderDash(){
   const groups=(CURRENT_JOB&&CURRENT_JOB.areaGroups)||[];
   const areas=allAreas();
   if(!areas.length){
-    const msg=isClient
-      ? 'No areas have been set up for this job yet.'
-      : 'No areas configured. <a href="/admin?setupJob=' + esc(JOB_ID) + '" style="color:inherit;text-decoration:underline">Set them up in Admin &rsaquo; Jobs.</a>';
-    document.getElementById('dashboard').innerHTML='<div class="empty">'+msg+'</div>';
+    // brief §17 — every empty list gets an <empty-state>; never an empty card frame.
+    const title   = isClient ? 'No areas yet.' : 'No work areas set up.';
+    const caption = isClient
+      ? 'This job has no areas configured. Check back later.'
+      : 'The job needs at least one area before tasks can be tracked.';
+    const action  = isClient ? '' : ` action-label="Set up work areas" action-href="/admin?setupJob=${esc(JOB_ID)}"`;
+    document.getElementById('dashboard').innerHTML =
+      `<section class="jh"><empty-state title="${esc(title)}" caption="${esc(caption)}"${action}></empty-state></section>`;
     return;
   }
   const done=areas.filter(a=>stats(a.id).pct===100).length;
@@ -3328,6 +3368,15 @@ function renderDash(){
       <!-- 3 · SECONDARY ROW (outline, 50/50, 46px) -->
       ${secondaryRow ? `<div class="jh-row">${secondaryRow}</div>` : ''}
 
+      <!-- 4a · OVERALL PROGRESS (brief §17 / C-02) — composed from <progress-bar>.
+           Mute tone keeps the "one yellow per screen" rule (the primary CTA above
+           owns it). Green at 100%, amber while in progress, neutral at zero. -->
+      <progress-bar
+        class="jh-overall"
+        label="Overall"
+        percent="${op}"
+        tone="${op === 100 ? 'green' : 'amber'}"></progress-bar>
+
       <!-- 4 · JOB HEALTH STRIP (brief §07) — 4 cells, single border -->
       <div class="jh-strip" role="group" aria-label="Job health">
         <a class="jh-cell" href="#" onclick="goNav('snags');return false">
@@ -3340,7 +3389,7 @@ function renderDash(){
         </a>
         <a class="jh-cell" href="#" onclick="return false">
           <div class="jh-cell-lab">Complete</div>
-          <div class="jh-cell-val yellow">${op}%</div>
+          <div class="jh-cell-val">${op}%</div>
         </a>
         <a class="jh-cell" href="#" onclick="${primaryDest.handler.replace(/;return false$/, ';return false')}">
           <div class="jh-cell-lab">Work areas</div>
@@ -3364,7 +3413,25 @@ function renderDash(){
       ${(isAdmin || isLH) ? jhAdminBlock(areas, op, os, role) : ''}
     </section>
   `;
-  document.getElementById('dashboard').innerHTML = h;
+  const dashHost = document.getElementById('dashboard');
+  dashHost.innerHTML = h;
+
+  // Wire <area-card> taps in the attention list. Capture-phase listener so
+  // we intercept before the component's built-in href-navigation kicks in.
+  // (Each card sets data-area to its dwelling ID; we hand it to openDw.)
+  dashHost.querySelectorAll('area-card[data-area]').forEach(card => {
+    const areaId = card.getAttribute('data-area');
+    if (!areaId) return;
+    card.addEventListener('click', (ev) => {
+      ev.stopImmediatePropagation();
+      ev.preventDefault();
+      openDw(areaId);
+    }, true);
+    card.setAttribute('tabindex', '0');
+    card.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openDw(areaId); }
+    });
+  });
   return;
 
   // Legacy renderDash body (preserved one cycle for reference, fenced
@@ -3997,25 +4064,25 @@ function computeAttention(areas, role, myUserId){
 }
 
 function jhAttnRow(item){
-  const dotCls = item.state === 'snagged' ? 'r'
-               : item.state === 'stale'   ? 'a'
-               : item.state === 'complete' ? 'g'
-               : item.state === 'inprog'  ? 'a'
-               : 'h';
-  const chip = item.count > 0
-    ? `<span class="jh-attn-row-chip">${item.count}</span>`
-    : '';
-  return `
-    <button class="jh-attn-row" type="button" onclick="openDw('${esc(item.areaId)}')">
-      <span class="jh-attn-row-dot ${dotCls}"></span>
-      <span class="jh-attn-row-body">
-        <span class="jh-attn-row-nm">${esc(item.areaName)}</span>
-        <span class="jh-attn-row-rs">${esc(item.reason)}</span>
-      </span>
-      ${chip}
-      <span class="jh-attn-row-chev" aria-hidden="true">▸</span>
-    </button>
-  `;
+  // brief §17 (C-03) — compose from <area-card>. Map our internal state
+  // names (snagged/stale/idle/inprog/complete) to the component's
+  // four-state vocabulary so the dot + border render the right colour.
+  const status = item.state === 'snagged' ? 'snagged'
+               : item.state === 'complete' ? 'complete'
+               : item.state === 'idle'     ? 'not-started'
+               : 'in-progress'; // stale + inprog both surface as in-progress
+  const snagAttr = item.count > 0 ? ` snag-count="${Number(item.count)}"` : '';
+  // Stale items get a yellow left-border accent (brief §16 com·03 — "cards
+  // needing attention" cue). The component owns the snagged red border;
+  // we layer this on the host with a CSS rule keyed off data-flag.
+  const flag = item.state === 'stale' ? ' data-flag="stale"' : '';
+  return `<area-card
+    density="row"
+    status="${status}"${snagAttr}${flag}
+    data-area="${esc(item.areaId)}"
+    name="${esc(item.areaName)}"
+    sub="${esc(item.reason)}"
+    href="#"></area-card>`;
 }
 
 function jhAdminBlock(areas, overallPct, openSnags, role){
