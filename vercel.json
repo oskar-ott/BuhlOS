@@ -4,6 +4,7 @@
     { "source": "/jobs", "destination": "/jobs.html" },
     { "source": "/jobs/:jobId", "destination": "/index.html" },
     { "source": "/admin", "destination": "/index.html" },
+    { "source": "/phil", "destination": "/phil.html" },
     { "source": "/", "destination": "/jobs.html" }
   ]
 }
