@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/login", "destination": "/login.html" },
+    { "source": "/jobs", "destination": "/jobs.html" },
     { "source": "/jobs/:jobId", "destination": "/index.html" },
     { "source": "/jobs/:jobId/log-hours", "destination": "/index.html" },
 
