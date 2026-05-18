@@ -470,22 +470,23 @@ async function load(){
   // when we wrap into the next week at midnight.
   const fromIso = _iso(new Date(monday.getTime() - 7 * 86400000));
 
+  let jobsOk = false, entriesOk = false;
   try {
     const [jr, ter] = await Promise.all([
       fetch('/api/jobs',                            { credentials:'same-origin' }),
       fetch('/api/time-entries?fromDate=' + encodeURIComponent(fromIso),
                                                     { credentials:'same-origin' }),
     ]);
-    if (jr.ok)  JOBS = (await jr.json()).jobs || [];
-    if (ter.ok) MY_TIME_ENTRIES = (await ter.json()).entries || [];
+    if (jr.ok)  { JOBS = (await jr.json()).jobs || []; jobsOk = true; }
+    if (ter.ok) { MY_TIME_ENTRIES = (await ter.json()).entries || []; entriesOk = true; }
   } catch (e) {
-    // Network flake — render with whatever we have.
+    // Network flake — fall through to the error-aware render below.
   }
 
   paintCta();
   paintOnsite();
-  paintWeek();
-  paintJobs();
+  paintWeek(entriesOk);
+  paintJobs(jobsOk);
 }
 
 function paintGreeting(){
@@ -534,14 +535,18 @@ window.openLog = function openLog(){
     onSaved: async () => {
       // Re-pull fresh time-entries so the CTA + Week card sync.
       const fromIso = _iso(new Date(isoWeekMonday().getTime() - 7 * 86400000));
+      let ok = false;
       try {
         const r = await fetch('/api/time-entries?fromDate=' + encodeURIComponent(fromIso),
                               { credentials:'same-origin' });
-        if (r.ok) MY_TIME_ENTRIES = (await r.json()).entries || [];
+        if (r.ok) { MY_TIME_ENTRIES = (await r.json()).entries || []; ok = true; }
       } catch (e) {}
       paintCta();
       paintOnsite();
-      paintWeek();
+      // Pass `true` if the refresh succeeded so the Week card doesn't
+      // flip to the error state after a save; if it failed, the worker
+      // sees the same "couldn't load" affordance as on initial boot.
+      paintWeek(ok);
     },
   });
 };
@@ -589,7 +594,16 @@ function paintOnsite(){
 // ── This week ──────────────────────────────────────────────────────────
 // Per-job breakdown of the current ISO week. The 7-day day strip is
 // gone; what a worker actually scans for is "where did my hours go?".
-function paintWeek(){
+// `entriesOk` is false when the /api/time-entries fetch failed —
+// distinguish "no hours" (real) from "couldn't load" (signal) so the
+// worker knows whether to retry.
+function paintWeek(entriesOk){
+  if (entriesOk === false) {
+    document.getElementById('wk-total').textContent = '—';
+    document.getElementById('wk-list').innerHTML =
+      '<div class="empty"><b>Couldn\'t load this week</b>Pull to refresh, or check your connection.</div>';
+    return;
+  }
   const monday = isoWeekMonday();
   const totalsByJob = {};   // jobId -> hours
   const jobNameById = Object.fromEntries(JOBS.map(j => [j.id, j.name]));
@@ -636,7 +650,15 @@ function paintWeek(){
 }
 
 // ── My jobs ────────────────────────────────────────────────────────────
-function paintJobs(){
+// `jobsOk` is false when /api/jobs failed — surface that explicitly
+// instead of pretending the worker has no assigned jobs.
+function paintJobs(jobsOk){
+  if (jobsOk === false) {
+    document.getElementById('jobs-count').textContent = '—';
+    document.getElementById('jobs-list').innerHTML =
+      '<div class="empty"><b>Couldn\'t load your jobs</b>Pull to refresh, or check your connection.</div>';
+    return;
+  }
   const active = JOBS.filter(j => (j.status || 'active') === 'active');
   document.getElementById('jobs-count').textContent =
     active.length + (active.length === 1 ? ' job' : ' jobs');

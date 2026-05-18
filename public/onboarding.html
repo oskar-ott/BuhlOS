@@ -10,6 +10,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
 <title>Onboarding · bühl</title>
+<!-- This page is read-only — no writes, no offline queue needed. The
+     queue + buhl-mark indicator only load on pages that actually
+     mutate state (my-day, my-gear). -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
@@ -299,6 +302,9 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
         <div class="me-who-role" id="me-who-role"></div>
       </div>
     </div>
+    <!-- No "Onboarding" action here — the user is already on /onboarding;
+         linking back to the same page would be pure noise. The sheet
+         keeps a clean Sign-out + Cancel pair. -->
     <button type="button" class="me-action danger" id="me-signout">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M16 17l5-5-5-5M21 12H9M13 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/></svg>
       <span>Sign out</span>
