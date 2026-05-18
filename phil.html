@@ -3497,31 +3497,35 @@ function esc(s) {
     .replace(/'/g, '&#39;');
 }
 function philLogoSvg(size) {
-  // Phil logo — AS/NZS 3112 (Type I) plug face. Three yellow blades on
-  // navy. Proportions audited against the real standard:
-  //   Active/Neutral blade: 6.5mm × 17.34mm  (aspect ~1:2.67)
-  //   Earth blade:           8.0mm × 24.13mm (aspect ~1:3.02)
-  //   Earth is 23% wider AND 39% longer than active.
-  //   Active/neutral tilt 30° from vertical with V apex pointing DOWN.
-  // SVG choices (slightly elongated for icon clarity):
-  //   Active/Neutral: 7 × 30  (aspect 1:4.3) — slightly stylised
-  //   Earth:          9 × 36  (aspect 1:4.0)
-  //   Earth/active width: 9/7 = 1.29  (real 1.23) ✓
-  //   Earth/active visual length after rotation: 36 / 26 = 1.39 ✓
-  //   Tip-spread : base-spread = 52 / 24 = 2.17 (real 2.10) ✓
-  //   12-unit gap between V apex and earth top — clear breathing room.
-  //   Rotation pivot is at the blade's own BOTTOM so the bottoms converge
-  //   near the centre and the tops fan outward — the iconic V-pointing-
-  //   down apex of a real AU plug.
+  // Phil logo — AS/NZS 3112 (Type I) socket FACE view. The previous
+  // "floating blades" geometry read as a stick-figure Y because the pins
+  // had no plug body to anchor them. This version draws the full plug
+  // face: a yellow rounded housing with three dark pin slots in the
+  // canonical AU layout — two angled active/neutral at top, one wider+
+  // longer earth at centre-bottom. The body fills ~76% of the canvas so
+  // the silhouette is dense and instantly readable as an AU outlet.
+  //
+  // Slot proportions vs the real plug (6.5×17.34mm active, 8×24.13mm earth):
+  //   active 7 × 26  → aspect 1:3.7
+  //   earth  9 × 28  → aspect 1:3.1
+  //   earth/active width  = 9/7   = 1.29 (real 1.23) ✓
+  //   earth/active length = 28/26 = 1.08 (real 1.39) — earth slightly
+  //     shorter than literal because long earth slots inside an inset
+  //     body look stretched; visual dominance comes from extra width.
+  //   pins tilt 30° from vertical; bottoms converge near centre.
+  //   earth top is only 2u below the angled slots' pivot row — tight
+  //   convergence so the three slots feel mechanically connected.
   return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" ' +
          'style="border-radius:' + Math.round(size * 0.23) + 'px;overflow:hidden;display:block;">' +
          '<rect width="100" height="100" fill="#0d1b34"/>' +
-         // Active blade — top-left, leaning out at 30°, pivot at its bottom
-         '<rect x="34.5" y="10" width="7" height="30" rx="3.5" fill="#f5d020" transform="rotate(-30 38 40)"/>' +
-         // Neutral blade — top-right, mirror of active
-         '<rect x="58.5" y="10" width="7" height="30" rx="3.5" fill="#f5d020" transform="rotate(30 62 40)"/>' +
-         // Earth blade — centred, vertical, wider and longer than the angled blades
-         '<rect x="45.5" y="52" width="9" height="36" rx="4.5" fill="#f5d020"/>' +
+         // Plug housing — yellow rounded square
+         '<rect x="12" y="12" width="76" height="76" rx="14" fill="#f5d020"/>' +
+         // Active slot — top-left, 30° lean (pivot at slot bottom)
+         '<rect x="35" y="22" width="7" height="26" rx="3.5" fill="#0d1b34" transform="rotate(-30 38.5 48)"/>' +
+         // Neutral slot — top-right, mirror
+         '<rect x="58" y="22" width="7" height="26" rx="3.5" fill="#0d1b34" transform="rotate(30 61.5 48)"/>' +
+         // Earth slot — centred, vertical, wider than active/neutral
+         '<rect x="45.5" y="50" width="9" height="28" rx="4.5" fill="#0d1b34"/>' +
          '</svg>';
 }
 
