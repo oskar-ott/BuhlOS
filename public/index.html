@@ -324,6 +324,58 @@ button.hdr-job[aria-expanded="true"] .hdr-job-chev{color:var(--yellow);transform
 .worker-fab-primary:hover{filter:brightness(.97)}
 .worker-fab-ico{font-size:14px;line-height:1;font-weight:700}
 .worker-fab-lbl{line-height:1}
+
+/* ── Worker bottom tab bar ─────────────────────────────────────────
+   Shown for tradie + leadingHand on /jobs/{id} so the Workspace has
+   a one-tap path back to My Day / Jobs / My Gear / Me. Sits at
+   bottom:0; the redundant worker-fab is hidden when this is on
+   because Log Hours + Raise Snag are already on the Dashboard's
+   secondary row.
+
+   Tab labels reuse the symbol set established on /my-day, /jobs and
+   /my-gear — same characters, same yellow active-icon treatment —
+   so all worker pages feel like one app. */
+.worker-tabbar{
+  display:none;
+  position:fixed;left:0;right:0;bottom:0;
+  background:#fff;
+  border-top:1px solid var(--rule);
+  z-index:90;
+  padding:6px 6px calc(6px + env(safe-area-inset-bottom));
+  grid-template-columns:repeat(4,1fr);
+  max-width:760px;margin:0 auto;
+}
+.worker-tabbar[data-active="1"]{display:grid}
+.worker-tabbar .wt{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;padding:8px 4px;
+  font-family:"Inter",-apple-system,sans-serif;
+  font-size:10.5px;font-weight:500;
+  color:var(--ink-3);text-decoration:none;border-radius:10px;
+}
+.worker-tabbar .wt-ico{
+  width:26px;height:24px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;border-radius:6px;
+}
+.worker-tabbar .wt.active{color:var(--ink);font-weight:600}
+.worker-tabbar .wt.active .wt-ico{background:var(--yellow);color:var(--yellow-ink);font-weight:700}
+.worker-tabbar .wt:active{transform:scale(.98)}
+
+/* Hide on wider viewports — desktop has the regular sub-nav. */
+@media(min-width:760px){
+  .worker-tabbar[data-active="1"]{display:none}
+}
+
+/* When the worker tabbar is on, the worker-fab and its body padding
+   are redundant (Dashboard tiles already expose Log Hours + Raise Snag).
+   Hide it to keep the bottom edge calm; add bottom padding via the
+   body class so deep dwelling content scrolls clear of the tabbar. */
+body.has-worker-tabbar{
+  padding-bottom:calc(64px + env(safe-area-inset-bottom));
+}
+body.has-worker-tabbar .worker-fab{display:none !important}
+body.has-worker-tabbar.has-worker-fab{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
 /* Hide on wider viewports — desktop has the regular sub-nav. */
 @media(min-width:760px){
   .worker-fab[data-active="1"]{display:none}
@@ -2792,6 +2844,15 @@ async function bootstrapAuth() {
     // proactively revealed it for non-clients.
     const im = document.getElementById('itpsMenuItem');
     if (im) im.hidden = true;
+    // Workspace context — tradies see "WORKSPACE · {ref}" in the sub
+    // line so the Job page reads as the operational hub for one job,
+    // not as a one-of-many admin record. The ref is whatever job.ref /
+    // job.id resolves to (job-detail loader uses job.id by default).
+    const subEl = document.getElementById('hdr-sub');
+    if (subEl && CURRENT_JOB) {
+      const ref = (CURRENT_JOB.ref || CURRENT_JOB.id || '').toUpperCase();
+      subEl.textContent = ref ? 'WORKSPACE · ' + ref : 'WORKSPACE';
+    }
   }
 
   // Worker quick-action FAB — tradies and leading hands get the always-visible
@@ -2803,6 +2864,16 @@ async function bootstrapAuth() {
       fab.hidden = false;
       fab.dataset.active = '1';
       document.body.classList.add('has-worker-fab');
+    }
+    // Worker bottom tab bar — one-tap exit to My day / Jobs / My gear /
+    // Onboarding. CSS hides the worker-fab when this is on (Log Hours
+    // and Raise Snag are already on the Dashboard so the FAB is
+    // duplicate noise) and adds bottom padding so deep content scrolls
+    // clear of the bar.
+    const wtb = document.getElementById('workerTabbar');
+    if (wtb) {
+      wtb.dataset.active = '1';
+      document.body.classList.add('has-worker-tabbar');
     }
   }
 
@@ -9615,6 +9686,29 @@ function paintSiteInfoPill(job) {
      level for product-chip:open events. Brief §20: app-leave for
      product specs = 0. -->
 <product-drawer></product-drawer>
+
+<!-- Worker bottom tab bar — revealed for tradie/leadingHand by the
+     role block in setupCurrentUser(). One-tap path back to /my-day,
+     /jobs, /my-gear, /onboarding so workers don't have to dig through
+     the hamburger to leave the Workspace. -->
+<nav class="worker-tabbar" id="workerTabbar" aria-label="Worker navigation">
+  <a href="/my-day" class="wt">
+    <span class="wt-ico">☼</span>
+    My day
+  </a>
+  <a href="/jobs" class="wt active">
+    <span class="wt-ico">▣</span>
+    Jobs
+  </a>
+  <a href="/my-gear" class="wt">
+    <span class="wt-ico">⚙</span>
+    My gear
+  </a>
+  <a href="/onboarding" class="wt">
+    <span class="wt-ico">◉</span>
+    Me
+  </a>
+</nav>
 
 </body>
 </html>

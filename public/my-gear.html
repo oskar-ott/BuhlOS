@@ -178,8 +178,10 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .me-who-avatar{width:44px;height:44px;border-radius:50%;background:var(--yellow);color:var(--yellow-ink);display:flex;align-items:center;justify-content:center;font-family:"Inter Tight",sans-serif;font-size:17px;font-weight:700;flex-shrink:0}
 .me-who-name{font-family:"Inter Tight",sans-serif;font-size:16px;font-weight:700;color:var(--ink);letter-spacing:-.2px;line-height:1.2}
 .me-who-role{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--ink-3);letter-spacing:.1em;text-transform:uppercase;margin-top:3px}
-.me-action{width:100%;display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:12px;background:var(--paper-2);border:1px solid var(--rule);font:inherit;font-size:14.5px;font-weight:600;color:var(--red);cursor:pointer;margin-bottom:8px;text-align:left}
+.me-action{width:100%;display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:12px;background:var(--paper-2);border:1px solid var(--rule);font:inherit;font-size:14.5px;font-weight:600;color:var(--ink);cursor:pointer;margin-bottom:8px;text-align:left}
+.me-action.danger{color:var(--red)}
 .me-action:active{transform:scale(.99)}
+.me-action .me-action-meta{margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:10px;font-weight:600;color:var(--ink-3);letter-spacing:.1em;text-transform:uppercase}
 .me-cancel{width:100%;padding:13px;border-radius:12px;background:transparent;border:0;font:inherit;font-size:14.5px;font-weight:600;color:var(--ink-2);cursor:pointer}
 
 /* Transfer sheet */
@@ -247,7 +249,12 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
         <div class="me-who-role" id="me-who-role"></div>
       </div>
     </div>
-    <button type="button" class="me-action" id="me-signout">
+    <a class="me-action" href="/onboarding">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span>Onboarding &amp; readiness</span>
+      <span class="me-action-meta">→</span>
+    </a>
+    <button type="button" class="me-action danger" id="me-signout">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M16 17l5-5-5-5M21 12H9M13 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/></svg>
       <span>Sign out</span>
     </button>

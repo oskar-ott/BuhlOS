@@ -35,6 +35,8 @@
     { "source": "/lh-home",   "destination": "/lh-home.html" },
     { "source": "/my-day",    "destination": "/my-day.html" },
     { "source": "/my-gear",   "destination": "/my-gear.html" },
+    { "source": "/onboarding","destination": "/onboarding.html" },
+    { "source": "/phil",      "destination": "/phil.html" },
     { "source": "/install",   "destination": "/install.html" },
     { "source": "/approvals", "destination": "/admin/approvals.html" },
     { "source": "/client", "destination": "/client.html" },
