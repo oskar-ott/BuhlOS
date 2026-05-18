@@ -840,6 +840,28 @@ a { color: inherit; text-decoration: none; }
         <span class="sec-link" id="today-week-total" onclick="switchTab('hours')">—</span>
       </div>
       <div class="week-strip" id="today-week-strip"></div>
+      <!-- Inline quick-log: appears when a day in the strip is tapped. -->
+      <div id="today-quick-log" style="display:none;background:var(--card);margin:8px 14px 0;border-radius:14px;padding:14px 14px 12px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <div style="flex:1;">
+            <div style="font-family:'Inter Tight',sans-serif;font-size:14px;font-weight:700;color:var(--ink);" id="qlog-title">Log on —</div>
+            <div style="font-size:12px;color:var(--ink-3);margin-top:2px;" id="qlog-meta">—</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="closeQuickLog()">Close</button>
+        </div>
+        <select class="form-inp form-sel" id="qlog-job" style="margin-bottom:8px;font-size:14px;padding:8px 10px;">
+          <option value="">Select job…</option>
+        </select>
+        <div class="chips" id="qlog-dur-chips" style="padding:0;gap:6px;">
+          <div class="chip" onclick="quickLogSave(this,4)">4h</div>
+          <div class="chip" onclick="quickLogSave(this,6)">6h</div>
+          <div class="chip" onclick="quickLogSave(this,8)">8h</div>
+          <div class="chip" onclick="quickLogSave(this,8.5)">8.5h</div>
+          <div class="chip" onclick="quickLogSave(this,9)">9h</div>
+          <div class="chip" onclick="quickLogSave(this,10)">10h</div>
+        </div>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:8px;">Tap a duration to save. <span style="color:var(--blue);font-weight:600;cursor:pointer;" onclick="quickLogOpenFull()">More options →</span></div>
+      </div>
       <div class="qactions" style="margin-top:14px;">
         <div class="qa yellow" onclick="quickStartOrLog()">
           <div class="qa-icon">⏱</div>
@@ -1062,10 +1084,21 @@ a { color: inherit; text-decoration: none; }
         <button class="hdr-action" onclick="openSheet('sh-hours')">+ Add</button>
       </div>
       <div class="week-strip" id="week-strip"></div>
-      <div class="hours-total">
-        <span class="ht-num" id="hrs-total-num">0</span>
-        <span class="ht-unit">hrs</span>
-        <span class="ht-target" id="hrs-target-txt"></span>
+      <div class="hours-total" style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:14px 16px 4px;">
+        <div style="flex:1;">
+          <div style="display:flex;align-items:baseline;gap:6px;">
+            <span class="ht-num" id="hrs-today-num" style="font-size:32px;color:var(--yellow);">0</span>
+            <span class="ht-unit">today</span>
+          </div>
+          <div style="font-size:12px;color:var(--ink-3);font-weight:600;" id="hrs-today-meta">—</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="display:flex;align-items:baseline;gap:6px;justify-content:flex-end;">
+            <span class="ht-num" id="hrs-total-num">0</span>
+            <span class="ht-unit">hrs</span>
+          </div>
+          <div class="ht-target" id="hrs-target-txt"></div>
+        </div>
       </div>
       <div class="card">
         <div id="hrs-entries"></div>
@@ -2041,7 +2074,7 @@ function renderTodayWeekStrip() {
     if (isToday) cls += ' today';
     else if (isPast && hrs > 0) cls += ' done';
     else if (isPast && hrs === 0 && i < 5) { cls += ' miss'; numLabel = '!'; hrsLabel = 'miss'; }
-    return '<div class="' + cls + '" onclick="goToHoursDay(\'' + iso + '\')">' +
+    return '<div class="' + cls + '" onclick="openQuickLog(\'' + iso + '\')">' +
            '<div class="wk-day">' + lbl + '</div>' +
            '<div class="wk-num">' + numLabel + '</div>' +
            '<div class="wk-hrs">' + hrsLabel + '</div>' +
@@ -2055,9 +2088,82 @@ function renderTodayWeekStrip() {
   if (totalEl) totalEl.textContent = (+weekTotal.toFixed(1)) + 'h / 38h →';
 }
 
-function goToHoursDay(iso) {
-  APP.hoursFilter = iso;
-  switchTab('hours');
+// ── Inline quick-log on the Today week strip ─────────────────
+// Tap a day → expander appears with job + 6 duration buttons. Each duration
+// button is a 1-tap save. "More options" opens the full Log Hours sheet
+// pre-filled with that day.
+function openQuickLog(iso) {
+  const el = document.getElementById('today-quick-log');
+  if (!el) return;
+  APP.quickLogDate = iso;
+  const d = new Date(iso + 'T00:00:00');
+  const isToday = iso === todayDate();
+  document.getElementById('qlog-title').textContent =
+    'Log on ' + (isToday ? 'today' : d.toLocaleDateString('en-AU', { weekday: 'long' }));
+  document.getElementById('qlog-meta').textContent =
+    d.toLocaleDateString('en-AU', { day: 'numeric', month: 'long' });
+  // Populate job dropdown using the same active-jobs list as other sheets.
+  populateJobDropdown('qlog-job');
+  // Reset duration chip highlights
+  document.querySelectorAll('#qlog-dur-chips .chip').forEach(c => c.classList.remove('active'));
+  el.style.display = '';
+  // Bring the expander into view (under sticky header)
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function closeQuickLog() {
+  const el = document.getElementById('today-quick-log');
+  if (el) el.style.display = 'none';
+  APP.quickLogDate = null;
+}
+async function quickLogSave(btn, hours) {
+  if (!APP.quickLogDate) return;
+  const jobId = document.getElementById('qlog-job').value;
+  if (!jobId) { toast('Pick a job first'); return; }
+  // Visual feedback while saving
+  document.querySelectorAll('#qlog-dur-chips .chip').forEach(c => c.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const job = findJob(jobId);
+  // Default start 07:00; compute end from duration so the entry has a
+  // sensible time range admins can later inspect.
+  const startMin = 7 * 60;
+  const endMin = startMin + Math.round(hours * 60);
+  const fmt = m => String(Math.floor((m / 60) % 24)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+  const entry = {
+    id: 'h_' + Date.now(),
+    date: APP.quickLogDate,
+    jobId, jobName: job ? job.name : '',
+    start: fmt(startMin), end: fmt(endMin),
+    type: 'ordinary',
+    hours,
+    notes: '',
+    userId: APP.me && APP.me.id,
+    by: APP.me && APP.me.username,
+    source: 'phil-quicklog',
+  };
+  if (!APP.hoursByJob[jobId]) APP.hoursByJob[jobId] = [];
+  APP.hoursByJob[jobId].unshift(entry);
+  closeQuickLog();
+  toast(hours + 'h logged on ' + APP.quickLogDate);
+  await postSingleHourEntry(jobId, entry);
+  renderToday();
+  if (APP.tab === 'hours') renderHours();
+}
+function quickLogOpenFull() {
+  // Hand off to the full sheet with the chosen day pre-selected.
+  const iso = APP.quickLogDate || todayDate();
+  closeQuickLog();
+  openSheet('sh-hours');
+  // Override the default "Today" chip if the user picked a different day.
+  if (iso !== todayDate()) {
+    const dateInp = document.getElementById('sh-hrs-date');
+    dateInp.value = iso;
+    document.querySelectorAll('#sh-hrs-day-chips .chip').forEach(c => c.classList.remove('active'));
+    const yest = (function () { const y = new Date(); y.setDate(y.getDate() - 1); return isoDate(y); })();
+    if (iso === yest) {
+      document.querySelector('#sh-hrs-day-chips .chip[onclick*="\'yesterday\'"]')?.classList.add('active');
+    }
+    renderHrsDateDisplay();
+  }
 }
 
 function quickStartOrLog() {
@@ -2774,6 +2880,15 @@ function renderWeekStrip(entries) {
   }).reduce((s, e) => s + (Number(e.hours) || 0), 0);
   document.getElementById('hrs-total-num').textContent = +weekTotal.toFixed(1);
   document.getElementById('hrs-target-txt').textContent = 'this week · target 38h';
+  // Today total (shown alongside the week total).
+  const todayIso = todayDate();
+  const todayHrs = entries.filter(e => e.date === todayIso).reduce((s, e) => s + (Number(e.hours) || 0), 0);
+  const tnEl = document.getElementById('hrs-today-num');
+  const tmEl = document.getElementById('hrs-today-meta');
+  if (tnEl) tnEl.textContent = +todayHrs.toFixed(1);
+  if (tmEl) {
+    tmEl.textContent = new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' });
+  }
 }
 function renderHrsEntries(entries, filterDate) {
   const el = document.getElementById('hrs-entries');
