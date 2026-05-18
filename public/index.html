@@ -376,6 +376,54 @@ body.has-worker-tabbar{
 }
 body.has-worker-tabbar .worker-fab{display:none !important}
 body.has-worker-tabbar.has-worker-fab{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+
+/* ── Worker Me sheet (Workspace) ────────────────────────────────────
+   Mirrors the sheet pattern on /my-day, /my-gear, /jobs, /onboarding
+   so signout protection is consistent across every worker surface.
+   Tokens inlined here use the Phil redesign palette (navy/yellow/
+   cool-grey rules) — visually consistent with the rest of Phil even
+   though index.html's page chrome uses the older cream theme. */
+.worker-me-scrim{
+  position:fixed;inset:0;background:rgba(13,27,52,.45);
+  z-index:120;display:flex;align-items:flex-end;justify-content:center;
+  animation:worker-me-fade .14s ease-out;
+}
+.worker-me-scrim[hidden]{display:none}
+@keyframes worker-me-fade{from{opacity:0}to{opacity:1}}
+.worker-me-sheet{
+  background:#fff;border-radius:18px 18px 0 0;
+  padding:8px 18px calc(18px + env(safe-area-inset-bottom));
+  width:100%;max-width:430px;
+  box-shadow:0 -8px 24px rgba(13,27,52,.18);
+  animation:worker-me-slide .18s ease-out;
+  font-family:"Inter","Inter Tight",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+@keyframes worker-me-slide{from{transform:translateY(20px);opacity:.6}to{transform:translateY(0);opacity:1}}
+.worker-me-handle{width:36px;height:4px;border-radius:2px;background:#c8cee0;margin:6px auto 16px}
+.worker-me-who{display:flex;align-items:center;gap:12px;padding:6px 4px 14px;border-bottom:1px solid #dde1ea;margin-bottom:10px}
+.worker-me-avatar{
+  width:44px;height:44px;border-radius:50%;
+  background:#f5d020;color:#1d1700;
+  display:flex;align-items:center;justify-content:center;
+  font-family:"Inter Tight",sans-serif;font-size:17px;font-weight:700;flex-shrink:0;
+}
+.worker-me-name{font-family:"Inter Tight",sans-serif;font-size:16px;font-weight:700;color:#0d1b34;letter-spacing:-.2px;line-height:1.2}
+.worker-me-role{font-family:"JetBrains Mono",monospace;font-size:10px;color:#6a7591;letter-spacing:.1em;text-transform:uppercase;margin-top:3px}
+.worker-me-action{
+  width:100%;display:flex;align-items:center;gap:12px;
+  padding:13px 14px;border-radius:12px;
+  background:#f8f9fb;border:1px solid #dde1ea;
+  font:inherit;font-size:14.5px;font-weight:600;color:#0d1b34;
+  cursor:pointer;margin-bottom:8px;text-align:left;
+  text-decoration:none;
+}
+.worker-me-action.danger{color:#c0312f}
+.worker-me-action:active{transform:scale(.99)}
+.worker-me-meta{margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:10px;font-weight:600;color:#6a7591;letter-spacing:.1em;text-transform:uppercase}
+.worker-me-cancel{
+  width:100%;padding:13px;border-radius:12px;background:transparent;border:0;
+  font:inherit;font-size:14.5px;font-weight:600;color:#36446b;cursor:pointer;
+}
 /* Hide on wider viewports — desktop has the regular sub-nav. */
 @media(min-width:760px){
   .worker-fab[data-active="1"]{display:none}
@@ -2866,15 +2914,22 @@ async function bootstrapAuth() {
       document.body.classList.add('has-worker-fab');
     }
     // Worker bottom tab bar — one-tap exit to My day / Jobs / My gear /
-    // Onboarding. CSS hides the worker-fab when this is on (Log Hours
-    // and Raise Snag are already on the Dashboard so the FAB is
-    // duplicate noise) and adds bottom padding so deep content scrolls
-    // clear of the bar.
+    // Me. CSS hides the worker-fab when this is on (Log Hours and
+    // Raise Snag are already on the Dashboard so the FAB is duplicate
+    // noise) and adds bottom padding so deep content scrolls clear of
+    // the bar.
     const wtb = document.getElementById('workerTabbar');
     if (wtb) {
       wtb.dataset.active = '1';
       document.body.classList.add('has-worker-tabbar');
     }
+    // Worker Me sheet — same protected pattern as the other worker
+    // pages (profile preview + Onboarding link + guarded sign-out).
+    // Was previously a direct nav to /onboarding which (a) skipped the
+    // confirm-tap on sign-out and (b) was inconsistent with how every
+    // other Phil page handles Me. The sheet sits in the DOM already;
+    // we just wire identity + handlers once auth resolves.
+    setupWorkerMeSheet(CURRENT_USER);
   }
 
   document.getElementById('logoutBtn').addEventListener('click', async () => {
@@ -2894,6 +2949,46 @@ async function bootstrapAuth() {
 // Offline-photo replay: when a queued snag-photo upload finally lands,
 // patch the snag's photo entry with the real server URL + persist.
 // Tag shape: 'snag-photo:<snagId>:<tempId>'.
+// Worker Me sheet — used on the Workspace (this page) when a tradie/
+// LH taps the "Me" tab in the worker bottom-bar. Behaves identically
+// to the sheet on /my-day, /my-gear, /jobs, /onboarding: identity
+// preview, link to Onboarding, guarded sign-out, Cancel. Idempotent
+// — calling it twice is safe (event listeners are added on the same
+// nodes, but the page only fires this once per boot anyway).
+function setupWorkerMeSheet(user) {
+  const tab     = document.getElementById('workerTabMe');
+  const scrim   = document.getElementById('workerMeScrim');
+  const cancel  = document.getElementById('workerMeCancel');
+  const signOut = document.getElementById('workerMeSignout');
+  const nameEl  = document.getElementById('workerMeName');
+  const roleEl  = document.getElementById('workerMeRole');
+  const avEl    = document.getElementById('workerMeAvatar');
+  if (!tab || !scrim) return;
+
+  const name = (user && user.username) || 'You';
+  const roleLabel = user && user.role === 'leadingHand' ? 'Leading hand'
+                  : user && user.role === 'tradie'      ? 'Tradie'
+                  : '';
+  nameEl.textContent = name;
+  roleEl.textContent = roleLabel;
+  avEl.textContent = String(name).split(/[\s._-]+/).filter(Boolean).slice(0,2)
+                          .map(w => w[0]).join('').toUpperCase() || '?';
+
+  const open  = () => { scrim.hidden = false; document.body.style.overflow = 'hidden'; };
+  const close = () => { scrim.hidden = true;  document.body.style.overflow = ''; };
+  tab.addEventListener('click', open);
+  cancel.addEventListener('click', close);
+  scrim.addEventListener('click', e => { if (e.target === scrim) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !scrim.hidden) close(); });
+  signOut.addEventListener('click', async () => {
+    // Funnel through the same logout endpoint the header signout uses
+    // so cookie-clear behavior stays in one place.
+    try { await fetch('/api/auth?action=logout', { method:'POST', credentials:'same-origin' }); }
+    catch (e) {}
+    location.href = '/login';
+  });
+}
+
 function registerQueueDrainHandlers() {
   document.addEventListener('queue:drained', (ev) => {
     const d = ev.detail || {};
@@ -9689,8 +9784,11 @@ function paintSiteInfoPill(job) {
 
 <!-- Worker bottom tab bar — revealed for tradie/leadingHand by the
      role block in setupCurrentUser(). One-tap path back to /my-day,
-     /jobs, /my-gear, /onboarding so workers don't have to dig through
-     the hamburger to leave the Workspace. -->
+     /jobs, /my-gear so workers don't have to dig through the
+     hamburger to leave the Workspace. "Me" opens the same protected
+     sheet pattern used on every other worker page (profile preview +
+     Onboarding link + guarded sign-out) so signout can never fire on
+     a mis-tap at the right edge of the screen. -->
 <nav class="worker-tabbar" id="workerTabbar" aria-label="Worker navigation">
   <a href="/my-day" class="wt">
     <span class="wt-ico">☼</span>
@@ -9704,11 +9802,40 @@ function paintSiteInfoPill(job) {
     <span class="wt-ico">⚙</span>
     My gear
   </a>
-  <a href="/onboarding" class="wt">
+  <button class="wt" type="button" id="workerTabMe">
     <span class="wt-ico">◉</span>
     Me
-  </a>
+  </button>
 </nav>
+
+<!-- Worker Me sheet (Workspace) — same pattern as /my-day, /my-gear,
+     /jobs, /onboarding. Inline tokens here because index.html's own
+     palette uses the older cream theme (--surface / --line); the
+     sheet matches the rest of Phil visually, not the page chrome
+     around it. Acceptable inconsistency: the sheet is a transient
+     overlay, not page content. -->
+<div class="worker-me-scrim" id="workerMeScrim" hidden>
+  <div class="worker-me-sheet" role="dialog" aria-modal="true" aria-labelledby="workerMeName">
+    <div class="worker-me-handle"></div>
+    <div class="worker-me-who">
+      <div class="worker-me-avatar" id="workerMeAvatar">?</div>
+      <div style="flex:1;min-width:0">
+        <div class="worker-me-name" id="workerMeName">…</div>
+        <div class="worker-me-role" id="workerMeRole"></div>
+      </div>
+    </div>
+    <a class="worker-me-action" href="/onboarding">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span>Onboarding &amp; readiness</span>
+      <span class="worker-me-meta">→</span>
+    </a>
+    <button type="button" class="worker-me-action danger" id="workerMeSignout">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M16 17l5-5-5-5M21 12H9M13 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/></svg>
+      <span>Sign out</span>
+    </button>
+    <button type="button" class="worker-me-cancel" id="workerMeCancel">Cancel</button>
+  </div>
+</div>
 
 </body>
 </html>

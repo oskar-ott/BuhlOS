@@ -261,13 +261,16 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
       <div id="gear-list"></div>
     </div>
 
-    <!-- Advisory: explains why uploads aren't here yet. Honesty over
-         half-built forms. -->
+    <!-- Advisory: honesty about the gap. Compliance visibility is held
+         out of Phil deliberately until the upload backend lands; until
+         then the hero never says "Ready for site". -->
     <div class="advisory">
-      <b>License uploads coming soon</b>
-      For now, give your supervisor a photo of your white card, electrical license,
-      first aid certificate, and any other tickets. Admin records them in BuhlOS
-      and they'll appear here automatically.
+      <b>Licence tracking coming soon</b>
+      Phil doesn't yet show licence expiry dates or upload status. Send
+      photos of your white card, electrical licence, first aid cert and
+      any other tickets to your supervisor — admin keeps the office
+      copy. Compliance won't show as confirmed here until the worker-side
+      surface is built.
     </div>
   </div>
 
@@ -378,14 +381,18 @@ function buildProfile() {
 }
 
 function buildCompliance() {
-  // No license/cert endpoint in the worker app yet, so these all read
-  // 'admin' state — that's a separate visual class so it doesn't show
-  // up as a worker blocker.
+  // License + cert tracking has no worker-facing storage yet; admin
+  // keeps the canonical copies in office records. Surfaced here as
+  // 'admin' state — distinct from 'done' / 'todo' so the readiness
+  // ring doesn't count these as the worker's responsibility, AND
+  // doesn't paint them as confirmed when they haven't been verified.
+  // The wording is intentionally non-committal: "with admin" not
+  // "on file" — we don't know that admin actually has the docs.
   return [
-    { id:'whitecard', title:'White card',         state:'admin', meta:'admin records · expires every 2yr' },
-    { id:'electrical',title:'Electrical license', state:'admin', meta:'admin records · A-grade · expires 5yr' },
-    { id:'firstaid',  title:'First aid',          state:'admin', meta:'admin records · expires every 3yr' },
-    { id:'ewp',       title:'EWP · scissor lift', state:'admin', meta:'admin records · if applicable' },
+    { id:'whitecard', title:'White card',         state:'admin', meta:'lodge with admin · 2-year validity' },
+    { id:'electrical',title:'Electrical license', state:'admin', meta:'lodge with admin · A-grade SA / equivalent' },
+    { id:'firstaid',  title:'First aid',          state:'admin', meta:'lodge with admin · 3-year validity' },
+    { id:'ewp',       title:'EWP · scissor lift', state:'admin', meta:'lodge with admin · if applicable' },
   ];
 }
 
@@ -443,26 +450,43 @@ function render(){
   renderList(compliance, 'compliance-list');
   renderList(gear, 'gear-list');
 
-  // Card states — count only items the worker can directly resolve
-  // (i.e. exclude 'admin'-state license items, which are tracked by
-  // admin and not blocked on the worker).
+  // Two-tier readiness:
+  //   1. Self-service: profile + gear — items the worker can directly
+  //      resolve (or chase a specific admin update for).
+  //   2. Admin-confirmed: licenses + certs — held in office records,
+  //      no worker-facing storage yet, no verification surface.
+  //
+  // The hero ring + label reflect ONLY the self-service tier. We
+  // never say "Ready for site" until admin compliance is observable,
+  // because that would mislead the worker (and downstream compliance)
+  // into thinking a check has happened that hasn't. Until then the
+  // best honest label is "Profile complete · awaiting compliance".
   const trackable = [...profile, ...gear];
-  const done = trackable.filter(i => i.state === 'done').length;
+  const done  = trackable.filter(i => i.state === 'done').length;
   const total = trackable.length;
   const pctDeg = total ? (done / total) * 360 : 0;
-  const allReady = done === total;
+  const profileComplete = done === total;
 
   const ring = document.getElementById('ready-ring');
   ring.style.setProperty('--pct', pctDeg + 'deg');
   document.getElementById('ready-ring-l').textContent = done + '/' + total;
-  document.getElementById('ready-t').textContent =
-    allReady ? 'Ready for site' : 'Almost there';
-  document.getElementById('ready-sub').textContent =
-    allReady ? 'Profile and gear are squared away.'
-             : (total - done) + ' item' + ((total - done) === 1 ? '' : 's') + ' to chase admin on';
-  document.getElementById('ready-card').classList.toggle('ok', allReady);
-  document.getElementById('hdr-sub').textContent =
-    allReady ? 'READY FOR SITE' : 'READINESS · ' + done + '/' + total;
+
+  if (profileComplete) {
+    document.getElementById('ready-t').textContent  = 'Profile complete';
+    document.getElementById('ready-sub').textContent =
+      'Compliance docs sit with admin · not yet verified here.';
+    document.getElementById('hdr-sub').textContent  = 'PROFILE COMPLETE · COMPLIANCE WITH ADMIN';
+  } else {
+    document.getElementById('ready-t').textContent  = 'Almost there';
+    const left = total - done;
+    document.getElementById('ready-sub').textContent =
+      left + ' item' + (left === 1 ? '' : 's') + ' to chase admin on';
+    document.getElementById('hdr-sub').textContent  = 'READINESS · ' + done + '/' + total;
+  }
+  // The .ok green-tint flips ONLY when both tiers can be confirmed.
+  // Until the license backend lands, that's never — so the hero stays
+  // neutral. Intentional.
+  document.getElementById('ready-card').classList.remove('ok');
 
   // Per-section state pills
   document.getElementById('profile-state').textContent =

@@ -35,7 +35,7 @@ Login as a tradie account (4-digit PIN).
 - [ ] Sync indicator (`<buhl-mark>`) renders to the right of the greeting.
 - [ ] Primary yellow CTA says "Log today's hours" when nothing's logged today; "Logged today: Xh · tap to edit" with green confirmation styling when logged.
 - [ ] Tapping the CTA opens `BuhlLogHours` sheet pre-scoped to today.
-- [ ] On-site-today card appears when the tradie has touched a job today (or has exactly one active assignment); links to `/jobs/:id`.
+- [ ] On-site-today card appears when the tradie has touched a job today (or has exactly one active assignment); row title reads **"Open Workspace"** (consistent vocabulary with `/jobs/:id` header sub-line); links to `/jobs/:id`.
 - [ ] This-week card shows per-job hour breakdown sorted by hours, with a week total in the header.
 - [ ] My-jobs card lists assigned active jobs; "today" pill on the job touched today.
 - [ ] Bottom tab bar: 4 tabs — My day (active) · Jobs · My gear · Me.
@@ -55,6 +55,7 @@ Login as a tradie account (4-digit PIN).
 - [ ] Worker bottom tab bar visible at the bottom of the page: My day · Jobs (active) · My gear · Me.
 - [ ] Worker FAB (the old "+ Log hours / Raise snag" pair) is **hidden** when the worker tabbar is on (verify via DevTools: `.worker-fab` should have `display:none`).
 - [ ] Tapping any tab bar item navigates to the right page; page-back via tab bar works without browser-back chord.
+- [ ] **Me tab opens a sheet** (it's a button, not a direct nav). Sheet contains avatar / name / role + "Onboarding & readiness" link + red "Sign out" + Cancel. Same protected pattern as `/my-day` / `/my-gear` / `/jobs`. Sign-out cannot fire on a single accidental tap.
 
 ### My Gear (`/my-gear`)
 - [ ] Header sub-line reads "N items out" (or "1 OVERDUE / 2 DUE SOON" if applicable).
@@ -72,12 +73,14 @@ Login as a tradie account (4-digit PIN).
 
 ### Onboarding (`/onboarding`)
 - [ ] Back link reads "‹ My day" and works.
-- [ ] Readiness ring fills as items complete (count = profile + gear items only, license items are admin-managed).
+- [ ] Readiness ring fills as profile + gear items complete (license items are admin-managed and intentionally NOT counted).
+- [ ] When profile + gear are all done, hero label reads "**Profile complete**" with the sub-line "Compliance docs sit with admin · not yet verified here." The ring stays neutral (no green tint) — there is no "Ready for site" state until the licence backend lands.
 - [ ] Profile checklist: Username (done), Role assigned (done if user has a role), Email on file (done if set, else "ask admin to add"), Job assignment (done if assignedJobIds non-empty).
-- [ ] Compliance section lists White card / Electrical license / First aid / EWP, each as "admin" state (grey pill).
+- [ ] Compliance section lists White card / Electrical licence / First aid / EWP, each as "admin" state (grey pill). Meta reads "lodge with admin · …" — non-committal wording, no claim of confirmation.
 - [ ] Gear section shows N items in your name (or "No gear assigned" todo).
-- [ ] Advisory at the bottom explains license uploads are coming soon.
+- [ ] Advisory at the bottom is honest about the gap: "Licence tracking coming soon. Phil doesn't yet show licence expiry dates or upload status."
 - [ ] Bottom tab bar: Me (active).
+- [ ] Me tab opens a sheet with **just Sign out + Cancel** (no Onboarding link — you're already on /onboarding).
 
 ---
 

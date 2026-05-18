@@ -580,7 +580,10 @@ function paintOnsite(){
 
   document.getElementById('onsite-row').href = '/jobs/' + encodeURIComponent(job.id);
   document.getElementById('onsite-avatar').textContent = initials(job.name);
-  document.getElementById('onsite-title').textContent = 'Open job interface';
+  // Phil's vocabulary calls the per-job hub "Workspace" everywhere
+  // else (header sub-line, brief, tabbar destination), so the on-site
+  // card reads "Open Workspace" not "Open job interface".
+  document.getElementById('onsite-title').textContent = 'Open Workspace';
 
   const todayHrs = todayEntry ? Number(todayEntry.totalHours || 0) : 0;
   const dwCount = (job.areaGroups || []).reduce((s,g) => s + ((g.areas || []).length), 0);
