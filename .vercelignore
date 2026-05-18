@@ -1,0 +1,46 @@
+# .vercelignore — deployment hygiene
+#
+# Vercel deploys files matched by the project's framework convention:
+# `public/` is the static root and `api/*.js` are serverless functions.
+# Anything else in the repo (one-off data migration scripts, ad-hoc
+# reset utilities, local test files) is repo-only and should not ship
+# with the deployment bundle. Listing them here also keeps the bundle
+# size down on cold starts.
+
+# Local env files (also covered by .gitignore, listed here as a
+# belt-and-braces safety net).
+.env
+.env.*
+!.env.example
+
+# One-off data migration / recovery scripts (run locally via `node`,
+# never invoked at runtime).
+migrate*.js
+recover-*.js
+seed-*.js
+unify-*.js
+
+# Operator scripts (PIN reset, icon generator, hours migration). Run
+# from a developer machine — not served to clients, not invoked by
+# serverless functions.
+scripts/
+
+# Ad-hoc test / debug files that may live in the repo root.
+_test_*.js
+*.test.js
+tests/
+__tests__/
+coverage/
+.nyc_output/
+
+# Build artefacts and editor noise that should never reach the CDN.
+*.log
+*.tmp
+.DS_Store
+node_modules/
+
+# The CLI's own state directory.
+.vercel/
+
+# Project docs are useful in-repo but not in the deployed bundle.
+OVERVIEW.md

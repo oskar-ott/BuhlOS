@@ -1,5 +1,5 @@
 /* ╔══════════════════════════════════════════════════════════════════╗
-   ║  BuhlOS site office — shared shell JS.                           ║
+   ║  BuhlOS admin shell — shared shell JS.                           ║
    ║                                                                  ║
    ║  Each /admin/<page>.html does:                                   ║
    ║    1. <link rel="stylesheet" href="/admin/_shell.css">           ║
@@ -566,7 +566,7 @@
         <div class="side-brand-mark">b</div>
         <div>
           <div class="side-brand-name">bühl admin</div>
-          <div class="side-brand-sub">site office</div>
+          <div class="side-brand-sub">BuhlOS</div>
         </div>
       </div>
       ${items}
@@ -588,10 +588,10 @@
       <!-- Env-chip — design ref: sCITnq7lo bundle, sidenav-foot. Tiny
            low-key string in the sidebar foot so admins always know which
            build of BuhlOS they're looking at. -->
-      <div class="side-env" title="bühl electrical · Site office console">
+      <div class="side-env" title="bühl electrical · BuhlOS console">
         <span class="side-env-dot"></span>
         Production · v1
-        <span class="side-env-meta">bühl electrical · Site office</span>
+        <span class="side-env-meta">bühl electrical · BuhlOS</span>
       </div>
     `;
   }
@@ -605,7 +605,7 @@
     //   - Bell (F-05) removed — no notification system behind it.
     $('#topbar').innerHTML = `
       <div class="topbar-crumb">
-        <span>${SHELL.ME && SHELL.ME.role === 'leadingHand' ? 'Site office' : 'Admin'}</span><span>›</span><b>${escapeHtml(crumb)}</b>
+        <span>${SHELL.ME && SHELL.ME.role === 'leadingHand' ? 'BuhlOS' : 'Admin'}</span><span>›</span><b>${escapeHtml(crumb)}</b>
       </div>
       <button class="topbar-cmd" id="topbar-cmd" type="button"
               title="Open command palette (⌘K)" aria-haspopup="dialog">
