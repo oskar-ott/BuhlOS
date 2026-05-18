@@ -7,17 +7,20 @@
 // tag immediately before each page's inline <script>, so window.PhilShell
 // is on the global by the time the inline boot code runs.
 //
-// PhilShell.mountMeSheet(user) expects this markup (all four pages
-// have it identically):
+// PhilShell.mountMeSheet(user[, ids]) wires the Me sheet on the current
+// page. Default ID map (matches /my-day, /my-gear, /jobs, /onboarding):
 //   #tab-me        button that opens the sheet
 //   #me-scrim      the backdrop that contains the sheet
-//   #me-sheet      (descendant) — clicks inside don't close
-//   #me-handle     drag indicator (visual only)
 //   #me-who-name   identity name
 //   #me-who-role   identity role label
 //   #me-avatar     2-letter initials
 //   #me-signout    sign-out action
 //   #me-cancel     cancel button
+//
+// Workspace (/jobs/:id, index.html) passes a custom map because its
+// page chrome uses different IDs (`workerMe*`) to avoid colliding with
+// pre-existing markup in that 9600-line file. Pass `{ tab: 'workerTabMe',
+// scrim: 'workerMeScrim', ... }` to point mountMeSheet at custom IDs.
 //
 // If a page omits any non-required IDs (e.g. /onboarding's sheet
 // doesn't include the Onboarding link) the missing nodes are just
@@ -47,14 +50,26 @@
     // Wire the Me sheet on the current page. Returns { open, close }
     // for programmatic control; the tab button is also wired internally.
     // Idempotent in practice (it's only called once per page boot).
-    mountMeSheet(user) {
-      const tab     = document.getElementById('tab-me');
-      const scrim   = document.getElementById('me-scrim');
-      const cancel  = document.getElementById('me-cancel');
-      const signOut = document.getElementById('me-signout');
-      const nameEl  = document.getElementById('me-who-name');
-      const roleEl  = document.getElementById('me-who-role');
-      const avEl    = document.getElementById('me-avatar');
+    //
+    // `ids` is an optional override map for pages that use a custom
+    // element-id namespace (Workspace passes workerMe*).
+    mountMeSheet(user, ids) {
+      const map = Object.assign({
+        tab:     'tab-me',
+        scrim:   'me-scrim',
+        cancel:  'me-cancel',
+        signOut: 'me-signout',
+        nameEl:  'me-who-name',
+        roleEl:  'me-who-role',
+        avatar:  'me-avatar',
+      }, ids || {});
+      const tab     = document.getElementById(map.tab);
+      const scrim   = document.getElementById(map.scrim);
+      const cancel  = document.getElementById(map.cancel);
+      const signOut = document.getElementById(map.signOut);
+      const nameEl  = document.getElementById(map.nameEl);
+      const roleEl  = document.getElementById(map.roleEl);
+      const avEl    = document.getElementById(map.avatar);
       if (!tab || !scrim) return { open() {}, close() {} };
 
       const name = (user && user.username) || 'You';

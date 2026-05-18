@@ -34,6 +34,10 @@
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
 <meta name="theme-color" content="#0d1b34">
 <script src="/log-hours-sheet.js" defer></script>
+<!-- Shared Phil utilities + Me-sheet wiring. Same module the other
+     worker pages load; mountMeSheet accepts an ID-map so Workspace's
+     workerMe* namespace plugs in without renaming its markup. -->
+<script src="/phil-shell.js" defer></script>
 <style>
 :root{
   /* === Local aliases mapping to theme.css tokens === */
@@ -2989,36 +2993,19 @@ async function bootstrapAuth() {
 // — calling it twice is safe (event listeners are added on the same
 // nodes, but the page only fires this once per boot anyway).
 function setupWorkerMeSheet(user) {
-  const tab     = document.getElementById('workerTabMe');
-  const scrim   = document.getElementById('workerMeScrim');
-  const cancel  = document.getElementById('workerMeCancel');
-  const signOut = document.getElementById('workerMeSignout');
-  const nameEl  = document.getElementById('workerMeName');
-  const roleEl  = document.getElementById('workerMeRole');
-  const avEl    = document.getElementById('workerMeAvatar');
-  if (!tab || !scrim) return;
-
-  const name = (user && user.username) || 'You';
-  const roleLabel = user && user.role === 'leadingHand' ? 'Leading hand'
-                  : user && user.role === 'tradie'      ? 'Tradie'
-                  : '';
-  nameEl.textContent = name;
-  roleEl.textContent = roleLabel;
-  avEl.textContent = String(name).split(/[\s._-]+/).filter(Boolean).slice(0,2)
-                          .map(w => w[0]).join('').toUpperCase() || '?';
-
-  const open  = () => { scrim.hidden = false; document.body.style.overflow = 'hidden'; };
-  const close = () => { scrim.hidden = true;  document.body.style.overflow = ''; };
-  tab.addEventListener('click', open);
-  cancel.addEventListener('click', close);
-  scrim.addEventListener('click', e => { if (e.target === scrim) close(); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !scrim.hidden) close(); });
-  signOut.addEventListener('click', async () => {
-    // Funnel through the same logout endpoint the header signout uses
-    // so cookie-clear behavior stays in one place.
-    try { await fetch('/api/auth?action=logout', { method:'POST', credentials:'same-origin' }); }
-    catch (e) {}
-    location.href = '/login';
+  // Wiring lives in /phil-shell.js (same module the other worker pages
+  // load). Workspace uses the workerMe* element-id namespace because
+  // index.html's markup pre-dates the shared module; the ID map below
+  // points PhilShell at this page's nodes without renaming the markup.
+  if (!window.PhilShell) return;
+  PhilShell.mountMeSheet(user, {
+    tab:     'workerTabMe',
+    scrim:   'workerMeScrim',
+    cancel:  'workerMeCancel',
+    signOut: 'workerMeSignout',
+    nameEl:  'workerMeName',
+    roleEl:  'workerMeRole',
+    avatar:  'workerMeAvatar',
   });
 }
 
