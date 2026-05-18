@@ -9,22 +9,32 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
-<!-- Offline-first write queue (Job Mobile brief mandate). Asset transfer
-     requests from this page persist to IndexedDB and replay when online. -->
+<!-- Offline-first write queue. Transfer requests on a flaky site
+     persist to IndexedDB and replay when online. -->
 <script type="module" src="/components/queue.js"></script>
 <title>My Gear · bühl</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
-/* /my-gear — mirrors /my-day's brief tokens. Tradie-facing, mobile-only,
-   warm cream background, navy ink, yellow accent. */
+/* Design tokens — matches /my-day, lifted from the Phil redesign brief. */
 :root{
-  --bg:#f5f3ee; --surface:#fff; --surface-2:#faf8f3; --surface-3:#efece4;
-  --shell:#0d1f35; --ink:#0d1f35; --ink-2:#2a3a52; --muted:#6b7689;
-  --line:#ece7da; --line-2:#dcd5c4;
-  --accent:#ffcc00; --accent-ink:#2a1a05;
-  --ok:#1f8a4c; --bad:#b3261e; --warn:#b76b00;
+  --bg:        #f4f5f7;
+  --paper:     #ffffff;
+  --paper-2:   #f8f9fb;
+  --paper-3:   #eef0f4;
+  --ink:       #0d1b34;
+  --ink-2:     #36446b;
+  --ink-3:     #6a7591;
+  --ink-4:     #9aa3bc;
+  --rule:      #dde1ea;
+  --rule-2:    #c8cee0;
+  --yellow:    #f5d020;
+  --yellow-ink:#1d1700;
+  --red:       #c0312f; --red-bg:#fbeceb; --red-bd:#ecc6c4;
+  --amber:     #d18b1c; --amber-bg:#faf2e1; --amber-bd:#ecd5a5;
+  --green:     #1f8b5a; --green-bg:#e6f3ec; --green-bd:#b9dec8;
+  --header-bg: #0d1f35;
   --safe-t: env(safe-area-inset-top, 0);
   --safe-b: env(safe-area-inset-bottom, 0);
 }
@@ -32,133 +42,201 @@
 html,body{min-height:100%}
 body{
   font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  background:var(--bg);color:var(--ink);font-size:15px;line-height:1.4;
-  -webkit-font-smoothing:antialiased; overflow-x:hidden;
+  background:var(--bg);color:var(--ink);font-size:14px;line-height:1.4;
+  -webkit-font-smoothing:antialiased;overflow-x:hidden;
 }
 a{color:inherit;text-decoration:none}
 button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .tabular{font-variant-numeric:tabular-nums}
-.frame{max-width:430px;margin:0 auto;min-height:100vh;background:var(--bg);position:relative;padding-bottom:calc(82px + var(--safe-b))}
-
-.top{display:flex;align-items:center;gap:12px;padding:calc(14px + var(--safe-t)) 18px 12px}
-.top h1{font-size:22px;font-weight:700;letter-spacing:-.4px;color:var(--ink)}
-.top-sub{font-size:12px;font-weight:500;color:var(--muted);margin-top:3px}
-
-.sec{display:flex;align-items:baseline;gap:8px;padding:14px 18px 6px}
-.sec-h{font-size:13px;font-weight:700;color:var(--ink);letter-spacing:.1px}
-.sec-c{font-size:11px;color:var(--muted);font-weight:600}
-
-.empty{margin:0 14px;padding:24px 18px;border-radius:14px;background:var(--surface);border:1px dashed var(--line-2);text-align:center;font-size:13px;color:var(--muted)}
-.empty b{display:block;color:var(--ink);font-weight:600;margin-bottom:4px;font-size:14px}
-
-.card{margin:0 14px 10px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
-.card-top{display:flex;align-items:flex-start;gap:10px}
-.card-name{flex:1;min-width:0}
-.card-name b{font-size:15px;font-weight:600;color:var(--ink);display:block;line-height:1.25}
-.card-name .meta{font-size:11px;color:var(--muted);margin-top:3px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
-.card-pill{
-  flex-shrink:0;font-size:10px;font-weight:700;padding:3px 9px;border-radius:999px;
-  background:var(--surface-3);color:var(--ink-2);text-transform:uppercase;letter-spacing:.06em;
+.frame{
+  max-width:430px;margin:0 auto;min-height:100vh;
+  background:var(--bg);position:relative;
+  padding-bottom:calc(82px + var(--safe-b));
+  display:flex;flex-direction:column;
 }
-.card-pill.overdue{background:#fbeae8;color:var(--bad)}
-.card-pill.fresh{background:#e6f4ec;color:var(--ok)}
-.card-row{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2)}
-.card-row .l{color:var(--muted);font-weight:500}
-.card-row .v{font-weight:600}
-.card-row .v.warn{color:var(--bad)}
-.card-actions{display:flex;gap:8px;margin-top:4px}
-.btn{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px 14px;background:var(--surface-2);border:1px solid var(--line-2);border-radius:10px;color:var(--ink);font-size:14px;font-weight:600;cursor:pointer;min-height:44px}
-.btn:active{transform:scale(.98)}
-.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
 
-/* Bottom tab bar (matches my-day) */
+/* Header */
+.phil-hdr{
+  background:var(--header-bg);color:#fff;
+  padding:calc(54px + var(--safe-t)) 18px 18px;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+}
+.phil-hdr .ttl{font-family:"Inter Tight",sans-serif;font-weight:700;font-size:20px;letter-spacing:-.018em}
+.phil-hdr .sub{font-family:"JetBrains Mono",monospace;font-size:10px;color:rgba(255,255,255,.55);letter-spacing:.12em;text-transform:uppercase;margin-top:4px}
+
+/* Body */
+.phil-body{padding:14px 14px 24px;flex:1;display:flex;flex-direction:column;gap:12px}
+
+/* CTA — for /my-gear this is the "Scan check in / out" navy slab.
+   Different from /my-day's yellow CTA because the gear page's primary
+   action is a scan, and a yellow chip on yellow brand color reads as
+   muddy. Navy with a yellow chevron lifts it. */
+.phil-cta{
+  background:var(--header-bg);color:#fff;
+  border-radius:12px;padding:14px 16px;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  font-family:"Inter Tight",sans-serif;font-weight:700;border:0;
+  text-align:left;width:100%;
+}
+.phil-cta:active{transform:scale(.99)}
+.phil-cta-l{font-family:"JetBrains Mono",monospace;font-size:9.5px;font-weight:600;opacity:.7;letter-spacing:.14em;text-transform:uppercase;color:var(--yellow)}
+.phil-cta-t{font-size:16px;letter-spacing:-.012em;margin-top:2px}
+.phil-cta .arrow{font-size:22px;flex-shrink:0;color:var(--yellow)}
+
+/* Cards */
+.phil-card{
+  background:var(--paper);border:1px solid var(--rule);
+  border-radius:12px;overflow:hidden;
+}
+.phil-card-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 14px 6px;
+  font-family:"JetBrains Mono",monospace;font-size:9.5px;font-weight:600;
+  color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase;
+}
+.phil-card-hdr b{color:var(--ink);font-weight:700}
+
+.phil-row{
+  display:flex;align-items:center;
+  padding:10px 14px;gap:10px;
+  border-top:1px solid var(--rule);min-height:48px;
+  width:100%;text-align:left;
+}
+.phil-row:first-child{border-top:0}
+.phil-row-l{flex:1;min-width:0}
+.phil-row-title{
+  font-family:"Inter Tight",sans-serif;font-weight:600;font-size:14px;
+  color:var(--ink);letter-spacing:-.012em;line-height:1.25;
+}
+.phil-row-meta{
+  font-family:"JetBrains Mono",monospace;font-size:10px;
+  color:var(--ink-3);letter-spacing:.04em;margin-top:3px;
+}
+.phil-row-actions{display:flex;gap:6px;margin-top:8px;padding:0 14px 12px}
+.phil-row-actions .btn{
+  flex:1;padding:9px 12px;border-radius:8px;
+  background:var(--paper-2);border:1px solid var(--rule);
+  font-family:"Inter Tight",sans-serif;font-size:13px;font-weight:600;
+  color:var(--ink);cursor:pointer;
+}
+.phil-row-actions .btn.primary{background:var(--yellow);border-color:var(--yellow);color:var(--yellow-ink);font-weight:700}
+.phil-row-actions .btn:active{transform:scale(.98)}
+.phil-row-actions .btn[disabled]{opacity:.4;cursor:not-allowed}
+
+/* Avatar */
+.avatar{
+  width:32px;height:32px;border-radius:50%;
+  background:var(--paper-3);color:var(--ink);
+  font-family:"Inter Tight",sans-serif;font-size:11px;font-weight:700;
+  display:inline-flex;align-items:center;justify-content:center;
+  letter-spacing:-.02em;flex-shrink:0;
+}
+.avatar.yellow{background:var(--yellow);color:var(--yellow-ink)}
+
+/* Pill */
+.pill{
+  display:inline-flex;align-items:center;
+  padding:3px 8px;border-radius:3px;
+  font-family:"JetBrains Mono",monospace;font-size:9.5px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.12em;white-space:nowrap;flex-shrink:0;
+}
+.pill.green{background:var(--green-bg);color:var(--green)}
+.pill.amber{background:var(--amber-bg);color:var(--amber)}
+.pill.red  {background:var(--red-bg);color:var(--red)}
+.pill.grey {background:var(--paper-3);color:var(--ink-2)}
+
+/* Empty state */
+.empty{padding:24px 18px;text-align:center;font-size:13px;color:var(--ink-3)}
+.empty b{display:block;color:var(--ink);font-weight:700;font-size:14px;margin-bottom:4px}
+
+/* Tab bar — matches /my-day. */
 .tabbar{
   position:fixed;left:0;right:0;bottom:0;z-index:10;
-  display:grid;grid-template-columns:repeat(3,1fr);
-  background:var(--surface);border-top:1px solid var(--line);
+  display:grid;grid-template-columns:repeat(4,1fr);
+  background:var(--paper);border-top:1px solid var(--rule);
   padding:6px 6px calc(6px + var(--safe-b));
   max-width:430px;margin:0 auto;
 }
-.tb{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px 4px;font-size:10.5px;font-weight:600;color:var(--muted);text-decoration:none;border-radius:10px}
-.tb.active{color:var(--ink);background:var(--surface-2)}
-.tb svg{width:22px;height:22px}
-
-/* Me sheet — mirrors /my-day. Guards the sign-out tap so a misaimed
-   thumb at the right edge of the screen doesn't end the session. */
-.me-scrim{
-  position:fixed;inset:0;background:rgba(13,31,53,.45);
-  z-index:50;display:flex;align-items:flex-end;justify-content:center;
-  animation:me-fade .14s ease-out;
+.tb{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;padding:8px 4px;
+  font-family:"Inter",sans-serif;font-size:10.5px;font-weight:500;
+  color:var(--ink-3);text-decoration:none;border-radius:10px;position:relative;
 }
+.tb .ico{width:26px;height:24px;display:flex;align-items:center;justify-content:center;font-size:14px;border-radius:6px}
+.tb.active{color:var(--ink);font-weight:600}
+.tb.active .ico{background:var(--yellow);color:var(--yellow-ink);font-weight:700}
+
+/* Me sheet (guarded signout) */
+.me-scrim{position:fixed;inset:0;background:rgba(13,27,52,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center;animation:me-fade .14s ease-out}
 .me-scrim[hidden]{display:none}
 @keyframes me-fade{from{opacity:0}to{opacity:1}}
-.me-sheet{
-  background:var(--surface);
-  border-radius:18px 18px 0 0;
-  padding:8px 18px calc(18px + var(--safe-b));
-  width:100%;max-width:430px;
-  box-shadow:0 -8px 24px rgba(13,31,53,.18);
-  animation:me-slide .18s ease-out;
-}
+.me-sheet{background:var(--paper);border-radius:18px 18px 0 0;padding:8px 18px calc(18px + var(--safe-b));width:100%;max-width:430px;box-shadow:0 -8px 24px rgba(13,27,52,.18);animation:me-slide .18s ease-out}
 @keyframes me-slide{from{transform:translateY(20px);opacity:.6}to{transform:translateY(0);opacity:1}}
-.me-handle{width:36px;height:4px;border-radius:2px;background:var(--line-2);margin:6px auto 16px}
-.me-who{display:flex;align-items:center;gap:12px;padding:6px 4px 14px;border-bottom:1px solid var(--line);margin-bottom:10px}
-.me-who-avatar{width:44px;height:44px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex-shrink:0}
-.me-who-name{font-size:16px;font-weight:700;color:var(--ink);letter-spacing:-.2px;line-height:1.2}
-.me-who-role{font-size:12px;color:var(--muted);margin-top:2px}
-.me-action{width:100%;display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line);font:inherit;font-size:14.5px;font-weight:600;color:var(--bad);cursor:pointer;margin-bottom:8px;text-align:left}
+.me-handle{width:36px;height:4px;border-radius:2px;background:var(--rule-2);margin:6px auto 16px}
+.me-who{display:flex;align-items:center;gap:12px;padding:6px 4px 14px;border-bottom:1px solid var(--rule);margin-bottom:10px}
+.me-who-avatar{width:44px;height:44px;border-radius:50%;background:var(--yellow);color:var(--yellow-ink);display:flex;align-items:center;justify-content:center;font-family:"Inter Tight",sans-serif;font-size:17px;font-weight:700;flex-shrink:0}
+.me-who-name{font-family:"Inter Tight",sans-serif;font-size:16px;font-weight:700;color:var(--ink);letter-spacing:-.2px;line-height:1.2}
+.me-who-role{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--ink-3);letter-spacing:.1em;text-transform:uppercase;margin-top:3px}
+.me-action{width:100%;display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:12px;background:var(--paper-2);border:1px solid var(--rule);font:inherit;font-size:14.5px;font-weight:600;color:var(--red);cursor:pointer;margin-bottom:8px;text-align:left}
 .me-action:active{transform:scale(.99)}
 .me-cancel{width:100%;padding:13px;border-radius:12px;background:transparent;border:0;font:inherit;font-size:14.5px;font-weight:600;color:var(--ink-2);cursor:pointer}
 
-/* Transfer modal — kept very simple */
-.scrim{position:fixed;inset:0;background:rgba(13,31,53,.5);z-index:100;display:none;align-items:flex-end;justify-content:center}
+/* Transfer sheet */
+.scrim{position:fixed;inset:0;background:rgba(13,27,52,.5);z-index:100;display:none;align-items:flex-end;justify-content:center}
 .scrim.open{display:flex}
 .sheet{background:#fff;width:100%;max-width:430px;max-height:90vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column;overflow:hidden}
-.sheet-h{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
-.sheet-h h2{flex:1;font-size:15px;font-weight:700;color:var(--ink);margin:0}
-.sheet-h button{font-size:22px;color:var(--muted);padding:4px 8px}
+.sheet-h{padding:14px 18px;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:10px}
+.sheet-h h2{flex:1;font-family:"Inter Tight",sans-serif;font-size:15px;font-weight:700;color:var(--ink);margin:0;letter-spacing:-.012em}
+.sheet-h button{font-size:22px;color:var(--ink-3);padding:4px 8px}
 .sheet-body{padding:14px 18px;overflow-y:auto;flex:1}
 .sheet-field{margin-bottom:14px}
-.sheet-field label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
-.sheet-field select,.sheet-field input,.sheet-field textarea{width:100%;padding:11px 12px;border:1px solid var(--line-2);border-radius:10px;font:inherit;font-size:14px;background:#fff;color:var(--ink);outline:none}
-.sheet-foot{padding:12px 18px calc(12px + var(--safe-b));border-top:1px solid var(--line);background:var(--surface-2);display:flex;gap:8px}
-.sheet-foot button{flex:1;padding:12px 14px;border-radius:10px;font-weight:700;font-size:14px}
-.sheet-foot button.primary{background:var(--accent);color:var(--accent-ink)}
-.sheet-foot button.cancel{background:#fff;border:1px solid var(--line-2)}
-.sheet-err{margin-top:8px;padding:8px 12px;background:#fbeae8;color:var(--bad);border-radius:8px;font-size:12.5px;display:none}
+.sheet-field label{display:block;font-family:"JetBrains Mono",monospace;font-size:9.5px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.14em;margin-bottom:6px}
+.sheet-field select,.sheet-field input,.sheet-field textarea{width:100%;padding:11px 12px;border:1px solid var(--rule-2);border-radius:8px;font:inherit;font-size:14px;background:#fff;color:var(--ink);outline:none}
+.sheet-foot{padding:12px 18px calc(12px + var(--safe-b));border-top:1px solid var(--rule);background:var(--paper-2);display:flex;gap:8px}
+.sheet-foot button{flex:1;padding:12px 14px;border-radius:8px;font-family:"Inter Tight",sans-serif;font-weight:700;font-size:14px}
+.sheet-foot button.primary{background:var(--yellow);color:var(--yellow-ink)}
+.sheet-foot button.cancel{background:#fff;border:1px solid var(--rule-2)}
+.sheet-err{margin-top:8px;padding:8px 12px;background:var(--red-bg);color:var(--red);border-radius:6px;font-size:12.5px;display:none;font-family:"JetBrains Mono",monospace;letter-spacing:.04em}
 .sheet-err.show{display:block}
 </style>
 </head>
 <body>
 <div class="frame">
-  <div class="top">
-    <div>
-      <h1>My Gear</h1>
-      <div class="top-sub" id="top-sub">Loading…</div>
+  <header class="phil-hdr">
+    <div style="flex:1;min-width:0">
+      <div class="ttl">My Gear</div>
+      <div class="sub" id="top-sub">Loading…</div>
+    </div>
+  </header>
+
+  <div class="phil-body">
+    <div id="gear-content">
+      <div class="phil-card"><div class="empty"><b>Loading…</b></div></div>
     </div>
   </div>
 
-  <div id="gear-list"></div>
-
   <nav class="tabbar">
     <a href="/my-day" class="tb">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      <span class="ico">☼</span>
       My day
     </a>
+    <a href="/jobs" class="tb">
+      <span class="ico">▣</span>
+      Jobs
+    </a>
     <a href="/my-gear" class="tb active">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>
+      <span class="ico">⚙</span>
       My gear
     </a>
     <button class="tb" type="button" id="tab-me">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+      <span class="ico">◉</span>
       Me
     </button>
   </nav>
 </div>
 
-<!-- Me sheet — opens from the bottom tab bar's "Me" button. Sign-out
-     is guarded behind a confirm tap so accidental edge-of-screen taps
-     don't end the session. Mirrors /my-day. -->
+<!-- Me sheet -->
 <div class="me-scrim" id="me-scrim" hidden>
   <div class="me-sheet" role="dialog" aria-modal="true">
     <div class="me-handle"></div>
@@ -185,7 +263,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
       <button type="button" id="tx-close" aria-label="Close">×</button>
     </div>
     <div class="sheet-body">
-      <p style="font-size:13px;color:var(--ink-2);margin:0 0 14px">Hand this gear over to another tradie, or return it to storage. Admin sees the change in the asset register.</p>
+      <p style="font-size:13px;color:var(--ink-2);margin:0 0 14px;line-height:1.45">Hand this gear over to another tradie, or return it to storage. Admin sees the change in the asset register.</p>
       <div class="sheet-field">
         <label for="tx-to">Who's taking it</label>
         <select id="tx-to">
@@ -222,8 +300,11 @@ function fmtAgo(iso){
   if (days < 14) return days + ' days ago';
   return d.toLocaleDateString('en-AU', { day:'numeric', month:'short' });
 }
+function initials(name){
+  return String(name||'?').split(/[\s._-]+/).filter(Boolean).slice(0,2).map(w => w[0]).join('').toUpperCase() || '?';
+}
 
-const TYPE_LABELS = { vehicle: 'Vehicle', key: 'Key', tool: 'Tool', accessory: 'Accessory', ppe: 'PPE', other: 'Other' };
+const TYPE_LABELS = { vehicle:'Vehicle', key:'Key', tool:'Tool', accessory:'Accessory', ppe:'PPE', other:'Other' };
 
 let ME = null;
 let CREW = [];   // tradies + LHs we can transfer to
@@ -231,28 +312,28 @@ let ASSETS = []; // mine
 
 async function load() {
   try {
-    const r = await fetch('/api/auth?action=me', { credentials: 'same-origin' });
+    const r = await fetch('/api/auth?action=me', { credentials:'same-origin' });
     if (!r.ok) { location.href = '/login'; return; }
     ME = (await r.json()).user;
     if (ME.role === 'client') { location.href = '/client'; return; }
-    if (ME.role === 'admin') { location.href = '/admin/assets'; return; }
+    if (ME.role === 'admin')  { location.href = '/admin/assets'; return; }
 
     setupMeSheet();
 
     const [aRes, cRes] = await Promise.all([
-      fetch('/api/assets', { credentials: 'same-origin' }),
-      fetch('/api/users?action=listTradies', { credentials: 'same-origin' }).catch(() => null),
+      fetch('/api/assets', { credentials:'same-origin' }),
+      fetch('/api/users?action=listTradies', { credentials:'same-origin' }).catch(() => null),
     ]);
     if (aRes.ok) ASSETS = (await aRes.json()).assets || [];
     if (cRes && cRes.ok) CREW = ((await cRes.json()).users || []).filter(u => u.id !== ME.id && (u.role === 'tradie' || u.role === 'leadingHand'));
     render();
   } catch (e) {
-    document.getElementById('gear-list').innerHTML = '<div class="empty"><b>Couldn\'t load</b>' + esc(e.message) + '</div>';
+    document.getElementById('gear-content').innerHTML = '<div class="phil-card"><div class="empty"><b>Couldn\'t load</b>' + esc(e.message) + '</div></div>';
   }
 }
 
 function render() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0,10);
   const list = ASSETS.slice().sort((a, b) => {
     // Overdue first, then assigned-recent.
     const aOverdue = a.expectedReturn && a.expectedReturn < today;
@@ -260,45 +341,68 @@ function render() {
     if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
     return (b.assignedAt || '').localeCompare(a.assignedAt || '');
   });
-  document.getElementById('top-sub').textContent = list.length
-    ? (list.length + (list.length === 1 ? ' item' : ' items') + ' held in your name')
-    : 'Nothing in your name right now';
 
+  const dueSoon = list.filter(a => {
+    if (!a.expectedReturn) return false;
+    const days = (new Date(a.expectedReturn) - new Date()) / 86400000;
+    return days >= 0 && days <= 14;
+  }).length;
+  const overdue = list.filter(a => a.expectedReturn && a.expectedReturn < today).length;
+
+  // Header sub-line — "5 items out · 1 due soon" / "2 OVERDUE"
+  const parts = [];
+  if (list.length) parts.push(list.length + (list.length === 1 ? ' item out' : ' items out'));
+  if (overdue) parts.push(overdue + ' OVERDUE');
+  else if (dueSoon) parts.push(dueSoon + ' DUE SOON');
+  document.getElementById('top-sub').textContent = parts.join(' · ') || 'Nothing in your name right now';
+
+  const content = document.getElementById('gear-content');
   if (!list.length) {
-    document.getElementById('gear-list').innerHTML = `<div class="empty"><b>No gear assigned to you</b>When admin or a leading hand transfers something to you, it'll show here.</div>`;
-      return;
+    content.innerHTML = `<div class="phil-card"><div class="empty"><b>No gear assigned to you</b>When admin or a leading hand transfers something to you, it'll show here.</div></div>`;
+    return;
   }
 
-  document.getElementById('gear-list').innerHTML = list.map(cardHtml).join('');
+  content.innerHTML = `
+    <div class="phil-card">
+      <div class="phil-card-hdr">
+        <span><b>On me</b> · ${list.length} ${list.length === 1 ? 'item' : 'items'}</span>
+      </div>
+      ${list.map((a,i) => assetHtml(a, i)).join('')}
+    </div>`;
+
   list.forEach(a => {
     const btn = document.querySelector('button[data-tx="' + a.id + '"]');
     if (btn) btn.addEventListener('click', () => openTransfer(a));
   });
 }
 
-function cardHtml(a) {
-  const today = new Date().toISOString().slice(0, 10);
+function assetHtml(a, idx) {
+  const today = new Date().toISOString().slice(0,10);
   const overdue = a.expectedReturn && a.expectedReturn < today;
+  const dueSoon = a.expectedReturn && !overdue &&
+                  (new Date(a.expectedReturn) - new Date()) / 86400000 <= 14;
   const pill = overdue
-    ? '<span class="card-pill overdue">Overdue</span>'
-    : a.expectedReturn
-      ? '<span class="card-pill">Back ' + esc(a.expectedReturn) + '</span>'
-      : '<span class="card-pill fresh">Open-ended</span>';
-  return `<div class="card">
-    <div class="card-top">
-      <div class="card-name">
-        <b>${esc(a.name)}</b>
-        <div class="meta">${esc(TYPE_LABELS[a.type] || a.type)}${a.identifier ? ' · ' + esc(a.identifier) : ''}</div>
+    ? '<span class="pill red">overdue</span>'
+    : dueSoon
+      ? '<span class="pill amber">due soon</span>'
+      : '<span class="pill green">ok</span>';
+
+  const ident = a.identifier ? ` · ${esc(a.identifier)}` : '';
+  const due = a.expectedReturn
+    ? `${overdue ? 'was due ' : 'back '}${esc(a.expectedReturn)}`
+    : `since ${esc(fmtAgo(a.assignedAt))}`;
+
+  return `<div class="phil-row" style="flex-wrap:wrap">
+      <div class="avatar yellow">${esc(initials(a.name))}</div>
+      <div class="phil-row-l">
+        <div class="phil-row-title">${esc(a.name)}</div>
+        <div class="phil-row-meta">${esc(TYPE_LABELS[a.type] || a.type)}${ident} · ${due}</div>
       </div>
       ${pill}
     </div>
-    ${a.notes ? '<div style="font-size:12px;color:var(--ink-2);font-style:italic">' + esc(a.notes) + '</div>' : ''}
-    <div class="card-row"><span class="l">In your name since</span><span class="v">${esc(fmtAgo(a.assignedAt))}</span></div>
-    ${a.expectedReturn ? '<div class="card-row"><span class="l">Expected return</span><span class="v ' + (overdue ? 'warn' : '') + '">' + esc(a.expectedReturn) + (overdue ? ' (overdue)' : '') + '</span></div>' : ''}
-    <div class="card-actions">
-      <button class="btn primary" data-tx="${esc(a.id)}">Transfer</button>
-    </div>
-  </div>`;
+    <div class="phil-row-actions">
+      <button class="btn primary" data-tx="${esc(a.id)}">Transfer / return</button>
+    </div>`;
 }
 
 // ── Transfer sheet ─────────────────────────────────────────────────────
@@ -306,7 +410,6 @@ let TX_ASSET = null;
 function openTransfer(asset) {
   TX_ASSET = asset;
   document.getElementById('tx-title').textContent = 'Transfer ' + asset.name;
-  // Populate destination dropdown — only OTHER tradies/LHs + storage.
   const sel = document.getElementById('tx-to');
   sel.innerHTML = '<option value="">— Return to storage —</option>' +
     CREW.map(u => `<option value="${esc(u.id)}">${esc(u.username)}${u.role === 'leadingHand' ? ' (LH)' : ''}</option>`).join('');
@@ -335,21 +438,18 @@ document.getElementById('tx-do').addEventListener('click', async () => {
   btn.disabled = true; btn.textContent = 'Transferring…';
   try {
     // Offline-first: a transfer on a flaky site connection persists to
-    // IndexedDB and replays when online. replaceKey keeps the latest
-    // intent if the tradie taps Transfer twice before the queue drains.
+    // IndexedDB and replays when online.
     const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
     const r = await fetcher('/api/assets?action=transfer', {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      replaceKey: 'asset-transfer:' + TX_ASSET.id,
+      method:'POST', credentials:'same-origin',
+      headers:{ 'Content-Type':'application/json' },
+      replaceKey:'asset-transfer:' + TX_ASSET.id,
       body: JSON.stringify({ assetId: TX_ASSET.id, toUserId, expectedReturn, note }),
     });
     if (r && r.status === 202) {
-      // Persisted offline — close the sheet, tell the user it's queued.
       err.textContent = 'Queued offline · will transfer when online.';
       err.classList.add('show');
       btn.disabled = false; btn.textContent = 'Transfer';
-      // Optimistically close so the queue badge can convey the state.
       setTimeout(closeTransfer, 1200);
       return;
     }
@@ -358,21 +458,20 @@ document.getElementById('tx-do').addEventListener('click', async () => {
     closeTransfer();
     await load();
   } catch (e) {
-    err.textContent = 'Couldn\'t transfer — ' + e.message;
+    err.textContent = "Couldn't transfer — " + e.message;
     err.classList.add('show');
     btn.disabled = false; btn.textContent = 'Transfer';
   }
 });
 
 async function logout() {
-  await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' });
+  await fetch('/api/auth?action=logout', { method:'POST', credentials:'same-origin' });
   location.href = '/login';
 }
 
 // Tap "Me" → bottom sheet shows identity + a guarded Sign out + Cancel.
-// Mirrors /my-day so the worker app behaves consistently across tabs;
-// the previous instant-logout on tap was easy to mis-fire when reaching
-// for "My gear" with a thumb at the right edge of the screen.
+// Mirrors /my-day; the previous instant-logout on tap was easy to
+// mis-fire when reaching for "My gear" with a thumb at the right edge.
 function setupMeSheet() {
   const tab = document.getElementById('tab-me');
   const scrim = document.getElementById('me-scrim');
@@ -384,15 +483,12 @@ function setupMeSheet() {
   if (!tab || !scrim) return;
   const name = (ME && ME.username) || 'You';
   const roleLabel = ME && ME.role === 'leadingHand' ? 'Leading hand'
-                  : ME && ME.role === 'tradie' ? 'Tradie'
-                  : '';
+                  : ME && ME.role === 'tradie' ? 'Tradie' : '';
   nameEl.textContent = name;
   roleEl.textContent = roleLabel;
-  const initials = String(name).split(/[\s._-]+/).filter(Boolean).slice(0, 2)
-    .map(w => w[0]).join('').toUpperCase() || '?';
-  avEl.textContent = initials;
-  function open() { scrim.hidden = false; document.body.style.overflow = 'hidden'; }
-  function close() { scrim.hidden = true; document.body.style.overflow = ''; }
+  avEl.textContent = initials(name);
+  const open  = () => { scrim.hidden = false; document.body.style.overflow = 'hidden'; };
+  const close = () => { scrim.hidden = true;  document.body.style.overflow = ''; };
   tab.addEventListener('click', open);
   cancel.addEventListener('click', close);
   scrim.addEventListener('click', e => { if (e.target === scrim) close(); });

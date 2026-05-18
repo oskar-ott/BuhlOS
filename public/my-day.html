@@ -9,49 +9,51 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
-<!-- Offline-first write queue (Job Mobile brief mandate). Loaded as an ES
-     module before the classic deferred scripts so window.BuhlQueue is on
-     the global by the time log-hours-sheet.js wires its fetch. Without
-     this, hour mutations from /my-day (Submit, Approve, edit) fail
-     silently when the phone has no signal. -->
+<!-- Offline-first write queue. BuhlLogHours uses BuhlQueue.fetch under
+     the hood, so submissions persist to IndexedDB when the phone has
+     no signal and replay when online. -->
 <script type="module" src="/components/queue.js"></script>
 <!-- <buhl-mark> renders the sync indicator next to the greeting. It
-     subscribes to the same Sync bus that BuhlQueue.fetch drives, so
-     a write pulse / offline state / failed drain shows up visually
-     without anything in this page touching it directly. -->
+     subscribes to the same Sync bus BuhlQueue.fetch drives, so a write
+     pulse / offline state / failed drain surface visually without this
+     page touching anything. -->
 <script type="module" src="/components/buhl-mark.js"></script>
-<script src="/install-prompt.js" defer></script>
-<script src="/lib/compliments.js" defer></script>
 <script src="/log-hours-sheet.js" defer></script>
 <title>My Day · bühl</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
-/* /my-day rebuilt to match brief v1 (~/Downloads/briefv1/my-day) — clean
-   warm cream, Inter, weekly hero card, compact job strips, fixed bottom
-   tab bar. Theme.css intentionally NOT linked — the brief is fully
-   self-contained and theme.css's IBM Plex / dark-header tokens fight it. */
+/* Design tokens — lifted from the Phil redesign brief. theme.css is
+   intentionally NOT linked; this page is fully self-contained so its
+   palette and type can land cleanly without fighting parent themes. */
 :root{
-  --bg:#f5f3ee; --surface:#fff; --surface-2:#faf8f3; --surface-3:#efece4;
-  --shell:#0d1f35; --shell-2:#152840;
-  --ink:#0d1f35; --ink-2:#2a3a52; --muted:#6b7689; --muted-2:#9aa2b3;
-  --line:#ece7da; --line-2:#dcd5c4;
-  --accent:#ffcc00; --accent-2:#ffd84a; --accent-ink:#2a1a05;
-  --ok:#1f8a4c;     --ok-bg:#e6f4ec;   --ok-bd:#c2e2ce;
-  --bad:#b3261e;    --bad-bg:#fbeae8;  --bad-bd:#f0c4be;
-  --warn:#b76b00;   --warn-bg:#fbf1de; --warn-bd:#f3dca1;
-  --info:#1c5fb8;   --info-bg:#e7eef9; --info-bd:#c4d4ee;
+  --bg:        #f4f5f7;
+  --paper:     #ffffff;
+  --paper-2:   #f8f9fb;
+  --paper-3:   #eef0f4;
+  --ink:       #0d1b34;
+  --ink-2:     #36446b;
+  --ink-3:     #6a7591;
+  --ink-4:     #9aa3bc;
+  --rule:      #dde1ea;
+  --rule-2:    #c8cee0;
+  --yellow:    #f5d020;
+  --yellow-ink:#1d1700;
+  --red:       #c0312f; --red-bg:#fbeceb; --red-bd:#ecc6c4;
+  --amber:     #d18b1c; --amber-bg:#faf2e1; --amber-bd:#ecd5a5;
+  --green:     #1f8b5a; --green-bg:#e6f3ec; --green-bd:#b9dec8;
+  --header-bg: #0d1f35;
   --safe-t: env(safe-area-inset-top, 0);
   --safe-b: env(safe-area-inset-bottom, 0);
 }
+
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{min-height:100%}
 body{
   font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  background:var(--bg);color:var(--ink);font-size:15px;line-height:1.4;
+  background:var(--bg);color:var(--ink);font-size:14px;line-height:1.4;
   -webkit-font-smoothing:antialiased;
-  font-feature-settings:"ss01","cv11";
   overflow-x:hidden;
 }
 a{color:inherit;text-decoration:none}
@@ -62,785 +64,362 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   max-width:430px;margin:0 auto;min-height:100vh;
   background:var(--bg);position:relative;
   padding-bottom:calc(82px + var(--safe-b));
+  display:flex;flex-direction:column;
 }
-/* Pull-to-refresh affordance — slides down from the top when the
-   worker pulls the page while at scroll = 0. Hidden by default. */
-.ptr{
-  position:absolute;top:0;left:0;right:0;
-  display:flex;align-items:center;justify-content:center;gap:8px;
-  height:0;overflow:hidden;
-  font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;
-  letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
-  pointer-events:none;
-  transition:height .2s ease-out;
-}
-.ptr.armed{color:var(--ink)}
-.ptr.loading{height:48px}
-.ptr-spinner{
-  width:14px;height:14px;border:2px solid var(--line);
-  border-top-color:var(--ink);border-radius:50%;
-  animation:ptrSpin .8s linear infinite;
-  display:none;
-}
-.ptr.loading .ptr-spinner{display:block}
-@keyframes ptrSpin{to{transform:rotate(360deg)}}
 
-/* ── Top bar ───────────────────────────────────────────────
-   Personalised greeting + secondary date line. Compact, no
-   hero card, no decoration — calm and field-ready. The greeting
-   line takes the worker's first name (loaded from /api/auth?action=me),
-   falling back to "My Day" until that resolves so we never flash a raw
-   id/email. Time-of-day chosen from local browser time. */
-.top{
-  display:flex;align-items:center;gap:12px;
-  padding:calc(14px + var(--safe-t)) 18px 12px;
+/* ── Header (navy) ─────────────────────────────────────────────── */
+.phil-hdr{
+  background:var(--header-bg);
+  color:#fff;
+  padding:calc(54px + var(--safe-t)) 18px 18px;
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;
 }
-.top-greet{flex:1;min-width:0}
-.top-name{
-  font-size:22px;font-weight:700;letter-spacing:-.4px;
-  color:var(--ink);
-  /* Single-line truncation in case of unusually long names */
+.phil-hdr .ttl{
+  font-family:"Inter Tight",sans-serif;
+  font-weight:700;font-size:20px;
+  letter-spacing:-.018em;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.top-day{
-  font-size:12px;font-weight:500;color:var(--muted);
-  margin-top:3px;letter-spacing:.1px;
+.phil-hdr .sub{
+  font-family:"JetBrains Mono",monospace;
+  font-size:10px;
+  color:rgba(255,255,255,.55);
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  margin-top:4px;
 }
-.top-day b{font-weight:600;color:var(--ink-2)}
-/* Sync stamp — right of the greeting on the .top row. <buhl-mark>
-   renders two dots that pulse / go stroked / turn red driven by
-   the BuhlSync bus (which BuhlQueue.fetch already drives). Calm
-   when idle, animates while writes are in flight, stroked when
-   the phone has no signal. */
-.top-sync{
-  flex-shrink:0; color:var(--muted-2);
+.phil-hdr-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.phil-sync{
+  width:34px;height:34px;
   display:inline-flex;align-items:center;justify-content:center;
-  width:38px;height:38px;
+  color:rgba(255,255,255,.7);
 }
-.top-bell{
-  width:38px;height:38px;border-radius:50%;
-  background:var(--surface);border:1px solid var(--line);
-  display:flex;align-items:center;justify-content:center;color:var(--ink);position:relative;
+
+/* ── Body (cards stack) ────────────────────────────────────────── */
+.phil-body{
+  padding:14px 14px 24px;
+  flex:1;
+  display:flex;flex-direction:column;
+  gap:12px;
+}
+
+/* ── Primary yellow CTA ────────────────────────────────────────── */
+.phil-cta{
+  background:var(--yellow);
+  color:var(--yellow-ink);
+  border-radius:12px;
+  padding:14px 16px;
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;
+  font-family:"Inter Tight",sans-serif;
+  font-weight:700;
+  border:0;
+  text-align:left;
+  width:100%;
+}
+.phil-cta:active{transform:scale(.99)}
+.phil-cta-l{
+  font-family:"JetBrains Mono",monospace;
+  font-size:9.5px;font-weight:600;
+  opacity:.7;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+}
+.phil-cta-t{
+  font-size:16px;
+  letter-spacing:-.012em;
+  margin-top:2px;
+}
+.phil-cta .arrow{font-size:18px;flex-shrink:0}
+.phil-cta.logged{
+  background:var(--green-bg);
+  color:var(--green);
+  border:1px solid var(--green-bd);
+}
+.phil-cta.logged .phil-cta-l{opacity:.85}
+
+/* ── Cards ─────────────────────────────────────────────────────── */
+.phil-card{
+  background:var(--paper);
+  border:1px solid var(--rule);
+  border-radius:12px;
+  overflow:hidden;
+}
+.phil-card-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 14px 6px;
+  font-family:"JetBrains Mono",monospace;
+  font-size:9.5px;font-weight:600;
+  color:var(--ink-3);
+  letter-spacing:.14em;
+  text-transform:uppercase;
+}
+.phil-card-hdr b{color:var(--ink);font-weight:700}
+
+.phil-row{
+  display:flex;align-items:center;
+  padding:10px 14px;
+  gap:10px;
+  border-top:1px solid var(--rule);
+  min-height:48px;
+  width:100%;text-align:left;
+}
+.phil-row:first-child{border-top:0}
+.phil-row:active{background:var(--paper-2)}
+.phil-row-l{flex:1;min-width:0}
+.phil-row-title{
+  font-family:"Inter Tight",sans-serif;
+  font-weight:600;
+  font-size:14px;
+  color:var(--ink);
+  letter-spacing:-.012em;
+  line-height:1.25;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.phil-row-meta{
+  font-family:"JetBrains Mono",monospace;
+  font-size:10px;
+  color:var(--ink-3);
+  letter-spacing:.04em;
+  margin-top:3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.phil-row-num{
+  font-family:"JetBrains Mono",monospace;
+  font-size:13px;font-weight:700;
+  color:var(--ink);
   flex-shrink:0;
 }
-.top-bell svg{width:18px;height:18px}
-.top-bell .pip{
-  position:absolute;top:9px;right:10px;width:7px;height:7px;
-  background:var(--bad);border-radius:50%;border:2px solid var(--surface);
-  display:none;
-}
-.top-bell.has-pip .pip{display:block}
+.phil-row-num.muted{color:var(--ink-3);font-weight:600}
+.phil-row .arrow{color:var(--ink-3);font-size:18px;flex-shrink:0}
 
-/* ── Log Hours card (PRIMARY action) — brief: "the main action".
-   Inline form: job + hours/minutes + quick chips + Save. No modal hop.
-   Two states: ENTRY (shown when not yet logged or editing) and SUMMARY
-   (shown when today's hours exist). Per brief: total hours only — no
-   start/end times. ── */
-.logcard{
-  margin:0 14px 18px;
-  background:var(--surface);color:var(--ink);
-  border:1px solid var(--line);
-  border-radius:18px;padding:18px;
-  display:flex;flex-direction:column;gap:14px;
-}
-.logcard.logged{background:linear-gradient(160deg,#f7fbf8,#eef6f0);border-color:var(--ok-bd)}
-.logcard.logged .logcard-status{background:var(--ok);color:#fff}
-.logcard.draft{background:#fffbeb;border-color:#f3e3a4}
-.logcard.draft .logcard-status{background:#7a5400;color:#fff}
-.logcard.submitted .logcard-status{background:var(--info);color:#fff}
-.logcard.rejected{background:#fef2f0;border-color:var(--bad-bd)}
-.logcard.rejected .logcard-status{background:var(--bad);color:#fff}
-.logcard-head{display:flex;align-items:center;gap:10px}
-.logcard-l{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px}
-.logcard-status{
-  margin-left:auto;display:inline-flex;align-items:center;gap:5px;
-  font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;
-  background:var(--surface-3);color:var(--muted);
-  text-transform:uppercase;letter-spacing:.5px;
-}
-
-/* Job pin (when 1 assigned) or job select (when 2+) */
-.logcard-job{
-  display:flex;align-items:center;gap:8px;
-  padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);
-  border-radius:10px;font-size:13px;color:var(--ink-2);
-}
-.logcard-job:empty{display:none}
-.logcard-job b{color:var(--ink);font-weight:600}
-.logcard-job .jobref{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;background:var(--surface);padding:1px 5px;border-radius:4px;border:1px solid var(--line);margin-left:auto}
-.logcard-job select{
-  flex:1;border:0;background:transparent;color:var(--ink);font-size:14px;font-weight:600;
-  font-family:inherit;outline:none;-webkit-appearance:none;appearance:none;cursor:pointer;
-  padding-right:18px;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%236b7689' stroke-width='1.6'><path d='m3 5 3 3 3-3'/></svg>");
-  background-repeat:no-repeat;background-position:right center;
-}
-
-/* Time entry — hours stepper + minutes pills */
-.logcard-time{display:flex;gap:8px;align-items:stretch}
-.logcard-hm{
-  display:flex;align-items:center;gap:0;
-  background:var(--surface-2);border:1px solid var(--line);
-  border-radius:12px;padding:4px;min-height:54px;flex-shrink:0;
-}
-.logcard-step{
-  appearance:none;background:transparent;border:0;
-  width:36px;height:46px;border-radius:8px;
-  font-size:22px;font-weight:600;color:var(--ink-2);
-  cursor:pointer;
-}
-.logcard-step:hover{background:var(--surface-3);color:var(--ink)}
-.logcard-step:active{transform:scale(.94)}
-#logcard-h-input{
-  width:54px;height:46px;border:0;background:transparent;outline:none;
-  font:inherit;font-size:22px;font-weight:700;text-align:center;
-  font-variant-numeric:tabular-nums;color:var(--ink);
-  -moz-appearance:textfield;
-}
-#logcard-h-input::-webkit-outer-spin-button,
-#logcard-h-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.logcard-hm-unit{
-  font-size:14px;font-weight:600;color:var(--muted);
-  padding:0 8px 0 2px;
-}
-.logcard-mins{
-  display:grid;grid-template-columns:repeat(4,1fr);gap:4px;flex:1;
-  background:var(--surface-2);border:1px solid var(--line);
-  border-radius:12px;padding:4px;
-}
-.logcard-min{
-  appearance:none;background:transparent;border:0;
-  height:46px;border-radius:8px;
-  font:inherit;font-size:14px;font-weight:600;color:var(--muted);
-  font-variant-numeric:tabular-nums;cursor:pointer;
-  transition:background .1s, color .1s;
-}
-.logcard-min:hover{color:var(--ink)}
-.logcard-min[aria-pressed="true"]{
-  background:var(--surface);color:var(--ink);font-weight:700;
-  box-shadow:0 1px 2px rgba(13,31,53,.08);
-}
-
-/* Quick duration chips */
-.logcard-chips{display:flex;gap:6px;flex-wrap:wrap}
-.logcard-chip{
-  appearance:none;background:var(--surface);border:1px solid var(--line);
-  padding:8px 14px;border-radius:999px;
-  font:inherit;font-size:13px;font-weight:600;color:var(--ink-2);
-  cursor:pointer;min-height:36px;
-  transition:background .1s, border-color .1s, color .1s;
-}
-.logcard-chip:hover{border-color:var(--line-2);color:var(--ink)}
-.logcard-chip[aria-pressed="true"]{
-  background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700;
-}
-/* "Other" chip — visually quieter than the duration chips so it reads
-   as a fallback escape hatch, not a peer of 4h/6h/8h. Still gets the
-   yellow pressed state when active so the relationship is consistent. */
-.logcard-chip-other{
-  margin-left:auto;color:var(--muted);
-  font-size:12.5px;font-weight:500;
-}
-.logcard-chip-other[aria-pressed="true"]{
-  background:var(--surface-3);border-color:var(--line-2);color:var(--ink);
-}
-
-/* Save button (primary yellow) */
-.logcard-save{
-  appearance:none;border:0;width:100%;
-  padding:14px;border-radius:12px;
-  background:var(--accent);color:var(--accent-ink);
-  font:inherit;font-size:15px;font-weight:700;
-  cursor:pointer;min-height:50px;
-  transition:filter .12s, transform .08s;
-}
-.logcard-save:hover{filter:brightness(.96)}
-.logcard-save:active{transform:scale(.99)}
-.logcard-save:disabled{opacity:.6;cursor:not-allowed}
-.logcard-err{
-  margin-top:-4px;padding:8px 12px;border-radius:8px;
-  background:var(--bad-bg);color:var(--bad);
-  font-size:13px;font-weight:600;
-}
-
-/* Logged-state summary — compressed to a single row.
-   Big tabular number on the left ("8h"), micro-context underneath
-   ("on Birdwood Ave · entered by Joe"), and a compact pill-shaped
-   Edit button on the right. The previous 4-line stack (label/total/
-   job/Edit button on its own row) felt heavier than the confirmation
-   warranted; the worker has already done the work — the summary just
-   needs to read at a glance. */
-.logcard-summary{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px}
-.logcard-summary-main{display:flex;flex-direction:column;gap:2px;min-width:0}
-.logcard-summary-line{display:flex;align-items:baseline;gap:6px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.7px}
-.logcard-summary-line b{font-size:30px;font-weight:700;letter-spacing:-.8px;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1;text-transform:none}
-.logcard.logged .logcard-summary-line b{color:var(--ok)}
-.logcard.draft .logcard-summary-line b{color:#7a5400}
-.logcard-summary-job{
-  font-size:12px;color:var(--muted);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-}
-.logcard-summary-job b{color:var(--ink);font-weight:600}
-.logcard-edit{
-  appearance:none;border:1px solid var(--line);background:var(--surface);
-  padding:8px 14px;border-radius:999px;
-  font:inherit;font-size:13px;font-weight:600;color:var(--ink);
-  cursor:pointer;flex-shrink:0;
-  transition:background .12s, border-color .12s;
-}
-.logcard-edit:hover{background:var(--surface-2);border-color:var(--line-2)}
-.logcard.logged .logcard-edit{background:var(--ink);color:#fff;border-color:var(--ink)}
-
-/* ── My week (the focus for tradies) ───────────────────── */
-.week{
-  margin:6px 14px 18px;
-  background:var(--surface);border:1px solid var(--line);
-  border-radius:18px;padding:18px 18px 16px;
-}
-.week-top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
-.week-l{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.9px}
-.week-pay{
-  margin-left:auto;display:inline-flex;align-items:center;gap:6px;
-  background:#fff8d8;color:#7a5400;border:1px solid #f3e3a4;
-  font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;
-}
-.week-pay svg{width:12px;height:12px}
-.week-totals{display:flex;align-items:flex-end;gap:14px;margin-bottom:14px}
-.week-h{
-  font-size:36px;font-weight:700;letter-spacing:-1.2px;line-height:1;
-  font-variant-numeric:tabular-nums;color:var(--ink);
-}
-.week-h small{font-size:14px;font-weight:500;color:var(--muted);margin-left:2px}
-.week-sub{flex:1;text-align:right;font-size:12px;color:var(--muted);line-height:1.4}
-.week-sub b{display:block;color:var(--ink);font-size:13px;font-weight:600;margin-bottom:1px;font-variant-numeric:tabular-nums}
-.days{
-  display:grid;grid-template-columns:repeat(7,1fr);
-  gap:5px;margin-bottom:14px;
-}
-.day{
-  display:flex;flex-direction:column;align-items:center;gap:4px;
-  padding:7px 2px 8px;border-radius:9px;
-  background:var(--surface-2);border:1px solid var(--line);
-  position:relative;cursor:pointer;
-  transition:transform .08s;
-}
-.day:active{transform:scale(.96)}
-.day.today{border-color:var(--ink);background:var(--surface)}
-.day.logged{background:var(--accent);border-color:var(--accent)}
-.day.logged .day-d,.day.logged .day-h{color:var(--accent-ink)}
-.day.draft{background:#fff8d8;border-color:#f3e3a4}
-.day.draft .day-d,.day.draft .day-h{color:#7a5400}
-.day.missing{background:#fbeae8;border-color:#f0c4be}
-.day.missing .day-d,.day.missing .day-h{color:var(--bad)}
-.day.weekend{opacity:.55}
-.day-d{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-.day-h{font-size:13px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1}
-.day-h.empty{color:var(--muted-2);font-weight:500}
-.day.today .day-d{color:var(--ink)}
-/* Rejected-entries banner inside the week card. Soft red surface +
-   inline icon + body text, ":hover" / ":active" feedback so it
-   reads as actionable. The worker taps it → openLhForDate on the
-   first rejected day → the worker can fix and resubmit. */
-.myweek-banner{
-  display:flex;align-items:center;gap:10px;
-  margin-top:12px;padding:10px 12px;
-  background:var(--bad-bg);border:1px solid var(--bad-bd);
-  border-radius:10px;color:var(--bad);
-  font-size:13px;cursor:pointer;
-  transition:background .12s, border-color .12s;
-}
-.myweek-banner:hover{background:#fdd6d2}
-.myweek-banner:active{transform:scale(.99)}
-.myweek-banner-ico{font-size:16px;flex-shrink:0}
-.myweek-banner-body{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3}
-.myweek-banner-body b{color:var(--bad);font-weight:700;font-size:13px}
-.myweek-banner-body span{font-size:11px;color:var(--bad);opacity:.8;font-weight:500}
-.myweek-banner-chev{font-size:16px;color:var(--bad);flex-shrink:0;opacity:.7}
-.week-cta{
-  display:flex;align-items:center;justify-content:center;gap:8px;
-  width:100%;padding:13px;border-radius:12px;
-  background:var(--ink);color:#fff;
-  font-size:14.5px;font-weight:600;
-  cursor:pointer;
-  transition:transform .08s;
-}
-.week-cta:active{transform:scale(.99)}
-.week-cta svg{width:17px;height:17px}
-.week-cta .pip{
+/* ── Avatar ────────────────────────────────────────────────────── */
+.avatar{
+  width:36px;height:36px;border-radius:50%;
+  background:var(--paper-3);
+  color:var(--ink);
+  font-family:"Inter Tight",sans-serif;
+  font-size:13px;font-weight:700;
   display:inline-flex;align-items:center;justify-content:center;
-  background:var(--accent);color:var(--accent-ink);
-  font-size:10px;font-weight:700;border-radius:999px;padding:1px 7px;
-  margin-left:4px;font-variant-numeric:tabular-nums;
+  letter-spacing:-.02em;
+  flex-shrink:0;
 }
+.avatar.yellow{background:var(--yellow);color:var(--yellow-ink)}
+.avatar.navy{background:var(--header-bg);color:#fff}
 
-/* ── Section header ────────────────────────────────────── */
-.sec{
-  display:flex;align-items:center;
-  margin:6px 18px 10px;
+/* ── Pill ──────────────────────────────────────────────────────── */
+.pill{
+  display:inline-flex;align-items:center;
+  padding:3px 8px;border-radius:3px;
+  font-family:"JetBrains Mono",monospace;
+  font-size:9.5px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.12em;
+  white-space:nowrap;
+  flex-shrink:0;
 }
-.sec-h{font-size:12px;font-weight:700;color:var(--ink);letter-spacing:-.1px;text-transform:uppercase}
-.sec-c{
-  margin-left:8px;background:var(--surface-3);color:var(--muted);
-  font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;
-  font-variant-numeric:tabular-nums;
-}
-.sec-link{margin-left:auto;font-size:12px;font-weight:500;color:var(--muted);display:flex;align-items:center;gap:2px}
+.pill.yellow{background:var(--yellow);color:var(--yellow-ink)}
+.pill.green{background:var(--green-bg);color:var(--green)}
+.pill.amber{background:var(--amber-bg);color:var(--amber)}
+.pill.red  {background:var(--red-bg);  color:var(--red)}
+.pill.grey {background:var(--paper-3); color:var(--ink-2)}
 
-/* ── Job strip (single, contextual) ────────────────────── */
-#jobs-list{padding:0 14px}
-.job-strip{
-  background:var(--surface);border:1px solid var(--line);
-  border-radius:14px;padding:13px 14px;
-  display:flex;align-items:center;gap:12px;
-  margin-bottom:7px;
+/* ── Empty state ───────────────────────────────────────────────── */
+.empty{
+  padding:24px 18px;text-align:center;
+  font-size:13px;color:var(--ink-3);
 }
-.job-strip:active{transform:scale(.99)}
-.job-pin{
-  width:36px;height:36px;border-radius:10px;
-  background:var(--surface-3);color:var(--ink);
-  display:flex;align-items:center;justify-content:center;flex-shrink:0;
-}
-.job-pin svg{width:18px;height:18px}
-.job-pin.snag{background:#fbeae8;color:var(--bad)}
-.job-info{flex:1;min-width:0}
-.job-name{font-size:13.5px;font-weight:600;color:var(--ink);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.job-sub{font-size:11.5px;color:var(--muted);margin-top:2px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.job-ref{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;background:var(--surface-3);padding:1px 5px;border-radius:4px}
-.job-snag{color:var(--bad);font-weight:600}
-.job-pct{
-  display:flex;flex-direction:column;align-items:flex-end;
-  font-variant-numeric:tabular-nums;flex-shrink:0;
-}
-.job-pct b{font-size:14px;font-weight:700;color:var(--ink)}
-.job-pct .mini-bar{
-  width:48px;height:4px;background:var(--surface-3);border-radius:2px;
-  overflow:hidden;margin-top:4px;
-}
-.job-pct .mini-bar i{display:block;height:100%;background:var(--accent);border-radius:2px}
-/* Empty state — matches the feat-empty pattern in theme.css used by
-   /jobs/:id snag/tag/temps/hours lists so the visual language stays
-   consistent across surfaces. Dashed border, title in display weight,
-   sub line in mono uppercase. */
-.job-empty{
-  margin:0 14px;padding:32px 18px;text-align:center;
-  background:var(--surface);border:1px dashed var(--line-2);border-radius:14px;
-  color:var(--ink-2);
-}
-.job-empty b{
-  display:block;color:var(--ink);font-weight:700;margin-bottom:8px;
-  font-size:16px;letter-spacing:-.018em;
-}
-.job-empty span{
-  display:block;font-family:ui-monospace,Menlo,monospace;
-  font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
-  color:var(--muted);
-}
+.empty b{display:block;color:var(--ink);font-weight:700;font-size:14px;margin-bottom:4px}
 
-/* ── Snag rows (kept from existing functionality, restyled to match brief) ── */
-#mysnags-list,#resolved-list{padding:0 14px}
-.snag-row{
-  display:flex;align-items:center;gap:10px;
-  background:var(--surface);border:1px solid var(--line);
-  border-radius:12px;padding:11px 12px;
-  margin-bottom:6px;cursor:pointer;
-}
-.snag-row:active{transform:scale(.99)}
-.snag-accent{width:4px;align-self:stretch;border-radius:3px;background:var(--muted-2);min-height:32px;flex-shrink:0}
-.snag-accent.high{background:var(--bad)}
-.snag-accent.medium{background:var(--warn)}
-.snag-accent.resolved{background:var(--ok)}
-.snag-body{flex:1;min-width:0}
-.snag-title{font-size:13.5px;font-weight:600;color:var(--ink);line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.snag-meta{font-size:11.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.snag-meta b{color:var(--ink);font-weight:600}
-.snag-prio{
-  flex-shrink:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
-  padding:2px 8px;border-radius:999px;
-}
-.snag-prio.high{background:var(--bad-bg);color:var(--bad)}
-.snag-prio.medium{background:var(--warn-bg);color:var(--warn)}
-.snag-prio.low{background:var(--info-bg);color:var(--info)}
-.snag-prio.resolved{background:var(--ok-bg);color:var(--ok)}
-
-/* ── Tab bar ───────────────────────────────────────────── */
+/* ── Bottom tab bar ────────────────────────────────────────────── */
 .tabbar{
-  position:fixed;bottom:0;left:50%;transform:translateX(-50%);
-  width:100%;max-width:430px;
-  background:rgba(255,255,255,.92);
-  backdrop-filter:saturate(180%) blur(20px);
-  -webkit-backdrop-filter:saturate(180%) blur(20px);
-  border-top:1px solid var(--line);
-  padding:8px 8px calc(8px + var(--safe-b));
-  display:grid;grid-template-columns:repeat(3,1fr);gap:4px;
-  z-index:50;
+  position:fixed;left:0;right:0;bottom:0;z-index:10;
+  display:grid;grid-template-columns:repeat(4,1fr);
+  background:var(--paper);border-top:1px solid var(--rule);
+  padding:6px 6px calc(6px + var(--safe-b));
+  max-width:430px;margin:0 auto;
 }
 .tb{
-  display:flex;flex-direction:column;align-items:center;gap:2px;
-  padding:6px 4px;border-radius:10px;color:var(--muted-2);position:relative;
-  text-decoration:none;font-size:10px;font-weight:600;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;padding:8px 4px;
+  font-family:"Inter",sans-serif;
+  font-size:10.5px;font-weight:500;
+  color:var(--ink-3);
+  text-decoration:none;
+  border-radius:10px;
+  position:relative;
 }
-.tb svg{width:22px;height:22px}
+.tb .ico{
+  width:26px;height:24px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;border-radius:6px;
+}
+.tb.active{color:var(--ink);font-weight:600}
+.tb.active .ico{background:var(--yellow);color:var(--yellow-ink);font-weight:700}
 
-/* ── Me action sheet ────────────────────────────────────────
-   Bottom-sheet pop-up triggered by the "Me" tab. Guards the
-   sign-out action with one extra tap so a misaimed thumb at the
-   right edge of the screen doesn't end the session. Same warm
-   cream / navy / yellow tokens as the rest of the page. */
+/* ── Me sheet (signout confirmation) ───────────────────────────── */
 .me-scrim{
-  position:fixed;inset:0;background:rgba(13,31,53,.45);
+  position:fixed;inset:0;background:rgba(13,27,52,.45);
   z-index:50;display:flex;align-items:flex-end;justify-content:center;
   animation:me-fade .14s ease-out;
 }
 .me-scrim[hidden]{display:none}
 @keyframes me-fade{from{opacity:0}to{opacity:1}}
 .me-sheet{
-  background:var(--surface);
+  background:var(--paper);
   border-radius:18px 18px 0 0;
   padding:8px 18px calc(18px + var(--safe-b));
   width:100%;max-width:430px;
-  box-shadow:0 -8px 24px rgba(13,31,53,.18);
+  box-shadow:0 -8px 24px rgba(13,27,52,.18);
   animation:me-slide .18s ease-out;
 }
 @keyframes me-slide{from{transform:translateY(20px);opacity:.6}to{transform:translateY(0);opacity:1}}
-.me-handle{
-  width:36px;height:4px;border-radius:2px;
-  background:var(--line-2);margin:6px auto 16px;
-}
-.me-who{
-  display:flex;align-items:center;gap:12px;
-  padding:6px 4px 14px;border-bottom:1px solid var(--line);
-  margin-bottom:10px;
-}
-.me-who-avatar{
-  width:44px;height:44px;border-radius:50%;
-  background:var(--accent);color:var(--accent-ink);
-  display:flex;align-items:center;justify-content:center;
-  font-size:18px;font-weight:700;flex-shrink:0;
-}
-.me-who-name{font-size:16px;font-weight:700;color:var(--ink);letter-spacing:-.2px;line-height:1.2}
-.me-who-role{font-size:12px;color:var(--muted);margin-top:2px}
-.me-action{
-  width:100%;display:flex;align-items:center;gap:12px;
-  padding:13px 14px;border-radius:12px;
-  background:var(--surface-2);border:1px solid var(--line);
-  font:inherit;font-size:14.5px;font-weight:600;color:var(--bad);
-  cursor:pointer;margin-bottom:8px;text-align:left;
-}
+.me-handle{width:36px;height:4px;border-radius:2px;background:var(--rule-2);margin:6px auto 16px}
+.me-who{display:flex;align-items:center;gap:12px;padding:6px 4px 14px;border-bottom:1px solid var(--rule);margin-bottom:10px}
+.me-who-avatar{width:44px;height:44px;border-radius:50%;background:var(--yellow);color:var(--yellow-ink);display:flex;align-items:center;justify-content:center;font-family:"Inter Tight",sans-serif;font-size:17px;font-weight:700;flex-shrink:0}
+.me-who-name{font-family:"Inter Tight",sans-serif;font-size:16px;font-weight:700;color:var(--ink);letter-spacing:-.2px;line-height:1.2}
+.me-who-role{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--ink-3);letter-spacing:.1em;text-transform:uppercase;margin-top:3px}
+.me-action{width:100%;display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:12px;background:var(--paper-2);border:1px solid var(--rule);font:inherit;font-size:14.5px;font-weight:600;color:var(--red);cursor:pointer;margin-bottom:8px;text-align:left}
 .me-action:active{transform:scale(.99)}
-.me-cancel{
-  width:100%;padding:13px;border-radius:12px;background:transparent;
-  border:0;font:inherit;font-size:14.5px;font-weight:600;color:var(--ink-2);
-  cursor:pointer;
-}
-.tb.active{color:var(--ink)}
-.tb.active::before{
-  content:"";position:absolute;top:-1px;left:50%;transform:translateX(-50%);
-  width:24px;height:3px;background:var(--accent);border-radius:0 0 3px 3px;
-}
+.me-cancel{width:100%;padding:13px;border-radius:12px;background:transparent;border:0;font:inherit;font-size:14.5px;font-weight:600;color:var(--ink-2);cursor:pointer}
 
-/* ── Footer (kept low-key) ─────────────────────────────── */
-.md-footer{
-  margin:18px 18px 6px;text-align:center;
-  font-family:ui-monospace,Menlo,monospace;font-size:10px;font-weight:600;
-  color:var(--muted-2);letter-spacing:.06em;text-transform:uppercase;
-}
-.md-footer #me{color:var(--muted)}
-.md-footer button.md-signout{
-  background:none;border:0;color:var(--muted-2);padding:6px 10px;cursor:pointer;
-  font-family:inherit;font-size:inherit;font-weight:600;letter-spacing:.06em;
-  text-transform:uppercase;text-decoration:underline;text-underline-offset:3px;
-}
-.md-footer button.md-signout:hover{color:var(--bad)}
-
-/* ── Push opt-in card (existing) ───────────────────────── */
-.md-push-opt{
-  position:fixed;left:14px;right:14px;bottom:calc(96px + var(--safe-b));
-  max-width:402px;margin:0 auto;
-  background:var(--surface);border:1px solid var(--line);
-  border-radius:14px;padding:14px 16px;
-  box-shadow:0 12px 28px rgba(13,31,53,.18);
-  z-index:60;display:none;
-  animation:slideUp .25s ease-out;
-}
-.md-push-opt.open{display:block}
-@keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
-.md-push-title{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:4px}
-.md-push-body{font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.4}
-.md-push-row{display:flex;gap:8px}
-.md-push-row .btn{
-  flex:1;padding:10px;border-radius:10px;
-  font-size:13px;font-weight:600;
-}
-.md-push-row .btn:not(.primary){background:var(--surface-2);color:var(--ink);border:1px solid var(--line)}
-.md-push-row .btn.primary{background:var(--ink);color:#fff}
+.skel{background:var(--paper-3);border-radius:4px;display:inline-block;height:14px;width:80px;animation:skel 1.4s linear infinite}
+@keyframes skel{0%{opacity:.55}50%{opacity:.85}100%{opacity:.55}}
 </style>
 </head>
 <body>
-
 <div class="frame">
-
-<!-- Pull-to-refresh indicator. Inserted by initPullToRefresh; visible
-     only when the worker pulls the page from scrollY=0. -->
-<div class="ptr" id="ptr" aria-hidden="true">
-  <div class="ptr-spinner"></div>
-  <span class="ptr-label">Release to refresh</span>
-</div>
-
-  <!-- Header — Personalised greeting ("Good morning, Oskar") above a
-       compact date line ("Today · Mon, 12 May"). Calm, mobile-first,
-       no decoration, no hero card. Greeting text is bootstrapped to
-       "My Day" so the page never flashes a raw id/email — the JS
-       upgrades it to "Good morning, <FirstName>" once /api/auth?action=me
-       resolves. Time-of-day is chosen from local browser time. -->
-  <div class="top">
-    <div class="top-greet">
-      <div class="top-name" id="top-name">My Day</div>
-      <div class="top-day" id="today">Today</div>
+  <!-- Header — Inter Tight greeting over a mono uppercase secondary
+       line. <buhl-mark> pulses on writes; right-side button is the
+       Me sheet's open trigger. -->
+  <header class="phil-hdr">
+    <div style="flex:1;min-width:0">
+      <div class="ttl" id="hdr-greet">Morning</div>
+      <div class="sub" id="hdr-sub">Loading…</div>
     </div>
-    <!-- Sync stamp — pulses while BuhlQueue is sending a write, goes
-         stroked when the phone has no signal, turns red on a failed
-         drain. Driven by the Sync event bus that queue.js + buhl-mark
-         already wire. -->
-    <buhl-mark size="sm" class="top-sync" aria-label="Sync state"></buhl-mark>
-  </div>
-
-  <!-- 1. Log Hours card (PRIMARY action) — brief: "the main action".
-       Inline form per brief: hours input + minutes (0/15/30/45) + quick
-       chips (4/6/7.5/8/9h) + Save. Job preselects when only one assigned,
-       picker when multiple. No start/end time. When today is already
-       logged, card collapses to "Logged today: Xh Ym" + Edit. -->
-  <div id="logCard" class="logcard">
-    <div class="logcard-head">
-      <span class="logcard-l">Log hours</span>
-      <span class="logcard-status" id="logcard-status">Not logged</span>
+    <div class="phil-hdr-right">
+      <buhl-mark size="sm" class="phil-sync" aria-label="Sync state"></buhl-mark>
     </div>
+  </header>
 
-    <!-- Logged-state summary (shown when today's entry exists). Single
-         row layout: big total + tiny context on the left, compact Edit
-         pill on the right. paintLogCard fills both spans in one frame
-         so the worker never sees the placeholder. -->
-    <div class="logcard-summary" id="logcard-summary" hidden>
-      <div class="logcard-summary-main">
-        <div class="logcard-summary-line">
-          <b id="logcard-summary-total"></b>
-          <span>logged</span>
+  <div class="phil-body">
+    <!-- 1 · PRIMARY CTA — flips between "log today" (unfilled) and
+         "logged today: 8h" (green confirmation). Tap opens the
+         BuhlLogHours sheet pre-scoped to the right date + job. -->
+    <button type="button" class="phil-cta" id="cta" onclick="openLog()">
+      <div>
+        <div class="phil-cta-l" id="cta-l">LOG NOW</div>
+        <div class="phil-cta-t" id="cta-t">Log today's hours</div>
+      </div>
+      <div class="arrow" id="cta-arrow">→</div>
+    </button>
+
+    <!-- 2 · ON SITE TODAY — most recent active job from MY_TIME_ENTRIES,
+         or the only assigned active job. Tap opens /jobs/:id. Hidden
+         when there's no obvious target. -->
+    <div class="phil-card" id="onsite-card" hidden>
+      <div class="phil-card-hdr">
+        <span><b id="onsite-label">On site today</b> · <span id="onsite-sub"></span></span>
+        <span id="onsite-stage"></span>
+      </div>
+      <a class="phil-row" id="onsite-row" href="#">
+        <div class="avatar yellow" id="onsite-avatar">—</div>
+        <div class="phil-row-l">
+          <div class="phil-row-title" id="onsite-title">—</div>
+          <div class="phil-row-meta" id="onsite-meta">—</div>
         </div>
-        <div class="logcard-summary-job" id="logcard-summary-job"></div>
-      </div>
-      <button class="logcard-edit" type="button" id="logcard-edit">Edit</button>
+        <span class="arrow">→</span>
+      </a>
     </div>
 
-    <!-- Inline entry (shown when not yet logged or when editing).
-         Simplified flow: chip-first. Tradies tap a duration → Save.
-         "Other duration" expands a fine-grained hours+minutes editor
-         for the rare custom-time case. The previous three-input layout
-         (hours stepper + minute pills + chips) gave three ways to do
-         the same thing and made the card feel cluttered for a once-a-
-         day action. -->
-    <div class="logcard-entry" id="logcard-entry">
-      <!-- Job picker — single chip when 1 job, select when 2+ -->
-      <div class="logcard-job" id="logcard-job"></div>
-
-      <!-- Primary input: quick chips. Always one is pressed. -->
-      <div class="logcard-chips" role="group" aria-label="Today's hours">
-        <button type="button" class="logcard-chip" data-h="4">4h</button>
-        <button type="button" class="logcard-chip" data-h="6">6h</button>
-        <button type="button" class="logcard-chip" data-h="7.5">7.5h</button>
-        <button type="button" class="logcard-chip" data-h="8" aria-pressed="true">8h</button>
-        <button type="button" class="logcard-chip" data-h="9">9h</button>
-        <button type="button" class="logcard-chip logcard-chip-other" id="logcard-other-toggle" aria-expanded="false">Other ↓</button>
+    <!-- 3 · THIS WEEK — week total + per-job breakdown. The day-by-day
+         strip is intentionally gone: a worker mostly cares about
+         "have I logged what I owe?" and "where did the hours go." -->
+    <div class="phil-card">
+      <div class="phil-card-hdr">
+        <span>This week · all jobs</span>
+        <span id="wk-total">—</span>
       </div>
-
-      <!-- "Other duration" — collapsed by default. Expands to a fine-
-           grained hours+minutes editor. Auto-expands when the current
-           total is non-standard so the chip selection still matches the
-           saved value when editing. -->
-      <div class="logcard-time" id="logcard-time" hidden>
-        <div class="logcard-hm">
-          <button type="button" class="logcard-step" id="logcard-h-down" aria-label="−1h">−</button>
-          <input type="number" id="logcard-h-input" min="0" max="14" step="1" value="8" inputmode="numeric" aria-label="Hours">
-          <span class="logcard-hm-unit">h</span>
-        </div>
-        <div class="logcard-mins" role="group" aria-label="Minutes">
-          <button type="button" class="logcard-min" data-m="0" aria-pressed="true">00</button>
-          <button type="button" class="logcard-min" data-m="15">15</button>
-          <button type="button" class="logcard-min" data-m="30">30</button>
-          <button type="button" class="logcard-min" data-m="45">45</button>
-        </div>
-      </div>
-
-      <button type="button" id="logcard-save" class="logcard-save">
-        Save 8h
-      </button>
-      <div class="logcard-err" id="logcard-err" hidden role="alert"></div>
-    </div>
-  </div>
-
-  <!-- 2. My Week — single cohesive hero card matching brief v1
-       (~/Downloads/briefv1/my-day). Title row (label + pay-day pill),
-       totals row (big hours + "X days not logged yet" sub), 7-cell
-       day strip, optional "Submit drafts" CTA. The "My week" header
-       lives INSIDE the card — pulling it outside (as a .sec block)
-       fragmented the visual unit the brief calls for and made the
-       weekly view feel like a loose strip of chips. -->
-  <div class="week">
-    <div class="week-top">
-      <div class="week-l">My week</div>
-      <span class="week-pay" id="week-pay" style="display:none">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-        <span id="week-pay-text">Pay day</span>
-      </span>
-    </div>
-    <div class="week-totals">
-      <div class="week-h tabular"><span id="week-hours-total">0.0</span><small>h</small></div>
-      <div class="week-sub">
-        <b id="week-missing-count">No hours yet</b>
-        <span id="week-missing-suffix">this week</span>
+      <div id="wk-list">
+        <div class="empty"><b>Loading…</b></div>
       </div>
     </div>
-    <div class="days" id="days"></div>
-    <!-- Rejected-entries banner. Surfaces when the worker has 1+
-         time entries from the current week marked rejected by an
-         admin/LH. Tapping it scrolls + opens the rejected day's
-         entry pre-filled. Hidden by default; renderMyWeek toggles. -->
-    <div id="myweek-rejected-banner" class="myweek-banner" hidden>
-      <span class="myweek-banner-ico" aria-hidden="true">⚠</span>
-      <span class="myweek-banner-body">
-        <b id="myweek-rejected-title">1 rejected entry</b>
-        <span id="myweek-rejected-sub">Tap to fix and resubmit</span>
-      </span>
-      <span class="myweek-banner-chev" aria-hidden="true">›</span>
+
+    <!-- 4 · MY JOBS — entry points to each assigned job. Tap any row
+         to land on the per-job dashboard. -->
+    <div class="phil-card">
+      <div class="phil-card-hdr">
+        <span>My jobs</span>
+        <span id="jobs-count">—</span>
+      </div>
+      <div id="jobs-list">
+        <div class="empty"><b>Loading…</b></div>
+      </div>
     </div>
-    <button id="myweek-submit-drafts" style="display:none;width:100%;margin-top:14px;padding:13px;border-radius:12px;background:var(--ink);color:#fff;font-size:14.5px;font-weight:600" onclick="submitAllDrafts()"></button>
-    <!-- Hidden — kept for legacy compat -->
-    <div id="myweek-list" hidden></div>
-    <span id="myweek-total" hidden></span>
-    <span id="myweek-summary" hidden></span>
-    <span id="myweek-summary-b" hidden></span>
   </div>
 
-  <!-- 3. Assigned jobs — entry point only, not a dashboard. -->
-  <div class="sec">
-    <div class="sec-h">My jobs</div>
-    <span class="sec-c" id="jobs-count">0</span>
-  </div>
-  <div id="jobs-list"></div>
-
-  <!-- Hidden legacy IDs — render functions still target these to avoid
-       null-deref. The relevant data flows up into the new cards above. -->
-  <div hidden>
-    <span id="greet"></span>
-    <span id="compliment"></span>
-    <button id="banner" onclick="openMyDayLog()"><span id="banner-txt"></span><span id="banner-sub"></span></button>
-    <button id="topBell"><span class="pip"></span></button>
-    <button id="myweek-cta"><span id="myweek-cta-label"></span><span id="myweek-cta-pip"></span></button>
-    <section id="mysnags-sec"><span id="mysnags-count"></span><div id="mysnags-list"></div></section>
-    <section id="resolved-sec"><span id="resolved-count"></span><div id="resolved-list"></div></section>
-  </div>
-
-  <!-- Footer -->
-  <div class="md-footer">
-    <span id="me"></span>
-    <button class="md-signout" id="logout" type="button">Sign out</button>
-  </div>
-
-  <!-- Bottom tab bar — picker page nuked; the only "Jobs" surface in the
-       app now is /admin/jobs (admin-only). For tradies, the My jobs
-       section above already lists every assigned job, so no Jobs tab here. -->
-  <!-- Bottom tab bar — three columns initially. The "My gear" tab is
-       auto-hidden in JS when the user holds zero assets; the tabbar
-       then collapses to two columns. The "Me" tab opens a small action
-       sheet instead of signing out instantly (was: instant logout on
-       tap, easy to mis-tap when reaching for "My gear"). -->
-  <nav class="tabbar" id="tabbar" style="grid-template-columns:repeat(3,1fr)">
+  <!-- Bottom tab bar — 4 surfaces. "Me" is a sheet, not navigation. -->
+  <nav class="tabbar">
     <a href="/my-day" class="tb active">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      <span class="ico">☼</span>
       My day
     </a>
-    <a href="/my-gear" class="tb" id="tab-gear">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>
+    <a href="/jobs" class="tb">
+      <span class="ico">▣</span>
+      Jobs
+    </a>
+    <a href="/my-gear" class="tb">
+      <span class="ico">⚙</span>
       My gear
     </a>
     <button class="tb" type="button" id="tab-me">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+      <span class="ico">◉</span>
       Me
     </button>
   </nav>
+</div>
 
-  <!-- Me sheet — opens from the bottom tab bar's "Me" button. Three
-       actions: see the signed-in name, optional reminders toggle, and a
-       guarded Sign out. Previously "Me" called the logout button
-       directly which destructively signed users out on accidental tap. -->
-  <div class="me-scrim" id="me-scrim" hidden>
-    <div class="me-sheet" role="dialog" aria-modal="true" aria-labelledby="me-title">
-      <div class="me-handle"></div>
-      <div class="me-who">
-        <div class="me-who-avatar" id="me-avatar">?</div>
-        <div style="flex:1;min-width:0">
-          <div class="me-who-name" id="me-who-name">…</div>
-          <div class="me-who-role" id="me-who-role"></div>
-        </div>
+<!-- Me sheet — signout guarded behind a confirm tap so an edge-of-
+     screen thumb doesn't end the session. -->
+<div class="me-scrim" id="me-scrim" hidden>
+  <div class="me-sheet" role="dialog" aria-modal="true">
+    <div class="me-handle"></div>
+    <div class="me-who">
+      <div class="me-who-avatar" id="me-avatar">?</div>
+      <div style="flex:1;min-width:0">
+        <div class="me-who-name" id="me-who-name">…</div>
+        <div class="me-who-role" id="me-who-role"></div>
       </div>
-      <button type="button" class="me-action" id="me-signout">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M16 17l5-5-5-5M21 12H9M13 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/></svg>
-        <span>Sign out</span>
-      </button>
-      <button type="button" class="me-cancel" id="me-cancel">Cancel</button>
     </div>
+    <button type="button" class="me-action" id="me-signout">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M16 17l5-5-5-5M21 12H9M13 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/></svg>
+      <span>Sign out</span>
+    </button>
+    <button type="button" class="me-cancel" id="me-cancel">Cancel</button>
   </div>
 </div>
 
-<!-- Push opt-in card -->
-<div class="md-push-opt" id="push-opt">
-  <div class="md-push-title">Enable reminders?</div>
-  <div class="md-push-body">We'll remind you at 4:30&thinsp;pm to log your hours so you don't forget.</div>
-  <div class="md-push-row">
-    <button class="btn" onclick="dismissPush()">Not now</button>
-    <button class="btn primary" onclick="enablePush()">Enable</button>
-  </div>
-</div>
 <script>
 // ─── State ───────────────────────────────────────────────────────────────
 let ME = null;
-let JOBS = [];
-let DATA_BY_JOB = {};    // jobId -> { dwellings, snags }
-let ACTIVITY = [];       // my recent activity
-
-// My own time-entries (from /api/time-entries). Authoritative for everything
-// self-shaped on this page — banner, missed days, week total.
-let MY_TIME_ENTRIES = []; // sorted newest-first; covers at least the current ISO week
-
-// Cross-user "who's on site today" — per-jobId snapshot from
-// /api/time-entries-on-site. Replaces the old HOURS_BY_JOB legacy read.
-let CREW_ON_SITE_BY_JOB = {}; // jobId -> { count, users: [...] }
-
-// Cross-job snags assigned to ME (open). Loaded once at boot, refreshed on
-// pull-to-refresh / nothing else (snag assignments don't change minute-to-minute).
-let MY_SNAGS = []; // [{ id, jobId, jobName, desc, priority, dwellingName, ... }]
-
-// Cross-job snags I RAISED that have been resolved in the last 7 days.
-// Loaded alongside MY_SNAGS; surfaces the in-app counterpart of the
-// "✓ Snag resolved" push notification.
-let MY_RECENT_RESOLVED = []; // same shape, sorted newest-closed-first
-
-// (MY_EXPIRING_TAGS was retired with the Needs Action section. The /jobs
-//  list and /overview still surface expired/expiring tags via their own
-//  reads, and the per-job T&T tab has its own badge.)
+let JOBS = [];                  // [{ id, name, status, ref, areaGroups, ... }]
+let MY_TIME_ENTRIES = [];       // sorted newest-first, covers >= current ISO week
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 function esc(s){
-  return String(s==null?'':s).replace(/[&<>"']/g, c =>
-    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function _iso(d){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 function todayIso(){ return _iso(new Date()); }
+function yesterdayIso(){ const d = new Date(); d.setDate(d.getDate()-1); return _iso(d); }
 function firstName(u){ return (u && u.username) ? u.username.split(/[\s._-]/)[0] : 'there'; }
 function greeting(){
   const h = new Date().getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 17) return 'Good afternoon';
-  return 'Good evening';
+  if (h < 12) return 'Morning';
+  if (h < 17) return 'Afternoon';
+  return 'Evening';
 }
 function isoWeekMonday(){
   const d = new Date();
@@ -849,1331 +428,289 @@ function isoWeekMonday(){
   d.setHours(0,0,0,0);
   return d;
 }
-function fmtDur(hoursDecimal){
-  const hr = Math.floor(hoursDecimal);
-  const mn = Math.round((hoursDecimal - hr) * 60);
-  return mn ? `${hr}h ${mn}m` : `${hr}h`;
+function fmtHours(h){
+  const n = Number(h || 0);
+  return (Math.round(n * 10) / 10).toFixed(1);
+}
+function initials(name){
+  return String(name||'?').split(/[\s._-]+/).filter(Boolean).slice(0,2).map(w => w[0]).join('').toUpperCase() || '?';
+}
+function fmtDay(date){
+  return date.toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' });
 }
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────
 async function load(){
+  // 1. Auth + role gate. /my-day is the tradie landing; everyone else
+  //    gets routed to their role-specific surface.
   const meRes = await fetch('/api/auth?action=me', { credentials:'same-origin' });
   if (!meRes.ok) { location.href = '/login'; return; }
   const { user } = await meRes.json();
   ME = user;
-
-  // Role gate — /my-day is for tradies. Others get redirected to their
-  // role-specific landing (see Admin/LH rebuild — /lh-home.html for the
-  // field-control surface, /admin/operations.html for the command
-  // centre, /client.html for the client portal).
   if (ME.role === 'admin')       { location.href = '/admin/operations'; return; }
   if (ME.role === 'leadingHand') { location.href = '/lh';                return; }
   if (ME.role === 'client')      { location.href = '/client';            return; }
 
-  // Header bits — visible greeting + secondary date line.
-  // Greeting upgrades from the bootstrapped "My Day" to a personalised
-  // "Good morning, Oskar" the moment user data is in hand. firstName()
-  // already strips junk (dots, dashes, surnames) so we never expose
-  // raw ids/emails. If username is missing we silently degrade to just
-  // the greeting (e.g. "Good morning"), per brief.
-  document.getElementById('me').textContent = ME.username;
-  const fname = (ME && ME.username) ? firstName(ME) : '';
-  const greetEl = document.getElementById('top-name');
-  if (greetEl) {
-    greetEl.textContent = fname && fname !== 'there'
-      ? `${greeting()}, ${fname}`
-      : greeting();
-  }
-  // Hidden legacy #greet kept in sync for any older code that reads it.
-  document.getElementById('greet').textContent = `${greeting()}, ${firstName(ME)}`;
-  const complimentPool = (typeof window !== 'undefined' && window.BUHL_COMPLIMENTS) || [];
-  if (complimentPool.length) {
-    const dayIndex = Math.floor(Date.now() / (1000 * 60 * 60 * 24));
-    document.getElementById('compliment').textContent = complimentPool[dayIndex % complimentPool.length];
-  }
-  // Date line beneath greeting — "Today · Mon, 12 May" (brief option B).
-  // Compact, no uppercase shouting, no decoration.
-  document.getElementById('today').innerHTML = 'Today · <b>' + new Date().toLocaleDateString('en-AU', {
-    weekday:'short', day:'numeric', month:'short'
-  }) + '</b>';
+  // 2. Header — "Morning, Kane" / mono date line.
+  paintGreeting();
 
-  // Tabbar: populate Me-sheet identity + wire actions.
-  // Done here (not in the inline script at the bottom) because ME is the
-  // truthful source of role/username and we already have it in hand.
+  // 3. Wire Me sheet (identity is now known).
   setupMeSheet();
-  // "My gear" tab auto-hides when the user holds zero assets. Tabbar
-  // collapses to 2-column grid in that case so the remaining tabs stay
-  // even-sized rather than orphaning a blank third column. Fired in
-  // parallel — doesn't block first paint.
-  loadAndApplyGearTabVisibility();
 
-  // Parallel: jobs + activity + my time-entries (last ~3 weeks for week strip + history)
-  const fromIso = (() => {
-    const d = isoWeekMonday();
-    d.setDate(d.getDate() - 14); // include the previous two weeks for back-logging context
-    return _iso(d);
-  })();
-  const [jobsRes, actRes, teRes, msRes, mrRes] = await Promise.all([
-    fetch('/api/jobs', { credentials:'same-origin' }),
-    fetch('/api/user-activity', { credentials:'same-origin' }),
-    fetch('/api/time-entries?fromDate=' + encodeURIComponent(fromIso), { credentials:'same-origin' }),
-    fetch('/api/snags-mine?status=Open', { credentials:'same-origin' }).catch(() => null),
-    fetch('/api/snags-mine?status=Closed&view=raised', { credentials:'same-origin' }).catch(() => null),
-  ]);
-  JOBS = jobsRes.ok ? (((await jobsRes.json()).jobs) || []) : [];
-  ACTIVITY = actRes.ok ? (((await actRes.json()).entries) || []) : [];
-  MY_TIME_ENTRIES = teRes.ok ? (((await teRes.json()).entries) || []) : [];
-  MY_SNAGS = (msRes && msRes.ok) ? (((await msRes.json()).snags) || []) : [];
-  // Filter the raised+closed list to "someone else closed my raised snag in
-  // the last 7 days". Self-resolutions are excluded — "I raised it, I closed
-  // it" isn't useful in a 'Recently resolved' panel; the user already knows.
-  // Older resolutions are noise on the daily landing page.
-  {
-    const all = (mrRes && mrRes.ok) ? (((await mrRes.json()).snags) || []) : [];
-    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const myUsername = (ME && ME.username) || '';
-    MY_RECENT_RESOLVED = all.filter(s => {
-      if (s.updatedBy && s.updatedBy === myUsername) return false; // self-resolved
-      const t = Date.parse(s.closedAt || s.updatedAt || '');
-      return Number.isFinite(t) && t >= cutoff;
-    });
+  // 4. Data — jobs + this week's time entries in parallel.
+  const monday = isoWeekMonday();
+  // Pull a wider window so "today's entry exists or not" doesn't flip
+  // when we wrap into the next week at midnight.
+  const fromIso = _iso(new Date(monday.getTime() - 7 * 86400000));
+
+  try {
+    const [jr, ter] = await Promise.all([
+      fetch('/api/jobs',                            { credentials:'same-origin' }),
+      fetch('/api/time-entries?fromDate=' + encodeURIComponent(fromIso),
+                                                    { credentials:'same-origin' }),
+    ]);
+    if (jr.ok)  JOBS = (await jr.json()).jobs || [];
+    if (ter.ok) MY_TIME_ENTRIES = (await ter.json()).entries || [];
+  } catch (e) {
+    // Network flake — render with whatever we have.
   }
 
-  // Render the shell FIRST with whatever we have (banner, snags, week,
-  // jobs row stubs). Per-job data (snag counts, on-site crew) streams in
-  // afterwards and triggers a cheap re-render of just the jobs section.
-  // This kept ~N parallel fetches off the critical path; on a 5-job tradie
-  // it's roughly 10 reads removed from first paint.
-  renderAll();
-  afterRenderChecks();
+  paintCta();
+  paintOnsite();
+  paintWeek();
+  paintJobs();
+}
 
-  // Stream per-job snags + on-site crew. As each job resolves, update
-  // DATA_BY_JOB / CREW_ON_SITE_BY_JOB and re-render the jobs strip so the
-  // numbers fill in progressively rather than blocking the page.
-  const todayIsoStr = todayIso();
-  for (const j of JOBS) {
-    Promise.all([
-      fetch('/api/data?jobId='   + encodeURIComponent(j.id), { credentials:'same-origin' }),
-      fetch('/api/time-entries-on-site?jobId=' + encodeURIComponent(j.id) +
-            '&date=' + encodeURIComponent(todayIsoStr), { credentials:'same-origin' }),
-    ]).then(async ([d, c]) => {
-      DATA_BY_JOB[j.id]         = d.ok ? (await d.json()) : { dwellings:{}, snags:[] };
-      CREW_ON_SITE_BY_JOB[j.id] = c.ok ? (await c.json()) : { count: 0, users: [] };
-      // Cheap re-render — only the jobs section depends on these maps.
-      renderJobs();
-    }).catch(() => {
-      DATA_BY_JOB[j.id]         = { dwellings:{}, snags:[] };
-      CREW_ON_SITE_BY_JOB[j.id] = { count: 0, users: [] };
-      renderJobs();
-    });
+function paintGreeting(){
+  const name = firstName(ME);
+  document.getElementById('hdr-greet').textContent = greeting() + ', ' + name;
+  const now = new Date();
+  const date = now.toLocaleDateString('en-AU', { weekday:'long', day:'numeric', month:'long' });
+  document.getElementById('hdr-sub').textContent = date.toUpperCase();
+}
+
+// ── CTA ────────────────────────────────────────────────────────────────
+// Flips between two states:
+//   logged  → green confirmation showing today's total + Edit affordance
+//   default → yellow "Log today's hours"
+function paintCta(){
+  const today = todayIso();
+  const entry = MY_TIME_ENTRIES.find(e => e && e.date === today);
+  const total = entry ? Number(entry.totalHours || 0) : 0;
+  const cta = document.getElementById('cta');
+  const l   = document.getElementById('cta-l');
+  const t   = document.getElementById('cta-t');
+  const arr = document.getElementById('cta-arrow');
+  if (total > 0) {
+    cta.classList.add('logged');
+    l.textContent = 'LOGGED TODAY';
+    t.textContent = fmtHours(total) + ' hrs · tap to edit';
+    arr.textContent = '✓';
+  } else {
+    cta.classList.remove('logged');
+    l.textContent = 'LOG NOW';
+    t.textContent = "Log today's hours";
+    arr.textContent = '→';
   }
 }
 
-function renderAll(){
-  // Brief order: Header → Log Hours card (PRIMARY) → My Week → My jobs.
-  // Banner / quick-chips / mysnags / resolved still run (they mutate hidden
-  // elements only — kept so we don't churn the data layer) but the visible
-  // surface is the new logcard.
-  paintLogCard();
-  wireLogCardOnce();
-  renderBanner();
-  renderMySnags();
-  renderRecentResolved();
-  renderJobs();
-  renderMyWeek();
-
-  // Header date — tradies see "TUE · 14 MAY" in mono caps per brief.
-  const todayEl = document.getElementById('today');
-  if (todayEl) {
-    todayEl.textContent = new Date().toLocaleDateString('en-AU', {
-      weekday: 'short', day: 'numeric', month: 'short'
-    });
+window.openLog = function openLog(){
+  if (!window.BuhlLogHours) {
+    if (window.showToast) showToast('Log-hours module not loaded — refresh the page.', 'warn');
+    return;
   }
-}
-
-// ── Log Hours card — INLINE entry per brief ────────────────────────────
-//
-// Brief: "Logging hours should be: job → total hours → save". Use total
-// hours only — no start/end times. Inline form with hours + minutes
-// (0/15/30/45) + quick chips (4/6/7.5/8/9h) on the card itself, no modal
-// hop. Two render states:
-//   ENTRY   — controls visible, Save button. Shown when no entry today
-//             OR when admin/LH wants to edit a draft.
-//   SUMMARY — "Logged today: Xh Ym" + Edit. Shown when an entry exists.
-//
-// Edit collapses summary back into ENTRY pre-filled with the existing
-// total. Save POSTs to /api/time-entries with the matching shape.
-
-// Local UI state for the entry form (decoupled from server entry)
-let LH_FORM = {
-  hours: 8,        // integer hours
-  minutes: 0,      // 0 / 15 / 30 / 45
-  jobId: null,     // selected job id (null = use first assigned)
-  editing: false,  // forced into entry mode for an existing draft
+  const today = todayIso();
+  const existing = MY_TIME_ENTRIES.find(e => e && e.date === today) || null;
+  BuhlLogHours.open({
+    date: today,
+    entry: existing,
+    onSaved: async () => {
+      // Re-pull fresh time-entries so the CTA + Week card sync.
+      const fromIso = _iso(new Date(isoWeekMonday().getTime() - 7 * 86400000));
+      try {
+        const r = await fetch('/api/time-entries?fromDate=' + encodeURIComponent(fromIso),
+                              { credentials:'same-origin' });
+        if (r.ok) MY_TIME_ENTRIES = (await r.json()).entries || [];
+      } catch (e) {}
+      paintCta();
+      paintOnsite();
+      paintWeek();
+    },
+  });
 };
 
-function paintLogCard(){
-  const card     = document.getElementById('logCard');
-  if (!card) return;
-  const status   = document.getElementById('logcard-status');
-  const summary  = document.getElementById('logcard-summary');
-  const entryEl  = document.getElementById('logcard-entry');
+// ── On site today ──────────────────────────────────────────────────────
+// Surfaces the most recent active job the worker has touched. If the
+// worker hasn't clocked anywhere yet today, falls back to their single
+// active assignment (when unambiguous). Hidden when nothing applies.
+function paintOnsite(){
+  const today = todayIso();
+  const todayEntry = MY_TIME_ENTRIES.find(e => e && e.date === today);
+  let jobId = null;
 
-  const entry = todaysEntry();
-  const total = entry ? Number(entry.totalHours || 0) : 0;
-  const mine  = _myAssignedActiveJobs();
-
-  // Reset state classes
-  card.classList.remove('logged', 'draft', 'submitted', 'rejected');
-
-  // Show summary when an entry exists AND we're not in editing mode.
-  // For non-editable statuses (approved / submitted) editing is blocked
-  // anyway via the BuhlLogHours sheet; admin still gets Edit affordance
-  // for visibility.
-  const showSummary = total > 0 && !LH_FORM.editing;
-
-  if (showSummary) {
-    summary.hidden = false;
-    entryEl.hidden = true;
-
-    const tone = entry.status === 'approved' ? 'logged'
-              : entry.status === 'submitted' ? 'submitted'
-              : entry.status === 'rejected'  ? 'rejected'
-              : entry.status === 'draft'     ? 'draft'
-              : 'logged';
-    card.classList.add(tone);
-
-    const statusLbl = entry.status === 'approved'  ? 'Approved'
-                    : entry.status === 'submitted' ? 'Submitted'
-                    : entry.status === 'rejected'  ? 'Rejected'
-                    : entry.status === 'draft'     ? 'Draft'
-                    : 'Logged';
-    status.textContent = statusLbl;
-    status.style.background = '';
-    status.style.color = '';
-
-    document.getElementById('logcard-summary-total').textContent = fmtHM(total);
-
-    // Job line: prefer first allocation's job
-    const firstAlloc = (entry.allocations || [])[0];
-    const job = firstAlloc && firstAlloc.jobId ? (JOBS.find(j => j.id === firstAlloc.jobId)) : null;
-    // "Entered by" — when the entry was created or last touched by
-    // someone OTHER than the worker themselves (LH/admin logging on
-    // behalf), show that on the summary line so the tradie understands
-    // they don't need to log a duplicate. Old entries (pre-PR #25)
-    // don't carry enteredByUserId; we silently skip the line for them.
-    const delegated = entry.enteredByUserId && entry.enteredByUserId !== entry.userId;
-    // Single-line context inside the compressed summary. When an LH/admin
-    // logged on behalf, the trailing "(by Joe)" preserves chain-of-custody
-    // without needing a second row.
-    const delegatedSuffix = delegated
-      ? ` <span style="color:var(--ink-2);font-weight:600">(by ${esc(entry.enteredByName || 'leading hand')})</span>`
-      : '';
-    document.getElementById('logcard-summary-job').innerHTML = (job
-      ? `on <b>${esc(job.name)}</b>`
-      : '<i style="color:var(--muted)">internal — no job</i>') + delegatedSuffix;
+  if (todayEntry && Array.isArray(todayEntry.allocations) && todayEntry.allocations.length) {
+    // Pick the allocation with the most hours today.
+    const sorted = [...todayEntry.allocations].sort((a,b) => (b.hours||0) - (a.hours||0));
+    jobId = sorted[0].jobId;
   } else {
-    summary.hidden = true;
-    entryEl.hidden = false;
-    status.textContent = 'Not logged';
-    status.style.background = '';
-    status.style.color = '';
-
-    // If editing an existing entry, prefill the form from it
-    if (LH_FORM.editing && entry) {
-      const t = Number(entry.totalHours || 0);
-      LH_FORM.hours   = Math.floor(t);
-      LH_FORM.minutes = Math.round((t - Math.floor(t)) * 60 / 15) * 15 % 60;
-      const firstAlloc = (entry.allocations || [])[0];
-      if (firstAlloc && firstAlloc.jobId) LH_FORM.jobId = firstAlloc.jobId;
-    }
-
-    paintLogCardEntry(mine);
-  }
-}
-
-// Paint the inline entry controls (job picker / chip, time, chips, Save)
-function paintLogCardEntry(mine){
-  const jobEl = document.getElementById('logcard-job');
-
-  // Default jobId to first assigned if not set
-  if (!LH_FORM.jobId && mine.length) LH_FORM.jobId = mine[0].id;
-
-  // Job picker / pin
-  if (!mine.length) {
-    jobEl.innerHTML = '<i style="color:var(--muted)">No assigned jobs — contact admin if this looks wrong.</i>';
-  } else if (mine.length === 1) {
-    // Single assigned job — show name only. The ref code chip used to
-    // sit to the right (e.g. "Birdwood Ave" + "IV3232") but the same
-    // job ref is already visible on the "My jobs" list below, and the
-    // user flagged the double-display as redundant noise. Keep the
-    // ref accessible via aria-label for screen readers.
-    const j = mine[0];
-    LH_FORM.jobId = j.id;
-    const ref = (j.ref || j.id || '').toUpperCase();
-    jobEl.innerHTML = `<b aria-label="${esc(j.name)} (${esc(ref)})">${esc(j.name)}</b>`;
-  } else {
-    // Multi-job — render a select
-    jobEl.innerHTML = `<select id="logcard-job-select">${mine.map(j =>
-      `<option value="${esc(j.id)}"${j.id === LH_FORM.jobId ? ' selected' : ''}>${esc(j.name)}</option>`
-    ).join('')}</select>`;
-    document.getElementById('logcard-job-select').addEventListener('change', (e) => {
-      LH_FORM.jobId = e.target.value;
-    });
+    const activeJobs = JOBS.filter(j => (j.status || 'active') === 'active');
+    if (activeJobs.length === 1) jobId = activeJobs[0].id;
   }
 
-  // Hours input
-  const hInp = document.getElementById('logcard-h-input');
-  hInp.value = String(LH_FORM.hours);
+  const card = document.getElementById('onsite-card');
+  const job  = jobId ? JOBS.find(j => j.id === jobId) : null;
+  if (!job) { card.hidden = true; return; }
 
-  // Minutes pills
-  document.querySelectorAll('.logcard-min').forEach(b => {
-    const m = Number(b.dataset.m);
-    b.setAttribute('aria-pressed', m === LH_FORM.minutes ? 'true' : 'false');
-  });
+  card.hidden = false;
+  document.getElementById('onsite-label').textContent = todayEntry ? 'On site today' : 'Current job';
+  document.getElementById('onsite-sub').textContent = job.name;
+  document.getElementById('onsite-stage').textContent = (job.ref || job.id || '').toUpperCase();
 
-  // Quick chips — primary input. "Other" is pressed when the current
-  // total doesn't match any of the standard chips (4 / 6 / 7.5 / 8 / 9).
-  const total = LH_FORM.hours + LH_FORM.minutes / 60;
-  const STANDARD_CHIPS = [4, 6, 7.5, 8, 9];
-  const matchesChip = STANDARD_CHIPS.some(h => Math.abs(h - total) < 0.001);
-  document.querySelectorAll('.logcard-chip').forEach(b => {
-    if (b.id === 'logcard-other-toggle') {
-      b.setAttribute('aria-pressed', !matchesChip ? 'true' : 'false');
-      return;
-    }
-    const h = Number(b.dataset.h);
-    b.setAttribute('aria-pressed', Math.abs(h - total) < 0.001 ? 'true' : 'false');
-  });
+  document.getElementById('onsite-row').href = '/jobs/' + encodeURIComponent(job.id);
+  document.getElementById('onsite-avatar').textContent = initials(job.name);
+  document.getElementById('onsite-title').textContent = 'Open job interface';
 
-  // Auto-expand "Other duration" panel when value is non-standard,
-  // so editing a 7h 15m entry shows the controls that can produce it.
-  const timePanel = document.getElementById('logcard-time');
-  const otherBtn = document.getElementById('logcard-other-toggle');
-  if (timePanel && otherBtn) {
-    const shouldExpand = !matchesChip;
-    timePanel.hidden = !shouldExpand;
-    otherBtn.setAttribute('aria-expanded', shouldExpand ? 'true' : 'false');
-    otherBtn.textContent = shouldExpand ? 'Other ↑' : 'Other ↓';
-  }
-
-  // Save button label
-  document.getElementById('logcard-save').textContent = 'Save ' + fmtHM(total);
-
-  // Disable save when no job available
-  document.getElementById('logcard-save').disabled = !LH_FORM.jobId;
+  const todayHrs = todayEntry ? Number(todayEntry.totalHours || 0) : 0;
+  const dwCount = (job.areaGroups || []).reduce((s,g) => s + ((g.areas || []).length), 0);
+  const metaBits = [
+    todayHrs > 0 ? fmtHours(todayHrs) + 'h logged' : null,
+    dwCount > 0 ? dwCount + (dwCount === 1 ? ' area' : ' areas') : null,
+  ].filter(Boolean);
+  document.getElementById('onsite-meta').textContent = metaBits.join(' · ') || 'tap to open';
 }
 
-// "Xh Ym" formatter (per brief: "Logged today: 7h 30m")
-function fmtHM(decimal){
-  const t = Number(decimal) || 0;
-  const h = Math.floor(t);
-  const m = Math.round((t - h) * 60);
-  if (m === 0) return h + 'h';
-  return h + 'h ' + String(m).padStart(2, '0') + 'm';
-}
-
-// Set hours+minutes from a decimal (used by quick chips: 7.5 → 7h 30m)
-function _setLhFromTotal(total){
-  const h = Math.floor(total);
-  const mDec = (total - h) * 60;
-  // Snap to nearest 15
-  const m = Math.round(mDec / 15) * 15;
-  if (m === 60) { LH_FORM.hours = h + 1; LH_FORM.minutes = 0; }
-  else { LH_FORM.hours = h; LH_FORM.minutes = m; }
-}
-
-// Save inline — POST /api/time-entries with the same shape BuhlLogHours uses
-async function saveLogCard(){
-  const err = document.getElementById('logcard-err');
-  err.hidden = true;
-  if (!LH_FORM.jobId) { err.textContent = 'Pick a job first.'; err.hidden = false; return; }
-  const total = LH_FORM.hours + LH_FORM.minutes / 60;
-  if (!(total > 0)) { err.textContent = 'Enter at least 15 minutes.'; err.hidden = false; return; }
-
-  const saveBtn = document.getElementById('logcard-save');
-  const originalLabel = saveBtn.textContent;
-  saveBtn.disabled = true;
-  saveBtn.textContent = 'Saving…';
-
-  const existing = todaysEntry();
-  const date = todayIso();
-  const allocations = [{ jobId: LH_FORM.jobId, hours: total }];
-  const body = {
-    date,
-    allocations,
-    totalHours: total,
-    status: 'submitted',
-    notes: existing && existing.notes ? existing.notes : '',
-  };
-
-  try {
-    const url = '/api/time-entries' + (existing ? '?date=' + encodeURIComponent(date) : '');
-    const method = existing ? 'PATCH' : 'POST';
-    const r = await fetch(url, {
-      method, credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || ('HTTP ' + r.status));
-    }
-    LH_FORM.editing = false;
-    await _refreshAfterTimeEntrySave();
-    showToast && showToast('Saved · ' + fmtHM(total), 'ok');
-  } catch (e) {
-    err.textContent = 'Save failed — ' + (e.message || 'try again');
-    err.hidden = false;
-    saveBtn.disabled = false;
-    saveBtn.textContent = originalLabel;
-  }
-}
-
-// Wire inline entry handlers — bound once on first paint, re-bound after
-// markup-rewrite events (e.g. multi-job select).
-function wireLogCardOnce(){
-  if (wireLogCardOnce._done) return;
-  wireLogCardOnce._done = true;
-
-  const hInp = document.getElementById('logcard-h-input');
-  if (!hInp) return; // markup not present (e.g. push opt-in dismissed)
-
-  hInp.addEventListener('input', () => {
-    let v = parseInt(hInp.value, 10);
-    if (!Number.isFinite(v) || v < 0) v = 0;
-    if (v > 14) v = 14;
-    LH_FORM.hours = v;
-    paintLogCardEntry(_myAssignedActiveJobs());
-  });
-  document.getElementById('logcard-h-down').addEventListener('click', () => {
-    LH_FORM.hours = Math.max(0, LH_FORM.hours - 1);
-    paintLogCardEntry(_myAssignedActiveJobs());
-  });
-  document.querySelectorAll('.logcard-min').forEach(b => {
-    b.addEventListener('click', () => {
-      LH_FORM.minutes = Number(b.dataset.m);
-      paintLogCardEntry(_myAssignedActiveJobs());
-    });
-  });
-  document.querySelectorAll('.logcard-chip').forEach(b => {
-    b.addEventListener('click', () => {
-      _setLhFromTotal(Number(b.dataset.h));
-      paintLogCardEntry(_myAssignedActiveJobs());
-    });
-  });
-  document.getElementById('logcard-save').addEventListener('click', saveLogCard);
-  document.getElementById('logcard-edit').addEventListener('click', () => {
-    LH_FORM.editing = true;
-    paintLogCard();
-  });
-  // "Other duration ↓" — toggles the fine-grained hours+minutes editor.
-  // We don't change LH_FORM here; the panel-open state is purely visual
-  // and paintLogCardEntry re-evaluates on every keystroke / chip tap.
-  const otherBtn = document.getElementById('logcard-other-toggle');
-  if (otherBtn) {
-    otherBtn.addEventListener('click', () => {
-      const timePanel = document.getElementById('logcard-time');
-      const isOpen = !timePanel.hidden;
-      timePanel.hidden = isOpen;
-      otherBtn.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
-      otherBtn.textContent = isOpen ? 'Other ↓' : 'Other ↑';
-    });
-  }
-}
-
-// ─── Banner: today's hours, click opens modal ────────────────────────────
-// Reads from MY_TIME_ENTRIES (new system). Returns the date-total, regardless
-// of how many jobs the day was split across.
-function todaysHoursDecimal(){
-  const t = todayIso();
-  const e = MY_TIME_ENTRIES.find(x => x.date === t);
-  return e ? Number(e.totalHours || 0) : 0;
-}
-function todaysEntry(){
-  return MY_TIME_ENTRIES.find(x => x.date === todayIso()) || null;
-}
-function renderBanner(){
-  const b = document.getElementById('banner');
-  const txt = document.getElementById('banner-txt');
-  const sub = document.getElementById('banner-sub');
-  const entry = todaysEntry();
-  const total = entry ? Number(entry.totalHours || 0) : 0;
-  if (total > 0) {
-    b.classList.add('logged');
-    const statusLabel = entry.status === 'approved' ? '✓ Approved'
-                      : entry.status === 'submitted' ? '✓ Submitted'
-                      : entry.status === 'rejected'  ? 'Rejected — fix & resubmit'
-                      : 'Draft';
-    const statusColor = entry.status === 'rejected' ? 'var(--red)'
-                       : entry.status === 'draft'   ? 'var(--muted)'
-                       : 'var(--green)';
-    txt.innerHTML = `Today: ${fmtDur(total)} <span style="color:${statusColor};font-size:13px;font-weight:700;margin-left:4px">${statusLabel}</span>`;
-    sub.textContent =
-      entry.status === 'draft'    ? 'Tap to submit' :
-      entry.status === 'approved' ? 'Tap to view'   :
-      entry.status === 'rejected' ? 'Tap to fix & resubmit' :
-                                    'Tap to edit';
-  } else {
-    b.classList.remove('logged');
-    txt.textContent = `Log today's hours`;
-    sub.textContent = 'Takes 10 seconds';
-  }
-  renderQuickChips();
-}
-
-// ── Hours quick-add chips (Sheet 03 moment 02) ────────────────────────────
-// Show only when:
-//   - there's at least one assigned active job (we know where to allocate)
-//   - the user can still mutate today (not approved, not in the future)
-// Tapping a chip:
-//   - If no entry today → POST a new draft, allocating bumped hours to the
-//     primary assigned job.
-//   - If entry exists and status ≠ approved → PATCH, bumping the first
-//     allocation's hours by the chip amount and recomputing totals.
-//   - On success: refresh MY_TIME_ENTRIES, re-render banner + week strip.
-function _myAssignedActiveJobs() {
-  const ids = new Set(ME && ME.assignedJobIds ? ME.assignedJobIds : []);
-  return JOBS.filter(j => ids.has(j.id) && (j.status || 'active') === 'active');
-}
-function _primaryJobForQuickAdd() {
-  const mine = _myAssignedActiveJobs();
-  if (!mine.length) return null;
-  // Prefer the job we already logged to today (so chips bump that allocation
-  // rather than introducing a second job allocation).
-  const today = todaysEntry();
-  if (today && Array.isArray(today.allocations) && today.allocations.length) {
-    const recent = today.allocations[0].jobId;
-    const match  = mine.find(j => j.id === recent);
-    if (match) return match;
-  }
-  return mine[0];
-}
-function renderQuickChips() {
-  const root = document.getElementById('md-quick');
-  if (!root) return;
-  const mine = _myAssignedActiveJobs();
-  const today = todaysEntry();
-  // Hide if no assigned active job, or today's entry is approved (tradies
-  // can't edit those — they need admin help).
-  if (!mine.length || (today && today.status === 'approved')) {
-    root.hidden = true;
-    return;
-  }
-  root.hidden = false;
-  const meta = document.getElementById('md-quick-meta');
-  const primary = _primaryJobForQuickAdd();
-  if (meta && primary) {
-    const t = today ? Number(today.totalHours || 0) : 0;
-    meta.textContent = (t > 0 ? `+ to ${fmtDur(t)} on ` : 'logs to ') +
-                       (primary.name || 'job');
-    meta.classList.remove('ok', 'err');
-  }
-}
-async function _quickAddHours(deltaHours) {
-  const mine = _myAssignedActiveJobs();
-  if (!mine.length) return;
-  const primary = _primaryJobForQuickAdd();
-  if (!primary) return;
-  const meta = document.getElementById('md-quick-meta');
-  const today = todaysEntry();
-
-  // Build the next entry shape. New: single allocation against the primary
-  // job. Existing: bump the first allocation that targets primary; if none,
-  // append a new allocation.
-  let body;
-  let url, method;
-  if (!today) {
-    body = {
-      date: todayIso(),
-      totalHours: deltaHours,
-      ordinaryHours: deltaHours,
-      overtimeHours: 0,
-      otOverridden: false,
-      allocations: [{ jobId: primary.id, hours: deltaHours }],
-      status: 'draft',
-    };
-    url = '/api/time-entries';
-    method = 'POST';
-  } else {
-    const existing = today;
-    if (existing.status === 'approved') return;
-    const nextTotal = Number(existing.totalHours || 0) + deltaHours;
-    let nextAllocs = (existing.allocations || []).map(a => ({ jobId: a.jobId, hours: Number(a.hours), notes: a.notes }));
-    const idx = nextAllocs.findIndex(a => a.jobId === primary.id);
-    if (idx >= 0) {
-      nextAllocs[idx].hours = Number(nextAllocs[idx].hours || 0) + deltaHours;
-    } else {
-      nextAllocs.push({ jobId: primary.id, hours: deltaHours });
-    }
-    // Round each allocation + total to 2 decimals; rebuild ordinary/overtime
-    // by extending the previous split proportionally so we don't change OT
-    // policy implicitly.
-    const round = n => Math.round(n * 100) / 100;
-    nextAllocs = nextAllocs.map(a => ({ ...a, hours: round(a.hours) }));
-    const sumAlloc = nextAllocs.reduce((s, a) => s + a.hours, 0);
-    const newTotal = round(sumAlloc);
-    const otFrac = existing.totalHours > 0
-      ? Number(existing.overtimeHours || 0) / Number(existing.totalHours)
-      : 0;
-    const overtime = round(newTotal * otFrac);
-    const ordinary = round(newTotal - overtime);
-    body = {
-      totalHours: newTotal,
-      ordinaryHours: ordinary,
-      overtimeHours: overtime,
-      otOverridden: !!existing.otOverridden,
-      allocations: nextAllocs,
-      // If it was rejected, send back as draft for the tradie to re-review
-      // before submitting. If it was submitted, keep it submitted (admin
-      // gets the bumped value and either approves or rejects again).
-      status: existing.status === 'rejected' ? 'draft' : existing.status,
-    };
-    url = '/api/time-entries?date=' + encodeURIComponent(existing.date);
-    method = 'PATCH';
-  }
-
-  // Optimistic UI: disable chips while in flight.
-  const chips = document.querySelectorAll('.md-quick-chip');
-  chips.forEach(c => c.classList.add('busy'));
-  if (meta) { meta.textContent = 'logging…'; meta.classList.remove('ok', 'err'); }
-  try {
-    const r = await fetch(url, {
-      method, credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || 'log failed');
-    // Refresh MY_TIME_ENTRIES from the source of truth + re-render.
-    const fromIso = (() => { const d = isoWeekMonday(); d.setDate(d.getDate() - 14); return _iso(d); })();
-    const teRes = await fetch('/api/time-entries?fromDate=' + encodeURIComponent(fromIso),
-                              { credentials: 'same-origin' });
-    if (teRes.ok) {
-      const td = await teRes.json();
-      MY_TIME_ENTRIES = (td.entries || []);
-    }
-    renderBanner();
-    if (typeof renderMyWeek === 'function') renderMyWeek();
-    if (meta) { meta.textContent = '✓ saved'; meta.classList.add('ok'); }
-    setTimeout(() => { if (meta && meta.classList.contains('ok')) renderQuickChips(); }, 1800);
-  } catch (e) {
-    if (meta) { meta.textContent = 'error · ' + (e.message || 'try again'); meta.classList.add('err'); }
-    setTimeout(() => { if (meta) renderQuickChips(); }, 3000);
-  } finally {
-    chips.forEach(c => c.classList.remove('busy'));
-  }
-}
-function _quickCustomPrompt() {
-  const raw = prompt('How many hours to add? (e.g. 0.25, 1.5)');
-  if (raw == null) return;
-  const v = Number(raw);
-  if (!isFinite(v) || v <= 0 || v > 16) {
-    alert('Hours must be between 0 and 16.'); return;
-  }
-  _quickAddHours(Math.round(v * 100) / 100);
-}
-document.addEventListener('click', (e) => {
-  const chip = e.target.closest && e.target.closest('.md-quick-chip');
-  if (!chip || chip.classList.contains('busy') || chip.disabled) return;
-  const v = chip.getAttribute('data-qh');
-  if (v === 'custom') _quickCustomPrompt();
-  else { const n = Number(v); if (isFinite(n) && n > 0) _quickAddHours(n); }
-});
-
-// ─── Continue where you left off (top 3 unique {jobId,areaId}) ───────────
-function timeAgo(ts){
-  if (!ts) return '—';
-  const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
-  if (s < 60) return 'just now';
-  const m = Math.floor(s/60);
-  if (m < 60) return `${m} min${m!==1?'s':''} ago`;
-  const h = Math.floor(m/60);
-  if (h < 24) return `${h} hr${h!==1?'s':''} ago`;
-  const d = Math.floor(h/24);
-  return `${d} day${d!==1?'s':''} ago`;
-}
-
-// ─── My snags: cross-job list of snags assigned to me ──────────────────
-// Source: /api/snags-mine. Hidden when I have none. Tap a row → deep-links
-// to that job's Snags tab. Sorted by priority then oldest-open first.
-function renderMySnags(){
-  const sec = document.getElementById('mysnags-sec');
-  const list = document.getElementById('mysnags-list');
-  const cnt = document.getElementById('mysnags-count');
-  const bell = document.getElementById('topBell');
-  if (!sec || !list) return;
-  const snags = MY_SNAGS || [];
-  // Pip the top bell when there's anything assigned-to-me OR recently resolved
-  if (bell) {
-    const haveAny = (MY_SNAGS && MY_SNAGS.length) || (MY_RECENT_RESOLVED && MY_RECENT_RESOLVED.length);
-    bell.classList.toggle('has-pip', !!haveAny);
-  }
-  if (!snags.length) { sec.style.display = 'none'; return; }
-  sec.style.display = '';
-  if (cnt) cnt.textContent = String(snags.length);
-  const SHOW = 5;
-  const shown = snags.slice(0, SHOW);
-  list.innerHTML = shown.map(s => {
-    const prio = (s.priority || 'Medium').toLowerCase();
-    const where = s.dwellingName + (s.stage ? ' · ' + s.stage : '');
-    const goJob = `location.href='/jobs/${esc(s.jobId)}#snags'`;
-    return `<div class="snag-row" role="link" tabindex="0" onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
-      <div class="snag-accent ${esc(prio)}"></div>
-      <div class="snag-body">
-        <div class="snag-title">${esc(s.desc || '(no description)')}</div>
-        <div class="snag-meta"><b>${esc(s.jobName)}</b> · ${esc(where)}</div>
-      </div>
-      <span class="snag-prio ${esc(prio)}">${esc(s.priority || 'Medium')}</span>
-    </div>`;
-  }).join('');
-  if (snags.length > SHOW) {
-    list.insertAdjacentHTML('beforeend',
-      `<div style="font-size:12px;color:var(--muted);text-align:center;padding:8px;font-weight:600">
-         +${snags.length - SHOW} more — open a job's Snags tab to see all
-       </div>`);
-  }
-}
-
-// ─── Recently resolved: snags I raised that someone else closed ─────────
-// Source: /api/snags-mine?view=raised&status=Closed, filtered client-side
-// to the last 7 days. This is the in-app mirror of the resolved push, so
-// users without push enabled still see when their issues are fixed.
-function renderRecentResolved(){
-  const sec = document.getElementById('resolved-sec');
-  const list = document.getElementById('resolved-list');
-  const cnt = document.getElementById('resolved-count');
-  if (!sec || !list) return;
-  const snags = MY_RECENT_RESOLVED || [];
-  if (!snags.length) { sec.style.display = 'none'; return; }
-  sec.style.display = '';
-  if (cnt) cnt.textContent = String(snags.length);
-  const SHOW = 5;
-  const shown = snags.slice(0, SHOW);
-  list.innerHTML = shown.map(s => {
-    const where = s.dwellingName + (s.stage ? ' · ' + s.stage : '');
-    const closedTs  = s.closedAt ? Date.parse(s.closedAt) : NaN;
-    const closedAgo = Number.isFinite(closedTs) ? timeAgo(closedTs) : '';
-    const byWhom = s.updatedBy ? ('by ' + s.updatedBy) : 'resolved';
-    const meta = `<b>${esc(s.jobName)}</b> · ${esc(where)} · ${esc(byWhom)}${closedAgo ? ' · ' + esc(closedAgo) : ''}`;
-    const goJob = `location.href='/jobs/${esc(s.jobId)}#snags'`;
-    return `<div class="snag-row" role="link" tabindex="0" onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
-      <div class="snag-accent resolved"></div>
-      <div class="snag-body">
-        <div class="snag-title">&#10003; ${esc(s.desc || '(no description)')}</div>
-        <div class="snag-meta">${meta}</div>
-      </div>
-      <span class="snag-prio resolved">Resolved</span>
-    </div>`;
-  }).join('');
-  if (snags.length > SHOW) {
-    list.insertAdjacentHTML('beforeend',
-      `<div style="font-size:12px;color:var(--muted);text-align:center;padding:8px;font-weight:600">
-         +${snags.length - SHOW} more
-       </div>`);
-  }
-}
-
-// renderActionNeeded was removed in the My-Day simplification — workers
-// now see the unfiltered "Snags assigned to me" / "Recently resolved" /
-// "My week" sections directly. Compliance + rejected-hours alerts surface
-// in the appropriate per-row UIs (T&T tab, My Week row).
-// (no replacement function \u2014 the section is gone from the page)
-
-// ─── My jobs ─────────────────────────────────────────────────────────────
-function jobProgress(job){
-  const d = DATA_BY_JOB[job.id] || { dwellings:{} };
-  const areas = (job.areaGroups || []).flatMap(g => g.areas || []);
-  if (!areas.length) return 0;
-  const rt = job.roughInTasks || [];
-  const ft = job.fitOffTasks  || [];
-  if (!rt.length && !ft.length) return 0;
-  let sum = 0;
-  for (const a of areas) {
-    const rMap = ((d.dwellings[a.id]||{}).roughIn||{}).tasks || {};
-    const fMap = ((d.dwellings[a.id]||{}).fitOff ||{}).tasks || {};
-    const rPct = rt.length ? Math.round(rt.filter(t => rMap[t.id]==='complete').length/rt.length*100) : 0;
-    const fPct = ft.length ? Math.round(ft.filter(t => fMap[t.id]==='complete').length/ft.length*100) : 0;
-    const pct = (rt.length && ft.length) ? Math.round((rPct+fPct)/2)
-             :  rt.length ? rPct : fPct;
-    sum += pct;
-  }
-  return Math.round(sum / areas.length);
-}
-function crewTodayCount(job){
-  // Sourced from /api/time-entries-on-site (new system). Counts distinct users
-  // with a time-entry on this job for today.
-  const snap = CREW_ON_SITE_BY_JOB[job.id];
-  return snap ? Number(snap.count || 0) : 0;
-}
-function openSnagCount(job){
-  const d = DATA_BY_JOB[job.id] || { snags:[] };
-  return (d.snags || []).filter(s => s.status === 'Open').length;
-}
-function renderJobs(){
-  const active = JOBS.filter(j => (j.status || 'active') === 'active');
-  document.getElementById('jobs-count').textContent = String(active.length);
-  const wrap = document.getElementById('jobs-list');
-  if (!active.length) {
-    wrap.innerHTML = `<div class="job-empty"><b>No jobs assigned yet</b><span>Ask an admin to add you to a job</span></div>`;
-    return;
-  }
-  let html = '';
-  active.forEach(j => {
-    const pct = jobProgress(j);
-    const crew = crewTodayCount(j);
-    const sn   = openSnagCount(j);
-    const pinClass = sn > 0 ? 'job-pin snag' : 'job-pin';
-    const dwCount = (j.areaGroups || []).reduce((s,g) => s + ((g.areas || []).length), 0);
-    const sub = [
-      `<span class="job-ref">${esc((j.ref || j.id || '').toUpperCase())}</span>`,
-      dwCount > 0 ? `<span>${dwCount} ${dwCount === 1 ? 'area' : 'areas'}</span>` : '',
-      crew > 0 ? `<span><b>${crew}</b> on site today</span>` : '',
-      sn > 0 ? `<span class="job-snag">${sn} open ${sn === 1 ? 'snag' : 'snags'}</span>` : '',
-    ].filter(Boolean).join('');
-    const goJob = `location.href='/jobs/${esc(j.id)}'`;
-    html += `<a class="job-strip" role="link" tabindex="0" onclick="${goJob}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${goJob}}">
-      <div class="${pinClass}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a8 8 0 0 0-8 8c0 5.5 8 12 8 12s8-6.5 8-12a8 8 0 0 0-8-8z"/><circle cx="12" cy="10" r="3"/></svg>
-      </div>
-      <div class="job-info">
-        <div class="job-name">${esc(j.name)}</div>
-        <div class="job-sub">${sub}</div>
-      </div>
-      <div class="job-pct">
-        <b>${pct}%</b>
-        <div class="mini-bar"><i style="width:${pct}%"></i></div>
-      </div>
-    </a>`;
-  });
-  wrap.innerHTML = html;
-}
-
-// ─── My week ─────────────────────────────────────────────────────────────
-// Actionable per-day list for the worker. Tradies can scan their week, see
-// missing/logged at a glance, and tap any row (today or past) to add or edit
-// hours — same BuhlLogHours modal, prefilled to that date.
-function renderMyWeek(){
-  const wrap = document.getElementById('myweek-list');     // hidden legacy fallback
-  const totalEl = document.getElementById('myweek-total'); // header number in the hero
-  const daysEl = document.getElementById('days');          // 7-cell day strip (brief)
-  const ctaPip = document.getElementById('myweek-cta-pip');
-
+// ── This week ──────────────────────────────────────────────────────────
+// Per-job breakdown of the current ISO week. The 7-day day strip is
+// gone; what a worker actually scans for is "where did my hours go?".
+function paintWeek(){
   const monday = isoWeekMonday();
-  const today  = new Date(); today.setHours(0,0,0,0);
-  const todayIsoStr = todayIso();
+  const totalsByJob = {};   // jobId -> hours
+  const jobNameById = Object.fromEntries(JOBS.map(j => [j.id, j.name]));
+  let weekTotal = 0;
 
-  // Map ISO date → entry (latest if duplicates somehow exist)
-  const byDate = {};
   for (const e of MY_TIME_ENTRIES) {
-    if (e && e.date) byDate[e.date] = e;
-  }
-
-  // Build seven days Mon..Sun
-  const days = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(monday); d.setDate(monday.getDate() + i);
-    const iso = _iso(d);
-    const isFuture = d > today;
-    const isToday  = iso === todayIsoStr;
-    const isWeekend = (d.getDay() === 0 || d.getDay() === 6);
-    const entry = byDate[iso] || null;
-    const hasHours = entry && Number(entry.totalHours || 0) > 0;
-    days.push({ d, iso, isFuture, isToday, isWeekend, entry, hasHours });
-  }
-
-  // Week total (only count days with hours, regardless of weekday)
-  let total = 0;
-  for (const day of days) if (day.hasHours) total += Number(day.entry.totalHours || 0);
-  if (totalEl) {
-    totalEl.textContent = total.toFixed(1);
-  }
-
-  // ── Day strip (brief v1 visual) ──
-  // States per cell: today / logged / draft / missing / weekend / future.
-  // Each tappable cell opens BuhlLogHours pre-filled to that date.
-  if (daysEl) {
-    const dayLabels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    daysEl.innerHTML = days.map((day, i) => {
-      const cls = [];
-      if (day.isToday) cls.push('today');
-      if (day.isWeekend) cls.push('weekend');
-      let qty = '·';
-      if (day.hasHours) {
-        const h = Number(day.entry.totalHours || 0);
-        qty = h.toFixed(1);
-        if (day.entry.status === 'draft') cls.push('draft');
-        else cls.push('logged');
-      } else if (day.isFuture) {
-        qty = '·';
-      } else if (!day.isWeekend) {
-        // Past weekday with no entry — missing
-        cls.push('missing');
-        qty = '—';
+    if (!e || !e.date) continue;
+    const d = new Date(e.date + 'T00:00:00');
+    if (d < monday) continue;
+    if (Array.isArray(e.allocations)) {
+      for (const a of e.allocations) {
+        if (!a || !a.jobId) continue;
+        totalsByJob[a.jobId] = (totalsByJob[a.jobId] || 0) + Number(a.hours || 0);
+        weekTotal += Number(a.hours || 0);
       }
-      const tappable = !day.isFuture;
-      const tap = tappable ? `onclick="openLhForDate('${day.iso}')"` : '';
-      return `<div class="day ${cls.join(' ')}" ${tap}>
-        <span class="day-d">${dayLabels[i]}</span>
-        <span class="day-h${qty === '·' ? ' empty' : ''}">${qty}</span>
-      </div>`;
-    }).join('');
-  }
-
-  // ── Week totals + summary text ──
-  // Brief v1: big hours total (e.g. "31.5h") + smaller sub line ("2 days
-  // not logged yet" / "All caught up" / "No hours yet"). Title and pay-day
-  // pill live INSIDE the card top row now, so we don't need the loose
-  // .sec header chip count anymore.
-  const missingCount = days.filter(d => !d.hasHours && !d.isFuture && !d.isWeekend).length;
-  const hoursTotalEl   = document.getElementById('week-hours-total');
-  const missingBEl     = document.getElementById('week-missing-count');
-  const missingSuffixE = document.getElementById('week-missing-suffix');
-  if (hoursTotalEl) hoursTotalEl.textContent = total.toFixed(1);
-  if (missingBEl && missingSuffixE) {
-    if (missingCount > 0) {
-      missingBEl.textContent = missingCount + (missingCount === 1 ? ' day' : ' days');
-      missingSuffixE.textContent = 'not logged yet';
-    } else if (total > 0) {
-      missingBEl.textContent = 'All caught up';
-      missingSuffixE.textContent = 'for this week';
-    } else {
-      missingBEl.textContent = 'No hours yet';
-      missingSuffixE.textContent = 'this week';
-    }
-  }
-  if (ctaPip) {
-    if (missingCount > 0) {
-      ctaPip.style.display = 'inline-flex';
-      ctaPip.textContent = '+' + missingCount + (missingCount === 1 ? ' day' : ' days');
-    } else {
-      ctaPip.style.display = 'none';
+    } else if (e.totalHours) {
+      weekTotal += Number(e.totalHours || 0);
     }
   }
 
-  // ── Rejected-entries banner ──
-  // Surface inside the week card when 1+ time entries from the current
-  // 7-day window are marked rejected. Tapping the banner opens the
-  // first rejected day's entry pre-filled so the worker can fix
-  // (note → resubmit). Hidden when nothing's rejected.
-  const rejectedDays = days.filter(d => d.entry && d.entry.status === 'rejected');
-  const banner = document.getElementById('myweek-rejected-banner');
-  if (banner) {
-    if (rejectedDays.length > 0) {
-      banner.hidden = false;
-      const title = document.getElementById('myweek-rejected-title');
-      if (title) {
-        const n = rejectedDays.length;
-        title.textContent = n + ' rejected entr' + (n === 1 ? 'y' : 'ies');
-      }
-      banner.onclick = () => openLhForDate(rejectedDays[0].iso);
-    } else {
-      banner.hidden = true;
-      banner.onclick = null;
-    }
-  }
+  document.getElementById('wk-total').textContent = fmtHours(weekTotal) + ' hrs';
 
-  // ── Pay-day pill (brief v1) — Thursday weekly per the original spec ──
-  const payChip = document.getElementById('week-pay');
-  const payText = document.getElementById('week-pay-text');
-  if (payChip && payText) {
-    const now = new Date();
-    const dow = now.getDay(); // 0=Sun .. 6=Sat
-    const daysToThu = ((4 - dow) + 7) % 7; // 4=Thu
-    let label = '';
-    if (daysToThu === 0) label = 'Pay day today';
-    else if (daysToThu === 1) label = 'Pay day tomorrow';
-    else label = 'Pay day in ' + daysToThu + ' days';
-    payText.textContent = label;
-    payChip.style.display = 'inline-flex';
-  }
+  const entries = Object.entries(totalsByJob)
+    .sort((a,b) => b[1] - a[1])
+    .filter(([, h]) => h > 0);
 
-  // "Submit all drafts" chip — only render when 2+ drafts in this week's view
-  // (a single-draft tradie can submit it inline by tapping the row).
-  const draftCount = days.filter(d => d.entry && d.entry.status === 'draft').length;
-  const submitBtn = document.getElementById('myweek-submit-drafts');
-  if (submitBtn) {
-    if (draftCount >= 2) {
-      submitBtn.textContent = 'Submit ' + draftCount + ' drafts';
-      submitBtn.style.display = '';
-      submitBtn.disabled = false;
-    } else {
-      submitBtn.style.display = 'none';
-    }
+  const list = document.getElementById('wk-list');
+  if (!entries.length) {
+    list.innerHTML = '<div class="empty"><b>No hours yet this week</b>Tap the yellow card to log your day.</div>';
+    return;
   }
-
-  // Legacy #myweek-list fallback is now hidden — the brief's day strip
-  // above is the single source of truth for the week display.
-  if (wrap) wrap.innerHTML = '';
+  list.innerHTML = entries.map(([jobId, hrs]) => {
+    const name = jobNameById[jobId] || jobId;
+    const job  = JOBS.find(j => j.id === jobId);
+    const meta = job ? (job.ref || job.id || '').toUpperCase() : '';
+    return `<a class="phil-row" href="/jobs/${esc(jobId)}">
+      <div class="phil-row-l">
+        <div class="phil-row-title">${esc(name)}</div>
+        ${meta ? `<div class="phil-row-meta">${esc(meta)}</div>` : ''}
+      </div>
+      <div class="phil-row-num">${fmtHours(hrs)}h</div>
+    </a>`;
+  }).join('');
 }
 
-// ─── After-render side-effects ───────────────────────────────────────────
-function afterRenderChecks(){
-  const params = new URLSearchParams(location.search);
-
-  // ?fixDate=YYYY-MM-DD — landing from a "Hours rejected" push. Auto-open
-  // BuhlLogHours pre-filled to that date so the tradie can edit and resubmit
-  // without hunting the right row in My Week. Consume the param so a refresh
-  // doesn't keep reopening the modal.
-  const fixDate = params.get('fixDate');
-  if (fixDate && /^\d{4}-\d{2}-\d{2}$/.test(fixDate)) {
-    setTimeout(() => openLhForDate(fixDate), 350);
-    params.delete('fixDate');
-    const qs = params.toString();
-    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
-    return; // mutually exclusive with the everyday opener below
-  }
-
-  // Auto-open modal if after 16:00 and no hours logged today.
-  // Or if landing from push notification ?openHours=1.
-  const fromPush = params.get('openHours') === '1';
-  const after4 = new Date().getHours() >= 16;
-  const noneLogged = todaysHoursDecimal() === 0;
-  if ((fromPush || after4) && noneLogged) {
-    setTimeout(openLh, 400);
-  }
-  // After 5s, show push opt-in if eligible & not dismissed/enabled before
-  if (pushEligible() && !localStorage.getItem('push-asked')) {
-    setTimeout(() => {
-      if (!localStorage.getItem('push-asked')) {
-        document.getElementById('push-opt').classList.add('open');
-      }
-    }, 5000);
-  }
-}
-
-// ─── Log-hours opener ────────────────────────────────────────────────────
-// Phase 2: writes go through /api/time-entries via BuhlLogHours (log-hours-sheet.js).
-// Legacy /api/hours is no longer the source of truth for self-logged hours.
-
-// Most recently touched job — the modal pre-fills with this so the tradie
-// doesn't have to pick on the common single-job case.
-function _scheduledJobIdHint(){
+// ── My jobs ────────────────────────────────────────────────────────────
+function paintJobs(){
   const active = JOBS.filter(j => (j.status || 'active') === 'active');
-  if (active.length === 1) return active[0].id;
-  for (const e of ACTIVITY) {
-    if (active.find(j => j.id === e.jobId)) return e.jobId;
-  }
-  return active[0]?.id || null;
-}
+  document.getElementById('jobs-count').textContent =
+    active.length + (active.length === 1 ? ' job' : ' jobs');
 
-async function _refreshAfterTimeEntrySave(savedEntry, meta){
-  // log-hours-sheet now signals offline-persistence via meta.queued = true
-  // when BuhlQueue holds onto the write. Surface that to the user — silent
-  // success would leave them wondering why their hours aren't in the list.
-  if (meta && meta.queued && window.showToast) {
-    showToast('Hours queued offline · will sync when online.', 'warn', 3500);
-  }
-  // Re-fetch my time-entries window (Mon-2w..today) and re-render dependent strips.
-  const fromIso = (() => {
-    const d = isoWeekMonday();
-    d.setDate(d.getDate() - 14);
-    return _iso(d);
-  })();
-  try {
-    const r = await fetch('/api/time-entries?fromDate=' + encodeURIComponent(fromIso), { credentials: 'same-origin' });
-    MY_TIME_ENTRIES = r.ok ? (((await r.json()).entries) || []) : MY_TIME_ENTRIES;
-  } catch (e) { /* keep existing */ }
-  paintLogCard();
-  renderBanner();
-  renderMyWeek();
-}
-
-function openMyDayLog(){
-  if (!window.BuhlLogHours) {
-    showToast && showToast('Log-hours module not loaded — refresh the page.', 'warn');
+  const list = document.getElementById('jobs-list');
+  if (!active.length) {
+    list.innerHTML = '<div class="empty"><b>No jobs assigned yet</b>Ask an admin to add you to a job.</div>';
     return;
   }
-  // If today's entry already exists, open it for edit; otherwise create
-  const existing = todaysEntry();
-  BuhlLogHours.open({
-    scheduledJobId: _scheduledJobIdHint(),
-    entry: existing || undefined,
-    onSaved: _refreshAfterTimeEntrySave,
-  });
+  // Recently-touched job (from time entries) gets the "today" pill.
+  const today = todayIso();
+  const todayEntry = MY_TIME_ENTRIES.find(e => e && e.date === today);
+  const onTodayJobId = todayEntry && Array.isArray(todayEntry.allocations) && todayEntry.allocations.length
+    ? [...todayEntry.allocations].sort((a,b) => (b.hours||0) - (a.hours||0))[0].jobId
+    : null;
+
+  list.innerHTML = active.map(j => {
+    const ref = (j.ref || j.id || '').toUpperCase();
+    const isToday = j.id === onTodayJobId;
+    const pill = isToday ? '<span class="pill yellow">today</span>' : '';
+    return `<a class="phil-row" href="/jobs/${esc(j.id)}">
+      <div class="avatar">${esc(initials(j.name))}</div>
+      <div class="phil-row-l">
+        <div class="phil-row-title">${esc(j.name)}</div>
+        ${ref ? `<div class="phil-row-meta">${esc(ref)}</div>` : ''}
+      </div>
+      ${pill}
+      <span class="arrow">›</span>
+    </a>`;
+  }).join('');
 }
 
-function openLhForDate(iso){
-  if (!window.BuhlLogHours) {
-    showToast && showToast('Log-hours module not loaded — refresh the page.', 'warn');
-    return;
-  }
-  const existing = MY_TIME_ENTRIES.find(e => e.date === iso) || null;
-  BuhlLogHours.open({
-    scheduledJobId: _scheduledJobIdHint(),
-    defaultDate: iso,
-    entry: existing || undefined,
-    onSaved: _refreshAfterTimeEntrySave,
-  });
-}
-
-// Bulk-submit every draft entry from the current week (Mon..Sun).
-// Tradies often log multiple days throughout the week as drafts then submit
-// the whole week on Friday — this turns N taps into 1.
-async function submitAllDrafts(){
-  const monday = isoWeekMonday();
-  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
-  const fromIso = _iso(monday), toIso = _iso(sunday);
-  const drafts = MY_TIME_ENTRIES.filter(e =>
-    e && e.status === 'draft' && e.date >= fromIso && e.date <= toIso
-  );
-  if (!drafts.length) return;
-  if (!confirm('Submit ' + drafts.length + ' draft entr' + (drafts.length === 1 ? 'y' : 'ies') + ' for approval?')) return;
-
-  const btn = document.getElementById('myweek-submit-drafts');
-  if (btn) { btn.disabled = true; btn.textContent = 'Submitting 0/' + drafts.length + '…'; }
-
-  let ok = 0, failed = 0, queued = 0;
-  // Sequential to keep stable progress text and avoid hammering blob writes.
-  // Use BuhlQueue.fetch when available so a draft submit on a flaky 3G
-  // connection persists to IndexedDB instead of vanishing — the queue
-  // drains automatically once the phone's back online.
-  const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
-  for (let i = 0; i < drafts.length; i++) {
-    const e = drafts[i];
-    if (btn) btn.textContent = 'Submitting ' + (i + 1) + '/' + drafts.length + '…';
-    try {
-      const r = await fetcher('/api/time-entries?date=' + encodeURIComponent(e.date), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ status: 'submitted' }),
-      });
-      // 202 from the queue = persisted offline, will replay when online.
-      if (r && r.status === 202) queued++;
-      else if (r && r.ok) ok++;
-      else failed++;
-    } catch (_) { failed++; }
-  }
-
-  if (btn) btn.textContent = 'Done';
-  if (failed > 0 && window.showToast) {
-    showToast('Submitted ' + ok + ', failed ' + failed + '. Check the rejected/draft rows below.', 'warn', 4500);
-  } else if (queued > 0 && window.showToast) {
-    // Queued offline — will sync on next online tick. Tell the user so
-    // they don't refresh and re-submit (which would just re-queue).
-    const part = ok > 0 ? (ok + ' submitted · ') : '';
-    showToast(part + queued + ' queued offline · will sync when online.', 'warn', 4500);
-  } else if (window.showToast) {
-    showToast('Submitted ' + ok + ' entries for approval.', 'success');
-  }
-  await _refreshAfterTimeEntrySave();
-}
-
-// ─── Push notifications ──────────────────────────────────────────────────
-function pushEligible(){
-  return 'serviceWorker' in navigator &&
-         'PushManager'    in window &&
-         'Notification'   in window &&
-         Notification.permission !== 'denied' &&
-         Notification.permission !== 'granted';  // only ask if default/unset
-}
-function dismissPush(){
-  document.getElementById('push-opt').classList.remove('open');
-  localStorage.setItem('push-asked', 'dismissed');
-}
-async function enablePush(){
-  document.getElementById('push-opt').classList.remove('open');
-  localStorage.setItem('push-asked', 'trying');
-  try {
-    // Fetch VAPID public key from server (set via env var VAPID_PUBLIC_KEY)
-    const kr = await fetch('/api/notifications?action=public-key', { credentials: 'same-origin' });
-    if (!kr.ok) throw new Error('push not configured');
-    const { publicKey } = await kr.json();
-    if (!publicKey) throw new Error('no VAPID key');
-    const reg = await navigator.serviceWorker.register('/sw.js');
-    const perm = await Notification.requestPermission();
-    if (perm !== 'granted') {
-      localStorage.setItem('push-asked', 'denied');
-      return;
-    }
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
-    });
-    // Route through BuhlQueue so a subscribe-while-offline persists and
-    // syncs once the device reconnects. replaceKey keyed on endpoint
-    // collapses duplicates if the user re-enables push later.
-    const fetcher = (window.BuhlQueue && window.BuhlQueue.fetch) || window.fetch.bind(window);
-    await fetcher('/api/notifications?action=subscribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      replaceKey: 'push-subscribe:' + (sub && sub.endpoint || ''),
-      body: JSON.stringify(sub),
-    });
-    localStorage.setItem('push-asked', 'enabled');
-  } catch (e) {
-    console.warn('push subscribe failed', e);
-    localStorage.setItem('push-asked', 'error');
-  }
-}
-function urlBase64ToUint8Array(base64){
-  const padding = '='.repeat((4 - base64.length % 4) % 4);
-  const b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const raw = atob(b64);
-  const out = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; ++i) out[i] = raw.charCodeAt(i);
-  return out;
-}
-
-// Register SW on load (separate from push opt-in — needed for manifest install)
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
-  });
-}
-
-// ─── Sign out ────────────────────────────────────────────────────────────
-document.getElementById('logout').addEventListener('click', async () => {
-  await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' });
-  location.href = '/login';
-});
-
-// ─── Me action sheet ─────────────────────────────────────────────────────
-// Replaces the previous "Me" tab behaviour (instant logout on tap). Now:
-// tap "Me" → bottom sheet shows identity + a guarded Sign out + Cancel.
-// Sign out flow goes through the existing #logout handler so all
-// teardown behaviour (cookie clear + redirect) stays in one place.
-function setupMeSheet() {
-  const tab    = document.getElementById('tab-me');
-  const scrim  = document.getElementById('me-scrim');
+// ── Me sheet ───────────────────────────────────────────────────────────
+function setupMeSheet(){
+  const tab = document.getElementById('tab-me');
+  const scrim = document.getElementById('me-scrim');
   const cancel = document.getElementById('me-cancel');
   const signOut = document.getElementById('me-signout');
   const nameEl = document.getElementById('me-who-name');
   const roleEl = document.getElementById('me-who-role');
   const avEl   = document.getElementById('me-avatar');
   if (!tab || !scrim) return;
-  // Identity — pulled from the in-memory ME object that auth resolves.
+
   const name = (ME && ME.username) || 'You';
   const roleLabel = ME && ME.role === 'leadingHand' ? 'Leading hand'
-                  : ME && ME.role === 'admin' ? 'Admin'
                   : ME && ME.role === 'tradie' ? 'Tradie'
-                  : ME && ME.role === 'client' ? 'Client'
                   : '';
   nameEl.textContent = name;
   roleEl.textContent = roleLabel;
-  // Initials in the avatar circle.
-  const initials = String(name).split(/[\s._-]+/).filter(Boolean).slice(0, 2)
-    .map(w => w[0]).join('').toUpperCase() || '?';
-  avEl.textContent = initials;
-  // Open + close handlers.
-  function open()  { scrim.hidden = false; document.body.style.overflow = 'hidden'; }
-  function close() { scrim.hidden = true;  document.body.style.overflow = ''; }
+  avEl.textContent = initials(name);
+
+  const open  = () => { scrim.hidden = false; document.body.style.overflow = 'hidden'; };
+  const close = () => { scrim.hidden = true;  document.body.style.overflow = ''; };
   tab.addEventListener('click', open);
   cancel.addEventListener('click', close);
   scrim.addEventListener('click', e => { if (e.target === scrim) close(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !scrim.hidden) close(); });
-  signOut.addEventListener('click', () => {
-    // Funnel through the existing handler so cookie clear stays consistent.
-    document.getElementById('logout').click();
+  signOut.addEventListener('click', async () => {
+    await fetch('/api/auth?action=logout', { method:'POST', credentials:'same-origin' });
+    location.href = '/login';
   });
 }
 
-// Auto-hide the "My gear" tab when the user POSITIVELY has zero assets.
-// The tab defaults to visible — a fetch failure should never silently
-// remove functionality. We only hide when /api/assets returns OK with
-// an empty list, and we collapse the tabbar to 2 columns so the
-// remaining tabs stay evenly sized.
-async function loadAndApplyGearTabVisibility() {
-  // Admins are redirected from /my-gear → /admin/assets anyway. Clients
-  // have no business in My Gear. Both keep the tab visible as a no-op.
-  if (!ME || ME.role === 'admin' || ME.role === 'client') return;
-  try {
-    const r = await fetch('/api/assets', { credentials: 'same-origin' });
-    if (!r.ok) return; // network/auth flake — leave tab visible
-    const j = await r.json();
-    const heldCount = (j.assets || []).filter(a => !a.archived).length;
-    if (heldCount === 0) {
-      const tab = document.getElementById('tab-gear');
-      const bar = document.getElementById('tabbar');
-      if (tab) tab.hidden = true;
-      if (bar) bar.style.gridTemplateColumns = 'repeat(2,1fr)';
-    }
-    // else: tab stays visible (default)
-  } catch (e) { /* silent — leave tab visible */ }
-}
+// Toast helper — log-hours-sheet expects window.showToast.
+window.showToast = window.showToast || function(msg, kind, ms){
+  if (!msg) return;
+  let stack = document.getElementById('toast-stack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'toast-stack';
+    stack.style.cssText = 'position:fixed;left:0;right:0;bottom:96px;z-index:200;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none';
+    document.body.appendChild(stack);
+  }
+  const el = document.createElement('div');
+  el.textContent = String(msg);
+  el.style.cssText = 'background:' + (kind === 'error' ? '#c0312f' : '#0d1b34') + ';color:#fff;padding:9px 16px;border-radius:6px;font-size:13px;font-weight:600;box-shadow:0 6px 16px rgba(13,27,52,.18);pointer-events:auto';
+  stack.appendChild(el);
+  setTimeout(() => { el.style.transition = 'opacity .2s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 220); }, ms || (kind === 'error' ? 4200 : 2400));
+};
 
 load();
-
-// Pull-to-refresh — tightened to avoid false triggers. The original
-// implementation (PR #189) armed on every touchstart at scrollY=0 and
-// updated the indicator height on every touchmove with dy > 8px. That
-// meant a tap with normal finger drift (10–20px downward) flashed the
-// indicator briefly, which read as a glitch — the user reported the
-// app "feels broken".
-//
-// Fixes:
-//   1. Don't arm if the touchstart target is interactive (button,
-//      input, anchor, [role=button]). Those elements handle their
-//      own taps; PTR shouldn't compete.
-//   2. Lift the visible threshold to 32px so accidental drift never
-//      renders the indicator.
-//   3. Keep the commit threshold at 64px so an intentional pull is
-//      still required to fire.
-(function initPullToRefresh(){
-  const ptr = document.getElementById('ptr');
-  if (!ptr) return;
-  const VISIBLE_PX = 32;
-  const TRIGGER_PX = 64;
-  let startY = 0, deltaY = 0, dragging = false;
-
-  function isInteractive(el) {
-    if (!el || el === document.body) return false;
-    const tag = el.tagName;
-    if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'A' || tag === 'LABEL') return true;
-    if (el.getAttribute && el.getAttribute('role') === 'button') return true;
-    if (el.classList && (el.classList.contains('day') || el.classList.contains('logcard-chip') || el.classList.contains('logcard-min'))) return true;
-    return isInteractive(el.parentElement);
-  }
-
-  document.addEventListener('touchstart', (e) => {
-    if (window.scrollY > 0) return;
-    if (isInteractive(e.target)) return;
-    const t = e.touches[0];
-    startY = t.clientY;
-    deltaY = 0;
-    dragging = true;
-  }, { passive: true });
-
-  document.addEventListener('touchmove', (e) => {
-    if (!dragging) return;
-    const dy = e.touches[0].clientY - startY;
-    if (dy < VISIBLE_PX) {
-      // Below the visible threshold — keep the indicator hidden so
-      // accidental finger drift never flashes a "Pull to refresh"
-      // overlay. Disarm if the user is actually moving up (vertical
-      // scroll) so we don't keep listening for the rest of the gesture.
-      if (dy < 0) dragging = false;
-      return;
-    }
-    deltaY = Math.min(dy, 120);
-    ptr.style.height = (deltaY - VISIBLE_PX) + 'px';
-    ptr.classList.toggle('armed', deltaY >= TRIGGER_PX);
-    const lbl = ptr.querySelector('.ptr-label');
-    if (lbl) lbl.textContent = deltaY >= TRIGGER_PX ? 'Release to refresh' : 'Pull to refresh';
-  }, { passive: true });
-
-  document.addEventListener('touchend', () => {
-    if (!dragging) return;
-    dragging = false;
-    if (deltaY >= TRIGGER_PX){
-      ptr.classList.add('loading');
-      ptr.classList.remove('armed');
-      ptr.style.height = '';
-      const lbl = ptr.querySelector('.ptr-label');
-      if (lbl) lbl.textContent = 'Refreshing…';
-      try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) {}
-      load().finally(() => {
-        ptr.classList.remove('loading');
-        ptr.style.height = '';
-      });
-    } else {
-      ptr.style.height = '';
-      ptr.classList.remove('armed');
-    }
-  });
-})();
 </script>
 </body>
 </html>
