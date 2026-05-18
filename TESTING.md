@@ -88,9 +88,13 @@ Login as a tradie account (4-digit PIN).
 
 Run all tradie tests above. Additionally:
 - [ ] Worker tab bar is visible on `/jobs/:id`.
-- [ ] Hamburger menu on Workspace exposes the same items as for a tradie (LH gets the same field-focused view; admin tools live in BuhlOS).
+- [ ] Header sub-line on `/jobs/:id` reads "WORKSPACE · &lt;REF&gt;" (same as tradie).
+- [ ] Hamburger menu on Workspace shows (LH parity, field-focused):
+  - **Visible:** Snags · **Hours** (field supervision) · Photos & ITP · **ITPs** (triage) · Plans · **Materials** · Contacts · ← My Day · Edit job setup · Admin operations · Sign out
+  - **Hidden:** Temps · Test & Tag (specialist registers — admin / certified-staff surfaces, live in BuhlOS)
 - [ ] "Crew today" Dashboard pip / "Triage snags" pip render in the secondary row (LH-only).
 - [ ] LH can write to assigned jobs (tasks, snags, hours, photos).
+- [ ] Me sheet on Workspace opens with profile preview + Onboarding link + guarded Sign out — same protected pattern as a tradie.
 
 ---
 

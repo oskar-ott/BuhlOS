@@ -2903,6 +2903,39 @@ async function bootstrapAuth() {
     }
   }
 
+  // Leading-hand parity — LH supervises field work but isn't a full
+  // admin. Brief: "Leading hands may see more than tradies, but still
+  // keep it field-focused."
+  //
+  //   Keep visible for LH:
+  //     · Hours table        — field supervision (verify crew hours
+  //                            before submission)
+  //     · ITPs cross-register — triage across dwellings
+  //     · Materials           — already revealed above
+  //
+  //   Hidden for LH:
+  //     · Temps     — specialist register (admin/certified-staff job)
+  //     · Test & Tag — specialist register (T&T-licensed admin job)
+  //
+  // Previously LH saw the entire menu, which was inconsistency by
+  // accident — every other Phil surface treats LH as field-side. This
+  // closes the gap.
+  if (CURRENT_USER.role === 'leadingHand') {
+    const tempsBtn = document.querySelector('.nav-menu-item[data-sec="temps"]');
+    if (tempsBtn) tempsBtn.style.display = 'none';
+    const tagsBtn = document.querySelector('.nav-menu-item[data-sec="tags"]');
+    if (tagsBtn) tagsBtn.style.display = 'none';
+    // Workspace context — LH sees the same WORKSPACE sub-line as
+    // tradies. Operationally they ARE working on this one job's
+    // surface; admin / supervisor framing belongs in /lh-home and
+    // /admin/operations, not in the Workspace header.
+    const subEl = document.getElementById('hdr-sub');
+    if (subEl && CURRENT_JOB) {
+      const ref = (CURRENT_JOB.ref || CURRENT_JOB.id || '').toUpperCase();
+      subEl.textContent = ref ? 'WORKSPACE · ' + ref : 'WORKSPACE';
+    }
+  }
+
   // Worker quick-action FAB — tradies and leading hands get the always-visible
   // "+ Raise snag" / "Log hours" pair; clients and admin do not. Toggling via
   // data-active keeps the markup but hidden behind a CSS rule when off.
