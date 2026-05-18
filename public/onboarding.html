@@ -103,6 +103,14 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .ready-card.ok .ready-ring{background:var(--green)}
 .ready-card.ok .ready-ring::before{background:var(--green-bg)}
 .ready-card.ok .ready-ring-l{color:var(--green)}
+/* .attn flips the hero to a red-tinted state when at least one
+   compliance record is expired. Reads as "deal with this now" — the
+   neutral ring + "Almost there" wording wasn't pointed enough when
+   the worker is actually non-compliant. */
+.ready-card.attn{background:linear-gradient(160deg,#fef6f5,#fbeceb);border-color:var(--red-bd)}
+.ready-card.attn .ready-ring{background:var(--red)}
+.ready-card.attn .ready-ring::before{background:var(--red-bg)}
+.ready-card.attn .ready-ring-l{color:var(--red)}
 .ready-l{
   font-family:"JetBrains Mono",monospace;font-size:10px;font-weight:600;
   color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase;
@@ -381,19 +389,51 @@ function buildProfile() {
 }
 
 function buildCompliance() {
-  // License + cert tracking has no worker-facing storage yet; admin
-  // keeps the canonical copies in office records. Surfaced here as
-  // 'admin' state — distinct from 'done' / 'todo' so the readiness
-  // ring doesn't count these as the worker's responsibility, AND
-  // doesn't paint them as confirmed when they haven't been verified.
-  // The wording is intentionally non-committal: "with admin" not
-  // "on file" — we don't know that admin actually has the docs.
-  return [
-    { id:'whitecard', title:'White card',         state:'admin', meta:'lodge with admin · 2-year validity' },
-    { id:'electrical',title:'Electrical license', state:'admin', meta:'lodge with admin · A-grade SA / equivalent' },
-    { id:'firstaid',  title:'First aid',          state:'admin', meta:'lodge with admin · 3-year validity' },
-    { id:'ewp',       title:'EWP · scissor lift', state:'admin', meta:'lodge with admin · if applicable' },
-  ];
+  // Reads licence/cert records from ME.licences (the field that
+  // /api/users PUT now accepts). Admin/LH writes there as records
+  // are lodged; this page surfaces the real state.
+  //
+  // Per-item state:
+  //   'admin' — no record yet for this licence type. Not blocked on
+  //             the worker; wording stays non-committal.
+  //   'done'  — record present, valid (or no expiry).
+  //   'warn'  — record present, expires in <= 30 days.
+  //   'todo'  — record present but expired. Worker action required.
+  const lic = (ME && ME.licences) || {};
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  const soonIso = new Date(today.getTime() + 30 * 86400000).toISOString().slice(0, 10);
+
+  function stateFor(rec) {
+    if (!rec || typeof rec !== 'object') {
+      return null; // signals 'admin' state
+    }
+    if (!rec.expiresAt) {
+      return { state:'done', meta:'on file · no expiry' };
+    }
+    if (rec.expiresAt < todayIso) {
+      return { state:'todo', meta:'expired ' + rec.expiresAt + ' · renew' };
+    }
+    if (rec.expiresAt < soonIso) {
+      return { state:'warn', meta:'expires ' + rec.expiresAt };
+    }
+    return { state:'done', meta:'expires ' + rec.expiresAt };
+  }
+
+  const adminFallbacks = {
+    whitecard:  { title:'White card',         meta:'lodge with admin · 2-year validity' },
+    electrical: { title:'Electrical licence', meta:'lodge with admin · A-grade SA / equivalent' },
+    firstaid:   { title:'First aid',          meta:'lodge with admin · 3-year validity' },
+    ewp:        { title:'EWP · scissor lift', meta:'lodge with admin · if applicable' },
+  };
+
+  return Object.entries(adminFallbacks).map(([id, defaults]) => {
+    const derived = stateFor(lic[id]);
+    if (!derived) {
+      return { id, title: defaults.title, state:'admin', meta: defaults.meta };
+    }
+    return { id, title: defaults.title, ...derived };
+  });
 }
 
 function buildGear() {
@@ -450,43 +490,83 @@ function render(){
   renderList(compliance, 'compliance-list');
   renderList(gear, 'gear-list');
 
-  // Two-tier readiness:
-  //   1. Self-service: profile + gear — items the worker can directly
-  //      resolve (or chase a specific admin update for).
-  //   2. Admin-confirmed: licenses + certs — held in office records,
-  //      no worker-facing storage yet, no verification surface.
+  // Readiness logic — counts items in three classes:
+  //   'done' / 'warn'  → confirmed (warn = expiring soon, still valid)
+  //   'todo'           → action needed (expired, missing assignment, …)
+  //   'admin'          → admin hasn't recorded yet; not blocked on worker
   //
-  // The hero ring + label reflect ONLY the self-service tier. We
-  // never say "Ready for site" until admin compliance is observable,
-  // because that would mislead the worker (and downstream compliance)
-  // into thinking a check has happened that hasn't. Until then the
-  // best honest label is "Profile complete · awaiting compliance".
-  const trackable = [...profile, ...gear];
-  const done  = trackable.filter(i => i.state === 'done').length;
+  // Hero state ladder:
+  //   1. Any compliance item EXPIRED ('todo' in compliance) → "Action needed"
+  //      with the red ring tint and a clear instruction.
+  //   2. Profile + gear incomplete → "Almost there" with the per-item count.
+  //   3. Profile + gear done, but admin hasn't recorded any compliance
+  //      yet → "Profile complete · compliance with admin" (neutral ring).
+  //   4. Profile + gear done AND all recorded compliance is valid (done
+  //      or warn — admin already knows about the expiry) → "Ready for
+  //      site" with the green ring. Honest now: this only fires when
+  //      compliance is actually observable.
+  const profileGear = [...profile, ...gear];
+  const profileGearDone = profileGear.every(i => i.state === 'done' || i.state === 'warn');
+  const profileGearDoneCount = profileGear.filter(i => i.state === 'done' || i.state === 'warn').length;
+  const profileGearTotal = profileGear.length;
+
+  const complianceRecorded = compliance.filter(c => c.state !== 'admin');
+  const complianceExpired  = compliance.filter(c => c.state === 'todo');
+  const complianceValid    = complianceRecorded.every(c => c.state === 'done' || c.state === 'warn');
+  const hasAnyCompliance   = complianceRecorded.length > 0;
+
+  // Numerator counts only items that ARE in confirmed state. Denominator
+  // is profile + gear + (recorded compliance). Admin-state compliance
+  // doesn't pad the total either — surfacing "0/8" when admin hasn't
+  // touched a worker yet would look broken.
+  const trackable = [...profileGear, ...complianceRecorded];
+  const done  = trackable.filter(i => i.state === 'done' || i.state === 'warn').length;
   const total = trackable.length;
   const pctDeg = total ? (done / total) * 360 : 0;
-  const profileComplete = done === total;
 
   const ring = document.getElementById('ready-ring');
   ring.style.setProperty('--pct', pctDeg + 'deg');
   document.getElementById('ready-ring-l').textContent = done + '/' + total;
 
-  if (profileComplete) {
+  // Reset any state-classes the previous render added.
+  const card = document.getElementById('ready-card');
+  card.classList.remove('ok', 'attn');
+
+  if (complianceExpired.length) {
+    document.getElementById('ready-t').textContent  = 'Action needed';
+    document.getElementById('ready-sub').textContent =
+      complianceExpired.length + ' compliance item' + (complianceExpired.length === 1 ? '' : 's') + ' expired · renew below';
+    document.getElementById('hdr-sub').textContent  = 'ACTION NEEDED · COMPLIANCE EXPIRED';
+    card.classList.add('attn');
+  } else if (!profileGearDone) {
+    const left = profileGearTotal - profileGearDoneCount;
+    document.getElementById('ready-t').textContent  = 'Almost there';
+    document.getElementById('ready-sub').textContent =
+      left + ' item' + (left === 1 ? '' : 's') + ' to chase admin on';
+    document.getElementById('hdr-sub').textContent  = 'READINESS · ' + done + '/' + total;
+  } else if (!hasAnyCompliance) {
+    // Profile + gear are done but admin hasn't recorded a single licence
+    // yet. Don't claim "Ready for site" — stay honest until at least
+    // one record lands.
     document.getElementById('ready-t').textContent  = 'Profile complete';
     document.getElementById('ready-sub').textContent =
       'Compliance docs sit with admin · not yet verified here.';
     document.getElementById('hdr-sub').textContent  = 'PROFILE COMPLETE · COMPLIANCE WITH ADMIN';
-  } else {
-    document.getElementById('ready-t').textContent  = 'Almost there';
-    const left = total - done;
+  } else if (complianceValid) {
+    // True ready: every confirmed item is valid OR warn (admin knows).
+    document.getElementById('ready-t').textContent  = 'Ready for site';
     document.getElementById('ready-sub').textContent =
-      left + ' item' + (left === 1 ? '' : 's') + ' to chase admin on';
+      'Profile, gear and compliance all current.';
+    document.getElementById('hdr-sub').textContent  = 'READY FOR SITE';
+    card.classList.add('ok');
+  } else {
+    // Fallback — should be unreachable, but keep a sensible default
+    // rather than letting the previous render's text persist.
+    document.getElementById('ready-t').textContent  = 'Almost there';
+    document.getElementById('ready-sub').textContent =
+      (total - done) + ' item' + ((total - done) === 1 ? '' : 's') + ' to chase admin on';
     document.getElementById('hdr-sub').textContent  = 'READINESS · ' + done + '/' + total;
   }
-  // The .ok green-tint flips ONLY when both tiers can be confirmed.
-  // Until the license backend lands, that's never — so the hero stays
-  // neutral. Intentional.
-  document.getElementById('ready-card').classList.remove('ok');
 
   // Per-section state pills
   document.getElementById('profile-state').textContent =

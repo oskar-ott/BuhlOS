@@ -133,7 +133,7 @@ module.exports = async (req, res) => {
   }
 
   if (req.method === 'PUT') {
-    const { id, assignedJobIds, hourlyRate, secret, username, email, xeroEmployeeId } = req.body || {};
+    const { id, assignedJobIds, hourlyRate, secret, username, email, xeroEmployeeId, licences } = req.body || {};
     const user = data.users.find(u => u.id === id);
     if (!user) return res.status(404).json({ error: 'user not found' });
 
@@ -159,6 +159,41 @@ module.exports = async (req, res) => {
         return res.status(400).json({ error: 'invalid email' });
       }
       user.email = trimmed || undefined;
+    }
+    // Licences — compliance/cert records lodged with admin. Open object
+    // keyed by licence type (whitecard, electrical, firstaid, ewp, ...)
+    // with values like { expiresAt: 'YYYY-MM-DD', number?: '...', notes?: '...' }.
+    // /my-day's onboarding page reads this to flip compliance items from
+    // 'admin' state (not yet recorded) to 'done' / 'warn' / 'todo' (expired)
+    // based on the dates here. Admin/LH writes via this PUT. Worker
+    // upload flow is intentionally deferred — admin holds the originals.
+    if (licences !== undefined) {
+      if (licences === null) {
+        user.licences = undefined;
+      } else if (typeof licences === 'object' && !Array.isArray(licences)) {
+        const validated = {};
+        for (const [key, val] of Object.entries(licences)) {
+          if (val == null) continue;   // skip nulls — same effect as deleting the key
+          if (typeof val !== 'object' || Array.isArray(val)) {
+            return res.status(400).json({ error: 'licence value must be an object: ' + key });
+          }
+          if (val.expiresAt && !/^\d{4}-\d{2}-\d{2}$/.test(String(val.expiresAt))) {
+            return res.status(400).json({ error: 'licence ' + key + '.expiresAt must be YYYY-MM-DD' });
+          }
+          // Pass-through whitelist — only known shape fields. Extra fields
+          // get silently dropped so admin can't smuggle arbitrary data.
+          const clean = {};
+          if (val.expiresAt) clean.expiresAt = String(val.expiresAt);
+          if (val.number)    clean.number    = String(val.number).trim();
+          if (val.notes)     clean.notes     = String(val.notes).trim();
+          if (val.recordedAt) clean.recordedAt = String(val.recordedAt);
+          else clean.recordedAt = new Date().toISOString().slice(0, 10);
+          validated[String(key)] = clean;
+        }
+        user.licences = Object.keys(validated).length ? validated : undefined;
+      } else {
+        return res.status(400).json({ error: 'licences must be an object' });
+      }
     }
     if (secret) {
       const err = validateSecret(user.role, secret);
