@@ -3498,25 +3498,30 @@ function esc(s) {
 }
 function philLogoSvg(size) {
   // Phil logo — AS/NZS 3112 (Type I) plug face. Three yellow blades on
-  // navy: two angled active/neutral blades and a vertical earth blade.
-  // Geometry rules that make it read as an AU plug, not a face:
-  //   • Each angled blade rotates 30° around its OWN BOTTOM, so the tops
-  //     swing outward while the bottoms converge toward the centre. This
-  //     produces the real V shape (apex pointing down toward the earth pin),
-  //     not the inverted V that came from rotating around blade centres.
-  //   • Earth blade is centred and slightly longer than the angled blades'
-  //     projected vertical height (40·cos30 ≈ 34.6 vs earth 36).
-  //   • No inner plug body — the three blades are the whole mark, so the
-  //     silhouette is what reads, not a background body.
+  // navy. Proportions audited against the real standard:
+  //   Active/Neutral blade: 6.5mm × 17.34mm  (aspect ~1:2.67)
+  //   Earth blade:           8.0mm × 24.13mm (aspect ~1:3.02)
+  //   Earth is 23% wider AND 39% longer than active.
+  //   Active/neutral tilt 30° from vertical with V apex pointing DOWN.
+  // SVG choices (slightly elongated for icon clarity):
+  //   Active/Neutral: 7 × 30  (aspect 1:4.3) — slightly stylised
+  //   Earth:          9 × 36  (aspect 1:4.0)
+  //   Earth/active width: 9/7 = 1.29  (real 1.23) ✓
+  //   Earth/active visual length after rotation: 36 / 26 = 1.39 ✓
+  //   Tip-spread : base-spread = 52 / 24 = 2.17 (real 2.10) ✓
+  //   12-unit gap between V apex and earth top — clear breathing room.
+  //   Rotation pivot is at the blade's own BOTTOM so the bottoms converge
+  //   near the centre and the tops fan outward — the iconic V-pointing-
+  //   down apex of a real AU plug.
   return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" ' +
          'style="border-radius:' + Math.round(size * 0.23) + 'px;overflow:hidden;display:block;">' +
          '<rect width="100" height="100" fill="#0d1b34"/>' +
-         // Active blade — top-left, leaning out at 30°
-         '<rect x="35" y="18" width="6" height="40" rx="3" fill="#f5d020" transform="rotate(-30 38 58)"/>' +
-         // Neutral blade — top-right, leaning out at 30° (mirror of active)
-         '<rect x="59" y="18" width="6" height="40" rx="3" fill="#f5d020" transform="rotate(30 62 58)"/>' +
-         // Earth blade — centred, vertical, slightly longer
-         '<rect x="47" y="60" width="6" height="36" rx="3" fill="#f5d020"/>' +
+         // Active blade — top-left, leaning out at 30°, pivot at its bottom
+         '<rect x="34.5" y="10" width="7" height="30" rx="3.5" fill="#f5d020" transform="rotate(-30 38 40)"/>' +
+         // Neutral blade — top-right, mirror of active
+         '<rect x="58.5" y="10" width="7" height="30" rx="3.5" fill="#f5d020" transform="rotate(30 62 40)"/>' +
+         // Earth blade — centred, vertical, wider and longer than the angled blades
+         '<rect x="45.5" y="52" width="9" height="36" rx="4.5" fill="#f5d020"/>' +
          '</svg>';
 }
 
