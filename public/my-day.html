@@ -20,6 +20,9 @@
 <script type="module" src="/components/buhl-mark.js"></script>
 <script src="/log-hours-sheet.js" defer></script>
 <title>My Day · bühl</title>
+<!-- Shared Phil utilities + Me-sheet wiring. Synchronous so window.PhilShell
+     is defined by the time the inline body script runs. -->
+<script src="/phil-shell.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
@@ -413,9 +416,11 @@ let JOBS = [];                  // [{ id, name, status, ref, areaGroups, ... }]
 let MY_TIME_ENTRIES = [];       // sorted newest-first, covers >= current ISO week
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
-function esc(s){
-  return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
+// esc + initials are shared across all worker pages via /phil-shell.js;
+// local aliases keep the call sites short and don't require touching
+// every interpolation in this file.
+const esc = PhilShell.esc;
+const initials = PhilShell.initials;
 function _iso(d){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
@@ -438,9 +443,6 @@ function isoWeekMonday(){
 function fmtHours(h){
   const n = Number(h || 0);
   return (Math.round(n * 10) / 10).toFixed(1);
-}
-function initials(name){
-  return String(name||'?').split(/[\s._-]+/).filter(Boolean).slice(0,2).map(w => w[0]).join('').toUpperCase() || '?';
 }
 function fmtDay(date){
   return date.toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' });
@@ -695,35 +697,8 @@ function paintJobs(jobsOk){
 }
 
 // ── Me sheet ───────────────────────────────────────────────────────────
-function setupMeSheet(){
-  const tab = document.getElementById('tab-me');
-  const scrim = document.getElementById('me-scrim');
-  const cancel = document.getElementById('me-cancel');
-  const signOut = document.getElementById('me-signout');
-  const nameEl = document.getElementById('me-who-name');
-  const roleEl = document.getElementById('me-who-role');
-  const avEl   = document.getElementById('me-avatar');
-  if (!tab || !scrim) return;
-
-  const name = (ME && ME.username) || 'You';
-  const roleLabel = ME && ME.role === 'leadingHand' ? 'Leading hand'
-                  : ME && ME.role === 'tradie' ? 'Tradie'
-                  : '';
-  nameEl.textContent = name;
-  roleEl.textContent = roleLabel;
-  avEl.textContent = initials(name);
-
-  const open  = () => { scrim.hidden = false; document.body.style.overflow = 'hidden'; };
-  const close = () => { scrim.hidden = true;  document.body.style.overflow = ''; };
-  tab.addEventListener('click', open);
-  cancel.addEventListener('click', close);
-  scrim.addEventListener('click', e => { if (e.target === scrim) close(); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !scrim.hidden) close(); });
-  signOut.addEventListener('click', async () => {
-    await fetch('/api/auth?action=logout', { method:'POST', credentials:'same-origin' });
-    location.href = '/login';
-  });
-}
+// Wiring lives in /phil-shell.js so every worker page behaves identically.
+function setupMeSheet(){ PhilShell.mountMeSheet(ME); }
 
 // Toast helper — log-hours-sheet expects window.showToast.
 window.showToast = window.showToast || function(msg, kind, ms){

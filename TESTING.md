@@ -73,14 +73,29 @@ Login as a tradie account (4-digit PIN).
 
 ### Onboarding (`/onboarding`)
 - [ ] Back link reads "‹ My day" and works.
-- [ ] Readiness ring fills as profile + gear items complete (license items are admin-managed and intentionally NOT counted).
-- [ ] When profile + gear are all done, hero label reads "**Profile complete**" with the sub-line "Compliance docs sit with admin · not yet verified here." The ring stays neutral (no green tint) — there is no "Ready for site" state until the licence backend lands.
+- [ ] Readiness ring numerator counts only confirmed items (state `done`/`warn`); denominator excludes admin-state compliance items so a fresh worker doesn't see "0/9".
 - [ ] Profile checklist: Username (done), Role assigned (done if user has a role), Email on file (done if set, else "ask admin to add"), Job assignment (done if assignedJobIds non-empty).
-- [ ] Compliance section lists White card / Electrical licence / First aid / EWP, each as "admin" state (grey pill). Meta reads "lodge with admin · …" — non-committal wording, no claim of confirmation.
+- [ ] Compliance section lists White card / Electrical licence / First aid / EWP. Per-item state comes from `ME.licences[type]`:
+  - No record → grey "admin" pill, meta "lodge with admin · …"
+  - Recorded with expiresAt > 30d → green "done" pill, meta "expires &lt;date&gt;"
+  - Recorded with expiresAt ≤ 30d → amber "warn" pill, meta "expires &lt;date&gt;"
+  - Recorded but expired → amber "todo" pill, meta "expired &lt;date&gt; · renew"
+- [ ] Hero state ladder (in priority order):
+  - Any compliance EXPIRED → "Action needed" with **red ring tint** and sub "N compliance items expired · renew below"
+  - Profile/gear incomplete → "Almost there · N to chase"
+  - Profile/gear done, admin hasn't recorded any compliance yet → "Profile complete · compliance with admin" (neutral ring)
+  - Profile/gear done AND all recorded compliance valid → "**Ready for site**" with green ring (only fires when at least one compliance record exists AND all are done/warn)
 - [ ] Gear section shows N items in your name (or "No gear assigned" todo).
-- [ ] Advisory at the bottom is honest about the gap: "Licence tracking coming soon. Phil doesn't yet show licence expiry dates or upload status."
+- [ ] Advisory at the bottom acknowledges licence upload isn't worker-facing yet.
 - [ ] Bottom tab bar: Me (active).
 - [ ] Me tab opens a sheet with **just Sign out + Cancel** (no Onboarding link — you're already on /onboarding).
+
+### Licences smoke (admin)
+- [ ] As admin, PUT `/api/users` with body `{id:"<tradieId>", licences:{whitecard:{expiresAt:"2027-12-31"}}}` → returns 200 + safe user, `licences.whitecard.recordedAt` auto-populates to today.
+- [ ] Login as that tradie → `/onboarding` shows White card with green "done" pill and "expires 2027-12-31" meta.
+- [ ] Repeat with `expiresAt` in the past → "todo" pill, hero flips to "Action needed" red.
+- [ ] PUT with `{licences:null}` → clears all licences, page reverts to all-admin state.
+- [ ] PUT with `{licences:{whitecard:{expiresAt:"not-a-date"}}}` → 400 with "licence whitecard.expiresAt must be YYYY-MM-DD".
 
 ---
 
