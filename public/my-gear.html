@@ -83,6 +83,33 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .tb.active{color:var(--ink);background:var(--surface-2)}
 .tb svg{width:22px;height:22px}
 
+/* Me sheet — mirrors /my-day. Guards the sign-out tap so a misaimed
+   thumb at the right edge of the screen doesn't end the session. */
+.me-scrim{
+  position:fixed;inset:0;background:rgba(13,31,53,.45);
+  z-index:50;display:flex;align-items:flex-end;justify-content:center;
+  animation:me-fade .14s ease-out;
+}
+.me-scrim[hidden]{display:none}
+@keyframes me-fade{from{opacity:0}to{opacity:1}}
+.me-sheet{
+  background:var(--surface);
+  border-radius:18px 18px 0 0;
+  padding:8px 18px calc(18px + var(--safe-b));
+  width:100%;max-width:430px;
+  box-shadow:0 -8px 24px rgba(13,31,53,.18);
+  animation:me-slide .18s ease-out;
+}
+@keyframes me-slide{from{transform:translateY(20px);opacity:.6}to{transform:translateY(0);opacity:1}}
+.me-handle{width:36px;height:4px;border-radius:2px;background:var(--line-2);margin:6px auto 16px}
+.me-who{display:flex;align-items:center;gap:12px;padding:6px 4px 14px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.me-who-avatar{width:44px;height:44px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex-shrink:0}
+.me-who-name{font-size:16px;font-weight:700;color:var(--ink);letter-spacing:-.2px;line-height:1.2}
+.me-who-role{font-size:12px;color:var(--muted);margin-top:2px}
+.me-action{width:100%;display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line);font:inherit;font-size:14.5px;font-weight:600;color:var(--bad);cursor:pointer;margin-bottom:8px;text-align:left}
+.me-action:active{transform:scale(.99)}
+.me-cancel{width:100%;padding:13px;border-radius:12px;background:transparent;border:0;font:inherit;font-size:14.5px;font-weight:600;color:var(--ink-2);cursor:pointer}
+
 /* Transfer modal — kept very simple */
 .scrim{position:fixed;inset:0;background:rgba(13,31,53,.5);z-index:100;display:none;align-items:flex-end;justify-content:center}
 .scrim.open{display:flex}
@@ -122,11 +149,32 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>
       My gear
     </a>
-    <button class="tb" type="button" id="logout">
+    <button class="tb" type="button" id="tab-me">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
       Me
     </button>
   </nav>
+</div>
+
+<!-- Me sheet — opens from the bottom tab bar's "Me" button. Sign-out
+     is guarded behind a confirm tap so accidental edge-of-screen taps
+     don't end the session. Mirrors /my-day. -->
+<div class="me-scrim" id="me-scrim" hidden>
+  <div class="me-sheet" role="dialog" aria-modal="true">
+    <div class="me-handle"></div>
+    <div class="me-who">
+      <div class="me-who-avatar" id="me-avatar">?</div>
+      <div style="flex:1;min-width:0">
+        <div class="me-who-name" id="me-who-name">…</div>
+        <div class="me-who-role" id="me-who-role"></div>
+      </div>
+    </div>
+    <button type="button" class="me-action" id="me-signout">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M16 17l5-5-5-5M21 12H9M13 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/></svg>
+      <span>Sign out</span>
+    </button>
+    <button type="button" class="me-cancel" id="me-cancel">Cancel</button>
+  </div>
 </div>
 
 <!-- Transfer sheet -->
@@ -189,6 +237,8 @@ async function load() {
     if (ME.role === 'client') { location.href = '/client'; return; }
     if (ME.role === 'admin') { location.href = '/admin/assets'; return; }
 
+    setupMeSheet();
+
     const [aRes, cRes] = await Promise.all([
       fetch('/api/assets', { credentials: 'same-origin' }),
       fetch('/api/users?action=listTradies', { credentials: 'same-origin' }).catch(() => null),
@@ -216,8 +266,7 @@ function render() {
 
   if (!list.length) {
     document.getElementById('gear-list').innerHTML = `<div class="empty"><b>No gear assigned to you</b>When admin or a leading hand transfers something to you, it'll show here.</div>`;
-    document.getElementById('logout').addEventListener('click', logout);
-    return;
+      return;
   }
 
   document.getElementById('gear-list').innerHTML = list.map(cardHtml).join('');
@@ -225,7 +274,6 @@ function render() {
     const btn = document.querySelector('button[data-tx="' + a.id + '"]');
     if (btn) btn.addEventListener('click', () => openTransfer(a));
   });
-  document.getElementById('logout').addEventListener('click', logout);
 }
 
 function cardHtml(a) {
@@ -319,6 +367,37 @@ document.getElementById('tx-do').addEventListener('click', async () => {
 async function logout() {
   await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'same-origin' });
   location.href = '/login';
+}
+
+// Tap "Me" → bottom sheet shows identity + a guarded Sign out + Cancel.
+// Mirrors /my-day so the worker app behaves consistently across tabs;
+// the previous instant-logout on tap was easy to mis-fire when reaching
+// for "My gear" with a thumb at the right edge of the screen.
+function setupMeSheet() {
+  const tab = document.getElementById('tab-me');
+  const scrim = document.getElementById('me-scrim');
+  const cancel = document.getElementById('me-cancel');
+  const signOut = document.getElementById('me-signout');
+  const nameEl = document.getElementById('me-who-name');
+  const roleEl = document.getElementById('me-who-role');
+  const avEl = document.getElementById('me-avatar');
+  if (!tab || !scrim) return;
+  const name = (ME && ME.username) || 'You';
+  const roleLabel = ME && ME.role === 'leadingHand' ? 'Leading hand'
+                  : ME && ME.role === 'tradie' ? 'Tradie'
+                  : '';
+  nameEl.textContent = name;
+  roleEl.textContent = roleLabel;
+  const initials = String(name).split(/[\s._-]+/).filter(Boolean).slice(0, 2)
+    .map(w => w[0]).join('').toUpperCase() || '?';
+  avEl.textContent = initials;
+  function open() { scrim.hidden = false; document.body.style.overflow = 'hidden'; }
+  function close() { scrim.hidden = true; document.body.style.overflow = ''; }
+  tab.addEventListener('click', open);
+  cancel.addEventListener('click', close);
+  scrim.addEventListener('click', e => { if (e.target === scrim) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !scrim.hidden) close(); });
+  signOut.addEventListener('click', logout);
 }
 
 load();
