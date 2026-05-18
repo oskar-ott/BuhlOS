@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0d1f35">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BuhlOS">
+<title>Onboarding · bühl</title>
+<!-- This page is read-only — no writes, no offline queue needed. The
+     queue + buhl-mark indicator only load on pages that actually
+     mutate state (my-day, my-gear). -->
+<!-- Shared Phil utilities + Me-sheet wiring. -->
+<script src="/phil-shell.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Design tokens — matches /my-day + /my-gear + /jobs. Lifted from the
+   Phil redesign brief. */
+:root{
+  --bg:        #f4f5f7;
+  --paper:     #ffffff;
+  --paper-2:   #f8f9fb;
+  --paper-3:   #eef0f4;
+  --ink:       #0d1b34;
+  --ink-2:     #36446b;
+  --ink-3:     #6a7591;
+  --ink-4:     #9aa3bc;
+  --rule:      #dde1ea;
+  --rule-2:    #c8cee0;
+  --yellow:    #f5d020;
+  --yellow-ink:#1d1700;
+  --red:       #c0312f; --red-bg:#fbeceb; --red-bd:#ecc6c4;
+  --amber:     #d18b1c; --amber-bg:#faf2e1; --amber-bd:#ecd5a5;
+  --green:     #1f8b5a; --green-bg:#e6f3ec; --green-bd:#b9dec8;
+  --header-bg: #0d1f35;
+  --safe-t: env(safe-area-inset-top, 0);
+  --safe-b: env(safe-area-inset-bottom, 0);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{min-height:100%}
+body{
+  font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:var(--bg);color:var(--ink);font-size:14px;line-height:1.4;
+  -webkit-font-smoothing:antialiased;overflow-x:hidden;
+}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.tabular{font-variant-numeric:tabular-nums}
+.frame{
+  max-width:430px;margin:0 auto;min-height:100vh;
+  background:var(--bg);position:relative;
+  padding-bottom:calc(82px + var(--safe-b));
+  display:flex;flex-direction:column;
+}
+
+/* Header — back affordance + title. */
+.phil-hdr{
+  background:var(--header-bg);color:#fff;
+  padding:calc(54px + var(--safe-t)) 18px 18px;
+  display:flex;align-items:center;gap:12px;
+}
+.phil-hdr-back{
+  display:flex;align-items:center;gap:4px;
+  font-family:"Inter Tight",sans-serif;font-weight:600;font-size:13px;
+  color:rgba(255,255,255,.75);
+  padding:6px 0;
+  flex-shrink:0;
+}
+.phil-hdr-back:active{color:#fff}
+.phil-hdr-title{
+  flex:1;min-width:0;text-align:right;
+}
+.phil-hdr-title .ttl{font-family:"Inter Tight",sans-serif;font-weight:700;font-size:18px;letter-spacing:-.018em}
+.phil-hdr-title .sub{font-family:"JetBrains Mono",monospace;font-size:10px;color:rgba(255,255,255,.55);letter-spacing:.12em;text-transform:uppercase;margin-top:4px}
+
+/* Body */
+.phil-body{padding:14px 14px 24px;flex:1;display:flex;flex-direction:column;gap:12px}
+
+/* Readiness card — hero state at the top of the page. */
+.ready-card{
+  background:var(--paper);border:1px solid var(--rule);
+  border-radius:12px;padding:18px;
+  display:flex;align-items:center;gap:14px;
+}
+.ready-card.ok{background:linear-gradient(160deg,#f7fbf8,#eef6f0);border-color:var(--green-bd)}
+.ready-ring{
+  width:56px;height:56px;border-radius:50%;
+  background:conic-gradient(var(--yellow) var(--pct,0deg), var(--paper-3) 0);
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;position:relative;
+}
+.ready-ring::before{
+  content:"";position:absolute;inset:6px;border-radius:50%;background:var(--paper);
+}
+.ready-ring-l{
+  position:relative;font-family:"Inter Tight",sans-serif;
+  font-weight:800;font-size:14px;color:var(--ink);
+  letter-spacing:-.012em;
+}
+.ready-card.ok .ready-ring{background:var(--green)}
+.ready-card.ok .ready-ring::before{background:var(--green-bg)}
+.ready-card.ok .ready-ring-l{color:var(--green)}
+/* .attn flips the hero to a red-tinted state when at least one
+   compliance record is expired. Reads as "deal with this now" — the
+   neutral ring + "Almost there" wording wasn't pointed enough when
+   the worker is actually non-compliant. */
+.ready-card.attn{background:linear-gradient(160deg,#fef6f5,#fbeceb);border-color:var(--red-bd)}
+.ready-card.attn .ready-ring{background:var(--red)}
+.ready-card.attn .ready-ring::before{background:var(--red-bg)}
+.ready-card.attn .ready-ring-l{color:var(--red)}
+.ready-l{
+  font-family:"JetBrains Mono",monospace;font-size:10px;font-weight:600;
+  color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase;
+}
+.ready-t{
+  font-family:"Inter Tight",sans-serif;font-weight:700;font-size:17px;
+  color:var(--ink);letter-spacing:-.018em;margin-top:4px;line-height:1.2;
+}
+.ready-sub{font-size:12px;color:var(--ink-3);margin-top:4px}
+
+/* Checklist card — phil-card with phil-row pattern. */
+.phil-card{
+  background:var(--paper);border:1px solid var(--rule);
+  border-radius:12px;overflow:hidden;
+}
+.phil-card-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 14px 6px;
+  font-family:"JetBrains Mono",monospace;font-size:9.5px;font-weight:600;
+  color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase;
+}
+.phil-card-hdr b{color:var(--ink);font-weight:700}
+.phil-row{
+  display:flex;align-items:center;
+  padding:12px 14px;gap:12px;
+  border-top:1px solid var(--rule);min-height:56px;
+}
+.phil-row:first-child{border-top:0}
+.phil-row-l{flex:1;min-width:0}
+.phil-row-title{
+  font-family:"Inter Tight",sans-serif;font-weight:600;font-size:14px;
+  color:var(--ink);letter-spacing:-.012em;line-height:1.25;
+}
+.phil-row-meta{
+  font-family:"JetBrains Mono",monospace;font-size:10px;
+  color:var(--ink-3);letter-spacing:.04em;margin-top:3px;
+}
+
+/* Status icon — leading dot/check. */
+.req-ico{
+  width:28px;height:28px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;font-size:14px;font-weight:700;
+}
+.req-ico.done{background:var(--green-bg);color:var(--green)}
+.req-ico.todo{background:var(--paper-3);color:var(--ink-3)}
+.req-ico.warn{background:var(--amber-bg);color:var(--amber)}
+
+/* Pill */
+.pill{
+  display:inline-flex;align-items:center;
+  padding:3px 8px;border-radius:3px;
+  font-family:"JetBrains Mono",monospace;font-size:9.5px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.12em;white-space:nowrap;flex-shrink:0;
+}
+.pill.green{background:var(--green-bg);color:var(--green)}
+.pill.amber{background:var(--amber-bg);color:var(--amber)}
+.pill.grey {background:var(--paper-3);color:var(--ink-2)}
+
+/* Advisory note — explains what's deferred without breaking trust. */
+.advisory{
+  background:var(--paper-2);border:1px dashed var(--rule-2);
+  border-radius:10px;padding:12px 14px;
+  font-size:12.5px;color:var(--ink-2);line-height:1.45;
+}
+.advisory b{font-family:"Inter Tight",sans-serif;color:var(--ink);font-weight:700;display:block;margin-bottom:2px}
+
+/* Tab bar — 4 columns, matches the rest of Phil. */
+.tabbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:10;
+  display:grid;grid-template-columns:repeat(4,1fr);
+  background:var(--paper);border-top:1px solid var(--rule);
+  padding:6px 6px calc(6px + var(--safe-b));
+  max-width:430px;margin:0 auto;
+}
+.tb{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;padding:8px 4px;
+  font-family:"Inter",sans-serif;font-size:10.5px;font-weight:500;
+  color:var(--ink-3);text-decoration:none;border-radius:10px;position:relative;
+}
+.tb .ico{width:26px;height:24px;display:flex;align-items:center;justify-content:center;font-size:14px;border-radius:6px}
+.tb.active{color:var(--ink);font-weight:600}
+.tb.active .ico{background:var(--yellow);color:var(--yellow-ink);font-weight:700}
+
+/* Me sheet */
+.me-scrim{position:fixed;inset:0;background:rgba(13,27,52,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center;animation:me-fade .14s ease-out}
+.me-scrim[hidden]{display:none}
+@keyframes me-fade{from{opacity:0}to{opacity:1}}
+.me-sheet{background:var(--paper);border-radius:18px 18px 0 0;padding:8px 18px calc(18px + var(--safe-b));width:100%;max-width:430px;box-shadow:0 -8px 24px rgba(13,27,52,.18);animation:me-slide .18s ease-out}
+@keyframes me-slide{from{transform:translateY(20px);opacity:.6}to{transform:translateY(0);opacity:1}}
+.me-handle{width:36px;height:4px;border-radius:2px;background:var(--rule-2);margin:6px auto 16px}
+.me-who{display:flex;align-items:center;gap:12px;padding:6px 4px 14px;border-bottom:1px solid var(--rule);margin-bottom:10px}
+.me-who-avatar{width:44px;height:44px;border-radius:50%;background:var(--yellow);color:var(--yellow-ink);display:flex;align-items:center;justify-content:center;font-family:"Inter Tight",sans-serif;font-size:17px;font-weight:700;flex-shrink:0}
+.me-who-name{font-family:"Inter Tight",sans-serif;font-size:16px;font-weight:700;color:var(--ink);letter-spacing:-.2px;line-height:1.2}
+.me-who-role{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--ink-3);letter-spacing:.1em;text-transform:uppercase;margin-top:3px}
+.me-action{width:100%;display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:12px;background:var(--paper-2);border:1px solid var(--rule);font:inherit;font-size:14.5px;font-weight:600;color:var(--ink);cursor:pointer;margin-bottom:8px;text-align:left}
+.me-action.danger{color:var(--red)}
+.me-action:active{transform:scale(.99)}
+.me-cancel{width:100%;padding:13px;border-radius:12px;background:transparent;border:0;font:inherit;font-size:14.5px;font-weight:600;color:var(--ink-2);cursor:pointer}
+</style>
+</head>
+<body>
+<div class="frame">
+  <header class="phil-hdr">
+    <a class="phil-hdr-back" href="/my-day" aria-label="Back to My Day">‹ My day</a>
+    <div class="phil-hdr-title">
+      <div class="ttl">Onboarding</div>
+      <div class="sub" id="hdr-sub">READINESS · CHECKLIST</div>
+    </div>
+  </header>
+
+  <div class="phil-body">
+    <!-- Readiness summary — single hero card. Ring fills around as
+         items complete; flips to green once everything's done. -->
+    <div class="ready-card" id="ready-card">
+      <div class="ready-ring" id="ready-ring" style="--pct:0deg">
+        <span class="ready-ring-l" id="ready-ring-l">—/—</span>
+      </div>
+      <div style="flex:1;min-width:0">
+        <div class="ready-l">Site readiness</div>
+        <div class="ready-t" id="ready-t">Loading…</div>
+        <div class="ready-sub" id="ready-sub"></div>
+      </div>
+    </div>
+
+    <!-- Worker profile checklist — pulled from the user record. Username,
+         role, email, and assigned jobs are filled automatically by the
+         system; missing items are surfaced as todo so the worker knows
+         to chase the admin. -->
+    <div class="phil-card">
+      <div class="phil-card-hdr">
+        <span><b>Profile</b> · core details</span>
+        <span id="profile-state">—</span>
+      </div>
+      <div id="profile-list"></div>
+    </div>
+
+    <!-- Compliance docs — license uploads. These are admin-managed for
+         the time being (no upload endpoint in the worker app yet) so we
+         surface them read-only and route the action to the supervisor. -->
+    <div class="phil-card">
+      <div class="phil-card-hdr">
+        <span><b>Compliance</b> · licences &amp; cards</span>
+        <span id="compliance-state">held by admin</span>
+      </div>
+      <div id="compliance-list"></div>
+    </div>
+
+    <!-- Gear acknowledgement — links to /my-gear. -->
+    <div class="phil-card">
+      <div class="phil-card-hdr">
+        <span><b>Gear</b> · in your name</span>
+        <span id="gear-state">—</span>
+      </div>
+      <div id="gear-list"></div>
+    </div>
+
+    <!-- Advisory: honesty about the gap. Compliance visibility is held
+         out of Phil deliberately until the upload backend lands; until
+         then the hero never says "Ready for site". -->
+    <div class="advisory">
+      <b>Licence tracking coming soon</b>
+      Phil doesn't yet show licence expiry dates or upload status. Send
+      photos of your white card, electrical licence, first aid cert and
+      any other tickets to your supervisor — admin keeps the office
+      copy. Compliance won't show as confirmed here until the worker-side
+      surface is built.
+    </div>
+  </div>
+
+  <nav class="tabbar">
+    <a href="/my-day" class="tb">
+      <span class="ico">☼</span>
+      My day
+    </a>
+    <a href="/jobs" class="tb">
+      <span class="ico">▣</span>
+      Jobs
+    </a>
+    <a href="/my-gear" class="tb">
+      <span class="ico">⚙</span>
+      My gear
+    </a>
+    <button class="tb active" type="button" id="tab-me">
+      <span class="ico">◉</span>
+      Me
+    </button>
+  </nav>
+</div>
+
+<!-- Me sheet (same pattern as the other worker pages) -->
+<div class="me-scrim" id="me-scrim" hidden>
+  <div class="me-sheet" role="dialog" aria-modal="true">
+    <div class="me-handle"></div>
+    <div class="me-who">
+      <div class="me-who-avatar" id="me-avatar">?</div>
+      <div style="flex:1;min-width:0">
+        <div class="me-who-name" id="me-who-name">…</div>
+        <div class="me-who-role" id="me-who-role"></div>
+      </div>
+    </div>
+    <!-- No "Onboarding" action here — the user is already on /onboarding;
+         linking back to the same page would be pure noise. The sheet
+         keeps a clean Sign-out + Cancel pair. -->
+    <button type="button" class="me-action danger" id="me-signout">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M16 17l5-5-5-5M21 12H9M13 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/></svg>
+      <span>Sign out</span>
+    </button>
+    <button type="button" class="me-cancel" id="me-cancel">Cancel</button>
+  </div>
+</div>
+
+<script>
+// esc + initials shared via /phil-shell.js across all worker pages.
+const esc = PhilShell.esc;
+const initials = PhilShell.initials;
+
+let ME = null;
+let ASSETS = [];
+
+async function load() {
+  try {
+    const meRes = await fetch('/api/auth?action=me', { credentials:'same-origin' });
+    if (!meRes.ok) { location.href = '/login'; return; }
+    ME = (await meRes.json()).user;
+    if (ME.role === 'client') { location.href = '/client'; return; }
+    if (ME.role === 'admin')  { location.href = '/admin/operations'; return; }
+
+    setupMeSheet();
+
+    // Gear count is the only dynamic external bit; everything else
+    // comes from the user record we already have.
+    try {
+      const r = await fetch('/api/assets', { credentials:'same-origin' });
+      if (r.ok) ASSETS = (await r.json()).assets || [];
+    } catch (e) {}
+
+    render();
+  } catch (e) {
+    document.getElementById('ready-t').textContent = "Couldn't load";
+    document.getElementById('ready-sub').textContent = 'Check connection and refresh.';
+  }
+}
+
+// ── Render ─────────────────────────────────────────────────────────────
+// Each requirement is a small object with: id, title, meta, state.
+// state: 'done' | 'todo' | 'warn' | 'admin' (admin = managed by admin,
+// not blocked on the worker).
+function buildProfile() {
+  const items = [];
+  // Username is required by the system to exist at all, so this is
+  // always done if the worker can see this page.
+  items.push({
+    id:'username', title:'Username', state:'done',
+    meta: ME && ME.username ? '@' + ME.username : '—',
+  });
+  items.push({
+    id:'role', title:'Role assigned', state: ME.role ? 'done' : 'todo',
+    meta: ME.role === 'leadingHand' ? 'Leading hand' : (ME.role || '—'),
+  });
+  items.push({
+    id:'email', title:'Email on file',
+    state: ME.email ? 'done' : 'todo',
+    meta: ME.email || 'ask admin to add',
+  });
+  items.push({
+    id:'jobs', title:'Job assignment',
+    state: (ME.assignedJobIds && ME.assignedJobIds.length) ? 'done' : 'todo',
+    meta: (ME.assignedJobIds || []).length
+      ? (ME.assignedJobIds.length + (ME.assignedJobIds.length === 1 ? ' job' : ' jobs'))
+      : 'ask admin to add you to a job',
+  });
+  return items;
+}
+
+function buildCompliance() {
+  // Reads licence/cert records from ME.licences (the field that
+  // /api/users PUT now accepts). Admin/LH writes there as records
+  // are lodged; this page surfaces the real state.
+  //
+  // Per-item state:
+  //   'admin' — no record yet for this licence type. Not blocked on
+  //             the worker; wording stays non-committal.
+  //   'done'  — record present, valid (or no expiry).
+  //   'warn'  — record present, expires in <= 30 days.
+  //   'todo'  — record present but expired. Worker action required.
+  const lic = (ME && ME.licences) || {};
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  const soonIso = new Date(today.getTime() + 30 * 86400000).toISOString().slice(0, 10);
+
+  function stateFor(rec) {
+    if (!rec || typeof rec !== 'object') {
+      return null; // signals 'admin' state
+    }
+    if (!rec.expiresAt) {
+      return { state:'done', meta:'on file · no expiry' };
+    }
+    if (rec.expiresAt < todayIso) {
+      return { state:'todo', meta:'expired ' + rec.expiresAt + ' · renew' };
+    }
+    if (rec.expiresAt < soonIso) {
+      return { state:'warn', meta:'expires ' + rec.expiresAt };
+    }
+    return { state:'done', meta:'expires ' + rec.expiresAt };
+  }
+
+  const adminFallbacks = {
+    whitecard:  { title:'White card',         meta:'lodge with admin · 2-year validity' },
+    electrical: { title:'Electrical licence', meta:'lodge with admin · A-grade SA / equivalent' },
+    firstaid:   { title:'First aid',          meta:'lodge with admin · 3-year validity' },
+    ewp:        { title:'EWP · scissor lift', meta:'lodge with admin · if applicable' },
+  };
+
+  return Object.entries(adminFallbacks).map(([id, defaults]) => {
+    const derived = stateFor(lic[id]);
+    if (!derived) {
+      return { id, title: defaults.title, state:'admin', meta: defaults.meta };
+    }
+    return { id, title: defaults.title, ...derived };
+  });
+}
+
+function buildGear() {
+  const today = new Date().toISOString().slice(0,10);
+  const overdue = ASSETS.filter(a => a.expectedReturn && a.expectedReturn < today);
+  if (!ASSETS.length) {
+    return [{
+      id:'gear-none', title:'No gear assigned', state:'todo',
+      meta:'collect tools / vehicle / PPE from admin',
+    }];
+  }
+  return [{
+    id:'gear-ok',
+    title: ASSETS.length + (ASSETS.length === 1 ? ' item' : ' items') + ' in your name',
+    state: overdue.length ? 'warn' : 'done',
+    meta: overdue.length
+      ? overdue.length + (overdue.length === 1 ? ' item' : ' items') + ' overdue · check My gear'
+      : 'tap My gear to view',
+  }];
+}
+
+function reqIcoHtml(state){
+  if (state === 'done')  return '<div class="req-ico done">✓</div>';
+  if (state === 'warn')  return '<div class="req-ico warn">!</div>';
+  if (state === 'admin') return '<div class="req-ico todo">·</div>';
+  return '<div class="req-ico todo">○</div>';
+}
+function pillFor(state){
+  if (state === 'done')  return '<span class="pill green">done</span>';
+  if (state === 'warn')  return '<span class="pill amber">attn</span>';
+  if (state === 'admin') return '<span class="pill grey">admin</span>';
+  return '<span class="pill amber">todo</span>';
+}
+
+function renderList(items, hostId){
+  document.getElementById(hostId).innerHTML = items.map(it => `
+    <div class="phil-row">
+      ${reqIcoHtml(it.state)}
+      <div class="phil-row-l">
+        <div class="phil-row-title">${esc(it.title)}</div>
+        ${it.meta ? `<div class="phil-row-meta">${esc(it.meta)}</div>` : ''}
+      </div>
+      ${pillFor(it.state)}
+    </div>
+  `).join('');
+}
+
+function render(){
+  const profile = buildProfile();
+  const compliance = buildCompliance();
+  const gear = buildGear();
+
+  renderList(profile, 'profile-list');
+  renderList(compliance, 'compliance-list');
+  renderList(gear, 'gear-list');
+
+  // Readiness logic — counts items in three classes:
+  //   'done' / 'warn'  → confirmed (warn = expiring soon, still valid)
+  //   'todo'           → action needed (expired, missing assignment, …)
+  //   'admin'          → admin hasn't recorded yet; not blocked on worker
+  //
+  // Hero state ladder:
+  //   1. Any compliance item EXPIRED ('todo' in compliance) → "Action needed"
+  //      with the red ring tint and a clear instruction.
+  //   2. Profile + gear incomplete → "Almost there" with the per-item count.
+  //   3. Profile + gear done, but admin hasn't recorded any compliance
+  //      yet → "Profile complete · compliance with admin" (neutral ring).
+  //   4. Profile + gear done AND all recorded compliance is valid (done
+  //      or warn — admin already knows about the expiry) → "Ready for
+  //      site" with the green ring. Honest now: this only fires when
+  //      compliance is actually observable.
+  const profileGear = [...profile, ...gear];
+  const profileGearDone = profileGear.every(i => i.state === 'done' || i.state === 'warn');
+  const profileGearDoneCount = profileGear.filter(i => i.state === 'done' || i.state === 'warn').length;
+  const profileGearTotal = profileGear.length;
+
+  const complianceRecorded = compliance.filter(c => c.state !== 'admin');
+  const complianceExpired  = compliance.filter(c => c.state === 'todo');
+  const complianceValid    = complianceRecorded.every(c => c.state === 'done' || c.state === 'warn');
+  const hasAnyCompliance   = complianceRecorded.length > 0;
+
+  // Numerator counts only items that ARE in confirmed state. Denominator
+  // is profile + gear + (recorded compliance). Admin-state compliance
+  // doesn't pad the total either — surfacing "0/8" when admin hasn't
+  // touched a worker yet would look broken.
+  const trackable = [...profileGear, ...complianceRecorded];
+  const done  = trackable.filter(i => i.state === 'done' || i.state === 'warn').length;
+  const total = trackable.length;
+  const pctDeg = total ? (done / total) * 360 : 0;
+
+  const ring = document.getElementById('ready-ring');
+  ring.style.setProperty('--pct', pctDeg + 'deg');
+  document.getElementById('ready-ring-l').textContent = done + '/' + total;
+
+  // Reset any state-classes the previous render added.
+  const card = document.getElementById('ready-card');
+  card.classList.remove('ok', 'attn');
+
+  if (complianceExpired.length) {
+    document.getElementById('ready-t').textContent  = 'Action needed';
+    document.getElementById('ready-sub').textContent =
+      complianceExpired.length + ' compliance item' + (complianceExpired.length === 1 ? '' : 's') + ' expired · renew below';
+    document.getElementById('hdr-sub').textContent  = 'ACTION NEEDED · COMPLIANCE EXPIRED';
+    card.classList.add('attn');
+  } else if (!profileGearDone) {
+    const left = profileGearTotal - profileGearDoneCount;
+    document.getElementById('ready-t').textContent  = 'Almost there';
+    document.getElementById('ready-sub').textContent =
+      left + ' item' + (left === 1 ? '' : 's') + ' to chase admin on';
+    document.getElementById('hdr-sub').textContent  = 'READINESS · ' + done + '/' + total;
+  } else if (!hasAnyCompliance) {
+    // Profile + gear are done but admin hasn't recorded a single licence
+    // yet. Don't claim "Ready for site" — stay honest until at least
+    // one record lands.
+    document.getElementById('ready-t').textContent  = 'Profile complete';
+    document.getElementById('ready-sub').textContent =
+      'Compliance docs sit with admin · not yet verified here.';
+    document.getElementById('hdr-sub').textContent  = 'PROFILE COMPLETE · COMPLIANCE WITH ADMIN';
+  } else if (complianceValid) {
+    // True ready: every confirmed item is valid OR warn (admin knows).
+    document.getElementById('ready-t').textContent  = 'Ready for site';
+    document.getElementById('ready-sub').textContent =
+      'Profile, gear and compliance all current.';
+    document.getElementById('hdr-sub').textContent  = 'READY FOR SITE';
+    card.classList.add('ok');
+  } else {
+    // Fallback — should be unreachable, but keep a sensible default
+    // rather than letting the previous render's text persist.
+    document.getElementById('ready-t').textContent  = 'Almost there';
+    document.getElementById('ready-sub').textContent =
+      (total - done) + ' item' + ((total - done) === 1 ? '' : 's') + ' to chase admin on';
+    document.getElementById('hdr-sub').textContent  = 'READINESS · ' + done + '/' + total;
+  }
+
+  // Per-section state pills
+  document.getElementById('profile-state').textContent =
+    profile.filter(i => i.state === 'done').length + '/' + profile.length;
+  document.getElementById('gear-state').textContent =
+    gear.filter(i => i.state === 'done' || i.state === 'warn').length + '/' + gear.length;
+}
+
+// Me sheet wiring lives in /phil-shell.js. On /onboarding the sheet
+// markup omits the "Onboarding & readiness" link (the worker is
+// already here); PhilShell.mountMeSheet skips any missing nodes.
+function setupMeSheet() { PhilShell.mountMeSheet(ME); }
+
+load();
+</script>
+</body>
+</html>

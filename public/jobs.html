@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0d1f35">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BuhlOS">
+<title>Jobs · bühl</title>
+<!-- Shared Phil utilities + Me-sheet wiring. Synchronous so window.PhilShell
+     is defined by the time the inline body script runs. -->
+<script src="/phil-shell.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Design tokens — matches /my-day + /my-gear. Lifted from the Phil
+   redesign brief (claude.ai/design handoff bundle). */
+:root{
+  --bg:        #f4f5f7;
+  --paper:     #ffffff;
+  --paper-2:   #f8f9fb;
+  --paper-3:   #eef0f4;
+  --ink:       #0d1b34;
+  --ink-2:     #36446b;
+  --ink-3:     #6a7591;
+  --ink-4:     #9aa3bc;
+  --rule:      #dde1ea;
+  --rule-2:    #c8cee0;
+  --yellow:    #f5d020;
+  --yellow-ink:#1d1700;
+  --red:       #c0312f; --red-bg:#fbeceb; --red-bd:#ecc6c4;
+  --amber:     #d18b1c; --amber-bg:#faf2e1; --amber-bd:#ecd5a5;
+  --green:     #1f8b5a; --green-bg:#e6f3ec; --green-bd:#b9dec8;
+  --header-bg: #0d1f35;
+  --safe-t: env(safe-area-inset-top, 0);
+  --safe-b: env(safe-area-inset-bottom, 0);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{min-height:100%}
+body{
+  font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:var(--bg);color:var(--ink);font-size:14px;line-height:1.4;
+  -webkit-font-smoothing:antialiased;overflow-x:hidden;
+}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.tabular{font-variant-numeric:tabular-nums}
+.frame{
+  max-width:430px;margin:0 auto;min-height:100vh;
+  background:var(--bg);position:relative;
+  padding-bottom:calc(82px + var(--safe-b));
+  display:flex;flex-direction:column;
+}
+
+/* Header */
+.phil-hdr{
+  background:var(--header-bg);color:#fff;
+  padding:calc(54px + var(--safe-t)) 18px 18px;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+}
+.phil-hdr .ttl{font-family:"Inter Tight",sans-serif;font-weight:700;font-size:20px;letter-spacing:-.018em}
+.phil-hdr .sub{font-family:"JetBrains Mono",monospace;font-size:10px;color:rgba(255,255,255,.55);letter-spacing:.12em;text-transform:uppercase;margin-top:4px}
+
+/* Body */
+.phil-body{padding:14px 14px 24px;flex:1;display:flex;flex-direction:column;gap:12px}
+
+/* Search */
+.search{display:flex;align-items:center;gap:8px;background:var(--paper);border:1px solid var(--rule);border-radius:12px;padding:10px 14px}
+.search input{flex:1;border:0;background:transparent;font:inherit;font-size:14px;color:var(--ink);outline:none}
+.search input::placeholder{color:var(--ink-4)}
+.search-ico{color:var(--ink-3);font-size:14px}
+
+/* Job card — each assigned job is its own phil-card with a header
+   row, address line, and progress strip. Mono ref + numbers, Inter
+   Tight title. */
+.job{
+  display:block;
+  background:var(--paper);border:1px solid var(--rule);
+  border-radius:12px;padding:14px;
+}
+.job:active{transform:scale(.995)}
+.job-top{display:flex;align-items:flex-start;gap:12px}
+.job-icon{
+  width:40px;height:40px;border-radius:10px;flex-shrink:0;
+  background:var(--yellow);color:var(--yellow-ink);
+  display:flex;align-items:center;justify-content:center;
+  font-family:"Inter Tight",sans-serif;font-weight:700;font-size:13px;letter-spacing:-.02em;
+}
+.job-main{flex:1;min-width:0}
+.job-name{
+  font-family:"Inter Tight",sans-serif;font-weight:700;font-size:15px;
+  color:var(--ink);letter-spacing:-.014em;line-height:1.25;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.job-meta{
+  display:flex;align-items:center;gap:8px;
+  margin-top:5px;
+  font-family:"JetBrains Mono",monospace;font-size:10px;
+  color:var(--ink-3);letter-spacing:.06em;
+}
+.job-ref{
+  background:var(--paper-3);color:var(--ink-2);
+  padding:1px 6px;border-radius:3px;font-weight:600;
+}
+.job-addr{
+  font-family:"Inter",sans-serif;font-size:12px;
+  color:var(--ink-2);margin-top:6px;letter-spacing:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.job-chevron{color:var(--ink-3);font-size:20px;line-height:1;flex-shrink:0;margin-left:4px;align-self:center}
+
+.job-stats{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
+  margin-top:12px;
+}
+.stat{
+  background:var(--paper-2);border:1px solid var(--rule);
+  border-radius:8px;padding:8px 10px;
+}
+.stat b{
+  display:block;font-family:"Inter Tight",sans-serif;
+  font-size:15px;font-weight:700;color:var(--ink);
+  font-variant-numeric:tabular-nums;letter-spacing:-.014em;
+}
+.stat span{
+  display:block;font-family:"JetBrains Mono",monospace;
+  font-size:9px;font-weight:600;color:var(--ink-3);
+  text-transform:uppercase;letter-spacing:.12em;margin-top:2px;
+}
+.stat.warn b{color:var(--red)}
+.stat.warn span{color:var(--red)}
+
+.bar{
+  height:5px;background:var(--paper-3);
+  border-radius:999px;overflow:hidden;margin-top:10px;
+}
+.bar i{display:block;height:100%;background:var(--yellow);border-radius:999px;width:0%}
+
+/* Empty state */
+.empty{
+  padding:32px 22px;text-align:center;font-size:13px;color:var(--ink-3);
+  background:var(--paper);border:1px solid var(--rule);border-radius:12px;
+}
+.empty b{display:block;font-family:"Inter Tight",sans-serif;color:var(--ink);font-weight:700;font-size:14px;margin-bottom:6px}
+
+/* Tab bar — 4 columns now that /jobs is a top-level surface. */
+.tabbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:10;
+  display:grid;grid-template-columns:repeat(4,1fr);
+  background:var(--paper);border-top:1px solid var(--rule);
+  padding:6px 6px calc(6px + var(--safe-b));
+  max-width:430px;margin:0 auto;
+}
+.tb{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;padding:8px 4px;
+  font-family:"Inter",sans-serif;font-size:10.5px;font-weight:500;
+  color:var(--ink-3);text-decoration:none;border-radius:10px;position:relative;
+}
+.tb .ico{width:26px;height:24px;display:flex;align-items:center;justify-content:center;font-size:14px;border-radius:6px}
+.tb.active{color:var(--ink);font-weight:600}
+.tb.active .ico{background:var(--yellow);color:var(--yellow-ink);font-weight:700}
+
+/* Me sheet (guarded signout) */
+.me-scrim{position:fixed;inset:0;background:rgba(13,27,52,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center;animation:me-fade .14s ease-out}
+.me-scrim[hidden]{display:none}
+@keyframes me-fade{from{opacity:0}to{opacity:1}}
+.me-sheet{background:var(--paper);border-radius:18px 18px 0 0;padding:8px 18px calc(18px + var(--safe-b));width:100%;max-width:430px;box-shadow:0 -8px 24px rgba(13,27,52,.18);animation:me-slide .18s ease-out}
+@keyframes me-slide{from{transform:translateY(20px);opacity:.6}to{transform:translateY(0);opacity:1}}
+.me-handle{width:36px;height:4px;border-radius:2px;background:var(--rule-2);margin:6px auto 16px}
+.me-who{display:flex;align-items:center;gap:12px;padding:6px 4px 14px;border-bottom:1px solid var(--rule);margin-bottom:10px}
+.me-who-avatar{width:44px;height:44px;border-radius:50%;background:var(--yellow);color:var(--yellow-ink);display:flex;align-items:center;justify-content:center;font-family:"Inter Tight",sans-serif;font-size:17px;font-weight:700;flex-shrink:0}
+.me-who-name{font-family:"Inter Tight",sans-serif;font-size:16px;font-weight:700;color:var(--ink);letter-spacing:-.2px;line-height:1.2}
+.me-who-role{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--ink-3);letter-spacing:.1em;text-transform:uppercase;margin-top:3px}
+.me-action{width:100%;display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:12px;background:var(--paper-2);border:1px solid var(--rule);font:inherit;font-size:14.5px;font-weight:600;color:var(--ink);cursor:pointer;margin-bottom:8px;text-align:left}
+.me-action.danger{color:var(--red)}
+.me-action:active{transform:scale(.99)}
+.me-action .me-action-meta{margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:10px;font-weight:600;color:var(--ink-3);letter-spacing:.1em;text-transform:uppercase}
+.me-cancel{width:100%;padding:13px;border-radius:12px;background:transparent;border:0;font:inherit;font-size:14.5px;font-weight:600;color:var(--ink-2);cursor:pointer}
+</style>
+</head>
+<body>
+<div class="frame">
+  <header class="phil-hdr">
+    <div style="flex:1;min-width:0">
+      <div class="ttl">Jobs</div>
+      <div class="sub" id="top-sub">Loading…</div>
+    </div>
+  </header>
+
+  <div class="phil-body">
+    <!-- Search — mono uppercase placeholder vibe inside an Inter input. -->
+    <div class="search">
+      <span class="search-ico">⌕</span>
+      <input id="q" type="search" autocomplete="off" placeholder="Search jobs, refs, addresses…">
+    </div>
+
+    <div id="jobs-list" style="display:flex;flex-direction:column;gap:10px">
+      <div class="empty"><b>Loading…</b></div>
+    </div>
+  </div>
+
+  <nav class="tabbar">
+    <a href="/my-day" class="tb">
+      <span class="ico">☼</span>
+      My day
+    </a>
+    <a href="/jobs" class="tb active">
+      <span class="ico">▣</span>
+      Jobs
+    </a>
+    <a href="/my-gear" class="tb">
+      <span class="ico">⚙</span>
+      My gear
+    </a>
+    <button class="tb" type="button" id="tab-me">
+      <span class="ico">◉</span>
+      Me
+    </button>
+  </nav>
+</div>
+
+<!-- Me sheet -->
+<div class="me-scrim" id="me-scrim" hidden>
+  <div class="me-sheet" role="dialog" aria-modal="true">
+    <div class="me-handle"></div>
+    <div class="me-who">
+      <div class="me-who-avatar" id="me-avatar">?</div>
+      <div style="flex:1;min-width:0">
+        <div class="me-who-name" id="me-who-name">…</div>
+        <div class="me-who-role" id="me-who-role"></div>
+      </div>
+    </div>
+    <a class="me-action" href="/onboarding">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span>Onboarding &amp; readiness</span>
+      <span class="me-action-meta">→</span>
+    </a>
+    <button type="button" class="me-action danger" id="me-signout">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M16 17l5-5-5-5M21 12H9M13 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/></svg>
+      <span>Sign out</span>
+    </button>
+    <button type="button" class="me-cancel" id="me-cancel">Cancel</button>
+  </div>
+</div>
+
+<script>
+// esc + initials shared via /phil-shell.js across all worker pages.
+const esc = PhilShell.esc;
+const initials = PhilShell.initials;
+
+let ME = null;
+let JOBS = [];
+
+async function load() {
+  try {
+    const meRes = await fetch('/api/auth?action=me', { credentials:'same-origin' });
+    if (!meRes.ok) { location.href = '/login'; return; }
+    ME = (await meRes.json()).user;
+    if (ME.role === 'client') { location.href = '/client'; return; }
+    if (ME.role === 'admin')  { location.href = '/admin/jobs'; return; }
+
+    setupMeSheet();
+
+    // ?withStats=1 — fills statsPct / statsOpenSnags / statsExpiringTags
+    // per job so the per-row stat tiles aren't blanks.
+    const r = await fetch('/api/jobs?withStats=1', { credentials:'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    JOBS = (await r.json()).jobs || [];
+    render();
+  } catch (e) {
+    document.getElementById('jobs-list').innerHTML =
+      '<div class="empty"><b>Couldn\'t load jobs</b>' + esc(e.message) + '</div>';
+    document.getElementById('top-sub').textContent = 'Check connection and refresh.';
+  }
+}
+
+function jobRef(j){ return j.ref || j.serviceM8JobId || j.id || ''; }
+
+function render() {
+  const q = (document.getElementById('q').value || '').toLowerCase().trim();
+  const list = JOBS.filter(j =>
+    !q || [j.name, jobRef(j), j.siteAddress, j.typeName]
+            .some(v => String(v || '').toLowerCase().includes(q)));
+
+  // Top sub-line — total + rollups for snags / tags so the header
+  // carries some weight before the list paints.
+  const totalSnags = JOBS.reduce((s,j) => s + Number(j.statsOpenSnags || 0), 0);
+  const totalTags  = JOBS.reduce((s,j) =>
+    s + Number(j.statsExpiredTags || 0) + Number(j.statsExpiringTags || 0), 0);
+  const parts = [JOBS.length + ' assigned'];
+  if (totalSnags) parts.push(totalSnags + ' SNAGS');
+  if (totalTags)  parts.push(totalTags  + ' TAGS DUE');
+  document.getElementById('top-sub').textContent =
+    JOBS.length ? parts.join(' · ') : 'No assigned jobs';
+
+  const wrap = document.getElementById('jobs-list');
+  if (!list.length) {
+    wrap.innerHTML = '<div class="empty"><b>No jobs found</b>' +
+      (JOBS.length ? 'Try a different search term.'
+                   : 'Assigned jobs appear here when admin adds you.') +
+      '</div>';
+    return;
+  }
+
+  wrap.innerHTML = list.map(j => {
+    const pct   = Number.isFinite(j.statsPct) ? j.statsPct : null;
+    const snags = Number(j.statsOpenSnags || 0);
+    const tags  = Number(j.statsExpiredTags || 0) + Number(j.statsExpiringTags || 0);
+    const ref   = jobRef(j);
+    const addr  = j.siteAddress || '';
+    return `<a class="job" href="/jobs/${encodeURIComponent(j.id)}" aria-label="Open ${esc(j.name)} Workspace">
+      <div class="job-top">
+        <div class="job-icon">${esc(initials(j.name))}</div>
+        <div class="job-main">
+          <div class="job-name">${esc(j.name || j.id)}</div>
+          ${ref ? `<div class="job-meta"><span class="job-ref">${esc(ref)}</span></div>` : ''}
+          ${addr ? `<div class="job-addr">${esc(addr)}</div>` : ''}
+        </div>
+        <div class="job-chevron">›</div>
+      </div>
+      <div class="job-stats">
+        <div class="stat"><b>${pct == null ? '—' : pct + '%'}</b><span>Progress</span></div>
+        <div class="stat ${snags ? 'warn' : ''}"><b>${snags}</b><span>Snags</span></div>
+        <div class="stat ${tags ? 'warn' : ''}"><b>${tags}</b><span>Tags</span></div>
+      </div>
+      <div class="bar"><i style="width:${pct == null ? 0 : Math.max(0, Math.min(100, pct))}%"></i></div>
+    </a>`;
+  }).join('');
+}
+
+document.getElementById('q').addEventListener('input', render);
+
+// Me sheet wiring lives in /phil-shell.js — same protected pattern as
+// every other worker page. Sign-out endpoint is funnelled through
+// PhilShell so cookie clear + redirect stays in one place.
+function setupMeSheet() { PhilShell.mountMeSheet(ME); }
+
+load();
+</script>
+</body>
+</html>

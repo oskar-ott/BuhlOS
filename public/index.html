@@ -34,6 +34,10 @@
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
 <meta name="theme-color" content="#0d1b34">
 <script src="/log-hours-sheet.js" defer></script>
+<!-- Shared Phil utilities + Me-sheet wiring. Same module the other
+     worker pages load; mountMeSheet accepts an ID-map so Workspace's
+     workerMe* namespace plugs in without renaming its markup. -->
+<script src="/phil-shell.js" defer></script>
 <style>
 :root{
   /* === Local aliases mapping to theme.css tokens === */
@@ -324,6 +328,106 @@ button.hdr-job[aria-expanded="true"] .hdr-job-chev{color:var(--yellow);transform
 .worker-fab-primary:hover{filter:brightness(.97)}
 .worker-fab-ico{font-size:14px;line-height:1;font-weight:700}
 .worker-fab-lbl{line-height:1}
+
+/* ── Worker bottom tab bar ─────────────────────────────────────────
+   Shown for tradie + leadingHand on /jobs/{id} so the Workspace has
+   a one-tap path back to My Day / Jobs / My Gear / Me. Sits at
+   bottom:0; the redundant worker-fab is hidden when this is on
+   because Log Hours + Raise Snag are already on the Dashboard's
+   secondary row.
+
+   Tab labels reuse the symbol set established on /my-day, /jobs and
+   /my-gear — same characters, same yellow active-icon treatment —
+   so all worker pages feel like one app. */
+.worker-tabbar{
+  display:none;
+  position:fixed;left:0;right:0;bottom:0;
+  background:#fff;
+  border-top:1px solid var(--rule);
+  z-index:90;
+  padding:6px 6px calc(6px + env(safe-area-inset-bottom));
+  grid-template-columns:repeat(4,1fr);
+  max-width:760px;margin:0 auto;
+}
+.worker-tabbar[data-active="1"]{display:grid}
+.worker-tabbar .wt{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;padding:8px 4px;
+  font-family:"Inter",-apple-system,sans-serif;
+  font-size:10.5px;font-weight:500;
+  color:var(--ink-3);text-decoration:none;border-radius:10px;
+}
+.worker-tabbar .wt-ico{
+  width:26px;height:24px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;border-radius:6px;
+}
+.worker-tabbar .wt.active{color:var(--ink);font-weight:600}
+.worker-tabbar .wt.active .wt-ico{background:var(--yellow);color:var(--yellow-ink);font-weight:700}
+.worker-tabbar .wt:active{transform:scale(.98)}
+
+/* Hide on wider viewports — desktop has the regular sub-nav. */
+@media(min-width:760px){
+  .worker-tabbar[data-active="1"]{display:none}
+}
+
+/* When the worker tabbar is on, the worker-fab and its body padding
+   are redundant (Dashboard tiles already expose Log Hours + Raise Snag).
+   Hide it to keep the bottom edge calm; add bottom padding via the
+   body class so deep dwelling content scrolls clear of the tabbar. */
+body.has-worker-tabbar{
+  padding-bottom:calc(64px + env(safe-area-inset-bottom));
+}
+body.has-worker-tabbar .worker-fab{display:none !important}
+body.has-worker-tabbar.has-worker-fab{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+
+/* ── Worker Me sheet (Workspace) ────────────────────────────────────
+   Mirrors the sheet pattern on /my-day, /my-gear, /jobs, /onboarding
+   so signout protection is consistent across every worker surface.
+   Tokens inlined here use the Phil redesign palette (navy/yellow/
+   cool-grey rules) — visually consistent with the rest of Phil even
+   though index.html's page chrome uses the older cream theme. */
+.worker-me-scrim{
+  position:fixed;inset:0;background:rgba(13,27,52,.45);
+  z-index:120;display:flex;align-items:flex-end;justify-content:center;
+  animation:worker-me-fade .14s ease-out;
+}
+.worker-me-scrim[hidden]{display:none}
+@keyframes worker-me-fade{from{opacity:0}to{opacity:1}}
+.worker-me-sheet{
+  background:#fff;border-radius:18px 18px 0 0;
+  padding:8px 18px calc(18px + env(safe-area-inset-bottom));
+  width:100%;max-width:430px;
+  box-shadow:0 -8px 24px rgba(13,27,52,.18);
+  animation:worker-me-slide .18s ease-out;
+  font-family:"Inter","Inter Tight",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+@keyframes worker-me-slide{from{transform:translateY(20px);opacity:.6}to{transform:translateY(0);opacity:1}}
+.worker-me-handle{width:36px;height:4px;border-radius:2px;background:#c8cee0;margin:6px auto 16px}
+.worker-me-who{display:flex;align-items:center;gap:12px;padding:6px 4px 14px;border-bottom:1px solid #dde1ea;margin-bottom:10px}
+.worker-me-avatar{
+  width:44px;height:44px;border-radius:50%;
+  background:#f5d020;color:#1d1700;
+  display:flex;align-items:center;justify-content:center;
+  font-family:"Inter Tight",sans-serif;font-size:17px;font-weight:700;flex-shrink:0;
+}
+.worker-me-name{font-family:"Inter Tight",sans-serif;font-size:16px;font-weight:700;color:#0d1b34;letter-spacing:-.2px;line-height:1.2}
+.worker-me-role{font-family:"JetBrains Mono",monospace;font-size:10px;color:#6a7591;letter-spacing:.1em;text-transform:uppercase;margin-top:3px}
+.worker-me-action{
+  width:100%;display:flex;align-items:center;gap:12px;
+  padding:13px 14px;border-radius:12px;
+  background:#f8f9fb;border:1px solid #dde1ea;
+  font:inherit;font-size:14.5px;font-weight:600;color:#0d1b34;
+  cursor:pointer;margin-bottom:8px;text-align:left;
+  text-decoration:none;
+}
+.worker-me-action.danger{color:#c0312f}
+.worker-me-action:active{transform:scale(.99)}
+.worker-me-meta{margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:10px;font-weight:600;color:#6a7591;letter-spacing:.1em;text-transform:uppercase}
+.worker-me-cancel{
+  width:100%;padding:13px;border-radius:12px;background:transparent;border:0;
+  font:inherit;font-size:14.5px;font-weight:600;color:#36446b;cursor:pointer;
+}
 /* Hide on wider viewports — desktop has the regular sub-nav. */
 @media(min-width:760px){
   .worker-fab[data-active="1"]{display:none}
@@ -2773,6 +2877,69 @@ async function bootstrapAuth() {
     document.body.classList.add('role-client');
   }
 
+  // Tradies get a focused job view. Hours capture lives on /my-day (the
+  // worker FAB + the Dashboard "Log hours" tile still open BuhlLogHours
+  // prefilled to this job), so the in-job Hours TABLE — a supervisor
+  // surface showing everyone's crew hours — is hidden. Temps and T&T are
+  // specialist registers used by certified staff. The ITPs cross-register
+  // is hidden too because tradies capture inline via dwelling detail
+  // (Photos & ITP). Net result: hamburger shows Snags · Plans · Photos
+  // & ITP · Contacts + the worker's "← My Day" exit.
+  if (CURRENT_USER.role === 'tradie') {
+    const hm = document.getElementById('hoursMenuItem');
+    if (hm) hm.style.display = 'none';
+    const tempsBtn = document.querySelector('.nav-menu-item[data-sec="temps"]');
+    if (tempsBtn) tempsBtn.style.display = 'none';
+    const tagsBtn = document.querySelector('.nav-menu-item[data-sec="tags"]');
+    if (tagsBtn) tagsBtn.style.display = 'none';
+    // ITPs cross-register: re-hide after the module-enabled block above
+    // proactively revealed it for non-clients.
+    const im = document.getElementById('itpsMenuItem');
+    if (im) im.hidden = true;
+    // Workspace context — tradies see "WORKSPACE · {ref}" in the sub
+    // line so the Job page reads as the operational hub for one job,
+    // not as a one-of-many admin record. The ref is whatever job.ref /
+    // job.id resolves to (job-detail loader uses job.id by default).
+    const subEl = document.getElementById('hdr-sub');
+    if (subEl && CURRENT_JOB) {
+      const ref = (CURRENT_JOB.ref || CURRENT_JOB.id || '').toUpperCase();
+      subEl.textContent = ref ? 'WORKSPACE · ' + ref : 'WORKSPACE';
+    }
+  }
+
+  // Leading-hand parity — LH supervises field work but isn't a full
+  // admin. Brief: "Leading hands may see more than tradies, but still
+  // keep it field-focused."
+  //
+  //   Keep visible for LH:
+  //     · Hours table        — field supervision (verify crew hours
+  //                            before submission)
+  //     · ITPs cross-register — triage across dwellings
+  //     · Materials           — already revealed above
+  //
+  //   Hidden for LH:
+  //     · Temps     — specialist register (admin/certified-staff job)
+  //     · Test & Tag — specialist register (T&T-licensed admin job)
+  //
+  // Previously LH saw the entire menu, which was inconsistency by
+  // accident — every other Phil surface treats LH as field-side. This
+  // closes the gap.
+  if (CURRENT_USER.role === 'leadingHand') {
+    const tempsBtn = document.querySelector('.nav-menu-item[data-sec="temps"]');
+    if (tempsBtn) tempsBtn.style.display = 'none';
+    const tagsBtn = document.querySelector('.nav-menu-item[data-sec="tags"]');
+    if (tagsBtn) tagsBtn.style.display = 'none';
+    // Workspace context — LH sees the same WORKSPACE sub-line as
+    // tradies. Operationally they ARE working on this one job's
+    // surface; admin / supervisor framing belongs in /lh-home and
+    // /admin/operations, not in the Workspace header.
+    const subEl = document.getElementById('hdr-sub');
+    if (subEl && CURRENT_JOB) {
+      const ref = (CURRENT_JOB.ref || CURRENT_JOB.id || '').toUpperCase();
+      subEl.textContent = ref ? 'WORKSPACE · ' + ref : 'WORKSPACE';
+    }
+  }
+
   // Worker quick-action FAB — tradies and leading hands get the always-visible
   // "+ Raise snag" / "Log hours" pair; clients and admin do not. Toggling via
   // data-active keeps the markup but hidden behind a CSS rule when off.
@@ -2783,6 +2950,23 @@ async function bootstrapAuth() {
       fab.dataset.active = '1';
       document.body.classList.add('has-worker-fab');
     }
+    // Worker bottom tab bar — one-tap exit to My day / Jobs / My gear /
+    // Me. CSS hides the worker-fab when this is on (Log Hours and
+    // Raise Snag are already on the Dashboard so the FAB is duplicate
+    // noise) and adds bottom padding so deep content scrolls clear of
+    // the bar.
+    const wtb = document.getElementById('workerTabbar');
+    if (wtb) {
+      wtb.dataset.active = '1';
+      document.body.classList.add('has-worker-tabbar');
+    }
+    // Worker Me sheet — same protected pattern as the other worker
+    // pages (profile preview + Onboarding link + guarded sign-out).
+    // Was previously a direct nav to /onboarding which (a) skipped the
+    // confirm-tap on sign-out and (b) was inconsistent with how every
+    // other Phil page handles Me. The sheet sits in the DOM already;
+    // we just wire identity + handlers once auth resolves.
+    setupWorkerMeSheet(CURRENT_USER);
   }
 
   document.getElementById('logoutBtn').addEventListener('click', async () => {
@@ -2802,6 +2986,29 @@ async function bootstrapAuth() {
 // Offline-photo replay: when a queued snag-photo upload finally lands,
 // patch the snag's photo entry with the real server URL + persist.
 // Tag shape: 'snag-photo:<snagId>:<tempId>'.
+// Worker Me sheet — used on the Workspace (this page) when a tradie/
+// LH taps the "Me" tab in the worker bottom-bar. Behaves identically
+// to the sheet on /my-day, /my-gear, /jobs, /onboarding: identity
+// preview, link to Onboarding, guarded sign-out, Cancel. Idempotent
+// — calling it twice is safe (event listeners are added on the same
+// nodes, but the page only fires this once per boot anyway).
+function setupWorkerMeSheet(user) {
+  // Wiring lives in /phil-shell.js (same module the other worker pages
+  // load). Workspace uses the workerMe* element-id namespace because
+  // index.html's markup pre-dates the shared module; the ID map below
+  // points PhilShell at this page's nodes without renaming the markup.
+  if (!window.PhilShell) return;
+  PhilShell.mountMeSheet(user, {
+    tab:     'workerTabMe',
+    scrim:   'workerMeScrim',
+    cancel:  'workerMeCancel',
+    signOut: 'workerMeSignout',
+    nameEl:  'workerMeName',
+    roleEl:  'workerMeRole',
+    avatar:  'workerMeAvatar',
+  });
+}
+
 function registerQueueDrainHandlers() {
   document.addEventListener('queue:drained', (ev) => {
     const d = ev.detail || {};
@@ -9594,6 +9801,61 @@ function paintSiteInfoPill(job) {
      level for product-chip:open events. Brief §20: app-leave for
      product specs = 0. -->
 <product-drawer></product-drawer>
+
+<!-- Worker bottom tab bar — revealed for tradie/leadingHand by the
+     role block in setupCurrentUser(). One-tap path back to /my-day,
+     /jobs, /my-gear so workers don't have to dig through the
+     hamburger to leave the Workspace. "Me" opens the same protected
+     sheet pattern used on every other worker page (profile preview +
+     Onboarding link + guarded sign-out) so signout can never fire on
+     a mis-tap at the right edge of the screen. -->
+<nav class="worker-tabbar" id="workerTabbar" aria-label="Worker navigation">
+  <a href="/my-day" class="wt">
+    <span class="wt-ico">☼</span>
+    My day
+  </a>
+  <a href="/jobs" class="wt active">
+    <span class="wt-ico">▣</span>
+    Jobs
+  </a>
+  <a href="/my-gear" class="wt">
+    <span class="wt-ico">⚙</span>
+    My gear
+  </a>
+  <button class="wt" type="button" id="workerTabMe">
+    <span class="wt-ico">◉</span>
+    Me
+  </button>
+</nav>
+
+<!-- Worker Me sheet (Workspace) — same pattern as /my-day, /my-gear,
+     /jobs, /onboarding. Inline tokens here because index.html's own
+     palette uses the older cream theme (--surface / --line); the
+     sheet matches the rest of Phil visually, not the page chrome
+     around it. Acceptable inconsistency: the sheet is a transient
+     overlay, not page content. -->
+<div class="worker-me-scrim" id="workerMeScrim" hidden>
+  <div class="worker-me-sheet" role="dialog" aria-modal="true" aria-labelledby="workerMeName">
+    <div class="worker-me-handle"></div>
+    <div class="worker-me-who">
+      <div class="worker-me-avatar" id="workerMeAvatar">?</div>
+      <div style="flex:1;min-width:0">
+        <div class="worker-me-name" id="workerMeName">…</div>
+        <div class="worker-me-role" id="workerMeRole"></div>
+      </div>
+    </div>
+    <a class="worker-me-action" href="/onboarding">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span>Onboarding &amp; readiness</span>
+      <span class="worker-me-meta">→</span>
+    </a>
+    <button type="button" class="worker-me-action danger" id="workerMeSignout">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M16 17l5-5-5-5M21 12H9M13 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/></svg>
+      <span>Sign out</span>
+    </button>
+    <button type="button" class="worker-me-cancel" id="workerMeCancel">Cancel</button>
+  </div>
+</div>
 
 </body>
 </html>
