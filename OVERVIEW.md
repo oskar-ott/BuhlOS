@@ -1,7 +1,24 @@
-# Birdwood — Project Overview for LLM Context
+# BuhlOS — Project Overview for LLM Context
 
-**Live URL:** https://buhlapp.xyz  
-**Stack:** Vercel serverless functions (Node 24) + Vercel Blob storage + plain HTML/CSS/JS frontend  
+**Canonical domain structure:**
+
+| Surface | URL |
+|---|---|
+| BuhlOS dashboard / login / admin | https://buhlos.com |
+| Phil mobile worker app | https://phil.buhlos.com |
+| API | https://api.buhlos.com *(same-origin in the current single-deployment build; reserved for a future split)* |
+| Docs (optional) | https://docs.buhlos.com |
+
+URL helpers live in [`api/_lib/domains.js`](api/_lib/domains.js) (server) and [`public/lib/domains.js`](public/lib/domains.js) (browser). The single source of truth for any absolute URL — email links, install instructions, deep links, CORS allow-lists, etc. — is one of those modules. Don't hardcode hostnames in components.
+
+Required env vars (see [.env.example](.env.example)):
+- `NEXT_PUBLIC_BUHLOS_URL` — defaults to `https://buhlos.com`
+- `NEXT_PUBLIC_PHIL_URL` — defaults to `https://phil.buhlos.com`
+- `NEXT_PUBLIC_API_URL` — defaults to `https://api.buhlos.com`
+- `NEXT_PUBLIC_DOCS_URL` *(optional)* — defaults to `https://docs.buhlos.com`
+- `BUHLOS_COOKIE_DOMAIN` *(optional)* — set to `.buhlos.com` once admin and Phil are split across subdomains so the session cookie is shared.
+
+**Stack:** Vercel serverless functions (Node 24) + Vercel Blob storage + plain HTML/CSS/JS frontend
 **Purpose:** Job tracking web app for bühl electrical. Field crew log progress on residential electrical jobs (rough-in, fit-off stages), raise snags, upload ITP photos, log hours, manage test & tag certificates and temp board records.
 
 ---
@@ -521,6 +538,14 @@ The main app. Loaded with `?job={jobId}` query param set by Vercel rewrites (or 
 |---|---|
 | `SESSION_SECRET` | HMAC key for session cookies (min 16 chars) |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob read/write token |
+| `NEXT_PUBLIC_BUHLOS_URL` | BuhlOS dashboard URL (default `https://buhlos.com`) |
+| `NEXT_PUBLIC_PHIL_URL` | Phil URL (default `https://phil.buhlos.com`) |
+| `NEXT_PUBLIC_API_URL` | API base URL (default `https://api.buhlos.com`) |
+| `NEXT_PUBLIC_DOCS_URL` | Optional docs URL (default `https://docs.buhlos.com`) |
+| `BUHLOS_COOKIE_DOMAIN` | Optional shared cookie domain, e.g. `.buhlos.com`, for cross-subdomain SSO |
+| `ADMIN_ALERT_EMAIL` | Inbox for access-request + password-reset alerts (default `office@buhlos.com`) |
+| `NOREPLY_EMAIL` | From-address for system emails (default `noreply@buhlos.com`) |
+| `ALLOWED_ORIGINS` | Comma-separated extra origins allowed to call the API with credentials |
 
 ---
 

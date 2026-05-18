@@ -67,5 +67,6 @@ if (NEW_PIN.length < 6) { console.error('NEW_PIN must be at least 6 characters.'
 
   console.log('');
   console.log(`✓ PIN reset for "${user.username}".`);
-  console.log('  Try logging in at https://buhlapp.xyz/login with the new PIN.');
+  const loginUrl = (process.env.NEXT_PUBLIC_BUHLOS_URL || process.env.BUHLOS_URL || 'https://buhlos.com').replace(/\/+$/, '') + '/login';
+  console.log(`  Try logging in at ${loginUrl} with the new PIN.`);
 })().catch(e => { console.error('Failed:', e.message); process.exit(1); });

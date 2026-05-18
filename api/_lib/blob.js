@@ -26,6 +26,7 @@
 // followed by an immediate read sees the new state. Cross-instance
 // staleness is bounded by BLOB_TTL_MS.
 const { put, list, del } = require('@vercel/blob');
+const { resolveAllowedOrigin } = require('./domains');
 
 const token = () => process.env.BLOB_READ_WRITE_TOKEN;
 
@@ -134,11 +135,28 @@ async function deleteBlob(key) {
   _cacheInvalidate(key);
 }
 
-function setNoCache(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+// CORS + no-cache headers for API responses.
+//
+// Note on credentials + origins: the previous version of this helper set
+// `Access-Control-Allow-Origin: *` with `Access-Control-Allow-Credentials:
+// true`. That combination is rejected by browsers (cookies are not sent
+// or accepted), so it never actually authorised any cross-origin
+// request — it only worked because the frontend and API live on the
+// same origin today. To support the new domain split (buhlos.com /
+// phil.buhlos.com / api.buhlos.com) without weakening anything, we now
+// echo a specific origin from the allow-list (see _lib/domains.js).
+// Same-origin callers don't send an Origin header and so won't trigger
+// a CORS check at all — behaviour is unchanged for them.
+function setNoCache(res, req) {
+  const origin = req && req.headers ? (req.headers.origin || '') : '';
+  const allowed = resolveAllowedOrigin(origin);
+  if (allowed) {
+    res.setHeader('Access-Control-Allow-Origin', allowed);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Cache-Control', 'no-store,no-cache,must-revalidate,max-age=0');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Vercel-CDN-Cache-Control', 'no-store');

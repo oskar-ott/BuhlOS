@@ -19,7 +19,7 @@
 // Email transport:
 //   Reuses the Resend integration already wired for api/snag-email.js
 //   (RESEND_API_KEY env var). Recipient: ADMIN_ALERT_EMAIL env var,
-//   fallback to office@buhlapp.xyz (call it out in the email body so
+//   fallback to office@buhlos.com (call it out in the email body so
 //   admin can fix the env var if the wrong inbox is getting messages).
 //   On send-failure we log + continue — the request is still saved.
 //
@@ -32,6 +32,7 @@
 const { put, list } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
+const { getAdminAlertEmail, getNoReplyAddress, getSupportUrl } = require('./_lib/domains');
 
 const VALID_ROLES   = ['tradie', 'client'];
 const VALID_STATUS  = ['open', 'resolved', 'rejected'];
@@ -81,8 +82,9 @@ async function listAllRequests() {
 async function alertAdmin(record) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return { skipped: 'no RESEND_API_KEY configured' };
-  const to = process.env.ADMIN_ALERT_EMAIL || 'office@buhlapp.xyz';
-  const from = 'BuhlOS <noreply@buhlapp.xyz>';
+  const to = getAdminAlertEmail();
+  const from = 'BuhlOS <' + getNoReplyAddress() + '>';
+  const supportUrl = getSupportUrl();
   const subject = 'BuhlOS — new access request from ' + (record.name || 'unknown');
   const lines = [
     `<p style="margin:0 0 12px;font-size:15px"><b>${escapeHtml(record.name)}</b> wants access to BuhlOS.</p>`,
@@ -94,14 +96,14 @@ async function alertAdmin(record) {
     record.jobOrSite ? `<tr><td style="color:#6a7591">Job / site</td><td>${escapeHtml(record.jobOrSite)}</td></tr>` : '',
     record.message ? `<tr><td style="color:#6a7591;vertical-align:top">Message</td><td style="white-space:pre-wrap">${escapeHtml(record.message)}</td></tr>` : '',
     `</table>`,
-    `<p style="margin:18px 0 0;font-size:13px;color:#6a7591">Triage at <a href="https://buhlapp.xyz/admin/support">/admin/support</a></p>`,
+    `<p style="margin:18px 0 0;font-size:13px;color:#6a7591">Triage at <a href="${supportUrl}">/admin/support</a></p>`,
     `<p style="margin:6px 0 0;font-size:11px;color:#9aa3bc">Request id: <code>${escapeHtml(record.id)}</code> · alerts go to <code>${escapeHtml(to)}</code> (set <code>ADMIN_ALERT_EMAIL</code> to change)</p>`,
   ].join('\n');
   try {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, subject, html: lines, text: `New access request from ${record.name}. Phone: ${record.phone}. Email: ${record.email}. Role: ${record.requestedRole}.${record.jobOrSite ? ' Job/site: ' + record.jobOrSite : ''}${record.message ? '\n\n' + record.message : ''}\n\nTriage at https://buhlapp.xyz/admin/support` }),
+      body: JSON.stringify({ from, to, subject, html: lines, text: `New access request from ${record.name}. Phone: ${record.phone}. Email: ${record.email}. Role: ${record.requestedRole}.${record.jobOrSite ? ' Job/site: ' + record.jobOrSite : ''}${record.message ? '\n\n' + record.message : ''}\n\nTriage at ${supportUrl}` }),
     });
     if (!r.ok) {
       const body = await r.json().catch(() => ({}));

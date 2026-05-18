@@ -1,7 +1,7 @@
 // Snag-to-email: composer submits here, we call Resend, we log an audit entry.
 //
 // Requirements (locked in with user):
-//   - Sender:     noreply@buhl.com.au
+//   - Sender:     noreply@buhlos.com (override via SNAG_EMAIL_FROM)
 //   - Reply-to:   the sending tradie/LH/admin's email (from their user record)
 //   - Roles:      admin, leadingHand, tradie can send. Clients read-only.
 //   - Photos:     1024px max longest-edge (client already resized before POST).
@@ -13,12 +13,13 @@
 // Uses Resend's HTTPS API directly (no SDK — keeps bundle small, matches other APIs).
 // Env vars required:
 //   RESEND_API_KEY   — provisioned by user in Vercel dashboard
-//   (SNAG_EMAIL_FROM optional override; defaults to noreply@buhl.com.au)
+//   (SNAG_EMAIL_FROM optional override; defaults to "BUHL Snags <noreply@buhlos.com>")
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite } = require('./_lib/auth');
+const { getNoReplyAddress } = require('./_lib/domains');
 
-const DEFAULT_FROM = 'BUHL Snags <noreply@buhlapp.xyz>';
+const DEFAULT_FROM = 'BUHL Snags <' + getNoReplyAddress() + '>';
 const MAX_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024; // 4 MB per photo (Resend cap is 40 MB total)
 

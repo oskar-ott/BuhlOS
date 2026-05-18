@@ -37,12 +37,13 @@ const net = require('net');
 const { URL } = require('url');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
+const { getBuhlOSUrl } = require('./_lib/domains');
 
 const MAX_BODY_BYTES = 1024 * 1024;     // 1 MB cap on remote response
 const REQUEST_TIMEOUT_MS = 10000;       // 10 s overall
 const MAX_REDIRECTS = 3;
 const ACCEPTED_CONTENT_TYPES = ['text/html', 'application/xhtml+xml'];
-const USER_AGENT = 'BuhlOS-SupplierLookup/1.0 (+https://buhlapp.xyz)';
+const USER_AGENT = 'BuhlOS-SupplierLookup/1.0 (+' + getBuhlOSUrl() + ')';
 
 // Block obvious private/internal targets to prevent SSRF abuse via an
 // admin who pastes a malicious URL. This isn't bulletproof — a hostname

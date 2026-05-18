@@ -24,6 +24,7 @@
 const { put, list } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
+const { getAdminAlertEmail, getNoReplyAddress, getSupportUrl } = require('./_lib/domains');
 
 const VALID_STATUS = ['open', 'resolved'];
 
@@ -66,8 +67,9 @@ async function listAllResets() {
 async function alertAdmin(record, nameMatchesAccount) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return { skipped: 'no RESEND_API_KEY configured' };
-  const to = process.env.ADMIN_ALERT_EMAIL || 'office@buhlapp.xyz';
-  const from = 'BuhlOS <noreply@buhlapp.xyz>';
+  const to = getAdminAlertEmail();
+  const from = 'BuhlOS <' + getNoReplyAddress() + '>';
+  const supportUrl = getSupportUrl();
   const subject = 'BuhlOS — password reset request for ' + (record.name || 'unknown');
   // Tell the admin (in the email body, NOT the public response) whether
   // the requested name actually maps to a user. Saves them a lookup.
@@ -82,14 +84,14 @@ async function alertAdmin(record, nameMatchesAccount) {
     `<tr><td style="color:#6a7591">Reach them on</td><td>${escapeHtml(record.contact)}</td></tr>`,
     `<tr><td style="color:#6a7591">Submitted</td><td>${escapeHtml(record.createdAt)}</td></tr>`,
     `</table>`,
-    `<p style="margin:18px 0 0;font-size:13px;color:#6a7591">Triage at <a href="https://buhlapp.xyz/admin/support">/admin/support</a> — reset the password from /admin/crew and text them out-of-band.</p>`,
+    `<p style="margin:18px 0 0;font-size:13px;color:#6a7591">Triage at <a href="${supportUrl}">/admin/support</a> — reset the password from /admin/crew and text them out-of-band.</p>`,
     `<p style="margin:6px 0 0;font-size:11px;color:#9aa3bc">Request id: <code>${escapeHtml(record.id)}</code> · alerts go to <code>${escapeHtml(to)}</code> (set <code>ADMIN_ALERT_EMAIL</code> to change)</p>`,
   ].join('\n');
   try {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, subject, html, text: `Password reset request: ${record.name} (${nameMatchesAccount ? 'matches account' : 'no account match'}). Contact: ${record.contact}. Triage at https://buhlapp.xyz/admin/support` }),
+      body: JSON.stringify({ from, to, subject, html, text: `Password reset request: ${record.name} (${nameMatchesAccount ? 'matches account' : 'no account match'}). Contact: ${record.contact}. Triage at ${supportUrl}` }),
     });
     if (!r.ok) {
       const body = await r.json().catch(() => ({}));

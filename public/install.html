@@ -6,6 +6,7 @@
 <title>Install BuhlOS</title>
 <link rel="stylesheet" href="/theme.css">
 <link rel="manifest" href="/manifest.json">
+<script src="/lib/domains.js"></script>
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -161,7 +162,7 @@
         <div class="step-row">
           <span class="step-num">1</span>
           <div class="step-body">
-            Open <b>buhlapp.xyz</b> in <b>Safari</b>. The install option only works in Safari &mdash; not Chrome or Firefox on iPhone.
+            Open <b class="install-host">buhlos.com</b> in <b>Safari</b>. The install option only works in Safari &mdash; not Chrome or Firefox on iPhone.
           </div>
         </div>
         <div class="step-row">
@@ -254,7 +255,7 @@
         <div class="step-row">
           <span class="step-num">1</span>
           <div class="step-body">
-            Open <b>buhlapp.xyz</b> in <b>Chrome</b>. Chrome has the best install experience on Android.
+            Open <b class="install-host">buhlos.com</b> in <b>Chrome</b>. Chrome has the best install experience on Android.
           </div>
         </div>
         <div class="step-row">
@@ -290,6 +291,13 @@
 
 <script>
 (function(){
+  // Stamp the host the user should type in. On phil.buhlos.com it
+  // reads "phil.buhlos.com"; on the BuhlOS dashboard it reads
+  // "buhlos.com"; in local dev it falls back to the current origin's
+  // host so screenshots make sense.
+  var host = (window.BUHLOS_DOMAINS && window.BUHLOS_DOMAINS.currentInstallHost && window.BUHLOS_DOMAINS.currentInstallHost()) || 'buhlos.com';
+  Array.prototype.forEach.call(document.querySelectorAll('.install-host'), function (el) { el.textContent = host; });
+
   // If already installed, hide steps and show confirmation.
   var isStandalone = window.matchMedia('(display-mode: standalone)').matches
                   || window.navigator.standalone === true;

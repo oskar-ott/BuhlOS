@@ -4,6 +4,15 @@
     { "source": "/jobs/:jobId", "destination": "/index.html" },
     { "source": "/jobs/:jobId/log-hours", "destination": "/index.html" },
 
+    { "source": "/phil", "destination": "/phil.html" },
+
+    { "source": "/",
+      "has": [{ "type": "host", "value": "phil\\..+" }],
+      "destination": "/my-day.html" },
+    { "source": "/manifest.json",
+      "has": [{ "type": "host", "value": "phil\\..+" }],
+      "destination": "/phil-manifest.json" },
+
     { "source": "/admin",                 "destination": "/admin/index.html" },
     { "source": "/admin/",                "destination": "/admin/index.html" },
     { "source": "/admin/operations",      "destination": "/admin/operations.html" },

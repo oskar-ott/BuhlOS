@@ -2,6 +2,7 @@
 const crypto = require('crypto');
 const cookie = require('cookie');
 const { readBlob } = require('./blob');
+const { getCookieDomain } = require('./domains');
 
 const SESSION_COOKIE = 'buhl_session';
 const SESSION_DAYS = 30;
@@ -37,22 +38,38 @@ function verifySession(token) {
   }
 }
 
-function setSessionCookie(res, payload) {
-  const exp = Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000;
-  const token = signSession({ ...payload, exp });
-  res.setHeader('Set-Cookie', cookie.serialize(SESSION_COOKIE, token, {
+// Cookie options shared between set + clear so they always match —
+// browsers will only delete a cookie whose path/domain match the
+// original Set-Cookie. The optional BUHLOS_COOKIE_DOMAIN env var lets
+// the session be scoped to .buhlos.com so a login on buhlos.com is
+// honoured at phil.buhlos.com (and vice versa). It is intentionally
+// undefined by default so the cookie stays host-only on localhost and
+// preview deployments.
+function cookieOptions(extra) {
+  const domain = getCookieDomain();
+  const opts = {
     httpOnly: true,
     secure: true,
     sameSite: 'lax',
     path: '/',
+    ...extra,
+  };
+  if (domain) opts.domain = domain;
+  return opts;
+}
+
+function setSessionCookie(res, payload) {
+  const exp = Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000;
+  const token = signSession({ ...payload, exp });
+  res.setHeader('Set-Cookie', cookie.serialize(SESSION_COOKIE, token, cookieOptions({
     maxAge: SESSION_DAYS * 24 * 60 * 60,
-  }));
+  })));
 }
 
 function clearSessionCookie(res) {
-  res.setHeader('Set-Cookie', cookie.serialize(SESSION_COOKIE, '', {
-    httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 0,
-  }));
+  res.setHeader('Set-Cookie', cookie.serialize(SESSION_COOKIE, '', cookieOptions({
+    maxAge: 0,
+  })));
 }
 
 function getSession(req) {
