@@ -853,14 +853,9 @@ a { color: inherit; text-decoration: none; }
           <option value="">Select job…</option>
         </select>
         <div class="chips" id="qlog-dur-chips" style="padding:0;gap:6px;">
-          <div class="chip" onclick="quickLogSave(this,4)">4h</div>
-          <div class="chip" onclick="quickLogSave(this,6)">6h</div>
-          <div class="chip" onclick="quickLogSave(this,8)">8h</div>
-          <div class="chip" onclick="quickLogSave(this,8.5)">8.5h</div>
-          <div class="chip" onclick="quickLogSave(this,9)">9h</div>
-          <div class="chip" onclick="quickLogSave(this,10)">10h</div>
+          <div class="chip" data-hours="7.6" onclick="quickLogSave(this,7.6)" style="padding:8px 16px;">Standard day · 7h 36</div>
         </div>
-        <div style="font-size:11px;color:var(--ink-3);margin-top:8px;">Tap a duration to save. <span style="color:var(--blue);font-weight:600;cursor:pointer;" onclick="quickLogOpenFull()">More options →</span></div>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:8px;">Tap to save a standard 7h 36 day. <span style="color:var(--blue);font-weight:600;cursor:pointer;" onclick="quickLogOpenFull()">Different hours →</span></div>
       </div>
       <div class="qactions" style="margin-top:14px;">
         <div class="qa yellow" onclick="quickStartOrLog()">
@@ -1214,12 +1209,7 @@ a { color: inherit; text-decoration: none; }
     <div class="form-group">
       <label class="form-label">Quick duration</label>
       <div class="chips" id="sh-hrs-dur-chips" style="padding:0;gap:6px;">
-        <div class="chip" onclick="setHrsDuration(this,4)">4h</div>
-        <div class="chip" onclick="setHrsDuration(this,6)">6h</div>
-        <div class="chip" onclick="setHrsDuration(this,8)">8h</div>
-        <div class="chip" onclick="setHrsDuration(this,8.5)">8.5h</div>
-        <div class="chip" onclick="setHrsDuration(this,9)">9h</div>
-        <div class="chip" onclick="setHrsDuration(this,10)">10h</div>
+        <div class="chip" data-hours="7.6" onclick="setHrsDuration(this,7.6)" style="padding:8px 16px;">Standard day · 7h 36</div>
       </div>
     </div>
     <div style="display:flex;align-items:baseline;justify-content:center;gap:6px;padding:8px 16px 4px;">
@@ -2224,9 +2214,8 @@ function updateHrsTotal() {
   totEl.textContent = +hrs.toFixed(1);
   // De-highlight duration chips if the actual delta no longer matches.
   document.querySelectorAll('#sh-hrs-dur-chips .chip').forEach(c => {
-    const txt = c.textContent.trim();
-    const val = parseFloat(txt);
-    if (Math.abs(val - hrs) > 0.05) c.classList.remove('active');
+    const val = parseFloat(c.dataset.hours || c.textContent);
+    if (!Number.isFinite(val) || Math.abs(val - hrs) > 0.05) c.classList.remove('active');
   });
 }
 
