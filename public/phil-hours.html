@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>Phil Hours</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#0d1b34;--navy2:#182a48;--yellow:#f5d020;--paper:#f6f4ee;--card:#fff;--line:#e5decd;
+  --ink:#0d1b34;--muted:#69748d;--green:#1f8b5a;--greenbg:#e2f3ea;--red:#c0312f;--redbg:#fbe9e9;--amber:#d68a1a;--amberbg:#fbeed3;
+  --safe-b:env(safe-area-inset-bottom,0px);--safe-t:env(safe-area-inset-top,0px);
+}
+*{box-sizing:border-box;margin:0;padding:0}html,body{min-height:100%;background:var(--paper);color:var(--ink);font-family:Inter,sans-serif;-webkit-font-smoothing:antialiased}button,input,select,textarea{font:inherit}button{border:0;cursor:pointer}a{color:inherit;text-decoration:none}.app{min-height:100dvh;display:flex;flex-direction:column}.top{background:var(--navy);color:white;padding:calc(14px + var(--safe-t)) 16px 16px;position:sticky;top:0;z-index:2}.toprow{display:flex;align-items:center;gap:12px}.logo{width:36px;height:36px;border-radius:10px;background:var(--yellow);color:var(--navy);display:grid;place-items:center;font-family:'Inter Tight';font-weight:800}.title{font-family:'Inter Tight';font-size:22px;font-weight:800;letter-spacing:-.02em}.sub{font-size:13px;color:#aeb7ca;margin-top:2px}.pill{margin-left:auto;border:1px solid rgba(255,255,255,.18);padding:7px 10px;border-radius:999px;font-size:12px;color:#d7deef}.wrap{padding:14px 14px calc(28px + var(--safe-b));max-width:720px;width:100%;margin:0 auto}.card{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 1px 0 rgba(13,27,52,.04);overflow:hidden}.card+.card{margin-top:12px}.pad{padding:16px}.h{font-family:'Inter Tight';font-size:16px;font-weight:800}.muted{color:var(--muted);font-size:13px;line-height:1.35}.grid{display:grid;gap:10px}.row{display:flex;align-items:center;gap:10px}.row.between{justify-content:space-between}.form{display:grid;gap:13px;margin-top:14px}.label{display:block;font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}.inp{width:100%;border:1px solid var(--line);border-radius:13px;background:#fff;padding:13px 12px;font-size:16px;color:var(--ink);outline:none}.inp:focus{border-color:var(--navy);box-shadow:0 0 0 3px rgba(13,27,52,.08)}.quick{display:grid;grid-template-columns:1fr 1fr;gap:10px}.qbtn{background:#fff;border:1.5px solid var(--line);border-radius:15px;padding:13px;text-align:left}.qbtn.active{border-color:var(--navy);background:#eef2f8}.qtop{font-family:'Inter Tight';font-weight:800}.qsub{font-size:12px;color:var(--muted);margin-top:2px}.btn{width:100%;border-radius:15px;padding:15px 16px;font-family:'Inter Tight';font-size:16px;font-weight:800}.primary{background:var(--yellow);color:#1d1700}.ghost{background:#fff;border:1px solid var(--line);color:var(--ink)}.danger{background:var(--redbg);color:var(--red)}.btn:disabled{opacity:.55;cursor:not-allowed}.total{background:var(--navy);color:white;border-radius:18px;padding:16px;margin-top:12px}.num{font-family:'JetBrains Mono';font-size:34px;font-weight:700;letter-spacing:-.04em}.smallcaps{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#aeb7ca;font-weight:800}.entries{display:grid}.entry{padding:14px 16px;border-top:1px solid var(--line)}.entry:first-child{border-top:0}.job{font-family:'Inter Tight';font-size:15px;font-weight:800}.meta{font-size:12px;color:var(--muted);margin-top:3px}.badge{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.submitted{background:var(--amberbg);color:var(--amber)}.approved{background:var(--greenbg);color:var(--green)}.draft{background:#eee;color:#555}.rejected{background:var(--redbg);color:var(--red)}.empty{padding:24px 16px;text-align:center;color:var(--muted)}.toast{position:fixed;left:14px;right:14px;bottom:calc(16px + var(--safe-b));background:var(--navy);color:white;padding:13px 14px;border-radius:14px;font-weight:700;text-align:center;transform:translateY(120px);opacity:0;transition:.18s;z-index:5}.toast.show{transform:translateY(0);opacity:1}.split{display:grid;grid-template-columns:1fr 1fr;gap:10px}.hidden{display:none!important}@media(min-width:720px){.quick{grid-template-columns:repeat(4,1fr)}.split{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="toprow">
+      <div class="logo">P</div>
+      <div>
+        <div class="title">Phil Hours</div>
+        <div class="sub" id="who">Loading worker…</div>
+      </div>
+      <div class="pill" id="sync-state">Live</div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card">
+      <div class="pad">
+        <div class="row between">
+          <div>
+            <div class="h">Log today’s hours</div>
+            <div class="muted">Use standard day or enter a custom amount. Saved to the real BuhlOS time-entry workflow.</div>
+          </div>
+        </div>
+
+        <div class="form">
+          <div>
+            <label class="label" for="date">Date</label>
+            <input class="inp" id="date" type="date" />
+          </div>
+
+          <div>
+            <label class="label" for="job">Job</label>
+            <select class="inp" id="job"><option value="">Loading jobs…</option></select>
+          </div>
+
+          <div>
+            <label class="label">Hours</label>
+            <div class="quick">
+              <button class="qbtn active" type="button" data-mode="standard" data-hours="7.6"><div class="qtop">Standard</div><div class="qsub">7h 36m</div></button>
+              <button class="qbtn" type="button" data-mode="full" data-hours="8"><div class="qtop">8 hours</div><div class="qsub">Full day</div></button>
+              <button class="qbtn" type="button" data-mode="half" data-hours="4"><div class="qtop">Half day</div><div class="qsub">4h</div></button>
+              <button class="qbtn" type="button" data-mode="custom"><div class="qtop">Custom</div><div class="qsub">Enter amount</div></button>
+            </div>
+          </div>
+
+          <div id="custom-block" class="hidden">
+            <label class="label" for="custom-hours">Custom hours</label>
+            <input class="inp" id="custom-hours" type="number" min="0.25" max="24" step="0.25" placeholder="e.g. 6.5" />
+          </div>
+
+          <details>
+            <summary class="muted" style="font-weight:800;cursor:pointer;">Optional start / finish times</summary>
+            <div class="split" style="margin-top:10px;">
+              <div><label class="label" for="start">Start</label><input class="inp" id="start" type="time" /></div>
+              <div><label class="label" for="finish">Finish</label><input class="inp" id="finish" type="time" /></div>
+            </div>
+          </details>
+
+          <div>
+            <label class="label" for="notes">Notes</label>
+            <input class="inp" id="notes" type="text" placeholder="e.g. Level 1 rough-in" />
+          </div>
+        </div>
+
+        <div class="total">
+          <div class="smallcaps">Entry total</div>
+          <div class="num"><span id="total">7.60</span>h</div>
+        </div>
+
+        <div class="grid" style="margin-top:12px;">
+          <button class="btn primary" id="save">Submit hours</button>
+          <button class="btn ghost" id="refresh" type="button">Refresh entries</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="pad row between">
+        <div>
+          <div class="h">This week</div>
+          <div class="muted" id="week-label">Current pay week</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="smallcaps" style="color:var(--muted);">Total</div>
+          <div class="num" style="font-size:26px;color:var(--ink);"><span id="week-total">0.00</span>h</div>
+        </div>
+      </div>
+      <div class="entries" id="entries"><div class="empty">Loading entries…</div></div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const state = { me:null, jobs:[], entries:[], mode:'standard', selectedHours:7.6 };
+const $ = id => document.getElementById(id);
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function startOfWeek(d=new Date()){ const x=new Date(d); const day=x.getDay(); x.setDate(x.getDate()+(day===0?-6:1-day)); x.setHours(0,0,0,0); return x; }
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function iso(d){ return d.toISOString().slice(0,10); }
+function money(n){ return (Number(n)||0).toFixed(2).replace(/\.00$/,''); }
+function esc(s){ return String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function toast(msg){ const el=$('toast'); el.textContent=msg; el.classList.add('show'); clearTimeout(window.__t); window.__t=setTimeout(()=>el.classList.remove('show'),2600); }
+async function api(path, opts={}){ const res=await fetch(path,{credentials:'include',headers:{'Content-Type':'application/json',...(opts.headers||{})},...opts}); let data={}; try{data=await res.json();}catch{} if(!res.ok){ const e=new Error(data.error||res.statusText||'Request failed'); e.status=res.status; e.data=data; throw e; } return data; }
+function selectedHours(){ if(state.mode==='custom') return Math.round((Number($('custom-hours').value)||0)*100)/100; return state.selectedHours; }
+function refreshTotal(){ $('total').textContent = money(selectedHours()); }
+function setMode(btn){ document.querySelectorAll('.qbtn').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); state.mode=btn.dataset.mode; state.selectedHours=Number(btn.dataset.hours||0); $('custom-block').classList.toggle('hidden', state.mode!=='custom'); refreshTotal(); }
+function jobName(id){ return (state.jobs.find(j=>j.id===id)||{}).name || id || 'Unallocated'; }
+function ordinarySplit(hours){ const h=Math.round(Number(hours)*100)/100; return { ordinaryHours: Math.min(h,8), overtimeHours: Math.max(0,Math.round((h-8)*100)/100) }; }
+function weekRange(){ const mon=startOfWeek(); const sun=addDays(mon,6); return { from: iso(mon), to: iso(sun) }; }
+async function loadMe(){ const data=await api('/api/auth?action=me'); state.me=data.user||data; $('who').textContent = state.me.name || state.me.username || state.me.email || 'Worker'; if(state.me.role==='client') throw new Error('Clients cannot use Phil hours'); }
+async function loadJobs(){ const data=await api('/api/jobs?withStats=1'); state.jobs=data.jobs||[]; const active=state.jobs.filter(j => !j.status || ['active','inprogress','current'].includes(String(j.status).toLowerCase()) || (j.modules&&j.modules.hours)); $('job').innerHTML='<option value="">Select job…</option>'+active.map(j=>`<option value="${esc(j.id)}">${esc(j.name||j.id)}</option>`).join(''); if(active.length===1) $('job').value=active[0].id; }
+async function loadEntries(){ const r=weekRange(); const data=await api(`/api/time-entries?fromDate=${r.from}&toDate=${r.to}`); state.entries=data.entries||[]; renderEntries(); }
+function renderEntries(){ const r=weekRange(); $('week-label').textContent=`${r.from} to ${r.to}`; const total=state.entries.reduce((s,e)=>s+(Number(e.totalHours)||0),0); $('week-total').textContent=money(total); const el=$('entries'); if(!state.entries.length){ el.innerHTML='<div class="empty">No hours logged this week.</div>'; return; } el.innerHTML=state.entries.map(e=>{ const alloc=(e.allocations||[]).map(a=>`${esc(jobName(a.jobId))} · ${money(a.hours)}h`).join('<br>'); const st=String(e.status||'draft'); const time=(e.startTime&&e.endTime)?` · ${e.startTime}–${e.endTime}`:''; return `<div class="entry"><div class="row between"><div><div class="job">${alloc||'No allocation'}</div><div class="meta">${esc(e.date)}${time}${e.notes?' · '+esc(e.notes):''}</div></div><div style="text-align:right"><div class="job">${money(e.totalHours)}h</div><span class="badge ${esc(st)}">${esc(st)}</span></div></div></div>`; }).join(''); }
+async function save(){ const date=$('date').value; const jobId=$('job').value; const hours=selectedHours(); if(!date) return toast('Choose a date'); if(!jobId) return toast('Choose a job'); if(!hours || hours<=0) return toast('Enter hours greater than zero'); const split=ordinarySplit(hours); const body={ date, startTime:$('start').value||null, endTime:$('finish').value||null, breakMinutes:0, totalHours:hours, ordinaryHours:split.ordinaryHours, overtimeHours:split.overtimeHours, otOverridden:false, notes:$('notes').value.trim()||null, status:'submitted', allocations:[{ jobId, hours, notes:$('notes').value.trim()||null }] }; $('save').disabled=true; $('save').textContent='Submitting…'; try{ try{ await api('/api/time-entries',{method:'POST',body:JSON.stringify(body)}); }catch(e){ if(e.status===409){ await api(`/api/time-entries?date=${encodeURIComponent(date)}`,{method:'PATCH',body:JSON.stringify(body)}); } else throw e; } toast(`${money(hours)}h submitted`); $('notes').value=''; await loadEntries(); }catch(e){ toast(e.message||'Could not save hours'); }finally{ $('save').disabled=false; $('save').textContent='Submit hours'; } }
+async function boot(){ $('date').value=todayISO(); document.querySelectorAll('.qbtn').forEach(b=>b.addEventListener('click',()=>setMode(b))); $('custom-hours').addEventListener('input',refreshTotal); $('save').addEventListener('click',save); $('refresh').addEventListener('click',async()=>{try{await loadEntries();toast('Entries refreshed');}catch(e){toast('Could not refresh');}}); try{ await loadMe(); await loadJobs(); await loadEntries(); $('sync-state').textContent='Live'; }catch(e){ $('sync-state').textContent='Error'; $('entries').innerHTML=`<div class="empty">${esc(e.message||'Could not load Phil hours.')}</div>`; toast(e.message||'Could not load'); } }
+boot();
+</script>
+</body>
+</html>
