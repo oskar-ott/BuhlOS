@@ -876,9 +876,22 @@
   // a visible error message so the user knows the app is alive
   // even when something's gone wrong, and gives them a recovery
   // path (refresh, copy the error for support).
+  // Tracks whether boot was kicked off (explicitly via SHELL.boot() at the
+  // end of a page's script, OR via the DOMContentLoaded auto-boot fallback
+  // below). Used by both safeBoot's idempotency check and the blank-shell
+  // detector so they don't fight over the body.
+  let _bootCalled = false;
+  let _bootFinished = false;
+
   async function safeBoot() {
-    try { return await boot(); }
+    if (_bootCalled) return;
+    _bootCalled = true;
+    try {
+      await boot();
+      _bootFinished = true;
+    }
     catch (e) {
+      _bootFinished = true;
       console.error('SHELL.boot failed', e);
       try {
         document.body.innerHTML = `
@@ -932,4 +945,61 @@
       renderTopbar();
     },
   };
+
+  /* ── Auto-boot fallback ────────────────────────────────────
+     PR #35 (Site office Phase 03 rebuild) dropped the explicit
+     SHELL.boot() call from operations.html. With no boot, the
+     shell skeleton never mounts and the page is silently blank —
+     none of the in-boot try/catches fire because boot never runs.
+
+     Convention is still that every /admin/<page>.html ends with
+     SHELL.boot() (enforced by scripts/check-admin-shell.js at
+     predeploy), but a runtime safety net stops the same class
+     of regression from ever shipping blank again: if the page
+     hasn't explicitly called SHELL.boot() by the time the DOM
+     is parsed, we call it ourselves. */
+  function _autoBootIfMissing() {
+    if (_bootCalled) return;
+    console.warn('SHELL: page did not call SHELL.boot() — auto-booting. ' +
+      'Add an explicit `SHELL.boot();` to the page script.');
+    safeBoot();
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _autoBootIfMissing, { once: true });
+  } else {
+    // Defer one task so a trailing `SHELL.boot()` later in the same script
+    // (parsed after _shell.js) still wins the race and we don't double-boot.
+    setTimeout(_autoBootIfMissing, 0);
+  }
+
+  /* ── Blank-shell detector ──────────────────────────────────
+     Last-line defence. If five seconds after DOM ready the
+     shell skeleton (#app) still isn't in the DOM, something
+     catastrophic happened — boot threw before mounting, or
+     never started. Render a visible recovery panel instead of
+     leaving the user staring at a white page. */
+  function _checkBlankShell() {
+    try {
+      if (document.getElementById('app')) return;          // shell mounted, fine
+      if (document.querySelector('[data-shell-error]')) return; // safeBoot's catch painted
+      // Don't fight a slow but legitimate boot — only fire if boot has
+      // either not been called or has finished without mounting #app.
+      if (_bootCalled && !_bootFinished) return;
+      console.error('SHELL: blank shell detected after 5s — emergency fallback.');
+      document.body.innerHTML = `
+        <div data-shell-error style="max-width:520px;margin:80px auto;padding:32px 24px;font-family:-apple-system,Segoe UI,sans-serif;background:#fff;border:1px solid #e3e5dc;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.06)">
+          <div style="font-family:'Inter Tight',sans-serif;font-weight:700;font-size:22px;color:#0d1b34;letter-spacing:-.015em;margin-bottom:6px">Admin shell didn't load</div>
+          <div style="color:#6a7591;font-size:13.5px;margin-bottom:18px">This page should not be blank. The BuhlOS admin shell failed to mount within 5 seconds.</div>
+          <button onclick="location.reload()" style="padding:9px 16px;border-radius:8px;background:#0d1b34;color:#fff;border:0;font-weight:600;font-size:13px;cursor:pointer">Reload page</button>
+          <a href="/admin/operations" style="margin-left:8px;color:#6a7591;font-size:13px">Command centre</a>
+          <a href="/login" style="margin-left:8px;color:#6a7591;font-size:13px">Sign in again</a>
+        </div>
+      `;
+    } catch (_) {}
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(_checkBlankShell, 5000), { once: true });
+  } else {
+    setTimeout(_checkBlankShell, 5000);
+  }
 })();

@@ -4,6 +4,15 @@
   "engines": {
     "node": "24.x"
   },
+  "scripts": {
+    "check:admin-shell": "node scripts/check-admin-shell.js",
+    "smoke:admin-routes": "node scripts/smoke-admin-routes.js",
+    "predeploy": "npm run check:admin-shell && npm run smoke:admin-routes",
+    "predeploy:prod": "npm run check:admin-shell && npm run smoke:admin-routes",
+    "predeploy:preview": "npm run check:admin-shell && npm run smoke:admin-routes",
+    "deploy:prod": "vercel deploy --prod --yes",
+    "deploy:preview": "vercel deploy --yes"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",
     "@vercel/blob": "^0.24.0",

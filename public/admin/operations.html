@@ -645,6 +645,14 @@ function headlineDate() {
   const now = new Date();
   return now.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' });
 }
+
+// CRITICAL — must call SHELL.boot() here, same as every other /admin/*.html.
+// Without this the shell never mounts and the page is blank. PR #35 (Site
+// office Phase 03 rebuild) dropped this line; the regression shipped as
+// "blank /admin/operations" until restored. scripts/check-admin-shell.js
+// enforces that every admin/*.html ends with this call so the same
+// regression can't recur silently.
+SHELL.boot();
 </script>
 </body>
 </html>
