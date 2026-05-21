@@ -18,7 +18,16 @@
 // fetch re-pulls fresh. Reports of "blank /admin/operations" after
 // the perf-pass landings traced to SW serving stale _shell.js from
 // the v1 cache; bumping to v2 forces a clean refresh.
-const CACHE_VERSION = 'buhl-shell-v2';
+//
+// v3 (PR #234 follow-up): _shell.js gained the auto-boot fallback and
+// blank-shell detector, and operations.html / activity.html / cash.html
+// / materials.html each gained the previously-missing SHELL.boot()
+// call. Existing clients on the v2 cache still served the pre-fix
+// _shell.js out of cache → blank page persisted post-deploy. Bumping
+// to v3 invalidates the stale cache. Going forward, predeploy guard
+// (scripts/check-sw-cache-version.js) refuses to ship if shell files
+// change without a CACHE_VERSION bump.
+const CACHE_VERSION = 'buhl-shell-v3';
 const STATIC_SHELL = [
   // Admin shell — every admin page boot needs these. Caching them
   // means cold loads paint sidebar + topbar from disk while the

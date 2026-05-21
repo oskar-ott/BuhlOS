@@ -229,8 +229,22 @@
     // (stale-while-revalidate). First admin load registers; cold
     // loads after that paint chrome from disk while the network
     // refreshes in the background.
+    //
+    // controllerchange auto-reload: when a new SW takes over the page
+    // (e.g. after a CACHE_VERSION bump in sw.js), reload once so the
+    // page is rendered against the new cache. Without this, existing
+    // tabs on the old SW keep serving stale _shell.js out of cache
+    // even after deploy — the exact symptom that kept /admin/operations
+    // blank for clients with an installed SW after the SHELL.boot() fix
+    // shipped. One-shot flag prevents reload loops.
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
+      let _swReloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (_swReloaded) return;
+        _swReloaded = true;
+        location.reload();
+      });
     }
 
     // Auth gate — admin and leadingHand only.

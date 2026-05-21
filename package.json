@@ -6,10 +6,11 @@
   },
   "scripts": {
     "check:admin-shell": "node scripts/check-admin-shell.js",
+    "check:sw-cache-version": "node scripts/check-sw-cache-version.js",
     "smoke:admin-routes": "node scripts/smoke-admin-routes.js",
-    "predeploy": "npm run check:admin-shell && npm run smoke:admin-routes",
-    "predeploy:prod": "npm run check:admin-shell && npm run smoke:admin-routes",
-    "predeploy:preview": "npm run check:admin-shell && npm run smoke:admin-routes",
+    "predeploy": "npm run check:admin-shell && npm run check:sw-cache-version && npm run smoke:admin-routes",
+    "predeploy:prod": "npm run check:admin-shell && npm run check:sw-cache-version && npm run smoke:admin-routes",
+    "predeploy:preview": "npm run check:admin-shell && npm run check:sw-cache-version && npm run smoke:admin-routes",
     "deploy:prod": "vercel deploy --prod --yes",
     "deploy:preview": "vercel deploy --yes"
   },
