@@ -33,7 +33,11 @@
 // path). _shell.js still serves the other admin pages but the shape
 // of what's at /admin/operations changed entirely. Bumping invalidates
 // any cache that has the old site-office operations.html cached.
-const CACHE_VERSION = 'buhl-shell-v4';
+// v5 (admin real-product buildout): operations.html grew the sidebar
+// count badges, mock-data fallback (admin-data.js), and full v1 modules
+// for Job Builder / ITP / Plans / Variations with their renderers and
+// state-chip CSS. SPA contract unchanged but bundle is materially bigger.
+const CACHE_VERSION = 'buhl-shell-v5';
 const STATIC_SHELL = [
   // Admin shell — every admin page boot needs these. Caching them
   // means cold loads paint sidebar + topbar from disk while the

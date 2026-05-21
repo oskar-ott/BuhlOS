@@ -85,6 +85,46 @@ if (!exists('public/admin/operations.html')) {
       'The shell should define showBootError() so any boot failure surfaces a visible recovery panel ' +
       'instead of leaving the splash up. See docs/regressions/admin-operations-blank.md.');
   }
+  // Sidebar must contain every required module per the design bible.
+  const requiredNav = ['command', 'jobs', 'builder', 'labour', 'itp', 'plans', 'materials', 'assets', 'variations', 'reports', 'settings'];
+  for (const sec of requiredNav) {
+    if (!new RegExp(`data-sec=["']${sec}["']`).test(ops)) {
+      fail('sidebar missing required module: ' + sec,
+        'Every required module must have a sidebar nav-link with data-sec="' + sec + '".');
+    }
+  }
+  // No legacy chrome patterns.
+  if (/<title>\s*Birdwood IV3232/i.test(ops)) {
+    fail('operations.html still has Birdwood IV3232 title', 'Should be "BuhlOS — Command Centre".');
+  }
+  if (/class=["']nav-pill["']/.test(ops)) {
+    fail('operations.html has legacy .nav-pill (top-pill) element',
+      'The BuhlOS shell is left-sidebar only — no top-pill nav.');
+  }
+  // Mock-data wiring present (the shell relies on this for fresh-install fallback).
+  if (!/admin-data\.js/.test(ops)) {
+    fail('operations.html does not load /admin/admin-data.js',
+      'The mock-data fallback layer is required so the shell demonstrates the product ' +
+      'on fresh installs / accounts with no real jobs yet.');
+  }
+}
+
+// ── 2b. admin-data.js exists and exports BUHLOS_MOCK ────────────────
+if (!exists('public/admin/admin-data.js')) {
+  fail('public/admin/admin-data.js missing',
+    'The mock-data layer is required by the shell\'s boot fallback.');
+} else {
+  const md = read('public/admin/admin-data.js');
+  if (!/BUHLOS_MOCK\s*=/.test(md)) {
+    fail('admin-data.js does not assign window.BUHLOS_MOCK',
+      'The shell looks for window.BUHLOS_MOCK during boot fallback.');
+  }
+  for (const key of ['jobs', 'workers', 'hoursByJob', 'itps', 'plans', 'variations', 'jobBuilderTemplates']) {
+    if (!new RegExp('\\b' + key + '\\b').test(md)) {
+      fail('admin-data.js missing key: ' + key,
+        'The mock data layer must define ' + key + ' so the corresponding section has demo content.');
+    }
+  }
 }
 
 // ── 3. vercel.json: / → /login.html ─────────────────────────────────

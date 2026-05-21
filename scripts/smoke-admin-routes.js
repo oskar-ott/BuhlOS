@@ -172,6 +172,93 @@ check('admin/operations.html routes leadingHand to /lh, not /jobs', () => {
   }
 });
 
+// ── 4b. Real-product module presence ────────────────────────────────
+check('Command Centre has actionable alert pipeline', () => {
+  const src = read('public/admin/operations.html');
+  if (!/function\s+computeAlerts\s*\(/.test(src)) throw new Error('computeAlerts() not defined');
+  if (!/id=["']alertList["']/.test(src))         throw new Error('#alertList container missing');
+});
+
+check('Labour module has approve / reject actions', () => {
+  const src = read('public/admin/operations.html');
+  if (!/function\s+approveEntry\s*\(/.test(src)) throw new Error('approveEntry() not defined');
+  if (!/function\s+rejectEntry\s*\(/.test(src))  throw new Error('rejectEntry() not defined');
+  if (!/id=["']tsBody["']/.test(src))            throw new Error('pending timesheet table missing');
+});
+
+check('Job Builder v1 has stage editor + publish', () => {
+  const src = read('public/admin/operations.html');
+  if (!/function\s+renderJobBuilder\s*\(/.test(src)) throw new Error('renderJobBuilder() not defined');
+  if (!/function\s+jbAddStage\s*\(/.test(src))       throw new Error('jbAddStage() not defined');
+  if (!/function\s+jbPublishDraft\s*\(/.test(src))   throw new Error('jbPublishDraft() not defined');
+  if (!/id=["']jbStages["']/.test(src))              throw new Error('#jbStages container missing');
+});
+
+check('ITP / QA v1 has checkpoint renderer + severity', () => {
+  const src = read('public/admin/operations.html');
+  if (!/function\s+renderITPs\s*\(/.test(src)) throw new Error('renderITPs() not defined');
+  if (!/id=["']itpList["']/.test(src))         throw new Error('#itpList container missing');
+  if (!/blocked|evidence-missing/.test(src))   throw new Error('ITP renderer does not flag blocked / evidence-missing');
+});
+
+check('Plans v1 has revision + publish table', () => {
+  const src = read('public/admin/operations.html');
+  if (!/function\s+renderPlans\s*\(/.test(src)) throw new Error('renderPlans() not defined');
+  if (!/id=["']plansBody["']/.test(src))        throw new Error('#plansBody container missing');
+  if (!/supersededWarning|superseded/i.test(src)) throw new Error('Plans does not surface superseded warnings');
+});
+
+check('Variations v1 has KPI tiles + status transitions', () => {
+  const src = read('public/admin/operations.html');
+  if (!/function\s+renderVariations\s*\(/.test(src)) throw new Error('renderVariations() not defined');
+  if (!/id=["']varBody["']/.test(src))               throw new Error('#varBody container missing');
+  if (!/function\s+advanceVariation\s*\(/.test(src)) throw new Error('advanceVariation() not defined');
+  for (const status of ['draft', 'priced', 'submitted', 'approved', 'rejected']) {
+    if (!new RegExp(`['"]${status}['"]`).test(src)) {
+      throw new Error('variation status "' + status + '" not referenced');
+    }
+  }
+});
+
+check('Sidebar count badges (computeCounts + renderSidebarBadges)', () => {
+  const src = read('public/admin/operations.html');
+  if (!/function\s+computeCounts\s*\(/.test(src))       throw new Error('computeCounts() not defined');
+  if (!/function\s+renderSidebarBadges\s*\(/.test(src)) throw new Error('renderSidebarBadges() not defined');
+  if (!/['"]nav-count['"]/.test(src) && !/\.nav-count/.test(src)) {
+    throw new Error('nav-count badge class not present');
+  }
+});
+
+check('Mock data layer (admin-data.js) loaded by shell', () => {
+  const src = read('public/admin/operations.html');
+  if (!/<script[^>]+\/admin\/admin-data\.js[^>]*><\/script>/.test(src)) {
+    throw new Error('shell does not load /admin/admin-data.js');
+  }
+});
+
+check('Reports section has visible UNDER CONSTRUCTION tags', () => {
+  const src = read('public/admin/operations.html');
+  const reportsBlock = (src.match(/id="sec-reports"[^]*?<\/section>/) || [])[0] || '';
+  if (!reportsBlock) throw new Error('Reports section markup not found');
+  if (!/Under construction/i.test(reportsBlock)) {
+    throw new Error('Reports section does not visibly label tiles as Under construction');
+  }
+  for (const c of ['Job profitability', 'Labour burn', 'ITP completion', 'Variation recovery', 'Handover pack', 'Quote accuracy']) {
+    if (!reportsBlock.includes(c)) throw new Error('Reports section missing category: ' + c);
+  }
+});
+
+check('No "Birdwood IV3232" title or "Switchboard" as a section', () => {
+  const src = read('public/admin/operations.html');
+  if (/<title>\s*Birdwood IV3232/i.test(src)) {
+    throw new Error('Birdwood IV3232 title leaked into shell');
+  }
+  // "Switchboard" as an electrical stage label is fine; as a sidebar section is not.
+  if (/data-sec=["']switchboard["']/i.test(src)) {
+    throw new Error('Switchboard is a deprecated product name — should not be a sidebar section');
+  }
+});
+
 // ── 5. shell guardrails ──────────────────────────────────────────────
 check('_shell.js exposes SHELL.boot via window.SHELL', () => {
   const src = read('public/admin/_shell.js');

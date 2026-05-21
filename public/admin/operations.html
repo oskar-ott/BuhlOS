@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BuhlOS — Command Centre</title>
+<!-- Mock-data layer (admin-data.js). Loaded BEFORE the inline shell
+     script so window.BUHLOS_MOCK is available during boot()'s fallback
+     path: if the real API returns empty (fresh account, no jobs, etc.)
+     we hydrate from mock data so the shell still demonstrates the full
+     product. Real API data overrides this — shapes match. -->
+<script src="/admin/admin-data.js"></script>
 <style>
 :root{
   --bg:#0b1018;
@@ -104,6 +110,22 @@ body{
   background:var(--red);color:#fff;
   border-radius:10px;padding:1px 7px;min-width:20px;text-align:center;
 }
+/* nav-count: live counter badge (mock-derived today, real-API later).
+   Sits on the right of each sidebar row when count > 0. Neutral by
+   default, .bad tint for overdue/blocked categories. Different from
+   nav-badge (used by the top-of-sidebar alert pill).                 */
+.nav-link .nav-count{
+  margin-left:auto;font-size:10px;font-weight:700;
+  background:rgba(255,255,255,.06);color:var(--ink-2);
+  border:1px solid var(--line-2);
+  border-radius:10px;padding:1px 7px;min-width:20px;text-align:center;
+  line-height:1.5;
+}
+.nav-link .nav-count.bad{background:rgba(239,68,68,.16);color:#fca5a5;border-color:rgba(239,68,68,.28)}
+.nav-link.active .nav-count{background:rgba(255,255,255,.10);color:var(--ink)}
+/* When both nav-count and nav-tag are present, push nav-tag back to
+   the left so the count is at the far right edge. */
+.nav-link .nav-tag + .nav-count, .nav-link .nav-count + .nav-tag{margin-left:6px}
 .side-foot{padding:12px;border-top:1px solid var(--line)}
 .user-pill{
   display:flex;align-items:center;gap:10px;
@@ -140,6 +162,7 @@ body{
 .ctxbar-status .dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
 .ctxbar-status .dot.err{background:var(--red)}
 .ctxbar-status .dot.syncing{background:var(--amber);animation:blink 1s infinite}
+.ctxbar-status .dot.mock{background:#a78bfa}/* purple → "demo data" */
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
 
 .ctxbar-action{
@@ -322,6 +345,76 @@ body{
   background:var(--amber-bg);color:var(--amber);
   padding:5px 12px;border-radius:20px;margin-bottom:18px;
 }
+
+/* State chips — used in ITP / Variations / Plans / Materials lists.
+   Shape stays consistent across modules so the same colour means the
+   same severity. Green = good, amber = needs attention, red = blocking. */
+.state-chip{
+  display:inline-block;font-size:10px;font-weight:700;
+  letter-spacing:.6px;text-transform:uppercase;
+  padding:3px 9px;border-radius:10px;background:#1b2433;color:var(--ink-2);
+  border:1px solid var(--line-2);
+}
+.state-chip.draft     { background:#1b2433;color:var(--ink-3);}
+.state-chip.priced    { background:rgba(59,130,246,.16);color:#93c5fd;}
+.state-chip.submitted { background:rgba(245,158,11,.16);color:#fbbf24;}
+.state-chip.approved, .state-chip.complete  { background:rgba(34,197,94,.16);color:#4ade80;}
+.state-chip.rejected, .state-chip.blocked   { background:rgba(239,68,68,.18);color:#fca5a5;}
+.state-chip.pending   { background:rgba(245,158,11,.16);color:#fbbf24;}
+.state-chip.evidence-missing { background:rgba(239,68,68,.18);color:#fca5a5;}
+.state-chip.delivered { background:rgba(34,197,94,.14);color:#4ade80;}
+.state-chip.ordered   { background:rgba(59,130,246,.14);color:#93c5fd;}
+.state-chip.urgent    { background:rgba(239,68,68,.20);color:#fca5a5;}
+.state-chip.needed    { background:rgba(245,158,11,.18);color:#fbbf24;}
+
+/* Job Builder controls. */
+.builder-input{
+  background:#0e1520;border:1px solid var(--line-2);color:var(--ink);
+  padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit;
+}
+.builder-input:focus{outline:none;border-color:var(--accent)}
+.builder-stage{
+  background:#0e1520;border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;margin-bottom:10px;
+}
+.builder-stage-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.builder-stage-name{font-size:14px;font-weight:600;flex:1;background:transparent;border:0;color:var(--ink);font-family:inherit;outline:none;border-bottom:1px dashed transparent;padding:2px 0}
+.builder-stage-name:focus{border-bottom-color:var(--line-2)}
+.builder-stage-meta{display:flex;gap:14px;font-size:11px;color:var(--ink-3);margin-bottom:8px;flex-wrap:wrap}
+.builder-stage-meta label{display:flex;gap:6px;align-items:center}
+.builder-stage-meta input[type=number]{width:48px}
+.builder-areas{display:flex;flex-direction:column;gap:6px}
+.builder-area{
+  display:flex;gap:8px;align-items:center;
+  background:#10161f;border:1px solid var(--line);border-radius:6px;
+  padding:7px 10px;font-size:12px;
+}
+.builder-area input{flex:1;background:transparent;border:0;color:var(--ink);font-family:inherit;outline:none;font-size:12px}
+.builder-area-rm{font-size:11px;color:var(--ink-4);background:transparent;border:0;cursor:pointer;padding:0 4px}
+.builder-area-rm:hover{color:var(--red)}
+.builder-stage-rm{font-size:11px;color:var(--ink-4);background:transparent;border:1px solid var(--line-2);border-radius:5px;cursor:pointer;padding:3px 10px}
+.builder-stage-rm:hover{color:var(--red);border-color:rgba(239,68,68,.4)}
+.builder-add-area{
+  font-size:11px;color:var(--ink-3);background:transparent;border:1px dashed var(--line-2);
+  border-radius:6px;padding:6px 10px;cursor:pointer;margin-top:6px;
+}
+.builder-add-area:hover{color:var(--ink);border-color:var(--accent);border-style:solid}
+
+/* ITP cards */
+.itp-card{
+  background:#0e1520;border:1px solid var(--line);border-radius:8px;
+  padding:12px 14px;margin-bottom:8px;
+}
+.itp-card-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.itp-card-title{font-size:13px;font-weight:600;flex:1}
+.itp-card-sub{font-size:11px;color:var(--ink-3)}
+.itp-cps{display:flex;flex-direction:column;gap:5px}
+.itp-cp{
+  display:flex;align-items:center;gap:10px;padding:8px 10px;
+  background:#10161f;border:1px solid var(--line);border-radius:6px;
+}
+.itp-cp-name{flex:1;font-size:12px;color:var(--ink-2)}
+.itp-cp-meta{font-size:10px;color:var(--ink-3);white-space:nowrap}
 .uc-h{font-size:22px;font-weight:700;color:var(--ink);letter-spacing:-.3px;margin-bottom:8px}
 .uc-p{font-size:13px;line-height:1.6;color:var(--ink-3);max-width:520px;margin:0 auto 18px}
 .uc-features{
@@ -454,12 +547,12 @@ body{
         </span>
         Jobs
       </button>
-      <button class="nav-link uc" data-sec="builder" onclick="show('builder')">
+      <button class="nav-link" data-sec="builder" onclick="show('builder')">
         <span class="nav-icon">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h7v7h-7z"/></svg>
         </span>
         Job Builder
-        <span class="nav-tag">soon</span>
+        <span class="nav-tag">v1</span>
       </button>
       <button class="nav-link" data-sec="labour" onclick="show('labour')">
         <span class="nav-icon">
@@ -470,19 +563,19 @@ body{
       </button>
 
       <div class="nav-group-label">Quality & Plans</div>
-      <button class="nav-link uc" data-sec="itp" onclick="show('itp')">
+      <button class="nav-link" data-sec="itp" onclick="show('itp')">
         <span class="nav-icon">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         </span>
         ITP / QA
-        <span class="nav-tag">soon</span>
+        <span class="nav-tag">v1</span>
       </button>
-      <button class="nav-link uc" data-sec="plans" onclick="show('plans')">
+      <button class="nav-link" data-sec="plans" onclick="show('plans')">
         <span class="nav-icon">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
         </span>
         Plans / Documents
-        <span class="nav-tag">soon</span>
+        <span class="nav-tag">v1</span>
       </button>
 
       <div class="nav-group-label">Field & Logistics</div>
@@ -500,12 +593,12 @@ body{
       </button>
 
       <div class="nav-group-label">Commercial</div>
-      <button class="nav-link uc" data-sec="variations" onclick="show('variations')">
+      <button class="nav-link" data-sec="variations" onclick="show('variations')">
         <span class="nav-icon">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3"/><path d="M16 3v4M8 3v4M3 11h13"/><path d="M18 14l3 3-3 3"/></svg>
         </span>
         Variations
-        <span class="nav-tag">soon</span>
+        <span class="nav-tag">v1</span>
       </button>
       <button class="nav-link uc" data-sec="quotes" onclick="show('quotes')">
         <span class="nav-icon">
@@ -642,22 +735,42 @@ body{
         </div>
       </section>
 
-      <!-- ───────────────────────────── JOB BUILDER (UC) ───────────────────────────── -->
+      <!-- ───────────────────────────── JOB BUILDER ───────────────────────────── -->
       <section id="sec-builder" class="sec">
-        <div class="uc-block">
-          <div class="uc-tag">Feature under construction</div>
-          <div class="uc-h">Job Builder</div>
-          <div class="uc-p">
-            Configure what crews see in Phil. Stages, areas, tasks, required evidence, ITP checkpoints,
-            plan pages, material lists, labour budgets, and crew assignments — all from one place,
-            with a live Phil preview.
+        <div class="row" style="margin-bottom:14px;align-items:flex-end">
+          <div style="flex:1">
+            <div class="card-title big" style="margin-bottom:4px">Job Builder</div>
+            <div style="font-size:12px;color:var(--ink-3)">Configure what crews see in Phil. Local-draft today — publish wiring is incremental.</div>
           </div>
-          <div class="uc-features">
-            <div class="uc-feat-row">Stage &amp; area builder with copy-from-template</div>
-            <div class="uc-feat-row">Per-task evidence rules — photos, notes, ITP links</div>
-            <div class="uc-feat-row">Labour budgets per stage, crew &amp; gear assignment</div>
-            <div class="uc-feat-row">Publish to Phil with confirmation guard</div>
-            <div class="uc-feat-row">Live preview of the Phil field view</div>
+          <div style="display:flex;gap:8px">
+            <select id="jbJob" class="builder-input" style="min-width:220px"></select>
+            <select id="jbTemplate" class="builder-input" style="min-width:200px"></select>
+            <button class="ctxbar-action sec" onclick="jbApplyTemplate()">Apply template</button>
+            <button class="ctxbar-action" onclick="jbPublishDraft()">Publish to Phil</button>
+          </div>
+        </div>
+
+        <div class="grid grid-3" style="margin-bottom:14px">
+          <div class="kpi-tile"><div class="kpi-label">Stages in draft</div><div class="kpi-value" id="jbStageCount">0</div><div class="kpi-delta">across selected job</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Areas defined</div><div class="kpi-value" id="jbAreaCount">0</div><div class="kpi-delta">total across stages</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Status</div><div class="kpi-value" id="jbStatus" style="font-size:18px">Draft</div><div class="kpi-delta" id="jbStatusDelta">not yet published</div></div>
+        </div>
+
+        <div class="card" style="padding:0">
+          <div class="card-head" style="padding:14px 18px">
+            <span class="card-title">Workflow draft</span>
+            <button class="card-action" onclick="jbAddStage()">+ Add stage</button>
+          </div>
+          <div id="jbStages" style="padding:8px 14px 18px">
+            <div class="empty">Select a job + template above, or add a stage manually.</div>
+          </div>
+        </div>
+
+        <div style="margin-top:14px" class="uc-block" style="padding:18px 22px">
+          <div class="uc-tag">Backend pending</div>
+          <div style="font-size:13px;color:var(--ink-3);line-height:1.6">
+            <b style="color:var(--ink-2)">Publish-to-Phil</b> writes locally for now and shows what would be sent to the field crew.
+            Full server persistence + Phil acknowledgement tracking lands when /api/job-builder is wired.
           </div>
         </div>
       </section>
@@ -729,39 +842,75 @@ body{
         </div>
       </section>
 
-      <!-- ───────────────────────────── ITP / QA (UC) ───────────────────────────── -->
+      <!-- ───────────────────────────── ITP / QA ───────────────────────────── -->
       <section id="sec-itp" class="sec">
-        <div class="uc-block">
-          <div class="uc-tag">Feature under construction</div>
-          <div class="uc-h">ITP / QA</div>
-          <div class="uc-p">
-            Inspection &amp; Test Plans, checkpoint sign-off and evidence review across every job.
-            Independent reviewer rules, photo linkage to checkpoints, and handover-readiness scoring.
+        <div class="row" style="margin-bottom:14px;align-items:center">
+          <div style="flex:1">
+            <div class="card-title big" style="margin-bottom:4px">ITP / QA</div>
+            <div style="font-size:12px;color:var(--ink-3)">Inspection &amp; Test Plans across jobs. Independent reviewer rule: the worker who logged the evidence cannot sign it off.</div>
           </div>
-          <div class="uc-features">
-            <div class="uc-feat-row">All ITPs across jobs, with checkpoint status</div>
-            <div class="uc-feat-row">Evidence-present / evidence-missing flags</div>
-            <div class="uc-feat-row">Photos linked to each checkpoint</div>
-            <div class="uc-feat-row">Reviewer sign-off &amp; independent-review rule</div>
-            <div class="uc-feat-row">Handover-readiness indicator with blocked states</div>
+          <div style="display:flex;gap:8px;align-items:center;color:var(--ink-3);font-size:12px">
+            <span class="state-chip" style="background:rgba(34,197,94,.16);color:#4ade80">complete</span>
+            <span class="state-chip" style="background:rgba(245,158,11,.18);color:#fbbf24">pending</span>
+            <span class="state-chip" style="background:rgba(239,68,68,.18);color:#fca5a5">blocked / evidence missing</span>
+          </div>
+        </div>
+        <div class="card" style="padding:0">
+          <div class="card-head" style="padding:14px 18px">
+            <span class="card-title">ITPs across active jobs</span>
+            <button class="card-action" onclick="renderITPs()">Refresh →</button>
+          </div>
+          <div id="itpList" style="padding:8px 14px 14px">
+            <div class="empty">Loading ITPs…</div>
+          </div>
+        </div>
+        <div style="margin-top:14px" class="uc-block" style="padding:18px 22px">
+          <div class="uc-tag">Backend pending</div>
+          <div style="font-size:13px;color:var(--ink-3);line-height:1.6">
+            <b style="color:var(--ink-2)">Reviewer sign-off + handover bundle</b> — independent-review rule
+            is documented and the UI surfaces blocked / evidence-missing checkpoints, but write-back to
+            /api/itps lands when the backend ships. Photos already flow from Phil into the per-job tabs.
           </div>
         </div>
       </section>
 
-      <!-- ───────────────────────────── PLANS / DOCS (UC) ───────────────────────────── -->
+      <!-- ───────────────────────────── PLANS / DOCUMENTS ───────────────────────────── -->
       <section id="sec-plans" class="sec">
-        <div class="uc-block">
-          <div class="uc-tag">Feature under construction</div>
-          <div class="uc-h">Plans / Documents</div>
-          <div class="uc-p">
-            Plan library with revision control. Publish revisions to Phil, track acknowledgement,
-            and warn when the field may still be using a superseded plan.
+        <div class="row" style="margin-bottom:14px;align-items:center">
+          <div style="flex:1">
+            <div class="card-title big" style="margin-bottom:4px">Plans &amp; documents</div>
+            <div style="font-size:12px;color:var(--ink-3)">Revision-controlled drawings. A red <b>superseded</b> warning means Phil is still on an older revision than the office has.</div>
           </div>
-          <div class="uc-features">
-            <div class="uc-feat-row">Plan library with current published revision per job</div>
-            <div class="uc-feat-row">Older revisions archived &amp; recallable</div>
-            <div class="uc-feat-row">Publish-to-Phil with acknowledgement tracking</div>
-            <div class="uc-feat-row">Warn when Phil is on a superseded revision</div>
+        </div>
+        <div class="card" style="padding:0">
+          <div class="card-head" style="padding:14px 18px">
+            <span class="card-title">Plan revisions across jobs</span>
+            <button class="card-action" onclick="renderPlans()">Refresh →</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table class="ts-table" id="plansTable">
+              <thead>
+                <tr>
+                  <th>Job</th>
+                  <th>Plan</th>
+                  <th>Local revision</th>
+                  <th>Published to Phil</th>
+                  <th>Acknowledged</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="plansBody">
+                <tr><td colspan="6" class="empty">Loading plans…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div style="margin-top:14px" class="uc-block" style="padding:18px 22px">
+          <div class="uc-tag">Backend pending</div>
+          <div style="font-size:13px;color:var(--ink-3);line-height:1.6">
+            <b style="color:var(--ink-2)">Plan PDF upload + per-revision push</b> — current view tracks
+            local-vs-published revision and per-worker acknowledgement. Upload/replace and the actual
+            push-to-Phil notification land when /api/plans is wired.
           </div>
         </div>
       </section>
@@ -808,20 +957,45 @@ body{
         </div>
       </section>
 
-      <!-- ───────────────────────────── VARIATIONS (UC) ───────────────────────────── -->
+      <!-- ───────────────────────────── VARIATIONS ───────────────────────────── -->
       <section id="sec-variations" class="sec">
-        <div class="uc-block">
-          <div class="uc-tag">Feature under construction</div>
-          <div class="uc-h">Variations</div>
-          <div class="uc-p">
-            A central register for every variation raised — from Phil in the field or from the office —
-            so no scope change disappears into a notes field.
+        <div class="grid grid-4" style="margin-bottom:14px">
+          <div class="kpi-tile"><div class="kpi-label">Drafts</div><div class="kpi-value" id="varKpiDraft">0</div><div class="kpi-delta">need pricing</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Submitted</div><div class="kpi-value" id="varKpiSub">0</div><div class="kpi-delta">awaiting client</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Approved</div><div class="kpi-value" id="varKpiApp">0</div><div class="kpi-delta">recoverable scope</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Recovery</div><div class="kpi-value" id="varKpiRev">$0</div><div class="kpi-delta">approved value</div></div>
+        </div>
+        <div class="card" style="padding:0">
+          <div class="card-head" style="padding:14px 18px">
+            <span class="card-title">Variation register</span>
+            <button class="card-action" onclick="renderVariations()">Refresh →</button>
           </div>
-          <div class="uc-features">
-            <div class="uc-feat-row">Variation register with draft / priced / submitted / approved / rejected</div>
-            <div class="uc-feat-row">Photos, descriptions and hours attached</div>
-            <div class="uc-feat-row">Recovery tracking against the original quote</div>
-            <div class="uc-feat-row">No variation hides in notes or snags</div>
+          <div style="overflow-x:auto">
+            <table class="ts-table" id="varTable">
+              <thead>
+                <tr>
+                  <th>Job</th>
+                  <th>Title</th>
+                  <th>Status</th>
+                  <th style="text-align:right">$ impact</th>
+                  <th style="text-align:right">Hours</th>
+                  <th>Photos</th>
+                  <th>Raised by</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="varBody">
+                <tr><td colspan="8" class="empty">Loading variations…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div style="margin-top:14px" class="uc-block" style="padding:18px 22px">
+          <div class="uc-tag">Backend pending</div>
+          <div style="font-size:13px;color:var(--ink-3);line-height:1.6">
+            <b style="color:var(--ink-2)">Status transitions</b> (draft → priced → submitted → approved/rejected)
+            persist locally for now. Photos already attach via Phil. Full /api/variations + recovery
+            reporting against the original quote land with the variations backend.
           </div>
         </div>
       </section>
@@ -1019,7 +1193,23 @@ const STATE = {
   assetsByJob: {},     // jobId -> { assets }
   users: [],
   alerts: [],
+  // Modules without dedicated backend yet — hydrated from admin-data.js
+  // when boot's fallback kicks in (no real API). When the real API
+  // lands, replace these reads with /api/itps, /api/plans, /api/variations.
+  itps: [],
+  plans: [],
+  variations: [],
+  activity: [],
+  // Sidebar count badges live here so renderers can update them
+  // without re-rendering the whole sidebar.
+  counts: {
+    jobs: 0, labour: 0, itp: 0, plans: 0,
+    materials: 0, assets: 0, variations: 0, alerts: 0,
+  },
   loaded: false,
+  // Tracks whether mock data is being used (so we can show a faint
+  // "demo data" indicator and skip API writes against it).
+  mockMode: false,
 };
 
 const SECTIONS = {
@@ -1057,8 +1247,91 @@ async function api(method, path, body) {
 }
 function setSync(state){
   const d = document.getElementById('syncDot'), t = document.getElementById('syncText');
-  d.className = 'dot' + (state==='syncing'?' syncing':state==='error'?' err':'');
-  t.textContent = state==='syncing'?'Syncing…':state==='error'?'Offline':'Live';
+  d.className = 'dot' + (state==='syncing'?' syncing':state==='error'?' err':state==='mock'?' mock':'');
+  t.textContent = state==='syncing'?'Syncing…':state==='error'?'Offline':state==='mock'?'Demo data':'Live';
+}
+
+// ─────────────────────────────────────────────────────────
+// Sidebar count badges
+//
+// Counts derived from STATE (real API data OR mock fallback). Renderers
+// call renderSidebarBadges() after any mutation that would change a
+// count (timesheet approve, variation status change, plan publish, etc.)
+// so the badges stay accurate without re-loading the page.
+//
+// Shape is API-shaped so when real /api/itps etc. land, no badge code
+// needs to change.
+// ─────────────────────────────────────────────────────────
+function computeCounts(){
+  const C = STATE.counts;
+  // Jobs: active count.
+  C.jobs = STATE.jobs.filter(j => (j.status || 'active') === 'active').length;
+  // Labour: pending timesheets across all jobs.
+  C.labour = STATE.jobs.reduce((n, j) => {
+    const entries = (STATE.hoursByJob[j.id] || {}).entries || [];
+    return n + entries.filter(isPending).length;
+  }, 0);
+  // ITP: blocked / evidence-missing checkpoints.
+  C.itp = STATE.itps.reduce((n, itp) => {
+    return n + (itp.checkpoints || []).filter(cp => cp.blocked || cp.status === 'evidence-missing').length;
+  }, 0);
+  // Plans: revisions where local revision > published revision (i.e. unpublished drafts).
+  C.plans = STATE.plans.filter(p => p.supersededWarning || !p.publishedRevision).length;
+  // Materials: open material requests across all jobs.
+  C.materials = STATE.jobs.reduce((n, j) => {
+    const mat = STATE.materialsByJob[j.id] || {};
+    return n + (mat.materials || []).filter(m => m.status !== 'used' && m.status !== 'cancelled').length;
+  }, 0);
+  // Assets: overdue gear (expectedReturn in past).
+  const today = new Date().toISOString().slice(0, 10);
+  C.assets = STATE.jobs.reduce((n, j) => {
+    const aset = STATE.assetsByJob[j.id] || {};
+    return n + (aset.assets || []).filter(a => a.expectedReturn && a.expectedReturn < today).length;
+  }, 0);
+  // Variations: draft/submitted (i.e. unpriced or awaiting approval).
+  C.variations = STATE.variations.filter(v => v.status === 'draft' || v.status === 'submitted').length;
+  // Alerts: from STATE.alerts (computed in computeAlerts).
+  C.alerts = STATE.alerts.length;
+}
+
+function renderSidebarBadges(){
+  const C = STATE.counts || {};
+  // Map sidebar item id → count key. nav-link buttons have data-sec.
+  const map = {
+    jobs:       C.jobs,
+    labour:     C.labour,
+    itp:        C.itp,
+    plans:      C.plans,
+    materials:  C.materials,
+    assets:     C.assets,
+    variations: C.variations,
+  };
+  for (const [sec, n] of Object.entries(map)) {
+    const btn = document.querySelector(`.nav-link[data-sec="${sec}"]`);
+    if (!btn) continue;
+    let badge = btn.querySelector('.nav-count');
+    if (n > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'nav-count';
+        // Insert before any existing nav-tag/nav-badge so it sits at the
+        // far right of the row.
+        btn.appendChild(badge);
+      }
+      badge.textContent = n;
+      // Severity tint — overdue / blocked counts get red, others amber.
+      const isCritical = (sec === 'assets') || (sec === 'itp' && n > 0);
+      badge.className = 'nav-count' + (isCritical ? ' bad' : '');
+    } else if (badge) {
+      badge.remove();
+    }
+  }
+  // Top-of-Command-Centre alert pill in the sidebar (existing element).
+  const top = document.getElementById('navAlertCount');
+  if (top) {
+    if (C.alerts > 0) { top.style.display = ''; top.textContent = C.alerts; }
+    else top.style.display = 'none';
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1078,11 +1351,15 @@ function show(name){
     window.history.replaceState({}, '', '#'+name);
   }
   // Lazy renderers
-  if (name === 'labour') renderLabour();
-  if (name === 'jobs') renderJobs();
-  if (name === 'materials') renderMaterialsByJob();
-  if (name === 'assets') renderAssetsByJob();
-  if (name === 'settings') renderSettings();
+  if (name === 'labour')     renderLabour();
+  if (name === 'jobs')       renderJobs();
+  if (name === 'materials')  renderMaterialsByJob();
+  if (name === 'assets')     renderAssetsByJob();
+  if (name === 'settings')   renderSettings();
+  if (name === 'builder')    renderJobBuilder();
+  if (name === 'itp')        renderITPs();
+  if (name === 'plans')      renderPlans();
+  if (name === 'variations') renderVariations();
 }
 
 function initFromHash(){
@@ -1232,17 +1509,53 @@ async function boot(){
         STATE.users = u.users || [];
       } catch(e) { STATE.users = []; }
 
+      // Mock-data fallback. If the real API returned an empty store
+      // (fresh demo install, account with no jobs, dev environment),
+      // hydrate from window.BUHLOS_MOCK so the admin shell still
+      // demonstrates the full product. Real data overrides this.
+      // We only fall back on a STRICTLY-EMPTY jobs list — partial real
+      // data is left intact so we don't pollute a real account.
+      if (!STATE.jobs.length && window.BUHLOS_MOCK) {
+        console.info('BuhlOS: real API returned no jobs — hydrating from mock data for demo.');
+        STATE.mockMode = true;
+        const m = window.BUHLOS_MOCK;
+        STATE.jobs           = m.jobs.slice();
+        STATE.hoursByJob     = Object.assign({}, m.hoursByJob);
+        STATE.materialsByJob = Object.assign({}, m.materialsByJob);
+        STATE.assetsByJob    = Object.assign({}, m.assetsByJob);
+        STATE.users          = m.workers.slice();
+        STATE.itps           = m.itps.slice();
+        STATE.plans          = m.plans.slice();
+        STATE.variations     = m.variations.slice();
+        STATE.activity       = m.recentActivity.slice();
+      } else if (window.BUHLOS_MOCK) {
+        // Real jobs present but modules without backend still empty.
+        // Pull ITPs / plans / variations / activity from mock so those
+        // sections aren't dead until their APIs land. Filter to jobs
+        // that actually exist so the lists are coherent.
+        const m = window.BUHLOS_MOCK;
+        const realIds = new Set(STATE.jobs.map(j => j.id));
+        if (!STATE.itps.length)       STATE.itps       = m.itps.filter(x => realIds.has(x.jobId) || !x.jobId);
+        if (!STATE.plans.length)      STATE.plans      = m.plans.filter(x => realIds.has(x.jobId) || !x.jobId);
+        if (!STATE.variations.length) STATE.variations = m.variations.filter(x => realIds.has(x.jobId) || !x.jobId);
+        if (!STATE.activity.length)   STATE.activity   = m.recentActivity.filter(x => realIds.has(x.jobId) || !x.jobId);
+      }
+
       STATE.loaded = true;
-      setSync('ok');
+      setSync(STATE.mockMode ? 'mock' : 'ok');
     } catch(e) {
       console.error('boot data load failed', e);
       setSync('error');
     }
 
+    // Compute sidebar counts from whatever data we ended up with.
+    try { computeCounts(); } catch (e) { console.error('computeCounts failed', e); }
+
     // Render — each guarded so a bug in one renderer doesn't blank the page.
     try { computeAlerts(); } catch (e) { console.error('computeAlerts failed', e); }
     try { renderCommand(); } catch (e) { console.error('renderCommand failed', e); }
     try { renderJobs(); }    catch (e) { console.error('renderJobs failed', e); }
+    try { renderSidebarBadges(); } catch (e) { console.error('renderSidebarBadges failed', e); }
     try { initFromHash(); }  catch (e) { console.error('initFromHash failed', e); }
   } catch (e) {
     // Unrecoverable.
@@ -1846,6 +2159,306 @@ function drTab(name){
   } else if (name === 'activity') {
     body.innerHTML = `<div class="empty"><b>Activity feed</b>Coming with Job Builder — for now use the full job view (top-right of this drawer) for activity.</div>`;
   }
+}
+
+// ─────────────────────────────────────────────────────────
+// Job Builder (v1)
+//
+// Local-draft model: a per-job workflow draft kept in memory + localStorage
+// so a refresh doesn't lose what you've configured. Publish-to-Phil writes
+// nothing to the server yet — it just shows what would be sent. The shape
+// matches what /api/job-builder will accept when it lands so the same UI
+// can swap in real persistence.
+//
+// Draft shape:
+//   { jobId, updatedAt, stages: [{ id, name, requiredPhotos, requiredNotes,
+//     itpRequired, areas: [{ id, name }] }] }
+// ─────────────────────────────────────────────────────────
+const JB_DRAFT_KEY = 'buhlos.jobBuilder.drafts.v1';
+let _jbState = { activeJobId: null, drafts: {} };
+
+function jbLoad(){
+  try {
+    const raw = localStorage.getItem(JB_DRAFT_KEY);
+    if (raw) _jbState.drafts = JSON.parse(raw) || {};
+  } catch (_) { _jbState.drafts = {}; }
+}
+function jbSave(){
+  try { localStorage.setItem(JB_DRAFT_KEY, JSON.stringify(_jbState.drafts)); } catch (_) {}
+}
+function jbCurrentDraft(){
+  if (!_jbState.activeJobId) return null;
+  return _jbState.drafts[_jbState.activeJobId] || null;
+}
+function jbSetDraft(d){
+  if (!_jbState.activeJobId) return;
+  d.updatedAt = new Date().toISOString();
+  _jbState.drafts[_jbState.activeJobId] = d;
+  jbSave();
+  jbRender();
+}
+function jbNewId(prefix){
+  return prefix + '-' + Math.random().toString(36).slice(2, 8);
+}
+
+function renderJobBuilder(){
+  jbLoad();
+  // Populate job picker
+  const jobSel = document.getElementById('jbJob');
+  if (!jobSel) return;
+  if (!_jbState.activeJobId && STATE.jobs.length) _jbState.activeJobId = STATE.jobs[0].id;
+  jobSel.innerHTML = STATE.jobs.map(j =>
+    `<option value="${escapeHtml(j.id)}" ${_jbState.activeJobId===j.id?'selected':''}>${escapeHtml(j.name)}</option>`
+  ).join('');
+  jobSel.onchange = () => { _jbState.activeJobId = jobSel.value; jbRender(); };
+
+  // Populate template picker
+  const tmpls = (window.BUHLOS_MOCK && window.BUHLOS_MOCK.jobBuilderTemplates) || {};
+  const tplSel = document.getElementById('jbTemplate');
+  tplSel.innerHTML = '<option value="">Choose template…</option>' +
+    Object.entries(tmpls).map(([k,t]) => `<option value="${escapeHtml(k)}">${escapeHtml(t.label)}</option>`).join('');
+
+  jbRender();
+}
+
+function jbRender(){
+  const draft = jbCurrentDraft() || { jobId: _jbState.activeJobId, stages: [] };
+  const stageCount = (draft.stages || []).length;
+  const areaCount  = (draft.stages || []).reduce((n, s) => n + (s.areas || []).length, 0);
+  document.getElementById('jbStageCount').textContent = stageCount;
+  document.getElementById('jbAreaCount').textContent  = areaCount;
+  document.getElementById('jbStatus').textContent = stageCount ? 'Draft ready' : 'Empty';
+  document.getElementById('jbStatusDelta').textContent = draft.updatedAt ? 'updated ' + new Date(draft.updatedAt).toLocaleString('en-AU') : 'not yet published';
+
+  const root = document.getElementById('jbStages');
+  if (!stageCount) {
+    root.innerHTML = '<div class="empty">Select a job + template above, or add a stage manually.</div>';
+    return;
+  }
+  root.innerHTML = draft.stages.map((s, si) => `
+    <div class="builder-stage" data-si="${si}">
+      <div class="builder-stage-head">
+        <input class="builder-stage-name" value="${escapeHtml(s.name||'Stage '+(si+1))}" onchange="jbStageName(${si}, this.value)">
+        <button class="builder-stage-rm" onclick="jbRemoveStage(${si})">Remove stage</button>
+      </div>
+      <div class="builder-stage-meta">
+        <label>Required photos <input type="number" min="0" max="20" value="${Number(s.requiredPhotos||0)}" onchange="jbStageMeta(${si},'requiredPhotos',+this.value)" class="builder-input" style="padding:3px 6px;width:54px"></label>
+        <label>Required notes <input type="number" min="0" max="10" value="${Number(s.requiredNotes||0)}" onchange="jbStageMeta(${si},'requiredNotes',+this.value)" class="builder-input" style="padding:3px 6px;width:54px"></label>
+        <label><input type="checkbox" ${s.itpRequired?'checked':''} onchange="jbStageMeta(${si},'itpRequired',this.checked)"> ITP required</label>
+      </div>
+      <div class="builder-areas">
+        ${(s.areas||[]).map((a, ai) => `
+          <div class="builder-area">
+            <input value="${escapeHtml(a.name||'Area '+(ai+1))}" onchange="jbAreaName(${si},${ai},this.value)">
+            <button class="builder-area-rm" onclick="jbRemoveArea(${si},${ai})">Remove</button>
+          </div>
+        `).join('')}
+        <button class="builder-add-area" onclick="jbAddArea(${si})">+ Add area</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function jbApplyTemplate(){
+  const tplKey = document.getElementById('jbTemplate').value;
+  if (!tplKey || !window.BUHLOS_MOCK) return;
+  const tpl = window.BUHLOS_MOCK.jobBuilderTemplates[tplKey];
+  if (!tpl) return;
+  if (jbCurrentDraft() && !confirm('Replace current draft with template "' + tpl.label + '"?')) return;
+  jbSetDraft({
+    jobId: _jbState.activeJobId,
+    stages: tpl.stages.map(s => ({
+      id: jbNewId('s'), name: s.name,
+      requiredPhotos: s.requiredPhotos, requiredNotes: s.requiredNotes, itpRequired: !!s.itpRequired,
+      areas: (s.areas || []).map(a => ({ id: jbNewId('a'), name: a.name })),
+    })),
+  });
+}
+function jbAddStage(){
+  const draft = jbCurrentDraft() || { jobId: _jbState.activeJobId, stages: [] };
+  draft.stages = draft.stages || [];
+  draft.stages.push({ id: jbNewId('s'), name: 'New stage', requiredPhotos: 2, requiredNotes: 1, itpRequired: false, areas: [{ id: jbNewId('a'), name: 'Area 1' }] });
+  jbSetDraft(draft);
+}
+function jbRemoveStage(si){
+  const draft = jbCurrentDraft(); if (!draft) return;
+  if (!confirm('Remove this stage and its areas?')) return;
+  draft.stages.splice(si, 1); jbSetDraft(draft);
+}
+function jbStageName(si, name){ const d = jbCurrentDraft(); if (!d) return; d.stages[si].name = name; jbSetDraft(d); }
+function jbStageMeta(si, key, val){ const d = jbCurrentDraft(); if (!d) return; d.stages[si][key] = val; jbSetDraft(d); }
+function jbAddArea(si){
+  const d = jbCurrentDraft(); if (!d) return;
+  d.stages[si].areas = d.stages[si].areas || [];
+  d.stages[si].areas.push({ id: jbNewId('a'), name: 'New area' });
+  jbSetDraft(d);
+}
+function jbAreaName(si, ai, name){ const d = jbCurrentDraft(); if (!d) return; d.stages[si].areas[ai].name = name; jbSetDraft(d); }
+function jbRemoveArea(si, ai){ const d = jbCurrentDraft(); if (!d) return; d.stages[si].areas.splice(ai, 1); jbSetDraft(d); }
+
+function jbPublishDraft(){
+  const d = jbCurrentDraft();
+  if (!d || !(d.stages||[]).length) {
+    return alert('Nothing to publish — add at least one stage first.');
+  }
+  // Warn if any stage has 0 areas
+  const emptyStages = d.stages.filter(s => !(s.areas||[]).length);
+  if (emptyStages.length) {
+    if (!confirm(emptyStages.length + ' stage(s) have no areas yet. Publish anyway?')) return;
+  }
+  // Pretty-print the payload that WOULD be sent to /api/job-builder/publish
+  const payload = {
+    jobId: d.jobId,
+    publishedAt: new Date().toISOString(),
+    publishedBy: (STATE.me && STATE.me.id) || 'admin',
+    stages: d.stages,
+  };
+  alert('Publish-to-Phil — pending backend wiring.\n\n' +
+        'This is the payload that would be sent to /api/job-builder/publish:\n\n' +
+        JSON.stringify(payload, null, 2).slice(0, 2000));
+}
+
+// ─────────────────────────────────────────────────────────
+// ITP / QA renderer
+// ─────────────────────────────────────────────────────────
+function renderITPs(){
+  const root = document.getElementById('itpList');
+  if (!root) return;
+  if (!STATE.itps.length) {
+    root.innerHTML = '<div class="empty"><b>No ITPs yet</b>Set up an Inspection &amp; Test Plan from inside a job. Once defined, checkpoints show up here.</div>';
+    return;
+  }
+  // Group by job
+  const byJob = {};
+  for (const itp of STATE.itps) {
+    (byJob[itp.jobId] = byJob[itp.jobId] || []).push(itp);
+  }
+  const html = Object.entries(byJob).map(([jobId, itps]) => {
+    const job = STATE.jobs.find(j => j.id === jobId);
+    const jobName = job ? job.name : jobId;
+    return itps.map(itp => {
+      const cps = itp.checkpoints || [];
+      const complete = cps.filter(cp => cp.status === 'complete').length;
+      const blocked  = cps.filter(cp => cp.blocked || cp.status === 'evidence-missing').length;
+      return `
+        <div class="itp-card">
+          <div class="itp-card-head">
+            <div style="flex:1">
+              <div class="itp-card-title">${escapeHtml(itp.title)}</div>
+              <div class="itp-card-sub">${escapeHtml(jobName)} · ${escapeHtml(itp.stage || '')} · ${complete}/${cps.length} complete${blocked? ' · ' + blocked + ' blocked':''}</div>
+            </div>
+            ${blocked > 0 ? '<span class="state-chip blocked">blocked</span>' : (complete === cps.length && cps.length > 0 ? '<span class="state-chip complete">complete</span>' : '<span class="state-chip pending">in progress</span>')}
+          </div>
+          <div class="itp-cps">
+            ${cps.map(cp => `
+              <div class="itp-cp">
+                <div class="itp-cp-name">${escapeHtml(cp.name)}</div>
+                <span class="itp-cp-meta">${cp.photoCount||0} photo${cp.photoCount===1?'':'s'}</span>
+                ${cp.reviewer ? `<span class="itp-cp-meta">reviewed ${escapeHtml(cp.reviewer)}</span>` : `<span class="itp-cp-meta" style="color:var(--ink-4)">no reviewer</span>`}
+                <span class="state-chip ${cp.blocked?'blocked':cp.status}">${escapeHtml(cp.blocked?'blocked':cp.status)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }).join('');
+  root.innerHTML = html;
+}
+
+// ─────────────────────────────────────────────────────────
+// Plans renderer
+// ─────────────────────────────────────────────────────────
+function renderPlans(){
+  const body = document.getElementById('plansBody');
+  if (!body) return;
+  if (!STATE.plans.length) {
+    body.innerHTML = '<tr><td colspan="6" class="empty"><b>No plans yet</b>Upload drawings from a job to start a plan library.</td></tr>';
+    return;
+  }
+  body.innerHTML = STATE.plans.map(p => {
+    const job = STATE.jobs.find(j => j.id === p.jobId);
+    const jobName = job ? job.name : p.jobId;
+    const isSuperseded = p.supersededWarning;
+    const isUnpublished = !p.publishedRevision;
+    const ackTotal = (p.acknowledgedBy || []).length;
+    return `
+      <tr>
+        <td>${escapeHtml(jobName)}</td>
+        <td>${escapeHtml(p.name)}</td>
+        <td><span class="state-chip ${isSuperseded?'pending':''}">${escapeHtml(p.revision || '—')}</span></td>
+        <td>${p.publishedRevision ? `<span class="state-chip ${isSuperseded?'blocked':'complete'}">${escapeHtml(p.publishedRevision)}</span>` : `<span class="state-chip draft">unpublished</span>`}</td>
+        <td style="color:var(--ink-3);font-size:11px">${ackTotal} ack${ackTotal===1?'':'s'}</td>
+        <td>
+          <button class="btn-app" onclick="plansPublish('${escapeHtml(p.id)}')">${isUnpublished ? 'Publish' : (isSuperseded?'Publish '+escapeHtml(p.revision):'Re-publish')}</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+function plansPublish(planId){
+  const p = STATE.plans.find(x => x.id === planId);
+  if (!p) return;
+  alert('Publish ' + p.name + ' rev ' + p.revision + ' to Phil — pending backend wiring.\n\n' +
+        'When /api/plans is live, this will push the revision to every worker on ' +
+        ((STATE.jobs.find(j => j.id === p.jobId) || {}).name || p.jobId) +
+        ' and reset their acknowledgement state.');
+}
+
+// ─────────────────────────────────────────────────────────
+// Variations renderer
+// ─────────────────────────────────────────────────────────
+function renderVariations(){
+  const body = document.getElementById('varBody');
+  if (!body) return;
+  const v = STATE.variations || [];
+  document.getElementById('varKpiDraft').textContent = v.filter(x => x.status === 'draft').length;
+  document.getElementById('varKpiSub').textContent   = v.filter(x => x.status === 'submitted').length;
+  document.getElementById('varKpiApp').textContent   = v.filter(x => x.status === 'approved').length;
+  const recovery = v.filter(x => x.status === 'approved').reduce((s, x) => s + Number(x.priceImpact||0), 0);
+  document.getElementById('varKpiRev').textContent = '$' + Math.round(recovery).toLocaleString('en-AU');
+
+  if (!v.length) {
+    body.innerHTML = '<tr><td colspan="8" class="empty"><b>No variations yet</b>Variations raised from Phil or the office land here.</td></tr>';
+    return;
+  }
+  body.innerHTML = v.map(x => {
+    const job = STATE.jobs.find(j => j.id === x.jobId);
+    const jobName = job ? job.name : x.jobId;
+    const next = nextVariationAction(x.status);
+    return `
+      <tr>
+        <td>${escapeHtml(jobName)}</td>
+        <td>
+          <div style="font-weight:600">${escapeHtml(x.title)}</div>
+          <div style="font-size:11px;color:var(--ink-3);margin-top:2px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(x.description||'')}</div>
+        </td>
+        <td><span class="state-chip ${x.status}">${escapeHtml(x.status)}</span></td>
+        <td style="text-align:right;font-weight:600">${Number(x.priceImpact||0) > 0 ? '$'+Math.round(x.priceImpact).toLocaleString('en-AU') : '—'}</td>
+        <td style="text-align:right">${Number(x.hoursImpact||0) > 0 ? Number(x.hoursImpact).toFixed(1)+'h' : '—'}</td>
+        <td style="color:var(--ink-3);font-size:11px">${x.photoCount||0}</td>
+        <td style="color:var(--ink-3);font-size:11px">${escapeHtml(x.raisedBy||'—')}</td>
+        <td>${next ? `<button class="btn-app" onclick="advanceVariation('${escapeHtml(x.id)}')">${escapeHtml(next.label)}</button>` : '<span style="color:var(--ink-4);font-size:11px">no action</span>'}</td>
+      </tr>
+    `;
+  }).join('');
+}
+function nextVariationAction(status){
+  switch (status) {
+    case 'draft':     return { label: 'Price', next: 'priced' };
+    case 'priced':    return { label: 'Submit', next: 'submitted' };
+    case 'submitted': return { label: 'Mark approved', next: 'approved' };
+    default: return null;
+  }
+}
+function advanceVariation(id){
+  const v = STATE.variations.find(x => x.id === id);
+  if (!v) return;
+  const next = nextVariationAction(v.status);
+  if (!next) return;
+  v.status = next.next;
+  // Local-only for now — when /api/variations is wired, POST status change here.
+  computeCounts(); renderSidebarBadges(); renderVariations();
 }
 
 // Kick off
