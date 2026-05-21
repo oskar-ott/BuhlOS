@@ -27,7 +27,13 @@
 // to v3 invalidates the stale cache. Going forward, predeploy guard
 // (scripts/check-sw-cache-version.js) refuses to ship if shell files
 // change without a CACHE_VERSION bump.
-const CACHE_VERSION = 'buhl-shell-v3';
+//
+// v4 (production-admin-shell integration): operations.html is now the
+// BuhlOS Command Centre SPA (replacing the site-office shell at that
+// path). _shell.js still serves the other admin pages but the shape
+// of what's at /admin/operations changed entirely. Bumping invalidates
+// any cache that has the old site-office operations.html cached.
+const CACHE_VERSION = 'buhl-shell-v4';
 const STATIC_SHELL = [
   // Admin shell — every admin page boot needs these. Caching them
   // means cold loads paint sidebar + topbar from disk while the

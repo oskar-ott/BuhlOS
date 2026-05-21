@@ -3,656 +3,1854 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>bühl · overview</title>
-<link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="theme-color" content="#0d1b34">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/admin/_shell.css">
-<script src="/admin/_shell.js"></script>
-<script type="module" src="/components/inbox-stack.js"></script>
-<script type="module" src="/components/pulse-strip.js"></script>
-<script type="module" src="/components/list-row.js"></script>
-
-<!--
-  /admin/operations · Overview (phase 03 of the site-office rebuild)
-  ───────────────────────────────────────────────────────────────
-
-  Per brief §03: "Exception dashboard. NOT a list of numbers."
-
-  The page answers ONE question: what is not as it should be? Passive
-  metrics ("12 jobs", "8 users") are demoted from cards to the pulse
-  strip — a single row of four numbers, equal weight, each clickable
-  to its queue.
-
-  Below the pulse, three inbox stacks (§04) — hours, snags, setup.
-  Each is a queue with a drain-it button. Below those, a list of
-  exception cards — verb cards, not stat cards, sorted by business
-  cost.  Beside it, a scoped activity column (§14): the last 12
-  events that touched the org.
-
-  No "Welcome back, Daniel". No hero. The page opens cold and goes
-  straight to what's wrong.
--->
-
+<title>BuhlOS — Command Centre</title>
 <style>
-  .ov-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
-    gap: 22px;
-    align-items: start;
-  }
-  @media (max-width: 1080px) {
-    .ov-grid { grid-template-columns: 1fr; }
-  }
+:root{
+  --bg:#0b1018;
+  --panel:#10161f;
+  --panel-2:#141b26;
+  --line:#1f2937;
+  --line-2:#283447;
+  --ink:#e7ecf3;
+  --ink-2:#aebac9;
+  --ink-3:#7c8a9e;
+  --ink-4:#56627a;
+  --accent:#ffcc00;
+  --accent-ink:#0b0d10;
+  --navy:#0d1f35;
+  --blue:#3b82f6;
+  --green:#22c55e;
+  --green-bg:rgba(34,197,94,.12);
+  --amber:#f59e0b;
+  --amber-bg:rgba(245,158,11,.13);
+  --red:#ef4444;
+  --red-bg:rgba(239,68,68,.13);
+  --r:10px;
+  --rs:8px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',system-ui,sans-serif;
+  background:var(--bg);
+  color:var(--ink);
+  font-size:13px;
+  line-height:1.4;
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
 
-  .ov-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-  .ov-inboxes { display: grid; gap: 10px; }
+/* ──────────────────────────────────────────────────────
+   App shell — fixed left sidebar + main canvas
+   ────────────────────────────────────────────────────── */
+.shell{display:flex;height:100vh;width:100vw;overflow:hidden}
 
-  .ov-card {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--r);
-    overflow: hidden;
-  }
-  .ov-card.empty { background: transparent; border-style: dashed; }
+/* Sidebar */
+.side{
+  width:240px;flex-shrink:0;
+  background:var(--panel);
+  border-right:1px solid var(--line);
+  display:flex;flex-direction:column;
+  overflow:hidden;
+}
+.side-brand{
+  display:flex;align-items:center;gap:10px;
+  padding:18px 18px 16px;
+  border-bottom:1px solid var(--line);
+}
+.brand-mark{
+  width:32px;height:32px;border-radius:7px;
+  background:var(--accent);color:var(--accent-ink);
+  display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:13px;letter-spacing:.5px;
+  font-family:'Inter Tight','Inter',sans-serif;
+}
+.brand-name{
+  font-weight:700;font-size:15px;letter-spacing:.2px;color:var(--ink);
+}
+.brand-sub{font-size:10px;color:var(--ink-4);text-transform:uppercase;letter-spacing:.8px;margin-top:1px}
+.side-nav{flex:1;overflow-y:auto;padding:10px 8px;display:flex;flex-direction:column;gap:1px}
+.side-nav::-webkit-scrollbar{width:6px}
+.side-nav::-webkit-scrollbar-thumb{background:#1a2330;border-radius:3px}
+.nav-group-label{
+  font-size:10px;color:var(--ink-4);text-transform:uppercase;letter-spacing:.9px;
+  font-weight:600;padding:14px 10px 6px;
+}
+.nav-link{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 10px;border-radius:7px;
+  color:var(--ink-2);font-size:13px;font-weight:500;
+  cursor:pointer;border:none;background:none;width:100%;text-align:left;
+  position:relative;
+}
+.nav-link:hover{background:#161e2a;color:var(--ink)}
+.nav-link.active{background:#1a2434;color:var(--ink)}
+.nav-link.active::before{
+  content:'';position:absolute;left:0;top:7px;bottom:7px;width:3px;
+  background:var(--accent);border-radius:0 3px 3px 0;
+}
+.nav-icon{
+  width:18px;height:18px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;color:var(--ink-3);
+}
+.nav-link.active .nav-icon{color:var(--accent)}
+.nav-link.uc{color:var(--ink-3)}
+.nav-link .nav-tag{
+  margin-left:auto;font-size:9px;text-transform:uppercase;letter-spacing:.6px;font-weight:700;
+  padding:2px 6px;border-radius:4px;background:#1b2433;color:var(--ink-4);
+}
+.nav-link .nav-tag.live{background:rgba(34,197,94,.16);color:#4ade80}
+.nav-link .nav-badge{
+  margin-left:auto;font-size:10px;font-weight:700;
+  background:var(--red);color:#fff;
+  border-radius:10px;padding:1px 7px;min-width:20px;text-align:center;
+}
+.side-foot{padding:12px;border-top:1px solid var(--line)}
+.user-pill{
+  display:flex;align-items:center;gap:10px;
+  background:var(--panel-2);border:1px solid var(--line);
+  padding:9px 11px;border-radius:8px;
+}
+.user-av{
+  width:28px;height:28px;border-radius:50%;background:var(--accent);
+  color:var(--accent-ink);font-weight:800;font-size:12px;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.user-meta{flex:1;min-width:0;overflow:hidden}
+.user-name{font-size:13px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.user-role{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.5px}
+.user-out{
+  background:none;border:1px solid var(--line-2);color:var(--ink-3);
+  border-radius:6px;padding:5px 9px;font-size:11px;cursor:pointer;
+}
+.user-out:hover{color:var(--ink);border-color:var(--ink-3)}
 
-  .ov-section-head {
-    padding: 11px 14px;
-    border-bottom: 1px solid var(--line);
-    display: flex; justify-content: space-between; align-items: center;
-    font-family: var(--ff-mono);
-    font-size: 10.5px;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    background: var(--surface-2);
-  }
-  .ov-section-head b { color: var(--ink-2); font-weight: 600; letter-spacing: .04em; }
-  .ov-section-head a { color: var(--ink-2); }
+/* Canvas */
+.canvas{flex:1;overflow:hidden;display:flex;flex-direction:column;background:var(--bg)}
 
-  .ov-empty {
-    padding: 22px 18px;
-    text-align: center;
-    color: var(--muted);
-    font-size: 13px;
-    line-height: 1.5;
-  }
-  .ov-empty b { color: var(--ink); font-family: var(--ff-display); font-weight: 600; }
+/* Top context bar inside canvas */
+.ctxbar{
+  display:flex;align-items:center;gap:14px;
+  padding:14px 28px;border-bottom:1px solid var(--line);
+  background:var(--bg);flex-shrink:0;
+}
+.ctxbar-title{font-size:18px;font-weight:700;letter-spacing:-.2px;color:var(--ink)}
+.ctxbar-sub{font-size:12px;color:var(--ink-3);margin-top:2px}
+.ctxbar-spacer{flex:1}
+.ctxbar-status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)}
+.ctxbar-status .dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+.ctxbar-status .dot.err{background:var(--red)}
+.ctxbar-status .dot.syncing{background:var(--amber);animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
 
-  .ov-pulse { margin-bottom: 16px; }
+.ctxbar-action{
+  background:var(--accent);color:var(--accent-ink);
+  border:none;border-radius:7px;padding:8px 14px;
+  font-size:13px;font-weight:600;cursor:pointer;
+}
+.ctxbar-action:hover{filter:brightness(1.05)}
+.ctxbar-action.sec{background:transparent;color:var(--ink);border:1px solid var(--line-2)}
+.ctxbar-action.sec:hover{border-color:var(--ink-3)}
 
-  /* Inline metric/action styling that the list-row consumes via slots. */
-  list-row .lr-action a.btn-sm {
-    background: var(--surface-2);
-    border-color: var(--line);
-    color: var(--ink);
-    font-family: var(--ff-display);
-    font-weight: 600;
-    font-size: 12.5px;
-  }
-  list-row .lr-action a.btn-sm:hover { background: var(--surface-3); }
+/* Scrollable working area */
+.work{flex:1;overflow-y:auto;padding:24px 28px 60px}
+.work::-webkit-scrollbar{width:10px}
+.work::-webkit-scrollbar-thumb{background:#1a2330;border-radius:5px}
 
-  /* Page-head date — kept calm. No greeting, no hero. */
-  .ov-head {
-    margin-bottom: 18px;
-    display: flex; align-items: baseline; gap: 12px;
-    flex-wrap: wrap;
-  }
-  .ov-head h1 {
-    font-family: var(--ff-display);
-    font-weight: 700;
-    font-size: 26px;
-    letter-spacing: -.012em;
-    color: var(--ink);
-    margin: 0;
-  }
-  .ov-head .sub { color: var(--muted); font-size: 13.5px; }
-  .ov-head .ov-head-spacer { flex: 1; }
-  /* Admin-only preview link to the leading-hand surface so admin can
-     spot-check what their LHs see without re-logging. Hidden for any
-     other role via JS. */
-  .ov-head-link {
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--ink-2);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    text-decoration-color: rgba(13,27,52,.25);
-    transition: text-decoration-color .15s, color .15s;
-  }
-  .ov-head-link:hover { color: var(--ink); text-decoration-color: var(--ink); }
+/* Sections */
+.sec{display:none}
+.sec.active{display:block}
+
+/* Cards & grid primitives */
+.row{display:flex;gap:16px;flex-wrap:wrap}
+.grid{display:grid;gap:14px}
+.grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.grid-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:1100px){.grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:780px){.grid-3,.grid-2{grid-template-columns:1fr}}
+
+.card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:var(--r);
+  padding:16px 18px;
+}
+.card.tight{padding:12px 14px}
+.card-head{
+  display:flex;align-items:center;gap:10px;
+  margin-bottom:12px;
+}
+.card-title{
+  font-size:11px;font-weight:700;color:var(--ink-3);
+  text-transform:uppercase;letter-spacing:.7px;
+}
+.card-title.big{font-size:14px;color:var(--ink);text-transform:none;letter-spacing:0}
+.card-action{margin-left:auto;font-size:12px;color:var(--ink-3);background:none;border:none;cursor:pointer}
+.card-action:hover{color:var(--ink)}
+
+/* KPI tiles */
+.kpi-tile{
+  background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--r);padding:14px 16px;display:flex;flex-direction:column;gap:6px;
+}
+.kpi-label{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+.kpi-value{font-size:26px;font-weight:700;letter-spacing:-.5px;color:var(--ink);line-height:1}
+.kpi-delta{font-size:11px;color:var(--ink-4)}
+.kpi-tile.alert .kpi-value{color:var(--red)}
+.kpi-tile.warn .kpi-value{color:var(--amber)}
+.kpi-tile.ok .kpi-value{color:var(--green)}
+
+/* Alert rows */
+.alerts{display:flex;flex-direction:column;gap:8px}
+.alert{
+  display:flex;align-items:center;gap:12px;
+  background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--ink-4);
+  border-radius:var(--rs);padding:11px 14px;
+}
+.alert.sev-high{border-left-color:var(--red);background:linear-gradient(90deg,var(--red-bg),transparent 35%)}
+.alert.sev-med{border-left-color:var(--amber);background:linear-gradient(90deg,var(--amber-bg),transparent 35%)}
+.alert.sev-low{border-left-color:var(--blue)}
+.alert-sev{
+  font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;
+  padding:2px 7px;border-radius:4px;flex-shrink:0;
+  background:#1b2433;color:var(--ink-3);
+}
+.alert.sev-high .alert-sev{background:var(--red);color:#fff}
+.alert.sev-med .alert-sev{background:var(--amber);color:#2a1808}
+.alert.sev-low .alert-sev{background:var(--blue);color:#fff}
+.alert-body{flex:1;min-width:0}
+.alert-title{font-size:13px;font-weight:600;color:var(--ink);line-height:1.3}
+.alert-title b{color:var(--ink);font-weight:700}
+.alert-meta{font-size:11px;color:var(--ink-3);margin-top:2px}
+.alert-meta b{color:var(--ink-2);font-weight:600}
+.alert-cta{
+  background:#1b2433;border:1px solid var(--line-2);color:var(--ink);
+  font-size:12px;font-weight:600;padding:6px 11px;border-radius:6px;cursor:pointer;
+  flex-shrink:0;
+}
+.alert-cta:hover{background:#222d3f}
+.alert-cta.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.alert-cta.primary:hover{filter:brightness(1.05)}
+
+/* Job rows */
+.job-list{display:flex;flex-direction:column;gap:6px}
+.job-row{
+  display:grid;
+  grid-template-columns:minmax(0,2fr) minmax(0,1.5fr) 110px 110px 90px 90px 100px;
+  gap:14px;align-items:center;
+  background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--rs);padding:11px 14px;cursor:pointer;
+}
+.job-row:hover{border-color:var(--line-2);background:#141c28}
+.job-row.head{
+  background:transparent;border:none;cursor:default;padding:6px 14px 0;
+}
+.job-row.head .col{font-size:10px;color:var(--ink-4);text-transform:uppercase;letter-spacing:.7px;font-weight:600}
+.col{font-size:13px;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.col-sub{font-size:11px;color:var(--ink-3);margin-top:2px}
+.col-name{display:flex;flex-direction:column;min-width:0}
+.col-name .nm{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis}
+.col-name .id{font-size:11px;color:var(--ink-3);margin-top:2px;font-family:'JetBrains Mono','SF Mono',ui-monospace,monospace}
+.health-pill{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:11px;font-weight:600;padding:3px 9px;border-radius:11px;white-space:nowrap;
+}
+.health-pill .dot{width:6px;height:6px;border-radius:50%}
+.h-ok{background:rgba(34,197,94,.14);color:#4ade80}.h-ok .dot{background:#22c55e}
+.h-risk{background:rgba(245,158,11,.14);color:#fbbf24}.h-risk .dot{background:#f59e0b}
+.h-over{background:rgba(239,68,68,.14);color:#f87171}.h-over .dot{background:#ef4444}
+.h-pause{background:#1b2433;color:var(--ink-3)}.h-pause .dot{background:var(--ink-4)}
+
+.progbar{height:5px;background:#1a2330;border-radius:3px;overflow:hidden;margin-top:6px}
+.progbar i{display:block;height:5px;border-radius:3px;background:var(--blue)}
+.progbar.ok i{background:var(--green)}
+.progbar.warn i{background:var(--amber)}
+.progbar.bad i{background:var(--red)}
+
+.chip-count{
+  display:inline-flex;align-items:center;justify-content:center;
+  background:#1b2433;color:var(--ink-2);font-size:11px;font-weight:700;
+  min-width:22px;height:22px;border-radius:11px;padding:0 7px;
+}
+.chip-count.red{background:var(--red);color:#fff}
+.chip-count.amber{background:var(--amber);color:#2a1808}
+.chip-count.zero{background:#161d28;color:var(--ink-4);font-weight:500}
+
+/* Timesheets table */
+.ts-table{
+  width:100%;border-collapse:collapse;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;
+}
+.ts-table th{
+  text-align:left;font-size:10px;font-weight:600;letter-spacing:.7px;
+  text-transform:uppercase;color:var(--ink-4);
+  padding:11px 14px;background:#0f1620;border-bottom:1px solid var(--line);
+}
+.ts-table td{
+  padding:13px 14px;border-bottom:1px solid var(--line);font-size:13px;color:var(--ink);
+  vertical-align:middle;
+}
+.ts-table tr:last-child td{border-bottom:none}
+.ts-table tr:hover td{background:#141c28}
+.ts-status{
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;
+  padding:3px 8px;border-radius:4px;display:inline-block;
+}
+.ts-sub{background:var(--amber-bg);color:#fbbf24}
+.ts-app{background:var(--green-bg);color:#4ade80}
+.ts-rej{background:var(--red-bg);color:#f87171}
+.ts-actions{display:flex;gap:6px;flex-wrap:wrap}
+.btn-app,.btn-rej,.btn-edit{
+  font-size:11px;font-weight:600;padding:5px 10px;border-radius:5px;cursor:pointer;border:1px solid;
+}
+.btn-app{background:var(--green);color:#04280f;border-color:var(--green)}
+.btn-app:hover{filter:brightness(1.08)}
+.btn-rej{background:transparent;color:#f87171;border-color:rgba(239,68,68,.4)}
+.btn-rej:hover{background:var(--red-bg)}
+.btn-edit{background:transparent;color:var(--ink-2);border-color:var(--line-2)}
+.btn-edit:hover{color:var(--ink);border-color:var(--ink-3)}
+
+/* Under construction */
+.uc-block{
+  background:var(--panel);border:1px dashed var(--line-2);
+  border-radius:var(--r);padding:48px 32px;
+  text-align:center;color:var(--ink-3);
+}
+.uc-tag{
+  display:inline-block;font-size:10px;font-weight:800;
+  letter-spacing:1.1px;text-transform:uppercase;
+  background:var(--amber-bg);color:var(--amber);
+  padding:5px 12px;border-radius:20px;margin-bottom:18px;
+}
+.uc-h{font-size:22px;font-weight:700;color:var(--ink);letter-spacing:-.3px;margin-bottom:8px}
+.uc-p{font-size:13px;line-height:1.6;color:var(--ink-3);max-width:520px;margin:0 auto 18px}
+.uc-features{
+  display:flex;flex-direction:column;gap:8px;
+  background:#0e1520;border:1px solid var(--line);border-radius:var(--rs);
+  padding:14px 16px;max-width:460px;margin:0 auto;text-align:left;
+}
+.uc-feat-row{
+  display:flex;align-items:center;gap:10px;font-size:12px;color:var(--ink-2);
+}
+.uc-feat-row::before{
+  content:'';width:5px;height:5px;border-radius:50%;background:var(--ink-4);flex-shrink:0;
+}
+
+/* Inline empty state */
+.empty{padding:36px 18px;text-align:center;color:var(--ink-4);font-size:13px}
+.empty b{display:block;color:var(--ink-2);font-weight:600;font-size:14px;margin-bottom:4px}
+
+/* Loading splash */
+#splash{
+  position:fixed;inset:0;background:var(--bg);z-index:999;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  transition:opacity .35s;
+}
+#splash.out{opacity:0;pointer-events:none}
+#splash .brand-mark{width:48px;height:48px;font-size:18px;border-radius:11px}
+#splash .ldr{width:160px;height:3px;background:#161e2a;border-radius:2px;overflow:hidden}
+#splash .ldr i{display:block;height:3px;background:var(--accent);animation:lp 1.1s ease infinite}
+@keyframes lp{0%{width:0;margin-left:0}50%{width:55%;margin-left:20%}100%{width:0;margin-left:100%}}
+
+/* Job detail drawer */
+.drawer-bk{
+  position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;display:none;
+  align-items:stretch;justify-content:flex-end;
+}
+.drawer-bk.open{display:flex}
+.drawer{
+  width:min(720px,94vw);background:var(--panel);
+  border-left:1px solid var(--line);overflow-y:auto;
+  display:flex;flex-direction:column;
+}
+.drawer-head{
+  display:flex;align-items:center;gap:12px;padding:18px 24px;border-bottom:1px solid var(--line);
+  position:sticky;top:0;background:var(--panel);z-index:1;
+}
+.drawer-x{background:none;border:none;color:var(--ink-3);font-size:22px;cursor:pointer;padding:0 6px}
+.drawer-x:hover{color:var(--ink)}
+.drawer-title{font-size:18px;font-weight:700;color:var(--ink)}
+.drawer-sub{font-size:12px;color:var(--ink-3);margin-top:2px}
+.drawer-body{padding:18px 24px;flex:1}
+.drawer-tabs{
+  display:flex;gap:2px;background:#0e1520;border:1px solid var(--line);border-radius:8px;padding:3px;
+  margin:0 24px 14px;flex-wrap:wrap;
+}
+.drawer-tab{
+  flex:1;padding:7px 10px;font-size:12px;font-weight:600;
+  background:none;border:none;color:var(--ink-3);cursor:pointer;border-radius:6px;
+}
+.drawer-tab.active{background:#1b2433;color:var(--ink)}
+.drawer-tab:hover:not(.active){color:var(--ink-2)}
+.drawer-pane{display:none}
+.drawer-pane.active{display:block}
+.drawer-pane h4{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--ink-3);font-weight:700;margin:14px 0 8px}
+.drawer-pane h4:first-child{margin-top:0}
+.kv-row{display:flex;gap:14px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px}
+.kv-row:last-child{border-bottom:none}
+.kv-row .k{color:var(--ink-3);width:140px;flex-shrink:0}
+.kv-row .v{color:var(--ink);font-weight:500}
+
+/* Mobile fallback */
+@media(max-width:720px){
+  .shell{flex-direction:column}
+  .side{width:100%;flex-direction:row;height:auto;overflow:visible;border-right:none;border-bottom:1px solid var(--line)}
+  .side-brand{padding:12px 16px;border-bottom:none;border-right:1px solid var(--line);flex-shrink:0}
+  .side-nav{flex-direction:row;overflow-x:auto;padding:6px;gap:2px}
+  .side-nav::-webkit-scrollbar{display:none}
+  .nav-group-label{display:none}
+  .nav-link{padding:8px 10px;font-size:12px;white-space:nowrap}
+  .nav-link.active::before{display:none}
+  .nav-link.active{box-shadow:inset 0 -2px 0 var(--accent)}
+  .side-foot{display:none}
+  .ctxbar{padding:12px 16px}
+  .work{padding:16px}
+  .job-row{grid-template-columns:minmax(0,1fr) 90px 60px;gap:8px}
+  .job-row.head{display:none}
+  .job-row > :nth-child(n+4){display:none}
+}
+
+/* Reports tile */
+.rpt-tile{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  padding:18px;cursor:pointer;transition:all .12s;
+}
+.rpt-tile:hover{border-color:var(--line-2);transform:translateY(-1px)}
+.rpt-tile h3{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:6px}
+.rpt-tile p{font-size:12px;color:var(--ink-3);line-height:1.5}
+.rpt-tile .uc-tag{margin-top:10px;margin-bottom:0}
 </style>
 </head>
 <body>
 
-<script>
-'use strict';
+<div id="splash">
+  <div class="brand-mark">BL</div>
+  <div class="ldr"><i></i></div>
+</div>
 
-/* ── State ─────────────────────────────────────────────────────────
-   Loaded once on render; SHELL.boot already pre-fetched jobs,
-   pending hours, snags, users, quotes. We only need to top up with
-   the week's hours + yesterday's submitters. ─────────────────── */
-
-window.PAGE = {
-  id: 'operations',
-  title: 'Overview',
-  crumb: 'Overview',
-  async render() {
-    SHELL.$('#page').innerHTML = `<div class="ov-empty"><b>Loading…</b></div>`;
-    // Wrap the whole load+paint in a try so a failure in either path
-    // surfaces an actual error message instead of leaving the page on
-    // the "Loading…" placeholder forever (the symptom users reported
-    // as a "blank" page).
-    try {
-      const data = await loadOverview();
-      paintOverview(data);
-    } catch (e) {
-      console.error('operations render failed', e);
-      SHELL.$('#page').innerHTML = `
-        <div class="ov-empty" style="padding:60px 24px">
-          <b>Couldn't load the command centre.</b><br>
-          <span style="font-family:var(--ff-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">
-            ${SHELL.escapeHtml(e && e.message || 'Try refreshing the page.')}
-          </span>
-        </div>
-      `;
-    }
-  }
-};
-
-// Promise.race timeout helper. Materials-summary walks every job's
-// materials-list.json blob; for orgs with lots of jobs this can take
-// several seconds. We don't want a slow materials read to leave the
-// whole page stuck on "Loading…", so each optional fetch races a
-// timeout and resolves to null if it's late.
-function withTimeout(promise, ms, label) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(
-      () => reject(new Error((label || 'request') + ' timed out after ' + ms + 'ms')),
-      ms
-    )),
-  ]);
-}
-
-async function loadOverview() {
-  const now = new Date();
-  const todayIso = SHELL._iso(now);
-  const yest = new Date(now); yest.setDate(yest.getDate() - 1);
-  const yestIso = SHELL._iso(yest);
-  const weekMon = SHELL.isoWeekMonday();
-  const weekFrom = SHELL._iso(weekMon);
-  const weekToD = new Date(weekMon); weekToD.setDate(weekToD.getDate() + 7);
-  const weekTo = SHELL._iso(weekToD);
-
-  const jobs    = SHELL.JOBS || [];
-  const users   = SHELL.USERS || [];
-  const snags   = SHELL.OPEN_SNAGS || [];
-  const pending = SHELL.PENDING_ENTRIES || [];
-  const quotes  = SHELL.QUOTES || [];
-
-  // Fire the two optional fetches in parallel. Previously they were
-  // sequential awaits: time-entries first, materials second. Even
-  // with the blob cache shaving server cost, each adds its own
-  // network roundtrip; running them concurrently halves the wall
-  // time on the page's first paint. Both still have individual
-  // timeouts + soft-fail behaviour so a slow one doesn't stall the
-  // other.
-  let weekHoursTotal = 0;
-  let yesterdaySubmitters = new Set();
-  let recentEntries = [];
-  let materials = null;
-  const [hoursResult, materialsResult] = await Promise.allSettled([
-    withTimeout(
-      SHELL.api(`/api/time-entries-overview?fromDate=${encodeURIComponent(weekFrom)}&toDate=${encodeURIComponent(weekTo)}`),
-      8000,
-      'week hours'
-    ),
-    withTimeout(SHELL.api('/api/materials-summary'), 6000, 'materials summary'),
-  ]);
-  if (hoursResult.status === 'fulfilled' && hoursResult.value) {
-    const entries = hoursResult.value.entries || [];
-    recentEntries = entries;
-    for (const e of entries) {
-      if (!e.date) continue;
-      weekHoursTotal += Number(e.totalHours) || 0;
-      if (e.date === yestIso && e.userId) yesterdaySubmitters.add(e.userId);
-    }
-  } else if (hoursResult.status === 'rejected') {
-    console.warn('overview: failed to fetch week hours', hoursResult.reason);
-  }
-  if (materialsResult.status === 'fulfilled') {
-    materials = materialsResult.value;
-  } else if (materialsResult.status === 'rejected') {
-    console.warn('overview: materials summary unavailable', materialsResult.reason);
-  }
-
-  return {
-    jobs, users, snags, pending, quotes, materials,
-    weekHoursTotal, yesterdaySubmitters, recentEntries,
-    todayIso, yestIso,
-  };
-}
-
-/* ── Render ────────────────────────────────────────────────────────
-   Top: date + sub. Then pulse strip. Then a two-column grid:
-   inboxes + exceptions left, activity right. ────────────────── */
-
-function paintOverview(d) {
-  const activeJobs   = d.jobs.filter(j => (j.status || 'active') === 'active');
-  const setupGaps    = computeSetupGaps(activeJobs);
-  const oldSnags     = (d.snags || []).filter(s => ageDays(s.createdAt || s.date) > 7);
-  const activeTrad   = (d.users || []).filter(u => u.role === 'tradie' && !u.archived);
-  const ydayIsWorkday = (() => {
-    const dow = new Date(d.yestIso).getDay();
-    return dow >= 1 && dow <= 5;
-  })();
-  const missingHrs   = ydayIsWorkday
-    ? activeTrad.filter(u => !d.yesterdaySubmitters.has(u.id))
-    : [];
-  const dueSoonQ     = (d.quotes || []).filter(q => isQuoteDueSoon(q));
-  const noRateTrad   = activeTrad.filter(u => !Number(u.hourlyRate));
-
-  // Jobs starting in the next 7 days that don't have crew assigned. The
-  // brief flagged this as a "critical gap" — a job that's about to
-  // start with no one on the books is the highest-cost setup gap. We
-  // already include "crew" in computeSetupGaps but bury it inside the
-  // Awaiting setup inbox; promoting just the imminent ones to an
-  // exception row makes them impossible to miss.
-  const crew = (d.users || []).filter(u =>
-    (u.role === 'tradie' || u.role === 'leadingHand') && !u.archived
-  );
-  const SEVEN_DAYS = 7 * 86400000;
-  const imminentNoCrew = activeJobs.filter(j => {
-    if (!j.startDate) return false;
-    const start = new Date(j.startDate).getTime();
-    if (!isFinite(start)) return false;
-    const delta = start - Date.now();
-    if (delta < -86400000 || delta > SEVEN_DAYS) return false; // started today through next 7d
-    const crewN = crew.filter(u => (u.assignedJobIds || []).includes(j.id)).length;
-    return crewN === 0;
-  });
-
-  const page = SHELL.$('#page');
-  page.innerHTML = `
-    <div class="ov-head">
-      <h1>${SHELL.escapeHtml(headlineDate())}</h1>
-      <span class="sub">${activeJobs.length} active ${activeJobs.length === 1 ? 'job' : 'jobs'} · ${(d.users || []).length} on the books</span>
-      <span class="ov-head-spacer"></span>
-      ${(SHELL.ME && SHELL.ME.role === 'admin') ? `<a class="ov-head-link" href="/lh" title="Preview the leading-hand surface">Field control →</a>` : ''}
+<div class="shell">
+  <!-- ── Sidebar ── -->
+  <aside class="side">
+    <div class="side-brand">
+      <div class="brand-mark">BL</div>
+      <div>
+        <div class="brand-name">BuhlOS</div>
+        <div class="brand-sub">Command Centre</div>
+      </div>
     </div>
 
-    <div class="ov-pulse" id="ov-pulse"></div>
+    <nav class="side-nav" id="sideNav">
+      <div class="nav-group-label">Operations</div>
+      <button class="nav-link active" data-sec="command" onclick="show('command')">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        </span>
+        Command Centre
+        <span class="nav-badge" id="navAlertCount" style="display:none">0</span>
+      </button>
+      <button class="nav-link" data-sec="jobs" onclick="show('jobs')">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
+        </span>
+        Jobs
+      </button>
+      <button class="nav-link uc" data-sec="builder" onclick="show('builder')">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h7v7h-7z"/></svg>
+        </span>
+        Job Builder
+        <span class="nav-tag">soon</span>
+      </button>
+      <button class="nav-link" data-sec="labour" onclick="show('labour')">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg>
+        </span>
+        Labour / Timesheets
+        <span class="nav-tag live">live</span>
+      </button>
 
-    <div class="ov-grid">
-      <div class="ov-main">
-        <div class="ov-inboxes" id="ov-inboxes"></div>
+      <div class="nav-group-label">Quality & Plans</div>
+      <button class="nav-link uc" data-sec="itp" onclick="show('itp')">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        </span>
+        ITP / QA
+        <span class="nav-tag">soon</span>
+      </button>
+      <button class="nav-link uc" data-sec="plans" onclick="show('plans')">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        </span>
+        Plans / Documents
+        <span class="nav-tag">soon</span>
+      </button>
 
-        <div class="ov-card" id="ov-exceptions-card">
-          <div class="ov-section-head"><span><b>Exceptions</b> · what's not as it should be</span></div>
-          <div id="ov-exceptions-list"></div>
+      <div class="nav-group-label">Field & Logistics</div>
+      <button class="nav-link" data-sec="materials" onclick="show('materials')">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/></svg>
+        </span>
+        Materials
+      </button>
+      <button class="nav-link" data-sec="assets" onclick="show('assets')">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v3"/><circle cx="15" cy="17" r="3"/><path d="M22 17h-4M18 13v8"/></svg>
+        </span>
+        Assets / Gear
+      </button>
+
+      <div class="nav-group-label">Commercial</div>
+      <button class="nav-link uc" data-sec="variations" onclick="show('variations')">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3"/><path d="M16 3v4M8 3v4M3 11h13"/><path d="M18 14l3 3-3 3"/></svg>
+        </span>
+        Variations
+        <span class="nav-tag">soon</span>
+      </button>
+      <button class="nav-link uc" data-sec="quotes" onclick="show('quotes')">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        </span>
+        Quotes
+        <span class="nav-tag">soon</span>
+      </button>
+      <button class="nav-link uc" data-sec="reports" onclick="show('reports')">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
+        </span>
+        Reports
+        <span class="nav-tag">soon</span>
+      </button>
+
+      <div class="nav-group-label">Admin</div>
+      <button class="nav-link" data-sec="settings" onclick="show('settings')">
+        <span class="nav-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3 1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8 1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+        </span>
+        Settings
+      </button>
+    </nav>
+
+    <div class="side-foot">
+      <div class="user-pill">
+        <div class="user-av" id="userAv">?</div>
+        <div class="user-meta">
+          <div class="user-name" id="userName">…</div>
+          <div class="user-role" id="userRole">…</div>
         </div>
+        <button class="user-out" onclick="logout()" title="Sign out">Out</button>
       </div>
+    </div>
+  </aside>
 
+  <!-- ── Main canvas ── -->
+  <main class="canvas">
+    <div class="ctxbar">
       <div>
-        <div class="ov-card" id="ov-activity-card">
-          <div class="ov-section-head"><span><b>Activity</b> · last 12</span></div>
-          <div id="ov-activity-list"></div>
+        <div class="ctxbar-title" id="ctxTitle">Command Centre</div>
+        <div class="ctxbar-sub" id="ctxSub">Live operating view</div>
+      </div>
+      <div class="ctxbar-spacer"></div>
+      <div class="ctxbar-status">
+        <span class="dot" id="syncDot"></span>
+        <span id="syncText">Live</span>
+      </div>
+      <button class="ctxbar-action sec" onclick="reload()" title="Refresh data">Refresh</button>
+    </div>
+
+    <div class="work">
+      <!-- ───────────────────────────── COMMAND CENTRE ───────────────────────────── -->
+      <section id="sec-command" class="sec active">
+        <div class="grid grid-4" style="margin-bottom:18px">
+          <div class="kpi-tile">
+            <div class="kpi-label">Active jobs</div>
+            <div class="kpi-value" id="kpiJobs">—</div>
+            <div class="kpi-delta" id="kpiJobsSub">across all sites</div>
+          </div>
+          <div class="kpi-tile" id="kpiTsTile">
+            <div class="kpi-label">Pending timesheets</div>
+            <div class="kpi-value" id="kpiTs">—</div>
+            <div class="kpi-delta">awaiting approval</div>
+          </div>
+          <div class="kpi-tile" id="kpiAlertTile">
+            <div class="kpi-label">Open alerts</div>
+            <div class="kpi-value" id="kpiAlerts">—</div>
+            <div class="kpi-delta">requires attention</div>
+          </div>
+          <div class="kpi-tile">
+            <div class="kpi-label">Crew on site today</div>
+            <div class="kpi-value" id="kpiCrew">—</div>
+            <div class="kpi-delta">submitted hours this week</div>
+          </div>
         </div>
+
+        <div class="row" style="align-items:flex-start;gap:18px">
+          <div style="flex:2;min-width:0">
+            <div class="card">
+              <div class="card-head">
+                <span class="card-title">Alerts — sorted by urgency</span>
+                <button class="card-action" onclick="show('jobs')">All jobs →</button>
+              </div>
+              <div class="alerts" id="alertList">
+                <div class="empty">Loading…</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="flex:1;min-width:280px">
+            <div class="card" style="margin-bottom:14px">
+              <div class="card-head"><span class="card-title">Quick actions</span></div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <button class="alert-cta primary" onclick="show('labour')">Review pending timesheets</button>
+                <button class="alert-cta" onclick="show('jobs')">Open jobs board</button>
+                <button class="alert-cta" onclick="show('materials')">Materials requests</button>
+                <button class="alert-cta" onclick="show('assets')">Asset register</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head"><span class="card-title">Today</span></div>
+              <div id="todayPanel">
+                <div class="empty">Loading…</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────────── JOBS ───────────────────────────── -->
+      <section id="sec-jobs" class="sec">
+        <div class="row" style="margin-bottom:14px;align-items:center">
+          <div style="flex:1">
+            <div class="card-title big" style="margin-bottom:4px">All jobs</div>
+            <div style="font-size:12px;color:var(--ink-3)">Click a row for the full job record</div>
+          </div>
+          <button class="ctxbar-action" onclick="alert('Job creation lives in the legacy admin while Job Builder is under construction — use the existing admin add-job flow.')">+ New job</button>
+        </div>
+
+        <div class="job-list" id="jobList">
+          <div class="job-row head">
+            <div class="col">Job</div>
+            <div class="col">Address / Builder</div>
+            <div class="col">Stage</div>
+            <div class="col">Health</div>
+            <div class="col">Alerts</div>
+            <div class="col">TS</div>
+            <div class="col"></div>
+          </div>
+          <div class="empty" id="jobListEmpty">Loading jobs…</div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────────── JOB BUILDER (UC) ───────────────────────────── -->
+      <section id="sec-builder" class="sec">
+        <div class="uc-block">
+          <div class="uc-tag">Feature under construction</div>
+          <div class="uc-h">Job Builder</div>
+          <div class="uc-p">
+            Configure what crews see in Phil. Stages, areas, tasks, required evidence, ITP checkpoints,
+            plan pages, material lists, labour budgets, and crew assignments — all from one place,
+            with a live Phil preview.
+          </div>
+          <div class="uc-features">
+            <div class="uc-feat-row">Stage &amp; area builder with copy-from-template</div>
+            <div class="uc-feat-row">Per-task evidence rules — photos, notes, ITP links</div>
+            <div class="uc-feat-row">Labour budgets per stage, crew &amp; gear assignment</div>
+            <div class="uc-feat-row">Publish to Phil with confirmation guard</div>
+            <div class="uc-feat-row">Live preview of the Phil field view</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────────── LABOUR / TIMESHEETS ───────────────────────────── -->
+      <section id="sec-labour" class="sec">
+        <div class="grid grid-4" style="margin-bottom:14px">
+          <div class="kpi-tile" id="lbPending">
+            <div class="kpi-label">Pending approval</div>
+            <div class="kpi-value">—</div>
+            <div class="kpi-delta">submitted this week</div>
+          </div>
+          <div class="kpi-tile">
+            <div class="kpi-label">Approved this week</div>
+            <div class="kpi-value" id="lbApproved">—</div>
+            <div class="kpi-delta">hours</div>
+          </div>
+          <div class="kpi-tile">
+            <div class="kpi-label">Workers active</div>
+            <div class="kpi-value" id="lbWorkers">—</div>
+            <div class="kpi-delta">submitted in last 7 days</div>
+          </div>
+          <div class="kpi-tile">
+            <div class="kpi-label">Standard day</div>
+            <div class="kpi-value">7.6<span style="font-size:14px;color:var(--ink-3);font-weight:500"> h</span></div>
+            <div class="kpi-delta">7h 36m — Phil one-tap</div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:0;overflow:hidden">
+          <div class="card-head" style="padding:14px 18px 0">
+            <span class="card-title big">Pending timesheets</span>
+            <button class="card-action" onclick="loadLabour(true)">Refresh →</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table class="ts-table" id="tsTable">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Worker</th>
+                  <th>Job</th>
+                  <th>Type</th>
+                  <th style="text-align:right">Hours</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="tsBody">
+                <tr><td colspan="7" class="empty">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div style="margin-top:18px" class="card">
+          <div class="card-head">
+            <span class="card-title">Approved this week — by worker</span>
+            <button class="card-action" onclick="alert('CSV export is part of the hours pipeline step 4 — coming next. Approval (step 2) is live.')">Export CSV</button>
+          </div>
+          <div id="lbByWorker"><div class="empty">Loading…</div></div>
+        </div>
+
+        <div style="margin-top:14px" class="uc-block" style="padding:18px 22px">
+          <div class="uc-tag">Future</div>
+          <div style="font-size:13px;color:var(--ink-3);line-height:1.6">
+            <b style="color:var(--ink-2)">Payroll &amp; Xero export</b> — not yet built. Approval is the active focus
+            (step 2 of the hours pipeline). Once approval is stable, CSV export and Xero sync follow.
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────────── ITP / QA (UC) ───────────────────────────── -->
+      <section id="sec-itp" class="sec">
+        <div class="uc-block">
+          <div class="uc-tag">Feature under construction</div>
+          <div class="uc-h">ITP / QA</div>
+          <div class="uc-p">
+            Inspection &amp; Test Plans, checkpoint sign-off and evidence review across every job.
+            Independent reviewer rules, photo linkage to checkpoints, and handover-readiness scoring.
+          </div>
+          <div class="uc-features">
+            <div class="uc-feat-row">All ITPs across jobs, with checkpoint status</div>
+            <div class="uc-feat-row">Evidence-present / evidence-missing flags</div>
+            <div class="uc-feat-row">Photos linked to each checkpoint</div>
+            <div class="uc-feat-row">Reviewer sign-off &amp; independent-review rule</div>
+            <div class="uc-feat-row">Handover-readiness indicator with blocked states</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────────── PLANS / DOCS (UC) ───────────────────────────── -->
+      <section id="sec-plans" class="sec">
+        <div class="uc-block">
+          <div class="uc-tag">Feature under construction</div>
+          <div class="uc-h">Plans / Documents</div>
+          <div class="uc-p">
+            Plan library with revision control. Publish revisions to Phil, track acknowledgement,
+            and warn when the field may still be using a superseded plan.
+          </div>
+          <div class="uc-features">
+            <div class="uc-feat-row">Plan library with current published revision per job</div>
+            <div class="uc-feat-row">Older revisions archived &amp; recallable</div>
+            <div class="uc-feat-row">Publish-to-Phil with acknowledgement tracking</div>
+            <div class="uc-feat-row">Warn when Phil is on a superseded revision</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────────── MATERIALS ───────────────────────────── -->
+      <section id="sec-materials" class="sec">
+        <div class="row" style="margin-bottom:14px;align-items:center">
+          <div style="flex:1">
+            <div class="card-title big" style="margin-bottom:4px">Materials</div>
+            <div style="font-size:12px;color:var(--ink-3)">Per-job material requests, orders and invoices live inside each job</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Open material activity by job</span></div>
+          <div id="materialsByJob"><div class="empty">Loading…</div></div>
+        </div>
+        <div style="margin-top:14px" class="uc-block" style="padding:20px 22px">
+          <div class="uc-tag">Future</div>
+          <div style="font-size:13px;color:var(--ink-3);line-height:1.6">
+            <b style="color:var(--ink-2)">Cross-job material queue</b> with supplier-level batching
+            and budget vs. actual at the line-item level. For now, open a job to see its materials and invoices.
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────────── ASSETS / GEAR ───────────────────────────── -->
+      <section id="sec-assets" class="sec">
+        <div class="row" style="margin-bottom:14px;align-items:center">
+          <div style="flex:1">
+            <div class="card-title big" style="margin-bottom:4px">Assets &amp; gear</div>
+            <div style="font-size:12px;color:var(--ink-3)">Asset register lives inside each job. Roll-up coming.</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Open the per-job asset register</span></div>
+          <div id="assetsByJob"><div class="empty">Loading…</div></div>
+        </div>
+        <div style="margin-top:14px" class="uc-block" style="padding:20px 22px">
+          <div class="uc-tag">Future</div>
+          <div style="font-size:13px;color:var(--ink-3);line-height:1.6">
+            <b style="color:var(--ink-2)">Cross-job asset register</b> — every QR-tagged tool with current location,
+            checkout history, overdue alerts and calibration due dates. Per-job asset tracking is already live.
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────────── VARIATIONS (UC) ───────────────────────────── -->
+      <section id="sec-variations" class="sec">
+        <div class="uc-block">
+          <div class="uc-tag">Feature under construction</div>
+          <div class="uc-h">Variations</div>
+          <div class="uc-p">
+            A central register for every variation raised — from Phil in the field or from the office —
+            so no scope change disappears into a notes field.
+          </div>
+          <div class="uc-features">
+            <div class="uc-feat-row">Variation register with draft / priced / submitted / approved / rejected</div>
+            <div class="uc-feat-row">Photos, descriptions and hours attached</div>
+            <div class="uc-feat-row">Recovery tracking against the original quote</div>
+            <div class="uc-feat-row">No variation hides in notes or snags</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────────── QUOTES (UC) ───────────────────────────── -->
+      <section id="sec-quotes" class="sec">
+        <div class="uc-block">
+          <div class="uc-tag">Feature under construction</div>
+          <div class="uc-h">Quotes</div>
+          <div class="uc-p">
+            Quote builder feeding directly into Job Builder so a sold quote becomes a workable job
+            with one click. Quote accuracy is tracked over time.
+          </div>
+          <div class="uc-features">
+            <div class="uc-feat-row">Quote builder with reusable line items</div>
+            <div class="uc-feat-row">Convert quote → job</div>
+            <div class="uc-feat-row">Quote accuracy report (quoted vs. actual)</div>
+            <div class="uc-feat-row">Builder &amp; client performance comparisons</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────────── REPORTS (UC) ───────────────────────────── -->
+      <section id="sec-reports" class="sec">
+        <div class="row" style="margin-bottom:14px;align-items:center">
+          <div style="flex:1">
+            <div class="card-title big" style="margin-bottom:4px">Reports</div>
+            <div style="font-size:12px;color:var(--ink-3)">Every report below is on the roadmap — none are live yet</div>
+          </div>
+        </div>
+        <div class="grid grid-3">
+          <div class="rpt-tile">
+            <h3>Job profitability</h3>
+            <p>Quoted vs. actual labour, materials and variations. Margin trend by job over time.</p>
+            <span class="uc-tag">Under construction</span>
+          </div>
+          <div class="rpt-tile">
+            <h3>Labour burn</h3>
+            <p>By job, stage and worker. Forecast burn-down vs. quoted hours.</p>
+            <span class="uc-tag">Under construction</span>
+          </div>
+          <div class="rpt-tile">
+            <h3>ITP completion</h3>
+            <p>Checkpoint coverage, evidence gaps and reviewer turnaround.</p>
+            <span class="uc-tag">Under construction</span>
+          </div>
+          <div class="rpt-tile">
+            <h3>Variation recovery</h3>
+            <p>Variations raised vs. priced vs. approved vs. recovered.</p>
+            <span class="uc-tag">Under construction</span>
+          </div>
+          <div class="rpt-tile">
+            <h3>Handover pack</h3>
+            <p>Auto-generated handover bundle: ITPs, certificates, photos, plans.</p>
+            <span class="uc-tag">Under construction</span>
+          </div>
+          <div class="rpt-tile">
+            <h3>Quote accuracy</h3>
+            <p>Quoted vs. actual at job completion, trended over time per estimator.</p>
+            <span class="uc-tag">Under construction</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────────────────────────── SETTINGS ───────────────────────────── -->
+      <section id="sec-settings" class="sec">
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-head"><span class="card-title big">Your account</span></div>
+          <div class="kv-row"><div class="k">Signed in as</div><div class="v" id="setMe">—</div></div>
+          <div class="kv-row"><div class="k">Role</div><div class="v" id="setRole">—</div></div>
+          <div class="kv-row"><div class="k">User ID</div><div class="v" id="setId" style="font-family:'JetBrains Mono','SF Mono',ui-monospace,monospace;font-size:12px">—</div></div>
+        </div>
+
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-head"><span class="card-title big">Apps</span></div>
+          <div class="kv-row">
+            <div class="k">BuhlOS</div>
+            <div class="v">This admin command centre — desktop-first <span style="color:var(--ink-3)">(you're here)</span></div>
+          </div>
+          <div class="kv-row">
+            <div class="k">Phil</div>
+            <div class="v">Field worker mobile app — <a href="/phil" style="color:var(--accent);text-decoration:none">Open Phil →</a></div>
+          </div>
+          <div class="kv-row">
+            <div class="k">Legacy job dashboard</div>
+            <div class="v">Per-job operations view (in use today) — <a href="/jobs" style="color:var(--accent);text-decoration:none">Open jobs list →</a></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span class="card-title big">Users &amp; teams</span></div>
+          <div id="usersList"><div class="empty">Loading…</div></div>
+        </div>
+
+        <div style="margin-top:14px" class="uc-block" style="padding:20px 22px">
+          <div class="uc-tag">Under construction</div>
+          <div style="font-size:13px;color:var(--ink-3);line-height:1.6">
+            Full user management UI (add/edit/disable, role &amp; job assignment) is built into the legacy admin
+            and will move here as Job Builder lands. For now use the legacy admin for changes.
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<!-- Job drawer -->
+<div class="drawer-bk" id="drawerBk" onclick="if(event.target===this)closeDrawer()">
+  <div class="drawer">
+    <div class="drawer-head">
+      <button class="drawer-x" onclick="closeDrawer()">×</button>
+      <div>
+        <div class="drawer-title" id="drTitle">Job</div>
+        <div class="drawer-sub" id="drSub">—</div>
+      </div>
+      <div style="margin-left:auto">
+        <button class="ctxbar-action sec" id="drOpen" onclick="openJobLegacy()">Open full job view ↗</button>
+      </div>
+    </div>
+    <div class="drawer-tabs">
+      <button class="drawer-tab active" data-pane="overview" onclick="drTab('overview')">Overview</button>
+      <button class="drawer-tab" data-pane="labour" onclick="drTab('labour')">Labour</button>
+      <button class="drawer-tab" data-pane="materials" onclick="drTab('materials')">Materials</button>
+      <button class="drawer-tab" data-pane="activity" onclick="drTab('activity')">Activity</button>
+    </div>
+    <div class="drawer-body" id="drBody"></div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────
+// Safety net — last-line defence against blank pages.
+//
+// Three layers, each independent:
+//   1. window.onerror — any uncaught sync error before boot() runs
+//      surfaces a visible recovery panel instead of leaving the splash
+//      up forever.
+//   2. window.onunhandledrejection — same for async rejections that
+//      escape the boot try/catch.
+//   3. A 12s splash watchdog — if for any reason the splash is still
+//      visible 12 seconds after page load, the watchdog dismisses it
+//      and shows the recovery panel. Belt-and-braces against any path
+//      that bypasses the boot's finally block.
+//
+// boot() itself wraps every step in try/catch and always dismisses
+// the splash in finally{}. This block is the safety net under that.
+window.addEventListener('error', (ev) => {
+  console.error('uncaught error', ev.error || ev.message);
+  try {
+    if (document.querySelector('[data-boot-error]')) return; // already shown
+    if (typeof showBootError === 'function') {
+      showBootError('BuhlOS hit an unexpected error',
+        (ev.error && ev.error.message) || ev.message || 'See devtools for details.',
+        { showLogout: false });
+    }
+  } catch (_) {}
+});
+window.addEventListener('unhandledrejection', (ev) => {
+  console.error('unhandled promise rejection', ev.reason);
+});
+// Splash watchdog — runs once 12s after DOMContentLoaded. If the
+// splash is still up by then, something went wrong; dismiss it and
+// surface a recovery panel.
+function _splashWatchdog() {
+  const s = document.getElementById('splash');
+  if (!s) return;
+  if (s.classList.contains('out') || s.style.display === 'none') return;
+  console.error('BuhlOS splash watchdog fired — boot did not dismiss splash within 12s');
+  try {
+    if (typeof showBootError === 'function') {
+      showBootError('BuhlOS is taking too long to start',
+        'The command centre did not finish loading within 12 seconds. This usually means a network or API issue. Try reloading.',
+        { showLogout: true });
+    } else {
+      // showBootError not defined yet — just kill the splash so user sees something
+      s.classList.add('out');
+      setTimeout(() => { try { s.style.display = 'none'; } catch(_){} }, 400);
+    }
+  } catch (_) {}
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => setTimeout(_splashWatchdog, 12000), { once: true });
+} else {
+  setTimeout(_splashWatchdog, 12000);
+}
+
+// ─────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────
+const STATE = {
+  me: null,
+  jobs: [],
+  hoursByJob: {},      // jobId -> { entries: [...] }
+  materialsByJob: {},  // jobId -> { materials, invoices, summary }
+  assetsByJob: {},     // jobId -> { assets }
+  users: [],
+  alerts: [],
+  loaded: false,
+};
+
+const SECTIONS = {
+  command: { title:'Command Centre', sub:'Live operating view' },
+  jobs:    { title:'Jobs',           sub:'All sites at a glance' },
+  builder: { title:'Job Builder',    sub:'Configure what crews see in Phil' },
+  labour:  { title:'Labour / Timesheets', sub:'Approve hours from the field' },
+  itp:     { title:'ITP / QA',       sub:'Inspection & Test Plans' },
+  plans:   { title:'Plans / Documents', sub:'Revision-controlled drawings' },
+  materials:{ title:'Materials',     sub:'Orders, requests, invoices' },
+  assets:  { title:'Assets / Gear',  sub:'Tool & vehicle register' },
+  variations:{ title:'Variations',   sub:'Scope changes & recovery' },
+  quotes:  { title:'Quotes',         sub:'Estimating &  conversion to jobs' },
+  reports: { title:'Reports',        sub:'Business intelligence' },
+  settings:{ title:'Settings',       sub:'Account & teams' },
+};
+
+// ─────────────────────────────────────────────────────────
+// API helpers
+// ─────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const r = await fetch(path, {
+    method,
+    credentials:'same-origin',
+    headers: body ? {'Content-Type':'application/json'} : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) {
+    const e = new Error('http '+r.status);
+    e.status = r.status;
+    try { e.body = await r.json(); } catch(_) {}
+    throw e;
+  }
+  return r.json();
+}
+function setSync(state){
+  const d = document.getElementById('syncDot'), t = document.getElementById('syncText');
+  d.className = 'dot' + (state==='syncing'?' syncing':state==='error'?' err':'');
+  t.textContent = state==='syncing'?'Syncing…':state==='error'?'Offline':'Live';
+}
+
+// ─────────────────────────────────────────────────────────
+// Navigation
+// ─────────────────────────────────────────────────────────
+function show(name){
+  document.querySelectorAll('.sec').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
+  const sec = document.getElementById('sec-' + name);
+  if (sec) sec.classList.add('active');
+  const btn = document.querySelector(`.nav-link[data-sec="${name}"]`);
+  if (btn) btn.classList.add('active');
+  const meta = SECTIONS[name] || { title:name, sub:'' };
+  document.getElementById('ctxTitle').textContent = meta.title;
+  document.getElementById('ctxSub').textContent = meta.sub;
+  if (window.history && window.history.replaceState) {
+    window.history.replaceState({}, '', '#'+name);
+  }
+  // Lazy renderers
+  if (name === 'labour') renderLabour();
+  if (name === 'jobs') renderJobs();
+  if (name === 'materials') renderMaterialsByJob();
+  if (name === 'assets') renderAssetsByJob();
+  if (name === 'settings') renderSettings();
+}
+
+function initFromHash(){
+  const h = (location.hash||'').replace(/^#/,'');
+  if (h && SECTIONS[h]) show(h);
+}
+
+// ─────────────────────────────────────────────────────────
+// Boot
+// ─────────────────────────────────────────────────────────
+// Role → surface map for the BuhlOS Command Centre.
+//
+// ADMIN_ROLES land here (the command centre proper).
+// LEADING_HAND_ROLES → /lh (the field-control surface) — leading hands
+//   run crews; they have their own home that's neither the admin shell
+//   nor Phil. Matches the routing main has had since the LH rebuild.
+// FIELD_ROLES → /phil (the tradie mobile app).
+// CLIENT_ROLES → /client (the per-job client portal).
+// Anything else → visible error panel (NOT blank, NOT infinite redirect).
+//
+// All matching is lowercased so the auth blob can carry "Admin" or
+// "admin" or "LeadingHand" without breaking the gate.
+const ADMIN_ROLES         = ['admin', 'boss', 'owner', 'manager', 'office', 'pm', 'estimator'];
+const LEADING_HAND_ROLES  = ['leadinghand', 'leading_hand', 'leading-hand', 'lh'];
+const FIELD_ROLES         = ['tradie', 'apprentice', 'labourer', 'electrician'];
+const CLIENT_ROLES        = ['client'];
+
+function dismissSplash() {
+  const s = document.getElementById('splash');
+  if (!s) return;
+  s.classList.add('out');
+  setTimeout(() => { try { s.style.display = 'none'; } catch (_) {} }, 400);
+}
+
+// Show an unrecoverable visible error in place of the page.
+// Used when boot throws or the user is in a state the shell can't serve.
+// Splash is always dismissed first so the error is actually visible.
+function showBootError(title, detail, opts) {
+  dismissSplash();
+  const showLogout = opts && opts.showLogout;
+  document.body.innerHTML = `
+    <div style="max-width:560px;margin:80px auto;padding:36px 28px;font-family:-apple-system,'Inter',Segoe UI,sans-serif;background:#10161f;color:#e7ecf3;border:1px solid #1f2937;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.3);" data-boot-error>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <div style="width:32px;height:32px;border-radius:7px;background:#ffcc00;color:#0b0d10;display:flex;align-items:center;justify-content:center;font-weight:800;font-family:'Inter Tight','Inter',sans-serif">BL</div>
+        <div style="font-family:'Inter Tight','Inter',sans-serif;font-weight:700;font-size:18px">BuhlOS</div>
+      </div>
+      <div style="font-family:'Inter Tight','Inter',sans-serif;font-weight:700;font-size:22px;color:#e7ecf3;margin-bottom:8px">${title.replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}</div>
+      <div style="color:#aebac9;font-size:14px;line-height:1.5;margin-bottom:22px">${detail.replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}</div>
+      <button onclick="location.reload()" style="padding:9px 16px;border-radius:8px;background:#ffcc00;color:#0b0d10;border:0;font-weight:600;font-size:13px;cursor:pointer">Reload</button>
+      <a href="/login" style="margin-left:8px;color:#aebac9;font-size:13px;text-decoration:underline">Sign in again</a>
+      ${showLogout ? `<button onclick="(async()=>{try{await fetch('/api/auth?action=logout',{method:'POST',credentials:'same-origin'});}catch(_){};location.href='/login';})()" style="margin-left:8px;padding:9px 16px;border-radius:8px;background:transparent;color:#aebac9;border:1px solid #283447;font-weight:600;font-size:13px;cursor:pointer">Sign out</button>` : ''}
+    </div>
+  `;
+}
+
+async function boot(){
+  // The outer try/catch + finally is the last line of defence against
+  // a blank page. Any throw at any point below — auth, fan-out fetches,
+  // render — surfaces a visible error panel and dismisses the splash.
+  // Past regression: a thrown boot() left #splash visible permanently
+  // (admin-operations-blank.md). This guarantees that can never happen.
+  let needSplashDismiss = true;
+  try {
+    // Who am I?
+    try {
+      const d = await api('GET', '/api/auth?action=me');
+      STATE.me = d.user;
+    } catch(e) {
+      // 401 / network / parse — go to login.
+      console.error('boot: /api/auth?action=me failed', e);
+      location.href = '/login';
+      return;
+    }
+    if (!STATE.me || !STATE.me.role) {
+      showBootError(
+        'No session',
+        'Your sign-in is missing a role assignment. Sign in again, or contact admin to fix your user record.',
+        { showLogout: true }
+      );
+      needSplashDismiss = false; // showBootError already dismissed it
+      return;
+    }
+    const role = String(STATE.me.role || '').toLowerCase();
+
+    // Trade / field roles → Phil. Don't infinite-redirect: if we're
+    // already at /phil somehow this won't fire (we're inside /admin
+    // shell HTML), so safe to set location.href.
+    if (FIELD_ROLES.includes(role)) {
+      location.href = '/phil';
+      return;
+    }
+    // Leading hands → field control surface (separate from admin centre).
+    if (LEADING_HAND_ROLES.includes(role)) {
+      location.href = '/lh';
+      return;
+    }
+    // Client portal.
+    if (CLIENT_ROLES.includes(role)) {
+      location.href = '/client';
+      return;
+    }
+    // Admin-capable? Continue into the Command Centre.
+    if (!ADMIN_ROLES.includes(role)) {
+      showBootError(
+        'This account can’t access BuhlOS admin',
+        `Your role is "${STATE.me.role}". Only office / admin / manager / leading-hand accounts can reach the command centre. Sign in with an admin account, or contact your admin if you think this is wrong.`,
+        { showLogout: true }
+      );
+      needSplashDismiss = false;
+      return;
+    }
+
+    // Header
+    document.getElementById('userName').textContent = STATE.me.username || '—';
+    document.getElementById('userRole').textContent = STATE.me.role || '—';
+    document.getElementById('userAv').textContent  = (STATE.me.username||'?').slice(0,1).toUpperCase();
+
+    // Load data in parallel. Each task soft-fails so one slow/dead
+    // endpoint doesn't gate the whole page. Errors are logged but
+    // don't throw.
+    setSync('syncing');
+    try {
+      const jobsRes = await api('GET', '/api/jobs').catch(e => { console.error('jobs fetch failed', e); return { jobs: [] }; });
+      STATE.jobs = (jobsRes && jobsRes.jobs) || [];
+
+      const jobHourPromises = STATE.jobs.map(j =>
+        api('GET', `/api/hours?jobId=${encodeURIComponent(j.id)}`)
+          .then(d => { STATE.hoursByJob[j.id] = d; })
+          .catch(()=>{ STATE.hoursByJob[j.id] = { entries: [] }; })
+      );
+      const jobMatPromises = STATE.jobs.map(j =>
+        api('GET', `/api/materials?jobId=${encodeURIComponent(j.id)}`)
+          .then(d => { STATE.materialsByJob[j.id] = d; })
+          .catch(()=>{ STATE.materialsByJob[j.id] = null; })
+      );
+      const jobAssetPromises = STATE.jobs.map(j =>
+        api('GET', `/api/assets?jobId=${encodeURIComponent(j.id)}`)
+          .then(d => { STATE.assetsByJob[j.id] = d; })
+          .catch(()=>{ STATE.assetsByJob[j.id] = null; })
+      );
+
+      await Promise.all([...jobHourPromises, ...jobMatPromises, ...jobAssetPromises]);
+
+      // Users (admin-only endpoint — leadingHand role may 403, which is fine)
+      try {
+        const u = await api('GET', '/api/users');
+        STATE.users = u.users || [];
+      } catch(e) { STATE.users = []; }
+
+      STATE.loaded = true;
+      setSync('ok');
+    } catch(e) {
+      console.error('boot data load failed', e);
+      setSync('error');
+    }
+
+    // Render — each guarded so a bug in one renderer doesn't blank the page.
+    try { computeAlerts(); } catch (e) { console.error('computeAlerts failed', e); }
+    try { renderCommand(); } catch (e) { console.error('renderCommand failed', e); }
+    try { renderJobs(); }    catch (e) { console.error('renderJobs failed', e); }
+    try { initFromHash(); }  catch (e) { console.error('initFromHash failed', e); }
+  } catch (e) {
+    // Unrecoverable.
+    console.error('BuhlOS boot crashed', e);
+    showBootError(
+      'BuhlOS couldn’t start',
+      (e && e.message) || 'An unknown error stopped the command centre from loading. Try reloading; if that doesn’t help, sign out and back in.',
+      { showLogout: true }
+    );
+    needSplashDismiss = false;
+  } finally {
+    if (needSplashDismiss) {
+      setTimeout(dismissSplash, 200);
+    }
+  }
+}
+
+function reload(){ STATE.loaded=false; boot(); }
+
+async function logout(){
+  try { await api('POST', '/api/auth?action=logout'); } catch(_){}
+  location.href = '/login';
+}
+
+// ─────────────────────────────────────────────────────────
+// Alert computation
+// ─────────────────────────────────────────────────────────
+function computeAlerts(){
+  const alerts = [];
+
+  // 1) Pending timesheets (cross-job)
+  let pendingTs = 0;
+  let pendingTsByJob = {};
+  STATE.jobs.forEach(j => {
+    const entries = (STATE.hoursByJob[j.id] || {}).entries || [];
+    const pending = entries.filter(e => isPending(e));
+    if (pending.length > 0) {
+      pendingTs += pending.length;
+      pendingTsByJob[j.id] = pending.length;
+    }
+  });
+  if (pendingTs > 0) {
+    alerts.push({
+      sev:'med',
+      label:'TIMESHEETS',
+      title: `${pendingTs} timesheet${pendingTs>1?'s':''} awaiting approval`,
+      meta: `Across ${Object.keys(pendingTsByJob).length} job${Object.keys(pendingTsByJob).length>1?'s':''} · approve in Labour / Timesheets`,
+      cta:'Review',
+      ctaPrimary:true,
+      onCta: () => show('labour'),
+    });
+  }
+
+  // 2) Missing timesheets — workers who submitted earlier this week but not in last 3 days
+  const now = Date.now();
+  const threeDaysAgo = now - 3*24*60*60*1000;
+  const weekAgo = now - 7*24*60*60*1000;
+  const workerLastEntry = {};
+  STATE.jobs.forEach(j => {
+    const entries = (STATE.hoursByJob[j.id] || {}).entries || [];
+    entries.forEach(e => {
+      const wId = e.userId || e.workerId || e.user || e.username || 'unknown';
+      const ts = entryTime(e);
+      if (!ts) return;
+      if (!workerLastEntry[wId] || workerLastEntry[wId].ts < ts) {
+        workerLastEntry[wId] = { ts, name: e.workerName || e.username || wId, jobId: j.id, jobName: j.name };
+      }
+    });
+  });
+  Object.values(workerLastEntry).forEach(w => {
+    if (w.ts < threeDaysAgo && w.ts >= weekAgo) {
+      alerts.push({
+        sev:'low',
+        label:'GAP',
+        title:`<b>${escapeHtml(w.name)}</b> last logged hours on ${fmtDate(w.ts)}`,
+        meta:`No entry in the last 3 days — chase or confirm on leave`,
+        cta:'Open Labour',
+        onCta: () => show('labour'),
+      });
+    }
+  });
+
+  // 3) Urgent material requests
+  STATE.jobs.forEach(j => {
+    const mat = STATE.materialsByJob[j.id];
+    if (!mat || !mat.materials) return;
+    const urgent = mat.materials.filter(m =>
+      (m.urgency === 'urgent' || m.priority === 'urgent') && m.status !== 'cancelled' && m.status !== 'used'
+    );
+    urgent.forEach(m => {
+      alerts.push({
+        sev:'high',
+        label:'MATERIAL',
+        title:`Urgent: <b>${escapeHtml(m.name || m.item || 'material')}</b> for <b>${escapeHtml(j.name)}</b>`,
+        meta:`${m.qty || m.quantity || '?'} ${m.unit || 'units'} · requested by ${escapeHtml(m.requestedBy || m.createdBy || 'field')}`,
+        cta:'Open Job',
+        onCta: () => openJob(j.id),
+      });
+    });
+  });
+
+  // 4) Pending invoices needing review
+  STATE.jobs.forEach(j => {
+    const mat = STATE.materialsByJob[j.id];
+    if (!mat || !mat.invoices) return;
+    const pending = mat.invoices.filter(i => i.status === 'pending_review' || i.status === 'needs_info');
+    if (pending.length > 0) {
+      alerts.push({
+        sev:'med',
+        label:'INVOICES',
+        title:`${pending.length} invoice${pending.length>1?'s':''} need review on <b>${escapeHtml(j.name)}</b>`,
+        meta:`Approve or request more info before payment`,
+        cta:'Open Job',
+        onCta: () => openJob(j.id),
+      });
+    }
+  });
+
+  // 5) Overdue assets
+  STATE.jobs.forEach(j => {
+    const assets = (STATE.assetsByJob[j.id] || {}).assets || [];
+    const overdue = assets.filter(a => a.status === 'overdue' || (a.dueDate && new Date(a.dueDate) < new Date()));
+    if (overdue.length > 0) {
+      alerts.push({
+        sev:'med',
+        label:'GEAR',
+        title:`${overdue.length} asset${overdue.length>1?'s':''} overdue on <b>${escapeHtml(j.name)}</b>`,
+        meta:'Test &amp; tag expired or asset not returned',
+        cta:'Open Job',
+        onCta: () => openJob(j.id),
+      });
+    }
+  });
+
+  // Sort by severity then date
+  const order = { high:0, med:1, low:2 };
+  alerts.sort((a,b) => (order[a.sev]||9) - (order[b.sev]||9));
+
+  STATE.alerts = alerts;
+
+  // Update sidebar badge
+  const badge = document.getElementById('navAlertCount');
+  if (alerts.length > 0) {
+    badge.textContent = alerts.length;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function isPending(e){
+  // approved/rejected if explicitly set, else treat as pending
+  const s = (e.status || e.approvalStatus || '').toLowerCase();
+  if (s === 'approved' || s === 'rejected') return false;
+  if (s === 'submitted' || s === 'pending' || s === '' || s === 'open') return true;
+  return false;
+}
+function entryTime(e){
+  if (e.createdAt) return new Date(e.createdAt).getTime();
+  if (e.date) return new Date(e.date).getTime();
+  if (e.submittedAt) return new Date(e.submittedAt).getTime();
+  return 0;
+}
+function fmtDate(ts){
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleDateString('en-AU', { day:'numeric', month:'short' });
+}
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ─────────────────────────────────────────────────────────
+// Command Centre render
+// ─────────────────────────────────────────────────────────
+function renderCommand(){
+  const activeJobs = STATE.jobs.filter(j => (j.status||'active') === 'active').length;
+  document.getElementById('kpiJobs').textContent = activeJobs;
+
+  let pendingTs = 0;
+  STATE.jobs.forEach(j => {
+    const entries = (STATE.hoursByJob[j.id] || {}).entries || [];
+    pendingTs += entries.filter(isPending).length;
+  });
+  document.getElementById('kpiTs').textContent = pendingTs;
+  document.getElementById('kpiTsTile').className = 'kpi-tile' + (pendingTs > 0 ? ' warn' : ' ok');
+
+  document.getElementById('kpiAlerts').textContent = STATE.alerts.length;
+  document.getElementById('kpiAlertTile').className = 'kpi-tile' + (STATE.alerts.length > 0 ? ' alert' : ' ok');
+
+  // Crew on site this week
+  const weekAgo = Date.now() - 7*24*60*60*1000;
+  const workers = new Set();
+  STATE.jobs.forEach(j => {
+    const entries = (STATE.hoursByJob[j.id] || {}).entries || [];
+    entries.forEach(e => {
+      if (entryTime(e) >= weekAgo) {
+        workers.add(e.userId || e.workerId || e.username || 'x');
+      }
+    });
+  });
+  document.getElementById('kpiCrew').textContent = workers.size;
+
+  // Alerts list (top 8)
+  const list = document.getElementById('alertList');
+  if (STATE.alerts.length === 0) {
+    list.innerHTML = `<div class="empty"><b>All clear</b>No open alerts across active jobs. Check back after the next field sync.</div>`;
+  } else {
+    list.innerHTML = STATE.alerts.slice(0, 8).map((a, i) => `
+      <div class="alert sev-${a.sev}">
+        <span class="alert-sev">${a.label}</span>
+        <div class="alert-body">
+          <div class="alert-title">${a.title}</div>
+          <div class="alert-meta">${a.meta || ''}</div>
+        </div>
+        <button class="alert-cta ${a.ctaPrimary?'primary':''}" data-i="${i}">${a.cta||'Open'}</button>
+      </div>
+    `).join('');
+    list.querySelectorAll('.alert-cta').forEach((b,i) => {
+      b.addEventListener('click', () => {
+        const idx = +b.dataset.i;
+        const a = STATE.alerts[idx];
+        if (a && a.onCta) a.onCta();
+      });
+    });
+  }
+
+  // Today panel
+  const today = document.getElementById('todayPanel');
+  const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+  let todayHours = 0;
+  let todayEntries = 0;
+  STATE.jobs.forEach(j => {
+    const entries = (STATE.hoursByJob[j.id] || {}).entries || [];
+    entries.forEach(e => {
+      if (entryTime(e) >= todayStart.getTime()) {
+        todayHours += Number(e.hours||0);
+        todayEntries++;
+      }
+    });
+  });
+  today.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div style="font-size:12px;color:var(--ink-3)">Hours submitted today</div>
+        <div style="font-size:20px;font-weight:700">${todayHours.toFixed(1)}<span style="font-size:12px;color:var(--ink-3);font-weight:500"> h</span></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div style="font-size:12px;color:var(--ink-3)">Entries</div>
+        <div style="font-size:20px;font-weight:700">${todayEntries}</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div style="font-size:12px;color:var(--ink-3)">Active jobs</div>
+        <div style="font-size:20px;font-weight:700">${STATE.jobs.filter(j => (j.status||'active')==='active').length}</div>
       </div>
     </div>
   `;
-
-  /* ── Pulse strip ──
-     setItems must run AFTER the element is connected. The component's
-     connectedCallback calls _renderFromChildren → setItems([]) since
-     there are no light-DOM children, which would wipe an earlier
-     setItems call. Append first, then set. */
-  const pulseEl = document.createElement('pulse-strip');
-  document.getElementById('ov-pulse').appendChild(pulseEl);
-  pulseEl.setItems([
-    { label: 'Hours',   value: d.weekHoursTotal.toFixed(1), sub: 'this week',  href: '/admin/hours' },
-    { label: 'Pending', value: String((d.pending || []).length), sub: 'approvals', href: '/admin/approvals' },
-    { label: 'Snags',   value: String((d.snags || []).length),  sub: 'open',     href: '/admin/snags' },
-    { label: 'Jobs',    value: String(activeJobs.length),       sub: 'active',   href: '/admin/jobs' },
-  ]);
-
-  /* ── Three primary inboxes (§04) ── */
-  const inboxesEl = document.getElementById('ov-inboxes');
-  inboxesEl.innerHTML = '';
-
-  if ((d.pending || []).length) {
-    const oldestAge = oldestAgeDays(d.pending);
-    const sev = oldestAge > 3 ? 'bad' : oldestAge > 1 ? 'warn' : 'ok';
-    inboxesEl.appendChild(mkInbox({
-      label: 'Hours pending',
-      count: d.pending.length,
-      severity: sev,
-      summary: summarisePending(d.pending),
-      actionLabel: 'Review →',
-      actionHref: '/admin/approvals',
-    }));
-  }
-  if ((d.snags || []).length) {
-    const priority = d.snags.filter(s => (s.priority || '').toLowerCase() === 'high').length;
-    const sev = priority > 0 ? 'bad' : oldSnags.length ? 'warn' : 'ok';
-    inboxesEl.appendChild(mkInbox({
-      label: 'Snags open',
-      count: d.snags.length,
-      severity: sev,
-      summary: `${priority} priority · oldest ${oldestAgeDaysSnag(d.snags)} day${oldestAgeDaysSnag(d.snags) === 1 ? '' : 's'}`,
-      actionLabel: 'Triage →',
-      actionHref: '/admin/snags',
-    }));
-  }
-  if (setupGaps.length) {
-    // Compute the dominant gap category across all setup-gaps so the
-    // inbox-summary can name the actual missing piece ("3 jobs · client
-    // missing") rather than a generic catch-all. Falls back to a
-    // mixed-list label when the gaps span multiple categories.
-    const tally = {};
-    for (const sg of setupGaps) {
-      for (const m of sg.missing) tally[m] = (tally[m] || 0) + 1;
-    }
-    const topGaps = Object.entries(tally).sort((a, b) => b[1] - a[1]).slice(0, 2);
-    const summary = topGaps.length
-      ? `${setupGaps.length} ${setupGaps.length === 1 ? 'job' : 'jobs'} · ` + topGaps.map(([k, n]) => `${n} ${k}`).join(' · ')
-      : `${setupGaps.length} ${setupGaps.length === 1 ? 'job' : 'jobs'} · template / areas / crew missing`;
-    inboxesEl.appendChild(mkInbox({
-      label: 'Awaiting setup',
-      count: setupGaps.length,
-      severity: 'warn',
-      summary,
-      actionLabel: 'Set up →',
-      actionHref: '/admin/jobs?filter=setup-gaps',
-    }));
-  }
-  if (!inboxesEl.children.length) {
-    inboxesEl.innerHTML = `
-      <div class="ov-card empty" style="padding: 28px 22px; text-align: center">
-        <div style="font-family: var(--ff-display); font-weight: 700; font-size: 17px; color: var(--ink);">All inboxes at zero.</div>
-        <div style="color: var(--muted); font-size: 13px; margin-top: 6px;">Hours · Snags · Setup — nothing pending.</div>
-      </div>
-    `;
-  }
-
-  /* ── Exception cards — verb cards, sorted by business cost ── */
-  const exList = document.getElementById('ov-exceptions-list');
-  const exceptions = [];
-
-  // Imminent jobs with no crew — top of the exception list because
-  // they block the work from starting at all. Sorted ahead of old-snags
-  // (which only block payment) because no-crew is the bigger fire.
-  if (imminentNoCrew.length) {
-    const n = imminentNoCrew.length;
-    const names = imminentNoCrew.slice(0, 2).map(j => j.name || j.id).join(' · ');
-    exceptions.push({
-      status: 'red',
-      label: `${n} job${n === 1 ? '' : 's'} starting this week with no crew`,
-      sub: names + (n > 2 ? ` · +${n - 2}` : ''),
-      action: { href: '/admin/jobs?filter=setup-gaps', label: 'Assign →' },
-    });
-  }
-  // Blocks payment first (oldest snags → reputation, payment hold risk).
-  // Sub-line now names the oldest snag's age + assignee (or "unassigned")
-  // so admin can spot the dragging item without opening the snag tab.
-  if (oldSnags.length) {
-    const oldestAge = oldestAgeDaysSnag(oldSnags);
-    const oldestSnag = oldSnags.slice().sort((a, b) =>
-      new Date(a.createdAt || a.date).getTime() - new Date(b.createdAt || b.date).getTime()
-    )[0];
-    const oldestWho = oldestSnag && oldestSnag.assignedToName
-      ? `assigned ${oldestSnag.assignedToName}`
-      : (oldestSnag && oldestSnag.assignedToUserId ? 'assigned' : 'unassigned');
-    exceptions.push({
-      status: 'red',
-      label: `${oldSnags.length} snag${oldSnags.length === 1 ? '' : 's'} older than 7 days`,
-      sub: `oldest ${oldestAge} day${oldestAge === 1 ? '' : 's'} · ${oldestWho} · risking payment hold`,
-      action: { href: '/admin/snags?age=7', label: 'Triage →' },
-    });
-  }
-  // Costs money next.
-  if (missingHrs.length) {
-    exceptions.push({
-      status: 'yellow',
-      label: `${missingHrs.length} worker${missingHrs.length === 1 ? '' : 's'} missing hours yesterday`,
-      sub: missingHrs.slice(0, 3).map(u => firstName(u)).join(' · ') + (missingHrs.length > 3 ? ` · +${missingHrs.length - 3}` : ''),
-      action: { href: '/admin/hours', label: 'Chase →' },
-    });
-  }
-  // Note: setup-gaps are already shown above as an inbox stack — we
-  // leave them off the exception list to avoid double-surfacing. A
-  // later phase can promote critical gaps (job starts within a week
-  // and has no crew) as exception rows.
-  // Affects future quoting.
-  if (dueSoonQ.length) {
-    exceptions.push({
-      status: 'yellow',
-      label: `${dueSoonQ.length} quote${dueSoonQ.length === 1 ? '' : 's'} due today or tomorrow`,
-      sub: dueSoonQ.slice(0, 2).map(q => q.builder || q.address || q.id).join(' · '),
-      action: { href: '/admin/quotes', label: 'Price →' },
-    });
-  }
-  // Breaks accountability.
-  if (noRateTrad.length && SHELL.ME && SHELL.ME.role === 'admin') {
-    exceptions.push({
-      status: 'yellow',
-      label: `${noRateTrad.length} tradie${noRateTrad.length === 1 ? '' : 's'} with no rate set`,
-      sub: noRateTrad.slice(0, 3).map(u => firstName(u)).join(' · ') + (noRateTrad.length > 3 ? ` · +${noRateTrad.length - 3}` : ''),
-      action: { href: '/admin/crew?filter=no-rate', label: 'Set rates →' },
-    });
-  }
-  // Materials waiting in the funnel. Each surfaces a different stuck-
-  // state: items that need to be ordered (admin hasn't placed the PO
-  // yet) and POs that have been sent but not yet fulfilled (waiting
-  // on the supplier). Hidden when zero — same pattern as the other
-  // exception rows.
-  if (d.materials && d.materials.items && d.materials.items.pending > 0) {
-    const n = d.materials.items.pending;
-    exceptions.push({
-      status: 'yellow',
-      label: `${n} material item${n === 1 ? '' : 's'} waiting to be ordered`,
-      sub: `${d.materials.jobsWithMaterials || 0} job${(d.materials.jobsWithMaterials || 0) === 1 ? '' : 's'} have outstanding orders`,
-      action: { href: '/admin/materials?status=pending', label: 'Order →' },
-    });
-  }
-  if (d.materials && d.materials.purchaseOrders) {
-    const po = d.materials.purchaseOrders;
-    const openPos = (po.sent || 0) + (po.confirmed || 0) + (po.partial || 0);
-    if (openPos > 0) {
-      exceptions.push({
-        status: 'yellow',
-        label: `${openPos} purchase order${openPos === 1 ? '' : 's'} awaiting delivery`,
-        sub: `${po.sent || 0} sent · ${po.confirmed || 0} confirmed · ${po.partial || 0} partial`,
-        action: { href: '/admin/materials?status=open-pos', label: 'Chase →' },
-      });
-    }
-  }
-
-  if (!exceptions.length) {
-    exList.innerHTML = `
-      <div class="ov-empty">
-        <b>Nothing exceptional.</b><br>
-        No old snags, no missing hours, no materials in limbo, no rate gaps.
-      </div>
-    `;
-  } else {
-    exList.innerHTML = '';
-    for (const ex of exceptions) {
-      const row = document.createElement('list-row');
-      row.setAttribute('status', ex.status);
-      row.setAttribute('name', ex.label);
-      if (ex.sub) row.setAttribute('sub', ex.sub);
-      const action = document.createElement('div');
-      action.setAttribute('slot', 'action');
-      action.innerHTML = `<a class="btn btn-sm" href="${ex.action.href}">${ex.action.label}</a>`;
-      row.appendChild(action);
-      exList.appendChild(row);
-    }
-  }
-
-  /* ── Activity column (last 12) ── */
-  paintActivity(d, document.getElementById('ov-activity-list'));
 }
 
-/* ── Inbox factory ─────────────────────────────────────────────── */
-function mkInbox({ label, count, severity, summary, actionLabel, actionHref }) {
-  const el = document.createElement('inbox-stack');
-  el.setAttribute('label', label);
-  el.setAttribute('count', String(count));
-  el.setAttribute('severity', severity);
-  el.setAttribute('summary', summary);
-  el.setAttribute('action-label', actionLabel);
-  el.setAttribute('action-href', actionHref);
-  return el;
-}
-
-/* ── Activity ─────────────────────────────────────────────────────
-   Until §14's append-only server log lands (phase 09), we synthesise
-   the activity stream from the data already in memory: recent snag
-   updates, recent hours submissions. Sorted newest-first. ────── */
-
-function paintActivity(d, container) {
-  const events = [];
-  for (const s of (d.snags || [])) {
-    const t = s.createdAt || s.date;
-    if (!t) continue;
-    events.push({
-      ts: new Date(t).getTime(),
-      status: (s.priority || '').toLowerCase() === 'high' ? 'red' : 'yellow',
-      name: s.title || s.description || 'Snag raised',
-      sub: `${SHELL.escapeHtml(s.location || s.jobName || '')}${s.location && s.jobName ? ' · ' : ''}${SHELL.escapeHtml(s.userName || '')}${(s.location || s.jobName) && s.userName ? ' · ' : ''}${SHELL._ago(t)}`,
-      href: `/admin/snags?id=${encodeURIComponent(s.id || '')}`,
-    });
-  }
-  for (const p of (d.pending || [])) {
-    const t = p.submittedAt || p.date;
-    if (!t) continue;
-    events.push({
-      ts: new Date(t).getTime(),
-      status: 'yellow',
-      name: `Hours · ${Number(p.totalHours || 0).toFixed(1)}h`,
-      sub: `${SHELL.escapeHtml(p.userName || p.userId || '')} · ${SHELL._ago(t)}`,
-      href: '/admin/approvals',
-    });
-  }
-  for (const e of (d.recentEntries || [])) {
-    if (!e.date || (e.status && e.status !== 'approved')) continue;
-    const t = e.approvedAt || e.submittedAt || e.date;
-    if (!t) continue;
-    events.push({
-      ts: new Date(t).getTime(),
-      status: 'green',
-      name: `Approved · ${Number(e.totalHours || 0).toFixed(1)}h`,
-      sub: `${SHELL.escapeHtml(e.userName || e.userId || '')} · ${SHELL._ago(t)}`,
-    });
-  }
-  events.sort((a, b) => b.ts - a.ts);
-
-  if (!events.length) {
-    container.innerHTML = `<div class="ov-empty">No recent activity.</div>`;
+// ─────────────────────────────────────────────────────────
+// Jobs render
+// ─────────────────────────────────────────────────────────
+function renderJobs(){
+  const list = document.getElementById('jobList');
+  if (!STATE.jobs.length) {
+    document.getElementById('jobListEmpty').textContent = 'No jobs yet.';
     return;
   }
-  container.innerHTML = '';
-  for (const ev of events.slice(0, 12)) {
-    const row = document.createElement('list-row');
-    row.setAttribute('status', ev.status || 'none');
-    row.setAttribute('name', ev.name);
-    if (ev.sub) row.setAttribute('sub', ev.sub);
-    if (ev.href) row.setAttribute('href', ev.href);
-    container.appendChild(row);
-  }
+
+  const head = list.querySelector('.job-row.head');
+  // Remove all other rows
+  Array.from(list.querySelectorAll('.job-row:not(.head), .empty')).forEach(n => n.remove());
+
+  STATE.jobs.forEach(j => {
+    const entries = (STATE.hoursByJob[j.id] || {}).entries || [];
+    const pending = entries.filter(isPending).length;
+    const mat = STATE.materialsByJob[j.id] || {};
+    const matAlerts = (mat.materials||[]).filter(m => m.urgency==='urgent' && m.status!=='cancelled').length;
+    const invAlerts = (mat.invoices||[]).filter(i => i.status==='pending_review' || i.status==='needs_info').length;
+    const alertCount = matAlerts + invAlerts;
+    const health = j.health || (alertCount > 0 ? 'risk' : 'ok');
+    const status = j.status || 'active';
+
+    const row = document.createElement('div');
+    row.className = 'job-row';
+    row.onclick = () => openJob(j.id);
+    row.innerHTML = `
+      <div class="col-name">
+        <div class="nm">${escapeHtml(j.name)}</div>
+        <div class="id">${escapeHtml(j.id)}</div>
+      </div>
+      <div class="col">
+        <div>${escapeHtml(j.builder || j.client || j.address || '—')}</div>
+        <div class="col-sub">${escapeHtml(j.address || '')}</div>
+      </div>
+      <div class="col">${escapeHtml(j.stage || status)}</div>
+      <div class="col">${healthPill(health, status)}</div>
+      <div class="col"><span class="chip-count ${alertCount>0?'red':'zero'}">${alertCount}</span></div>
+      <div class="col"><span class="chip-count ${pending>0?'amber':'zero'}">${pending}</span></div>
+      <div class="col" style="text-align:right;color:var(--ink-3);font-size:11px">Open ›</div>
+    `;
+    list.appendChild(row);
+  });
 }
 
-/* ── Helpers ──────────────────────────────────────────────────── */
+function healthPill(h, status){
+  if (status === 'paused' || status === 'inactive') return `<span class="health-pill h-pause"><span class="dot"></span>${escapeHtml(status)}</span>`;
+  if (h === 'over' || h === 'over-budget') return `<span class="health-pill h-over"><span class="dot"></span>over budget</span>`;
+  if (h === 'risk' || h === 'at-risk') return `<span class="health-pill h-risk"><span class="dot"></span>at risk</span>`;
+  return `<span class="health-pill h-ok"><span class="dot"></span>on track</span>`;
+}
 
-function computeSetupGaps(activeJobs) {
+// ─────────────────────────────────────────────────────────
+// Labour / Timesheets render + approve/reject
+// ─────────────────────────────────────────────────────────
+function allEntries(){
   const out = [];
-  const tradies = (SHELL.USERS || []).filter(u => u.role === 'tradie' || u.role === 'leadingHand');
-  const clients = (SHELL.USERS || []).filter(u => u.role === 'client' && !u.archived);
-  for (const j of activeJobs) {
-    const missing = [];
-    if (!(j.areaGroups || []).length)     missing.push('areas');
-    if (!(j.roughInTasks || []).length)   missing.push('rough-in');
-    if (!(j.fitOffTasks || []).length)    missing.push('fit-off');
-    const crewN = tradies.filter(u => (u.assignedJobIds || []).includes(j.id)).length;
-    if (!crewN) missing.push('crew');
-    // Client + contacts + site address aren't strictly "rigidity" gaps —
-    // the job can run without them — but they're the business gaps
-    // admin needs to chase before invoicing or scheduling. Surfacing
-    // them as part of setup-gaps means the admin's queue includes
-    // "Birdwood has no client" alongside "Birdwood has no areas".
-    const hasClient = j.clientUserId && clients.some(c => c.id === j.clientUserId);
-    if (!hasClient) missing.push('client');
-    if (!j.siteAddress) missing.push('address');
-    if (!j.siteContactName && !j.siteContactPhone) missing.push('contacts');
-    if (missing.length) out.push({ job: j, missing });
-  }
+  STATE.jobs.forEach(j => {
+    const entries = (STATE.hoursByJob[j.id] || {}).entries || [];
+    entries.forEach(e => out.push({ ...e, jobId: j.id, jobName: j.name }));
+  });
   return out;
 }
 
-function ageDays(iso) {
-  if (!iso) return 0;
-  const t = new Date(iso).getTime();
-  if (!isFinite(t)) return 0;
-  return Math.max(0, Math.floor((Date.now() - t) / 86400000));
-}
+function renderLabour(){
+  const all = allEntries();
+  const pending = all.filter(isPending).sort((a,b) => entryTime(b) - entryTime(a));
+  document.getElementById('lbPending').querySelector('.kpi-value').textContent = pending.length;
 
-function oldestAgeDays(entries) {
-  let oldest = Infinity;
-  for (const e of entries) {
-    const t = new Date(e.submittedAt || e.date).getTime();
-    if (isFinite(t) && t < oldest) oldest = t;
+  // Approved this week (hours sum)
+  const weekAgo = Date.now() - 7*24*60*60*1000;
+  let approvedH = 0;
+  const workers = new Set();
+  const byWorker = {};
+  all.forEach(e => {
+    const t = entryTime(e);
+    if (t < weekAgo) return;
+    workers.add(e.userId || e.username || 'x');
+    const status = (e.status||'').toLowerCase();
+    if (status === 'approved') {
+      const h = Number(e.hours||0);
+      approvedH += h;
+      const w = e.workerName || e.username || 'worker';
+      byWorker[w] = (byWorker[w]||0) + h;
+    }
+  });
+  document.getElementById('lbApproved').textContent = approvedH.toFixed(1);
+  document.getElementById('lbWorkers').textContent = workers.size;
+
+  // Table
+  const body = document.getElementById('tsBody');
+  if (pending.length === 0) {
+    body.innerHTML = '<tr><td colspan="7" class="empty"><b>Nothing to approve</b>All recent timesheets have been actioned.</td></tr>';
+  } else {
+    body.innerHTML = pending.map((e, i) => `
+      <tr data-i="${i}">
+        <td>${escapeHtml(fmtDate(entryTime(e)))}</td>
+        <td>${escapeHtml(e.workerName || e.username || e.userId || 'worker')}</td>
+        <td>${escapeHtml(e.jobName)}<div class="col-sub" style="color:var(--ink-3);font-size:11px;margin-top:2px">${escapeHtml(e.jobId)}</div></td>
+        <td>${escapeHtml(e.type || 'ordinary')}</td>
+        <td style="text-align:right;font-weight:600">${Number(e.hours||0).toFixed(1)}</td>
+        <td><span class="ts-status ts-sub">submitted</span></td>
+        <td>
+          <div class="ts-actions">
+            <button class="btn-app" onclick="approveEntry('${e.jobId}','${e.id||''}')">Approve</button>
+            <button class="btn-rej" onclick="rejectEntry('${e.jobId}','${e.id||''}')">Reject</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
   }
-  return isFinite(oldest) ? Math.max(0, Math.floor((Date.now() - oldest) / 86400000)) : 0;
-}
 
-function oldestAgeDaysSnag(snags) {
-  let oldest = Infinity;
-  for (const s of snags) {
-    const t = new Date(s.createdAt || s.date).getTime();
-    if (isFinite(t) && t < oldest) oldest = t;
+  // By worker summary
+  const bw = document.getElementById('lbByWorker');
+  const entries = Object.entries(byWorker).sort((a,b) => b[1]-a[1]);
+  if (entries.length === 0) {
+    bw.innerHTML = '<div class="empty">No approved hours yet this week.</div>';
+  } else {
+    bw.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px">${
+      entries.map(([w,h]) => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#0e1520;border:1px solid var(--line);border-radius:6px">
+          <div style="font-size:13px;font-weight:600">${escapeHtml(w)}</div>
+          <div style="font-size:13px;font-weight:700;color:var(--green)">${h.toFixed(1)} h</div>
+        </div>
+      `).join('')
+    }</div>`;
   }
-  return isFinite(oldest) ? Math.max(0, Math.floor((Date.now() - oldest) / 86400000)) : 0;
 }
 
-function summarisePending(pending) {
-  const users = new Set();
-  for (const p of pending) if (p.userId) users.add(p.userId);
-  const oldest = oldestAgeDays(pending);
-  return `${users.size} ${users.size === 1 ? 'tradie' : 'tradies'} · oldest ${oldest} day${oldest === 1 ? '' : 's'}`;
+async function approveEntry(jobId, entryId){
+  if (!entryId) return alert('Entry has no ID — cannot approve (legacy entry).');
+  await mutateEntry(jobId, entryId, 'approved');
+}
+async function rejectEntry(jobId, entryId){
+  if (!entryId) return alert('Entry has no ID — cannot reject.');
+  if (!confirm('Reject this timesheet entry? The worker will be told to re-submit.')) return;
+  await mutateEntry(jobId, entryId, 'rejected');
+}
+async function mutateEntry(jobId, entryId, newStatus){
+  setSync('syncing');
+  try {
+    const d = await api('GET', `/api/hours?jobId=${encodeURIComponent(jobId)}`);
+    const entries = (d.entries || []);
+    const idx = entries.findIndex(e => e.id === entryId);
+    if (idx < 0) throw new Error('Entry not found on server');
+    entries[idx] = { ...entries[idx], status: newStatus, [newStatus+'At']: new Date().toISOString(), [newStatus+'By']: STATE.me.id };
+    await api('POST', `/api/hours?jobId=${encodeURIComponent(jobId)}`, { entries });
+    STATE.hoursByJob[jobId] = { entries };
+    setSync('ok');
+    computeAlerts();
+    renderCommand();
+    renderJobs();
+    renderLabour();
+  } catch(e) {
+    console.error('mutate failed', e);
+    setSync('error');
+    alert('Could not update timesheet: ' + (e.message || 'unknown error'));
+  }
 }
 
-function isQuoteDueSoon(q) {
-  if (!q || !q.dueDate) return false;
-  if (['lost', 'declined', 'archived', 'converted_to_job'].includes(q.status)) return false;
-  const due = new Date(q.dueDate).getTime();
-  if (!isFinite(due)) return false;
-  const tomorrowEnd = Date.now() + 2 * 86400000;
-  return due <= tomorrowEnd;
+// ─────────────────────────────────────────────────────────
+// Materials section
+// ─────────────────────────────────────────────────────────
+function renderMaterialsByJob(){
+  const root = document.getElementById('materialsByJob');
+  const rows = STATE.jobs.map(j => {
+    const m = STATE.materialsByJob[j.id];
+    if (!m) return null;
+    const open = (m.materials||[]).filter(x => x.status !== 'used' && x.status !== 'cancelled').length;
+    const pending = (m.invoices||[]).filter(i => i.status === 'pending_review' || i.status === 'needs_info').length;
+    const urgent = (m.materials||[]).filter(x => x.urgency === 'urgent' && x.status !== 'cancelled').length;
+    if (open === 0 && pending === 0) return null;
+    return { j, open, pending, urgent };
+  }).filter(Boolean);
+
+  if (rows.length === 0) {
+    root.innerHTML = '<div class="empty"><b>No open material activity</b>Materials and invoices are all settled.</div>';
+    return;
+  }
+  root.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px">${
+    rows.map(({j,open,pending,urgent}) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;background:#0e1520;border:1px solid var(--line);border-radius:6px;cursor:pointer" onclick="openJobLegacyById('${j.id}')">
+        <div style="min-width:0">
+          <div style="font-size:13px;font-weight:600">${escapeHtml(j.name)}</div>
+          <div style="font-size:11px;color:var(--ink-3);margin-top:2px">${escapeHtml(j.id)}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+          ${urgent>0?`<span class="chip-count red">${urgent} urgent</span>`:''}
+          <span class="chip-count">${open} open</span>
+          ${pending>0?`<span class="chip-count amber">${pending} inv</span>`:''}
+          <span style="color:var(--ink-3);font-size:11px;margin-left:6px">Open ›</span>
+        </div>
+      </div>
+    `).join('')
+  }</div>`;
 }
 
-function firstName(u) {
-  if (!u) return '';
-  const s = u.firstName || u.username || u.name || '';
-  return s.split(/[\s._-]+/).filter(Boolean)[0] || s;
+function renderAssetsByJob(){
+  const root = document.getElementById('assetsByJob');
+  const rows = STATE.jobs.map(j => {
+    const a = STATE.assetsByJob[j.id];
+    if (!a) return null;
+    const total = (a.assets||[]).length;
+    if (total === 0) return null;
+    return { j, total, assets: a.assets };
+  }).filter(Boolean);
+  if (rows.length === 0) {
+    root.innerHTML = '<div class="empty"><b>No assets registered yet</b>Add assets from inside a job.</div>';
+    return;
+  }
+  root.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px">${
+    rows.map(({j,total,assets}) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;background:#0e1520;border:1px solid var(--line);border-radius:6px;cursor:pointer" onclick="openJobLegacyById('${j.id}')">
+        <div style="min-width:0">
+          <div style="font-size:13px;font-weight:600">${escapeHtml(j.name)}</div>
+          <div style="font-size:11px;color:var(--ink-3);margin-top:2px">${escapeHtml(j.id)}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+          <span class="chip-count">${total} asset${total!==1?'s':''}</span>
+          <span style="color:var(--ink-3);font-size:11px;margin-left:6px">Open ›</span>
+        </div>
+      </div>
+    `).join('')
+  }</div>`;
 }
 
-function headlineDate() {
-  const now = new Date();
-  return now.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' });
+// ─────────────────────────────────────────────────────────
+// Settings
+// ─────────────────────────────────────────────────────────
+function renderSettings(){
+  document.getElementById('setMe').textContent = STATE.me.username || '—';
+  document.getElementById('setRole').textContent = STATE.me.role || '—';
+  document.getElementById('setId').textContent = STATE.me.id || '—';
+
+  const ul = document.getElementById('usersList');
+  if (!STATE.users.length) {
+    ul.innerHTML = '<div class="empty">No users loaded.</div>';
+    return;
+  }
+  ul.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px">${
+    STATE.users.map(u => `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;background:#0e1520;border:1px solid var(--line);border-radius:6px">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
+          <div class="user-av" style="width:24px;height:24px;font-size:11px;border-radius:50%">${escapeHtml((u.username||'?').slice(0,1).toUpperCase())}</div>
+          <div>
+            <div style="font-size:13px;font-weight:600">${escapeHtml(u.username)}</div>
+            <div style="font-size:11px;color:var(--ink-3)">${escapeHtml(u.role||'')}${u.assignedJobIds && u.assignedJobIds.length ? ' · '+u.assignedJobIds.length+' job'+(u.assignedJobIds.length>1?'s':'') : ''}</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--ink-4);font-family:'JetBrains Mono','SF Mono',ui-monospace,monospace">${escapeHtml(u.id||'')}</div>
+      </div>
+    `).join('')
+  }</div>`;
 }
 
-// CRITICAL — must call SHELL.boot() here, same as every other /admin/*.html.
-// Without this the shell never mounts and the page is blank. PR #35 (Site
-// office Phase 03 rebuild) dropped this line; the regression shipped as
-// "blank /admin/operations" until restored. scripts/check-admin-shell.js
-// enforces that every admin/*.html ends with this call so the same
-// regression can't recur silently.
-SHELL.boot();
+// ─────────────────────────────────────────────────────────
+// Job drawer
+// ─────────────────────────────────────────────────────────
+let _drJob = null;
+function openJob(id){
+  const j = STATE.jobs.find(x => x.id === id);
+  if (!j) return;
+  _drJob = j;
+  document.getElementById('drTitle').textContent = j.name;
+  document.getElementById('drSub').textContent = `${j.id}${j.address?' · '+j.address:''}${j.builder?' · '+j.builder:''}`;
+  drTab('overview');
+  document.getElementById('drawerBk').classList.add('open');
+}
+function closeDrawer(){ document.getElementById('drawerBk').classList.remove('open'); _drJob = null; }
+function openJobLegacy(){ if (_drJob) location.href = '/jobs/'+_drJob.id; }
+function openJobLegacyById(id){ location.href = '/jobs/'+id; }
+
+function drTab(name){
+  document.querySelectorAll('.drawer-tab').forEach(t => t.classList.toggle('active', t.dataset.pane===name));
+  const body = document.getElementById('drBody');
+  if (!_drJob) return;
+  const j = _drJob;
+
+  if (name === 'overview') {
+    const entries = (STATE.hoursByJob[j.id] || {}).entries || [];
+    const pending = entries.filter(isPending).length;
+    const totalH = entries.reduce((s,e) => s+Number(e.hours||0), 0);
+    const mat = STATE.materialsByJob[j.id] || {};
+    body.innerHTML = `
+      <h4>Status</h4>
+      <div class="kv-row"><div class="k">Stage</div><div class="v">${escapeHtml(j.stage || j.status || 'active')}</div></div>
+      <div class="kv-row"><div class="k">Builder / client</div><div class="v">${escapeHtml(j.builder || j.client || '—')}</div></div>
+      <div class="kv-row"><div class="k">Address</div><div class="v">${escapeHtml(j.address || '—')}</div></div>
+      <div class="kv-row"><div class="k">Created</div><div class="v">${j.createdAt? new Date(j.createdAt).toLocaleDateString('en-AU') : '—'}</div></div>
+      <h4>Field activity</h4>
+      <div class="kv-row"><div class="k">Hours logged (all-time)</div><div class="v">${totalH.toFixed(1)} h</div></div>
+      <div class="kv-row"><div class="k">Timesheets pending</div><div class="v">${pending}</div></div>
+      <div class="kv-row"><div class="k">Materials open</div><div class="v">${(mat.materials||[]).filter(m => m.status!=='used' && m.status!=='cancelled').length}</div></div>
+      <div class="kv-row"><div class="k">Invoices pending</div><div class="v">${(mat.invoices||[]).filter(i => i.status==='pending_review' || i.status==='needs_info').length}</div></div>
+    `;
+  } else if (name === 'labour') {
+    const entries = ((STATE.hoursByJob[j.id] || {}).entries || []).slice().sort((a,b) => entryTime(b)-entryTime(a)).slice(0,20);
+    if (entries.length === 0) {
+      body.innerHTML = '<div class="empty">No hours logged on this job yet.</div>';
+    } else {
+      body.innerHTML = `
+        <h4>Recent timesheet entries</h4>
+        <div style="display:flex;flex-direction:column;gap:6px">${
+          entries.map(e => {
+            const st = (e.status||'submitted').toLowerCase();
+            const cls = st==='approved'?'ts-app':st==='rejected'?'ts-rej':'ts-sub';
+            return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:#0e1520;border:1px solid var(--line);border-radius:6px">
+              <div style="font-size:11px;color:var(--ink-3);width:60px;flex-shrink:0">${escapeHtml(fmtDate(entryTime(e)))}</div>
+              <div style="flex:1;font-size:13px">${escapeHtml(e.workerName || e.username || 'worker')}</div>
+              <div style="font-size:13px;font-weight:600">${Number(e.hours||0).toFixed(1)}h</div>
+              <span class="ts-status ${cls}">${escapeHtml(st)}</span>
+            </div>`;
+          }).join('')
+        }</div>
+      `;
+    }
+  } else if (name === 'materials') {
+    const mat = STATE.materialsByJob[j.id] || {};
+    const materials = (mat.materials||[]).filter(m => m.status !== 'used' && m.status !== 'cancelled').slice(0,20);
+    if (materials.length === 0) {
+      body.innerHTML = '<div class="empty">No open materials on this job.</div>';
+    } else {
+      body.innerHTML = `
+        <h4>Open materials</h4>
+        <div style="display:flex;flex-direction:column;gap:6px">${
+          materials.map(m => `
+            <div style="padding:10px 12px;background:#0e1520;border:1px solid var(--line);border-radius:6px">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:3px">
+                <div style="flex:1;font-size:13px;font-weight:600">${escapeHtml(m.name || m.item || 'material')}</div>
+                ${m.urgency==='urgent'?'<span class="chip-count red">urgent</span>':''}
+              </div>
+              <div style="font-size:11px;color:var(--ink-3)">
+                ${escapeHtml(m.qty || m.quantity || '?')} ${escapeHtml(m.unit || '')} · status <b style="color:var(--ink-2)">${escapeHtml(m.status||'needed')}</b>
+                ${m.requestedBy?' · req by '+escapeHtml(m.requestedBy):''}
+              </div>
+            </div>
+          `).join('')
+        }</div>
+      `;
+    }
+  } else if (name === 'activity') {
+    body.innerHTML = `<div class="empty"><b>Activity feed</b>Coming with Job Builder — for now use the full job view (top-right of this drawer) for activity.</div>`;
+  }
+}
+
+// Kick off
+boot();
+window.addEventListener('hashchange', initFromHash);
 </script>
 </body>
 </html>

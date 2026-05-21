@@ -747,11 +747,17 @@ a { color: inherit; text-decoration: none; }
 //   client      → /client             (Client read-only portal — unchanged)
 //
 // /jobs picker was nuked in PR #14 so it isn't a landing target anymore.
+// Admin-capable role list mirrors public/admin/operations.html's
+// ADMIN_ROLES — keep these in sync. If you add a new admin sub-role
+// (e.g. 'estimator'), add it both places so login lands them on
+// /admin/operations and the shell lets them in.
 function landingFor(role) {
-  if (role === 'admin')       return '/admin/operations';
-  if (role === 'leadingHand') return '/lh';
-  if (role === 'tradie')      return '/my-day';
-  if (role === 'client')      return '/client';
+  const r = String(role || '').toLowerCase();
+  if (['admin','boss','owner','manager','office','pm','estimator'].includes(r)) return '/admin/operations';
+  if (['leadinghand','leading_hand','leading-hand','lh'].includes(r)) return '/lh';
+  if (['tradie','apprentice','labourer','electrician'].includes(r))   return '/my-day';
+  if (r === 'client')                                                 return '/client';
+  // Unknown role — let them retry login rather than redirect-loop.
   return '/login';
 }
 

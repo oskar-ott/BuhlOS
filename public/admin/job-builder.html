@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · job builder</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+// Job Builder — configures what Phil sees per job:
+// stages, areas, tasks, evidence requirements, ITPs, plan links,
+// labour budgets, materials, crew + gear assignment, publish-to-Phil.
+//
+// Backend wiring lands progressively; the page exists in the sidebar
+// today so the workflow path is discoverable. Until the editor is
+// real, the page shows a clear FEATURE UNDER CONSTRUCTION state with
+// the planned subsections so PMs know what's coming and don't expect
+// a working tool.
+window.PAGE = {
+  id: 'job-builder',
+  title: 'Job Builder',
+  crumb: 'Job Builder',
+  async render() {
+    SHELL.$('#page').innerHTML = `
+      <div class="page-head">
+        <div>
+          <div class="page-h1">Job Builder</div>
+          <div class="page-sub">Configure what Phil sees per job — stages, areas, tasks, evidence, plans, budgets, crew and gear — and publish.</div>
+        </div>
+      </div>
+
+      <div class="empty" style="text-align:left;padding:28px 32px">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
+          <span style="font-family:var(--mono,monospace);font-size:10px;letter-spacing:.18em;text-transform:uppercase;font-weight:700;color:var(--accent-ink);background:var(--accent);padding:4px 10px;border-radius:2px">Feature under construction</span>
+          <span style="color:var(--muted);font-size:13px">Wiring lands incrementally — sidebar entry kept so the path stays discoverable.</span>
+        </div>
+        <div class="empty-title" style="font-size:18px;text-align:left">Job Builder will configure each Phil job's:</div>
+        <ul style="margin:14px 0 0 18px;color:var(--ink-2);line-height:1.85;font-size:14px">
+          <li>Stages &amp; areas (rough-in / fit-off / handover groups)</li>
+          <li>Tasks per area with required evidence / photos / notes</li>
+          <li>ITP checkpoints linked to tasks</li>
+          <li>Linked plans &amp; current revision</li>
+          <li>Labour budget (quoted hours per stage)</li>
+          <li>Material list expected on-site</li>
+          <li>Crew assignment + gear assignment</li>
+          <li>Publish-to-Phil with preview of the field view</li>
+        </ul>
+        <div style="margin-top:20px;color:var(--muted);font-size:13px">
+          Until then, jobs are set up directly from <a href="/admin/jobs" style="color:var(--ink);text-decoration:underline;text-underline-offset:3px">/admin/jobs</a> and stage/area data flows in from Phil as crews log work.
+        </div>
+      </div>
+    `;
+  }
+};
+
+SHELL.boot();
+</script>
+</body>
+</html>

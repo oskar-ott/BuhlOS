@@ -52,24 +52,54 @@ for (const file of files) {
   const full = path.join(ADMIN_DIR, file);
   const src = fs.readFileSync(full, 'utf8');
 
-  // Must include _shell.js
-  if (!/\/admin\/_shell\.js/.test(src)) {
-    failures.push({ file, reason: 'does not link /admin/_shell.js' });
-    continue;
-  }
-  // Must define window.PAGE
-  if (!/window\.PAGE\s*=/.test(src)) {
-    failures.push({ file, reason: 'does not define window.PAGE' });
-    continue;
-  }
-  // Must explicitly call SHELL.boot() — the trailing call that PR #35 dropped.
-  // Match in code only, not inside comments (`SHELL.boot already pre-fetched`
-  // appears as a comment in operations.html so we look for the call form).
-  if (!/^\s*SHELL\.boot\s*\(\s*\)\s*;?\s*$/m.test(src)) {
+  // Two valid architectures:
+  //
+  //   A. site-office multi-page shell: links /admin/_shell.js, defines
+  //      window.PAGE, ends with SHELL.boot(). Most admin pages use this.
+  //
+  //   B. standalone SPA shell (e.g. the BuhlOS Command Centre at
+  //      operations.html): doesn't link _shell.js, has its own
+  //      `async function boot()` and ends with `boot();`. Must still
+  //      explicitly call boot() so the page can't go blank from a
+  //      forgotten call.
+  //
+  // Either pattern is OK. What we refuse is the silent-blank shape:
+  // a page that loads scripts but never actually boots its renderer.
+  const usesSiteOfficeShell = /\/admin\/_shell\.js/.test(src);
+  const definesWindowPage   = /window\.PAGE\s*=/.test(src);
+  const callsShellBoot      = /^\s*SHELL\.boot\s*\(\s*\)\s*;?\s*$/m.test(src);
+  const definesOwnBoot      = /async\s+function\s+boot\s*\(/.test(src);
+  const callsOwnBoot        = /^\s*boot\s*\(\s*\)\s*;?\s*$/m.test(src);
+
+  if (usesSiteOfficeShell) {
+    // Pattern A — site-office shell.
+    if (!definesWindowPage) {
+      failures.push({ file, reason: 'links /admin/_shell.js but does not define window.PAGE' });
+      continue;
+    }
+    if (!callsShellBoot) {
+      failures.push({
+        file,
+        reason: 'does not call SHELL.boot() — page will render blank. ' +
+                'Add `SHELL.boot();` as the last statement of the page script.',
+      });
+      continue;
+    }
+  } else if (definesOwnBoot) {
+    // Pattern B — standalone SPA. Must call its own boot().
+    if (!callsOwnBoot) {
+      failures.push({
+        file,
+        reason: 'defines async function boot() but does not call boot() — page will render blank. ' +
+                'Add `boot();` as the last statement of the page script.',
+      });
+      continue;
+    }
+  } else {
     failures.push({
       file,
-      reason: 'does not call SHELL.boot() — page will render blank. ' +
-              'Add `SHELL.boot();` as the last statement of the page script.',
+      reason: 'page neither links /admin/_shell.js nor defines its own async boot() — ' +
+              'no shell will mount. Use one of the two supported patterns.',
     });
     continue;
   }

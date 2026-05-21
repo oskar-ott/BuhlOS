@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bühl admin · plans &amp; documents</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="theme-color" content="#0d1f35">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+</head>
+<body>
+<script>
+// Plans / Documents — central drawing library with revision control
+// and Phil publish/acknowledge tracking. The danger this fixes:
+// crews working off superseded plans. Until the library is real,
+// plans are uploaded per-job from /admin/jobs/:id.
+window.PAGE = {
+  id: 'plans',
+  title: 'Plans / Documents',
+  crumb: 'Plans &amp; Documents',
+  async render() {
+    SHELL.$('#page').innerHTML = `
+      <div class="page-head">
+        <div>
+          <div class="page-h1">Plans &amp; Documents</div>
+          <div class="page-sub">Central drawing library. Track current revision, supersede old versions, and confirm Phil has acknowledged each update.</div>
+        </div>
+      </div>
+
+      <div class="empty" style="text-align:left;padding:28px 32px">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
+          <span style="font-family:var(--mono,monospace);font-size:10px;letter-spacing:.18em;text-transform:uppercase;font-weight:700;color:var(--accent-ink);background:var(--accent);padding:4px 10px;border-radius:2px">Feature under construction</span>
+          <span style="color:var(--muted);font-size:13px">Per-job plan uploads work today on the job detail page. The cross-job library is being built.</span>
+        </div>
+        <div class="empty-title" style="font-size:18px;text-align:left">When live, this surface will provide:</div>
+        <ul style="margin:14px 0 0 18px;color:var(--ink-2);line-height:1.85;font-size:14px">
+          <li>One library of every plan, grouped by job and discipline</li>
+          <li>Current revision flagged, all superseded revisions kept for audit</li>
+          <li>Publish-to-Phil with crew acknowledgement tracking</li>
+          <li>Warning banner on the job when Phil may still be using a superseded plan</li>
+          <li>Document types beyond plans — switchboard schedules, brand specs, induction packs</li>
+        </ul>
+        <div style="margin-top:20px;color:var(--muted);font-size:13px">
+          Today: open <a href="/admin/jobs" style="color:var(--ink);text-decoration:underline;text-underline-offset:3px">a job</a> to upload plans against it directly.
+        </div>
+      </div>
+    `;
+  }
+};
+
+SHELL.boot();
+</script>
+</body>
+</html>

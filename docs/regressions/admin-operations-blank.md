@@ -18,26 +18,52 @@ prevent any cause from shipping blank to production.
 | 2026-05-14   | #205   | A throw inside `loadOverview` / `paintOverview` left the page on the "Loading…" placeholder forever. The page had no top-level try/catch. | Wrap `render` in try/catch; surface an error card. |
 | 2026-05-14   | #228   | The service worker was serving a pre-perf-pass `_shell.js` that didn't match the new shell API. Stale-cache mismatch → uncaught throw → blank. | Bump SW cache version; add `safeBoot` outer try/catch. |
 | 2026-05-20   | #4f69fcd | A worktree branched off a tiny pre-BuhlOS prototype (only `index.html` / `jobs.html` / `login.html` / `phil.html` at the root, no `public/admin/*`) was deployed to `buhlos.com` via `vercel deploy --prod`. The deploy replaced the BuhlOS build with the legacy Birdwood horizontal-tab page entirely. | Pre-deploy branch-ancestry guard; rejected divergent worktrees. |
-| 2026-05-21   | *(this one)* | Same as #35 — `operations.html` was again missing `SHELL.boot();` (the prior fix had been lost in a branch reset). Audit also found `activity.html`, `cash.html`, and `materials.html` had **never** had `SHELL.boot();` and would also render blank on first visit. | Restore `SHELL.boot();` in all four pages; add static + runtime guards. |
+| 2026-05-21   | #234 / #236 | Same as #35 — `operations.html` was again missing `SHELL.boot();` (the prior fix had been lost in a branch reset). Audit also found `activity.html`, `cash.html`, and `materials.html` had **never** had `SHELL.boot();` and would also render blank on first visit. | Restore `SHELL.boot();` in all four pages; add static + runtime guards. |
+| 2026-05-22   | *(this one)* | Production was deployed directly from a prototype branch (`claude/infallible-galileo-b45de3` → `d55529c`) via `vercel deploy --prod`, bypassing main entirely. That branch had `index.html` at the repo root (the legacy Birdwood IV3232 page) and `buhlos.html` as a standalone SPA. Vercel served `public/index.html` for `/` before applying the rewrite, so `buhlos.com/` came up Birdwood. `/admin/operations` came up as the BuhlOS Command Centre SPA but had a role gate that only accepted `role === 'admin'` — every other admin-capable role (boss, owner, manager, office, pm, estimator) was redirected away. Tradies were also bounced to a route that wasn't always wired. | Integrate the BuhlOS SPA shell into `main`/integration. Expand `ADMIN_ROLES` allowlist. Route leading hands to `/lh` and trade roles to `/phil`. Add splash watchdog + `showBootError` for unknown roles. Delete the Birdwood `public/index.html` (renamed to `project.html`). Add `check-production-shell.js` (refuses to deploy if root files contain `Birdwood IV3232` or `/admin/operations` is missing BuhlOS markers). Add `check-prod-branch.js` (refuses `predeploy:prod` unless HEAD === origin/main, with explicit `GUARD_OVERRIDE=YES-I-KNOW` escape hatch). |
 
 ## The structural problem
 
-Every `/admin/<page>.html` follows this contract:
+There are two valid admin page architectures:
+
+**A. Site-office multi-page shell** (used by approvals, jobs, snags, hours, crew, etc.):
 
 1. `<link rel="stylesheet" href="/admin/_shell.css">`
 2. `<script src="/admin/_shell.js"></script>` — defines `window.SHELL`
 3. inline `<script>` defines `window.PAGE = { id, title, render }`
 4. **explicitly calls `SHELL.boot()`** at the end of the inline script
 
-If step 4 is missed, the page renders blank. There is no visible error
-because `boot()` was never invoked — the shell skeleton (`#app`, `#side`,
-`#topbar`, `#page`) is never injected, `PAGE.render` is never called, the
-try/catch inside `safeBoot` is never reached, the SW cache is irrelevant.
-The page is `<body></body>` and the user stares at white.
+**B. Standalone SPA shell** (used by the BuhlOS Command Centre at `/admin/operations`):
+
+1. Inline `<style>` + DOM + `<script>` — no `/admin/_shell.js` dependency
+2. Defines an `async function boot()` that runs the auth gate, fetches data, renders
+3. **explicitly calls `boot()`** at the end of the script
+4. Includes a `#splash` overlay that boot dismisses in `finally{}` no matter what
+5. Includes `showBootError()` for any role/auth/unrecoverable state
+
+If the boot call (4) is missed in *either* pattern, the page renders blank.
+The shell skeleton is never inserted into the DOM, no try/catch fires, the
+SW cache is irrelevant — `<body></body>` and the user stares at white.
 
 A single forgotten line in a single file would turn the whole admin landing
 page blank. That is the regression that keeps happening, and that is the
 class of failure we now guard against at multiple layers.
+
+## Deployment misroute
+
+Even with all the in-code guards, the page can still ship blank or wrong if
+the *wrong build* lands on production. This has happened too — `vercel
+deploy --prod` from a feature/prototype branch overrides the Vercel-GitHub
+production deploy entirely. The fingerprint of that mistake is:
+
+- `buhlos.com/` serves a page whose title is **not** the login page.
+- `buhlos.com/admin/operations` content is **not** in the current `main` HEAD.
+- Vercel's "Production" deployment in the dashboard shows a branch other
+  than `main` as the source.
+
+`scripts/check-prod-branch.js` blocks the predeploy step for non-`main`
+branches. `scripts/check-production-shell.js` blocks any build whose root
+files contain the legacy Birdwood IV3232 fingerprint. Together they catch
+both halves of the misroute symptom.
 
 ## Guardrails now in place
 

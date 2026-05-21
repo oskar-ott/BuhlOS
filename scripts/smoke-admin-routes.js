@@ -80,8 +80,13 @@ check('vercel.json does NOT rewrite / → /jobs.html (legacy prototype fingerpri
 // ── 2. login.html must redirect admin to /admin/operations ───────────
 check('login.html redirects admin role to /admin/operations', () => {
   const src = read('public/login.html');
-  // Match the destination map: "if (role === 'admin') return '/admin/operations'"
-  if (!/role\s*===\s*['"]admin['"][^]*?['"]\/admin\/operations['"]/.test(src)) {
+  // Two valid shapes:
+  //   old: `if (role === 'admin') return '/admin/operations'`
+  //   new: `if ([...,'admin',...].includes(r)) return '/admin/operations'`
+  // Either must show admin → /admin/operations in the landing map.
+  const oldShape = /role\s*===\s*['"]admin['"][^]*?['"]\/admin\/operations['"]/.test(src);
+  const newShape = /['"]admin['"][^]*?\.includes\([^)]*\)\)\s*return\s*['"]\/admin\/operations['"]/.test(src);
+  if (!oldShape && !newShape) {
     throw new Error('login.html admin → /admin/operations redirect not found');
   }
 });
@@ -97,38 +102,73 @@ check('admin/index.html redirects admin role to /admin/operations', () => {
   }
 });
 
-// ── 4. operations.html structure ─────────────────────────────────────
-check('admin/operations.html links _shell.js + _shell.css', () => {
+// ── 4. operations.html — BuhlOS Command Centre SPA ──────────────────
+// As of the post-d9b8d74 integration, operations.html is a standalone
+// SPA (BuhlOS Command Centre), not a site-office multi-page using
+// /admin/_shell.js. Checks now match the SPA shape.
+check('admin/operations.html is the BuhlOS Command Centre shell', () => {
   const src = read('public/admin/operations.html');
-  if (!/\/admin\/_shell\.js/.test(src))  throw new Error('does not script /admin/_shell.js');
-  if (!/\/admin\/_shell\.css/.test(src)) throw new Error('does not link /admin/_shell.css');
-});
-
-check('admin/operations.html defines window.PAGE with id=operations and render()', () => {
-  const src = read('public/admin/operations.html');
-  if (!/window\.PAGE\s*=\s*\{[^]*?id:\s*['"]operations['"]/.test(src)) {
-    throw new Error('window.PAGE.id is not "operations"');
+  if (!/<title>\s*BuhlOS\s*[—-]\s*Command Centre\s*<\/title>/i.test(src)) {
+    throw new Error('title is not "BuhlOS — Command Centre" — shell may be wrong');
   }
-  if (!/async\s+render\s*\(/.test(src) && !/render\s*:\s*async/.test(src)) {
-    throw new Error('window.PAGE.render is not defined as async');
+  if (!/class=["']brand-mark["']/.test(src)) {
+    throw new Error('BL brand mark missing from shell');
   }
 });
 
-check('admin/operations.html explicitly calls SHELL.boot() — the regression-prone line', () => {
+check('admin/operations.html defines its own async boot() and calls it', () => {
   const src = read('public/admin/operations.html');
-  if (!/^\s*SHELL\.boot\s*\(\s*\)\s*;?\s*$/m.test(src)) {
-    throw new Error('SHELL.boot(); call is missing — page will render blank');
+  if (!/async\s+function\s+boot\s*\(/.test(src)) {
+    throw new Error('async function boot() is not defined');
+  }
+  if (!/^\s*boot\s*\(\s*\)\s*;?\s*$/m.test(src)) {
+    throw new Error('boot(); call missing — page will render blank');
   }
 });
 
-check('admin/operations.html has loading + error states (never goes silently blank)', () => {
+check('admin/operations.html boot() is wrapped in try/catch/finally', () => {
   const src = read('public/admin/operations.html');
-  if (!/Loading…|Loading\.\.\./i.test(src)) throw new Error('no loading placeholder');
-  if (!/Couldn['"]t load|Something went wrong/i.test(src)) {
-    throw new Error('no visible error fallback for failed render');
+  if (!/async\s+function\s+boot\s*\(\s*\)\s*\{[^]*?try\s*\{[^]*?catch[^]*?finally/i.test(src)) {
+    throw new Error('boot() lacks the outer try/catch/finally — a throw would leave the splash up');
   }
-  if (!/try\s*\{[^]*?catch/i.test(src)) {
-    throw new Error('no try/catch around render — a throw will leave the page blank');
+});
+
+check('admin/operations.html has splash element + dismissSplash + showBootError', () => {
+  const src = read('public/admin/operations.html');
+  if (!/id=["']splash["']/.test(src)) throw new Error('no #splash element');
+  if (!/function\s+dismissSplash/.test(src)) throw new Error('no dismissSplash() helper');
+  if (!/function\s+showBootError/.test(src)) {
+    throw new Error('no showBootError() — boot failure would leave page blank');
+  }
+});
+
+check('admin/operations.html has splash watchdog (12s safety timer)', () => {
+  const src = read('public/admin/operations.html');
+  if (!/_splashWatchdog/.test(src)) {
+    throw new Error('no _splashWatchdog — splash could hang forever if boot stalls');
+  }
+});
+
+check('admin/operations.html accepts expanded admin-capable roles', () => {
+  const src = read('public/admin/operations.html');
+  // The role gate must NOT be the old `role !== 'admin'` hard-only check;
+  // it must use the expanded ADMIN_ROLES list so boss/owner/manager/etc.
+  // can land in the command centre too.
+  if (!/ADMIN_ROLES\s*=\s*\[/.test(src)) {
+    throw new Error('ADMIN_ROLES allowlist missing — only "admin" can sign in');
+  }
+  if (!/boss/.test(src) || !/manager/.test(src) || !/office/.test(src)) {
+    throw new Error('ADMIN_ROLES does not include boss / manager / office');
+  }
+});
+
+check('admin/operations.html routes leadingHand to /lh, not /jobs', () => {
+  const src = read('public/admin/operations.html');
+  if (!/LEADING_HAND_ROLES/.test(src)) {
+    throw new Error('LEADING_HAND_ROLES not defined — leading hands may infinite-redirect');
+  }
+  if (!/['"]\/lh['"]/.test(src)) {
+    throw new Error('No /lh redirect for leading hands');
   }
 });
 
