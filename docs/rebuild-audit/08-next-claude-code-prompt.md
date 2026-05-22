@@ -25,6 +25,38 @@ Before you do anything else, read these in order:
 
 Your job in this session is Phase A only — the clean app shell. Nothing more.
 
+Phase A is foundation only:
+  - Stand up Next.js + TypeScript + Tailwind under src/.
+  - Render an empty admin shell and an empty Phil shell.
+  - Wire ONE new login surface on a NON-COLLIDING route (e.g. /v2/login).
+  - That is the whole job.
+
+Phase A must NOT destabilise the legacy production app. Specifically:
+  - The existing public/*.html surfaces (login.html, admin.html, admin/*.html,
+    project.html, phil.html, my-day.html, my-gear.html, phil-hours.html,
+    lh-home.html, client.html) MUST continue to render exactly as they do today
+    after Phase A lands. A user navigating to /, /login, /admin, /admin/operations,
+    /phil, /my-day, /jobs/:id, /lh, /client must see exactly the same legacy UI
+    they see today.
+  - vercel.json rewrites MUST NOT be flipped, edited, or removed in Phase A.
+    The legacy surface owns the canonical URLs (/login, /admin/*, /phil, etc.)
+    throughout Phase A. The new app mounts at routes the legacy rewrites do not
+    claim.
+
+Cutover of /admin and /login to the new app is explicitly a PHASE B+ concern,
+not a Phase A one:
+  - /login stays served by public/login.html via the vercel.json rewrite.
+    The new login is reachable at /v2/login (or similar) for parallel testing only.
+  - /admin and /admin/* stay served by public/admin/*.html via vercel.json rewrites.
+    The new admin shell is reachable at /command-centre (a route vercel.json does
+    not rewrite) for parallel testing only.
+  - /phil stays served by public/phil.html. The new Phil shell can mount under
+    /phil only if you can verify Next.js routing wins over the vercel.json rewrite
+    for that exact path; if not, mount the new Phil shell at /v2/phil for Phase A
+    and decide the cutover in Phase B.
+  - Production rewrites are flipped one at a time, only after a downstream phase
+    (B, C, D, …) has verified the new surface for the corresponding feature.
+
 ────────────────────────────────────────────────────────
 Branch strategy
 ────────────────────────────────────────────────────────
@@ -41,9 +73,13 @@ You must NOT:
   - Deploy
   - Run vercel deploy --prod (it is being removed from package.json this phase)
   - Delete any existing file in public/ or api/
-  - Touch the legacy admin surfaces
+  - Touch the legacy admin surfaces (do not edit any public/*.html, public/admin/*.html,
+    public/css/*, public/components/*, public/lib/*, public/theme.css, public/sw.js,
+    public/manifest.json)
+  - Edit, remove, or reorder any rewrite in vercel.json
   - Modify api/_lib/auth.js or api/_lib/blob.js or api/_lib/validation.js
   - Rewrite api/*.js endpoints
+  - Flip /admin or /login over to the new shell (Phase B+ work)
 
 ────────────────────────────────────────────────────────
 What to build (Phase A scope — copied from docs/product/01-mvp-rebuild-scope.md §"Phase A")
@@ -128,20 +164,36 @@ H. Tests
 
 I. Legacy compatibility
    - Existing public/*.html files MUST continue to work via Vercel static serving.
-   - vercel.json: KEEP all existing rewrites. They serve legacy. DO NOT delete any rewrite this phase.
+   - vercel.json: KEEP all existing rewrites. DO NOT add, delete, edit, or reorder any
+     rewrite in Phase A. The legacy surface owns its canonical URLs throughout this phase.
    - Manifest start_url stays /my-day for Phase A (changes to /phil/my-day in Phase B).
-   - The new Next.js app is ADDITIVE — it occupies routes that don't conflict with existing rewrites.
-   - There is NO rewrite for "/command-centre" or "/phil/my-day" in vercel.json yet — Next.js owns them natively.
-   - For "/" — Next.js src/app/page.tsx wins because Next.js routing runs after vercel.json
-     rewrites only if the rewrite source path doesn't exist as a Next.js route. To be safe:
-     keep the vercel.json rewrite `/ → /login.html` for now. Next.js's src/app/page.tsx
-     will only fire if you delete that rewrite. Do NOT delete it in Phase A.
-   - For "/login" — same logic. The vercel.json rewrite serves login.html.
-     Add the new src/app/login/page.tsx but DO NOT route /login to it yet — instead,
-     mount the new login at /login2 (or /v2/login) for Phase A so we can test in parallel.
-     The phase-A exit criteria explicitly verify BOTH paths work.
-   - For "/command-centre" and "/phil" — these are new routes that don't exist in vercel.json,
-     so Next.js owns them naturally.
+   - The new Next.js app is ADDITIVE — it occupies routes that the existing rewrites
+     do not claim.
+   - Routes the existing rewrites CLAIM (do NOT collide with these in Phase A):
+       /, /login, /login.html, /jobs, /jobs/:jobId, /jobs/:jobId/log-hours,
+       /admin, /admin/*, /buhlos, /buhlos/*, /phil, /phil/app, /phil/login,
+       /my-day, /my-gear, /phil-hours, /lh, /lh-home, /approvals, /overview,
+       /install, /client, /client/jobs/:jobId, /admin-legacy, /dev/*.
+     If you can't find your candidate path in this list, it is safe for the new app.
+   - Routes the existing rewrites DO NOT claim (Next.js owns these naturally):
+       /command-centre, /v2/login, /v2/phil, /phil/my-day, /phil/jobs, /phil/gear,
+       /phil/snags/*, /phil/me, /hours, /hours/approvals, /gear, /people, /itp,
+       /plans, /materials, /rfis, /snags, /reports, /settings, /support, /activity.
+     These are the routes Phase A may mount on.
+   - For "/" — keep the vercel.json rewrite "/ → /login.html". Do NOT delete it.
+     This means Phase A does not test src/app/page.tsx via "/"; verify it via the
+     Playwright test only.
+   - For "/login" — the vercel.json rewrite serves login.html. DO NOT route /login
+     to the new src/app/login. Mount the new login at /v2/login for Phase A so we
+     can test in parallel. The phase-A exit criteria explicitly verify BOTH paths work.
+   - For "/admin" and "/admin/operations" — vercel.json rewrites these to the legacy
+     SPA. DO NOT flip these in Phase A. The new admin shell is reachable at
+     /command-centre only.
+   - For "/phil" — vercel.json rewrites this to public/phil.html. DO NOT flip it.
+     The new Phil shell is reachable at /v2/phil during Phase A; /phil/my-day,
+     /phil/jobs, /phil/gear etc. are safe to mount because no rewrite claims them.
+   - Flipping any of the above to the new shell is explicit PHASE B+ work, gated on
+     the corresponding feature (hours / gear / jobs) being verified end-to-end.
 
 J. package.json scripts
    - Add: "dev": "next dev", "build": "next build", "lint": "next lint",

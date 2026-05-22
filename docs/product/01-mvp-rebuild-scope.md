@@ -8,7 +8,11 @@ Phases are built in order. A phase is "done" when its acceptance criteria pass o
 
 ## Phase A — Clean app shell
 
-**Goal:** stand up a new Next.js + TS + Tailwind app in this repo, render an empty admin shell and an empty Phil shell, wire one login flow. No features yet.
+**Branch:** `phase-a-app-shell` (off `main`).
+
+**Goal:** stand up a new Next.js + TS + Tailwind app in this repo, render an empty admin shell and an empty Phil shell, wire one login flow on a non-colliding route. **No features yet, and no production cutover.**
+
+**Phase A must build the new shell safely without destabilising the legacy production app.** Existing `public/*.html` surfaces continue to serve every canonical URL (`/`, `/login`, `/admin/*`, `/phil`, `/my-day`, `/jobs/:id`, `/lh`, `/client`) unchanged. The new app mounts at routes the existing `vercel.json` rewrites do not claim (e.g. `/command-centre`, `/v2/login`, `/v2/phil`, `/phil/my-day`). The cutover of `/admin` and `/login` to the new shell is **Phase B+ work**, gated on the hours loop being verified end-to-end.
 
 ### Scope
 
@@ -40,7 +44,10 @@ Phases are built in order. A phase is "done" when its acceptance criteria pass o
 ### Out of scope for Phase A
 
 - Any actual feature (jobs list, hours, etc.).
-- Removing the legacy `public/*.html` files (they stay reachable as `/legacy/*` rewrites added in `next.config.ts`).
+- **Flipping any production rewrite.** `vercel.json` rewrites are not added, removed, edited, or reordered in Phase A. `/`, `/login`, `/admin`, `/admin/*`, `/phil`, `/my-day`, `/jobs/:id`, `/lh`, `/client` continue to serve the legacy `public/*.html` files exactly as they do today.
+- **Routing `/admin` or `/login` to the new shell.** That is Phase B+ work. In Phase A the new login is at `/v2/login`; the new admin shell is at `/command-centre`; the new Phil shell is at `/v2/phil` (with sub-routes like `/phil/my-day` safe to mount because no rewrite claims them).
+- **Editing any legacy file.** No changes to `public/*.html`, `public/admin/*.html`, `public/components/*`, `public/css/*`, `public/theme.css`, `public/sw.js`, `public/manifest.json`, `api/*.js`, `api/_lib/*`, or `vercel.json`.
+- Removing the legacy `public/*.html` files (they stay reachable for the rest of MVP).
 - Migrating any data shape.
 - Touching `api/*.js`.
 - Service worker changes.
