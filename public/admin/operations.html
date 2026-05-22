@@ -189,8 +189,15 @@ body{
 .grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .grid-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.grid-5{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media(max-width:1300px){.grid-5{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:1100px){.grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:780px){.grid-3,.grid-2{grid-template-columns:1fr}}
+@media(max-width:780px){.grid-3,.grid-2,.grid-5{grid-template-columns:1fr}}
+/* KPI severity tint — propagates to .kpi-tile.warn / .bad / .alert when set. */
+.kpi-tile.warn{border-color:rgba(245,158,11,.32);background:rgba(245,158,11,.07)}
+.kpi-tile.bad{border-color:rgba(239,68,68,.32);background:rgba(239,68,68,.07)}
+.kpi-tile.alert{border-color:rgba(239,68,68,.42);background:rgba(239,68,68,.10)}
+.kpi-tile.ok{border-color:rgba(34,197,94,.28);background:rgba(34,197,94,.06)}
 
 .card{
   background:var(--panel);
@@ -361,6 +368,8 @@ body{
 .state-chip.approved, .state-chip.complete  { background:rgba(34,197,94,.16);color:#4ade80;}
 .state-chip.rejected, .state-chip.blocked   { background:rgba(239,68,68,.18);color:#fca5a5;}
 .state-chip.pending   { background:rgba(245,158,11,.16);color:#fbbf24;}
+.state-chip.needs-info, .state-chip.needs_info { background:rgba(245,158,11,.22);color:#fbbf24;}
+.state-chip.invoiced  { background:rgba(167,139,250,.18);color:#c4b5fd;}
 .state-chip.evidence-missing { background:rgba(239,68,68,.18);color:#fca5a5;}
 .state-chip.delivered { background:rgba(34,197,94,.14);color:#4ade80;}
 .state-chip.ordered   { background:rgba(59,130,246,.14);color:#93c5fd;}
@@ -373,6 +382,44 @@ body{
   padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit;
 }
 .builder-input:focus{outline:none;border-color:var(--accent)}
+/* Job setup form — two-column grid that collapses on narrow widths. */
+.builder-form{padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:12px 18px}
+@media (max-width:880px){.builder-form{grid-template-columns:1fr}}
+.builder-form label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+.builder-form input[type=text], .builder-form input:not([type]), .builder-form input[type=date], .builder-form select, .builder-form textarea, .builder-form input[type=number]{
+  background:#0e1520;border:1px solid var(--line-2);color:var(--ink);
+  padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit;
+  text-transform:none;letter-spacing:0;font-weight:500;
+}
+.builder-form input:focus, .builder-form select:focus, .builder-form textarea:focus{outline:none;border-color:var(--accent)}
+.builder-form textarea{resize:vertical;min-height:46px}
+/* Worker-chip row inside the setup form. */
+.builder-chip-row{
+  display:flex;flex-wrap:wrap;gap:6px;
+  padding:8px 10px;background:#0e1520;border:1px solid var(--line-2);border-radius:6px;
+  min-height:38px;align-items:center;
+}
+.worker-chip{
+  display:inline-flex;align-items:center;gap:6px;
+  background:#10161f;border:1px solid var(--line);border-radius:14px;
+  padding:3px 4px 3px 9px;font-size:12px;color:var(--ink-2);
+}
+.worker-chip button{
+  background:transparent;border:0;color:var(--ink-4);font-size:14px;line-height:1;
+  padding:0 6px;cursor:pointer;border-radius:50%;
+}
+.worker-chip button:hover{color:var(--red)}
+.worker-chip-add{
+  background:transparent;border:1px dashed var(--line-2);color:var(--ink-3);
+  padding:3px 10px;border-radius:14px;font-size:11px;cursor:pointer;
+}
+.worker-chip-add:hover{border-style:solid;border-color:var(--accent);color:var(--ink)}
+/* Validation rows. */
+.val-row{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12px;color:var(--ink-2)}
+.val-row.warn{color:#fbbf24}
+.val-row.bad{color:#fca5a5}
+.val-row.ok{color:#4ade80}
+.val-row::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0}
 .builder-stage{
   background:#0e1520;border:1px solid var(--line);border-radius:8px;
   padding:14px 16px;margin-bottom:10px;
@@ -510,8 +557,17 @@ body{
 }
 .rpt-tile:hover{border-color:var(--line-2);transform:translateY(-1px)}
 .rpt-tile h3{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:6px}
-.rpt-tile p{font-size:12px;color:var(--ink-3);line-height:1.5}
+.rpt-tile p{font-size:12px;color:var(--ink-3);line-height:1.5;margin-bottom:10px}
 .rpt-tile .uc-tag{margin-top:10px;margin-bottom:0}
+.rpt-tile .rpt-metric{font-size:22px;font-weight:700;color:var(--ink);line-height:1.1;margin-top:6px}
+.rpt-tile .rpt-metric small{font-size:12px;color:var(--ink-3);font-weight:500;margin-left:4px}
+.rpt-tile .rpt-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:12px;color:var(--ink-2)}
+.rpt-tile .rpt-row b{color:var(--ink)}
+.rpt-tile .rpt-row + .rpt-row{border-top:1px dashed var(--line)}
+.rpt-tile .rpt-source{margin-top:10px;font-size:10px;color:var(--ink-4);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.rpt-tile .rpt-source.ok::before     { content:'● '; color:#4ade80 }
+.rpt-tile .rpt-source.partial::before{ content:'● '; color:#fbbf24 }
+.rpt-tile .rpt-source.missing::before{ content:'● '; color:#fca5a5 }
 </style>
 </head>
 <body>
@@ -756,6 +812,43 @@ body{
           <div class="kpi-tile"><div class="kpi-label">Status</div><div class="kpi-value" id="jbStatus" style="font-size:18px">Draft</div><div class="kpi-delta" id="jbStatusDelta">not yet published</div></div>
         </div>
 
+        <!-- Job setup — the basics Phil needs before stages mean anything. -->
+        <div class="card" style="padding:0;margin-bottom:14px">
+          <div class="card-head" style="padding:14px 18px">
+            <span class="card-title">Job setup</span>
+            <span style="font-size:11px;color:var(--ink-3)" id="jbSetupAutosave">unsaved</span>
+          </div>
+          <div class="builder-form" id="jbSetup">
+            <label><span>Job name</span><input id="jbf-name" class="builder-input" placeholder="Birdwood IV3232"></label>
+            <label><span>Job number</span><input id="jbf-num" class="builder-input" placeholder="BIR-IV3232"></label>
+            <label><span>Builder / client</span><input id="jbf-builder" class="builder-input" placeholder="Hutchinson Builders"></label>
+            <label><span>Site address</span><input id="jbf-addr" class="builder-input" placeholder="19-23 Birdwood Ave, Lane Cove"></label>
+            <label><span>Status</span>
+              <select id="jbf-status" class="builder-input">
+                <option value="draft">draft</option>
+                <option value="active">active</option>
+                <option value="complete">complete</option>
+                <option value="archived">archived</option>
+              </select>
+            </label>
+            <label><span>Start date</span><input id="jbf-start" type="date" class="builder-input"></label>
+            <label><span>Target completion</span><input id="jbf-target" type="date" class="builder-input"></label>
+            <label style="grid-column:1 / -1">
+              <span>Assigned workers</span>
+              <div id="jbf-workers" class="builder-chip-row">
+                <div class="empty" style="padding:8px 4px;font-size:12px">No workers picked yet.</div>
+              </div>
+            </label>
+            <label style="grid-column:1 / -1"><span>Notes</span><textarea id="jbf-notes" class="builder-input" rows="2" placeholder="Site-specific notes, access constraints, key contacts…"></textarea></label>
+          </div>
+        </div>
+
+        <!-- Validation panel — surfaces issues before publish without blocking edit. -->
+        <div class="card" style="padding:0;margin-bottom:14px" id="jbValidationCard" hidden>
+          <div class="card-head" style="padding:14px 18px"><span class="card-title">Validation</span></div>
+          <div id="jbValidation" style="padding:8px 18px 14px"></div>
+        </div>
+
         <div class="card" style="padding:0">
           <div class="card-head" style="padding:14px 18px">
             <span class="card-title">Workflow draft</span>
@@ -849,12 +942,27 @@ body{
             <div class="card-title big" style="margin-bottom:4px">ITP / QA</div>
             <div style="font-size:12px;color:var(--ink-3)">Inspection &amp; Test Plans across jobs. Independent reviewer rule: the worker who logged the evidence cannot sign it off.</div>
           </div>
-          <div style="display:flex;gap:8px;align-items:center;color:var(--ink-3);font-size:12px">
-            <span class="state-chip" style="background:rgba(34,197,94,.16);color:#4ade80">complete</span>
-            <span class="state-chip" style="background:rgba(245,158,11,.18);color:#fbbf24">pending</span>
-            <span class="state-chip" style="background:rgba(239,68,68,.18);color:#fca5a5">blocked / evidence missing</span>
-          </div>
         </div>
+
+        <!-- Dashboard — the five numbers admin uses to decide what to do next. -->
+        <div class="grid grid-5" style="margin-bottom:14px">
+          <div class="kpi-tile"><div class="kpi-label">Total</div><div class="kpi-value" id="itpKpiTotal">0</div><div class="kpi-delta">across active jobs</div></div>
+          <div class="kpi-tile" id="itpKpiTileSubmitted"><div class="kpi-label">Awaiting review</div><div class="kpi-value" id="itpKpiSubmitted">0</div><div class="kpi-delta">submitted</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Approved</div><div class="kpi-value" id="itpKpiApproved">0</div><div class="kpi-delta">signed off</div></div>
+          <div class="kpi-tile" id="itpKpiTileRejected"><div class="kpi-label">Rejected</div><div class="kpi-value" id="itpKpiRejected">0</div><div class="kpi-delta">redo required</div></div>
+          <div class="kpi-tile" id="itpKpiTileBlocked"><div class="kpi-label">Blocked</div><div class="kpi-value" id="itpKpiBlocked">0</div><div class="kpi-delta">evidence missing</div></div>
+        </div>
+
+        <div class="row" style="gap:8px;margin-bottom:10px;align-items:center;color:var(--ink-3);font-size:12px">
+          <div style="flex:1">Filters:</div>
+          <select id="itpFilter" class="builder-input" style="padding:5px 10px" onchange="renderITPs()">
+            <option value="all">All checkpoints</option>
+            <option value="actionable">Actionable (submitted / blocked / needs_info)</option>
+            <option value="blocked">Blocked only</option>
+            <option value="needs_info">Needs more info</option>
+          </select>
+        </div>
+
         <div class="card" style="padding:0">
           <div class="card-head" style="padding:14px 18px">
             <span class="card-title">ITPs across active jobs</span>
@@ -867,21 +975,39 @@ body{
         <div style="margin-top:14px" class="uc-block" style="padding:18px 22px">
           <div class="uc-tag">Backend pending</div>
           <div style="font-size:13px;color:var(--ink-3);line-height:1.6">
-            <b style="color:var(--ink-2)">Reviewer sign-off + handover bundle</b> — independent-review rule
-            is documented and the UI surfaces blocked / evidence-missing checkpoints, but write-back to
-            /api/itps lands when the backend ships. Photos already flow from Phil into the per-job tabs.
+            <b style="color:var(--ink-2)">Approve / reject / request more info</b> persists locally for now —
+            the canonical /api/itps backend is the next dependency. The <b>independent reviewer rule</b>
+            (<code style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-2)">itp_review_self</code>)
+            is enforced in-shell already so we don't ship a habit that breaks audit later.
           </div>
         </div>
       </section>
 
       <!-- ───────────────────────────── PLANS / DOCUMENTS ───────────────────────────── -->
       <section id="sec-plans" class="sec">
-        <div class="row" style="margin-bottom:14px;align-items:center">
+        <div class="row" style="margin-bottom:14px;align-items:flex-end">
           <div style="flex:1">
             <div class="card-title big" style="margin-bottom:4px">Plans &amp; documents</div>
-            <div style="font-size:12px;color:var(--ink-3)">Revision-controlled drawings. A red <b>superseded</b> warning means Phil is still on an older revision than the office has.</div>
+            <div style="font-size:12px;color:var(--ink-3)">Revision-controlled drawings. A <b style="color:#fca5a5">superseded</b> warning means Phil is still on an older revision than the office has.</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <select id="plansFilter" class="builder-input" style="padding:6px 10px" onchange="renderPlans()">
+              <option value="all">All plans</option>
+              <option value="current">Current only</option>
+              <option value="superseded">Superseded warnings</option>
+              <option value="unpublished">Unpublished revisions</option>
+            </select>
+            <button class="ctxbar-action" onclick="plansUpload()">+ Upload plan</button>
           </div>
         </div>
+
+        <div class="grid grid-4" style="margin-bottom:14px">
+          <div class="kpi-tile"><div class="kpi-label">Documents</div><div class="kpi-value" id="plansKpiTotal">0</div><div class="kpi-delta">in library</div></div>
+          <div class="kpi-tile" id="plansKpiTilePub"><div class="kpi-label">Published</div><div class="kpi-value" id="plansKpiPub">0</div><div class="kpi-delta">visible to Phil</div></div>
+          <div class="kpi-tile" id="plansKpiTileSup"><div class="kpi-label">Superseded</div><div class="kpi-value" id="plansKpiSup">0</div><div class="kpi-delta">re-publish needed</div></div>
+          <div class="kpi-tile" id="plansKpiTileUnp"><div class="kpi-label">Unpublished</div><div class="kpi-value" id="plansKpiUnp">0</div><div class="kpi-delta">draft only</div></div>
+        </div>
+
         <div class="card" style="padding:0">
           <div class="card-head" style="padding:14px 18px">
             <span class="card-title">Plan revisions across jobs</span>
@@ -892,15 +1018,18 @@ body{
               <thead>
                 <tr>
                   <th>Job</th>
-                  <th>Plan</th>
-                  <th>Local revision</th>
-                  <th>Published to Phil</th>
-                  <th>Acknowledged</th>
+                  <th>Title</th>
+                  <th>Drawing #</th>
+                  <th>Type</th>
+                  <th>Linked to</th>
+                  <th>Revision</th>
+                  <th>Status</th>
+                  <th>Phil</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody id="plansBody">
-                <tr><td colspan="6" class="empty">Loading plans…</td></tr>
+                <tr><td colspan="9" class="empty">Loading plans…</td></tr>
               </tbody>
             </table>
           </div>
@@ -960,22 +1089,48 @@ body{
       <!-- ───────────────────────────── VARIATIONS ───────────────────────────── -->
       <section id="sec-variations" class="sec">
         <div class="grid grid-4" style="margin-bottom:14px">
-          <div class="kpi-tile"><div class="kpi-label">Drafts</div><div class="kpi-value" id="varKpiDraft">0</div><div class="kpi-delta">need pricing</div></div>
-          <div class="kpi-tile"><div class="kpi-label">Submitted</div><div class="kpi-value" id="varKpiSub">0</div><div class="kpi-delta">awaiting client</div></div>
-          <div class="kpi-tile"><div class="kpi-label">Approved</div><div class="kpi-value" id="varKpiApp">0</div><div class="kpi-delta">recoverable scope</div></div>
-          <div class="kpi-tile"><div class="kpi-label">Recovery</div><div class="kpi-value" id="varKpiRev">$0</div><div class="kpi-delta">approved value</div></div>
+          <div class="kpi-tile" id="varKpiTileDraft"><div class="kpi-label">Drafts</div><div class="kpi-value" id="varKpiDraft">0</div><div class="kpi-delta">need pricing</div></div>
+          <div class="kpi-tile" id="varKpiTileSub"><div class="kpi-label">Submitted</div><div class="kpi-value" id="varKpiSub">0</div><div class="kpi-delta">awaiting client</div></div>
+          <div class="kpi-tile" id="varKpiTileApp"><div class="kpi-label">Approved</div><div class="kpi-value" id="varKpiApp">0</div><div class="kpi-delta">recoverable scope</div></div>
+          <div class="kpi-tile" id="varKpiTileRev"><div class="kpi-label">Recovery</div><div class="kpi-value" id="varKpiRev">$0</div><div class="kpi-delta">approved + invoiced</div></div>
         </div>
+
+        <div class="row" style="margin-bottom:10px;gap:8px;align-items:center;color:var(--ink-3);font-size:12px">
+          <div style="flex:1">Filters:</div>
+          <select id="varStatusFilter" class="builder-input" style="padding:5px 10px" onchange="renderVariations()">
+            <option value="all">All statuses</option>
+            <option value="draft">Drafts</option>
+            <option value="priced">Priced</option>
+            <option value="submitted">Submitted</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="invoiced">Invoiced</option>
+          </select>
+          <select id="varSourceFilter" class="builder-input" style="padding:5px 10px" onchange="renderVariations()">
+            <option value="all">All sources</option>
+            <option value="field">Field</option>
+            <option value="admin">Admin</option>
+            <option value="builder">Builder</option>
+            <option value="plan_change">Plan change</option>
+          </select>
+        </div>
+
         <div class="card" style="padding:0">
           <div class="card-head" style="padding:14px 18px">
             <span class="card-title">Variation register</span>
-            <button class="card-action" onclick="renderVariations()">Refresh →</button>
+            <div style="display:flex;gap:6px">
+              <button class="ctxbar-action" onclick="varOpenCreate()">+ New variation</button>
+              <button class="card-action" onclick="renderVariations()">Refresh →</button>
+            </div>
           </div>
           <div style="overflow-x:auto">
             <table class="ts-table" id="varTable">
               <thead>
                 <tr>
+                  <th>#</th>
                   <th>Job</th>
                   <th>Title</th>
+                  <th>Source</th>
                   <th>Status</th>
                   <th style="text-align:right">$ impact</th>
                   <th style="text-align:right">Hours</th>
@@ -985,7 +1140,7 @@ body{
                 </tr>
               </thead>
               <tbody id="varBody">
-                <tr><td colspan="8" class="empty">Loading variations…</td></tr>
+                <tr><td colspan="10" class="empty">Loading variations…</td></tr>
               </tbody>
             </table>
           </div>
@@ -1018,45 +1173,17 @@ body{
         </div>
       </section>
 
-      <!-- ───────────────────────────── REPORTS (UC) ───────────────────────────── -->
+      <!-- ───────────────────────────── REPORTS ───────────────────────────── -->
       <section id="sec-reports" class="sec">
         <div class="row" style="margin-bottom:14px;align-items:center">
           <div style="flex:1">
             <div class="card-title big" style="margin-bottom:4px">Reports</div>
-            <div style="font-size:12px;color:var(--ink-3)">Every report below is on the roadmap — none are live yet</div>
+            <div style="font-size:12px;color:var(--ink-3)">Honest reporting — each tile says what it measures, what data it needs, and either shows the metric or flags the gap.</div>
           </div>
+          <button class="card-action" onclick="renderReports()">Refresh →</button>
         </div>
-        <div class="grid grid-3">
-          <div class="rpt-tile">
-            <h3>Job profitability</h3>
-            <p>Quoted vs. actual labour, materials and variations. Margin trend by job over time.</p>
-            <span class="uc-tag">Under construction</span>
-          </div>
-          <div class="rpt-tile">
-            <h3>Labour burn</h3>
-            <p>By job, stage and worker. Forecast burn-down vs. quoted hours.</p>
-            <span class="uc-tag">Under construction</span>
-          </div>
-          <div class="rpt-tile">
-            <h3>ITP completion</h3>
-            <p>Checkpoint coverage, evidence gaps and reviewer turnaround.</p>
-            <span class="uc-tag">Under construction</span>
-          </div>
-          <div class="rpt-tile">
-            <h3>Variation recovery</h3>
-            <p>Variations raised vs. priced vs. approved vs. recovered.</p>
-            <span class="uc-tag">Under construction</span>
-          </div>
-          <div class="rpt-tile">
-            <h3>Handover pack</h3>
-            <p>Auto-generated handover bundle: ITPs, certificates, photos, plans.</p>
-            <span class="uc-tag">Under construction</span>
-          </div>
-          <div class="rpt-tile">
-            <h3>Quote accuracy</h3>
-            <p>Quoted vs. actual at job completion, trended over time per estimator.</p>
-            <span class="uc-tag">Under construction</span>
-          </div>
+        <div class="grid grid-3" id="reportsGrid">
+          <div class="empty">Loading reports…</div>
         </div>
       </section>
 
@@ -1122,6 +1249,34 @@ body{
       <button class="drawer-tab" data-pane="activity" onclick="drTab('activity')">Activity</button>
     </div>
     <div class="drawer-body" id="drBody"></div>
+  </div>
+</div>
+
+<!-- ITP review modal — opened by clicking a checkpoint in the ITP list. -->
+<div class="drawer-bk" id="itpModalBk" onclick="if(event.target===this)closeITPModal()">
+  <div class="drawer" style="max-width:640px">
+    <div class="drawer-head">
+      <button class="drawer-x" onclick="closeITPModal()">×</button>
+      <div>
+        <div class="drawer-title" id="itpModalTitle">Checkpoint</div>
+        <div class="drawer-sub" id="itpModalSub">—</div>
+      </div>
+    </div>
+    <div class="drawer-body" id="itpModalBody"></div>
+  </div>
+</div>
+
+<!-- Variation creation modal — opened from the + button in Variations register. -->
+<div class="drawer-bk" id="varModalBk" onclick="if(event.target===this)closeVarModal()">
+  <div class="drawer" style="max-width:640px">
+    <div class="drawer-head">
+      <button class="drawer-x" onclick="closeVarModal()">×</button>
+      <div>
+        <div class="drawer-title">New variation</div>
+        <div class="drawer-sub">Capture a scope change before it disappears into a notes field</div>
+      </div>
+    </div>
+    <div class="drawer-body" id="varModalBody"></div>
   </div>
 </div>
 
@@ -1360,6 +1515,7 @@ function show(name){
   if (name === 'itp')        renderITPs();
   if (name === 'plans')      renderPlans();
   if (name === 'variations') renderVariations();
+  if (name === 'reports')    renderReports();
 }
 
 function initFromHash(){
@@ -2210,7 +2366,7 @@ function renderJobBuilder(){
   jobSel.innerHTML = STATE.jobs.map(j =>
     `<option value="${escapeHtml(j.id)}" ${_jbState.activeJobId===j.id?'selected':''}>${escapeHtml(j.name)}</option>`
   ).join('');
-  jobSel.onchange = () => { _jbState.activeJobId = jobSel.value; jbRender(); };
+  jobSel.onchange = () => { _jbState.activeJobId = jobSel.value; jbHydrateSetup(); jbRender(); };
 
   // Populate template picker
   const tmpls = (window.BUHLOS_MOCK && window.BUHLOS_MOCK.jobBuilderTemplates) || {};
@@ -2218,7 +2374,130 @@ function renderJobBuilder(){
   tplSel.innerHTML = '<option value="">Choose template…</option>' +
     Object.entries(tmpls).map(([k,t]) => `<option value="${escapeHtml(k)}">${escapeHtml(t.label)}</option>`).join('');
 
+  // Wire setup-form inputs once. Each change persists locally + revalidates.
+  if (!_jbState._setupWired) {
+    const map = {
+      'jbf-name':    'name',
+      'jbf-num':     'number',
+      'jbf-builder': 'builder',
+      'jbf-addr':    'address',
+      'jbf-status':  'status',
+      'jbf-start':   'startDate',
+      'jbf-target':  'targetDate',
+      'jbf-notes':   'notes',
+    };
+    for (const [id, key] of Object.entries(map)) {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', () => {
+        const d = jbCurrentDraft() || { jobId: _jbState.activeJobId, stages: [] };
+        d.setup = d.setup || {};
+        d.setup[key] = el.value;
+        jbSetDraft(d);
+        document.getElementById('jbSetupAutosave').textContent = 'saved ' + new Date().toLocaleTimeString('en-AU');
+      });
+    }
+    _jbState._setupWired = true;
+  }
+
+  jbHydrateSetup();
   jbRender();
+}
+
+// Pull setup data from STATE.jobs[activeJob] or from the current draft.
+// Draft takes priority (in-progress edits trump the saved job record).
+function jbHydrateSetup(){
+  const job = STATE.jobs.find(j => j.id === _jbState.activeJobId);
+  const draft = jbCurrentDraft();
+  const setup = (draft && draft.setup) || {};
+  const val = (k, fallback) => setup[k] != null ? setup[k] : fallback;
+  const set = (id, v) => { const el = document.getElementById(id); if (el && el.value !== (v||'')) el.value = v || ''; };
+  set('jbf-name',    val('name',       job ? job.name : ''));
+  set('jbf-num',     val('number',     job ? job.id : ''));
+  set('jbf-builder', val('builder',    job ? (job.builder || job.client || '') : ''));
+  set('jbf-addr',    val('address',    job ? job.address : ''));
+  set('jbf-status',  val('status',     job ? (job.status || 'active') : 'draft'));
+  set('jbf-start',   val('startDate',  job ? (job.startDate || '') : ''));
+  set('jbf-target',  val('targetDate', job ? (job.targetDate || '') : ''));
+  set('jbf-notes',   val('notes',      ''));
+  // Workers row.
+  const row = document.getElementById('jbf-workers');
+  if (row) {
+    const assigned = val('workers', (job && job.crew) || []);
+    const candidates = (STATE.users || []).filter(u => !assigned.includes(u.id || u.username));
+    row.innerHTML = assigned.map(uid => {
+      const u = (STATE.users || []).find(x => (x.id || x.username) === uid);
+      const label = u ? (u.name || u.username || uid) : uid;
+      return `<span class="worker-chip">${escapeHtml(label)} <button onclick="jbRemoveWorker('${escapeHtml(uid)}')" title="Remove">×</button></span>`;
+    }).join('') + (candidates.length
+      ? `<button class="worker-chip-add" onclick="jbAddWorkerPrompt()">+ Add worker</button>`
+      : '<span style="font-size:11px;color:var(--ink-4)">all known workers assigned</span>');
+    if (!assigned.length) row.querySelectorAll('span').forEach(s => s.remove());
+  }
+}
+function jbCurrentSetup(){
+  const d = jbCurrentDraft() || {};
+  return d.setup || {};
+}
+function jbAddWorkerPrompt(){
+  const job = STATE.jobs.find(j => j.id === _jbState.activeJobId);
+  const draft = jbCurrentDraft() || { jobId: _jbState.activeJobId, stages: [] };
+  const assigned = (draft.setup && draft.setup.workers) || (job ? job.crew : []) || [];
+  const candidates = (STATE.users || []).filter(u => !assigned.includes(u.id || u.username));
+  if (!candidates.length) return alert('All known workers are already assigned.');
+  const picks = candidates.map((u, i) => `  ${i+1}. ${u.name || u.username} (${u.role || '—'})`).join('\n');
+  const choice = prompt('Pick a worker (number):\n\n' + picks);
+  if (!choice) return;
+  const idx = parseInt(choice, 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= candidates.length) return alert('Invalid choice.');
+  const u = candidates[idx];
+  draft.setup = draft.setup || {};
+  draft.setup.workers = assigned.concat([u.id || u.username]);
+  jbSetDraft(draft);
+  jbHydrateSetup();
+}
+function jbRemoveWorker(uid){
+  const draft = jbCurrentDraft(); if (!draft || !draft.setup) return;
+  draft.setup.workers = (draft.setup.workers || []).filter(x => x !== uid);
+  jbSetDraft(draft);
+  jbHydrateSetup();
+}
+
+// Validation — surfaces issues without blocking edit. Publish checks these
+// + adds blocking errors. Categories: bad (blocks), warn (advisory).
+function jbValidate(){
+  const issues = [];
+  const draft = jbCurrentDraft() || { stages: [], setup: {} };
+  const setup = draft.setup || {};
+  const stages = draft.stages || [];
+  // bad — would publish broken
+  if (!setup.name || !setup.name.trim()) issues.push({ kind:'bad', msg:'Job name is empty.' });
+  // duplicate stage id
+  const seen = new Set();
+  for (const s of stages) {
+    if (s.id && seen.has(s.id)) { issues.push({ kind:'bad', msg:'Duplicate stage id "'+s.id+'".' }); break; }
+    if (s.id) seen.add(s.id);
+  }
+  // warn — looks unfinished
+  if (!stages.length) issues.push({ kind:'warn', msg:'No stages defined yet.' });
+  for (const s of stages) {
+    if (!(s.areas || []).length) issues.push({ kind:'warn', msg:'Stage "'+(s.name||'?')+'" has no areas.' });
+    if (!Number(s.requiredPhotos) && !Number(s.requiredNotes) && !s.itpRequired) {
+      issues.push({ kind:'warn', msg:'Stage "'+(s.name||'?')+'" has no evidence requirements (no photos, notes, or ITP).' });
+    }
+  }
+  if (setup.status === 'active' && !(setup.workers || []).length) {
+    issues.push({ kind:'warn', msg:'Job is active but no workers are assigned.' });
+  }
+  return issues;
+}
+function jbRenderValidation(){
+  const issues = jbValidate();
+  const card = document.getElementById('jbValidationCard');
+  const root = document.getElementById('jbValidation');
+  if (!card || !root) return;
+  if (!issues.length) { card.hidden = true; return; }
+  card.hidden = false;
+  root.innerHTML = issues.map(i => `<div class="val-row ${i.kind}">${escapeHtml(i.msg)}</div>`).join('');
 }
 
 function jbRender(){
@@ -2229,6 +2508,8 @@ function jbRender(){
   document.getElementById('jbAreaCount').textContent  = areaCount;
   document.getElementById('jbStatus').textContent = stageCount ? 'Draft ready' : 'Empty';
   document.getElementById('jbStatusDelta').textContent = draft.updatedAt ? 'updated ' + new Date(draft.updatedAt).toLocaleString('en-AU') : 'not yet published';
+  // Surface validation each render — cheap, and edits should be reflected.
+  try { jbRenderValidation(); } catch (_) {}
 
   const root = document.getElementById('jbStages');
   if (!stageCount) {
@@ -2245,6 +2526,7 @@ function jbRender(){
         <label>Required photos <input type="number" min="0" max="20" value="${Number(s.requiredPhotos||0)}" onchange="jbStageMeta(${si},'requiredPhotos',+this.value)" class="builder-input" style="padding:3px 6px;width:54px"></label>
         <label>Required notes <input type="number" min="0" max="10" value="${Number(s.requiredNotes||0)}" onchange="jbStageMeta(${si},'requiredNotes',+this.value)" class="builder-input" style="padding:3px 6px;width:54px"></label>
         <label><input type="checkbox" ${s.itpRequired?'checked':''} onchange="jbStageMeta(${si},'itpRequired',this.checked)"> ITP required</label>
+        <label><input type="checkbox" ${s.independentReview?'checked':''} onchange="jbStageMeta(${si},'independentReview',this.checked)"> Independent review</label>
       </div>
       <div class="builder-areas">
         ${(s.areas||[]).map((a, ai) => `
@@ -2301,34 +2583,99 @@ function jbPublishDraft(){
   if (!d || !(d.stages||[]).length) {
     return alert('Nothing to publish — add at least one stage first.');
   }
-  // Warn if any stage has 0 areas
-  const emptyStages = d.stages.filter(s => !(s.areas||[]).length);
-  if (emptyStages.length) {
-    if (!confirm(emptyStages.length + ' stage(s) have no areas yet. Publish anyway?')) return;
+  // Validation gate. `bad` blocks publish; `warn` requires confirmation.
+  const issues = jbValidate();
+  const bads = issues.filter(i => i.kind === 'bad');
+  if (bads.length) {
+    return alert('Cannot publish — please fix:\n\n' + bads.map(b => '• ' + b.msg).join('\n'));
   }
-  // Pretty-print the payload that WOULD be sent to /api/job-builder/publish
+  const warns = issues.filter(i => i.kind === 'warn');
+  if (warns.length && !confirm(warns.length + ' warning(s) — publish anyway?\n\n' + warns.map(w => '• ' + w.msg).join('\n'))) return;
+  // Payload shape matches what /api/job-builder/publish will accept.
   const payload = {
     jobId: d.jobId,
     publishedAt: new Date().toISOString(),
     publishedBy: (STATE.me && STATE.me.id) || 'admin',
+    setup: d.setup || {},
     stages: d.stages,
   };
   alert('Publish-to-Phil — pending backend wiring.\n\n' +
         'This is the payload that would be sent to /api/job-builder/publish:\n\n' +
-        JSON.stringify(payload, null, 2).slice(0, 2000));
+        JSON.stringify(payload, null, 2).slice(0, 2200));
 }
 
 // ─────────────────────────────────────────────────────────
-// ITP / QA renderer
+// ITP / QA renderer + review actions
+//
+// Statuses: pending → submitted → approved | rejected | needs_info
+// "complete" is the historical alias for "approved" and shown the same way.
+// "blocked" / "evidence-missing" mean the checkpoint can't progress yet.
+//
+// Independent reviewer rule: the same user can't both submit AND review
+// a checkpoint. Self-review is blocked with reason code itp_review_self.
 // ─────────────────────────────────────────────────────────
+function itpAllCheckpoints(){
+  const out = [];
+  for (const itp of (STATE.itps || [])) {
+    for (const cp of (itp.checkpoints || [])) {
+      out.push({ itp, cp });
+    }
+  }
+  return out;
+}
+function itpStatus(cp){
+  if (cp.status === 'complete' || cp.status === 'approved') return 'approved';
+  if (cp.status === 'rejected') return 'rejected';
+  if (cp.status === 'needs_info') return 'needs_info';
+  if (cp.blocked || cp.status === 'evidence-missing') return 'blocked';
+  if (cp.status === 'submitted') return 'submitted';
+  return 'pending';
+}
+function itpStatusLabel(s){
+  return s === 'approved' ? 'complete'
+       : s === 'needs_info' ? 'needs info'
+       : s;
+}
+
 function renderITPs(){
   const root = document.getElementById('itpList');
   if (!root) return;
+  // Dashboard counters from every checkpoint across every ITP.
+  const all = itpAllCheckpoints();
+  const total       = all.length;
+  const approved    = all.filter(({cp}) => itpStatus(cp) === 'approved').length;
+  const submitted   = all.filter(({cp}) => itpStatus(cp) === 'submitted').length;
+  const rejected    = all.filter(({cp}) => itpStatus(cp) === 'rejected').length;
+  const blocked     = all.filter(({cp}) => itpStatus(cp) === 'blocked').length;
+  const needsInfo   = all.filter(({cp}) => itpStatus(cp) === 'needs_info').length;
+  const setKpi = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  setKpi('itpKpiTotal',     total);
+  setKpi('itpKpiSubmitted', submitted + needsInfo);
+  setKpi('itpKpiApproved',  approved);
+  setKpi('itpKpiRejected',  rejected);
+  setKpi('itpKpiBlocked',   blocked);
+  document.getElementById('itpKpiTileSubmitted').className = 'kpi-tile' + ((submitted + needsInfo) > 0 ? ' warn' : '');
+  document.getElementById('itpKpiTileRejected').className  = 'kpi-tile' + (rejected > 0 ? ' bad' : '');
+  document.getElementById('itpKpiTileBlocked').className   = 'kpi-tile' + (blocked > 0 ? ' alert' : '');
+
   if (!STATE.itps.length) {
     root.innerHTML = '<div class="empty"><b>No ITPs yet</b>Set up an Inspection &amp; Test Plan from inside a job. Once defined, checkpoints show up here.</div>';
     return;
   }
-  // Group by job
+
+  // Filter
+  const filterSel = document.getElementById('itpFilter');
+  const filter = filterSel ? filterSel.value : 'all';
+  function pass(cp){
+    const s = itpStatus(cp);
+    if (filter === 'all') return true;
+    if (filter === 'actionable') return ['submitted', 'blocked', 'needs_info'].includes(s);
+    if (filter === 'blocked')    return s === 'blocked';
+    if (filter === 'needs_info') return s === 'needs_info';
+    return true;
+  }
+
+  // Group by job → ITP.
   const byJob = {};
   for (const itp of STATE.itps) {
     (byJob[itp.jobId] = byJob[itp.jobId] || []).push(itp);
@@ -2337,61 +2684,182 @@ function renderITPs(){
     const job = STATE.jobs.find(j => j.id === jobId);
     const jobName = job ? job.name : jobId;
     return itps.map(itp => {
-      const cps = itp.checkpoints || [];
-      const complete = cps.filter(cp => cp.status === 'complete').length;
-      const blocked  = cps.filter(cp => cp.blocked || cp.status === 'evidence-missing').length;
+      const cps = (itp.checkpoints || []).filter(pass);
+      if (!cps.length) return '';
+      const totalCps = (itp.checkpoints || []).length;
+      const completeN = (itp.checkpoints || []).filter(cp => itpStatus(cp) === 'approved').length;
+      const blockedN  = (itp.checkpoints || []).filter(cp => itpStatus(cp) === 'blocked').length;
       return `
         <div class="itp-card">
           <div class="itp-card-head">
             <div style="flex:1">
               <div class="itp-card-title">${escapeHtml(itp.title)}</div>
-              <div class="itp-card-sub">${escapeHtml(jobName)} · ${escapeHtml(itp.stage || '')} · ${complete}/${cps.length} complete${blocked? ' · ' + blocked + ' blocked':''}</div>
+              <div class="itp-card-sub">${escapeHtml(jobName)} · ${escapeHtml(itp.stage || '')} · ${completeN}/${totalCps} complete${blockedN? ' · ' + blockedN + ' blocked':''}</div>
             </div>
-            ${blocked > 0 ? '<span class="state-chip blocked">blocked</span>' : (complete === cps.length && cps.length > 0 ? '<span class="state-chip complete">complete</span>' : '<span class="state-chip pending">in progress</span>')}
+            ${blockedN > 0 ? '<span class="state-chip blocked">blocked</span>' : (completeN === totalCps && totalCps > 0 ? '<span class="state-chip complete">complete</span>' : '<span class="state-chip pending">in progress</span>')}
           </div>
           <div class="itp-cps">
-            ${cps.map(cp => `
-              <div class="itp-cp">
-                <div class="itp-cp-name">${escapeHtml(cp.name)}</div>
-                <span class="itp-cp-meta">${cp.photoCount||0} photo${cp.photoCount===1?'':'s'}</span>
-                ${cp.reviewer ? `<span class="itp-cp-meta">reviewed ${escapeHtml(cp.reviewer)}</span>` : `<span class="itp-cp-meta" style="color:var(--ink-4)">no reviewer</span>`}
-                <span class="state-chip ${cp.blocked?'blocked':cp.status}">${escapeHtml(cp.blocked?'blocked':cp.status)}</span>
-              </div>
-            `).join('')}
+            ${cps.map(cp => {
+              const s = itpStatus(cp);
+              return `
+                <div class="itp-cp" style="cursor:pointer" onclick="reviewITP('${escapeHtml(itp.id)}','${escapeHtml(cp.id)}')">
+                  <div class="itp-cp-name">${escapeHtml(cp.name)}</div>
+                  <span class="itp-cp-meta">${cp.photoCount||0} photo${cp.photoCount===1?'':'s'}</span>
+                  ${cp.reviewer ? `<span class="itp-cp-meta">reviewed ${escapeHtml(cp.reviewer)}</span>` : `<span class="itp-cp-meta" style="color:var(--ink-4)">no reviewer</span>`}
+                  <span class="state-chip ${s.replace('_','-')}">${escapeHtml(itpStatusLabel(s))}</span>
+                </div>
+              `;
+            }).join('')}
           </div>
         </div>
       `;
     }).join('');
   }).join('');
-  root.innerHTML = html;
+  root.innerHTML = html || '<div class="empty">No checkpoints match the current filter.</div>';
+}
+
+// ITP review modal
+let _itpReview = null;
+function reviewITP(itpId, cpId){
+  const itp = STATE.itps.find(x => x.id === itpId);
+  if (!itp) return;
+  const cp = (itp.checkpoints || []).find(c => c.id === cpId);
+  if (!cp) return;
+  _itpReview = { itp, cp };
+  const job = STATE.jobs.find(j => j.id === itp.jobId);
+  document.getElementById('itpModalTitle').textContent = cp.name || 'Checkpoint';
+  document.getElementById('itpModalSub').textContent =
+    (job ? job.name : itp.jobId) + ' · ' + (itp.stage || '') + ' · ' + (itp.title || '');
+  const body = document.getElementById('itpModalBody');
+  const s = itpStatus(cp);
+  const submittedBy  = cp.submittedBy  || cp.completedBy || null;
+  const me = (STATE.me && (STATE.me.id || STATE.me.username)) || 'admin';
+  const isSelfReview = submittedBy && submittedBy === me;
+  body.innerHTML = `
+    <div class="kv-row"><div class="k">Status</div><div class="v"><span class="state-chip ${s.replace('_','-')}">${escapeHtml(itpStatusLabel(s))}</span></div></div>
+    <div class="kv-row"><div class="k">Submitted by</div><div class="v">${escapeHtml(submittedBy || '—')}</div></div>
+    <div class="kv-row"><div class="k">Reviewer</div><div class="v">${escapeHtml(cp.reviewer || cp.reviewedBy || '—')}</div></div>
+    <div class="kv-row"><div class="k">Photos</div><div class="v">${cp.photoCount || 0}${(cp.photoCount||0)<3?' <span style="color:#fbbf24;font-size:11px">— low evidence</span>':''}</div></div>
+    <div class="kv-row"><div class="k">Notes</div><div class="v">${cp.notes ? escapeHtml(cp.notes) : '<span style="color:var(--ink-4)">no notes attached</span>'}</div></div>
+    ${cp.rejectReason ? `<div class="kv-row"><div class="k">Reject reason</div><div class="v" style="color:#fca5a5">${escapeHtml(cp.rejectReason)}</div></div>` : ''}
+    ${cp.needsInfoReason ? `<div class="kv-row"><div class="k">Info requested</div><div class="v" style="color:#fbbf24">${escapeHtml(cp.needsInfoReason)}</div></div>` : ''}
+    ${isSelfReview ? `
+      <div class="val-row bad" style="margin-top:12px"><b style="color:#fca5a5">Independent reviewer rule (itp_review_self)</b> — you submitted this checkpoint. A different admin must review it.</div>
+    ` : ''}
+    <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
+      <button class="btn-app" ${isSelfReview?'disabled':''} onclick="itpApprove()">Approve</button>
+      <button class="btn-rej" ${isSelfReview?'disabled':''} onclick="itpReject()">Reject</button>
+      <button class="ctxbar-action sec" ${isSelfReview?'disabled':''} onclick="itpNeedsInfo()">Request more info</button>
+    </div>
+  `;
+  document.getElementById('itpModalBk').classList.add('open');
+}
+function closeITPModal(){ document.getElementById('itpModalBk').classList.remove('open'); _itpReview = null; }
+
+function itpApprove(){
+  if (!_itpReview) return;
+  const { cp } = _itpReview;
+  cp.status = 'approved';
+  cp.reviewer = (STATE.me && STATE.me.username) || 'admin';
+  cp.reviewedAt = new Date().toISOString();
+  itpAfterMutate('Approved.');
+}
+function itpReject(){
+  if (!_itpReview) return;
+  const reason = prompt('Reject this checkpoint — reason for the worker:');
+  if (!reason) return;
+  const { cp } = _itpReview;
+  cp.status = 'rejected';
+  cp.rejectReason = reason;
+  cp.reviewer = (STATE.me && STATE.me.username) || 'admin';
+  cp.reviewedAt = new Date().toISOString();
+  itpAfterMutate('Rejected — worker will be told to redo.');
+}
+function itpNeedsInfo(){
+  if (!_itpReview) return;
+  const reason = prompt('What additional information / evidence do you need?');
+  if (!reason) return;
+  const { cp } = _itpReview;
+  cp.status = 'needs_info';
+  cp.needsInfoReason = reason;
+  cp.reviewer = (STATE.me && STATE.me.username) || 'admin';
+  cp.reviewedAt = new Date().toISOString();
+  itpAfterMutate('Info requested — worker will be notified.');
+}
+function itpAfterMutate(msg){
+  // Local-only persistence (no /api/itps yet). Surface a confirm so the
+  // user knows the action recorded.
+  closeITPModal();
+  computeCounts();
+  renderSidebarBadges();
+  renderITPs();
+  setSync(STATE.mockMode ? 'mock' : 'ok');
+  alert(msg + '\n\n(Local-only — /api/itps backend pending.)');
 }
 
 // ─────────────────────────────────────────────────────────
 // Plans renderer
+//
+// Per plan we track: drawingNumber + type + linked areas/stages +
+// philVisible. The KPI strip surfaces three counts admins care about
+// (published / superseded / unpublished). The library table is the
+// drilldown; the Phil-readiness toggle persists locally until
+// /api/plans ships.
 // ─────────────────────────────────────────────────────────
 function renderPlans(){
   const body = document.getElementById('plansBody');
   if (!body) return;
-  if (!STATE.plans.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty"><b>No plans yet</b>Upload drawings from a job to start a plan library.</td></tr>';
+  const all = STATE.plans || [];
+  const published   = all.filter(p => p.publishedRevision && !p.supersededWarning).length;
+  const superseded  = all.filter(p => p.supersededWarning).length;
+  const unpublished = all.filter(p => !p.publishedRevision).length;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('plansKpiTotal', all.length);
+  set('plansKpiPub',   published);
+  set('plansKpiSup',   superseded);
+  set('plansKpiUnp',   unpublished);
+  document.getElementById('plansKpiTilePub').className = 'kpi-tile' + (published > 0 ? ' ok' : '');
+  document.getElementById('plansKpiTileSup').className = 'kpi-tile' + (superseded > 0 ? ' alert' : '');
+  document.getElementById('plansKpiTileUnp').className = 'kpi-tile' + (unpublished > 0 ? ' warn' : '');
+
+  const filterSel = document.getElementById('plansFilter');
+  const filter = filterSel ? filterSel.value : 'all';
+  function pass(p){
+    if (filter === 'current')     return p.publishedRevision && !p.supersededWarning;
+    if (filter === 'superseded')  return !!p.supersededWarning;
+    if (filter === 'unpublished') return !p.publishedRevision;
+    return true;
+  }
+
+  const rows = all.filter(pass);
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="9" class="empty">' +
+      (all.length ? 'No plans match this filter.' : '<b>No plans yet</b>Upload drawings from a job to start a plan library.') + '</td></tr>';
     return;
   }
-  body.innerHTML = STATE.plans.map(p => {
+  body.innerHTML = rows.map(p => {
     const job = STATE.jobs.find(j => j.id === p.jobId);
     const jobName = job ? job.name : p.jobId;
     const isSuperseded = p.supersededWarning;
     const isUnpublished = !p.publishedRevision;
     const ackTotal = (p.acknowledgedBy || []).length;
+    const linkedTo = (() => {
+      const parts = [];
+      if ((p.linkedAreas || []).length)  parts.push((p.linkedAreas || []).join(' · '));
+      if ((p.linkedStages || []).length) parts.push('stages: ' + (p.linkedStages || []).join(' · '));
+      return parts.length ? parts.join(' / ') : 'whole job';
+    })();
     return `
       <tr>
         <td>${escapeHtml(jobName)}</td>
         <td>${escapeHtml(p.name)}</td>
-        <td><span class="state-chip ${isSuperseded?'pending':''}">${escapeHtml(p.revision || '—')}</span></td>
-        <td>${p.publishedRevision ? `<span class="state-chip ${isSuperseded?'blocked':'complete'}">${escapeHtml(p.publishedRevision)}</span>` : `<span class="state-chip draft">unpublished</span>`}</td>
-        <td style="color:var(--ink-3);font-size:11px">${ackTotal} ack${ackTotal===1?'':'s'}</td>
-        <td>
-          <button class="btn-app" onclick="plansPublish('${escapeHtml(p.id)}')">${isUnpublished ? 'Publish' : (isSuperseded?'Publish '+escapeHtml(p.revision):'Re-publish')}</button>
-        </td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px">${escapeHtml(p.drawingNumber || '—')}</td>
+        <td><span class="state-chip">${escapeHtml(p.type || 'plan')}</span></td>
+        <td style="color:var(--ink-3);font-size:11px;max-width:220px">${escapeHtml(linkedTo)}</td>
+        <td><span class="state-chip ${isSuperseded?'pending':''}">${escapeHtml(p.revision || '—')}</span>${isSuperseded?' <span class="state-chip blocked" style="margin-left:4px">superseded</span>':''}</td>
+        <td>${p.publishedRevision ? `<span class="state-chip ${isSuperseded?'blocked':'complete'}">${escapeHtml(p.publishedRevision)}</span>` : `<span class="state-chip draft">unpublished</span>`} <span style="color:var(--ink-3);font-size:10px;margin-left:4px">${ackTotal} ack</span></td>
+        <td><label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-3);cursor:pointer"><input type="checkbox" ${p.philVisible?'checked':''} onchange="plansTogglePhil('${escapeHtml(p.id)}', this.checked)"> ${p.philVisible?'visible':'hidden'}</label></td>
+        <td><button class="btn-app" onclick="plansPublish('${escapeHtml(p.id)}')">${isUnpublished ? 'Publish' : (isSuperseded?'Publish '+escapeHtml(p.revision):'Re-publish')}</button></td>
       </tr>
     `;
   }).join('');
@@ -2399,27 +2867,65 @@ function renderPlans(){
 function plansPublish(planId){
   const p = STATE.plans.find(x => x.id === planId);
   if (!p) return;
-  alert('Publish ' + p.name + ' rev ' + p.revision + ' to Phil — pending backend wiring.\n\n' +
+  alert('Publish ' + p.name + ' (' + (p.drawingNumber || '—') + ') rev ' + p.revision + ' to Phil — pending backend wiring.\n\n' +
         'When /api/plans is live, this will push the revision to every worker on ' +
         ((STATE.jobs.find(j => j.id === p.jobId) || {}).name || p.jobId) +
         ' and reset their acknowledgement state.');
 }
+function plansTogglePhil(planId, on){
+  const p = STATE.plans.find(x => x.id === planId);
+  if (!p) return;
+  p.philVisible = !!on;
+  // Local-only; /api/plans not wired. Re-render so the label flips.
+  renderPlans();
+}
+function plansUpload(){
+  alert('Plan upload — FEATURE UNDER CONSTRUCTION.\n\n' +
+        'The UI surface is here so the workflow is discoverable, but PDF storage + revision diffing ' +
+        'lands with the /api/plans backend. For now, drawings are tracked from the records the office ' +
+        'enters by hand. Adding a placeholder document doesn\'t do anything yet.');
+}
 
 // ─────────────────────────────────────────────────────────
-// Variations renderer
+// Variations renderer + create modal
+//
+// Statuses: draft → priced → submitted → approved/rejected → invoiced.
+// (rejected is terminal; everything else can be advanced one step.)
+// source ∈ field / admin / builder / plan_change — where the change came from.
+// builderRef holds the builder/client's reference number (RFI / VAR / PR).
 // ─────────────────────────────────────────────────────────
 function renderVariations(){
   const body = document.getElementById('varBody');
   if (!body) return;
-  const v = STATE.variations || [];
-  document.getElementById('varKpiDraft').textContent = v.filter(x => x.status === 'draft').length;
-  document.getElementById('varKpiSub').textContent   = v.filter(x => x.status === 'submitted').length;
-  document.getElementById('varKpiApp').textContent   = v.filter(x => x.status === 'approved').length;
-  const recovery = v.filter(x => x.status === 'approved').reduce((s, x) => s + Number(x.priceImpact||0), 0);
+  const all = STATE.variations || [];
+  const draftN = all.filter(x => x.status === 'draft').length;
+  const subN   = all.filter(x => x.status === 'submitted').length;
+  const appN   = all.filter(x => x.status === 'approved').length;
+  const recovery = all.filter(x => x.status === 'approved' || x.status === 'invoiced')
+                      .reduce((s, x) => s + Number(x.priceImpact||0), 0);
+  document.getElementById('varKpiDraft').textContent = draftN;
+  document.getElementById('varKpiSub').textContent   = subN;
+  document.getElementById('varKpiApp').textContent   = appN;
   document.getElementById('varKpiRev').textContent = '$' + Math.round(recovery).toLocaleString('en-AU');
+  document.getElementById('varKpiTileDraft').className = 'kpi-tile' + (draftN > 0 ? ' warn' : '');
+  document.getElementById('varKpiTileSub').className   = 'kpi-tile' + (subN > 0 ? ' warn' : '');
+  document.getElementById('varKpiTileApp').className   = 'kpi-tile' + (appN > 0 ? ' ok' : '');
+  document.getElementById('varKpiTileRev').className   = 'kpi-tile' + (recovery > 0 ? ' ok' : '');
 
+  // Filters.
+  const stEl  = document.getElementById('varStatusFilter');
+  const srcEl = document.getElementById('varSourceFilter');
+  const stFilter  = stEl  ? stEl.value : 'all';
+  const srcFilter = srcEl ? srcEl.value : 'all';
+  function pass(x){
+    if (stFilter !== 'all' && x.status !== stFilter) return false;
+    if (srcFilter !== 'all' && (x.source || 'admin') !== srcFilter) return false;
+    return true;
+  }
+  const v = all.filter(pass);
   if (!v.length) {
-    body.innerHTML = '<tr><td colspan="8" class="empty"><b>No variations yet</b>Variations raised from Phil or the office land here.</td></tr>';
+    body.innerHTML = '<tr><td colspan="10" class="empty">' +
+      (all.length ? 'No variations match the current filters.' : '<b>No variations yet</b>Variations raised from Phil or the office land here.') + '</td></tr>';
     return;
   }
   body.innerHTML = v.map(x => {
@@ -2428,26 +2934,29 @@ function renderVariations(){
     const next = nextVariationAction(x.status);
     return `
       <tr>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)">${escapeHtml(x.variationNumber || x.id)}</td>
         <td>${escapeHtml(jobName)}</td>
         <td>
           <div style="font-weight:600">${escapeHtml(x.title)}</div>
-          <div style="font-size:11px;color:var(--ink-3);margin-top:2px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(x.description||'')}</div>
+          <div style="font-size:11px;color:var(--ink-3);margin-top:2px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(x.description||'')}${x.builderRef?' · ref '+escapeHtml(x.builderRef):''}</div>
         </td>
+        <td><span class="state-chip">${escapeHtml((x.source||'admin').replace('_',' '))}</span></td>
         <td><span class="state-chip ${x.status}">${escapeHtml(x.status)}</span></td>
         <td style="text-align:right;font-weight:600">${Number(x.priceImpact||0) > 0 ? '$'+Math.round(x.priceImpact).toLocaleString('en-AU') : '—'}</td>
         <td style="text-align:right">${Number(x.hoursImpact||0) > 0 ? Number(x.hoursImpact).toFixed(1)+'h' : '—'}</td>
         <td style="color:var(--ink-3);font-size:11px">${x.photoCount||0}</td>
         <td style="color:var(--ink-3);font-size:11px">${escapeHtml(x.raisedBy||'—')}</td>
-        <td>${next ? `<button class="btn-app" onclick="advanceVariation('${escapeHtml(x.id)}')">${escapeHtml(next.label)}</button>` : '<span style="color:var(--ink-4);font-size:11px">no action</span>'}</td>
+        <td>${next ? `<button class="btn-app" onclick="advanceVariation('${escapeHtml(x.id)}')">${escapeHtml(next.label)}</button>` : '<span style="color:var(--ink-4);font-size:11px">terminal</span>'}</td>
       </tr>
     `;
   }).join('');
 }
 function nextVariationAction(status){
   switch (status) {
-    case 'draft':     return { label: 'Price', next: 'priced' };
-    case 'priced':    return { label: 'Submit', next: 'submitted' };
+    case 'draft':     return { label: 'Price',         next: 'priced' };
+    case 'priced':    return { label: 'Submit',        next: 'submitted' };
     case 'submitted': return { label: 'Mark approved', next: 'approved' };
+    case 'approved':  return { label: 'Mark invoiced', next: 'invoiced' };
     default: return null;
   }
 }
@@ -2456,9 +2965,277 @@ function advanceVariation(id){
   if (!v) return;
   const next = nextVariationAction(v.status);
   if (!next) return;
+  // Invoiced is a high-trust step — confirm so admin can't fat-finger payroll.
+  if (next.next === 'invoiced' && !confirm('Mark variation ' + (v.variationNumber || v.id) + ' as invoiced?\n\n' +
+    'This records that it was billed to the builder. (No accounting integration is wired yet — see UC note.)')) return;
   v.status = next.next;
   // Local-only for now — when /api/variations is wired, POST status change here.
   computeCounts(); renderSidebarBadges(); renderVariations();
+}
+
+// Open the New Variation modal.
+function varOpenCreate(){
+  const body = document.getElementById('varModalBody');
+  const jobOpts = STATE.jobs.map(j => `<option value="${escapeHtml(j.id)}">${escapeHtml(j.name)}</option>`).join('');
+  body.innerHTML = `
+    <div class="builder-form" style="padding:0;display:grid;grid-template-columns:1fr 1fr;gap:12px 18px">
+      <label><span>Job</span><select id="vf-job" class="builder-input">${jobOpts}</select></label>
+      <label><span>Variation number</span><input id="vf-number" class="builder-input" placeholder="BIR-V003"></label>
+      <label style="grid-column:1 / -1"><span>Title</span><input id="vf-title" class="builder-input" placeholder="What is the scope change?"></label>
+      <label><span>Source</span>
+        <select id="vf-source" class="builder-input">
+          <option value="field">Field (Phil)</option>
+          <option value="admin">Admin / office</option>
+          <option value="builder">Builder / client</option>
+          <option value="plan_change">Plan change</option>
+        </select>
+      </label>
+      <label><span>Builder reference</span><input id="vf-bref" class="builder-input" placeholder="HBI-RFI-188"></label>
+      <label><span>Linked area</span><input id="vf-area" class="builder-input" placeholder="Townhouses (7)"></label>
+      <label><span>Linked stage</span><input id="vf-stage" class="builder-input" placeholder="Fit-off"></label>
+      <label><span>Estimated $ impact</span><input id="vf-price" type="number" min="0" step="50" class="builder-input" placeholder="0"></label>
+      <label><span>Estimated hours impact</span><input id="vf-hours" type="number" min="0" step="0.5" class="builder-input" placeholder="0"></label>
+      <label style="grid-column:1 / -1"><span>Description / reason</span><textarea id="vf-desc" class="builder-input" rows="3" placeholder="Why is this scope changing? What was the trigger from site or client?"></textarea></label>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">
+      <button class="ctxbar-action sec" onclick="closeVarModal()">Cancel</button>
+      <button class="btn-app" onclick="varSubmitCreate()">Save as draft</button>
+    </div>
+    <div class="uc-block" style="padding:14px 16px;margin-top:14px;background:#0e1520">
+      <div class="uc-tag" style="margin-bottom:8px">Backend pending</div>
+      <div style="font-size:12px;color:var(--ink-3);line-height:1.5">
+        Variations save locally for now. Photos / evidence attach via Phil; admin-side attachment lands with /api/variations.
+        <b style="color:var(--ink-2)">No Xero or accounting integration is wired</b> — marking "invoiced" is a status flag only.
+      </div>
+    </div>
+  `;
+  document.getElementById('varModalBk').classList.add('open');
+}
+function closeVarModal(){ document.getElementById('varModalBk').classList.remove('open'); }
+function varSubmitCreate(){
+  const get = id => (document.getElementById(id) || {}).value || '';
+  const jobId = get('vf-job');
+  const title = get('vf-title').trim();
+  if (!title) return alert('Title is required.');
+  const me = (STATE.me && (STATE.me.username || STATE.me.id)) || 'admin';
+  const newV = {
+    id: 'V-' + jobId + '-' + Math.random().toString(36).slice(2,7),
+    variationNumber: get('vf-number') || 'V-' + Date.now().toString().slice(-6),
+    jobId,
+    title,
+    description: get('vf-desc'),
+    status: 'draft',
+    source: get('vf-source') || 'admin',
+    builderRef: get('vf-bref'),
+    linkedArea: get('vf-area'),
+    linkedStage: get('vf-stage'),
+    priceImpact: Number(get('vf-price') || 0),
+    hoursImpact: Number(get('vf-hours') || 0),
+    photoCount: 0,
+    raisedBy: me,
+    raisedAt: new Date().toISOString(),
+  };
+  STATE.variations.unshift(newV);
+  closeVarModal();
+  computeCounts(); renderSidebarBadges(); renderVariations();
+}
+
+// ─────────────────────────────────────────────────────────
+// Reports renderer — honest metrics + visible "data not ready" labels.
+//
+// Each report tile carries:
+//   - what it measures
+//   - data sources it needs
+//   - current data availability  (ok / partial / missing)
+//   - basic computed metric if data is there
+//   - "Under construction" badge ONLY if the metric can't be computed yet
+//
+// Better to admit "not enough data yet" than to ship a faked chart.
+// ─────────────────────────────────────────────────────────
+function renderReports(){
+  const grid = document.getElementById('reportsGrid');
+  if (!grid) return;
+  const fmt$ = n => '$' + Math.round(Number(n)||0).toLocaleString('en-AU');
+  const tiles = [];
+
+  // 1. LABOUR BURN — quoted vs actual per job. Data: STATE.jobs.{quoted,actualHours},
+  //    plus STATE.hoursByJob for live actuals. Live in both real + mock.
+  {
+    const rows = STATE.jobs.filter(j => Number(j.quotedHours||0) > 0).map(j => {
+      const quoted = Number(j.quotedHours||0);
+      const actual = Number(j.actualHours||0)
+        || ((STATE.hoursByJob[j.id]||{}).entries||[]).reduce((s,e)=>s+Number(e.hours||0),0);
+      const pct = quoted ? Math.round((actual/quoted)*100) : 0;
+      const over = actual > quoted;
+      return { name: j.name, pct, over, actual, quoted };
+    }).sort((a,b)=>b.pct-a.pct).slice(0, 5);
+    tiles.push({
+      title: 'Labour burn',
+      what: 'Quoted vs actual hours per job. Forecast over-burn before it bites.',
+      source: rows.length ? 'ok' : 'missing',
+      sourceMsg: rows.length ? 'STATE.hoursByJob · STATE.jobs.quotedHours' : 'No quoted-hours data on any job yet',
+      body: rows.length ? rows.map(r => `
+        <div class="rpt-row">
+          <span style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(r.name)}</span>
+          <span><b style="color:${r.over?'#fca5a5':'#e7ecf3'}">${r.pct}%</b> · ${r.actual.toFixed(0)}/${r.quoted}h</span>
+        </div>
+      `).join('') : null,
+    });
+  }
+
+  // 2. ITP COMPLETION — checkpoints complete / blocked.
+  {
+    const all = (STATE.itps||[]).flatMap(i => i.checkpoints||[]);
+    if (all.length) {
+      const done = all.filter(cp => itpStatus(cp) === 'approved').length;
+      const blocked = all.filter(cp => itpStatus(cp) === 'blocked').length;
+      const pct = Math.round((done/all.length)*100);
+      tiles.push({
+        title: 'ITP completion',
+        what: 'Checkpoint coverage across active jobs. Catches handover blockers early.',
+        source: 'ok',
+        sourceMsg: 'STATE.itps · checkpoint statuses',
+        metric: `${pct}%<small>complete</small>`,
+        body: `
+          <div class="rpt-row"><span>Total checkpoints</span><b>${all.length}</b></div>
+          <div class="rpt-row"><span>Complete</span><b style="color:#4ade80">${done}</b></div>
+          <div class="rpt-row"><span>Blocked / evidence missing</span><b style="color:${blocked?'#fca5a5':'#aebac9'}">${blocked}</b></div>
+        `,
+      });
+    } else {
+      tiles.push({
+        title: 'ITP completion',
+        what: 'Checkpoint coverage across active jobs.',
+        source: 'missing',
+        sourceMsg: 'No ITPs defined yet — Job Builder will populate this.',
+        uc: 'Awaiting first ITP',
+      });
+    }
+  }
+
+  // 3. VARIATION RECOVERY — value approved+invoiced / value raised.
+  {
+    const v = STATE.variations || [];
+    if (v.length) {
+      const raised = v.reduce((s,x)=>s+Math.max(0,Number(x.priceImpact||0)),0);
+      const recovered = v.filter(x => x.status === 'approved' || x.status === 'invoiced')
+        .reduce((s,x)=>s+Number(x.priceImpact||0),0);
+      const invoiced = v.filter(x => x.status === 'invoiced').reduce((s,x)=>s+Number(x.priceImpact||0),0);
+      const pct = raised ? Math.round((recovered/raised)*100) : 0;
+      tiles.push({
+        title: 'Variation recovery',
+        what: 'How much of variation scope makes it through approval and billing.',
+        source: 'ok',
+        sourceMsg: 'STATE.variations · status transitions',
+        metric: `${pct}%<small>recovered</small>`,
+        body: `
+          <div class="rpt-row"><span>Variations raised</span><b>${v.length}</b></div>
+          <div class="rpt-row"><span>$ raised</span><b>${fmt$(raised)}</b></div>
+          <div class="rpt-row"><span>$ approved + invoiced</span><b style="color:#4ade80">${fmt$(recovered)}</b></div>
+          <div class="rpt-row"><span>$ invoiced</span><b style="color:#c4b5fd">${fmt$(invoiced)}</b></div>
+        `,
+      });
+    } else {
+      tiles.push({
+        title: 'Variation recovery',
+        what: 'Variations raised vs approved vs invoiced.',
+        source: 'missing',
+        sourceMsg: 'No variations in the register yet.',
+        uc: 'No data',
+      });
+    }
+  }
+
+  // 4. JOB PROFITABILITY — contract value vs labour cost. Partial: needs material + variations costs too.
+  {
+    const rows = STATE.jobs.filter(j => Number(j.contractValue||0) > 0 && Number(j.quotedHours||0) > 0).map(j => {
+      const labourBudget = Number(j.quotedHours||0) * 78; // weighted-avg rate placeholder
+      const margin = Number(j.contractValue||0) - labourBudget;
+      const marginPct = j.contractValue ? Math.round((margin/Number(j.contractValue))*100) : 0;
+      return { name: j.name, margin, marginPct, contract: Number(j.contractValue||0) };
+    }).sort((a,b)=>a.marginPct-b.marginPct).slice(0, 5);
+    tiles.push({
+      title: 'Job profitability',
+      what: 'Contract value vs cost (labour, materials, variations). Margin trend per job.',
+      source: rows.length ? 'partial' : 'missing',
+      sourceMsg: rows.length ? 'Labour only — materials/variations cost rollup pending' : 'No contract values set on jobs',
+      body: rows.length ? rows.map(r => `
+        <div class="rpt-row">
+          <span style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(r.name)}</span>
+          <span><b style="color:${r.marginPct<20?'#fbbf24':'#4ade80'}">${r.marginPct}%</b> · ${fmt$(r.margin)}</span>
+        </div>
+      `).join('') : null,
+      uc: rows.length ? null : 'Awaiting contract values',
+    });
+  }
+
+  // 5. BUILDER PERFORMANCE — variations by builder, on-time, approval rate.
+  {
+    const groups = {};
+    for (const j of STATE.jobs) {
+      const b = j.builder || j.client || '—';
+      groups[b] = groups[b] || { jobs: 0, contract: 0 };
+      groups[b].jobs++;
+      groups[b].contract += Number(j.contractValue||0);
+    }
+    for (const v of (STATE.variations||[])) {
+      const job = STATE.jobs.find(x=>x.id===v.jobId);
+      const b = job ? (job.builder || job.client) : null;
+      if (!b) continue;
+      groups[b] = groups[b] || { jobs:0, contract:0 };
+      groups[b].varRaised = (groups[b].varRaised||0) + 1;
+      if (v.status === 'approved' || v.status === 'invoiced') {
+        groups[b].varApproved = (groups[b].varApproved||0) + 1;
+      }
+    }
+    const rows = Object.entries(groups).sort((a,b)=>b[1].contract-a[1].contract).slice(0, 4);
+    tiles.push({
+      title: 'Builder performance',
+      what: 'Variation approval rate, contract size, and job count by builder/client.',
+      source: rows.length ? 'partial' : 'missing',
+      sourceMsg: rows.length ? 'Variation approval rate only — on-time + defect data pending' : 'No builder data',
+      body: rows.length ? rows.map(([name, g]) => {
+        const rate = g.varRaised ? Math.round(((g.varApproved||0)/g.varRaised)*100) : null;
+        return `
+          <div class="rpt-row">
+            <span style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(name)}</span>
+            <span style="font-size:11px;color:var(--ink-3)">${g.jobs} job${g.jobs===1?'':'s'} · ${fmt$(g.contract)}${rate!=null?' · '+rate+'% var':''}</span>
+          </div>
+        `;
+      }).join('') : null,
+      uc: rows.length ? null : 'No data',
+    });
+  }
+
+  // 6. QUOTE ACCURACY — requires job COMPLETION + estimator tag, not in mock data.
+  tiles.push({
+    title: 'Quote accuracy',
+    what: 'Quoted vs actual at job completion, trended per estimator.',
+    source: 'missing',
+    sourceMsg: 'Needs completed jobs + estimator tag. Active jobs not eligible until handover.',
+    uc: 'Awaiting completed jobs',
+  });
+
+  // 7. HANDOVER PACK — bundle generator. Genuinely not built.
+  tiles.push({
+    title: 'Handover pack',
+    what: 'Auto-generated handover bundle: ITPs + certificates + photos + plans, ZIP/PDF export.',
+    source: 'missing',
+    sourceMsg: 'Bundle generator not built — needs /api/handover-export.',
+    uc: 'Awaiting backend',
+  });
+
+  // Render.
+  grid.innerHTML = tiles.map(t => `
+    <div class="rpt-tile">
+      <h3>${escapeHtml(t.title)}</h3>
+      <p>${escapeHtml(t.what)}</p>
+      ${t.metric ? `<div class="rpt-metric">${t.metric}</div>` : ''}
+      ${t.body  ? `<div style="margin-top:10px">${t.body}</div>` : ''}
+      ${t.uc    ? `<span class="uc-tag">${escapeHtml(t.uc)}</span>` : ''}
+      <div class="rpt-source ${t.source}">${escapeHtml(t.sourceMsg)}</div>
+    </div>
+  `).join('');
 }
 
 // Kick off
