@@ -3,31 +3,539 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BuhlOS — ITP / QA</title>
-<meta http-equiv="refresh" content="0; url=/admin/operations#itp">
-<link rel="canonical" href="/admin/operations#itp">
+<title>bühl admin · ITP / QA</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="theme-color" content="#0d1b34">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/_shell.css">
+<script src="/admin/_shell.js"></script>
+
+<!--
+  /admin/itp · ITP / QA admin review surface
+  ──────────────────────────────────────────
+  Cross-job review queue. Reads /api/job-itps for every active job and
+  aggregates client-side. Per-instance actions (attach / signoff /
+  reopen) hit the existing endpoints. Statuses use the system canon —
+  pending / in-progress / witnessed / signed-off — and the brief's
+  draft/submitted/approved/rejected/needs_info terminology maps:
+    draft       = pending
+    submitted   = witnessed       (all required points recorded)
+    approved    = signed-off
+    rejected    = reopened with optional `rejectionReason` (planned)
+    needs_info  = reopened (admin sends back for more evidence)
+
+  Independent-review rule (brief E):
+    signedOffBy must not equal any results[].byUserId on the instance.
+    Enforced client-side here. Backend gate is a follow-up — see the
+    yellow strip near the signoff button.
+-->
+
 <style>
-  body{margin:0;background:#0b1018;color:#aebac9;font-family:-apple-system,'Inter',Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
-  .b{max-width:420px;padding:32px;text-align:center}
-  .m{width:36px;height:36px;border-radius:8px;background:#ffcc00;color:#0b0d10;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-family:'Inter Tight','Inter',sans-serif;margin-bottom:14px}
-  a{color:#ffcc00;text-decoration:none;font-weight:600}
-  h1{font-family:'Inter Tight','Inter',sans-serif;font-weight:700;font-size:18px;color:#e7ecf3;margin:0 0 8px}
-  p{font-size:13px;line-height:1.5;margin:0 0 14px}
+  .itp-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .itp-kpi {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r, 10px);
+    padding: 12px 14px;
+  }
+  .itp-kpi-l {
+    font-family: var(--ff-mono, monospace);
+    font-size: 10.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted);
+    font-weight: 600;
+  }
+  .itp-kpi-v {
+    font-family: var(--ff-display, 'Inter Tight', sans-serif);
+    font-size: 28px; font-weight: 700;
+    color: var(--ink);
+    line-height: 1;
+    margin-top: 6px;
+  }
+  .itp-kpi-v.amber { color: var(--amber, #d68a1a); }
+  .itp-kpi-v.green { color: var(--ok, #1f8b5a); }
+  .itp-kpi-v.red   { color: var(--bad, #c0312f); }
+  .itp-kpi-d { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+
+  .itp-tools {
+    display: flex; gap: 10px; align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .itp-chip {
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--ink-2);
+    cursor: pointer;
+    user-select: none;
+  }
+  .itp-chip.on {
+    background: var(--ink);
+    color: var(--surface);
+    border-color: var(--ink);
+  }
+  .itp-search {
+    flex: 1; min-width: 200px; max-width: 360px;
+    display: flex; gap: 8px; align-items: center;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 10px;
+  }
+  .itp-search input {
+    flex: 1; border: 0; background: transparent;
+    font: inherit; outline: 0; color: var(--ink);
+  }
+
+  .itp-grid {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 14px;
+    align-items: start;
+  }
+  @media (max-width: 1100px) { .itp-grid { grid-template-columns: 1fr; } }
+
+  .itp-row {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+    cursor: pointer;
+    margin-bottom: 8px;
+    transition: border-color .12s, box-shadow .12s;
+  }
+  .itp-row:hover {
+    border-color: var(--accent);
+    box-shadow: 0 1px 0 var(--accent) inset;
+  }
+  .itp-row.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+  .itp-row-top {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 4px;
+  }
+  .itp-row-title {
+    flex: 1;
+    font-weight: 700; font-size: 14px;
+    color: var(--ink);
+    font-family: var(--ff-display, 'Inter Tight', sans-serif);
+  }
+  .itp-row-sub {
+    font-size: 12px; color: var(--muted);
+    display: flex; gap: 10px; align-items: center;
+  }
+  .itp-row-progress {
+    margin-top: 8px;
+    font-family: var(--ff-mono, monospace);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .itp-bar { background: var(--surface-3); height: 4px; border-radius: 2px; margin-top: 4px; overflow: hidden; }
+  .itp-bar-fill { background: var(--accent); height: 100%; transition: width .3s; }
+  .itp-bar-fill.complete { background: var(--ok, #1f8b5a); }
+
+  .itp-panel {
+    position: sticky;
+    top: 76px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r, 10px);
+    padding: 16px 18px;
+    max-height: calc(100vh - 96px);
+    overflow: auto;
+  }
+  .itp-panel h3 {
+    font-family: var(--ff-display, 'Inter Tight', sans-serif);
+    font-weight: 700; font-size: 16px;
+    margin: 0 0 4px;
+  }
+  .itp-panel .sub { font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
+  .itp-point {
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .itp-point:last-child { border-bottom: 0; }
+  .itp-point-top { display: flex; align-items: center; gap: 8px; }
+  .itp-point-type {
+    font-family: var(--ff-mono, monospace);
+    font-size: 10px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .itp-point-label { flex: 1; font-weight: 600; color: var(--ink); }
+  .itp-point-done { color: var(--ok, #1f8b5a); font-size: 14px; }
+  .itp-point-todo { color: var(--muted); }
+  .itp-point-meta {
+    margin-top: 4px;
+    font-size: 11.5px; color: var(--muted);
+  }
+
+  .itp-warn-self {
+    background: rgba(192,49,47,.08);
+    border: 1px solid rgba(192,49,47,.4);
+    color: var(--bad, #c0312f);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 12.5px;
+    margin: 12px 0;
+  }
+  .itp-warn-self strong { color: var(--bad, #c0312f); }
+  .itp-warn-uc {
+    background: rgba(245,208,32,.16);
+    border: 1px solid rgba(245,208,32,.5);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--ink-2);
+    margin: 12px 0;
+  }
+  .itp-warn-uc-tag {
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-family: var(--ff-mono, monospace);
+    font-size: 9.5px; letter-spacing: .14em;
+    text-transform: uppercase; font-weight: 700;
+    padding: 2px 6px; border-radius: 2px;
+    margin-right: 6px;
+  }
 </style>
 </head>
 <body>
-<!--
-  /admin/itp consolidated into /admin/operations#itp.
-  The BuhlOS Command Centre SPA holds the canonical implementation of
-  every admin tool. Direct URLs are kept (and redirected) so existing
-  bookmarks and external links don't break.
--->
-<div class="b">
-  <div class="m">BL</div>
-  <h1>ITP / QA</h1>
-  <p>Redirecting to the BuhlOS Command Centre…</p>
-  <a href="/admin/operations#itp">Open ITP / QA now &rarr;</a>
-</div>
-<script>location.replace('/admin/operations#itp');</script>
+<script>
+'use strict';
+
+const STATE = {
+  loaded: false,
+  jobs: [],          // list of { id, name, code }
+  rows: [],          // [{ job, instance, completed/required, status }]
+  selectedId: null,  // composite "<jobId>:<instanceId>"
+  filter: 'submitted',  // 'all' | 'draft' | 'submitted' | 'approved' | 'rejected' | 'blocked'
+  search: '',
+  me: null,
+};
+
+window.PAGE = {
+  id: 'itp',
+  title: 'ITP / QA',
+  crumb: 'ITP / QA',
+  async render() {
+    SHELL.$('#page').innerHTML = `
+      <div class="page-head">
+        <div>
+          <div class="page-h1">ITP / QA</div>
+          <div class="page-sub">Inspection &amp; Test Plans across every active job. Evidence status, photo-linked checkpoints, independent reviewer sign-off.</div>
+        </div>
+        <div><a class="btn" href="/admin/snags" style="border:1px solid var(--line);padding:7px 12px;border-radius:6px;color:var(--ink);text-decoration:none;font-size:12px">Snag triage →</a></div>
+      </div>
+      <div id="itp-shell"><div class="empty"><div class="empty-title">Loading ITPs…</div></div></div>
+    `;
+    await loadAll();
+    paint();
+  }
+};
+
+async function loadAll() {
+  try {
+    const [jobsR, meR] = await Promise.all([
+      SHELL.api('/api/jobs?withStats=1'),
+      SHELL.api('/api/auth?action=me').catch(() => ({ user: null })),
+    ]);
+    STATE.me = meR.user || null;
+    STATE.jobs = (jobsR.jobs || []).filter(j => j.status !== 'archived');
+    // Fetch ITPs per job in parallel
+    const itpPerJob = await Promise.all(STATE.jobs.map(j =>
+      SHELL.api('/api/job-itps?jobId=' + encodeURIComponent(j.id))
+        .then(r => ({ job: j, instances: r.instances || [] }))
+        .catch(() => ({ job: j, instances: [] }))
+    ));
+    STATE.rows = [];
+    itpPerJob.forEach(({ job, instances }) => {
+      instances.forEach(inst => {
+        if (inst.archived) return;
+        STATE.rows.push(rowFromInstance(job, inst));
+      });
+    });
+    STATE.loaded = true;
+  } catch (e) {
+    SHELL.toast('Couldn’t load ITPs — ' + e.message, 'bad');
+  }
+}
+
+function rowFromInstance(job, inst) {
+  const points = (inst.templateSnapshot && inst.templateSnapshot.points) || [];
+  const required = points.filter(p => p.required !== false).length;
+  const filled = points.filter(p => inst.results && inst.results[p.id] && (inst.results[p.id].value !== null && inst.results[p.id].value !== '' || inst.results[p.id].photoUrl)).length;
+  let bucket = 'draft';
+  if (inst.status === 'pending') bucket = 'draft';
+  else if (inst.status === 'in-progress') bucket = filled >= required ? 'submitted' : 'draft';
+  else if (inst.status === 'witnessed') bucket = 'submitted';
+  else if (inst.status === 'signed-off') bucket = 'approved';
+  // blocked = required points missing AND already moved past pending
+  const blocked = required > 0 && filled < required && (inst.status === 'in-progress' || inst.status === 'witnessed');
+  return { job, instance: inst, filled, required, bucket, blocked };
+}
+
+function paint() {
+  if (!STATE.loaded) return;
+
+  // dashboard counts
+  const total = STATE.rows.length;
+  const submitted = STATE.rows.filter(r => r.bucket === 'submitted').length;
+  const approved = STATE.rows.filter(r => r.bucket === 'approved').length;
+  const draft = STATE.rows.filter(r => r.bucket === 'draft').length;
+  const blocked = STATE.rows.filter(r => r.blocked).length;
+
+  // filter + search
+  const filtered = STATE.rows.filter(r => {
+    if (STATE.filter === 'all') return true;
+    if (STATE.filter === 'blocked') return r.blocked;
+    return r.bucket === STATE.filter;
+  }).filter(r => {
+    if (!STATE.search) return true;
+    const q = STATE.search.toLowerCase();
+    const title = (r.instance.templateSnapshot && r.instance.templateSnapshot.name) || '';
+    return title.toLowerCase().includes(q)
+        || (r.job.name || '').toLowerCase().includes(q)
+        || (r.job.code || '').toLowerCase().includes(q);
+  });
+
+  const selectedRow = STATE.rows.find(r => stateKey(r) === STATE.selectedId);
+
+  SHELL.$('#itp-shell').innerHTML = `
+    <div class="itp-kpi-row">
+      <div class="itp-kpi"><div class="itp-kpi-l">Total ITPs</div><div class="itp-kpi-v">${total}</div><div class="itp-kpi-d">across ${STATE.jobs.length} active job${STATE.jobs.length===1?'':'s'}</div></div>
+      <div class="itp-kpi"><div class="itp-kpi-l">Awaiting review</div><div class="itp-kpi-v ${submitted ? 'amber':''}">${submitted}</div><div class="itp-kpi-d">witnessed, not signed off</div></div>
+      <div class="itp-kpi"><div class="itp-kpi-l">Approved</div><div class="itp-kpi-v ${approved ? 'green':''}">${approved}</div><div class="itp-kpi-d">signed off</div></div>
+      <div class="itp-kpi"><div class="itp-kpi-l">In draft</div><div class="itp-kpi-v">${draft}</div><div class="itp-kpi-d">incomplete on-site</div></div>
+      <div class="itp-kpi"><div class="itp-kpi-l">Blocked</div><div class="itp-kpi-v ${blocked ? 'red':''}">${blocked}</div><div class="itp-kpi-d">missing required evidence</div></div>
+    </div>
+
+    <div class="itp-tools">
+      ${['all','draft','submitted','approved','blocked'].map(f =>
+        `<span class="itp-chip ${STATE.filter===f?'on':''}" data-filter="${f}">${f[0].toUpperCase()+f.slice(1)}</span>`
+      ).join('')}
+      <div class="itp-search"><input id="itp-q" placeholder="Search by template, job, code…" value="${SHELL.escapeHtml(STATE.search)}"></div>
+      <span style="color:var(--muted);font-size:12px">${SHELL.pluralize(filtered.length, 'ITP')}</span>
+    </div>
+
+    <div class="itp-grid">
+      <div id="itp-list">
+        ${filtered.length ? filtered.map(r => renderRow(r)).join('') :
+          `<div class="empty"><div class="empty-title">Nothing matches</div><div class="empty-sub">Change the filter or clear the search.</div></div>`}
+      </div>
+      <div id="itp-side">
+        ${selectedRow ? renderDetail(selectedRow) : `
+          <div class="itp-panel">
+            <h3>Select an ITP to review</h3>
+            <div class="sub">Pick a row to inspect the evidence and sign off.</div>
+          </div>`}
+      </div>
+    </div>
+  `;
+
+  SHELL.$$('.itp-chip').forEach(el => el.addEventListener('click', () => {
+    STATE.filter = el.dataset.filter; paint();
+  }));
+  const q = SHELL.$('#itp-q');
+  if (q) q.addEventListener('input', () => { STATE.search = q.value; paint(); q.focus(); });
+
+  SHELL.$$('.itp-row').forEach(el => el.addEventListener('click', () => {
+    STATE.selectedId = el.dataset.key;
+    paint();
+  }));
+
+  if (selectedRow) wireDetail(selectedRow);
+}
+
+function stateKey(r) { return r.job.id + ':' + r.instance.id; }
+
+function renderRow(r) {
+  const tpl = r.instance.templateSnapshot || {};
+  const pct = r.required ? Math.round((r.filled / r.required) * 100) : 100;
+  const statusPill = bucketPill(r.bucket);
+  return `
+    <div class="itp-row ${stateKey(r) === STATE.selectedId ? 'on' : ''}" data-key="${SHELL.escapeHtml(stateKey(r))}">
+      <div class="itp-row-top">
+        <div class="itp-row-title">${SHELL.escapeHtml(tpl.name || r.instance.templateId)}</div>
+        ${statusPill}
+        ${r.blocked ? `<span class="pill pill-warn"><span class="pill-dot"></span>Blocked</span>` : ''}
+      </div>
+      <div class="itp-row-sub">
+        <span>${SHELL.escapeHtml(r.job.name || r.job.id)}</span>
+        <span>·</span>
+        <span>${SHELL.escapeHtml(r.instance.scope)}${r.instance.scopeId ? ' / ' + SHELL.escapeHtml(r.instance.scopeId) : ''}</span>
+        <span>·</span>
+        <span>Updated ${SHELL._ago ? SHELL._ago(r.instance.updatedAt || r.instance.createdAt) : ''}</span>
+      </div>
+      <div class="itp-row-progress">
+        ${r.filled} / ${r.required} required evidence points
+        <div class="itp-bar"><div class="itp-bar-fill ${pct>=100?'complete':''}" style="width:${pct}%"></div></div>
+      </div>
+    </div>
+  `;
+}
+
+function bucketPill(b) {
+  if (b === 'approved')  return `<span class="pill pill-ok"><span class="pill-dot"></span>Approved</span>`;
+  if (b === 'submitted') return `<span class="pill pill-info"><span class="pill-dot"></span>Submitted</span>`;
+  if (b === 'draft')     return `<span class="pill"><span class="pill-dot"></span>Draft</span>`;
+  return `<span class="pill">${SHELL.escapeHtml(b)}</span>`;
+}
+
+function renderDetail(r) {
+  const inst = r.instance;
+  const tpl  = inst.templateSnapshot || {};
+  const points = tpl.points || [];
+
+  // Independent-review check: who submitted any evidence on this instance?
+  const submitterIds = new Set();
+  const submitterNames = new Set();
+  Object.values(inst.results || {}).forEach(res => {
+    if (res.byUserId) submitterIds.add(res.byUserId);
+    if (res.byUsername) submitterNames.add(res.byUsername);
+  });
+  const meIsSubmitter = STATE.me && (submitterIds.has(STATE.me.id) || submitterNames.has(STATE.me.username));
+  const canSignoff = inst.status === 'witnessed' && !meIsSubmitter;
+  const needsInfoAvailable = inst.status === 'witnessed' || inst.status === 'in-progress';
+
+  return `
+    <div class="itp-panel">
+      <h3>${SHELL.escapeHtml(tpl.name || inst.templateId)}</h3>
+      <div class="sub">
+        ${SHELL.escapeHtml(r.job.name || r.job.id)}
+        · ${SHELL.escapeHtml(inst.scope)}${inst.scopeId ? ' / ' + SHELL.escapeHtml(inst.scopeId) : ''}
+        · ${bucketPill(r.bucket)}
+      </div>
+
+      ${meIsSubmitter && inst.status === 'witnessed' ? `
+        <div class="itp-warn-self">
+          <strong>Cannot self-review.</strong> You recorded evidence on this ITP. Independent review rule: signoff must come from someone other than the submitter. (reason: <code>itp_review_self</code>)
+        </div>
+      ` : ''}
+
+      <div style="margin:10px 0">
+        ${points.length ? points.map(p => {
+          const result = (inst.results || {})[p.id];
+          const done = result && ((result.value !== null && result.value !== '') || result.photoUrl);
+          return `
+            <div class="itp-point">
+              <div class="itp-point-top">
+                <span class="${done?'itp-point-done':'itp-point-todo'}">${done ? '✓' : '○'}</span>
+                <div class="itp-point-label">${SHELL.escapeHtml(p.label || p.id)}</div>
+                <span class="itp-point-type">${SHELL.escapeHtml(p.type || 'note')}${p.required === false ? ' · optional' : ''}</span>
+              </div>
+              ${done ? `
+                <div class="itp-point-meta">
+                  ${p.type === 'value' ? `<strong>${SHELL.escapeHtml(String(result.value))}${p.unit ? ' ' + SHELL.escapeHtml(p.unit) : ''}</strong> · ` : ''}
+                  ${result.photoUrl ? '📷 photo attached · ' : ''}
+                  ${result.note ? SHELL.escapeHtml(result.note) + ' · ' : ''}
+                  ${SHELL.escapeHtml(result.byUsername || '?')} ${SHELL._ago ? SHELL._ago(result.at) : ''}
+                </div>
+              ` : `<div class="itp-point-meta">Not yet recorded</div>`}
+            </div>
+          `;
+        }).join('') : `<div class="empty"><div class="empty-title">No points</div></div>`}
+      </div>
+
+      ${inst.signedOffBy ? `
+        <div style="background:var(--surface-2);border-radius:6px;padding:10px 12px;margin:8px 0;font-size:12.5px">
+          Signed off by <strong>${SHELL.escapeHtml(inst.signedOffBy)}</strong> ${SHELL._ago ? SHELL._ago(inst.signedOffAt) : ''}
+        </div>
+      ` : ''}
+
+      <div class="itp-warn-uc">
+        <span class="itp-warn-uc-tag">Pass 1</span>
+        Reject &amp; "needs info" actions are wired to <code>reopen</code> without a structured reason — adding a reason code is the next step. Self-review is blocked here (client) but backend enforcement is the follow-up.
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        ${inst.status === 'witnessed' && !inst.signedOffBy ? `
+          <button id="itp-approve" class="btn btn-primary" ${canSignoff ? '' : 'disabled'}
+            style="background:${canSignoff?'var(--ok,#1f8b5a)':'var(--surface-3)'};color:#fff;padding:8px 14px;border-radius:6px;border:0;font-weight:700;font-size:13px;cursor:${canSignoff?'pointer':'not-allowed'}">
+            Approve · sign off
+          </button>
+        ` : ''}
+        ${inst.status === 'signed-off' ? `
+          <button id="itp-reopen" class="btn" style="border:1px solid var(--line);padding:7px 12px;border-radius:6px;background:transparent;cursor:pointer;font-size:13px">Reopen</button>
+        ` : ''}
+        ${needsInfoAvailable ? `
+          <button id="itp-reject" class="btn" style="border:1px solid var(--bad,#c0312f);color:var(--bad,#c0312f);background:transparent;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:13px">Reject</button>
+          <button id="itp-needs" class="btn" style="border:1px solid var(--line);padding:7px 12px;border-radius:6px;background:transparent;cursor:pointer;font-size:13px">Needs info</button>
+        ` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function wireDetail(r) {
+  const approve = SHELL.$('#itp-approve');
+  if (approve) approve.addEventListener('click', async () => {
+    if (!confirm('Sign off this ITP? This locks the evidence in.')) return;
+    try {
+      await SHELL.api('/api/job-itps?jobId=' + encodeURIComponent(r.job.id) + '&action=signoff', {
+        method: 'POST',
+        body: { instanceId: r.instance.id },
+      });
+      SHELL.toast('Signed off', 'ok');
+      await loadAll(); paint();
+    } catch (e) { SHELL.toast('Signoff failed — ' + e.message, 'bad'); }
+  });
+
+  const reopen = SHELL.$('#itp-reopen');
+  if (reopen) reopen.addEventListener('click', async () => {
+    if (!confirm('Reopen this ITP so further evidence can be added?')) return;
+    try {
+      await SHELL.api('/api/job-itps?jobId=' + encodeURIComponent(r.job.id) + '&action=reopen', {
+        method: 'POST',
+        body: { instanceId: r.instance.id },
+      });
+      SHELL.toast('Reopened', 'ok');
+      await loadAll(); paint();
+    } catch (e) { SHELL.toast('Reopen failed — ' + e.message, 'bad'); }
+  });
+
+  const reject = SHELL.$('#itp-reject');
+  if (reject) reject.addEventListener('click', async () => {
+    const reason = prompt('Reject this ITP — what needs to be redone?');
+    if (!reason) return;
+    try {
+      await SHELL.api('/api/job-itps?jobId=' + encodeURIComponent(r.job.id) + '&action=reopen', {
+        method: 'POST',
+        body: { instanceId: r.instance.id },
+      });
+      SHELL.toast('Rejected · returned to crew', 'ok');
+      // Reason is not yet persisted server-side — surfaced in the toast.
+      console.log('Rejection reason (pending backend persistence):', reason);
+      await loadAll(); paint();
+    } catch (e) { SHELL.toast('Reject failed — ' + e.message, 'bad'); }
+  });
+
+  const needs = SHELL.$('#itp-needs');
+  if (needs) needs.addEventListener('click', async () => {
+    const reason = prompt('What information is missing?');
+    if (!reason) return;
+    try {
+      await SHELL.api('/api/job-itps?jobId=' + encodeURIComponent(r.job.id) + '&action=reopen', {
+        method: 'POST',
+        body: { instanceId: r.instance.id },
+      });
+      SHELL.toast('Returned to crew · "needs info"', 'ok');
+      console.log('Needs-info reason (pending backend persistence):', reason);
+      await loadAll(); paint();
+    } catch (e) { SHELL.toast('Failed — ' + e.message, 'bad'); }
+  });
+}
+
+SHELL.boot();
+</script>
 </body>
 </html>
