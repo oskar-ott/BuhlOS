@@ -6,61 +6,434 @@
 <title>bühl admin · reports</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="theme-color" content="#0d1f35">
+<meta name="theme-color" content="#0d1b34">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/admin/_shell.css">
 <script src="/admin/_shell.js"></script>
+
+<!--
+  /admin/reports · Reports landing (pass-1)
+  ─────────────────────────────────────────
+  Each report card pulls REAL data where the rollup already exists
+  server-side, falls back to "Not enough data yet" or FEATURE UNDER
+  CONSTRUCTION when it does not. Brief: "It is better to say 'Not
+  enough data yet' than to fake charts." — applied here.
+  Real numbers today:
+    - Labour burn       via /api/crew-utilization + /api/admin-stats
+    - ITP completion    via /api/job-itps (fan-out across active jobs)
+    - Quote accuracy    via /api/quote-stats
+    - Handover pack     via /api/handover-readiness?jobId — per-job
+  Mocked / honest-empty:
+    - Job profitability       (needs quoted-vs-actual per job)
+    - Variation recovery      (variations are local-only today — /admin/variations)
+    - Builder performance     (data exists per job but no aggregator yet)
+-->
+
+<style>
+  .rp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 14px;
+    margin-top: 6px;
+  }
+  .rp-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r, 10px);
+    padding: 18px 20px;
+    display: flex; flex-direction: column;
+    min-height: 200px;
+  }
+  .rp-card-top {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; margin-bottom: 8px;
+  }
+  .rp-card-name {
+    font-family: var(--ff-display, 'Inter Tight', sans-serif);
+    font-weight: 700; font-size: 16px;
+    color: var(--ink); letter-spacing: -.01em;
+  }
+  .rp-tag {
+    font-family: var(--ff-mono, monospace);
+    font-size: 9.5px; letter-spacing: .16em;
+    text-transform: uppercase; font-weight: 700;
+    padding: 3px 8px; border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .rp-tag.live { background: var(--ok, #1f8b5a); color: #fff; }
+  .rp-tag.partial { background: var(--accent); color: var(--accent-ink); }
+  .rp-tag.uc { background: var(--surface-3); color: var(--ink-2); }
+
+  .rp-what { color: var(--muted); font-size: 13px; line-height: 1.5; margin-bottom: 10px; }
+
+  .rp-metric {
+    background: var(--surface-2);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex; align-items: baseline; gap: 14px;
+    margin: 6px 0 12px;
+  }
+  .rp-metric-v {
+    font-family: var(--ff-display, 'Inter Tight', sans-serif);
+    font-weight: 700; font-size: 30px;
+    color: var(--ink); line-height: 1;
+  }
+  .rp-metric-l {
+    flex: 1;
+    font-size: 12px; color: var(--muted);
+    font-family: var(--ff-mono, monospace);
+    letter-spacing: .05em;
+  }
+  .rp-empty {
+    background: var(--surface-2);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--muted); font-size: 13px;
+    font-style: italic;
+    margin: 6px 0 12px;
+  }
+  .rp-list { font-size: 12.5px; color: var(--ink-2); }
+  .rp-list .rp-row {
+    display: flex; justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .rp-list .rp-row:last-child { border-bottom: 0; }
+  .rp-list .rp-row span:last-child { font-family: var(--ff-mono, monospace); }
+
+  .rp-foot {
+    margin-top: auto;
+    padding-top: 10px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px;
+    color: var(--muted);
+    border-top: 1px solid var(--line);
+  }
+  .rp-foot a {
+    color: var(--ink); text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .rp-foot .rp-sources {
+    font-family: var(--ff-mono, monospace); font-size: 11px;
+    color: var(--muted);
+  }
+</style>
 </head>
 <body>
 <script>
-// Reports — exportable views derived from existing data (hours, jobs,
-// quotes, ITPs, variations). Each report ships independently. The
-// section exists in the sidebar so the path is discoverable; each
-// individual report shows FEATURE UNDER CONSTRUCTION until its data
-// rollup lands.
+'use strict';
+
+const DATA = {
+  jobs:       null,
+  adminStats: null,
+  util:       null,
+  quoteStats: null,
+  itpRows:    null,   // [{ job, total, witnessed, signed, draft }]
+  handover:   null,   // [{ job, overallPct }]
+};
+
 window.PAGE = {
   id: 'reports',
   title: 'Reports',
   crumb: 'Reports',
   async render() {
-    const reports = [
-      { name: 'Job profitability',    why: 'Quoted vs actual labour, materials, margin per job.' },
-      { name: 'Labour burn',          why: 'Hours burned against quote — by job, by stage, by week.' },
-      { name: 'ITP completion',       why: 'Checkpoint coverage and evidence quality per job.' },
-      { name: 'Variation recovery',   why: 'Variations raised vs approved vs invoiced.' },
-      { name: 'Handover pack',        why: 'One-click PDF of plans, ITPs, photos, certs per job.' },
-      { name: 'Builder performance',  why: 'Per-builder cycle time, change-rate, defect-rate.' },
-      { name: 'Quote accuracy',       why: 'Quote-to-actual delta across the last N jobs.' },
-    ];
-
     SHELL.$('#page').innerHTML = `
       <div class="page-head">
         <div>
           <div class="page-h1">Reports</div>
-          <div class="page-sub">Exportable rollups across jobs, hours, quotes and ITPs. Each report ships independently; the section exists so the path is discoverable.</div>
+          <div class="page-sub">Real rollups across jobs, hours, quotes, ITPs and variations. Pass-1: live metrics where the data exists, "not enough data yet" where it doesn't.</div>
         </div>
       </div>
-
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:6px">
-        ${reports.map(r => `
-          <div style="background:var(--surface);border:1px solid var(--line);border-radius:var(--r,10px);padding:18px 20px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:10px">
-              <div style="font-family:'Inter Tight',Inter,sans-serif;font-weight:700;font-size:15px;color:var(--ink);letter-spacing:-.01em">${SHELL.escapeHtml(r.name)}</div>
-              <span style="font-family:var(--mono,monospace);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;color:var(--accent-ink);background:var(--accent);padding:3px 8px;border-radius:2px">Under construction</span>
-            </div>
-            <div style="color:var(--muted);font-size:13px;line-height:1.5">${SHELL.escapeHtml(r.why)}</div>
-          </div>
-        `).join('')}
-      </div>
-
-      <div style="margin-top:24px;color:var(--muted);font-size:13px">
-        Reports land independently as the underlying data lines settle. Hours rollups (used by job profitability + labour burn) will likely arrive first since the data already lives in <a href="/admin/hours" style="color:var(--ink);text-decoration:underline;text-underline-offset:3px">/admin/hours</a>.
-      </div>
+      <div id="rp-shell"><div class="empty"><div class="empty-title">Loading rollups…</div></div></div>
     `;
+    await loadAll();
+    paint();
   }
 };
+
+async function loadAll() {
+  const all = await Promise.all([
+    SHELL.api('/api/jobs?withStats=1').catch(() => null),
+    SHELL.api('/api/admin-stats').catch(() => null),
+    SHELL.api('/api/crew-utilization').catch(() => null),
+    SHELL.api('/api/quote-stats').catch(() => null),
+  ]);
+  DATA.jobs       = all[0];
+  DATA.adminStats = all[1];
+  DATA.util       = all[2];
+  DATA.quoteStats = all[3];
+
+  // Fan-out per-job for ITPs + handover readiness
+  if (DATA.jobs && DATA.jobs.jobs) {
+    const active = DATA.jobs.jobs.filter(j => j.status === 'active').slice(0, 12); // cap fan-out
+    const itpRes = await Promise.all(active.map(j =>
+      SHELL.api('/api/job-itps?jobId=' + encodeURIComponent(j.id))
+        .then(r => ({ job: j, instances: r.instances || [] }))
+        .catch(() => ({ job: j, instances: [] }))
+    ));
+    DATA.itpRows = itpRes.map(({ job, instances }) => {
+      const total     = instances.filter(i => !i.archived).length;
+      const draft     = instances.filter(i => !i.archived && i.status === 'pending').length;
+      const witnessed = instances.filter(i => !i.archived && i.status === 'witnessed').length;
+      const signed    = instances.filter(i => !i.archived && i.status === 'signed-off').length;
+      return { job, total, draft, witnessed, signed };
+    });
+
+    const hoRes = await Promise.all(active.map(j =>
+      SHELL.api('/api/handover-readiness?jobId=' + encodeURIComponent(j.id))
+        .then(r => ({ job: j, score: r }))
+        .catch(() => ({ job: j, score: null }))
+    ));
+    DATA.handover = hoRes.filter(r => r.score && r.score.overall);
+  }
+}
+
+function paint() {
+  // Variations are read from localStorage (matches /admin/variations)
+  let variations = [];
+  try { variations = JSON.parse(localStorage.getItem('buhlos.variations.v1') || '[]') || []; }
+  catch { variations = []; }
+
+  SHELL.$('#rp-shell').innerHTML = `
+    <div class="rp-grid">
+      ${renderJobProfitability()}
+      ${renderLabourBurn()}
+      ${renderITPCompletion()}
+      ${renderVariationRecovery(variations)}
+      ${renderHandoverPack()}
+      ${renderBuilderPerformance()}
+      ${renderQuoteAccuracy()}
+    </div>
+  `;
+}
+
+function renderJobProfitability() {
+  const activeJobs = DATA.adminStats && DATA.adminStats.jobs ? DATA.adminStats.jobs.active : 0;
+  return `
+    <div class="rp-card">
+      <div class="rp-card-top">
+        <div class="rp-card-name">Job profitability</div>
+        <span class="rp-tag uc">Under construction</span>
+      </div>
+      <div class="rp-what">Quoted vs actual labour + materials per job, with margin trend.</div>
+      <div class="rp-empty">Needs per-job quoted hours + a materials cost feed. Hours data is in place; quote-to-job link + materials totals are pending. Today: <a href="/admin/cash" style="color:var(--ink)">Cash &amp; margin</a> covers cash burn while this rolls up.</div>
+      <div class="rp-foot">
+        <span class="rp-sources">sources: /api/jobs · /api/hours · /api/quotes</span>
+        <span style="flex:1"></span>
+        <span>${activeJobs} active jobs</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderLabourBurn() {
+  if (!DATA.util || !DATA.util.crew) {
+    return rpCard('Labour burn', 'partial', 'Hours by worker this week, with utilization vs target.',
+      `<div class="rp-empty">Couldn't load /api/crew-utilization. Refresh, or check the API.</div>`,
+      '/admin/hours', '/api/crew-utilization', '');
+  }
+  const totalHrs = DATA.util.crew.reduce((s, c) => s + (Number(c.hoursTotal) || 0), 0);
+  const totalExpected = (DATA.util.crew.length || 1) * (DATA.util.expectedHours || 40);
+  const utilPct = totalExpected ? Math.round((totalHrs / totalExpected) * 100) : 0;
+  const top = [...DATA.util.crew].sort((a, b) => (b.hoursTotal || 0) - (a.hoursTotal || 0)).slice(0, 4);
+  return `
+    <div class="rp-card">
+      <div class="rp-card-top">
+        <div class="rp-card-name">Labour burn</div>
+        <span class="rp-tag live">Live</span>
+      </div>
+      <div class="rp-what">Hours logged this week, utilization vs the ${DATA.util.expectedHours || 40}h target.</div>
+      <div class="rp-metric">
+        <div class="rp-metric-v">${utilPct}%</div>
+        <div class="rp-metric-l">overall utilization · ${Math.round(totalHrs)} / ${Math.round(totalExpected)} hrs</div>
+      </div>
+      <div class="rp-list">
+        ${top.length ? top.map(c => `<div class="rp-row"><span>${SHELL.escapeHtml(c.username || c.id)}</span><span>${(Number(c.hoursTotal)||0).toFixed(1)} h</span></div>`).join('') : '<div class="rp-row"><span>No hours logged this week</span><span>0 h</span></div>'}
+      </div>
+      <div class="rp-foot">
+        <span class="rp-sources">/api/crew-utilization</span>
+        <span style="flex:1"></span>
+        <a href="/admin/hours">View timesheets →</a>
+      </div>
+    </div>
+  `;
+}
+
+function renderITPCompletion() {
+  if (!DATA.itpRows || !DATA.itpRows.length) {
+    return rpCard('ITP completion', 'partial', 'Checkpoint coverage and evidence quality per job.',
+      `<div class="rp-empty">No active jobs with ITPs attached. Attach ITP templates from <a href="/admin/itp" style="color:var(--ink)">/admin/itp</a> to see this fill in.</div>`,
+      '/admin/itp', '/api/job-itps', '');
+  }
+  const total = DATA.itpRows.reduce((s, r) => s + r.total, 0);
+  const signed = DATA.itpRows.reduce((s, r) => s + r.signed, 0);
+  const pct = total ? Math.round((signed / total) * 100) : 0;
+  const top = [...DATA.itpRows].filter(r => r.total).sort((a, b) => b.total - a.total).slice(0, 4);
+  return `
+    <div class="rp-card">
+      <div class="rp-card-top">
+        <div class="rp-card-name">ITP completion</div>
+        <span class="rp-tag live">Live</span>
+      </div>
+      <div class="rp-what">Inspection and Test Plan progress across active jobs.</div>
+      <div class="rp-metric">
+        <div class="rp-metric-v">${pct}%</div>
+        <div class="rp-metric-l">${signed} signed-off · ${total} total</div>
+      </div>
+      <div class="rp-list">
+        ${top.length ? top.map(r => `<div class="rp-row"><span>${SHELL.escapeHtml(r.job.name || r.job.id)}</span><span>${r.signed}/${r.total}</span></div>`).join('') : '<div class="rp-row"><span>No ITPs attached yet</span><span>0/0</span></div>'}
+      </div>
+      <div class="rp-foot">
+        <span class="rp-sources">/api/job-itps</span>
+        <span style="flex:1"></span>
+        <a href="/admin/itp">Review queue →</a>
+      </div>
+    </div>
+  `;
+}
+
+function renderVariationRecovery(variations) {
+  const total = variations.length;
+  const open  = variations.filter(v => v.status === 'submitted' || v.status === 'approved');
+  const lost  = variations.filter(v => v.status === 'rejected');
+  const invoiced = variations.filter(v => v.status === 'invoiced');
+  const openVal = open.reduce((s, v) => s + (Number(v.estimatedValue) || 0), 0);
+  const lostVal = lost.reduce((s, v) => s + (Number(v.estimatedValue) || 0), 0);
+  const recovered = invoiced.reduce((s, v) => s + (Number(v.estimatedValue) || 0), 0);
+  return `
+    <div class="rp-card">
+      <div class="rp-card-top">
+        <div class="rp-card-name">Variation recovery</div>
+        <span class="rp-tag partial">Pass 1</span>
+      </div>
+      <div class="rp-what">Variations raised vs approved vs invoiced. Reads from the same store as <a href="/admin/variations" style="color:var(--ink)">/admin/variations</a>.</div>
+      ${total ? `
+        <div class="rp-metric">
+          <div class="rp-metric-v">${SHELL.fmtMoney ? SHELL.fmtMoney(openVal + recovered) : '$' + (openVal + recovered)}</div>
+          <div class="rp-metric-l">open + invoiced · ${total} variation${total===1?'':'s'}</div>
+        </div>
+        <div class="rp-list">
+          <div class="rp-row"><span>Invoiced</span><span>${SHELL.fmtMoney ? SHELL.fmtMoney(recovered) : '$' + recovered}</span></div>
+          <div class="rp-row"><span>Open value</span><span>${SHELL.fmtMoney ? SHELL.fmtMoney(openVal) : '$' + openVal}</span></div>
+          <div class="rp-row"><span>Lost (rejected)</span><span>${SHELL.fmtMoney ? SHELL.fmtMoney(lostVal) : '$' + lostVal}</span></div>
+        </div>
+      ` : `<div class="rp-empty">Not enough data yet — no variations recorded. Create one from <a href="/admin/variations" style="color:var(--ink)">/admin/variations</a>.</div>`}
+      <div class="rp-foot">
+        <span class="rp-sources">localStorage (pass-1)</span>
+        <span style="flex:1"></span>
+        <a href="/admin/variations">Register →</a>
+      </div>
+    </div>
+  `;
+}
+
+function renderHandoverPack() {
+  if (!DATA.handover || !DATA.handover.length) {
+    return rpCard('Handover pack', 'partial', 'One-click PDF of plans, ITPs, photos, certs per job. Score = readiness for handover.',
+      `<div class="rp-empty">No handover scores yet — needs active jobs with progress data. Once jobs are in flight, this card shows per-job readiness %.</div>`,
+      '/admin/jobs', '/api/handover-readiness', '');
+  }
+  const rows = [...DATA.handover]
+    .sort((a, b) => (b.score.overall.overallPct || 0) - (a.score.overall.overallPct || 0))
+    .slice(0, 5);
+  const ready = rows.filter(r => (r.score.overall.overallPct || 0) >= 95).length;
+  return `
+    <div class="rp-card">
+      <div class="rp-card-top">
+        <div class="rp-card-name">Handover pack</div>
+        <span class="rp-tag partial">Pass 1</span>
+      </div>
+      <div class="rp-what">Per-job handover readiness — overall progress + outstanding snags + incomplete areas. PDF export pending.</div>
+      <div class="rp-metric">
+        <div class="rp-metric-v">${ready}</div>
+        <div class="rp-metric-l">jobs ≥95% ready · ${DATA.handover.length} scored</div>
+      </div>
+      <div class="rp-list">
+        ${rows.map(r => `<div class="rp-row"><span>${SHELL.escapeHtml(r.score.jobName || r.job.name)}</span><span>${r.score.overall.overallPct || 0}%</span></div>`).join('')}
+      </div>
+      <div class="rp-foot">
+        <span class="rp-sources">/api/handover-readiness</span>
+        <span style="flex:1"></span>
+        <a href="/admin/jobs">All jobs →</a>
+      </div>
+    </div>
+  `;
+}
+
+function renderBuilderPerformance() {
+  return `
+    <div class="rp-card">
+      <div class="rp-card-top">
+        <div class="rp-card-name">Builder performance</div>
+        <span class="rp-tag uc">Under construction</span>
+      </div>
+      <div class="rp-what">Per-builder cycle time, change-rate and defect-rate across the last N jobs.</div>
+      <div class="rp-empty">Needs builder grouping on each job + completed-job history. Builder field exists on the job record but no aggregator yet.</div>
+      <div class="rp-foot">
+        <span class="rp-sources">sources: /api/jobs · /api/snags-export</span>
+        <span style="flex:1"></span>
+        <span>Pending data layer</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderQuoteAccuracy() {
+  if (!DATA.quoteStats) {
+    return rpCard('Quote accuracy', 'partial', 'Quote-to-actual delta across recent jobs.',
+      `<div class="rp-empty">Couldn't load /api/quote-stats.</div>`,
+      '/admin/quotes', '/api/quote-stats', '');
+  }
+  const total = DATA.quoteStats.total || 0;
+  const won = (DATA.quoteStats.byStatus && (DATA.quoteStats.byStatus.won || 0) + (DATA.quoteStats.byStatus.converted_to_job || 0)) || 0;
+  const lost = DATA.quoteStats.byStatus ? (DATA.quoteStats.byStatus.lost || 0) + (DATA.quoteStats.byStatus.declined || 0) : 0;
+  const conv = (won + lost) ? Math.round((won / (won + lost)) * 100) : 0;
+  return `
+    <div class="rp-card">
+      <div class="rp-card-top">
+        <div class="rp-card-name">Quote accuracy</div>
+        <span class="rp-tag live">Live</span>
+      </div>
+      <div class="rp-what">Pipeline conversion + active stages. Per-job quote-to-actual delta pending.</div>
+      <div class="rp-metric">
+        <div class="rp-metric-v">${conv}%</div>
+        <div class="rp-metric-l">conversion · ${won} won / ${won + lost} settled</div>
+      </div>
+      <div class="rp-list">
+        <div class="rp-row"><span>Total quotes</span><span>${total}</span></div>
+        <div class="rp-row"><span>Active in pipeline</span><span>${DATA.quoteStats.active || 0}</span></div>
+        <div class="rp-row"><span>Terminal</span><span>${DATA.quoteStats.terminal || 0}</span></div>
+      </div>
+      <div class="rp-foot">
+        <span class="rp-sources">/api/quote-stats</span>
+        <span style="flex:1"></span>
+        <a href="/admin/quotes">All quotes →</a>
+      </div>
+    </div>
+  `;
+}
+
+function rpCard(name, tag, what, empty, link, sources, foot) {
+  const tagCls = tag === 'live' ? 'live' : tag === 'partial' ? 'partial' : 'uc';
+  const tagLbl = tag === 'live' ? 'Live' : tag === 'partial' ? 'Pass 1' : 'Under construction';
+  return `
+    <div class="rp-card">
+      <div class="rp-card-top">
+        <div class="rp-card-name">${SHELL.escapeHtml(name)}</div>
+        <span class="rp-tag ${tagCls}">${tagLbl}</span>
+      </div>
+      <div class="rp-what">${what}</div>
+      ${empty}
+      <div class="rp-foot">
+        <span class="rp-sources">${sources}</span>
+        <span style="flex:1"></span>
+        ${link ? `<a href="${link}">Open →</a>` : foot}
+      </div>
+    </div>
+  `;
+}
 
 SHELL.boot();
 </script>

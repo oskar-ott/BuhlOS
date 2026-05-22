@@ -6,52 +6,373 @@
 <title>bühl admin · plans &amp; documents</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="theme-color" content="#0d1f35">
+<meta name="theme-color" content="#0d1b34">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/admin/_shell.css">
 <script src="/admin/_shell.js"></script>
+
+<!--
+  /admin/plans · Plans & Documents library (pass-1)
+  ─────────────────────────────────────────────────
+  Cross-job aggregation over /api/plans. Per-job upload + supersede
+  works today (the backend already auto-supersedes by drawing number
+  on upload). What's planned but not built:
+    - Phil-visibility toggle per document (data model exists for
+      'current' status only; "Phil sees current revs" is implicit).
+    - File types beyond PDFs/images (we declare it in the UI but the
+      backend only accepts PDF + images today).
+    - Plan-to-area linking surface (data is on plan.level/category
+      today, no UI to bind to area IDs).
+  Tagged FEATURE UNDER CONSTRUCTION inline.
+-->
+
+<style>
+  .pl-tools {
+    display: flex; gap: 10px; align-items: center;
+    margin-bottom: 14px; flex-wrap: wrap;
+  }
+  .pl-tools select, .pl-tools input {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font: inherit; font-size: 13px;
+  }
+  .pl-chip {
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    font-size: 12px; color: var(--ink-2);
+    cursor: pointer; user-select: none;
+  }
+  .pl-chip.on {
+    background: var(--ink);
+    color: var(--surface);
+    border-color: var(--ink);
+  }
+
+  .pl-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .pl-kpi {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r, 10px);
+    padding: 12px 14px;
+  }
+  .pl-kpi-l {
+    font-family: var(--ff-mono, monospace);
+    font-size: 10.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted); font-weight: 600;
+  }
+  .pl-kpi-v {
+    font-family: var(--ff-display, 'Inter Tight', sans-serif);
+    font-size: 26px; font-weight: 700; line-height: 1;
+    margin-top: 6px;
+  }
+  .pl-kpi-v.amber { color: var(--amber, #d68a1a); }
+  .pl-kpi-v.red   { color: var(--bad, #c0312f); }
+  .pl-kpi-v.green { color: var(--ok, #1f8b5a); }
+  .pl-kpi-d { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+
+  .pl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .pl-table thead th {
+    text-align: left; padding: 8px 6px;
+    border-bottom: 1px solid var(--line);
+    font-family: var(--ff-display, 'Inter Tight', sans-serif);
+    font-weight: 600; color: var(--muted); font-size: 12px;
+  }
+  .pl-table tbody tr { border-bottom: 1px solid var(--line); }
+  .pl-table tbody tr:hover { background: var(--surface-2); }
+  .pl-table td { padding: 10px 6px; vertical-align: top; }
+  .pl-title-cell { font-weight: 600; color: var(--ink); }
+  .pl-title-cell .pl-drawing {
+    font-family: var(--ff-mono, monospace);
+    font-size: 11.5px; color: var(--muted);
+    margin-top: 3px; letter-spacing: .02em;
+  }
+  .pl-warn-strip {
+    background: rgba(192,49,47,.08);
+    border: 1px solid rgba(192,49,47,.4);
+    border-radius: 6px;
+    padding: 10px 14px; font-size: 13px;
+    color: var(--ink-2);
+    margin-bottom: 12px;
+  }
+  .pl-warn-uc {
+    background: rgba(245,208,32,.16);
+    border: 1px solid rgba(245,208,32,.5);
+    border-radius: 6px;
+    padding: 10px 14px; font-size: 12.5px;
+    color: var(--ink-2);
+    margin: 14px 0;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .pl-warn-uc-tag {
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-family: var(--ff-mono, monospace);
+    font-size: 9.5px; letter-spacing: .14em;
+    text-transform: uppercase; font-weight: 700;
+    padding: 3px 7px; border-radius: 2px;
+    flex-shrink: 0;
+  }
+</style>
 </head>
 <body>
 <script>
-// Plans / Documents — central drawing library with revision control
-// and Phil publish/acknowledge tracking. The danger this fixes:
-// crews working off superseded plans. Until the library is real,
-// plans are uploaded per-job from /admin/jobs/:id.
+'use strict';
+
+const STATE = {
+  loaded: false,
+  jobs: [],
+  plans: [],          // flattened across all jobs
+  jobFilter: 'all',   // 'all' or a jobId
+  typeFilter: 'all',  // 'all' | 'plan' | 'spec' | 'schedule' | 'photo' | 'certificate' | 'other'
+  statusFilter: 'current',  // 'current' | 'superseded' | 'archived' | 'all'
+  search: '',
+};
+
 window.PAGE = {
   id: 'plans',
-  title: 'Plans / Documents',
+  title: 'Plans &amp; Documents',
   crumb: 'Plans &amp; Documents',
   async render() {
     SHELL.$('#page').innerHTML = `
       <div class="page-head">
         <div>
           <div class="page-h1">Plans &amp; Documents</div>
-          <div class="page-sub">Central drawing library. Track current revision, supersede old versions, and confirm Phil has acknowledged each update.</div>
+          <div class="page-sub">Central drawing library. Current revision, superseded history, and per-job linking. Phil reads current revs from the same source.</div>
+        </div>
+        <div>
+          <button id="pl-upload" class="btn btn-primary" style="background:var(--ink);color:var(--surface);padding:8px 14px;border-radius:6px;border:0;font-weight:600;font-size:13px;cursor:pointer">Upload to job…</button>
         </div>
       </div>
-
-      <div class="empty" style="text-align:left;padding:28px 32px">
-        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
-          <span style="font-family:var(--mono,monospace);font-size:10px;letter-spacing:.18em;text-transform:uppercase;font-weight:700;color:var(--accent-ink);background:var(--accent);padding:4px 10px;border-radius:2px">Feature under construction</span>
-          <span style="color:var(--muted);font-size:13px">Per-job plan uploads work today on the job detail page. The cross-job library is being built.</span>
-        </div>
-        <div class="empty-title" style="font-size:18px;text-align:left">When live, this surface will provide:</div>
-        <ul style="margin:14px 0 0 18px;color:var(--ink-2);line-height:1.85;font-size:14px">
-          <li>One library of every plan, grouped by job and discipline</li>
-          <li>Current revision flagged, all superseded revisions kept for audit</li>
-          <li>Publish-to-Phil with crew acknowledgement tracking</li>
-          <li>Warning banner on the job when Phil may still be using a superseded plan</li>
-          <li>Document types beyond plans — switchboard schedules, brand specs, induction packs</li>
-        </ul>
-        <div style="margin-top:20px;color:var(--muted);font-size:13px">
-          Today: open <a href="/admin/jobs" style="color:var(--ink);text-decoration:underline;text-underline-offset:3px">a job</a> to upload plans against it directly.
-        </div>
-      </div>
+      <div id="pl-shell"><div class="empty"><div class="empty-title">Loading library…</div></div></div>
     `;
+    await loadAll();
+    paint();
+    SHELL.$('#pl-upload').addEventListener('click', openUploadPanel);
   }
 };
+
+async function loadAll() {
+  try {
+    const j = await SHELL.api('/api/jobs?withStats=1');
+    STATE.jobs = (j.jobs || []).filter(x => x.status !== 'archived');
+    const fans = await Promise.all(STATE.jobs.map(job =>
+      SHELL.api('/api/plans?jobId=' + encodeURIComponent(job.id))
+        .then(r => ({ job, plans: r.plans || [] }))
+        .catch(() => ({ job, plans: [] }))
+    ));
+    STATE.plans = [];
+    fans.forEach(({ job, plans }) => {
+      plans.forEach(p => STATE.plans.push({ ...p, _job: job }));
+    });
+    STATE.loaded = true;
+  } catch (e) {
+    SHELL.toast('Couldn’t load plans — ' + e.message, 'bad');
+  }
+}
+
+function paint() {
+  if (!STATE.loaded) return;
+
+  // Conflict detection: same drawing number with >1 current
+  const byDrawing = new Map();
+  STATE.plans.filter(p => p.status === 'current' && p.drawingNumber).forEach(p => {
+    const k = p._job.id + ':' + p.drawingNumber;
+    if (!byDrawing.has(k)) byDrawing.set(k, []);
+    byDrawing.get(k).push(p);
+  });
+  const conflicts = [...byDrawing.values()].filter(arr => arr.length > 1);
+
+  // KPI counts
+  const total = STATE.plans.length;
+  const current = STATE.plans.filter(p => p.status === 'current').length;
+  const superseded = STATE.plans.filter(p => p.status === 'superseded').length;
+  const archived = STATE.plans.filter(p => p.status === 'archived').length;
+
+  // filter list
+  const filtered = STATE.plans.filter(p => {
+    if (STATE.jobFilter !== 'all' && p._job.id !== STATE.jobFilter) return false;
+    if (STATE.statusFilter !== 'all' && p.status !== STATE.statusFilter) return false;
+    if (STATE.typeFilter !== 'all' && (p.category || 'other') !== STATE.typeFilter) return false;
+    if (STATE.search) {
+      const q = STATE.search.toLowerCase();
+      const hay = (p.title + ' ' + (p.drawingNumber || '') + ' ' + (p.fileName || '') + ' ' + (p._job.name || '')).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => (b.uploadedAt || '').localeCompare(a.uploadedAt || ''));
+
+  SHELL.$('#pl-shell').innerHTML = `
+    <div class="pl-kpi-row">
+      <div class="pl-kpi"><div class="pl-kpi-l">Documents</div><div class="pl-kpi-v">${total}</div><div class="pl-kpi-d">across ${STATE.jobs.length} active job${STATE.jobs.length===1?'':'s'}</div></div>
+      <div class="pl-kpi"><div class="pl-kpi-l">Current revs</div><div class="pl-kpi-v green">${current}</div><div class="pl-kpi-d">live to Phil</div></div>
+      <div class="pl-kpi"><div class="pl-kpi-l">Superseded</div><div class="pl-kpi-v">${superseded}</div><div class="pl-kpi-d">kept for audit</div></div>
+      <div class="pl-kpi"><div class="pl-kpi-l">Conflicts</div><div class="pl-kpi-v ${conflicts.length?'red':''}">${conflicts.length}</div><div class="pl-kpi-d">drawing #s with &gt;1 current</div></div>
+    </div>
+
+    ${conflicts.length ? `
+      <div class="pl-warn-strip">
+        <strong>${conflicts.length} drawing number${conflicts.length===1?'':'s'} have multiple "current" revisions.</strong>
+        Phil will pick the most-recent upload but this is a sign the supersede chain is broken. Open each below and supersede the older copies.
+        <div style="margin-top:6px;font-size:12px;color:var(--muted)">
+          ${conflicts.slice(0,5).map(arr => `${SHELL.escapeHtml(arr[0]._job.name||arr[0]._job.id)} / ${SHELL.escapeHtml(arr[0].drawingNumber)} (${arr.length})`).join(' · ')}
+          ${conflicts.length > 5 ? ` · +${conflicts.length-5} more` : ''}
+        </div>
+      </div>
+    ` : ''}
+
+    <div class="pl-tools">
+      <select id="pl-job">
+        <option value="all">All jobs</option>
+        ${STATE.jobs.map(j => `<option value="${SHELL.escapeHtml(j.id)}"${STATE.jobFilter===j.id?' selected':''}>${SHELL.escapeHtml(j.name||j.id)}</option>`).join('')}
+      </select>
+      <select id="pl-type">
+        ${['all','plan','spec','schedule','photo','certificate','other'].map(t =>
+          `<option value="${t}"${STATE.typeFilter===t?' selected':''}>${t === 'all' ? 'All types' : t[0].toUpperCase()+t.slice(1)}</option>`
+        ).join('')}
+      </select>
+      ${['current','superseded','archived','all'].map(s =>
+        `<span class="pl-chip ${STATE.statusFilter===s?'on':''}" data-status="${s}">${s[0].toUpperCase()+s.slice(1)}</span>`
+      ).join('')}
+      <input id="pl-q" placeholder="Search title, drawing #, filename…" value="${SHELL.escapeHtml(STATE.search)}" style="flex:1;min-width:200px;max-width:360px">
+      <span style="color:var(--muted);font-size:12px;margin-left:auto">${SHELL.pluralize(filtered.length,'doc')}</span>
+    </div>
+
+    ${filtered.length ? `
+      <div class="jb-card" style="background:var(--surface);border:1px solid var(--line);border-radius:var(--r,10px);padding:8px 12px;margin-top:6px">
+        <table class="pl-table">
+          <thead><tr>
+            <th>Document</th><th>Job</th><th>Type</th><th>Rev</th><th>Status</th><th>Uploaded</th><th></th>
+          </tr></thead>
+          <tbody>
+            ${filtered.map(p => `
+              <tr>
+                <td>
+                  <div class="pl-title-cell">${SHELL.escapeHtml(p.title || p.fileName || p.id)}</div>
+                  <div class="pl-drawing">${SHELL.escapeHtml(p.drawingNumber || '—')}${p.level ? ' · ' + SHELL.escapeHtml(p.level) : ''}</div>
+                </td>
+                <td>${SHELL.escapeHtml(p._job.name || p._job.id)}</td>
+                <td><span style="font-family:var(--ff-mono,monospace);font-size:11px;color:var(--muted)">${SHELL.escapeHtml(p.category || 'other')}</span></td>
+                <td><span style="font-family:var(--ff-mono,monospace);font-size:11.5px">${SHELL.escapeHtml(p.revision || '—')}</span></td>
+                <td>${planStatusPill(p)}</td>
+                <td style="color:var(--muted);font-size:11.5px;font-family:var(--ff-mono,monospace)">${SHELL._ago ? SHELL._ago(p.uploadedAt) : ''}</td>
+                <td style="text-align:right">
+                  ${p.url ? `<a class="btn" href="${SHELL.escapeHtml(p.url)}" target="_blank" rel="noopener" style="border:1px solid var(--line);padding:5px 10px;border-radius:5px;color:var(--ink);text-decoration:none;font-size:12px">Open</a>` : ''}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : `<div class="empty"><div class="empty-title">No documents match</div><div class="empty-sub">Try clearing filters or uploading the first one.</div></div>`}
+
+    <div class="pl-warn-uc">
+      <span class="pl-warn-uc-tag">Pass 1</span>
+      <span>
+        <strong style="color:var(--ink)">Phil-readiness toggle, area-level linking, and acknowledgement tracking are FEATURE UNDER CONSTRUCTION.</strong>
+        Today: every <code>status: current</code> plan is implicitly visible to Phil. Supersede works automatically by drawing number on upload. The per-document acknowledgement audit (who on the crew has opened the latest rev) is the next thing to land.
+      </span>
+    </div>
+  `;
+
+  SHELL.$('#pl-job').addEventListener('change', e => { STATE.jobFilter = e.target.value; paint(); });
+  SHELL.$('#pl-type').addEventListener('change', e => { STATE.typeFilter = e.target.value; paint(); });
+  SHELL.$$('.pl-chip').forEach(c => c.addEventListener('click', () => { STATE.statusFilter = c.dataset.status; paint(); }));
+  const q = SHELL.$('#pl-q');
+  q.addEventListener('input', () => { STATE.search = q.value; paint(); SHELL.$('#pl-q').focus(); });
+}
+
+function planStatusPill(p) {
+  if (p.status === 'current')    return `<span class="pill pill-ok"><span class="pill-dot"></span>Current</span>`;
+  if (p.status === 'superseded') return `<span class="pill"><span class="pill-dot"></span>Superseded</span>`;
+  if (p.status === 'archived')   return `<span class="pill"><span class="pill-dot"></span>Archived</span>`;
+  return `<span class="pill">${SHELL.escapeHtml(p.status)}</span>`;
+}
+
+function openUploadPanel() {
+  const panel = SHELL.openPanel({
+    title: 'Upload document',
+    body: `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <label style="display:block">
+          <span style="font-size:12px;color:var(--muted)">Job</span>
+          <select id="up-job" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font:inherit;margin-top:4px">
+            ${STATE.jobs.map(j => `<option value="${SHELL.escapeHtml(j.id)}">${SHELL.escapeHtml(j.name||j.id)}</option>`).join('')}
+          </select>
+        </label>
+        <label style="display:block">
+          <span style="font-size:12px;color:var(--muted)">Title</span>
+          <input id="up-title" placeholder="e.g. Switchboard schedule rev C" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font:inherit;margin-top:4px">
+        </label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <label style="display:block">
+            <span style="font-size:12px;color:var(--muted)">Drawing #</span>
+            <input id="up-drawing" placeholder="E-200" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font:inherit;margin-top:4px">
+          </label>
+          <label style="display:block">
+            <span style="font-size:12px;color:var(--muted)">Revision</span>
+            <input id="up-rev" placeholder="C" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font:inherit;margin-top:4px">
+          </label>
+        </div>
+        <label style="display:block">
+          <span style="font-size:12px;color:var(--muted)">Type</span>
+          <select id="up-cat" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font:inherit;margin-top:4px">
+            ${['plan','spec','schedule','photo','certificate','other'].map(t => `<option value="${t}">${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}
+          </select>
+        </label>
+        <label style="display:block">
+          <span style="font-size:12px;color:var(--muted)">File (PDF or image, up to 25 MB)</span>
+          <input id="up-file" type="file" accept="application/pdf,image/*" style="width:100%;padding:6px 0;font:inherit;margin-top:4px">
+        </label>
+      </div>
+    `,
+    footer: `
+      <button class="btn" onclick="SHELL.closePanel()" style="border:1px solid var(--line);padding:7px 12px;border-radius:6px;background:transparent;cursor:pointer;font-size:13px">Cancel</button>
+      <button id="up-go" class="btn btn-primary" style="background:var(--ink);color:var(--surface);padding:8px 14px;border-radius:6px;border:0;font-weight:600;font-size:13px;cursor:pointer">Upload</button>
+    `,
+  });
+  const goBtn = panel.querySelector('#up-go');
+  goBtn.addEventListener('click', async () => {
+    const job = panel.querySelector('#up-job').value;
+    const file = panel.querySelector('#up-file').files[0];
+    if (!job)  { SHELL.toast('Pick a job', 'bad'); return; }
+    if (!file) { SHELL.toast('Pick a file', 'bad'); return; }
+    if (file.size > 25 * 1024 * 1024) { SHELL.toast('File too large (25 MB max)', 'bad'); return; }
+    goBtn.disabled = true; goBtn.textContent = 'Uploading…';
+    try {
+      const dataUrl = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result); r.onerror = () => rej(new Error('read failed'));
+        r.readAsDataURL(file);
+      });
+      const body = {
+        dataUrl,
+        fileName: file.name,
+        title:    panel.querySelector('#up-title').value.trim(),
+        drawingNumber: panel.querySelector('#up-drawing').value.trim(),
+        revision: panel.querySelector('#up-rev').value.trim(),
+        category: panel.querySelector('#up-cat').value,
+      };
+      const r = await SHELL.api('/api/plans?jobId=' + encodeURIComponent(job), { method: 'POST', body });
+      SHELL.toast(r.revisionWarning ? r.revisionWarning : 'Uploaded · marked current', 'ok');
+      SHELL.closePanel();
+      await loadAll(); paint();
+    } catch (e) {
+      SHELL.toast('Upload failed — ' + e.message, 'bad');
+      goBtn.disabled = false; goBtn.textContent = 'Upload';
+    }
+  });
+}
 
 SHELL.boot();
 </script>
