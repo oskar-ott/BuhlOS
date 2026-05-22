@@ -238,22 +238,31 @@
   ];
 
   // ── Plans (revision control) ──────────────────────────────────────
+  // Each plan can be linked to the whole job, or scoped to specific areas /
+  // stages. type ∈ plan / spec / schedule / photo / certificate / other.
+  // philVisible reflects whether the field crew can see this document; the
+  // toggle persists locally for now (no /api/plans backend yet).
   const plans = [
-    { id: 'P-BIR-E01', jobId: 'BIR-IV3232', name: 'E01 — Power layout', revision: 'C', publishedRevision: 'C', publishedAt: daysAgo(12).toISOString(), supersededWarning: false, acknowledgedBy: ['jake.smith', 'matt.cohen'] },
-    { id: 'P-BIR-E02', jobId: 'BIR-IV3232', name: 'E02 — Lighting layout', revision: 'D', publishedRevision: 'C', publishedAt: daysAgo(20).toISOString(), supersededWarning: true,  acknowledgedBy: ['jake.smith'] },
-    { id: 'P-ART-E01', jobId: 'ART-WST',    name: 'E01 — Switchboard schedule', revision: 'B', publishedRevision: 'B', publishedAt: daysAgo(45).toISOString(), supersededWarning: false, acknowledgedBy: ['jake.smith', 'matt.cohen'] },
-    { id: 'P-PAR-E01', jobId: 'PAR-CFO',    name: 'E01 — Fit-off',         revision: 'A', publishedRevision: null,   publishedAt: null, supersededWarning: false, acknowledgedBy: [] },
-    { id: 'P-PAR-E02', jobId: 'PAR-CFO',    name: 'E02 — Comms',           revision: 'B', publishedRevision: 'B', publishedAt: daysAgo(7).toISOString(), supersededWarning: false, acknowledgedBy: ['matt.cohen'] },
+    { id: 'P-BIR-E01', jobId: 'BIR-IV3232', name: 'Power layout',         drawingNumber: 'E01', type: 'plan',     revision: 'C', publishedRevision: 'C', publishedAt: daysAgo(12).toISOString(), supersededWarning: false, acknowledgedBy: ['jake.smith', 'matt.cohen'], linkedAreas: ['Townhouses (7)'], linkedStages: ['Rough-in', 'Fit-off'], philVisible: true },
+    { id: 'P-BIR-E02', jobId: 'BIR-IV3232', name: 'Lighting layout',      drawingNumber: 'E02', type: 'plan',     revision: 'D', publishedRevision: 'C', publishedAt: daysAgo(20).toISOString(), supersededWarning: true,  acknowledgedBy: ['jake.smith'], linkedAreas: ['Townhouses (7)', 'Units (15)'], linkedStages: ['Rough-in'], philVisible: true },
+    { id: 'P-BIR-SC1', jobId: 'BIR-IV3232', name: 'Switchboard schedule', drawingNumber: 'SC01', type: 'schedule', revision: 'A', publishedRevision: 'A', publishedAt: daysAgo(40).toISOString(), supersededWarning: false, acknowledgedBy: ['jake.smith', 'matt.cohen', 'liam.brown'], linkedAreas: [], linkedStages: [], philVisible: true },
+    { id: 'P-ART-E01', jobId: 'ART-WST',    name: 'Switchboard schedule', drawingNumber: 'E01', type: 'schedule', revision: 'B', publishedRevision: 'B', publishedAt: daysAgo(45).toISOString(), supersededWarning: false, acknowledgedBy: ['jake.smith', 'matt.cohen'], linkedAreas: ['Ground floor'], linkedStages: ['Switchboard install'], philVisible: true },
+    { id: 'P-PAR-E01', jobId: 'PAR-CFO',    name: 'Fit-off',              drawingNumber: 'E01', type: 'plan',     revision: 'A', publishedRevision: null,   publishedAt: null, supersededWarning: false, acknowledgedBy: [], linkedAreas: ['Level 4 — Open plan'], linkedStages: ['Fit-off'], philVisible: false },
+    { id: 'P-PAR-E02', jobId: 'PAR-CFO',    name: 'Comms layout',         drawingNumber: 'E02', type: 'plan',     revision: 'B', publishedRevision: 'B', publishedAt: daysAgo(7).toISOString(), supersededWarning: false, acknowledgedBy: ['matt.cohen'], linkedAreas: ['Level 4 — Boardrooms'], linkedStages: ['Fit-off'], philVisible: true },
+    { id: 'P-SPS-COC', jobId: 'SPS-LHD',    name: 'CoC — main switchboard', drawingNumber: 'COC-001', type: 'certificate', revision: 'A', publishedRevision: null, publishedAt: null, supersededWarning: false, acknowledgedBy: [], linkedAreas: ['Substation'], linkedStages: ['Commissioning'], philVisible: false },
   ];
 
   // ── Variations ────────────────────────────────────────────────────
-  // Statuses: draft / priced / submitted / approved / rejected.
+  // Statuses: draft / priced / submitted / approved / rejected / invoiced.
+  // source ∈ field / admin / builder / plan_change — where the change came from.
+  // variationNumber is the human reference (per-job sequence).
   const variations = [
-    { id: 'V-BIR-001', jobId: 'BIR-IV3232', title: 'Extra GPO bank for unit 14', status: 'priced',    raisedBy: 'jake.smith', raisedAt: daysAgo(4).toISOString(), priceImpact: 1840,  hoursImpact: 12, photoCount: 3, description: 'Tenant requested an extra dual GPO bank in study nook — not in plan rev C.' },
-    { id: 'V-BIR-002', jobId: 'BIR-IV3232', title: 'Switchboard upsize',         status: 'draft',     raisedBy: 'matt.cohen', raisedAt: daysAgo(1).toISOString(), priceImpact: 0,     hoursImpact: 0,  photoCount: 1, description: 'Load calc came back over — needs SB upsize from 200A to 250A.' },
-    { id: 'V-PAR-001', jobId: 'PAR-CFO',    title: 'Boardroom dimming upgrade',  status: 'submitted', raisedBy: 'pete.davis', raisedAt: daysAgo(8).toISOString(), priceImpact: 4200,  hoursImpact: 18, photoCount: 5, description: 'Client requested DALI dim upgrade post-fitoff start.' },
-    { id: 'V-PAR-002', jobId: 'PAR-CFO',    title: 'Open ceiling extra runs',    status: 'approved',  raisedBy: 'matt.cohen', raisedAt: daysAgo(14).toISOString(), priceImpact: 2700, hoursImpact: 14, photoCount: 4, description: 'Open-ceiling design — extra cable runs required for tidy presentation.' },
-    { id: 'V-SPS-001', jobId: 'SPS-LHD',    title: 'Earthing grid extension',    status: 'rejected',  raisedBy: 'sam.lee',    raisedAt: daysAgo(6).toISOString(), priceImpact: 0,     hoursImpact: 0, photoCount: 2, description: 'Builder declined — handled in main contract.', rejectReason: 'Out of scope, declined by builder.' },
+    { id: 'V-BIR-001', variationNumber: 'BIR-V001', jobId: 'BIR-IV3232', title: 'Extra GPO bank for unit 14', status: 'priced',    source: 'builder',     raisedBy: 'jake.smith', raisedAt: daysAgo(4).toISOString(),  priceImpact: 1840,  hoursImpact: 12, photoCount: 3, description: 'Tenant requested an extra dual GPO bank in study nook — not in plan rev C.', builderRef: 'HBI-RFI-188', linkedArea: 'Townhouses (7)', linkedStage: 'Fit-off' },
+    { id: 'V-BIR-002', variationNumber: 'BIR-V002', jobId: 'BIR-IV3232', title: 'Switchboard upsize',         status: 'draft',     source: 'field',       raisedBy: 'matt.cohen', raisedAt: daysAgo(1).toISOString(),  priceImpact: 0,     hoursImpact: 0,  photoCount: 1, description: 'Load calc came back over — needs SB upsize from 200A to 250A.',                builderRef: '',          linkedArea: 'Units (15)',       linkedStage: 'Switchboard install' },
+    { id: 'V-PAR-001', variationNumber: 'PAR-V001', jobId: 'PAR-CFO',    title: 'Boardroom dimming upgrade',  status: 'submitted', source: 'builder',     raisedBy: 'pete.davis', raisedAt: daysAgo(8).toISOString(),  priceImpact: 4200,  hoursImpact: 18, photoCount: 5, description: 'Client requested DALI dim upgrade post-fitoff start.',                          builderRef: 'BLT-PR-441', linkedArea: 'Level 4 — Boardrooms', linkedStage: 'Fit-off' },
+    { id: 'V-PAR-002', variationNumber: 'PAR-V002', jobId: 'PAR-CFO',    title: 'Open ceiling extra runs',    status: 'approved',  source: 'plan_change', raisedBy: 'matt.cohen', raisedAt: daysAgo(14).toISOString(), priceImpact: 2700,  hoursImpact: 14, photoCount: 4, description: 'Open-ceiling design — extra cable runs required for tidy presentation.',        builderRef: 'BLT-VAR-12', linkedArea: 'Level 4 — Open plan',  linkedStage: 'Rough-in' },
+    { id: 'V-PAR-003', variationNumber: 'PAR-V003', jobId: 'PAR-CFO',    title: 'Switchroom move',            status: 'invoiced',  source: 'admin',       raisedBy: 'admin',      raisedAt: daysAgo(40).toISOString(), priceImpact: 8800,  hoursImpact: 42, photoCount: 6, description: 'Switchroom relocated to suit revised tenancy plan — invoiced last month.',     builderRef: 'BLT-VAR-09', linkedArea: 'Level 4 — Open plan',  linkedStage: 'Rough-in' },
+    { id: 'V-SPS-001', variationNumber: 'SPS-V001', jobId: 'SPS-LHD',    title: 'Earthing grid extension',    status: 'rejected',  source: 'field',       raisedBy: 'sam.lee',    raisedAt: daysAgo(6).toISOString(),  priceImpact: 0,     hoursImpact: 0,  photoCount: 2, description: 'Builder declined — handled in main contract.', rejectReason: 'Out of scope, declined by builder.', builderRef: '', linkedArea: 'Substation', linkedStage: 'Site prep' },
   ];
 
   // ── Job Builder templates ─────────────────────────────────────────

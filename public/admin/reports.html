@@ -3,66 +3,31 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>bühl admin · reports</title>
-<link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="theme-color" content="#0d1f35">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/admin/_shell.css">
-<script src="/admin/_shell.js"></script>
+<title>BuhlOS — Reports</title>
+<meta http-equiv="refresh" content="0; url=/admin/operations#reports">
+<link rel="canonical" href="/admin/operations#reports">
+<style>
+  body{margin:0;background:#0b1018;color:#aebac9;font-family:-apple-system,'Inter',Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .b{max-width:420px;padding:32px;text-align:center}
+  .m{width:36px;height:36px;border-radius:8px;background:#ffcc00;color:#0b0d10;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-family:'Inter Tight','Inter',sans-serif;margin-bottom:14px}
+  a{color:#ffcc00;text-decoration:none;font-weight:600}
+  h1{font-family:'Inter Tight','Inter',sans-serif;font-weight:700;font-size:18px;color:#e7ecf3;margin:0 0 8px}
+  p{font-size:13px;line-height:1.5;margin:0 0 14px}
+</style>
 </head>
 <body>
-<script>
-// Reports — exportable views derived from existing data (hours, jobs,
-// quotes, ITPs, variations). Each report ships independently. The
-// section exists in the sidebar so the path is discoverable; each
-// individual report shows FEATURE UNDER CONSTRUCTION until its data
-// rollup lands.
-window.PAGE = {
-  id: 'reports',
-  title: 'Reports',
-  crumb: 'Reports',
-  async render() {
-    const reports = [
-      { name: 'Job profitability',    why: 'Quoted vs actual labour, materials, margin per job.' },
-      { name: 'Labour burn',          why: 'Hours burned against quote — by job, by stage, by week.' },
-      { name: 'ITP completion',       why: 'Checkpoint coverage and evidence quality per job.' },
-      { name: 'Variation recovery',   why: 'Variations raised vs approved vs invoiced.' },
-      { name: 'Handover pack',        why: 'One-click PDF of plans, ITPs, photos, certs per job.' },
-      { name: 'Builder performance',  why: 'Per-builder cycle time, change-rate, defect-rate.' },
-      { name: 'Quote accuracy',       why: 'Quote-to-actual delta across the last N jobs.' },
-    ];
-
-    SHELL.$('#page').innerHTML = `
-      <div class="page-head">
-        <div>
-          <div class="page-h1">Reports</div>
-          <div class="page-sub">Exportable rollups across jobs, hours, quotes and ITPs. Each report ships independently; the section exists so the path is discoverable.</div>
-        </div>
-      </div>
-
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:6px">
-        ${reports.map(r => `
-          <div style="background:var(--surface);border:1px solid var(--line);border-radius:var(--r,10px);padding:18px 20px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:10px">
-              <div style="font-family:'Inter Tight',Inter,sans-serif;font-weight:700;font-size:15px;color:var(--ink);letter-spacing:-.01em">${SHELL.escapeHtml(r.name)}</div>
-              <span style="font-family:var(--mono,monospace);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;color:var(--accent-ink);background:var(--accent);padding:3px 8px;border-radius:2px">Under construction</span>
-            </div>
-            <div style="color:var(--muted);font-size:13px;line-height:1.5">${SHELL.escapeHtml(r.why)}</div>
-          </div>
-        `).join('')}
-      </div>
-
-      <div style="margin-top:24px;color:var(--muted);font-size:13px">
-        Reports land independently as the underlying data lines settle. Hours rollups (used by job profitability + labour burn) will likely arrive first since the data already lives in <a href="/admin/hours" style="color:var(--ink);text-decoration:underline;text-underline-offset:3px">/admin/hours</a>.
-      </div>
-    `;
-  }
-};
-
-SHELL.boot();
-</script>
+<!--
+  /admin/reports consolidated into /admin/operations#reports.
+  The BuhlOS Command Centre SPA holds the canonical implementation of
+  every admin tool. Direct URLs are kept (and redirected) so existing
+  bookmarks and external links don't break.
+-->
+<div class="b">
+  <div class="m">BL</div>
+  <h1>Reports</h1>
+  <p>Redirecting to the BuhlOS Command Centre…</p>
+  <a href="/admin/operations#reports">Open Reports now &rarr;</a>
+</div>
+<script>location.replace('/admin/operations#reports');</script>
 </body>
 </html>

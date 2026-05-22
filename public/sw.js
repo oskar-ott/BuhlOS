@@ -37,7 +37,16 @@
 // count badges, mock-data fallback (admin-data.js), and full v1 modules
 // for Job Builder / ITP / Plans / Variations with their renderers and
 // state-chip CSS. SPA contract unchanged but bundle is materially bigger.
-const CACHE_VERSION = 'buhl-shell-v5';
+//
+// v6 (admin-tools v2): Job Builder gained job-setup panel + validation +
+// independent-review toggle. ITP gained dashboard + review modal + the
+// itp_review_self rule + needs_info status. Plans gained drawing #, type,
+// area/stage linking, upload UC, Phil-readiness toggle. Variations gained
+// creation modal + invoiced status + source/builder-ref. Reports went
+// from dead UC tiles to honest computed metrics + Builder performance.
+// Per-page admin stubs (job-builder/itp/plans/variations/reports.html)
+// are now redirect shims into the SPA.
+const CACHE_VERSION = 'buhl-shell-v6';
 const STATIC_SHELL = [
   // Admin shell — every admin page boot needs these. Caching them
   // means cold loads paint sidebar + topbar from disk while the

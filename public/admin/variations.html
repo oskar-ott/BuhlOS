@@ -3,56 +3,31 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>bühl admin · variations</title>
-<link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/icon-192.png">
-<meta name="theme-color" content="#0d1f35">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/admin/_shell.css">
-<script src="/admin/_shell.js"></script>
+<title>BuhlOS — Variations</title>
+<meta http-equiv="refresh" content="0; url=/admin/operations#variations">
+<link rel="canonical" href="/admin/operations#variations">
+<style>
+  body{margin:0;background:#0b1018;color:#aebac9;font-family:-apple-system,'Inter',Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .b{max-width:420px;padding:32px;text-align:center}
+  .m{width:36px;height:36px;border-radius:8px;background:#ffcc00;color:#0b0d10;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-family:'Inter Tight','Inter',sans-serif;margin-bottom:14px}
+  a{color:#ffcc00;text-decoration:none;font-weight:600}
+  h1{font-family:'Inter Tight','Inter',sans-serif;font-weight:700;font-size:18px;color:#e7ecf3;margin:0 0 8px}
+  p{font-size:13px;line-height:1.5;margin:0 0 14px}
+</style>
 </head>
 <body>
-<script>
-// Variations — register of changes raised in the field, priced, and
-// submitted to the builder/client. Crews flag from Phil; office prices
-// and submits; status tracked through to approval/rejection.
-window.PAGE = {
-  id: 'variations',
-  title: 'Variations',
-  crumb: 'Variations',
-  async render() {
-    SHELL.$('#page').innerHTML = `
-      <div class="page-head">
-        <div>
-          <div class="page-h1">Variations</div>
-          <div class="page-sub">Changes raised from the field, priced and submitted. Status from draft → priced → submitted → approved/rejected.</div>
-        </div>
-      </div>
-
-      <div class="empty" style="text-align:left;padding:28px 32px">
-        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
-          <span style="font-family:var(--mono,monospace);font-size:10px;letter-spacing:.18em;text-transform:uppercase;font-weight:700;color:var(--accent-ink);background:var(--accent);padding:4px 10px;border-radius:2px">Feature under construction</span>
-          <span style="color:var(--muted);font-size:13px">Field-raise flow lands first (Phil); office register lands alongside.</span>
-        </div>
-        <div class="empty-title" style="font-size:18px;text-align:left">When live, this register will show:</div>
-        <ul style="margin:14px 0 0 18px;color:var(--ink-2);line-height:1.85;font-size:14px">
-          <li>Every variation, with the photo + description + extra hours captured from Phil</li>
-          <li>Status: draft / priced / submitted / approved / rejected</li>
-          <li>Office price action — labour, materials, margin</li>
-          <li>Submit-to-builder action with audit trail</li>
-          <li>Recovery dashboard: hours raised vs hours approved per job</li>
-        </ul>
-        <div style="margin-top:20px;color:var(--muted);font-size:13px">
-          Today: scope-change notes live in the job's Activity feed. Crews still record extras via Snag triage where the work is reactive.
-        </div>
-      </div>
-    `;
-  }
-};
-
-SHELL.boot();
-</script>
+<!--
+  /admin/variations consolidated into /admin/operations#variations.
+  The BuhlOS Command Centre SPA holds the canonical implementation of
+  every admin tool. Direct URLs are kept (and redirected) so existing
+  bookmarks and external links don't break.
+-->
+<div class="b">
+  <div class="m">BL</div>
+  <h1>Variations</h1>
+  <p>Redirecting to the BuhlOS Command Centre…</p>
+  <a href="/admin/operations#variations">Open Variations now &rarr;</a>
+</div>
+<script>location.replace('/admin/operations#variations');</script>
 </body>
 </html>

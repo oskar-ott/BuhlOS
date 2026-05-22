@@ -52,7 +52,7 @@ for (const file of files) {
   const full = path.join(ADMIN_DIR, file);
   const src = fs.readFileSync(full, 'utf8');
 
-  // Two valid architectures:
+  // Three valid architectures:
   //
   //   A. site-office multi-page shell: links /admin/_shell.js, defines
   //      window.PAGE, ends with SHELL.boot(). Most admin pages use this.
@@ -63,13 +63,28 @@ for (const file of files) {
   //      explicitly call boot() so the page can't go blank from a
   //      forgotten call.
   //
-  // Either pattern is OK. What we refuse is the silent-blank shape:
-  // a page that loads scripts but never actually boots its renderer.
+  //   C. redirect shim into the SPA — has both <meta http-equiv="refresh">
+  //      AND a canonical link pointing at /admin/operations#section.
+  //      Several per-page admin tools (job-builder, itp, plans, variations,
+  //      reports) are kept as redirect shims so the canonical
+  //      implementation lives in one place (the SPA).
+  //
+  // Any of the three is OK. What we refuse is the silent-blank shape:
+  // a page that loads scripts but never actually boots its renderer
+  // AND isn't a redirect.
   const usesSiteOfficeShell = /\/admin\/_shell\.js/.test(src);
   const definesWindowPage   = /window\.PAGE\s*=/.test(src);
   const callsShellBoot      = /^\s*SHELL\.boot\s*\(\s*\)\s*;?\s*$/m.test(src);
   const definesOwnBoot      = /async\s+function\s+boot\s*\(/.test(src);
   const callsOwnBoot        = /^\s*boot\s*\(\s*\)\s*;?\s*$/m.test(src);
+  const hasMetaRefresh      = /<meta[^>]+http-equiv=["']?refresh["']?/i.test(src);
+  const hasSpaCanonical     = /<link[^>]+rel=["']?canonical["']?[^>]+href=["']\/admin\/operations#/i.test(src);
+
+  if (hasMetaRefresh && hasSpaCanonical) {
+    // Pattern C — redirect shim. Nothing else required.
+    ok.push(file);
+    continue;
+  }
 
   if (usesSiteOfficeShell) {
     // Pattern A — site-office shell.

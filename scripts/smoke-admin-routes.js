@@ -194,6 +194,17 @@ check('Job Builder v1 has stage editor + publish', () => {
   if (!/id=["']jbStages["']/.test(src))              throw new Error('#jbStages container missing');
 });
 
+check('Job Builder v2 has job setup panel + validation + independent review', () => {
+  const src = read('public/admin/operations.html');
+  if (!/id=["']jbSetup["']/.test(src))               throw new Error('#jbSetup setup panel missing');
+  if (!/id=["']jbf-name["']/.test(src))              throw new Error('job-name input missing');
+  if (!/id=["']jbf-builder["']/.test(src))           throw new Error('builder input missing');
+  if (!/id=["']jbf-addr["']/.test(src))              throw new Error('address input missing');
+  if (!/function\s+jbValidate\s*\(/.test(src))       throw new Error('jbValidate() not defined');
+  if (!/function\s+jbRenderValidation\s*\(/.test(src)) throw new Error('jbRenderValidation() not defined');
+  if (!/independentReview/.test(src))                throw new Error('independent-review-required not wired');
+});
+
 check('ITP / QA v1 has checkpoint renderer + severity', () => {
   const src = read('public/admin/operations.html');
   if (!/function\s+renderITPs\s*\(/.test(src)) throw new Error('renderITPs() not defined');
@@ -201,11 +212,33 @@ check('ITP / QA v1 has checkpoint renderer + severity', () => {
   if (!/blocked|evidence-missing/.test(src))   throw new Error('ITP renderer does not flag blocked / evidence-missing');
 });
 
+check('ITP v2 has dashboard + review modal + needs_info + independent-review rule', () => {
+  const src = read('public/admin/operations.html');
+  if (!/id=["']itpKpiTotal["']/.test(src))     throw new Error('ITP dashboard counters missing');
+  if (!/function\s+reviewITP\s*\(/.test(src))  throw new Error('reviewITP() review modal not wired');
+  if (!/function\s+itpApprove\s*\(/.test(src)) throw new Error('itpApprove() action missing');
+  if (!/function\s+itpReject\s*\(/.test(src))  throw new Error('itpReject() action missing');
+  if (!/function\s+itpNeedsInfo\s*\(/.test(src)) throw new Error('itpNeedsInfo() action missing');
+  if (!/needs_info/.test(src))                 throw new Error('needs_info status not present');
+  if (!/itp_review_self/.test(src))            throw new Error('itp_review_self independent-reviewer rule reference missing');
+});
+
 check('Plans v1 has revision + publish table', () => {
   const src = read('public/admin/operations.html');
   if (!/function\s+renderPlans\s*\(/.test(src)) throw new Error('renderPlans() not defined');
   if (!/id=["']plansBody["']/.test(src))        throw new Error('#plansBody container missing');
   if (!/supersededWarning|superseded/i.test(src)) throw new Error('Plans does not surface superseded warnings');
+});
+
+check('Plans v2 has drawing # + type + area/stage linking + Phil-readiness + upload UC', () => {
+  const src = read('public/admin/operations.html');
+  if (!/Drawing #/i.test(src))                       throw new Error('Drawing # column header missing');
+  if (!/function\s+plansTogglePhil\s*\(/.test(src))  throw new Error('plansTogglePhil() not wired');
+  if (!/function\s+plansUpload\s*\(/.test(src))      throw new Error('plansUpload() UC handler not present');
+  const md = read('public/admin/admin-data.js');
+  if (!/drawingNumber/.test(md))                     throw new Error('admin-data plans missing drawingNumber');
+  if (!/linkedAreas|linkedStages/.test(md))          throw new Error('admin-data plans missing linkedAreas/linkedStages');
+  if (!/philVisible/.test(md))                       throw new Error('admin-data plans missing philVisible flag');
 });
 
 check('Variations v1 has KPI tiles + status transitions', () => {
@@ -218,6 +251,19 @@ check('Variations v1 has KPI tiles + status transitions', () => {
       throw new Error('variation status "' + status + '" not referenced');
     }
   }
+});
+
+check('Variations v2 has creation form + invoiced status + source + builder ref', () => {
+  const src = read('public/admin/operations.html');
+  if (!/function\s+varOpenCreate\s*\(/.test(src))   throw new Error('varOpenCreate() not defined');
+  if (!/function\s+varSubmitCreate\s*\(/.test(src)) throw new Error('varSubmitCreate() not defined');
+  if (!/id=["']varModalBk["']/.test(src))           throw new Error('variation modal missing');
+  if (!/['"]invoiced['"]/.test(src))                throw new Error('invoiced status not present');
+  if (!/['"]plan_change['"]/.test(src))             throw new Error('plan_change source not present');
+  if (!/id=["']vf-bref["']/.test(src))              throw new Error('builder-ref field missing');
+  const md = read('public/admin/admin-data.js');
+  if (!/variationNumber/.test(md))                  throw new Error('admin-data variations missing variationNumber');
+  if (!/builderRef/.test(md))                       throw new Error('admin-data variations missing builderRef');
 });
 
 check('Sidebar count badges (computeCounts + renderSidebarBadges)', () => {
@@ -236,15 +282,18 @@ check('Mock data layer (admin-data.js) loaded by shell', () => {
   }
 });
 
-check('Reports section has visible UNDER CONSTRUCTION tags', () => {
+check('Reports v2 has computed metrics renderer + Builder performance + honest UC tags', () => {
   const src = read('public/admin/operations.html');
-  const reportsBlock = (src.match(/id="sec-reports"[^]*?<\/section>/) || [])[0] || '';
-  if (!reportsBlock) throw new Error('Reports section markup not found');
-  if (!/Under construction/i.test(reportsBlock)) {
-    throw new Error('Reports section does not visibly label tiles as Under construction');
+  if (!/function\s+renderReports\s*\(/.test(src))   throw new Error('renderReports() not defined');
+  if (!/id=["']reportsGrid["']/.test(src))          throw new Error('#reportsGrid container missing');
+  // All seven categories from the brief must be present in the renderer output.
+  for (const c of ['Job profitability', 'Labour burn', 'ITP completion', 'Variation recovery', 'Handover pack', 'Quote accuracy', 'Builder performance']) {
+    if (!src.includes(c)) throw new Error('Reports renderer missing category: ' + c);
   }
-  for (const c of ['Job profitability', 'Labour burn', 'ITP completion', 'Variation recovery', 'Handover pack', 'Quote accuracy']) {
-    if (!reportsBlock.includes(c)) throw new Error('Reports section missing category: ' + c);
+  // Data-availability tag classes are part of the honest reporting contract.
+  if (!/rpt-source/.test(src)) throw new Error('rpt-source severity class missing');
+  if (!/rpt-source.*missing|rpt-source.*partial|rpt-source.*ok/i.test(src)) {
+    throw new Error('rpt-source availability variants not used');
   }
 });
 
