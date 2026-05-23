@@ -16,12 +16,23 @@ The Phase 1 audit is complete and lives in:
 
 Before you do anything else, read these in order:
 
-  1. docs/rebuild-audit/00-executive-summary.md
-  2. docs/architecture/00-rebuild-non-negotiables.md   ← every rule here is binding
-  3. docs/architecture/01-target-rebuild-structure.md  ← the folder layout you must follow
-  4. docs/product/01-mvp-rebuild-scope.md              ← Phase A scope only; do NOT build B-D
-  5. docs/rebuild-audit/07-salvage-map.md              ← what to keep, rebuild, discard
-  6. docs/rebuild-audit/06-deployment-audit.md         ← deploy policy you must enforce
+  1. docs/rebuild-audit/00-executive-summary.md              ← TL;DR + Phase 1B conclusions
+  2. docs/rebuild-audit/10-product-definition.md             ← what BuhlOS / Phil ARE — bans generic SaaS framing
+  3. docs/rebuild-audit/11-operational-workflow-map.md       ← the 28 workflows + phase ordering
+  4. docs/rebuild-audit/12-domain-model-deep-dive.md         ← entities the UI composes over
+  5. docs/rebuild-audit/13-ui-information-architecture.md    ← admin sidebar + Phil tabs + per-section contracts
+  6. docs/rebuild-audit/14-technical-architecture-deep-dive.md ← target architecture + binding code rules
+  7. docs/rebuild-audit/15-risk-register.md                  ← risks Phase A must not create
+  8. docs/rebuild-audit/16-migration-strategy.md             ← phase map + cutover preconditions
+  9. docs/rebuild-audit/17-testing-and-quality-plan.md       ← Phase A acceptance criteria
+ 10. docs/rebuild-audit/18-phase-a-implementation-brief.md   ← the exact Phase A brief (this prompt's source)
+ 11. docs/rebuild-audit/20-agent-rules.md                    ← mandatory rules for every coding agent
+ 12. docs/rebuild-audit/21-rebuild-decision-record.md        ← ADR-style decisions you must obey
+ 13. docs/architecture/00-rebuild-non-negotiables.md         ← legacy non-negotiables (still binding)
+ 14. docs/architecture/01-target-rebuild-structure.md        ← legacy folder layout (refined by 14)
+ 15. docs/product/01-mvp-rebuild-scope.md                    ← Phase A scope only; do NOT build B-D
+ 16. docs/rebuild-audit/07-salvage-map.md                    ← what to keep, rebuild, discard
+ 17. docs/rebuild-audit/06-deployment-audit.md               ← deploy policy you must enforce
 
 Your job in this session is Phase A only — the clean app shell. Nothing more.
 
@@ -63,9 +74,23 @@ Branch strategy
 
 You have authority to:
   - Create a new local branch named: phase-a-app-shell
-  - Branch FROM main (after git fetch). Do NOT branch from phase-1-rebuild-audit.
-  - The phase-1-rebuild-audit branch is the audit branch and must be merged via PR first
-    by the user. If main does not yet contain the audit docs, ask before proceeding.
+  - Branch FROM main (after git fetch) IF main contains the audit docs
+    (look for docs/rebuild-audit/10-product-definition.md as the signal).
+  - If main does NOT contain the audit docs:
+      branch from the Phase 1B audit head (phase-1b-rebuild-deep-audit
+      or its tip commit). Do NOT branch blindly from main without the audit
+      docs available — Phase A must be able to read them.
+  - The phase-1-rebuild-audit and phase-1b-rebuild-deep-audit branches are
+    audit-only and should be merged to main via PR first by the user.
+    Ask before branching from anywhere other than main.
+
+Phase A constraints (re-stated from doc 18 + doc 20):
+  - Phase A is shell / foundation ONLY.
+  - Phase A must NOT build the Phil hours loop (that is Phase B per doc 19).
+  - Phase A must NOT flip /admin or /login rewrites (Phase C+ per doc 16).
+  - Phase A must NOT deploy (no vercel deploy; no push to main).
+  - Phase A must NOT touch public/, api/, vercel.json, scripts/, or any
+    legacy *.js / *.html / *.css.
 
 You must NOT:
   - Push the branch yet

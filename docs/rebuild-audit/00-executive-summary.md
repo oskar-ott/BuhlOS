@@ -1,9 +1,9 @@
 # 00 · Executive summary — Phase 1 rebuild audit
 
-**Date:** 2026-05-22
-**Branch:** `phase-1-rebuild-audit` (off `claude/wizardly-wright-b1640e`, latest commit `5cdfcaf`)
+**Date:** 2026-05-22 (Phase 1) + 2026-05-23 (Phase 1B deep audit)
+**Branch:** `phase-1-rebuild-audit` (off `claude/wizardly-wright-b1640e`, latest commit `5cdfcaf`); Phase 1B on `phase-1b-rebuild-deep-audit` (from `dcac892`).
 **Auditor:** Claude Code (Opus 4.7)
-**Scope:** Full audit of the current BuhlOS / Phil codebase as it stands on `main` immediately before a planned ground-up rebuild.
+**Scope:** Full audit of the current BuhlOS / Phil codebase as it stands on `main` immediately before a planned ground-up rebuild; Phase 1B adds the rebuild control pack (product definition, workflow map, domain model, IA, technical architecture, risk register, migration strategy, testing plan, per-phase implementation briefs, agent rules, ADR).
 
 ---
 
@@ -178,3 +178,50 @@ Do not deploy until:
 4. A second human has eyeballed the production deploy.
 
 The next prompt for Claude Code is at `docs/rebuild-audit/08-next-claude-code-prompt.md`.
+
+---
+
+## Phase 1B — deep audit (2026-05-23)
+
+### Why Phase 1B was added
+
+Phase 1 produced the diagnosis and the recommended rebuild strategy. It did **not** produce the operational specifics future coding agents would need to avoid rebuilding another generic SaaS demo. During the first Phase A session, the user's directive to "focus on Phil hours first" conflicted with the audit's Phase-A-is-foundation-only scope; the conflict was surfaced but exposed that the audit pack needed deeper anchoring documents so coding agents can't drift toward generic-dashboard patterns or skip phases.
+
+Phase 1B is that deeper pack. It is documentation-only — **no runtime or app code changed**. It produces 14 new docs and updates 2 existing docs under `docs/rebuild-audit/`.
+
+### Top 5 rebuild conclusions
+
+1. **The product is not a generic SaaS dashboard.** BuhlOS is an electrical-contracting operating backbone. BuhlOS Admin is queue-oriented control; Phil is field capture. The home is queues that need a decision, not vanity KPIs. See [10-product-definition.md](10-product-definition.md).
+2. **Closed loops drive the phases.** Hours is the first loop end-to-end (Phil capture → admin approve → CSV export); gear is second; jobs + evidence is third. Reporting / intelligence aggregates over loops, not the other way round. See [11-operational-workflow-map.md](11-operational-workflow-map.md).
+3. **Coexistence over cutover.** New routes mount on non-colliding paths (`/command-centre`, `/v2/login`, `/v2/phil`); legacy `vercel.json` rewrites stay until each cutover passes its precondition gate (preview verified, 7-day shadow, second-human approval). See [16-migration-strategy.md](16-migration-strategy.md).
+4. **Domain-led, not UI-led.** Every shape that touches the API has a Zod schema in `src/domains/<x>/schema.ts`; pages compose, domains carry logic. The legacy "ad-hoc objects per page" pattern is banned. See [12-domain-model-deep-dive.md](12-domain-model-deep-dive.md) and [14-technical-architecture-deep-dive.md](14-technical-architecture-deep-dive.md).
+5. **Agent control is a first-class concern.** Future coding agents have explicit rules ([20-agent-rules.md](20-agent-rules.md)), explicit phase briefs ([18](18-phase-a-implementation-brief.md), [19](19-phase-b-hours-implementation-brief.md)), and explicit binding decisions ([21](21-rebuild-decision-record.md)). When a prompt drifts, the agent must stop and ask — not silently obey.
+
+### Recommended next action
+
+1. Review the Phase 1B audit pack (start from [23-rebuild-index.md](23-rebuild-index.md)).
+2. Commit the 14 new + 2 updated docs as a single docs-only commit on `phase-1b-rebuild-deep-audit`.
+3. PR `phase-1b-rebuild-deep-audit → main` first (docs only; low risk).
+4. PR `phase-a-app-shell → main` second (the foundation built earlier in the session as commit `a49dc82`).
+5. Start Phase B using [19-phase-b-hours-implementation-brief.md](19-phase-b-hours-implementation-brief.md) as the prompt.
+
+### Links to the new docs
+
+- [10-product-definition.md](10-product-definition.md)
+- [11-operational-workflow-map.md](11-operational-workflow-map.md)
+- [12-domain-model-deep-dive.md](12-domain-model-deep-dive.md)
+- [13-ui-information-architecture.md](13-ui-information-architecture.md)
+- [14-technical-architecture-deep-dive.md](14-technical-architecture-deep-dive.md)
+- [15-risk-register.md](15-risk-register.md)
+- [16-migration-strategy.md](16-migration-strategy.md)
+- [17-testing-and-quality-plan.md](17-testing-and-quality-plan.md)
+- [18-phase-a-implementation-brief.md](18-phase-a-implementation-brief.md)
+- [19-phase-b-hours-implementation-brief.md](19-phase-b-hours-implementation-brief.md)
+- [20-agent-rules.md](20-agent-rules.md)
+- [21-rebuild-decision-record.md](21-rebuild-decision-record.md)
+- [22-phase-1b-command-results.md](22-phase-1b-command-results.md)
+- [23-rebuild-index.md](23-rebuild-index.md)
+
+### Warning
+
+> **Phase A must not start until Phase 1B is committed.** The Phase A implementation brief ([18](18-phase-a-implementation-brief.md)) requires the 1B docs as pre-read. Starting Phase A without them re-introduces R-13 (feature creep) and R-14 (LLM overbuilding) from [15-risk-register.md](15-risk-register.md).
