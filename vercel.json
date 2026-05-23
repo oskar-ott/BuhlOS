@@ -1,4 +1,5 @@
 {
+  "framework": "nextjs",
   "rewrites": [
     { "source": "/login", "destination": "/login.html" },
     { "source": "/jobs", "destination": "/admin/jobs.html" },
