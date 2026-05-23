@@ -1,0 +1,51 @@
+/*
+ * Brand tokens — single source of truth for colour, density, surfaces.
+ *
+ * Tailwind reads these via tailwind.config.ts (extend.colors). Components
+ * should NEVER hardcode hex values; always reference token names.
+ *
+ * Cross-ref: docs/architecture/00-rebuild-non-negotiables.md
+ */
+
+:root {
+  /* Brand */
+  --accent-yellow: #ffcc00;
+  --brand-navy: #0d1f35;
+  --accent-ink: #0f172a;
+
+  /* Surfaces */
+  --surface: #ffffff;
+  --surface-subtle: #f6f7f9;
+  --surface-raised: #ffffff;
+
+  /* Text */
+  --text: #0f172a;
+  --text-muted: #475569;
+  --text-inverse: #f8fafc;
+
+  /* Borders */
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  /* State */
+  --state-danger: #b91c1c;
+  --state-success: #15803d;
+  --state-warning: #b45309;
+  --state-info: #1d4ed8;
+
+  /* Density — regular by default. Compact and roomy variants below. */
+  --density-unit: 0.25rem;
+}
+
+[data-density="compact"] {
+  --density-unit: 0.1875rem;
+}
+
+[data-density="roomy"] {
+  --density-unit: 0.3125rem;
+}
+
+/*
+ * Dark surfaces for the admin shell. Phil and admin both default to light;
+ * dark mode is a Phase B+ concern.
+ */

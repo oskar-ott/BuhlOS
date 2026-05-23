@@ -1,0 +1,42 @@
+{
+  "extends": ["next/core-web-vitals", "next/typescript"],
+  "ignorePatterns": [
+    "node_modules/",
+    ".next/",
+    "public/",
+    "api/",
+    "scripts/",
+    "migrate-*.js",
+    "recover-*.js",
+    "seed-*.js",
+    "unify-*.js",
+    "playwright-report/",
+    "test-results/"
+  ],
+  "rules": {
+    "no-alert": "error",
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "JSXAttribute[name.name='style']",
+        "message": "Inline styles are banned. Use Tailwind utilities or design tokens (rebuild non-negotiable: UI rules)."
+      },
+      {
+        "selector": "Literal[value=/site[-_ ]?office/i]",
+        "message": "Deprecated naming: \"Site Office\" is banned in new code (rebuild non-negotiable: Naming hygiene)."
+      },
+      {
+        "selector": "CallExpression[callee.name='alert']",
+        "message": "alert() is banned in product code. Use a proper UI component."
+      },
+      {
+        "selector": "CallExpression[callee.name='confirm']",
+        "message": "confirm() is banned in product code. Use a proper UI component."
+      },
+      {
+        "selector": "CallExpression[callee.name='prompt']",
+        "message": "prompt() is banned in product code. Use a proper UI component."
+      }
+    ]
+  }
+}

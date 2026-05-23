@@ -1,5 +1,29 @@
+# Existing legacy ignores
 .vercel
 node_modules
 package-lock.json
 .env.local
 .env*.local
+
+# Next.js
+.next/
+out/
+next-env.d.ts.bak
+
+# TypeScript
+*.tsbuildinfo
+
+# Testing
+coverage/
+playwright-report/
+test-results/
+.playwright/
+playwright/.cache/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# ESLint cache
+.eslintcache
