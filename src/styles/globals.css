@@ -1,0 +1,37 @@
+@import "./tokens.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Global resets that aren't covered by Tailwind's preflight.
+ * Keep this file SHORT. Component-specific styles use Tailwind utilities.
+ */
+
+html,
+body {
+  background-color: var(--surface-subtle);
+  color: var(--text);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Focus ring used by every interactive primitive (Button, Pill, etc.). */
+:focus-visible {
+  outline: 2px solid var(--accent-yellow);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/*
+ * The UNDER CONSTRUCTION background pattern — black/yellow diagonal stripes.
+ * Kept in CSS rather than Tailwind because the gradient is too long for utilities.
+ */
+.uc-tape {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--accent-yellow) 0 12px,
+    var(--brand-navy) 12px 24px
+  );
+}
