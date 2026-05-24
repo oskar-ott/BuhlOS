@@ -11,19 +11,19 @@ interface Tab {
 }
 
 /**
- * Phase A / B Phil tabs:
+ * Phase A / B / C Phil tabs:
  *   Today  → /phil/my-day       (live in Phase B — the hours loop)
  *   Jobs   → UC                 (Phase D)
- *   Gear   → UC                 (Phase C)
+ *   Gear   → /phil/gear         (live in Phase C — my gear + return/report)
  *   Snag   → UC                 (Phase D)
- *   More   → /v2/phil           (live placeholder; profile menu lands in Phase C+)
+ *   More   → /v2/phil           (live placeholder; profile menu lands later)
  *
  * UC tabs are visible but non-interactive per docs/architecture/00-rebuild-non-negotiables.md.
  */
 const TABS: ReadonlyArray<Tab> = [
   { label: "Today", href: "/phil/my-day", icon: Calendar, status: "live" },
   { label: "Jobs", href: "/v2/phil", icon: Briefcase, status: "under-construction" },
-  { label: "Gear", href: "/v2/phil", icon: Wrench, status: "under-construction" },
+  { label: "Gear", href: "/phil/gear", icon: Wrench, status: "live" },
   { label: "Snag", href: "/v2/phil", icon: AlertCircle, status: "under-construction" },
   { label: "More", href: "/v2/phil", icon: MoreHorizontal, status: "live" },
 ];
