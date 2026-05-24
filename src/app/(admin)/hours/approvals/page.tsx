@@ -4,7 +4,7 @@ import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
-import { ApprovalsClient } from "./approvals-client";
+import { HoursApprovalsQueue } from "@/components/admin/HoursApprovalsQueue";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
@@ -58,7 +58,7 @@ export default async function HoursApprovalsPage() {
           </CardDescription>
         </Card>
 
-        <ApprovalsClient initialEntries={entries} fetchError={fetchError} />
+        <HoursApprovalsQueue initialEntries={entries} fetchError={fetchError} />
 
         <UnderConstructionPanel
           feature="Bulk approve week · re-open approved entry · LH-scoped admin view"

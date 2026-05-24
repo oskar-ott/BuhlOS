@@ -17,7 +17,7 @@ import {
 } from "@/domains/timesheets/format";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
-interface ApprovalsClientProps {
+interface HoursApprovalsQueueProps {
   initialEntries: ReadonlyArray<TimeEntry>;
   fetchError: string | null;
 }
@@ -37,8 +37,17 @@ function entryKey(entry: Pick<TimeEntry, "userId" | "date">): string {
  * The interactive part of /hours/approvals. Server component fetches the
  * queue + passes it in; this component handles approve / reject mutations,
  * tracks per-row in-flight state, and refreshes the page after every action.
+ *
+ * Lives in src/components/admin/ rather than next to the page in the
+ * (admin)/hours/approvals/ route folder because Next.js 15.5's RSC
+ * bundler has a known bug where a deep-nested sibling client component
+ * (route group → segment → child segment → client) can be omitted from
+ * the page's React Client Manifest. SSR then throws "Could not find the
+ * module …#ApprovalsClient in the React Client Manifest" with digest
+ * 292479990. /gear works because it's only one route segment deep;
+ * /hours/approvals is two and hits the bug. See PR #6.
  */
-export function ApprovalsClient({ initialEntries, fetchError }: ApprovalsClientProps) {
+export function HoursApprovalsQueue({ initialEntries, fetchError }: HoursApprovalsQueueProps) {
   const router = useRouter();
   const [entries, setEntries] = useState<ReadonlyArray<TimeEntry>>(initialEntries);
   const [action, setAction] = useState<ActionState>({ kind: "idle" });

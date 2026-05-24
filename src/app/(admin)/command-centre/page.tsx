@@ -37,11 +37,12 @@ export default function CommandCentrePage() {
               submits hours → admin approves → weekly summary → CSV export.
             </li>
             <li>
-              <span className="font-medium text-text">Phase C · evidence + snags.</span>{" "}
-              Photo capture pipeline, defect lifecycle.
+              <span className="font-medium text-text">Phase C · gear loop.</span> Admin
+              assigns gear → worker returns or reports damaged / missing → admin sees
+              status with full audit history.
             </li>
             <li>
-              <span className="font-medium text-text">Phase D+ · ITP, materials, plans.</span>{" "}
+              <span className="font-medium text-text">Phase D+ · evidence, ITP, materials, plans.</span>{" "}
               Per the MVP rebuild scope.
             </li>
           </ul>

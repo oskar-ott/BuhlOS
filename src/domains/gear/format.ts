@@ -60,8 +60,17 @@ export function historyKindLabel(kind: GearHistoryKind | undefined): string {
   return HISTORY_LABELS[kind];
 }
 
+// Pin display formatting to Sydney so server-side render (Vercel functions
+// run in UTC) and client-side hydration produce identical strings. Without
+// this, React throws hydration error #418 on every gear card with an
+// assignedAt or expectedReturn value. Matches BUSINESS_TIMEZONE in
+// src/domains/timesheets/service.ts.
+const DISPLAY_TIMEZONE = "Australia/Sydney";
+
 /**
- * Render an ISO timestamp as a short en-AU label like "12 May, 4:32 pm".
+ * Render an ISO timestamp as a short en-AU label like "12 May, 4:32 pm",
+ * in Sydney time regardless of where the code runs.
+ *
  * Returns null when the input is missing or unparseable so callers can
  * render an em-dash without a parsing guard.
  */
@@ -70,6 +79,7 @@ export function formatTimestamp(iso: string | null | undefined): string | null {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleString("en-AU", {
+    timeZone: DISPLAY_TIMEZONE,
     day: "numeric",
     month: "short",
     hour: "numeric",
@@ -79,11 +89,19 @@ export function formatTimestamp(iso: string | null | undefined): string | null {
 
 /**
  * Render a YYYY-MM-DD date as a friendly en-AU label like "Mon 4 May".
+ *
+ * A bare date string has no time component. Parsing it as `T00:00:00`
+ * (no Z) drifts by the runtime's UTC offset — on a UTC server it's
+ * 2026-05-04, but on a Sydney client it's 2026-05-03 14:00. Force UTC
+ * on the parse and the format to make the output deterministic.
  */
 export function formatShortDate(date: string | null | undefined): string | null {
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-  const d = new Date(date + "T00:00:00");
-  return d.toLocaleDateString("en-AU", {
+  if (!date) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return null;
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return dt.toLocaleDateString("en-AU", {
+    timeZone: "UTC",
     weekday: "short",
     day: "numeric",
     month: "short",

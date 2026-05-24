@@ -21,7 +21,7 @@
 //   client      — 403 everywhere
 
 const { put, list } = require('@vercel/blob');
-const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
+const { readBlob, readBlobFresh, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
 
 const VALID_TYPES = ['vehicle', 'key', 'tool', 'accessory', 'ppe', 'other'];
@@ -99,14 +99,18 @@ function sanitiseAsset(body, existing) {
   return { asset: next };
 }
 
+// readAsset / readHistory bypass the 5-second in-memory cache in
+// api/_lib/blob.js. Without this, an admin opening the drawer right after
+// a Phil report (or vice versa) can hit a Vercel function instance whose
+// cache predates the write and serve stale data — see BUG-C-004.
 async function readAsset(id) {
-  return await readBlob('assets/' + id + '.json', null);
+  return await readBlobFresh('assets/' + id + '.json', null);
 }
 async function writeAsset(asset) {
   await writeBlob('assets/' + asset.id + '.json', asset);
 }
 async function readHistory(id) {
-  return (await readBlob('assets/' + id + '/history.json', { entries: [] })) || { entries: [] };
+  return (await readBlobFresh('assets/' + id + '/history.json', { entries: [] })) || { entries: [] };
 }
 async function appendHistory(id, entry) {
   const log = await readHistory(id);

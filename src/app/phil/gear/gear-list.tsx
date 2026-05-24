@@ -44,6 +44,9 @@ export function PhilGearList({ initialAssets }: Props) {
   function runAction() {
     if (!confirm) return;
     const { asset, kind } = confirm;
+    // Close the sheet up front so the worker sees an immediate response and
+    // can't double-tap. The async result lands as a banner instead.
+    setConfirm(null);
     setErrorMessage(null);
     setSuccessMessage(null);
     startTransition(async () => {
@@ -53,10 +56,8 @@ export function PhilGearList({ initialAssets }: Props) {
           : await reportGear({ assetId: asset.id, kind });
       if (!result.ok) {
         setErrorMessage(result.error.message);
-        setConfirm(null);
         return;
       }
-      setConfirm(null);
       setSuccessMessage(
         kind === "return"
           ? `Returned ${asset.name} to depot`
