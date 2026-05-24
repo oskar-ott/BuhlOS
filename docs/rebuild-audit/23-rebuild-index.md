@@ -38,6 +38,12 @@
 | 22 | [22-phase-1b-command-results.md](22-phase-1b-command-results.md) | Phase 1B session record. | Reviewers. Historical reference. | Audit trail. |
 | 23 | [23-rebuild-index.md](23-rebuild-index.md) | This document. | Everyone. | When unsure where to find something. |
 
+## Phase D — planning
+
+| # | Doc | Purpose | Who should read | When |
+| --- | --- | --- | --- | --- |
+| 24 | [24-phase-d-jobs-evidence-plan.md](24-phase-d-jobs-evidence-plan.md) | Phase D scope, data model, routes, build sequence, and a paste-ready Claude Code build prompt for jobs + evidence. **Status: draft, awaiting Oskar approval of §15 open decisions.** | Phase D planning + future Phase D build sessions. | After Phase C ships; before the Phase D build session opens. |
+
 ## Phase 1 / 1B supporting docs
 
 | Doc | Purpose |
