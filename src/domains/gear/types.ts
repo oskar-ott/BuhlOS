@@ -12,6 +12,7 @@ import type {
   TransferGearPayloadSchema,
   ReportGearPayloadSchema,
   ReportKindSchema,
+  MarkGearGoodPayloadSchema,
   GearMutationResponseSchema,
 } from "./schema";
 
@@ -48,6 +49,7 @@ export type ReportKind = z.infer<typeof ReportKindSchema>;
 export type CreateGearAssetPayload = z.infer<typeof CreateGearAssetPayloadSchema>;
 export type TransferGearPayload = z.infer<typeof TransferGearPayloadSchema>;
 export type ReportGearPayload = z.infer<typeof ReportGearPayloadSchema>;
+export type MarkGearGoodPayload = z.infer<typeof MarkGearGoodPayloadSchema>;
 
 export type GearListResponse = z.infer<typeof GearListResponseSchema>;
 export type GearDetailResponse = z.infer<typeof GearDetailResponseSchema>;

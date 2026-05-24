@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { Modal } from "@/components/ui/Modal";
-import { reportGear, transferGear } from "@/domains/gear/client";
+import { markGearGood, reportGear, transferGear } from "@/domains/gear/client";
 import { deriveStatus, statusTone } from "@/domains/gear/service";
 import {
   assetDisplayName,
@@ -352,36 +352,49 @@ function AssetDrawer({ asset, holders, onClose, onMutate, isPending }: AssetDraw
           </section>
         )}
 
-        {asset.currentHolderId && !asset.archived ? (
+        {!asset.archived && (asset.currentHolderId || asset.condition === "damaged" || asset.condition === "missing") ? (
           <section aria-label="Mark condition">
             <h3 className="font-display text-sm uppercase tracking-wider text-text-muted">
               Mark condition
             </h3>
             <div className="mt-2 flex flex-wrap gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={isPending}
-                onClick={() => onMutate(reportGear({ assetId: asset.id, kind: "check" }))}
-              >
-                Confirm checked
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={isPending || asset.condition === "damaged"}
-                onClick={() => onMutate(reportGear({ assetId: asset.id, kind: "damaged" }))}
-              >
-                Mark damaged
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={isPending || asset.condition === "missing"}
-                onClick={() => onMutate(reportGear({ assetId: asset.id, kind: "missing" }))}
-              >
-                Mark missing
-              </Button>
+              {asset.condition === "damaged" || asset.condition === "missing" ? (
+                <Button
+                  size="sm"
+                  disabled={isPending}
+                  onClick={() => onMutate(markGearGood({ assetId: asset.id, note: null }))}
+                >
+                  Mark good
+                </Button>
+              ) : null}
+              {asset.currentHolderId ? (
+                <>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={isPending}
+                    onClick={() => onMutate(reportGear({ assetId: asset.id, kind: "check" }))}
+                  >
+                    Confirm checked
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={isPending || asset.condition === "damaged"}
+                    onClick={() => onMutate(reportGear({ assetId: asset.id, kind: "damaged" }))}
+                  >
+                    Mark damaged
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={isPending || asset.condition === "missing"}
+                    onClick={() => onMutate(reportGear({ assetId: asset.id, kind: "missing" }))}
+                  >
+                    Mark missing
+                  </Button>
+                </>
+              ) : null}
             </div>
           </section>
         ) : null}

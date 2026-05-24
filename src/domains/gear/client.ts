@@ -4,6 +4,7 @@ import {
   GearDetailResponseSchema,
   GearListResponseSchema,
   GearMutationResponseSchema,
+  MarkGearGoodPayloadSchema,
   ReportGearPayloadSchema,
   TransferGearPayloadSchema,
 } from "./schema";
@@ -12,6 +13,7 @@ import type {
   GearDetailResponse,
   GearListResponse,
   GearMutationResponse,
+  MarkGearGoodPayload,
   ReportGearPayload,
   TransferGearPayload,
 } from "./types";
@@ -141,10 +143,41 @@ export function reportGear(
   );
 }
 
+/**
+ * The Phase C hardening `?action=mark-good` addition. Admin-only — clears
+ * a damaged or missing condition back to `good` after an asset has been
+ * repaired or recovered. Logs a `kind: 'admin_updated'` history entry so
+ * the admin reset is distinguishable from a worker report.
+ */
+export function markGearGood(
+  payload: MarkGearGoodPayload
+): Promise<HttpResult<GearMutationResponse>> {
+  const parsed = MarkGearGoodPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Promise.resolve({
+      ok: false,
+      error: {
+        status: 0,
+        body: parsed.error.format(),
+        message: parsed.error.issues.map((i) => i.message).join("; "),
+      },
+    });
+  }
+  return httpPost<GearMutationResponse>(
+    "/api/assets?action=mark-good",
+    parsed.data,
+    {
+      schema: GearMutationResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
 export const gearClient = {
   listGear,
   getGearDetail,
   createGearAsset,
   transferGear,
   reportGear,
+  markGearGood,
 } as const;

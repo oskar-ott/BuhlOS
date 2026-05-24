@@ -208,6 +208,17 @@ export const ReportGearPayloadSchema = z.object({
   note: z.string().trim().max(500, "Note too long").nullable().optional(),
 });
 
+/**
+ * POST /api/assets?action=mark-good — admin clears a damaged or missing
+ * condition flag after the asset has been repaired or recovered. Workers
+ * cannot mark good (one-way reporting prevents a tradie from hiding their
+ * own damage report). The server-side handler is added to api/assets.js.
+ */
+export const MarkGearGoodPayloadSchema = z.object({
+  assetId: z.string().min(1, "assetId required"),
+  note: z.string().trim().max(500, "Note too long").nullable().optional(),
+});
+
 export const ApiErrorBodySchema = z.object({
   error: z.string(),
 });

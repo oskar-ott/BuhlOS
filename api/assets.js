@@ -260,6 +260,45 @@ module.exports = async (req, res) => {
       return res.status(200).json({ asset: a });
     }
 
+    // ── Phase C hardening: ?action=mark-good — admin clears a damaged /
+    //   missing condition after the asset has been repaired or recovered.
+    //   Workers are not allowed to do this (would let a tradie hide a
+    //   damage flag); the report endpoint is one-way for them.
+    //
+    //   Body: { assetId, note? }
+    //
+    //   Mutations on the asset record:
+    //     condition           → 'good'
+    //     lastConditionAt/By  → now, admin
+    //   History gets a `kind: 'admin_updated'` entry so the action log
+    //   shows the admin reset distinct from worker reports.
+    if (action === 'mark-good') {
+      if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+      const body = req.body || {};
+      const { assetId, note } = body;
+      if (!assetId) return res.status(400).json({ error: 'assetId required' });
+      const a = await readAsset(assetId);
+      if (!a) return res.status(404).json({ error: 'asset not found' });
+      const cleanNote = note ? String(note).trim().slice(0, 500) : null;
+      const now = new Date().toISOString();
+      a.condition = 'good';
+      a.lastConditionAt = now;
+      a.lastConditionBy = user.id;
+      a.updatedAt = now;
+      await writeAsset(a);
+      await appendHistory(assetId, {
+        id: newHistoryId(),
+        kind: 'admin_updated',
+        at: now,
+        byUserId: user.id,
+        byRole: user.role,
+        byName: user.username,
+        note: cleanNote,
+        condition: 'good',
+      });
+      return res.status(200).json({ asset: a });
+    }
+
     // ── Phase C addition: ?action=report — worker check / condition report.
     //   Records a possession confirmation ("check") or a condition flag
     //   ("damaged" / "missing"). Workers may only report on gear they hold;
