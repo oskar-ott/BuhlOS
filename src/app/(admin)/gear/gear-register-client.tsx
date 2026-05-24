@@ -155,10 +155,12 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
                   const overdue = isOverdue(asset, today);
                   return (
                     <tr key={asset.id} className="hover:bg-surface-subtle">
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-text">{asset.name}</div>
+                      <td className="max-w-xs px-4 py-3">
+                        <div className="truncate font-medium text-text" title={asset.name}>
+                          {asset.name}
+                        </div>
                         {asset.identifier ? (
-                          <div className="text-xs text-text-muted">{asset.identifier}</div>
+                          <div className="truncate text-xs text-text-muted">{asset.identifier}</div>
                         ) : null}
                       </td>
                       <td className="px-4 py-3 text-text-muted">{typeLabel(asset.type)}</td>
