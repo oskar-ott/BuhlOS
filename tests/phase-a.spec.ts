@@ -35,7 +35,11 @@ test("unauthenticated /command-centre redirects to /v2/login", async ({ page }) 
   await expect(page).toHaveURL(/\/v2\/login(\?|$)/);
 });
 
-test("demo-mode banner is visible on /v2/login", async ({ page }) => {
+test("demo-mode banner is NOT visible on /v2/login (Phase B real wiring)", async ({ page }) => {
+  // Updated post-Phase-B-hardening: src/lib/flags.ts fixtures.isDemoMode()
+  // now returns false because the timesheets domain wires real
+  // /api/time-entries* endpoints. The banner was misleading workers into
+  // thinking their real submissions were demo data.
   await page.goto("/v2/login");
-  await expect(page.getByText(/Demo mode/i)).toBeVisible();
+  await expect(page.getByText(/Demo mode/i)).toHaveCount(0);
 });
