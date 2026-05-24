@@ -25,6 +25,7 @@ const VALID_ACTIONS = new Set([
   'evidence.captured',
   'evidence.reviewed',
   'evidence.rejected',
+  'evidence.unreviewed',
 ]);
 const VALID_TARGET_TYPES = new Set(['evidence']);
 

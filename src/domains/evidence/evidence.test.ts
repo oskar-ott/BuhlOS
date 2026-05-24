@@ -371,6 +371,33 @@ describe("ReviewEvidencePayloadSchema", () => {
     expect(r.success).toBe(false);
   });
 
+  it("accepts un-review transition (status=submitted) with no reason", () => {
+    const r = ReviewEvidencePayloadSchema.safeParse({
+      evidenceId: "ev_abc12345",
+      status: "submitted",
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("accepts un-review transition with optional reason", () => {
+    const r = ReviewEvidencePayloadSchema.safeParse({
+      evidenceId: "ev_abc12345",
+      status: "submitted",
+      reason: "Wrong area",
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects un-review reason longer than REJECTION_REASON_MAX", () => {
+    const longReason = "x".repeat(REJECTION_REASON_MAX + 1);
+    const r = ReviewEvidencePayloadSchema.safeParse({
+      evidenceId: "ev_abc12345",
+      status: "submitted",
+      reason: longReason,
+    });
+    expect(r.success).toBe(false);
+  });
+
   it("rejects unknown status", () => {
     const r = ReviewEvidencePayloadSchema.safeParse({
       evidenceId: "ev_abc12345",

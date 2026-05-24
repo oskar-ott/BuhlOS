@@ -4,6 +4,7 @@ import type {
   AuditActionSchema,
   AuditLogEntrySchema,
   AuditLogFileSchema,
+  AuditLogListResponseSchema,
   AuditTargetTypeSchema,
 } from "./schema";
 
@@ -17,4 +18,5 @@ export type AuditAction = z.infer<typeof AuditActionSchema>;
 export type AuditTargetType = z.infer<typeof AuditTargetTypeSchema>;
 export type AuditLogEntry = z.infer<typeof AuditLogEntrySchema>;
 export type AuditLogFile = z.infer<typeof AuditLogFileSchema>;
+export type AuditLogListResponse = z.infer<typeof AuditLogListResponseSchema>;
 export type AppendAuditLogPayload = z.infer<typeof AppendAuditLogPayloadSchema>;

@@ -35,6 +35,7 @@ export const AUDIT_ACTIONS = [
   "evidence.captured",
   "evidence.reviewed",
   "evidence.rejected",
+  "evidence.unreviewed",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -65,6 +66,10 @@ export const AuditLogEntrySchema = z
 export const AuditLogFileSchema = z.object({
   entries: z.array(AuditLogEntrySchema),
 });
+
+/** GET /api/audit-log response — same shape as a monthly blob's
+ *  contents, filtered/sorted by the server. */
+export const AuditLogListResponseSchema = AuditLogFileSchema;
 
 /**
  * Payload the server passes to api/_lib/audit-log.js#append(). Server

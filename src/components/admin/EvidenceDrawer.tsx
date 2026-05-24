@@ -1,7 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
-import { FileText, Image as ImageIcon, Lock, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  CheckCircle2,
+  FileText,
+  Image as ImageIcon,
+  Lock,
+  PenSquare,
+  X,
+  XCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import {
@@ -11,6 +19,11 @@ import {
   type EvidenceStatusTone,
 } from "@/domains/evidence/format";
 import type { EvidenceItem } from "@/domains/evidence/types";
+import { listAuditForTarget } from "@/domains/audit-log/client";
+import type {
+  AuditAction,
+  AuditLogEntry,
+} from "@/domains/audit-log/types";
 import { cn } from "@/lib/cn";
 
 const PILL_TONE_MAP: Record<EvidenceStatusTone, "info" | "success" | "danger"> = {
@@ -28,20 +41,30 @@ interface Props {
   onClose: () => void;
   onMarkReviewed: () => void;
   onOpenReject: () => void;
+  /** Admin un-review action (D5). Optional — if omitted, the
+   *  "Un-review" affordance doesn't render. Always hidden for LH
+   *  regardless of value (the parent component is responsible for
+   *  passing this only when isAdmin). */
+  onOpenUnreview?: () => void;
 }
 
+type HistoryState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ready"; entries: AuditLogEntry[] }
+  | { kind: "error"; message: string };
+
 /**
- * Admin evidence detail drawer (doc 30 §6.2).
+ * Admin evidence detail drawer (doc 30 §6.2; D5 history + un-review).
  *
  * Slides in from the right with full-size photo, full note, target,
- * captured-by, status pill, and the primary actions footer.
+ * captured-by, status pill, history, and the primary actions footer.
  *
  *   - admin sees Mark reviewed (primary) + Reject (secondary)
+ *   - reviewed items: admin sees Un-review (D5)
+ *   - rejected items: immutable; workers re-capture instead
  *   - LH sees the same body but action buttons hidden
- *   - rejected items show the rejection reason inline
- *   - reviewed items show a lock icon next to the status pill
- *   - History section is UNDER CONSTRUCTION — the audit-log read
- *     endpoint lands later (doc 30 §A.5 + D4-4 risk)
+ *   - History section consumes /api/audit-log (D5)
  */
 export function EvidenceDrawer({
   item,
@@ -51,7 +74,10 @@ export function EvidenceDrawer({
   onClose,
   onMarkReviewed,
   onOpenReject,
+  onOpenUnreview,
 }: Props) {
+  const [history, setHistory] = useState<HistoryState>({ kind: "idle" });
+
   // Esc closes the drawer (matches the Phase B reject modal behaviour).
   useEffect(() => {
     if (!open) return;
@@ -61,6 +87,45 @@ export function EvidenceDrawer({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose, busy]);
+
+  // Fetch audit history when the drawer opens for a fresh item.
+  // Re-fetches on item.status change so a just-reviewed item shows the
+  // new audit row without needing a drawer close.
+  useEffect(() => {
+    if (!open || !item) {
+      setHistory({ kind: "idle" });
+      return;
+    }
+    let cancelled = false;
+    setHistory({ kind: "loading" });
+    listAuditForTarget({
+      jobId: item.jobId,
+      targetType: "evidence",
+      targetId: item.id,
+    }).then((r) => {
+      if (cancelled) return;
+      if (r.ok) {
+        setHistory({ kind: "ready", entries: r.data.entries });
+      } else {
+        setHistory({
+          kind: "error",
+          message:
+            r.error.status === 403
+              ? "You don't have permission to read the history."
+              : "Couldn't load the history. Retry?",
+        });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // We intentionally depend on item's identity fields rather than the
+    // whole item — re-fetching every time a parent passes a new object
+    // ref (e.g. on local optimistic state update) would churn the
+    // network. The id/jobId/status/updatedAt tuple covers every case
+    // where a re-fetch is genuinely needed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, item?.id, item?.jobId, item?.status, item?.updatedAt]);
 
   if (!open || !item) return null;
 
@@ -169,23 +234,7 @@ export function EvidenceDrawer({
               </div>
             ) : null}
 
-            <div>
-              <p className="font-display text-xs uppercase tracking-wider text-text-muted">
-                History
-              </p>
-              <p className="mt-1 rounded-card border border-dashed border-border bg-surface-subtle p-3 text-xs text-text-muted">
-                Audit history will appear here once the audit-log read endpoint
-                ships. Each evidence event already writes to{" "}
-                <code className="rounded bg-surface px-1 py-0.5 text-[11px]">
-                  audit/&lt;yyyy-mm&gt;.json
-                </code>{" "}
-                — the drawer can resolve them by{" "}
-                <code className="rounded bg-surface px-1 py-0.5 text-[11px]">
-                  auditLogIds
-                </code>{" "}
-                in a later slice.
-              </p>
-            </div>
+            <HistorySection state={history} />
           </div>
         </div>
 
@@ -207,6 +256,21 @@ export function EvidenceDrawer({
               className="bg-brand-navy text-text-inverse hover:bg-accent-ink"
             >
               {busy ? "Saving…" : "Mark reviewed"}
+            </Button>
+          </footer>
+        ) : isAdmin && isReviewed && onOpenUnreview ? (
+          <footer className="flex flex-col-reverse gap-2 border-t border-border bg-surface-raised px-4 py-3 sm:flex-row sm:items-center sm:justify-end">
+            <p className="flex-1 self-center text-xs text-text-muted">
+              Already reviewed. Un-review to send it back to the submitted
+              queue if the decision was wrong.
+            </p>
+            <Button
+              variant="ghost"
+              size="lg"
+              onClick={onOpenUnreview}
+              disabled={busy}
+            >
+              {busy ? "Saving…" : "Un-review"}
             </Button>
           </footer>
         ) : (
@@ -247,6 +311,85 @@ function TargetSection({ item }: { item: EvidenceItem }) {
       )}
     </div>
   );
+}
+
+function HistorySection({ state }: { state: HistoryState }) {
+  return (
+    <div>
+      <p className="font-display text-xs uppercase tracking-wider text-text-muted">
+        History
+      </p>
+      {state.kind === "loading" ? (
+        <p className="mt-2 rounded-card border border-dashed border-border bg-surface-subtle p-3 text-xs text-text-muted">
+          Loading…
+        </p>
+      ) : state.kind === "error" ? (
+        <p
+          role="alert"
+          className="mt-2 rounded-card border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800"
+        >
+          {state.message}
+        </p>
+      ) : state.kind === "ready" && state.entries.length === 0 ? (
+        <p className="mt-2 rounded-card border border-dashed border-border bg-surface-subtle p-3 text-xs text-text-muted">
+          No audit entries yet.
+        </p>
+      ) : state.kind === "ready" ? (
+        <ul className="mt-2 space-y-2">
+          {state.entries.map((e) => (
+            <li
+              key={e.id}
+              className="flex items-start gap-3 rounded-card border border-border bg-surface px-3 py-2 text-sm"
+            >
+              <ActionIcon action={e.action} />
+              <div className="min-w-0 flex-1">
+                <p className="text-text">{e.summary}</p>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  {e.actorName}
+                  {e.actorRole ? ` (${e.actorRole})` : ""} ·{" "}
+                  <time dateTime={e.ts} title={e.ts}>
+                    {formatCapturedAt(e.ts)}
+                  </time>
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function ActionIcon({ action }: { action: AuditAction }) {
+  switch (action) {
+    case "evidence.captured":
+      return (
+        <span
+          aria-hidden="true"
+          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-pill bg-sky-100 text-sky-700"
+        >
+          <PenSquare className="h-3.5 w-3.5" />
+        </span>
+      );
+    case "evidence.reviewed":
+      return (
+        <span
+          aria-hidden="true"
+          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-pill bg-emerald-100 text-emerald-700"
+        >
+          <CheckCircle2 className="h-3.5 w-3.5" />
+        </span>
+      );
+    case "evidence.rejected":
+      return (
+        <span
+          aria-hidden="true"
+          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-pill bg-rose-100 text-rose-700"
+        >
+          <XCircle className="h-3.5 w-3.5" />
+        </span>
+      );
+  }
 }
 
 function formatCapturedAt(iso: string): string {

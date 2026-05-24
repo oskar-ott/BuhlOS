@@ -243,15 +243,31 @@ export const CreateEvidencePayloadSchema = z
   });
 
 /**
- * Admin review payload (D4 wires the UI; D2 stubs the endpoint so the
- * shape is locked in early). Either marks an item reviewed or rejects
- * with a required reason.
+ * Admin review payload.
+ *
+ * D2 stubbed the endpoint; D4 wired the review/reject UI; D5 adds the
+ * un-review transition (reviewed → submitted) with an optional reason
+ * carried into the audit log only — the row's `rejectionReason` field
+ * is reserved for rejected items and is never set by an un-review.
+ *
+ * Transitions:
+ *   - status='reviewed'  → row.reviewedBy* set, no reason required.
+ *   - status='rejected'  → rejectionReason required (≤500 chars).
+ *   - status='submitted' → un-review of a reviewed row; optional
+ *                          `reason` goes into the audit summary only.
  */
 export const ReviewEvidencePayloadSchema = z
   .object({
     evidenceId: z.string().min(1, "evidenceId required"),
-    status: z.enum(["reviewed", "rejected"]),
+    status: z.enum(["reviewed", "rejected", "submitted"]),
     rejectionReason: z
+      .string()
+      .max(REJECTION_REASON_MAX, `Reason must be ${REJECTION_REASON_MAX} characters or fewer`)
+      .nullable()
+      .optional(),
+    /** D5 — optional audit note for un-review. Ignored by the server
+     *  for status=reviewed/rejected. */
+    reason: z
       .string()
       .max(REJECTION_REASON_MAX, `Reason must be ${REJECTION_REASON_MAX} characters or fewer`)
       .nullable()
