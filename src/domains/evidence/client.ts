@@ -3,6 +3,7 @@ import {
   CreateEvidencePayloadSchema,
   EvidenceCreateResponseSchema,
   EvidenceListResponseSchema,
+  EvidencePhotoUploadResponseSchema,
   EvidenceReviewResponseSchema,
   ReviewEvidencePayloadSchema,
 } from "./schema";
@@ -10,6 +11,7 @@ import type {
   CreateEvidencePayload,
   EvidenceCreateResponse,
   EvidenceListResponse,
+  EvidencePhotoUploadResponse,
   EvidenceReviewResponse,
   ReviewEvidencePayload,
 } from "./types";
@@ -96,8 +98,40 @@ export function reviewEvidence(
   });
 }
 
+/**
+ * Photo upload — POST /api/photos?jobId=X&action=upload-evidence-photo.
+ *
+ * Reuses the legacy photos endpoint's D2-added action branch. Returns
+ * the canonical `{ id, url, capturedAt }` the D3 capture sheet then
+ * passes into `createEvidence()` as `photoId` + `photoUrl`.
+ *
+ * Two-step capture (upload → create) is intentional per doc 24 §9:
+ * the binary write needs to land before the metadata row references it.
+ * D2-L2 covers the orphan-photo edge case (evidence create fails after
+ * upload succeeds; manual blob cleanup acceptable for D2 onwards).
+ *
+ * Client must encode the image as a `data:image/...;base64,...` URL.
+ * D3 capture sheet uses `src/domains/evidence/service.ts#resizeImageToDataUrl`
+ * to produce a compliant dataUrl ≤ 6 MB.
+ */
+export function uploadEvidencePhoto(
+  jobId: string,
+  dataUrl: string
+): Promise<HttpResult<EvidencePhotoUploadResponse>> {
+  const url = `/api/photos?jobId=${encodeURIComponent(jobId)}&action=upload-evidence-photo`;
+  return httpPost<EvidencePhotoUploadResponse>(
+    url,
+    { dataUrl },
+    {
+      schema: EvidencePhotoUploadResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
 export const evidenceClient = {
   listEvidence,
   createEvidence,
   reviewEvidence,
+  uploadEvidencePhoto,
 } as const;
