@@ -38,14 +38,35 @@
 | 22 | [22-phase-1b-command-results.md](22-phase-1b-command-results.md) | Phase 1B session record. | Reviewers. Historical reference. | Audit trail. |
 | 23 | [23-rebuild-index.md](23-rebuild-index.md) | This document. | Everyone. | When unsure where to find something. |
 
-## Phase D — planning
+## Phase D — planning + QA
 
 | # | Doc | Purpose | Who should read | When |
 | --- | --- | --- | --- | --- |
 | 24 | [24-phase-d-jobs-evidence-plan.md](24-phase-d-jobs-evidence-plan.md) | Phase D scope, data model, routes, risks, acceptance criteria. §15.0 has 7 RESOLVED decisions; §15.1 has 2 open founder calls. | Phase D planning + future Phase D build sessions. | After Phase C ships; before the Phase D build session opens. |
-| 25 | [25-phase-d-build-prompts.md](25-phase-d-build-prompts.md) | Paste-ready Claude Code build prompts for D1, D2, D3, D4, D5, D6 — each self-contained with scope, hard rules, preflight reads, checks, PR title, expected report. | Each Phase D build session (one prompt per slice). | When opening each Dx build session. |
-| 26 | [26-phase-d-testing-checklist.md](26-phase-d-testing-checklist.md) | Per-slice unit / integration / Playwright checklists, field test script, exit gates, regression matrix. Includes §A.1 grep test for the Next.js 15.5 RSC manifest pattern. | Build sessions + Oskar (preview verification) + on-call post-cutover. | Throughout Phase D execution. |
-| 27 | [27-interface-usability-pass.md](27-interface-usability-pass.md) | Cross-cutting UX brief for both surfaces (Phil simplicity + BuhlOS clarity rules + 5-tone status pill palette + 20-entry visual marker dictionary + screen-by-screen critique + ready-to-paste UI hardening prompt). Upstream of every Dx build prompt. | **Every Dx build session** (preflight). Oskar (review §3 principles + §6.2 dictionary + §19.1 open questions). | Before D1 starts. Re-read at each Dx start. |
+| 25 | [25-phase-d-build-prompts.md](25-phase-d-build-prompts.md) | Paste-ready build prompts for D1, D2, D3, D4, D5, D6 — original phasing. **Note:** the D2/D3/D4 build prompts for the evidence loop are superseded by docs 28-30 per the [doc 28 §0 phasing reconciliation](28-d2-d3-d4-evidence-qa-checklist.md). D1, D5, D6 prompts remain authoritative. | Each Phase D build session that doesn't have a newer spec. | When opening each Dx build session. |
+| 26 | [26-phase-d-testing-checklist.md](26-phase-d-testing-checklist.md) | Per-slice unit / integration / Playwright checklists, field test script, exit gates, regression matrix. Includes §A.1 grep test for the Next.js 15.5 RSC manifest pattern. Doc 28 supersedes §B.2 + §B.3 for the evidence loop; other sections still authoritative. | Build sessions + Oskar (preview verification) + on-call post-cutover. | Throughout Phase D execution. |
+| 27 | [27-interface-usability-pass.md](27-interface-usability-pass.md) | Cross-cutting UX brief (Phil simplicity + BuhlOS clarity + 5-tone palette + 20-entry marker dictionary + screen-by-screen critique + ready-to-paste UI hardening prompt). Upstream of every Dx build prompt. | **Every Dx build session** (preflight). Oskar (review §3 principles + §6.2 dictionary + §19.1 open questions). | Before D1 starts. Re-read at each Dx start. |
+| 28 | [28-d2-d3-d4-evidence-qa-checklist.md](28-d2-d3-d4-evidence-qa-checklist.md) | QA gate for the evidence loop. §A covers D2 (evidence domain + persistence API), §B covers D3 (Phil capture UI), §C covers D4 (admin review). §D regression matrix and §E production smoke on every Dx merge. **§0 reconciles this session's phasing with doc 25's** — the evidence loop's D2/D3/D4 names follow this session, not doc 25. Docs-only. | Every D2/D3/D4 build session pastes the relevant §. Reviewers gate on it. | When opening each evidence-loop slice. |
+| 29 | [29-phase-d3-phil-capture-spec.md](29-phase-d3-phil-capture-spec.md) | D3 spec: Phil capture UI (sheet + Today's captures strip), file plan in `src/components/phil/`, state machine, validation, marker dictionary, acceptance criteria, paste-ready build prompt for Session 6. Docs-only. | Session 6 (D3 build) — paste the §13 build prompt. | After D2 ships and Phil capture is the next slice. |
+| 30 | [30-phase-d4-admin-evidence-review-spec.md](30-phase-d4-admin-evidence-review-spec.md) | D4 spec: admin evidence review surface (queue + drawer + reject modal), mounted at `/v2/jobs/[jobId]/evidence` (no `/admin/jobs` cutover bundled), file plan in `src/components/admin/`, state machine, acceptance criteria, paste-ready build prompt for Session 7. Docs-only. | Session 7 (D4 build) — paste the §13 build prompt. | After D3 ships. |
+| 31 | [31-interface-usability-post-d1-addendum.md](31-interface-usability-post-d1-addendum.md) | Post-D1 observations: real `/api/jobs` shape, doc 27 §15 quick-win status, existing RSC client-manifest debt, screen-critique updates from authed smoke, small polish-PR candidates, anti-patterns to actively avoid in D2/D3/D4, field test additions, new open questions. Delta to doc 27 — doc 27 remains binding. Docs-only. | Every D2/D3/D4 build session (alongside doc 27). Oskar (§5 polish list + §8 open questions). | Before D2/D3/D4 build sessions; reviewed at D6 polish. |
+
+## Phase C — runbook
+
+| Doc | Purpose |
+| --- | --- |
+| [phase-c-rollout-runbook.md](phase-c-rollout-runbook.md) | Phase C rollout + on-call notes (added with PR #9). |
+
+## Phase D — shipped slices
+
+| Slice | Status | PR | Merge commit |
+| --- | --- | --- | --- |
+| D1 | ✅ shipped 2026-05-24 | [#11](https://github.com/oskar-ott/BuhlOS/pull/11) | `71a91fc` |
+| D2 | active (Session 5) | — | — |
+| D3 | planned (spec: [29](29-phase-d3-phil-capture-spec.md)) | — | — |
+| D4 | planned (spec: [30](30-phase-d4-admin-evidence-review-spec.md)) | — | — |
+| D5 | planned ([doc 25 §D5](25-phase-d-build-prompts.md)) | — | — |
+| D6 | planned ([doc 25 §D6](25-phase-d-build-prompts.md)) | — | — |
 
 ## Phase 1 / 1B supporting docs
 
