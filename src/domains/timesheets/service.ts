@@ -34,6 +34,19 @@ export const MAX_HOURS_PER_DAY = 16;
 export const MAX_BACKDATE_DAYS = 14;
 
 /**
+ * The business timezone. Used **only** when the worker's browser/local
+ * timezone isn't available — e.g. server components computing "today" for
+ * a query against the API. Client-facing code (the form input, the
+ * isWithinBackdateWindow check that runs in the browser) should default to
+ * the worker's local timezone instead, so the date the worker sees matches
+ * what their phone clock says.
+ *
+ * BuhlOS is a Sydney/NSW electrical contractor today; if the org expands
+ * across timezones this becomes a per-organisation setting.
+ */
+export const BUSINESS_TIMEZONE = "Australia/Sydney" as const;
+
+/**
  * Auto-split a total into ordinary (first 8) and overtime (excess).
  * Matches `autoSplitOT` in api/_lib/time-entries.js exactly so client +
  * server agree.
@@ -85,13 +98,19 @@ export function canApprove(status: TimeEntryStatus): boolean {
 }
 
 /**
- * Returns the date string YYYY-MM-DD for the supplied Date instance in the
- * supplied IANA timezone. Defaults to the current local timezone, which is
- * what the worker's phone reports.
+ * Returns the date string YYYY-MM-DD for the supplied Date instance.
+ *
+ * When `timeZone` is omitted (the default), the result is the calendar date
+ * in the runtime's local timezone — on the client that is the worker's
+ * browser timezone (their phone clock), on the server that is whatever the
+ * server box reports (typically UTC on Vercel). Callers in server
+ * components that need "today in the business" should pass
+ * `BUSINESS_TIMEZONE` explicitly so a Vercel-UTC server doesn't compute
+ * yesterday's date for a Sydney worker.
  *
  * The legacy server validates the date string and treats it as a calendar
- * day (no time component), so we must send the worker's *local* day — not
- * UTC midnight, which can resolve to the previous day.
+ * day (no time component), so we must always send the worker's *local* day —
+ * not UTC midnight, which can resolve to the previous day.
  */
 export function localDateString(d: Date = new Date(), timeZone?: string): string {
   const fmt = new Intl.DateTimeFormat("en-CA", {

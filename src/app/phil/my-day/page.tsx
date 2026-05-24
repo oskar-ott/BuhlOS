@@ -9,7 +9,7 @@ import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
 import type { TimeEntry } from "@/domains/timesheets/types";
-import { localDateString } from "@/domains/timesheets/service";
+import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
 
 export const dynamic = "force-dynamic";
 
@@ -90,8 +90,15 @@ async function loadEntries(cookieValue: string | undefined): Promise<{
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
 
-  const today = localDateString();
-  const sevenDaysAgo = localDateString(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+  // Server-side "today" must use the business timezone so a Vercel UTC server
+  // doesn't compute yesterday's date for a Sydney worker. The browser-local
+  // date is still used inside the LogHoursSheet client form (it initialises
+  // its date state in the worker's actual timezone).
+  const today = localDateString(new Date(), BUSINESS_TIMEZONE);
+  const sevenDaysAgo = localDateString(
+    new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+    BUSINESS_TIMEZONE
+  );
 
   try {
     const res = await fetch(

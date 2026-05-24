@@ -19,6 +19,7 @@ import {
   STANDARD_DAY_MINUTES,
   MAX_HOURS_PER_DAY,
   MAX_BACKDATE_DAYS,
+  BUSINESS_TIMEZONE,
   autoSplitOT,
   allocationsSumValid,
   canSubmit,
@@ -132,10 +133,27 @@ describe("status transitions", () => {
 });
 
 describe("date helpers", () => {
-  it("localDateString returns YYYY-MM-DD", () => {
-    const out = localDateString(new Date("2026-05-04T03:30:00Z"), "Australia/Adelaide");
+  it("BUSINESS_TIMEZONE is the Sydney/NSW business default", () => {
+    // BuhlOS is a NSW electrical business; the server-side "today" must
+    // resolve to the Sydney calendar day regardless of where Vercel runs.
+    expect(BUSINESS_TIMEZONE).toBe("Australia/Sydney");
+  });
+
+  it("localDateString returns YYYY-MM-DD in the supplied timezone", () => {
+    // 03:30 UTC on 2026-05-04 is 13:30 in Sydney (UTC+10 in May, AEST).
+    const out = localDateString(new Date("2026-05-04T03:30:00Z"), BUSINESS_TIMEZONE);
     expect(out).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(out).toBe("2026-05-04");
+  });
+
+  it("localDateString respects the timezone arg vs raw UTC", () => {
+    // 23:30 UTC on 2026-05-04 is 09:30 the next day in Sydney → "2026-05-05".
+    // Without the timezone arg, the result depends on the runtime's local
+    // timezone — we just assert the matched-string format, not the value.
+    const sydney = localDateString(new Date("2026-05-04T23:30:00Z"), BUSINESS_TIMEZONE);
+    expect(sydney).toBe("2026-05-05");
+    const local = localDateString(new Date("2026-05-04T23:30:00Z"));
+    expect(local).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it("weekStartOf returns the Monday of that ISO week", () => {
