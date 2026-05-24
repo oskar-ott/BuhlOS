@@ -40,11 +40,21 @@ function calcTotalHours(startTime, endTime, breakMinutes) {
   return Math.max(0, Math.round((mins / 60) * 100) / 100);
 }
 
+// Maximum decimal hours allowed in a single time entry. Mirrors the
+// Phase B client schema in src/domains/timesheets/schema.ts. Without
+// this cap, direct-API submissions (curl, future bugs in the new
+// client, the legacy my-day.html form) could submit arbitrary totals
+// like 80h, which the Phase B production smoke test surfaced.
+const MAX_TOTAL_HOURS_PER_DAY = 16;
+
 // Returns array of error messages; empty array means valid.
 function validateEntryShape(body) {
   const errors = [];
   if (!body.date || !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) errors.push('date required (YYYY-MM-DD)');
   if (typeof body.totalHours !== 'number' || body.totalHours <= 0) errors.push('totalHours must be > 0');
+  if (typeof body.totalHours === 'number' && body.totalHours > MAX_TOTAL_HOURS_PER_DAY) {
+    errors.push(`totalHours must be ≤ ${MAX_TOTAL_HOURS_PER_DAY}`);
+  }
   if (typeof body.ordinaryHours !== 'number' || body.ordinaryHours < 0) errors.push('ordinaryHours invalid');
   if (typeof body.overtimeHours !== 'number' || body.overtimeHours < 0) errors.push('overtimeHours invalid');
   if (typeof body.totalHours === 'number' &&
