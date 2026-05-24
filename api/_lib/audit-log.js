@@ -1,0 +1,111 @@
+// Cross-surface audit log storage (Phase D2 bootstrap).
+//
+// Monthly rollover blobs at  audit/<yyyy-mm>.json
+//   { entries: [{ id, ts, action, actorId, actorName, actorRole, jobId,
+//                  targetType, targetId, summary, metadata? }] }
+//
+// Append-only — this module exposes only `append()` and a read helper.
+// No update / delete API.
+//
+// Doc 28 §A.5 calls for this to live alongside the legacy
+// `api/_lib/job-audit.js` per-job log, not replace it. Both fire on
+// every evidence write so the legacy admin audit tab keeps working
+// while this new cross-job journal accumulates.
+//
+// Trim policy: the monthly blob caps at 5000 entries. Once breached we
+// roll a hard cut (trim oldest 1000 — same FIFO discipline as the
+// legacy per-job log in api/_lib/job-audit.js). In practice each
+// month should sit well below that — evidence captures only land here
+// for now — but the cap is defence-in-depth against runaway writes.
+
+const { readBlob, writeBlob } = require('./blob');
+const { nanoid } = require('./validation');
+
+const VALID_ACTIONS = new Set([
+  'evidence.captured',
+  'evidence.reviewed',
+  'evidence.rejected',
+]);
+const VALID_TARGET_TYPES = new Set(['evidence']);
+
+const MAX_ENTRIES_PER_MONTH = 5000;
+const TRIM_TO_PER_MONTH = 4000;
+
+function _key(yyyymm) {
+  return `audit/${yyyymm}.json`;
+}
+
+function _yyyymm(iso) {
+  return String(iso).slice(0, 7);
+}
+
+async function readMonth(yyyymm) {
+  const data = await readBlob(_key(yyyymm), { entries: [] });
+  return Array.isArray(data && data.entries) ? data.entries : [];
+}
+
+/**
+ * Append a single entry. Best-effort: caller wraps in `.catch(() => {})`
+ * so a write failure on the journal never blocks the parent mutation.
+ *
+ * @param {{ action: string, actorId: string, actorName: string,
+ *           actorRole?: string|null, jobId?: string|null,
+ *           targetType: string, targetId: string, summary: string,
+ *           metadata?: object }} payload
+ */
+async function append(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const action = String(payload.action || '');
+  const targetType = String(payload.targetType || '');
+  if (!VALID_ACTIONS.has(action)) return null;
+  if (!VALID_TARGET_TYPES.has(targetType)) return null;
+  const targetId = String(payload.targetId || '');
+  if (!targetId) return null;
+
+  const ts = new Date().toISOString();
+  const id = nanoid('al_');
+  const entry = {
+    id,
+    ts,
+    action,
+    actorId: String(payload.actorId || ''),
+    actorName: String(payload.actorName || ''),
+    actorRole: payload.actorRole == null ? null : String(payload.actorRole),
+    jobId: payload.jobId == null ? null : String(payload.jobId),
+    targetType,
+    targetId,
+    summary: String(payload.summary || '').slice(0, 240),
+    ...(payload.metadata && typeof payload.metadata === 'object'
+      ? { metadata: _shrinkMetadata(payload.metadata) }
+      : {}),
+  };
+
+  const yyyymm = _yyyymm(ts);
+  const entries = await readMonth(yyyymm);
+  entries.push(entry);
+  let trimmed = entries;
+  if (entries.length > MAX_ENTRIES_PER_MONTH) {
+    trimmed = entries.slice(-TRIM_TO_PER_MONTH);
+  }
+  await writeBlob(_key(yyyymm), { entries: trimmed });
+  return entry;
+}
+
+function _shrinkMetadata(meta) {
+  // Cap metadata JSON at ~2 KB so a runaway caller can't bloat the
+  // monthly blob. Matches the same shrink pattern in job-audit.js.
+  try {
+    const s = JSON.stringify(meta);
+    if (s.length <= 2048) return meta;
+    return { _truncated: true, preview: s.slice(0, 2048) };
+  } catch {
+    return { _truncated: true };
+  }
+}
+
+module.exports = {
+  append,
+  readMonth,
+  MAX_ENTRIES_PER_MONTH,
+  TRIM_TO_PER_MONTH,
+};
