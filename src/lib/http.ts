@@ -14,9 +14,7 @@ export type HttpError = {
   message: string;
 };
 
-export type HttpResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: HttpError };
+export type HttpResult<T> = { ok: true; data: T } | { ok: false; error: HttpError };
 
 export interface HttpOptions<T> {
   schema: z.ZodSchema<T>;
@@ -37,6 +35,25 @@ export async function httpPost<T>(
     init: {
       ...opts.init,
       method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(opts.init?.headers ?? {}),
+      },
+      body: JSON.stringify(body),
+    },
+  });
+}
+
+export async function httpPatch<T>(
+  url: string,
+  body: unknown,
+  opts: HttpOptions<T>
+): Promise<HttpResult<T>> {
+  return request(url, {
+    ...opts,
+    init: {
+      ...opts.init,
+      method: "PATCH",
       headers: {
         "content-type": "application/json",
         ...(opts.init?.headers ?? {}),

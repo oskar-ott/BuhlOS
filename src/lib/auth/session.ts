@@ -15,7 +15,11 @@ import { z } from "zod";
 export const SESSION_COOKIE = "buhl_session";
 
 const SessionPayloadSchema = z.object({
+  // Legacy api/_lib/auth.js signs payloads as `{ userId, role, exp }`; the
+  // JWT-style `sub` field is provided for future compatibility but is not
+  // emitted by the legacy login today.
   sub: z.string().optional(),
+  userId: z.string().optional(),
   email: z.string().optional(),
   role: z.string().optional(),
   name: z.string().optional(),
