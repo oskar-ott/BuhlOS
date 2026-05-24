@@ -110,6 +110,19 @@ async function readBlob(key, fallback = null) {
   return p;
 }
 
+// Cache-skipping read. Use for endpoints where a write on another Vercel
+// function instance must be visible to a follow-up read without waiting for
+// BLOB_TTL_MS — e.g. gear asset detail / history fetched right after a
+// transfer or report. The list view in api/assets.js already bypasses the
+// cache by fetching each blob URL directly; this gives the GET-by-id path
+// the same property without globally disabling the cache.
+async function readBlobFresh(key, fallback = null) {
+  _cacheInvalidate(key);
+  const value = await _doReadBlob(key, fallback);
+  _cacheSet(key, value);
+  return value;
+}
+
 async function writeBlob(key, data) {
   await put(key, JSON.stringify(data), {
     access: 'public',
@@ -144,4 +157,4 @@ function setNoCache(res) {
   res.setHeader('Vercel-CDN-Cache-Control', 'no-store');
 }
 
-module.exports = { readBlob, writeBlob, deleteBlob, setNoCache };
+module.exports = { readBlob, readBlobFresh, writeBlob, deleteBlob, setNoCache };

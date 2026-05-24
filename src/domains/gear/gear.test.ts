@@ -406,10 +406,30 @@ describe("formatting helpers", () => {
     expect(out).toMatch(/May/);
   });
 
+  // Regression for BUG-C-002 — server-side render runs in UTC, client-side
+  // runs in Sydney; without an explicit timeZone option toLocaleString
+  // produces different strings on each side and React throws hydration
+  // error #418. Pin to Sydney and the output is identical everywhere.
+  it("formatTimestamp pins display to Sydney regardless of host TZ", () => {
+    // 08:32 UTC = 18:32 AEST (Sydney standard time in May)
+    expect(formatTimestamp("2026-05-04T08:32:00Z")).toBe("4 May, 6:32 pm");
+    // 22:00 UTC same day = 08:00 AEST next morning
+    expect(formatTimestamp("2026-05-04T22:00:00Z")).toBe("5 May, 8:00 am");
+  });
+
   it("formatShortDate renders a valid YYYY-MM-DD as Mon 4 May", () => {
     const out = formatShortDate("2026-05-04");
     expect(out).not.toBeNull();
     expect(out).toMatch(/Mon/);
+  });
+
+  // Regression for BUG-C-002 — `new Date("2026-05-04T00:00:00")` parses as
+  // local time, so a Sydney client treats it as 2026-05-03 14:00 UTC. The
+  // resulting weekday flips depending on host TZ. Forcing UTC parse +
+  // UTC display keeps the calendar-date semantics intact.
+  it("formatShortDate is deterministic regardless of host TZ", () => {
+    expect(formatShortDate("2026-05-04")).toBe("Mon, 4 May");
+    expect(formatShortDate("2026-12-31")).toBe("Thu, 31 Dec");
   });
 
   it("formatShortDate returns null on bad input", () => {
