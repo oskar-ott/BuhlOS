@@ -8,11 +8,11 @@ import {
   Briefcase,
   Settings,
   Clock,
-  LogOut,
   Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Pill } from "@/components/ui/Pill";
+import { SignOutButton } from "./SignOutButton";
 
 interface NavItem {
   label: string;
@@ -92,13 +92,7 @@ export function AdminSidebar() {
       </nav>
 
       <div className="border-t border-accent-ink p-3">
-        <a
-          href="/api/auth?action=logout"
-          className="flex items-center gap-3 rounded-card px-3 py-2 text-sm text-slate-300 hover:bg-accent-ink hover:text-text-inverse"
-        >
-          <LogOut aria-hidden="true" className="h-4 w-4" />
-          Sign out
-        </a>
+        <SignOutButton />
       </div>
     </aside>
   );
