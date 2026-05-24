@@ -42,7 +42,9 @@
 
 | # | Doc | Purpose | Who should read | When |
 | --- | --- | --- | --- | --- |
-| 24 | [24-phase-d-jobs-evidence-plan.md](24-phase-d-jobs-evidence-plan.md) | Phase D scope, data model, routes, build sequence, and a paste-ready Claude Code build prompt for jobs + evidence. **Status: draft, awaiting Oskar approval of §15 open decisions.** | Phase D planning + future Phase D build sessions. | After Phase C ships; before the Phase D build session opens. |
+| 24 | [24-phase-d-jobs-evidence-plan.md](24-phase-d-jobs-evidence-plan.md) | Phase D scope, data model, routes, risks, acceptance criteria. §15.0 has 7 RESOLVED decisions; §15.1 has 2 open founder calls. | Phase D planning + future Phase D build sessions. | After Phase C ships; before the Phase D build session opens. |
+| 25 | [25-phase-d-build-prompts.md](25-phase-d-build-prompts.md) | Paste-ready Claude Code build prompts for D1, D2, D3, D4, D5, D6 — each self-contained with scope, hard rules, preflight reads, checks, PR title, expected report. | Each Phase D build session (one prompt per slice). | When opening each Dx build session. |
+| 26 | [26-phase-d-testing-checklist.md](26-phase-d-testing-checklist.md) | Per-slice unit / integration / Playwright checklists, field test script, exit gates, regression matrix. | Build sessions + Oskar (preview verification) + on-call post-cutover. | Throughout Phase D execution. |
 
 ## Phase 1 / 1B supporting docs
 

@@ -10,7 +10,7 @@
 
 Phase D ships the third closed operational loop in the rebuild: **job context → field evidence capture → admin review**. It is the loop that converts the Phil shell from a hours+gear utility into a real on-site companion that knows what job the worker is on and what they're proving.
 
-**What Phase D is.** A Phil worker opens a job assigned to them, sees the relevant job context (address, site notes, access notes, stages/areas), captures evidence (photo + note) attached to a job (and optionally a stage or task), and an admin reviews that evidence on the new admin Jobs surface. Status is visible to both sides. The loop closes end-to-end.
+**What Phase D is.** A Phil worker opens a job assigned to them, sees the relevant job context (address, site notes, access notes, area groups → areas), captures evidence (photo + note) attached to a job — optionally also tagged with an area, a stage (`roughIn` or `fitOff`), and a task — and an admin reviews that evidence on the new admin Jobs surface. Status is visible to both sides. The loop closes end-to-end.
 
 **Why it comes after My Gear.** Hours (Phase B) proved the loop pattern; Gear (Phase C) proved the assignment + accountability pattern. Both are field-shaped and admin-counterparted but their data model is contained. Jobs is the centre of gravity for every other workflow ([10-product-definition.md] §A) — it has to be solid before plans, ITPs, RFIs, variations, or materials can hang off it ([21-rebuild-decision-record.md] ADR-011). Evidence is the smallest possible payload that exercises the job domain end-to-end without dragging in the snag triage queue, Job Builder mutations, plans, or ITPs.
 
@@ -49,7 +49,7 @@ This split overrides the audit's bundling of snags into Phase D ([11-operational
 **Phil (mobile):**
 
 - `/phil/jobs` — list of jobs assigned to the current worker. Status pill, address, last-activity timestamp. Empty state when no jobs assigned.
-- `/phil/jobs/[jobId]` — single-job context view. Header (name, address, status). Site notes + access notes + parking notes block. Stages strip (read-only). Areas grid (read-only, for context only). Quick-action floating bar: **Capture evidence**, **Mark task done** (if any tasks are visible).
+- `/phil/jobs/[jobId]` — single-job context view. Header (name, address, status). Site notes + access notes + parking notes + safety notes + induction-required pill if set. Area-groups → areas list (read-only, hides archived per `projectJobStructure`). Stage chooser (two pills: `Rough-in` / `Fit-off`). When an area + stage is selected, the resolved task list (via `effectiveRoughInTasks` / `effectiveFitOffTasks`) shows with current task state pills. Quick-action floating bar: **Capture evidence**, **Mark task done** (current area + stage + selected task only).
 - `/phil/jobs/[jobId]/capture` (or a sheet modal launched from job detail) — photo + 1-line note + (optional) stage/task picker → submit. Photo required. Upload progress + pending state visible. Failure recovery (retry without losing the captured image).
 - A `pending_sync` indicator on any evidence item that hasn't yet been confirmed by the server (no offline-first sync engine in Phase D — just a clear in-memory pending state that survives a retry but not a kill).
 - A small `Evidence I captured today` strip on the job detail showing the worker their own recent captures.
@@ -80,7 +80,7 @@ This split overrides the audit's bundling of snags into Phase D ([11-operational
 - **Snag triage lifecycle** ([11-operational-workflow-map.md] #12, [12-domain-model-deep-dive.md] §`Defect`). Has its own state machine (`open → assigned → in_progress → fixed → verified → closed | wont_fix`), priority, assignment, close-reason, notification cron, and admin triage queue. **Decision (Oskar, 2026-05-24): deferred to Phase D.5** — a dedicated PR set after Phase D exit and before Phase E starts. D.5 will get its own plan doc; the Phil Snag tab stays UC through all of Phase D and flips live with the D.5 ship.
 - **Job Builder mutations** ([11-operational-workflow-map.md] #7, [12-domain-model-deep-dive.md] §`Job`). Creating jobs, editing stages, editing areas, editing tasks, templating, scope modules. The legacy `public/admin/job.html` (4,772 lines) and `public/admin/job-builder.html` continue to serve until a dedicated rebuild slice (post-Phase-D). Phase D consumes `/api/jobs` **read-only**; no patch endpoints are written.
 - **Worker assignment to a job** ([11-operational-workflow-map.md] #9). Legacy `public/admin/crew.html` continues; Phil reads its result via existing endpoints.
-- **Stage/area mutations.** Admin can view but not edit stages/areas in Phase D.
+- **Area / area-group mutations.** Admin can view but not edit areas or area groups in Phase D. The `roughInTasks` / `fitOffTasks` template lists are also read-only (admin job-setup edits remain on legacy `public/admin/job.html`).
 
 **Always out of scope for Phase D:**
 
@@ -111,16 +111,17 @@ ADMIN-SIDE STATE EXISTS (legacy backbone)
 
 PHIL WORKER OPENS PHIL
   GET /phil/jobs
-    → list of jobs where workers[].userId == me (filtered server-side
-      by the existing endpoint or — if not — client-filtered with a flag
-      to harden in a follow-up; see §15 open decision 3).
+    → list of jobs where me.assignedJobIds.includes(job.id)
+      (server-side filter is the legacy default at api/jobs.js:188-195;
+      verified — no client-side filter needed). Admin/client roles get
+      their own server-side scoping; same endpoint, different branch.
 
   ↓
 
 WORKER OPENS A SINGLE JOB
   GET /phil/jobs/[jobId]
     → single-job header + site/access notes
-    → stages strip + areas grid (read-only)
+    → area groups → areas list (read-only, hides archived)
     → "Capture evidence" floating CTA
     → optional "Mark task done" rows for tasks assigned to me on
       the currently active stage/area.
@@ -138,7 +139,8 @@ WORKER CAPTURES EVIDENCE
     (mirrors the existing snag/itp photo pattern in api/photos.js)
     → returns { id, url, capturedAt }
   POST /api/jobs/[jobId]/evidence  (new patch endpoint — see §9)
-    body: { kind: 'photo', photoId, photoUrl, note, stageId?, taskId? }
+    body: { kind: 'photo', photoId, photoUrl, note, areaId?, stage?, taskId? }
+           // stage is 'roughIn' | 'fitOff' | null per §5.4
     → returns { evidenceId, status: 'submitted' }
   UI flips the item from `pending_sync` → `submitted`.
   On failure: stays `pending_sync`, retry available, note + image
@@ -148,7 +150,7 @@ WORKER CAPTURES EVIDENCE
 
 EVIDENCE ATTACHED TO JOB/STAGE/TASK
   Persisted in jobs/{jobId}/data.json under `evidence[]` (or a
-  sibling key — see §9.4 / §15 open decision 2 for storage shape).
+  sibling key — §9.4 storage shape; §15.0 decision 2 resolved to append-to-data.json).
   AuditLog write: { action: 'evidence.captured', actor, jobId, evidenceId }.
 
   ↓
@@ -200,7 +202,7 @@ Phil bottom tab bar gets a **Jobs** tab live (per [13-ui-information-architectur
 | `/jobs/[jobId]/evidence` | Next.js (new sub-route — safe) | Next.js | Ships with PR-D4 |
 | `/activity` | `vercel.json → /admin/activity.html` (legacy) | Next.js | PR-D5 (separate cutover) |
 
-**Pre-cutover work-around:** the new admin Jobs surface is first built and verified on **`/v2/jobs`** (or `/admin-v2/jobs` — see §15 open decision 4). Once verified on preview, PR-D4 removes the `vercel.json` rewrite for `/jobs` and `/jobs/:jobId` in the same atomic commit. The legacy HTML moves to `/legacy/admin-jobs` and `/legacy/admin-jobs/:jobId` for one billing cycle, then is deleted per [16-migration-strategy.md] §A principle 5.
+**Pre-cutover work-around:** the new admin Jobs surface is first built and verified on **`/v2/jobs`** (decision §15.0 #4 resolved). Once verified on preview, PR-D4 removes the `vercel.json` rewrite for `/jobs` and `/jobs/:jobId` in the same atomic commit AND removes `/v2/jobs` (one canonical URL per concept). The legacy HTML moves to `/legacy/admin-jobs` and `/legacy/admin-jobs/:jobId` for one billing cycle, then is deleted per [16-migration-strategy.md] §A principle 5.
 
 **Cutover NOT performed in Phase D:** `/admin`, `/admin/operations`, `/admin/job-builder`, `/admin/snags`, `/admin/plans`, `/admin/itp`, `/admin/crew`, `/admin/variations`, `/admin/materials`, `/admin/quotes`, `/admin/reports`, `/admin/settings`, `/admin/support`, `/admin/temps`, `/admin/assets`, `/admin/hours`, `/admin/approvals`, `/admin/cash`, `/admin/suppliers`. All defer to Phase E or later.
 
@@ -234,112 +236,130 @@ Per [13-ui-information-architecture.md] §Phil tabs:
 
 ## 5 · Data model
 
-All shapes live in `src/domains/jobs/schema.ts` and `src/domains/evidence/schema.ts` as Zod schemas; types derive via `z.infer<>`. Field set follows [12-domain-model-deep-dive.md] §Universal field set and §Jobs / §Evidence.
+All shapes live in `src/domains/jobs/schema.ts` and `src/domains/evidence/schema.ts` as Zod schemas; types derive via `z.infer<>`. Schemas use `.passthrough()` so forward-compatible fields don't break parsing (precedent: `src/domains/timesheets/schema.ts:38`). Field set follows [12-domain-model-deep-dive.md] §Universal field set and §Jobs / §Evidence, **but is grounded in the legacy reality** observed in `api/jobs.js:108-155` and `api/_lib/job-tasks.js` rather than the abstract audit shape.
+
+> **Important: the legacy data shape does NOT match the abstract `JobStage` entity** described in [12-domain-model-deep-dive.md] §`JobStage`. The audit doc describes a future Postgres-shaped first-class entity; legacy reality is a binary **rough-in / fit-off** stage enum plus a job-level task list (with per-area overrides). Phase D consumes the legacy reality directly; the abstract `JobStage` row migration is deferred to Phase F+ alongside the Postgres move.
 
 ### 5.1 `Job` (read-only consumption in Phase D)
 
+Verbatim shape from `api/jobs.js` GET response. Schema matches the legacy server's projection (`projectJobStructure` at `api/jobs.js:111-127`).
+
 ```
 Job
-  id                  string (nanoid)
-  organisationId      string                           — always set
-  name                string                           — required
-  jobNumber           string?                          — legacy `ref` field
-  clientId            string?
-  clientName          string?
-  address             string?
-  siteAddress         string?                          — legacy field (often same as address)
+  id                  string                            — slug, e.g. "birdwood-iv3232"
+  name                string                            — required
+  status              enum('active','complete','archived','on_hold','draft')
+  clientUserId        string | null
+  type                string | null                     — references job-types.json
+  typeName            string?                           — server-resolved label
+  modules             { areas, snags, photos, hours, materials, tags,
+                        temps, plans, contacts, switchboards, circuits,
+                        itps, levels }                  — per-job feature flags
+                                                          (sanitizeModules at jobs.js:35-42)
+  customFields        Array<{ id, name, value }>?       — per-job custom fields
+  ref                 string?                            — external job number
+  serviceM8JobId      string?
+  siteAddress         string?
   siteContactName     string?
   siteContactPhone    string?
-  accessNotes         string?                          — long text
+  accessNotes         string?
   parkingNotes        string?
   safetyNotes         string?
   inductionRequired   boolean?
   startDate           string?  (YYYY-MM-DD)
   dueDate             string?  (YYYY-MM-DD)
-  status              enum('draft','active','on_hold','complete','archived')
-  modules             { areas, snags, photos, hours, materials, tags,
-                        temps, plans, contacts, switchboards, circuits,
-                        itps, levels }  (per existing api/jobs.js sanitizeModules)
-  assignedWorkerIds   string[]                         — IDs of workers
-                                                        currently assigned
-  createdBy           userId
+  programmedDurationDays  number | null?
+  contractValue       number?                            — admin-only field
+  labourEstimate      number?
+  materialEstimate    number?
+  claimedToDate       number?
+  paidToDate          number?
+  oldestClaimDays     number?
+  areaGroups          JobAreaGroup[]                     — see §5.2
+  roughInTasks        JobTaskTemplate[]                  — job-level rough-in list
+  fitOffTasks         JobTaskTemplate[]                  — job-level fit-off list
   createdAt           ISO
-  updatedBy           userId
-  updatedAt           ISO
-  auditLogIds         string[]                         — back-references
+  (optional stats fields when withStats=1 — see §5.7 — NOT requested in Phase D)
 ```
 
-Source: existing `jobs.json` + `jobs/{id}/data.json`. Phase D reads via `/api/jobs` (list) and `/api/jobs?id=<jobId>` or equivalent (detail; verify exact endpoint shape during PR-D1).
+**Phase D consumes only the fields it needs.** Schema is `.passthrough()` so extra legacy fields don't fail parsing.
 
-### 5.2 `JobStage` (read-only)
+### 5.2 `JobAreaGroup` and `JobArea` (read-only)
 
-```
-JobStage
-  id            string
-  jobId         string
-  name          string                                 — e.g. "Rough-in"
-  sequence      number
-  status        enum('not_started','in_progress','complete')
-  targetDate    string? (YYYY-MM-DD)
-  completedAt   ISO?
-```
-
-Source: nested in `jobs/{id}/data.json.stages`. **Phase D flattens to a typed shape in the client** but does not promote storage to first-class rows (that's the broader Phase D scope rejected in §2).
-
-### 5.3 `JobArea` (read-only)
+The legacy job structure is a two-level hierarchy: `areaGroups[] → areas[]`. Examples: "Ground floor / Kitchen", "Upper floor / Master bedroom".
 
 ```
+JobAreaGroup
+  id        string
+  name      string                              — e.g. "Ground floor"
+  areas     JobArea[]
+  archived  boolean?                            — admin can archive
+
 JobArea
-  id           string
-  jobId        string
-  name         string                                  — e.g. "Master Bedroom"
-  sequence     number
-  status       enum('not_started','in_progress','complete')
-  stageScope   string[]?
-```
-
-Source: nested in `jobs/{id}/data.json.areas` (or `dwellings` — verify legacy naming). [12-domain-model-deep-dive.md] §`JobArea`.
-
-### 5.4 `JobTask` (read-only + status toggle only)
-
-```
-JobTask
   id            string
-  jobId         string
-  stageId       string
-  areaId        string
-  name          string
-  status        enum('not_started','in_progress','complete')
-  assignedTo    userId?
-  evidenceIds   string[]?                              — back-reference
+  name          string                          — e.g. "Master Bedroom"
+  spaceType     string?                         — e.g. "bedroom", "kitchen"
+  roughInTasks  JobTaskTemplate[]?              — per-area override
+                                                  (omitted = use job-level)
+  fitOffTasks   JobTaskTemplate[]?              — per-area override
+  archived      boolean?                        — admin can archive
 ```
 
-Source: nested in `jobs/{id}/data.json.dwellings[areaId].<stage>.tasks` (per existing `api/task-toggle.js` shape). Phase D allows status toggle via existing `POST /api/task-toggle` only — no other mutations.
+Source: nested in `Job.areaGroups[]`. Filtered server-side by `projectJobStructure` to hide archived items from mobile/tradie reads (only admin editor passes `?includeArchived=1`).
+
+### 5.3 `JobTaskTemplate` (read-only)
+
+```
+JobTaskTemplate
+  id     string
+  name   string                                 — e.g. "Rough-in lighting"
+```
+
+This is the **template**. The runtime task state (per area, per stage) lives in `dwellings[areaId][stage].tasks[taskId] = TaskStateValue` (see §5.4). Resolution helper: `effectiveRoughInTasks(job, area)` / `effectiveFitOffTasks(job, area)` — returns area override if non-empty, else job-level (`api/_lib/job-tasks.js:23-33`).
+
+### 5.4 Task state (per-area, per-stage) — read + single-toggle mutation
+
+The runtime state of tasks lives in `jobs/{jobId}/data.json` under:
+
+```
+data.dwellings[areaId].roughIn.tasks[taskId] = 'not_started' | 'in_progress' | 'complete'
+data.dwellings[areaId].fitOff.tasks[taskId]  = 'not_started' | 'in_progress' | 'complete'
+```
+
+Mutated via existing `POST /api/task-toggle?jobId=<id>` with body `{ areaId, stage: 'roughIn' | 'fitOff', taskId, state }`. **Phase D consumes this endpoint unchanged** — it's already a tight, fast-path mutation (api/task-toggle.js).
+
+> **No abstract `JobStage` entity in Phase D.** The conceptual "stage" is one of two enum values: `'roughIn'` or `'fitOff'`. If a future Phase F+ Postgres migration promotes stage to a first-class entity, this is a schema-level change at that time; not a Phase D concern.
 
 ### 5.5 `EvidenceItem` (NEW in Phase D)
+
+Phase D's only new persistent entity. Schema mirrors the [12-domain-model-deep-dive.md] §`Evidence` shape, adapted to the legacy storage reality (see §9.4).
 
 ```
 EvidenceItem
   id                string (nanoid)
-  organisationId    string                             — always set
   jobId             string                             — required
-  stageId           string?                            — optional attachment
+  areaId            string?                            — optional attachment
+  stage             enum('roughIn','fitOff') | null    — optional attachment;
+                                                         matches legacy task-toggle shape
   taskId            string?                            — optional attachment
+                                                         (must be valid for stage+area
+                                                         if all three provided)
   kind              enum('photo','note')               — Phase D ships 'photo' only;
-                                                        'note' shape reserved
-  photoId           string?                            — references the
-                                                        uploaded blob's photoId
+                                                         'note' schema reserved
+  photoId           string?                            — references the uploaded
+                                                         blob's photoId
   photoUrl          string?                            — public Vercel Blob URL
-  thumbnailUrl      string?                            — same URL Phase D
-                                                        (no separate thumb pipeline)
-  note              string  (≤ 280 chars)              — optional, but if
-                                                        photoless, required
-  capturedById      userId                             — required
+  thumbnailUrl      string?                            — same URL in Phase D
+                                                         (no separate thumb pipeline)
+  note              string  (≤ 280 chars)              — optional; required when
+                                                         kind='note' (deferred)
+  capturedById      userId                             — required, server-set
   capturedByName    string                             — denormalised for read
-  capturedAt        ISO                                — required
-  exifLocation      { lat: number, lng: number }?      — if available; not required
-  status            enum('draft','uploading','pending_sync','submitted',
-                          'reviewed','rejected')
+  capturedAt        ISO                                — server-set
+  clientCapturedAt  ISO?                               — client-set, metadata only
+  exifLocation      { lat: number, lng: number }?      — preserved if present
+  status            enum('uploading','pending_sync',
+                          'submitted','reviewed','rejected')
   reviewedById      userId?                            — set when status='reviewed'|'rejected'
   reviewedAt        ISO?
   rejectionReason   string?                            — required when status='rejected'
@@ -348,29 +368,51 @@ EvidenceItem
   updatedAt         ISO
 ```
 
-Status transitions:
+`draft` and `uploading` are **client-only states** that never persist to the server. They exist for UX (capture pending, upload-in-progress indicators).
+
+Status transitions (server-enforced):
 
 ```
-draft         ─(client sets pre-upload)──→ uploading
-uploading     ─(photo POST ok)─────────────→ pending_sync
-pending_sync  ─(evidence POST ok)──────────→ submitted
-pending_sync  ─(evidence POST fails)───────→ pending_sync (retryable)
-submitted     ─(admin reviews)─────────────→ reviewed
-submitted     ─(admin rejects with reason)→ rejected
-rejected      ─(worker recaptures)─────────→ submitted (new EvidenceItem; old is kept)
+            client-only                  ┌──────────── server-persisted ─────────────┐
+            ┌──────────┐                 │                                            │
+draft ────► uploading ────► (photo POST ok) ────► pending_sync ────► submitted ──┐    │
+                                                       │                          │    │
+                                                       └─(evidence POST fails)────┤    │
+                                                          (retryable; same        │    │
+                                                          photoId, no re-upload)  │    │
+                                                                                  │    │
+                                                          submitted ──(admin reviews)──► reviewed
+                                                                   ──(admin rejects)───► rejected
+                                                                                          │
+                                                          rejected ──(worker recaptures)──► new EvidenceItem
+                                                                     (old is kept; not edited
+                                                                      in place)
 ```
 
-`draft` and `uploading` are **client-only states** that never persist to the server. They exist for UX (capture pending, upload-in-progress indicators). The server only knows about `pending_sync` (a soft state during the brief gap between photo POST and evidence POST, primarily a UI signal) and beyond.
+Server rejects transitions other than:
+- nothing → submitted (POST create with `status: 'submitted'`)
+- submitted → reviewed (review POST with `status: 'reviewed'`)
+- submitted → rejected (review POST with `status: 'rejected'` and `rejectionReason`)
+- reviewed → submitted (admin un-reviews; rare; admin only)
 
 ### 5.6 `Note` (reserved shape, not built in Phase D)
 
-[12-domain-model-deep-dive.md] §`Note` is reserved for Phase D per the audit but the user's scoped brief defers note-only evidence. The Zod schema in `src/domains/evidence/schema.ts` allows `kind: 'note'` so it's a one-line addition later; **no note-only UI ships in Phase D**.
+[12-domain-model-deep-dive.md] §`Note` is reserved. Schema in `src/domains/evidence/schema.ts` allows `kind: 'note'` so it's a one-line addition later. **No note-only UI ships in Phase D.**
 
 ### 5.7 `Defect` / snag (NOT built in Phase D — Phase D.5)
 
-Reserved per [12-domain-model-deep-dive.md] §`Defect`. **Phase D.5** lands the `Defect` schema, the snag triage queue, the Phil Snag-tab activation, and the cutover of `/admin/snags → /snags`. Phase D.5 will reuse the same `api/photos.js?action=upload-snag-photo` pattern that Phase D consumes for evidence — the photo upload primitive is shared; only the entity wrapping it differs.
+Reserved per [12-domain-model-deep-dive.md] §`Defect`. **Phase D.5** lands the `Defect` schema, snag triage queue, Phil Snag-tab activation, and `/admin/snags → /snags` cutover. Reuses Phase D's `api/photos.js?action=upload-snag-photo` legacy primitive.
 
-### 5.8 `AuditLog` (bootstrap unified table in Phase D)
+### 5.8 `JobStats` (read-only, NOT requested in Phase D)
+
+`api/jobs.js` `?withStats=1` enriches each job with `statsPct`, `statsOpenSnags`, `statsCrewCount`, `statsAreaCount`, `statsExpiredTags`, `statsExpiringTags`. **Phase D does not request `withStats=1`** because:
+- `statsOpenSnags` is snag-domain (Phase D.5).
+- `statsExpiredTags` / `statsExpiringTags` is tag-domain (later phase).
+- `statsPct` requires walking task state across all areas — expensive on the list view.
+
+Phase D admin job list shows: name, status, address, last-activity. Stats columns are deferred to Phase D.6 polish if there's appetite, or Phase F reporting otherwise.
+
+### 5.9 `AuditLog` (bootstrap unified table in Phase D)
 
 Per [12-domain-model-deep-dive.md] §`AuditLog` and the Phase B brief deferring this to Phase D. Schema:
 
@@ -378,13 +420,14 @@ Per [12-domain-model-deep-dive.md] §`AuditLog` and the Phase B brief deferring 
 AuditLog
   id           string (nanoid)
   actorId      userId
+  actorName    string                                  — denormalised
   action       string                                  — 'evidence.captured',
                                                         'evidence.reviewed',
                                                         'evidence.rejected',
                                                         'task.toggled'
   targetEntity string                                  — 'evidence' | 'job' | 'jobTask'
   targetId     string
-  jobId        string?
+  jobId        string?                                 — for cross-job aggregation
   at           ISO
   before       unknown?
   after        unknown?
@@ -392,16 +435,16 @@ AuditLog
   metadata     Record<string,unknown>?
 ```
 
-Storage: append-only blob at `audit/{yyyy-mm}.json` (one file per month, per [12-domain-model-deep-dive.md] migration plan). Per-domain legacy audit files (`users/<userId>/time-entries-audit/<yyyy-mm>.json`) continue in parallel; consolidation happens in Phase E.
+Storage: append-only blob at `audit/{yyyy-mm}.json` (one file per month, per [12-domain-model-deep-dive.md] migration plan). Per-domain legacy audit files (`users/<userId>/time-entries-audit/<yyyy-mm>.json`, per-job `jobs/{id}/job-audit/...` written by `api/_lib/job-audit.js`) continue in parallel; consolidation happens in Phase E. Phase D's new code writes to **both** the unified `audit/` and the per-domain log to avoid losing the legacy admin's audit-tab inputs.
 
-### 5.9 Fields that MUST NOT be skipped
+### 5.10 Fields that MUST NOT be skipped
 
 Per [12-domain-model-deep-dive.md] §"Fields that must NOT be skipped":
 
 - `auditLogIds` on every `EvidenceItem`.
-- `createdBy` + `updatedBy` on every row.
-- `status` on every entity with a lifecycle (Job, EvidenceItem).
-- `reviewedBy` on `EvidenceItem` when reviewed/rejected.
+- `capturedById` (= `createdBy`) on every `EvidenceItem`.
+- `status` on every entity with a lifecycle.
+- `reviewedById` on `EvidenceItem` when reviewed/rejected.
 - `jobId` on every operational row (EvidenceItem, AuditLog when scoped).
 
 ---
@@ -410,12 +453,12 @@ Per [12-domain-model-deep-dive.md] §"Fields that must NOT be skipped":
 
 ### 6.1 What Phil sees
 
-- **Only jobs assigned to me** (filtered server-side by user ID; if the existing endpoint can't filter, harden in a Phase D follow-up — see §15 open decision 3).
+- **Only jobs assigned to me** (server-side filter — verified in `api/jobs.js:188-195`; decision §15.0 #3 resolved). Single-job 403 enforced at `api/jobs.js:174-178` for URL-poking attempts.
 - Mobile-first portrait layout, ≥360px wide.
 - One-thumb operation. 48px+ tap targets per [13-ui-information-architecture.md] §Phil.
 - Sunlight-legible (high contrast tokens already established).
 - **No queue counts, KPIs, charts, admin meta-features.** Per [10-product-definition.md] §C and [13-ui-information-architecture.md] §Phil.
-- **No other workers' captures.** A worker sees their own captures and the captures of the team marked publicly on the job — Phase D defaults to **own captures only** on the Phil job detail "Today's captures" strip. (See §15 open decision 5.)
+- **No other workers' captures.** Phase D shows **own captures only** on the Phil job detail "Today's captures" strip (decision §15.0 #5 resolved). Team-level visibility is a Phase E concern with its own permission gate.
 - **No PM-only data:** profitability, hours roll-up, snag triage, evidence-rejected-by-admin-without-context.
 - **No rejection reason without polish:** when an admin rejects an EvidenceItem, Phil shows a small inline reason on the worker's "my evidence" history — *not* a notification bubble or a banner blocking their work.
 
@@ -480,7 +523,7 @@ These are binding for the Phase D capture flow:
 7. **Failure recovery preserves the captured image.** If photo POST fails, the image stays in component state for retry. Worker is not forced to retake.
 8. **Pending sync state survives within a tab session.** If the evidence POST fails after photo POST succeeds (orphan photo), the EvidenceItem stays `pending_sync` with the `photoId` already returned, and retry sends only the evidence POST (not a duplicate photo upload). Tab close = state lost (Phase D accepts this; offline-first sync is Phase F+).
 9. **No loose photo dump.** Photos cannot exist in `jobs/{id}/photos/` without a corresponding `EvidenceItem` row pointing to them. The legacy `photos-index.json` per-dwelling shape is **NOT** reused for Phase D evidence — Phase D writes a new key (`jobs/{id}/evidence.json` or appends to `data.json.evidence[]` — see §9.4).
-10. **Server validates** `jobId` exists, `stageId` (if provided) belongs to `jobId`, `taskId` (if provided) belongs to `jobId` and `stageId`. Server rejects mismatches with 400; client never gets to an inconsistent state.
+10. **Server validates** `jobId` exists, `areaId` (if provided) belongs to `jobId`, `stage` (if provided) is one of `'roughIn' | 'fitOff'`, `taskId` (if provided) resolves through `effectiveRoughInTasks(job, area)` or `effectiveFitOffTasks(job, area)` per `api/_lib/job-tasks.js:23-33`. Server rejects mismatches with 400; client never gets to an inconsistent state.
 11. **Photo size cap server-side: 6MB** (matches existing `api/photos.js` ceiling). Returns 413 if exceeded.
 12. **No EXIF stripping** in Phase D (preserved for future evidence-of-place verification). Server stores blob URL only; metadata stays in the file.
 13. **AuditLog write on capture, review, and reject.** Three events, three rows.
@@ -498,7 +541,8 @@ Per ADR-002 the legacy backend is consumed verbatim wherever possible. Phase D r
 | Auth / session | `api/auth.js` + `api/_lib/auth.js` | Cookie `buhl_session` unchanged. |
 | Job list | `GET /api/jobs` | Verify response shape during PR-D1; the existing `withStats=1` variant is heavy and not needed in Phase D. |
 | Job detail | `GET /api/jobs?id=<jobId>` or `GET /api/job-glance?jobId=<id>` | Pick the one with the simplest shape during PR-D1. |
-| Job stages/areas | Nested in job detail blob; helper `api/_lib/job-tasks.js` exists | Read-only consumption. |
+| Area groups + areas | Nested in `Job.areaGroups[]` (job detail response) | Read-only consumption; archived items filtered server-side. |
+| Stage = `'roughIn' \| 'fitOff'` enum + tasks | Job-level `roughInTasks` / `fitOffTasks` + per-area overrides; resolved via `api/_lib/job-tasks.js` helpers | Read-only consumption; `effectiveRoughInTasks(job, area)` is the single source of truth for "which tasks apply to this area in this stage". |
 | Photo upload | `POST /api/photos?jobId=<id>&action=upload-evidence-photo` | **Pattern mirrors `upload-snag-photo` and `upload-itp-photo` in `api/photos.js:36-145`.** Phase D **does not** add a new endpoint unless `upload-evidence-photo` action is added to the existing `api/photos.js` (≤ 30-line addition). See §9.3. |
 | Task toggle | `POST /api/task-toggle?jobId=<id>` | Existing endpoint; consumed unchanged. |
 | Blob R/W | `api/_lib/blob.js` (existing) | TTL-cached, in-flight dedupe. Phase D uses through `api/photos.js`. |
@@ -508,7 +552,7 @@ Per ADR-002 the legacy backend is consumed verbatim wherever possible. Phase D r
 
 Per [20-agent-rules.md] #31 and ADR-002, new endpoints are added only when the legacy contract genuinely doesn't cover the flow. Phase D adds **at most two**:
 
-1. **`api/photos.js?action=upload-evidence-photo`** — a new `action` branch inside the existing file (not a new file). Body: `{ dataUrl, evidenceId?, jobId, stageId?, taskId? }`. Stores to `jobs/{jobId}/evidence-photos/{photoId}.jpg`. Returns `{ photoId, url, capturedAt }`. ≤30-line addition modelled exactly on `uploadSnagPhoto` (api/photos.js:44-74) and `upload-itp-photo` (api/photos.js:119-145).
+1. **`api/photos.js?action=upload-evidence-photo`** — a new `action` branch inside the existing file (not a new file). Body: `{ dataUrl }`. Stores to `jobs/{jobId}/evidence-photos/{photoId}.jpg`. Returns `{ photoId, url, capturedAt }`. ≤30-line addition modelled exactly on `uploadSnagPhoto` (api/photos.js:44-74) and `upload-itp-photo` (api/photos.js:119-145). The endpoint is photo-only — it does NOT know about EvidenceItem rows. The Phil client makes a second POST to `/api/jobs/[jobId]/evidence` with the returned `photoId` to create the EvidenceItem (which is where `areaId`, `stage`, `taskId`, `note` live).
 
 2. **`api/jobs-evidence.js`** (or `src/app/api/jobs/[jobId]/evidence/route.ts`) — new file (the Phase D plan recommends `src/app/api/...` per [14-technical-architecture-deep-dive.md] §C and §F future direction). Handles:
    - `GET  /api/jobs/[jobId]/evidence` — list (with filters: status, capturedBy, fromDate, toDate)
@@ -526,7 +570,7 @@ The legacy `api/photos.js` already carries three distinct upload paths (`upload-
 
 ### 9.4 Storage shape for `EvidenceItem`
 
-Two options; **§15 open decision 2** flags this for Oskar.
+Decision resolved in §15.0 #2 — **Option A** is the chosen path. The two options are kept here as design context for future readers.
 
 - **Option A (recommended): append to `jobs/{jobId}/data.json` under a new `evidence[]` array.** Pros: same blob path as snags/tasks; matches existing read patterns; one fetch to render the admin Evidence tab. Cons: grows the data blob (already the source of the full-doc-write problem flagged by [14-technical-architecture-deep-dive.md] §A risk 7); new patch endpoint mitigates by writing only the evidence slice (read full doc, modify `evidence[]`, write full doc — same pattern as `api/task-toggle.js`).
 - **Option B: separate `jobs/{jobId}/evidence.json` blob.** Pros: bounded blob size; doesn't inflate `data.json`; future Postgres migration is cleaner. Cons: extra fetch per admin Evidence-tab render (mitigated by `api/_lib/blob.js` TTL cache).
@@ -545,8 +589,8 @@ Per [14-technical-architecture-deep-dive.md] §E "API + persistence rules":
 ### 9.6 Permissions
 
 - **Evidence capture:** worker must be `assignedTo` the job (via existing `canWrite(user, jobId)` helper in `api/_lib/auth.js`). Admin can capture on behalf (audit captures the actor difference).
-- **Evidence read:** admin, PM (per job), captured-by worker (own captures), other workers assigned to the job (with the §15 open decision 5 caveat).
-- **Evidence review:** admin and PM only. Worker cannot review their own. (LH approval scope mirrors hours rules — see §15 open decision 6.)
+- **Evidence read:** admin sees all; LH sees all evidence on jobs in their `assignedJobIds`; tradie sees own captures only on the Phil "Today's captures" strip (decision §15.0 #5 resolved). Server filters per actor role.
+- **Evidence review (`status: reviewed | rejected`):** **admin only** in Phase D (decision §15.0 #6 resolved). LH read-only on evidence. Server returns 403 when `me.role !== 'admin'` on the review POST.
 - **Task toggle:** existing `api/task-toggle.js` permission unchanged.
 
 ---
@@ -589,7 +633,7 @@ Per [17-testing-and-quality-plan.md] §C.4 — Phase D testing extends the Phase
 `tests/phase-d-jobs-evidence.spec.ts`:
 
 - Tradie login → `/phil/jobs` → sees their assigned jobs (or empty state if seeded as unassigned).
-- Tap into a job → `/phil/jobs/[jobId]` → header + site notes + stages strip visible.
+- Tap into a job → `/phil/jobs/[jobId]` → header + site notes + area groups → areas visible (archived items hidden).
 - Tap Capture → upload a test image → submit → EvidenceItem appears with `pending_sync` → flips to `submitted` on success.
 - Admin login → `/jobs` → sees all jobs → opens the job → Evidence tab shows the new EvidenceItem.
 - Admin marks reviewed → status flips → tradie's "my evidence" page reflects new status.
@@ -638,7 +682,7 @@ Per [16-migration-strategy.md] §C.4 — Phase D cutover PRs (PR-D4, PR-D5) depl
 | D-03 | iOS Safari camera input quirks | Medium | Medium | Use `<input type="file" accept="image/*" capture="environment">` + tested fallback to gallery. Manual Playwright spot-check on iOS Safari preview. |
 | D-04 | "Offline-capable" expectation creep | High | High | Plan explicitly avoids offline-first. `pending_sync` is a UI signal only; **state lost on tab close** is documented. Marketing copy banned. |
 | D-05 | Job data quality (missing site notes, stale assignments) crashes the UI | High | Medium | Every Job field optional except `id`, `name`, `status`. Empty state for every missing-data block. Per-field fallback ("No site notes added yet."). |
-| D-06 | Permission scope leak (worker sees other workers' captures unintentionally) | Low | High | Default to own-captures-only on Phil. Server filters by `capturedById` unless explicit admin/PM permission. §15 open decision 5. |
+| D-06 | Permission scope leak (worker sees other workers' captures unintentionally) | Low | High | Server filters by `capturedById === me.id` for tradie role on the Phil endpoints (decision §15.0 #5 resolved). Server-side double-check on every read; tested by Playwright with two fixture tradies. |
 | D-07 | Evidence accumulates without admin review (review SLA absent) | High | Low (Phase D); Medium (later) | Surface "X items pending review" on admin Command Centre once real data lands. Phase F adds SLA alerts. |
 | D-08 | `data.json` blob grows unbounded with evidence array | Medium | Medium | §9.4 Option A accepts the growth for Phase D; Phase F Postgres migration breaks it out. If growth becomes painful pre-Phase-F, flip to §9.4 Option B (separate blob) with a single migration script. |
 | D-09 | Cutover of `/admin/jobs` and `/jobs` regresses the legacy 4,772-line `public/admin/job.html` | High | High | The legacy file is preserved at `/legacy/admin-jobs/:jobId` for one billing cycle. PR-D4 is its own PR with rollback plan. Deploy Monday with on-call. |
@@ -650,6 +694,14 @@ Per [16-migration-strategy.md] §C.4 — Phase D cutover PRs (PR-D4, PR-D5) depl
 | D-15 | Phase C (My Gear) not yet merged — Phase D plan assumes its scope ships first | High | Low | Phase D start gate (§13 sequence) blocks on PR #5 merge + 7-day quiet period per [16-migration-strategy.md] §E.3. |
 | D-16 | Plan-acknowledgement modal expectation creep (workers expect plans in Phase D since "evidence" sounds plan-shaped) | Low | Low | Phase D scope doc + release notes explicitly call out "no plans yet — Phase E." |
 | D-17 | Scope creep within Phase D itself: a single PR creeps from "Phil jobs read-only" to "Job Builder rebuild" | High | High | Build sequence (§13) enforces D1–D6 as separate PRs. Any new feature requires Oskar approval before being added to the Phase D build prompt. |
+| D-18 | Two devices capturing evidence on the same job race on `data.json` write (legacy full-doc write semantics) | Medium | Medium | Worst case: one capture loses on the merge. Mitigation: the evidence write endpoint (§9.2 #2) reads `data.json`, appends to `evidence[]`, writes back — same race window as `api/task-toggle.js`. The window is ~50ms per write. Phase D accepts the tiny race risk; Phase F+ Postgres migration eliminates. If two captures lose in real-world testing, add an optimistic-concurrency `version` field to `data.json` and reject stale writes. |
+| D-19 | EXIF location data preserved on Phil photos could leak worker home address if a worker captures a test photo from home | Low | Medium | Documented in release notes: "capture only on site." Server preserves EXIF (no strip in Phase D). Phase E adds optional strip toggle per org policy. Workers educated; no on-screen warning needed. |
+| D-20 | Worker captures evidence without attaching to a task → admin sees "loose" evidence with no work-item context | High | Low | Task attachment is optional in §8. Admin Evidence panel groups by `(area, stage, task)` with an explicit "Unattached" section so loose captures don't hide. Phase D acceptance criteria do NOT require 100% task-attachment. Phase E adds gentle prompts ("attach to task before submit?") if the data shows >30% loose captures. |
+| D-21 | Admin reviews evidence but doesn't realise the captured photo is stale (taken hours before submit due to slow upload retry) | Low | Low | EvidenceItem renders both `capturedAt` (client time on photo capture) and `createdAt` (server time on POST success). Admin Evidence panel shows both with a friendly gap indicator if >5 minutes. |
+| D-22 | A worker submits the same photo twice (double-tap on Submit) | Medium | Low | Capture sheet disables the Submit button on tap until POST returns. If the network is flaky, the disabled state survives until success/failure (not auto-re-enabled by a timeout). Server is idempotent by `clientCapturedAt + capturedById` — a duplicate within 5s returns the same EvidenceItem rather than creating a new one. |
+| D-23 | Field workers running an old Phil PWA cached version miss the new Jobs tab activation | Medium | Low | SW cache version is bumped in PR-D1 (Phil tab bar change). Cached clients update on next page load per the existing SW behaviour. Release notes call out: "force-refresh if Jobs tab doesn't appear after Phase D deploy." |
+| D-24 | Workers tap "Mark task done" on the wrong task because the task list rendered while they were scrolling | Medium | Low | Confirmation dialog (modal) on the task-done tap, with the task name in big text. Per [14-technical-architecture-deep-dive.md] §E "no `confirm()`", this is a proper React modal. Cancel button is the default focused button. |
+| D-25 | `api/_lib/job-tasks.js` `effectiveRoughInTasks` returns `[]` for a job with no task templates at all, and the Phil UI shows an empty task list with no explanation | Medium | Low | Phil renders explicit empty state: "No tasks defined for this area's rough-in stage yet. Tap Capture to record evidence anyway." Acceptance criteria (§12.1) test this case with a fixture job that has area-groups but no task templates. |
 
 ---
 
@@ -809,126 +861,23 @@ Phase D.5 must not bundle anything else (no ITP, no RFI, no materials).
 
 ---
 
-## 14 · Claude Code build prompt (paste-ready for D1; replicate for D2–D6)
+## 14 · Claude Code build prompts
 
-> **Copy the block below for the future build session. Each Dx slice gets its own session, its own PR, its own preview verification, its own merge.**
+Paste-ready prompts for every Phase D build slice (D1 through D6) live in their own sibling doc:
 
-```
-You are Claude Code Max working as the Phase D BUILD session for the BuhlOS / Phil repo.
+→ **[25-phase-d-build-prompts.md](25-phase-d-build-prompts.md)**
 
-This is the Phase D · D1 build session (jobs domain + Phil jobs list & detail, read-only).
+That doc is self-contained: each prompt names its scope, its branch, its hard rules, its preflight reads, its checks, its PR title, and its expected report. Each Dx slice gets its own build session, its own PR, its own preview verification, its own merge. No single prompt covers more than one slice — that's the discipline that keeps Phase D from regressing into "everything jobs".
 
-Read first:
-  docs/rebuild-audit/24-phase-d-jobs-evidence-plan.md   ← this plan
-  docs/rebuild-audit/20-agent-rules.md
-  docs/rebuild-audit/10-product-definition.md
-  docs/rebuild-audit/12-domain-model-deep-dive.md  §Jobs
-  docs/rebuild-audit/13-ui-information-architecture.md  §Phil §Jobs
-  docs/rebuild-audit/14-technical-architecture-deep-dive.md
-  docs/rebuild-audit/16-migration-strategy.md
-  docs/rebuild-audit/17-testing-and-quality-plan.md  §C.4
-  docs/rebuild-audit/21-rebuild-decision-record.md  ADR-002, ADR-011
-  docs/rebuild-audit/19-phase-b-hours-implementation-brief.md  ← format precedent
+Pre-flight for any Phase D build session (binding regardless of slice):
 
-============================================================
-HARD RULES (read 24-phase-d-jobs-evidence-plan.md §2, §11, §12 first)
-============================================================
+- Phase C (PR #5) is merged to `main` and has had 7 days of quiet (per [16-migration-strategy.md] §E.3).
+- This plan (this document) is approved by Oskar.
+- §15 decisions 1–7 are resolved (all RESOLVED 2026-05-24 in this document); §15.1 decisions 8–9 either resolved or explicitly acknowledged as "Phase D ships without them — re-decide later."
+- The build session is started **in a fresh worktree**, not in the Session 2 (Phase C hardening) worktree.
+- `git status` confirms a clean working tree on the build branch.
 
-You may ONLY:
-  - build Phase D · D1 (jobs domain + Phil jobs read-only)
-  - read existing code freely
-  - add src/domains/jobs/* with Zod schemas matching real /api/jobs response shape
-  - add src/app/phil/jobs/page.tsx
-  - add src/app/phil/jobs/[jobId]/page.tsx
-  - flip Phil bottom tab bar: Jobs tab from UC to live
-  - add tests (vitest + playwright fixtures-driven)
-  - commit on a new branch phase-d-d1-jobs-read-only
-  - push to that branch
-  - open a PR to main
-
-You MUST NOT:
-  - build evidence (that's D2)
-  - build any admin Phase D page (that's D4)
-  - touch any backend endpoint
-  - edit api/*.js
-  - edit vercel.json
-  - edit public/*.html
-  - deploy
-  - cutover any route
-  - touch Phase C (PR #5) branch or worktree
-  - rebuild Job Builder or any job mutation
-  - build snag triage
-  - build plans / ITPs / RFIs / materials / variations
-  - merge anything
-
-Before starting:
-  - confirm Phase C (PR #5) is merged to main
-  - confirm this plan (24-phase-d-jobs-evidence-plan.md) is approved by Oskar
-  - confirm open decisions in §15 are answered (decision 1 already resolved: snags = Phase D.5;
-    decisions 2–7 still open and must be answered before D1 starts coding)
-  - if any of the above is uncertain, STOP and ask before any code
-
-============================================================
-SCOPE OF THIS PR (D1)
-============================================================
-
-In:
-  - src/domains/jobs/schema.ts        (Zod over real /api/jobs response — verify shape via curl or read of api/jobs.js)
-  - src/domains/jobs/types.ts         (z.infer<>)
-  - src/domains/jobs/fixtures.ts      (typed seed data for tests/Storybook)
-  - src/domains/jobs/client.ts        (typed wrappers around /api/jobs)
-  - src/domains/jobs/service.ts       (filter helpers: byStatus, byAssignment)
-  - src/domains/jobs/jobs.test.ts     (unit tests per §10.1 of the plan)
-  - src/app/phil/jobs/page.tsx        (Phil jobs list; renders fixtures until D3)
-  - src/app/phil/jobs/[jobId]/page.tsx  (Phil job detail; renders fixtures)
-  - Update PhilShell / PhilTabBar to mark Jobs tab live (no longer UC)
-  - tests/phase-d-d1-jobs-read-only.spec.ts (Playwright smoke against fixtures)
-
-Out (defer to D2+):
-  - capture sheet
-  - any photo upload
-  - any evidence schema
-  - any admin page
-  - any new API
-  - any vercel.json change
-  - any cutover
-
-Before writing code:
-  - read api/jobs.js to learn the exact response shape
-  - read src/domains/timesheets/* for the established pattern
-  - read src/lib/http.ts and src/lib/auth/* for the cross-cutting helpers
-  - confirm /phil/jobs is not in vercel.json (it isn't — but verify)
-
-Checks before opening the PR:
-  - npm run typecheck  (zero errors)
-  - npm run lint       (zero warnings)
-  - npm run test       (all green)
-  - npm run build      (succeeds)
-  - npm run check:admin-shell
-  - npm run check:sw-cache-version
-  - npm run check:production-shell
-  - npm run smoke:admin-routes
-  - npm run test:e2e   (phase-d-d1 spec passes)
-  - git status         (only src/domains/jobs/* + src/app/phil/jobs/* + tests touched)
-  - git diff --stat    (no api/, no public/, no vercel.json, no src/app/(admin)/* changes)
-
-PR title:  [Phase D] D1 · jobs domain + Phil jobs list & detail (read-only)
-
-PR body must include:
-  - link to docs/rebuild-audit/24-phase-d-jobs-evidence-plan.md §13 D1
-  - confirmation that D2/D3/D4/D5/D6 are separate upcoming PRs
-  - rollback plan: revert the PR; no production cutover so blast radius is preview only
-
-Report at the end of the session:
-  - branch + base commit
-  - list of files created / modified
-  - command outputs for every check above
-  - any deviation from the plan + why
-  - link to PR
-  - confirmation: no backend touched, no vercel.json, no cutover, no Phase C interference
-```
-
-> For **D2 through D6**, copy the above template, swap the slice description, swap the in/out lists, swap the PR title. Use this Phase D plan §13 as the in/out source of truth.
+If any of the above is uncertain, **STOP and ask** before writing code (per [20-agent-rules.md] #5, #29).
 
 ---
 
@@ -948,45 +897,84 @@ Report at the end of the session:
   - Audit doc reassignments will be made in the Phase D shipping docs PR ([11-operational-workflow-map.md] #12 moves from "Phase D" to "Phase D.5"; [21-rebuild-decision-record.md] gets a new ADR formalising the split).
 - **Override mechanism if reversed later:** a new ADR superseding this would reopen Phase D scope. No code path silently re-enables snags in Phase D — the tab UC state, the missing schema, and the missing admin page are all explicit.
 
-### 15.1 · Open decisions Oskar must still answer before D1 starts
+#### Decision 2 (RESOLVED 2026-05-24 · Session 3) · `EvidenceItem` storage shape
 
-These are the remaining questions this plan deliberately leaves to Oskar. Each affects scope or behaviour and cannot be resolved by reading the audit alone.
+- **Question:** Append to `jobs/{jobId}/data.json` under a new `evidence[]` array, or split to a separate `jobs/{jobId}/evidence.json` blob?
+- **Resolution (Session 3 — recommended):** **§9.4 Option A** — append to `data.json.evidence[]`.
+- **Rationale:**
+  - Consistency: `data.json` already carries `dwellings[]`, `snags[]`, `notes[]` per legacy convention. Adding `evidence[]` matches the established shape (api/jobs.js:366).
+  - One-fetch admin rendering: the new `/jobs/[jobId]` Evidence tab is a sub-view of the job page; reading `data.json` already pulls everything the page needs.
+  - The full-doc-write risk (audit risk 7) is bounded by Phase D's volume: ~5–20 EvidenceItems per active job before Phase E reporting cycles them out. At typical photo metadata size (~200B per row) the blob impact is negligible.
+  - Phase F+ Postgres migration: the `evidence[]` array becomes its own table via the same dual-write pattern planned for other domains (per [16-migration-strategy.md] §D.4). No throwaway work.
+- **Override mechanism if reversed:** if real-world `data.json` blob size becomes painful before Phase F+, flip to Option B with a one-time backfill script reading `evidence[]` from each `data.json` and writing it to `jobs/{jobId}/evidence.json`. The API surface stays identical; only the persistence path changes.
 
-### Decision 2 · `EvidenceItem` storage shape: append to `data.json` or separate blob?
+#### Decision 3 (RESOLVED 2026-05-24 · Session 3) · Phil jobs list filtering
 
-- **Plan's recommendation:** §9.4 Option A (append to `data.json.evidence[]`).
-- **Trade-off:** Option A is consistent with existing read patterns and one-fetch admin rendering, but grows the blob (the audit's risk 7 around full-doc writes). Option B is cleaner long-term but adds a fetch.
-- **Question for Oskar:** Option A (recommended) or Option B?
+- **Question:** Server-side filter (existing endpoint) vs client-side filter (response-side)?
+- **Resolution (Session 3 — verified in `api/jobs.js:188-195` and `api/jobs.js:174-178`):** **Server-side filter — already implemented and authoritative.**
+- **Rationale:**
+  - `GET /api/jobs` already filters: `visible = data.jobs.filter(j => (me.assignedJobIds || []).includes(j.id))` for non-admin/non-client roles (api/jobs.js:194).
+  - `GET /api/jobs?id=<jobId>` returns 403 if a non-admin tradie tries to fetch a job not in their `assignedJobIds` (api/jobs.js:174-178: `if (!canSee) return res.status(403).json({ error: 'forbidden' })`).
+  - No client-side filtering needed. No permission leak possible.
+  - The Phil jobs client (`src/domains/jobs/client.ts`) just calls `GET /api/jobs` and consumes the (already-filtered) response.
+- **Consequence:** D1 stays **"no backend changes"** as originally planned. Stronger guarantee than the plan originally hedged on.
 
-### Decision 3 · Phil jobs list filtering — server-side or client-side?
+#### Decision 4 (RESOLVED 2026-05-24 · Session 3) · Pre-cutover preview URL
 
-- **Context:** `/api/jobs` may not natively filter by `assignedTo=<userId>` (verify in D1). If it doesn't, Phil's first fetch returns the full job list and we client-filter — a permission leak risk if the response includes data the worker shouldn't see.
-- **Plan's recommendation:** **Verify the endpoint shape in D1.** If server already filters by session user, use that. If not, **either** add a server-side filter as part of D1 (small change to `api/jobs.js` — stops the plan being "no backend changes" for D1) **or** accept the client-filter for Phase D with a documented follow-up to harden in D6 polish.
-- **Question for Oskar:** If the legacy endpoint doesn't filter, do we (a) harden `api/jobs.js` in D1 (small backend change), (b) ship D1 with client-filter and document the gap (and harden in D6), or (c) plan a separate "Phase D auth hardening" mini-slice?
+- **Question:** Build the new admin Jobs surface at `/v2/jobs`, `/admin-v2/jobs`, or another path?
+- **Resolution (Session 3 — recommended):** **`/v2/jobs`** for pre-cutover preview verification.
+- **Rationale:**
+  - Consistent with Phase A's `/v2/login` and `/v2/phil` precedent — establishes a recognisable "new-app preview lane" pattern.
+  - `/v2/jobs` is not claimed by `vercel.json`.
+  - At cutover time (PR-D4), Next.js takes over canonical `/jobs` and `/admin/jobs`; the `/v2/jobs` route is then either removed or kept as a permanent alias. Recommendation: **remove** at cutover so there is one canonical URL per concept (per [13-ui-information-architecture.md] §Foundational rules).
 
-### Decision 4 · Pre-cutover preview URL: `/v2/jobs` or `/admin-v2/jobs` or another?
+#### Decision 5 (RESOLVED 2026-05-24 · Session 3) · "Today's captures" strip on Phil job detail
 
-- **Context:** D4 wants to verify the new admin Jobs surface on preview before flipping `/jobs` and `/admin/jobs` rewrites.
-- **Plan's recommendation:** `/v2/jobs` (consistent with `/v2/login`, `/v2/phil` from Phase A).
-- **Question for Oskar:** OK with `/v2/jobs`?
+- **Question:** Show own captures only, or team captures on the same job?
+- **Resolution (Session 3 — recommended):** **Own captures only in Phase D.** Revisit in Phase E.
+- **Rationale:**
+  - Privacy-first default. Until the team-visibility permission model is explicit (Phase E), the safest default is to scope to `capturedById === me.id`.
+  - Avoids a Phase D "Sarah saw my photo at 3pm" social-feed drift that this plan doesn't have UX patterns for.
+  - The admin Evidence tab already shows all captures across the team — admin/PM has the team view.
+  - Field workers who *want* to coordinate captures use SMS/Slack today; that's a Phase E "team timeline" concern, not Phase D.
+- **Override mechanism:** when Phase E ships, add a `?scope=team` query to the evidence client + a server-side permission check (any worker assigned to the job sees the team strip).
 
-### Decision 5 · "Today's captures" strip on Phil job detail — own-only or team?
+#### Decision 6 (RESOLVED 2026-05-24 · Session 3) · LH evidence review
 
-- **Context:** Phil job detail can show a small "Today's captures" strip. Plan defaults to **own captures only** to avoid a permission scope leak.
-- **Plan's recommendation:** Own captures only in Phase D; revisit in Phase E once permission model around team visibility is firm.
-- **Question for Oskar:** Confirm own-only (recommended)?
+- **Question:** Can Leading Hand mark evidence reviewed/rejected for their crew, or read-only?
+- **Resolution (Session 3 — recommended):** **LH read-only on evidence in Phase D.** Revisit in Phase E.
+- **Rationale:**
+  - LH hours-approval scope is well-defined and tested (excludes other LHs' submissions). Evidence review has no parallel precedent in legacy — extending without explicit testing would invent a permission gate at the wrong time.
+  - Phase D's admin Evidence review surface is small (one panel inside `/jobs/[jobId]`). Adding LH branching adds matrix complexity to Phase D Playwright specs.
+  - Workers' evidence still flows to the admin queue; LH can flag-via-chat for now.
+  - Phase E's permissions revisit will define `evidence.review` capability per role; LH may get it then.
+- **Server enforcement:** `POST /api/jobs/[jobId]/evidence/[evidenceId]/review` returns 403 if `me.role !== 'admin'` (no PM role exists in legacy; treat admin as the reviewer). LH is `(user.role === 'leadingHand')` in `api/_lib/auth.js:104` — gated out.
 
-### Decision 6 · LH (Leading Hand) evidence review — can LH approve crew captures?
+#### Decision 7 (RESOLVED 2026-05-24 · Session 3) · `/jobs` post-cutover audience
 
-- **Context:** LH can approve hours for their crew (excluding other LHs). Plan defaults LH to **read evidence but not review/reject** — that's admin/PM only in Phase D.
-- **Plan's recommendation:** LH read-only on evidence in Phase D; revisit in Phase E.
-- **Question for Oskar:** OK?
+- **Question:** After Phase D cutover, does Next.js's `/jobs` serve admin (PM/admin) or Phil (worker)?
+- **Resolution (Session 3 — recommended):** **`/jobs` = admin-facing.** Phil is at `/phil/jobs`.
+- **Rationale:**
+  - Consistent with `/command-centre` (admin), `/hours/approvals` (admin), `/v2/phil` (worker) — no overload of canonical URLs.
+  - The legacy ambiguity goes away: today `/jobs → /admin/jobs.html` (admin) but workers reach jobs via `/phil`. Post-cutover, the worker path is `/phil/jobs` and the admin path is `/jobs`. Clean.
+  - Bookmarks: any admin who bookmarked `/jobs` (which today is the admin jobs list) keeps working. Workers who somehow have `/jobs` bookmarked (unusual) get redirected per role at the middleware layer.
+- **Middleware behaviour:** if a worker (`role: 'tradie' | 'leadingHand'`) hits `/jobs`, middleware redirects to `/phil/jobs`. If an admin hits `/phil/jobs`, no redirect (admins CAN view the Phil-shaped UI; useful for debugging). This mirrors the current `landingFor()` pattern in `src/lib/auth/landing.ts`.
 
-### Decision 7 · Cutover of `/jobs` — Phil-facing or admin-facing route?
+### 15.1 · Open decisions still requiring Oskar's call before D1 starts
 
-- **Context:** Today `/jobs` rewrites to `/admin/jobs.html` (the admin jobs list). After cutover, Next.js owns `/jobs` — but who is the audience?
-- **Plan's recommendation:** **Admin-facing** at `/jobs` (consistent with `/command-centre`, `/hours/approvals`); Phil is at `/phil/jobs`. The legacy ambiguity goes away.
-- **Question for Oskar:** Confirm `/jobs` = admin-facing post-cutover?
+After Session 3's autonomous pass, **all 7 decisions in the original plan are now resolved with recommendations or hard verifications.** The list below captures decisions Session 3 *intentionally* did not resolve because they are founder calls (scope, money, business shape) rather than product-engineering trade-offs.
+
+#### Decision 8 (OPEN · founder call) · "Activity" surface scope in Phase D
+
+- **Question:** Phase D bootstraps the unified `AuditLog` (§5.9) and proposes a thin `/activity` admin feed (§13 D5) showing evidence captured/reviewed/rejected + task-toggled events. Should this also include the existing per-job audit events written by `api/_lib/job-audit.js` (rename, status change, basics-changed, area-structure changes, etc.) which today land in `jobs/{id}/job-audit/...`?
+- **Session 3 leaning:** **Yes** — `/activity` should aggregate both new evidence events AND existing per-job legacy events so the surface is genuinely useful from day one. The Phase D `/activity` page reads the unified log AND fans out to per-job legacy logs as a fallback. Phase E consolidates by migrating per-job logs into the unified table.
+- **Why a founder call:** this widens D5's read complexity and product scope (the "activity feed" suddenly looks like a real admin tool, not just an evidence audit trail). May want to keep it bounded to evidence-only in Phase D so the surface stays "small enough to not regress in cutover" and expand in Phase E.
+
+#### Decision 9 (OPEN · founder call) · Phase D field-pilot strategy
+
+- **Question:** When the Phase D build completes, do we pilot on production with one nominated tradie + one admin for 1 week before going wide, or release wide immediately after preview verification?
+- **Session 3 leaning:** **Pilot.** Hours pilot pattern from Phase B worked; evidence has higher field-UX variance (camera, sunlight, glove use). One-week single-tradie pilot then wide rollout reduces blast radius.
+- **Why a founder call:** depends on which tradie is available, scheduling, and whether the Phase D ship date conflicts with a high-pressure week on a real job.
 
 ---
 
