@@ -14,6 +14,12 @@ interface LoginFormProps {
  * The endpoint sets the buhl_session cookie; on success we hard-navigate so
  * the new cookie is observed by middleware on the next request.
  *
+ * Body shape mirrors the legacy login form (public/login.html line 972):
+ * `{ username, secret }`. The earlier Phase A draft sent
+ * `{ identifier, password }` which api/auth.js rejected with 400
+ * "username and secret required" — blocking preview verification. Fixed
+ * here without touching api/*.js or the legacy login.
+ *
  * Uses the SAME landingFor() implementation as src/middleware.ts (no second
  * source of truth — non-negotiable §"One canonical source per concept").
  */
@@ -35,8 +41,10 @@ export function LoginForm({ next }: LoginFormProps) {
       try {
         const res = await fetch("/api/auth?action=login", {
           method: "POST",
+          credentials: "same-origin",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ identifier, password: secret }),
+          // api/auth.js destructures { username, secret } — must match.
+          body: JSON.stringify({ username: identifier, secret }),
           cache: "no-store",
         });
         if (!res.ok) {
