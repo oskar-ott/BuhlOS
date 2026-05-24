@@ -4,17 +4,18 @@ import { canAccessSurface, type Surface } from "@/lib/auth/permissions";
 import { landingFor } from "@/lib/auth/landing";
 
 /**
- * Phase A + B route gating.
+ * Phase A + B + C route gating.
  *
  * Only the new surfaces are gated here. Legacy URLs (/login, /admin/*, /phil,
- * /my-day, /lh, /client, ...) are owned by vercel.json rewrites and never
- * reach Next.js middleware in production.
+ * /my-day, /my-gear, /lh, /client, ...) are owned by vercel.json rewrites and
+ * never reach Next.js middleware in production.
  *
  * Gates:
  *   /command-centre        → admin roles only       (Phase A)
  *   /hours/*               → admin roles only       (Phase B — admin queue)
+ *   /gear/*                → admin roles only       (Phase C — admin register)
  *   /v2/phil               → field roles or LH      (Phase A)
- *   /phil/my-day, /phil/hours → field roles or LH   (Phase B — new Phil home)
+ *   /phil/my-day, /phil/hours, /phil/gear → field roles or LH (Phase B + C — new Phil home)
  *   /v2/login              → always public
  *   /                      → not gated; src/app/page.tsx decides at render time
  */
@@ -22,9 +23,11 @@ import { landingFor } from "@/lib/auth/landing";
 const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   { prefix: "/command-centre", surface: "admin" },
   { prefix: "/hours", surface: "admin" },
+  { prefix: "/gear", surface: "admin" },
   { prefix: "/v2/phil", surface: "phil" },
   { prefix: "/phil/my-day", surface: "phil" },
   { prefix: "/phil/hours", surface: "phil" },
+  { prefix: "/phil/gear", surface: "phil" },
 ];
 
 export function middleware(req: NextRequest) {
@@ -66,8 +69,10 @@ export const config = {
   matcher: [
     "/command-centre/:path*",
     "/hours/:path*",
+    "/gear/:path*",
     "/v2/phil/:path*",
     "/phil/my-day/:path*",
     "/phil/hours/:path*",
+    "/phil/gear/:path*",
   ],
 };

@@ -256,6 +256,57 @@ module.exports = async (req, res) => {
       return res.status(200).json({ asset: a });
     }
 
+    // ── Phase C addition: ?action=report — worker check / condition report.
+    //   Records a possession confirmation ("check") or a condition flag
+    //   ("damaged" / "missing"). Workers may only report on gear they hold;
+    //   admin may report on anything. Always appends a history entry with
+    //   `kind` set, so the action log discriminates reports from transfers.
+    //
+    //   Body: { assetId, kind: 'check'|'damaged'|'missing', note? }
+    //
+    //   Mutations on the asset record (all optional fields — old readers
+    //   ignore them and continue to work unchanged):
+    //     check    → lastCheckedAt + lastCheckedBy (condition untouched)
+    //     damaged  → condition='damaged' + lastConditionAt + lastConditionBy
+    //     missing  → condition='missing' + lastConditionAt + lastConditionBy
+    if (action === 'report') {
+      const body = req.body || {};
+      const { assetId, kind, note } = body;
+      if (!assetId) return res.status(400).json({ error: 'assetId required' });
+      if (kind !== 'check' && kind !== 'damaged' && kind !== 'missing') {
+        return res.status(400).json({ error: 'kind must be one of: check, damaged, missing' });
+      }
+      const a = await readAsset(assetId);
+      if (!a) return res.status(404).json({ error: 'asset not found' });
+      // Worker may only report on assets they currently hold. Admin sees all.
+      if (user.role !== 'admin' && a.currentHolderId !== user.id) {
+        return res.status(403).json({ error: 'you can only report on an asset you currently hold' });
+      }
+      const cleanNote = note ? String(note).trim().slice(0, 500) : null;
+      const now = new Date().toISOString();
+      if (kind === 'check') {
+        a.lastCheckedAt = now;
+        a.lastCheckedBy = user.id;
+      } else {
+        a.condition = kind; // 'damaged' | 'missing'
+        a.lastConditionAt = now;
+        a.lastConditionBy = user.id;
+      }
+      a.updatedAt = now;
+      await writeAsset(a);
+      await appendHistory(assetId, {
+        id: newHistoryId(),
+        kind: kind === 'check' ? 'check' : (kind === 'damaged' ? 'report_damaged' : 'report_missing'),
+        at: now,
+        byUserId: user.id,
+        byRole: user.role,
+        byName: user.username,
+        note: cleanNote,
+        condition: kind === 'check' ? undefined : kind,
+      });
+      return res.status(200).json({ asset: a });
+    }
+
     // Create new asset — admin only
     if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
     const body = req.body || {};

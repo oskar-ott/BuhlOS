@@ -9,6 +9,7 @@ import {
   Settings,
   Clock,
   LogOut,
+  Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Pill } from "@/components/ui/Pill";
@@ -23,6 +24,7 @@ interface NavItem {
 /**
  * Phase A admin nav: Command centre (live) + UC placeholders.
  * Phase B promotes Hours to live (the approval queue + overview).
+ * Phase C promotes Gear to live (asset register + transfer + condition reports).
  *
  * UC items are non-clickable per non-negotiable §"Feature gating".
  *
@@ -33,6 +35,7 @@ const NAV: ReadonlyArray<NavItem> = [
   { label: "Command centre", href: "/command-centre", icon: LayoutGrid, status: "live" },
   { label: "Hours", href: "/hours", icon: Clock, status: "live" },
   { label: "Approvals", href: "/hours/approvals", icon: ClipboardCheck, status: "live" },
+  { label: "Gear", href: "/gear", icon: Wrench, status: "live" },
   { label: "Jobs", href: "/command-centre", icon: Briefcase, status: "under-construction" },
   { label: "Snags", href: "/command-centre", icon: AlertOctagon, status: "under-construction" },
   { label: "Support", href: "/command-centre", icon: LifeBuoy, status: "under-construction" },
