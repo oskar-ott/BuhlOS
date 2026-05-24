@@ -110,6 +110,39 @@ module.exports = async (req, res) => {
     try { return await deleteSnagPhoto(req, res, user, jobId); }
     catch (e) { return res.status(500).json({ error: e.message }); }
   }
+  // ── Phase D2: Evidence photo upload ──────────────────────────────
+  // Single-step binary upload that returns { id, url, capturedAt } so
+  // the D3 capture sheet can then POST /api/evidence with the pair.
+  // Mirrors uploadSnagPhoto shape (above). Separate namespace from
+  // snag-photos so future GC of orphaned evidence photos is scoped.
+  // Storage: jobs/<jobId>/evidence-photos/<photoId>.jpg.
+  if (action === 'upload-evidence-photo' && req.method === 'POST') {
+    if (!canWrite(user, jobId)) return res.status(403).json({ error: 'read-only' });
+    try {
+      const { dataUrl } = req.body || {};
+      if (!dataUrl) return res.status(400).json({ error: 'dataUrl required' });
+      const base64Data = dataUrl.split(',')[1];
+      if (!base64Data) return res.status(400).json({ error: 'malformed dataUrl' });
+      const mimeType = (dataUrl.match(/data:([^;]+)/) || [, 'image/jpeg'])[1];
+      const buffer = Buffer.from(base64Data, 'base64');
+      if (buffer.length > 6 * 1024 * 1024) {
+        return res.status(413).json({ error: 'photo too large — try a smaller image' });
+      }
+      const photoId = Date.now() + '_' + Math.random().toString(36).slice(2);
+      const blob = await put(`jobs/${jobId}/evidence-photos/${photoId}.jpg`, buffer, {
+        access: 'public',
+        contentType: mimeType,
+        token: process.env.BLOB_READ_WRITE_TOKEN,
+      });
+      return res.status(200).json({
+        id: photoId,
+        url: blob.url,
+        capturedAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
   // ── ITP point photo upload ───────────────────────────────────────
   // Uploads a single image data-url to blob storage and returns the
   // public URL. The /api/job-itps?action=record endpoint then takes
