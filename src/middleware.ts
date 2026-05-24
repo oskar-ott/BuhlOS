@@ -4,7 +4,7 @@ import { canAccessSurface, type Surface } from "@/lib/auth/permissions";
 import { landingFor } from "@/lib/auth/landing";
 
 /**
- * Phase A + B + C route gating.
+ * Phase A + B + C + D1 route gating.
  *
  * Only the new surfaces are gated here. Legacy URLs (/login, /admin/*, /phil,
  * /my-day, /my-gear, /lh, /client, ...) are owned by vercel.json rewrites and
@@ -15,7 +15,8 @@ import { landingFor } from "@/lib/auth/landing";
  *   /hours/*               → admin roles only       (Phase B — admin queue)
  *   /gear/*                → admin roles only       (Phase C — admin register)
  *   /v2/phil               → field roles or LH      (Phase A)
- *   /phil/my-day, /phil/hours, /phil/gear → field roles or LH (Phase B + C — new Phil home)
+ *   /phil/my-day, /phil/hours, /phil/gear, /phil/jobs → field roles or LH
+ *                                                       (Phase B + C + D1)
  *   /v2/login              → always public
  *   /                      → not gated; src/app/page.tsx decides at render time
  */
@@ -28,6 +29,7 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   { prefix: "/phil/my-day", surface: "phil" },
   { prefix: "/phil/hours", surface: "phil" },
   { prefix: "/phil/gear", surface: "phil" },
+  { prefix: "/phil/jobs", surface: "phil" },
 ];
 
 export function middleware(req: NextRequest) {
@@ -64,8 +66,8 @@ export function middleware(req: NextRequest) {
 export const config = {
   // Match only the new surfaces. Legacy paths and static assets are excluded.
   // /phil/* is gated only on the sub-paths Next.js actually owns (/phil/my-day,
-  // /phil/hours) — vercel.json continues to rewrite /phil, /phil/app and
-  // /phil/login to the legacy phil.html and login.html.
+  // /phil/hours, /phil/gear, /phil/jobs) — vercel.json continues to rewrite
+  // /phil, /phil/app and /phil/login to the legacy phil.html and login.html.
   matcher: [
     "/command-centre/:path*",
     "/hours/:path*",
@@ -74,5 +76,6 @@ export const config = {
     "/phil/my-day/:path*",
     "/phil/hours/:path*",
     "/phil/gear/:path*",
+    "/phil/jobs/:path*",
   ],
 };
