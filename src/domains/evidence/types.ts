@@ -5,6 +5,7 @@ import type {
   EvidenceItemSchema,
   EvidenceKindSchema,
   EvidenceListResponseSchema,
+  EvidencePhotoUploadResponseSchema,
   EvidenceReviewResponseSchema,
   EvidenceSourceSchema,
   EvidenceStageSchema,
@@ -36,3 +37,4 @@ export type ReviewEvidencePayload = z.infer<typeof ReviewEvidencePayloadSchema>;
 export type EvidenceListResponse = z.infer<typeof EvidenceListResponseSchema>;
 export type EvidenceCreateResponse = z.infer<typeof EvidenceCreateResponseSchema>;
 export type EvidenceReviewResponse = z.infer<typeof EvidenceReviewResponseSchema>;
+export type EvidencePhotoUploadResponse = z.infer<typeof EvidencePhotoUploadResponseSchema>;

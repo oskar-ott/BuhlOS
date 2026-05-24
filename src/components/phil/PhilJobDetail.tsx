@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  Camera,
   ChevronDown,
   ChevronRight,
   KeyRound,
@@ -12,9 +13,9 @@ import {
   Squircle,
   User,
 } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import {
   effectiveTasks,
   hasSiteContext,
@@ -24,14 +25,20 @@ import {
   visibleAreaGroups,
 } from "@/domains/jobs/format";
 import type { Job, JobStage } from "@/domains/jobs/types";
+import type { EvidenceItem } from "@/domains/evidence/types";
+import { CaptureSheet } from "./CaptureSheet";
+import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
 import { cn } from "@/lib/cn";
 
 interface Props {
   job: Job;
+  /** Initial evidence list fetched server-side (server filters to own
+   *  captures for tradie; admin/LH see all). May be empty on load. */
+  initialEvidence?: ReadonlyArray<EvidenceItem>;
 }
 
 /**
- * Phil single-job context view — read-only.
+ * Phil single-job context view.
  *
  * Layout (top to bottom):
  *   1. Back link → /phil/jobs
@@ -40,18 +47,21 @@ interface Props {
  *      (expanded by default, collapsible)
  *   4. Stage chooser: Rough-in / Fit-off pills (equal weight)
  *   5. Area picker: vertical list grouped by area group
- *   6. Task list: effective tasks for the selected area + stage
- *   7. Capture evidence — UC (lands in Phase D2)
+ *   6. Task list: effective tasks for the selected area + stage (read-only)
+ *   7. Capture evidence — primary CTA opens <CaptureSheet />
+ *   8. Today's captures — <TodaysCapturesStrip /> with own evidence
  *
- * Per doc 27 §8.5 the floating CTA would normally live at the bottom; in
- * Phase D1 we render an UnderConstructionPanel in its place so the worker
- * sees the roadmap without an interactive button that does nothing.
+ * Phase D3 replaces D1's two UnderConstructionPanels (Capture evidence
+ * + Today's captures) with the live capture flow consuming D2's
+ * evidence API. The stage + areaId selected above carry through as
+ * initialContext into the sheet so the worker doesn't re-tap.
  *
  * Cross-ref:
  *   docs/rebuild-audit/27-interface-usability-pass.md §4 + §8.5
+ *   docs/rebuild-audit/29-phase-d3-phil-capture-spec.md §3 + §7
  *   docs/rebuild-audit/24-phase-d-jobs-evidence-plan.md §6 Phil
  */
-export function PhilJobDetail({ job }: Props) {
+export function PhilJobDetail({ job, initialEvidence }: Props) {
   const groups = useMemo(() => visibleAreaGroups(job.areaGroups), [job.areaGroups]);
 
   // Flatten the visible areas across groups so the default selection
@@ -75,6 +85,14 @@ export function PhilJobDetail({ job }: Props) {
   const [stage, setStage] = useState<JobStage>("roughIn");
   const [siteOpen, setSiteOpen] = useState(true);
 
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [evidenceItems, setEvidenceItems] = useState<ReadonlyArray<EvidenceItem>>(
+    initialEvidence ?? []
+  );
+  const [captureBanner, setCaptureBanner] = useState<
+    { tone: "info" | "success" | "danger"; message: string } | null
+  >(null);
+
   const selectedArea = useMemo(
     () => flatAreas.find((a) => a.id === selectedAreaId) ?? null,
     [flatAreas, selectedAreaId]
@@ -86,6 +104,17 @@ export function PhilJobDetail({ job }: Props) {
   );
 
   const showSiteContext = hasSiteContext(job);
+
+  const handleCaptured = useCallback((item: EvidenceItem) => {
+    setEvidenceItems((prev) => [item, ...prev]);
+    setCaptureBanner({ tone: "success", message: "Evidence captured." });
+    // Auto-decay the banner after 1.5s per doc 29 §7.7.
+    window.setTimeout(() => setCaptureBanner(null), 1500);
+  }, []);
+
+  const handleCaptureFailed = useCallback((message: string) => {
+    setCaptureBanner({ tone: "danger", message });
+  }, []);
 
   return (
     <div className="space-y-4 pb-2">
@@ -324,14 +353,38 @@ export function PhilJobDetail({ job }: Props) {
         </Card>
       ) : null}
 
-      <UnderConstructionPanel
-        feature="Capture evidence"
-        description="Take a photo with a one-line note attached to this job, stage and area. Lands in Phase D2."
-      />
+      <Card>
+        <CardTitle>Capture evidence</CardTitle>
+        <CardDescription className="mt-1">
+          Take a photo (with an optional note) attached to this job. The selected
+          stage and area carry through to the capture sheet.
+        </CardDescription>
+        <div className="mt-3">
+          <Button
+            type="button"
+            variant="primary"
+            size="lg"
+            onClick={() => {
+              setCaptureBanner(null);
+              setCaptureOpen(true);
+            }}
+            className="w-full bg-accent-yellow text-brand-navy hover:bg-accent-yellow"
+          >
+            <Camera aria-hidden="true" className="h-5 w-5" />
+            Capture evidence
+          </Button>
+        </div>
+      </Card>
 
-      <UnderConstructionPanel
-        feature="Today's captures"
-        description="A strip of your own recent captures on this job, with status. Lands alongside Capture evidence in Phase D2/D3."
+      <TodaysCapturesStrip items={evidenceItems} banner={captureBanner} />
+
+      <CaptureSheet
+        open={captureOpen}
+        job={job}
+        initialContext={{ stage, areaId: selectedAreaId }}
+        onClose={() => setCaptureOpen(false)}
+        onCaptured={handleCaptured}
+        onFailed={handleCaptureFailed}
       />
     </div>
   );

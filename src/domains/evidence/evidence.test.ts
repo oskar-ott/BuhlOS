@@ -9,6 +9,7 @@ import {
   EvidenceCreateResponseSchema,
   EvidenceItemSchema,
   EvidenceListResponseSchema,
+  EvidencePhotoUploadResponseSchema,
   EvidenceReviewResponseSchema,
   REJECTION_REASON_MAX,
   ReviewEvidencePayloadSchema,
@@ -16,7 +17,12 @@ import {
 } from "./schema";
 import { kindLabel, stageLabel, statusLabel, statusTone } from "./format";
 import { canTransition, humanFileSize } from "./service";
-import { createEvidence, listEvidence, reviewEvidence } from "./client";
+import {
+  createEvidence,
+  listEvidence,
+  reviewEvidence,
+  uploadEvidencePhoto,
+} from "./client";
 
 /* ----------------------------------------------------------------------
  * Schema — EvidenceItem
@@ -386,6 +392,29 @@ describe("ReviewEvidencePayloadSchema", () => {
  * Schema — response wrappers
  * -------------------------------------------------------------------- */
 
+describe("EvidencePhotoUploadResponseSchema", () => {
+  it("parses the canonical { id, url, capturedAt } response", () => {
+    const r = EvidencePhotoUploadResponseSchema.safeParse({
+      id: "1234_abc",
+      url: "https://blob.example/jobs/x/evidence-photos/1234_abc.jpg",
+      capturedAt: "2026-05-25T14:30:00.000Z",
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects when any required field is missing", () => {
+    for (const f of ["id", "url", "capturedAt"]) {
+      const broken = {
+        id: "1",
+        url: "https://x",
+        capturedAt: "2026-05-25T14:30:00.000Z",
+      } as Record<string, unknown>;
+      delete broken[f];
+      expect(EvidencePhotoUploadResponseSchema.safeParse(broken).success).toBe(false);
+    }
+  });
+});
+
 describe("response schemas", () => {
   it("parses an empty list response", () => {
     expect(EvidenceListResponseSchema.safeParse({ evidence: [] }).success).toBe(true);
@@ -666,6 +695,68 @@ describe("evidence client wrappers", () => {
     });
     expect(r.ok).toBe(false);
     expect(sentinel).not.toHaveBeenCalled();
+  });
+
+  it("uploadEvidencePhoto POSTs to the correct action URL with dataUrl in body", async () => {
+    installFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            id: "1234_abc",
+            url: "https://blob.example/jobs/birdwood-iv3232/evidence-photos/1234_abc.jpg",
+            capturedAt: "2026-05-25T14:30:00.000Z",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
+    );
+    const r = await uploadEvidencePhoto(
+      "birdwood-iv3232",
+      "data:image/jpeg;base64,abc"
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.data.id).toBe("1234_abc");
+      expect(r.data.url).toContain("evidence-photos");
+      expect(r.data.capturedAt).toBe("2026-05-25T14:30:00.000Z");
+    }
+    expect(fetchCalls).toHaveLength(1);
+    const [url, init] = fetchCalls[0]!;
+    expect(url).toContain("jobId=birdwood-iv3232");
+    expect(url).toContain("action=upload-evidence-photo");
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(JSON.stringify({ dataUrl: "data:image/jpeg;base64,abc" }));
+  });
+
+  it("uploadEvidencePhoto surfaces a 413 as ok:false", async () => {
+    installFetch(
+      () =>
+        new Response(
+          JSON.stringify({ error: "photo too large — try a smaller image" }),
+          {
+            status: 413,
+            headers: { "content-type": "application/json" },
+          }
+        )
+    );
+    const r = await uploadEvidencePhoto("birdwood-iv3232", "data:image/jpeg;base64,abc");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.status).toBe(413);
+  });
+
+  it("uploadEvidencePhoto surfaces a schema mismatch as ok:false", async () => {
+    installFetch(
+      () =>
+        new Response(JSON.stringify({ wrongShape: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+    );
+    const r = await uploadEvidencePhoto("birdwood-iv3232", "data:image/jpeg;base64,abc");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.message).toContain("response schema mismatch");
   });
 
   it("reviewEvidence POSTs ?action=review and parses the canonical response", async () => {

@@ -7,7 +7,9 @@ import { PhilJobDetail } from "@/components/phil/PhilJobDetail";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
+import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
 import type { Job } from "@/domains/jobs/types";
+import type { EvidenceItem } from "@/domains/evidence/types";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +52,14 @@ export default async function PhilJobDetailPage({ params }: PageParams) {
   }
 
   const result = await loadJob(raw, jobId);
+  // Initial evidence load happens server-side so the strip renders with
+  // the worker's own captures already present on first paint — no
+  // client-side spinner for the empty case. Failure is non-blocking:
+  // an empty list just shows the empty state, the worker can still
+  // capture, and the server will return real data on the next refresh.
+  const initialEvidence = result.kind === "ok"
+    ? await loadInitialEvidence(raw, jobId)
+    : [];
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
     return (
@@ -97,7 +107,7 @@ export default async function PhilJobDetailPage({ params }: PageParams) {
 
   return (
     <PhilShell title={result.job.name}>
-      <PhilJobDetail job={result.job} />
+      <PhilJobDetail job={result.job} initialEvidence={initialEvidence} />
     </PhilShell>
   );
 }
@@ -138,5 +148,42 @@ async function loadJob(
       kind: "error",
       message: err instanceof Error ? err.message : "Network error",
     };
+  }
+}
+
+/**
+ * Fetch the worker's own evidence for this job (server already filters
+ * to capturedById === me.id for tradie; admin/LH see all).
+ *
+ * Non-blocking by design: any failure returns [] and the strip shows
+ * its empty state — capture is still possible, and a subsequent capture
+ * append + post-capture refetch will populate the strip without needing
+ * a full page reload.
+ */
+async function loadInitialEvidence(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<EvidenceItem[]> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(
+      `${base}/api/evidence?jobId=${encodeURIComponent(jobId)}`,
+      {
+        cache: "no-store",
+        headers: cookieValue
+          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
+          : undefined,
+      }
+    );
+    if (!res.ok) return [];
+    const body = await res.json();
+    const parsed = EvidenceListResponseSchema.safeParse(body);
+    if (!parsed.success) return [];
+    return parsed.data.evidence;
+  } catch {
+    return [];
   }
 }

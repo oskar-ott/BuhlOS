@@ -275,6 +275,22 @@ export const EvidenceListResponseSchema = z.object({
   evidence: z.array(EvidenceItemSchema),
 });
 
+/**
+ * POST /api/photos?jobId=X&action=upload-evidence-photo response.
+ *
+ * Schema lives in the evidence domain (rather than a hypothetical photos
+ * domain) because every consumer of this endpoint is part of the
+ * evidence capture flow — the response is fed directly into the
+ * `photoId` + `photoUrl` fields on the subsequent evidence POST.
+ *
+ * Endpoint definition: api/photos.js (D2-added action branch).
+ */
+export const EvidencePhotoUploadResponseSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+  capturedAt: z.string(),
+});
+
 /** POST /api/evidence?jobId=X response. Server returns the canonical
  *  written item so the client never needs to round-trip read-after-write
  *  through Blob (which has ~5s cache TTL — see api/_lib/blob.js).
