@@ -38,9 +38,11 @@ import {
   createGearAsset,
   getGearDetail,
   listGear,
+  markGearGood,
   reportGear,
   transferGear,
 } from "./client";
+import { MarkGearGoodPayloadSchema } from "./schema";
 import type { GearAsset, GearHistoryEntry } from "./types";
 
 /* ----------------------------------------------------------------------
@@ -738,5 +740,64 @@ describe("gear client wrappers", () => {
       expect(r.data.asset.condition).toBe("damaged");
       expect(deriveStatus(r.data.asset)).toBe("damaged");
     }
+  });
+
+  it("markGearGood sends ?action=mark-good and the assetId in the body", async () => {
+    const spy = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ asset: { ...baseAsset, condition: "good" } }))
+    );
+    globalThis.fetch = spy as unknown as typeof fetch;
+    await markGearGood({ assetId: "a_abc", note: "Battery replaced" });
+    const call = spy.mock.calls[0] as unknown as [string, RequestInit];
+    expect(call[0]).toContain("action=mark-good");
+    const body = JSON.parse(call[1]?.body as string);
+    expect(body.assetId).toBe("a_abc");
+    expect(body.note).toBe("Battery replaced");
+  });
+
+  it("markGearGood refuses an empty assetId without hitting the network", async () => {
+    const sentinel = vi.fn();
+    globalThis.fetch = sentinel as unknown as typeof fetch;
+    const r = await markGearGood({ assetId: "", note: null });
+    expect(r.ok).toBe(false);
+    expect(sentinel).not.toHaveBeenCalled();
+  });
+
+  it("markGearGood returns the updated asset showing condition=good", async () => {
+    mockFetch({
+      status: 200,
+      body: { asset: { ...baseAsset, currentHolderId: "u_sam", condition: "good" } },
+    });
+    const r = await markGearGood({ assetId: "a_abc", note: null });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.data.asset.condition).toBe("good");
+      // Asset is held + good → "assigned" (the damage flag is cleared)
+      expect(deriveStatus(r.data.asset)).toBe("assigned");
+    }
+  });
+});
+
+describe("MarkGearGoodPayloadSchema", () => {
+  it("accepts a valid payload with and without note", () => {
+    expect(MarkGearGoodPayloadSchema.safeParse({ assetId: "a_abc" }).success).toBe(true);
+    expect(
+      MarkGearGoodPayloadSchema.safeParse({ assetId: "a_abc", note: "Repaired" }).success
+    ).toBe(true);
+    expect(
+      MarkGearGoodPayloadSchema.safeParse({ assetId: "a_abc", note: null }).success
+    ).toBe(true);
+  });
+
+  it("rejects missing/empty assetId", () => {
+    expect(MarkGearGoodPayloadSchema.safeParse({}).success).toBe(false);
+    expect(MarkGearGoodPayloadSchema.safeParse({ assetId: "" }).success).toBe(false);
+  });
+
+  it("rejects an over-length note", () => {
+    expect(
+      MarkGearGoodPayloadSchema.safeParse({ assetId: "a_abc", note: "x".repeat(501) }).success
+    ).toBe(false);
   });
 });
