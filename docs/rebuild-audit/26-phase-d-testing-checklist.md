@@ -34,6 +34,26 @@ npm run smoke:admin-routes            → green (18-assertion smoke)
 npm run test:e2e          → Phase A + B + (C if merged) + Dx specs all pass
 ```
 
+### A.1 · RSC client-manifest grep (D-26 binding rule)
+
+Per [24] risk D-26 and PR #6 commit `1c92db3` post-mortem, any `"use client"` file sitting next to a page that is ≥2 route segments deep will silently break production SSR with `Error: Could not find the module ... in the React Client Manifest` (digest 292479990).
+
+**Pre-merge grep — must be empty:**
+
+```bash
+# Any "use client" file under src/app/phil/jobs/ or src/app/(admin)/jobs/
+# is a regression of the D-26 pattern. The only valid client locations are
+# src/components/phil/ and src/components/admin/.
+git ls-files 'src/app/phil/jobs' 'src/app/(admin)/jobs' \
+  | xargs grep -l '"use client"' 2>/dev/null
+```
+
+If the grep emits anything, fail the PR. Move the offending file under
+`src/components/phil/` or `src/components/admin/` and have the page import it.
+
+Optionally add this as `scripts/check-rsc-client-locations.js` and wire into
+the `npm run lint` chain when a Phase D D1+ PR lands.
+
 If a check goes red, fix the root cause. Don't suppress.
 
 ---

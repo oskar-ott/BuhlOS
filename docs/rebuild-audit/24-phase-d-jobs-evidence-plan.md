@@ -702,6 +702,7 @@ Per [16-migration-strategy.md] §C.4 — Phase D cutover PRs (PR-D4, PR-D5) depl
 | D-23 | Field workers running an old Phil PWA cached version miss the new Jobs tab activation | Medium | Low | SW cache version is bumped in PR-D1 (Phil tab bar change). Cached clients update on next page load per the existing SW behaviour. Release notes call out: "force-refresh if Jobs tab doesn't appear after Phase D deploy." |
 | D-24 | Workers tap "Mark task done" on the wrong task because the task list rendered while they were scrolling | Medium | Low | Confirmation dialog (modal) on the task-done tap, with the task name in big text. Per [14-technical-architecture-deep-dive.md] §E "no `confirm()`", this is a proper React modal. Cancel button is the default focused button. |
 | D-25 | `api/_lib/job-tasks.js` `effectiveRoughInTasks` returns `[]` for a job with no task templates at all, and the Phil UI shows an empty task list with no explanation | Medium | Low | Phil renders explicit empty state: "No tasks defined for this area's rough-in stage yet. Tap Capture to record evidence anyway." Acceptance criteria (§12.1) test this case with a fixture job that has area-groups but no task templates. |
+| D-26 | **Next.js 15.5 RSC client manifest bug for deep route segments — confirmed in production (PR #6, commit `1c92db3`).** Client components sitting next to a page that is ≥2 route segments deep (e.g. `src/app/(admin)/hours/approvals/approvals-client.tsx`, or any of Phase D's planned `src/app/phil/jobs/[jobId]/*-client.tsx`) can be silently omitted from the page's React Client Manifest. SSR then throws `Error: Could not find the module … in the React Client Manifest` (digest `292479990` in our case) and the page 500s in production while looking fine in `npm run dev`. | Confirmed | High | **Binding pattern for all Phase D client components:** they live under `src/components/phil/` (Phil-side) or `src/components/admin/` (Admin-side), NEVER inside a deep route folder. Each Dx build prompt enforces this — see [25-phase-d-build-prompts.md] D1/D2/D3/D4. Phase B and Phase A precedents (`LogHoursSheet`, `LoginForm`, `SignOutButton`, `HoursApprovalsQueue`) all follow this pattern. |
 
 ---
 
@@ -793,7 +794,7 @@ Six slices, each its own PR. Total estimated effort: 5–8 build days assuming P
 
 - `src/domains/evidence/{schema,types,fixtures,client,service}.ts`.
 - `src/domains/evidence/evidence.test.ts`.
-- Capture sheet component (`src/app/phil/jobs/[jobId]/capture-sheet.tsx` or modal).
+- Capture sheet component at `src/components/phil/CaptureSheet.tsx` — **NOT** inside the `src/app/phil/jobs/[jobId]/` route folder. This is binding (see risk D-26): a `*-client.tsx` sibling to a page that is ≥2 route segments deep silently disappears from the React Client Manifest in Next.js 15.5 production builds. Phase B's `LogHoursSheet`, PR #6's `HoursApprovalsQueue`, PR #7's `SignOutButton` all follow this pattern.
 - Adds `action=upload-evidence-photo` to `api/photos.js` (≤30 lines, mirrored on snag pattern).
 - Phil capture flow end-to-end against fixtures.
 - **No admin pages.** **No new full API endpoint yet.** **No real data wiring.**
@@ -1002,10 +1003,11 @@ After Session 3's autonomous pass, **all 7 decisions in the original plan are no
 | --- | --- |
 | Document | `docs/rebuild-audit/24-phase-d-jobs-evidence-plan.md` |
 | Phase | D · Jobs and evidence loop plan |
-| Status | **Draft — §15 decision 1 (snag scoping) resolved 2026-05-24; §15 decisions 2–7 still open** |
-| Author | Phase D planning agent (session 3 — separate from Session 2 / PR #5) |
+| Status | **Draft — §15.0 decisions 1–7 RESOLVED; §15.1 founder calls 8–9 still open. RSC manifest workaround D-26 added 2026-05-24 from production blocker.** |
+| Author | Phase D planning agent (Session 3) |
 | Author branch | `phase-d-jobs-evidence-plan` |
-| Base commit | `origin/main` (Phase B + production hardening) |
-| Assumed precondition | Phase C (PR #5 · My Gear) merged to `main` + 7-day quiet period |
+| Base commit | `origin/main` rebased on `52d629e` (PR #5 + PR #6 + PR #7 all merged; Phase C live; production blocker fixed) |
+| Precondition status | **MET** — Phase C and its hardening are live on production. 7-day quiet period for Phase D start is the only remaining gate. |
 | Confirmed phase split | **D = Jobs + Evidence**, **D.5 = Snags / defects** (new sub-phase), **E = ITP / RFI / Materials** (+ Plans / Variations per audit) |
-| Next action | Oskar answers §15.1 open decisions 2–7 → build session opens for D1 with the paste-ready prompt in §14 |
+| Production state | Healthy as of 2026-05-24T10:24Z — /hours/approvals 500 (digest 292479990) RESOLVED by PR #6 commit `1c92db3`. See risk D-26 for the workaround pattern Phase D inherits. |
+| Next action | Oskar answers §15.1 founder calls 8–9 → 7-day production quiet on PR #6/#7 → D1 build session opens with paste-ready prompt in [25-phase-d-build-prompts.md](25-phase-d-build-prompts.md). |

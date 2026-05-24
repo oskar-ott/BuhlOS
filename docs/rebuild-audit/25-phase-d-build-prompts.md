@@ -62,6 +62,7 @@ tests/phase-b-hours.spec.ts       ← Playwright pattern
 - Do NOT silent-fallback to fixtures. If API fails, render error UI.
 - Do NOT write "Switchboard" or "Site Office" as user-facing strings.
 - Do NOT mix two slices in one PR.
+- **DO NOT put a client component (`"use client"`) next to a page that is ≥2 route segments deep.** This is the binding workaround for [24] risk D-26 (Next.js 15.5 RSC manifest bug, confirmed in production on `/hours/approvals`). Phase D client components live under `src/components/phil/` or `src/components/admin/`. Cross-check before you push: any new `*-client.tsx` or `"use client"` file under `src/app/phil/jobs/` or `src/app/(admin)/jobs/` is **wrong** and will 500 in production. Precedents that follow the rule: `src/components/phil/LogHoursSheet.tsx`, `src/components/admin/HoursApprovalsQueue.tsx`, `src/components/admin/SignOutButton.tsx`, `src/components/admin/AdminSidebar.tsx`.
 
 **Every PR title** starts with `[Phase D]`.
 
@@ -145,24 +146,34 @@ You MAY add (this PR only):
                                       address (one-line) + last-activity
                                     Each row links to /phil/jobs/[jobId].
 
-  src/app/phil/jobs/[jobId]/page.tsx
-                                    Phil job detail. Server component reads
-                                    via getJob(jobId). Renders:
+  src/app/phil/jobs/[jobId]/page.tsx  SERVER component (no "use client";
+                                    no useState in this file). Reads via
+                                    getJob(jobId). Renders the static parts:
                                     - header: name + status pill + jobNumber
                                     - site context block: siteAddress,
                                       accessNotes, parkingNotes, safetyNotes,
                                       inductionRequired pill, contact name + phone
                                     - area groups → areas list (read-only;
                                       hide archived; show "no areas yet" if empty)
+                                    Passes the job + areas data into
+                                    <JobAreaPicker job={job} /> for the
+                                    interactive area/stage/task chooser.
+                                    Floating CTA bar shows "Capture
+                                    evidence — coming in D2" UC pill (NOT
+                                    a working button).
+
+  src/components/phil/JobAreaPicker.tsx  "use client" component (must
+                                    live HERE, not in src/app/phil/jobs/
+                                    [jobId]/ — see binding rule §Hard
+                                    rules above and [24] D-26):
                                     - stage chooser pills: Rough-in / Fit-off
-                                      (defaults to roughIn; UI-only state)
-                                    - when an area + stage selected, show
+                                      (defaults to roughIn; useState)
+                                    - when an area + stage selected, shows
                                       effectiveTasksForArea(...) with task
                                       state pills (read-only in D1; toggle
                                       lands in D3)
-                                    - floating CTA bar shows "Capture
-                                      evidence — coming in D2" UC pill (NOT
-                                      a working button)
+                                    - emits selection up via callback prop
+                                      (for D2 capture sheet integration)
 
   Update src/components/phil/PhilTabBar (and PhilShell if needed):
     - Jobs tab flips from UnderConstructionPanel to live route /phil/jobs
@@ -285,8 +296,16 @@ You MAY add (this PR only):
 
   src/domains/evidence/evidence.test.ts  Vitest unit tests per [24] §10.1.
 
-  src/app/phil/jobs/[jobId]/capture-sheet.tsx  Client component, full-screen
-                                    modal. Reads jobId from route param.
+  src/components/phil/CaptureSheet.tsx  Client component (`"use client"`),
+                                    full-screen modal. Reads jobId from a
+                                    prop passed by the server component
+                                    (NOT from useParams — the prop edge is
+                                    what keeps the server/client boundary
+                                    clean). LIVES IN src/components/phil/
+                                    NOT src/app/phil/jobs/[jobId]/ per the
+                                    binding RSC-manifest rule in this doc
+                                    (see also [24] risk D-26 and PR #6's
+                                    HoursApprovalsQueue extraction).
                                     Flow:
                                       1. Camera input <input type="file"
                                          accept="image/*" capture="environment">
@@ -341,7 +360,7 @@ You MUST NOT:
   - touch vercel.json or perform any cutover
   - add DOM-only re-implementation of any existing photo upload
     (use the existing api/photos.js action pattern)
-  - touch src/domains/jobs/* beyond what's needed for capture-sheet wiring
+  - touch src/domains/jobs/* beyond what's needed for CaptureSheet wiring
   - touch other api/*.js files
   - merge this PR yourself
 
@@ -452,7 +471,7 @@ You MAY add:
                                     review() and listForJob() wired to real
                                     endpoints.
 
-  src/app/phil/jobs/[jobId]/capture-sheet.tsx  UPDATE:
+  src/components/phil/CaptureSheet.tsx  UPDATE:
                                     - second POST (evidence create) now hits
                                       real /api/jobs/[jobId]/evidence
                                     - retry on POST-2 failure preserves
@@ -550,7 +569,15 @@ PART B — cutover (small vercel.json edit, route rename)
   RENAME src/app/(admin)/v2-jobs → src/app/(admin)/jobs
   RENAME [jobId] subroute accordingly
   ADD    src/app/(admin)/jobs/[jobId]/evidence/page.tsx
-         (evidence review surface — see below)
+         (server component shell — interactive review panel lives in
+          src/components/admin/JobEvidencePanel.tsx per the binding
+          client-component rule; the page imports + passes data in)
+  ADD    src/components/admin/JobEvidencePanel.tsx
+         (the actual "use client" panel — actions, modal, optimistic UI)
+  ADD    src/components/admin/JobsListClient.tsx if /jobs list has
+         interactive filters/search (server component fetches; client
+         renders filters). If the list is purely server-rendered (no
+         interactive filters), no client component needed.
 
   EDIT vercel.json — remove these rewrites:
     /jobs → /admin/jobs.html
@@ -568,14 +595,22 @@ PART B — cutover (small vercel.json edit, route rename)
   BUMP public/sw.js CACHE_VERSION (per check:sw-cache-version requirements;
     this PR changes admin shell pages indirectly via Next.js owning them).
 
-  ADD src/app/(admin)/jobs/[jobId]/evidence/page.tsx — evidence review:
-    - lists EvidenceItems for the job (calls evidence.listForJob server-side)
+  ADD src/app/(admin)/jobs/[jobId]/evidence/page.tsx — server component:
+    - awaits session + permissions check
+    - server-side fetches EvidenceItems for the job
+    - passes data into <JobEvidencePanel initialItems={items} />
+    - NO interactive logic in this file (no "use client", no useState)
+
+  ADD src/components/admin/JobEvidencePanel.tsx — "use client" panel:
     - per-item: photo thumb, note, captured-by, captured-at, target
       (area + stage + task or "unattached"), current status pill
     - actions: Mark reviewed, Reject (modal with required reason)
     - filters: by status, by capturedBy, by date range
     - bulk-select for mark-reviewed
     - empty state, loading skeleton, error retry
+    - the actual interactive surface — MUST live here per [24] D-26
+      (the page is ≥3 route segments deep; a sibling "use client" file
+      will silently break on production SSR)
 
   UPDATE src/app/(admin)/jobs/page.tsx (final form):
     - jobs list with: name, status pill, address, PM, last-activity
