@@ -20,6 +20,8 @@ Every build session begins by reading:
 
 ```
 docs/rebuild-audit/24-phase-d-jobs-evidence-plan.md   ← Phase D plan (binding)
+docs/rebuild-audit/27-interface-usability-pass.md     ← UX rules (binding)
+docs/rebuild-audit/26-phase-d-testing-checklist.md    ← test gates (binding)
 docs/rebuild-audit/20-agent-rules.md                  ← coding-agent rules
 docs/rebuild-audit/10-product-definition.md           ← what BuhlOS / Phil are
 docs/rebuild-audit/12-domain-model-deep-dive.md  §Jobs §Evidence §AuditLog
