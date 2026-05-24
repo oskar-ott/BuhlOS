@@ -28,7 +28,17 @@ Admin job data exists (legacy /api/jobs unchanged)
                 Phase E ITPs / RFIs / handover-readiness / reporting.
 ```
 
-**Recommended scope (concise):** Jobs (read-only from existing legacy API) + Phil job context view + Evidence capture (photo + note) + Admin evidence review surface + a one-click task completion toggle. **Snag triage lifecycle, Job Builder mutations, plans/documents, ITPs, RFIs, variations, and materials are explicitly deferred.** This is narrower than the Phase D scope hinted at in [11-operational-workflow-map.md] (which bundles snags) and [12-domain-model-deep-dive.md] §C.D (which mentions `Defect` as Phase D). See §13 (Build sequence) and §15 (Open decisions for Oskar) for the rationale; the bundling is the single biggest scope question this plan flags.
+**Recommended scope (concise):** Jobs (read-only from existing legacy API) + Phil job context view + Evidence capture (photo + note) + Admin evidence review surface + a one-click task completion toggle. **Snag triage lifecycle, Job Builder mutations, plans/documents, ITPs, RFIs, variations, and materials are explicitly deferred.** This is narrower than the Phase D scope hinted at in [11-operational-workflow-map.md] (which bundles snags) and [12-domain-model-deep-dive.md] §C.D (which mentions `Defect` as Phase D). See §13 (Build sequence) for the rationale.
+
+**Phase ordering (decided by Oskar — 2026-05-24):**
+
+| Phase | Scope | Status in this plan |
+| --- | --- | --- |
+| **D** | Jobs + Evidence | Planned in this doc. |
+| **D.5** | Snags / defects (`Defect` schema + Phil Snag tab + admin triage queue) | Confirmed as a dedicated post-Phase-D, pre-Phase-E PR set. Its own plan doc will land before D.5 build starts. |
+| **E** | ITP / RFI / Materials (and Plans / Variations per [16-migration-strategy.md] §B) | Unchanged from the audit. |
+
+This split overrides the audit's bundling of snags into Phase D ([11-operational-workflow-map.md] #12, [21-rebuild-decision-record.md] ADR-011). The override is intentional — bundling would balloon Phase D from ~5–8 build days to ~10–15 and risk half-built UI. A future ADR (ADR-021 or similar) should formalise the split when the next ADR pass happens.
 
 ---
 
@@ -67,7 +77,7 @@ Admin job data exists (legacy /api/jobs unchanged)
 
 **Bundled with Phase D in earlier docs — deferred here:**
 
-- **Snag triage lifecycle** ([11-operational-workflow-map.md] #12, [12-domain-model-deep-dive.md] §`Defect`). Has its own state machine (`open → assigned → in_progress → fixed → verified → closed | wont_fix`), priority, assignment, close-reason, notification cron, and admin triage queue. Phase D scopes this out; the snag capture flow on Phil and the admin triage UI are deferred to **Phase D.5** (a dedicated post-Phase-D PR) or **Phase E adjacent**. See §15 (Open decisions for Oskar) — this is the single biggest scope question.
+- **Snag triage lifecycle** ([11-operational-workflow-map.md] #12, [12-domain-model-deep-dive.md] §`Defect`). Has its own state machine (`open → assigned → in_progress → fixed → verified → closed | wont_fix`), priority, assignment, close-reason, notification cron, and admin triage queue. **Decision (Oskar, 2026-05-24): deferred to Phase D.5** — a dedicated PR set after Phase D exit and before Phase E starts. D.5 will get its own plan doc; the Phil Snag tab stays UC through all of Phase D and flips live with the D.5 ship.
 - **Job Builder mutations** ([11-operational-workflow-map.md] #7, [12-domain-model-deep-dive.md] §`Job`). Creating jobs, editing stages, editing areas, editing tasks, templating, scope modules. The legacy `public/admin/job.html` (4,772 lines) and `public/admin/job-builder.html` continue to serve until a dedicated rebuild slice (post-Phase-D). Phase D consumes `/api/jobs` **read-only**; no patch endpoints are written.
 - **Worker assignment to a job** ([11-operational-workflow-map.md] #9). Legacy `public/admin/crew.html` continues; Phil reads its result via existing endpoints.
 - **Stage/area mutations.** Admin can view but not edit stages/areas in Phase D.
@@ -217,10 +227,8 @@ Per [13-ui-information-architecture.md] §Phil tabs:
 1. **Today** — `/phil/my-day` (live since Phase B)
 2. **Jobs** — `/phil/jobs` (live in Phase D — was UC)
 3. **Gear** — `/phil/gear` (live since Phase C — assumed merged)
-4. **Snag** — `/phil/snags` (**REMAINS UC** in Phase D — see §15 open decision 1; if snags are deferred, the tab stays UC with the consistent UC pill)
+4. **Snag** — `/phil/snags` (**REMAINS UC** through Phase D. **Decision confirmed:** snags ship in Phase D.5, after Phase D exit and before Phase E. Tab flips to live in the Phase D.5 PR set.)
 5. **More** — `/phil/more` (live since Phase A / B)
-
-If the user decides snags ship in Phase D (overriding this plan's recommendation), the Snag tab flips to live in the same Phase D PR set.
 
 ---
 
@@ -358,9 +366,9 @@ rejected      ─(worker recaptures)─────────→ submitted (ne
 
 [12-domain-model-deep-dive.md] §`Note` is reserved for Phase D per the audit but the user's scoped brief defers note-only evidence. The Zod schema in `src/domains/evidence/schema.ts` allows `kind: 'note'` so it's a one-line addition later; **no note-only UI ships in Phase D**.
 
-### 5.7 `Defect` / snag (NOT built in Phase D — see §15 open decision 1)
+### 5.7 `Defect` / snag (NOT built in Phase D — Phase D.5)
 
-Reserved per [12-domain-model-deep-dive.md] §`Defect`. If Oskar overrides the scope split and includes snags in Phase D, the schema lands then.
+Reserved per [12-domain-model-deep-dive.md] §`Defect`. **Phase D.5** lands the `Defect` schema, the snag triage queue, the Phil Snag-tab activation, and the cutover of `/admin/snags → /snags`. Phase D.5 will reuse the same `api/photos.js?action=upload-snag-photo` pattern that Phase D consumes for evidence — the photo upload primitive is shared; only the entity wrapping it differs.
 
 ### 5.8 `AuditLog` (bootstrap unified table in Phase D)
 
@@ -602,7 +610,7 @@ For PR-D4 (the cutover PR), Oskar manually verifies on a Vercel preview:
 - [ ] `/jobs/[jobId]/evidence` renders ≥5 captured items in <2s.
 - [ ] Admin review / reject flow updates state without page reload.
 - [ ] Legacy `/admin/jobs.html` reaches via `/legacy/admin-jobs` (quarantine route) for one billing cycle, then is verified deleted.
-- [ ] Phil bottom tab bar: **Jobs** tab is live; Snag tab is still UC (or live if Oskar overrides §15 open decision 1).
+- [ ] Phil bottom tab bar: **Jobs** tab is live; Snag tab is still UC (flips live in Phase D.5).
 
 ### 10.5 Legacy regression
 
@@ -635,7 +643,7 @@ Per [16-migration-strategy.md] §C.4 — Phase D cutover PRs (PR-D4, PR-D5) depl
 | D-08 | `data.json` blob grows unbounded with evidence array | Medium | Medium | §9.4 Option A accepts the growth for Phase D; Phase F Postgres migration breaks it out. If growth becomes painful pre-Phase-F, flip to §9.4 Option B (separate blob) with a single migration script. |
 | D-09 | Cutover of `/admin/jobs` and `/jobs` regresses the legacy 4,772-line `public/admin/job.html` | High | High | The legacy file is preserved at `/legacy/admin-jobs/:jobId` for one billing cycle. PR-D4 is its own PR with rollback plan. Deploy Monday with on-call. |
 | D-10 | Workers conflate "evidence captured" with "task complete" | Medium | Medium | Capture flow explicitly separates them: capture sheet does **not** auto-mark task done. Visual hierarchy keeps them as separate actions. |
-| D-11 | Snag flow remains UC after Phase D, confusing workers who expect to raise issues | Medium | Low | UC pill is consistent with the existing pattern from Phase A. Plan §15 open decision 1 surfaces whether to include snags in Phase D. If kept UC, the Today screen shows a "Snags coming soon" line item only when a worker taps the UC tab. |
+| D-11 | Snag flow remains UC after Phase D, confusing workers who expect to raise issues | Medium | Low | UC pill is consistent with the existing pattern from Phase A. Decision confirmed: snags = Phase D.5 (the next slice after D exit). UC tap on the Snag tab shows a "Snags coming in Phase D.5 — raise via legacy `/my-day` until then" line item. Phase D release notes call this out. |
 | D-12 | Capture-then-tab-close loses the photo if upload was in flight | Medium | Low | Documented limitation. Phase D not offline-first. Workers told via release notes; Phase F+ adds proper queue. |
 | D-13 | Audit log unification (introducing `audit/{yyyy-mm}.json`) silently diverges from per-domain logs | Medium | Medium | Phase D writes both: unified `audit/` and per-domain (where they exist) for one cycle. Phase E migrates remaining domains and deletes the duplication. |
 | D-14 | New `/api/jobs/[jobId]/evidence` endpoint is the first new Phase D API surface — easy to drift from legacy conventions | Medium | Medium | Schema-first (Zod). Mirror the patch-shape conventions used in `api/_lib/blob.js` and `api/task-toggle.js`. Code-review reads existing patterns before reviewing the new endpoint. |
@@ -684,7 +692,7 @@ Phase D is **complete** when all of the following are true:
 - [ ] No `alert()` / `confirm()` / `prompt()` in product code.
 - [ ] No new business logic in page components — `src/domains/...` carries it.
 - [ ] No new `any` casts.
-- [ ] Snag tab on Phil bottom bar remains UC (unless Oskar overrides §15 open decision 1).
+- [ ] Snag tab on Phil bottom bar remains UC. Goes live in Phase D.5.
 - [ ] Phase D PR titles all start with `[Phase D]` (per [20-agent-rules.md] #28).
 
 ### 12.4 Deploy / cutover
@@ -699,7 +707,7 @@ Phase D is **complete** when all of the following are true:
 
 - [ ] This document is updated with any decisions taken during build (open decisions → resolved decisions section).
 - [ ] [00-executive-summary.md](00-executive-summary.md) Phase D section added.
-- [ ] [11-operational-workflow-map.md](11-operational-workflow-map.md) #10, #11 marked "shipped" (with Phase D ref) for the slices that did ship; #12 (snags) remains Phase D/E depending on §15 open decision 1.
+- [ ] [11-operational-workflow-map.md](11-operational-workflow-map.md) #10, #11 marked "shipped" (with Phase D ref) for the slices that did ship; #12 (snags) reassigned from "Phase D" to "Phase D.5" in the same docs PR.
 - [ ] A `docs/rebuild-audit/25-phase-d-command-results.md` exists capturing every command run, outcome, and fix applied (per [20-agent-rules.md] #24).
 
 ---
@@ -783,9 +791,21 @@ Six slices, each its own PR. Total estimated effort: 5–8 build days assuming P
 - Creates `docs/rebuild-audit/25-phase-d-command-results.md`.
 - Phase D exit checklist (§12) walked through and ticked.
 
-### Post-D · 7-day quiet + decision on Phase D.5 (snags)
+### Post-D · 7-day quiet + Phase D.5 kickoff (snags)
 
-If §15 open decision 1 resolved "defer snags to Phase D.5", schedule that work as a focused 1-PR slice (Phase D.5) before Phase E starts.
+**Phase D.5 is confirmed** (Oskar, 2026-05-24). After Phase D exit + the standard 7-day quiet period, open a separate planning session for Phase D.5 (snag triage). That planning session produces `docs/rebuild-audit/26-phase-d5-snags-plan.md` (or the next available number) following the same shape as this doc. The Phase D.5 build session is then unblocked.
+
+Phase D.5 scope sketch (not a plan — just the shape):
+
+- `src/domains/snags/{schema,types,fixtures,client,service}.ts` (the `Defect` schema from [12-domain-model-deep-dive.md]).
+- Phil `/phil/snags` (raise sheet: photo + area + 1-line description → submit). Snag tab flips from UC to live.
+- Admin `/snags` triage queue (status filters, assign, set priority, close-reason).
+- Cutover `/admin/snags → /snags` (Next.js owns).
+- Reuses Phase D's `api/photos.js?action=upload-snag-photo` legacy primitive verbatim.
+- Reuses the `AuditLog` unified log Phase D bootstraps.
+- Existing legacy snag notification cron (`api/snag-notify.js`, `api/snag-email.js`) kept untouched; the new admin queue triggers them on assignment.
+
+Phase D.5 must not bundle anything else (no ITP, no RFI, no materials).
 
 ---
 
@@ -844,8 +864,8 @@ You MUST NOT:
 Before starting:
   - confirm Phase C (PR #5) is merged to main
   - confirm this plan (24-phase-d-jobs-evidence-plan.md) is approved by Oskar
-  - confirm open decisions in §15 are answered (especially decision 1 — snag scoping —
-    even though D1 doesn't touch snags, the answer affects what UC pill the Snag tab keeps)
+  - confirm open decisions in §15 are answered (decision 1 already resolved: snags = Phase D.5;
+    decisions 2–7 still open and must be answered before D1 starts coding)
   - if any of the above is uncertain, STOP and ask before any code
 
 ============================================================
@@ -912,16 +932,25 @@ Report at the end of the session:
 
 ---
 
-## 15 · Open decisions Oskar must make before D1 starts
+## 15 · Decisions
 
-These are the questions this plan deliberately leaves to Oskar. Each affects scope or behaviour and cannot be resolved by reading the audit alone.
+### 15.0 · Resolved decisions
 
-### Decision 1 · Do snags ship in Phase D, or defer to Phase D.5 / E?
+#### Decision 1 (RESOLVED 2026-05-24) · Snag scoping
 
-- **Plan's recommendation:** Defer to Phase D.5 (one focused PR after Phase D exit, before Phase E starts). Reason: snags have their own state machine, admin triage queue, notification cron, and assignment workflow — bundling them would balloon Phase D from "5–8 days" to "10–15 days" and risk half-built UI.
-- **Audit doc position** ([11-operational-workflow-map.md] #12, [21-rebuild-decision-record.md] ADR-011): bundles snags into Phase D.
-- **Override impact if snags ship in D:** add `src/domains/snags/*`, Phil Snag tab flips to live, admin `/snags` page + cutover. Adds 1 more PR (D2.5 between D2 and D3) and 1 more cutover (D4.5 between D4 and D5). The Phase D plan §2.1 and §2.2 would expand accordingly.
-- **Question for Oskar:** Defer to Phase D.5 (recommended) or include in Phase D?
+- **Question:** Do snags ship in Phase D, or defer to Phase D.5 / E?
+- **Resolution (Oskar):** **Defer to Phase D.5.** Phase D stays focused on Jobs + Evidence only. Phase D.5 is a dedicated PR set after Phase D exit and before Phase E starts (see §13 Post-D).
+- **Consequence:**
+  - Phil Snag tab stays UC through all of Phase D; flips live with Phase D.5.
+  - The `Defect` schema lands in Phase D.5, not Phase D.
+  - The `/admin/snags → /snags` cutover happens in Phase D.5.
+  - The Phase D build prompt in §14 has been tightened to reflect this — D1–D6 do not touch snags at all.
+  - Audit doc reassignments will be made in the Phase D shipping docs PR ([11-operational-workflow-map.md] #12 moves from "Phase D" to "Phase D.5"; [21-rebuild-decision-record.md] gets a new ADR formalising the split).
+- **Override mechanism if reversed later:** a new ADR superseding this would reopen Phase D scope. No code path silently re-enables snags in Phase D — the tab UC state, the missing schema, and the missing admin page are all explicit.
+
+### 15.1 · Open decisions Oskar must still answer before D1 starts
+
+These are the remaining questions this plan deliberately leaves to Oskar. Each affects scope or behaviour and cannot be resolved by reading the audit alone.
 
 ### Decision 2 · `EvidenceItem` storage shape: append to `data.json` or separate blob?
 
@@ -964,7 +993,7 @@ These are the questions this plan deliberately leaves to Oskar. Each affects sco
 ## 16 · Cross-references
 
 - [10-product-definition.md](10-product-definition.md) §A, §B (tradesman, PM, admin user groups), §C (product surfaces).
-- [11-operational-workflow-map.md](11-operational-workflow-map.md) #7 (Job creation — deferred), #9 (Worker assignment — deferred), #10 (Task completion — partial), #11 (Photo/evidence — primary), #12 (Snag — see §15 decision 1), #19 (Stages — read-only), #20 (Areas — read-only).
+- [11-operational-workflow-map.md](11-operational-workflow-map.md) #7 (Job creation — deferred), #9 (Worker assignment — deferred), #10 (Task completion — partial), #11 (Photo/evidence — primary), #12 (Snag — Phase D.5), #19 (Stages — read-only), #20 (Areas — read-only).
 - [12-domain-model-deep-dive.md](12-domain-model-deep-dive.md) §Jobs, §`Evidence`, §`Photo`, §`AuditLog`, §"Fields that must NOT be skipped", §"Per-phase minimum models" §"Phase D".
 - [13-ui-information-architecture.md](13-ui-information-architecture.md) §Admin/Jobs, §Phil/Jobs, §"Inside a Job (Phil)", §"Capture screens", §"Banned patterns".
 - [14-technical-architecture-deep-dive.md](14-technical-architecture-deep-dive.md) §C (app structure: `src/domains/jobs/`, `src/domains/evidence/`, `src/app/phil/jobs/`, `src/app/(admin)/jobs/`), §D (coexistence rules), §E (binding code rules).
@@ -974,7 +1003,7 @@ These are the questions this plan deliberately leaves to Oskar. Each affects sco
 - [21-rebuild-decision-record.md](21-rebuild-decision-record.md) ADR-002 (retain backend), ADR-011 (jobs+evidence is third loop), ADR-013 (UC over fake-it), ADR-015 (mock data labelled), ADR-020 (Vercel Blob continues).
 - [19-phase-b-hours-implementation-brief.md](19-phase-b-hours-implementation-brief.md) — format precedent for this plan.
 - [[project_buhlos_phil_hours_pipeline]] — user's six-step deployment order; Phase D follows the same pattern.
-- [[feedback_hide_unfinished_features]] — Snag tab stays UC if Phase D defers snags (§15 decision 1).
+- [[feedback_hide_unfinished_features]] — Snag tab stays UC through Phase D; flips live in Phase D.5 (decision §15.0).
 - [[project_buhlos_phil_naming]] — Phil + BuhlOS canonical names; "Switchboard" / "Site Office" banned in all new Phase D code.
 
 ---
@@ -985,9 +1014,10 @@ These are the questions this plan deliberately leaves to Oskar. Each affects sco
 | --- | --- |
 | Document | `docs/rebuild-audit/24-phase-d-jobs-evidence-plan.md` |
 | Phase | D · Jobs and evidence loop plan |
-| Status | **Draft — awaiting Oskar approval of §15 open decisions** |
+| Status | **Draft — §15 decision 1 (snag scoping) resolved 2026-05-24; §15 decisions 2–7 still open** |
 | Author | Phase D planning agent (session 3 — separate from Session 2 / PR #5) |
 | Author branch | `phase-d-jobs-evidence-plan` |
 | Base commit | `origin/main` (Phase B + production hardening) |
 | Assumed precondition | Phase C (PR #5 · My Gear) merged to `main` + 7-day quiet period |
-| Next action | Oskar answers §15 open decisions → build session opens for D1 with the paste-ready prompt in §14 |
+| Confirmed phase split | **D = Jobs + Evidence**, **D.5 = Snags / defects** (new sub-phase), **E = ITP / RFI / Materials** (+ Plans / Variations per audit) |
+| Next action | Oskar answers §15.1 open decisions 2–7 → build session opens for D1 with the paste-ready prompt in §14 |
