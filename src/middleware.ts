@@ -4,22 +4,27 @@ import { canAccessSurface, type Surface } from "@/lib/auth/permissions";
 import { landingFor } from "@/lib/auth/landing";
 
 /**
- * Phase A route gating.
+ * Phase A + B route gating.
  *
  * Only the new surfaces are gated here. Legacy URLs (/login, /admin/*, /phil,
  * /my-day, /lh, /client, ...) are owned by vercel.json rewrites and never
  * reach Next.js middleware in production.
  *
  * Gates:
- *   /command-centre     → admin roles only
- *   /v2/phil            → field roles or leading hands
- *   /v2/login           → always public
- *   /                   → not gated; src/app/page.tsx decides at render time
+ *   /command-centre        → admin roles only       (Phase A)
+ *   /hours/*               → admin roles only       (Phase B — admin queue)
+ *   /v2/phil               → field roles or LH      (Phase A)
+ *   /phil/my-day, /phil/hours → field roles or LH   (Phase B — new Phil home)
+ *   /v2/login              → always public
+ *   /                      → not gated; src/app/page.tsx decides at render time
  */
 
 const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   { prefix: "/command-centre", surface: "admin" },
+  { prefix: "/hours", surface: "admin" },
   { prefix: "/v2/phil", surface: "phil" },
+  { prefix: "/phil/my-day", surface: "phil" },
+  { prefix: "/phil/hours", surface: "phil" },
 ];
 
 export function middleware(req: NextRequest) {
@@ -30,9 +35,7 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const gate = PROTECTED.find(
-    (g) => pathname === g.prefix || pathname.startsWith(`${g.prefix}/`)
-  );
+  const gate = PROTECTED.find((g) => pathname === g.prefix || pathname.startsWith(`${g.prefix}/`));
   if (!gate) return NextResponse.next();
 
   const cookie = req.cookies.get(SESSION_COOKIE)?.value;
@@ -57,5 +60,14 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   // Match only the new surfaces. Legacy paths and static assets are excluded.
-  matcher: ["/command-centre/:path*", "/v2/phil/:path*"],
+  // /phil/* is gated only on the sub-paths Next.js actually owns (/phil/my-day,
+  // /phil/hours) — vercel.json continues to rewrite /phil, /phil/app and
+  // /phil/login to the legacy phil.html and login.html.
+  matcher: [
+    "/command-centre/:path*",
+    "/hours/:path*",
+    "/v2/phil/:path*",
+    "/phil/my-day/:path*",
+    "/phil/hours/:path*",
+  ],
 };
