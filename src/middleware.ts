@@ -4,7 +4,7 @@ import { canAccessSurface, type Surface } from "@/lib/auth/permissions";
 import { landingFor } from "@/lib/auth/landing";
 
 /**
- * Phase A + B + C + D1 route gating.
+ * Phase A + B + C + D1 + D4 route gating.
  *
  * Only the new surfaces are gated here. Legacy URLs (/login, /admin/*, /phil,
  * /my-day, /my-gear, /lh, /client, ...) are owned by vercel.json rewrites and
@@ -15,6 +15,8 @@ import { landingFor } from "@/lib/auth/landing";
  *   /hours/*               → admin roles only       (Phase B — admin queue)
  *   /gear/*                → admin roles only       (Phase C — admin register)
  *   /v2/phil               → field roles or LH      (Phase A)
+ *   /v2/jobs/*             → admin or LH            (Phase D4 — admin review;
+ *                                                     LH read-only enforced in page)
  *   /phil/my-day, /phil/hours, /phil/gear, /phil/jobs → field roles or LH
  *                                                       (Phase B + C + D1)
  *   /v2/login              → always public
@@ -26,6 +28,7 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   { prefix: "/hours", surface: "admin" },
   { prefix: "/gear", surface: "admin" },
   { prefix: "/v2/phil", surface: "phil" },
+  { prefix: "/v2/jobs", surface: "lh" },
   { prefix: "/phil/my-day", surface: "phil" },
   { prefix: "/phil/hours", surface: "phil" },
   { prefix: "/phil/gear", surface: "phil" },
@@ -73,6 +76,7 @@ export const config = {
     "/hours/:path*",
     "/gear/:path*",
     "/v2/phil/:path*",
+    "/v2/jobs/:path*",
     "/phil/my-day/:path*",
     "/phil/hours/:path*",
     "/phil/gear/:path*",
