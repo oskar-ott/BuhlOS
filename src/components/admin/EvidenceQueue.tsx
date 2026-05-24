@@ -24,6 +24,7 @@ import {
 } from "./EvidenceFilterBar";
 import { EvidenceDrawer } from "./EvidenceDrawer";
 import { EvidenceRejectModal } from "./EvidenceRejectModal";
+import { EvidenceUnreviewModal } from "./EvidenceUnreviewModal";
 import { cn } from "@/lib/cn";
 
 const PILL_TONE_MAP: Record<EvidenceStatusTone, "info" | "success" | "danger"> = {
@@ -86,6 +87,7 @@ export function EvidenceQueue({
   const [selected, setSelected] = useState<SelectionMap>({});
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [rejectId, setRejectId] = useState<string | null>(null);
+  const [unreviewId, setUnreviewId] = useState<string | null>(null);
   const [action, setAction] = useState<ActionState>({ kind: "idle" });
   const [bulkBusy, setBulkBusy] = useState(false);
 
@@ -109,6 +111,10 @@ export function EvidenceQueue({
   const rejectItem = useMemo(
     () => items.find((it) => it.id === rejectId) ?? null,
     [items, rejectId]
+  );
+  const unreviewItem = useMemo(
+    () => items.find((it) => it.id === unreviewId) ?? null,
+    [items, unreviewId]
   );
 
   const applyServerItem = useCallback((next: EvidenceItem) => {
@@ -171,6 +177,37 @@ export function EvidenceQueue({
               : r.error.status === 400
                 ? "Couldn't reject (reason missing or state already changed)."
                 : r.error.message || "Couldn't reject. Try again.",
+        });
+      }
+    },
+    [job.id, applyServerItem, router]
+  );
+
+  const unreview = useCallback(
+    async (id: string, reason: string) => {
+      setAction({ kind: "in_flight", evidenceId: id });
+      const r = await reviewEvidence(job.id, {
+        evidenceId: id,
+        status: "submitted",
+        reason: reason || null,
+      });
+      if (r.ok) {
+        applyServerItem(r.data.evidenceItem);
+        setAction({
+          kind: "success",
+          message: `Un-reviewed — sent back to the submitted queue.`,
+        });
+        setUnreviewId(null);
+        startTransition(() => router.refresh());
+      } else {
+        setAction({
+          kind: "error",
+          message:
+            r.error.status === 403
+              ? "Admin only — you can't un-review this."
+              : r.error.status === 400
+                ? "Couldn't un-review (state already changed)."
+                : r.error.message || "Couldn't un-review. Try again.",
         });
       }
     },
@@ -395,7 +432,9 @@ export function EvidenceQueue({
         isAdmin={isAdmin}
         busy={
           drawerItem
-            ? !!busyMap[drawerItem.id] || rejectId === drawerItem.id
+            ? !!busyMap[drawerItem.id] ||
+              rejectId === drawerItem.id ||
+              unreviewId === drawerItem.id
             : false
         }
         onClose={() => setDrawerId(null)}
@@ -405,6 +444,13 @@ export function EvidenceQueue({
         onOpenReject={() => {
           if (drawerItem) setRejectId(drawerItem.id);
         }}
+        onOpenUnreview={
+          isAdmin
+            ? () => {
+                if (drawerItem) setUnreviewId(drawerItem.id);
+              }
+            : undefined
+        }
       />
 
       <EvidenceRejectModal
@@ -414,6 +460,16 @@ export function EvidenceQueue({
         onClose={() => setRejectId(null)}
         onSubmit={(reason) => {
           if (rejectItem) reject(rejectItem.id, reason);
+        }}
+      />
+
+      <EvidenceUnreviewModal
+        open={unreviewItem !== null}
+        item={unreviewItem}
+        busy={unreviewItem ? !!busyMap[unreviewItem.id] : false}
+        onClose={() => setUnreviewId(null)}
+        onSubmit={(reason) => {
+          if (unreviewItem) unreview(unreviewItem.id, reason);
         }}
       />
     </div>

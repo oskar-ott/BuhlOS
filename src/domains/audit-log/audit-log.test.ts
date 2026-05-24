@@ -87,10 +87,14 @@ describe("AuditLogEntrySchema", () => {
   });
 
   it("enum exports stay in sync", () => {
+    // D5 added evidence.unreviewed for the reviewed → submitted
+    // transition so the History panel can distinguish it from the
+    // original review.
     expect([...AUDIT_ACTIONS].sort()).toEqual([
       "evidence.captured",
       "evidence.rejected",
       "evidence.reviewed",
+      "evidence.unreviewed",
     ]);
     expect([...AUDIT_TARGET_TYPES]).toEqual(["evidence"]);
   });

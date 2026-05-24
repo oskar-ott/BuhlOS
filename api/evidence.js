@@ -315,7 +315,22 @@ async function reviewEvidence(req, res, user, jobId) {
     updatedAt: nowIso,
   };
 
-  const action = targetStatus === 'rejected' ? 'evidence.rejected' : 'evidence.reviewed';
+  // Resolve the audit verb from the target transition. Un-review
+  // (reviewed → submitted) gets its own verb so the History panel
+  // shows it distinct from the original review.
+  const isUnreview = current.status === 'reviewed' && targetStatus === 'submitted';
+  const action = isUnreview
+    ? 'evidence.unreviewed'
+    : targetStatus === 'rejected'
+      ? 'evidence.rejected'
+      : 'evidence.reviewed';
+  const summary = isUnreview
+    ? body.reason
+      ? `evidence un-reviewed — "${String(body.reason).slice(0, 80)}"`
+      : 'evidence un-reviewed'
+    : targetStatus === 'rejected'
+      ? `evidence rejected — "${rejectionReason.slice(0, 80)}"`
+      : 'evidence marked reviewed';
   const auditEntry = await appendAuditLog({
     action,
     actorId: user.id,
@@ -324,10 +339,12 @@ async function reviewEvidence(req, res, user, jobId) {
     jobId,
     targetType: 'evidence',
     targetId: next.id,
-    summary: targetStatus === 'rejected'
-      ? `evidence rejected — "${rejectionReason.slice(0, 80)}"`
-      : 'evidence marked reviewed',
-    metadata: { previousStatus: current.status, rejectionReason: next.rejectionReason },
+    summary,
+    metadata: {
+      previousStatus: current.status,
+      rejectionReason: next.rejectionReason,
+      ...(isUnreview && body.reason ? { unreviewReason: String(body.reason).slice(0, 500) } : {}),
+    },
   }).catch(() => null);
   if (auditEntry && auditEntry.id) {
     next.auditLogIds = [...(current.auditLogIds || []), auditEntry.id];
@@ -345,9 +362,11 @@ async function reviewEvidence(req, res, user, jobId) {
     byUserId: user.id,
     byUsername: user.username || user.name || '',
     kind: action,
-    summary: targetStatus === 'rejected'
-      ? `evidence ${next.id} rejected — "${rejectionReason.slice(0, 60)}"`
-      : `evidence ${next.id} marked reviewed`,
+    summary: isUnreview
+      ? `evidence ${next.id} un-reviewed`
+      : targetStatus === 'rejected'
+        ? `evidence ${next.id} rejected — "${rejectionReason.slice(0, 60)}"`
+        : `evidence ${next.id} marked reviewed`,
     before: { status: current.status },
     after: { status: next.status, rejectionReason: next.rejectionReason },
   }).catch(() => {});
