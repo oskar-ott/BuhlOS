@@ -19,6 +19,7 @@ import {
 import {
   isActive,
   isDone,
+  needsWorkerAttention,
   priorityLabel,
   priorityTone,
   statusLabel,
@@ -439,6 +440,18 @@ describe("format helpers", () => {
     expect(isDone("closed")).toBe(true);
     expect(isDone("open")).toBe(false);
     expect(isDone("rejected")).toBe(false);
+  });
+
+  it("needsWorkerAttention covers active + rejected (so Phil surfaces rejection reasons)", () => {
+    // The Phil panel filters by this. Rejected must be true — otherwise
+    // the admin's pushback reason never reaches the worker, breaking
+    // the operational loop. See phase-d55-snags-runbook.md.
+    expect(needsWorkerAttention("open")).toBe(true);
+    expect(needsWorkerAttention("in_progress")).toBe(true);
+    expect(needsWorkerAttention("resolved")).toBe(true);
+    expect(needsWorkerAttention("rejected")).toBe(true);
+    expect(needsWorkerAttention("verified")).toBe(false);
+    expect(needsWorkerAttention("closed")).toBe(false);
   });
 });
 

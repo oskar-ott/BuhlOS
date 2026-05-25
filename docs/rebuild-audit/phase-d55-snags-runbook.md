@@ -219,20 +219,24 @@ The admin snag drawer's **History** section calls `GET /api/audit-log?targetType
 
 Worker journey from `/phil/jobs/<jobId>`:
 
-1. **See it.** A "Snags" card sits below "Today's captures." Empty state: "No open snags on this job." If there are done/verified/rejected items, a small "N done" pill counter sits in the card header.
+1. **See it.** A "Snags" card sits below "Today's captures." Empty state: "No open snags on this job." A small "N done" pill counter on the card header counts verified + closed snags (out of the worker's path; the loop is over for those).
 2. **Report it.** Large yellow "Report snag" button opens a full-screen sheet:
    - Title input (large; counter; required)
    - Notes textarea (optional)
    - 4-button priority grid (Low / Normal / High / Urgent)
    - Area picker (defaults to the area the worker already selected)
-   - Linked-evidence multi-select (up to 6 of the worker's most recent captures)
-3. **See status.** Each active snag renders as a row with status pill, priority pill, title + description, area name.
+   - Linked-evidence multi-select (up to `SNAG_EVIDENCE_LINK_MAX` = 10 of the worker's most recent captures; once at cap the un-linked items disable)
+3. **See status.** Each visible snag renders as a row with status pill, priority pill, title + description, area name. **Rejected snags surface their reason inline with rose styling and an "alert" role** so the worker actually sees the admin's pushback — the operational loop only closes when the worker sees status _and_ reason.
 4. **Act on it.**
    - Any field worker can "I'll fix it" an `open` snag (`open → in_progress`).
    - The creator / assignee can "Mark resolved" an `in_progress` snag (`in_progress → resolved`).
    - The creator / assignee can "Re-open" a `resolved` snag (`resolved → in_progress`).
 
-Phil never sees verify / close / reject buttons — that's admin work.
+Phil never sees verify / close / reject buttons — that's admin work. But Phil **does** see the result of a reject (with reason) so the worker can re-raise or accept.
+
+**Visibility rule:** Phil's panel renders snags where `needsWorkerAttention(status)` is true — open, in_progress, resolved, **and rejected**. Verified + closed fall into the done-count pill. This is the filter from `src/domains/snags/format.ts#needsWorkerAttention`.
+
+**Tap targets:** all transition buttons on the panel are `size="lg"` (48 × ≥48 px) per doc 27 §4. The sheet's close button is 44 × 44 px (Apple HIG). The priority radios are square 48+ px tiles.
 
 ---
 
@@ -268,6 +272,7 @@ LH gets the same drawer but the footer collapses to "Read-only — leading hand.
 | D55-L6 | Read-after-write lag possible if a transition immediately follows a separate write on a cold Vercel instance (carried from D5-L1). The API returns the canonical row directly so the UI doesn't have to round-trip. |
 | D55-L7 | Audit-log endpoint scans the last 2 months by default; older snag history needs `&months=N` (carried from D5-L1). |
 | D55-L8 | Legacy `snags[]` and new `snagsV2[]` are not unified. Existing legacy snag tools (snag-quick-raise, snags-mine, snag-stats, etc.) ignore `snagsV2[]`. Migration is a Phase F+ decision. |
+| D55-L9 | `api/_lib/auth.js#canWrite` only recognizes `admin/tradie/leadingHand` role strings. Users with `boss/owner/manager/office/pm/estimator/apprentice/labourer/electrician` roles (per `src/lib/auth/roles.ts`) fail the gate before snags' role-machine evaluates them, returning 403 on POST. Pre-existing system bug (affects evidence + snags equally). Out of D.5 hardening scope; fix in a dedicated auth-helper pass. Workaround: use a user with role exactly `admin` or `tradie`. |
 
 ---
 
@@ -312,17 +317,45 @@ Run on the preview before promoting. ~10 minutes.
 
 ## 11 · Production smoke
 
+### Unauthenticated (24 checks, fast)
+
 ```
 npm run smoke:evidence-routes                 # buhlos.com
 npm run smoke:evidence-routes -- <preview>    # any vercel preview
 ```
 
-The script now runs 24 unauthenticated checks covering both the D2–D5 evidence routes AND the new D.5 snag routes / API. Exit 0 if all pass, 1 if any fail. **Run this after every D.5 merge** as part of the production smoke ritual.
+Covers both the D2–D5 evidence routes AND the new D.5 snag routes / API. Exit 0 if all pass, 1 if any fail. **Run this after every D.5 merge** as part of the production smoke ritual.
 
 If a check fails:
 - `404 text/html` on `/api/snags` → the function isn't deployed yet (CDN miss or deploy didn't include it). Wait ~60s and retry.
 - `200 text/html` on `/v2/jobs/birdwood-iv3232/snags` unauth → middleware regression; stop the rollout.
 - `401 application/json` on `/api/snags` unauth → expected and correct.
+
+### Authenticated end-to-end (full lifecycle)
+
+```
+TRADIE_USER=oskar TRADIE_PASS=… \
+ADMIN_USER=tom    ADMIN_PASS=… \
+npm run smoke:auth-d55-snags
+```
+
+Drives the full lifecycle:
+- Tradie login → create TEST D55 SNAG → claim → mark resolved
+- Tradie verify attempt → 403 (admin-only)
+- Admin login → see both snags → verify → close
+- Admin reject branch with reason
+- Audit-log shows ≥4 entries (1 created + 3 transitions)
+- Evidence regression (tradie creates a note evidence on the same job)
+- Both sessions logged out
+
+The script:
+- Uses temp cookie jars in `$TMPDIR`, scrubs them on exit.
+- Never prints credentials.
+- Tags everything `TEST D55 …` for trivial blob-dashboard cleanup.
+- Leaves the happy-path snag in `closed` state and the reject-branch snag in `rejected` state.
+- Exit code 0 on full pass, 1 on any failure (with a list of failed checks).
+
+`BASE=https://<preview>.vercel.app` switches targets. `JOB=<jobId>` overrides the default `birdwood-iv3232`.
 
 ---
 

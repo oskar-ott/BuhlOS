@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import {
-  isActive,
+  isDone,
+  needsWorkerAttention,
   priorityLabel,
   priorityTone,
   statusLabel,
@@ -84,8 +85,18 @@ export function JobSnagsPanel({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [action, setAction] = useState<ActionState>({ kind: "idle" });
 
-  const active = useMemo(() => snags.filter((s) => isActive(s.status)), [snags]);
-  const doneCount = snags.length - active.length;
+  // Surface includes open / in_progress / resolved AND rejected so
+  // the worker sees the admin's pushback reason in their feed.
+  // Without rejected here, the operational loop is broken — admin
+  // rejects with a reason and the worker never sees it.
+  const visible = useMemo(
+    () => snags.filter((s) => needsWorkerAttention(s.status)),
+    [snags]
+  );
+  const doneCount = useMemo(
+    () => snags.filter((s) => isDone(s.status)).length,
+    [snags]
+  );
 
   const applyServer = useCallback((next: SnagItem) => {
     setSnags((prev) => prev.map((s) => (s.id === next.id ? next : s)));
@@ -169,7 +180,7 @@ export function JobSnagsPanel({
 
       <ActionFeedback state={action} />
 
-      {active.length === 0 ? (
+      {visible.length === 0 ? (
         <p
           className="mt-3 rounded-card border border-dashed border-border bg-surface-subtle p-4 text-center text-sm text-text-muted"
           role="status"
@@ -178,7 +189,7 @@ export function JobSnagsPanel({
         </p>
       ) : (
         <ul className="mt-3 space-y-2">
-          {active.map((s) => (
+          {visible.map((s) => (
             <SnagRow
               key={s.id}
               snag={s}
@@ -231,6 +242,7 @@ function SnagRow({ snag, viewer, busy, onTransition }: RowProps) {
     <li
       className={cn(
         "rounded-card border border-border bg-surface p-3",
+        snag.status === "rejected" ? "border-rose-200 bg-rose-50/40" : "",
         busy ? "opacity-70" : ""
       )}
     >
@@ -257,34 +269,47 @@ function SnagRow({ snag, viewer, busy, onTransition }: RowProps) {
           </Pill>
         </div>
       </div>
+      {snag.status === "rejected" && snag.rejectionReason ? (
+        <div
+          role="alert"
+          className="mt-2 rounded-card border border-rose-200 bg-rose-50 p-2.5 text-sm text-rose-900"
+        >
+          <p className="font-display text-[11px] uppercase tracking-wider text-rose-700">
+            Rejected{snag.rejectedByName ? ` by ${snag.rejectedByName}` : ""}
+          </p>
+          <p className="mt-1 whitespace-pre-line break-words">
+            {snag.rejectionReason}
+          </p>
+        </div>
+      ) : null}
       {canClaim || canResolve || canReopen ? (
         <div className="mt-2 flex flex-wrap gap-2">
           {canClaim ? (
             <Button
-              size="sm"
+              size="lg"
               variant="secondary"
               disabled={busy}
               onClick={() => onTransition(snag, "in_progress")}
             >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {busy ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}
               I&rsquo;ll fix it
             </Button>
           ) : null}
           {canResolve ? (
             <Button
-              size="sm"
+              size="lg"
               variant="primary"
               disabled={busy}
               onClick={() => onTransition(snag, "resolved")}
               className="bg-brand-navy text-text-inverse hover:bg-accent-ink"
             >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {busy ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}
               Mark resolved
             </Button>
           ) : null}
           {canReopen ? (
             <Button
-              size="sm"
+              size="lg"
               variant="secondary"
               disabled={busy}
               onClick={() => onTransition(snag, "in_progress")}
@@ -333,6 +358,7 @@ function messageForTransition(
   if (from === "in_progress" && to === "resolved")
     return "Marked resolved. Admin will verify.";
   if (from === "resolved" && to === "in_progress") return "Re-opened.";
-  if (from === "open" && to === "in_progress") return "Picked up.";
+  if (from === "in_progress" && to === "open") return "Dropped. Back to open.";
+  if (from === "resolved" && to === "open") return "Re-opened.";
   return "Updated.";
 }
