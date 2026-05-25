@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { createSnag } from "@/domains/snags/client";
 import {
   SNAG_DESCRIPTION_MAX,
+  SNAG_EVIDENCE_LINK_MAX,
   SNAG_PRIORITIES,
   SNAG_TITLE_MAX,
 } from "@/domains/snags/schema";
@@ -177,7 +178,7 @@ export function ReportSnagSheet({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="rounded-card p-1 text-text-muted hover:bg-surface-subtle disabled:opacity-50"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-card text-text-muted hover:bg-surface-subtle disabled:opacity-50"
             aria-label="Close"
           >
             <X aria-hidden="true" className="h-5 w-5" />
@@ -258,16 +259,19 @@ export function ReportSnagSheet({
                 Tap to attach captures that show this snag.
               </p>
               <ul className="mt-2 grid gap-2">
-                {recentEvidence.slice(0, 6).map((ev) => {
+                {recentEvidence.slice(0, SNAG_EVIDENCE_LINK_MAX).map((ev) => {
                   const linked = linkedEvidenceIds.includes(ev.id);
+                  const atCap =
+                    !linked && linkedEvidenceIds.length >= SNAG_EVIDENCE_LINK_MAX;
                   return (
                     <li key={ev.id}>
                       <button
                         type="button"
                         onClick={() => toggleLink(ev.id)}
                         aria-pressed={linked}
+                        disabled={atCap}
                         className={cn(
-                          "flex w-full items-center gap-3 rounded-card border p-2 text-left transition-colors",
+                          "flex w-full items-center gap-3 rounded-card border p-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                           linked
                             ? "border-brand-navy bg-brand-navy/5"
                             : "border-border bg-surface hover:bg-surface-subtle"

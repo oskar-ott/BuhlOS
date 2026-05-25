@@ -104,3 +104,19 @@ export function isActive(status: SnagStatus): boolean {
 export function isDone(status: SnagStatus): boolean {
   return status === "verified" || status === "closed";
 }
+
+/** Snag needs the worker's attention in Phil.
+ *
+ *  Same as isActive() PLUS rejected — a rejected snag carries an
+ *  admin-supplied reason that the worker has to see to act on
+ *  (either re-raise or accept). Without surfacing rejected, the
+ *  operational loop is broken: admin pushes back → worker never
+ *  sees why.
+ *
+ *  Used by JobSnagsPanel so the worker's view always includes any
+ *  snag the admin has flagged for their attention. Verified + closed
+ *  rows stay out — those are "resolved good" and don't need a
+ *  follow-up. */
+export function needsWorkerAttention(status: SnagStatus): boolean {
+  return isActive(status) || status === "rejected";
+}
