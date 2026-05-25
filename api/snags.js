@@ -480,19 +480,32 @@ async function transitionSnag(req, res, user, jobId) {
   }
 
   const dataKeyStr = dataKey(jobId);
-  // Cache-bust this read. Rapid back-to-back transitions on the same
-  // snag can otherwise land on a warm instance with a stale cached
-  // status, which makes canTransition reject the second click as
-  // `invalid transition: open → resolved` even though the first click
-  // already moved it to in_progress on another instance. readBlobFresh
-  // skips the 5s in-memory cache so we always compare against truth.
-  // Cost: one extra list+fetch per transition — negligible vs the GET
-  // list path which still uses cached reads.
-  const data = await readBlobFresh(dataKeyStr, emptyData());
-  const arr = Array.isArray(data.snagsV2) ? data.snagsV2 : [];
-  const idx = arr.findIndex((s) => s && s.id === snagId);
+  // Vercel Blob: writes are durable on return but the read path can
+  // briefly serve a pre-write snapshot from its storage layer (separate
+  // from the 5s in-memory cache that readBlobFresh already bypasses).
+  // Back-to-back transitions on the same snag can therefore see the
+  // stale status on read #2, which makes canTransition reject what
+  // would otherwise be a valid step (`open → resolved` instead of
+  // `in_progress → resolved`).
+  //
+  // Strategy: read fresh once, and if canTransition rejects, wait
+  // briefly and re-read. Real conflicts (another admin actually moved
+  // the snag to a different status) still surface as 409 after the
+  // retry — the retry only papers over the stale-read window.
+  let data = await readBlobFresh(dataKeyStr, emptyData());
+  let arr = Array.isArray(data.snagsV2) ? data.snagsV2 : [];
+  let idx = arr.findIndex((s) => s && s.id === snagId);
   if (idx === -1) return res.status(404).json({ error: 'snag not found on job' });
-  const current = arr[idx];
+  let current = arr[idx];
+
+  if (!canTransition(current.status, nextStatus)) {
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    data = await readBlobFresh(dataKeyStr, emptyData());
+    arr = Array.isArray(data.snagsV2) ? data.snagsV2 : [];
+    idx = arr.findIndex((s) => s && s.id === snagId);
+    if (idx === -1) return res.status(404).json({ error: 'snag not found on job' });
+    current = arr[idx];
+  }
 
   if (!canTransition(current.status, nextStatus)) {
     // 409 Conflict — the snag's current state genuinely doesn't allow
