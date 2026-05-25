@@ -59,6 +59,12 @@
 | 33 | [33-phase-e-build-prompts.md](33-phase-e-build-prompts.md) | Paste-ready build prompts for E1a (domain + API extension), E1b (Phil ITP recording UI), E1c (admin ITP queue + sign-off). Common preamble shared across slices. E2/E3/E4 prompts not in this doc — added when those plans are written. | Each E1 build session pastes the relevant slice prompt. | When opening each E1x build session. |
 | 34 | [34-phase-e-testing-checklist.md](34-phase-e-testing-checklist.md) | Per-slice QA gates for E1 (§A E1a, §B E1b, §C E1c), regression matrix (§D), production smoke after merge (§E), hard exit gates (§F), explicit not-in-scope list (§G). Mirrors doc 28 structure. | Every E1 build session pastes the relevant §. Reviewers gate on it. | Throughout E1 execution. |
 
+## Audit — current state
+
+| # | Doc | Purpose | Who should read | When |
+| --- | --- | --- | --- | --- |
+| 35 | [35-current-product-state-audit.md](35-current-product-state-audit.md) | Snapshot audit dated 2026-05-26 (post PR #34 E1a + PR #35 UI bible vNext). Built feature matrix, route map, domain state, UX findings, test coverage, prioritised P0/P1/P2/P3 gaps, next-5 PR plan, E1b readiness verdict, paste-ready prompt for the E1a runbook session. Docs-only. | Anyone opening a new session, reviewer, or PM wanting current ground truth. | Before scoping any new work or deciding what to merge next. |
+
 ## Phase C — runbook
 
 | Doc | Purpose |
@@ -87,6 +93,16 @@
 | D6 | Admin jobs index (`/v2/jobs`) — discoverability for D4 + D.5 | ✅ shipped 2026-05-25 (Session 7) | [#21](https://github.com/oskar-ott/BuhlOS/pull/21) | `d4ced43` |
 
 **Phase D status:** the operational loops Phase D set out to deliver are all live in production. Admin discoverability through the rebuild sidebar (D6) closes the last rollout gap. Remaining Phase D-adjacent work (cross-job snag triage queue, `/activity` feed, `/admin/jobs` cutover, full role-string normalisation in `api/_lib/auth.js#canWrite`) is documented in the individual runbooks under "Open questions / future work".
+
+## Phase E — shipped slices
+
+| Slice | Scope | Status | PR | Merge commit |
+| --- | --- | --- | --- | --- |
+| E1a | ITP domain + API extension (`src/domains/itp/*`, audit-log schema, `api/job-itps.js` V2 audit + PR #26 stale-read + independence rule + role-tier alignment, `api/jobs.js` statsItpsActive) | ✅ shipped 2026-05-25 | [#34](https://github.com/oskar-ott/BuhlOS/pull/34) | `996d848` |
+| E1b | Phil ITP recording UI (`/phil/jobs/[jobId]/itps/[instanceId]` + section on job detail) | ⏳ next | — | — |
+| E1c | Admin ITP queue + sign-off + jobs-index ITP chip (`/v2/jobs/[jobId]/itps`) | ⏳ parallel-able with E1b after E1a runbook | — | — |
+
+**Phase E status:** E1a backend is on `origin/main` at `996d848`. Production deploy initiated by Vercel auto-deploy on merge. Post-merge production smoke (per [34 §E](34-phase-e-testing-checklist.md)) has NOT been run yet — that gate must clear before E1b opens. See [35-current-product-state-audit.md](35-current-product-state-audit.md) for full context and the next-5-PR plan.
 
 ## Phase 1 / 1B supporting docs
 
