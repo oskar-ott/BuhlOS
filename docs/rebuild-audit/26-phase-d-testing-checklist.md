@@ -1,5 +1,22 @@
 # 26 · Phase D — testing & quality checklist
 
+> **Status: Partially superseded** (2026-05-25). The baseline gates (§A), regression matrix (§E), and field test script (§C) **remain authoritative** — every PR touching the rebuild surface still walks these. The per-slice §B sections are mixed:
+>
+> | Section | Status |
+> | --- | --- |
+> | §A · Baseline gates | ✅ authoritative — every Phase D / Phase D-adjacent PR walks these |
+> | §B.1 · D1 (Phil jobs read-only) | ✅ authoritative — D1 shipped as planned |
+> | §B.2 · D2 (evidence domain + Phil capture, fixtures) | ❌ superseded by [doc 28 §A](28-d2-d3-d4-evidence-qa-checklist.md). D2 shipped as API-only — no Phil capture in this slice. |
+> | §B.3 · D3 (evidence persistence + audit log + real wiring) | ❌ superseded by [doc 28 §B](28-d2-d3-d4-evidence-qa-checklist.md) + [doc 29 §11](29-phase-d3-phil-capture-spec.md). D3 shipped as the Phil capture UI on top of D2's already-real API. |
+> | §B.4 · D4 (admin Jobs surface + `/admin/jobs` cutover) | ❌ superseded by [doc 28 §C](28-d2-d3-d4-evidence-qa-checklist.md) + [doc 30](30-phase-d4-admin-evidence-review-spec.md). D4 shipped as admin evidence review at `/v2/jobs/[jobId]/evidence` — no `vercel.json` cutover. |
+> | §B.5 · D5 (`/admin/activity` cutover) | ❌ did not ship as planned. D5 shipped instead as evidence hardening — see [phase-d5-runbook.md](phase-d5-runbook.md). An `/activity` feed remains a documented follow-up. |
+> | §B.6 · D6 (exit polish + Command Centre evidence count) | ❌ did not ship as planned. D6 shipped instead as the admin jobs index at `/v2/jobs` — see [phase-d6-admin-jobs-index-runbook.md](phase-d6-admin-jobs-index-runbook.md). |
+> | §C · Field test script | ✅ authoritative — the script still describes the loop Phil + admin walk end-to-end. |
+> | §D · Exit gates | ✅ authoritative for the loops that shipped (D1 + D2/D3/D4 evidence + D.5 snags). |
+> | §E · Regression matrix | ✅ authoritative — every Dx merge still runs these. |
+>
+> **Canonical references:** [23-rebuild-index.md](23-rebuild-index.md) §"Phase D shipped slices", [phase-d55-snags-runbook.md](phase-d55-snags-runbook.md) for the D.5 field test script, and the runbooks linked above.
+>
 > Per-slice and exit-level testing checklist for Phase D. Use this as the verification source-of-truth during each Dx build session and at Phase D exit. Built on [17-testing-and-quality-plan.md](17-testing-and-quality-plan.md) §C.4 baseline; specific to the Phase D jobs + evidence scope per [24-phase-d-jobs-evidence-plan.md](24-phase-d-jobs-evidence-plan.md).
 >
 > **Audience:** Phase D build sessions, Oskar (preview verification), and any future on-call after Phase D ships.
@@ -115,6 +132,8 @@ If a check goes red, fix the root cause. Don't suppress.
 
 ### B.2 · D2 — evidence domain + Phil capture (fixtures)
 
+> ⚠️ **Superseded** by [doc 28 §A](28-d2-d3-d4-evidence-qa-checklist.md). D2 shipped as evidence domain + persistence API foundation (no Phil capture in this slice; capture moved to D3). This section is kept for history.
+
 **Unit tests (Vitest):**
 
 - [ ] `src/domains/evidence/evidence.test.ts`:
@@ -161,6 +180,9 @@ If a check goes red, fix the root cause. Don't suppress.
 ---
 
 ### B.3 · D3 — evidence persistence API + audit log + Phil real wiring
+
+> ⚠️ **Superseded** by [doc 28 §B](28-d2-d3-d4-evidence-qa-checklist.md) + [doc 29 §11](29-phase-d3-phil-capture-spec.md). D3 shipped as the Phil capture UI, built against D2's already-real persistence API (which shipped one slice earlier than this plan assumed). Kept for history.
+
 
 **Unit tests (Vitest):**
 
@@ -218,6 +240,9 @@ If a check goes red, fix the root cause. Don't suppress.
 ---
 
 ### B.4 · D4 — admin Jobs surface + /admin/jobs cutover
+
+> ⚠️ **Superseded** by [doc 28 §C](28-d2-d3-d4-evidence-qa-checklist.md) + [doc 30](30-phase-d4-admin-evidence-review-spec.md). D4 shipped as admin **evidence review only** at `/v2/jobs/[jobId]/evidence` — no `vercel.json` cutover, legacy `/admin/jobs.html` untouched. The admin jobs **index** (a separate concern) shipped later as D6 at `/v2/jobs` — see [phase-d6-admin-jobs-index-runbook.md](phase-d6-admin-jobs-index-runbook.md). Kept for history.
+
 
 **This is a CUTOVER PR. Higher stakes. Extra scrutiny.**
 
@@ -286,6 +311,9 @@ If a check goes red, fix the root cause. Don't suppress.
 
 ### B.5 · D5 — admin Activity surface + /admin/activity cutover
 
+> ⚠️ **Did not ship as planned.** D5 shipped instead as evidence hardening (audit-log read endpoint + admin un-review flow + production rollout smoke) — see [phase-d5-runbook.md](phase-d5-runbook.md). An `/admin/activity → /activity` audit-log feed remains a documented open follow-up (the underlying monthly journal blobs already exist). Kept for history.
+
+
 **Smaller cutover than D4. Same scrutiny pattern, lower stakes.**
 
 **Unit:** AuditLog list helper covered. Filter logic covered.
@@ -305,6 +333,9 @@ If a check goes red, fix the root cause. Don't suppress.
 ---
 
 ### B.6 · D6 — exit polish
+
+> ⚠️ **Did not ship as planned.** D6 shipped instead as the admin jobs index at `/v2/jobs` — the discoverability slice that makes D4 evidence review + D.5 snags reachable from the rebuild sidebar. See [phase-d6-admin-jobs-index-runbook.md](phase-d6-admin-jobs-index-runbook.md). The "exit polish" checklist below (UC removal, Command Centre evidence count, doc cleanup) was not bundled into a single PR — the underlying items are tracked in the per-slice runbooks under "Open questions / future work". Kept for history.
+
 
 **No new feature tests.**
 

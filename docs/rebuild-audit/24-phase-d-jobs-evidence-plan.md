@@ -1,6 +1,17 @@
 # 24 · Phase D — jobs and evidence loop plan
 
-> **Status:** Planning. No code in scope. Authored on `phase-d-jobs-evidence-plan` branch from `origin/main` (Phase B + production hardening). Phase C (My Gear) is in PR #5 and assumed merged before Phase D begins. **This plan must be approved by Oskar before any Phase D build prompt is run.**
+> **Status: Planning artefact, partially superseded by shipped reality** (2026-05-25).
+>
+> The data model (§5), routes (§4), permissions (§9.6), risks (§11), and decisions (§15) **still describe the system as shipped**. The build-sequence section (§13) and the post-D timeline are **historical** — the actual sequence shipped differently.
+>
+> **Canonical references for shipped state:**
+> - [23-rebuild-index.md](23-rebuild-index.md) §"Phase D shipped slices" — every Phase D PR with its scope, ship date, and merge commit.
+> - [28-d2-d3-d4-evidence-qa-checklist.md](28-d2-d3-d4-evidence-qa-checklist.md) §0 — D2/D3/D4 evidence-loop phasing reconciliation.
+> - Per-slice runbooks: [phase-d5-runbook.md](phase-d5-runbook.md), [phase-d55-snags-runbook.md](phase-d55-snags-runbook.md), [phase-d6-admin-jobs-index-runbook.md](phase-d6-admin-jobs-index-runbook.md).
+>
+> Sections still authoritative for any future evidence/snag/jobs work: §1, §2, §3, §4, §5, §6, §7, §8, §9, §11, §12 (functional + technical + quality criteria), §15 (decisions — all RESOLVED).
+>
+> **Original status (preserved for history):** Planning. No code in scope. Authored on `phase-d-jobs-evidence-plan` branch from `origin/main` (Phase B + production hardening). Phase C (My Gear) is in PR #5 and assumed merged before Phase D begins. **This plan must be approved by Oskar before any Phase D build prompt is run.**
 >
 > **Read first:** [10-product-definition.md](10-product-definition.md), [11-operational-workflow-map.md](11-operational-workflow-map.md) #7, #9, #10, #11, #19, #20, [12-domain-model-deep-dive.md](12-domain-model-deep-dive.md) §Jobs / §Evidence, [13-ui-information-architecture.md](13-ui-information-architecture.md) §Phil / §Jobs / §Defects, [14-technical-architecture-deep-dive.md](14-technical-architecture-deep-dive.md), [16-migration-strategy.md](16-migration-strategy.md) §B, §C.3, [17-testing-and-quality-plan.md](17-testing-and-quality-plan.md) §C.4, [19-phase-b-hours-implementation-brief.md](19-phase-b-hours-implementation-brief.md) (format precedent), [20-agent-rules.md](20-agent-rules.md), [21-rebuild-decision-record.md](21-rebuild-decision-record.md) ADR-011.
 
@@ -769,6 +780,12 @@ Phase D is **complete** when all of the following are true:
 ---
 
 ## 13 · Build sequence
+
+> **Status: HISTORICAL.** The six slices listed below are the **plan as authored on 2026-05-24**. The actual shipped sequence diverges — most notably D2 shipped as API-only (no Phil capture), D3 as the capture UI, D4 as admin evidence review at `/v2/jobs/[jobId]/evidence` (not `/admin/jobs` cutover), D5 as evidence hardening (not the `/admin/activity` cutover), D.5 as snags, and D6 as the admin jobs index at `/v2/jobs` (not "exit polish"). The Post-D 7-day quiet window did not happen — D.5 shipped same day as D5 evidence hardening.
+>
+> See [23-rebuild-index.md](23-rebuild-index.md) §"Phase D shipped slices" for the canonical ship table (PR # + scope + merge commit per slice), [28-d2-d3-d4-evidence-qa-checklist.md](28-d2-d3-d4-evidence-qa-checklist.md) §0 for the D2/D3/D4 evidence-loop reconciliation, and the per-slice runbooks ([phase-d5-runbook.md](phase-d5-runbook.md), [phase-d55-snags-runbook.md](phase-d55-snags-runbook.md), [phase-d6-admin-jobs-index-runbook.md](phase-d6-admin-jobs-index-runbook.md)) for the shipped scope per Dx.
+>
+> The remainder of this section is preserved unedited as a historical record of the original plan.
 
 Six slices, each its own PR. Total estimated effort: 5–8 build days assuming Phase C is merged and the brief is approved.
 

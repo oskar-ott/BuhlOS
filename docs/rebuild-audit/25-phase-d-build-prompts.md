@@ -1,5 +1,23 @@
 # 25 · Phase D — Claude Code build prompts (D1–D6)
 
+> **Status: SUPERSEDED.** Every Phase D slice has shipped (2026-05-24 → 2026-05-25); the actual execution diverged from the build prompts below. Retained as a historical reference for the planning approach.
+>
+> **Reconciliation:**
+> - The original D2 (evidence domain + Phil capture, fixtures-first) shipped as evidence domain + persistence API foundation (no Phil capture in D2; capture moved to D3). See [28-d2-d3-d4-evidence-qa-checklist.md](28-d2-d3-d4-evidence-qa-checklist.md) §0.
+> - The original D3 (evidence persistence API + audit log + Phil real wiring) shipped as the Phil capture UI, built on top of D2's already-real API. See [29-phase-d3-phil-capture-spec.md](29-phase-d3-phil-capture-spec.md).
+> - The original D4 (admin Jobs + `/admin/jobs` cutover with Evidence panel) shipped as admin evidence review at `/v2/jobs/[jobId]/evidence` — no `vercel.json` cutover; legacy `/admin/jobs.html` untouched. See [30-phase-d4-admin-evidence-review-spec.md](30-phase-d4-admin-evidence-review-spec.md).
+> - The original D5 (`/admin/activity` cutover) **did not ship.** D5 shipped instead as evidence hardening (audit-log read + admin un-review + rollout smoke). See [phase-d5-runbook.md](phase-d5-runbook.md). An `/activity` audit-log feed is documented as an open follow-up.
+> - D.5 (snags / defects) shipped — that part of the plan matched. See [phase-d55-snags-runbook.md](phase-d55-snags-runbook.md).
+> - The original D6 (exit polish + docs + Command Centre evidence count) **did not ship as planned.** D6 shipped instead as the admin jobs index at `/v2/jobs` — the discoverability slice that makes D4 + D.5 reachable from the rebuild sidebar. See [phase-d6-admin-jobs-index-runbook.md](phase-d6-admin-jobs-index-runbook.md).
+>
+> **Canonical references for any new Phase D-adjacent work:** [23-rebuild-index.md](23-rebuild-index.md) §"Phase D shipped slices", the per-slice runbooks linked above, and the relevant doc 28 / 29 / 30 / 31 specs (which were authored in Session 4 with full knowledge of the doc-25 prompts' obsolescence — see [doc 28 §0](28-d2-d3-d4-evidence-qa-checklist.md) note that doc 25 "itself should be retired or rewritten at Phase D exit").
+>
+> The prompts below are kept verbatim as a record of how Phase D was planned, even though the build agents in Sessions 4–7 diverged from them.
+
+---
+
+## Historical preamble (original 2026-05-24 framing)
+
 > **Paste-ready prompts** for every Phase D build slice. Each prompt is self-contained: scope, hard rules, preflight reads, checks, PR title, expected report. Each slice gets its own session, its own PR, its own preview verification, its own merge.
 >
 > **Source of scope truth:** [24-phase-d-jobs-evidence-plan.md](24-phase-d-jobs-evidence-plan.md) §13 (Build sequence). If anything below contradicts §13, §13 wins.
