@@ -5,7 +5,7 @@ import type { Route } from "next";
 import { ChevronRight, MapPin } from "lucide-react";
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { statusLabel, statusTone, whenCaption } from "@/domains/jobs/format";
+import { lastActivityCaption, statusLabel, statusTone } from "@/domains/jobs/format";
 import type { Job } from "@/domains/jobs/types";
 
 interface Props {
@@ -50,7 +50,7 @@ export function PhilJobsList({ initialJobs }: Props) {
 }
 
 function JobRow({ job }: { job: Job }) {
-  const caption = whenCaption(job);
+  const caption = lastActivityCaption(job);
   const address = (job.siteAddress ?? "").trim();
   return (
     <Link

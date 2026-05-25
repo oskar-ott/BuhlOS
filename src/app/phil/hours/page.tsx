@@ -80,7 +80,7 @@ export default async function PhilHoursPage() {
 
         <UnderConstructionPanel
           feature="Edit rejected entry"
-          description="Tapping a rejected entry to edit and resubmit lands in Phase C alongside the /phil cutover. For now, use the legacy My day to fix and resubmit."
+          description="Tapping a rejected entry to edit and resubmit isn't wired here yet. For now, use the legacy My day — fix the entry, resubmit, and it'll come back through approval with the new submission timestamp."
           legacyHref="/my-day"
           legacyLabel="Open legacy My day"
         />

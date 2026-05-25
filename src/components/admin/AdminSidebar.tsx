@@ -86,7 +86,7 @@ export function AdminSidebar() {
                 ) : (
                   <span
                     aria-disabled="true"
-                    title={`${item.label} is under construction in Phase A`}
+                    title={`${item.label} — still being built`}
                     className={baseClass}
                   >
                     {content}

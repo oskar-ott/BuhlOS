@@ -70,8 +70,8 @@ export default async function MyDayPage() {
         </Card>
 
         <UnderConstructionPanel
-          feature="Multi-job allocation, photo evidence, job picker"
-          description="Phase B ships one allocation per submission. Job picker, multi-job day splits and photo evidence land with the gear and jobs loops (Phase C / D)."
+          feature="Multi-job allocation · job picker"
+          description="One allocation per submission today. Splitting a day across two jobs, or picking which job a Standard day lands on, is still on the legacy My day — that loop lands here in a later phase."
           legacyHref="/my-day"
           legacyLabel="Use the legacy My day for multi-job allocations"
         />

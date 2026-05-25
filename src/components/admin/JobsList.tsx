@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { statusLabel, statusTone, whenCaption } from "@/domains/jobs/format";
+import { lastActivityCaption, statusLabel, statusTone } from "@/domains/jobs/format";
 import type { Job } from "@/domains/jobs/types";
 import { cn } from "@/lib/cn";
 
@@ -96,7 +96,7 @@ export function JobsList({ jobs }: Props) {
 }
 
 function JobRow({ job }: { job: Job }) {
-  const caption = whenCaption(job);
+  const caption = lastActivityCaption(job);
   const address = (job.siteAddress ?? "").trim();
   const evidencePending = job.statsEvidenceV2Pending ?? 0;
   // statsSnagsV2Active counts needsWorkerAttention statuses

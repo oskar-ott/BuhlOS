@@ -48,8 +48,8 @@ export function UnderConstructionPanel({
           <p className="mx-auto mt-3 max-w-lg text-sm text-text-muted">{description}</p>
         ) : (
           <p className="mx-auto mt-3 max-w-lg text-sm text-text-muted">
-            This surface is being rebuilt. The audit-driven Phase A scaffold is in place;
-            the working implementation lands in a later phase.
+            This surface is still being built. Working flows live in their
+            own tabs or on the legacy app until this lands.
           </p>
         )}
         {legacyHref && legacyLabel ? (

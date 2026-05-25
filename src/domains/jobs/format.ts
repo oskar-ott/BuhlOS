@@ -128,6 +128,23 @@ export function whenCaption(
 }
 
 /**
+ * "When did something last happen on this job?" caption for list rows.
+ * Same shape as whenCaption but suppresses the createdAt fallback so a
+ * worker doesn't read "Created 41d ago" as "the job was last touched 41
+ * days ago" (per doc 31 §4.1). Until audit-driven last-activity feeds
+ * updatedAt, the row shows no caption when only createdAt is present.
+ */
+export function lastActivityCaption(
+  job: Pick<Job, "updatedAt" | "createdAt">,
+  now: Date = new Date()
+): string | null {
+  if (!job.updatedAt) return null;
+  const rel = relativeWhen(job.updatedAt, now);
+  if (!rel) return null;
+  return `Updated ${rel}`;
+}
+
+/**
  * The job-detail page's site context block falls through several optional
  * fields. Returns true when at least one of them is set, so the block
  * doesn't render with an empty header when the legacy job has no site info.
