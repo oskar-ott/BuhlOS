@@ -9,7 +9,7 @@ import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { GearListResponseSchema } from "@/domains/gear/schema";
 import type { GearAsset } from "@/domains/gear/types";
-import { PhilGearList } from "./gear-list";
+import { PhilGearList } from "@/components/phil/PhilGearList";
 
 export const dynamic = "force-dynamic";
 
