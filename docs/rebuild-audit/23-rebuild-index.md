@@ -59,14 +59,26 @@
 
 ## Phase D — shipped slices
 
-| Slice | Status | PR | Merge commit |
-| --- | --- | --- | --- |
-| D1 | ✅ shipped 2026-05-24 | [#11](https://github.com/oskar-ott/BuhlOS/pull/11) | `71a91fc` |
-| D2 | active (Session 5) | — | — |
-| D3 | planned (spec: [29](29-phase-d3-phil-capture-spec.md)) | — | — |
-| D4 | planned (spec: [30](30-phase-d4-admin-evidence-review-spec.md)) | — | — |
-| D5 | planned ([doc 25 §D5](25-phase-d-build-prompts.md)) | — | — |
-| D6 | planned ([doc 25 §D6](25-phase-d-build-prompts.md)) | — | — |
+> Phasing reconciliation: the original [doc 25](25-phase-d-build-prompts.md) split
+> D2/D3/D4/D5/D6 as evidence-API / Phil-capture / admin-Jobs-cutover /
+> activity-cutover / exit-polish. The implemented sequence per [doc 28](28-d2-d3-d4-evidence-qa-checklist.md)
+> §0 names the evidence loop's slices differently — see the table below
+> for the actual ship history.
+
+| Slice | Scope | Status | PR | Merge commit |
+| --- | --- | --- | --- | --- |
+| D1 | Phil jobs read-only foundation | ✅ shipped 2026-05-24 | [#11](https://github.com/oskar-ott/BuhlOS/pull/11) | `71a91fc` |
+| D2 | Evidence domain + API foundation | ✅ shipped 2026-05-25 | [#13](https://github.com/oskar-ott/BuhlOS/pull/13) | `f2d65f6` |
+| D3 | Phil evidence capture UI | ✅ shipped 2026-05-25 | [#14](https://github.com/oskar-ott/BuhlOS/pull/14) | `32cc15c` |
+| D4 | Admin evidence review UI (`/v2/jobs/[jobId]/evidence`) | ✅ shipped 2026-05-25 | [#15](https://github.com/oskar-ott/BuhlOS/pull/15) | `4be5f98` |
+| D5 | Evidence hardening (audit-log read + un-review + smoke) | ✅ shipped 2026-05-25 | [#16](https://github.com/oskar-ott/BuhlOS/pull/16) | `6a24eb0` |
+| D5-fix | Evidence drawer history retry (catches just-written audit row) | ✅ shipped 2026-05-25 | [#17](https://github.com/oskar-ott/BuhlOS/pull/17) | `952ee49` |
+| D.5 | Snags / defects loop (worker reports → admin transitions → status flows back) | ✅ shipped 2026-05-25 | [#18](https://github.com/oskar-ott/BuhlOS/pull/18) | `8f4cbe1` |
+| D.5-fix-1 | Snag drawer history retry (verbatim port of #17 to `SnagDrawer`) | ✅ shipped 2026-05-25 (Session 7) | [#19](https://github.com/oskar-ott/BuhlOS/pull/19) | `7d13599` |
+| D.5-fix-2 | Phil sees rejection reasons + tap-target hardening | ✅ shipped 2026-05-25 | [#20](https://github.com/oskar-ott/BuhlOS/pull/20) | `12572ef` |
+| D6 | Admin jobs index (`/v2/jobs`) — discoverability for D4 + D.5 | ✅ shipped 2026-05-25 (Session 7) | [#21](https://github.com/oskar-ott/BuhlOS/pull/21) | `d4ced43` |
+
+**Phase D status:** the operational loops Phase D set out to deliver are all live in production. Admin discoverability through the rebuild sidebar (D6) closes the last rollout gap. Remaining Phase D-adjacent work (cross-job snag triage queue, `/activity` feed, `/admin/jobs` cutover, full role-string normalisation in `api/_lib/auth.js#canWrite`) is documented in the individual runbooks under "Open questions / future work".
 
 ## Phase 1 / 1B supporting docs
 
