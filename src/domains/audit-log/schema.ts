@@ -29,15 +29,19 @@ import { z } from "zod";
  *
  * D2 adds `evidence.captured`. D4 adds `evidence.reviewed` +
  * `evidence.rejected`. D5 adds `evidence.unreviewed`. D.5 (snags)
- * adds `snag.created` + `snag.transitioned`. Future phases append
- * new verbs (`hours.submitted`, `gear.transferred`, ...) without
- * breaking existing rows.
+ * adds `snag.created` + `snag.transitioned`. E1a (ITPs) adds the
+ * five `itp.*` verbs covering the legacy api/job-itps.js mutating
+ * actions (attach, record, signoff, reopen, archive). Future phases
+ * append new verbs (`hours.submitted`, `gear.transferred`, ...)
+ * without breaking existing rows.
  *
  * `snag.transitioned` is one verb covering every status change — the
  * audit row's `metadata.from` + `metadata.to` carry the actual
- * direction. Splitting per direction (snag.resolved, snag.verified,
- * ...) would balloon the enum without giving downstream consumers
- * any extra information they don't already have.
+ * direction. The ITP verbs are split per action because they're
+ * already distinct operational events: a "point.recorded" is
+ * worker-side mid-flight, "signed_off" is admin-side terminal,
+ * etc. Splitting up-front keeps later admin-side activity filters
+ * straightforward.
  */
 export const AUDIT_ACTIONS = [
   "evidence.captured",
@@ -46,10 +50,20 @@ export const AUDIT_ACTIONS = [
   "evidence.unreviewed",
   "snag.created",
   "snag.transitioned",
+  "itp.attached",
+  "itp.point.recorded",
+  "itp.signed_off",
+  "itp.reopened",
+  "itp.archived",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
-export const AUDIT_TARGET_TYPES = ["evidence", "snag"] as const;
+export const AUDIT_TARGET_TYPES = [
+  "evidence",
+  "snag",
+  "itp_template",
+  "itp_instance",
+] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 
 /**

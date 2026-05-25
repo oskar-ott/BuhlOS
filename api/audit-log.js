@@ -43,7 +43,16 @@ const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
 const { readMonth } = require('./_lib/audit-log');
 
-const VALID_TARGET_TYPES = new Set(['evidence', 'snag']);
+// E1a adds itp_template + itp_instance so the future admin ITP queue
+// drawer history panel can filter by them. Kept in sync with
+// api/_lib/audit-log.js VALID_TARGET_TYPES and
+// src/domains/audit-log/schema.ts AUDIT_TARGET_TYPES.
+const VALID_TARGET_TYPES = new Set([
+  'evidence',
+  'snag',
+  'itp_template',
+  'itp_instance',
+]);
 const MAX_MONTHS = 12;
 const DEFAULT_MONTHS = 2;
 
