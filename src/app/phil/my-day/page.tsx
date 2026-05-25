@@ -2,7 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
+import { AttentionBanner } from "@/components/ui/AttentionBanner";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
@@ -38,9 +40,38 @@ export default async function MyDayPage() {
 
   const { todayEntry, recentEntries, fetchError } = await loadEntries(raw);
 
+  // Bible vNext §16.3 quick-win: surface the most recent rejected entry
+  // at the top of My day so the worker can act in five seconds. Only one
+  // banner stacks — §13 forbids more than one AttentionBanner per screen.
+  const rejectedEntry = recentEntries.find(
+    (e) => e.status === "rejected" && e.rejectedReason
+  );
+
   return (
     <PhilShell title="My day">
       <div className="space-y-4">
+        {rejectedEntry ? (
+          <AttentionBanner
+            chip="Rejected"
+            tone="danger"
+            title={`${formatShortDate(rejectedEntry.date)} hours need a fix`}
+            description={
+              <>
+                <span className="font-medium">Why:</span>{" "}
+                {rejectedEntry.rejectedReason}
+              </>
+            }
+            cta={
+              <Link
+                href="/phil/hours"
+                className="underline decoration-rose-400 decoration-2 underline-offset-2 hover:text-rose-950"
+              >
+                Fix &amp; resubmit →
+              </Link>
+            }
+          />
+        ) : null}
+
         <LogHoursSheet initialTodayEntry={todayEntry} recentEntries={recentEntries} />
 
         {fetchError ? (
@@ -149,38 +180,49 @@ function RecentEntriesTable({ entries }: { entries: ReadonlyArray<TimeEntry> }) 
   }
   return (
     <ul className="mt-3 divide-y divide-border">
-      {entries.slice(0, 7).map((entry) => (
-        <li key={entry.id} className="flex items-center justify-between py-2 text-sm">
-          <span className="font-medium text-text">{formatShortDate(entry.date)}</span>
-          <span className="text-text-muted">{formatShortHours(entry.totalHours)}</span>
-          <StatusPillInline status={entry.status} />
-        </li>
-      ))}
+      {entries.slice(0, 7).map((entry) => {
+        const isRejected = entry.status === "rejected" && entry.rejectedReason;
+        return (
+          <li key={entry.id} className="py-2">
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="font-medium text-text">{formatShortDate(entry.date)}</span>
+              <span className="text-text-muted">{formatShortHours(entry.totalHours)}</span>
+              <StatusChip tone={HOURS_TONE[entry.status]}>
+                {HOURS_LABEL[entry.status]}
+              </StatusChip>
+            </div>
+            {isRejected ? (
+              <p className="mt-1 text-xs leading-snug text-rose-800">
+                <span className="font-semibold">Why:</span>{" "}
+                {entry.rejectedReason}{" "}
+                <Link
+                  href="/phil/hours"
+                  className="ml-1 underline decoration-rose-400 decoration-2 underline-offset-2"
+                >
+                  Fix &amp; resubmit
+                </Link>
+              </p>
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
 
-function StatusPillInline({ status }: { status: TimeEntry["status"] }) {
-  const tone: Record<TimeEntry["status"], string> = {
-    draft: "bg-surface-subtle text-text border border-border",
-    submitted: "bg-sky-50 text-sky-800 border border-sky-200",
-    approved: "bg-emerald-50 text-emerald-800 border border-emerald-200",
-    rejected: "bg-rose-50 text-rose-800 border border-rose-200",
-  };
-  const label: Record<TimeEntry["status"], string> = {
-    draft: "Draft",
-    submitted: "Submitted",
-    approved: "Approved",
-    rejected: "Rejected",
-  };
-  return (
-    <span
-      className={`inline-flex items-center rounded-pill px-2 py-0.5 text-[11px] font-medium ${tone[status]}`}
-    >
-      {label[status]}
-    </span>
-  );
-}
+const HOURS_TONE: Record<TimeEntry["status"], StatusTone> = {
+  draft: "neutral",
+  submitted: "info",
+  approved: "success",
+  rejected: "danger",
+};
+
+const HOURS_LABEL: Record<TimeEntry["status"], string> = {
+  draft: "Draft",
+  submitted: "Submitted",
+  approved: "Approved",
+  rejected: "Rejected",
+};
 
 function formatShortDate(date: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;

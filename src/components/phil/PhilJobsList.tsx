@@ -3,10 +3,19 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { ChevronRight, MapPin } from "lucide-react";
-import { Pill } from "@/components/ui/Pill";
+import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { lastActivityCaption, statusLabel, statusTone } from "@/domains/jobs/format";
 import type { Job } from "@/domains/jobs/types";
+
+// Bridge the jobs-domain tone vocabulary onto the shared StatusChip
+// palette. JobStatusTone is neutral/success/warning today; the explicit
+// record keeps both sides aligned if either palette widens.
+const JOBS_CHIP_TONE: Record<ReturnType<typeof statusTone>, StatusTone> = {
+  neutral: "neutral",
+  success: "success",
+  warning: "warning",
+};
 
 interface Props {
   initialJobs: ReadonlyArray<Job>;
@@ -59,7 +68,9 @@ function JobRow({ job }: { job: Job }) {
       aria-label={`Open ${job.name}`}
     >
       <div className="flex shrink-0 items-start pt-1">
-        <Pill tone={statusTone(job.status)}>{statusLabel(job.status)}</Pill>
+        <StatusChip tone={JOBS_CHIP_TONE[statusTone(job.status)]}>
+          {statusLabel(job.status)}
+        </StatusChip>
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col justify-center">
