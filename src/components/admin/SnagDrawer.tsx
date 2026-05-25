@@ -98,9 +98,19 @@ export function SnagDrawer({
   // Fetch the audit history whenever the drawer opens on a new snag
   // OR when the snag status changes (a fresh write should refresh the
   // panel). Mirrors EvidenceDrawer's pattern.
+  //
+  // D5-FIX-1 (snags): Vercel Blob has a ~5s in-memory read cache per
+  // function instance (see api/_lib/blob.js BLOB_TTL_MS). After a
+  // transition resolves on instance A, the audit-log GET may land on
+  // instance B and miss the just-written row. We schedule a second
+  // fetch ~2.5s later so the History panel catches up without forcing
+  // the admin to close+reopen the drawer. Same fix as PR #17 for
+  // EvidenceDrawer — the snag write path uses the same audit-log
+  // infrastructure and the same race window.
   const snagId = snag?.id ?? null;
   const snagStatus = snag?.status ?? null;
   const snagJobId = snag?.jobId ?? null;
+  const snagUpdatedAt = snag?.updatedAt ?? null;
   useEffect(() => {
     if (!open || !snagId || !snagJobId) {
       setHistory({ kind: "idle" });
@@ -108,19 +118,51 @@ export function SnagDrawer({
     }
     let cancelled = false;
     setHistory({ kind: "loading" });
-    listAuditForTarget({
-      jobId: snagJobId,
-      targetType: "snag",
-      targetId: snagId,
-    }).then((r) => {
-      if (cancelled) return;
-      if (r.ok) setHistory({ kind: "ready", entries: r.data.entries });
-      else setHistory({ kind: "error", message: r.error.message || "Couldn't load history" });
-    });
+
+    const fetchHistory = () =>
+      listAuditForTarget({
+        jobId: snagJobId,
+        targetType: "snag",
+        targetId: snagId,
+      }).then((r) => {
+        if (cancelled) return;
+        if (r.ok) {
+          setHistory((prev) => {
+            // Only overwrite if the new fetch returned at least as
+            // many entries as the previous ready state — never drop
+            // entries the prior fetch had already shown.
+            const prevCount = prev.kind === "ready" ? prev.entries.length : 0;
+            if (r.data.entries.length < prevCount) return prev;
+            return { kind: "ready", entries: r.data.entries };
+          });
+        } else {
+          // Don't overwrite a ready state with an error from the retry;
+          // the first fetch's data is good enough to display.
+          setHistory((prev) => {
+            if (prev.kind === "ready") return prev;
+            return {
+              kind: "error",
+              message:
+                r.error.status === 403
+                  ? "You don't have permission to read the history."
+                  : r.error.message || "Couldn't load history",
+            };
+          });
+        }
+      });
+
+    fetchHistory();
+    // Retry once after the Vercel Blob cache propagation window so the
+    // newly-written audit row shows up. Cheap (one GET) and bounded.
+    const retryHandle = window.setTimeout(() => {
+      if (!cancelled) fetchHistory();
+    }, 2500);
+
     return () => {
       cancelled = true;
+      window.clearTimeout(retryHandle);
     };
-  }, [open, snagId, snagStatus, snagJobId]);
+  }, [open, snagId, snagJobId, snagStatus, snagUpdatedAt]);
 
   if (!open || !snag) return null;
 
