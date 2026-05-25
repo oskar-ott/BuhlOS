@@ -73,8 +73,51 @@ async function getCurrentUser(req) {
   return safe;
 }
 
+// Role-tier helpers. The canonical taxonomy lives in
+// src/lib/auth/roles.ts (TypeScript-only, can't be required from here)
+// and in public/login.html landingFor(). Kept in sync with both:
+// adding a role here means adding it there too.
+//
+// Pre-D6 the gates below only matched the bare strings
+// 'admin' / 'tradie' / 'leadingHand', which 403'd every user with role
+// 'boss' / 'owner' / 'manager' / 'office' / 'pm' / 'estimator'
+// (admin-tier) or 'apprentice' / 'labourer' / 'electrician' (field-tier)
+// or the lowercase LH variants — even though those roles already had
+// admin-shell access via login.html.
+//
+// normaliseRole lowercases so the legacy camelCase 'leadingHand' and the
+// canonical 'leadinghand' (per roles.ts) both resolve.
+const ADMIN_ROLES = new Set([
+  'admin', 'boss', 'owner', 'manager', 'office', 'pm', 'estimator',
+]);
+const LEADING_HAND_ROLES = new Set([
+  'leadinghand', 'leading_hand', 'leading-hand', 'lh',
+]);
+const FIELD_ROLES = new Set([
+  'tradie', 'apprentice', 'labourer', 'electrician',
+]);
+
+function normaliseRole(raw) {
+  return String(raw == null ? '' : raw).toLowerCase();
+}
+function isAdminRole(role) {
+  return ADMIN_ROLES.has(normaliseRole(role));
+}
+function isLeadingHandRole(role) {
+  return LEADING_HAND_ROLES.has(normaliseRole(role));
+}
+function isFieldRole(role) {
+  return FIELD_ROLES.has(normaliseRole(role));
+}
+
 // Middleware-style: returns user or sends error and returns null.
 // opts: { roles: ['admin','tradie','client'], jobId: 'xxx' }
+//
+// `roles` opt-list is matched case-sensitively against `user.role` for
+// backwards compatibility — endpoints that pass it (e.g. an admin-only
+// surface) get the exact string they asked for. `jobId` access uses the
+// normalised admin-role check so an `office` or `boss` user reaches
+// per-job endpoints the same way an `admin` does.
 async function requireAuth(req, res, opts = {}) {
   const user = await getCurrentUser(req);
   if (!user) {
@@ -87,7 +130,7 @@ async function requireAuth(req, res, opts = {}) {
   }
   if (opts.jobId) {
     const hasAccess =
-      user.role === 'admin' ||
+      isAdminRole(user.role) ||
       (user.assignedJobIds || []).includes(opts.jobId);
     if (!hasAccess) {
       res.status(403).json({ error: 'no access to job' });
@@ -97,27 +140,37 @@ async function requireAuth(req, res, opts = {}) {
   return user;
 }
 
-// Check if a user can WRITE to a job (clients can't)
+// Check if a user can WRITE to a job. Admin-tier writes any job;
+// field + LH tiers write jobs they're assigned to; clients are
+// read-only.
 function canWrite(user, jobId) {
   if (!user) return false;
-  if (user.role === 'admin') return true;
-  if (user.role === 'tradie' || user.role === 'leadingHand') {
+  if (isAdminRole(user.role)) return true;
+  if (isLeadingHandRole(user.role) || isFieldRole(user.role)) {
     return (user.assignedJobIds || []).includes(jobId);
   }
-  return false; // client is read-only
+  return false; // client + anything unknown is read-only
 }
 
 // Check if a user can MANAGE a job (edit setup, crew, client).
-// Admin can manage any job; leadingHand only their assigned jobs.
+// Admin-tier manages any job; LH manages assigned jobs. Field workers
+// and clients cannot manage.
 function canManageJob(user, jobId) {
   if (!user) return false;
-  if (user.role === 'admin') return true;
-  if (user.role === 'leadingHand') return (user.assignedJobIds || []).includes(jobId);
+  if (isAdminRole(user.role)) return true;
+  if (isLeadingHandRole(user.role)) return (user.assignedJobIds || []).includes(jobId);
   return false;
 }
 
 module.exports = {
   SESSION_COOKIE,
+  ADMIN_ROLES,
+  LEADING_HAND_ROLES,
+  FIELD_ROLES,
+  normaliseRole,
+  isAdminRole,
+  isLeadingHandRole,
+  isFieldRole,
   signSession,
   verifySession,
   setSessionCookie,
