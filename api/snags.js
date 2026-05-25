@@ -58,8 +58,14 @@
 // Both calls are best-effort — wrapped in `.catch(() => {})` so a log
 // failure on either path never blocks the snag write.
 
-const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite } = require('./_lib/auth');
+const { readBlob, readBlobFresh, writeBlob, setNoCache } = require('./_lib/blob');
+const {
+  requireAuth,
+  canWrite,
+  isAdminRole,
+  isFieldRole,
+  isLeadingHandRole,
+} = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
 const { appendAudit: appendLegacyAudit } = require('./_lib/job-audit');
 const { append: appendAuditLog } = require('./_lib/audit-log');
@@ -75,8 +81,12 @@ const VALID_STATUSES = new Set([
 const VALID_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
 const VALID_STAGES = new Set(['roughIn', 'fitOff']);
 
-const ADMIN_ROLES = new Set(['admin', 'boss', 'owner', 'manager', 'office']);
-const FIELD_ROLES = new Set(['tradie', 'apprentice', 'leadingHand']);
+// Role tiers delegate to api/_lib/auth.js (PR #23 normalisation pass) so
+// boss/owner/manager/office/pm/estimator pass the admin gate and
+// labourer/electrician + lowercase LH variants pass the field gate.
+// LH is a separate tier in auth.js; for snag transitions we treat
+// LH the same as the field tier (claim/drop, mark resolved as
+// creator/assignee) so the legacy `leadingHand` behaviour is preserved.
 
 const TITLE_MAX = 120;
 const DESCRIPTION_MAX = 1000;
@@ -116,10 +126,10 @@ function effectiveTasks(job, area, stage) {
 }
 
 function isAdmin(role) {
-  return ADMIN_ROLES.has(role);
+  return isAdminRole(role);
 }
 function isField(role) {
-  return FIELD_ROLES.has(role);
+  return isFieldRole(role) || isLeadingHandRole(role);
 }
 
 const ALLOWED_TRANSITIONS = new Set([
@@ -179,7 +189,12 @@ function canRoleTransition(from, to, user, snag) {
 
 function validateCreateBody(body, job) {
   const errors = [];
-  if (!body || typeof body !== 'object') return ['body must be an object'];
+  // Early-exit shape must match the happy path: { errors, ... } so the
+  // caller's `v.errors && v.errors.length` guard works. Returning a bare
+  // array here used to crash on the next-line title.slice() call (500).
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { errors: ['body must be an object'] };
+  }
 
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   if (!title) errors.push('title is required');
@@ -465,15 +480,27 @@ async function transitionSnag(req, res, user, jobId) {
   }
 
   const dataKeyStr = dataKey(jobId);
-  const data = await readBlob(dataKeyStr, emptyData());
+  // Cache-bust this read. Rapid back-to-back transitions on the same
+  // snag can otherwise land on a warm instance with a stale cached
+  // status, which makes canTransition reject the second click as
+  // `invalid transition: open → resolved` even though the first click
+  // already moved it to in_progress on another instance. readBlobFresh
+  // skips the 5s in-memory cache so we always compare against truth.
+  // Cost: one extra list+fetch per transition — negligible vs the GET
+  // list path which still uses cached reads.
+  const data = await readBlobFresh(dataKeyStr, emptyData());
   const arr = Array.isArray(data.snagsV2) ? data.snagsV2 : [];
   const idx = arr.findIndex((s) => s && s.id === snagId);
   if (idx === -1) return res.status(404).json({ error: 'snag not found on job' });
   const current = arr[idx];
 
   if (!canTransition(current.status, nextStatus)) {
+    // 409 Conflict — the snag's current state genuinely doesn't allow
+    // this transition (state-machine violation), distinct from a 400
+    // request-validation error. Client maps 409 to the friendly "may
+    // have changed" message and lets real 400s surface their message.
     return res
-      .status(400)
+      .status(409)
       .json({ error: `invalid transition: ${current.status} → ${nextStatus}` });
   }
   if (!canRoleTransition(current.status, nextStatus, user, current)) {

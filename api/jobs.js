@@ -269,10 +269,23 @@ module.exports = async (req, res) => {
             const s = e && e.status;
             if (s === 'submitted' || s === 'pending_upload') evidencePendingV2++;
           }
+          // Match needsWorkerAttention semantics from
+          // src/domains/snags/format.ts — open|in_progress|resolved
+          // PLUS rejected. Rejected snags carry an admin pushback the
+          // worker still has to handle (re-raise or accept) so they
+          // count toward "Snags N" on the admin jobs index. Verified
+          // and closed are the only fully-handled states.
           let snagsActiveV2 = 0;
           for (const s of snagsV2Arr) {
             const st = s && s.status;
-            if (st === 'open' || st === 'in_progress' || st === 'resolved') snagsActiveV2++;
+            if (
+              st === 'open' ||
+              st === 'in_progress' ||
+              st === 'resolved' ||
+              st === 'rejected'
+            ) {
+              snagsActiveV2++;
+            }
           }
           return Object.assign({}, j, {
             statsPct:               stats.pct,

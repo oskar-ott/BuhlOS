@@ -830,4 +830,47 @@ describe("snags client wrappers", () => {
     expect(url).toContain("action=transition");
     expect(init?.method).toBe("POST");
   });
+
+  it("transitionSnag surfaces 409 from the server (stale state-machine conflict)", async () => {
+    // Server returns 409 Conflict when canTransition rejects (e.g. the
+    // snag was already moved by a rapid back-to-back click). UI maps
+    // 409 to the "may have changed since you loaded the page" message;
+    // here we just confirm the client preserves the status code.
+    installFetch(
+      () =>
+        new Response(
+          JSON.stringify({ error: "invalid transition: open → resolved" }),
+          { status: 409, headers: { "content-type": "application/json" } }
+        )
+    );
+    const r = await transitionSnag("birdwood-iv3232", {
+      snagId: "sn_12345678",
+      nextStatus: "resolved",
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.status).toBe(409);
+    }
+  });
+
+  it("transitionSnag surfaces 400 from the server with the server message", async () => {
+    // After the 409 split, 400 is reserved for genuine request errors
+    // (bad snagId, missing reason, etc.). Client should pass the server
+    // message through rather than hiding it behind a friendly catch-all.
+    installFetch(
+      () =>
+        new Response(
+          JSON.stringify({ error: "nextStatus must be a valid snag status" }),
+          { status: 400, headers: { "content-type": "application/json" } }
+        )
+    );
+    const r = await transitionSnag("birdwood-iv3232", {
+      snagId: "sn_12345678",
+      nextStatus: "verified",
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.status).toBe(400);
+    }
+  });
 });

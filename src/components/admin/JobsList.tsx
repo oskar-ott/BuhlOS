@@ -99,8 +99,11 @@ function JobRow({ job }: { job: Job }) {
   const caption = whenCaption(job);
   const address = (job.siteAddress ?? "").trim();
   const evidencePending = job.statsEvidenceV2Pending ?? 0;
-  const snagsActive = job.statsSnagsV2Active ?? 0;
-  const hasPending = evidencePending > 0 || snagsActive > 0;
+  // statsSnagsV2Active counts needsWorkerAttention statuses
+  // (open|in_progress|resolved|rejected) — rejected snags still need a
+  // human to handle them.
+  const snagsNeedingAttention = job.statsSnagsV2Active ?? 0;
+  const hasPending = evidencePending > 0 || snagsNeedingAttention > 0;
 
   return (
     <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-stretch sm:gap-3">
@@ -147,9 +150,9 @@ function JobRow({ job }: { job: Job }) {
             href={`/v2/jobs/${encodeURIComponent(job.id)}/snags`}
             icon={<AlertOctagon aria-hidden="true" className="h-3.5 w-3.5" />}
             label="Snags"
-            count={snagsActive}
+            count={snagsNeedingAttention}
             highlightWhenNonZero
-            ariaLabel={`Open ${snagsActive} active snags for ${job.name}`}
+            ariaLabel={`Open ${snagsNeedingAttention} snags needing attention for ${job.name}`}
           />
           <Link
             href={`/v2/jobs/${encodeURIComponent(job.id)}/evidence` as Route}
