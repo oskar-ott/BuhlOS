@@ -43,7 +43,7 @@ const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
 const { readMonth } = require('./_lib/audit-log');
 
-const VALID_TARGET_TYPES = new Set(['evidence']);
+const VALID_TARGET_TYPES = new Set(['evidence', 'snag']);
 const MAX_MONTHS = 12;
 const DEFAULT_MONTHS = 2;
 
@@ -105,7 +105,12 @@ module.exports = async (req, res) => {
     // Tradie sees only entries where they were the actor OR the target
     // evidence was captured by them. Look up the evidence row once to
     // resolve ownership without re-reading per entry.
-    if (user.role === 'tradie') {
+    //
+    // Snag targetType: every field user assigned to the job can see
+    // the whole snag history (same visibility as the snag itself in
+    // api/snags.js GET). No per-actor filter applies. Tradie evidence
+    // filter is unchanged.
+    if (user.role === 'tradie' && targetType === 'evidence') {
       let evCapturedById = null;
       try {
         const data = await readBlob(dataKey(jobId), { evidence: [] });

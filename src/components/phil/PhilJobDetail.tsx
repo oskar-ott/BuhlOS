@@ -26,8 +26,10 @@ import {
 } from "@/domains/jobs/format";
 import type { Job, JobStage } from "@/domains/jobs/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
+import type { SnagItem } from "@/domains/snags/types";
 import { CaptureSheet } from "./CaptureSheet";
 import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
+import { JobSnagsPanel } from "./JobSnagsPanel";
 import { cn } from "@/lib/cn";
 
 interface Props {
@@ -35,6 +37,10 @@ interface Props {
   /** Initial evidence list fetched server-side (server filters to own
    *  captures for tradie; admin/LH see all). May be empty on load. */
   initialEvidence?: ReadonlyArray<EvidenceItem>;
+  /** Initial snags list fetched server-side. May be empty. */
+  initialSnags?: ReadonlyArray<SnagItem>;
+  /** Current viewer — id + role drive snag transition button gating. */
+  viewer?: { id: string; role: string };
 }
 
 /**
@@ -61,7 +67,7 @@ interface Props {
  *   docs/rebuild-audit/29-phase-d3-phil-capture-spec.md §3 + §7
  *   docs/rebuild-audit/24-phase-d-jobs-evidence-plan.md §6 Phil
  */
-export function PhilJobDetail({ job, initialEvidence }: Props) {
+export function PhilJobDetail({ job, initialEvidence, initialSnags, viewer }: Props) {
   const groups = useMemo(() => visibleAreaGroups(job.areaGroups), [job.areaGroups]);
 
   // Flatten the visible areas across groups so the default selection
@@ -377,6 +383,16 @@ export function PhilJobDetail({ job, initialEvidence }: Props) {
       </Card>
 
       <TodaysCapturesStrip items={evidenceItems} banner={captureBanner} />
+
+      {viewer ? (
+        <JobSnagsPanel
+          job={job}
+          initialSnags={initialSnags}
+          context={{ stage, areaId: selectedAreaId }}
+          recentEvidence={evidenceItems}
+          viewer={viewer}
+        />
+      ) : null}
 
       <CaptureSheet
         open={captureOpen}

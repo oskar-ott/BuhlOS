@@ -55,8 +55,28 @@ describe("AuditLogEntrySchema", () => {
 
   it("rejects unknown targetType values", () => {
     expect(
-      AuditLogEntrySchema.safeParse({ ...validEntry, targetType: "snag" }).success
+      AuditLogEntrySchema.safeParse({ ...validEntry, targetType: "rfi" }).success
     ).toBe(false);
+  });
+
+  it("accepts the D.5 snag targetType + verbs", () => {
+    const snagCreate = {
+      ...validEntry,
+      action: "snag.created" as const,
+      targetType: "snag" as const,
+      targetId: "sn_abc12345",
+      summary: 'snag created — "Plug missing earth"',
+      metadata: { priority: "high", status: "open" },
+    };
+    expect(AuditLogEntrySchema.safeParse(snagCreate).success).toBe(true);
+
+    const snagTransition = {
+      ...snagCreate,
+      action: "snag.transitioned" as const,
+      summary: "snag in_progress → resolved",
+      metadata: { from: "in_progress", to: "resolved" },
+    };
+    expect(AuditLogEntrySchema.safeParse(snagTransition).success).toBe(true);
   });
 
   it("rejects when required fields are missing", () => {
@@ -89,21 +109,28 @@ describe("AuditLogEntrySchema", () => {
   it("enum exports stay in sync", () => {
     // D5 added evidence.unreviewed for the reviewed → submitted
     // transition so the History panel can distinguish it from the
-    // original review.
+    // original review. D.5 added snag.created + snag.transitioned and
+    // the 'snag' targetType.
     expect([...AUDIT_ACTIONS].sort()).toEqual([
       "evidence.captured",
       "evidence.rejected",
       "evidence.reviewed",
       "evidence.unreviewed",
+      "snag.created",
+      "snag.transitioned",
     ]);
-    expect([...AUDIT_TARGET_TYPES]).toEqual(["evidence"]);
+    expect([...AUDIT_TARGET_TYPES].sort()).toEqual(["evidence", "snag"]);
   });
 
   it("AuditActionSchema and AuditTargetTypeSchema enforce the same set", () => {
     expect(AuditActionSchema.safeParse("evidence.captured").success).toBe(true);
     expect(AuditActionSchema.safeParse("evidence.deleted").success).toBe(false);
     expect(AuditTargetTypeSchema.safeParse("evidence").success).toBe(true);
-    expect(AuditTargetTypeSchema.safeParse("snag").success).toBe(false);
+    expect(AuditTargetTypeSchema.safeParse("snag").success).toBe(true);
+    expect(AuditActionSchema.safeParse("snag.created").success).toBe(true);
+    expect(AuditActionSchema.safeParse("snag.transitioned").success).toBe(true);
+    expect(AuditActionSchema.safeParse("snag.deleted").success).toBe(false);
+    expect(AuditTargetTypeSchema.safeParse("rfi").success).toBe(false);
   });
 });
 

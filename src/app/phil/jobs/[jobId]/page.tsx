@@ -8,8 +8,10 @@ import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
+import { SnagListResponseSchema } from "@/domains/snags/schema";
 import type { Job } from "@/domains/jobs/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
+import type { SnagItem } from "@/domains/snags/types";
 
 export const dynamic = "force-dynamic";
 
@@ -52,14 +54,18 @@ export default async function PhilJobDetailPage({ params }: PageParams) {
   }
 
   const result = await loadJob(raw, jobId);
-  // Initial evidence load happens server-side so the strip renders with
-  // the worker's own captures already present on first paint — no
-  // client-side spinner for the empty case. Failure is non-blocking:
-  // an empty list just shows the empty state, the worker can still
-  // capture, and the server will return real data on the next refresh.
-  const initialEvidence = result.kind === "ok"
-    ? await loadInitialEvidence(raw, jobId)
-    : [];
+  // Initial evidence + snags load happens server-side so the panels
+  // render with content already present on first paint — no client-side
+  // spinner for the empty case. Failure is non-blocking: an empty list
+  // just shows the empty state, the worker can still create new items,
+  // and the server will return real data on the next refresh.
+  const [initialEvidence, initialSnags] =
+    result.kind === "ok"
+      ? await Promise.all([
+          loadInitialEvidence(raw, jobId),
+          loadInitialSnags(raw, jobId),
+        ])
+      : [[], []];
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
     return (
@@ -107,7 +113,15 @@ export default async function PhilJobDetailPage({ params }: PageParams) {
 
   return (
     <PhilShell title={result.job.name}>
-      <PhilJobDetail job={result.job} initialEvidence={initialEvidence} />
+      <PhilJobDetail
+        job={result.job}
+        initialEvidence={initialEvidence}
+        initialSnags={initialSnags}
+        viewer={{
+          id: session.userId ?? session.sub ?? "",
+          role: String(session.role ?? ""),
+        }}
+      />
     </PhilShell>
   );
 }
@@ -183,6 +197,40 @@ async function loadInitialEvidence(
     const parsed = EvidenceListResponseSchema.safeParse(body);
     if (!parsed.success) return [];
     return parsed.data.evidence;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch the snags for this job. Server returns every snag on the job
+ * for every field user assigned to it (same visibility as the admin
+ * queue). Non-blocking: a failure returns [] and the panel shows its
+ * empty state.
+ */
+async function loadInitialSnags(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<SnagItem[]> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(
+      `${base}/api/snags?jobId=${encodeURIComponent(jobId)}`,
+      {
+        cache: "no-store",
+        headers: cookieValue
+          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
+          : undefined,
+      }
+    );
+    if (!res.ok) return [];
+    const body = await res.json();
+    const parsed = SnagListResponseSchema.safeParse(body);
+    if (!parsed.success) return [];
+    return parsed.data.snags;
   } catch {
     return [];
   }

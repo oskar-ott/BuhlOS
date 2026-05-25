@@ -26,8 +26,12 @@ const VALID_ACTIONS = new Set([
   'evidence.reviewed',
   'evidence.rejected',
   'evidence.unreviewed',
+  // Phase D.5 (snags). One verb covers every status change; the
+  // metadata.from / metadata.to fields carry the direction.
+  'snag.created',
+  'snag.transitioned',
 ]);
-const VALID_TARGET_TYPES = new Set(['evidence']);
+const VALID_TARGET_TYPES = new Set(['evidence', 'snag']);
 
 const MAX_ENTRIES_PER_MONTH = 5000;
 const TRIM_TO_PER_MONTH = 4000;
