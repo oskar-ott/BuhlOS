@@ -245,9 +245,15 @@ module.exports = async (req, res) => {
 
       enriched = await Promise.all(enriched.map(async j => {
         try {
-          const [d, tagsBlob] = await Promise.all([
+          const [d, tagsBlob, itpsBlob] = await Promise.all([
             readBlob(`jobs/${j.id}/data.json`, { dwellings: {}, snags: [] }),
             readBlob(`jobs/${j.id}/tags.json`, { tags: [] }).catch(() => ({ tags: [] })),
+            // E1a: per-job ITP instances live on a separate blob, not on
+            // data.json — see api/job-itps.js. One extra read per job;
+            // tolerated for the list-view scale and parity with the
+            // tags.json fan-out above. Missing blob (no ITPs ever
+            // attached) falls back to { instances: [] }.
+            readBlob(`jobs/${j.id}/itps.json`, { instances: [] }).catch(() => ({ instances: [] })),
           ]);
           const stats = computeJobStats(j, d);
           let expiredTags = 0, expiringTags = 0;
@@ -287,6 +293,22 @@ module.exports = async (req, res) => {
               snagsActiveV2++;
             }
           }
+          // E1a: count active ITP instances for the /v2/jobs chip. Matches
+          // src/domains/itp/format.ts isActive — pending|in-progress|witnessed
+          // and !archived. Signed-off is the only terminal state; archived
+          // is excluded so a graveyard of soft-deleted ITPs doesn't inflate
+          // the chip count.
+          const itpsArr = Array.isArray(itpsBlob && itpsBlob.instances)
+            ? itpsBlob.instances
+            : [];
+          let itpsActive = 0;
+          for (const inst of itpsArr) {
+            if (!inst || inst.archived) continue;
+            const st = inst.status;
+            if (st === 'pending' || st === 'in-progress' || st === 'witnessed') {
+              itpsActive++;
+            }
+          }
           return Object.assign({}, j, {
             statsPct:               stats.pct,
             statsOpenSnags:         stats.openSnags,
@@ -296,6 +318,7 @@ module.exports = async (req, res) => {
             statsExpiringTags:      expiringTags,
             statsEvidenceV2Pending: evidencePendingV2,
             statsSnagsV2Active:     snagsActiveV2,
+            statsItpsActive:        itpsActive,
           });
         } catch (e) {
           // Fail soft — caller still gets the core job, stats just absent.
@@ -305,6 +328,7 @@ module.exports = async (req, res) => {
             statsAreaCount: 0,
             statsExpiredTags: 0, statsExpiringTags: 0,
             statsEvidenceV2Pending: 0, statsSnagsV2Active: 0,
+            statsItpsActive: 0,
           });
         }
       }));

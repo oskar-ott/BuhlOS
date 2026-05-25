@@ -30,8 +30,29 @@ const VALID_ACTIONS = new Set([
   // metadata.from / metadata.to fields carry the direction.
   'snag.created',
   'snag.transitioned',
+  // Phase E1a (ITPs). One verb per legacy api/job-itps.js mutating
+  // action: attach (admin attaches a template), point.recorded (worker
+  // records a point — covers the auto-advance from pending →
+  // in-progress and in-progress → witnessed since both ride the same
+  // POST), signed_off (admin signs off — terminal), reopened (admin
+  // reverses signoff), archived (admin/LH soft-archives an instance).
+  // Kept in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'itp.attached',
+  'itp.point.recorded',
+  'itp.signed_off',
+  'itp.reopened',
+  'itp.archived',
 ]);
-const VALID_TARGET_TYPES = new Set(['evidence', 'snag']);
+const VALID_TARGET_TYPES = new Set([
+  'evidence',
+  'snag',
+  // E1a: 'itp_instance' is the per-job ITP we write/read most often.
+  // 'itp_template' is reserved for the E2 template-editor rebuild —
+  // accepted now so when E2 lands the verbs can write against it
+  // without bouncing a schema migration through the storage layer.
+  'itp_template',
+  'itp_instance',
+]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;
 const TRIM_TO_PER_MONTH = 4000;

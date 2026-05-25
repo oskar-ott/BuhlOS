@@ -110,16 +110,28 @@ describe("AuditLogEntrySchema", () => {
     // D5 added evidence.unreviewed for the reviewed → submitted
     // transition so the History panel can distinguish it from the
     // original review. D.5 added snag.created + snag.transitioned and
-    // the 'snag' targetType.
+    // the 'snag' targetType. E1a adds the five itp.* verbs covering
+    // the legacy api/job-itps.js mutating actions + the itp_template
+    // / itp_instance target types.
     expect([...AUDIT_ACTIONS].sort()).toEqual([
       "evidence.captured",
       "evidence.rejected",
       "evidence.reviewed",
       "evidence.unreviewed",
+      "itp.archived",
+      "itp.attached",
+      "itp.point.recorded",
+      "itp.reopened",
+      "itp.signed_off",
       "snag.created",
       "snag.transitioned",
     ]);
-    expect([...AUDIT_TARGET_TYPES].sort()).toEqual(["evidence", "snag"]);
+    expect([...AUDIT_TARGET_TYPES].sort()).toEqual([
+      "evidence",
+      "itp_instance",
+      "itp_template",
+      "snag",
+    ]);
   });
 
   it("AuditActionSchema and AuditTargetTypeSchema enforce the same set", () => {
@@ -131,6 +143,16 @@ describe("AuditLogEntrySchema", () => {
     expect(AuditActionSchema.safeParse("snag.transitioned").success).toBe(true);
     expect(AuditActionSchema.safeParse("snag.deleted").success).toBe(false);
     expect(AuditTargetTypeSchema.safeParse("rfi").success).toBe(false);
+    // ITP verbs + target types accepted; nonsense rejected.
+    expect(AuditActionSchema.safeParse("itp.attached").success).toBe(true);
+    expect(AuditActionSchema.safeParse("itp.point.recorded").success).toBe(true);
+    expect(AuditActionSchema.safeParse("itp.signed_off").success).toBe(true);
+    expect(AuditActionSchema.safeParse("itp.reopened").success).toBe(true);
+    expect(AuditActionSchema.safeParse("itp.archived").success).toBe(true);
+    expect(AuditActionSchema.safeParse("itp.deleted").success).toBe(false);
+    expect(AuditTargetTypeSchema.safeParse("itp_instance").success).toBe(true);
+    expect(AuditTargetTypeSchema.safeParse("itp_template").success).toBe(true);
+    expect(AuditTargetTypeSchema.safeParse("itp").success).toBe(false);
   });
 });
 

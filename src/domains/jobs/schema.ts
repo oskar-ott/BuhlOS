@@ -172,6 +172,10 @@ export const JobSchema = z
     /** Phase D6: count of rebuild snags (snagsV2) in active states —
      *  open / in_progress / resolved. */
     statsSnagsV2Active: z.number().optional(),
+    /** Phase E1a: count of ITP instances in active (non-terminal,
+     *  non-archived) states — pending / in-progress / witnessed.
+     *  Drives the "ITPs N" chip on /v2/jobs (admin jobs index). */
+    statsItpsActive: z.number().optional(),
   })
   .passthrough();
 
