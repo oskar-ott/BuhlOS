@@ -51,6 +51,14 @@
 | 30 | [30-phase-d4-admin-evidence-review-spec.md](30-phase-d4-admin-evidence-review-spec.md) | D4 spec: admin evidence review surface (queue + drawer + reject modal), mounted at `/v2/jobs/[jobId]/evidence` (no `/admin/jobs` cutover bundled), file plan in `src/components/admin/`, state machine, acceptance criteria, paste-ready build prompt for Session 7. Docs-only. | Session 7 (D4 build) — paste the §13 build prompt. | After D3 ships. |
 | 31 | [31-interface-usability-post-d1-addendum.md](31-interface-usability-post-d1-addendum.md) | Post-D1 observations: real `/api/jobs` shape, doc 27 §15 quick-win status, existing RSC client-manifest debt, screen-critique updates from authed smoke, small polish-PR candidates, anti-patterns to actively avoid in D2/D3/D4, field test additions, new open questions. Delta to doc 27 — doc 27 remains binding. Docs-only. | Every D2/D3/D4 build session (alongside doc 27). Oskar (§5 polish list + §8 open questions). | Before D2/D3/D4 build sessions; reviewed at D6 polish. |
 
+## Phase E — planning
+
+| # | Doc | Purpose | Who should read | When |
+| --- | --- | --- | --- | --- |
+| 32 | [32-phase-e-plan.md](32-phase-e-plan.md) | Phase E plan: candidate comparison (ITP / RFIs / Materials), recommendation that **E1 = ITP / QA checklist foundation**, full data model + state machine + routes + API + Phil UX + Admin UX + rollout + 10 open founder decisions. Docs-only. | Oskar (founder decisions §16). Future Phase E build sessions (paste §17/§18 prompts). | Before E1 build session opens. |
+| 33 | [33-phase-e-build-prompts.md](33-phase-e-build-prompts.md) | Paste-ready autonomous build prompts: **E1 ITP build**, **E1-QA verification**, **E2 RFI planning (later)**, **E3 Materials planning (later)**. Docs-only. | Each Phase E session pastes the relevant prompt at start. | When opening each Phase E session. |
+| 34 | [34-phase-e-testing-checklist.md](34-phase-e-testing-checklist.md) | QA gate for Phase E: pre-merge checks (state machine matrix, four-eyes enforcement, validation invariants, audit dual-write), preview verification, production smoke, regression matrix, test-data conventions, rollback criteria, phase exit gates. | E1 build session (paste §A in PR test plan). E1-QA session (paste §B–§D). Oskar (§G exit gates). | Throughout Phase E execution. |
+
 ## Phase C — runbook
 
 | Doc | Purpose |
