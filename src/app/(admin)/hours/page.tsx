@@ -56,7 +56,7 @@ export default async function HoursOverviewPage() {
             label="Approved (this view)"
             count={approved.length}
             tone="success"
-            description="Already approved entries returned by the approver queue. Bulk-export lands in Phase F."
+            description="Already approved entries returned by the approver queue. Bulk export to payroll lives on legacy /admin/hours today."
           />
           <QueueCard
             label="Rejected (this view)"
@@ -84,14 +84,14 @@ export default async function HoursOverviewPage() {
 
         <UnderConstructionPanel
           feature="CSV export · payroll finalisation · Xero push"
-          description="Approved-week CSV download, payroll-run snapshots and the Xero push live in Phase F. The legacy /admin/hours surface keeps these flows working today via the existing endpoints."
+          description="Approved-week CSV download, payroll snapshots and the Xero push aren't wired into this surface yet. The legacy /admin/hours page keeps those flows working today on the same endpoints."
           legacyHref="/admin/hours"
           legacyLabel="Use legacy /admin/hours for export"
         />
 
         <UnderConstructionPanel
           feature="Bulk approve · weekly rollup · filters"
-          description="Bulk approving a worker's week, the by-worker / by-job aggregation views and date-range filters land later in Phase B once the single-entry loop is verified in production for one week (see ADR-007)."
+          description="Approving a worker's whole week in one tap, by-worker / by-job aggregation and date-range filters aren't wired here yet. Legacy /admin/hours still handles bulk-approve in the meantime."
           legacyHref="/admin/hours"
           legacyLabel="Legacy bulk-approve still works"
         />
