@@ -325,7 +325,8 @@ function StatusLine({
         <p className="rounded-card bg-rose-50 px-3 py-2 text-sm text-rose-900">
           <span className="font-medium">Rejected:</span> {entry.rejectedReason}
           <span className="mt-1 block text-xs text-rose-700">
-            Open the legacy My day to edit and resubmit (full Phil edit flow lands in Phase C).
+            Open the legacy My day to edit and resubmit — the in-Phil edit
+            flow is still being built.
           </span>
         </p>
       ) : null}
