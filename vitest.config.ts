@@ -7,6 +7,13 @@ export default defineConfig({
       "@": resolve(__dirname, "./src"),
     },
   },
+  // tsconfig.json sets jsx="preserve" so Next.js owns the production
+  // transform. For vitest's node test runner there is no downstream — we
+  // need esbuild to emit a usable runtime. "automatic" matches React 19's
+  // production behaviour (no React import required in source files).
+  esbuild: {
+    jsx: "automatic",
+  },
   test: {
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],

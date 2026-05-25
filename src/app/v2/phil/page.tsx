@@ -5,46 +5,24 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 
 /**
- * /v2/phil — Phil landing / profile placeholder.
+ * /v2/phil — Phil landing / "More" tab profile placeholder.
  *
- * Parallel to legacy public/phil.html which keeps serving /phil via
- * vercel.json. Authenticated visitors get the four live loops linked
- * below (My day, Jobs, Gear, Hours history); the "More" tab still lands
- * here until a profile/settings surface is built.
+ * Per the Interface Bible vNext §16.4 (Pass 1 — "Demote the four nav
+ * cards on Phil home"), this surface no longer duplicates the bottom-tab
+ * links to /phil/my-day, /phil/jobs and /phil/gear. The tab bar owns
+ * those. What remains is: a short orientation line, an onboarding replay
+ * card, and the profile/settings UC panel.
  */
 export default function PhilV2HomePage() {
   return (
     <PhilShell title="Phil">
       <div className="space-y-4">
-        <Card className="space-y-3">
-          <div>
-            <CardTitle>What&rsquo;s live</CardTitle>
-            <CardDescription>
-              The hours, jobs, gear and snag loops are all on the bottom tabs.
-              This page stays as the profile / settings home until that
-              surface is built.
-            </CardDescription>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="/phil/my-day"
-              className="inline-flex h-11 items-center justify-center rounded-card bg-brand-navy px-4 text-sm font-medium text-text-inverse hover:bg-accent-ink"
-            >
-              Open My day →
-            </Link>
-            <Link
-              href="/phil/jobs"
-              className="inline-flex h-11 items-center justify-center rounded-card border border-border bg-surface px-4 text-sm font-medium text-text hover:bg-surface-subtle"
-            >
-              Jobs
-            </Link>
-            <Link
-              href="/phil/gear"
-              className="inline-flex h-11 items-center justify-center rounded-card border border-border bg-surface px-4 text-sm font-medium text-text hover:bg-surface-subtle"
-            >
-              My gear
-            </Link>
-          </div>
+        <Card className="space-y-2">
+          <CardTitle>You&rsquo;re on Phil</CardTitle>
+          <CardDescription>
+            Use the bottom tabs for your day, jobs and gear. This page is
+            where your profile and notification settings will live.
+          </CardDescription>
         </Card>
 
         <Card className="space-y-3">

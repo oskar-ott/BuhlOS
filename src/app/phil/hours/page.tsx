@@ -4,7 +4,7 @@ import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { Pill } from "@/components/ui/Pill";
+import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
@@ -17,6 +17,17 @@ import {
   statusLabel,
   statusTone,
 } from "@/domains/timesheets/format";
+
+// Bridge the timesheets-domain tone vocabulary into the shared StatusChip
+// palette. statusTone() returns a narrower union (neutral/info/success/
+// danger) for hours; the explicit record keeps both sides honest if
+// either side widens.
+const HOURS_CHIP_TONE: Record<ReturnType<typeof statusTone>, StatusTone> = {
+  neutral: "neutral",
+  info: "info",
+  success: "success",
+  danger: "danger",
+};
 
 export const dynamic = "force-dynamic";
 
@@ -97,7 +108,9 @@ function EntryCard({ entry }: { entry: TimeEntry }) {
           <CardTitle>{formatHoursLabel(entry.totalHours)}</CardTitle>
           <CardDescription>{formatDateLabel(entry.date)}</CardDescription>
         </div>
-        <Pill tone={statusTone(entry.status)}>{statusLabel(entry.status)}</Pill>
+        <StatusChip tone={HOURS_CHIP_TONE[statusTone(entry.status)]}>
+          {statusLabel(entry.status)}
+        </StatusChip>
       </div>
 
       {entry.notes ? (
@@ -107,9 +120,12 @@ function EntryCard({ entry }: { entry: TimeEntry }) {
       ) : null}
 
       {entry.status === "rejected" && entry.rejectedReason ? (
-        <p className="rounded-card bg-rose-50 px-3 py-2 text-sm text-rose-900">
-          <span className="font-medium">Why:</span> {entry.rejectedReason}
-        </p>
+        <div className="rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+          <p className="font-display text-[11px] font-semibold uppercase tracking-wider text-rose-700">
+            Why
+          </p>
+          <p className="mt-0.5 whitespace-pre-line">{entry.rejectedReason}</p>
+        </div>
       ) : null}
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-text-muted">
