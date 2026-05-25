@@ -33,6 +33,7 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   { prefix: "/phil/hours", surface: "phil" },
   { prefix: "/phil/gear", surface: "phil" },
   { prefix: "/phil/jobs", surface: "phil" },
+  { prefix: "/phil/onboarding", surface: "phil" },
 ];
 
 export function middleware(req: NextRequest) {
@@ -81,5 +82,6 @@ export const config = {
     "/phil/hours/:path*",
     "/phil/gear/:path*",
     "/phil/jobs/:path*",
+    "/phil/onboarding/:path*",
   ],
 };
