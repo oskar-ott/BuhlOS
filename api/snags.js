@@ -480,26 +480,24 @@ async function transitionSnag(req, res, user, jobId) {
   }
 
   const dataKeyStr = dataKey(jobId);
-  // Vercel Blob: writes are durable on return but the read path can
-  // briefly serve a pre-write snapshot from its storage layer (separate
-  // from the 5s in-memory cache that readBlobFresh already bypasses).
-  // Back-to-back transitions on the same snag can therefore see the
-  // stale status on read #2, which makes canTransition reject what
-  // would otherwise be a valid step (`open → resolved` instead of
-  // `in_progress → resolved`).
+  // Read path: plain readBlob hits the local cache — which writeBlob
+  // now populates with the just-written data — so same-instance rapid
+  // transitions are fully read-after-write consistent.
   //
-  // Strategy: read fresh once, and if canTransition rejects, wait
-  // briefly and re-read. Real conflicts (another admin actually moved
-  // the snag to a different status) still surface as 409 after the
-  // retry — the retry only papers over the stale-read window.
-  let data = await readBlobFresh(dataKeyStr, emptyData());
+  // If canTransition still rejects after that read, we may be on a
+  // different warm instance that didn't see the write (its cache is
+  // empty / cold for this key). Fall back to a single cache-bypassing
+  // re-read with a brief delay to let Vercel Blob's storage layer
+  // propagation settle. Real conflicts (another admin actually moved
+  // the snag) still surface as 409 after the retry.
+  let data = await readBlob(dataKeyStr, emptyData());
   let arr = Array.isArray(data.snagsV2) ? data.snagsV2 : [];
   let idx = arr.findIndex((s) => s && s.id === snagId);
   if (idx === -1) return res.status(404).json({ error: 'snag not found on job' });
   let current = arr[idx];
 
   if (!canTransition(current.status, nextStatus)) {
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    await new Promise((resolve) => setTimeout(resolve, 750));
     data = await readBlobFresh(dataKeyStr, emptyData());
     arr = Array.isArray(data.snagsV2) ? data.snagsV2 : [];
     idx = arr.findIndex((s) => s && s.id === snagId);
