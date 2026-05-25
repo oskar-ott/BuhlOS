@@ -257,13 +257,32 @@ module.exports = async (req, res) => {
             if (ms < todayMs) expiredTags++;
             else if (ms <= cutoffMs) expiringTags++;
           }
+          // Phase D6: V2 namespace counts for the rebuild admin jobs index.
+          // computeJobStats counts the legacy snags[] array; the rebuild
+          // surfaces (D4 evidence + D.5 snags) consume the parallel
+          // evidence[] + snagsV2[] arrays on the same data.json. Both reads
+          // share the single data.json fetch above — zero extra blob hits.
+          const evidenceArr = Array.isArray(d.evidence) ? d.evidence : [];
+          const snagsV2Arr  = Array.isArray(d.snagsV2)  ? d.snagsV2  : [];
+          let evidencePendingV2 = 0;
+          for (const e of evidenceArr) {
+            const s = e && e.status;
+            if (s === 'submitted' || s === 'pending_upload') evidencePendingV2++;
+          }
+          let snagsActiveV2 = 0;
+          for (const s of snagsV2Arr) {
+            const st = s && s.status;
+            if (st === 'open' || st === 'in_progress' || st === 'resolved') snagsActiveV2++;
+          }
           return Object.assign({}, j, {
-            statsPct:          stats.pct,
-            statsOpenSnags:    stats.openSnags,
-            statsCrewCount:    crewCountByJob[j.id] || 0,
-            statsAreaCount:    stats.areaCount,
-            statsExpiredTags:  expiredTags,
-            statsExpiringTags: expiringTags,
+            statsPct:               stats.pct,
+            statsOpenSnags:         stats.openSnags,
+            statsCrewCount:         crewCountByJob[j.id] || 0,
+            statsAreaCount:         stats.areaCount,
+            statsExpiredTags:       expiredTags,
+            statsExpiringTags:      expiringTags,
+            statsEvidenceV2Pending: evidencePendingV2,
+            statsSnagsV2Active:     snagsActiveV2,
           });
         } catch (e) {
           // Fail soft — caller still gets the core job, stats just absent.
@@ -272,6 +291,7 @@ module.exports = async (req, res) => {
             statsCrewCount: crewCountByJob[j.id] || 0,
             statsAreaCount: 0,
             statsExpiredTags: 0, statsExpiringTags: 0,
+            statsEvidenceV2Pending: 0, statsSnagsV2Active: 0,
           });
         }
       }));

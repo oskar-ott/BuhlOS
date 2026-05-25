@@ -155,6 +155,23 @@ export const JobSchema = z
     // legacy writes but not all. We treat them as best-effort for display.
     createdAt: z.string().optional(),
     updatedAt: z.string().optional(),
+
+    // Optional `?withStats=1` enrichment — only present when the list
+    // endpoint is called with `?withStats=1` (used by the admin jobs
+    // index). All fields are best-effort: if the data.json read fails
+    // the server returns zeroes rather than dropping the row.
+    statsPct: z.number().nullable().optional(),
+    statsOpenSnags: z.number().optional(),
+    statsCrewCount: z.number().optional(),
+    statsAreaCount: z.number().optional(),
+    statsExpiredTags: z.number().optional(),
+    statsExpiringTags: z.number().optional(),
+    /** Phase D6: count of rebuild evidence rows still in submitted /
+     *  pending_upload state (i.e. waiting for admin review). */
+    statsEvidenceV2Pending: z.number().optional(),
+    /** Phase D6: count of rebuild snags (snagsV2) in active states —
+     *  open / in_progress / resolved. */
+    statsSnagsV2Active: z.number().optional(),
   })
   .passthrough();
 

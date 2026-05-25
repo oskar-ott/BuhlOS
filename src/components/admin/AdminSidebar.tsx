@@ -22,9 +22,14 @@ interface NavItem {
 }
 
 /**
- * Phase A admin nav: Command centre (live) + UC placeholders.
- * Phase B promotes Hours to live (the approval queue + overview).
- * Phase C promotes Gear to live (asset register + transfer + condition reports).
+ * BuhlOS admin nav.
+ *
+ * Live items (Phase A → D6):
+ *   - Command centre, Hours, Approvals, Gear, Jobs.
+ *
+ * UC items still under construction:
+ *   - Snags (a cross-job triage queue — per-job snags live on the Jobs
+ *     surface). Support. Settings.
  *
  * UC items are non-clickable per non-negotiable §"Feature gating".
  *
@@ -36,7 +41,9 @@ const NAV: ReadonlyArray<NavItem> = [
   { label: "Hours", href: "/hours", icon: Clock, status: "live" },
   { label: "Approvals", href: "/hours/approvals", icon: ClipboardCheck, status: "live" },
   { label: "Gear", href: "/gear", icon: Wrench, status: "live" },
-  { label: "Jobs", href: "/command-centre", icon: Briefcase, status: "under-construction" },
+  // `/v2/jobs` is freshly added in Phase D6; the `as Route` cast keeps
+  // tsc happy until next build regenerates the typed-route union.
+  { label: "Jobs", href: "/v2/jobs" as Route, icon: Briefcase, status: "live" },
   { label: "Snags", href: "/command-centre", icon: AlertOctagon, status: "under-construction" },
   { label: "Support", href: "/command-centre", icon: LifeBuoy, status: "under-construction" },
   { label: "Settings", href: "/command-centre", icon: Settings, status: "under-construction" },
