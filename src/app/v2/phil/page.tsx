@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
@@ -42,6 +43,24 @@ export default function PhilV2HomePage() {
               className="inline-flex h-11 items-center justify-center rounded-card border border-border bg-surface px-4 text-sm font-medium text-text hover:bg-surface-subtle"
             >
               My gear
+            </Link>
+          </div>
+        </Card>
+
+        <Card className="space-y-3">
+          <div>
+            <CardTitle>New here?</CardTitle>
+            <CardDescription>
+              Three-minute tour of what Phil does. Replay any time — Hours,
+              Gear, Jobs, on-site evidence, permissions, then back here.
+            </CardDescription>
+          </div>
+          <div>
+            <Link
+              href={"/phil/onboarding" as Route}
+              className="inline-flex h-11 items-center justify-center rounded-card bg-accent-yellow px-4 text-sm font-semibold text-brand-navy hover:brightness-95"
+            >
+              Start the tour →
             </Link>
           </div>
         </Card>
