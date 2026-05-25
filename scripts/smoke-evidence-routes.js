@@ -87,6 +87,11 @@ async function expectStatus(name, url, opts) {
     { expect: { status: [307] } }
   );
   await expectStatus(
+    "HTML  /v2/jobs (admin index, gated → 307)",
+    `${base}/v2/jobs`,
+    { expect: { status: [307] } }
+  );
+  await expectStatus(
     "HTML  /v2/jobs/birdwood-iv3232/evidence (gated → 307)",
     `${base}/v2/jobs/birdwood-iv3232/evidence`,
     { expect: { status: [307] } }
