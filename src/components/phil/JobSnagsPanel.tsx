@@ -133,14 +133,18 @@ export function JobSnagsPanel({
           1500
         );
       } else {
+        // Mirrors SnagsQueue: 409 = stale state-machine conflict, 400 =
+        // request-validation error worth surfacing verbatim.
         setAction({
           kind: "error",
           message:
             r.error.status === 403
               ? "You can't change this snag's status."
-              : r.error.status === 400
+              : r.error.status === 409
                 ? "Couldn't update — the snag may have changed since you loaded the page."
-                : r.error.message || "Couldn't update snag. Try again.",
+                : r.error.status === 400
+                  ? r.error.message || "Invalid request."
+                  : r.error.message || "Couldn't update snag. Try again.",
         });
       }
     },

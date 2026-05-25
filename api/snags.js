@@ -58,8 +58,14 @@
 // Both calls are best-effort — wrapped in `.catch(() => {})` so a log
 // failure on either path never blocks the snag write.
 
-const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite } = require('./_lib/auth');
+const { readBlob, readBlobFresh, writeBlob, setNoCache } = require('./_lib/blob');
+const {
+  requireAuth,
+  canWrite,
+  isAdminRole,
+  isFieldRole,
+  isLeadingHandRole,
+} = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
 const { appendAudit: appendLegacyAudit } = require('./_lib/job-audit');
 const { append: appendAuditLog } = require('./_lib/audit-log');
@@ -75,8 +81,12 @@ const VALID_STATUSES = new Set([
 const VALID_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
 const VALID_STAGES = new Set(['roughIn', 'fitOff']);
 
-const ADMIN_ROLES = new Set(['admin', 'boss', 'owner', 'manager', 'office']);
-const FIELD_ROLES = new Set(['tradie', 'apprentice', 'leadingHand']);
+// Role tiers delegate to api/_lib/auth.js (PR #23 normalisation pass) so
+// boss/owner/manager/office/pm/estimator pass the admin gate and
+// labourer/electrician + lowercase LH variants pass the field gate.
+// LH is a separate tier in auth.js; for snag transitions we treat
+// LH the same as the field tier (claim/drop, mark resolved as
+// creator/assignee) so the legacy `leadingHand` behaviour is preserved.
 
 const TITLE_MAX = 120;
 const DESCRIPTION_MAX = 1000;
@@ -116,10 +126,10 @@ function effectiveTasks(job, area, stage) {
 }
 
 function isAdmin(role) {
-  return ADMIN_ROLES.has(role);
+  return isAdminRole(role);
 }
 function isField(role) {
-  return FIELD_ROLES.has(role);
+  return isFieldRole(role) || isLeadingHandRole(role);
 }
 
 const ALLOWED_TRANSITIONS = new Set([
@@ -179,7 +189,12 @@ function canRoleTransition(from, to, user, snag) {
 
 function validateCreateBody(body, job) {
   const errors = [];
-  if (!body || typeof body !== 'object') return ['body must be an object'];
+  // Early-exit shape must match the happy path: { errors, ... } so the
+  // caller's `v.errors && v.errors.length` guard works. Returning a bare
+  // array here used to crash on the next-line title.slice() call (500).
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { errors: ['body must be an object'] };
+  }
 
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   if (!title) errors.push('title is required');
@@ -465,15 +480,38 @@ async function transitionSnag(req, res, user, jobId) {
   }
 
   const dataKeyStr = dataKey(jobId);
-  const data = await readBlob(dataKeyStr, emptyData());
-  const arr = Array.isArray(data.snagsV2) ? data.snagsV2 : [];
-  const idx = arr.findIndex((s) => s && s.id === snagId);
+  // Read path: plain readBlob hits the local cache — which writeBlob
+  // now populates with the just-written data — so same-instance rapid
+  // transitions are fully read-after-write consistent.
+  //
+  // If canTransition still rejects after that read, we may be on a
+  // different warm instance that didn't see the write (its cache is
+  // empty / cold for this key). Fall back to a single cache-bypassing
+  // re-read with a brief delay to let Vercel Blob's storage layer
+  // propagation settle. Real conflicts (another admin actually moved
+  // the snag) still surface as 409 after the retry.
+  let data = await readBlob(dataKeyStr, emptyData());
+  let arr = Array.isArray(data.snagsV2) ? data.snagsV2 : [];
+  let idx = arr.findIndex((s) => s && s.id === snagId);
   if (idx === -1) return res.status(404).json({ error: 'snag not found on job' });
-  const current = arr[idx];
+  let current = arr[idx];
 
   if (!canTransition(current.status, nextStatus)) {
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    data = await readBlobFresh(dataKeyStr, emptyData());
+    arr = Array.isArray(data.snagsV2) ? data.snagsV2 : [];
+    idx = arr.findIndex((s) => s && s.id === snagId);
+    if (idx === -1) return res.status(404).json({ error: 'snag not found on job' });
+    current = arr[idx];
+  }
+
+  if (!canTransition(current.status, nextStatus)) {
+    // 409 Conflict — the snag's current state genuinely doesn't allow
+    // this transition (state-machine violation), distinct from a 400
+    // request-validation error. Client maps 409 to the friendly "may
+    // have changed" message and lets real 400s surface their message.
     return res
-      .status(400)
+      .status(409)
       .json({ error: `invalid transition: ${current.status} → ${nextStatus}` });
   }
   if (!canRoleTransition(current.status, nextStatus, user, current)) {

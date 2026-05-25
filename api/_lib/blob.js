@@ -124,16 +124,23 @@ async function readBlobFresh(key, fallback = null) {
 }
 
 async function writeBlob(key, data) {
-  await put(key, JSON.stringify(data), {
+  const serialized = JSON.stringify(data);
+  await put(key, serialized, {
     access: 'public',
     contentType: 'application/json',
     addRandomSuffix: false,
     token: token(),
   });
-  // Invalidate on the local instance so a subsequent read in the
-  // same request lifecycle sees the new state. Other warm instances
-  // self-correct within BLOB_TTL_MS.
-  _cacheInvalidate(key);
+  // Set the local cache to the just-written data so subsequent reads
+  // on this instance see fresh state without going back to Vercel
+  // Blob's read endpoint, which has multi-second propagation lag
+  // after a put — observable as back-to-back POSTs reading stale
+  // snapshots even with cache-busted URLs. The JSON-roundtrip clone
+  // protects against accidental post-write mutations by the caller.
+  // Cross-instance staleness is still bounded by BLOB_TTL_MS — this
+  // change just makes same-instance writes fully read-after-write
+  // consistent. Was previously _cacheInvalidate(key).
+  _cacheSet(key, JSON.parse(serialized));
 }
 
 async function deleteBlob(key) {

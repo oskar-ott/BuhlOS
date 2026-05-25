@@ -148,14 +148,20 @@ export function SnagsQueue({
         startTransition(() => router.refresh());
         if (nextStatus === "rejected") setRejectId(null);
       } else {
+        // 409 is the canonical conflict response (state machine refused
+        // the transition because the snag changed since the UI loaded).
+        // 400 is a request-validation error — show the server message so
+        // real bugs aren't hidden behind a friendly catch-all.
         setAction({
           kind: "error",
           message:
             r.error.status === 403
               ? "You can't perform that action."
-              : r.error.status === 400
+              : r.error.status === 409
                 ? "Couldn't update — the snag may have changed since you loaded the page."
-                : r.error.message || "Couldn't update snag. Try again.",
+                : r.error.status === 400
+                  ? r.error.message || "Invalid request."
+                  : r.error.message || "Couldn't update snag. Try again.",
         });
       }
     },
