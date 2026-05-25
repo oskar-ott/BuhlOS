@@ -51,6 +51,14 @@
 | 30 | [30-phase-d4-admin-evidence-review-spec.md](30-phase-d4-admin-evidence-review-spec.md) | D4 spec: admin evidence review surface (queue + drawer + reject modal), mounted at `/v2/jobs/[jobId]/evidence` (no `/admin/jobs` cutover bundled), file plan in `src/components/admin/`, state machine, acceptance criteria, paste-ready build prompt for Session 7. Docs-only. | Session 7 (D4 build) — paste the §13 build prompt. | After D3 ships. |
 | 31 | [31-interface-usability-post-d1-addendum.md](31-interface-usability-post-d1-addendum.md) | Post-D1 observations: real `/api/jobs` shape, doc 27 §15 quick-win status, existing RSC client-manifest debt, screen-critique updates from authed smoke, small polish-PR candidates, anti-patterns to actively avoid in D2/D3/D4, field test additions, new open questions. Delta to doc 27 — doc 27 remains binding. Docs-only. | Every D2/D3/D4 build session (alongside doc 27). Oskar (§5 polish list + §8 open questions). | Before D2/D3/D4 build sessions; reviewed at D6 polish. |
 
+## Phase E — planning
+
+| # | Doc | Purpose | Who should read | When |
+| --- | --- | --- | --- | --- |
+| 32 | [32-phase-e-plan.md](32-phase-e-plan.md) | Canonical Phase E plan. Umbrella scope (ITP / RFI / Materials), E1 recommended scope (ITP field-record + admin sign-off loop), data model, routes, audit, permissions, risks, decisions §15.1 (8 founder calls with recommended defaults). E2/E3/E4 explicitly deferred to their own plans. Supersedes the parallel proposal in PR #27. Docs-only. | Phase E planning approval (Oskar). Future E1 build sessions. | After D.5 hardening ships (PR #26 merged); before any E1 build prompt is run. |
+| 33 | [33-phase-e-build-prompts.md](33-phase-e-build-prompts.md) | Paste-ready build prompts for E1a (domain + API extension), E1b (Phil ITP recording UI), E1c (admin ITP queue + sign-off). Common preamble shared across slices. E2/E3/E4 prompts not in this doc — added when those plans are written. | Each E1 build session pastes the relevant slice prompt. | When opening each E1x build session. |
+| 34 | [34-phase-e-testing-checklist.md](34-phase-e-testing-checklist.md) | Per-slice QA gates for E1 (§A E1a, §B E1b, §C E1c), regression matrix (§D), production smoke after merge (§E), hard exit gates (§F), explicit not-in-scope list (§G). Mirrors doc 28 structure. | Every E1 build session pastes the relevant §. Reviewers gate on it. | Throughout E1 execution. |
+
 ## Phase C — runbook
 
 | Doc | Purpose |
