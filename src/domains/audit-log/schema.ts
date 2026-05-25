@@ -28,18 +28,28 @@ import { z } from "zod";
  * and so future analytics can rely on stable strings.
  *
  * D2 adds `evidence.captured`. D4 adds `evidence.reviewed` +
- * `evidence.rejected`. Future phases append new verbs (`hours.submitted`,
- * `gear.transferred`, ...) without breaking existing rows.
+ * `evidence.rejected`. D5 adds `evidence.unreviewed`. D.5 (snags)
+ * adds `snag.created` + `snag.transitioned`. Future phases append
+ * new verbs (`hours.submitted`, `gear.transferred`, ...) without
+ * breaking existing rows.
+ *
+ * `snag.transitioned` is one verb covering every status change — the
+ * audit row's `metadata.from` + `metadata.to` carry the actual
+ * direction. Splitting per direction (snag.resolved, snag.verified,
+ * ...) would balloon the enum without giving downstream consumers
+ * any extra information they don't already have.
  */
 export const AUDIT_ACTIONS = [
   "evidence.captured",
   "evidence.reviewed",
   "evidence.rejected",
   "evidence.unreviewed",
+  "snag.created",
+  "snag.transitioned",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
-export const AUDIT_TARGET_TYPES = ["evidence"] as const;
+export const AUDIT_TARGET_TYPES = ["evidence", "snag"] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 
 /**

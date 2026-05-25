@@ -27,7 +27,7 @@ import type { AuditLogEntry, AuditLogListResponse } from "./types";
  */
 export function listAuditForTarget(args: {
   jobId: string;
-  targetType: "evidence";
+  targetType: "evidence" | "snag";
   targetId: string;
   months?: number;
 }): Promise<HttpResult<AuditLogListResponse>> {

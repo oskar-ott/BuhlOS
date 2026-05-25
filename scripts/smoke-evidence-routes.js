@@ -91,6 +91,11 @@ async function expectStatus(name, url, opts) {
     `${base}/v2/jobs/birdwood-iv3232/evidence`,
     { expect: { status: [307] } }
   );
+  await expectStatus(
+    "HTML  /v2/jobs/birdwood-iv3232/snags (gated → 307)",
+    `${base}/v2/jobs/birdwood-iv3232/snags`,
+    { expect: { status: [307] } }
+  );
   await expectStatus("HTML  /command-centre (gated → 307)", `${base}/command-centre`, {
     expect: { status: [307] },
   });
@@ -114,7 +119,9 @@ async function expectStatus(name, url, opts) {
     "/api/auth?action=me",
     "/api/jobs",
     "/api/evidence?jobId=birdwood-iv3232",
+    "/api/snags?jobId=birdwood-iv3232",
     "/api/audit-log?targetType=evidence&targetId=ev_smoke&jobId=birdwood-iv3232",
+    "/api/audit-log?targetType=snag&targetId=sn_smoke&jobId=birdwood-iv3232",
     "/api/time-entries",
     "/api/assets",
   ]) {
@@ -151,6 +158,26 @@ async function expectStatus(name, url, opts) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dataUrl: "data:image/jpeg;base64,YQ==" }),
+      expect: { status: [401], contentType: "application/json" },
+    }
+  );
+  await expectStatus(
+    "POST  /api/snags (create)",
+    `${base}/api/snags?jobId=birdwood-iv3232`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "smoke" }),
+      expect: { status: [401], contentType: "application/json" },
+    }
+  );
+  await expectStatus(
+    "POST  /api/snags?action=transition",
+    `${base}/api/snags?jobId=birdwood-iv3232&action=transition`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ snagId: "x", nextStatus: "in_progress" }),
       expect: { status: [401], contentType: "application/json" },
     }
   );
