@@ -81,6 +81,7 @@ src/app/v2/jobs/[jobId]/snags/page.tsx — admin server-component pattern for E1
 - Do NOT touch the legacy `/admin/itp.html` page or `api/itp-templates.js` template-editor endpoint in E1.
 - Do NOT mix E1a / E1b / E1c into a single PR.
 - DO NOT put a client component (`"use client"`) next to a page that is ≥2 route segments deep. Same RSC manifest rule from [doc 24 D-26]. E1 client components live under `src/components/phil/` or `src/components/admin/`. Cross-check before you push: any `*-client.tsx` or `"use client"` file under `src/app/phil/jobs/[jobId]/itps/` or `src/app/v2/jobs/[jobId]/itps/` is **wrong** and will 500 in production.
+- DO NOT overbuild. Each slice has a stated LOC bound (E1a ~200-400, E1b/E1c ~400-600). If you find yourself wanting to add cross-job triage, a template editor rebuild, RFI, materials, reporting, snag auto-creation on reject, per-item rework, conditional checkpoints, PDF/certificate export, client portal sign-off, offline-first sync, or any item in [32 §17](32-phase-e-plan.md) — **STOP and ask** ([20-agent-rules.md] #5, #29). All of those are explicitly deferred. The E1 ship is the smallest field-to-office loop that proves the surface; everything else is later.
 
 **Every PR title** starts with `[Phase E1]`.
 

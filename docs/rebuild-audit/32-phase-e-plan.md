@@ -2,7 +2,9 @@
 
 > **Status: Planning artefact (docs-only).** No Phase E code is in scope of the PR that introduces this doc. **Must be approved by Oskar before any Phase E build prompt is run.**
 >
-> Authored on `phase-e-plan` branch from `main` at `17f6da6` (post PR #26 — D.5 snags hardening). Phase D is shipped and verified on production; D.5 snag loop is live. This plan picks the next operational loop to add to the rebuild.
+> **Canonical Phase E plan.** Supersedes the parallel proposal in PR #27 (`phase-e-planning` branch). Both PRs landed on the same E1 recommendation (ITP); this PR was chosen as canonical because it preserves the legacy ITP state machine + storage shape verbatim (lower legacy-divergence cost) and ships a smaller surface in E1. PR #27 is closed with a pointer here.
+>
+> Authored on `phase-e-itp-plan-v2` branch from `main` at `17f6da6` (post PR #26 — D.5 snags hardening). Refreshed against `main` at `807f1dc` (post PR #30/#31/#32 UI hardening — no overlap; UI hardening did not touch Phase E surfaces). Phase D + D.5 are shipped and verified on production; the snag loop is live. This plan picks the next operational loop to add to the rebuild.
 >
 > **Read first:** [10-product-definition.md](10-product-definition.md), [11-operational-workflow-map.md](11-operational-workflow-map.md) §15 (ITP) / §16-#18 (Plans) / §13-#14 (Materials) / §21 (RFI), [12-domain-model-deep-dive.md](12-domain-model-deep-dive.md) §ITP / §RFI / §Materials, [13-ui-information-architecture.md](13-ui-information-architecture.md) §Phil / §Jobs, [14-technical-architecture-deep-dive.md](14-technical-architecture-deep-dive.md), [20-agent-rules.md](20-agent-rules.md), [21-rebuild-decision-record.md](21-rebuild-decision-record.md), [24-phase-d-jobs-evidence-plan.md](24-phase-d-jobs-evidence-plan.md) (format precedent), [27-interface-usability-pass.md](27-interface-usability-pass.md) (cross-cutting UX rules — still binding), [28-d2-d3-d4-evidence-qa-checklist.md](28-d2-d3-d4-evidence-qa-checklist.md) (QA-checklist format precedent), [phase-d5-runbook.md](phase-d5-runbook.md), [phase-d55-snags-runbook.md](phase-d55-snags-runbook.md), [phase-d6-admin-jobs-index-runbook.md](phase-d6-admin-jobs-index-runbook.md).
 
@@ -537,12 +539,14 @@ Each slice gets its own preview + smoke + Oskar review + merge before the next s
 
 ### 15.1 Open founder calls (Oskar to resolve before E1 starts)
 
-1. **E1 scope confirmation.** This plan recommends ITP field-record + admin sign-off as E1. RFI (greenfield) and Materials (huge legacy) are deferred. **Confirm.**
-2. **API strategy: reuse `api/job-itps.js` (extend it) vs parallel V2 endpoint (`api/itps.js`)?** This plan recommends extending the existing endpoint with V2 audit-log writes because the state machine + storage shape are already correct. Parallel namespace adds duplication without benefit. **Confirm.**
-3. **Sign-off independence rule severity.** Legacy enforces softly via UI gating. This plan promotes it to a server-side check that requires an override justification. **Confirm the 50% threshold is the right line.** Alternatives: 100% (any same-actor record blocks sign-off without justification) or 0% (the recorder can always sign off — drop the rule).
-4. **"Switchboard" as the ITP scope label.** It's the legacy semantic for `scope='switchboard'`. Doc 27 §3 bans the word as a section / sidebar label, but it remains an electrical-equipment proper noun. **Confirm rendering "Switchboard" in ITP scope labels is allowed.**
-5. **Phil per-instance route or sheet?** This plan recommends a dedicated route `/phil/jobs/[jobId]/itps/[instanceId]` because point grids are tall and include per-point photo capture. Alternative: a full-screen sheet from the job detail. **Confirm route-vs-sheet.**
-6. **Legacy `/admin/itp.html` continuity.** E1 leaves the legacy template editor and cross-job queue running. **Confirm there's no need to add a UC warning banner to the legacy page** alerting admins that a rebuild path exists for the per-job ITP queue (similar to how legacy snags were left running alongside D.5).
+1. **E1 scope confirmation.** This plan recommends ITP field-record + admin sign-off as E1. RFI (greenfield) and Materials (huge legacy) are deferred. **Confirm.** _Recommended default: yes — E1 = ITP only._
+2. **API strategy: reuse `api/job-itps.js` (extend it) vs parallel V2 endpoint (`api/itps.js`)?** This plan recommends extending the existing endpoint with V2 audit-log writes because the state machine + storage shape are already correct. Parallel namespace adds duplication without benefit. **Confirm.** _Recommended default: extend `api/job-itps.js`._
+3. **Sign-off independence rule severity.** Legacy enforces softly via UI gating. This plan promotes it to a server-side check that requires an override justification. **Confirm the 50% threshold is the right line.** Alternatives: 100% (any same-actor record blocks sign-off without justification) or 0% (the recorder can always sign off — drop the rule). _Recommended default: 50%._
+4. **"Switchboard" as the ITP scope label.** It's the legacy semantic for `scope='switchboard'`. Doc 27 §3 bans the word as a section / sidebar label, but it remains an electrical-equipment proper noun. **Confirm rendering "Switchboard" in ITP scope labels is allowed.** _Recommended default: allow as an equipment-scope label only — never as a section / sidebar label._
+5. **Phil per-instance route or sheet?** This plan recommends a dedicated route `/phil/jobs/[jobId]/itps/[instanceId]` because point grids are tall and include per-point photo capture. Alternative: a full-screen sheet from the job detail. **Confirm route-vs-sheet.** _Recommended default: dedicated route._
+6. **Legacy `/admin/itp.html` continuity.** E1 leaves the legacy template editor and cross-job queue running. **Confirm there's no need to add a UC warning banner to the legacy page** alerting admins that a rebuild path exists for the per-job ITP queue (similar to how legacy snags were left running alongside D.5). _Recommended default: no banner in E1; legacy page stays untouched._
+7. **Auto-snag on rejected ITP items.** When an admin rejects an ITP (or per-item rework in v2), should the rejected item automatically create a snag for the worker to fix? This plan defers the answer: real reject patterns must be observed in production first. **Confirm no auto-snag in E1.** _Recommended default: no — manual workflow only in E1; revisit after E1 has been in production for ≥2 weeks with real rejects._
+8. **Evidence required per item or only failed/flagged items.** Should every recorded point require a photo, or only points that fail their pass criterion (value out of range) or are explicitly flagged? Per-item photo enforcement is the strictest path; per-failed-item is the lightest field load. **Confirm scope of photo requirement.** _Recommended default: photo required only for points whose `type='photo'` (already enforced by point shape) AND for `type='value'` points that record a fail; everything else can be photo-optional. Tradies on site shouldn't have to take a photo of every nominal reading._
 
 ### 15.2 Resolved (assumed by this plan unless §15.1 changes them)
 
@@ -553,6 +557,8 @@ Each slice gets its own preview + smoke + Oskar review + merge before the next s
 - **R5**: Sidebar gets no `ITPs · UC` entry in E1. Jobs-index chip is the only discoverability path.
 - **R6**: `jobs/<id>/itps.json` storage stays separate from `data.json`. No new namespace on `data.json`.
 - **R7**: `templateSnapshot` immutability inherited verbatim from legacy.
+- **R8**: Rejected ITPs do NOT auto-create snags in E1. (See §15.1 #7 — revisited after field observation.)
+- **R9**: Per-point photo enforcement follows the template's point definitions; failed-value points may carry a photo-recommended hint in the UI but do not server-block on submit. (See §15.1 #8 — final policy waits on field feedback.)
 
 ---
 
