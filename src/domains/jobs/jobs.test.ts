@@ -8,6 +8,7 @@ import {
 import {
   effectiveTasks,
   hasSiteContext,
+  lastActivityCaption,
   pickWhen,
   relativeWhen,
   stageLabel,
@@ -264,6 +265,29 @@ describe("whenCaption", () => {
 
   it("returns null when nothing is known", () => {
     expect(whenCaption({}, now)).toBeNull();
+  });
+});
+
+describe("lastActivityCaption (doc 31 §4.1)", () => {
+  const now = new Date("2026-05-24T12:00:00.000Z");
+
+  it("returns 'Updated Nd ago' when updatedAt is present", () => {
+    expect(
+      lastActivityCaption(
+        { createdAt: "2026-05-01T00:00:00.000Z", updatedAt: "2026-05-21T12:00:00.000Z" },
+        now
+      )
+    ).toBe("Updated 3d ago");
+  });
+
+  it("suppresses the 'Created' fallback so a worker doesn't read it as last-activity", () => {
+    expect(
+      lastActivityCaption({ createdAt: "2026-05-21T12:00:00.000Z" }, now)
+    ).toBeNull();
+  });
+
+  it("returns null when nothing is known", () => {
+    expect(lastActivityCaption({}, now)).toBeNull();
   });
 });
 

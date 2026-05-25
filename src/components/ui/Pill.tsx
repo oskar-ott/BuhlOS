@@ -1,6 +1,20 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
+/**
+ * Status pills use the five-tone palette from doc 27 §6.1:
+ *   - success (approved · reviewed · returned · assigned · complete · good)
+ *   - info    (submitted · in_progress · captured · pending_sync · saved)
+ *   - warning (on_hold · needs_info · pending_review · maintenance)
+ *   - danger  (rejected · failed · lost · damaged · missing · wont_fix)
+ *   - neutral (draft · archived · pending · UC · empty)
+ *
+ * The `yellow` and `navy` tones are brand accents (not status). Use them
+ * for selection indicators, in-card chip labels, or "UC" markers — never
+ * to express the state of a TimesheetEntry / GearAsset / Job / Evidence /
+ * Snag. Mixing brand accents with the status palette breaks the worker's
+ * one-glance scan ("rejected" must always read danger-red, never navy).
+ */
 type Tone = "neutral" | "yellow" | "navy" | "success" | "danger" | "info" | "warning";
 
 interface PillProps extends HTMLAttributes<HTMLSpanElement> {

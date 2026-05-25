@@ -35,7 +35,7 @@ export default async function HoursOverviewPage() {
   const { pending, approved, rejected, fetchError } = await loadOverview(raw);
 
   return (
-    <AdminShell title="Hours" breadcrumb="Phase B · hours loop">
+    <AdminShell title="Hours">
       <div className="mx-auto max-w-4xl space-y-4">
         {fetchError ? (
           <Card className="border-amber-200 bg-amber-50" role="alert">

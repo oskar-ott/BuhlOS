@@ -30,8 +30,8 @@ export default async function LoginPage({
           </p>
           <h1 className="mt-2 font-display text-2xl text-text">Sign in</h1>
           <p className="mt-1 text-sm text-text-muted">
-            Parallel login for the new shell. The legacy <code className="text-xs">/login</code>{" "}
-            stays active during Phase A.
+            Sign in to BuhlOS or Phil. The legacy <code className="text-xs">/login</code>{" "}
+            still works for anyone who needs it.
           </p>
         </header>
         <LoginForm next={params.next} />

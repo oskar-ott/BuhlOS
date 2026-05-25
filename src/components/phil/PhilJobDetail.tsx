@@ -172,18 +172,18 @@ export function PhilJobDetail({ job, initialEvidence, initialSnags, viewer }: Pr
                   {job.siteAddress}
                 </SiteField>
               ) : null}
-              {job.siteContactName || job.siteContactPhone ? (
+              {(job.siteContactName?.trim() || job.siteContactPhone?.trim()) ? (
                 <SiteField icon={<User className="h-4 w-4" />} label="Contact">
                   {[
-                    job.siteContactName,
-                    job.siteContactPhone && (
+                    job.siteContactName?.trim(),
+                    job.siteContactPhone?.trim() && (
                       <span key="phone" className="inline-flex items-center gap-1">
                         <Phone aria-hidden="true" className="h-3.5 w-3.5" />
                         <a
-                          href={`tel:${job.siteContactPhone.replace(/\s+/g, "")}`}
+                          href={`tel:${job.siteContactPhone!.replace(/\s+/g, "")}`}
                           className="underline decoration-accent-yellow decoration-2 underline-offset-2"
                         >
-                          {job.siteContactPhone}
+                          {job.siteContactPhone!.trim()}
                         </a>
                       </span>
                     ),
