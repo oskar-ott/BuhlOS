@@ -30,6 +30,10 @@ import type { SnagItem } from "@/domains/snags/types";
 import { CaptureSheet } from "./CaptureSheet";
 import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
 import { JobSnagsPanel } from "./JobSnagsPanel";
+import { JobItpPanel } from "./JobItpPanel";
+import { JobDocumentsPanel } from "./JobDocumentsPanel";
+import { JobMaterialsPanel } from "./JobMaterialsPanel";
+import { JobHistoryPanel } from "./JobHistoryPanel";
 import { cn } from "@/lib/cn";
 
 interface Props {
@@ -393,6 +397,18 @@ export function PhilJobDetail({ job, initialEvidence, initialSnags, viewer }: Pr
           viewer={viewer}
         />
       ) : null}
+
+      {/* Job-interface stubs — under construction until the next E-phase
+          slices land. Order matches docs/rebuild-audit/34-phase-e-testing-
+          checklist.md §B.2 (header → site → stage → areas → capture → strip
+          → Snags → ITPs), then Documents / Materials / History.
+          Real implementations drop into these component files in their
+          own PRs (E1b for JobItpPanel, E2 for JobDocumentsPanel, E3 for
+          JobMaterialsPanel, later phase for JobHistoryPanel). */}
+      <JobItpPanel />
+      <JobDocumentsPanel />
+      <JobMaterialsPanel />
+      <JobHistoryPanel />
 
       <CaptureSheet
         open={captureOpen}
