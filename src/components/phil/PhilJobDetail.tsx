@@ -27,6 +27,7 @@ import {
 import type { Job, JobStage } from "@/domains/jobs/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
+import type { ITPInstance } from "@/domains/itp/types";
 import { CaptureSheet } from "./CaptureSheet";
 import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
 import { JobSnagsPanel } from "./JobSnagsPanel";
@@ -43,6 +44,9 @@ interface Props {
   initialEvidence?: ReadonlyArray<EvidenceItem>;
   /** Initial snags list fetched server-side. May be empty. */
   initialSnags?: ReadonlyArray<SnagItem>;
+  /** Initial ITP instances list fetched server-side (Phase E1b).
+   *  May be empty on load. */
+  initialItps?: ReadonlyArray<ITPInstance>;
   /** Current viewer — id + role drive snag transition button gating. */
   viewer?: { id: string; role: string };
 }
@@ -71,7 +75,13 @@ interface Props {
  *   docs/rebuild-audit/29-phase-d3-phil-capture-spec.md §3 + §7
  *   docs/rebuild-audit/24-phase-d-jobs-evidence-plan.md §6 Phil
  */
-export function PhilJobDetail({ job, initialEvidence, initialSnags, viewer }: Props) {
+export function PhilJobDetail({
+  job,
+  initialEvidence,
+  initialSnags,
+  initialItps,
+  viewer,
+}: Props) {
   const groups = useMemo(() => visibleAreaGroups(job.areaGroups), [job.areaGroups]);
 
   // Flatten the visible areas across groups so the default selection
@@ -398,14 +408,16 @@ export function PhilJobDetail({ job, initialEvidence, initialSnags, viewer }: Pr
         />
       ) : null}
 
-      {/* Job-interface stubs — under construction until the next E-phase
-          slices land. Order matches docs/rebuild-audit/34-phase-e-testing-
-          checklist.md §B.2 (header → site → stage → areas → capture → strip
-          → Snags → ITPs), then Documents / Materials / History.
-          Real implementations drop into these component files in their
-          own PRs (E1b for JobItpPanel, E2 for JobDocumentsPanel, E3 for
-          JobMaterialsPanel, later phase for JobHistoryPanel). */}
-      <JobItpPanel />
+      {/* Job-interface sections. Order matches
+          docs/rebuild-audit/34-phase-e-testing-checklist.md §B.2:
+          header → site → stage → areas → capture → strip → Snags →
+          ITPs, then Documents / Materials / History.
+
+          JobItpPanel is LIVE as of Phase E1b. JobDocumentsPanel,
+          JobMaterialsPanel and JobHistoryPanel stay UC until their
+          dedicated slices (E2 / E3 / later phase) drop in real
+          implementations. */}
+      <JobItpPanel job={job} initialItps={initialItps} />
       <JobDocumentsPanel />
       <JobMaterialsPanel />
       <JobHistoryPanel />

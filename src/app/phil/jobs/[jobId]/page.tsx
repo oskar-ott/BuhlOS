@@ -9,9 +9,11 @@ import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
 import { SnagListResponseSchema } from "@/domains/snags/schema";
+import { ITPListResponseSchema } from "@/domains/itp/schema";
 import type { Job } from "@/domains/jobs/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
+import type { ITPInstance } from "@/domains/itp/types";
 
 export const dynamic = "force-dynamic";
 
@@ -59,13 +61,14 @@ export default async function PhilJobDetailPage({ params }: PageParams) {
   // spinner for the empty case. Failure is non-blocking: an empty list
   // just shows the empty state, the worker can still create new items,
   // and the server will return real data on the next refresh.
-  const [initialEvidence, initialSnags] =
+  const [initialEvidence, initialSnags, initialItps] =
     result.kind === "ok"
       ? await Promise.all([
           loadInitialEvidence(raw, jobId),
           loadInitialSnags(raw, jobId),
+          loadInitialItps(raw, jobId),
         ])
-      : [[], []];
+      : [[], [], []];
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
     return (
@@ -117,6 +120,7 @@ export default async function PhilJobDetailPage({ params }: PageParams) {
         job={result.job}
         initialEvidence={initialEvidence}
         initialSnags={initialSnags}
+        initialItps={initialItps}
         viewer={{
           id: session.userId ?? session.sub ?? "",
           role: String(session.role ?? ""),
@@ -231,6 +235,43 @@ async function loadInitialSnags(
     const parsed = SnagListResponseSchema.safeParse(body);
     if (!parsed.success) return [];
     return parsed.data.snags;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch the ITP instances for this job (Phase E1b). Server returns
+ * every attached instance the viewer is allowed to see — admin/LH see
+ * all; tradies see the ones on their assigned jobs. Non-blocking: a
+ * failure returns [] and the JobItpPanel shows its empty state.
+ *
+ * Mirrors loadInitialEvidence / loadInitialSnags so the panel renders
+ * server-rendered content on first paint without a client-side spinner.
+ */
+async function loadInitialItps(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<ITPInstance[]> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(
+      `${base}/api/job-itps?jobId=${encodeURIComponent(jobId)}`,
+      {
+        cache: "no-store",
+        headers: cookieValue
+          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
+          : undefined,
+      }
+    );
+    if (!res.ok) return [];
+    const body = await res.json();
+    const parsed = ITPListResponseSchema.safeParse(body);
+    if (!parsed.success) return [];
+    return [...parsed.data.instances];
   } catch {
     return [];
   }
