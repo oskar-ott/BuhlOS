@@ -81,12 +81,13 @@ export function JobInterfaceSectionNav({ job }: Props) {
       icon: AlertOctagon,
     },
     {
-      kind: "uc",
+      kind: "live",
       label: "ITP / QA",
-      description: "Attached inspection / test plans, field results, admin sign-off.",
+      description:
+        "Attached inspection / test plans, field results, admin sign-off.",
+      href: `/v2/jobs/${jobIdEnc}/itps` as Route,
+      count: job.statsItpsActive,
       icon: ClipboardCheck,
-      ucReason:
-        "Domain + API shipped (E1a / PR #34). Field recording UI (E1b) and admin queue + sign-off (E1c) are the next two slices.",
     },
     {
       kind: "uc",
