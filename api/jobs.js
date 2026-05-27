@@ -298,15 +298,24 @@ module.exports = async (req, res) => {
           // and !archived. Signed-off is the only terminal state; archived
           // is excluded so a graveyard of soft-deleted ITPs doesn't inflate
           // the chip count.
+          //
+          // Post-E1 hardening: also expose statsItpsNeedsReview (witnessed
+          // subset only) so the Command Centre "ITPs needing sign-off"
+          // queue card can show an accurate count. Same single-pass scan;
+          // zero extra blob reads.
           const itpsArr = Array.isArray(itpsBlob && itpsBlob.instances)
             ? itpsBlob.instances
             : [];
           let itpsActive = 0;
+          let itpsNeedsReview = 0;
           for (const inst of itpsArr) {
             if (!inst || inst.archived) continue;
             const st = inst.status;
             if (st === 'pending' || st === 'in-progress' || st === 'witnessed') {
               itpsActive++;
+            }
+            if (st === 'witnessed') {
+              itpsNeedsReview++;
             }
           }
           return Object.assign({}, j, {
@@ -319,6 +328,7 @@ module.exports = async (req, res) => {
             statsEvidenceV2Pending: evidencePendingV2,
             statsSnagsV2Active:     snagsActiveV2,
             statsItpsActive:        itpsActive,
+            statsItpsNeedsReview:   itpsNeedsReview,
           });
         } catch (e) {
           // Fail soft — caller still gets the core job, stats just absent.
@@ -329,6 +339,7 @@ module.exports = async (req, res) => {
             statsExpiredTags: 0, statsExpiringTags: 0,
             statsEvidenceV2Pending: 0, statsSnagsV2Active: 0,
             statsItpsActive: 0,
+            statsItpsNeedsReview: 0,
           });
         }
       }));

@@ -176,6 +176,10 @@ export const JobSchema = z
      *  non-archived) states — pending / in-progress / witnessed.
      *  Drives the "ITPs N" chip on /v2/jobs (admin jobs index). */
     statsItpsActive: z.number().optional(),
+    /** Post-E1 hardening: subset of statsItpsActive that are in the
+     *  `witnessed` state — i.e. ready for admin sign-off. Drives the
+     *  Command Centre "ITPs needing sign-off" queue card. */
+    statsItpsNeedsReview: z.number().optional(),
   })
   .passthrough();
 

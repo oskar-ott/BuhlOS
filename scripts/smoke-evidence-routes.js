@@ -140,8 +140,10 @@ async function expectStatus(name, url, opts) {
     "/api/jobs",
     "/api/evidence?jobId=birdwood-iv3232",
     "/api/snags?jobId=birdwood-iv3232",
+    "/api/job-itps?jobId=birdwood-iv3232",
     "/api/audit-log?targetType=evidence&targetId=ev_smoke&jobId=birdwood-iv3232",
     "/api/audit-log?targetType=snag&targetId=sn_smoke&jobId=birdwood-iv3232",
+    "/api/audit-log?targetType=itp_instance&targetId=itp_smoke&jobId=birdwood-iv3232",
     "/api/time-entries",
     "/api/assets",
   ]) {
@@ -198,6 +200,37 @@ async function expectStatus(name, url, opts) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ snagId: "x", nextStatus: "in_progress" }),
+      expect: { status: [401], contentType: "application/json" },
+    }
+  );
+  // E1 ITP loop — same 401 JSON gate across every mutating verb.
+  await expectStatus(
+    "POST  /api/job-itps?action=attach",
+    `${base}/api/job-itps?jobId=birdwood-iv3232&action=attach`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ templateId: "x", scope: "job" }),
+      expect: { status: [401], contentType: "application/json" },
+    }
+  );
+  await expectStatus(
+    "POST  /api/job-itps?action=record",
+    `${base}/api/job-itps?jobId=birdwood-iv3232&action=record`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instanceId: "x", pointId: "y" }),
+      expect: { status: [401], contentType: "application/json" },
+    }
+  );
+  await expectStatus(
+    "POST  /api/job-itps?action=signoff",
+    `${base}/api/job-itps?jobId=birdwood-iv3232&action=signoff`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instanceId: "x" }),
       expect: { status: [401], contentType: "application/json" },
     }
   );
