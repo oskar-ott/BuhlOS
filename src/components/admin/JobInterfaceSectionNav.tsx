@@ -90,12 +90,12 @@ export function JobInterfaceSectionNav({ job }: Props) {
       icon: ClipboardCheck,
     },
     {
-      kind: "uc",
+      kind: "live",
       label: "Documents & specs",
       description: "Plans, schedules, install specs, supplier docs.",
+      href: `/v2/jobs/${jobIdEnc}/documents` as Route,
+      count: job.statsDocumentsCurrent,
       icon: FileText,
-      ucReason:
-        "Real plan + document data lives on the legacy /admin/plans surface. A worker- and admin-friendly read-only viewer is scoped for a later slice.",
     },
     {
       kind: "uc",

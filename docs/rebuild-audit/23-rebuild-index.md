@@ -66,6 +66,14 @@
 | 35 | [35-current-product-state-audit.md](35-current-product-state-audit.md) | Snapshot audit dated 2026-05-26 (post PR #34 E1a + PR #35 UI bible vNext). Built feature matrix, route map, domain state, UX findings, test coverage, prioritised P0/P1/P2/P3 gaps, next-5 PR plan, E1b readiness verdict, paste-ready prompt for the E1a runbook session. Docs-only. | Anyone opening a new session, reviewer, or PM wanting current ground truth. | Before scoping any new work or deciding what to merge next. |
 | 36 | [36-documents-specs-readiness-note.md](36-documents-specs-readiness-note.md) | Post-E1 hardening readiness note for the Documents / Specs section. Where the data lives (`jobs/<id>/plans-index.json`), permissions audit, what the next slice should and should NOT do, file plan sketch. Docs-only. | Author of the next slice (Documents read-only viewer). | Before opening the Documents PR. |
 
+## Phase E2 — shipped slice
+
+| Slice | Scope | Status | PR | Merge commit |
+| --- | --- | --- | --- | --- |
+| E2 | Documents / Specs read-only viewer — Phil panel + admin queue at `/v2/jobs/[jobId]/documents` + `statsDocumentsCurrent` enrichment, no uploads / no AI takeoff / no markup | ⏳ pending merge | — | — |
+
+**Phase E2 status:** read-only viewer landing on existing `/api/plans` data. See [phase-e2-documents-runbook.md](phase-e2-documents-runbook.md) for architecture, permissions, field test, and rollback.
+
 ## Phase C — runbook
 
 | Doc | Purpose |

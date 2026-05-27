@@ -180,6 +180,11 @@ export const JobSchema = z
      *  `witnessed` state — i.e. ready for admin sign-off. Drives the
      *  Command Centre "ITPs needing sign-off" queue card. */
     statsItpsNeedsReview: z.number().optional(),
+    /** Phase E2: count of plan/spec rows in `current` status (and
+     *  legacy rows without a status field, which default to current).
+     *  Drives the "Documents N" chip on /v2/jobs and the section nav
+     *  on /v2/jobs/[jobId]. */
+    statsDocumentsCurrent: z.number().optional(),
   })
   .passthrough();
 

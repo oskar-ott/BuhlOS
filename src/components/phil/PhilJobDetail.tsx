@@ -28,6 +28,7 @@ import type { Job, JobStage } from "@/domains/jobs/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
 import type { ITPInstance } from "@/domains/itp/types";
+import type { Document } from "@/domains/documents/types";
 import { CaptureSheet } from "./CaptureSheet";
 import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
 import { JobSnagsPanel } from "./JobSnagsPanel";
@@ -47,6 +48,12 @@ interface Props {
   /** Initial ITP instances list fetched server-side (Phase E1b).
    *  May be empty on load. */
   initialItps?: ReadonlyArray<ITPInstance>;
+  /** Initial documents (plans + specs) fetched server-side (Phase E2).
+   *  May be empty on load. */
+  initialDocuments?: ReadonlyArray<Document>;
+  /** Non-blocking error from the documents fetch — surfaces an info
+   *  bar inside JobDocumentsPanel. Null when the fetch succeeded. */
+  documentsError?: string | null;
   /** Current viewer — id + role drive snag transition button gating. */
   viewer?: { id: string; role: string };
 }
@@ -80,6 +87,8 @@ export function PhilJobDetail({
   initialEvidence,
   initialSnags,
   initialItps,
+  initialDocuments,
+  documentsError,
   viewer,
 }: Props) {
   const groups = useMemo(() => visibleAreaGroups(job.areaGroups), [job.areaGroups]);
@@ -413,12 +422,15 @@ export function PhilJobDetail({
           header → site → stage → areas → capture → strip → Snags →
           ITPs, then Documents / Materials / History.
 
-          JobItpPanel is LIVE as of Phase E1b. JobDocumentsPanel,
-          JobMaterialsPanel and JobHistoryPanel stay UC until their
-          dedicated slices (E2 / E3 / later phase) drop in real
-          implementations. */}
+          JobItpPanel is LIVE as of Phase E1b. JobDocumentsPanel is
+          LIVE as of Phase E2 (read-only). JobMaterialsPanel and
+          JobHistoryPanel stay UC until their dedicated slices (E3 /
+          later phase) drop in real implementations. */}
       <JobItpPanel job={job} initialItps={initialItps} />
-      <JobDocumentsPanel />
+      <JobDocumentsPanel
+        initialDocuments={initialDocuments}
+        fetchError={documentsError ?? null}
+      />
       <JobMaterialsPanel />
       <JobHistoryPanel />
 
