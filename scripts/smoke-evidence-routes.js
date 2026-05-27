@@ -111,6 +111,11 @@ async function expectStatus(name, url, opts) {
     `${base}/v2/jobs/birdwood-iv3232/snags`,
     { expect: { status: [307] } }
   );
+  await expectStatus(
+    "HTML  /v2/jobs/birdwood-iv3232/itps (admin ITP queue, gated → 307)",
+    `${base}/v2/jobs/birdwood-iv3232/itps`,
+    { expect: { status: [307] } }
+  );
   await expectStatus("HTML  /command-centre (gated → 307)", `${base}/command-centre`, {
     expect: { status: [307] },
   });

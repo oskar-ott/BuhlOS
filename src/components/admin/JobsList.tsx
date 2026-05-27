@@ -7,6 +7,7 @@ import {
   AlertOctagon,
   Camera,
   ChevronRight,
+  ClipboardCheck,
   MapPin,
   Search,
 } from "lucide-react";
@@ -103,7 +104,12 @@ function JobRow({ job }: { job: Job }) {
   // (open|in_progress|resolved|rejected) — rejected snags still need a
   // human to handle them.
   const snagsNeedingAttention = job.statsSnagsV2Active ?? 0;
-  const hasPending = evidencePending > 0 || snagsNeedingAttention > 0;
+  // statsItpsActive (E1a) counts non-archived instances in
+  // pending|in-progress|witnessed — anything that still needs work or
+  // review.
+  const itpsActive = job.statsItpsActive ?? 0;
+  const hasPending =
+    evidencePending > 0 || snagsNeedingAttention > 0 || itpsActive > 0;
 
   return (
     <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-stretch sm:gap-3">
@@ -153,6 +159,14 @@ function JobRow({ job }: { job: Job }) {
             count={snagsNeedingAttention}
             highlightWhenNonZero
             ariaLabel={`Open ${snagsNeedingAttention} snags needing attention for ${job.name}`}
+          />
+          <ActionChip
+            href={`/v2/jobs/${encodeURIComponent(job.id)}/itps`}
+            icon={<ClipboardCheck aria-hidden="true" className="h-3.5 w-3.5" />}
+            label="ITPs"
+            count={itpsActive}
+            highlightWhenNonZero
+            ariaLabel={`Open ${itpsActive} ITPs needing attention for ${job.name}`}
           />
           <Link
             href={`/v2/jobs/${encodeURIComponent(job.id)}/evidence` as Route}
