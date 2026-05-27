@@ -23,6 +23,7 @@
     "smoke:admin-routes": "node scripts/smoke-admin-routes.js",
     "smoke:evidence-routes": "node scripts/smoke-evidence-routes.js",
     "smoke:auth-d55-snags": "bash scripts/auth-smoke-d55-snags.sh",
+    "smoke:auth-e1-itp": "bash scripts/auth-smoke-e1-itp.sh",
     "predeploy": "npm run check:admin-shell && npm run check:sw-cache-version && npm run check:production-shell && npm run smoke:admin-routes",
     "predeploy:preview": "npm run check:admin-shell && npm run check:sw-cache-version && npm run check:production-shell && npm run smoke:admin-routes",
     "deploy:preview": "vercel deploy --yes"

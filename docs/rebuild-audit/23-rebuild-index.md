@@ -64,6 +64,7 @@
 | # | Doc | Purpose | Who should read | When |
 | --- | --- | --- | --- | --- |
 | 35 | [35-current-product-state-audit.md](35-current-product-state-audit.md) | Snapshot audit dated 2026-05-26 (post PR #34 E1a + PR #35 UI bible vNext). Built feature matrix, route map, domain state, UX findings, test coverage, prioritised P0/P1/P2/P3 gaps, next-5 PR plan, E1b readiness verdict, paste-ready prompt for the E1a runbook session. Docs-only. | Anyone opening a new session, reviewer, or PM wanting current ground truth. | Before scoping any new work or deciding what to merge next. |
+| 36 | [36-documents-specs-readiness-note.md](36-documents-specs-readiness-note.md) | Post-E1 hardening readiness note for the Documents / Specs section. Where the data lives (`jobs/<id>/plans-index.json`), permissions audit, what the next slice should and should NOT do, file plan sketch. Docs-only. | Author of the next slice (Documents read-only viewer). | Before opening the Documents PR. |
 
 ## Phase C — runbook
 
@@ -99,10 +100,10 @@
 | Slice | Scope | Status | PR | Merge commit |
 | --- | --- | --- | --- | --- |
 | E1a | ITP domain + API extension (`src/domains/itp/*`, audit-log schema, `api/job-itps.js` V2 audit + PR #26 stale-read + independence rule + role-tier alignment, `api/jobs.js` statsItpsActive) | ✅ shipped 2026-05-25 | [#34](https://github.com/oskar-ott/BuhlOS/pull/34) | `996d848` |
-| E1b | Phil ITP recording UI (`/phil/jobs/[jobId]/itps/[instanceId]` + section on job detail) | ⏳ next | — | — |
-| E1c | Admin ITP queue + sign-off + jobs-index ITP chip (`/v2/jobs/[jobId]/itps`) | ⏳ parallel-able with E1b after E1a runbook | — | — |
+| E1b | Phil ITP recording UI (`/phil/jobs/[jobId]/itps/[instanceId]` + section on job detail) | ✅ shipped 2026-05-26 | [#38](https://github.com/oskar-ott/BuhlOS/pull/38) | `f3146e2` |
+| E1c | Admin ITP queue + sign-off + jobs-index ITP chip (`/v2/jobs/[jobId]/itps`) | ✅ shipped 2026-05-27 | [#39](https://github.com/oskar-ott/BuhlOS/pull/39) | `7629661` |
 
-**Phase E status:** E1a backend is on `origin/main` at `996d848`. Production deploy initiated by Vercel auto-deploy on merge. Post-merge production smoke (per [34 §E](34-phase-e-testing-checklist.md)) has NOT been run yet — that gate must clear before E1b opens. See [35-current-product-state-audit.md](35-current-product-state-audit.md) for full context and the next-5-PR plan.
+**Phase E status:** E1 is live end-to-end in production. Post-merge production smoke (27/27 routes + APIs) passed on 2026-05-27. Operational loop is: admin attaches → field records → admin signs off (with independence + override rule). See [phase-e1-itp-runbook.md](phase-e1-itp-runbook.md) for the architecture, audit dual-write, permissions matrix, field test script, rollback considerations, and the next-recommended-PR list.
 
 ## Phase 1 / 1B supporting docs
 

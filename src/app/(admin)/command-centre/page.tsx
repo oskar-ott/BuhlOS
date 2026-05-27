@@ -9,6 +9,7 @@ import {
   Camera,
   ClipboardCheck,
   Clock,
+  FileCheck2,
   Wrench,
 } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -21,6 +22,7 @@ import { JobListResponseSchema } from "@/domains/jobs/schema";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import type { Job } from "@/domains/jobs/types";
 import { relativeWhen } from "@/domains/jobs/format";
+import { summariseItpReviewQueue } from "./itp-queue-card";
 
 export const dynamic = "force-dynamic";
 
@@ -32,10 +34,12 @@ export const dynamic = "force-dynamic";
  * reports phase. The home should always answer "what needs my attention
  * first?" rather than "what happened this week?"
  *
- * Three queues today:
+ * Four queues today:
  *   - Hours pending approval — /api/time-entries?scope=approver&status=submitted
  *   - Evidence pending review — aggregated from /api/jobs?withStats=1
  *   - Snags needing attention — aggregated from /api/jobs?withStats=1
+ *   - ITPs needing sign-off — aggregated from /api/jobs?withStats=1
+ *     (statsItpsNeedsReview, witnessed-only subset of statsItpsActive)
  *
  * Followed by a thin "Live surfaces" strip linking to the four working
  * admin pages (Hours, Approvals, Gear, Jobs). Anything else is still
@@ -70,6 +74,7 @@ export default async function CommandCentrePage() {
     (j) => (j.statsEvidenceV2Pending ?? 0) > 0
   );
   const jobsWithSnags = jobs.filter((j) => (j.statsSnagsV2Active ?? 0) > 0);
+  const itpReview = summariseItpReviewQueue(jobs);
 
   return (
     <AdminShell title="Command Centre">
@@ -96,7 +101,7 @@ export default async function CommandCentrePage() {
             </Card>
           ) : null}
 
-          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             <QueueCard
               icon={<ClipboardCheck aria-hidden="true" className="h-5 w-5" />}
               label="Hours pending approval"
@@ -123,6 +128,17 @@ export default async function CommandCentrePage() {
               href={"/v2/jobs" as Route}
               ctaLabel="Open jobs"
               empty="Nice — no open snags right now."
+            />
+            <QueueCard
+              icon={<FileCheck2 aria-hidden="true" className="h-5 w-5" />}
+              label="ITPs needing sign-off"
+              count={itpReview.count}
+              jobsAffected={itpReview.jobsAffected}
+              href={itpReview.href as Route}
+              ctaLabel={
+                itpReview.jobsAffected === 1 ? "Open ITP queue" : "Open jobs"
+              }
+              empty="No ITPs waiting for sign-off."
             />
           </div>
         </section>
