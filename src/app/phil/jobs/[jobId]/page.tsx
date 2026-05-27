@@ -10,10 +10,12 @@ import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
 import { SnagListResponseSchema } from "@/domains/snags/schema";
 import { ITPListResponseSchema } from "@/domains/itp/schema";
+import { DocumentListResponseSchema } from "@/domains/documents/schema";
 import type { Job } from "@/domains/jobs/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
 import type { ITPInstance } from "@/domains/itp/types";
+import type { Document } from "@/domains/documents/types";
 
 export const dynamic = "force-dynamic";
 
@@ -56,19 +58,21 @@ export default async function PhilJobDetailPage({ params }: PageParams) {
   }
 
   const result = await loadJob(raw, jobId);
-  // Initial evidence + snags load happens server-side so the panels
-  // render with content already present on first paint — no client-side
-  // spinner for the empty case. Failure is non-blocking: an empty list
-  // just shows the empty state, the worker can still create new items,
-  // and the server will return real data on the next refresh.
-  const [initialEvidence, initialSnags, initialItps] =
+  // Initial evidence + snags + ITPs + documents load happens
+  // server-side so the panels render with content already present on
+  // first paint — no client-side spinner for the empty case. Failure
+  // is non-blocking: an empty list just shows the empty state, the
+  // worker can still create new items, and the server will return
+  // real data on the next refresh.
+  const [initialEvidence, initialSnags, initialItps, documentsResult] =
     result.kind === "ok"
       ? await Promise.all([
           loadInitialEvidence(raw, jobId),
           loadInitialSnags(raw, jobId),
           loadInitialItps(raw, jobId),
+          loadInitialDocuments(raw, jobId),
         ])
-      : [[], [], []];
+      : [[], [], [], { documents: [] as Document[], error: null as string | null }];
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
     return (
@@ -121,6 +125,8 @@ export default async function PhilJobDetailPage({ params }: PageParams) {
         initialEvidence={initialEvidence}
         initialSnags={initialSnags}
         initialItps={initialItps}
+        initialDocuments={documentsResult.documents}
+        documentsError={documentsResult.error}
         viewer={{
           id: session.userId ?? session.sub ?? "",
           role: String(session.role ?? ""),
@@ -274,5 +280,56 @@ async function loadInitialItps(
     return [...parsed.data.instances];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Fetch the documents (plans + specs) for this job (Phase E2). Server
+ * already strips `status === 'archived'` for non-admin callers; the
+ * panel further filters to `status === 'current'` for safety.
+ *
+ * Returns a `{ documents, error }` shape rather than a bare array so
+ * the panel can surface a non-blocking info bar when the fetch failed
+ * but the page can still render. Matches the EvidenceQueue + ITPsQueue
+ * pattern of "fall back to empty + show an info banner."
+ */
+async function loadInitialDocuments(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<{ documents: Document[]; error: string | null }> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(
+      `${base}/api/plans?jobId=${encodeURIComponent(jobId)}`,
+      {
+        cache: "no-store",
+        headers: cookieValue
+          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
+          : undefined,
+      }
+    );
+    if (!res.ok) {
+      // 403 means the worker isn't assigned to this job — the page
+      // render above already 403'd them out, so we just degrade.
+      // Other statuses surface as a non-blocking banner.
+      return {
+        documents: [],
+        error: res.status === 403 ? null : `Plans API returned ${res.status}`,
+      };
+    }
+    const body = await res.json();
+    const parsed = DocumentListResponseSchema.safeParse(body);
+    if (!parsed.success) {
+      return { documents: [], error: "Unexpected plans response shape" };
+    }
+    return { documents: [...parsed.data.plans], error: null };
+  } catch (err) {
+    return {
+      documents: [],
+      error: err instanceof Error ? err.message : "Plans network error",
+    };
   }
 }

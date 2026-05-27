@@ -245,7 +245,7 @@ module.exports = async (req, res) => {
 
       enriched = await Promise.all(enriched.map(async j => {
         try {
-          const [d, tagsBlob, itpsBlob] = await Promise.all([
+          const [d, tagsBlob, itpsBlob, plansBlob] = await Promise.all([
             readBlob(`jobs/${j.id}/data.json`, { dwellings: {}, snags: [] }),
             readBlob(`jobs/${j.id}/tags.json`, { tags: [] }).catch(() => ({ tags: [] })),
             // E1a: per-job ITP instances live on a separate blob, not on
@@ -254,6 +254,12 @@ module.exports = async (req, res) => {
             // tags.json fan-out above. Missing blob (no ITPs ever
             // attached) falls back to { instances: [] }.
             readBlob(`jobs/${j.id}/itps.json`, { instances: [] }).catch(() => ({ instances: [] })),
+            // E2: per-job plan/spec index lives on its own blob — see
+            // api/plans.js. One extra read per job; same fan-out shape
+            // as the ITP read above. Missing blob (no plans uploaded
+            // yet) falls back to { plans: [] } so statsDocumentsCurrent
+            // reads as 0 rather than rejecting the row.
+            readBlob(`jobs/${j.id}/plans-index.json`, { plans: [] }).catch(() => ({ plans: [] })),
           ]);
           const stats = computeJobStats(j, d);
           let expiredTags = 0, expiringTags = 0;
@@ -318,6 +324,20 @@ module.exports = async (req, res) => {
               itpsNeedsReview++;
             }
           }
+          // E2: count current (non-superseded, non-archived) plan/spec
+          // rows. Drives the "Documents N" chip on /v2/jobs and the
+          // section nav on /v2/jobs/[jobId]. Legacy rows without a
+          // `status` field default to 'current' (matches the upload
+          // writer behaviour in api/plans.js).
+          const plansArr = Array.isArray(plansBlob && plansBlob.plans)
+            ? plansBlob.plans
+            : [];
+          let documentsCurrent = 0;
+          for (const p of plansArr) {
+            if (!p) continue;
+            const st = p.status;
+            if (!st || st === 'current') documentsCurrent++;
+          }
           return Object.assign({}, j, {
             statsPct:               stats.pct,
             statsOpenSnags:         stats.openSnags,
@@ -329,6 +349,7 @@ module.exports = async (req, res) => {
             statsSnagsV2Active:     snagsActiveV2,
             statsItpsActive:        itpsActive,
             statsItpsNeedsReview:   itpsNeedsReview,
+            statsDocumentsCurrent:  documentsCurrent,
           });
         } catch (e) {
           // Fail soft — caller still gets the core job, stats just absent.
@@ -340,6 +361,7 @@ module.exports = async (req, res) => {
             statsEvidenceV2Pending: 0, statsSnagsV2Active: 0,
             statsItpsActive: 0,
             statsItpsNeedsReview: 0,
+            statsDocumentsCurrent: 0,
           });
         }
       }));

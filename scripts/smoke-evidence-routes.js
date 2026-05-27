@@ -116,6 +116,11 @@ async function expectStatus(name, url, opts) {
     `${base}/v2/jobs/birdwood-iv3232/itps`,
     { expect: { status: [307] } }
   );
+  await expectStatus(
+    "HTML  /v2/jobs/birdwood-iv3232/documents (admin documents, gated → 307)",
+    `${base}/v2/jobs/birdwood-iv3232/documents`,
+    { expect: { status: [307] } }
+  );
   await expectStatus("HTML  /command-centre (gated → 307)", `${base}/command-centre`, {
     expect: { status: [307] },
   });
@@ -141,6 +146,7 @@ async function expectStatus(name, url, opts) {
     "/api/evidence?jobId=birdwood-iv3232",
     "/api/snags?jobId=birdwood-iv3232",
     "/api/job-itps?jobId=birdwood-iv3232",
+    "/api/plans?jobId=birdwood-iv3232",
     "/api/audit-log?targetType=evidence&targetId=ev_smoke&jobId=birdwood-iv3232",
     "/api/audit-log?targetType=snag&targetId=sn_smoke&jobId=birdwood-iv3232",
     "/api/audit-log?targetType=itp_instance&targetId=itp_smoke&jobId=birdwood-iv3232",
