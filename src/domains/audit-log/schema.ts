@@ -55,6 +55,15 @@ export const AUDIT_ACTIONS = [
   "itp.signed_off",
   "itp.reopened",
   "itp.archived",
+  // Onboarding (O1) — kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
+  // One verb per admin action the bible §10 S11 requires auditing.
+  // `invite.issued` covers first send + resend (metadata.resentCount).
+  "employee.created",
+  "employee.updated",
+  "employee.role_changed",
+  "employee.disabled",
+  "invite.issued",
+  "invite.revoked",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -63,6 +72,9 @@ export const AUDIT_TARGET_TYPES = [
   "snag",
   "itp_template",
   "itp_instance",
+  // Onboarding (O1).
+  "employee",
+  "invite",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

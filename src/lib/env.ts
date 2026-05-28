@@ -15,6 +15,10 @@ const ServerEnvSchema = z.object({
   VAPID_PUBLIC_KEY: z.string().min(1).optional(),
   VAPID_PRIVATE_KEY: z.string().min(1).optional(),
   VAPID_SUBJECT: z.string().min(1).optional(),
+  // Transactional email provider for invite sending (bible §07, Open Decision
+  // Q6 default = Resend). Optional — when absent the onboarding flow falls back
+  // to the copy-invite-link path and never fakes a send (bible §15 / §03 p5).
+  RESEND_API_KEY: z.string().min(1).optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 
@@ -40,4 +44,14 @@ export function serverEnv(): ServerEnv {
   }
   cached = parsed.data;
   return cached;
+}
+
+/**
+ * Whether a real transactional-email provider is wired. Drives the onboarding
+ * invite UI: true → "Send invite"; false → "Copy invite link" fallback. The
+ * server (api/employees.js) is authoritative and echoes this in its responses;
+ * this helper lets server components render the right label on first paint.
+ */
+export function isEmailConfigured(): boolean {
+  return Boolean(process.env.RESEND_API_KEY);
 }

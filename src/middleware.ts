@@ -27,6 +27,10 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   { prefix: "/command-centre", surface: "admin" },
   { prefix: "/hours", surface: "admin" },
   { prefix: "/gear", surface: "admin" },
+  // People · Employees onboarding (O1). The Phil setup routes
+  // (/phil/invite/[token], /phil/setup) are intentionally NOT gated — a worker
+  // has no session yet when they open their invite (O3).
+  { prefix: "/employees", surface: "admin" },
   { prefix: "/v2/phil", surface: "phil" },
   { prefix: "/v2/jobs", surface: "lh" },
   { prefix: "/phil/my-day", surface: "phil" },
@@ -76,6 +80,7 @@ export const config = {
     "/command-centre/:path*",
     "/hours/:path*",
     "/gear/:path*",
+    "/employees/:path*",
     "/v2/phil/:path*",
     "/v2/jobs/:path*",
     "/phil/my-day/:path*",
