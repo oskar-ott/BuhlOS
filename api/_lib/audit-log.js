@@ -42,6 +42,17 @@ const VALID_ACTIONS = new Set([
   'itp.signed_off',
   'itp.reopened',
   'itp.archived',
+  // Onboarding (O1). One verb per admin action the bible §10 S11 requires
+  // auditing: create / update / role-change / disable / invite-issue /
+  // invite-revoke. `invite.issued` covers both first send and resend; the
+  // metadata.resentCount carries which. Kept in sync with
+  // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'employee.created',
+  'employee.updated',
+  'employee.role_changed',
+  'employee.disabled',
+  'invite.issued',
+  'invite.revoked',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -52,6 +63,9 @@ const VALID_TARGET_TYPES = new Set([
   // without bouncing a schema migration through the storage layer.
   'itp_template',
   'itp_instance',
+  // Onboarding (O1).
+  'employee',
+  'invite',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

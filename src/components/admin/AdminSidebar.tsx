@@ -12,6 +12,7 @@ import {
   Settings,
   Clock,
   Wrench,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Pill } from "@/components/ui/Pill";
@@ -75,6 +76,15 @@ const NAV: ReadonlyArray<NavItem> = [
     icon: Wrench,
     status: "live",
     activeFor: ["/gear"],
+  },
+  // People · Employees (onboarding, O1). `as Route` cast keeps tsc happy until
+  // the next build regenerates the typed-route union to include /employees.
+  {
+    label: "Employees",
+    href: "/employees" as Route,
+    icon: Users,
+    status: "live",
+    activeFor: ["/employees"],
   },
   // `/v2/jobs` is the rebuild jobs index; the `as Route` cast keeps tsc
   // happy until the next build regenerates the typed-route union.
