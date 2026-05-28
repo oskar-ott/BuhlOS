@@ -64,6 +64,8 @@ export const AUDIT_ACTIONS = [
   "employee.disabled",
   "invite.issued",
   "invite.revoked",
+  // O2: provider send failure (metadata only).
+  "invite.send_failed",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 

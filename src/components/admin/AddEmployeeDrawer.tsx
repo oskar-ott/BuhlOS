@@ -57,6 +57,7 @@ export function AddEmployeeDrawer({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [issuedLink, setIssuedLink] = useState<string | null>(null);
+  const [issuedStatus, setIssuedStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   function reset() {
@@ -64,7 +65,7 @@ export function AddEmployeeDrawer({
     setFirstName(""); setLastName(""); setDisplayName(""); setEmail(""); setPhone("");
     setRole(null); setApprenticeYear(null); setJobIds([]); setJobSearch("");
     setNotes(""); setInviteNote(""); setSubmitting(false); setError(null);
-    setIssuedLink(null); setCopied(false);
+    setIssuedLink(null); setIssuedStatus(null); setCopied(false);
   }
   function close() { reset(); onClose(); }
 
@@ -108,9 +109,11 @@ export function AddEmployeeDrawer({
       : null;
     onCreated(res.data.row, link);
     if (sendInvite && link) {
-      // Copy-link / sent flow — keep the drawer open on the issued state so the
-      // admin can copy the link (no fake email is sent when none is configured).
+      // Keep the drawer open on the issued state so the admin can copy the link
+      // (no fake email is sent when none is configured; on a send failure the
+      // link is still a working fallback). issuedStatus drives the copy.
       setIssuedLink(link);
+      setIssuedStatus(res.data.row.invite?.status ?? "sent");
     } else {
       close();
     }
@@ -381,17 +384,25 @@ export function AddEmployeeDrawer({
   }
 
   function renderIssued() {
+    const failed = issuedStatus === "failed";
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-2">
-          <StatusChip tone="warning">Invited</StatusChip>
+          <StatusChip tone={failed ? "danger" : "warning"}>{failed ? "Failed" : "Invited"}</StatusChip>
           <span className="text-sm text-text-muted">{email}</span>
         </div>
-        <p className="text-sm text-text">
-          {emailConfigured
-            ? "Invite sent. The worker can also use this link directly:"
-            : "Invite link ready. Send it to the worker by text or message:"}
-        </p>
+        {failed ? (
+          <p className="rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+            We couldn&rsquo;t send the invite email. Copy the link below and send it to the worker
+            yourself — the link still works.
+          </p>
+        ) : (
+          <p className="text-sm text-text">
+            {emailConfigured
+              ? "Invite sent. The worker can also use this link directly:"
+              : "Invite link ready. Send it to the worker by text or message:"}
+          </p>
+        )}
         <div className="flex items-center gap-2">
           <input
             readOnly

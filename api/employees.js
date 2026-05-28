@@ -33,12 +33,58 @@ const bcrypt = require('bcryptjs');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { getCurrentUser, isAdminRole } = require('./_lib/auth');
 const audit = require('./_lib/audit-log');
+const email = require('./_lib/email');
 
 const EMPLOYEES_KEY = 'employees.json';
 const INVITES_KEY = 'invites.json';
 const TOKEN_BYTES = 32;
 const DEFAULT_EXPIRY_DAYS = 14;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Resend rate limit (bible A8 / §10). Mirror of recentResendCount in
+// src/domains/employees/service.ts — keep both in sync.
+const RESEND_MAX_PER_WINDOW = 3;
+const RESEND_WINDOW_MS = 60 * 60 * 1000;
+
+// Plain-language role word for the invite email body ("added you as a …").
+const ROLE_LABEL = {
+  admin: 'admin', pm: 'project manager', office: 'office staff', estimator: 'estimator',
+  leadinghand: 'leading hand', electrician: 'electrician', apprentice: 'apprentice', labourer: 'labourer',
+};
+function roleLabel(role) { return ROLE_LABEL[role] || 'worker'; }
+
+function recentResendCount(timestamps, nowMs) {
+  if (!Array.isArray(timestamps)) return 0;
+  const cutoff = nowMs - RESEND_WINDOW_MS;
+  return timestamps.filter((t) => { const ms = Date.parse(t); return Number.isFinite(ms) && ms > cutoff; }).length;
+}
+
+// Canonical base for invite CTA links: APP_BASE_URL, else derived from the
+// request host (so previews/prod each build their own absolute link).
+function baseUrl(req) {
+  if (process.env.APP_BASE_URL) return String(process.env.APP_BASE_URL).replace(/\/$/, '');
+  const proto = (req.headers['x-forwarded-proto'] || 'https').split(',')[0];
+  const host = req.headers['x-forwarded-host'] || req.headers.host || 'buhlos.com';
+  return `${proto}://${host}`;
+}
+
+function expiresText(iso) {
+  try {
+    const d = new Date(iso);
+    return `This invite expires ${d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  } catch { return 'This invite expires in 14 days'; }
+}
+
+// Apply lazy expiry (no cron) — flips a stale sent/opened invite to expired.
+// Returns true if it changed (caller persists on mutations; GET applies it
+// in-memory for display only). Mirrors effectiveInviteStatus in service.ts.
+function applyLazyExpiry(invite, nowMs) {
+  if (!invite) return false;
+  if ((invite.status === 'sent' || invite.status === 'opened')) {
+    const exp = Date.parse(invite.expiresAt);
+    if (Number.isFinite(exp) && exp < nowMs) { invite.status = 'expired'; return true; }
+  }
+  return false;
+}
 
 const ROLE_APP_ACCESS = {
   admin: 'both', pm: 'buhlos', office: 'buhlos', estimator: 'buhlos',
@@ -54,7 +100,7 @@ function deriveAppAccess(role) { return ROLE_APP_ACCESS[role] || 'phil'; }
 function computeExpiresAt(fromIso, days) {
   const d = new Date(fromIso); d.setDate(d.getDate() + days); return d.toISOString();
 }
-function emailConfigured() { return Boolean(process.env.RESEND_API_KEY); }
+function emailConfigured() { return email.isEmailConfigured(); }
 
 // Map a (possibly coarse legacy) role string onto one of the eight bible roles
 // so the register row validates against EmployeeRoleSchema. Returns null for
@@ -99,11 +145,12 @@ function mapUserToEmployee(u) {
   };
 }
 
-// Strip the at-rest tokenHash before anything goes to the client (bible §10 S07).
+// Strip server-only fields before anything goes to the client: the bcrypt
+// tokenHash (bible §10 S07) and the resend timestamp log.
 function toPublicInvite(invite) {
   if (!invite) return null;
-  const { tokenHash, ...rest } = invite;
-  void tokenHash;
+  const { tokenHash, resendTimestamps, ...rest } = invite;
+  void tokenHash; void resendTimestamps;
   return rest;
 }
 
@@ -148,6 +195,20 @@ async function writeAudit(actor, action, targetType, targetId, summary, metadata
   }
 }
 
+// Audit an invite issue/resend, or a provider send failure — metadata only,
+// never the token. `delivery` is the result from deliverInvite().
+async function auditInvite(actor, employee, invite, delivery) {
+  if (delivery && delivery.mode === 'email' && delivery.sent === false) {
+    await writeAudit(actor, 'invite.send_failed', 'invite', invite.id,
+      `Invite email failed for ${employee.email}`,
+      { email: employee.email, providerConfigured: true, reason: delivery.reason, resentCount: invite.resentCount });
+  } else {
+    await writeAudit(actor, 'invite.issued', 'invite', invite.id,
+      `Invite issued for ${employee.email}`,
+      { email: employee.email, providerConfigured: emailConfigured(), delivery: invite.delivery, resentCount: invite.resentCount });
+  }
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -167,9 +228,12 @@ module.exports = async (req, res) => {
       readBlob(INVITES_KEY, { invites: [] }),
     ]);
 
+    const now = Date.now();
     if (id) {
       const row = resolveRow(id, usersBlob, empBlob, invBlob);
       if (!row) return res.status(404).json({ error: 'employee not found' });
+      // Lazy expiry for display only — GET never writes.
+      if (row.invite) applyLazyExpiry(row.invite, now);
       return res.status(200).json({ row, emailConfigured: emailConfigured() });
     }
 
@@ -177,9 +241,11 @@ module.exports = async (req, res) => {
       .map(mapUserToEmployee)
       .filter(Boolean);
     const fromOnboarding = (empBlob.employees || []);
-    const rows = [...fromUsers, ...fromOnboarding].map((e) =>
-      buildRow(e, latestInviteFor(invBlob, e.id))
-    );
+    const rows = [...fromUsers, ...fromOnboarding].map((e) => {
+      const invite = latestInviteFor(invBlob, e.id);
+      if (invite) applyLazyExpiry(invite, now); // display-only; not persisted
+      return buildRow(e, invite);
+    });
     return res.status(200).json({ employees: rows, emailConfigured: emailConfigured() });
   }
 
@@ -242,9 +308,11 @@ module.exports = async (req, res) => {
     empBlob.employees.push(employee);
 
     let issued = null;
+    let delivery = null;
     if (body.sendInvite) {
-      issued = await issueInvite(employee, invBlob, me, {
-        expiryDays: body.expiryDays,
+      issued = await issueInvite(employee, invBlob, me, { expiryDays: body.expiryDays });
+      delivery = await deliverInvite(employee, issued.invite, issued.kind, issued.link, req, me, {
+        inviteNote: body.inviteNote,
       });
     }
     await writeBlob(EMPLOYEES_KEY, empBlob);
@@ -253,10 +321,7 @@ module.exports = async (req, res) => {
     await writeAudit(me, 'employee.created', 'employee', employee.id,
       `Created employee ${employee.firstName} ${employee.lastName} (${role})`,
       { role, sentInvite: Boolean(issued) });
-    if (issued) {
-      await writeAudit(me, 'invite.issued', 'invite', issued.invite.id,
-        `Invite issued for ${employee.email}`, { email: employee.email, resentCount: 0 });
-    }
+    if (issued) await auditInvite(me, employee, issued.invite, delivery);
 
     return res.status(200).json({
       row: buildRow(employee, issued ? issued.invite : null),
@@ -317,14 +382,25 @@ module.exports = async (req, res) => {
     const employee = empBlob.employees.find((e) => e.id === id);
     if (!employee) return res.status(404).json({ error: 'employee not found' });
     if (employee.status === 'disabled') return res.status(409).json({ error: 'employee is disabled' });
+
+    // Rate limit RESENDS (not the first issue): max 3 per hour per employee
+    // (bible A8 / §10). The first link for an employee is never rate-limited.
+    const existing = invBlob.invites.find((i) => i.employeeId === id);
+    if (existing && recentResendCount(existing.resendTimestamps, Date.now()) >= RESEND_MAX_PER_WINDOW) {
+      return res.status(429).json({
+        error: "You've resent this invite a few times in the last hour. Wait a bit before sending another.",
+      });
+    }
+
     const issued = await issueInvite(employee, invBlob, me, {
       expiryDays: (req.body && req.body.expiryDays) || undefined,
     });
+    const delivery = await deliverInvite(employee, issued.invite, issued.kind, issued.link, req, me, {
+      inviteNote: (req.body && req.body.inviteNote) || null,
+    });
     await writeBlob(EMPLOYEES_KEY, empBlob);
     await writeBlob(INVITES_KEY, invBlob);
-    await writeAudit(me, 'invite.issued', 'invite', issued.invite.id,
-      `Invite issued for ${employee.email}`,
-      { email: employee.email, resentCount: issued.invite.resentCount });
+    await auditInvite(me, employee, issued.invite, delivery);
     return res.status(200).json({
       row: buildRow(employee, issued.invite),
       inviteLink: issued.link,
@@ -401,9 +477,12 @@ function resolveRow(id, usersBlob, empBlob, invBlob) {
 /**
  * Issue (or re-issue) an invite for an employee. Generates a fresh 32-byte
  * URL-safe token, stores only its bcrypt hash, and returns the plaintext link
- * exactly once. Re-issuing rotates the token (old one dies) and bumps
- * resentCount (bible §10 S06). Mutates the passed blobs in place; the caller
- * persists. NEVER logs the token.
+ * exactly once. Re-issuing rotates the token (old one dies, bible §10 S06),
+ * bumps resentCount, records a resend timestamp (for the 3/hr rate limit), and
+ * picks the template kind (resend vs expired-replacement). Mutates the passed
+ * blobs in place; the caller persists. NEVER logs the token.
+ *
+ * Returns { invite, link, token, kind }. `kind` ∈ invite|resend|expiredReplacement.
  */
 async function issueInvite(employee, invBlob, actor, opts) {
   const token = crypto.randomBytes(TOKEN_BYTES).toString('base64url');
@@ -413,7 +492,13 @@ async function issueInvite(employee, invBlob, actor, opts) {
   const expiresAt = computeExpiresAt(now, expiryDays);
 
   let invite = invBlob.invites.find((i) => i.employeeId === employee.id);
+  let kind;
   if (invite) {
+    // Was the prior invite already past expiry? → E3 replacement, else E2 resend.
+    applyLazyExpiry(invite, Date.now());
+    kind = invite.status === 'expired' ? 'expiredReplacement' : 'resend';
+    invite.resendTimestamps = Array.isArray(invite.resendTimestamps) ? invite.resendTimestamps : [];
+    invite.resendTimestamps.push(now);
     invite.tokenHash = tokenHash;
     invite.email = employee.email;
     invite.status = 'sent';
@@ -423,7 +508,10 @@ async function issueInvite(employee, invBlob, actor, opts) {
     invite.acceptedAt = null;
     invite.revokedAt = null;
     invite.resentCount = (invite.resentCount || 0) + 1;
+    invite.delivery = null;
+    invite.sendError = null;
   } else {
+    kind = 'invite';
     invite = {
       id: newId('i_'),
       employeeId: employee.id,
@@ -437,6 +525,9 @@ async function issueInvite(employee, invBlob, actor, opts) {
       revokedAt: null,
       createdBy: actor.id,
       resentCount: 0,
+      resendTimestamps: [],
+      delivery: null,
+      sendError: null,
     };
     invBlob.invites.push(invite);
   }
@@ -444,5 +535,42 @@ async function issueInvite(employee, invBlob, actor, opts) {
   // Relative path — the client turns it into an absolute URL with its own
   // origin so the copy-link works regardless of preview/prod host.
   const link = `/phil/invite/${token}`;
-  return { invite, link };
+  return { invite, link, token, kind };
+}
+
+/**
+ * Deliver the freshly-issued invite. If a provider is configured, send the
+ * matching template (E1/E2/E3) and set delivery=email; on provider failure set
+ * the invite to `failed` + a sanitised reason (the copy-link still works as a
+ * fallback). If no provider, mark delivery=link (copy-link mode — bible §07).
+ * Mutates `invite`. NEVER logs the token or the rendered body.
+ *
+ * Returns { mode:'email'|'link', sent:boolean, reason?:string }.
+ */
+async function deliverInvite(employee, invite, kind, link, req, me, opts) {
+  if (!emailConfigured()) {
+    invite.delivery = 'link';
+    return { mode: 'link', sent: false };
+  }
+  const ctaUrl = `${baseUrl(req)}${link}`;
+  const result = await email.sendTemplate(kind, {
+    to: employee.email,
+    firstName: employee.firstName,
+    companyName: email.companyName(),
+    roleLabel: roleLabel(employee.role),
+    ctaUrl,
+    expiresText: expiresText(invite.expiresAt),
+    adminName: me.username || me.name || 'your supervisor',
+    adminPhone: process.env.EMAIL_REPLY_PHONE || null,
+    optionalNote: (opts && opts.inviteNote) || null,
+  });
+  if (result.ok) {
+    invite.delivery = 'email';
+    invite.sendError = null;
+    return { mode: 'email', sent: true };
+  }
+  invite.status = 'failed';
+  invite.delivery = 'email';
+  invite.sendError = result.reason;
+  return { mode: 'email', sent: false, reason: result.reason };
 }

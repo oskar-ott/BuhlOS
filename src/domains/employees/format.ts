@@ -51,6 +51,26 @@ export function lastActiveLabel(iso: string | null | undefined): string {
   return format(d, "d MMM");
 }
 
+/** Friendly text for a sanitised send-failure category (O2). */
+export function sendErrorText(reason: string | null | undefined): string {
+  switch (reason) {
+    case "not_configured":
+      return "no email provider is configured";
+    case "provider_rejected":
+      return "the email provider rejected it";
+    case "provider_rate_limited":
+      return "the email provider is rate-limiting";
+    case "provider_error":
+      return "the email provider had an error";
+    case "network_error":
+      return "couldn't reach the email provider";
+    case "invalid_message":
+      return "the message was invalid";
+    default:
+      return "the send failed";
+  }
+}
+
 /** One-line summary for the invite status card (bible A8). */
 export function inviteSummaryLine(invite: InvitePublic): string {
   switch (invite.status) {
@@ -71,7 +91,7 @@ export function inviteSummaryLine(invite: InvitePublic): string {
     case "revoked":
       return `Revoked ${formatDateTime(invite.revokedAt)} · token dead`;
     case "failed":
-      return `Send failed · admin sees the reason`;
+      return `Email send failed — ${sendErrorText(invite.sendError)}. Copy the link or resend.`;
     case "draft":
     default:
       return `Draft · not sent yet`;
