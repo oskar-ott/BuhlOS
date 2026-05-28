@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   Camera,
   ChevronDown,
-  ChevronRight,
   KeyRound,
   MapPin,
   Phone,
@@ -38,6 +37,12 @@ import { JobHistoryPanel } from "./JobHistoryPanel";
 import { PhilJobHero } from "./PhilJobHero";
 import { PhilJobAttentionStrip } from "./PhilJobAttentionStrip";
 import { PhilJobSectionAnchors } from "./PhilJobSectionAnchors";
+import { PhilJobAreaCard } from "./PhilJobAreaCard";
+import {
+  areaStageAvailability,
+  buildAreaCountMaps,
+  countsForArea,
+} from "./philJobWorkTree";
 import { cn } from "@/lib/cn";
 
 interface Props {
@@ -164,6 +169,22 @@ export function PhilJobDetail({
         (i) => !i.archived && itpNeedsAttention(i.status),
       ).length,
     [initialItps],
+  );
+
+  // Per-area count maps for the work-tree cards. Built once from the
+  // real data the page already holds — snags + ITPs from the server,
+  // evidence from live state so the photo chip ticks up after a
+  // capture without a refetch. Documents are intentionally absent:
+  // the document schema has no areaId, so a per-area doc count would
+  // be fabricated.
+  const areaCountMaps = useMemo(
+    () =>
+      buildAreaCountMaps({
+        snags: initialSnags ?? [],
+        itps: initialItps ?? [],
+        evidence: evidenceItems,
+      }),
+    [initialSnags, initialItps, evidenceItems],
   );
 
   const handleCaptured = useCallback((item: EvidenceItem) => {
@@ -334,48 +355,18 @@ export function PhilJobDetail({
                         role="listbox"
                         aria-label={`Areas in ${group.name}`}
                       >
-                        {areas.map((area) => {
-                          const active = area.id === selectedAreaId;
-                          return (
-                            <li key={area.id}>
-                              <button
-                                type="button"
-                                role="option"
-                                aria-selected={active}
-                                onClick={() => setSelectedAreaId(area.id)}
-                                className={cn(
-                                  "flex w-full items-center justify-between gap-3 rounded-card border px-4 py-3 text-left transition-colors",
-                                  active
-                                    ? "border-brand-navy bg-brand-navy text-text-inverse"
-                                    : "border-border bg-surface hover:bg-surface-subtle"
-                                )}
-                              >
-                                <span className="min-w-0">
-                                  <span className="block truncate font-display text-base font-semibold">
-                                    {area.name}
-                                  </span>
-                                  {area.spaceType ? (
-                                    <span
-                                      className={cn(
-                                        "block truncate text-xs",
-                                        active ? "text-text-inverse/80" : "text-text-muted"
-                                      )}
-                                    >
-                                      {area.spaceType}
-                                    </span>
-                                  ) : null}
-                                </span>
-                                <ChevronRight
-                                  aria-hidden="true"
-                                  className={cn(
-                                    "h-5 w-5 shrink-0",
-                                    active ? "text-accent-yellow" : "text-text-muted/60"
-                                  )}
-                                />
-                              </button>
-                            </li>
-                          );
-                        })}
+                        {areas.map((area) => (
+                          <li key={area.id}>
+                            <PhilJobAreaCard
+                              name={area.name}
+                              spaceType={area.spaceType}
+                              active={area.id === selectedAreaId}
+                              stages={areaStageAvailability(job, area)}
+                              counts={countsForArea(areaCountMaps, area.id)}
+                              onSelect={() => setSelectedAreaId(area.id)}
+                            />
+                          </li>
+                        ))}
                       </ul>
                     </div>
                   );
