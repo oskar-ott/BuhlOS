@@ -53,6 +53,8 @@ const VALID_ACTIONS = new Set([
   'employee.disabled',
   'invite.issued',
   'invite.revoked',
+  // O2: provider send failure (metadata only — reason category, never token).
+  'invite.send_failed',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',

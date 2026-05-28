@@ -132,6 +132,10 @@ const InviteBaseShape = {
   revokedAt: z.string().nullable().optional(),
   createdBy: z.string(),
   resentCount: z.number().int().min(0),
+  /** How the latest invite was delivered (O2). `link` = copy-link fallback. */
+  delivery: z.enum(["email", "link"]).nullable().optional(),
+  /** Sanitised send-failure category (O2), e.g. "provider_rejected". No raw provider body. */
+  sendError: z.string().nullable().optional(),
 } as const;
 
 /** At-rest invite (server-side only). `tokenHash` must never leave the server. */
@@ -140,6 +144,8 @@ export const InviteSchema = z
     ...InviteBaseShape,
     /** bcrypt hash of the 32-byte URL-safe token. Never plaintext, never logged. */
     tokenHash: z.string(),
+    /** ISO timestamps of resend events — server-only, drives the 3/hr rate limit. Stripped before client. */
+    resendTimestamps: z.array(z.string()).optional(),
   })
   .passthrough();
 

@@ -27,6 +27,10 @@ export const INVITE_EXPIRY_DEFAULT_DAYS = 14;
 /** Token size mandated by bible §10 S01 — 32 bytes, URL-safe. */
 export const INVITE_TOKEN_BYTES = 32;
 
+/** Resend rate limit (bible A8 / §10): max 3 resends per hour per employee. */
+export const RESEND_MAX_PER_WINDOW = 3;
+export const RESEND_WINDOW_MS = 60 * 60 * 1000;
+
 /* ---------------------------------------------------------------------------
  * Display
  * ------------------------------------------------------------------------- */
@@ -277,6 +281,46 @@ export function isInviteExpired(
   if (invite.status === "accepted" || invite.status === "revoked") return false;
   const exp = Date.parse(invite.expiresAt);
   return Number.isFinite(exp) && exp < nowMs;
+}
+
+/**
+ * Lazy expiry (bible A8: "Status flips at midnight after expiry"). Returns the
+ * effective invite status for display/decisions — flips a stale `sent`/`opened`
+ * invite to `expired` without a cron. Pure: callers persist the flip on
+ * mutations; GET applies it in-memory for display only.
+ */
+export function effectiveInviteStatus(
+  invite: Pick<InvitePublic, "expiresAt" | "status">,
+  nowMs: number = Date.now()
+): InvitePublic["status"] {
+  if ((invite.status === "sent" || invite.status === "opened") && isInviteExpired(invite, nowMs)) {
+    return "expired";
+  }
+  return invite.status;
+}
+
+/**
+ * How many resends happened inside the rate-limit window ending at `nowMs`
+ * (bible A8 / §10). Mirrored in api/employees.js — keep both in sync.
+ */
+export function recentResendCount(
+  timestamps: ReadonlyArray<string> | undefined,
+  nowMs: number = Date.now()
+): number {
+  if (!timestamps) return 0;
+  const cutoff = nowMs - RESEND_WINDOW_MS;
+  return timestamps.filter((t) => {
+    const ms = Date.parse(t);
+    return Number.isFinite(ms) && ms > cutoff;
+  }).length;
+}
+
+/** Whether another resend is allowed right now (≤ RESEND_MAX_PER_WINDOW per hour). */
+export function canResendNow(
+  timestamps: ReadonlyArray<string> | undefined,
+  nowMs: number = Date.now()
+): boolean {
+  return recentResendCount(timestamps, nowMs) < RESEND_MAX_PER_WINDOW;
 }
 
 /* ---------------------------------------------------------------------------

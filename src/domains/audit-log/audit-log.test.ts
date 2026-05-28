@@ -124,6 +124,7 @@ describe("AuditLogEntrySchema", () => {
       "evidence.unreviewed",
       "invite.issued",
       "invite.revoked",
+      "invite.send_failed",
       "itp.archived",
       "itp.attached",
       "itp.point.recorded",
