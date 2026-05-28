@@ -173,7 +173,7 @@ function QuickLink({ link }: { link: AreaQuickLink }) {
     <a
       href={link.anchor}
       className={cn(
-        "inline-flex min-h-[40px] items-center gap-1.5 rounded-pill border border-border bg-surface px-3 py-1.5 text-sm",
+        "inline-flex min-h-[44px] items-center gap-1.5 rounded-pill border border-border bg-surface px-3.5 py-2 text-sm",
         "transition-colors hover:bg-surface-subtle focus:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy",
       )}
       aria-label={`${link.label} in this area — open the list`}

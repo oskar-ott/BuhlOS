@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Camera,
@@ -188,6 +188,13 @@ export function PhilJobDetail({
     [initialSnags, initialItps, evidenceItems],
   );
 
+  // The drill-in renders below the whole area list, so on a long list a
+  // tap mid-list can leave the detail off-screen with no visible
+  // feedback. Bring it into view on a user tap (only — the initial
+  // default selection never calls selectArea, so the page doesn't
+  // auto-scroll on load).
+  const areaDetailRef = useRef<HTMLDivElement>(null);
+
   // Selecting an area also syncs the viewed stage when the area has a
   // single stage plan — so the drill-in, the capture sheet, and the snag
   // sheet all agree on which stage we're in. Done here, at the tap, so
@@ -201,6 +208,14 @@ export function PhilJobDetail({
         const only = soleStage(areaStageAvailability(job, fullArea));
         if (only) setStage(only);
       }
+      // Scroll after the selection-driven re-render commits. scroll-mt on
+      // the wrapper keeps the header clear of the sticky PhilHeader.
+      requestAnimationFrame(() => {
+        areaDetailRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
     },
     [flatAreas, job],
   );
@@ -386,15 +401,17 @@ export function PhilJobDetail({
           )}
 
           {selectedArea ? (
-            <PhilJobAreaDetail
-              areaName={selectedArea.name}
-              spaceType={selectedArea.spaceType}
-              stages={areaStageAvailability(job, selectedArea)}
-              stage={stage}
-              tasks={tasks}
-              counts={countsForArea(areaCountMaps, selectedArea.id)}
-              onStageChange={setStage}
-            />
+            <div ref={areaDetailRef} className="scroll-mt-16">
+              <PhilJobAreaDetail
+                areaName={selectedArea.name}
+                spaceType={selectedArea.spaceType}
+                stages={areaStageAvailability(job, selectedArea)}
+                stage={stage}
+                tasks={tasks}
+                counts={countsForArea(areaCountMaps, selectedArea.id)}
+                onStageChange={setStage}
+              />
+            </div>
           ) : null}
         </section>
       ) : null}
