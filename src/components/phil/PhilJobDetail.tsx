@@ -17,7 +17,6 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import {
   effectiveTasks,
   hasSiteContext,
-  stageLabel,
   visibleAreaGroups,
 } from "@/domains/jobs/format";
 import { needsWorkerAttention as itpNeedsAttention } from "@/domains/itp/format";
@@ -38,10 +37,12 @@ import { PhilJobHero } from "./PhilJobHero";
 import { PhilJobAttentionStrip } from "./PhilJobAttentionStrip";
 import { PhilJobSectionAnchors } from "./PhilJobSectionAnchors";
 import { PhilJobAreaCard } from "./PhilJobAreaCard";
+import { PhilJobAreaDetail } from "./PhilJobAreaDetail";
 import {
   areaStageAvailability,
   buildAreaCountMaps,
   countsForArea,
+  soleStage,
 } from "./philJobWorkTree";
 import { cn } from "@/lib/cn";
 
@@ -187,6 +188,23 @@ export function PhilJobDetail({
     [initialSnags, initialItps, evidenceItems],
   );
 
+  // Selecting an area also syncs the viewed stage when the area has a
+  // single stage plan — so the drill-in, the capture sheet, and the snag
+  // sheet all agree on which stage we're in. Done here, at the tap, so
+  // no render-phase effect is needed. Areas with both stages leave the
+  // current `stage` choice intact.
+  const selectArea = useCallback(
+    (area: { id: string }) => {
+      setSelectedAreaId(area.id);
+      const fullArea = flatAreas.find((a) => a.id === area.id) ?? null;
+      if (fullArea) {
+        const only = soleStage(areaStageAvailability(job, fullArea));
+        if (only) setStage(only);
+      }
+    },
+    [flatAreas, job],
+  );
+
   const handleCaptured = useCallback((item: EvidenceItem) => {
     setEvidenceItems((prev) => [item, ...prev]);
     setCaptureBanner({ tone: "success", message: "Evidence captured." });
@@ -314,32 +332,14 @@ export function PhilJobDetail({
           aria-labelledby="phil-job-work-h"
           className="scroll-mt-16 space-y-4"
         >
-          <Card>
-            <CardTitle>
-              <span id="phil-job-work-h">Stage</span>
-            </CardTitle>
-            <CardDescription className="mt-1">
-              Which list of tasks should we show for the selected area?
-            </CardDescription>
-            <div className="mt-3 grid grid-cols-2 gap-2" role="tablist" aria-label="Stage">
-              <StageButton
-                label={stageLabel("roughIn")}
-                active={stage === "roughIn"}
-                onClick={() => setStage("roughIn")}
-              />
-              <StageButton
-                label={stageLabel("fitOff")}
-                active={stage === "fitOff"}
-                onClick={() => setStage("fitOff")}
-              />
-            </div>
-          </Card>
-
           {groups.length > 0 ? (
             <Card>
-              <CardTitle>Areas</CardTitle>
+              <CardTitle>
+                <span id="phil-job-work-h">Areas</span>
+              </CardTitle>
               <CardDescription className="mt-1">
-                Pick an area to see the {stageLabel(stage).toLowerCase()} task list.
+                Pick an area to drill in — its stages, tasks, and what&rsquo;s
+                outstanding.
               </CardDescription>
               <div className="mt-3 space-y-4">
                 {groups.map((group) => {
@@ -363,7 +363,7 @@ export function PhilJobDetail({
                               active={area.id === selectedAreaId}
                               stages={areaStageAvailability(job, area)}
                               counts={countsForArea(areaCountMaps, area.id)}
-                              onSelect={() => setSelectedAreaId(area.id)}
+                              onSelect={() => selectArea(area)}
                             />
                           </li>
                         ))}
@@ -375,7 +375,9 @@ export function PhilJobDetail({
             </Card>
           ) : (
             <Card>
-              <CardTitle>Areas</CardTitle>
+              <CardTitle>
+                <span id="phil-job-work-h">Areas</span>
+              </CardTitle>
               <CardDescription className="mt-2">
                 No areas configured for this job yet. Ask your PM or check the
                 legacy Job Builder.
@@ -384,37 +386,15 @@ export function PhilJobDetail({
           )}
 
           {selectedArea ? (
-            <Card>
-              <CardTitle>
-                {stageLabel(stage)} · {selectedArea.name}
-              </CardTitle>
-              <CardDescription className="mt-1">
-                The task plan for this area. Status and tick-off land in a later
-                phase.
-              </CardDescription>
-              {tasks.length > 0 ? (
-                <ul className="mt-3 divide-y divide-border overflow-hidden rounded-card border border-border bg-surface">
-                  {tasks.map((t) => (
-                    <li
-                      key={t.id}
-                      className="flex min-h-[48px] items-center gap-3 px-3 py-2.5 text-sm"
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="inline-block h-2 w-2 shrink-0 rounded-pill bg-text-muted/40"
-                      />
-                      <span className="flex-1 text-text">{t.name}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-3 rounded-card border border-dashed border-border bg-surface-subtle p-4 text-sm text-text-muted">
-                  No {stageLabel(stage).toLowerCase()} tasks listed for this area.
-                  The job-level template may be empty, or this area has a custom
-                  override with no tasks.
-                </p>
-              )}
-            </Card>
+            <PhilJobAreaDetail
+              areaName={selectedArea.name}
+              spaceType={selectedArea.spaceType}
+              stages={areaStageAvailability(job, selectedArea)}
+              stage={stage}
+              tasks={tasks}
+              counts={countsForArea(areaCountMaps, selectedArea.id)}
+              onStageChange={setStage}
+            />
           ) : null}
         </section>
       ) : null}
@@ -541,32 +521,5 @@ function SiteField({
         <dd className="mt-0.5 whitespace-pre-line break-words text-text">{children}</dd>
       </div>
     </div>
-  );
-}
-
-function StageButton({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        "rounded-card border px-4 py-3 text-center font-display text-sm font-semibold transition-colors",
-        active
-          ? "border-accent-yellow bg-accent-yellow text-brand-navy"
-          : "border-border bg-surface text-text hover:bg-surface-subtle"
-      )}
-    >
-      {label}
-    </button>
   );
 }
