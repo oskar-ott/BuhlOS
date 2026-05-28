@@ -100,7 +100,11 @@ function deriveAppAccess(role) { return ROLE_APP_ACCESS[role] || 'phil'; }
 function computeExpiresAt(fromIso, days) {
   const d = new Date(fromIso); d.setDate(d.getDate() + days); return d.toISOString();
 }
-function emailConfigured() { return email.isEmailConfigured(); }
+// O2 email delivery is merged, but the worker setup route it points to
+// (/phil/invite/[token]) only becomes live with O3. Until that route is on
+// main, never send a worker an email whose primary CTA lands on a 404.
+function inviteSetupRouteLive() { return false; }
+function emailConfigured() { return inviteSetupRouteLive() && email.isEmailConfigured(); }
 
 // Map a (possibly coarse legacy) role string onto one of the eight bible roles
 // so the register row validates against EmployeeRoleSchema. Returns null for

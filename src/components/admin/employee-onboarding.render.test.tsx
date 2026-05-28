@@ -104,6 +104,24 @@ describe("EmployeeDetailDrawer", () => {
     expect(html).toContain("Resend / copy link");
   });
 
+  it("does not describe copy-link invites as emailed", () => {
+    const liam = SAMPLE_EMPLOYEE_ROWS.find((r) => r.employee.id === "e_liam")!;
+    const html = renderToString(
+      createElement(EmployeeDetailDrawer, {
+        row: {
+          ...liam,
+          invite: liam.invite ? { ...liam.invite, delivery: "link" } : null,
+        },
+        emailConfigured: false,
+        onClose: noop,
+        onUpdated: noop,
+      })
+    );
+    expect(html).toContain("Link created");
+    expect(html).toContain("worker setup lands in O3");
+    expect(html).not.toContain("Sent");
+  });
+
   it("renders nothing when no row is selected", () => {
     const html = renderToString(
       createElement(EmployeeDetailDrawer, {

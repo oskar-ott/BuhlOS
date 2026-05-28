@@ -75,6 +75,11 @@ export function sendErrorText(reason: string | null | undefined): string {
 export function inviteSummaryLine(invite: InvitePublic): string {
   switch (invite.status) {
     case "sent":
+      if (invite.delivery === "link") {
+        return `Link created ${formatDateTime(invite.sentAt)} · ${formatExpiryChip(
+          invite.expiresAt
+        )} · worker setup lands in O3`;
+      }
       return `Sent ${formatDateTime(invite.sentAt)} to ${invite.email} · ${formatExpiryChip(
         invite.expiresAt
       )} · resent ${invite.resentCount ?? 0}×`;

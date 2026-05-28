@@ -24,6 +24,7 @@ import {
   ROLE_ORDER,
 } from "./service";
 import { CreateEmployeePayloadSchema } from "./schema";
+import { inviteSummaryLine } from "./format";
 import { SAMPLE_EMPLOYEE_ROWS } from "./fixtures";
 import type { Employee, EmployeeRole, InvitePublic } from "./types";
 
@@ -104,6 +105,29 @@ describe("employeeStatusMarker", () => {
     expect(employeeStatusMarker(e("invited"), i("expired"))).toMatchObject({ key: "expired", tone: "danger" });
     expect(employeeStatusMarker(e("invited"), i("revoked"))).toMatchObject({ key: "revoked" });
     expect(employeeStatusMarker(e("invited"), i("failed"))).toMatchObject({ key: "failed", tone: "danger" });
+  });
+});
+
+describe("inviteSummaryLine", () => {
+  const sentInvite: InvitePublic = {
+    id: "i1",
+    employeeId: "e1",
+    email: "liam@example.com",
+    status: "sent",
+    expiresAt: "2026-06-11T00:00:00.000Z",
+    sentAt: "2026-05-29T00:00:00.000Z",
+    createdBy: "u_admin",
+    resentCount: 0,
+  };
+
+  it("does not describe copy-link invites as emailed", () => {
+    expect(inviteSummaryLine({ ...sentInvite, delivery: "link" })).toContain("Link created");
+    expect(inviteSummaryLine({ ...sentInvite, delivery: "link" })).toContain("worker setup lands in O3");
+  });
+
+  it("keeps sent wording for real email delivery", () => {
+    expect(inviteSummaryLine({ ...sentInvite, delivery: "email" })).toContain("Sent");
+    expect(inviteSummaryLine({ ...sentInvite, delivery: "email" })).toContain("liam@example.com");
   });
 });
 
