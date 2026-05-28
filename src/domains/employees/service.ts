@@ -217,7 +217,13 @@ export function isValidAuMobile(raw: string): boolean {
  * and shared; the PIN is created in O3 (the worker setup flow).
  * ------------------------------------------------------------------------- */
 
-const EXPLICIT_BLOCKED_PINS = new Set(["0000", "1234", "1111"]);
+// Trivially-guessable PINs blocked outright (bible §06 P5). Repeated-digit and
+// sequential patterns are caught structurally below; this set covers the
+// well-known "easy" PINs that aren't pure sequences (keypad columns, doubles,
+// 6969). Mirrored in api/invites.js#isCommonPin — keep both in sync.
+const EXPLICIT_BLOCKED_PINS = new Set([
+  "0000", "1111", "1234", "4321", "1212", "6969", "2580", "0852",
+]);
 
 /** True for trivially guessable PINs the bible forbids. */
 export function isCommonPin(pin: string): boolean {
@@ -229,7 +235,9 @@ export function isCommonPin(pin: string): boolean {
   // Strictly ascending or descending run of 1 (1234, 4567, 9876…).
   const asc = d.every((n, i) => i === 0 || n === d[i - 1]! + 1);
   const desc = d.every((n, i) => i === 0 || n === d[i - 1]! - 1);
-  return asc || desc;
+  // Repeated 2-digit pair (1212, 3434…).
+  const pair = pin[0] === pin[2] && pin[1] === pin[3];
+  return asc || desc || pair;
 }
 
 export type PinValidation = { ok: true } | { ok: false; reason: string };
@@ -321,6 +329,36 @@ export function canResendNow(
   nowMs: number = Date.now()
 ): boolean {
   return recentResendCount(timestamps, nowMs) < RESEND_MAX_PER_WINDOW;
+}
+
+/**
+ * Map a matched invite (+ its employee) to the worker-facing landing state
+ * (bible P1 / P8–P10). Pure — the bcrypt token match + I/O live in
+ * api/invites.js, which mirrors this. A `failed` invite (email send failed)
+ * still has a live token, so it resolves as `valid` — the copy-link works.
+ * A disabled employee resolves as `invalid` (P13: "account isn't active").
+ */
+export function resolveInviteState(
+  invite: Pick<InvitePublic, "status" | "expiresAt"> | null | undefined,
+  employee?: { status: string } | null,
+  nowMs: number = Date.now()
+): "valid" | "expired" | "revoked" | "accepted" | "invalid" {
+  if (!invite) return "invalid";
+  if (employee && employee.status === "disabled") return "invalid";
+  switch (effectiveInviteStatus(invite, nowMs)) {
+    case "accepted":
+      return "accepted";
+    case "revoked":
+      return "revoked";
+    case "expired":
+      return "expired";
+    case "sent":
+    case "opened":
+    case "failed":
+      return "valid";
+    default:
+      return "invalid";
+  }
 }
 
 /* ---------------------------------------------------------------------------

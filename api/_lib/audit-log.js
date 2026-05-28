@@ -55,6 +55,11 @@ const VALID_ACTIONS = new Set([
   'invite.revoked',
   // O2: provider send failure (metadata only — reason category, never token).
   'invite.send_failed',
+  // O3: worker opens the invite + completes setup (metadata only — never
+  // token/PIN). Kept in sync with src/domains/audit-log/schema.ts.
+  'invite.opened',
+  'invite.accepted',
+  'employee.activated',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
