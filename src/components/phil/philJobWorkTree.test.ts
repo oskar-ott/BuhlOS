@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   activeAreaItpCountByArea,
   activeSnagCountByArea,
+  areaQuickLinks,
   areaStageAvailability,
   buildAreaCountMaps,
   countsForArea,
   evidenceCountByArea,
+  hasAnyStage,
+  soleStage,
 } from "./philJobWorkTree";
 import type { Job, JobArea } from "@/domains/jobs/types";
 import type { SnagItem } from "@/domains/snags/types";
@@ -250,5 +253,73 @@ describe("countsForArea", () => {
       itps: 0,
       photos: 0,
     });
+  });
+});
+
+/* ----------------------------------------------------------------------
+ * soleStage / hasAnyStage
+ * -------------------------------------------------------------------- */
+
+describe("soleStage", () => {
+  it("returns the single stage when only one has a plan", () => {
+    expect(soleStage({ roughIn: true, fitOff: false })).toBe("roughIn");
+    expect(soleStage({ roughIn: false, fitOff: true })).toBe("fitOff");
+  });
+
+  it("returns null when both stages have a plan (worker chooses)", () => {
+    expect(soleStage({ roughIn: true, fitOff: true })).toBeNull();
+  });
+
+  it("returns null when neither stage has a plan", () => {
+    expect(soleStage({ roughIn: false, fitOff: false })).toBeNull();
+  });
+});
+
+describe("hasAnyStage", () => {
+  it("is true when at least one stage has a plan", () => {
+    expect(hasAnyStage({ roughIn: true, fitOff: false })).toBe(true);
+    expect(hasAnyStage({ roughIn: false, fitOff: true })).toBe(true);
+    expect(hasAnyStage({ roughIn: true, fitOff: true })).toBe(true);
+  });
+
+  it("is false when neither stage has a plan", () => {
+    expect(hasAnyStage({ roughIn: false, fitOff: false })).toBe(false);
+  });
+});
+
+/* ----------------------------------------------------------------------
+ * areaQuickLinks
+ * -------------------------------------------------------------------- */
+
+describe("areaQuickLinks", () => {
+  it("emits one link per non-zero count, in section order, with anchors", () => {
+    const links = areaQuickLinks({ snags: 2, itps: 1, photos: 5 });
+    expect(links.map((l) => l.key)).toEqual(["snags", "itps", "photos"]);
+    expect(links.map((l) => l.label)).toEqual(["2 snags", "1 ITP", "5 photos"]);
+    expect(links.map((l) => l.anchor)).toEqual([
+      "#phil-job-snags",
+      "#phil-job-itps",
+      "#phil-job-capture",
+    ]);
+  });
+
+  it("hides zero counts (no zero-count noise)", () => {
+    expect(areaQuickLinks({ snags: 0, itps: 0, photos: 0 })).toEqual([]);
+    const onlySnags = areaQuickLinks({ snags: 1, itps: 0, photos: 0 });
+    expect(onlySnags).toHaveLength(1);
+    expect(onlySnags[0]!.key).toBe("snags");
+  });
+
+  it("singularises labels at count 1", () => {
+    const links = areaQuickLinks({ snags: 1, itps: 1, photos: 1 });
+    expect(links.map((l) => l.label)).toEqual(["1 snag", "1 ITP", "1 photo"]);
+  });
+
+  it("never emits a document or material link (no area linkage exists)", () => {
+    const links = areaQuickLinks({ snags: 9, itps: 9, photos: 9 });
+    const keys = links.map((l) => l.key);
+    expect(keys).not.toContain("documents");
+    expect(keys).not.toContain("materials");
+    expect(keys.sort()).toEqual(["itps", "photos", "snags"]);
   });
 });

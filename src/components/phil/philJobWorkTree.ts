@@ -1,7 +1,7 @@
 import { effectiveTasks } from "@/domains/jobs/format";
 import { needsWorkerAttention as snagNeedsAttention } from "@/domains/snags/format";
 import { needsWorkerAttention as itpNeedsAttention } from "@/domains/itp/format";
-import type { Job, JobArea } from "@/domains/jobs/types";
+import type { Job, JobArea, JobStage } from "@/domains/jobs/types";
 import type { SnagItem } from "@/domains/snags/types";
 import type { ITPInstance } from "@/domains/itp/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
@@ -154,4 +154,75 @@ export function countsForArea(
   const photos = maps.photos.get(areaId) ?? 0;
   if (snags === 0 && itps === 0 && photos === 0) return EMPTY_COUNTS;
   return { snags, itps, photos };
+}
+
+/**
+ * The single stage that has a task plan, or null when zero stages or
+ * both stages have one.
+ *
+ * Drives two decisions in the area drill-in:
+ *   - When a worker selects an area with exactly one stage, the parent
+ *     syncs `stage` to it (so the capture / snag context matches what's
+ *     shown) — at selection time, not via an effect.
+ *   - The drill-in only renders the Rough-in / Fit-off selector when
+ *     `soleStage` is null AND at least one stage exists (i.e. both do).
+ */
+export function soleStage(stages: AreaStageAvailability): JobStage | null {
+  if (stages.roughIn && !stages.fitOff) return "roughIn";
+  if (stages.fitOff && !stages.roughIn) return "fitOff";
+  return null;
+}
+
+/** True when the area has a task plan for at least one stage. */
+export function hasAnyStage(stages: AreaStageAvailability): boolean {
+  return stages.roughIn || stages.fitOff;
+}
+
+export interface AreaQuickLink {
+  key: "snags" | "itps" | "photos";
+  count: number;
+  /** Already-pluralised visible label, e.g. "2 snags", "1 ITP". */
+  label: string;
+  /** In-page scroll anchor for the matching job section. The count is
+   *  area-specific; the section it scrolls to is the job-wide list,
+   *  where each row carries its own area label. */
+  anchor: string;
+}
+
+/**
+ * Quick links to show in the area drill-in — one per count that is
+ * actually > 0. A zero count produces no link, so an area with nothing
+ * outstanding shows no quick-link row at all (zero-count noise stays
+ * hidden, per the work-tree rules).
+ *
+ * Order matches the page's vertical section order: snags, then ITPs,
+ * then photos/captures.
+ */
+export function areaQuickLinks(counts: AreaCounts): AreaQuickLink[] {
+  const links: AreaQuickLink[] = [];
+  if (counts.snags > 0) {
+    links.push({
+      key: "snags",
+      count: counts.snags,
+      label: counts.snags === 1 ? "1 snag" : `${counts.snags} snags`,
+      anchor: "#phil-job-snags",
+    });
+  }
+  if (counts.itps > 0) {
+    links.push({
+      key: "itps",
+      count: counts.itps,
+      label: counts.itps === 1 ? "1 ITP" : `${counts.itps} ITPs`,
+      anchor: "#phil-job-itps",
+    });
+  }
+  if (counts.photos > 0) {
+    links.push({
+      key: "photos",
+      count: counts.photos,
+      label: counts.photos === 1 ? "1 photo" : `${counts.photos} photos`,
+      anchor: "#phil-job-capture",
+    });
+  }
+  return links;
 }
