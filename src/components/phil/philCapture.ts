@@ -1,4 +1,6 @@
 import type { Job } from "@/domains/jobs/types";
+import { requiresActionForOption, type WorkerCaptureOption } from "@/domains/observations/service";
+import type { CreateObservationPayload } from "@/domains/observations/types";
 
 /**
  * Pure helpers for the global Capture launcher (the centre FAB in
@@ -72,4 +74,26 @@ export function captureHref(jobId: string, token: number = Date.now()): string {
 export function philJobDetailId(pathname: string): string | null {
   const m = /^\/phil\/jobs\/([^/]+)$/.exec(pathname);
   return m ? decodeURIComponent(m[1]!) : null;
+}
+
+/**
+ * Build the create-observation payload from a chosen worker capture option +
+ * the worker's note. Kept pure (no fetch) so the classify-then-submit shape is
+ * unit-testable. `requiresAction` is sent explicitly (computed from the option)
+ * so the "Not sure — office review" override on a plain note still flags the
+ * office; source is inferred server-side (phil for a field worker). Description
+ * is omitted when blank rather than sent empty.
+ */
+export function buildObservationPayload(
+  option: WorkerCaptureOption,
+  title: string,
+  description: string,
+): CreateObservationPayload {
+  const trimmedDescription = description.trim();
+  return {
+    type: option.type,
+    title: title.trim(),
+    requiresAction: requiresActionForOption(option),
+    ...(trimmedDescription ? { description: trimmedDescription } : {}),
+  };
 }

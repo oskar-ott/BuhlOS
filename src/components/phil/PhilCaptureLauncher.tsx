@@ -3,49 +3,82 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
-import { Camera, Loader2, MapPin, X } from "lucide-react";
+import { ArrowLeft, Camera, CheckCircle2, ChevronRight, Loader2, MapPin, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { listJobs } from "@/domains/jobs/client";
-import { captureHref, launcherDecision, type LauncherDecision } from "./philCapture";
+import { createObservation } from "@/domains/observations/client";
+import {
+  WORKER_CAPTURE_OPTIONS,
+  requiresActionForOption,
+  type WorkerCaptureOption,
+} from "@/domains/observations/service";
+import {
+  buildObservationPayload,
+  captureHref,
+  launcherDecision,
+  type LaunchableJob,
+} from "./philCapture";
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** When the FAB is tapped on a job home we already know the job — skip the
+   *  picker and go straight to the capture chooser for that job. */
+  initialJobId?: string | null;
 }
 
-type State =
-  | { kind: "idle" }
-  | { kind: "loading" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; decision: LauncherDecision };
+type Job0 = { id: string; name: string | null };
+
+type View =
+  | { v: "loading" }
+  | { v: "error"; message: string }
+  | { v: "empty" }
+  | { v: "pick"; jobs: LaunchableJob[] }
+  | { v: "chooser"; job: Job0 }
+  | { v: "note"; job: Job0; option: WorkerCaptureOption }
+  | { v: "done"; requiresAction: boolean };
+
+const TITLE_MAX = 140;
 
 /**
- * Global Capture launcher — opened by the centre FAB in PhilTabBar so a
- * field worker can start a photo capture from anywhere in Phil (Today,
- * Gear, the jobs list) in one or two taps, instead of opening a job and
- * scrolling to the mid-page Capture block.
+ * Global Capture launcher — opened by the centre FAB in PhilTabBar so a field
+ * worker can capture site truth from anywhere in Phil in a couple of taps.
  *
- * Flow once the worker's jobs load (see philCaptureLauncher.ts):
- *   - no live jobs   → empty state
- *   - one live job   → skip the picker, deep-link straight to capture
- *   - many           → short job picker → deep-link
+ * Flow (capture-first, classify-simple):
+ *   1. Resolve the job — known if launched from a job home, else pick from the
+ *      worker's live jobs (one job auto-advances; none → empty state).
+ *   2. Choose what it is:
+ *        • Take a photo / evidence → deep-links to the existing, fully wired
+ *          CaptureSheet (the evidence path is unchanged — no new persistence).
+ *        • A plain-English classification (note, blocker, issue, need material,
+ *          plan mismatch, builder said, safety, question, variation, not sure)
+ *          → a quick note → POST /api/observations.
+ *   3. Confirmation: "Sent to BuhlOS" (office review required) or "Saved to job
+ *      history" (record-only), with an honest failure + retry on error.
  *
- * The deep link is `/phil/jobs/<id>?capture=<token>`; the job detail
- * page reads the token and auto-opens the existing (fully wired,
- * persisted) CaptureSheet. No new persistence path is introduced.
+ * The worker never sees the internal observation type taxonomy — only the
+ * WORKER_CAPTURE_OPTIONS labels (src/domains/observations/service.ts).
  */
-export function PhilCaptureLauncher({ open, onClose }: Props) {
+export function PhilCaptureLauncher({ open, onClose, initialJobId }: Props) {
   const router = useRouter();
-  const [state, setState] = useState<State>({ kind: "idle" });
-  // Guards against a stale fetch resolving after the sheet re-opens.
+  // Derive the first view from initialJobId so a known job goes straight to the
+  // chooser (no loading flash); the open-toggle effect below resets it on
+  // re-open. The picker path starts on "loading" until listJobs resolves.
+  const [view, setView] = useState<View>(
+    initialJobId ? { v: "chooser", job: { id: initialJobId, name: null } } : { v: "loading" },
+  );
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  // Guards against a stale jobs fetch resolving after the sheet re-opens.
   const reqRef = useRef(0);
 
-  const go = useCallback(
+  const goEvidence = useCallback(
     (jobId: string) => {
       onClose();
-      // `as Route` — captureHref builds a dynamic path string; Next's
-      // typedRoutes can't statically verify it (same cast the admin
-      // sidebar uses for dynamic hrefs).
+      // `as Route` — captureHref builds a dynamic path string Next's
+      // typedRoutes can't statically verify (same cast the admin sidebar uses).
       router.push(captureHref(jobId) as Route);
     },
     [onClose, router],
@@ -54,12 +87,12 @@ export function PhilCaptureLauncher({ open, onClose }: Props) {
   const load = useCallback(async () => {
     reqRef.current += 1;
     const seq = reqRef.current;
-    setState({ kind: "loading" });
+    setView({ v: "loading" });
     const r = await listJobs();
     if (seq !== reqRef.current) return; // superseded by a newer open/retry
     if (!r.ok) {
-      setState({
-        kind: "error",
+      setView({
+        v: "error",
         message:
           r.error.status === 0
             ? "No connection. Check your signal and try again."
@@ -68,20 +101,24 @@ export function PhilCaptureLauncher({ open, onClose }: Props) {
       return;
     }
     const decision = launcherDecision(r.data.jobs);
-    if (decision.kind === "single") {
-      go(decision.job.id);
-      return;
-    }
-    setState({ kind: "ready", decision });
-  }, [go]);
+    if (decision.kind === "empty") setView({ v: "empty" });
+    else if (decision.kind === "single") {
+      setView({ v: "chooser", job: { id: decision.job.id, name: decision.job.name } });
+    } else setView({ v: "pick", jobs: decision.jobs });
+  }, []);
 
   useEffect(() => {
-    if (open) {
-      void load();
+    if (!open) return;
+    setTitle("");
+    setDescription("");
+    setSubmitError(null);
+    setSubmitting(false);
+    if (initialJobId) {
+      setView({ v: "chooser", job: { id: initialJobId, name: null } });
     } else {
-      setState({ kind: "idle" });
+      void load();
     }
-  }, [open, load]);
+  }, [open, initialJobId, load]);
 
   useEffect(() => {
     if (!open) return;
@@ -92,7 +129,36 @@ export function PhilCaptureLauncher({ open, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  const chooseOption = useCallback((job: Job0, option: WorkerCaptureOption) => {
+    setTitle("");
+    setDescription("");
+    setSubmitError(null);
+    setView({ v: "note", job, option });
+  }, []);
+
+  const submitNote = useCallback(
+    async (job: Job0, option: WorkerCaptureOption) => {
+      if (!title.trim()) return;
+      setSubmitting(true);
+      setSubmitError(null);
+      const r = await createObservation(job.id, buildObservationPayload(option, title, description));
+      setSubmitting(false);
+      if (!r.ok) {
+        setSubmitError(
+          r.error.status === 0
+            ? "No connection — your note wasn't sent. Try again when you've got signal."
+            : `Couldn't send (${r.error.status}). Try again.`,
+        );
+        return;
+      }
+      setView({ v: "done", requiresAction: requiresActionForOption(option) });
+    },
+    [title, description],
+  );
+
   if (!open) return null;
+
+  const headerBack = view.v === "note" ? () => setView({ v: "chooser", job: view.job }) : null;
 
   return (
     <div
@@ -103,12 +169,23 @@ export function PhilCaptureLauncher({ open, onClose }: Props) {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-t-2xl border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] shadow-raised"
+        className="flex max-h-[85vh] w-full max-w-md flex-col rounded-t-2xl border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] shadow-raised"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="flex items-center gap-2">
-            <Camera aria-hidden="true" className="h-5 w-5 text-brand-navy" />
+            {headerBack ? (
+              <button
+                type="button"
+                onClick={headerBack}
+                aria-label="Back"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-card text-text-muted hover:bg-surface-subtle"
+              >
+                <ArrowLeft aria-hidden="true" className="h-5 w-5" />
+              </button>
+            ) : (
+              <Camera aria-hidden="true" className="h-5 w-5 text-brand-navy" />
+            )}
             <h2 className="font-display text-lg text-text">Capture</h2>
           </div>
           <button
@@ -121,21 +198,21 @@ export function PhilCaptureLauncher({ open, onClose }: Props) {
           </button>
         </header>
 
-        <div className="px-4 py-4">
-          {state.kind === "idle" || state.kind === "loading" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          {view.v === "loading" ? (
             <p className="flex items-center justify-center gap-2 py-6 text-sm text-text-muted">
               <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
               Loading your jobs…
             </p>
           ) : null}
 
-          {state.kind === "error" ? (
+          {view.v === "error" ? (
             <div className="space-y-3">
               <p
                 role="alert"
                 className="rounded-card border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
               >
-                {state.message}
+                {view.message}
               </p>
               <Button
                 type="button"
@@ -149,22 +226,22 @@ export function PhilCaptureLauncher({ open, onClose }: Props) {
             </div>
           ) : null}
 
-          {state.kind === "ready" && state.decision.kind === "empty" ? (
+          {view.v === "empty" ? (
             <p className="rounded-card border border-dashed border-border bg-surface-subtle p-4 text-center text-sm text-text-muted">
-              No jobs assigned to you yet. Ask your PM to add you to a job, then
-              you can capture against it.
+              No jobs assigned to you yet. Ask your PM to add you to a job, then you can capture
+              against it.
             </p>
           ) : null}
 
-          {state.kind === "ready" && state.decision.kind === "choose" ? (
+          {view.v === "pick" ? (
             <>
               <p className="text-sm text-text-muted">Which job is this for?</p>
               <ul className="mt-3 space-y-2">
-                {state.decision.jobs.map((j) => (
+                {view.jobs.map((j) => (
                   <li key={j.id}>
                     <button
                       type="button"
-                      onClick={() => go(j.id)}
+                      onClick={() => setView({ v: "chooser", job: { id: j.id, name: j.name } })}
                       className="flex w-full items-center gap-3 rounded-card border border-border bg-surface p-3 text-left hover:bg-surface-subtle"
                     >
                       <span className="min-w-0 flex-1">
@@ -178,12 +255,142 @@ export function PhilCaptureLauncher({ open, onClose }: Props) {
                           </span>
                         ) : null}
                       </span>
-                      <Camera aria-hidden="true" className="h-5 w-5 shrink-0 text-brand-navy" />
+                      <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />
                     </button>
                   </li>
                 ))}
               </ul>
             </>
+          ) : null}
+
+          {view.v === "chooser" ? (
+            <>
+              {view.job.name ? (
+                <p className="text-xs text-text-muted">
+                  For <span className="font-semibold text-text">{view.job.name}</span>
+                </p>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => goEvidence(view.job.id)}
+                className="mt-2 flex w-full items-center gap-3 rounded-card border-2 border-brand-navy bg-brand-navy p-3 text-left text-text-inverse"
+              >
+                <Camera aria-hidden="true" className="h-5 w-5 shrink-0 text-accent-yellow" />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-display text-sm font-semibold">
+                    Take a photo / evidence
+                  </span>
+                  <span className="block text-xs text-text-inverse/80">
+                    Proof of work — rough-in, fit-off, damage
+                  </span>
+                </span>
+              </button>
+
+              <p className="mt-4 text-xs uppercase tracking-wider text-text-muted">
+                Or log something
+              </p>
+              <ul className="mt-2 space-y-2">
+                {WORKER_CAPTURE_OPTIONS.map((o) => (
+                  <li key={o.key}>
+                    <button
+                      type="button"
+                      onClick={() => chooseOption(view.job, o)}
+                      className="flex w-full items-center gap-3 rounded-card border border-border bg-surface p-3 text-left hover:bg-surface-subtle"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-display text-sm font-semibold text-text">
+                          {o.label}
+                        </span>
+                        <span className="block text-xs text-text-muted">{o.hint}</span>
+                      </span>
+                      <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+
+          {view.v === "note" ? (
+            <div className="space-y-3">
+              <div>
+                <p className="font-display text-base font-semibold text-text">{view.option.label}</p>
+                <p className="text-xs text-text-muted">{view.option.hint}</p>
+              </div>
+              <label className="block">
+                <span className="text-xs uppercase tracking-wider text-text-muted">
+                  What&rsquo;s the gist?
+                </span>
+                <input
+                  type="text"
+                  value={title}
+                  maxLength={TITLE_MAX}
+                  autoFocus
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Short summary (e.g. cable path blocked at riser)"
+                  className="mt-1 w-full rounded-card border border-border bg-surface px-3 py-2 text-base text-text"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs uppercase tracking-wider text-text-muted">
+                  More detail (optional)
+                </span>
+                <textarea
+                  value={description}
+                  rows={3}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Anything the office needs to know"
+                  className="mt-1 w-full rounded-card border border-border bg-surface px-3 py-2 text-base text-text"
+                />
+              </label>
+              {requiresActionForOption(view.option) ? (
+                <p className="text-xs text-text-muted">This goes to the office for review.</p>
+              ) : (
+                <p className="text-xs text-text-muted">This is saved to the job&rsquo;s history.</p>
+              )}
+              {submitError ? (
+                <p
+                  role="alert"
+                  className="rounded-card border border-rose-200 bg-rose-50 p-2 text-sm text-rose-900"
+                >
+                  {submitError}
+                </p>
+              ) : null}
+              <Button
+                type="button"
+                variant="primary"
+                size="lg"
+                className="w-full"
+                disabled={!title.trim() || submitting}
+                onClick={() => void submitNote(view.job, view.option)}
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                    Sending…
+                  </>
+                ) : (
+                  "Send to BuhlOS"
+                )}
+              </Button>
+            </div>
+          ) : null}
+
+          {view.v === "done" ? (
+            <div className="space-y-4 py-4 text-center">
+              <CheckCircle2 aria-hidden="true" className="mx-auto h-12 w-12 text-emerald-500" />
+              <div>
+                <p className="font-display text-lg text-text">Sent to BuhlOS</p>
+                <p className="mt-1 text-sm text-text-muted">
+                  {view.requiresAction
+                    ? "The office will review this — it's in their Observations inbox now."
+                    : "Saved to this job's history."}
+                </p>
+              </div>
+              <Button type="button" variant="primary" size="lg" className="w-full" onClick={onClose}>
+                Done
+              </Button>
+            </div>
           ) : null}
         </div>
       </div>

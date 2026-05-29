@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildObservationPayload,
   captureHref,
   launchableJobs,
   launcherDecision,
   philJobDetailId,
 } from "./philCapture";
+import { workerOptionByKey } from "@/domains/observations/service";
 import type { Job } from "@/domains/jobs/types";
 
 function job(over: Partial<Job> & { id: string; name: string }): Job {
@@ -90,5 +92,32 @@ describe("philJobDetailId", () => {
 
   it("decodes an encoded id segment", () => {
     expect(philJobDetailId("/phil/jobs/job%2F1")).toBe("job/1");
+  });
+});
+
+describe("buildObservationPayload", () => {
+  it("maps a classification option + note into a create payload", () => {
+    const blocker = workerOptionByKey("blocker")!;
+    const payload = buildObservationPayload(blocker, "  Cable path blocked  ", "  riser is full ");
+    expect(payload).toEqual({
+      type: "blocker",
+      title: "Cable path blocked",
+      requiresAction: true,
+      description: "riser is full",
+    });
+  });
+
+  it("omits an empty description rather than sending a blank string", () => {
+    const note = workerOptionByKey("note")!;
+    const payload = buildObservationPayload(note, "Tidied the board", "   ");
+    expect(payload).toEqual({ type: "note", title: "Tidied the board", requiresAction: false });
+    expect("description" in payload).toBe(false);
+  });
+
+  it("carries the 'Not sure — office review' override (note that still needs action)", () => {
+    const unsure = workerOptionByKey("unsure")!;
+    const payload = buildObservationPayload(unsure, "Something's off near the board", "");
+    expect(payload.type).toBe("note");
+    expect(payload.requiresAction).toBe(true);
   });
 });

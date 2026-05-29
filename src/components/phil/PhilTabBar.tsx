@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import type { Route } from "next";
 import { Calendar, Briefcase, Camera, Wrench, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { PhilCaptureLauncher } from "./PhilCaptureLauncher";
-import { captureHref, philJobDetailId } from "./philCapture";
+import { philJobDetailId } from "./philCapture";
 
 interface Tab {
   label: string;
@@ -85,20 +85,14 @@ function TabLink({ tab, pathname }: { tab: Tab; pathname: string }) {
 
 export function PhilTabBar() {
   const pathname = usePathname() ?? "";
-  const router = useRouter();
   const [launcherOpen, setLauncherOpen] = useState(false);
 
-  // When the worker is already on a job home, we know the job — capture
-  // is a one-tap deep-link. Anywhere else, ask which job (the launcher).
+  // The FAB always opens the capture launcher. On a job home we already know
+  // the job, so the launcher skips the picker and goes straight to the capture
+  // chooser (photo/evidence or a classified observation); anywhere else it
+  // asks which job first.
   const currentJobId = philJobDetailId(pathname);
-  const onCapture = () => {
-    if (currentJobId) {
-      // `as Route` — dynamic path string, see PhilCaptureLauncher.
-      router.push(captureHref(currentJobId) as Route);
-    } else {
-      setLauncherOpen(true);
-    }
-  };
+  const onCapture = () => setLauncherOpen(true);
 
   return (
     <>
@@ -136,7 +130,11 @@ export function PhilTabBar() {
         ))}
       </nav>
 
-      <PhilCaptureLauncher open={launcherOpen} onClose={() => setLauncherOpen(false)} />
+      <PhilCaptureLauncher
+        open={launcherOpen}
+        onClose={() => setLauncherOpen(false)}
+        initialJobId={currentJobId}
+      />
     </>
   );
 }
