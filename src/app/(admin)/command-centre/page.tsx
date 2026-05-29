@@ -15,6 +15,7 @@ import {
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
@@ -76,6 +77,22 @@ export default async function CommandCentrePage() {
   const jobsWithSnags = jobs.filter((j) => (j.statsSnagsV2Active ?? 0) > 0);
   const itpReview = summariseItpReviewQueue(jobs);
 
+  // When a cross-job queue is concentrated on a single job, deep-link
+  // straight to that job's section instead of dropping the owner on the
+  // jobs index to hunt for it. Mirrors the ITP card's behaviour. The
+  // cross-job inbox (many jobs) is still UC, so /v2/jobs is the honest
+  // destination there.
+  const evidenceTarget = singleJobTarget(jobsWithEvidence, "evidence");
+  const snagsTarget = singleJobTarget(jobsWithSnags, "snags");
+
+  const allClear =
+    hoursPending.length === 0 &&
+    evidencePending === 0 &&
+    snagsActive === 0 &&
+    itpReview.count === 0 &&
+    !hoursError &&
+    !jobsError;
+
   return (
     <AdminShell title="Command Centre">
       <div className="mx-auto max-w-5xl space-y-6">
@@ -95,8 +112,20 @@ export default async function CommandCentrePage() {
             >
               <CardTitle>Couldn&rsquo;t load every queue</CardTitle>
               <CardDescription className="text-amber-900">
-                {hoursError ?? jobsError}. Counts shown may be incomplete —
-                refresh the page once the API is back.
+                {hoursError ?? jobsError}. Counts shown may be incomplete.
+              </CardDescription>
+              <div className="mt-3">
+                <RefreshButton />
+              </div>
+            </Card>
+          ) : null}
+
+          {allClear ? (
+            <Card className="mt-3 border-emerald-200 bg-emerald-50" role="status">
+              <CardTitle className="text-emerald-900">All clear</CardTitle>
+              <CardDescription className="text-emerald-900">
+                Nothing needs you right now — no hours, evidence, snags or ITPs
+                waiting. New submissions land here as they come in.
               </CardDescription>
             </Card>
           ) : null}
@@ -116,8 +145,8 @@ export default async function CommandCentrePage() {
               label="Evidence to review"
               count={evidencePending}
               jobsAffected={jobsWithEvidence.length}
-              href={"/v2/jobs" as Route}
-              ctaLabel="Open jobs"
+              href={evidenceTarget.href as Route}
+              ctaLabel={evidenceTarget.cta}
               empty="No evidence waiting for review."
             />
             <QueueCard
@@ -125,8 +154,8 @@ export default async function CommandCentrePage() {
               label="Snags needing attention"
               count={snagsActive}
               jobsAffected={jobsWithSnags.length}
-              href={"/v2/jobs" as Route}
-              ctaLabel="Open jobs"
+              href={snagsTarget.href as Route}
+              ctaLabel={snagsTarget.cta}
               empty="Nice — no open snags right now."
             />
             <QueueCard
@@ -307,6 +336,25 @@ function SurfaceLink({
       <span className="text-xs text-text-muted">{hint}</span>
     </Link>
   );
+}
+
+/**
+ * Where a cross-job queue card should point. When exactly one job carries
+ * the whole count, deep-link to that job's section so the owner is one
+ * click from the work; otherwise fall back to the jobs index (the
+ * cross-job inbox is still UC).
+ */
+function singleJobTarget(
+  jobsAffected: ReadonlyArray<Job>,
+  section: "evidence" | "snags",
+): { href: string; cta: string } {
+  if (jobsAffected.length === 1) {
+    return {
+      href: `/v2/jobs/${jobsAffected[0]!.id}/${section}`,
+      cta: section === "evidence" ? "Open evidence" : "Open snags",
+    };
+  }
+  return { href: "/v2/jobs", cta: "Open jobs" };
 }
 
 function oldestAge(timestamps: ReadonlyArray<string>): string | null {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Camera,
@@ -65,6 +65,11 @@ interface Props {
   /** Current viewer — id + role drive snag transition button gating
    *  and attention-strip filters (e.g. "snags assigned to me"). */
   viewer?: { id: string; role: string };
+  /** When set (and changing), auto-opens the capture sheet. Driven by
+   *  the `?capture=<token>` deep link the global Capture launcher
+   *  (PhilTabBar FAB) pushes, so a worker can start a capture from
+   *  anywhere in Phil in one tap. A fresh token re-opens on repeat taps. */
+  autoCaptureToken?: string | null;
 }
 
 /**
@@ -111,6 +116,7 @@ export function PhilJobDetail({
   initialDocuments,
   documentsError,
   viewer,
+  autoCaptureToken,
 }: Props) {
   const groups = useMemo(() => visibleAreaGroups(job.areaGroups), [job.areaGroups]);
 
@@ -142,6 +148,18 @@ export function PhilJobDetail({
   const [captureBanner, setCaptureBanner] = useState<
     { tone: "info" | "success" | "danger"; message: string } | null
   >(null);
+
+  // Deep-linked capture: the global Capture button (PhilTabBar) routes
+  // here with a fresh ?capture=<token>. Keyed on the token (not a bare
+  // boolean) so tapping Capture again for the same job re-opens the sheet.
+  const lastCaptureTokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (autoCaptureToken && autoCaptureToken !== lastCaptureTokenRef.current) {
+      lastCaptureTokenRef.current = autoCaptureToken;
+      setCaptureBanner(null);
+      setCaptureOpen(true);
+    }
+  }, [autoCaptureToken]);
 
   const selectedArea = useMemo(
     () => flatAreas.find((a) => a.id === selectedAreaId) ?? null,
