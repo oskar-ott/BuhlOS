@@ -66,6 +66,15 @@ const VALID_ACTIONS = new Set([
   // path, so the timeline shows both events. metadata.snagId carries the
   // created snag's id. Kept in sync with src/domains/audit-log/schema.ts.
   'observation.converted_to_snag',
+  // PR 10: observation lifecycle. Mirrors the snag.{created,transitioned}
+  // pattern. observation.created is emitted on POST /api/observations.
+  // observation.transitioned is emitted on PATCH whenever status, priority,
+  // or assignedToId changes (one row per PATCH; metadata.changedFields
+  // carries the list of fields and metadata.from/to capture status flips
+  // so a downstream timeline reads "needs_action → in_review" without
+  // re-fetching). Kept in sync with src/domains/audit-log/schema.ts.
+  'observation.created',
+  'observation.transitioned',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',

@@ -32,6 +32,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "invite.opened": "Worker opened invite",
   "invite.accepted": "Worker accepted invite",
   "observation.converted_to_snag": "Converted observation to snag",
+  "observation.created": "Raised observation",
+  "observation.transitioned": "Updated observation",
 };
 
 export function actionLabel(action: AuditAction): string {

@@ -316,6 +316,78 @@ describe("PATCH /api/observations (triage)", () => {
   });
 });
 
+describe("audit log entries (PR 10)", () => {
+  it("POST create emits observation.created", async () => {
+    const res = await call({
+      method: "POST",
+      role: "electrician",
+      userId: "u_field",
+      query: { jobId: "job-1" },
+      body: { type: "blocker", title: "Cable path blocked" },
+    });
+    expect(res.statusCode).toBe(201);
+    // Walk all audit/*.json buckets; the test only seeds one but writes can
+    // land in any current-month bucket.
+    const entries = collectAuditEntries(blob);
+    const created = entries.find((e) => e.action === "observation.created");
+    expect(created?.targetType).toBe("observation");
+    expect(created?.actorId).toBe("u_field");
+    expect(created?.jobId).toBe("job-1");
+    expect((created?.metadata as { type: string }).type).toBe("blocker");
+  });
+
+  it("PATCH status emits observation.transitioned with from/to + changedFields", async () => {
+    blob.set("observations.json", {
+      observations: [{ id: "o1", jobId: "job-1", type: "blocker", status: "new", priority: "normal", requiresAction: true, createdAt: "2026-05-02T00:00:00Z", updatedAt: "2026-05-02T00:00:00Z" }],
+    });
+    const res = await call({
+      method: "PATCH",
+      role: "boss",
+      userId: "u_boss",
+      body: { id: "o1", status: "in_review" },
+    });
+    expect(res.statusCode).toBe(200);
+    const entries = collectAuditEntries(blob);
+    const t = entries.find((e) => e.action === "observation.transitioned");
+    expect(t).toBeTruthy();
+    expect((t?.metadata as { from: { status: string }; to: { status: string }; changedFields: string[] }).from.status).toBe("new");
+    expect((t?.metadata as { from: { status: string }; to: { status: string }; changedFields: string[] }).to.status).toBe("in_review");
+    expect((t?.metadata as { changedFields: string[] }).changedFields).toContain("status");
+  });
+
+  it("PATCH that changes nothing user-meaningful does NOT emit a transitioned entry", async () => {
+    blob.set("observations.json", {
+      observations: [{ id: "o1", jobId: "job-1", type: "blocker", status: "new", priority: "normal", requiresAction: true, createdAt: "2026-05-02T00:00:00Z", updatedAt: "2026-05-02T00:00:00Z" }],
+    });
+    // Setting requiresAction true→true is a no-op on the headline fields.
+    const res = await call({
+      method: "PATCH",
+      role: "boss",
+      userId: "u_boss",
+      body: { id: "o1", requiresAction: true },
+    });
+    expect(res.statusCode).toBe(200);
+    const entries = collectAuditEntries(blob);
+    expect(entries.find((e) => e.action === "observation.transitioned")).toBeUndefined();
+  });
+});
+
+function collectAuditEntries(b: Map<string, unknown>): Array<{
+  action: string;
+  actorId: string;
+  jobId: string;
+  targetType: string;
+  metadata?: unknown;
+}> {
+  const out: Array<{ action: string; actorId: string; jobId: string; targetType: string; metadata?: unknown }> = [];
+  for (const [k, v] of b.entries()) {
+    if (!k.startsWith("audit/")) continue;
+    const list = (v as { entries?: Array<{ action: string; actorId: string; jobId: string; targetType: string; metadata?: unknown }> }).entries;
+    if (Array.isArray(list)) out.push(...list);
+  }
+  return out;
+}
+
 describe("POST /api/observations?action=convert-to-snag (PR 6)", () => {
   beforeEach(() => {
     blob.set("observations.json", {
