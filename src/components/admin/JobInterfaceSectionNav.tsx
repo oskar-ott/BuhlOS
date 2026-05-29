@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   FileText,
   History,
+  Inbox,
   Package,
 } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -79,6 +80,14 @@ export function JobInterfaceSectionNav({ job }: Props) {
       href: `/v2/jobs/${jobIdEnc}/snags` as Route,
       count: job.statsSnagsV2Active,
       icon: AlertOctagon,
+    },
+    {
+      kind: "live",
+      label: "Observations",
+      description:
+        "Field-to-office notes, blockers, plan mismatches, material requests, RFIs and instructions raised against this job.",
+      href: `/v2/jobs/${jobIdEnc}/observations` as Route,
+      icon: Inbox,
     },
     {
       kind: "live",

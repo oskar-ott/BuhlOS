@@ -60,6 +60,12 @@ const VALID_ACTIONS = new Set([
   'invite.opened',
   'invite.accepted',
   'employee.activated',
+  // PR 6: observation triage conversion. Records the office decision to
+  // promote an observation (defect/safety/blocker) into a real Snag — the
+  // snag itself also emits its own snag.created entry in the same write
+  // path, so the timeline shows both events. metadata.snagId carries the
+  // created snag's id. Kept in sync with src/domains/audit-log/schema.ts.
+  'observation.converted_to_snag',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -73,6 +79,10 @@ const VALID_TARGET_TYPES = new Set([
   // Onboarding (O1).
   'employee',
   'invite',
+  // PR 6: observations as audit targets — observation.converted_to_snag uses
+  // targetType='observation' so the conversion attributes to the observation
+  // lifecycle (the snag also gets its own snag.created entry).
+  'observation',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

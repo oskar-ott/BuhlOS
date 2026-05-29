@@ -265,3 +265,12 @@ export const ObservationListResponseSchema = z.object({
 export const ObservationMutationResponseSchema = z.object({
   observation: ObservationItemSchema,
 });
+
+/** PR 6: POST /api/observations?action=convert-to-snag response — returns the
+ *  updated observation AND the newly-created Snag. The snag is left as a
+ *  passthrough object so this schema doesn't couple to the snags domain (only
+ *  `id` is contractually required for the inbox UI to link to /v2/jobs/<id>/snags). */
+export const ObservationConvertToSnagResponseSchema = z.object({
+  observation: ObservationItemSchema,
+  snag: z.object({ id: z.string() }).passthrough(),
+});

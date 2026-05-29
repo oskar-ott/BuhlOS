@@ -1,6 +1,8 @@
 # Observations — the field-to-office loop (PR 3 / PR 4)
 
-> Status: **v1 foundation, live.** Conversion to RFI / Variation / Material
+> Status: **v1 foundation + PR 6 Snag conversion, live.** Conversion to Snag is
+> **real** (PR 6): a `defect` / `safety` / `blocker` observation can be promoted
+> to a tracked Snag with one click. Conversion to RFI / Variation / Material
 > Request records **intent only** — those downstream modules are not built yet
 > and the UI says so. Nothing here fakes a record.
 
@@ -93,14 +95,42 @@ source), and a detail drawer with triage (needs-action / in-review / record-only
 priority, assign-to-me, resolve + note, and **conversion-intent** buttons. A
 "Observations to action" card also lands on the Command Centre.
 
-## 5. Conversion is intent-only (v1)
+## 5. Conversion — Snag is real (PR 6); RFI / Variation / Material Request still intent-only
 
-"Convert to RFI / Variation / Defect / Material Request" sets `convertedTo`,
-stamps the actor, and moves the observation to `converted`. **No downstream
-record is created** — the inbox labels it "module coming". This is the honest
-v1: it captures the office decision without faking an RFI/Variation/procurement
-system. Building those modules (and real Snag creation from a `defect`
-observation) is the next slice.
+The inbox drawer now has **two** conversion sections:
+
+- **Convert to Snag — REAL (PR 6).** `POST /api/observations?action=convert-to-snag`
+  creates an actual `SnagItem` on `jobs/<jobId>/data.json` (`snagsV2[]`) and
+  links it back to the observation in the same write path:
+  `linkedSnagId = snag.id`, `convertedTo = 'snag'`, `convertedTargetId = snag.id`,
+  `status = 'converted'`, `convertedAt/By` stamped. The snag follows the normal
+  open → in_progress → resolved → verified → closed lifecycle from there.
+  Mapping rules + write order are documented in the handler comment of
+  `api/observations.js#convertObservationToSnag`. **Defaults to types**
+  `defect / safety / blocker`; other types require `{"force": true}` so the
+  office acknowledges they're stretching the Snag workflow.
+
+- **Record other intent.** `PATCH /api/observations` with `convertedTo` still
+  records intent-only for `rfi / variation / material_request` (their modules
+  aren't built — the inbox labels each "module coming" and creates no
+  downstream record). When a real RFI / Variation / Material Request module
+  ships, the same pattern as Snag conversion will replace those intent buttons.
+
+Audit trail: the conversion emits **two** audit-log entries — `snag.created`
+(the verb the existing snag-create path emits, so timelines are consistent)
+and `observation.converted_to_snag` (attributing the office decision). Both
+verbs + the new `observation` target type are added to
+`api/_lib/audit-log.js` and `src/domains/audit-log/schema.ts`.
+
+Idempotency: a second `convert-to-snag` on the same observation returns 409
+(observation already has `linkedSnagId`). Permissions: admin-tier only —
+field/LH cannot convert.
+
+Write order is **snag-first → observation-second**. If the observation write
+fails after the snag is created, the response is `502` with `snagId` + a clear
+message; the orphan snag exists and the operator can manually link via
+`PATCH linkedSnagId` (or re-run the convert, which gets 409 — the operator
+then knows the snag already exists).
 
 ## 6. Phil capture — classify-simple
 

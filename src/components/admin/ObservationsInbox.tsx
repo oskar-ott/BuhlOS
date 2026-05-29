@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import {
   AlertTriangle,
   ArrowRightLeft,
@@ -50,6 +52,14 @@ interface Props {
   initialObservations: ReadonlyArray<ObservationItem>;
   fetchError: string | null;
   viewer: { id: string; name: string; role: string };
+  /** PR 8: when false, hide the triage/priority/resolve/convert sections — the
+   *  viewer can SEE observations but not act on them (e.g. a leading hand on a
+   *  job-scoped view; only admin-tier can mutate per the API gate). Default true
+   *  for the cross-job /observations inbox which is admin-tier-gated at middleware. */
+  actionsEnabled?: boolean;
+  /** Show the "Job" filter dropdown. Off for the job-scoped view (only one job
+   *  appears so the dropdown adds nothing). Default true. */
+  showJobFilter?: boolean;
 }
 
 interface Filters {
@@ -62,15 +72,21 @@ interface Filters {
 
 const EMPTY_FILTERS: Filters = { status: "", type: "", priority: "", jobId: "", source: "" };
 
-/** Conversion targets the office can flag intent for. The downstream modules
- *  (RFI/Variation/Material Request) aren't built — converting records intent
- *  and moves the row to "Converted", honestly labelled "module coming". */
-const CONVERT_OPTIONS: ReadonlyArray<ObservationConvertTarget> = [
+/** Intent-only conversion targets — the downstream modules (RFI / Variation /
+ *  Material Request) aren't built yet, so these buttons record the office
+ *  decision and move the row to "Converted" with an honest "module coming"
+ *  label. The Snag conversion is REAL (PR 6) and has its own button + handler.
+ *  `defect` is intentionally not here — it overlaps with the real Snag target.
+ */
+const INTENT_CONVERT_OPTIONS: ReadonlyArray<ObservationConvertTarget> = [
   "rfi",
   "variation",
-  "defect",
   "material_request",
 ];
+
+/** Types that auto-promote to a Snag without a force flag (mirror of
+ *  CONVERT_TO_SNAG_DEFAULT_TYPES in api/observations.js). */
+const SNAG_ELIGIBLE_TYPES = new Set(["defect", "safety", "blocker"]);
 
 /**
  * BuhlOS Observations Inbox — the office triage surface for field-to-office
@@ -82,7 +98,13 @@ const CONVERT_OPTIONS: ReadonlyArray<ObservationConvertTarget> = [
  * mutations (status, priority, assign-to-me, resolution note, conversion
  * intent) via PATCH /api/observations.
  */
-export function ObservationsInbox({ initialObservations, fetchError, viewer }: Props) {
+export function ObservationsInbox({
+  initialObservations,
+  fetchError,
+  viewer,
+  actionsEnabled = true,
+  showJobFilter = true,
+}: Props) {
   const [observations, setObservations] = useState<ReadonlyArray<ObservationItem>>(
     initialObservations
   );
@@ -143,6 +165,34 @@ export function ObservationsInbox({ initialObservations, fetchError, viewer }: P
     setBanner({ tone: "success", message: "Updated." });
   }
 
+  /** PR 6: real Snag conversion. Calls POST /api/observations?action=convert-to-snag
+   *  which creates a Snag on the job and links it back; the response is the
+   *  updated observation (with linkedSnagId + status='converted') + the snag. */
+  async function convertToSnag(id: string, force = false) {
+    setBusy(true);
+    setBanner(null);
+    const r = await observationsClient.convertObservationToSnag({ id, force });
+    setBusy(false);
+    if (!r.ok) {
+      const conflictAlready = r.error.status === 409;
+      setBanner({
+        tone: "danger",
+        message: conflictAlready
+          ? "Already converted to a snag."
+          : r.error.status === 0
+            ? "Couldn't reach the server. Check your connection and try again."
+            : `Convert to Snag failed (${r.error.status}).`,
+      });
+      return;
+    }
+    const updated = r.data.observation;
+    setObservations((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+    setBanner({
+      tone: "success",
+      message: `Converted — snag created on ${updated.jobName || updated.jobId}.`,
+    });
+  }
+
   return (
     <div className="space-y-5">
       {fetchError ? (
@@ -198,12 +248,14 @@ export function ObservationsInbox({ initialObservations, fetchError, viewer }: P
           onChange={(v) => setFilters((f) => ({ ...f, priority: v as ObservationPriority | "" }))}
           options={OBSERVATION_PRIORITIES.map((p) => ({ value: p, label: priorityLabel(p) }))}
         />
-        <FilterSelect
-          label="Job"
-          value={filters.jobId}
-          onChange={(v) => setFilters((f) => ({ ...f, jobId: v }))}
-          options={jobOptions.map((j) => ({ value: j.id, label: j.name }))}
-        />
+        {showJobFilter ? (
+          <FilterSelect
+            label="Job"
+            value={filters.jobId}
+            onChange={(v) => setFilters((f) => ({ ...f, jobId: v }))}
+            options={jobOptions.map((j) => ({ value: j.id, label: j.name }))}
+          />
+        ) : null}
         <FilterSelect
           label="Source"
           value={filters.source}
@@ -254,6 +306,7 @@ export function ObservationsInbox({ initialObservations, fetchError, viewer }: P
         observation={selected}
         viewer={viewer}
         busy={busy}
+        actionsEnabled={actionsEnabled}
         resolutionNote={resolutionNote}
         onResolutionNoteChange={setResolutionNote}
         onClose={() => {
@@ -261,6 +314,7 @@ export function ObservationsInbox({ initialObservations, fetchError, viewer }: P
           setResolutionNote("");
         }}
         onApply={apply}
+        onConvertToSnag={convertToSnag}
       />
     </div>
   );
@@ -388,6 +442,8 @@ function ObservationDrawer({
   onResolutionNoteChange,
   onClose,
   onApply,
+  onConvertToSnag,
+  actionsEnabled,
 }: {
   observation: ObservationItem | null;
   viewer: { id: string; name: string; role: string };
@@ -396,6 +452,10 @@ function ObservationDrawer({
   onResolutionNoteChange: (v: string) => void;
   onClose: () => void;
   onApply: (id: string, patch: Omit<UpdateObservationPayload, "id">) => void;
+  onConvertToSnag: (id: string, force?: boolean) => void;
+  /** PR 8: when false, render only the read-only details (no triage / priority /
+   *  resolve / convert sections). */
+  actionsEnabled: boolean;
 }) {
   if (!o) return null;
   const assignedToMe = o.assignedToId === viewer.id;
@@ -448,7 +508,19 @@ function ObservationDrawer({
           <DetailRow label="Source" value={sourceLabel(o.source)} />
           {o.assignedToName ? <DetailRow label="Assigned" value={o.assignedToName} /> : null}
           {o.linkedEvidenceId ? <DetailRow label="Linked evidence" value={o.linkedEvidenceId} /> : null}
-          {o.linkedSnagId ? <DetailRow label="Linked snag" value={o.linkedSnagId} /> : null}
+          {o.linkedSnagId ? (
+            <div className="flex gap-2">
+              <dt className="w-28 shrink-0 text-text-muted">Linked snag</dt>
+              <dd className="min-w-0 flex-1 text-text">
+                <Link
+                  href={`/v2/jobs/${o.jobId}/snags` as Route}
+                  className="underline decoration-accent-yellow decoration-2 underline-offset-2"
+                >
+                  {o.linkedSnagId} →
+                </Link>
+              </dd>
+            </div>
+          ) : null}
           {o.photoUrls.length > 0 ? <DetailRow label="Photos" value={`${o.photoUrls.length} attached`} /> : null}
           {o.resolutionNote ? <DetailRow label="Resolution" value={o.resolutionNote} /> : null}
           {o.convertedTo ? (
@@ -456,6 +528,21 @@ function ObservationDrawer({
           ) : null}
         </dl>
 
+        {!actionsEnabled ? (
+          <p className="rounded-card border border-dashed border-border bg-surface-subtle px-3 py-2 text-xs text-text-muted">
+            Read-only view. Triage and conversion live on the
+            <Link
+              href={"/observations" as Route}
+              className="ml-1 underline decoration-accent-yellow decoration-2 underline-offset-2"
+            >
+              Observations inbox
+            </Link>
+            {" "}(admin-only).
+          </p>
+        ) : null}
+
+        {actionsEnabled ? (
+        <>
         {/* Triage actions */}
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">Triage</h3>
@@ -533,23 +620,72 @@ function ObservationDrawer({
           </Button>
         </section>
 
-        {/* Convert (intent only) */}
+        {/* Convert to Snag — REAL (PR 6) */}
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-            Convert
+            Convert to Snag
+          </h3>
+          {o.linkedSnagId ? (
+            <p className="text-xs text-text-muted">
+              Already linked to a snag — see the Linked snag row above.
+            </p>
+          ) : SNAG_ELIGIBLE_TYPES.has(o.type) ? (
+            <>
+              <p className="text-xs text-text-muted">
+                Creates a real Snag on this job (status <em>open</em>), links it back to this
+                observation, and moves it to <em>Converted</em>. The snag follows the normal
+                open → in_progress → resolved → verified → closed workflow.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                disabled={busy}
+                onClick={() => onConvertToSnag(o.id, false)}
+              >
+                <ArrowRightLeft aria-hidden="true" className="h-4 w-4" />
+                Create snag from this observation
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-text-muted">
+                This is a <em>{typeLabel(o.type).toLowerCase()}</em> — not a default Snag target
+                (the Snag workflow fits <em>defect / safety / blocker</em>). Force-convert anyway
+                if you&rsquo;ve decided to track it as a Snag.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => onConvertToSnag(o.id, true)}
+              >
+                <ArrowRightLeft aria-hidden="true" className="h-4 w-4" />
+                Force-convert to Snag
+              </Button>
+            </>
+          )}
+        </section>
+
+        {/* Record other conversion intent — RFI / Variation / Material Request modules are
+            still UC. These buttons record the office decision honestly. */}
+        <section className="space-y-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+            Record other intent
           </h3>
           <p className="text-xs text-text-muted">
-            Records intent and moves this to <em>Converted</em>. The RFI / Variation / Material
+            Moves this to <em>Converted</em> with an intent tag. The RFI / Variation / Material
             Request modules are coming next — no downstream record is created yet.
           </p>
           <div className="flex flex-wrap gap-2">
-            {CONVERT_OPTIONS.map((t) => (
+            {INTENT_CONVERT_OPTIONS.map((t) => (
               <Button
                 key={t}
                 type="button"
                 size="sm"
                 variant={o.convertedTo === t ? "primary" : "ghost"}
-                disabled={busy || o.convertedTo === t}
+                disabled={busy || o.convertedTo === t || !!o.linkedSnagId}
                 onClick={() => onApply(o.id, { convertedTo: t })}
               >
                 <ArrowRightLeft aria-hidden="true" className="h-4 w-4" />
@@ -558,6 +694,8 @@ function ObservationDrawer({
             ))}
           </div>
         </section>
+        </>
+        ) : null}
       </div>
     </Drawer>
   );

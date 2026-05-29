@@ -11,6 +11,9 @@ import {
   Clock,
   FileCheck2,
   Inbox,
+  Layers,
+  Package,
+  RotateCcw,
   Wrench,
 } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -39,12 +42,16 @@ export const dynamic = "force-dynamic";
  * reports phase. The home should always answer "what needs my attention
  * first?" rather than "what happened this week?"
  *
- * Four queues today:
+ * Eight queues today (real data only — no fake metrics):
  *   - Hours pending approval — /api/time-entries?scope=approver&status=submitted
  *   - Evidence pending review — aggregated from /api/jobs?withStats=1
  *   - Snags needing attention — aggregated from /api/jobs?withStats=1
  *   - ITPs needing sign-off — aggregated from /api/jobs?withStats=1
  *     (statsItpsNeedsReview, witnessed-only subset of statsItpsActive)
+ *   - Observations to action — open + requiresAction from /api/observations (PR 3)
+ *   - Rejected hours — /api/time-entries?scope=approver&status=rejected (PR 7)
+ *   - Plan mismatches — type='plan_mismatch' subset of the observations fetch (PR 7)
+ *   - Material requests — type='material_request' subset of the observations fetch (PR 7)
  *
  * Followed by a thin "Live surfaces" strip linking to the four working
  * admin pages (Hours, Approvals, Gear, Jobs). Anything else is still
@@ -61,8 +68,16 @@ export default async function CommandCentrePage() {
     redirect("/v2/login");
   }
 
-  const { hoursPending, jobs, observations, hoursError, jobsError, observationsError } =
-    await loadSnapshot(raw);
+  const {
+    hoursPending,
+    hoursRejected,
+    jobs,
+    observations,
+    hoursError,
+    hoursRejectedError,
+    jobsError,
+    observationsError,
+  } = await loadSnapshot(raw);
 
   const evidencePending = jobs.reduce(
     (sum, j) => sum + (j.statsEvidenceV2Pending ?? 0),
@@ -98,13 +113,36 @@ export default async function CommandCentrePage() {
   const obsCount = obsNeedingAction.length;
   const obsJobsAffected = new Set(obsNeedingAction.map((o) => o.jobId)).size;
 
+  // PR 7: real exception sub-queues derived from the same observations fetch
+  // (no extra round-trip). Plan mismatches + material requests are the two
+  // observation types the owner most often actions personally — the inbox
+  // already filters them, but the count belongs on the morning view too.
+  const obsPlanMismatch = obsNeedingAction.filter((o) => o.type === "plan_mismatch");
+  const obsMaterialRequest = obsNeedingAction.filter((o) => o.type === "material_request");
+  const planMismatchCount = obsPlanMismatch.length;
+  const materialRequestCount = obsMaterialRequest.length;
+  const planMismatchJobs = new Set(obsPlanMismatch.map((o) => o.jobId)).size;
+  const materialRequestJobs = new Set(obsMaterialRequest.map((o) => o.jobId)).size;
+
+  // PR 7: rejected hours that the worker hasn't yet re-submitted. Real data
+  // from /api/time-entries?scope=approver&status=rejected; the boss sees the
+  // count so they can nudge the worker (or correct the rejection).
+  const rejectedHoursCount = hoursRejected.length;
+  const rejectedHoursOldest = oldestAge(
+    hoursRejected.map((e) => e.submittedAt).filter(Boolean) as string[]
+  );
+
   const allClear =
     hoursPending.length === 0 &&
+    rejectedHoursCount === 0 &&
     evidencePending === 0 &&
     snagsActive === 0 &&
     itpReview.count === 0 &&
     obsCount === 0 &&
+    planMismatchCount === 0 &&
+    materialRequestCount === 0 &&
     !hoursError &&
+    !hoursRejectedError &&
     !jobsError &&
     !observationsError;
 
@@ -120,15 +158,15 @@ export default async function CommandCentrePage() {
             the action.
           </p>
 
-          {hoursError || jobsError || observationsError ? (
+          {hoursError || hoursRejectedError || jobsError || observationsError ? (
             <Card
               className="mt-3 border-amber-200 bg-amber-50"
               role="alert"
             >
               <CardTitle>Couldn&rsquo;t load every queue</CardTitle>
               <CardDescription className="text-amber-900">
-                {hoursError ?? jobsError ?? observationsError}. Counts shown may
-                be incomplete.
+                {hoursError ?? hoursRejectedError ?? jobsError ?? observationsError}.
+                Counts shown may be incomplete.
               </CardDescription>
               <div className="mt-3">
                 <RefreshButton />
@@ -140,8 +178,9 @@ export default async function CommandCentrePage() {
             <Card className="mt-3 border-emerald-200 bg-emerald-50" role="status">
               <CardTitle className="text-emerald-900">All clear</CardTitle>
               <CardDescription className="text-emerald-900">
-                Nothing needs you right now — no hours, evidence, snags, ITPs or
-                observations waiting. New submissions land here as they come in.
+                Nothing needs you right now — no hours pending or rejected, no
+                evidence, snags, ITPs, observations, plan mismatches or material
+                requests waiting. New submissions land here as they come in.
               </CardDescription>
             </Card>
           ) : null}
@@ -193,6 +232,33 @@ export default async function CommandCentrePage() {
               href={"/observations" as Route}
               ctaLabel="Open inbox"
               empty="No field observations need action."
+            />
+            <QueueCard
+              icon={<RotateCcw aria-hidden="true" className="h-5 w-5" />}
+              label="Rejected hours"
+              count={rejectedHoursCount}
+              ageLabel={rejectedHoursOldest}
+              href="/hours/approvals"
+              ctaLabel="Review rejections"
+              empty="No rejected timesheets waiting on a worker."
+            />
+            <QueueCard
+              icon={<Layers aria-hidden="true" className="h-5 w-5" />}
+              label="Plan mismatches"
+              count={planMismatchCount}
+              jobsAffected={planMismatchJobs}
+              href={"/observations" as Route}
+              ctaLabel="Open inbox"
+              empty="No plan mismatches reported from site."
+            />
+            <QueueCard
+              icon={<Package aria-hidden="true" className="h-5 w-5" />}
+              label="Material requests"
+              count={materialRequestCount}
+              jobsAffected={materialRequestJobs}
+              href={"/observations" as Route}
+              ctaLabel="Open inbox"
+              empty="No material requests pending."
             />
           </div>
         </section>
@@ -398,9 +464,11 @@ function oldestAge(timestamps: ReadonlyArray<string>): string | null {
 
 async function loadSnapshot(cookieValue: string | undefined): Promise<{
   hoursPending: ReadonlyArray<TimeEntry>;
+  hoursRejected: ReadonlyArray<TimeEntry>;
   jobs: ReadonlyArray<Job>;
   observations: ReadonlyArray<ObservationItem>;
   hoursError: string | null;
+  hoursRejectedError: string | null;
   jobsError: string | null;
   observationsError: string | null;
 }> {
@@ -412,17 +480,20 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
     : undefined;
 
-  const [hoursResult, jobsResult, obsResult] = await Promise.all([
-    loadHoursPending(base, headersInit),
+  const [hoursResult, hoursRejectedResult, jobsResult, obsResult] = await Promise.all([
+    loadHoursByStatus(base, headersInit, "submitted"),
+    loadHoursByStatus(base, headersInit, "rejected"),
     loadJobsWithStats(base, headersInit),
     loadObservations(base, headersInit),
   ]);
 
   return {
     hoursPending: hoursResult.entries,
+    hoursRejected: hoursRejectedResult.entries,
     jobs: jobsResult.jobs,
     observations: obsResult.observations,
     hoursError: hoursResult.error,
+    hoursRejectedError: hoursRejectedResult.error,
     jobsError: jobsResult.error,
     observationsError: obsResult.error,
   };
@@ -454,28 +525,29 @@ async function loadObservations(
   }
 }
 
-async function loadHoursPending(
+async function loadHoursByStatus(
   base: string,
-  headersInit: { cookie: string } | undefined
+  headersInit: { cookie: string } | undefined,
+  status: "submitted" | "rejected"
 ): Promise<{ entries: ReadonlyArray<TimeEntry>; error: string | null }> {
   try {
     const res = await fetch(
-      `${base}/api/time-entries?scope=approver&status=submitted`,
+      `${base}/api/time-entries?scope=approver&status=${status}`,
       { cache: "no-store", headers: headersInit }
     );
     if (!res.ok) {
-      return { entries: [], error: `Hours API returned ${res.status}` };
+      return { entries: [], error: `Hours API returned ${res.status} (${status})` };
     }
     const body = await res.json();
     const parsed = TimeEntryListResponseSchema.safeParse(body);
     if (!parsed.success) {
-      return { entries: [], error: "Unexpected hours response shape" };
+      return { entries: [], error: `Unexpected hours response shape (${status})` };
     }
     return { entries: parsed.data.entries, error: null };
   } catch (err) {
     return {
       entries: [],
-      error: err instanceof Error ? err.message : "Hours network error",
+      error: err instanceof Error ? err.message : `Hours network error (${status})`,
     };
   }
 }

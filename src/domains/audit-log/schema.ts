@@ -70,6 +70,10 @@ export const AUDIT_ACTIONS = [
   "invite.opened",
   "invite.accepted",
   "employee.activated",
+  // PR 6: observation triage conversion to a real snag. The snag itself also
+  // emits snag.created in the same write path. Kept in sync with
+  // api/_lib/audit-log.js VALID_ACTIONS.
+  "observation.converted_to_snag",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -81,6 +85,8 @@ export const AUDIT_TARGET_TYPES = [
   // Onboarding (O1).
   "employee",
   "invite",
+  // PR 6: observations as audit targets.
+  "observation",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 
