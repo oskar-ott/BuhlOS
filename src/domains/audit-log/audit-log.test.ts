@@ -134,7 +134,12 @@ describe("AuditLogEntrySchema", () => {
       "itp.reopened",
       "itp.signed_off",
       // PR 6: observation -> real snag conversion verb.
+      // (sorts before observation.created because 'co' < 'cr')
       "observation.converted_to_snag",
+      // PR 10: observation lifecycle (create on POST, transitioned on PATCH
+      // when status/priority/assignment change).
+      "observation.created",
+      "observation.transitioned",
       "snag.created",
       "snag.transitioned",
     ]);

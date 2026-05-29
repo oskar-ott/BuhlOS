@@ -335,6 +335,31 @@ async function createObservation(req, res, user, jobId) {
     return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
   }
 
+  // PR 10: append an observation.created entry so the per-job activity feed
+  // sees the create event (the audit log is best-effort — a write failure
+  // here .catch'd to null never blocks the observation write that already
+  // succeeded above).
+  await appendAuditLog({
+    action: 'observation.created',
+    actorId: user.id,
+    actorName: user.name || user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'observation',
+    targetId: item.id,
+    summary: `observation raised — "${String(item.title).slice(0, 80)}"`,
+    metadata: {
+      type: item.type,
+      priority: item.priority,
+      source: item.source,
+      requiresAction: item.requiresAction,
+      areaId: item.areaId,
+      stage: item.stage,
+      taskId: item.taskId,
+      linkedEvidenceId: item.linkedEvidenceId,
+    },
+  }).catch(() => null);
+
   return res.status(201).json({ observation: item });
 }
 
@@ -441,6 +466,49 @@ async function updateObservation(req, res, user) {
     await writeBlob(STORE_KEY, store);
   } catch (e) {
     return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
+  }
+
+  // PR 10: append observation.transitioned when any user-meaningful field
+  // changed (status, priority, assignedToId). Resolution notes / link
+  // changes go through PATCH too but don't produce a feed-worthy verb on
+  // their own — they show up in metadata.changedFields when the PATCH ALSO
+  // changes one of the headline fields. A no-op PATCH (e.g. setting status
+  // to the same value) skips the entry.
+  const changedFields = [];
+  if (body.status !== undefined && next.status !== current.status) changedFields.push('status');
+  if (body.priority !== undefined && next.priority !== current.priority) changedFields.push('priority');
+  if (body.assignedToId !== undefined && next.assignedToId !== current.assignedToId) {
+    changedFields.push('assignedToId');
+  }
+  if (changedFields.length > 0) {
+    const summaryParts = [];
+    if (changedFields.includes('status')) {
+      summaryParts.push(`status ${current.status} → ${next.status}`);
+    }
+    if (changedFields.includes('priority')) {
+      summaryParts.push(`priority ${current.priority} → ${next.priority}`);
+    }
+    if (changedFields.includes('assignedToId')) {
+      summaryParts.push(
+        next.assignedToId ? `assigned to ${next.assignedToName || next.assignedToId}` : 'unassigned'
+      );
+    }
+    await appendAuditLog({
+      action: 'observation.transitioned',
+      actorId: user.id,
+      actorName: user.name || user.username || 'Unknown',
+      actorRole: user.role || null,
+      jobId: current.jobId,
+      targetType: 'observation',
+      targetId: current.id,
+      summary: `observation: ${summaryParts.join('; ')}`,
+      metadata: {
+        changedFields,
+        from: { status: current.status, priority: current.priority, assignedToId: current.assignedToId },
+        to: { status: next.status, priority: next.priority, assignedToId: next.assignedToId },
+        type: current.type,
+      },
+    }).catch(() => null);
   }
 
   return res.status(200).json({ observation: next });

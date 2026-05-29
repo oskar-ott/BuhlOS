@@ -74,6 +74,12 @@ export const AUDIT_ACTIONS = [
   // emits snag.created in the same write path. Kept in sync with
   // api/_lib/audit-log.js VALID_ACTIONS.
   "observation.converted_to_snag",
+  // PR 10: observation lifecycle verbs. observation.created emits on POST
+  // /api/observations; observation.transitioned emits on PATCH when status,
+  // priority, or assignedToId changes (metadata.changedFields lists them;
+  // metadata.from/to capture status flips so a timeline reads as English).
+  "observation.created",
+  "observation.transitioned",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
