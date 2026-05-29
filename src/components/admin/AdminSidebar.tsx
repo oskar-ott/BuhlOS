@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   ClipboardCheck,
   AlertOctagon,
+  Inbox,
   LifeBuoy,
   Briefcase,
   Settings,
@@ -33,10 +34,11 @@ interface NavItem {
 /**
  * BuhlOS admin nav.
  *
- * Live items: Command centre · Hours · Approvals · Gear · Jobs.
+ * Live items: Command centre · Hours · Approvals · Gear · Employees · Jobs ·
+ * Observations.
  * UC items (still being built):
- *   - Snags (cross-job triage queue — per-job snags live on the Jobs
- *     surface today).
+ *   - Snags (per-job snag triage lives on the Jobs surface; the cross-job
+ *     Observations inbox now covers field-to-office issues).
  *   - Support · Settings.
  *
  * Per doc 27 §7.2: active section gets a brand-yellow left border +
@@ -94,6 +96,15 @@ const NAV: ReadonlyArray<NavItem> = [
     icon: Briefcase,
     status: "live",
     activeFor: ["/v2/jobs"],
+  },
+  // Observations inbox (PR 3). `as Route` cast keeps tsc happy until the next
+  // build regenerates the typed-route union to include /observations.
+  {
+    label: "Observations",
+    href: "/observations" as Route,
+    icon: Inbox,
+    status: "live",
+    activeFor: ["/observations"],
   },
   {
     label: "Snags",

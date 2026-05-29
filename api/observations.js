@@ -278,6 +278,7 @@ async function createObservation(req, res, user, jobId) {
   const item = {
     id: nanoid('ob_'),
     jobId,
+    jobName: job.name || null,
     type: v.type,
     title: v.title,
     description: v.description ? v.description : null,

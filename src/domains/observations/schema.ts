@@ -103,6 +103,9 @@ export const ObservationItemSchema = z
   .object({
     id: z.string(),
     jobId: z.string(),
+    /** Denormalised job name stamped on create (like areaName/taskName) so the
+     *  cross-job inbox renders + filters without re-reading jobs.json. */
+    jobName: z.string().nullable().optional(),
 
     type: ObservationTypeSchema,
     title: z.string(),
