@@ -1,9 +1,15 @@
-// Audit log read endpoint — Phase D5.
+// Audit log read endpoint — Phase D5 + PR 9.
 //
 //   GET /api/audit-log?targetType=evidence&targetId=<id>&jobId=<id>&months=<n>
+//        → row history (the original D5 mode — every entry about ONE target)
+//
+//   GET /api/audit-log?jobId=<id>&scope=job&months=<n>&types=<csv>
+//        → per-job activity feed (PR 9 — every entry about ANY target on the job;
+//          admin/LH only; `types` is an optional comma-separated targetType filter
+//          e.g. "evidence,snag,observation")
 //
 // Reads the monthly audit blobs at audit/<yyyy-mm>.json, filters to
-// the requested target, and returns entries newest-first.
+// the requested target / job, and returns entries newest-first.
 //
 // D5 mounts the read path that D2 left as TODO (the storage helper
 // in api/_lib/audit-log.js already exposes readMonth, but no HTTP
@@ -40,18 +46,23 @@
 // to a server-side index in a later phase.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isAdminRole, isLeadingHandRole } = require('./_lib/auth');
 const { readMonth } = require('./_lib/audit-log');
 
-// E1a adds itp_template + itp_instance so the future admin ITP queue
-// drawer history panel can filter by them. Kept in sync with
-// api/_lib/audit-log.js VALID_TARGET_TYPES and
-// src/domains/audit-log/schema.ts AUDIT_TARGET_TYPES.
+// Kept in sync with api/_lib/audit-log.js VALID_TARGET_TYPES and
+// src/domains/audit-log/schema.ts AUDIT_TARGET_TYPES — PR 9 added
+// 'observation' (PR 6 writes observation.converted_to_snag entries with
+// targetType='observation'), 'employee' + 'invite' (onboarding O1+
+// already writes these into audit/<yyyy-mm>.json; the GET endpoint
+// was just rejecting them on read).
 const VALID_TARGET_TYPES = new Set([
   'evidence',
   'snag',
   'itp_template',
   'itp_instance',
+  'employee',
+  'invite',
+  'observation',
 ]);
 const MAX_MONTHS = 12;
 const DEFAULT_MONTHS = 2;
@@ -82,11 +93,48 @@ module.exports = async (req, res) => {
   const targetType = String(q.targetType || '');
   const targetId = String(q.targetId || '');
   const jobId = String(q.jobId || '');
+  const scope = String(q.scope || '');
+  const typesCsv = String(q.types || '');
   const monthsParam = Number(q.months || DEFAULT_MONTHS);
   const months = Math.min(
     MAX_MONTHS,
     Math.max(1, Number.isFinite(monthsParam) ? Math.floor(monthsParam) : DEFAULT_MONTHS)
   );
+
+  // PR 9: per-job activity feed mode. Admin/LH only — the field-worker view of
+  // a job already shows their own captures + assigned snags + ITP rows; a
+  // cross-event timeline is an office triage / closeout tool.
+  if (scope === 'job') {
+    if (!jobId) return res.status(400).json({ error: 'jobId required' });
+    const user = await requireAuth(req, res, { jobId });
+    if (!user) return;
+    if (!isAdminRole(user.role) && !isLeadingHandRole(user.role)) {
+      return res.status(403).json({ error: 'job activity feed is admin/LH only' });
+    }
+    const typeFilter = typesCsv
+      ? typesCsv
+          .split(',')
+          .map((t) => t.trim())
+          .filter((t) => VALID_TARGET_TYPES.has(t))
+      : null;
+    try {
+      const yyyymms = recentMonths(Date.now(), months);
+      const lists = await Promise.all(yyyymms.map((m) => readMonth(m)));
+      const all = lists.flat();
+      const filtered = all.filter(
+        (e) =>
+          e &&
+          e.jobId === jobId &&
+          (typeFilter ? typeFilter.includes(e.targetType) : true)
+      );
+      const sorted = filtered
+        .slice()
+        .sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
+      return res.status(200).json({ entries: sorted });
+    } catch (e) {
+      return res.status(500).json({ error: e.message || 'job feed read failed' });
+    }
+  }
 
   if (!targetType) return res.status(400).json({ error: 'targetType required' });
   if (!VALID_TARGET_TYPES.has(targetType)) {
