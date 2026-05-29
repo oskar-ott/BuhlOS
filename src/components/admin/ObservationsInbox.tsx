@@ -652,7 +652,7 @@ function ObservationDrawer({
               <p className="text-xs text-text-muted">
                 This is a <em>{typeLabel(o.type).toLowerCase()}</em> — not a default Snag target
                 (the Snag workflow fits <em>defect / safety / blocker</em>). Force-convert anyway
-                if you've decided to track it as a Snag.
+                if you&rsquo;ve decided to track it as a Snag.
               </p>
               <Button
                 type="button"
