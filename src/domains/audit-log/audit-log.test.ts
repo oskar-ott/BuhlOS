@@ -133,6 +133,8 @@ describe("AuditLogEntrySchema", () => {
       "itp.point.recorded",
       "itp.reopened",
       "itp.signed_off",
+      // PR 6: observation -> real snag conversion verb.
+      "observation.converted_to_snag",
       "snag.created",
       "snag.transitioned",
     ]);
@@ -142,6 +144,8 @@ describe("AuditLogEntrySchema", () => {
       "invite",
       "itp_instance",
       "itp_template",
+      // PR 6: observation as audit target (for observation.converted_to_snag).
+      "observation",
       "snag",
     ]);
   });

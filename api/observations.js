@@ -1,8 +1,9 @@
-// Observations domain endpoint — PR 3.
+// Observations domain endpoint — PR 3 / PR 6.
 //
 //   GET   /api/observations                     → cross-job inbox (office/admin)
 //   GET   /api/observations?jobId=<id>          → one job's observations
 //   POST  /api/observations?jobId=<id>          → create one (canWrite)
+//   POST  /api/observations?action=convert-to-snag  → real conversion (PR 6, admin)
 //   PATCH /api/observations   (id in body)      → triage / update (admin-tier)
 //
 // An observation is the GENERAL field-to-office item: site truth captured in
@@ -38,6 +39,14 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, isAdminRole } = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
+const { append: appendAuditLog } = require('./_lib/audit-log');
+
+// PR 6: which observation types are eligible for one-click conversion to a
+// real Snag. Others need explicit ?force=1 — keeps the inbox honest about
+// what the conversion actually means.
+const CONVERT_TO_SNAG_DEFAULT_TYPES = new Set(['defect', 'safety', 'blocker']);
+const SNAG_TITLE_MAX = 120;
+const SNAG_DESCRIPTION_MAX = 1000;
 
 const STORE_KEY = 'observations.json';
 
@@ -437,11 +446,237 @@ async function updateObservation(req, res, user) {
   return res.status(200).json({ observation: next });
 }
 
+/**
+ * PR 6: Convert an eligible observation into a REAL Snag.
+ *
+ * The first real downstream conversion. Snags already exist as a tracked
+ * defect workflow (open → in_progress → resolved → verified → closed), so
+ * promoting a `defect`/`safety`/`blocker` observation into one is the safest
+ * way to make conversion stop being intent-only.
+ *
+ * Mapping:
+ *   observation.title              → snag.title (truncated to 120 chars)
+ *   observation.description        → snag.description (truncated to 1000)
+ *   observation.priority           → snag.priority    (same enum)
+ *   observation.stage/areaId/Name  → snag.stage/areaId/areaName
+ *   observation.taskId/taskName    → snag.taskId/taskName
+ *   observation.linkedEvidenceId   → snag.evidenceIds[] (single element)
+ *   observation.assignedToId/Name  → snag.assignedToId/Name (carry-over)
+ *   actor (the converting admin)   → snag.createdById/Name (admin raised it)
+ *   snag.source                    = 'admin' (the conversion is an office act)
+ *   snag.status                    = 'open' (the initial Snag state)
+ *
+ * Write order is snag-first → observation-second so a failure between writes
+ * leaves an orphan snag (recoverable: the observation can be re-converted
+ * idempotently — the second attempt gets 409 because the snag already exists,
+ * caller can manually link or the operator can resolve in /v2/jobs).
+ *
+ * Permissions:
+ *   - admin-tier (same as the cross-job inbox + PATCH triage gate).
+ *   - field/LH cannot convert — observations:convert is an office action.
+ *
+ * Idempotency:
+ *   - observation must not already have linkedSnagId or convertedTo='snag';
+ *     a second attempt returns 409 Conflict.
+ *
+ * Eligibility:
+ *   - type ∈ {defect, safety, blocker} by default — these map to a Snag
+ *     cleanly (a "blocker" is a defect-in-progress).
+ *   - other types require body.force=true so the office acknowledges they
+ *     are stretching the Snag workflow. Note: rfi/variation/material_request
+ *     belong in their own modules (still UC); a force-convert of those types
+ *     creates a Snag tagged with the original observation type in metadata.
+ */
+async function convertObservationToSnag(req, res, user) {
+  const body = req.body || {};
+  const id = body.id ? String(body.id) : '';
+  if (!id) return res.status(400).json({ error: 'id required' });
+
+  const force = body.force === true;
+  const store = await readStore();
+  const arr = Array.isArray(store.observations) ? store.observations : [];
+  const idx = arr.findIndex((o) => o && o.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'observation not found' });
+  const observation = arr[idx];
+
+  if (observation.linkedSnagId || observation.convertedTo === 'snag') {
+    return res.status(409).json({
+      error: 'observation already converted to a snag',
+      linkedSnagId: observation.linkedSnagId,
+      convertedTargetId: observation.convertedTargetId,
+    });
+  }
+  if (!CONVERT_TO_SNAG_DEFAULT_TYPES.has(observation.type) && !force) {
+    return res.status(400).json({
+      error: `observation type '${observation.type}' is not a default conversion target; pass {"force":true} to convert anyway`,
+    });
+  }
+
+  const job = await loadJobOrFail(res, observation.jobId);
+  if (!job) return;
+
+  // Re-validate linkedEvidenceId still exists on the job (it could have been
+  // deleted since the observation was raised). Snag create otherwise rejects
+  // unknown evidence ids, so we mirror that here.
+  if (observation.linkedEvidenceId) {
+    const data0 = await readBlob(`jobs/${observation.jobId}/data.json`, {
+      evidence: [], snagsV2: [],
+    });
+    const arr0 = Array.isArray(data0.evidence) ? data0.evidence : [];
+    if (!arr0.some((e) => e && e.id === observation.linkedEvidenceId)) {
+      return res.status(400).json({
+        error: `observation's linkedEvidenceId is no longer on the job: ${observation.linkedEvidenceId}`,
+      });
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const actorName = user.name || user.username || 'Unknown';
+  const trimmedTitle = String(observation.title || '').slice(0, SNAG_TITLE_MAX);
+  const trimmedDesc = observation.description
+    ? String(observation.description).slice(0, SNAG_DESCRIPTION_MAX)
+    : null;
+
+  const snagItem = {
+    id: nanoid('sn_'),
+    jobId: observation.jobId,
+    title: trimmedTitle,
+    description: trimmedDesc,
+    summary: null,
+    stage: observation.stage || null,
+    areaId: observation.areaId || null,
+    areaName: observation.areaName || null,
+    taskId: observation.taskId || null,
+    taskName: observation.taskName || null,
+    evidenceIds: observation.linkedEvidenceId ? [observation.linkedEvidenceId] : [],
+    status: 'open',
+    priority: observation.priority,
+    source: 'admin',
+    createdById: user.id,
+    createdByName: actorName,
+    createdByRole: user.role || null,
+    assignedToId: observation.assignedToId || null,
+    assignedToName: observation.assignedToName || null,
+    acknowledgedAt: null, acknowledgedById: null, acknowledgedByName: null,
+    resolvedAt: null, resolvedById: null, resolvedByName: null,
+    verifiedAt: null, verifiedById: null, verifiedByName: null,
+    closedAt: null, closedById: null, closedByName: null,
+    rejectedAt: null, rejectedById: null, rejectedByName: null,
+    rejectionReason: null,
+    auditLogIds: [],
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  // Audit: emit BOTH the snag.created entry (same verb api/snags.js's create
+  // path emits, so the timeline is consistent) AND a separate
+  // observation.converted_to_snag entry attributing the office decision.
+  const snagAudit = await appendAuditLog({
+    action: 'snag.created',
+    actorId: user.id,
+    actorName,
+    actorRole: user.role || null,
+    jobId: observation.jobId,
+    targetType: 'snag',
+    targetId: snagItem.id,
+    summary: `snag created via observation conversion — "${snagItem.title.slice(0, 80)}"`,
+    metadata: {
+      priority: snagItem.priority,
+      status: snagItem.status,
+      areaId: snagItem.areaId,
+      stage: snagItem.stage,
+      taskId: snagItem.taskId,
+      evidenceIds: snagItem.evidenceIds,
+      convertedFromObservationId: observation.id,
+      convertedFromType: observation.type,
+    },
+  }).catch(() => null);
+  if (snagAudit && snagAudit.id) snagItem.auditLogIds.push(snagAudit.id);
+
+  // Write the snag FIRST. If it fails we never touch the observation; the
+  // caller sees a 502 and can retry safely.
+  const dataKey = `jobs/${observation.jobId}/data.json`;
+  const data = await readBlob(dataKey, {
+    dwellings: {}, snags: [], snagsV2: [], evidence: [], notes: [],
+  });
+  if (!Array.isArray(data.snagsV2)) data.snagsV2 = [];
+  data.snagsV2.push(snagItem);
+  try {
+    await writeBlob(dataKey, data);
+  } catch (e) {
+    return res.status(502).json({ error: 'snag write failed: ' + (e.message || 'unknown') });
+  }
+
+  // Now update the observation in observations.json. If THIS write fails we
+  // have an orphan snag with no observation pointer — the observation stays
+  // in its previous status. A retry will see the orphan snag (snag already
+  // exists for this observation? no — we don't track that direction yet), so
+  // the operator must manually link via PATCH linkedSnagId. v1 trade-off.
+  const next = {
+    ...observation,
+    linkedSnagId: snagItem.id,
+    convertedTo: 'snag',
+    convertedTargetId: snagItem.id,
+    convertedAt: nowIso,
+    convertedById: user.id,
+    convertedByName: actorName,
+    status: 'converted',
+    updatedAt: nowIso,
+  };
+
+  await appendAuditLog({
+    action: 'observation.converted_to_snag',
+    actorId: user.id,
+    actorName,
+    actorRole: user.role || null,
+    jobId: observation.jobId,
+    targetType: 'observation',
+    targetId: observation.id,
+    summary: `observation → snag — "${String(observation.title).slice(0, 80)}"`,
+    metadata: {
+      snagId: snagItem.id,
+      observationType: observation.type,
+      previousStatus: observation.status,
+      forced: force && !CONVERT_TO_SNAG_DEFAULT_TYPES.has(observation.type),
+    },
+  }).catch(() => null);
+
+  arr[idx] = next;
+  store.observations = arr;
+  try {
+    await writeBlob(STORE_KEY, store);
+  } catch (e) {
+    // Snag was already written; surface that to the caller so they know
+    // the snag exists and the observation just needs a manual link.
+    return res.status(502).json({
+      error: 'observation write failed after snag created: ' + (e.message || 'unknown'),
+      snagId: snagItem.id,
+      observationId: observation.id,
+    });
+  }
+
+  return res.status(201).json({ observation: next, snag: snagItem });
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const jobId = (req.query && req.query.jobId) || '';
+  const action = (req.query && req.query.action) || '';
+
+  // --- POST ?action=convert-to-snag : office-side conversion (PR 6) -------
+  // The observation already knows its jobId; no jobId query needed. The
+  // observation's jobId is checked inside the handler when loading the job.
+  if (req.method === 'POST' && action === 'convert-to-snag') {
+    const user = await requireAuth(req, res, { roles: ['admin'] });
+    if (!user) return;
+    try {
+      return await convertObservationToSnag(req, res, user);
+    } catch (e) {
+      return res.status(500).json({ error: e.message || 'conversion failed' });
+    }
+  }
 
   // --- POST create: job-scoped, canWrite gate -----------------------------
   if (req.method === 'POST') {

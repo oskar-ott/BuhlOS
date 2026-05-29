@@ -2,6 +2,7 @@ import type { z } from "zod";
 import type {
   CreateObservationPayloadSchema,
   ObservationConvertTargetSchema,
+  ObservationConvertToSnagResponseSchema,
   ObservationItemSchema,
   ObservationListResponseSchema,
   ObservationMutationResponseSchema,
@@ -34,3 +35,4 @@ export type UpdateObservationPayload = z.infer<typeof UpdateObservationPayloadSc
 
 export type ObservationListResponse = z.infer<typeof ObservationListResponseSchema>;
 export type ObservationMutationResponse = z.infer<typeof ObservationMutationResponseSchema>;
+export type ObservationConvertToSnagResponse = z.infer<typeof ObservationConvertToSnagResponseSchema>;

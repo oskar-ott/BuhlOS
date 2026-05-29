@@ -1,12 +1,14 @@
 import { httpGet, httpPatch, httpPost, type HttpResult } from "@/lib/http";
 import {
   CreateObservationPayloadSchema,
+  ObservationConvertToSnagResponseSchema,
   ObservationListResponseSchema,
   ObservationMutationResponseSchema,
   UpdateObservationPayloadSchema,
 } from "./schema";
 import type {
   CreateObservationPayload,
+  ObservationConvertToSnagResponse,
   ObservationListResponse,
   ObservationMutationResponse,
   ObservationPriority,
@@ -111,9 +113,45 @@ export function updateObservation(
   });
 }
 
+/**
+ * PR 6: convert an eligible observation into a real Snag.
+ *
+ *   POST /api/observations?action=convert-to-snag  (admin-tier)
+ *
+ * Eligible types by default: defect, safety, blocker. Other types can be
+ * promoted with `force: true` (the office acknowledges they're stretching
+ * the Snag workflow — RFI/Variation/Material-Request modules will own
+ * those types when they exist).
+ *
+ * 201 → { observation, snag }; the observation now has linkedSnagId,
+ * convertedTo='snag', convertedTargetId=snag.id, status='converted'.
+ * 409 → already converted (idempotent).
+ * 400 → invalid type + no force flag.
+ * 404 → observation not found / 403 → not admin tier.
+ */
+export function convertObservationToSnag(
+  payload: { id: string; force?: boolean }
+): Promise<HttpResult<ObservationConvertToSnagResponse>> {
+  if (!payload.id) {
+    return Promise.resolve({
+      ok: false,
+      error: { status: 0, body: null, message: "id is required" },
+    });
+  }
+  return httpPost<ObservationConvertToSnagResponse>(
+    "/api/observations?action=convert-to-snag",
+    { id: payload.id, ...(payload.force ? { force: true } : {}) },
+    {
+      schema: ObservationConvertToSnagResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
 export const observationsClient = {
   listObservations,
   listJobObservations,
   createObservation,
   updateObservation,
+  convertObservationToSnag,
 } as const;

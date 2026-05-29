@@ -315,3 +315,164 @@ describe("PATCH /api/observations (triage)", () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+describe("POST /api/observations?action=convert-to-snag (PR 6)", () => {
+  beforeEach(() => {
+    blob.set("observations.json", {
+      observations: [
+        {
+          id: "od1",
+          jobId: "job-1",
+          jobName: "Birdwood",
+          type: "defect",
+          title: "Damaged light fitting at riser",
+          description: "broken on arrival; needs replacement",
+          status: "new",
+          priority: "high",
+          source: "phil",
+          requiresAction: true,
+          photoUrls: [],
+          linkedEvidenceId: "ev_1",
+          areaId: "ar_1",
+          areaName: "Riser",
+          stage: "fitOff",
+          taskId: null,
+          taskName: null,
+          assignedToId: null,
+          assignedToName: null,
+          createdById: "u_field",
+          createdByName: "Sparky",
+          createdByRole: "electrician",
+          createdAt: "2026-05-02T00:00:00Z",
+          updatedAt: "2026-05-02T00:00:00Z",
+        },
+        {
+          id: "on1",
+          jobId: "job-1",
+          type: "note",
+          title: "Tidied up the board",
+          status: "new",
+          priority: "low",
+          source: "phil",
+          requiresAction: false,
+          photoUrls: [],
+          createdById: "u_field",
+          createdByName: "Sparky",
+          createdAt: "2026-05-02T00:00:00Z",
+          updatedAt: "2026-05-02T00:00:00Z",
+        },
+      ],
+    });
+  });
+
+  it("admin converts a defect observation into a real snag and links them", async () => {
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-snag" },
+      body: { id: "od1" },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.body as {
+      observation: Record<string, unknown>;
+      snag: Record<string, unknown>;
+    };
+    expect(body.observation.linkedSnagId).toBe(body.snag.id);
+    expect(body.observation.convertedTo).toBe("snag");
+    expect(body.observation.convertedTargetId).toBe(body.snag.id);
+    expect(body.observation.status).toBe("converted");
+    expect(body.observation.convertedById).toBe("u_boss");
+    expect(body.snag.title).toBe("Damaged light fitting at riser");
+    expect(body.snag.status).toBe("open");
+    expect(body.snag.source).toBe("admin");
+    expect(body.snag.evidenceIds).toEqual(["ev_1"]);
+    // Snag was actually persisted to the job's data.json.
+    const data = blob.get("jobs/job-1/data.json") as { snagsV2: { id: string }[] };
+    expect(data.snagsV2.map((s) => s.id)).toEqual([body.snag.id]);
+  });
+
+  it("409s a second conversion attempt (idempotent)", async () => {
+    const first = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-snag" },
+      body: { id: "od1" },
+    });
+    expect(first.statusCode).toBe(201);
+    const second = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-snag" },
+      body: { id: "od1" },
+    });
+    expect(second.statusCode).toBe(409);
+  });
+
+  it("400s a non-default type (note) without force=true", async () => {
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-snag" },
+      body: { id: "on1" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("201s a non-default type (note) when force=true", async () => {
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-snag" },
+      body: { id: "on1", force: true },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.body as { observation: { status: string; linkedSnagId: string } };
+    expect(body.observation.status).toBe("converted");
+    expect(body.observation.linkedSnagId).toMatch(/^sn_/);
+  });
+
+  it("403s a field worker trying to convert", async () => {
+    const res = await call({
+      method: "POST",
+      role: "electrician",
+      userId: "u_field",
+      query: { action: "convert-to-snag" },
+      body: { id: "od1" },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("404s an unknown observation id", async () => {
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-snag" },
+      body: { id: "missing" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("400s when linkedEvidenceId has been deleted from the job", async () => {
+    // Simulate the evidence row vanishing between create and convert.
+    const data = clone(blob.get("jobs/job-1/data.json")) as {
+      evidence: { id: string }[];
+      snagsV2: unknown[];
+    };
+    data.evidence = data.evidence.filter((e) => e.id !== "ev_1");
+    blob.set("jobs/job-1/data.json", data);
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-snag" },
+      body: { id: "od1" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
