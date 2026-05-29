@@ -1,110 +1,140 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
-import { Calendar, Briefcase, Wrench, AlertCircle, MoreHorizontal } from "lucide-react";
+import { Calendar, Briefcase, Camera, Wrench, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { PhilCaptureLauncher } from "./PhilCaptureLauncher";
+import { philJobDetailId } from "./philCapture";
 
 interface Tab {
   label: string;
   href: Route;
   icon: typeof Calendar;
-  status: "live" | "under-construction";
-  /** Path prefix(es) that mark this tab as active. The first prefix that
-   *  the current pathname startsWith() wins. */
+  /** Path prefix(es) that mark this tab as active. */
   activeFor: ReadonlyArray<string>;
 }
 
 /**
- * Phil bottom tabs:
+ * Phil bottom tabs — a 4-tab + centre Capture FAB layout:
+ *
  *   Today  → /phil/my-day  (the hours loop)
- *   Jobs   → /phil/jobs    (jobs + per-job detail + capture + snags)
+ *   Jobs   → /phil/jobs    (jobs + per-job detail)
+ *   [FAB]  → Capture       (global capture launcher — opens from anywhere)
  *   Gear   → /phil/gear    (my gear: return / report damaged / missing)
- *   Snag   → UC            (cross-job snag inbox lands later)
- *   More   → /v2/phil      (live placeholder; profile menu lands later)
+ *   More   → /v2/phil      (profile menu lands later)
  *
- * UC tabs are visible but non-interactive per
- * docs/architecture/00-rebuild-non-negotiables.md so the worker still
- * sees the roadmap.
+ * The centre Capture FAB replaces the old non-working "Snag" UC tab.
+ * Capture is the universal field action: a worker can start a photo
+ * capture from Today or Gear in one or two taps rather than opening a
+ * job and scrolling to the mid-page Capture block. The launcher routes
+ * to the existing, fully-wired CaptureSheet — no new persistence path.
  *
- * Active tab is the one whose `activeFor` prefix matches the current
- * pathname (per doc 27 §7.1: "active tab indicator is a brand-yellow
- * dot + label colour change"). Brand-yellow dot lives below the icon.
+ * Active tab indicator (doc 27 §7.1): brand-yellow dot below the icon +
+ * label colour change.
  */
-const TABS: ReadonlyArray<Tab> = [
-  { label: "Today", href: "/phil/my-day", icon: Calendar, status: "live", activeFor: ["/phil/my-day"] },
-  { label: "Jobs", href: "/phil/jobs", icon: Briefcase, status: "live", activeFor: ["/phil/jobs"] },
-  { label: "Gear", href: "/phil/gear", icon: Wrench, status: "live", activeFor: ["/phil/gear"] },
-  { label: "Snag", href: "/v2/phil", icon: AlertCircle, status: "under-construction", activeFor: [] },
-  { label: "More", href: "/v2/phil", icon: MoreHorizontal, status: "live", activeFor: ["/v2/phil"] },
+const LEFT_TABS: ReadonlyArray<Tab> = [
+  { label: "Today", href: "/phil/my-day", icon: Calendar, activeFor: ["/phil/my-day"] },
+  { label: "Jobs", href: "/phil/jobs", icon: Briefcase, activeFor: ["/phil/jobs"] },
 ];
+
+const RIGHT_TABS: ReadonlyArray<Tab> = [
+  { label: "Gear", href: "/phil/gear", icon: Wrench, activeFor: ["/phil/gear"] },
+  { label: "More", href: "/v2/phil", icon: MoreHorizontal, activeFor: ["/v2/phil"] },
+];
+
+function isTabActive(tab: Tab, pathname: string): boolean {
+  return tab.activeFor.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
+function TabLink({ tab, pathname }: { tab: Tab; pathname: string }) {
+  const Icon = tab.icon;
+  const isActive = isTabActive(tab, pathname);
+  return (
+    <Link
+      href={tab.href}
+      aria-current={isActive ? "page" : undefined}
+      className="flex flex-1 flex-col items-center justify-center"
+    >
+      <span className="flex flex-col items-center justify-center gap-0.5">
+        <Icon
+          aria-hidden="true"
+          className={cn("h-5 w-5", isActive ? "text-brand-navy" : "text-text")}
+        />
+        <span
+          className={cn(
+            "text-[11px] uppercase tracking-wider",
+            isActive ? "font-semibold text-brand-navy" : "text-text",
+          )}
+        >
+          {tab.label}
+        </span>
+        <span
+          aria-hidden="true"
+          className={cn(
+            "h-1 w-1 rounded-pill",
+            isActive ? "bg-accent-yellow" : "bg-transparent",
+          )}
+        />
+      </span>
+    </Link>
+  );
+}
 
 export function PhilTabBar() {
   const pathname = usePathname() ?? "";
+  const [launcherOpen, setLauncherOpen] = useState(false);
+
+  // The FAB always opens the capture launcher. On a job home we already know
+  // the job, so the launcher skips the picker and goes straight to the capture
+  // chooser (photo/evidence or a classified observation); anywhere else it
+  // asks which job first.
+  const currentJobId = philJobDetailId(pathname);
+  const onCapture = () => setLauncherOpen(true);
+
   return (
-    <nav
-      aria-label="Phil tabs"
-      className="sticky bottom-0 flex h-16 shrink-0 items-stretch border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]"
-    >
-      {TABS.map((tab, idx) => {
-        const Icon = tab.icon;
-        const isLive = tab.status === "live";
-        const isActive =
-          isLive && tab.activeFor.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-        const labelColour = isLive
-          ? isActive
-            ? "text-brand-navy font-semibold"
-            : "text-text"
-          : "text-text-muted/60";
-        const iconColour = isLive
-          ? isActive
-            ? "text-brand-navy"
-            : "text-text"
-          : "text-text-muted/60";
-        const content = (
-          <span className="flex flex-1 flex-col items-center justify-center gap-0.5">
-            <Icon aria-hidden="true" className={cn("h-5 w-5", iconColour)} />
-            <span className={cn("flex items-center gap-1 text-[11px] uppercase tracking-wider", labelColour)}>
-              {tab.label}
-              {!isLive ? (
-                <span
-                  aria-hidden="true"
-                  className="rounded-pill border border-border bg-surface-subtle px-1 text-[9px] font-medium tracking-wider text-text-muted"
-                >
-                  SOON
-                </span>
-              ) : null}
-            </span>
-            <span
-              aria-hidden="true"
-              className={cn(
-                "h-1 w-1 rounded-pill",
-                isActive ? "bg-accent-yellow" : "bg-transparent"
-              )}
-            />
-          </span>
-        );
-        return isLive ? (
-          <Link
-            key={`${tab.label}-${idx}`}
-            href={tab.href}
-            aria-current={isActive ? "page" : undefined}
-            className="flex flex-1 flex-col items-center justify-center"
+    <>
+      <nav
+        aria-label="Phil tabs"
+        className="sticky bottom-0 flex h-16 shrink-0 items-stretch border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]"
+      >
+        {LEFT_TABS.map((tab) => (
+          <TabLink key={tab.href} tab={tab} pathname={pathname} />
+        ))}
+
+        {/* Centre Capture button — the universal field action, present on
+            every Phil screen. Lifted above the bar so it reads as primary. */}
+        <div className="flex flex-1 flex-col items-center justify-end pb-1">
+          <button
+            type="button"
+            aria-label="Capture"
+            aria-haspopup={currentJobId ? undefined : "dialog"}
+            onClick={onCapture}
+            className={cn(
+              "-mt-6 inline-flex h-14 w-14 items-center justify-center rounded-full",
+              "border-4 border-surface bg-accent-yellow text-brand-navy shadow-raised",
+              "transition-transform active:scale-95",
+            )}
           >
-            {content}
-          </Link>
-        ) : (
-          <span
-            key={`${tab.label}-${idx}`}
-            aria-disabled="true"
-            title={`${tab.label} — still being built`}
-            className="flex flex-1 cursor-not-allowed flex-col items-center justify-center"
-          >
-            {content}
+            <Camera aria-hidden="true" className="h-6 w-6" />
+          </button>
+          <span className="mt-0.5 text-[11px] font-semibold uppercase tracking-wider text-brand-navy">
+            Capture
           </span>
-        );
-      })}
-    </nav>
+        </div>
+
+        {RIGHT_TABS.map((tab) => (
+          <TabLink key={tab.href} tab={tab} pathname={pathname} />
+        ))}
+      </nav>
+
+      <PhilCaptureLauncher
+        open={launcherOpen}
+        onClose={() => setLauncherOpen(false)}
+        initialJobId={currentJobId}
+      />
+    </>
   );
 }

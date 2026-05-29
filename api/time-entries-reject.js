@@ -3,7 +3,7 @@
 // and never against another LH's submission.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isStaffRole } = require('./_lib/auth');
 const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
 const { sendPushToUserId } = require('./_lib/push');
 const { appendActivity } = require('./_lib/activity');
@@ -15,7 +15,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
-  if (!['admin', 'leadingHand'].includes(user.role)) {
+  if (!isStaffRole(user.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 

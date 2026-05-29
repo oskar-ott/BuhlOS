@@ -115,21 +115,50 @@ function isFieldRole(role) {
   return FIELD_ROLES.has(normaliseRole(role));
 }
 
+// "Staff" = anyone on the admin tier OR the leading-hand tier: the people
+// who manage jobs, approve hours, triage snags and see team-wide views.
+// Field workers and clients are not staff. This is the canonical
+// replacement for the inline `['admin', 'leadingHand'].includes(role)`
+// literal checks that used to 403 admin-tier roles (boss/owner/office/pm/
+// estimator/manager) and the lowercase leading-hand aliases (lh/leadinghand).
+function isStaffRole(role) {
+  return isAdminRole(role) || isLeadingHandRole(role);
+}
+
+// Expand one allowed-role entry passed to requireAuth into the set of
+// stored role strings that satisfy it. A gate written `{ roles: ['admin'] }`
+// admits the whole admin tier; `{ roles: ['admin', 'leadingHand'] }` also
+// admits the lh/leadinghand aliases. Unknown entries (e.g. 'accounts',
+// 'client') match themselves, normalised. Comparison is case-insensitive.
+function rolesSatisfying(entry) {
+  const r = normaliseRole(entry);
+  if (ADMIN_ROLES.has(r)) return ADMIN_ROLES;
+  if (LEADING_HAND_ROLES.has(r)) return LEADING_HAND_ROLES;
+  if (FIELD_ROLES.has(r)) return FIELD_ROLES;
+  return new Set([r]);
+}
+function roleSatisfies(userRole, allowed) {
+  const r = normaliseRole(userRole);
+  return allowed.some((entry) => rolesSatisfying(entry).has(r));
+}
+
 // Middleware-style: returns user or sends error and returns null.
 // opts: { roles: ['admin','tradie','client'], jobId: 'xxx' }
 //
-// `roles` opt-list is matched case-sensitively against `user.role` for
-// backwards compatibility — endpoints that pass it (e.g. an admin-only
-// surface) get the exact string they asked for. `jobId` access uses the
-// normalised admin-role check so an `office` or `boss` user reaches
-// per-job endpoints the same way an `admin` does.
+// `roles` is matched TIER-AWARE and case-insensitively (see roleSatisfies):
+// passing 'admin' admits the admin tier, 'leadingHand' admits every LH
+// alias, a field role admits the field tier. This keeps API gates in step
+// with the UI's canAccessSurface()/isAdminRole() so a boss/owner/office
+// user who reaches an admin surface isn't then 403'd by the API behind it.
+// `jobId` access uses the normalised admin-role check so an office/boss
+// user reaches per-job endpoints the same way an admin does.
 async function requireAuth(req, res, opts = {}) {
   const user = await getCurrentUser(req);
   if (!user) {
     res.status(401).json({ error: 'not authenticated' });
     return null;
   }
-  if (opts.roles && !opts.roles.includes(user.role)) {
+  if (opts.roles && !roleSatisfies(user.role, opts.roles)) {
     res.status(403).json({ error: 'forbidden' });
     return null;
   }
@@ -176,6 +205,8 @@ module.exports = {
   isAdminRole,
   isLeadingHandRole,
   isFieldRole,
+  isStaffRole,
+  roleSatisfies,
   signSession,
   verifySession,
   setSessionCookie,

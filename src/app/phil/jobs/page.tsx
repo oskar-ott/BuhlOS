@@ -3,6 +3,7 @@ import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilJobsList } from "@/components/phil/PhilJobsList";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
@@ -61,9 +62,11 @@ export default async function PhilJobsPage() {
           <Card className="border-amber-200 bg-amber-50" role="alert">
             <CardTitle>Couldn&rsquo;t load your jobs</CardTitle>
             <CardDescription className="text-amber-900">
-              {fetchError}. Try again in a moment. If it keeps failing, ask the
-              office to check the API.
+              {fetchError}. If it keeps failing, ask the office to check the API.
             </CardDescription>
+            <div className="mt-3">
+              <RefreshButton />
+            </div>
           </Card>
         ) : null}
 

@@ -7,6 +7,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
@@ -81,6 +82,9 @@ export default async function MyDayPage() {
               {fetchError}. You can still submit a new entry — it&rsquo;ll appear here once
               we&rsquo;re back online.
             </CardDescription>
+            <div className="mt-3">
+              <RefreshButton />
+            </div>
           </Card>
         ) : null}
 

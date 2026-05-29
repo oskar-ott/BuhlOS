@@ -89,6 +89,7 @@ Confirmed in code. These are the intended destinations for new navigation.
 | `/gear` | `src/app/(admin)/gear/page.tsx` | Gear register. |
 | `/employees` | `src/app/(admin)/employees/page.tsx` | People / onboarding (O1+). |
 | `/employees/[id]` | `src/app/(admin)/employees/[id]/page.tsx` | Employee detail. |
+| `/observations` | `src/app/(admin)/observations/page.tsx` | **Observations Inbox** (PR 3). Cross-job field-to-office triage: blockers, plan mismatches, material needs, RFIs, variations, defects, site instructions. Admin-tier gated (matches the `/api/observations` cross-job gate). |
 
 **Phil** — `PhilShell`, field roles or leading hand (gated)
 
@@ -158,6 +159,7 @@ for removal in a later, intentional cleanup PR (not this one).
 | `/hours/approvals` | BuhlOS | `(admin)/hours/approvals` | AdminShell | canonical | admin | sidebar, command-centre | approvals queue |
 | `/gear` | BuhlOS | `(admin)/gear` | AdminShell | canonical | admin | sidebar, command-centre | gear register |
 | `/employees` | BuhlOS | `(admin)/employees` | AdminShell | canonical | admin | sidebar | people / onboarding |
+| `/observations` | BuhlOS | `(admin)/observations` | AdminShell | canonical | admin | sidebar, command-centre | observations inbox; unauth → 307 `/v2/login` |
 | `/v2/jobs` | BuhlOS | `v2/jobs` | AdminShell | transitional | admin/LH | sidebar "Jobs", command-centre | admin jobs index; → `/admin/jobs` later |
 | `/v2/jobs/[jobId]/**` | BuhlOS | `v2/jobs/[jobId]/**` | AdminShell | transitional | admin/LH | jobs list rows, command-centre | job hub + review sections |
 | `/phil/my-day` | Phil | `phil/my-day` | PhilShell | canonical | field/LH | tab "Today", `landingFor(field)` | Phil home; unauth → 307 `/v2/login` |
@@ -173,13 +175,18 @@ for removal in a later, intentional cleanup PR (not this one).
 
 - **BuhlOS sidebar** (`src/components/admin/AdminSidebar.tsx`) — `live` items may
   only link to approved admin routes: `/command-centre`, `/hours`,
-  `/hours/approvals`, `/gear`, `/employees`, `/v2/jobs`. Unbuilt items
-  (`Snags`, `Support`, `Settings`) are rendered as **non-clickable** `UC` spans,
-  never `<Link>`s — per the "every incomplete feature shows UNDER CONSTRUCTION"
-  non-negotiable.
-- **Phil bottom tab bar** (`src/components/phil/PhilTabBar.tsx`) — `live` tabs may
-  only link to approved Phil routes: `/phil/my-day`, `/phil/jobs`, `/phil/gear`,
-  `/v2/phil`. The `Snag` tab is a non-clickable `SOON` placeholder.
+  `/hours/approvals`, `/gear`, `/employees`, `/observations`, `/v2/jobs`. Unbuilt
+  items (`Snags`, `Support`, `Settings`) are rendered as **non-clickable** `UC`
+  spans, never `<Link>`s — per the "every incomplete feature shows UNDER
+  CONSTRUCTION" non-negotiable. (`Snags` stays UC: per-job snag triage lives on
+  the Jobs surface; the cross-job **Observations** inbox now covers field issues.)
+- **Phil bottom tab bar** (`src/components/phil/PhilTabBar.tsx`) — a 4-tab +
+  centre Capture FAB layout. The `live` tabs (`LEFT_TABS` Today/Jobs, `RIGHT_TABS`
+  Gear/More) may only link to approved Phil routes: `/phil/my-day`, `/phil/jobs`,
+  `/phil/gear`, `/v2/phil`. The centre **Capture FAB** replaced the old
+  non-working `Snag` tab — it is a `<button>` (opens the capture launcher), not a
+  nav `<Link>`, so it carries no route. The guard parses both tab arrays and
+  treats every tab as live (the `status` field was dropped with the FAB rework).
 - **No modern nav component may link to a legacy `public/*.html` route or a
   legacy `/admin/*` URL.** The single intentional legacy link in the app is the
   clearly-labelled "Open legacy Phil" bail-out on `/v2/phil`; it is a page-level

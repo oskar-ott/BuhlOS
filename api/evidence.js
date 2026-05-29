@@ -43,7 +43,7 @@
 // failure on either path never blocks the evidence write.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite } = require('./_lib/auth');
+const { requireAuth, canWrite, isAdminRole } = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
 const {
   effectiveRoughInTasks,
@@ -121,7 +121,7 @@ function validateCreateBody(body, job) {
 }
 
 function sourceForUser(user) {
-  if (user.role === 'admin') return 'admin';
+  if (isAdminRole(user.role)) return 'admin';
   return 'phil';
 }
 
@@ -271,7 +271,7 @@ async function createEvidence(req, res, user, jobId) {
 }
 
 async function reviewEvidence(req, res, user, jobId) {
-  if (user.role !== 'admin') {
+  if (!isAdminRole(user.role)) {
     return res.status(403).json({ error: 'admin only' });
   }
   const body = req.body || {};

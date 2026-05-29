@@ -7,6 +7,8 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { RefreshButton } from "@/components/ui/RefreshButton";
+import { relativeWhen } from "@/domains/jobs/format";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import {
   formatDateLabel,
@@ -131,6 +133,9 @@ export function HoursApprovalsQueue({ initialEntries, fetchError }: HoursApprova
           <CardDescription className="text-amber-900">
             {fetchError}. Approvals are unavailable until the API responds again.
           </CardDescription>
+          <div className="mt-3">
+            <RefreshButton />
+          </div>
         </Card>
       ) : null}
 
@@ -230,18 +235,30 @@ interface WorkerGroupShape {
   userRole: string | null;
   totalHours: number;
   entries: ReadonlyArray<TimeEntry>;
+  /** Earliest submission in the group (comparable ISO). Drives the
+   *  exception-first sort + the "waiting since" label. */
+  oldestSubmittedAt: string;
+}
+
+/** Comparable timestamp for an entry — its submission time, or the work
+ *  date at midnight if the API didn't stamp submittedAt. */
+function entryWaitTs(e: TimeEntry): string {
+  return e.submittedAt ?? `${e.date}T00:00:00.000Z`;
 }
 
 function groupByWorker(entries: ReadonlyArray<TimeEntry>): ReadonlyArray<WorkerGroupShape> {
   const map = new Map<string, WorkerGroupShape>();
   for (const e of entries) {
     const key = e.userId;
+    const ts = entryWaitTs(e);
     const existing = map.get(key);
     if (existing) {
       map.set(key, {
         ...existing,
         totalHours: existing.totalHours + e.totalHours,
         entries: [...existing.entries, e],
+        oldestSubmittedAt:
+          ts < existing.oldestSubmittedAt ? ts : existing.oldestSubmittedAt,
       });
     } else {
       map.set(key, {
@@ -250,10 +267,19 @@ function groupByWorker(entries: ReadonlyArray<TimeEntry>): ReadonlyArray<WorkerG
         userRole: e.userRole ?? null,
         totalHours: e.totalHours,
         entries: [e],
+        oldestSubmittedAt: ts,
       });
     }
   }
-  return Array.from(map.values()).sort((a, b) => a.userName.localeCompare(b.userName));
+  // Exception-first: the worker who has been waiting longest sits at the
+  // top, so the owner clears the most-overdue timesheets first. Name is
+  // only a tiebreaker when two workers submitted at the same instant.
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.oldestSubmittedAt !== b.oldestSubmittedAt) {
+      return a.oldestSubmittedAt < b.oldestSubmittedAt ? -1 : 1;
+    }
+    return a.userName.localeCompare(b.userName);
+  });
 }
 
 function WorkerGroup({
@@ -276,6 +302,9 @@ function WorkerGroup({
             {group.userRole ? <span className="capitalize">{group.userRole}</span> : "Worker"} ·{" "}
             {formatHoursLabel(group.totalHours)} across {group.entries.length} entries
           </CardDescription>
+          <p className="mt-0.5 text-xs text-text-muted">
+            Oldest {relativeWhen(group.oldestSubmittedAt)}
+          </p>
         </div>
         <Pill tone="info">{group.entries.length}</Pill>
       </div>

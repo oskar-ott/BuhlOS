@@ -29,7 +29,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isStaffRole } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -38,7 +38,7 @@ module.exports = async (req, res) => {
 
   const viewer = await requireAuth(req, res);
   if (!viewer) return;
-  if (!['admin', 'leadingHand'].includes(viewer.role)) {
+  if (!isStaffRole(viewer.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 

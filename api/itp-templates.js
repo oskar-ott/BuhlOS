@@ -42,7 +42,7 @@
 // 'admin' on signoff.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isAdminRole } = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
 
 const KEY = 'itp-templates.json';
@@ -135,11 +135,11 @@ module.exports = async (req, res) => {
 
   // ── GET — list ────────────────────────────────────────────────────────
   if (req.method === 'GET') {
-    if (!['admin', 'leadingHand'].includes(me.role)) {
+    if (!isStaffRole(me.role)) {
       return res.status(403).json({ error: 'forbidden' });
     }
     const includeArchived = req.query && req.query.includeArchived === '1';
-    if (includeArchived && me.role !== 'admin') {
+    if (includeArchived && !isAdminRole(me.role)) {
       return res.status(403).json({ error: 'admin only for archived view' });
     }
     const templates = await readTemplates();
@@ -148,7 +148,7 @@ module.exports = async (req, res) => {
   }
 
   // All mutating paths: admin only (company-wide library).
-  if (me.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  if (!isAdminRole(me.role)) return res.status(403).json({ error: 'forbidden' });
 
   // ── POST — create or duplicate ────────────────────────────────────────
   if (req.method === 'POST') {

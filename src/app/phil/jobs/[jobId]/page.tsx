@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilJobDetail } from "@/components/phil/PhilJobDetail";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
@@ -21,6 +22,7 @@ export const dynamic = "force-dynamic";
 
 interface PageParams {
   params: Promise<{ jobId: string }>;
+  searchParams: Promise<{ capture?: string | string[] }>;
 }
 
 /**
@@ -44,8 +46,13 @@ interface PageParams {
  *   docs/rebuild-audit/27-interface-usability-pass.md §8.5
  *   api/jobs.js GET single
  */
-export default async function PhilJobDetailPage({ params }: PageParams) {
+export default async function PhilJobDetailPage({ params, searchParams }: PageParams) {
   const { jobId } = await params;
+  const sp = await searchParams;
+  // `?capture=<token>` deep link from the global Capture launcher — a
+  // fresh token each tap so the detail view re-opens the sheet even on
+  // a repeat launch of the same job.
+  const captureToken = typeof sp.capture === "string" ? sp.capture : null;
 
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -110,8 +117,11 @@ export default async function PhilJobDetailPage({ params }: PageParams) {
           <Card className="border-amber-200 bg-amber-50" role="alert">
             <CardTitle>Couldn&rsquo;t load this job</CardTitle>
             <CardDescription className="text-amber-900">
-              {result.message}. Try again in a moment.
+              {result.message}.
             </CardDescription>
+            <div className="mt-3">
+              <RefreshButton />
+            </div>
           </Card>
         </div>
       </PhilShell>
@@ -131,6 +141,7 @@ export default async function PhilJobDetailPage({ params }: PageParams) {
           id: session.userId ?? session.sub ?? "",
           role: String(session.role ?? ""),
         }}
+        autoCaptureToken={captureToken}
       />
     </PhilShell>
   );

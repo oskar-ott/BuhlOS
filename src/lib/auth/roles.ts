@@ -71,3 +71,50 @@ export function isFieldRole(role: unknown): boolean {
 export function isClientRole(role: unknown): boolean {
   return CLIENT_ROLES.includes(normaliseRole(role));
 }
+
+/**
+ * "Staff" = admin tier OR leading-hand tier: the people who manage jobs,
+ * approve hours, triage snags/observations and see team-wide views. Field
+ * workers and clients are not staff. Mirrors `isStaffRole` in
+ * api/_lib/auth.js (keep both in sync) and is the canonical replacement for
+ * the inline `['admin','leadingHand'].includes(role)` checks the legacy API
+ * used to do.
+ */
+export function isStaffRole(role: unknown): boolean {
+  return isAdminRole(role) || isLeadingHandRole(role);
+}
+
+/**
+ * Capability model.
+ *
+ * BuhlOS/Phil authorise by ROLE TIER, not by per-feature capability flags —
+ * the tiers above (admin / leading-hand / field / client) ARE the
+ * capability groups. This table documents how the capabilities the product
+ * reasons about map onto the tiers, so future endpoints gate consistently:
+ *
+ *   access:buhlos        → isAdminRole            (admin tier)
+ *   access:phil          → isFieldRole || isLeadingHandRole
+ *   jobs:read            → isStaffRole || assigned || (client && own job)
+ *   jobs:write           → canWrite   (admin tier, or LH/field on assigned job)
+ *   jobs:manage          → canManageJob (admin tier, or LH on assigned job)
+ *   hours:create         → isFieldRole || isLeadingHandRole (own/on-behalf)
+ *   hours:approve        → isStaffRole
+ *   evidence:create      → canWrite
+ *   evidence:review      → isAdminRole
+ *   snags:create         → canWrite
+ *   snags:review         → isStaffRole
+ *   gear:read            → any authenticated non-client
+ *   gear:manage          → isAdminRole
+ *   observations:create  → canWrite        (field/LH on assigned job, admin any)
+ *   observations:read    → requireAuth({jobId}) + non-client (job-scoped view)
+ *   observations:review  → isAdminRole     (cross-job inbox triage/assign/resolve;
+ *                                           matches access:buhlos so the API agrees
+ *                                           with the BuhlOS surface gate)
+ *   observations:convert → isAdminRole     (RFI/Variation/etc. — office only)
+ *   employees:manage     → isAdminRole
+ *   reports:read         → isStaffRole
+ *   settings:manage      → isAdminRole
+ *
+ * canWrite / canManageJob live in api/_lib/auth.js (they need live
+ * assignedJobIds from users.json, which only the API has).
+ */

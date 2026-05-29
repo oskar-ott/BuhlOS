@@ -52,6 +52,7 @@ const APPROVED_ADMIN_HREFS = new Set([
   '/hours/approvals',
   '/gear',
   '/employees',
+  '/observations', // PR 3 — cross-job field-to-office observations inbox
   '/v2/jobs', // transitional — live admin Jobs index; -> /admin/jobs later
 ]);
 const APPROVED_PHIL_HREFS = new Set([
@@ -83,6 +84,7 @@ const REQUIRED_SOURCES = [
   'src/app/(admin)/hours/approvals/page.tsx',
   'src/app/(admin)/gear/page.tsx',
   'src/app/(admin)/employees/page.tsx',
+  'src/app/(admin)/observations/page.tsx',
   'src/app/v2/jobs/page.tsx',
   'src/app/v2/jobs/[jobId]/page.tsx',
   'src/app/phil/my-day/page.tsx',
@@ -115,6 +117,11 @@ for (const rel of REQUIRED_SOURCES) {
 // one status from each one-level { ... } object inside it. Nav items contain
 // no nested braces, and the interface above `const <name>` is excluded by
 // slicing from the declaration. Returns [{ href, status }].
+//
+// `status` is optional: the admin NAV tags each item live/under-construction,
+// but the Phil tab bar (LEFT_TABS/RIGHT_TABS) dropped the field when the centre
+// Capture FAB replaced the old UC "Snag" tab — every remaining tab is live, so
+// a missing status defaults to 'live'.
 function parseNavItems(src, arrayName) {
   const start = src.indexOf('const ' + arrayName);
   if (start === -1) return null;
@@ -125,21 +132,24 @@ function parseNavItems(src, arrayName) {
   const objects = body.match(/\{[^{}]*\}/g) || [];
   for (const obj of objects) {
     const hrefM = obj.match(/href:\s*"([^"]+)"/);
+    if (!hrefM) continue;
     const statusM = obj.match(/status:\s*"([^"]+)"/);
-    if (hrefM && statusM) {
-      items.push({ href: hrefM[1], status: statusM[1] });
-    }
+    items.push({ href: hrefM[1], status: statusM ? statusM[1] : 'live' });
   }
   return items;
 }
 
-function checkNav(file, arrayName, approved, label) {
+function checkNav(file, arrayNames, approved, label) {
   if (!exists(file)) return; // already reported by REQUIRED_SOURCES
   const src = read(file);
-  const items = parseNavItems(src, arrayName);
-  if (!items || items.length === 0) {
+  let items = [];
+  for (const name of arrayNames) {
+    const parsed = parseNavItems(src, name);
+    if (parsed) items = items.concat(parsed);
+  }
+  if (items.length === 0) {
     fail(label + ': could not parse nav items from ' + file,
-      'Expected `const ' + arrayName + ' = [ { href, status }, ... ]`. ' +
+      'Expected `const ' + arrayNames.join('/') + ' = [ { href, status? }, ... ]`. ' +
       'If the nav shape changed, update scripts/check-route-ownership.js.');
     return;
   }
@@ -164,8 +174,8 @@ function checkNav(file, arrayName, approved, label) {
   }
 }
 
-checkNav('src/components/admin/AdminSidebar.tsx', 'NAV', APPROVED_ADMIN_HREFS, 'AdminSidebar');
-checkNav('src/components/phil/PhilTabBar.tsx', 'TABS', APPROVED_PHIL_HREFS, 'PhilTabBar');
+checkNav('src/components/admin/AdminSidebar.tsx', ['NAV'], APPROVED_ADMIN_HREFS, 'AdminSidebar');
+checkNav('src/components/phil/PhilTabBar.tsx', ['LEFT_TABS', 'RIGHT_TABS'], APPROVED_PHIL_HREFS, 'PhilTabBar');
 
 // ── 6. landingFor() role -> landing map ──────────────────────────────
 // Assert the canonical map, especially that field workers land on the Phil

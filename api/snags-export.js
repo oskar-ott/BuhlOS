@@ -20,7 +20,7 @@
 //   compliance. One endpoint, two formats, no other UI dependency.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canManageJob } = require('./_lib/auth');
+const { requireAuth, canManageJob, isStaffRole } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -29,7 +29,7 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
-  if (!['admin', 'leadingHand'].includes(me.role)) {
+  if (!isStaffRole(me.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 

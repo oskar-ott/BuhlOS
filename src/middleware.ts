@@ -14,6 +14,7 @@ import { landingFor } from "@/lib/auth/landing";
  *   /command-centre        → admin roles only       (Phase A)
  *   /hours/*               → admin roles only       (Phase B — admin queue)
  *   /gear/*                → admin roles only       (Phase C — admin register)
+ *   /observations/*        → admin roles only       (PR 3 — observations inbox)
  *   /v2/phil               → field roles or LH      (Phase A)
  *   /v2/jobs/*             → admin or LH            (Phase D4 — admin review;
  *                                                     LH read-only enforced in page)
@@ -31,6 +32,7 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   // (/phil/invite/[token], /phil/setup) are intentionally NOT gated — a worker
   // has no session yet when they open their invite (O3).
   { prefix: "/employees", surface: "admin" },
+  { prefix: "/observations", surface: "admin" },
   { prefix: "/v2/phil", surface: "phil" },
   { prefix: "/v2/jobs", surface: "lh" },
   { prefix: "/phil/my-day", surface: "phil" },
@@ -81,6 +83,7 @@ export const config = {
     "/hours/:path*",
     "/gear/:path*",
     "/employees/:path*",
+    "/observations/:path*",
     "/v2/phil/:path*",
     "/v2/jobs/:path*",
     "/phil/my-day/:path*",

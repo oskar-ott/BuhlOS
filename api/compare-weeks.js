@@ -32,7 +32,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isStaffRole } = require('./_lib/auth');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -140,7 +140,7 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
-  if (!['admin', 'leadingHand'].includes(me.role)) {
+  if (!isStaffRole(me.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 

@@ -10,17 +10,22 @@ import {
   ClipboardCheck,
   Clock,
   FileCheck2,
+  Inbox,
   Wrench,
 } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
+import { ObservationListResponseSchema } from "@/domains/observations/schema";
+import { isOpenObservation } from "@/domains/observations/service";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import type { Job } from "@/domains/jobs/types";
+import type { ObservationItem } from "@/domains/observations/types";
 import { relativeWhen } from "@/domains/jobs/format";
 import { summariseItpReviewQueue } from "./itp-queue-card";
 
@@ -56,7 +61,8 @@ export default async function CommandCentrePage() {
     redirect("/v2/login");
   }
 
-  const { hoursPending, jobs, hoursError, jobsError } = await loadSnapshot(raw);
+  const { hoursPending, jobs, observations, hoursError, jobsError, observationsError } =
+    await loadSnapshot(raw);
 
   const evidencePending = jobs.reduce(
     (sum, j) => sum + (j.statsEvidenceV2Pending ?? 0),
@@ -76,6 +82,32 @@ export default async function CommandCentrePage() {
   const jobsWithSnags = jobs.filter((j) => (j.statsSnagsV2Active ?? 0) > 0);
   const itpReview = summariseItpReviewQueue(jobs);
 
+  // When a cross-job queue is concentrated on a single job, deep-link
+  // straight to that job's section instead of dropping the owner on the
+  // jobs index to hunt for it. Mirrors the ITP card's behaviour. The
+  // cross-job inbox (many jobs) is still UC, so /v2/jobs is the honest
+  // destination there.
+  const evidenceTarget = singleJobTarget(jobsWithEvidence, "evidence");
+  const snagsTarget = singleJobTarget(jobsWithSnags, "snags");
+
+  // Open observations flagged as needing office action (the field-to-office
+  // loop's "what came in from site" queue).
+  const obsNeedingAction = observations.filter(
+    (o) => isOpenObservation(o.status) && o.requiresAction
+  );
+  const obsCount = obsNeedingAction.length;
+  const obsJobsAffected = new Set(obsNeedingAction.map((o) => o.jobId)).size;
+
+  const allClear =
+    hoursPending.length === 0 &&
+    evidencePending === 0 &&
+    snagsActive === 0 &&
+    itpReview.count === 0 &&
+    obsCount === 0 &&
+    !hoursError &&
+    !jobsError &&
+    !observationsError;
+
   return (
     <AdminShell title="Command Centre">
       <div className="mx-auto max-w-5xl space-y-6">
@@ -88,15 +120,28 @@ export default async function CommandCentrePage() {
             the action.
           </p>
 
-          {hoursError || jobsError ? (
+          {hoursError || jobsError || observationsError ? (
             <Card
               className="mt-3 border-amber-200 bg-amber-50"
               role="alert"
             >
               <CardTitle>Couldn&rsquo;t load every queue</CardTitle>
               <CardDescription className="text-amber-900">
-                {hoursError ?? jobsError}. Counts shown may be incomplete —
-                refresh the page once the API is back.
+                {hoursError ?? jobsError ?? observationsError}. Counts shown may
+                be incomplete.
+              </CardDescription>
+              <div className="mt-3">
+                <RefreshButton />
+              </div>
+            </Card>
+          ) : null}
+
+          {allClear ? (
+            <Card className="mt-3 border-emerald-200 bg-emerald-50" role="status">
+              <CardTitle className="text-emerald-900">All clear</CardTitle>
+              <CardDescription className="text-emerald-900">
+                Nothing needs you right now — no hours, evidence, snags, ITPs or
+                observations waiting. New submissions land here as they come in.
               </CardDescription>
             </Card>
           ) : null}
@@ -116,8 +161,8 @@ export default async function CommandCentrePage() {
               label="Evidence to review"
               count={evidencePending}
               jobsAffected={jobsWithEvidence.length}
-              href={"/v2/jobs" as Route}
-              ctaLabel="Open jobs"
+              href={evidenceTarget.href as Route}
+              ctaLabel={evidenceTarget.cta}
               empty="No evidence waiting for review."
             />
             <QueueCard
@@ -125,8 +170,8 @@ export default async function CommandCentrePage() {
               label="Snags needing attention"
               count={snagsActive}
               jobsAffected={jobsWithSnags.length}
-              href={"/v2/jobs" as Route}
-              ctaLabel="Open jobs"
+              href={snagsTarget.href as Route}
+              ctaLabel={snagsTarget.cta}
               empty="Nice — no open snags right now."
             />
             <QueueCard
@@ -139,6 +184,15 @@ export default async function CommandCentrePage() {
                 itpReview.jobsAffected === 1 ? "Open ITP queue" : "Open jobs"
               }
               empty="No ITPs waiting for sign-off."
+            />
+            <QueueCard
+              icon={<Inbox aria-hidden="true" className="h-5 w-5" />}
+              label="Observations to action"
+              count={obsCount}
+              jobsAffected={obsJobsAffected}
+              href={"/observations" as Route}
+              ctaLabel="Open inbox"
+              empty="No field observations need action."
             />
           </div>
         </section>
@@ -309,6 +363,25 @@ function SurfaceLink({
   );
 }
 
+/**
+ * Where a cross-job queue card should point. When exactly one job carries
+ * the whole count, deep-link to that job's section so the owner is one
+ * click from the work; otherwise fall back to the jobs index (the
+ * cross-job inbox is still UC).
+ */
+function singleJobTarget(
+  jobsAffected: ReadonlyArray<Job>,
+  section: "evidence" | "snags",
+): { href: string; cta: string } {
+  if (jobsAffected.length === 1) {
+    return {
+      href: `/v2/jobs/${jobsAffected[0]!.id}/${section}`,
+      cta: section === "evidence" ? "Open evidence" : "Open snags",
+    };
+  }
+  return { href: "/v2/jobs", cta: "Open jobs" };
+}
+
 function oldestAge(timestamps: ReadonlyArray<string>): string | null {
   if (timestamps.length === 0) return null;
   // Find the smallest (earliest) ISO timestamp string. ISO 8601 sorts
@@ -326,8 +399,10 @@ function oldestAge(timestamps: ReadonlyArray<string>): string | null {
 async function loadSnapshot(cookieValue: string | undefined): Promise<{
   hoursPending: ReadonlyArray<TimeEntry>;
   jobs: ReadonlyArray<Job>;
+  observations: ReadonlyArray<ObservationItem>;
   hoursError: string | null;
   jobsError: string | null;
+  observationsError: string | null;
 }> {
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
@@ -337,17 +412,46 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
     : undefined;
 
-  const [hoursResult, jobsResult] = await Promise.all([
+  const [hoursResult, jobsResult, obsResult] = await Promise.all([
     loadHoursPending(base, headersInit),
     loadJobsWithStats(base, headersInit),
+    loadObservations(base, headersInit),
   ]);
 
   return {
     hoursPending: hoursResult.entries,
     jobs: jobsResult.jobs,
+    observations: obsResult.observations,
     hoursError: hoursResult.error,
     jobsError: jobsResult.error,
+    observationsError: obsResult.error,
   };
+}
+
+async function loadObservations(
+  base: string,
+  headersInit: { cookie: string } | undefined
+): Promise<{ observations: ReadonlyArray<ObservationItem>; error: string | null }> {
+  try {
+    const res = await fetch(`${base}/api/observations`, {
+      cache: "no-store",
+      headers: headersInit,
+    });
+    if (!res.ok) {
+      return { observations: [], error: `Observations API returned ${res.status}` };
+    }
+    const body = await res.json();
+    const parsed = ObservationListResponseSchema.safeParse(body);
+    if (!parsed.success) {
+      return { observations: [], error: "Unexpected observations response shape" };
+    }
+    return { observations: parsed.data.observations, error: null };
+  } catch (err) {
+    return {
+      observations: [],
+      error: err instanceof Error ? err.message : "Observations network error",
+    };
+  }
 }
 
 async function loadHoursPending(
