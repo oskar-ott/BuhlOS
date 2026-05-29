@@ -366,8 +366,8 @@ export function AddEmployeeDrawer({
 
         {!emailConfigured ? (
           <p className="rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            Phil setup is not live on main yet, so this screen creates the invite link
-            without emailing it to the worker. Keep the link internal until O3 is merged.
+            No email provider is wired yet, so this creates the invite link without emailing it.
+            Copy the link and send it to the worker — they open it to set up Phil.
           </p>
         ) : null}
 
@@ -400,7 +400,7 @@ export function AddEmployeeDrawer({
           <p className="text-sm text-text">
             {emailConfigured
               ? "Invite sent. The worker can also use this link directly:"
-              : "Invite link created. Phil setup is not live on main yet, so keep this link internal until O3 is merged:"}
+              : "Invite link created. Send it to the worker — they open it to set up Phil:"}
           </p>
         )}
         <div className="flex items-center gap-2">
@@ -417,7 +417,7 @@ export function AddEmployeeDrawer({
         </div>
         <p className="flex items-center gap-1.5 text-xs text-text-muted">
           <Link2 aria-hidden="true" className="h-3.5 w-3.5" />
-          Single-use · expires in 14 days. Worker setup lands in O3.
+          Single-use · expires in 14 days. The worker confirms their details and sets a PIN.
         </p>
       </div>
     );

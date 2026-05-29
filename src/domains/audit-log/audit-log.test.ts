@@ -114,6 +114,7 @@ describe("AuditLogEntrySchema", () => {
     // the legacy api/job-itps.js mutating actions + the itp_template
     // / itp_instance target types.
     expect([...AUDIT_ACTIONS].sort()).toEqual([
+      "employee.activated",
       "employee.created",
       "employee.disabled",
       "employee.role_changed",
@@ -122,7 +123,9 @@ describe("AuditLogEntrySchema", () => {
       "evidence.rejected",
       "evidence.reviewed",
       "evidence.unreviewed",
+      "invite.accepted",
       "invite.issued",
+      "invite.opened",
       "invite.revoked",
       "invite.send_failed",
       "itp.archived",

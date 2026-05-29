@@ -16,6 +16,11 @@ import type {
   UpdateEmployeePayloadSchema,
   IssueInvitePayloadSchema,
   DisableEmployeePayloadSchema,
+  InviteResolveStateSchema,
+  ResolvedInviteSchema,
+  ResolveInviteResponseSchema,
+  AcceptInvitePayloadSchema,
+  AcceptInviteResponseSchema,
 } from "./schema";
 
 /**
@@ -45,6 +50,13 @@ export type EmployeeRow = z.infer<typeof EmployeeRowSchema>;
 export type EmployeeListResponse = z.infer<typeof EmployeeListResponseSchema>;
 export type EmployeeDetailResponse = z.infer<typeof EmployeeDetailResponseSchema>;
 export type EmployeeMutationResponse = z.infer<typeof EmployeeMutationResponseSchema>;
+
+/* O3 — worker invite resolution + acceptance. */
+export type InviteResolveState = z.infer<typeof InviteResolveStateSchema>;
+export type ResolvedInvite = z.infer<typeof ResolvedInviteSchema>;
+export type ResolveInviteResponse = z.infer<typeof ResolveInviteResponseSchema>;
+export type AcceptInvitePayload = z.infer<typeof AcceptInvitePayloadSchema>;
+export type AcceptInviteResponse = z.infer<typeof AcceptInviteResponseSchema>;
 
 export type CreateEmployeePayload = z.infer<typeof CreateEmployeePayloadSchema>;
 export type UpdateEmployeePayload = z.infer<typeof UpdateEmployeePayloadSchema>;

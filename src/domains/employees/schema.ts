@@ -279,3 +279,62 @@ export const IssueInvitePayloadSchema = z.object({
 export const DisableEmployeePayloadSchema = z.object({
   id: z.string().min(1),
 });
+
+/* ---------------------------------------------------------------------------
+ * O3 — worker invite resolution + acceptance (the Phil setup flow).
+ *
+ * SECURITY: the resolve response carries ONLY what the worker setup screens
+ * need to render (bible §06 / §10 S07) — never the tokenHash, never internal
+ * ids, never other employees' data. The token (in the URL) is the worker's
+ * proof of identity; the server validates it before returning anything.
+ * ------------------------------------------------------------------------- */
+
+/** Landing states for /phil/invite/[token] (bible P1 / P8–P10). */
+export const INVITE_RESOLVE_STATES = [
+  "valid",
+  "expired",
+  "revoked",
+  "accepted",
+  "invalid",
+] as const;
+export const InviteResolveStateSchema = z.enum(INVITE_RESOLVE_STATES);
+
+/** The safe, worker-facing projection returned only when state === "valid". */
+export const ResolvedInviteSchema = z.object({
+  firstName: z.string(),
+  lastName: z.string(),
+  displayName: z.string().nullable().optional(),
+  email: z.string(),
+  phone: z.string().nullable().optional(),
+  role: EmployeeRoleSchema,
+  roleLabel: z.string(),
+  appAccess: AppAccessSchema,
+  apprenticeYear: z.number().int().min(1).max(4).nullable().optional(),
+  companyName: z.string(),
+  expiresAt: z.string(),
+  /** Assigned job display names (no ids) for the confirm step. */
+  jobs: z.array(z.string()),
+});
+
+export const ResolveInviteResponseSchema = z.object({
+  state: InviteResolveStateSchema,
+  /** Present only for state === "valid". */
+  invite: ResolvedInviteSchema.nullable().optional(),
+});
+
+/** POST /api/invites?action=accept — confirm details + create the 4-digit PIN. */
+export const AcceptInvitePayloadSchema = z.object({
+  token: z.string().min(1),
+  pin: z.string().regex(/^\d{4}$/, "PIN must be 4 digits"),
+  confirmPin: z.string().regex(/^\d{4}$/, "PIN must be 4 digits"),
+  /** Worker may fill a missing phone during confirm (AU mobile). */
+  phone: z.string().trim().max(40).nullable().optional(),
+});
+
+export const AcceptInviteResponseSchema = z.object({
+  ok: z.literal(true),
+  /** Where the worker should land — "/phil/my-day" (auto-session) or "/v2/login". */
+  landing: z.string(),
+  /** True when an authenticated session cookie was set on accept. */
+  sessionCreated: z.boolean(),
+});

@@ -66,6 +66,10 @@ export const AUDIT_ACTIONS = [
   "invite.revoked",
   // O2: provider send failure (metadata only).
   "invite.send_failed",
+  // O3: worker opens the invite + completes setup (metadata only).
+  "invite.opened",
+  "invite.accepted",
+  "employee.activated",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
