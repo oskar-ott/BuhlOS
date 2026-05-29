@@ -68,9 +68,14 @@ async function getCurrentUser(req) {
   const users = await readBlob('users.json', { users: [] });
   const user = users.users.find(u => u.id === session.userId);
   if (!user) return null;
+  if (isDisabledUser(user)) return null;
   // strip hash before returning
   const { passwordHash, ...safe } = user;
   return safe;
+}
+
+function isDisabledUser(user) {
+  return Boolean(user && (user.archived || user.disabled || user.status === 'disabled'));
 }
 
 // Role-tier helpers. The canonical taxonomy lives in
@@ -177,6 +182,7 @@ module.exports = {
   clearSessionCookie,
   getSession,
   getCurrentUser,
+  isDisabledUser,
   requireAuth,
   canWrite,
   canManageJob,

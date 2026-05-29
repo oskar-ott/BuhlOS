@@ -1,8 +1,10 @@
 const bcrypt = require('bcryptjs');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const {
-  setSessionCookie, clearSessionCookie, getCurrentUser,
+  setSessionCookie, clearSessionCookie, getCurrentUser, isDisabledUser,
 } = require('./_lib/auth');
+
+const DISABLED_MESSAGE = 'Account disabled. Ask your supervisor.';
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -23,6 +25,7 @@ module.exports = async (req, res) => {
     if (!user) return res.status(401).json({ error: 'invalid credentials' });
     const ok = await bcrypt.compare(String(secret), user.passwordHash);
     if (!ok) return res.status(401).json({ error: 'invalid credentials' });
+    if (isDisabledUser(user)) return res.status(403).json({ error: DISABLED_MESSAGE });
     setSessionCookie(res, { userId: user.id, role: user.role });
     const { passwordHash, ...safe } = user;
     return res.status(200).json({ user: safe });
