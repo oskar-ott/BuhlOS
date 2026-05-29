@@ -106,7 +106,10 @@ export function isStaffRole(role: unknown): boolean {
  *   gear:read            → any authenticated non-client
  *   gear:manage          → isAdminRole
  *   observations:create  → canWrite        (field/LH on assigned job, admin any)
- *   observations:review  → isStaffRole     (triage/assign/priority/resolve)
+ *   observations:read    → requireAuth({jobId}) + non-client (job-scoped view)
+ *   observations:review  → isAdminRole     (cross-job inbox triage/assign/resolve;
+ *                                           matches access:buhlos so the API agrees
+ *                                           with the BuhlOS surface gate)
  *   observations:convert → isAdminRole     (RFI/Variation/etc. — office only)
  *   employees:manage     → isAdminRole
  *   reports:read         → isStaffRole
