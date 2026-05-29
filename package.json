@@ -26,6 +26,7 @@
     "smoke:auth-d55-snags": "bash scripts/auth-smoke-d55-snags.sh",
     "smoke:auth-e1-itp": "bash scripts/auth-smoke-e1-itp.sh",
     "smoke:auth-onboarding-o3": "bash scripts/auth-smoke-onboarding-o3.sh",
+    "smoke:auth-observations": "bash scripts/auth-smoke-observations.sh",
     "predeploy": "npm run check:admin-shell && npm run check:sw-cache-version && npm run check:production-shell && npm run check:route-ownership && npm run smoke:admin-routes",
     "predeploy:preview": "npm run check:admin-shell && npm run check:sw-cache-version && npm run check:production-shell && npm run check:route-ownership && npm run smoke:admin-routes",
     "deploy:preview": "vercel deploy --yes"
