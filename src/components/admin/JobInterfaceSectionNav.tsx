@@ -50,8 +50,11 @@ type SectionRow =
  * index uses. When the count is `undefined` we omit the chip rather than
  * fabricate a zero &mdash; the cell renders without it.
  *
- * Section order mirrors PhilJobDetail's vertical layout precedent
- * (per doc 34 §B.2): Evidence &middot; Snags &middot; ITPs &middot;
+ * Section order: Evidence &middot; Snags &middot; Observations (PR 8) &middot;
+ * ITPs &middot; Documents &middot; Materials (UC) &middot; Activity (LIVE, PR 9).
+ * PR 9 flipped Activity (was "History") from UC to LIVE — it now points at
+ * /v2/jobs/[jobId]/history which consumes the audit-log via the
+ * scope=job mode.
  * Documents &middot; Materials &middot; History. Overview + Site live
  * above this in the hub page itself.
  *
@@ -115,12 +118,12 @@ export function JobInterfaceSectionNav({ job }: Props) {
         "Real materials data lives on the legacy /admin/materials surface (takeoff + PO + invoice match). A scoped worker view is deferred to a later slice.",
     },
     {
-      kind: "uc",
-      label: "History",
-      description: "Consolidated audit trail across every section on this job.",
+      kind: "live",
+      label: "Activity",
+      description:
+        "Consolidated audit trail across every section on this job — captures, snag transitions, ITP sign-offs, observation conversions.",
+      href: `/v2/jobs/${jobIdEnc}/history` as Route,
       icon: History,
-      ucReason:
-        "Per-item history already lives in each drawer (evidence, snag, future ITP). A job-level consolidated feed is scoped for after E1b/E1c.",
     },
   ];
 
