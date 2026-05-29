@@ -9,9 +9,9 @@ describe("landingFor()", () => {
     }
   });
 
-  it("routes field roles to /v2/phil", () => {
+  it("routes field roles to /phil/my-day (the Phil home, not the /v2/phil placeholder)", () => {
     for (const role of ["tradie", "apprentice", "labourer", "electrician"]) {
-      expect(landingFor(role)).toBe("/v2/phil");
+      expect(landingFor(role)).toBe("/phil/my-day");
     }
   });
 
@@ -36,11 +36,11 @@ describe("landingFor()", () => {
 describe("rolePermits()", () => {
   it("accepts a role on its own landing", () => {
     expect(rolePermits("admin", "/command-centre")).toBe(true);
-    expect(rolePermits("tradie", "/v2/phil")).toBe(true);
+    expect(rolePermits("tradie", "/phil/my-day")).toBe(true);
   });
 
   it("rejects a role on the wrong landing", () => {
     expect(rolePermits("tradie", "/command-centre")).toBe(false);
-    expect(rolePermits("admin", "/v2/phil")).toBe(false);
+    expect(rolePermits("admin", "/phil/my-day")).toBe(false);
   });
 });
