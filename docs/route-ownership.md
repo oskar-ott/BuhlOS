@@ -111,7 +111,7 @@ These work today and are intentionally linked, but carry a known future move.
 | Route | Source | Why transitional |
 | --- | --- | --- |
 | `/v2/jobs` | `src/app/v2/jobs/page.tsx` | **The live admin Jobs index.** Uses `AdminShell`, gated `admin`/LH. Parked on `/v2/jobs` so it shipped without a `vercel.json` change. Canonical URL becomes `/admin/jobs` in a later admin-shell rebuild slice; legacy `/admin/jobs.html` keeps serving via rewrite until then. The admin sidebar "Jobs" item links here on purpose. |
-| `/v2/jobs/[jobId]` (+ `/evidence`, `/snags`, `/itps`, `/documents`) | `src/app/v2/jobs/[jobId]/**` | Live admin job hub + review sections. Same future move as `/v2/jobs`. |
+| `/v2/jobs/[jobId]` (+ `/evidence`, `/snags`, `/itps`, `/documents`, `/observations`) | `src/app/v2/jobs/[jobId]/**` | Live admin job hub + review sections. PR 8 added `/observations` (per-job slice of the cross-job inbox; LH read-only, admin-tier can triage). Same future move as `/v2/jobs`. |
 | `/v2/phil` | `src/app/v2/phil/page.tsx` | The Phil **"More" / profile placeholder** (orientation line + onboarding replay + a profile/settings UC panel). It is the destination of the Phil tab bar "More" and "Snag" (UC) tabs. The functional Phil home moved to `/phil/my-day`; `/v2/phil` is no longer a landing target (see §10). |
 | `/phil/invite/[token]` | `src/app/phil/invite/[token]/page.tsx` | Worker onboarding invite (O3). **Intentionally NOT gated** — a new worker has no session when they open their invite link. Public by design. |
 

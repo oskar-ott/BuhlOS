@@ -52,6 +52,14 @@ interface Props {
   initialObservations: ReadonlyArray<ObservationItem>;
   fetchError: string | null;
   viewer: { id: string; name: string; role: string };
+  /** PR 8: when false, hide the triage/priority/resolve/convert sections — the
+   *  viewer can SEE observations but not act on them (e.g. a leading hand on a
+   *  job-scoped view; only admin-tier can mutate per the API gate). Default true
+   *  for the cross-job /observations inbox which is admin-tier-gated at middleware. */
+  actionsEnabled?: boolean;
+  /** Show the "Job" filter dropdown. Off for the job-scoped view (only one job
+   *  appears so the dropdown adds nothing). Default true. */
+  showJobFilter?: boolean;
 }
 
 interface Filters {
@@ -90,7 +98,13 @@ const SNAG_ELIGIBLE_TYPES = new Set(["defect", "safety", "blocker"]);
  * mutations (status, priority, assign-to-me, resolution note, conversion
  * intent) via PATCH /api/observations.
  */
-export function ObservationsInbox({ initialObservations, fetchError, viewer }: Props) {
+export function ObservationsInbox({
+  initialObservations,
+  fetchError,
+  viewer,
+  actionsEnabled = true,
+  showJobFilter = true,
+}: Props) {
   const [observations, setObservations] = useState<ReadonlyArray<ObservationItem>>(
     initialObservations
   );
@@ -234,12 +248,14 @@ export function ObservationsInbox({ initialObservations, fetchError, viewer }: P
           onChange={(v) => setFilters((f) => ({ ...f, priority: v as ObservationPriority | "" }))}
           options={OBSERVATION_PRIORITIES.map((p) => ({ value: p, label: priorityLabel(p) }))}
         />
-        <FilterSelect
-          label="Job"
-          value={filters.jobId}
-          onChange={(v) => setFilters((f) => ({ ...f, jobId: v }))}
-          options={jobOptions.map((j) => ({ value: j.id, label: j.name }))}
-        />
+        {showJobFilter ? (
+          <FilterSelect
+            label="Job"
+            value={filters.jobId}
+            onChange={(v) => setFilters((f) => ({ ...f, jobId: v }))}
+            options={jobOptions.map((j) => ({ value: j.id, label: j.name }))}
+          />
+        ) : null}
         <FilterSelect
           label="Source"
           value={filters.source}
@@ -290,6 +306,7 @@ export function ObservationsInbox({ initialObservations, fetchError, viewer }: P
         observation={selected}
         viewer={viewer}
         busy={busy}
+        actionsEnabled={actionsEnabled}
         resolutionNote={resolutionNote}
         onResolutionNoteChange={setResolutionNote}
         onClose={() => {
@@ -426,6 +443,7 @@ function ObservationDrawer({
   onClose,
   onApply,
   onConvertToSnag,
+  actionsEnabled,
 }: {
   observation: ObservationItem | null;
   viewer: { id: string; name: string; role: string };
@@ -435,6 +453,9 @@ function ObservationDrawer({
   onClose: () => void;
   onApply: (id: string, patch: Omit<UpdateObservationPayload, "id">) => void;
   onConvertToSnag: (id: string, force?: boolean) => void;
+  /** PR 8: when false, render only the read-only details (no triage / priority /
+   *  resolve / convert sections). */
+  actionsEnabled: boolean;
 }) {
   if (!o) return null;
   const assignedToMe = o.assignedToId === viewer.id;
@@ -507,6 +528,21 @@ function ObservationDrawer({
           ) : null}
         </dl>
 
+        {!actionsEnabled ? (
+          <p className="rounded-card border border-dashed border-border bg-surface-subtle px-3 py-2 text-xs text-text-muted">
+            Read-only view. Triage and conversion live on the
+            <Link
+              href={"/observations" as Route}
+              className="ml-1 underline decoration-accent-yellow decoration-2 underline-offset-2"
+            >
+              Observations inbox
+            </Link>
+            {" "}(admin-only).
+          </p>
+        ) : null}
+
+        {actionsEnabled ? (
+        <>
         {/* Triage actions */}
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">Triage</h3>
@@ -658,6 +694,8 @@ function ObservationDrawer({
             ))}
           </div>
         </section>
+        </>
+        ) : null}
       </div>
     </Drawer>
   );
