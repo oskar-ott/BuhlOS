@@ -9,12 +9,17 @@ import {
 /**
  * The ONE canonical landingFor() for the new Phase A surface.
  *
- * Phase A maps roles to a mix of new and legacy URLs:
+ * Phase A+ maps roles to a mix of new and legacy URLs:
  *   - admin    → /command-centre        (new BuhlOS admin shell)
- *   - field    → /v2/phil               (new Phil shell — parallel; /phil stays legacy)
+ *   - field    → /phil/my-day           (new Phil home — the "Today" tab; its page
+ *                                         docstring notes it "replaces the placeholder
+ *                                         /v2/phil". /phil/my-day is gated to field/LH,
+ *                                         so a field worker always passes the gate here.)
  *   - LH       → /lh                    (still legacy; vercel.json rewrites to lh-home.html)
  *   - client   → /client                (still legacy; vercel.json rewrites to client.html)
  *   - unknown  → /v2/login              (so users can re-attempt)
+ *
+ * Route-ownership contract: docs/route-ownership.md §10.
  *
  * The legacy login.html keeps its own landingFor() pointing at /admin/operations,
  * /my-day, etc. — that's correct because legacy login serves the legacy surfaces.
@@ -26,7 +31,7 @@ export function landingFor(role: unknown): string {
   const r = normaliseRole(role);
   if (isAdminRole(r)) return "/command-centre";
   if (isLeadingHandRole(r)) return "/lh";
-  if (isFieldRole(r)) return "/v2/phil";
+  if (isFieldRole(r)) return "/phil/my-day";
   if (isClientRole(r)) return "/client";
   return "/v2/login";
 }

@@ -22,6 +22,8 @@ This repo is mid-migration. Two surfaces co-exist:
 
 The Phase A scaffold is **additive**: it occupies routes that `vercel.json` does not rewrite. See [`docs/rebuild-audit/08-next-claude-code-prompt.md`](docs/rebuild-audit/08-next-claude-code-prompt.md) for the full Phase A brief and [`docs/product/01-mvp-rebuild-scope.md`](docs/product/01-mvp-rebuild-scope.md) for the wider rebuild roadmap.
 
+Which URL belongs to which surface — canonical, transitional, or legacy — and the rules nav must follow are the **route ownership contract** in [`docs/route-ownership.md`](docs/route-ownership.md) (enforced by `npm run check:route-ownership`). The legacy-only production URL inventory is [`docs/rebuild-audit/01-current-route-map.md`](docs/rebuild-audit/01-current-route-map.md).
+
 ---
 
 ## Quickstart

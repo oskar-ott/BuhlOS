@@ -128,11 +128,43 @@ async function expectStatus(name, url, opts) {
     expect: { status: [307] },
   });
 
-  // Legacy routes — served by vercel.json rewrite, should 200.
+  // Canonical route ownership (PR 1) — the remaining modern surfaces. Each is
+  // gated by src/middleware.ts, so an unauthenticated request must 307 to
+  // /v2/login (NOT 200, and NOT 500). See docs/route-ownership.md §4–§5.
+  await expectStatus("HTML  /hours (admin, gated → 307)", `${base}/hours`, {
+    expect: { status: [307] },
+  });
+  await expectStatus("HTML  /gear (admin, gated → 307)", `${base}/gear`, {
+    expect: { status: [307] },
+  });
+  await expectStatus("HTML  /employees (admin, gated → 307)", `${base}/employees`, {
+    expect: { status: [307] },
+  });
+  await expectStatus("HTML  /phil/my-day (Phil home, gated → 307)", `${base}/phil/my-day`, {
+    expect: { status: [307] },
+  });
+  await expectStatus("HTML  /phil/hours (gated → 307)", `${base}/phil/hours`, {
+    expect: { status: [307] },
+  });
+  await expectStatus("HTML  /phil/gear (gated → 307)", `${base}/phil/gear`, {
+    expect: { status: [307] },
+  });
+  await expectStatus("HTML  /v2/phil (More tab, gated → 307)", `${base}/v2/phil`, {
+    expect: { status: [307] },
+  });
+
+  // Legacy routes — served by vercel.json rewrite, should 200. These must keep
+  // working: the route contract preserves them (docs/route-ownership.md §6).
   await expectStatus("HTML  /login (legacy)", `${base}/login`, {
     expect: { status: [200], contentType: "text/html" },
   });
   await expectStatus("HTML  /phil (legacy)", `${base}/phil`, {
+    expect: { status: [200], contentType: "text/html" },
+  });
+  await expectStatus("HTML  /my-day (legacy tradie home)", `${base}/my-day`, {
+    expect: { status: [200], contentType: "text/html" },
+  });
+  await expectStatus("HTML  /my-gear (legacy)", `${base}/my-gear`, {
     expect: { status: [200], contentType: "text/html" },
   });
   await expectStatus("HTML  /admin/operations (legacy)", `${base}/admin/operations`, {
