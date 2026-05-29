@@ -118,7 +118,7 @@ describe("EmployeeDetailDrawer", () => {
       })
     );
     expect(html).toContain("Link created");
-    expect(html).toContain("worker setup lands in O3");
+    expect(html).toContain("set up Phil");
     expect(html).not.toContain("Sent");
   });
 

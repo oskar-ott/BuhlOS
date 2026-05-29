@@ -122,7 +122,7 @@ describe("inviteSummaryLine", () => {
 
   it("does not describe copy-link invites as emailed", () => {
     expect(inviteSummaryLine({ ...sentInvite, delivery: "link" })).toContain("Link created");
-    expect(inviteSummaryLine({ ...sentInvite, delivery: "link" })).toContain("worker setup lands in O3");
+    expect(inviteSummaryLine({ ...sentInvite, delivery: "link" })).toContain("set up Phil");
   });
 
   it("keeps sent wording for real email delivery", () => {

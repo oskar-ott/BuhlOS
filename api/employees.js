@@ -100,10 +100,11 @@ function deriveAppAccess(role) { return ROLE_APP_ACCESS[role] || 'phil'; }
 function computeExpiresAt(fromIso, days) {
   const d = new Date(fromIso); d.setDate(d.getDate() + days); return d.toISOString();
 }
-// O2 email delivery is merged, but the worker setup route it points to
-// (/phil/invite/[token]) only becomes live with O3. Until that route is on
-// main, never send a worker an email whose primary CTA lands on a 404.
-function inviteSetupRouteLive() { return false; }
+// O3 ships /phil/invite/[token], so the worker setup route the invite CTA
+// points to is now live. Email still only sends when a provider is configured
+// (email.isEmailConfigured() = RESEND_API_KEY + EMAIL_FROM); absent a provider
+// the flow stays in copy-link mode.
+function inviteSetupRouteLive() { return true; }
 function emailConfigured() { return inviteSetupRouteLive() && email.isEmailConfigured(); }
 
 // Map a (possibly coarse legacy) role string onto one of the eight bible roles
