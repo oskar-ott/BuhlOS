@@ -38,7 +38,7 @@
 // parallel. Bounded by active-job count, not item or PO count.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isStaffRole } = require('./_lib/auth');
 
 const ITEM_STATUSES = ['pending', 'ordered', 'received', 'cancelled'];
 const PO_STATUSES   = ['draft', 'sent', 'confirmed', 'partial', 'fulfilled', 'cancelled'];
@@ -51,7 +51,7 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
-  if (!['admin', 'leadingHand'].includes(me.role)) {
+  if (!isStaffRole(me.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 

@@ -22,7 +22,7 @@
 
 const { put, list } = require('@vercel/blob');
 const { readBlob, readBlobFresh, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isAdminRole } = require('./_lib/auth');
 
 const VALID_TYPES = ['vehicle', 'key', 'tool', 'accessory', 'ppe', 'other'];
 
@@ -163,7 +163,7 @@ module.exports = async (req, res) => {
       const a = await readAsset(id);
       if (!a) return res.status(404).json({ error: 'not found' });
       // Visibility: admin sees all; tradie/LH sees only what they hold.
-      if (user.role !== 'admin' && a.currentHolderId !== user.id) {
+      if (!isAdminRole(user.role) && a.currentHolderId !== user.id) {
         return res.status(403).json({ error: 'no access to this asset' });
       }
       const history = await readHistory(id);
@@ -207,7 +207,7 @@ module.exports = async (req, res) => {
       if (!a) return res.status(404).json({ error: 'asset not found' });
 
       // Tradie/LH may only transfer something they currently hold.
-      if (user.role !== 'admin') {
+      if (!isAdminRole(user.role)) {
         if (a.currentHolderId !== user.id) {
           return res.status(403).json({ error: "you can only transfer an asset you currently hold" });
         }
@@ -224,7 +224,7 @@ module.exports = async (req, res) => {
         if (toUser.role === 'client') return res.status(400).json({ error: 'cannot assign asset to a client' });
         // Tradies can't assign to admin (would surrender ownership chain
         // without an audit reason). Admin transfer can go anywhere.
-        if (user.role !== 'admin' && toUser.role === 'admin') {
+        if (!isAdminRole(user.role) && toUser.role === 'admin') {
           return res.status(403).json({ error: 'transfer to admin must be done by admin' });
         }
       }
@@ -273,7 +273,7 @@ module.exports = async (req, res) => {
     //   History gets a `kind: 'admin_updated'` entry so the action log
     //   shows the admin reset distinct from worker reports.
     if (action === 'mark-good') {
-      if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+      if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
       const body = req.body || {};
       const { assetId, note } = body;
       if (!assetId) return res.status(400).json({ error: 'assetId required' });
@@ -322,7 +322,7 @@ module.exports = async (req, res) => {
       const a = await readAsset(assetId);
       if (!a) return res.status(404).json({ error: 'asset not found' });
       // Worker may only report on assets they currently hold. Admin sees all.
-      if (user.role !== 'admin' && a.currentHolderId !== user.id) {
+      if (!isAdminRole(user.role) && a.currentHolderId !== user.id) {
         return res.status(403).json({ error: 'you can only report on an asset you currently hold' });
       }
       const cleanNote = note ? String(note).trim().slice(0, 500) : null;
@@ -351,7 +351,7 @@ module.exports = async (req, res) => {
     }
 
     // Create new asset — admin only
-    if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+    if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
     const body = req.body || {};
     if (!body.name || !String(body.name).trim()) return res.status(400).json({ error: 'name required' });
     if (!body.type || !VALID_TYPES.includes(body.type)) {
@@ -394,7 +394,7 @@ module.exports = async (req, res) => {
 
   // ── PUT — edit metadata (admin only). Holder changes go via transfer.
   if (req.method === 'PUT') {
-    if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+    if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
     const id = (req.query && req.query.id) || '';
     if (!id) return res.status(400).json({ error: 'id required' });
     const existing = await readAsset(id);
@@ -415,7 +415,7 @@ module.exports = async (req, res) => {
 
   // ── DELETE — soft-delete (admin only). Sets archived:true; record + history kept.
   if (req.method === 'DELETE') {
-    if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+    if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
     const id = (req.query && req.query.id) || '';
     if (!id) return res.status(400).json({ error: 'id required' });
     const existing = await readAsset(id);

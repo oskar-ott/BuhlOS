@@ -23,7 +23,7 @@
 // reasons. (One-line comment per the brief's storage-choice ask.)
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite } = require('./_lib/auth');
+const { requireAuth, canWrite, isAdminRole } = require('./_lib/auth');
 
 const CATEGORIES = ['project', 'supplier'];
 
@@ -142,7 +142,7 @@ module.exports = async (req, res) => {
 
     if (wantsCategorised) {
       // New categorised contact — admin only.
-      if (user.role !== 'admin') return res.status(403).json({ error: 'admin only — only admins manage project/supplier contacts' });
+      if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only — only admins manage project/supplier contacts' });
       const built = buildCategorised(body, null, user);
       if (built.error) return res.status(400).json({ error: built.error });
       try {
@@ -198,7 +198,7 @@ module.exports = async (req, res) => {
       // Categorised contact edits are admin-only. Legacy ones keep the
       // original canWrite gate so the snag-email composer still works.
       if (isCat) {
-        if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+        if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
         const built = buildCategorised(body, existing, user);
         if (built.error) return res.status(400).json({ error: built.error });
         data.contacts[idx] = built.contact;
@@ -239,7 +239,7 @@ module.exports = async (req, res) => {
       if (!target) return res.status(404).json({ error: 'contact not found' });
       // Categorised contacts: admin-only delete. Legacy: canWrite.
       if (isCategorised(target)) {
-        if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+        if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
       } else {
         if (!canWrite(user, jobId)) return res.status(403).json({ error: 'read-only' });
       }

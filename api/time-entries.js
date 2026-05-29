@@ -11,7 +11,7 @@
 //   DELETE /api/time-entries?date=YYYY-MM-DD     → delete own draft
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isStaffRole } = require('./_lib/auth');
 const {
   newId,
   validateEntryShape,
@@ -43,7 +43,7 @@ async function handleGet(req, res, user) {
 
   // ── Approver scope: walks every user's entries, gates by LH membership ──
   if (q.scope === 'approver') {
-    if (!['admin', 'leadingHand'].includes(user.role)) {
+    if (!isStaffRole(user.role)) {
       return res.status(403).json({ error: 'forbidden' });
     }
     const status = q.status || 'submitted';
@@ -62,7 +62,7 @@ async function handleGet(req, res, user) {
   // ── Otherwise: my entries (or another user's, with admin/LH override) ──
   let targetUserId = user.id;
   if (q.userId && q.userId !== user.id) {
-    if (!['admin', 'leadingHand'].includes(user.role)) {
+    if (!isStaffRole(user.role)) {
       return res.status(403).json({ error: 'forbidden' });
     }
     targetUserId = q.userId;

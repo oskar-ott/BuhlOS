@@ -30,7 +30,7 @@
 //   - everyone else: 403
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canManageJob } = require('./_lib/auth');
+const { requireAuth, canManageJob, isStaffRole } = require('./_lib/auth');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PRIORITIES = ['High', 'Medium', 'Low'];
@@ -65,7 +65,7 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
-  if (!['admin', 'leadingHand'].includes(me.role)) {
+  if (!isStaffRole(me.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 
