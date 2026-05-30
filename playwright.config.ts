@@ -1,11 +1,16 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Phase A E2E configuration.
+ * E2E configuration.
  *
- * Mobile chromium (for Phil) is added in Phase B when Phil hours has a
- * real surface to exercise. Phase A only runs desktop chromium.
+ * Default: spin up `next dev` on localhost and run the unauthenticated route
+ * guards. The authenticated Phase B flows need the legacy /api/auth login,
+ * which only runs on a Vercel deploy — so set PLAYWRIGHT_BASE_URL to a preview
+ * URL to exercise them. When an external base URL is supplied we do NOT start
+ * the local dev server (it would serve a different origin with no api/*).
  */
+const externalBaseURL = process.env.PLAYWRIGHT_BASE_URL;
+
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
@@ -14,7 +19,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? "github" : "list",
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+    baseURL: externalBaseURL ?? "http://localhost:3000",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -24,10 +29,14 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  // Only manage a local server when testing localhost; against a preview
+  // deploy the app is already running.
+  webServer: externalBaseURL
+    ? undefined
+    : {
+        command: "npm run dev",
+        url: "http://localhost:3000",
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+      },
 });
