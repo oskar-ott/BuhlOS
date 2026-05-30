@@ -171,6 +171,14 @@ module.exports = async (req, res) => {
     if (id) {
       const job = data.jobs.find(j => j.id === id);
       if (!job) return res.status(404).json({ error: 'job not found' });
+      // Draft jobs are office-only. An admin building a job can open it, but
+      // it stays invisible to the field (and clients) until published — even
+      // to a worker it's already assigned to. Reported as "not found" so a
+      // draft never leaks before it's ready. publishJob() flips it to 'active'
+      // (src/domains/jobs/client.ts); see also the list filter below.
+      if (job.status === 'draft' && me.role !== 'admin') {
+        return res.status(404).json({ error: 'job not found' });
+      }
       const canSee =
         me.role === 'admin' ||
         (me.assignedJobIds || []).includes(id) ||
@@ -185,13 +193,15 @@ module.exports = async (req, res) => {
       const cleaned = projectJobStructure(job, { includeArchived });
       return res.status(200).json({ job: { ...cleaned, modules: effectiveModules(job) } });
     }
+    // Non-admin roles never see draft jobs (office-only until published).
+    // Admin sees every status so the Builder can list + open its own drafts.
     let visible;
     if (me.role === 'admin') {
       visible = data.jobs;
     } else if (me.role === 'client') {
-      visible = data.jobs.filter(j => j.clientUserId === me.id);
+      visible = data.jobs.filter(j => j.clientUserId === me.id && j.status !== 'draft');
     } else {
-      visible = data.jobs.filter(j => (me.assignedJobIds || []).includes(j.id));
+      visible = data.jobs.filter(j => (me.assignedJobIds || []).includes(j.id) && j.status !== 'draft');
     }
     // Enrich with human-readable type name (cheap lookup; small list).
     // Clients/tradies can't read /api/job-types, so resolve server-side.
@@ -374,7 +384,7 @@ module.exports = async (req, res) => {
   if (req.method === 'POST') {
     if (me.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
     const {
-      name, id, clientUserId, type,
+      name, id, clientUserId, type, status,
       areaGroups, roughInTasks, fitOffTasks,
       modules, customFields,
       // Job Basics (audit C-1, M-2, M-3, L-4) — all optional.
@@ -432,6 +442,20 @@ module.exports = async (req, res) => {
     const basicsResult = validateJobBasics(req.body || {});
     if (!basicsResult.ok) return res.status(400).json({ error: basicsResult.error });
 
+    // Initial status. The Job Builder creates jobs as 'draft' so the office
+    // can fill them in before publishing to the field — a draft is invisible
+    // to non-admin callers in the GET handler above (publishJob() flips it to
+    // 'active'). Only draft/active are valid on create; omitting status keeps
+    // the legacy create-then-immediately-live behaviour for callers that
+    // don't know about drafts. See src/domains/jobs/client.ts publishJob().
+    let initialStatus = 'active';
+    if (status !== undefined) {
+      if (status !== 'draft' && status !== 'active') {
+        return res.status(400).json({ error: 'status must be draft or active on create' });
+      }
+      initialStatus = status;
+    }
+
     // Per-job module flags (rigidity audit R1). Lets a "rewire pub"
     // hide concepts it doesn't need (switchboards, temps, ITPs) and a
     // 14-storey fitout keep them. Defaults to "everything on" so existing
@@ -445,7 +469,7 @@ module.exports = async (req, res) => {
       areaGroups: parsedGroups,
       roughInTasks: parsedRoughIn,
       fitOffTasks: parsedFitOff,
-      status: 'active',
+      status: initialStatus,
       modules: sanitizeModules(modules),
       customFields: parsedCustomFields,
       ...basicsResult.patch,

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
-import { KeyRound, MapPin, Phone, ShieldAlert, Squircle, User } from "lucide-react";
+import { Eye, KeyRound, Lock, MapPin, PencilRuler, Phone, ShieldAlert, Squircle, User } from "lucide-react";
+import type { Route } from "next";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -10,6 +11,7 @@ import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { hasSiteContext, statusLabel, statusTone } from "@/domains/jobs/format";
+import { isVisibleToField, summariseStructure } from "@/domains/jobs/builder";
 import type { Job } from "@/domains/jobs/types";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +63,7 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
   if (!canAccessSurface(session.role, "lh")) {
     redirect("/v2/login");
   }
+  const canBuild = canAccessSurface(session.role, "admin");
 
   const result = await loadJob(raw, jobId);
 
@@ -132,6 +135,7 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
     >
       <div className="mx-auto max-w-4xl space-y-4">
         <JobHeaderCard job={job} />
+        <JobBuildCard job={job} canBuild={canBuild} />
         {hasSiteContext(job) ? <SiteContextCard job={job} /> : null}
         <JobInterfaceSectionNav job={job} />
       </div>
@@ -156,6 +160,58 @@ function JobHeaderCard({ job }: { job: Job }) {
         <Pill tone={statusTone(job.status)}>{statusLabel(job.status)}</Pill>
       </div>
     </Card>
+  );
+}
+
+function JobBuildCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
+  const s = summariseStructure(job);
+  const fieldVisible = isVisibleToField(job);
+  return (
+    <Card>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <CardTitle>Build &amp; publish</CardTitle>
+          <CardDescription className="mt-1">
+            {fieldVisible ? (
+              <span className="inline-flex items-center gap-1 text-emerald-700">
+                <Eye aria-hidden="true" className="h-3.5 w-3.5" /> Published — visible
+                to assigned field workers.
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                <Lock aria-hidden="true" className="h-3.5 w-3.5" /> Office-only — not
+                yet published to the field.
+              </span>
+            )}
+          </CardDescription>
+        </div>
+        {canBuild ? (
+          <a
+            href={`/v2/jobs/${encodeURIComponent(job.id)}/builder` as Route}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
+          >
+            <PencilRuler aria-hidden="true" className="h-4 w-4" /> Open builder
+          </a>
+        ) : null}
+      </div>
+      <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+        <StructureStat label="Area groups" value={s.areaGroupCount} />
+        <StructureStat label="Areas" value={s.areaCount} />
+        <StructureStat label="Rough-in tasks" value={s.roughInTaskCount} />
+        <StructureStat label="Fit-off tasks" value={s.fitOffTaskCount} />
+      </dl>
+    </Card>
+  );
+}
+
+function StructureStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-card border border-border bg-surface px-3 py-2">
+      <div className="font-display text-lg text-text">{value}</div>
+      <div className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
+        {label}
+      </div>
+    </div>
   );
 }
 

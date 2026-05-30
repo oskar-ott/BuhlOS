@@ -209,3 +209,99 @@ export const JobDetailResponseSchema = z.object({
 export const ApiErrorBodySchema = z.object({
   error: z.string(),
 });
+
+/* ---------------------------------------------------------------------
+ * Write / request payloads — Job Builder (modern write path).
+ *
+ * Phase D1 shipped read-only. These schemas describe the request bodies
+ * the modern Builder/Editor sends to the EXISTING api/jobs.js POST
+ * (create) + PUT (update) handlers — they are not a new storage model.
+ *
+ * They are deliberately permissive **wire-shape** guards: the client
+ * `.safeParse()`s an outgoing body to catch a malformed payload before
+ * the network call, but the authoritative business rules (required name,
+ * date ordering, type-exists, id-uniqueness, role gates) live in
+ * api/jobs.js and re-run server-side. Publish-readiness rules live in
+ * the pure builder.ts (validateForPublish) so they can be unit-tested
+ * without a server.
+ *
+ * `.passthrough()` so a field the UI doesn't model yet (e.g. money
+ * fields the legacy editor writes) survives if a caller includes it.
+ *
+ * Cross-ref:
+ *   api/jobs.js POST (create, ~374) + PUT (update, ~465)
+ *   src/domains/jobs/builder.ts — payload builders + publish validation
+ * -------------------------------------------------------------------*/
+
+/** Task template as written by the builder. `id` optional — the server
+ *  preserves an existing id by name or mints a new one. */
+export const JobTaskTemplateInputSchema = z
+  .object({
+    id: z.string().optional(),
+    name: z.string().min(1),
+  })
+  .passthrough();
+
+export const JobAreaInputSchema = z
+  .object({
+    id: z.string().optional(),
+    name: z.string().min(1),
+    spaceType: z.string().nullable().optional(),
+    roughInTasks: z.array(JobTaskTemplateInputSchema).optional(),
+    fitOffTasks: z.array(JobTaskTemplateInputSchema).optional(),
+  })
+  .passthrough();
+
+export const JobAreaGroupInputSchema = z
+  .object({
+    id: z.string().optional(),
+    name: z.string().min(1),
+    areas: z.array(JobAreaInputSchema).optional(),
+  })
+  .passthrough();
+
+/**
+ * The fields the modern Builder may write. All optional here; required-ness
+ * is enforced per-verb (create requires `name`, update requires `id`) and
+ * by validateForPublish before publish. Money fields are intentionally
+ * omitted — the modern Builder doesn't edit them; leaving them out of the
+ * PUT body means the server leaves the stored values untouched.
+ */
+const JobWritableFieldsSchema = z.object({
+  name: z.string().min(1).optional(),
+  status: JobStatusSchema.optional(),
+  ref: z.string().nullable().optional(),
+  type: z.string().nullable().optional(),
+  clientUserId: z.string().nullable().optional(),
+
+  siteAddress: z.string().nullable().optional(),
+  siteContactName: z.string().nullable().optional(),
+  siteContactPhone: z.string().nullable().optional(),
+  accessNotes: z.string().nullable().optional(),
+  parkingNotes: z.string().nullable().optional(),
+  safetyNotes: z.string().nullable().optional(),
+  inductionRequired: z.boolean().optional(),
+
+  startDate: z.string().nullable().optional(),
+  dueDate: z.string().nullable().optional(),
+  programmedDurationDays: z.number().nullable().optional(),
+
+  areaGroups: z.array(JobAreaGroupInputSchema).optional(),
+  roughInTasks: z.array(JobTaskTemplateInputSchema).optional(),
+  fitOffTasks: z.array(JobTaskTemplateInputSchema).optional(),
+
+  modules: JobModulesSchema.optional(),
+});
+
+/** POST /api/jobs body. `name` required; `id` optional (server slugifies
+ *  from name when omitted). */
+export const JobCreateInputSchema = JobWritableFieldsSchema.extend({
+  name: z.string().min(1),
+  id: z.string().optional(),
+}).passthrough();
+
+/** PUT /api/jobs body. `id` required; every other field is an optional
+ *  patch — only the keys present are touched server-side. */
+export const JobUpdateInputSchema = JobWritableFieldsSchema.extend({
+  id: z.string().min(1),
+}).passthrough();

@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
+import { Plus } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { JobsList } from "@/components/admin/JobsList";
@@ -48,6 +50,9 @@ export default async function AdminJobsPage() {
   if (!canAccessSurface(session.role, "lh")) {
     redirect("/v2/login");
   }
+  // Only admins create + build jobs (POST /api/jobs is admin-gated). A
+  // leading hand sees the same list but no create/build entry points.
+  const canBuild = canAccessSurface(session.role, "admin");
 
   const { jobs, fetchError } = await loadJobs(raw);
 
@@ -67,11 +72,21 @@ export default async function AdminJobsPage() {
                 Open a job to review captured evidence or work the snags queue.
               </CardDescription>
             </div>
-            <p className="text-sm text-text-muted">
-              {visible.length === 0
-                ? "No active jobs"
-                : `${visible.length} ${visible.length === 1 ? "job" : "jobs"}`}
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="text-sm text-text-muted">
+                {visible.length === 0
+                  ? "No active jobs"
+                  : `${visible.length} ${visible.length === 1 ? "job" : "jobs"}`}
+              </p>
+              {canBuild ? (
+                <Link
+                  href="/v2/jobs/new"
+                  className="inline-flex items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
+                >
+                  <Plus aria-hidden="true" className="h-4 w-4" /> New job
+                </Link>
+              ) : null}
+            </div>
           </div>
         </Card>
 
@@ -84,7 +99,7 @@ export default async function AdminJobsPage() {
           </Card>
         ) : null}
 
-        <JobsList jobs={visible} />
+        <JobsList jobs={visible} canBuild={canBuild} />
       </div>
     </AdminShell>
   );

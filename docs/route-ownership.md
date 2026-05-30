@@ -110,8 +110,9 @@ These work today and are intentionally linked, but carry a known future move.
 
 | Route | Source | Why transitional |
 | --- | --- | --- |
-| `/v2/jobs` | `src/app/v2/jobs/page.tsx` | **The live admin Jobs index.** Uses `AdminShell`, gated `admin`/LH. Parked on `/v2/jobs` so it shipped without a `vercel.json` change. Canonical URL becomes `/admin/jobs` in a later admin-shell rebuild slice; legacy `/admin/jobs.html` keeps serving via rewrite until then. The admin sidebar "Jobs" item links here on purpose. |
-| `/v2/jobs/[jobId]` (+ `/evidence`, `/snags`, `/itps`, `/documents`) | `src/app/v2/jobs/[jobId]/**` | Live admin job hub + review sections. Same future move as `/v2/jobs`. |
+| `/v2/jobs` | `src/app/v2/jobs/page.tsx` | **The live admin Jobs index.** Uses `AdminShell`, gated `admin`/LH. Parked on `/v2/jobs` so it shipped without a `vercel.json` change. Canonical URL becomes `/admin/jobs` in a later admin-shell rebuild slice; legacy `/admin/jobs.html` keeps serving via rewrite until then. The admin sidebar "Jobs" item links here on purpose. Admins also get an in-page "New job" button (→ `/v2/jobs/new`) and a per-row "Build" chip (→ `/v2/jobs/[jobId]/builder`). |
+| `/v2/jobs/new` | `src/app/v2/jobs/new/page.tsx` | **Create-a-draft form (admin only).** Creates a `draft` job (office-only) with just a name (+ optional ref/address), then routes into the builder. Admin-gated server-side (POST `/api/jobs`) and in the page; a non-admin is redirected to `/v2/jobs`. Same future move as `/v2/jobs`. |
+| `/v2/jobs/[jobId]` (+ `/evidence`, `/snags`, `/itps`, `/documents`, `/builder`) | `src/app/v2/jobs/[jobId]/**` | Live admin job hub + review sections. `/builder` is the **Job Builder / Editor** (admin only — basics/structure/field-modules/Phil-preview/publish); the other sections are admin/LH. Same future move as `/v2/jobs`. |
 | `/v2/phil` | `src/app/v2/phil/page.tsx` | The Phil **"More" / profile placeholder** (orientation line + onboarding replay + a profile/settings UC panel). It is the destination of the Phil tab bar "More" and "Snag" (UC) tabs. The functional Phil home moved to `/phil/my-day`; `/v2/phil` is no longer a landing target (see §10). |
 | `/phil/invite/[token]` | `src/app/phil/invite/[token]/page.tsx` | Worker onboarding invite (O3). **Intentionally NOT gated** — a new worker has no session when they open their invite link. Public by design. |
 
@@ -161,7 +162,10 @@ for removal in a later, intentional cleanup PR (not this one).
 | `/employees` | BuhlOS | `(admin)/employees` | AdminShell | canonical | admin | sidebar | people / onboarding |
 | `/observations` | BuhlOS | `(admin)/observations` | AdminShell | canonical | admin | sidebar, command-centre | observations inbox; unauth → 307 `/v2/login` |
 | `/v2/jobs` | BuhlOS | `v2/jobs` | AdminShell | transitional | admin/LH | sidebar "Jobs", command-centre | admin jobs index; → `/admin/jobs` later |
-| `/v2/jobs/[jobId]/**` | BuhlOS | `v2/jobs/[jobId]/**` | AdminShell | transitional | admin/LH | jobs list rows, command-centre | job hub + review sections |
+| `/v2/jobs/new` | BuhlOS | `v2/jobs/new` | AdminShell | transitional | **admin** | jobs index "New job" | create draft → 307 in-page non-admin → `/v2/jobs`; on create → `/v2/jobs/[jobId]/builder` |
+| `/v2/jobs/[jobId]` | BuhlOS | `v2/jobs/[jobId]` | AdminShell | transitional | admin/LH | jobs list rows, command-centre | job hub (overview, site, build/publish card, section nav) |
+| `/v2/jobs/[jobId]/builder` | BuhlOS | `v2/jobs/[jobId]/builder` | AdminShell | transitional | **admin** | jobs "Build" chip, hub "Open builder", new-job redirect | Job Builder/Editor; non-admin → `/v2/jobs/[jobId]` |
+| `/v2/jobs/[jobId]/{evidence,snags,itps,documents}` | BuhlOS | `v2/jobs/[jobId]/**` | AdminShell | transitional | admin/LH | jobs list rows, hub section nav | per-section review surfaces |
 | `/phil/my-day` | Phil | `phil/my-day` | PhilShell | canonical | field/LH | tab "Today", `landingFor(field)` | Phil home; unauth → 307 `/v2/login` |
 | `/phil/jobs` | Phil | `phil/jobs` | PhilShell | canonical | field/LH | tab "Jobs" | jobs list |
 | `/phil/jobs/[jobId]/**` | Phil | `phil/jobs/[jobId]/**` | PhilShell | canonical | field/LH | jobs list rows | job detail / ITP |
