@@ -262,6 +262,30 @@ export function primaryJobId(entry: Pick<TimeEntry, "allocations">): string | nu
 }
 
 /**
+ * Pick which job a fresh Phil submission should default to. A single assigned
+ * job is auto-selected (the one-tap Standard Day stays one tap); with several,
+ * the worker's most recently logged-against assigned job wins — a tradie is
+ * usually back on the same job — falling back to the first. No assigned jobs
+ * returns null, a "general" entry the legacy server accepts.
+ *
+ * `recentEntries` are expected newest-first, the order /api/time-entries
+ * returns, so the first match is the most recent.
+ */
+export function pickDefaultJobId(
+  jobs: ReadonlyArray<{ id: string }>,
+  recentEntries: ReadonlyArray<Pick<TimeEntry, "allocations">>
+): string | null {
+  const first = jobs[0];
+  if (!first) return null;
+  if (jobs.length === 1) return first.id;
+  for (const entry of recentEntries) {
+    const jid = primaryJobId(entry);
+    if (jid && jobs.some((j) => j.id === jid)) return jid;
+  }
+  return first.id;
+}
+
+/**
  * Roll the server's flat `missing` array (one row per worker×weekday with no
  * entry) into the groupings the UI needs, without re-deriving any detection
  * logic — the server already decided *who* is missing *when* (assigned crew,

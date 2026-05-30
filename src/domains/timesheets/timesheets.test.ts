@@ -34,6 +34,7 @@ import {
   buildCustomHoursPayload,
   isWithinBackdateWindow,
   primaryJobId,
+  pickDefaultJobId,
   summariseMissing,
   weekEndOf,
   addDays,
@@ -393,6 +394,39 @@ describe("primaryJobId()", () => {
         ],
       })
     ).toBe("j-2");
+  });
+});
+
+describe("pickDefaultJobId()", () => {
+  const alloc = (jobId: string | null) => ({ allocations: [{ jobId, hours: 7.6 }] });
+
+  it("returns null when the worker has no assigned jobs", () => {
+    expect(pickDefaultJobId([], [])).toBeNull();
+    expect(pickDefaultJobId([], [alloc("j-1")])).toBeNull();
+  });
+
+  it("auto-selects the only assigned job (keeps Standard Day one tap)", () => {
+    expect(pickDefaultJobId([{ id: "j-1" }], [])).toBe("j-1");
+    // history is irrelevant when there's a single job
+    expect(pickDefaultJobId([{ id: "j-1" }], [alloc("j-9")])).toBe("j-1");
+  });
+
+  it("prefers the most recently logged-against assigned job", () => {
+    const jobs = [{ id: "j-1" }, { id: "j-2" }, { id: "j-3" }];
+    // recentEntries are newest-first, so j-2 is the most recent match
+    expect(pickDefaultJobId(jobs, [alloc("j-2"), alloc("j-1")])).toBe("j-2");
+  });
+
+  it("ignores recent jobs the worker is no longer assigned to", () => {
+    const jobs = [{ id: "j-1" }, { id: "j-2" }];
+    // j-9 was logged most recently but isn't assigned anymore → skip to j-1
+    expect(pickDefaultJobId(jobs, [alloc("j-9"), alloc("j-1")])).toBe("j-1");
+  });
+
+  it("falls back to the first job when no recent entry matches", () => {
+    const jobs = [{ id: "j-1" }, { id: "j-2" }];
+    expect(pickDefaultJobId(jobs, [])).toBe("j-1");
+    expect(pickDefaultJobId(jobs, [alloc(null)])).toBe("j-1");
   });
 });
 

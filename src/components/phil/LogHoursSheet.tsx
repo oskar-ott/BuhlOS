@@ -16,6 +16,9 @@ import {
   MAX_HOURS_PER_DAY,
   MAX_BACKDATE_DAYS,
   isWithinBackdateWindow,
+  canEdit,
+  primaryJobId,
+  pickDefaultJobId,
 } from "@/domains/timesheets/service";
 import {
   formatDateLabel,
@@ -27,6 +30,16 @@ import type { TimeEntry } from "@/domains/timesheets/types";
 
 const CUSTOM_HOURS_OPTIONS = [4, 5, 6, 7, 7.6, 8, 9, 10] as const;
 
+/**
+ * One of the worker's assigned jobs, as surfaced in the job picker. Built by
+ * the host server component from /api/jobs (already filtered to the worker's
+ * assignedJobIds by the legacy server).
+ */
+export interface JobOption {
+  id: string;
+  name: string;
+}
+
 interface LogHoursSheetProps {
   /**
    * The most recent entry for the worker, fetched by the server component.
@@ -37,9 +50,23 @@ interface LogHoursSheetProps {
   /**
    * Entries for the worker's last 7 days. Used to detect duplicate-date
    * submissions before they round-trip to the server (409 handling stays
-   * the source of truth — this is just UI hinting).
+   * the source of truth — this is just UI hinting) and to pre-fill the
+   * sheet when the worker reopens an editable (draft / rejected) day.
    */
   recentEntries: ReadonlyArray<TimeEntry>;
+  /**
+   * The worker's assigned jobs. When there's exactly one, the sheet
+   * auto-selects it; when there are several it defaults to the most recently
+   * logged-against job and lets the worker switch. Empty array → hours are
+   * logged with no job (`jobId: null`), matching the legacy "general" entry.
+   */
+  jobs: ReadonlyArray<JobOption>;
+  /**
+   * Optional date to open on instead of today — used by the "Fix & resubmit"
+   * deep link (`/phil/my-day?fix=YYYY-MM-DD`) so a rejected day opens straight
+   * into edit mode.
+   */
+  initialDate?: string;
 }
 
 type Mode = "standard" | "custom";
@@ -47,34 +74,73 @@ type Mode = "standard" | "custom";
 type SubmitState =
   | { kind: "idle" }
   | { kind: "submitting" }
-  | { kind: "success"; entry: TimeEntry; mode: Mode }
+  | { kind: "success"; entry: TimeEntry; mode: Mode; edited: boolean }
   | { kind: "error"; message: string; status: number };
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * The capture surface a tradie sees on /phil/my-day. Field-first per
  * docs/rebuild-audit/13-ui-information-architecture.md §Phil/Today:
  *
  *   - One huge button: Standard day · 7h 36m
+ *   - Job auto-selected (single assigned job) or picked from chips
  *   - Date defaults to today; can be backed off by up to 14 days
  *   - Custom hours fallback opens a sheet with chips for common values
  *   - Notes optional, single-line
  *   - Status line shows what the server last accepted
+ *   - Reopening a draft / rejected day edits in place (PATCH) and resubmits
  */
-export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursSheetProps) {
+export function LogHoursSheet({
+  initialTodayEntry,
+  recentEntries,
+  jobs,
+  initialDate,
+}: LogHoursSheetProps) {
   const [todayEntry, setTodayEntry] = useState<TimeEntry | null>(initialTodayEntry);
-  const [date, setDate] = useState<string>(() => localDateString());
+  // Entries the worker has just created / resubmitted this session, keyed by
+  // date, so the status line reflects the change without a full page refetch.
+  const [localEntries, setLocalEntries] = useState<Record<string, TimeEntry>>({});
+  const [date, setDate] = useState<string>(() =>
+    initialDate && DATE_RE.test(initialDate) ? initialDate : localDateString()
+  );
   const [notes, setNotes] = useState<string>("");
   const [customOpen, setCustomOpen] = useState(false);
   const [customHours, setCustomHours] = useState<number>(STANDARD_DAY_HOURS);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(() =>
+    pickDefaultJobId(jobs, recentEntries)
+  );
+  const [prefilledId, setPrefilledId] = useState<string | null>(null);
   const [state, setState] = useState<SubmitState>({ kind: "idle" });
 
   // When the worker changes the date, surface the existing entry for that
-  // day (if any) so they see status / hours without re-fetching.
+  // day (if any) so they see status / hours without re-fetching. A locally
+  // edited entry takes precedence over the server-fetched snapshot.
   const entryForSelectedDate = useMemo<TimeEntry | null>(() => {
+    if (localEntries[date]) return localEntries[date];
     if (date === todayEntry?.date) return todayEntry;
-    const match = recentEntries.find((e) => e.date === date);
-    return match ?? null;
-  }, [date, todayEntry, recentEntries]);
+    return recentEntries.find((e) => e.date === date) ?? null;
+  }, [date, localEntries, todayEntry, recentEntries]);
+
+  const existingEditable = Boolean(
+    entryForSelectedDate && canEdit(entryForSelectedDate.status)
+  );
+
+  // Reopening a draft / rejected day pre-fills hours, notes and job once per
+  // entry so the worker amends what they submitted rather than starting blank.
+  useEffect(() => {
+    const entry = entryForSelectedDate;
+    if (entry && canEdit(entry.status) && entry.id !== prefilledId) {
+      setNotes(entry.notes ?? "");
+      setCustomHours(
+        entry.totalHours > 0 && entry.totalHours <= MAX_HOURS_PER_DAY
+          ? entry.totalHours
+          : STANDARD_DAY_HOURS
+      );
+      setSelectedJobId(primaryJobId(entry) ?? pickDefaultJobId(jobs, recentEntries));
+      setPrefilledId(entry.id);
+    }
+  }, [entryForSelectedDate, prefilledId, jobs, recentEntries]);
 
   // Reset the success banner once the worker starts a new submission.
   useEffect(() => {
@@ -89,6 +155,33 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
     ? entryForSelectedDate.status === "submitted" || entryForSelectedDate.status === "approved"
     : false;
 
+  const selectedJob = selectedJobId
+    ? jobs.find((j) => j.id === selectedJobId) ?? null
+    : null;
+
+  /**
+   * Route a payload to PATCH (edit-in-place) when the selected day already has
+   * an editable entry, else POST. A POST that races into a 409 ("entry already
+   * exists — edit it instead") falls back to PATCH so a double-tap or a second
+   * tab still resubmits cleanly instead of dead-ending on the legacy app.
+   */
+  async function submit(
+    payload: ReturnType<typeof buildStandardDayPayload>,
+    mode: Mode
+  ) {
+    setState({ kind: "submitting" });
+    const editing = existingEditable;
+    let result = editing
+      ? await timesheetsClient.editOwnEntry(date, payload)
+      : await timesheetsClient.submitNewEntry(payload);
+    if (!editing && !result.ok && result.error.status === 409) {
+      result = await timesheetsClient.editOwnEntry(date, payload);
+      handleResult(result, mode, true);
+      return;
+    }
+    handleResult(result, mode, editing);
+  }
+
   async function submitStandardDay() {
     if (!dateInWindow) {
       setState({
@@ -98,14 +191,12 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
       });
       return;
     }
-    setState({ kind: "submitting" });
     const payload = buildStandardDayPayload({
       date,
-      jobId: null,
+      jobId: selectedJobId,
       notes: notes || null,
     });
-    const result = await timesheetsClient.submitNewEntry(payload);
-    handleResult(result, "standard");
+    await submit(payload, "standard");
   }
 
   async function submitCustom() {
@@ -125,34 +216,30 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
       });
       return;
     }
-    setState({ kind: "submitting" });
     setCustomOpen(false);
     const payload = buildCustomHoursPayload({
       date,
       totalHours: customHours,
-      jobId: null,
+      jobId: selectedJobId,
       notes: notes || null,
     });
-    const result = await timesheetsClient.submitNewEntry(payload);
-    handleResult(result, "custom");
+    await submit(payload, "custom");
   }
 
   function handleResult(
     result: Awaited<ReturnType<typeof timesheetsClient.submitNewEntry>>,
-    mode: Mode
+    mode: Mode,
+    edited: boolean
   ) {
     if (result.ok) {
-      setTodayEntry(result.data.entry);
-      setState({ kind: "success", entry: result.data.entry, mode });
-      setNotes("");
-      return;
-    }
-    if (result.error.status === 409) {
-      setState({
-        kind: "error",
-        message: "You already have an entry for that date. Open the legacy app to edit it for now.",
-        status: 409,
-      });
+      const entry = result.data.entry;
+      setLocalEntries((m) => ({ ...m, [entry.date]: entry }));
+      if (entry.date === todayEntry?.date || entry.date === localDateString()) {
+        setTodayEntry(entry);
+      }
+      setPrefilledId(entry.id);
+      setState({ kind: "success", entry, mode, edited });
+      if (!edited) setNotes("");
       return;
     }
     if (result.error.status === 401) {
@@ -171,6 +258,11 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
   }
 
   const submitting = state.kind === "submitting";
+  const standardSubtext = submitting
+    ? "Submitting…"
+    : existingEditable
+      ? "One tap resubmits these hours."
+      : "One tap submits this day's hours.";
 
   return (
     <div className="space-y-4">
@@ -181,6 +273,36 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
           <p className="font-display text-xs uppercase tracking-widest text-text-muted">Day</p>
           <p className="mt-1 text-base text-text">{formatDateLabel(date)}</p>
         </div>
+
+        {jobs.length > 0 ? (
+          <div>
+            <p className="font-display text-xs uppercase tracking-widest text-text-muted">Job</p>
+            {jobs.length === 1 ? (
+              <p className="mt-1 text-base text-text">{jobs[0]?.name}</p>
+            ) : (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {jobs.map((job) => (
+                  <button
+                    key={job.id}
+                    type="button"
+                    onClick={() => setSelectedJobId(job.id)}
+                    aria-pressed={selectedJobId === job.id}
+                    disabled={submitting || lockedByStatus}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-sm font-medium",
+                      selectedJobId === job.id
+                        ? "border-brand-navy bg-brand-navy text-text-inverse"
+                        : "border-border bg-surface text-text hover:border-border-strong",
+                      "disabled:cursor-not-allowed disabled:opacity-60"
+                    )}
+                  >
+                    {job.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
 
         <button
           type="button"
@@ -194,13 +316,14 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
           )}
         >
           <span className="block font-display text-xs uppercase tracking-widest text-accent-yellow">
-            Standard day
+            {existingEditable ? "Resubmit standard day" : "Standard day"}
           </span>
           <span className="mt-1 block font-display text-3xl">
             {formatHoursLabel(STANDARD_DAY_HOURS)}
           </span>
           <span className="mt-2 block text-xs text-text-inverse/80">
-            {submitting ? "Submitting…" : "One tap submits today's hours."}
+            {selectedJob ? `${selectedJob.name} · ` : ""}
+            {standardSubtext}
           </span>
         </button>
 
@@ -284,7 +407,9 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
               Cancel
             </Button>
             <Button onClick={submitCustom} disabled={submitting}>
-              {submitting ? "Submitting…" : `Submit ${formatHoursLabel(customHours)}`}
+              {submitting
+                ? "Submitting…"
+                : `${existingEditable ? "Resubmit" : "Submit"} ${formatHoursLabel(customHours)}`}
             </Button>
           </div>
         </div>
@@ -325,8 +450,8 @@ function StatusLine({
         <p className="rounded-card bg-rose-50 px-3 py-2 text-sm text-rose-900">
           <span className="font-medium">Rejected:</span> {entry.rejectedReason}
           <span className="mt-1 block text-xs text-rose-700">
-            Open the legacy My day to edit and resubmit — the in-Phil edit
-            flow is still being built.
+            Fix the hours below and tap Resubmit standard day (or Custom hours) to send it
+            back for approval.
           </span>
         </p>
       ) : null}
@@ -336,13 +461,18 @@ function StatusLine({
 
 function FeedbackBanner({ state }: { state: SubmitState }): ReactNode {
   if (state.kind === "success") {
+    const submittedTime = new Date(
+      state.entry.submittedAt ?? state.entry.updatedAt
+    ).toLocaleTimeString("en-AU");
     return (
       <Card className="border-emerald-200 bg-emerald-50" role="status" aria-live="polite">
-        <CardTitle>{formatHoursLabel(state.entry.totalHours)} sent for approval</CardTitle>
+        <CardTitle>
+          {formatHoursLabel(state.entry.totalHours)}{" "}
+          {state.edited ? "resubmitted" : "sent for approval"}
+        </CardTitle>
         <CardDescription>
-          Submitted at{" "}
-          {new Date(state.entry.submittedAt ?? state.entry.updatedAt).toLocaleTimeString("en-AU")}.
-          The office will get a push when they review.
+          {state.edited ? "Resubmitted" : "Submitted"} at {submittedTime}. The office will get a
+          push when they review.
         </CardDescription>
       </Card>
     );

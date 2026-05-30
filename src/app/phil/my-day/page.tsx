@@ -6,13 +6,16 @@ import { AttentionBanner } from "@/components/ui/AttentionBanner";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
-import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
+import { LogHoursSheet, type JobOption } from "@/components/phil/LogHoursSheet";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
+import { JobListResponseSchema } from "@/domains/jobs/schema";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +29,11 @@ export const dynamic = "force-dynamic";
  *   docs/rebuild-audit/13-ui-information-architecture.md §Phil/Today
  *   docs/rebuild-audit/19-phase-b-hours-implementation-brief.md §Phil surface
  */
-export default async function MyDayPage() {
+export default async function MyDayPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ fix?: string }>;
+}) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
   const session = decodeSessionCookie(raw);
@@ -39,7 +46,14 @@ export default async function MyDayPage() {
     redirect("/v2/login");
   }
 
-  const { todayEntry, recentEntries, fetchError } = await loadEntries(raw);
+  const { fix } = await searchParams;
+  // ?fix=YYYY-MM-DD opens the sheet straight onto a rejected day in edit mode.
+  const initialDate = fix && DATE_RE.test(fix) ? fix : undefined;
+
+  const [{ todayEntry, recentEntries, fetchError }, jobs] = await Promise.all([
+    loadEntries(raw),
+    loadJobs(raw),
+  ]);
 
   // Bible vNext §16.3 quick-win: surface the most recent rejected entry
   // at the top of My day so the worker can act in five seconds. Only one
@@ -64,7 +78,7 @@ export default async function MyDayPage() {
             }
             cta={
               <Link
-                href="/phil/hours"
+                href={{ pathname: "/phil/my-day", query: { fix: rejectedEntry.date } }}
                 className="underline decoration-rose-400 decoration-2 underline-offset-2 hover:text-rose-950"
               >
                 Fix &amp; resubmit →
@@ -73,7 +87,12 @@ export default async function MyDayPage() {
           />
         ) : null}
 
-        <LogHoursSheet initialTodayEntry={todayEntry} recentEntries={recentEntries} />
+        <LogHoursSheet
+          initialTodayEntry={todayEntry}
+          recentEntries={recentEntries}
+          jobs={jobs}
+          initialDate={initialDate}
+        />
 
         {fetchError ? (
           <Card className="border-amber-200 bg-amber-50" role="alert">
@@ -105,10 +124,10 @@ export default async function MyDayPage() {
         </Card>
 
         <UnderConstructionPanel
-          feature="Multi-job allocation · job picker"
-          description="One allocation per submission today. Splitting a day across two jobs, or picking which job a Standard day lands on, is still on the legacy My day — that loop lands here in a later phase."
+          feature="Split one day across multiple jobs"
+          description="You can now pick which job a day lands on, and fix &amp; resubmit a rejected day in place. Splitting one day's hours across two or more jobs is still on the legacy My day — that loop lands here in a later phase."
           legacyHref="/my-day"
-          legacyLabel="Use the legacy My day for multi-job allocations"
+          legacyLabel="Use the legacy My day to split a day across jobs"
         />
       </div>
     </PhilShell>
@@ -174,6 +193,36 @@ async function loadEntries(cookieValue: string | undefined): Promise<{
   }
 }
 
+/**
+ * Fetch the worker's assigned jobs for the job picker. The legacy /api/jobs
+ * endpoint already filters to the caller's assignedJobIds for non-admin roles,
+ * so the worker only ever sees jobs they're on. We drop finished work
+ * (complete / archived) and sort by name for a stable chip order. Any failure
+ * degrades to an empty list — the sheet still submits a "general" (jobId: null)
+ * entry, so a jobs outage never blocks logging hours.
+ */
+async function loadJobs(cookieValue: string | undefined): Promise<JobOption[]> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(`${base}/api/jobs`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (!res.ok) return [];
+    const parsed = JobListResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return [];
+    return parsed.data.jobs
+      .filter((job) => job.status !== "complete" && job.status !== "archived")
+      .map((job) => ({ id: job.id, name: job.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    return [];
+  }
+}
+
 function RecentEntriesTable({ entries }: { entries: ReadonlyArray<TimeEntry> }) {
   if (entries.length === 0) {
     return (
@@ -200,7 +249,7 @@ function RecentEntriesTable({ entries }: { entries: ReadonlyArray<TimeEntry> }) 
                 <span className="font-semibold">Why:</span>{" "}
                 {entry.rejectedReason}{" "}
                 <Link
-                  href="/phil/hours"
+                  href={{ pathname: "/phil/my-day", query: { fix: entry.date } }}
                   className="ml-1 underline decoration-rose-400 decoration-2 underline-offset-2"
                 >
                   Fix &amp; resubmit
