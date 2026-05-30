@@ -90,6 +90,7 @@ Confirmed in code. These are the intended destinations for new navigation.
 | `/employees` | `src/app/(admin)/employees/page.tsx` | People / onboarding (O1+). |
 | `/employees/[id]` | `src/app/(admin)/employees/[id]/page.tsx` | Employee detail. |
 | `/observations` | `src/app/(admin)/observations/page.tsx` | **Observations Inbox** (PR 3). Cross-job field-to-office triage: blockers, plan mismatches, material needs, RFIs, variations, defects, site instructions. Admin-tier gated (matches the `/api/observations` cross-job gate). |
+| `/material-requests` | `src/app/(admin)/material-requests/page.tsx` | **Material Requests Inbox** (PR 11). Cross-job procurement queue: requested → approved → ordered → delivered (+ cancel). Admin-tier gated (matches the `/api/material-requests` cross-job gate). Distinct from the legacy `/admin/materials` takeoff/PO/invoice module — this is the field-to-office request loop. |
 
 **Phil** — `PhilShell`, field roles or leading hand (gated)
 
@@ -111,7 +112,7 @@ These work today and are intentionally linked, but carry a known future move.
 | Route | Source | Why transitional |
 | --- | --- | --- |
 | `/v2/jobs` | `src/app/v2/jobs/page.tsx` | **The live admin Jobs index.** Uses `AdminShell`, gated `admin`/LH. Parked on `/v2/jobs` so it shipped without a `vercel.json` change. Canonical URL becomes `/admin/jobs` in a later admin-shell rebuild slice; legacy `/admin/jobs.html` keeps serving via rewrite until then. The admin sidebar "Jobs" item links here on purpose. |
-| `/v2/jobs/[jobId]` (+ `/evidence`, `/snags`, `/itps`, `/documents`, `/observations`, `/history`) | `src/app/v2/jobs/[jobId]/**` | Live admin job hub + review sections. PR 8 added `/observations` (per-job slice of the cross-job inbox; LH read-only, admin-tier can triage); PR 9 added `/history` (per-job activity feed reading the audit-log via `scope=job`; admin/LH only). Same future move as `/v2/jobs`. |
+| `/v2/jobs/[jobId]` (+ `/evidence`, `/snags`, `/itps`, `/documents`, `/observations`, `/material-requests`, `/history`) | `src/app/v2/jobs/[jobId]/**` | Live admin job hub + review sections. PR 8 added `/observations` (per-job slice of the cross-job inbox; LH read-only, admin-tier can triage); PR 9 added `/history` (per-job activity feed reading the audit-log via `scope=job`; admin/LH only); PR 11 added `/material-requests` (per-job slice of the procurement inbox; LH read-only, admin-tier can act). Same future move as `/v2/jobs`. |
 | `/v2/phil` | `src/app/v2/phil/page.tsx` | The Phil **"More" / profile placeholder** (orientation line + onboarding replay + a profile/settings UC panel). It is the destination of the Phil tab bar "More" and "Snag" (UC) tabs. The functional Phil home moved to `/phil/my-day`; `/v2/phil` is no longer a landing target (see §10). |
 | `/phil/invite/[token]` | `src/app/phil/invite/[token]/page.tsx` | Worker onboarding invite (O3). **Intentionally NOT gated** — a new worker has no session when they open their invite link. Public by design. |
 
@@ -160,6 +161,7 @@ for removal in a later, intentional cleanup PR (not this one).
 | `/gear` | BuhlOS | `(admin)/gear` | AdminShell | canonical | admin | sidebar, command-centre | gear register |
 | `/employees` | BuhlOS | `(admin)/employees` | AdminShell | canonical | admin | sidebar | people / onboarding |
 | `/observations` | BuhlOS | `(admin)/observations` | AdminShell | canonical | admin | sidebar, command-centre | observations inbox; unauth → 307 `/v2/login` |
+| `/material-requests` | BuhlOS | `(admin)/material-requests` | AdminShell | canonical | admin | sidebar, command-centre | material requests inbox; unauth → 307 `/v2/login` |
 | `/v2/jobs` | BuhlOS | `v2/jobs` | AdminShell | transitional | admin/LH | sidebar "Jobs", command-centre | admin jobs index; → `/admin/jobs` later |
 | `/v2/jobs/[jobId]/**` | BuhlOS | `v2/jobs/[jobId]/**` | AdminShell | transitional | admin/LH | jobs list rows, command-centre | job hub + review sections |
 | `/phil/my-day` | Phil | `phil/my-day` | PhilShell | canonical | field/LH | tab "Today", `landingFor(field)` | Phil home; unauth → 307 `/v2/login` |
@@ -175,7 +177,8 @@ for removal in a later, intentional cleanup PR (not this one).
 
 - **BuhlOS sidebar** (`src/components/admin/AdminSidebar.tsx`) — `live` items may
   only link to approved admin routes: `/command-centre`, `/hours`,
-  `/hours/approvals`, `/gear`, `/employees`, `/observations`, `/v2/jobs`. Unbuilt
+  `/hours/approvals`, `/gear`, `/employees`, `/observations`,
+  `/material-requests`, `/v2/jobs`. Unbuilt
   items (`Snags`, `Support`, `Settings`) are rendered as **non-clickable** `UC`
   spans, never `<Link>`s — per the "every incomplete feature shows UNDER
   CONSTRUCTION" non-negotiable. (`Snags` stays UC: per-job snag triage lives on

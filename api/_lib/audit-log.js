@@ -75,6 +75,18 @@ const VALID_ACTIONS = new Set([
   // re-fetching). Kept in sync with src/domains/audit-log/schema.ts.
   'observation.created',
   'observation.transitioned',
+  // PR 11: Material Request module. Mirrors the snag pattern (created +
+  // transitioned). material_request.created is emitted on POST /api/material-
+  // requests and on the convert-from-observation action. material_request.
+  // transitioned is emitted on PATCH whenever status, urgency, supplier,
+  // approvedById, orderRef, or cancellation fields change.
+  // observation.converted_to_material_request mirrors PR 6's snag conversion
+  // verb — emitted by the convert action attributing the office decision to
+  // the observation (the material request itself also emits its own
+  // material_request.created entry so the per-job timeline shows both).
+  'material_request.created',
+  'material_request.transitioned',
+  'observation.converted_to_material_request',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -92,6 +104,8 @@ const VALID_TARGET_TYPES = new Set([
   // targetType='observation' so the conversion attributes to the observation
   // lifecycle (the snag also gets its own snag.created entry).
   'observation',
+  // PR 11: Material Request module.
+  'material_request',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

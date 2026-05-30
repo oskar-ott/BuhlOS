@@ -726,6 +726,199 @@ async function convertObservationToSnag(req, res, user) {
   return res.status(201).json({ observation: next, snag: snagItem });
 }
 
+/**
+ * PR 11: Convert an eligible observation into a REAL Material Request.
+ *
+ * Mirrors convertObservationToSnag(): admin-tier only, default-eligible
+ * type is just `material_request` (so the natural worker action lands
+ * here), other types require {"force":true}, idempotent (returns 409 if
+ * already linkedMaterialRequestId / convertedTo === 'material_request'),
+ * write-the-target-first then update the observation, dual audit
+ * (material_request.created + observation.converted_to_material_request).
+ *
+ * Body:
+ *   { id: string, force?: boolean,
+ *     item: string, quantity: number, unit: string,   // request specifics
+ *     urgency?: 'low'|'normal'|'high'|'urgent', description?: string,
+ *     supplier?: string, orderRef?: string }
+ *
+ * The `item`/`quantity`/`unit` triple is required because an observation's
+ * `title` rarely carries enough structure to be a material line on its own.
+ * The office types those in when converting (the inbox UI prompts).
+ */
+async function convertObservationToMaterialRequest(req, res, user) {
+  const body = req.body || {};
+  const id = body.id ? String(body.id) : '';
+  if (!id) return res.status(400).json({ error: 'id required' });
+
+  const force = body.force === true;
+  const store = await readStore();
+  const arr = Array.isArray(store.observations) ? store.observations : [];
+  const idx = arr.findIndex((o) => o && o.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'observation not found' });
+  const observation = arr[idx];
+
+  if (
+    (observation.linkedMaterialRequestId &&
+      String(observation.linkedMaterialRequestId).length > 0) ||
+    observation.convertedTo === 'material_request'
+  ) {
+    return res.status(409).json({
+      error: 'observation already converted to a material request',
+      linkedMaterialRequestId: observation.linkedMaterialRequestId || null,
+      convertedTargetId: observation.convertedTargetId || null,
+    });
+  }
+  // Already converted to something else (snag, rfi, …)? Reject — don't allow
+  // a single observation to be the source for two downstream records.
+  if (observation.convertedTo && observation.convertedTo !== null) {
+    return res.status(409).json({
+      error: `observation already converted to ${observation.convertedTo}`,
+      convertedTo: observation.convertedTo,
+      convertedTargetId: observation.convertedTargetId || null,
+    });
+  }
+
+  if (observation.type !== 'material_request' && !force) {
+    return res.status(400).json({
+      error: `observation type '${observation.type}' is not a default conversion target for a material request; pass {"force":true} to convert anyway`,
+    });
+  }
+
+  // Validate the office-supplied request fields. Reuse the create-payload
+  // contract shape from material-requests.js so the audit-log + storage
+  // helpers can be used unmodified.
+  const item = typeof body.item === 'string' ? body.item.trim() : '';
+  const quantity = Number(body.quantity);
+  const unit = typeof body.unit === 'string' ? body.unit.trim() : '';
+  if (!item) return res.status(400).json({ error: 'item is required' });
+  if (item.length > 200) return res.status(400).json({ error: 'item must be 200 characters or fewer' });
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return res.status(400).json({ error: 'quantity must be > 0' });
+  }
+  if (!unit) return res.status(400).json({ error: 'unit is required' });
+
+  const urgency = body.urgency == null ? 'normal' : String(body.urgency);
+  if (!new Set(['low', 'normal', 'high', 'urgent']).has(urgency)) {
+    return res.status(400).json({ error: 'urgency must be low, normal, high or urgent' });
+  }
+
+  const job = await loadJobOrFail(res, observation.jobId);
+  if (!job) return;
+
+  // Build the material request item using the material-requests module so
+  // the shape stays in sync with the direct-POST path.
+  const mr = require('./material-requests');
+  const mrItem = mr.buildItem({
+    jobId: observation.jobId,
+    jobName: job.name || null,
+    item,
+    quantity,
+    unit,
+    description:
+      body.description != null
+        ? String(body.description)
+        : observation.description || null,
+    urgency,
+    stage: observation.stage || null,
+    areaId: observation.areaId || null,
+    areaName: observation.areaName || null,
+    taskId: observation.taskId || null,
+    taskName: observation.taskName || null,
+    linkedObservationId: observation.id,
+    linkedEvidenceId: observation.linkedEvidenceId || null,
+    source: 'observation',
+    actor: user,
+  });
+
+  // Pre-stamp supplier/orderRef if the office included them.
+  if (body.supplier != null) mrItem.supplier = String(body.supplier).slice(0, 120);
+  if (body.orderRef != null) mrItem.orderRef = String(body.orderRef).slice(0, 60);
+
+  const nowIso = new Date().toISOString();
+  const actorName = user.name || user.username || 'Unknown';
+
+  // Audit: emit material_request.created first (mirrors snag.created on the
+  // snag conversion) so the timeline reads consistently.
+  const mrAudit = await appendAuditLog({
+    action: 'material_request.created',
+    actorId: user.id,
+    actorName,
+    actorRole: user.role || null,
+    jobId: observation.jobId,
+    targetType: 'material_request',
+    targetId: mrItem.id,
+    summary: `material request raised via observation conversion — ${mrItem.quantity} ${mrItem.unit} ${String(mrItem.item).slice(0, 60)}`,
+    metadata: {
+      item: mrItem.item,
+      quantity: mrItem.quantity,
+      unit: mrItem.unit,
+      urgency: mrItem.urgency,
+      convertedFromObservationId: observation.id,
+      convertedFromObservationType: observation.type,
+      source: mrItem.source,
+    },
+  }).catch(() => null);
+  if (mrAudit && mrAudit.id) mrItem.auditLogIds.push(mrAudit.id);
+
+  // Write the material request FIRST. If it fails the observation is
+  // untouched and the caller sees a 502 + can retry safely.
+  try {
+    await mr.persistItem(mrItem);
+  } catch (e) {
+    return res.status(502).json({
+      error: 'material request write failed: ' + (e.message || 'unknown'),
+    });
+  }
+
+  // Now update the observation. If THIS write fails we have an orphan
+  // material request — the observation can be PATCH-linked manually
+  // (linkedMaterialRequestId is a free-text field once the audit verb is
+  // wired). v1 trade-off, same shape as the snag-conversion path.
+  const next = {
+    ...observation,
+    linkedMaterialRequestId: mrItem.id,
+    convertedTo: 'material_request',
+    convertedTargetId: mrItem.id,
+    convertedAt: nowIso,
+    convertedById: user.id,
+    convertedByName: actorName,
+    status: 'converted',
+    updatedAt: nowIso,
+  };
+
+  await appendAuditLog({
+    action: 'observation.converted_to_material_request',
+    actorId: user.id,
+    actorName,
+    actorRole: user.role || null,
+    jobId: observation.jobId,
+    targetType: 'observation',
+    targetId: observation.id,
+    summary: `observation → material request — "${String(observation.title).slice(0, 80)}"`,
+    metadata: {
+      materialRequestId: mrItem.id,
+      observationType: observation.type,
+      previousStatus: observation.status,
+      forced: force && observation.type !== 'material_request',
+    },
+  }).catch(() => null);
+
+  arr[idx] = next;
+  store.observations = arr;
+  try {
+    await writeBlob(STORE_KEY, store);
+  } catch (e) {
+    return res.status(502).json({
+      error: 'observation write failed after material request created: ' + (e.message || 'unknown'),
+      materialRequestId: mrItem.id,
+      observationId: observation.id,
+    });
+  }
+
+  return res.status(201).json({ observation: next, materialRequest: mrItem });
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -741,6 +934,17 @@ module.exports = async (req, res) => {
     if (!user) return;
     try {
       return await convertObservationToSnag(req, res, user);
+    } catch (e) {
+      return res.status(500).json({ error: e.message || 'conversion failed' });
+    }
+  }
+
+  // --- POST ?action=convert-to-material-request (PR 11) -------------------
+  if (req.method === 'POST' && action === 'convert-to-material-request') {
+    const user = await requireAuth(req, res, { roles: ['admin'] });
+    if (!user) return;
+    try {
+      return await convertObservationToMaterialRequest(req, res, user);
     } catch (e) {
       return res.status(500).json({ error: e.message || 'conversion failed' });
     }

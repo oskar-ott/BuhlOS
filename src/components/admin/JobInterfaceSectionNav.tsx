@@ -109,13 +109,24 @@ export function JobInterfaceSectionNav({ job }: Props) {
       count: job.statsDocumentsCurrent,
       icon: FileText,
     },
+    // PR 11: Material Requests live — the field-to-office procurement
+    // loop. Separate from legacy /admin/materials (takeoff + PO + invoice
+    // match), which still owns structured-PO procurement.
+    {
+      kind: "live",
+      label: "Material requests",
+      description:
+        "Procurement requests raised against this job — requested / approved / ordered / delivered. Worker raises a Need-material observation in Phil; the office converts it here.",
+      href: `/v2/jobs/${jobIdEnc}/material-requests` as Route,
+      icon: Package,
+    },
     {
       kind: "uc",
-      label: "Materials",
-      description: "Job materials list, requests, supplied / used status.",
+      label: "Materials (legacy takeoff)",
+      description: "Structured materials takeoff, PO and invoice match.",
       icon: Package,
       ucReason:
-        "Real materials data lives on the legacy /admin/materials surface (takeoff + PO + invoice match). A scoped worker view is deferred to a later slice.",
+        "Legacy /admin/materials still owns takeoff + PO + invoice match — a rebuilt scoped view is a later slice. The Material requests row above is the field-to-office request loop (PR 11) and is unrelated.",
     },
     {
       kind: "live",

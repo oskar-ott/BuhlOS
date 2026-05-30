@@ -34,6 +34,9 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "observation.converted_to_snag": "Converted observation to snag",
   "observation.created": "Raised observation",
   "observation.transitioned": "Updated observation",
+  "observation.converted_to_material_request": "Converted observation to material request",
+  "material_request.created": "Raised material request",
+  "material_request.transitioned": "Updated material request",
 };
 
 export function actionLabel(action: AuditAction): string {
@@ -46,7 +49,13 @@ export function actionLabel(action: AuditAction): string {
  * never appear in the per-job feed; the type is kept here for the row-history
  * paths that DO surface them on a future per-employee view.
  */
-export type AuditTargetGroup = "evidence" | "snag" | "itp" | "observation" | "other";
+export type AuditTargetGroup =
+  | "evidence"
+  | "snag"
+  | "itp"
+  | "observation"
+  | "material_request"
+  | "other";
 
 export function targetGroup(targetType: AuditTargetType): AuditTargetGroup {
   switch (targetType) {
@@ -59,6 +68,8 @@ export function targetGroup(targetType: AuditTargetType): AuditTargetGroup {
       return "itp";
     case "observation":
       return "observation";
+    case "material_request":
+      return "material_request";
     default:
       return "other";
   }
@@ -69,6 +80,7 @@ const GROUP_LABELS: Record<AuditTargetGroup, string> = {
   snag: "Snags",
   itp: "ITPs",
   observation: "Observations",
+  material_request: "Material requests",
   other: "Other",
 };
 
@@ -85,6 +97,7 @@ export interface JobActivitySummary {
   snag: number;
   itp: number;
   observation: number;
+  material_request: number;
   other: number;
 }
 
@@ -97,6 +110,7 @@ export function summariseJobActivity(
     snag: 0,
     itp: 0,
     observation: 0,
+    material_request: 0,
     other: 0,
   };
   for (const e of entries) {

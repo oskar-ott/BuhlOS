@@ -26,9 +26,12 @@ import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { ObservationListResponseSchema } from "@/domains/observations/schema";
 import { isOpenObservation } from "@/domains/observations/service";
+import { MaterialRequestListResponseSchema } from "@/domains/material-requests/schema";
+import { isOpenRequest } from "@/domains/material-requests/service";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem } from "@/domains/observations/types";
+import type { MaterialRequestItem } from "@/domains/material-requests/types";
 import { relativeWhen } from "@/domains/jobs/format";
 import { summariseItpReviewQueue } from "./itp-queue-card";
 
@@ -51,7 +54,8 @@ export const dynamic = "force-dynamic";
  *   - Observations to action — open + requiresAction from /api/observations (PR 3)
  *   - Rejected hours — /api/time-entries?scope=approver&status=rejected (PR 7)
  *   - Plan mismatches — type='plan_mismatch' subset of the observations fetch (PR 7)
- *   - Material requests — type='material_request' subset of the observations fetch (PR 7)
+ *   - Material requests — open subset of /api/material-requests (PR 11; status
+ *     in {requested, approved} = "office action needed before procurement")
  *
  * Followed by a thin "Live surfaces" strip linking to the four working
  * admin pages (Hours, Approvals, Gear, Jobs). Anything else is still
@@ -73,10 +77,12 @@ export default async function CommandCentrePage() {
     hoursRejected,
     jobs,
     observations,
+    materialRequests,
     hoursError,
     hoursRejectedError,
     jobsError,
     observationsError,
+    materialRequestsError,
   } = await loadSnapshot(raw);
 
   const evidencePending = jobs.reduce(
@@ -113,16 +119,26 @@ export default async function CommandCentrePage() {
   const obsCount = obsNeedingAction.length;
   const obsJobsAffected = new Set(obsNeedingAction.map((o) => o.jobId)).size;
 
-  // PR 7: real exception sub-queues derived from the same observations fetch
-  // (no extra round-trip). Plan mismatches + material requests are the two
-  // observation types the owner most often actions personally — the inbox
-  // already filters them, but the count belongs on the morning view too.
+  // PR 7: real exception sub-queue derived from the same observations fetch
+  // (no extra round-trip). Plan mismatches are the observation type the owner
+  // most often actions personally — the inbox already filters them, but the
+  // count belongs on the morning view too.
   const obsPlanMismatch = obsNeedingAction.filter((o) => o.type === "plan_mismatch");
-  const obsMaterialRequest = obsNeedingAction.filter((o) => o.type === "material_request");
   const planMismatchCount = obsPlanMismatch.length;
-  const materialRequestCount = obsMaterialRequest.length;
   const planMismatchJobs = new Set(obsPlanMismatch.map((o) => o.jobId)).size;
-  const materialRequestJobs = new Set(obsMaterialRequest.map((o) => o.jobId)).size;
+
+  // PR 11: the Material requests queue is now real — count open ones
+  // (status='requested' or 'approved' = "office action needed before
+  // procurement places the order"). Observations of type='material_request'
+  // that haven't yet been converted still surface in the main Observations
+  // card; this card represents the procurement-side queue only.
+  const openMaterialRequests = materialRequests.filter((m) =>
+    isOpenRequest(m.status)
+  );
+  const materialRequestCount = openMaterialRequests.length;
+  const materialRequestJobs = new Set(
+    openMaterialRequests.map((m) => m.jobId)
+  ).size;
 
   // PR 7: rejected hours that the worker hasn't yet re-submitted. Real data
   // from /api/time-entries?scope=approver&status=rejected; the boss sees the
@@ -144,7 +160,8 @@ export default async function CommandCentrePage() {
     !hoursError &&
     !hoursRejectedError &&
     !jobsError &&
-    !observationsError;
+    !observationsError &&
+    !materialRequestsError;
 
   return (
     <AdminShell title="Command Centre">
@@ -158,15 +175,23 @@ export default async function CommandCentrePage() {
             the action.
           </p>
 
-          {hoursError || hoursRejectedError || jobsError || observationsError ? (
+          {hoursError ||
+          hoursRejectedError ||
+          jobsError ||
+          observationsError ||
+          materialRequestsError ? (
             <Card
               className="mt-3 border-amber-200 bg-amber-50"
               role="alert"
             >
               <CardTitle>Couldn&rsquo;t load every queue</CardTitle>
               <CardDescription className="text-amber-900">
-                {hoursError ?? hoursRejectedError ?? jobsError ?? observationsError}.
-                Counts shown may be incomplete.
+                {hoursError ??
+                  hoursRejectedError ??
+                  jobsError ??
+                  observationsError ??
+                  materialRequestsError}
+                . Counts shown may be incomplete.
               </CardDescription>
               <div className="mt-3">
                 <RefreshButton />
@@ -256,9 +281,9 @@ export default async function CommandCentrePage() {
               label="Material requests"
               count={materialRequestCount}
               jobsAffected={materialRequestJobs}
-              href={"/observations" as Route}
-              ctaLabel="Open inbox"
-              empty="No material requests pending."
+              href={"/material-requests" as Route}
+              ctaLabel="Open material requests"
+              empty="No material requests waiting on the office."
             />
           </div>
         </section>
@@ -467,10 +492,12 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
   hoursRejected: ReadonlyArray<TimeEntry>;
   jobs: ReadonlyArray<Job>;
   observations: ReadonlyArray<ObservationItem>;
+  materialRequests: ReadonlyArray<MaterialRequestItem>;
   hoursError: string | null;
   hoursRejectedError: string | null;
   jobsError: string | null;
   observationsError: string | null;
+  materialRequestsError: string | null;
 }> {
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
@@ -480,23 +507,63 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
     : undefined;
 
-  const [hoursResult, hoursRejectedResult, jobsResult, obsResult] = await Promise.all([
-    loadHoursByStatus(base, headersInit, "submitted"),
-    loadHoursByStatus(base, headersInit, "rejected"),
-    loadJobsWithStats(base, headersInit),
-    loadObservations(base, headersInit),
-  ]);
+  const [hoursResult, hoursRejectedResult, jobsResult, obsResult, mrResult] =
+    await Promise.all([
+      loadHoursByStatus(base, headersInit, "submitted"),
+      loadHoursByStatus(base, headersInit, "rejected"),
+      loadJobsWithStats(base, headersInit),
+      loadObservations(base, headersInit),
+      loadMaterialRequests(base, headersInit),
+    ]);
 
   return {
     hoursPending: hoursResult.entries,
     hoursRejected: hoursRejectedResult.entries,
     jobs: jobsResult.jobs,
     observations: obsResult.observations,
+    materialRequests: mrResult.requests,
     hoursError: hoursResult.error,
     hoursRejectedError: hoursRejectedResult.error,
     jobsError: jobsResult.error,
     observationsError: obsResult.error,
+    materialRequestsError: mrResult.error,
   };
+}
+
+async function loadMaterialRequests(
+  base: string,
+  headersInit: { cookie: string } | undefined
+): Promise<{
+  requests: ReadonlyArray<MaterialRequestItem>;
+  error: string | null;
+}> {
+  try {
+    const res = await fetch(`${base}/api/material-requests`, {
+      cache: "no-store",
+      headers: headersInit,
+    });
+    if (!res.ok) {
+      return {
+        requests: [],
+        error: `Material requests API returned ${res.status}`,
+      };
+    }
+    const body = await res.json();
+    const parsed = MaterialRequestListResponseSchema.safeParse(body);
+    if (!parsed.success) {
+      return {
+        requests: [],
+        error: "Unexpected material requests response shape",
+      };
+    }
+    return { requests: parsed.data.requests, error: null };
+  } catch (err) {
+    return {
+      requests: [],
+      error:
+        err instanceof Error ? err.message : "Material requests network error",
+    };
+  }
 }
 
 async function loadObservations(

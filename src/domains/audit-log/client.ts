@@ -27,7 +27,7 @@ import type { AuditLogEntry, AuditLogListResponse } from "./types";
  */
 export function listAuditForTarget(args: {
   jobId: string;
-  targetType: "evidence" | "snag" | "itp_template" | "itp_instance" | "observation";
+  targetType: "evidence" | "snag" | "itp_template" | "itp_instance" | "observation" | "material_request";
   targetId: string;
   months?: number;
 }): Promise<HttpResult<AuditLogListResponse>> {
@@ -58,7 +58,7 @@ export function listJobActivity(args: {
   jobId: string;
   months?: number;
   types?: ReadonlyArray<
-    "evidence" | "snag" | "itp_instance" | "itp_template" | "observation"
+    "evidence" | "snag" | "itp_instance" | "itp_template" | "observation" | "material_request"
   >;
 }): Promise<HttpResult<AuditLogListResponse>> {
   const params = new URLSearchParams({ jobId: args.jobId, scope: "job" });
