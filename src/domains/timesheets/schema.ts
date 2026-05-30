@@ -269,6 +269,53 @@ export const PayrollExportPreviewResponseSchema = z
   })
   .passthrough();
 
+/**
+ * Schemas for GET /api/today-pulse?date=YYYY-MM-DD — the live "what's on site
+ * today" snapshot that backs the end-of-day closeout panel on /hours. Same
+ * numbers the 17:00 digest cron composes, but on-demand at any point in the
+ * day. Staff-gated (admin = all; leading-hand = own jobs; 403 otherwise).
+ *
+ * We model the whole response (hours + snags + jobs) so the typed client is
+ * honest about what the endpoint returns, but the closeout panel only renders
+ * the `hours` block. `.passthrough()` keeps future fields from breaking parse.
+ *
+ * Wire shape mirrors api/today-pulse.js verbatim.
+ */
+export const TodayPulseHoursSchema = z
+  .object({
+    submittedCount: z.number().int().nonnegative(),
+    submittedTotal: z.number(),
+    approvedCount: z.number().int().nonnegative(),
+    approvedTotal: z.number(),
+    pendingCount: z.number().int().nonnegative(),
+    draftCount: z.number().int().nonnegative(),
+    crewOnSite: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
+export const TodayPulseSnagsSchema = z
+  .object({
+    openedToday: z.number().int().nonnegative(),
+    resolvedToday: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
+export const TodayPulseJobsSchema = z
+  .object({
+    activeJobs: z.number().int().nonnegative(),
+    jobsWithActivityToday: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
+export const TodayPulseResponseSchema = z
+  .object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    hours: TodayPulseHoursSchema,
+    snags: TodayPulseSnagsSchema,
+    jobs: TodayPulseJobsSchema,
+  })
+  .passthrough();
+
 export const ApiErrorBodySchema = z.object({
   error: z.string(),
 });

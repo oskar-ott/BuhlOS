@@ -7,6 +7,7 @@ import {
   TimeEntryMutationResponseSchema,
   TimeEntryOverviewResponseSchema,
   PayrollExportPreviewResponseSchema,
+  TodayPulseResponseSchema,
   TIME_ENTRY_STATUSES,
 } from "./schema";
 import {
@@ -14,6 +15,7 @@ import {
   listForApprover,
   listOwnEntries,
   overview,
+  todayPulse,
   rejectEntry,
   submitNewEntry,
 } from "./client";
@@ -628,6 +630,29 @@ describe("response schemas", () => {
       expect(r.data.range.dryRun).toBe(true);
     }
   });
+
+  it("parses a today-pulse snapshot (hours + snags + jobs)", () => {
+    const body = {
+      date: "2026-05-30",
+      hours: {
+        submittedCount: 3,
+        submittedTotal: 22.8,
+        approvedCount: 1,
+        approvedTotal: 7.6,
+        pendingCount: 3,
+        draftCount: 2,
+        crewOnSite: 4,
+      },
+      snags: { openedToday: 1, resolvedToday: 0 },
+      jobs: { activeJobs: 5, jobsWithActivityToday: 2 },
+    };
+    const r = TodayPulseResponseSchema.safeParse(body);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.hours.pendingCount).toBe(3);
+      expect(r.data.hours.crewOnSite).toBe(4);
+    }
+  });
 });
 
 /* -----------------------------------------------------------------------
@@ -787,6 +812,43 @@ describe("timesheets client wrappers", () => {
   it("overview returns ok:false on 403 for a non-staff viewer (no throw)", async () => {
     mockFetch({ status: 403, body: { error: "forbidden" } });
     const r = await overview({ date: "2026-05-04" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.status).toBe(403);
+  });
+
+  it("todayPulse forwards the date and parses the snapshot", async () => {
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            date: "2026-05-30",
+            hours: {
+              submittedCount: 2,
+              submittedTotal: 15.2,
+              approvedCount: 0,
+              approvedTotal: 0,
+              pendingCount: 2,
+              draftCount: 1,
+              crewOnSite: 3,
+            },
+            snags: { openedToday: 0, resolvedToday: 0 },
+            jobs: { activeJobs: 4, jobsWithActivityToday: 1 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    );
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    const r = await todayPulse("2026-05-30");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data.hours.pendingCount).toBe(2);
+    const call = fetchSpy.mock.calls[0] as unknown as [string, RequestInit | undefined];
+    expect(call[0]).toContain("/api/today-pulse");
+    expect(call[0]).toContain("date=2026-05-30");
+  });
+
+  it("todayPulse returns ok:false on 403 for a non-staff viewer (no throw)", async () => {
+    mockFetch({ status: 403, body: { error: "forbidden" } });
+    const r = await todayPulse("2026-05-30");
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.status).toBe(403);
   });

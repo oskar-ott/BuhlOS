@@ -7,6 +7,7 @@ import {
   TimeEntryListResponseSchema,
   TimeEntryMutationResponseSchema,
   TimeEntryOverviewResponseSchema,
+  TodayPulseResponseSchema,
 } from "./schema";
 import type {
   ApproveTimeEntryPayload,
@@ -16,6 +17,7 @@ import type {
   TimeEntryListResponse,
   TimeEntryMutationResponse,
   TimeEntryOverviewResponse,
+  TodayPulseResponse,
 } from "./types";
 
 /**
@@ -118,6 +120,20 @@ export function overview(
   });
   return httpGet<TimeEntryOverviewResponse>(`/api/time-entries-overview${query}`, {
     schema: TimeEntryOverviewResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/**
+ * GET /api/today-pulse — the live "what's on site today" snapshot backing the
+ * end-of-day closeout panel. Defaults to today (Sydney); a past `date` is
+ * allowed for back-scrolling. Staff-gated (403 for non-staff). Leading hands
+ * get the same shape, scoped to their jobs.
+ */
+export function todayPulse(date?: string): Promise<HttpResult<TodayPulseResponse>> {
+  const query = buildQuery({ date });
+  return httpGet<TodayPulseResponse>(`/api/today-pulse${query}`, {
+    schema: TodayPulseResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
   });
 }
@@ -231,6 +247,7 @@ export const timesheetsClient = {
   listOwnEntries,
   listForApprover,
   overview,
+  todayPulse,
   submitNewEntry,
   editOwnEntry,
   approveEntry,

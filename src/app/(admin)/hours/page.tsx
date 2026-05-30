@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
-import { ArrowLeft, ArrowRight, Download, UserX } from "lucide-react";
+import { ArrowLeft, ArrowRight, Download, HardHat, UserX } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
+import { cn } from "@/lib/cn";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isAdminRole } from "@/lib/auth/roles";
@@ -13,6 +14,7 @@ import {
   TimeEntryListResponseSchema,
   TimeEntryOverviewResponseSchema,
   PayrollExportPreviewResponseSchema,
+  TodayPulseResponseSchema,
 } from "@/domains/timesheets/schema";
 import {
   BUSINESS_TIMEZONE,
@@ -27,6 +29,7 @@ import type {
   TimeEntry,
   TimeEntryOverviewResponse,
   PayrollExportPreviewResponse,
+  TodayPulseResponse,
 } from "@/domains/timesheets/types";
 
 export const dynamic = "force-dynamic";
@@ -72,11 +75,12 @@ export default async function HoursOverviewPage({
   const weekEnd = weekEndOf(anchor);
   const prevWeek = addDays(weekStart, -7);
   const nextWeek = addDays(weekStart, 7);
-  const thisWeekStart = weekStartOf(localDateString(new Date(), BUSINESS_TIMEZONE));
+  const today = localDateString(new Date(), BUSINESS_TIMEZONE);
+  const thisWeekStart = weekStartOf(today);
   const isCurrentWeek = weekStart === thisWeekStart;
 
-  const { pending, approved, rejected, overview, exportPreview, errors } =
-    await loadHours(raw, weekStart, weekEnd, isAdmin);
+  const { pending, approved, rejected, overview, exportPreview, pulse, errors } =
+    await loadHours(raw, weekStart, weekEnd, today, isAdmin);
 
   const missing = overview ? summariseMissing(overview.missing) : null;
 
@@ -92,6 +96,9 @@ export default async function HoursOverviewPage({
             </CardDescription>
           </Card>
         ) : null}
+
+        {/* ── End-of-day closeout (today) ───────────────────────────── */}
+        <TodayCloseout pulse={pulse} today={today} />
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <QueueCard
@@ -189,6 +196,162 @@ export default async function HoursOverviewPage({
         />
       </div>
     </AdminShell>
+  );
+}
+
+/**
+ * End-of-day closeout — today's live hours pulse so the office can answer
+ * "is today's labour accounted for?" before they leave. The verdict is
+ * deliberately strict: a day is only "ready to close" when nothing is still
+ * pending approval *and* nothing is sitting in draft (logged but not
+ * submitted). Drafts are the silent gap — they never reach the approval
+ * queue, so the closeout is the one place they surface.
+ */
+function TodayCloseout({
+  pulse,
+  today,
+}: {
+  pulse: TodayPulseResponse | null;
+  today: string;
+}) {
+  if (!pulse) {
+    return (
+      <Card>
+        <div className="flex items-center gap-2">
+          <HardHat aria-hidden="true" className="h-5 w-5 text-text-muted" />
+          <CardTitle>Today&rsquo;s closeout</CardTitle>
+        </div>
+        <CardDescription className="mt-1">
+          Live snapshot unavailable right now. The queue and weekly rollup below
+          reflect the same entries.
+        </CardDescription>
+      </Card>
+    );
+  }
+
+  const h = pulse.hours;
+  const needsApproval = h.pendingCount > 0;
+  const hasDrafts = h.draftCount > 0;
+  const anyActivity =
+    h.crewOnSite > 0 ||
+    h.submittedCount > 0 ||
+    h.approvedCount > 0 ||
+    h.draftCount > 0;
+  const ready = anyActivity && !needsApproval && !hasDrafts;
+
+  const verdict = !anyActivity
+    ? {
+        tone: "neutral" as const,
+        text: "No hours logged yet today. Nothing to close — check back as crew log off.",
+      }
+    : ready
+      ? {
+          tone: "success" as const,
+          text: "Every logged hour is approved. Today is ready to close.",
+        }
+      : {
+          tone: "warning" as const,
+          text: [
+            needsApproval
+              ? `${h.pendingCount} ${h.pendingCount === 1 ? "entry" : "entries"} still awaiting approval`
+              : null,
+            hasDrafts
+              ? `${h.draftCount} ${h.draftCount === 1 ? "draft" : "drafts"} logged but not submitted`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ") + " — clear these before close.",
+        };
+
+  return (
+    <Card className="border-l-4 border-l-brand-navy">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <HardHat aria-hidden="true" className="h-5 w-5 text-brand-navy" />
+          <div>
+            <CardTitle>Today&rsquo;s closeout</CardTitle>
+            <CardDescription>{formatDateLabel(today)}</CardDescription>
+          </div>
+        </div>
+        <Pill tone={h.crewOnSite > 0 ? "info" : "neutral"}>
+          {h.crewOnSite} {h.crewOnSite === 1 ? "worker" : "crew"} on site
+        </Pill>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <CloseoutStat
+          label="Pending approval"
+          primary={String(h.pendingCount)}
+          secondary={formatHoursLabel(h.submittedTotal)}
+          tone={needsApproval ? "warning" : "neutral"}
+        />
+        <CloseoutStat
+          label="Approved"
+          primary={String(h.approvedCount)}
+          secondary={formatHoursLabel(h.approvedTotal)}
+          tone={h.approvedCount > 0 ? "success" : "neutral"}
+        />
+        <CloseoutStat
+          label="Not submitted"
+          primary={String(h.draftCount)}
+          secondary={h.draftCount > 0 ? "needs a nudge" : "all submitted"}
+          tone={hasDrafts ? "warning" : "neutral"}
+        />
+      </div>
+
+      <p
+        className={cn(
+          "mt-4 rounded-card px-3 py-2 text-sm",
+          verdict.tone === "success" && "bg-emerald-50 text-emerald-900",
+          verdict.tone === "warning" && "bg-amber-50 text-amber-900",
+          verdict.tone === "neutral" && "bg-surface-subtle text-text-muted"
+        )}
+      >
+        {verdict.text}
+      </p>
+
+      {needsApproval ? (
+        <div className="mt-3">
+          <Link
+            href="/hours/approvals"
+            className="inline-flex items-center rounded-card bg-brand-navy px-4 py-2 text-sm font-medium text-text-inverse hover:bg-accent-ink"
+          >
+            Review {h.pendingCount} pending →
+          </Link>
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+function CloseoutStat({
+  label,
+  primary,
+  secondary,
+  tone,
+}: {
+  label: string;
+  primary: string;
+  secondary: string;
+  tone: "neutral" | "success" | "warning";
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-card border px-3 py-2",
+        tone === "success" && "border-emerald-200 bg-emerald-50",
+        tone === "warning" && "border-amber-200 bg-amber-50",
+        tone === "neutral" && "border-border bg-surface"
+      )}
+    >
+      <p className="font-display text-xs uppercase tracking-widest text-text-muted">
+        {label}
+      </p>
+      <p className="mt-1 font-display text-2xl font-semibold tabular-nums text-text">
+        {primary}
+      </p>
+      <p className="text-xs text-text-muted">{secondary}</p>
+    </div>
   );
 }
 
@@ -456,6 +619,7 @@ interface LoadResult {
   rejected: ReadonlyArray<TimeEntry>;
   overview: TimeEntryOverviewResponse | null;
   exportPreview: PayrollExportPreviewResponse | null;
+  pulse: TodayPulseResponse | null;
   errors: string[];
 }
 
@@ -463,6 +627,7 @@ async function loadHours(
   cookieValue: string | undefined,
   weekStart: string,
   weekEnd: string,
+  today: string,
   isAdmin: boolean
 ): Promise<LoadResult> {
   const h = await headers();
@@ -471,7 +636,7 @@ async function loadHours(
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   const headersInit = cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined;
 
-  const [pendingRes, approvedRes, rejectedRes, overviewRes, exportRes] =
+  const [pendingRes, approvedRes, rejectedRes, overviewRes, exportRes, pulseRes] =
     await Promise.all([
       readList(base, headersInit, "submitted"),
       readList(base, headersInit, "approved"),
@@ -481,6 +646,7 @@ async function loadHours(
       isAdmin
         ? readExportPreview(base, headersInit, weekStart, weekEnd)
         : Promise.resolve({ preview: null, error: null }),
+      readPulse(base, headersInit, today),
     ]);
 
   const errors: string[] = [];
@@ -489,6 +655,7 @@ async function loadHours(
   if (rejectedRes.error) errors.push(rejectedRes.error);
   if (overviewRes.error) errors.push(overviewRes.error);
   if (exportRes.error) errors.push(exportRes.error);
+  if (pulseRes.error) errors.push(pulseRes.error);
 
   return {
     pending: pendingRes.entries,
@@ -496,6 +663,7 @@ async function loadHours(
     rejected: rejectedRes.entries,
     overview: overviewRes.overview,
     exportPreview: exportRes.preview,
+    pulse: pulseRes.pulse,
     errors,
   };
 }
@@ -564,6 +732,28 @@ async function readExportPreview(
     return {
       preview: null,
       error: `Export preview: ${err instanceof Error ? err.message : "network error"}`,
+    };
+  }
+}
+
+async function readPulse(
+  base: string,
+  headersInit: { cookie: string } | undefined,
+  date: string
+): Promise<{ pulse: TodayPulseResponse | null; error: string | null }> {
+  try {
+    const res = await fetch(`${base}/api/today-pulse?date=${date}`, {
+      cache: "no-store",
+      headers: headersInit,
+    });
+    if (!res.ok) return { pulse: null, error: `Today's closeout: API ${res.status}` };
+    const parsed = TodayPulseResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { pulse: null, error: "Today's closeout: bad shape" };
+    return { pulse: parsed.data, error: null };
+  } catch (err) {
+    return {
+      pulse: null,
+      error: `Today's closeout: ${err instanceof Error ? err.message : "network error"}`,
     };
   }
 }

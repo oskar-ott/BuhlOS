@@ -20,6 +20,8 @@ import type {
   OverviewUserSchema,
   PayrollExportSummarySchema,
   PayrollExportPreviewResponseSchema,
+  TodayPulseHoursSchema,
+  TodayPulseResponseSchema,
 } from "./schema";
 
 /**
@@ -75,3 +77,7 @@ export type OverviewUser = z.infer<typeof OverviewUserSchema>;
 export type PayrollExportSummary = z.infer<typeof PayrollExportSummarySchema>;
 
 export type PayrollExportPreviewResponse = z.infer<typeof PayrollExportPreviewResponseSchema>;
+
+export type TodayPulseHours = z.infer<typeof TodayPulseHoursSchema>;
+
+export type TodayPulseResponse = z.infer<typeof TodayPulseResponseSchema>;
