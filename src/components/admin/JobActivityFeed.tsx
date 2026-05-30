@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertOctagon, ArrowRightLeft, Camera, ClipboardCheck, Inbox } from "lucide-react";
+import { AlertOctagon, ArrowRightLeft, Camera, ClipboardCheck, Inbox, Package } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -29,6 +29,7 @@ const ALL_GROUPS: ReadonlyArray<AuditTargetGroup> = [
   "evidence",
   "snag",
   "observation",
+  "material_request",
   "itp",
 ];
 
@@ -177,6 +178,8 @@ function iconForTargetType(t: AuditTargetType) {
       return ClipboardCheck;
     case "observation":
       return ArrowRightLeft;
+    case "material_request":
+      return Package;
     default:
       return Inbox;
   }

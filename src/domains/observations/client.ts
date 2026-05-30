@@ -1,6 +1,7 @@
 import { httpGet, httpPatch, httpPost, type HttpResult } from "@/lib/http";
 import {
   CreateObservationPayloadSchema,
+  ObservationConvertToMaterialRequestResponseSchema,
   ObservationConvertToSnagResponseSchema,
   ObservationListResponseSchema,
   ObservationMutationResponseSchema,
@@ -8,6 +9,7 @@ import {
 } from "./schema";
 import type {
   CreateObservationPayload,
+  ObservationConvertToMaterialRequestResponse,
   ObservationConvertToSnagResponse,
   ObservationListResponse,
   ObservationMutationResponse,
@@ -148,10 +150,70 @@ export function convertObservationToSnag(
   );
 }
 
+/**
+ * PR 11: convert an eligible observation into a real Material Request.
+ *
+ *   POST /api/observations?action=convert-to-material-request  (admin-tier)
+ *
+ * The office supplies `item` + `quantity` + `unit` (and optionally urgency /
+ * supplier / orderRef / description) when converting — observation titles
+ * rarely carry enough structure to be a material line on their own.
+ *
+ * Default-eligible type: `material_request` only. Force `true` for others
+ * (e.g. converting a `note` that turned out to be a procurement request).
+ *
+ * 201 → { observation, materialRequest }; the observation now has
+ * linkedMaterialRequestId, convertedTo='material_request',
+ * convertedTargetId=materialRequest.id, status='converted'.
+ * 409 → already converted to anything (idempotent).
+ * 400 → invalid type + no force, or missing item/quantity/unit.
+ * 404 → observation not found / 403 → not admin tier.
+ */
+export function convertObservationToMaterialRequest(payload: {
+  id: string;
+  item: string;
+  quantity: number;
+  unit: string;
+  urgency?: ObservationPriority;
+  description?: string;
+  supplier?: string;
+  orderRef?: string;
+  force?: boolean;
+}): Promise<HttpResult<ObservationConvertToMaterialRequestResponse>> {
+  if (!payload.id) {
+    return Promise.resolve({ ok: false, error: { status: 0, body: null, message: "id is required" } });
+  }
+  if (!payload.item || !payload.unit || !(payload.quantity > 0)) {
+    return Promise.resolve({
+      ok: false,
+      error: { status: 0, body: null, message: "item, quantity (>0), and unit are required" },
+    });
+  }
+  return httpPost<ObservationConvertToMaterialRequestResponse>(
+    "/api/observations?action=convert-to-material-request",
+    {
+      id: payload.id,
+      item: payload.item,
+      quantity: payload.quantity,
+      unit: payload.unit,
+      ...(payload.urgency ? { urgency: payload.urgency } : {}),
+      ...(payload.description ? { description: payload.description } : {}),
+      ...(payload.supplier ? { supplier: payload.supplier } : {}),
+      ...(payload.orderRef ? { orderRef: payload.orderRef } : {}),
+      ...(payload.force ? { force: true } : {}),
+    },
+    {
+      schema: ObservationConvertToMaterialRequestResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
 export const observationsClient = {
   listObservations,
   listJobObservations,
   createObservation,
   updateObservation,
   convertObservationToSnag,
+  convertObservationToMaterialRequest,
 } as const;

@@ -63,6 +63,9 @@ const VALID_TARGET_TYPES = new Set([
   'employee',
   'invite',
   'observation',
+  // PR 11: Material Request module — the GET endpoint must accept it so the
+  // per-job feed (?scope=job) and a future row-history view both work.
+  'material_request',
 ]);
 const MAX_MONTHS = 12;
 const DEFAULT_MONTHS = 2;

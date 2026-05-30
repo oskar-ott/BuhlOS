@@ -42,6 +42,7 @@ describe("targetGroup", () => {
     expect(targetGroup("evidence")).toBe("evidence");
     expect(targetGroup("snag")).toBe("snag");
     expect(targetGroup("observation")).toBe("observation");
+    expect(targetGroup("material_request")).toBe("material_request");
   });
   it("maps employee/invite to 'other' (they have no jobId so never appear in the per-job feed)", () => {
     expect(targetGroup("employee")).toBe("other");
@@ -58,7 +59,7 @@ describe("summariseJobActivity", () => {
       ent({ id: "4", targetType: "itp_instance", action: "itp.attached" }),
       ent({ id: "5", targetType: "observation", action: "observation.converted_to_snag" }),
     ]);
-    expect(s).toEqual({ total: 5, evidence: 2, snag: 1, itp: 1, observation: 1, other: 0 });
+    expect(s).toEqual({ total: 5, evidence: 2, snag: 1, itp: 1, observation: 1, material_request: 0, other: 0 });
   });
 
   it("handles an empty list", () => {
@@ -68,6 +69,7 @@ describe("summariseJobActivity", () => {
       snag: 0,
       itp: 0,
       observation: 0,
+      material_request: 0,
       other: 0,
     });
   });

@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Inbox,
   MapPin,
+  Package,
   Paperclip,
   UserCheck,
 } from "lucide-react";
@@ -79,14 +80,19 @@ const EMPTY_FILTERS: Filters = { status: "", type: "", priority: "", jobId: "", 
  *  `defect` is intentionally not here — it overlaps with the real Snag target.
  */
 const INTENT_CONVERT_OPTIONS: ReadonlyArray<ObservationConvertTarget> = [
+  // PR 11 promoted material_request to a REAL conversion target — own
+  // section + own handler below. RFI and Variation remain intent-only.
   "rfi",
   "variation",
-  "material_request",
 ];
 
 /** Types that auto-promote to a Snag without a force flag (mirror of
  *  CONVERT_TO_SNAG_DEFAULT_TYPES in api/observations.js). */
 const SNAG_ELIGIBLE_TYPES = new Set(["defect", "safety", "blocker"]);
+
+/** Observation type that auto-promotes to a Material Request without a
+ *  force flag (mirror of the api/observations.js convert handler). */
+const MATERIAL_REQUEST_ELIGIBLE_TYPES = new Set(["material_request"]);
 
 /**
  * BuhlOS Observations Inbox — the office triage surface for field-to-office
@@ -190,6 +196,45 @@ export function ObservationsInbox({
     setBanner({
       tone: "success",
       message: `Converted — snag created on ${updated.jobName || updated.jobId}.`,
+    });
+  }
+
+  /** PR 11: real Material Request conversion. Calls POST /api/observations?
+   *  action=convert-to-material-request with the office-supplied item/qty/unit
+   *  triple. Response is the updated observation (linkedMaterialRequestId,
+   *  convertedTo='material_request', status='converted') + the new request. */
+  async function convertToMaterialRequest(
+    id: string,
+    fields: { item: string; quantity: number; unit: string; urgency?: ObservationPriority; force?: boolean }
+  ) {
+    setBusy(true);
+    setBanner(null);
+    const r = await observationsClient.convertObservationToMaterialRequest({
+      id,
+      item: fields.item,
+      quantity: fields.quantity,
+      unit: fields.unit,
+      urgency: fields.urgency,
+      force: fields.force,
+    });
+    setBusy(false);
+    if (!r.ok) {
+      const conflictAlready = r.error.status === 409;
+      setBanner({
+        tone: "danger",
+        message: conflictAlready
+          ? "Already converted."
+          : r.error.status === 0
+            ? "Couldn't reach the server. Check your connection and try again."
+            : `Convert to Material Request failed (${r.error.status}).`,
+      });
+      return;
+    }
+    const updated = r.data.observation;
+    setObservations((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+    setBanner({
+      tone: "success",
+      message: `Converted — material request created on ${updated.jobName || updated.jobId}.`,
     });
   }
 
@@ -315,6 +360,7 @@ export function ObservationsInbox({
         }}
         onApply={apply}
         onConvertToSnag={convertToSnag}
+        onConvertToMaterialRequest={convertToMaterialRequest}
       />
     </div>
   );
@@ -443,6 +489,7 @@ function ObservationDrawer({
   onClose,
   onApply,
   onConvertToSnag,
+  onConvertToMaterialRequest,
   actionsEnabled,
 }: {
   observation: ObservationItem | null;
@@ -453,6 +500,10 @@ function ObservationDrawer({
   onClose: () => void;
   onApply: (id: string, patch: Omit<UpdateObservationPayload, "id">) => void;
   onConvertToSnag: (id: string, force?: boolean) => void;
+  onConvertToMaterialRequest: (
+    id: string,
+    fields: { item: string; quantity: number; unit: string; urgency?: ObservationPriority; force?: boolean }
+  ) => void;
   /** PR 8: when false, render only the read-only details (no triage / priority /
    *  resolve / convert sections). */
   actionsEnabled: boolean;
@@ -668,15 +719,22 @@ function ObservationDrawer({
           )}
         </section>
 
-        {/* Record other conversion intent — RFI / Variation / Material Request modules are
-            still UC. These buttons record the office decision honestly. */}
+        {/* Convert to Material Request — REAL (PR 11) */}
+        <MaterialRequestConvertSection
+          observation={o}
+          busy={busy}
+          onConvertToMaterialRequest={onConvertToMaterialRequest}
+        />
+
+        {/* Record other conversion intent — RFI / Variation modules are still
+            UC. These buttons record the office decision honestly. */}
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
             Record other intent
           </h3>
           <p className="text-xs text-text-muted">
-            Moves this to <em>Converted</em> with an intent tag. The RFI / Variation / Material
-            Request modules are coming next — no downstream record is created yet.
+            Moves this to <em>Converted</em> with an intent tag. The RFI and Variation modules
+            are coming next — no downstream record is created yet.
           </p>
           <div className="flex flex-wrap gap-2">
             {INTENT_CONVERT_OPTIONS.map((t) => (
@@ -707,5 +765,203 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       <dt className="w-28 shrink-0 text-text-muted">{label}</dt>
       <dd className="min-w-0 flex-1 text-text">{value}</dd>
     </div>
+  );
+}
+
+/**
+ * PR 11 — Convert-to-Material-Request drawer section.
+ *
+ * Sister to the inline "Convert to Snag" block above. The office supplies a
+ * structured line item (item + quantity + unit + urgency) because observation
+ * titles rarely carry enough structure to act as a procurement record by
+ * themselves ("conduit short" needs to become "25mm conduit · 20 · m").
+ *
+ * Eligibility mirrors api/observations.js: `material_request` type auto-
+ * promotes (primary CTA); other types need a force flag (secondary CTA with
+ * a short rationale). When the observation is already linked to a material
+ * request we show the link to the inbox instead of the form; when it's
+ * already linked to a snag we surface that fact and hide the form (the
+ * office picked a different downstream — clear the snag link first if they
+ * want procurement to take over).
+ *
+ * State is local to the section so opening the drawer doesn't pollute the
+ * parent until the user actually submits. The parent owns the network call
+ * + the audit/banner side-effects.
+ */
+function MaterialRequestConvertSection({
+  observation: o,
+  busy,
+  onConvertToMaterialRequest,
+}: {
+  observation: ObservationItem;
+  busy: boolean;
+  onConvertToMaterialRequest: (
+    id: string,
+    fields: {
+      item: string;
+      quantity: number;
+      unit: string;
+      urgency?: ObservationPriority;
+      force?: boolean;
+    }
+  ) => void;
+}) {
+  // Seed the item from the observation title — usually a decent starting
+  // point ("Need 25mm conduit"), the office trims/edits when not.
+  const [item, setItem] = useState(o.title.slice(0, 120));
+  const [quantity, setQuantity] = useState<string>("");
+  const [unit, setUnit] = useState<string>("");
+  const [urgency, setUrgency] = useState<ObservationPriority>(o.priority);
+
+  const linkedMr = !!o.linkedMaterialRequestId;
+  const linkedSnag = !!o.linkedSnagId;
+  const eligible = MATERIAL_REQUEST_ELIGIBLE_TYPES.has(o.type);
+
+  const qtyNum = Number(quantity);
+  const valid =
+    item.trim().length > 0 &&
+    unit.trim().length > 0 &&
+    Number.isFinite(qtyNum) &&
+    qtyNum > 0;
+
+  function submit(force: boolean) {
+    if (!valid) return;
+    onConvertToMaterialRequest(o.id, {
+      item: item.trim(),
+      quantity: qtyNum,
+      unit: unit.trim(),
+      urgency,
+      ...(force ? { force: true } : {}),
+    });
+  }
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+        Convert to Material Request
+      </h3>
+      {linkedMr ? (
+        <p className="text-xs text-text-muted">
+          Already converted to a material request &mdash; see the
+          <Link
+            href={"/material-requests" as Route}
+            className="ml-1 underline decoration-accent-yellow decoration-2 underline-offset-2"
+          >
+            Material requests inbox
+          </Link>
+          {o.linkedMaterialRequestId ? ` (${o.linkedMaterialRequestId}).` : "."}
+        </p>
+      ) : linkedSnag ? (
+        <p className="text-xs text-text-muted">
+          Already linked to a snag &mdash; clear that link first if procurement
+          should take over instead.
+        </p>
+      ) : (
+        <>
+          <p className="text-xs text-text-muted">
+            {eligible ? (
+              <>
+                Creates a tracked procurement request on this job (status{" "}
+                <em>requested</em>), links it back to this observation, and
+                moves this to <em>Converted</em>. Procurement clears it through
+                approved &rarr; ordered &rarr; delivered.
+              </>
+            ) : (
+              <>
+                This is a <em>{typeLabel(o.type).toLowerCase()}</em> &mdash; not
+                a default Material Request target (the request workflow fits{" "}
+                <em>material_request</em>). Force-convert anyway if the office
+                has decided to track it as a procurement request.
+              </>
+            )}
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_1fr_1fr]">
+            <label className="flex flex-col gap-1 text-xs text-text-muted">
+              <span className="uppercase tracking-wider">Item</span>
+              <input
+                type="text"
+                value={item}
+                onChange={(e) => setItem(e.target.value)}
+                placeholder="25mm conduit"
+                disabled={busy}
+                maxLength={200}
+                className="rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-text-muted">
+              <span className="uppercase tracking-wider">Quantity</span>
+              <input
+                type="number"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                placeholder="20"
+                min={0}
+                step="any"
+                inputMode="decimal"
+                disabled={busy}
+                className="rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-text-muted">
+              <span className="uppercase tracking-wider">Unit</span>
+              <input
+                type="text"
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+                placeholder="m"
+                disabled={busy}
+                list="mr-unit-suggestions"
+                maxLength={24}
+                className="rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text"
+              />
+              <datalist id="mr-unit-suggestions">
+                <option value="m" />
+                <option value="mm" />
+                <option value="ea" />
+                <option value="box" />
+                <option value="roll" />
+                <option value="kg" />
+                <option value="L" />
+                <option value="pack" />
+              </datalist>
+            </label>
+          </div>
+          <label className="flex flex-col gap-1 text-xs text-text-muted">
+            <span className="uppercase tracking-wider">Urgency</span>
+            <select
+              value={urgency}
+              onChange={(e) =>
+                setUrgency(e.target.value as ObservationPriority)
+              }
+              disabled={busy}
+              className="w-full rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text sm:w-40"
+            >
+              {OBSERVATION_PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {priorityLabel(p)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            type="button"
+            size="sm"
+            variant={eligible ? "primary" : "secondary"}
+            disabled={busy || !valid}
+            onClick={() => submit(!eligible)}
+          >
+            <Package aria-hidden="true" className="h-4 w-4" />
+            {eligible
+              ? "Create material request"
+              : "Force-convert to Material Request"}
+          </Button>
+          {!valid ? (
+            <p className="text-[11px] text-text-muted">
+              Item, quantity (&gt; 0) and unit are required.
+            </p>
+          ) : null}
+        </>
+      )}
+    </section>
   );
 }

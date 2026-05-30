@@ -12,6 +12,7 @@ const requireFromHere = createRequire(import.meta.url);
 const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const obsPath = requireFromHere.resolve("../../../api/observations.js");
+const mrPath = requireFromHere.resolve("../../../api/material-requests.js");
 
 // Stateful in-memory blob store keyed like the real one.
 let blob: Map<string, unknown>;
@@ -88,6 +89,10 @@ beforeEach(() => {
 
   delete requireFromHere.cache[authPath];
   delete requireFromHere.cache[obsPath];
+  // PR 11: observations.js requires material-requests.js for buildItem /
+  // persistItem on the convert-to-material-request path. Flush the cached
+  // copy so each test sees a fresh module pinned to THIS test's blob mock.
+  delete requireFromHere.cache[mrPath];
   requireFromHere.cache[blobPath] = {
     id: blobPath,
     filename: blobPath,
@@ -546,5 +551,241 @@ describe("POST /api/observations?action=convert-to-snag (PR 6)", () => {
       body: { id: "od1" },
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("POST /api/observations?action=convert-to-material-request (PR 11)", () => {
+  beforeEach(() => {
+    // Seed: a material_request-type observation (eligible) and a note
+    // (force-only). Material-requests blob starts empty.
+    blob.set("material-requests.json", { requests: [] });
+    blob.set("observations.json", {
+      observations: [
+        {
+          id: "om1",
+          jobId: "job-1",
+          jobName: "Birdwood",
+          type: "material_request",
+          title: "Need 20m of 25mm conduit",
+          description: "ran short on the riser",
+          status: "new",
+          priority: "high",
+          source: "phil",
+          requiresAction: true,
+          photoUrls: [],
+          areaId: null,
+          areaName: null,
+          stage: null,
+          taskId: null,
+          taskName: null,
+          assignedToId: null,
+          assignedToName: null,
+          createdById: "u_field",
+          createdByName: "Sparky",
+          createdByRole: "electrician",
+          createdAt: "2026-05-02T00:00:00Z",
+          updatedAt: "2026-05-02T00:00:00Z",
+        },
+        {
+          id: "on1",
+          jobId: "job-1",
+          type: "note",
+          title: "Tidied up the board",
+          status: "new",
+          priority: "low",
+          source: "phil",
+          requiresAction: false,
+          photoUrls: [],
+          createdById: "u_field",
+          createdByName: "Sparky",
+          createdAt: "2026-05-02T00:00:00Z",
+          updatedAt: "2026-05-02T00:00:00Z",
+        },
+        {
+          // Already converted to a snag — should reject material request
+          // conversion (no double-downstream).
+          id: "ox1",
+          jobId: "job-1",
+          type: "defect",
+          title: "Already a snag",
+          status: "converted",
+          priority: "normal",
+          source: "phil",
+          requiresAction: false,
+          linkedSnagId: "sn_existing",
+          convertedTo: "snag",
+          convertedTargetId: "sn_existing",
+          photoUrls: [],
+          createdById: "u_field",
+          createdByName: "Sparky",
+          createdAt: "2026-05-02T00:00:00Z",
+          updatedAt: "2026-05-02T00:00:00Z",
+        },
+      ],
+    });
+  });
+
+  it("admin converts a material_request observation into a real request + links them", async () => {
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-material-request" },
+      body: { id: "om1", item: "25mm conduit", quantity: 20, unit: "m" },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.body as {
+      observation: Record<string, unknown>;
+      materialRequest: Record<string, unknown>;
+    };
+    expect(body.observation.linkedMaterialRequestId).toBe(
+      body.materialRequest.id
+    );
+    expect(body.observation.convertedTo).toBe("material_request");
+    expect(body.observation.convertedTargetId).toBe(body.materialRequest.id);
+    expect(body.observation.status).toBe("converted");
+    expect(body.observation.convertedById).toBe("u_boss");
+
+    expect(body.materialRequest.item).toBe("25mm conduit");
+    expect(body.materialRequest.quantity).toBe(20);
+    expect(body.materialRequest.unit).toBe("m");
+    expect(body.materialRequest.status).toBe("requested");
+    expect(body.materialRequest.source).toBe("observation");
+    expect(body.materialRequest.linkedObservationId).toBe("om1");
+
+    // Material request persisted to the top-level blob.
+    const store = blob.get("material-requests.json") as {
+      requests: { id: string }[];
+    };
+    expect(store.requests.map((r) => r.id)).toEqual([body.materialRequest.id]);
+
+    // Dual audit emission.
+    const audit = collectAuditEntries(blob);
+    expect(audit.find((e) => e.action === "material_request.created")).toBeTruthy();
+    expect(
+      audit.find((e) => e.action === "observation.converted_to_material_request")
+    ).toBeTruthy();
+  });
+
+  it("409s a second convert attempt (idempotent)", async () => {
+    const first = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-material-request" },
+      body: { id: "om1", item: "x", quantity: 1, unit: "ea" },
+    });
+    expect(first.statusCode).toBe(201);
+    const second = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-material-request" },
+      body: { id: "om1", item: "x", quantity: 1, unit: "ea" },
+    });
+    expect(second.statusCode).toBe(409);
+  });
+
+  it("409s when the observation is already converted to a snag", async () => {
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-material-request" },
+      body: { id: "ox1", item: "x", quantity: 1, unit: "ea" },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("400s a non-default type (note) without force=true", async () => {
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-material-request" },
+      body: { id: "on1", item: "x", quantity: 1, unit: "ea" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("201s a non-default type when force=true", async () => {
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-material-request" },
+      body: {
+        id: "on1",
+        force: true,
+        item: "tape",
+        quantity: 5,
+        unit: "rolls",
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const obs = (res.body as { observation: Record<string, unknown> })
+      .observation;
+    expect(obs.status).toBe("converted");
+    expect(obs.linkedMaterialRequestId).toMatch(/^mr_/);
+
+    const audit = collectAuditEntries(blob);
+    const verb = audit.find(
+      (e) => e.action === "observation.converted_to_material_request"
+    );
+    expect((verb?.metadata as { forced: boolean }).forced).toBe(true);
+  });
+
+  it("400s missing item/quantity/unit", async () => {
+    // Missing all three.
+    let res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-material-request" },
+      body: { id: "om1" },
+    });
+    expect(res.statusCode).toBe(400);
+
+    // Item only — still 400.
+    res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-material-request" },
+      body: { id: "om1", item: "conduit" },
+    });
+    expect(res.statusCode).toBe(400);
+
+    // Zero quantity.
+    res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-material-request" },
+      body: { id: "om1", item: "x", quantity: 0, unit: "m" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("403s a field worker trying to convert", async () => {
+    const res = await call({
+      method: "POST",
+      role: "electrician",
+      userId: "u_field",
+      query: { action: "convert-to-material-request" },
+      body: { id: "om1", item: "x", quantity: 1, unit: "ea" },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("404s an unknown observation id", async () => {
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-material-request" },
+      body: { id: "missing", item: "x", quantity: 1, unit: "ea" },
+    });
+    expect(res.statusCode).toBe(404);
   });
 });

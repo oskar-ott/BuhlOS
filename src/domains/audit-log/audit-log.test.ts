@@ -133,6 +133,12 @@ describe("AuditLogEntrySchema", () => {
       "itp.point.recorded",
       "itp.reopened",
       "itp.signed_off",
+      // PR 11: Material Request lifecycle.
+      "material_request.created",
+      "material_request.transitioned",
+      // PR 11: observation -> real material request conversion verb.
+      // Sorts before observation.converted_to_snag because '_material' < '_snag'.
+      "observation.converted_to_material_request",
       // PR 6: observation -> real snag conversion verb.
       // (sorts before observation.created because 'co' < 'cr')
       "observation.converted_to_snag",
@@ -149,6 +155,8 @@ describe("AuditLogEntrySchema", () => {
       "invite",
       "itp_instance",
       "itp_template",
+      // PR 11: material requests as audit targets.
+      "material_request",
       // PR 6: observation as audit target (for observation.converted_to_snag).
       "observation",
       "snag",
