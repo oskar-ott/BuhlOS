@@ -6,6 +6,7 @@ import {
   TimeEntryListResponseSchema,
   TimeEntryMutationResponseSchema,
   TimeEntryOverviewResponseSchema,
+  PayrollExportPreviewResponseSchema,
   TIME_ENTRY_STATUSES,
 } from "./schema";
 import {
@@ -34,6 +35,8 @@ import {
   isWithinBackdateWindow,
   primaryJobId,
   summariseMissing,
+  weekEndOf,
+  addDays,
 } from "./service";
 import { formatHoursLabel, statusLabel, statusTone, formatDateLabel } from "./format";
 
@@ -166,6 +169,22 @@ describe("date helpers", () => {
     expect(weekStartOf("2026-05-07")).toBe("2026-05-04");
     // 2026-05-03 is a Sunday → previous Monday
     expect(weekStartOf("2026-05-03")).toBe("2026-04-27");
+  });
+
+  it("weekEndOf returns the Sunday of that ISO week", () => {
+    // Week of Mon 2026-05-04 ends Sun 2026-05-10
+    expect(weekEndOf("2026-05-04")).toBe("2026-05-10");
+    expect(weekEndOf("2026-05-07")).toBe("2026-05-10");
+    // Sunday 2026-05-03 belongs to the week ending that same day
+    expect(weekEndOf("2026-05-03")).toBe("2026-05-03");
+  });
+
+  it("addDays shifts forwards and backwards across month boundaries", () => {
+    expect(addDays("2026-05-04", 6)).toBe("2026-05-10");
+    expect(addDays("2026-05-04", -7)).toBe("2026-04-27");
+    expect(addDays("2026-05-31", 1)).toBe("2026-06-01");
+    expect(addDays("2026-01-01", -1)).toBe("2025-12-31");
+    expect(addDays("nonsense", 3)).toBe("nonsense");
   });
 
   it("isWithinBackdateWindow accepts today, yesterday, and -13 days", () => {
@@ -545,6 +564,35 @@ describe("response schemas", () => {
       users: [],
     };
     expect(TimeEntryOverviewResponseSchema.safeParse(body).success).toBe(true);
+  });
+
+  it("parses a payroll export dry-run preview (range + summary, ignores rows)", () => {
+    const body = {
+      range: {
+        fromDate: "2026-05-04",
+        toDate: "2026-05-10",
+        status: "approved",
+        userId: null,
+        jobId: null,
+        dryRun: true,
+      },
+      rows: [{ date: "2026-05-04", workerName: "Sam", hours: 7.6 }],
+      summary: {
+        rowCount: 1,
+        totalHours: 7.6,
+        totalCostExGst: 380,
+        workerCount: 1,
+        jobCount: 1,
+        byWorker: {},
+        byJob: {},
+      },
+    };
+    const r = PayrollExportPreviewResponseSchema.safeParse(body);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.summary.totalHours).toBe(7.6);
+      expect(r.data.range.dryRun).toBe(true);
+    }
   });
 });
 

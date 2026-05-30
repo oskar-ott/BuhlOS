@@ -18,6 +18,8 @@ import type {
   MissingLogSchema,
   OverviewJobSchema,
   OverviewUserSchema,
+  PayrollExportSummarySchema,
+  PayrollExportPreviewResponseSchema,
 } from "./schema";
 
 /**
@@ -69,3 +71,7 @@ export type MissingLog = z.infer<typeof MissingLogSchema>;
 export type OverviewJob = z.infer<typeof OverviewJobSchema>;
 
 export type OverviewUser = z.infer<typeof OverviewUserSchema>;
+
+export type PayrollExportSummary = z.infer<typeof PayrollExportSummarySchema>;
+
+export type PayrollExportPreviewResponse = z.infer<typeof PayrollExportPreviewResponseSchema>;

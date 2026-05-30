@@ -144,6 +144,33 @@ export function weekStartOf(date: string): string {
 }
 
 /**
+ * Returns the ISO week-end (Sunday) date string YYYY-MM-DD for the day
+ * containing `date` — i.e. weekStartOf(date) + 6 days. Used by the admin
+ * weekly overview to bound a Mon..Sun range.
+ */
+export function weekEndOf(date: string): string {
+  const monday = weekStartOf(date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(monday)) return date;
+  return addDays(monday, 6);
+}
+
+/**
+ * Shift a YYYY-MM-DD date string by `n` calendar days (negative shifts
+ * backwards). Timezone-independent: the input is a bare calendar date, so we
+ * do UTC-midnight arithmetic and never cross a DST boundary by accident.
+ * Used by the weekly view's prev/next-week navigation.
+ */
+export function addDays(date: string, n: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  const d = new Date(date + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
  * Build a CreateTimeEntryPayload that submits a Standard Day for a single
  * job. The default flow on Phil's My Day uses this directly.
  */

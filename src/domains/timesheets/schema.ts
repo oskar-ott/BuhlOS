@@ -234,6 +234,41 @@ export const TimeEntryOverviewResponseSchema = z.object({
   users: z.array(OverviewUserSchema),
 });
 
+/**
+ * Schemas for GET /api/time-entries-export?dryRun=1&format=json (admin-only
+ * payroll preview). The dry-run never stamps entries, so it's safe to call on
+ * page load to show "what would export this week" before the admin commits to
+ * the real CSV download.
+ *
+ * We model only `range` + `summary` (the numbers the preview card shows) and
+ * ignore the `rows[]` payload — the page never renders individual rows, the
+ * CSV download is the artifact for that. The wire shape mirrors
+ * api/time-entries-export.js `summarise()`.
+ */
+export const PayrollExportSummarySchema = z
+  .object({
+    rowCount: z.number().int().nonnegative(),
+    totalHours: z.number(),
+    totalCostExGst: z.number(),
+    workerCount: z.number().int().nonnegative(),
+    jobCount: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
+export const PayrollExportPreviewResponseSchema = z
+  .object({
+    range: z
+      .object({
+        fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        status: z.string(),
+        dryRun: z.boolean(),
+      })
+      .passthrough(),
+    summary: PayrollExportSummarySchema,
+  })
+  .passthrough();
+
 export const ApiErrorBodySchema = z.object({
   error: z.string(),
 });
