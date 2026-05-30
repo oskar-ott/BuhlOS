@@ -95,6 +95,8 @@ export function isStaffRole(role: unknown): boolean {
  *   access:buhlos        → isAdminRole            (admin tier)
  *   access:phil          → isFieldRole || isLeadingHandRole
  *   jobs:read            → isStaffRole || assigned || (client && own job)
+ *   jobs:create          → exactly 'admin' (POST /api/jobs; narrower than the
+ *                                           admin tier — see canCreateJob)
  *   jobs:write           → canWrite   (admin tier, or LH/field on assigned job)
  *   jobs:manage          → canManageJob (admin tier, or LH on assigned job)
  *   hours:create         → isFieldRole || isLeadingHandRole (own/on-behalf)

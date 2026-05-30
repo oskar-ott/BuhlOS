@@ -4,16 +4,17 @@ import { cookies } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { NewJobForm } from "@/components/admin/NewJobForm";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
-import { canAccessSurface } from "@/lib/auth/permissions";
+import { canCreateJob } from "@/lib/auth/permissions";
 
 export const dynamic = "force-dynamic";
 
 /**
  * /v2/jobs/new — create a job (draft) in the Job Builder.
  *
- * Admin only: POST /api/jobs is admin-gated server-side, and a leading hand
- * can edit a job's structure but not create one. We gate to the admin
- * surface here so a non-admin never sees a form whose submit would 403.
+ * Literal-admin only: POST /api/jobs gates on `me.role !== 'admin'` server-side
+ * — narrower than the admin tier that can edit a job (canManageJob). We gate on
+ * canCreateJob (literal admin) here so a boss/pm never sees a form whose submit
+ * would 403.
  *
  * The form itself (client) creates the draft and routes into
  * /v2/jobs/[jobId]/builder. Middleware also gates the /v2/jobs prefix;
@@ -30,7 +31,7 @@ export default async function NewJobPage() {
   if (!session?.role) {
     redirect("/v2/login?next=/v2/jobs/new");
   }
-  if (!canAccessSurface(session.role, "admin")) {
+  if (!canCreateJob(session.role)) {
     redirect("/v2/jobs");
   }
 

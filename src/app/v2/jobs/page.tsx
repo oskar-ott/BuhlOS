@@ -6,7 +6,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { JobsList } from "@/components/admin/JobsList";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
-import { canAccessSurface } from "@/lib/auth/permissions";
+import { canAccessSurface, canCreateJob } from "@/lib/auth/permissions";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import type { Job } from "@/domains/jobs/types";
 
@@ -50,9 +50,12 @@ export default async function AdminJobsPage() {
   if (!canAccessSurface(session.role, "lh")) {
     redirect("/v2/login");
   }
-  // Only admins create + build jobs (POST /api/jobs is admin-gated). A
-  // leading hand sees the same list but no create/build entry points.
+  // CREATE (POST /api/jobs) is literal-admin only; EDIT/build (PUT) is the
+  // admin tier. The "New job" button uses canCreateJob (literal admin); the
+  // per-row "Build" uses admin-tier access. A leading hand sees the list but
+  // no create/build entry point (the builder is admin-only by design).
   const canBuild = canAccessSurface(session.role, "admin");
+  const canCreate = canCreateJob(session.role);
 
   const { jobs, fetchError } = await loadJobs(raw);
 
@@ -78,7 +81,7 @@ export default async function AdminJobsPage() {
                   ? "No active jobs"
                   : `${visible.length} ${visible.length === 1 ? "job" : "jobs"}`}
               </p>
-              {canBuild ? (
+              {canCreate ? (
                 <Link
                   href="/v2/jobs/new"
                   className="inline-flex items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
