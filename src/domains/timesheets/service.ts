@@ -1,4 +1,4 @@
-import type { TimeEntry, TimeEntryAllocation, TimeEntryStatus } from "./types";
+import type { MissingLog, TimeEntry, TimeEntryAllocation, TimeEntryStatus } from "./types";
 
 /**
  * Pure helpers for the timesheets domain. No I/O, no React, no globals —
@@ -232,4 +232,88 @@ export function primaryJobId(entry: Pick<TimeEntry, "allocations">): string | nu
     if (allocation.jobId) return allocation.jobId;
   }
   return null;
+}
+
+/**
+ * Roll the server's flat `missing` array (one row per worker×weekday with no
+ * entry) into the groupings the UI needs, without re-deriving any detection
+ * logic — the server already decided *who* is missing *when* (assigned crew,
+ * weekdays, past/today, role/job-scoped). This helper only re-shapes that
+ * truth so the command-centre card can say "No hours from N workers" honestly
+ * and the admin weekly surface can list it by worker or by day.
+ *
+ * Returns:
+ *   - total:       missing worker×date cells
+ *   - workerCount: distinct workers with at least one missing day
+ *   - dateCount:   distinct dates with at least one missing worker
+ *   - oldestDate:  earliest missing date (for an "oldest" age label), or null
+ *   - byWorker:    grouped per worker, most-missing first, dates ascending
+ *   - byDate:      grouped per date ascending, workers alphabetical
+ */
+export function summariseMissing(missing: ReadonlyArray<MissingLog>): {
+  total: number;
+  workerCount: number;
+  dateCount: number;
+  oldestDate: string | null;
+  byWorker: Array<{ userId: string; userName: string; role: string | null; dates: string[] }>;
+  byDate: Array<{
+    date: string;
+    workers: Array<{ userId: string; userName: string; role: string | null }>;
+  }>;
+} {
+  const byWorkerMap = new Map<
+    string,
+    { userId: string; userName: string; role: string | null; dates: Set<string> }
+  >();
+  const byDateMap = new Map<
+    string,
+    Map<string, { userId: string; userName: string; role: string | null }>
+  >();
+
+  for (const m of missing) {
+    const role = m.role ?? null;
+
+    let worker = byWorkerMap.get(m.userId);
+    if (!worker) {
+      worker = { userId: m.userId, userName: m.userName, role, dates: new Set() };
+      byWorkerMap.set(m.userId, worker);
+    }
+    worker.dates.add(m.date);
+
+    let dateGroup = byDateMap.get(m.date);
+    if (!dateGroup) {
+      dateGroup = new Map();
+      byDateMap.set(m.date, dateGroup);
+    }
+    if (!dateGroup.has(m.userId)) {
+      dateGroup.set(m.userId, { userId: m.userId, userName: m.userName, role });
+    }
+  }
+
+  const byWorker = Array.from(byWorkerMap.values())
+    .map((w) => ({
+      userId: w.userId,
+      userName: w.userName,
+      role: w.role,
+      dates: Array.from(w.dates).sort(),
+    }))
+    .sort((a, b) => b.dates.length - a.dates.length || a.userName.localeCompare(b.userName));
+
+  const byDate = Array.from(byDateMap.entries())
+    .map(([date, workers]) => ({
+      date,
+      workers: Array.from(workers.values()).sort((a, b) => a.userName.localeCompare(b.userName)),
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const oldestDate = byDate.length > 0 ? byDate[0]!.date : null;
+
+  return {
+    total: missing.length,
+    workerCount: byWorkerMap.size,
+    dateCount: byDateMap.size,
+    oldestDate,
+    byWorker,
+    byDate,
+  };
 }

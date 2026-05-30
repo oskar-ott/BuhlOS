@@ -6,6 +6,7 @@ import {
   RejectTimeEntryPayloadSchema,
   TimeEntryListResponseSchema,
   TimeEntryMutationResponseSchema,
+  TimeEntryOverviewResponseSchema,
 } from "./schema";
 import type {
   ApproveTimeEntryPayload,
@@ -14,6 +15,7 @@ import type {
   RejectTimeEntryPayload,
   TimeEntryListResponse,
   TimeEntryMutationResponse,
+  TimeEntryOverviewResponse,
 } from "./types";
 
 /**
@@ -25,6 +27,7 @@ import type {
  * Endpoints consumed:
  *   GET    /api/time-entries                              → list own entries
  *   GET    /api/time-entries?scope=approver&status=...    → admin/LH queue
+ *   GET    /api/time-entries-overview?fromDate=&toDate=   → admin/LH rollup + missing
  *   POST   /api/time-entries                              → create draft / submit
  *   PATCH  /api/time-entries?date=YYYY-MM-DD              → edit own draft/rejected
  *   POST   /api/time-entries-approve                      → approve a submitted entry
@@ -32,6 +35,7 @@ import type {
  *
  * Cross-ref: docs/rebuild-audit/19-phase-b-hours-implementation-brief.md §API
  *            api/time-entries.js / api/time-entries-approve.js / api/time-entries-reject.js
+ *            api/time-entries-overview.js
  */
 
 interface ListEntriesOptions {
@@ -83,6 +87,37 @@ export function listForApprover(
   const query = buildQuery({ scope: "approver", status });
   return httpGet<TimeEntryListResponse>(`/api/time-entries${query}`, {
     schema: TimeEntryListResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+interface OverviewOptions {
+  /** Single-day view. Ignored when fromDate/toDate are supplied. */
+  date?: string;
+  fromDate?: string;
+  toDate?: string;
+  jobId?: string;
+  userId?: string;
+}
+
+/**
+ * GET /api/time-entries-overview — admin/LH cross-user rollup for a day or a
+ * range. Returns enriched entries, totals (by job/user/date/status), the
+ * server's missing-hours list, and the visible job/user reference data for
+ * filter dropdowns. Server returns 403 for non-staff viewers.
+ */
+export function overview(
+  options: OverviewOptions = {}
+): Promise<HttpResult<TimeEntryOverviewResponse>> {
+  const query = buildQuery({
+    date: options.date,
+    fromDate: options.fromDate,
+    toDate: options.toDate,
+    jobId: options.jobId,
+    userId: options.userId,
+  });
+  return httpGet<TimeEntryOverviewResponse>(`/api/time-entries-overview${query}`, {
+    schema: TimeEntryOverviewResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
   });
 }
@@ -195,6 +230,7 @@ export function rejectEntry(
 export const timesheetsClient = {
   listOwnEntries,
   listForApprover,
+  overview,
   submitNewEntry,
   editOwnEntry,
   approveEntry,

@@ -152,6 +152,88 @@ export const TimeEntryMutationResponseSchema = z.object({
   entry: TimeEntrySchema,
 });
 
+/**
+ * Schemas for GET /api/time-entries-overview (admin/LH cross-user rollup).
+ *
+ * The wire shape mirrors api/time-entries-overview.js verbatim. Totals are
+ * computed server-side by summing *allocation* hours so per-job figures stay
+ * correct when an entry is split across jobs. `missing` is the existing
+ * server-side missing-hours detection (assigned crew, weekdays, past/today).
+ *
+ * `entries` are enriched (userName + per-allocation jobName) but still satisfy
+ * TimeEntrySchema, which is already permissive (`.passthrough()`), so we reuse
+ * it rather than declaring a second entry shape that could drift.
+ */
+export const OverviewByJobSchema = z.object({
+  jobId: z.string().nullable(),
+  jobName: z.string(),
+  hours: z.number(),
+});
+
+export const OverviewByUserSchema = z.object({
+  userId: z.string(),
+  userName: z.string(),
+  role: z.string().nullable(),
+  hours: z.number(),
+});
+
+export const OverviewByDateSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  hours: z.number(),
+  count: z.number().int().nonnegative(),
+});
+
+export const OverviewByStatusSchema = z.object({
+  draft: z.number().int().nonnegative(),
+  submitted: z.number().int().nonnegative(),
+  approved: z.number().int().nonnegative(),
+  rejected: z.number().int().nonnegative(),
+});
+
+export const OverviewTotalsSchema = z.object({
+  totalHours: z.number(),
+  byJob: z.array(OverviewByJobSchema),
+  byUser: z.array(OverviewByUserSchema),
+  byDate: z.array(OverviewByDateSchema),
+  byStatus: OverviewByStatusSchema,
+});
+
+/**
+ * One missing-hours alert: an assigned crew member with no entry of any
+ * status on a given weekday. Field names match the server (`userName`, not
+ * `workerName`).
+ */
+export const MissingLogSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  userId: z.string(),
+  userName: z.string(),
+  role: z.string().nullable().optional(),
+});
+
+export const OverviewJobSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.string(),
+});
+
+export const OverviewUserSchema = z.object({
+  id: z.string(),
+  username: z.string(),
+  role: z.string().nullable().optional(),
+});
+
+export const TimeEntryOverviewResponseSchema = z.object({
+  range: z.object({
+    fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
+  entries: z.array(TimeEntrySchema),
+  totals: OverviewTotalsSchema,
+  missing: z.array(MissingLogSchema),
+  jobs: z.array(OverviewJobSchema),
+  users: z.array(OverviewUserSchema),
+});
+
 export const ApiErrorBodySchema = z.object({
   error: z.string(),
 });

@@ -9,6 +9,15 @@ import type {
   RejectTimeEntryPayloadSchema,
   TimeEntryListResponseSchema,
   TimeEntryMutationResponseSchema,
+  TimeEntryOverviewResponseSchema,
+  OverviewTotalsSchema,
+  OverviewByJobSchema,
+  OverviewByUserSchema,
+  OverviewByDateSchema,
+  OverviewByStatusSchema,
+  MissingLogSchema,
+  OverviewJobSchema,
+  OverviewUserSchema,
 } from "./schema";
 
 /**
@@ -42,3 +51,21 @@ export type RejectTimeEntryPayload = z.infer<typeof RejectTimeEntryPayloadSchema
 export type TimeEntryListResponse = z.infer<typeof TimeEntryListResponseSchema>;
 
 export type TimeEntryMutationResponse = z.infer<typeof TimeEntryMutationResponseSchema>;
+
+export type TimeEntryOverviewResponse = z.infer<typeof TimeEntryOverviewResponseSchema>;
+
+export type OverviewTotals = z.infer<typeof OverviewTotalsSchema>;
+
+export type OverviewByJob = z.infer<typeof OverviewByJobSchema>;
+
+export type OverviewByUser = z.infer<typeof OverviewByUserSchema>;
+
+export type OverviewByDate = z.infer<typeof OverviewByDateSchema>;
+
+export type OverviewByStatus = z.infer<typeof OverviewByStatusSchema>;
+
+export type MissingLog = z.infer<typeof MissingLogSchema>;
+
+export type OverviewJob = z.infer<typeof OverviewJobSchema>;
+
+export type OverviewUser = z.infer<typeof OverviewUserSchema>;

@@ -5,12 +5,14 @@ import {
   RejectTimeEntryPayloadSchema,
   TimeEntryListResponseSchema,
   TimeEntryMutationResponseSchema,
+  TimeEntryOverviewResponseSchema,
   TIME_ENTRY_STATUSES,
 } from "./schema";
 import {
   approveEntry,
   listForApprover,
   listOwnEntries,
+  overview,
   rejectEntry,
   submitNewEntry,
 } from "./client";
@@ -31,6 +33,7 @@ import {
   buildCustomHoursPayload,
   isWithinBackdateWindow,
   primaryJobId,
+  summariseMissing,
 } from "./service";
 import { formatHoursLabel, statusLabel, statusTone, formatDateLabel } from "./format";
 
@@ -374,6 +377,68 @@ describe("primaryJobId()", () => {
   });
 });
 
+describe("summariseMissing()", () => {
+  const missing = [
+    { date: "2026-05-04", userId: "u-1", userName: "Sam", role: "tradie" },
+    { date: "2026-05-05", userId: "u-1", userName: "Sam", role: "tradie" },
+    { date: "2026-05-05", userId: "u-2", userName: "Alex", role: "leadingHand" },
+    { date: "2026-05-06", userId: "u-1", userName: "Sam", role: "tradie" },
+  ];
+
+  it("counts distinct workers and dates, not raw cells", () => {
+    const s = summariseMissing(missing);
+    expect(s.total).toBe(4);
+    expect(s.workerCount).toBe(2);
+    expect(s.dateCount).toBe(3);
+  });
+
+  it("oldestDate is the earliest missing date (for an age label)", () => {
+    expect(summariseMissing(missing).oldestDate).toBe("2026-05-04");
+  });
+
+  it("groups by worker, most-missing first, with sorted dates", () => {
+    const s = summariseMissing(missing);
+    expect(s.byWorker[0]?.userId).toBe("u-1");
+    expect(s.byWorker[0]?.dates).toEqual(["2026-05-04", "2026-05-05", "2026-05-06"]);
+    expect(s.byWorker[1]?.userId).toBe("u-2");
+    expect(s.byWorker[1]?.dates).toEqual(["2026-05-05"]);
+  });
+
+  it("groups by date ascending with workers alphabetical", () => {
+    const s = summariseMissing(missing);
+    expect(s.byDate.map((d) => d.date)).toEqual(["2026-05-04", "2026-05-05", "2026-05-06"]);
+    const may5 = s.byDate.find((d) => d.date === "2026-05-05");
+    expect(may5?.workers.map((w) => w.userName)).toEqual(["Alex", "Sam"]);
+  });
+
+  it("dedupes a repeated worker on the same date", () => {
+    const dup = [
+      { date: "2026-05-04", userId: "u-1", userName: "Sam", role: "tradie" },
+      { date: "2026-05-04", userId: "u-1", userName: "Sam", role: "tradie" },
+    ];
+    const s = summariseMissing(dup);
+    expect(s.workerCount).toBe(1);
+    expect(s.byDate[0]?.workers).toHaveLength(1);
+  });
+
+  it("returns an empty, zeroed summary for no missing logs", () => {
+    const s = summariseMissing([]);
+    expect(s).toEqual({
+      total: 0,
+      workerCount: 0,
+      dateCount: 0,
+      oldestDate: null,
+      byWorker: [],
+      byDate: [],
+    });
+  });
+
+  it("tolerates a missing role (optional field)", () => {
+    const s = summariseMissing([{ date: "2026-05-04", userId: "u-1", userName: "Sam" }]);
+    expect(s.byWorker[0]?.role).toBeNull();
+  });
+});
+
 describe("response schemas", () => {
   it("parses a server entry list response", () => {
     const list = {
@@ -424,6 +489,62 @@ describe("response schemas", () => {
       expect(r.data.entry.rejectedReason).toBe("Wrong job allocation");
       expect(r.data.entry.status).toBe("rejected");
     }
+  });
+
+  it("parses an overview response with totals + missing logs", () => {
+    const body = {
+      range: { fromDate: "2026-05-04", toDate: "2026-05-08" },
+      entries: [
+        {
+          id: "e-1",
+          userId: "u-1",
+          userName: "Sam",
+          userRole: "tradie",
+          date: "2026-05-04",
+          totalHours: 7.6,
+          ordinaryHours: 7.6,
+          overtimeHours: 0,
+          status: "submitted" as const,
+          allocations: [{ jobId: "j-1", hours: 7.6, jobName: "100 Arthur St" }],
+          createdAt: "2026-05-04T08:00:00Z",
+          updatedAt: "2026-05-04T08:00:00Z",
+        },
+      ],
+      totals: {
+        totalHours: 7.6,
+        byJob: [{ jobId: "j-1", jobName: "100 Arthur St", hours: 7.6 }],
+        byUser: [{ userId: "u-1", userName: "Sam", role: "tradie", hours: 7.6 }],
+        byDate: [{ date: "2026-05-04", hours: 7.6, count: 1 }],
+        byStatus: { draft: 0, submitted: 1, approved: 0, rejected: 0 },
+      },
+      missing: [{ date: "2026-05-05", userId: "u-2", userName: "Alex", role: "leadingHand" }],
+      jobs: [{ id: "j-1", name: "100 Arthur St", status: "active" }],
+      users: [{ id: "u-1", username: "Sam", role: "tradie" }],
+    };
+    const r = TimeEntryOverviewResponseSchema.safeParse(body);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.totals.byStatus.submitted).toBe(1);
+      expect(r.data.missing[0]?.userName).toBe("Alex");
+    }
+  });
+
+  it("accepts an internal (null jobId) row in byJob totals", () => {
+    const body = {
+      range: { fromDate: "2026-05-04", toDate: "2026-05-04" },
+      entries: [],
+      totals: {
+        totalHours: 2,
+        byJob: [{ jobId: null, jobName: "Internal (no job)", hours: 2 }],
+        byUser: [],
+        byDate: [],
+        byStatus: { draft: 0, submitted: 0, approved: 0, rejected: 0 },
+      },
+      missing: [],
+      jobs: [],
+      users: [],
+    };
+    expect(TimeEntryOverviewResponseSchema.safeParse(body).success).toBe(true);
   });
 });
 
@@ -548,6 +669,44 @@ describe("timesheets client wrappers", () => {
     const call = fetchSpy.mock.calls[0] as unknown as [string, RequestInit | undefined];
     expect(call[0]).toContain("scope=approver");
     expect(call[0]).toContain("status=submitted");
+  });
+
+  it("overview forwards range + filter params and parses the rollup", async () => {
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            range: { fromDate: "2026-05-04", toDate: "2026-05-08" },
+            entries: [],
+            totals: {
+              totalHours: 0,
+              byJob: [],
+              byUser: [],
+              byDate: [],
+              byStatus: { draft: 0, submitted: 0, approved: 0, rejected: 0 },
+            },
+            missing: [],
+            jobs: [],
+            users: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    );
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    const r = await overview({ fromDate: "2026-05-04", toDate: "2026-05-08", jobId: "j-1" });
+    expect(r.ok).toBe(true);
+    const call = fetchSpy.mock.calls[0] as unknown as [string, RequestInit | undefined];
+    expect(call[0]).toContain("/api/time-entries-overview");
+    expect(call[0]).toContain("fromDate=2026-05-04");
+    expect(call[0]).toContain("toDate=2026-05-08");
+    expect(call[0]).toContain("jobId=j-1");
+  });
+
+  it("overview returns ok:false on 403 for a non-staff viewer (no throw)", async () => {
+    mockFetch({ status: 403, body: { error: "forbidden" } });
+    const r = await overview({ date: "2026-05-04" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.status).toBe(403);
   });
 
   it("approveEntry sends userId + date and returns the updated entry", async () => {
