@@ -1,12 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import {
   AlertTriangle,
   ArrowRightLeft,
   CheckCircle2,
   Inbox,
   MapPin,
+  Package,
   Paperclip,
   UserCheck,
 } from "lucide-react";
@@ -50,6 +53,14 @@ interface Props {
   initialObservations: ReadonlyArray<ObservationItem>;
   fetchError: string | null;
   viewer: { id: string; name: string; role: string };
+  /** PR 8: when false, hide the triage/priority/resolve/convert sections — the
+   *  viewer can SEE observations but not act on them (e.g. a leading hand on a
+   *  job-scoped view; only admin-tier can mutate per the API gate). Default true
+   *  for the cross-job /observations inbox which is admin-tier-gated at middleware. */
+  actionsEnabled?: boolean;
+  /** Show the "Job" filter dropdown. Off for the job-scoped view (only one job
+   *  appears so the dropdown adds nothing). Default true. */
+  showJobFilter?: boolean;
 }
 
 interface Filters {
@@ -62,15 +73,26 @@ interface Filters {
 
 const EMPTY_FILTERS: Filters = { status: "", type: "", priority: "", jobId: "", source: "" };
 
-/** Conversion targets the office can flag intent for. The downstream modules
- *  (RFI/Variation/Material Request) aren't built — converting records intent
- *  and moves the row to "Converted", honestly labelled "module coming". */
-const CONVERT_OPTIONS: ReadonlyArray<ObservationConvertTarget> = [
+/** Intent-only conversion targets — the downstream modules (RFI / Variation /
+ *  Material Request) aren't built yet, so these buttons record the office
+ *  decision and move the row to "Converted" with an honest "module coming"
+ *  label. The Snag conversion is REAL (PR 6) and has its own button + handler.
+ *  `defect` is intentionally not here — it overlaps with the real Snag target.
+ */
+const INTENT_CONVERT_OPTIONS: ReadonlyArray<ObservationConvertTarget> = [
+  // PR 11 promoted material_request to a REAL conversion target — own
+  // section + own handler below. RFI and Variation remain intent-only.
   "rfi",
   "variation",
-  "defect",
-  "material_request",
 ];
+
+/** Types that auto-promote to a Snag without a force flag (mirror of
+ *  CONVERT_TO_SNAG_DEFAULT_TYPES in api/observations.js). */
+const SNAG_ELIGIBLE_TYPES = new Set(["defect", "safety", "blocker"]);
+
+/** Observation type that auto-promotes to a Material Request without a
+ *  force flag (mirror of the api/observations.js convert handler). */
+const MATERIAL_REQUEST_ELIGIBLE_TYPES = new Set(["material_request"]);
 
 /**
  * BuhlOS Observations Inbox — the office triage surface for field-to-office
@@ -82,7 +104,13 @@ const CONVERT_OPTIONS: ReadonlyArray<ObservationConvertTarget> = [
  * mutations (status, priority, assign-to-me, resolution note, conversion
  * intent) via PATCH /api/observations.
  */
-export function ObservationsInbox({ initialObservations, fetchError, viewer }: Props) {
+export function ObservationsInbox({
+  initialObservations,
+  fetchError,
+  viewer,
+  actionsEnabled = true,
+  showJobFilter = true,
+}: Props) {
   const [observations, setObservations] = useState<ReadonlyArray<ObservationItem>>(
     initialObservations
   );
@@ -143,6 +171,73 @@ export function ObservationsInbox({ initialObservations, fetchError, viewer }: P
     setBanner({ tone: "success", message: "Updated." });
   }
 
+  /** PR 6: real Snag conversion. Calls POST /api/observations?action=convert-to-snag
+   *  which creates a Snag on the job and links it back; the response is the
+   *  updated observation (with linkedSnagId + status='converted') + the snag. */
+  async function convertToSnag(id: string, force = false) {
+    setBusy(true);
+    setBanner(null);
+    const r = await observationsClient.convertObservationToSnag({ id, force });
+    setBusy(false);
+    if (!r.ok) {
+      const conflictAlready = r.error.status === 409;
+      setBanner({
+        tone: "danger",
+        message: conflictAlready
+          ? "Already converted to a snag."
+          : r.error.status === 0
+            ? "Couldn't reach the server. Check your connection and try again."
+            : `Convert to Snag failed (${r.error.status}).`,
+      });
+      return;
+    }
+    const updated = r.data.observation;
+    setObservations((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+    setBanner({
+      tone: "success",
+      message: `Converted — snag created on ${updated.jobName || updated.jobId}.`,
+    });
+  }
+
+  /** PR 11: real Material Request conversion. Calls POST /api/observations?
+   *  action=convert-to-material-request with the office-supplied item/qty/unit
+   *  triple. Response is the updated observation (linkedMaterialRequestId,
+   *  convertedTo='material_request', status='converted') + the new request. */
+  async function convertToMaterialRequest(
+    id: string,
+    fields: { item: string; quantity: number; unit: string; urgency?: ObservationPriority; force?: boolean }
+  ) {
+    setBusy(true);
+    setBanner(null);
+    const r = await observationsClient.convertObservationToMaterialRequest({
+      id,
+      item: fields.item,
+      quantity: fields.quantity,
+      unit: fields.unit,
+      urgency: fields.urgency,
+      force: fields.force,
+    });
+    setBusy(false);
+    if (!r.ok) {
+      const conflictAlready = r.error.status === 409;
+      setBanner({
+        tone: "danger",
+        message: conflictAlready
+          ? "Already converted."
+          : r.error.status === 0
+            ? "Couldn't reach the server. Check your connection and try again."
+            : `Convert to Material Request failed (${r.error.status}).`,
+      });
+      return;
+    }
+    const updated = r.data.observation;
+    setObservations((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+    setBanner({
+      tone: "success",
+      message: `Converted — material request created on ${updated.jobName || updated.jobId}.`,
+    });
+  }
+
   return (
     <div className="space-y-5">
       {fetchError ? (
@@ -198,12 +293,14 @@ export function ObservationsInbox({ initialObservations, fetchError, viewer }: P
           onChange={(v) => setFilters((f) => ({ ...f, priority: v as ObservationPriority | "" }))}
           options={OBSERVATION_PRIORITIES.map((p) => ({ value: p, label: priorityLabel(p) }))}
         />
-        <FilterSelect
-          label="Job"
-          value={filters.jobId}
-          onChange={(v) => setFilters((f) => ({ ...f, jobId: v }))}
-          options={jobOptions.map((j) => ({ value: j.id, label: j.name }))}
-        />
+        {showJobFilter ? (
+          <FilterSelect
+            label="Job"
+            value={filters.jobId}
+            onChange={(v) => setFilters((f) => ({ ...f, jobId: v }))}
+            options={jobOptions.map((j) => ({ value: j.id, label: j.name }))}
+          />
+        ) : null}
         <FilterSelect
           label="Source"
           value={filters.source}
@@ -254,6 +351,7 @@ export function ObservationsInbox({ initialObservations, fetchError, viewer }: P
         observation={selected}
         viewer={viewer}
         busy={busy}
+        actionsEnabled={actionsEnabled}
         resolutionNote={resolutionNote}
         onResolutionNoteChange={setResolutionNote}
         onClose={() => {
@@ -261,6 +359,8 @@ export function ObservationsInbox({ initialObservations, fetchError, viewer }: P
           setResolutionNote("");
         }}
         onApply={apply}
+        onConvertToSnag={convertToSnag}
+        onConvertToMaterialRequest={convertToMaterialRequest}
       />
     </div>
   );
@@ -388,6 +488,9 @@ function ObservationDrawer({
   onResolutionNoteChange,
   onClose,
   onApply,
+  onConvertToSnag,
+  onConvertToMaterialRequest,
+  actionsEnabled,
 }: {
   observation: ObservationItem | null;
   viewer: { id: string; name: string; role: string };
@@ -396,6 +499,14 @@ function ObservationDrawer({
   onResolutionNoteChange: (v: string) => void;
   onClose: () => void;
   onApply: (id: string, patch: Omit<UpdateObservationPayload, "id">) => void;
+  onConvertToSnag: (id: string, force?: boolean) => void;
+  onConvertToMaterialRequest: (
+    id: string,
+    fields: { item: string; quantity: number; unit: string; urgency?: ObservationPriority; force?: boolean }
+  ) => void;
+  /** PR 8: when false, render only the read-only details (no triage / priority /
+   *  resolve / convert sections). */
+  actionsEnabled: boolean;
 }) {
   if (!o) return null;
   const assignedToMe = o.assignedToId === viewer.id;
@@ -448,7 +559,19 @@ function ObservationDrawer({
           <DetailRow label="Source" value={sourceLabel(o.source)} />
           {o.assignedToName ? <DetailRow label="Assigned" value={o.assignedToName} /> : null}
           {o.linkedEvidenceId ? <DetailRow label="Linked evidence" value={o.linkedEvidenceId} /> : null}
-          {o.linkedSnagId ? <DetailRow label="Linked snag" value={o.linkedSnagId} /> : null}
+          {o.linkedSnagId ? (
+            <div className="flex gap-2">
+              <dt className="w-28 shrink-0 text-text-muted">Linked snag</dt>
+              <dd className="min-w-0 flex-1 text-text">
+                <Link
+                  href={`/v2/jobs/${o.jobId}/snags` as Route}
+                  className="underline decoration-accent-yellow decoration-2 underline-offset-2"
+                >
+                  {o.linkedSnagId} →
+                </Link>
+              </dd>
+            </div>
+          ) : null}
           {o.photoUrls.length > 0 ? <DetailRow label="Photos" value={`${o.photoUrls.length} attached`} /> : null}
           {o.resolutionNote ? <DetailRow label="Resolution" value={o.resolutionNote} /> : null}
           {o.convertedTo ? (
@@ -456,6 +579,21 @@ function ObservationDrawer({
           ) : null}
         </dl>
 
+        {!actionsEnabled ? (
+          <p className="rounded-card border border-dashed border-border bg-surface-subtle px-3 py-2 text-xs text-text-muted">
+            Read-only view. Triage and conversion live on the
+            <Link
+              href={"/observations" as Route}
+              className="ml-1 underline decoration-accent-yellow decoration-2 underline-offset-2"
+            >
+              Observations inbox
+            </Link>
+            {" "}(admin-only).
+          </p>
+        ) : null}
+
+        {actionsEnabled ? (
+        <>
         {/* Triage actions */}
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">Triage</h3>
@@ -533,23 +671,79 @@ function ObservationDrawer({
           </Button>
         </section>
 
-        {/* Convert (intent only) */}
+        {/* Convert to Snag — REAL (PR 6) */}
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-            Convert
+            Convert to Snag
+          </h3>
+          {o.linkedSnagId ? (
+            <p className="text-xs text-text-muted">
+              Already linked to a snag — see the Linked snag row above.
+            </p>
+          ) : SNAG_ELIGIBLE_TYPES.has(o.type) ? (
+            <>
+              <p className="text-xs text-text-muted">
+                Creates a real Snag on this job (status <em>open</em>), links it back to this
+                observation, and moves it to <em>Converted</em>. The snag follows the normal
+                open → in_progress → resolved → verified → closed workflow.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                disabled={busy}
+                onClick={() => onConvertToSnag(o.id, false)}
+              >
+                <ArrowRightLeft aria-hidden="true" className="h-4 w-4" />
+                Create snag from this observation
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-text-muted">
+                This is a <em>{typeLabel(o.type).toLowerCase()}</em> — not a default Snag target
+                (the Snag workflow fits <em>defect / safety / blocker</em>). Force-convert anyway
+                if you&rsquo;ve decided to track it as a Snag.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => onConvertToSnag(o.id, true)}
+              >
+                <ArrowRightLeft aria-hidden="true" className="h-4 w-4" />
+                Force-convert to Snag
+              </Button>
+            </>
+          )}
+        </section>
+
+        {/* Convert to Material Request — REAL (PR 11) */}
+        <MaterialRequestConvertSection
+          observation={o}
+          busy={busy}
+          onConvertToMaterialRequest={onConvertToMaterialRequest}
+        />
+
+        {/* Record other conversion intent — RFI / Variation modules are still
+            UC. These buttons record the office decision honestly. */}
+        <section className="space-y-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+            Record other intent
           </h3>
           <p className="text-xs text-text-muted">
-            Records intent and moves this to <em>Converted</em>. The RFI / Variation / Material
-            Request modules are coming next — no downstream record is created yet.
+            Moves this to <em>Converted</em> with an intent tag. The RFI and Variation modules
+            are coming next — no downstream record is created yet.
           </p>
           <div className="flex flex-wrap gap-2">
-            {CONVERT_OPTIONS.map((t) => (
+            {INTENT_CONVERT_OPTIONS.map((t) => (
               <Button
                 key={t}
                 type="button"
                 size="sm"
                 variant={o.convertedTo === t ? "primary" : "ghost"}
-                disabled={busy || o.convertedTo === t}
+                disabled={busy || o.convertedTo === t || !!o.linkedSnagId}
                 onClick={() => onApply(o.id, { convertedTo: t })}
               >
                 <ArrowRightLeft aria-hidden="true" className="h-4 w-4" />
@@ -558,6 +752,8 @@ function ObservationDrawer({
             ))}
           </div>
         </section>
+        </>
+        ) : null}
       </div>
     </Drawer>
   );
@@ -569,5 +765,203 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       <dt className="w-28 shrink-0 text-text-muted">{label}</dt>
       <dd className="min-w-0 flex-1 text-text">{value}</dd>
     </div>
+  );
+}
+
+/**
+ * PR 11 — Convert-to-Material-Request drawer section.
+ *
+ * Sister to the inline "Convert to Snag" block above. The office supplies a
+ * structured line item (item + quantity + unit + urgency) because observation
+ * titles rarely carry enough structure to act as a procurement record by
+ * themselves ("conduit short" needs to become "25mm conduit · 20 · m").
+ *
+ * Eligibility mirrors api/observations.js: `material_request` type auto-
+ * promotes (primary CTA); other types need a force flag (secondary CTA with
+ * a short rationale). When the observation is already linked to a material
+ * request we show the link to the inbox instead of the form; when it's
+ * already linked to a snag we surface that fact and hide the form (the
+ * office picked a different downstream — clear the snag link first if they
+ * want procurement to take over).
+ *
+ * State is local to the section so opening the drawer doesn't pollute the
+ * parent until the user actually submits. The parent owns the network call
+ * + the audit/banner side-effects.
+ */
+function MaterialRequestConvertSection({
+  observation: o,
+  busy,
+  onConvertToMaterialRequest,
+}: {
+  observation: ObservationItem;
+  busy: boolean;
+  onConvertToMaterialRequest: (
+    id: string,
+    fields: {
+      item: string;
+      quantity: number;
+      unit: string;
+      urgency?: ObservationPriority;
+      force?: boolean;
+    }
+  ) => void;
+}) {
+  // Seed the item from the observation title — usually a decent starting
+  // point ("Need 25mm conduit"), the office trims/edits when not.
+  const [item, setItem] = useState(o.title.slice(0, 120));
+  const [quantity, setQuantity] = useState<string>("");
+  const [unit, setUnit] = useState<string>("");
+  const [urgency, setUrgency] = useState<ObservationPriority>(o.priority);
+
+  const linkedMr = !!o.linkedMaterialRequestId;
+  const linkedSnag = !!o.linkedSnagId;
+  const eligible = MATERIAL_REQUEST_ELIGIBLE_TYPES.has(o.type);
+
+  const qtyNum = Number(quantity);
+  const valid =
+    item.trim().length > 0 &&
+    unit.trim().length > 0 &&
+    Number.isFinite(qtyNum) &&
+    qtyNum > 0;
+
+  function submit(force: boolean) {
+    if (!valid) return;
+    onConvertToMaterialRequest(o.id, {
+      item: item.trim(),
+      quantity: qtyNum,
+      unit: unit.trim(),
+      urgency,
+      ...(force ? { force: true } : {}),
+    });
+  }
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+        Convert to Material Request
+      </h3>
+      {linkedMr ? (
+        <p className="text-xs text-text-muted">
+          Already converted to a material request &mdash; see the
+          <Link
+            href={"/material-requests" as Route}
+            className="ml-1 underline decoration-accent-yellow decoration-2 underline-offset-2"
+          >
+            Material requests inbox
+          </Link>
+          {o.linkedMaterialRequestId ? ` (${o.linkedMaterialRequestId}).` : "."}
+        </p>
+      ) : linkedSnag ? (
+        <p className="text-xs text-text-muted">
+          Already linked to a snag &mdash; clear that link first if procurement
+          should take over instead.
+        </p>
+      ) : (
+        <>
+          <p className="text-xs text-text-muted">
+            {eligible ? (
+              <>
+                Creates a tracked procurement request on this job (status{" "}
+                <em>requested</em>), links it back to this observation, and
+                moves this to <em>Converted</em>. Procurement clears it through
+                approved &rarr; ordered &rarr; delivered.
+              </>
+            ) : (
+              <>
+                This is a <em>{typeLabel(o.type).toLowerCase()}</em> &mdash; not
+                a default Material Request target (the request workflow fits{" "}
+                <em>material_request</em>). Force-convert anyway if the office
+                has decided to track it as a procurement request.
+              </>
+            )}
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_1fr_1fr]">
+            <label className="flex flex-col gap-1 text-xs text-text-muted">
+              <span className="uppercase tracking-wider">Item</span>
+              <input
+                type="text"
+                value={item}
+                onChange={(e) => setItem(e.target.value)}
+                placeholder="25mm conduit"
+                disabled={busy}
+                maxLength={200}
+                className="rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-text-muted">
+              <span className="uppercase tracking-wider">Quantity</span>
+              <input
+                type="number"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                placeholder="20"
+                min={0}
+                step="any"
+                inputMode="decimal"
+                disabled={busy}
+                className="rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-text-muted">
+              <span className="uppercase tracking-wider">Unit</span>
+              <input
+                type="text"
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+                placeholder="m"
+                disabled={busy}
+                list="mr-unit-suggestions"
+                maxLength={24}
+                className="rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text"
+              />
+              <datalist id="mr-unit-suggestions">
+                <option value="m" />
+                <option value="mm" />
+                <option value="ea" />
+                <option value="box" />
+                <option value="roll" />
+                <option value="kg" />
+                <option value="L" />
+                <option value="pack" />
+              </datalist>
+            </label>
+          </div>
+          <label className="flex flex-col gap-1 text-xs text-text-muted">
+            <span className="uppercase tracking-wider">Urgency</span>
+            <select
+              value={urgency}
+              onChange={(e) =>
+                setUrgency(e.target.value as ObservationPriority)
+              }
+              disabled={busy}
+              className="w-full rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text sm:w-40"
+            >
+              {OBSERVATION_PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {priorityLabel(p)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            type="button"
+            size="sm"
+            variant={eligible ? "primary" : "secondary"}
+            disabled={busy || !valid}
+            onClick={() => submit(!eligible)}
+          >
+            <Package aria-hidden="true" className="h-4 w-4" />
+            {eligible
+              ? "Create material request"
+              : "Force-convert to Material Request"}
+          </Button>
+          {!valid ? (
+            <p className="text-[11px] text-text-muted">
+              Item, quantity (&gt; 0) and unit are required.
+            </p>
+          ) : null}
+        </>
+      )}
+    </section>
   );
 }

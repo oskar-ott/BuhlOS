@@ -53,6 +53,7 @@ const APPROVED_ADMIN_HREFS = new Set([
   '/gear',
   '/employees',
   '/observations', // PR 3 — cross-job field-to-office observations inbox
+  '/material-requests', // PR 11 — cross-job procurement inbox
   '/v2/jobs', // transitional — live admin Jobs index; -> /admin/jobs later
 ]);
 const APPROVED_PHIL_HREFS = new Set([
@@ -85,6 +86,7 @@ const REQUIRED_SOURCES = [
   'src/app/(admin)/gear/page.tsx',
   'src/app/(admin)/employees/page.tsx',
   'src/app/(admin)/observations/page.tsx',
+  'src/app/(admin)/material-requests/page.tsx',
   'src/app/v2/jobs/page.tsx',
   'src/app/v2/jobs/[jobId]/page.tsx',
   'src/app/phil/my-day/page.tsx',

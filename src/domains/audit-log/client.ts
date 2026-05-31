@@ -27,7 +27,7 @@ import type { AuditLogEntry, AuditLogListResponse } from "./types";
  */
 export function listAuditForTarget(args: {
   jobId: string;
-  targetType: "evidence" | "snag" | "itp_template" | "itp_instance";
+  targetType: "evidence" | "snag" | "itp_template" | "itp_instance" | "observation" | "material_request";
   targetId: string;
   months?: number;
 }): Promise<HttpResult<AuditLogListResponse>> {
@@ -45,8 +45,38 @@ export function listAuditForTarget(args: {
   });
 }
 
+/**
+ * GET /api/audit-log?jobId=X&scope=job&months=N&types=evidence,snag,…
+ *
+ * PR 9 per-job activity feed: every audit entry attributed to the job, not
+ * just for one target. Admin/LH only; clients + field workers are 403'd by
+ * the API. Optionally filter the targetType set via `types` (e.g. only
+ * evidence + snag). Server caps `months` at 12, default 2. Returns
+ * newest-first.
+ */
+export function listJobActivity(args: {
+  jobId: string;
+  months?: number;
+  types?: ReadonlyArray<
+    "evidence" | "snag" | "itp_instance" | "itp_template" | "observation" | "material_request"
+  >;
+}): Promise<HttpResult<AuditLogListResponse>> {
+  const params = new URLSearchParams({ jobId: args.jobId, scope: "job" });
+  if (typeof args.months === "number" && Number.isFinite(args.months)) {
+    params.set("months", String(Math.max(1, Math.floor(args.months))));
+  }
+  if (args.types && args.types.length > 0) {
+    params.set("types", args.types.join(","));
+  }
+  return httpGet<AuditLogListResponse>(`/api/audit-log?${params.toString()}`, {
+    schema: AuditLogListResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
 export const auditLogClient = {
   listAuditForTarget,
+  listJobActivity,
   sortNewestFirst,
   entriesForTarget,
   monthBucket,

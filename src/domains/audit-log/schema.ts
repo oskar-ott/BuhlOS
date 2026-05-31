@@ -70,6 +70,25 @@ export const AUDIT_ACTIONS = [
   "invite.opened",
   "invite.accepted",
   "employee.activated",
+  // PR 6: observation triage conversion to a real snag. The snag itself also
+  // emits snag.created in the same write path. Kept in sync with
+  // api/_lib/audit-log.js VALID_ACTIONS.
+  "observation.converted_to_snag",
+  // PR 10: observation lifecycle verbs. observation.created emits on POST
+  // /api/observations; observation.transitioned emits on PATCH when status,
+  // priority, or assignedToId changes (metadata.changedFields lists them;
+  // metadata.from/to capture status flips so a timeline reads as English).
+  "observation.created",
+  "observation.transitioned",
+  // PR 11: Material Request module. material_request.created emits on POST
+  // /api/material-requests and on the convert-from-observation action.
+  // material_request.transitioned emits on PATCH whenever status / urgency /
+  // supplier / orderRef / approvedById / cancellation fields change.
+  // observation.converted_to_material_request mirrors PR 6's snag conversion
+  // verb — emitted by the convert action attributing the office decision.
+  "material_request.created",
+  "material_request.transitioned",
+  "observation.converted_to_material_request",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -81,6 +100,10 @@ export const AUDIT_TARGET_TYPES = [
   // Onboarding (O1).
   "employee",
   "invite",
+  // PR 6: observations as audit targets.
+  "observation",
+  // PR 11: Material Request module.
+  "material_request",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

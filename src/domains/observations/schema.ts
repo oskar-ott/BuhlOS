@@ -127,6 +127,11 @@ export const ObservationItemSchema = z
     // Links to existing field records on the same job (never replaces them).
     linkedEvidenceId: z.string().nullable().optional(),
     linkedSnagId: z.string().nullable().optional(),
+    /** PR 11: set when the observation has been converted to a real Material
+     *  Request via POST /api/observations?action=convert-to-material-request.
+     *  The same observation cannot also be linked to a Snag (the API rejects
+     *  a second convert with 409 if `convertedTo` is already set). */
+    linkedMaterialRequestId: z.string().nullable().optional(),
     photoUrls: z.array(z.string()),
 
     // Actor stamps. Worker/admin creates → office triages/resolves.
@@ -264,4 +269,23 @@ export const ObservationListResponseSchema = z.object({
  *  item so the client skips a Blob read-after-write round-trip. */
 export const ObservationMutationResponseSchema = z.object({
   observation: ObservationItemSchema,
+});
+
+/** PR 6: POST /api/observations?action=convert-to-snag response — returns the
+ *  updated observation AND the newly-created Snag. The snag is left as a
+ *  passthrough object so this schema doesn't couple to the snags domain (only
+ *  `id` is contractually required for the inbox UI to link to /v2/jobs/<id>/snags). */
+export const ObservationConvertToSnagResponseSchema = z.object({
+  observation: ObservationItemSchema,
+  snag: z.object({ id: z.string() }).passthrough(),
+});
+
+/** PR 11: POST /api/observations?action=convert-to-material-request response —
+ *  returns the updated observation AND the newly-created Material Request. The
+ *  material request is left as a passthrough object so this schema doesn't
+ *  couple to the material-requests domain (only `id` is contractually required
+ *  for the inbox UI to link to /material-requests). */
+export const ObservationConvertToMaterialRequestResponseSchema = z.object({
+  observation: ObservationItemSchema,
+  materialRequest: z.object({ id: z.string() }).passthrough(),
 });

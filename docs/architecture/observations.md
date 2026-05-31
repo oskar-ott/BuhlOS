@@ -1,8 +1,13 @@
 # Observations — the field-to-office loop (PR 3 / PR 4)
 
-> Status: **v1 foundation, live.** Conversion to RFI / Variation / Material
-> Request records **intent only** — those downstream modules are not built yet
-> and the UI says so. Nothing here fakes a record.
+> Status: **v1 foundation + PR 6 Snag conversion + PR 11 Material Request
+> conversion, live.** Conversion to Snag is **real** (PR 6): a `defect` /
+> `safety` / `blocker` observation can be promoted to a tracked Snag with one
+> click. Conversion to Material Request is **real** (PR 11): a
+> `material_request` observation can be promoted to a tracked procurement
+> request with one click (other types via `force=true`). Conversion to RFI /
+> Variation still records **intent only** — those downstream modules are not
+> built yet and the UI says so. Nothing here fakes a record.
 
 ## 1. What an observation is
 
@@ -20,8 +25,9 @@ to Level 1", "Extra GPO requested by client", "Safety issue near switchboard",
 | Concept | What it is | Lifecycle | Relationship to Observation |
 | --- | --- | --- | --- |
 | **Evidence** (`src/domains/evidence`) | A photo / note that proves work or records a condition. | `submitted → reviewed / rejected` | An observation **may link** to an evidence row (`linkedEvidenceId`); evidence review is unchanged. Photo capture is still the Evidence flow — the Phil chooser offers it as the prominent first option. |
-| **Snag** (`src/domains/snags`) | A specific quality defect with a verify/close lifecycle. | `open → in_progress → resolved → verified → closed` (+ rejected) | An observation can be typed `defect` and **may link** to a snag (`linkedSnagId`). It does **not** auto-create a snag in v1 — "convert to Defect/Snag" records intent (see §5). |
-| **RFI / Variation / Material Request** | Formal office workflows (question, commercial change, procurement). | not built | An observation can be typed `rfi` / `variation` / `material_request` and flagged for conversion. **Conversion is intent-only in v1** — no pricing, approval, or procurement record is created. |
+| **Snag** (`src/domains/snags`) | A specific quality defect with a verify/close lifecycle. | `open → in_progress → resolved → verified → closed` (+ rejected) | PR 6: an observation typed `defect` / `safety` / `blocker` (or any type with `force=true`) **auto-converts to a real Snag** via `POST /api/observations?action=convert-to-snag`. The observation gets `linkedSnagId` + `convertedTo='snag'`. See §5. |
+| **Material Request** (`src/domains/material-requests`) | Field-to-office procurement record: item · qty · unit · status (requested → approved → ordered → delivered, plus cancelled). | PR 11 — built | An observation typed `material_request` (or any type with `force=true`) **auto-converts to a real Material Request** via `POST /api/observations?action=convert-to-material-request`. The observation gets `linkedMaterialRequestId` + `convertedTo='material_request'`. See §5 and [material-requests.md](./material-requests.md). |
+| **RFI / Variation** | Formal office workflows (question, commercial change). | not built | An observation can be typed `rfi` / `variation` and flagged for conversion. **Conversion is intent-only in v1** — no downstream record is created. |
 | **Job history** | The audit trail of what happened on a job. | — | Observations are job-linked and filterable today; a full job-history timeline is a later slice. |
 
 **Rule of thumb:** Evidence *proves*, a Snag *tracks a defect to closure*, an
@@ -93,14 +99,57 @@ source), and a detail drawer with triage (needs-action / in-review / record-only
 priority, assign-to-me, resolve + note, and **conversion-intent** buttons. A
 "Observations to action" card also lands on the Command Centre.
 
-## 5. Conversion is intent-only (v1)
+## 5. Conversion — Snag (PR 6) and Material Request (PR 11) are real; RFI / Variation still intent-only
 
-"Convert to RFI / Variation / Defect / Material Request" sets `convertedTo`,
-stamps the actor, and moves the observation to `converted`. **No downstream
-record is created** — the inbox labels it "module coming". This is the honest
-v1: it captures the office decision without faking an RFI/Variation/procurement
-system. Building those modules (and real Snag creation from a `defect`
-observation) is the next slice.
+The inbox drawer now has **three** conversion sections:
+
+- **Convert to Snag — REAL (PR 6).** `POST /api/observations?action=convert-to-snag`
+  creates an actual `SnagItem` on `jobs/<jobId>/data.json` (`snagsV2[]`) and
+  links it back to the observation in the same write path:
+  `linkedSnagId = snag.id`, `convertedTo = 'snag'`, `convertedTargetId = snag.id`,
+  `status = 'converted'`, `convertedAt/By` stamped. The snag follows the normal
+  open → in_progress → resolved → verified → closed lifecycle from there.
+  Mapping rules + write order are documented in the handler comment of
+  `api/observations.js#convertObservationToSnag`. **Defaults to types**
+  `defect / safety / blocker`; other types require `{"force": true}` so the
+  office acknowledges they're stretching the Snag workflow.
+
+- **Convert to Material Request — REAL (PR 11).**
+  `POST /api/observations?action=convert-to-material-request` creates an actual
+  `MaterialRequestItem` on the top-level `material-requests.json` blob and
+  links it back: `linkedMaterialRequestId = mr.id`, `convertedTo =
+  'material_request'`, `convertedTargetId = mr.id`, `status = 'converted'`,
+  `convertedAt/By` stamped. The office types in `item` + `quantity` + `unit`
+  during conversion (observation titles rarely carry enough structure to be a
+  procurement line on their own). The new request lands in
+  `/material-requests` at status `requested`. **Default-eligible type:**
+  `material_request`; other types need `{"force": true}`. An observation
+  already converted to a Snag (or anything else) is **rejected with 409** —
+  the same observation cannot be the source for two downstream records.
+
+- **Record other intent.** `PATCH /api/observations` with `convertedTo` still
+  records intent-only for `rfi / variation` (their modules aren't built — the
+  inbox labels each "module coming" and creates no downstream record). When
+  a real RFI / Variation module ships, the same pattern as Snag /
+  Material Request conversion will replace those intent buttons.
+
+Audit trail: each REAL conversion emits **two** audit-log entries —
+the target-create verb (`snag.created` or `material_request.created`, so
+timelines are consistent with direct creates) and the observation-side verb
+(`observation.converted_to_snag` or
+`observation.converted_to_material_request`, attributing the office decision).
+All verbs + the `observation` / `material_request` target types are in
+`api/_lib/audit-log.js` and `src/domains/audit-log/schema.ts`.
+
+Idempotency: a second convert on the same observation returns 409 (the
+observation already has `linkedSnagId` / `linkedMaterialRequestId` / a non-null
+`convertedTo`). Permissions: admin-tier only — field/LH cannot convert.
+
+Write order is **target-first → observation-second**. If the observation write
+fails after the target is created, the response is `502` with the target id +
+a clear message; the orphan exists and the operator can manually link via
+`PATCH linkedSnagId` / `PATCH linkedMaterialRequestId` (or re-run the convert,
+which gets 409 — the operator then knows the target already exists).
 
 ## 6. Phil capture — classify-simple
 
@@ -117,11 +166,11 @@ again" with no silent loss. A durable offline queue is a later slice.
 
 ## 7. Not built yet (honest backlog)
 
-- RFI / Variation / Material Request modules (conversion is intent-only).
-- Auto-create a Snag from a `defect` observation.
+- RFI / Variation modules (conversion is intent-only).
+- Auto-create a Snag from a `defect` observation (today it's an admin click;
+  see [PR 6](#5-conversion--snag-pr-6-and-material-request-pr-11-are-real-rfi--variation-still-intent-only)).
 - Photo attachment *on the observation itself* (photos stay the Evidence flow;
   `photoUrls`/`linkedEvidenceId` exist for when it's wired).
-- Cross-surface audit-log entries for observation create/update (the record's
-  own actor/timestamp stamps are the v1 trail).
 - Offline capture queue.
-- Full job-history timeline.
+- Full job-history timeline. (Per-job activity feed shipped in PR 9; the
+  full cross-job timeline + filters is still a later slice.)

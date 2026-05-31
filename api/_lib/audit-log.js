@@ -60,6 +60,33 @@ const VALID_ACTIONS = new Set([
   'invite.opened',
   'invite.accepted',
   'employee.activated',
+  // PR 6: observation triage conversion. Records the office decision to
+  // promote an observation (defect/safety/blocker) into a real Snag — the
+  // snag itself also emits its own snag.created entry in the same write
+  // path, so the timeline shows both events. metadata.snagId carries the
+  // created snag's id. Kept in sync with src/domains/audit-log/schema.ts.
+  'observation.converted_to_snag',
+  // PR 10: observation lifecycle. Mirrors the snag.{created,transitioned}
+  // pattern. observation.created is emitted on POST /api/observations.
+  // observation.transitioned is emitted on PATCH whenever status, priority,
+  // or assignedToId changes (one row per PATCH; metadata.changedFields
+  // carries the list of fields and metadata.from/to capture status flips
+  // so a downstream timeline reads "needs_action → in_review" without
+  // re-fetching). Kept in sync with src/domains/audit-log/schema.ts.
+  'observation.created',
+  'observation.transitioned',
+  // PR 11: Material Request module. Mirrors the snag pattern (created +
+  // transitioned). material_request.created is emitted on POST /api/material-
+  // requests and on the convert-from-observation action. material_request.
+  // transitioned is emitted on PATCH whenever status, urgency, supplier,
+  // approvedById, orderRef, or cancellation fields change.
+  // observation.converted_to_material_request mirrors PR 6's snag conversion
+  // verb — emitted by the convert action attributing the office decision to
+  // the observation (the material request itself also emits its own
+  // material_request.created entry so the per-job timeline shows both).
+  'material_request.created',
+  'material_request.transitioned',
+  'observation.converted_to_material_request',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -73,6 +100,12 @@ const VALID_TARGET_TYPES = new Set([
   // Onboarding (O1).
   'employee',
   'invite',
+  // PR 6: observations as audit targets — observation.converted_to_snag uses
+  // targetType='observation' so the conversion attributes to the observation
+  // lifecycle (the snag also gets its own snag.created entry).
+  'observation',
+  // PR 11: Material Request module.
+  'material_request',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

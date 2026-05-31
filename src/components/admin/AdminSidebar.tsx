@@ -10,6 +10,7 @@ import {
   Inbox,
   LifeBuoy,
   Briefcase,
+  Package,
   Settings,
   Clock,
   Wrench,
@@ -105,6 +106,15 @@ const NAV: ReadonlyArray<NavItem> = [
     icon: Inbox,
     status: "live",
     activeFor: ["/observations"],
+  },
+  // Material requests inbox (PR 11). The field-to-office procurement loop —
+  // separate from the legacy /admin/materials takeoff/PO/invoice surface.
+  {
+    label: "Material requests",
+    href: "/material-requests" as Route,
+    icon: Package,
+    status: "live",
+    activeFor: ["/material-requests"],
   },
   {
     label: "Snags",
