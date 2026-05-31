@@ -42,10 +42,13 @@ export default async function PhilJobsPage() {
 
   const { jobs, fetchError } = await loadJobs(raw);
 
-  // Hide archived rows on the Phil surface even if a future admin opens
-  // /phil/jobs directly. Server already does this for non-admin via
-  // projectJobStructure; defence-in-depth here.
-  const visible = jobs.filter((j) => j.status !== "archived");
+  // Hide archived + draft rows on the Phil surface even if a future admin
+  // opens /phil/jobs directly. The server already withholds these from
+  // non-admin callers (api/jobs.js GET); defence-in-depth here. Mirrors
+  // isVisibleToField() in src/domains/jobs/builder.ts.
+  const visible = jobs.filter(
+    (j) => j.status !== "archived" && j.status !== "draft"
+  );
 
   return (
     <PhilShell title="Jobs">

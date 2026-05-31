@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   MapPin,
+  PencilRuler,
   Search,
 } from "lucide-react";
 import { Pill } from "@/components/ui/Pill";
@@ -19,6 +20,8 @@ import { cn } from "@/lib/cn";
 
 interface Props {
   jobs: ReadonlyArray<Job>;
+  /** Admin-only: show the per-row "Build" action that opens the Job Builder. */
+  canBuild?: boolean;
 }
 
 /**
@@ -42,7 +45,7 @@ interface Props {
  *   src/components/phil/PhilJobsList.tsx — row pattern precedent
  *   src/app/v2/jobs/page.tsx — server component that hydrates this list
  */
-export function JobsList({ jobs }: Props) {
+export function JobsList({ jobs, canBuild = false }: Props) {
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -87,7 +90,7 @@ export function JobsList({ jobs }: Props) {
         <ul className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised">
           {filtered.map((job) => (
             <li key={job.id}>
-              <JobRow job={job} />
+              <JobRow job={job} canBuild={canBuild} />
             </li>
           ))}
         </ul>
@@ -96,7 +99,7 @@ export function JobsList({ jobs }: Props) {
   );
 }
 
-function JobRow({ job }: { job: Job }) {
+function JobRow({ job, canBuild }: { job: Job; canBuild: boolean }) {
   const caption = lastActivityCaption(job);
   const address = (job.siteAddress ?? "").trim();
   const evidencePending = job.statsEvidenceV2Pending ?? 0;
@@ -168,6 +171,14 @@ function JobRow({ job }: { job: Job }) {
             highlightWhenNonZero
             ariaLabel={`Open ${itpsActive} ITPs needing attention for ${job.name}`}
           />
+          {canBuild ? (
+            <ActionChip
+              href={`/v2/jobs/${encodeURIComponent(job.id)}/builder`}
+              icon={<PencilRuler aria-hidden="true" className="h-3.5 w-3.5" />}
+              label="Build"
+              ariaLabel={`Open the builder for ${job.name}`}
+            />
+          ) : null}
           <Link
             href={`/v2/jobs/${encodeURIComponent(job.id)}/evidence` as Route}
             aria-label={`Open ${job.name}`}
@@ -190,7 +201,8 @@ interface ActionChipProps {
   href: string;
   icon: React.ReactNode;
   label: string;
-  count: number;
+  /** Omit for action chips that aren't a count (e.g. "Build"). */
+  count?: number;
   highlightWhenNonZero?: boolean;
   ariaLabel: string;
 }
@@ -203,7 +215,7 @@ function ActionChip({
   highlightWhenNonZero,
   ariaLabel,
 }: ActionChipProps) {
-  const hot = highlightWhenNonZero && count > 0;
+  const hot = highlightWhenNonZero && (count ?? 0) > 0;
   return (
     <Link
       href={href as Route}
@@ -217,14 +229,16 @@ function ActionChip({
     >
       {icon}
       <span>{label}</span>
-      <span
-        className={cn(
-          "ml-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-pill px-1 text-[10px] font-semibold",
-          hot ? "bg-accent-yellow text-brand-navy" : "bg-surface-subtle text-text-muted"
-        )}
-      >
-        {count}
-      </span>
+      {count !== undefined ? (
+        <span
+          className={cn(
+            "ml-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-pill px-1 text-[10px] font-semibold",
+            hot ? "bg-accent-yellow text-brand-navy" : "bg-surface-subtle text-text-muted"
+          )}
+        >
+          {count}
+        </span>
+      ) : null}
     </Link>
   );
 }

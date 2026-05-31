@@ -1,14 +1,19 @@
 import type { z } from "zod";
 import type {
   CustomFieldSchema,
+  JobAreaGroupInputSchema,
   JobAreaGroupSchema,
+  JobAreaInputSchema,
   JobAreaSchema,
+  JobCreateInputSchema,
   JobDetailResponseSchema,
   JobListResponseSchema,
   JobModulesSchema,
   JobSchema,
   JobStatusSchema,
+  JobTaskTemplateInputSchema,
   JobTaskTemplateSchema,
+  JobUpdateInputSchema,
 } from "./schema";
 
 /**
@@ -27,6 +32,13 @@ export type Job = z.infer<typeof JobSchema>;
 
 export type JobListResponse = z.infer<typeof JobListResponseSchema>;
 export type JobDetailResponse = z.infer<typeof JobDetailResponseSchema>;
+
+// Write payloads — Job Builder modern write path (see schema.ts).
+export type JobTaskTemplateInput = z.infer<typeof JobTaskTemplateInputSchema>;
+export type JobAreaInput = z.infer<typeof JobAreaInputSchema>;
+export type JobAreaGroupInput = z.infer<typeof JobAreaGroupInputSchema>;
+export type JobCreateInput = z.infer<typeof JobCreateInputSchema>;
+export type JobUpdateInput = z.infer<typeof JobUpdateInputSchema>;
 
 /**
  * The two stages every job moves through. Mirrors the legacy

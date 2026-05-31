@@ -44,6 +44,25 @@ export async function httpPost<T>(
   });
 }
 
+export async function httpPut<T>(
+  url: string,
+  body: unknown,
+  opts: HttpOptions<T>
+): Promise<HttpResult<T>> {
+  return request(url, {
+    ...opts,
+    init: {
+      ...opts.init,
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        ...(opts.init?.headers ?? {}),
+      },
+      body: JSON.stringify(body),
+    },
+  });
+}
+
 export async function httpPatch<T>(
   url: string,
   body: unknown,
@@ -61,6 +80,15 @@ export async function httpPatch<T>(
       body: JSON.stringify(body),
     },
   });
+}
+
+/**
+ * DELETE carries no request body in this codebase — the target is named in
+ * the query string (e.g. /api/plans?id=X). Mirrors httpGet's shape; only the
+ * method differs.
+ */
+export async function httpDelete<T>(url: string, opts: HttpOptions<T>): Promise<HttpResult<T>> {
+  return request(url, { ...opts, init: { ...opts.init, method: "DELETE" } });
 }
 
 async function request<T>(url: string, opts: HttpOptions<T>): Promise<HttpResult<T>> {
