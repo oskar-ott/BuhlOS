@@ -1,0 +1,57 @@
+name: Preview Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      preview_url:
+        description: Vercel preview URL, for example https://branch-name.vercel.app
+        required: true
+        type: string
+
+jobs:
+  playwright-smoke:
+    runs-on: ubuntu-latest
+    env:
+      PLAYWRIGHT_BASE_URL: ${{ github.event.inputs.preview_url }}
+      TEST_RUN_ID: ${{ github.run_id }}
+      BUHLOS_TEST_ADMIN_EMAIL: ${{ secrets.BUHLOS_TEST_ADMIN_EMAIL }}
+      BUHLOS_TEST_ADMIN_PASSWORD: ${{ secrets.BUHLOS_TEST_ADMIN_PASSWORD }}
+      BUHLOS_TEST_FIELD_EMAIL: ${{ secrets.BUHLOS_TEST_FIELD_EMAIL }}
+      BUHLOS_TEST_FIELD_PASSWORD: ${{ secrets.BUHLOS_TEST_FIELD_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: Validate smoke inputs
+        run: |
+          if [ -z "$PLAYWRIGHT_BASE_URL" ] || [ -z "$BUHLOS_TEST_ADMIN_EMAIL" ] || [ -z "$BUHLOS_TEST_ADMIN_PASSWORD" ]; then
+            echo "::error::Preview URL and admin smoke credentials are required."
+            exit 1
+          fi
+          if [ -z "$BUHLOS_TEST_FIELD_EMAIL" ] || [ -z "$BUHLOS_TEST_FIELD_PASSWORD" ]; then
+            echo "::warning::Field credentials are absent. Phil live-render tests will skip; mocked-Blob API filtering still runs in CI."
+          fi
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run preview smoke
+        run: npm run test:smoke
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Upload failure traces, screenshots, and videos
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failures-${{ github.run_id }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14

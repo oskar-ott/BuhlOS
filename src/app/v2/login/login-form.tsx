@@ -70,6 +70,7 @@ export function LoginForm({ next }: LoginFormProps) {
       <label className="block text-sm">
         <span className="mb-1 block font-medium text-text">Email or username</span>
         <input
+          data-testid="login-username"
           type="text"
           autoComplete="username"
           required
@@ -81,6 +82,7 @@ export function LoginForm({ next }: LoginFormProps) {
       <label className="block text-sm">
         <span className="mb-1 block font-medium text-text">Password or PIN</span>
         <input
+          data-testid="login-password"
           type="password"
           autoComplete="current-password"
           required
@@ -94,7 +96,7 @@ export function LoginForm({ next }: LoginFormProps) {
           {error}
         </p>
       ) : null}
-      <Button type="submit" disabled={pending} className="w-full">
+      <Button data-testid="login-submit" type="submit" disabled={pending} className="w-full">
         {pending ? "Signing in…" : "Sign in"}
       </Button>
       <p className="text-center text-xs text-text-muted">
