@@ -235,7 +235,7 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
           <div className="flex shrink-0 flex-col items-end gap-1">
             <Button onClick={save} disabled={!dirty || saving || !basicsValid}>
               <Save className="h-4 w-4" aria-hidden="true" />
-              {saving ? "Saving…" : dirty ? "Save changes" : savedTick ? "Saved" : "Saved"}
+              {saving ? "Saving…" : dirty ? "Save changes" : savedTick ? "Saved ✓" : "Saved"}
             </Button>
             <span className="text-[11px] uppercase tracking-wider text-text-muted">
               {dirty ? "Unsaved changes" : "All changes saved"}
