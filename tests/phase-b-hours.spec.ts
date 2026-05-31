@@ -1,17 +1,25 @@
 import { test, expect } from "@playwright/test";
+import { loginAs, qaCredsConfigured, missingCredEnv, type QaRole } from "./helpers/auth";
 
 /**
  * Phase B acceptance tests.
  *
- * Asserts the Phase B route surfaces gate correctly for unauthenticated
- * visitors and that the Standard Day button + admin queue render the right
- * labels. End-to-end submit / approve / reject flows need fixture worker /
- * admin accounts that the legacy auth seed provides; those test bodies are
- * marked .skip until the CI harness wires the seed, so they document the
- * intended assertions without flaking.
+ * The unauthenticated specs assert the route surfaces gate correctly. The
+ * authenticated submit / approve / reject flows log in through the REAL
+ * /v2/login form using credentials supplied via env (E2E_*_USER / *_PIN) —
+ * no backdoor, no hardcoded secret. Seed the matching accounts into a preview
+ * Blob store with `scripts/seed-qa-accounts.js`, then point
+ * PLAYWRIGHT_BASE_URL at that preview deploy (api/*.js does not run under
+ * `next dev`, so the login endpoint is only live on a deploy).
+ *
+ * When the env credentials are absent each authenticated test skips itself
+ * with a message naming the missing vars — so the suite documents the
+ * intended assertions and stays green in CI until the seed is wired, rather
+ * than being unconditionally `.skip`.
  *
  * Cross-ref: docs/rebuild-audit/19-phase-b-hours-implementation-brief.md §Tests
  *            docs/rebuild-audit/17-testing-and-quality-plan.md §B.5
+ *            tests/helpers/auth.ts · scripts/seed-qa-accounts.js
  */
 
 test("unauthenticated /phil/my-day redirects to /v2/login with next param", async ({ page }) => {
@@ -35,43 +43,56 @@ test("unauthenticated /hours/approvals redirects to /v2/login", async ({ page })
   await expect(page).toHaveURL(/\/v2\/login(\?|$)/);
 });
 
-test.describe.skip("authenticated flows (require seeded test accounts)", () => {
+/** Skip a test (with a precise message) when its roles aren't seeded. */
+function requireRoles(roles: ReadonlyArray<QaRole>) {
+  test.skip(
+    !qaCredsConfigured(roles),
+    `Seed QA accounts and set ${missingCredEnv(roles).join(", ")} (and PLAYWRIGHT_BASE_URL → preview) to run this flow.`
+  );
+}
+
+test.describe("authenticated flows (require seeded QA accounts)", () => {
   test("tradie submits Standard Day in under 15 seconds", async ({ page }) => {
-    // Login as tradie via /v2/login, then time the Standard Day tap.
-    await page.goto("/v2/login");
-    // … seed login here once test fixtures are wired.
-    await page.goto("/phil/my-day");
+    requireRoles(["tradie"]);
+    await loginAs(page, "tradie");
+    await page.goto("/phil/my-day", { waitUntil: "domcontentloaded" });
+    const standardDay = page.getByRole("button", { name: /^(Resubmit standard day|Standard day)$/i });
+    await expect(standardDay).toBeVisible();
     const start = Date.now();
-    await page.getByRole("button", { name: /Standard day/i }).click();
-    await expect(page.getByText(/sent for approval/i)).toBeVisible();
-    const elapsed = Date.now() - start;
-    expect(elapsed).toBeLessThan(15_000);
+    await standardDay.click();
+    await expect(page.getByText(/sent for approval|resubmitted/i)).toBeVisible({ timeout: 15_000 });
+    expect(Date.now() - start).toBeLessThan(15_000);
   });
 
-  test("admin sees submitted entry in queue and approves it", async ({ page }) => {
-    await page.goto("/v2/login");
-    // … seed admin login here.
-    await page.goto("/hours/approvals");
+  test("admin sees the submitted-entries queue and approves the top entry", async ({ page }) => {
+    requireRoles(["admin"]);
+    await loginAs(page, "admin");
+    await page.goto("/hours/approvals", { waitUntil: "domcontentloaded" });
     await expect(page.getByText(/Submitted entries/i)).toBeVisible();
-    await page.getByRole("button", { name: "Approve" }).first().click();
-    await expect(page.getByText(/Approved/i)).toBeVisible();
+    const approve = page.getByRole("button", { name: /^Approve$/ }).first();
+    await expect(approve).toBeVisible();
+    await approve.click();
+    // ActionFeedback Card (role="status") confirms the approval.
+    await expect(page.getByRole("status")).toContainText(/Approved/i);
   });
 
-  test("admin rejects with reason; worker sees reason in history", async ({ page }) => {
-    await page.goto("/v2/login");
-    // … seed admin login here.
-    await page.goto("/hours/approvals");
-    await page.getByRole("button", { name: "Reject" }).first().click();
-    await page.getByLabel(/Reason/i).fill("Wrong job allocation");
+  test("admin rejects with a reason via the modal", async ({ page }) => {
+    requireRoles(["admin"]);
+    await loginAs(page, "admin");
+    await page.goto("/hours/approvals", { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: /^Reject$/ }).first().click();
+    await page.getByLabel(/Reason \(required\)/i).fill("Wrong job allocation — please reallocate.");
     await page.getByRole("button", { name: /Reject with reason/i }).click();
-    await expect(page.getByText(/Rejected/)).toBeVisible();
+    await expect(page.getByRole("status")).toContainText(/Rejected/i);
   });
 
-  test("LH visibility: leading hand sees only own-crew entries", async ({ page }) => {
-    await page.goto("/v2/login");
-    // … seed LH login here.
-    await page.goto("/hours/approvals");
-    // Assert no other-LH submissions visible.
-    await expect(page.getByText(/leadingHand/i)).toHaveCount(0);
+  test("leading hand reaches the staff hours overview", async ({ page }) => {
+    requireRoles(["leadingHand"]);
+    await loginAs(page, "leadingHand");
+    // Staff gating must admit a leading hand to /hours (own-job scope). Full
+    // cross-LH isolation needs multi-LH seed data — deferred (see report).
+    const res = await page.goto("/hours", { waitUntil: "domcontentloaded" });
+    expect(res?.status()).toBeLessThan(400);
+    await expect(page).not.toHaveURL(/\/v2\/login/);
   });
 });

@@ -1,4 +1,4 @@
-import type { TimeEntry, TimeEntryAllocation, TimeEntryStatus } from "./types";
+import type { MissingLog, TimeEntry, TimeEntryAllocation, TimeEntryStatus } from "./types";
 
 /**
  * Pure helpers for the timesheets domain. No I/O, no React, no globals —
@@ -144,6 +144,33 @@ export function weekStartOf(date: string): string {
 }
 
 /**
+ * Returns the ISO week-end (Sunday) date string YYYY-MM-DD for the day
+ * containing `date` — i.e. weekStartOf(date) + 6 days. Used by the admin
+ * weekly overview to bound a Mon..Sun range.
+ */
+export function weekEndOf(date: string): string {
+  const monday = weekStartOf(date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(monday)) return date;
+  return addDays(monday, 6);
+}
+
+/**
+ * Shift a YYYY-MM-DD date string by `n` calendar days (negative shifts
+ * backwards). Timezone-independent: the input is a bare calendar date, so we
+ * do UTC-midnight arithmetic and never cross a DST boundary by accident.
+ * Used by the weekly view's prev/next-week navigation.
+ */
+export function addDays(date: string, n: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  const d = new Date(date + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
  * Build a CreateTimeEntryPayload that submits a Standard Day for a single
  * job. The default flow on Phil's My Day uses this directly.
  */
@@ -232,4 +259,112 @@ export function primaryJobId(entry: Pick<TimeEntry, "allocations">): string | nu
     if (allocation.jobId) return allocation.jobId;
   }
   return null;
+}
+
+/**
+ * Pick which job a fresh Phil submission should default to. A single assigned
+ * job is auto-selected (the one-tap Standard Day stays one tap); with several,
+ * the worker's most recently logged-against assigned job wins — a tradie is
+ * usually back on the same job — falling back to the first. No assigned jobs
+ * returns null, a "general" entry the legacy server accepts.
+ *
+ * `recentEntries` are expected newest-first, the order /api/time-entries
+ * returns, so the first match is the most recent.
+ */
+export function pickDefaultJobId(
+  jobs: ReadonlyArray<{ id: string }>,
+  recentEntries: ReadonlyArray<Pick<TimeEntry, "allocations">>
+): string | null {
+  const first = jobs[0];
+  if (!first) return null;
+  if (jobs.length === 1) return first.id;
+  for (const entry of recentEntries) {
+    const jid = primaryJobId(entry);
+    if (jid && jobs.some((j) => j.id === jid)) return jid;
+  }
+  return first.id;
+}
+
+/**
+ * Roll the server's flat `missing` array (one row per worker×weekday with no
+ * entry) into the groupings the UI needs, without re-deriving any detection
+ * logic — the server already decided *who* is missing *when* (assigned crew,
+ * weekdays, past/today, role/job-scoped). This helper only re-shapes that
+ * truth so the command-centre card can say "No hours from N workers" honestly
+ * and the admin weekly surface can list it by worker or by day.
+ *
+ * Returns:
+ *   - total:       missing worker×date cells
+ *   - workerCount: distinct workers with at least one missing day
+ *   - dateCount:   distinct dates with at least one missing worker
+ *   - oldestDate:  earliest missing date (for an "oldest" age label), or null
+ *   - byWorker:    grouped per worker, most-missing first, dates ascending
+ *   - byDate:      grouped per date ascending, workers alphabetical
+ */
+export function summariseMissing(missing: ReadonlyArray<MissingLog>): {
+  total: number;
+  workerCount: number;
+  dateCount: number;
+  oldestDate: string | null;
+  byWorker: Array<{ userId: string; userName: string; role: string | null; dates: string[] }>;
+  byDate: Array<{
+    date: string;
+    workers: Array<{ userId: string; userName: string; role: string | null }>;
+  }>;
+} {
+  const byWorkerMap = new Map<
+    string,
+    { userId: string; userName: string; role: string | null; dates: Set<string> }
+  >();
+  const byDateMap = new Map<
+    string,
+    Map<string, { userId: string; userName: string; role: string | null }>
+  >();
+
+  for (const m of missing) {
+    const role = m.role ?? null;
+
+    let worker = byWorkerMap.get(m.userId);
+    if (!worker) {
+      worker = { userId: m.userId, userName: m.userName, role, dates: new Set() };
+      byWorkerMap.set(m.userId, worker);
+    }
+    worker.dates.add(m.date);
+
+    let dateGroup = byDateMap.get(m.date);
+    if (!dateGroup) {
+      dateGroup = new Map();
+      byDateMap.set(m.date, dateGroup);
+    }
+    if (!dateGroup.has(m.userId)) {
+      dateGroup.set(m.userId, { userId: m.userId, userName: m.userName, role });
+    }
+  }
+
+  const byWorker = Array.from(byWorkerMap.values())
+    .map((w) => ({
+      userId: w.userId,
+      userName: w.userName,
+      role: w.role,
+      dates: Array.from(w.dates).sort(),
+    }))
+    .sort((a, b) => b.dates.length - a.dates.length || a.userName.localeCompare(b.userName));
+
+  const byDate = Array.from(byDateMap.entries())
+    .map(([date, workers]) => ({
+      date,
+      workers: Array.from(workers.values()).sort((a, b) => a.userName.localeCompare(b.userName)),
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const oldestDate = byDate.length > 0 ? byDate[0]!.date : null;
+
+  return {
+    total: missing.length,
+    workerCount: byWorkerMap.size,
+    dateCount: byDateMap.size,
+    oldestDate,
+    byWorker,
+    byDate,
+  };
 }

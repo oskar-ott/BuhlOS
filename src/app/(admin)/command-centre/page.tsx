@@ -14,6 +14,7 @@ import {
   Layers,
   Package,
   RotateCcw,
+  UserX,
   Wrench,
 } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -22,13 +23,21 @@ import { Pill } from "@/components/ui/Pill";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
+import {
+  TimeEntryListResponseSchema,
+  TimeEntryOverviewResponseSchema,
+} from "@/domains/timesheets/schema";
+import {
+  BUSINESS_TIMEZONE,
+  localDateString,
+  summariseMissing,
+} from "@/domains/timesheets/service";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { ObservationListResponseSchema } from "@/domains/observations/schema";
 import { isOpenObservation } from "@/domains/observations/service";
 import { MaterialRequestListResponseSchema } from "@/domains/material-requests/schema";
 import { isOpenRequest } from "@/domains/material-requests/service";
-import type { TimeEntry } from "@/domains/timesheets/types";
+import type { MissingLog, TimeEntry } from "@/domains/timesheets/types";
 import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { MaterialRequestItem } from "@/domains/material-requests/types";
@@ -45,7 +54,7 @@ export const dynamic = "force-dynamic";
  * reports phase. The home should always answer "what needs my attention
  * first?" rather than "what happened this week?"
  *
- * Eight queues today (real data only — no fake metrics):
+ * Nine queues today (real data only — no fake metrics):
  *   - Hours pending approval — /api/time-entries?scope=approver&status=submitted
  *   - Evidence pending review — aggregated from /api/jobs?withStats=1
  *   - Snags needing attention — aggregated from /api/jobs?withStats=1
@@ -53,6 +62,8 @@ export const dynamic = "force-dynamic";
  *     (statsItpsNeedsReview, witnessed-only subset of statsItpsActive)
  *   - Observations to action — open + requiresAction from /api/observations (PR 3)
  *   - Rejected hours — /api/time-entries?scope=approver&status=rejected (PR 7)
+ *   - Missing hours — assigned crew with no entry on a past weekday, from
+ *     /api/time-entries-overview (rolling 7-day window, weekdays only)
  *   - Plan mismatches — type='plan_mismatch' subset of the observations fetch (PR 7)
  *   - Material requests — open subset of /api/material-requests (PR 11; status
  *     in {requested, approved} = "office action needed before procurement")
@@ -75,11 +86,13 @@ export default async function CommandCentrePage() {
   const {
     hoursPending,
     hoursRejected,
+    hoursMissing,
     jobs,
     observations,
     materialRequests,
     hoursError,
     hoursRejectedError,
+    hoursMissingError,
     jobsError,
     observationsError,
     materialRequestsError,
@@ -148,9 +161,20 @@ export default async function CommandCentrePage() {
     hoursRejected.map((e) => e.submittedAt).filter(Boolean) as string[]
   );
 
+  // Missing hours: assigned crew with no entry on a past weekday in the
+  // rolling window (server-computed in /api/time-entries-overview — weekdays
+  // only, past days only, LH-scoped). The card count is the number of *people*
+  // who owe hours; the subtitle is the age of the oldest unlogged day.
+  const missingSummary = summariseMissing(hoursMissing);
+  const missingHoursCount = missingSummary.workerCount;
+  const missingHoursOldest = missingSummary.oldestDate
+    ? relativeWhen(missingSummary.oldestDate + "T00:00:00Z")
+    : null;
+
   const allClear =
     hoursPending.length === 0 &&
     rejectedHoursCount === 0 &&
+    missingHoursCount === 0 &&
     evidencePending === 0 &&
     snagsActive === 0 &&
     itpReview.count === 0 &&
@@ -159,6 +183,7 @@ export default async function CommandCentrePage() {
     materialRequestCount === 0 &&
     !hoursError &&
     !hoursRejectedError &&
+    !hoursMissingError &&
     !jobsError &&
     !observationsError &&
     !materialRequestsError;
@@ -177,6 +202,7 @@ export default async function CommandCentrePage() {
 
           {hoursError ||
           hoursRejectedError ||
+          hoursMissingError ||
           jobsError ||
           observationsError ||
           materialRequestsError ? (
@@ -188,6 +214,7 @@ export default async function CommandCentrePage() {
               <CardDescription className="text-amber-900">
                 {hoursError ??
                   hoursRejectedError ??
+                  hoursMissingError ??
                   jobsError ??
                   observationsError ??
                   materialRequestsError}
@@ -203,9 +230,10 @@ export default async function CommandCentrePage() {
             <Card className="mt-3 border-emerald-200 bg-emerald-50" role="status">
               <CardTitle className="text-emerald-900">All clear</CardTitle>
               <CardDescription className="text-emerald-900">
-                Nothing needs you right now — no hours pending or rejected, no
-                evidence, snags, ITPs, observations, plan mismatches or material
-                requests waiting. New submissions land here as they come in.
+                Nothing needs you right now — no hours pending, rejected or
+                missing, no evidence, snags, ITPs, observations, plan mismatches
+                or material requests waiting. New submissions land here as they
+                come in.
               </CardDescription>
             </Card>
           ) : null}
@@ -266,6 +294,15 @@ export default async function CommandCentrePage() {
               href="/hours/approvals"
               ctaLabel="Review rejections"
               empty="No rejected timesheets waiting on a worker."
+            />
+            <QueueCard
+              icon={<UserX aria-hidden="true" className="h-5 w-5" />}
+              label="Missing hours"
+              count={missingHoursCount}
+              ageLabel={missingHoursOldest}
+              href="/hours"
+              ctaLabel="Chase missing hours"
+              empty="Everyone's hours are in — no gaps."
             />
             <QueueCard
               icon={<Layers aria-hidden="true" className="h-5 w-5" />}
@@ -490,11 +527,13 @@ function oldestAge(timestamps: ReadonlyArray<string>): string | null {
 async function loadSnapshot(cookieValue: string | undefined): Promise<{
   hoursPending: ReadonlyArray<TimeEntry>;
   hoursRejected: ReadonlyArray<TimeEntry>;
+  hoursMissing: ReadonlyArray<MissingLog>;
   jobs: ReadonlyArray<Job>;
   observations: ReadonlyArray<ObservationItem>;
   materialRequests: ReadonlyArray<MaterialRequestItem>;
   hoursError: string | null;
   hoursRejectedError: string | null;
+  hoursMissingError: string | null;
   jobsError: string | null;
   observationsError: string | null;
   materialRequestsError: string | null;
@@ -507,27 +546,73 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
     : undefined;
 
-  const [hoursResult, hoursRejectedResult, jobsResult, obsResult, mrResult] =
-    await Promise.all([
-      loadHoursByStatus(base, headersInit, "submitted"),
-      loadHoursByStatus(base, headersInit, "rejected"),
-      loadJobsWithStats(base, headersInit),
-      loadObservations(base, headersInit),
-      loadMaterialRequests(base, headersInit),
-    ]);
+  // Missing-hours window: a rolling 7-day look-back ending *yesterday* in the
+  // business timezone. We stop at yesterday so today's not-yet-logged hours
+  // don't register as "missing" all morning; the server further restricts to
+  // weekdays and past days.
+  const DAY_MS = 86_400_000;
+  const now = Date.now();
+  const missingFrom = localDateString(new Date(now - 7 * DAY_MS), BUSINESS_TIMEZONE);
+  const missingTo = localDateString(new Date(now - DAY_MS), BUSINESS_TIMEZONE);
+
+  const [
+    hoursResult,
+    hoursRejectedResult,
+    hoursMissingResult,
+    jobsResult,
+    obsResult,
+    mrResult,
+  ] = await Promise.all([
+    loadHoursByStatus(base, headersInit, "submitted"),
+    loadHoursByStatus(base, headersInit, "rejected"),
+    loadHoursOverview(base, headersInit, missingFrom, missingTo),
+    loadJobsWithStats(base, headersInit),
+    loadObservations(base, headersInit),
+    loadMaterialRequests(base, headersInit),
+  ]);
 
   return {
     hoursPending: hoursResult.entries,
     hoursRejected: hoursRejectedResult.entries,
+    hoursMissing: hoursMissingResult.missing,
     jobs: jobsResult.jobs,
     observations: obsResult.observations,
     materialRequests: mrResult.requests,
     hoursError: hoursResult.error,
     hoursRejectedError: hoursRejectedResult.error,
+    hoursMissingError: hoursMissingResult.error,
     jobsError: jobsResult.error,
     observationsError: obsResult.error,
     materialRequestsError: mrResult.error,
   };
+}
+
+async function loadHoursOverview(
+  base: string,
+  headersInit: { cookie: string } | undefined,
+  fromDate: string,
+  toDate: string
+): Promise<{ missing: ReadonlyArray<MissingLog>; error: string | null }> {
+  try {
+    const res = await fetch(
+      `${base}/api/time-entries-overview?fromDate=${fromDate}&toDate=${toDate}`,
+      { cache: "no-store", headers: headersInit }
+    );
+    if (!res.ok) {
+      return { missing: [], error: `Hours overview API returned ${res.status}` };
+    }
+    const body = await res.json();
+    const parsed = TimeEntryOverviewResponseSchema.safeParse(body);
+    if (!parsed.success) {
+      return { missing: [], error: "Unexpected hours overview response shape" };
+    }
+    return { missing: parsed.data.missing, error: null };
+  } catch (err) {
+    return {
+      missing: [],
+      error: err instanceof Error ? err.message : "Hours overview network error",
+    };
+  }
 }
 
 async function loadMaterialRequests(

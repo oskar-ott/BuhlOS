@@ -5,7 +5,6 @@ import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
@@ -34,10 +33,10 @@ export const dynamic = "force-dynamic";
 /**
  * /phil/hours — the worker's own history of submissions.
  *
- * Read-only by design for Phase B: editing a rejected entry happens on the
- * legacy /my-day surface until Phase C ships the in-place edit flow. Putting
- * an edit form here would duplicate the legacy capture sheet without a
- * complete UX (LogHoursSheet is "create"-only).
+ * History is read-only here; editing/resubmitting a rejected entry happens in
+ * place on /phil/my-day (the LogHoursSheet now PATCHes and resubmits). Each
+ * rejected row deep-links to /phil/my-day?fix=YYYY-MM-DD, which opens the sheet
+ * straight onto that day in edit mode — no bounce to the legacy app.
  *
  * Cross-ref: docs/rebuild-audit/19-phase-b-hours-implementation-brief.md
  *            §"/phil/hours (history)"
@@ -88,13 +87,6 @@ export default async function PhilHoursPage() {
             ))}
           </ul>
         )}
-
-        <UnderConstructionPanel
-          feature="Edit rejected entry"
-          description="Tapping a rejected entry to edit and resubmit isn't wired here yet. For now, use the legacy My day — fix the entry, resubmit, and it'll come back through approval with the new submission timestamp."
-          legacyHref="/my-day"
-          legacyLabel="Open legacy My day"
-        />
       </div>
     </PhilShell>
   );
@@ -125,6 +117,12 @@ function EntryCard({ entry }: { entry: TimeEntry }) {
             Why
           </p>
           <p className="mt-0.5 whitespace-pre-line">{entry.rejectedReason}</p>
+          <Link
+            href={{ pathname: "/phil/my-day", query: { fix: entry.date } }}
+            className="mt-2 inline-block font-medium underline decoration-rose-400 decoration-2 underline-offset-2 hover:text-rose-950"
+          >
+            Fix &amp; resubmit →
+          </Link>
         </div>
       ) : null}
 
