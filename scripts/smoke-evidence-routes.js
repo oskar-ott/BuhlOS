@@ -92,6 +92,11 @@ async function expectStatus(name, url, opts) {
     { expect: { status: [307] } }
   );
   await expectStatus(
+    "HTML  /phil/jobs/birdwood-iv3232/plans (gated → 307)",
+    `${base}/phil/jobs/birdwood-iv3232/plans`,
+    { expect: { status: [307] } }
+  );
+  await expectStatus(
     "HTML  /v2/jobs (admin index, gated → 307)",
     `${base}/v2/jobs`,
     { expect: { status: [307] } }
@@ -119,6 +124,11 @@ async function expectStatus(name, url, opts) {
   await expectStatus(
     "HTML  /v2/jobs/birdwood-iv3232/documents (admin documents, gated → 307)",
     `${base}/v2/jobs/birdwood-iv3232/documents`,
+    { expect: { status: [307] } }
+  );
+  await expectStatus(
+    "HTML  /v2/jobs/birdwood-iv3232/plans (admin plan viewer, gated → 307)",
+    `${base}/v2/jobs/birdwood-iv3232/plans`,
     { expect: { status: [307] } }
   );
   await expectStatus("HTML  /command-centre (gated → 307)", `${base}/command-centre`, {

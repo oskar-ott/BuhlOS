@@ -8,10 +8,12 @@ import {
   FileText,
   History,
   Inbox,
+  Map as MapIcon,
   Package,
 } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import { moduleEnabled } from "@/domains/jobs/builder";
 import type { Job } from "@/domains/jobs/types";
 import { cn } from "@/lib/cn";
 
@@ -109,6 +111,22 @@ export function JobInterfaceSectionNav({ job }: Props) {
       count: job.statsDocumentsCurrent,
       icon: FileText,
     },
+    // Plans viewer — the in-app raster drawing viewer (read-only Phase 1),
+    // distinct from the Documents register above. Gated on the job's
+    // `plans` module flag (defaults true server-side) so a job that
+    // disables plans doesn't advertise it.
+    ...(moduleEnabled(job, "plans")
+      ? [
+          {
+            kind: "live",
+            label: "Plans",
+            description:
+              "Open drawings in the in-app viewer — zoom, rotate and page through current (and superseded) revisions.",
+            href: `/v2/jobs/${jobIdEnc}/plans` as Route,
+            icon: MapIcon,
+          } satisfies SectionRow,
+        ]
+      : []),
     // PR 11: Material Requests live — the field-to-office procurement
     // loop. Separate from legacy /admin/materials (takeoff + PO + invoice
     // match), which still owns structured-PO procurement.

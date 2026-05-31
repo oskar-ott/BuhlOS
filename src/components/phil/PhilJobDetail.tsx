@@ -6,6 +6,7 @@ import {
   Camera,
   ChevronDown,
   KeyRound,
+  Map as MapIcon,
   MapPin,
   Phone,
   ShieldAlert,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { moduleEnabled } from "@/domains/jobs/builder";
 import {
   effectiveTasks,
   hasSiteContext,
@@ -495,6 +497,27 @@ export function PhilJobDetail({
       <section id="phil-job-itps" aria-label="ITPs" className="scroll-mt-16">
         <JobItpPanel job={job} initialItps={initialItps} />
       </section>
+
+      {moduleEnabled(job, "plans") ? (
+        <section id="phil-job-plans" aria-label="Plans" className="scroll-mt-16">
+          <Card>
+            <CardTitle>Plans</CardTitle>
+            <CardDescription className="mt-1">
+              Open the current drawings for this job in the in-app viewer — zoom,
+              rotate and page through. Read-only.
+            </CardDescription>
+            <div className="mt-3">
+              <Link
+                href={`/phil/jobs/${encodeURIComponent(job.id)}/plans`}
+                className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-card border border-border bg-surface px-4 text-sm font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-subtle"
+              >
+                <MapIcon aria-hidden="true" className="h-5 w-5" />
+                Open plan viewer
+              </Link>
+            </div>
+          </Card>
+        </section>
+      ) : null}
 
       <section
         id="phil-job-documents"
