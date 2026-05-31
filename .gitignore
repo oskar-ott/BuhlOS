@@ -27,3 +27,6 @@ playwright/.cache/
 
 # ESLint cache
 .eslintcache
+
+# Claude Code (local agent worktrees — never commit)
+.claude/worktrees/
