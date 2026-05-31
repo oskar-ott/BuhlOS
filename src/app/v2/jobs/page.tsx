@@ -83,6 +83,7 @@ export default async function AdminJobsPage() {
               </p>
               {canCreate ? (
                 <Link
+                  data-testid="jobs-new-job"
                   href="/v2/jobs/new"
                   className="inline-flex items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
                 >
