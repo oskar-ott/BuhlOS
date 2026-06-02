@@ -11,7 +11,7 @@
 //   DELETE /api/time-entries?date=YYYY-MM-DD     → delete own draft
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isAdminRole, isLeadingHandRole } = require('./_lib/auth');
 const {
   newId,
   validateEntryShape,
@@ -49,11 +49,12 @@ async function handleGet(req, res, user) {
     const status = q.status || 'submitted';
     const all = await listAllEntriesForApprovers({ status });
     const enriched = await enrichEntries(all, user);
-    const visible = user.role === 'admin'
+    const visible = isAdminRole(user.role)
       ? enriched
-      // LH: at least one allocation must be on a job they're assigned to AND submitter must not be another LH
+      // LH (any alias): at least one allocation must be on a job they're assigned
+      // to AND the submitter must not be another LH. Admin TIER sees the full queue.
       : enriched.filter(e =>
-          e.userRole !== 'leadingHand' &&
+          !isLeadingHandRole(e.userRole) &&
           e.allocations.some(a => a._jobLedByMe)
         );
     return res.status(200).json({ entries: visible });
@@ -93,14 +94,14 @@ async function handleCreate(req, res, user) {
   const overrideUserId = (req.query && req.query.userId) || (body && body.targetUserId) || null;
   let onBehalf = false;
   if (overrideUserId && overrideUserId !== user.id) {
-    if (user.role !== 'admin' && user.role !== 'leadingHand') {
-      return res.status(403).json({ error: 'forbidden — only admin or leading hand can log on behalf' });
+    if (!isStaffRole(user.role)) {
+      return res.status(403).json({ error: 'forbidden — only staff (admin tier or leading hand) can log on behalf' });
     }
     const usersBlob = await readBlob('users.json', { users: [] });
     const target = (usersBlob.users || []).find(u => u.id === overrideUserId);
     if (!target) return res.status(404).json({ error: 'target user not found' });
     if (target.role === 'client') return res.status(400).json({ error: 'cannot log hours for clients' });
-    if (user.role === 'leadingHand') {
+    if (isLeadingHandRole(user.role)) {
       const myJobs = new Set(user.assignedJobIds || []);
       const sharesJob = (target.assignedJobIds || []).some(j => myJobs.has(j));
       if (!sharesJob) return res.status(403).json({ error: 'forbidden — target is not on a job you run' });
@@ -173,10 +174,22 @@ async function handlePatch(req, res, user) {
   // The LH path is gated below (after we read the target + the existing
   // entry) so we can compare against the LH's assigned jobs.
   const isSelf  = (targetUserId === user.id);
-  const isAdmin = (user.role === 'admin');
-  const isLH    = (user.role === 'leadingHand');
+  const isAdmin = isAdminRole(user.role);
+  const isLH    = isLeadingHandRole(user.role);
   if (!isSelf && !isAdmin && !isLH) {
     return res.status(403).json({ error: 'forbidden' });
+  }
+
+  // Approval transitions (approved / rejected) MUST go through the dedicated
+  // approve/reject endpoints, which stamp approvedBy/rejectedBy and gate on
+  // canApproveHours (staff). The generic edit PATCH must NEVER move an entry
+  // into a payroll-trusted state — otherwise a worker could self-approve their
+  // own hours (the payroll export keys on status === 'approved', NOT on
+  // approvedBy). Only draft <-> submitted transitions are allowed here.
+  if (body.status === 'approved' || body.status === 'rejected') {
+    return res.status(403).json({
+      error: 'use the approve/reject endpoints to change approval status',
+    });
   }
 
   const existing = await readEntry(targetUserId, date);
@@ -236,6 +249,13 @@ async function handlePatch(req, res, user) {
     updatedAt: now,
     submittedAt: transitioningToSubmitted ? now : existing.submittedAt,
     rejectedReason: wasRejected && body.status === 'submitted' ? null : existing.rejectedReason,
+    // Defence-in-depth: payroll/approval fields are never writable via the
+    // generic edit PATCH (approval is handled by the guard above + the
+    // dedicated approve/reject endpoints). Pin them from the existing record so
+    // a crafted body can't inject approvedBy/approvedAt or a payroll exportId.
+    approvedBy: existing.approvedBy,
+    approvedAt: existing.approvedAt,
+    exportId: existing.exportId,
     // If a non-self user (LH or admin) is editing, refresh the
     // delegated-entry fields so the tradie's My Day reflects the latest
     // person who touched it. We never overwrite the original
@@ -282,13 +302,13 @@ async function handleDelete(req, res, user) {
   if (!date) return res.status(400).json({ error: 'date query param required' });
 
   const targetUserId = (req.query && req.query.userId) || user.id;
-  if (targetUserId !== user.id && user.role !== 'admin') {
+  if (targetUserId !== user.id && !isAdminRole(user.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 
   const existing = await readEntry(targetUserId, date);
   if (!existing) return res.status(404).json({ error: 'not found' });
-  if (existing.status !== 'draft' && user.role !== 'admin') {
+  if (existing.status !== 'draft' && !isAdminRole(user.role)) {
     return res.status(400).json({ error: 'only drafts can be deleted' });
   }
 
@@ -322,7 +342,7 @@ async function enrichEntries(entries, viewer) {
           jobName: job ? job.name : null,
           // For LH view: every allocation's job must be one this LH is assigned to.
           // (Internal/no-job allocations require admin approval — represented as false.)
-          _jobLedByMe: viewer.role === 'leadingHand'
+          _jobLedByMe: isLeadingHandRole(viewer.role)
             ? !!(a.jobId && viewerJobs.has(a.jobId))
             : true,
         };

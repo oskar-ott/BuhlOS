@@ -196,6 +196,35 @@ function canManageJob(user, jobId) {
   return false;
 }
 
+// ── Named capability helpers ─────────────────────────────────────────
+// Thin, self-documenting wrappers over the role tiers above so endpoints
+// gate by INTENT ("can this role approve hours?") rather than re-deriving
+// the tier inline with literal `role === '...'` checks. Mirrors
+// src/lib/auth/permissions.ts — keep both in sync. These do NOT replace the
+// deliberately-narrow literal-'admin' create gate (canCreateJob / the POST
+// /api/jobs check), which is narrower than the admin tier on purpose.
+
+// Jobs — draft + archived jobs are office-only. The admin TIER (boss/owner/
+// manager/office/pm/estimator), not just literal 'admin', may view them,
+// matching canManageJob's edit rights so a user who can edit a draft can
+// also open it.
+function canViewDraftJobs(role) { return isAdminRole(role); }
+function canViewArchivedJobs(role) { return isAdminRole(role); }
+
+// Hours — field/LH log their own (or on-behalf); staff approve/reject.
+function canSubmitHours(role) { return isFieldRole(role) || isLeadingHandRole(role); }
+function canApproveHours(role) { return isStaffRole(role); }
+
+// Evidence / gear — office/admin tier reviews + manages.
+function canReviewEvidence(role) { return isAdminRole(role); }
+function canManageGear(role) { return isAdminRole(role); }
+function canViewAssignedGear(role) { return isFieldRole(role) || isLeadingHandRole(role); }
+
+// Plans — manage (upload/edit/publish) = admin tier or LH on the job;
+// viewing current plans = any field-safe role.
+function canManagePlans(user, jobId) { return canManageJob(user, jobId); }
+function canViewCurrentPlans(role) { return isAdminRole(role) || isLeadingHandRole(role) || isFieldRole(role); }
+
 module.exports = {
   SESSION_COOKIE,
   ADMIN_ROLES,
@@ -217,4 +246,13 @@ module.exports = {
   requireAuth,
   canWrite,
   canManageJob,
+  canViewDraftJobs,
+  canViewArchivedJobs,
+  canSubmitHours,
+  canApproveHours,
+  canReviewEvidence,
+  canManageGear,
+  canViewAssignedGear,
+  canManagePlans,
+  canViewCurrentPlans,
 };

@@ -88,6 +88,18 @@ beforeEach(() => {
             role: "electrician",
             assignedJobIds: ["job-active", "job-draft", "job-archived"],
           },
+          {
+            id: "u_office",
+            username: "office",
+            role: "office",
+            assignedJobIds: ["job-active", "job-draft", "job-archived"],
+          },
+          {
+            id: "u_lh",
+            username: "lead",
+            role: "lh",
+            assignedJobIds: ["job-active"],
+          },
         ],
       },
     ],
@@ -187,5 +199,45 @@ describe("POST and PUT /api/jobs", () => {
       body: { id: "job-active", name: "Not allowed" },
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("role normalisation — admin tier + LH aliases", () => {
+  it("admin-tier (office) can open its own draft/archived jobs (single GET)", async () => {
+    // Regression for the literal `role === 'admin'` single-GET gate: the admin
+    // TIER can edit a draft via PUT (canManageJob) and must be able to open it.
+    for (const id of ["job-draft", "job-archived"]) {
+      const res = await call({ method: "GET", userId: "u_office", role: "office", query: { id } });
+      expect(res.statusCode).toBe(200);
+      expect((res.body as { job: { id: string } }).job.id).toBe(id);
+    }
+  });
+
+  it("field users still 404 on draft/archived single GET (no widening)", async () => {
+    for (const id of ["job-draft", "job-archived"]) {
+      const res = await call({ method: "GET", userId: "u_field", role: "electrician", query: { id } });
+      expect(res.statusCode).toBe(404);
+    }
+  });
+
+  it("an LH alias ('lh') is held to the money/module edit restriction", async () => {
+    const res = await call({
+      method: "PUT",
+      userId: "u_lh",
+      role: "lh",
+      body: { id: "job-active", contractValue: 5 },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("an LH alias can still edit field-safe basics (e.g. site address)", async () => {
+    const res = await call({
+      method: "PUT",
+      userId: "u_lh",
+      role: "lh",
+      body: { id: "job-active", siteAddress: "7 Cable St" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { job: { siteAddress: string } }).job.siteAddress).toBe("7 Cable St");
   });
 });
