@@ -54,7 +54,14 @@ export function collectConsoleErrors(page: Page): string[] {
 export function collectNetworkFailures(page: Page): string[] {
   const failures: string[] = [];
   page.on("requestfailed", (request) => {
-    failures.push(`${request.method()} ${request.url()} ${request.failure()?.errorText ?? ""}`);
+    const errorText = request.failure()?.errorText ?? "";
+    // net::ERR_ABORTED is a cancellation, not a failure: the Next.js App Router
+    // aborts in-flight RSC prefetches on navigation, and Vercel preview
+    // protection (/.well-known/vercel/jwe) + service-worker probes abort
+    // routinely. Don't treat those as runtime failures — genuine transport
+    // failures (DNS / connection / TLS) and >=500 responses are still collected.
+    if (errorText.includes("ERR_ABORTED")) return;
+    failures.push(`${request.method()} ${request.url()} ${errorText}`);
   });
   page.on("response", (response) => {
     if (response.status() >= 500) {
