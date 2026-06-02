@@ -17,7 +17,7 @@ interface AdminShellProps {
  */
 export function AdminShell({ children, title, breadcrumb }: AdminShellProps) {
   return (
-    <div className="flex min-h-screen bg-surface-subtle">
+    <div data-testid="buhlos-admin-shell" className="flex min-h-screen bg-surface-subtle">
       <AdminSidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <AdminTopbar title={title} breadcrumb={breadcrumb} />

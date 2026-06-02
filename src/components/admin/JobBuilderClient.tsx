@@ -95,11 +95,31 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
  *  (switchboards / circuits / levels) round-trip untouched — they're
  *  advanced structural concepts, not field on/off switches. */
 const MODULE_TOGGLES: ReadonlyArray<{ key: keyof JobModules; label: string; help: string }> = [
-  { key: "areas", label: "Areas / zones", help: "Track work by room/zone. Off = a flat job with no area breakdown." },
-  { key: "photos", label: "Photo evidence", help: "Field can capture photo/note evidence against tasks." },
-  { key: "snags", label: "Snags / defects", help: "Field can raise defects for the office to action." },
-  { key: "itps", label: "ITP / QA records", help: "Field records inspection & test points for sign-off." },
-  { key: "plans", label: "Plans & documents", help: "Field can view plans/specs attached to the job." },
+  {
+    key: "areas",
+    label: "Areas / zones",
+    help: "Track work by room/zone. Off = a flat job with no area breakdown.",
+  },
+  {
+    key: "photos",
+    label: "Photo evidence",
+    help: "Field can capture photo/note evidence against tasks.",
+  },
+  {
+    key: "snags",
+    label: "Snags / defects",
+    help: "Field can raise defects for the office to action.",
+  },
+  {
+    key: "itps",
+    label: "ITP / QA records",
+    help: "Field records inspection & test points for sign-off.",
+  },
+  {
+    key: "plans",
+    label: "Plans & documents",
+    help: "Field can view plans/specs attached to the job.",
+  },
   { key: "materials", label: "Materials list", help: "Field can see the job materials list." },
   { key: "hours", label: "Log hours", help: "Field can log hours against this job." },
   { key: "tags", label: "Test tags", help: "Field can record test-and-tag entries." },
@@ -108,8 +128,19 @@ const MODULE_TOGGLES: ReadonlyArray<{ key: keyof JobModules; label: string; help
 ];
 
 const ALL_MODULE_KEYS: ReadonlyArray<keyof JobModules> = [
-  "areas", "snags", "photos", "hours", "materials", "tags", "temps", "plans",
-  "contacts", "switchboards", "circuits", "itps", "levels",
+  "areas",
+  "snags",
+  "photos",
+  "hours",
+  "materials",
+  "tags",
+  "temps",
+  "plans",
+  "contacts",
+  "switchboards",
+  "circuits",
+  "itps",
+  "levels",
 ];
 
 const STAGES: ReadonlyArray<{ stage: JobStage; label: string }> = [
@@ -183,9 +214,7 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
   async function runStatus(action: "publish" | "unpublish") {
     setBusy(action);
     setPublishError(null);
-    const res = await (action === "publish"
-      ? publishJob(savedJob.id)
-      : unpublishJob(savedJob.id));
+    const res = await (action === "publish" ? publishJob(savedJob.id) : unpublishJob(savedJob.id));
     setBusy(null);
     if (!res.ok) {
       setPublishError(res.error.message);
@@ -227,17 +256,25 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1">
-                  <Lock className="h-3.5 w-3.5" aria-hidden="true" /> Office-only (not yet published)
+                  <Lock className="h-3.5 w-3.5" aria-hidden="true" /> Office-only (not yet
+                  published)
                 </span>
               )}
             </CardDescription>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
-            <Button onClick={save} disabled={!dirty || saving || !basicsValid}>
+            <Button
+              data-testid="save-changes"
+              onClick={save}
+              disabled={!dirty || saving || !basicsValid}
+            >
               <Save className="h-4 w-4" aria-hidden="true" />
               {saving ? "Saving…" : dirty ? "Save changes" : savedTick ? "Saved ✓" : "Saved"}
             </Button>
-            <span className="text-[11px] uppercase tracking-wider text-text-muted">
+            <span
+              data-testid="save-state"
+              className="text-[11px] uppercase tracking-wider text-text-muted"
+            >
               {dirty ? "Unsaved changes" : "All changes saved"}
             </span>
           </div>
@@ -266,6 +303,15 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
         {TABS.map((t) => (
           <button
             key={t.key}
+            data-testid={
+              t.key === "structure"
+                ? "builder-structure-tab"
+                : t.key === "preview"
+                  ? "builder-phil-preview-tab"
+                  : t.key === "publish"
+                    ? "builder-publish-tab"
+                    : undefined
+            }
             role="tab"
             aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
@@ -296,8 +342,8 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
       <Card>
         <CardTitle>Basics</CardTitle>
         <CardDescription className="mt-1">
-          The job header and site context. Name is required; everything else
-          is optional and can be filled in over time.
+          The job header and site context. Name is required; everything else is optional and can be
+          filled in over time.
         </CardDescription>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <Field label="Job name" required error={basicsErrors.name} className="sm:col-span-2">
@@ -308,7 +354,11 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
             />
           </Field>
           <Field label="Reference">
-            <input className={inputClass} value={form.ref} onChange={(e) => set("ref", e.target.value)} />
+            <input
+              className={inputClass}
+              value={form.ref}
+              onChange={(e) => set("ref", e.target.value)}
+            />
           </Field>
           <Field label="Job type" help="Type is managed on the legacy job admin.">
             <input
@@ -387,7 +437,9 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
               onChange={(e) => set("inductionRequired", e.target.checked)}
               className="h-4 w-4 rounded border-border"
             />
-            <span className="text-sm text-text">Site induction required before the crew attends</span>
+            <span className="text-sm text-text">
+              Site induction required before the crew attends
+            </span>
           </label>
         </div>
       </Card>
@@ -403,11 +455,13 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
           <div className="flex items-start gap-2 rounded-card border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <div>
-              <p className="font-display font-semibold">Structure editing is on the legacy editor for this job</p>
+              <p className="font-display font-semibold">
+                Structure editing is on the legacy editor for this job
+              </p>
               <p className="mt-1 text-xs">
-                This job has archived rooms or tasks. The modern builder saves
-                structure as a whole, which would disturb those archived items,
-                so structure for jobs like this is edited on the legacy{" "}
+                This job has archived rooms or tasks. The modern builder saves structure as a whole,
+                which would disturb those archived items, so structure for jobs like this is edited
+                on the legacy{" "}
                 <a
                   href="/admin/jobs.html"
                   className="underline decoration-amber-400 underline-offset-2"
@@ -433,9 +487,8 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
         <Card>
           <CardTitle>Task templates</CardTitle>
           <CardDescription className="mt-1">
-            The default rough-in and fit-off checklist every area inherits.
-            Stages are fixed (rough-in → fit-off). An area can override these
-            with its own list in the legacy editor.
+            The default rough-in and fit-off checklist every area inherits. Stages are fixed
+            (rough-in → fit-off). An area can override these with its own list in the legacy editor.
           </CardDescription>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             {STAGES.map(({ stage, label }) => renderTaskList(stage, label))}
@@ -447,19 +500,19 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
             <div>
               <CardTitle>Areas &amp; zones</CardTitle>
               <CardDescription className="mt-1">
-                Group the job into areas the field works against (e.g. Level 1 →
-                Unit 1). Leave empty for a flat job, or turn off the Areas module.
+                Group the job into areas the field works against (e.g. Level 1 → Unit 1). Leave
+                empty for a flat job, or turn off the Areas module.
               </CardDescription>
             </div>
-            <Button size="sm" variant="secondary" onClick={addGroup}>
+            <Button data-testid="add-group" size="sm" variant="secondary" onClick={addGroup}>
               <Plus className="h-4 w-4" aria-hidden="true" /> Group
             </Button>
           </div>
 
           {form.areaGroups.length === 0 ? (
             <p className="mt-4 rounded-card border border-dashed border-border bg-surface-subtle px-3 py-6 text-center text-sm text-text-muted">
-              No areas yet. Add a group to start, or keep it flat and define work
-              with the task templates above.
+              No areas yet. Add a group to start, or keep it flat and define work with the task
+              templates above.
             </p>
           ) : (
             <ul className="mt-4 space-y-4">
@@ -472,7 +525,12 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
                       onChange={(e) => updateGroupName(gi, e.target.value)}
                       placeholder="Group name (e.g. Level 1)"
                     />
-                    <Button size="sm" variant="ghost" onClick={() => removeGroup(gi)} aria-label="Remove group">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => removeGroup(gi)}
+                      aria-label="Remove group"
+                    >
                       <Trash2 className="h-4 w-4" aria-hidden="true" />
                     </Button>
                   </div>
@@ -507,7 +565,13 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
                       </li>
                     ))}
                   </ul>
-                  <Button size="sm" variant="ghost" className="mt-2" onClick={() => addArea(gi)}>
+                  <Button
+                    data-testid="add-area"
+                    size="sm"
+                    variant="ghost"
+                    className="mt-2"
+                    onClick={() => addArea(gi)}
+                  >
                     <Plus className="h-4 w-4" aria-hidden="true" /> Area
                   </Button>
                 </li>
@@ -543,7 +607,12 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => setJobTasks(stage, rows.filter((_, i) => i !== idx))}
+                  onClick={() =>
+                    setJobTasks(
+                      stage,
+                      rows.filter((_, i) => i !== idx)
+                    )
+                  }
                   aria-label="Remove task"
                 >
                   <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -553,6 +622,7 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
           </ul>
         )}
         <Button
+          data-testid={stage === "roughIn" ? "add-rough-in-task" : "add-fit-off-task"}
           size="sm"
           variant="ghost"
           className="mt-2"
@@ -569,7 +639,10 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
     set("areaGroups", [...form.areaGroups, { name: "", areas: [] }]);
   }
   function removeGroup(gi: number) {
-    set("areaGroups", form.areaGroups.filter((_, i) => i !== gi));
+    set(
+      "areaGroups",
+      form.areaGroups.filter((_, i) => i !== gi)
+    );
   }
   function updateGroupName(gi: number, name: string) {
     const next = form.areaGroups.slice();
@@ -603,8 +676,8 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
           <CardTitle>Field modules</CardTitle>
         </div>
         <CardDescription className="mt-1">
-          What the field crew can do on this job. Turning a module off hides it
-          from the Phil app for this job (it doesn&rsquo;t delete any data).
+          What the field crew can do on this job. Turning a module off hides it from the Phil app
+          for this job (it doesn&rsquo;t delete any data).
         </CardDescription>
         <ul className="mt-4 divide-y divide-border overflow-hidden rounded-card border border-border">
           {MODULE_TOGGLES.map((m) => {
@@ -650,8 +723,8 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
           <div className="flex items-start gap-2 rounded-card border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <span>
-              This preview reflects the <strong>last saved</strong> version. Save
-              your changes to see them here and in what the field gets.
+              This preview reflects the <strong>last saved</strong> version. Save your changes to
+              see them here and in what the field gets.
             </span>
           </div>
         ) : null}
@@ -661,14 +734,15 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
             <CardTitle>What the field will see</CardTitle>
           </div>
           <CardDescription className="mt-1">
-            Derived from the saved job structure — the same data the Phil app
-            renders. Not a mock.
+            Derived from the saved job structure — the same data the Phil app renders. Not a mock.
           </CardDescription>
 
           <div className="mt-3 rounded-card border border-border bg-surface p-3">
             <p className="font-display text-base font-semibold text-text">{preview.jobName}</p>
             <p className="text-sm text-text-muted">
-              {[preview.ref && `Ref ${preview.ref}`, preview.siteAddress].filter(Boolean).join(" · ") || "No ref or address yet"}
+              {[preview.ref && `Ref ${preview.ref}`, preview.siteAddress]
+                .filter(Boolean)
+                .join(" · ") || "No ref or address yet"}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <Pill tone={preview.isVisibleToField ? "success" : "neutral"}>
@@ -686,7 +760,9 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
             <>
               {preview.stages.length > 0 ? (
                 <div className="mt-3">
-                  <p className="font-display text-xs uppercase tracking-wider text-text-muted">Stages</p>
+                  <p className="font-display text-xs uppercase tracking-wider text-text-muted">
+                    Stages
+                  </p>
                   <div className="mt-1 flex flex-wrap gap-2">
                     {preview.stages.map((s) => (
                       <Pill key={s.stage} tone="navy">
@@ -700,10 +776,15 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
               {preview.areas.length > 0 ? (
                 <ul className="mt-3 space-y-2">
                   {preview.areas.map((a, i) => (
-                    <li key={i} className="rounded-card border border-border bg-surface p-3 text-sm">
+                    <li
+                      key={i}
+                      className="rounded-card border border-border bg-surface p-3 text-sm"
+                    >
                       <p className="font-display font-semibold text-text">
                         {a.groupName} · {a.areaName}
-                        {a.spaceType ? <span className="ml-1 text-text-muted">({a.spaceType})</span> : null}
+                        {a.spaceType ? (
+                          <span className="ml-1 text-text-muted">({a.spaceType})</span>
+                        ) : null}
                       </p>
                       <p className="mt-1 text-xs text-text-muted">
                         Rough-in: {a.roughInTasks.length ? a.roughInTasks.join(", ") : "—"}
@@ -719,7 +800,9 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
           )}
 
           <div className="mt-3">
-            <p className="font-display text-xs uppercase tracking-wider text-text-muted">Field tools</p>
+            <p className="font-display text-xs uppercase tracking-wider text-text-muted">
+              Field tools
+            </p>
             <div className="mt-1 flex flex-wrap gap-2">
               {preview.sections.map((s) => (
                 <Pill key={s.key} tone={s.enabled ? "success" : "neutral"}>
@@ -747,14 +830,14 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
             <CardTitle>Publish checklist</CardTitle>
           </div>
           <CardDescription className="mt-1">
-            Checks run against the <strong>saved</strong> job. Errors block
-            publishing; warnings are advisory.
+            Checks run against the <strong>saved</strong> job. Errors block publishing; warnings are
+            advisory.
           </CardDescription>
 
           {dirty ? (
             <p className="mt-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              You have unsaved changes. Save first — publishing only writes the
-              status, so unsaved edits wouldn&rsquo;t be included.
+              You have unsaved changes. Save first — publishing only writes the status, so unsaved
+              edits wouldn&rsquo;t be included.
             </p>
           ) : null}
 
@@ -766,7 +849,8 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
             ) : (
               errors.map((i) => (
                 <li key={i.code} className="flex items-start gap-2 text-sm text-rose-800">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> {i.message}
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />{" "}
+                  {i.message}
                 </li>
               ))
             )}
@@ -798,6 +882,7 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
           <div className="mt-4 flex flex-wrap items-center gap-3">
             {state === "published" ? (
               <Button
+                data-testid="unpublish-to-draft"
                 variant="secondary"
                 disabled={busy !== null || dirty}
                 onClick={() => runStatus("unpublish")}
@@ -807,6 +892,7 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
               </Button>
             ) : (
               <Button
+                data-testid="publish-to-field"
                 disabled={busy !== null || dirty || !ready}
                 onClick={() => runStatus("publish")}
               >
@@ -838,9 +924,9 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
         <Card>
           <CardTitle>Not wired into the builder yet</CardTitle>
           <CardDescription className="mt-1">
-            These belong to the job but aren&rsquo;t edited here. They&rsquo;re
-            listed honestly so the builder doesn&rsquo;t look more complete than
-            it is. Where a real surface exists, the link goes to it.
+            These belong to the job but aren&rsquo;t edited here. They&rsquo;re listed honestly so
+            the builder doesn&rsquo;t look more complete than it is. Where a real surface exists,
+            the link goes to it.
           </CardDescription>
           <ul className="mt-4 space-y-3">
             <MoreRow
@@ -886,7 +972,9 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
 
 /* ============================ pure helpers ============================ */
 
-function tasksToForm(list: ReadonlyArray<{ id: string; name: string; archived?: boolean }> | undefined): TaskRowForm[] {
+function tasksToForm(
+  list: ReadonlyArray<{ id: string; name: string; archived?: boolean }> | undefined
+): TaskRowForm[] {
   return (list ?? []).filter((t) => !t.archived).map((t) => ({ id: t.id, name: t.name }));
 }
 
@@ -1014,7 +1102,9 @@ function MoreRow({
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-display text-sm font-semibold text-text">{title}</span>
-          <Pill tone="neutral" className="text-[10px] uppercase tracking-wider">{real}</Pill>
+          <Pill tone="neutral" className="text-[10px] uppercase tracking-wider">
+            {real}
+          </Pill>
         </div>
         <p className="mt-1 text-xs text-text-muted">{body}</p>
         {legacyHref && legacyLabel ? (
