@@ -16,7 +16,10 @@ interface PhilShellProps {
  */
 export function PhilShell({ children, title }: PhilShellProps) {
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-surface">
+    <div
+      data-testid="phil-shell"
+      className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-surface"
+    >
       <PhilHeader title={title} />
       <main className="flex-1 overflow-y-auto px-4 py-4">{children}</main>
       <PhilTabBar />

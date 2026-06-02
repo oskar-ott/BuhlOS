@@ -35,6 +35,7 @@ export function SignOutButton() {
 
   return (
     <button
+      data-testid="logout"
       type="button"
       onClick={signOut}
       disabled={pending}

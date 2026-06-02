@@ -1,0 +1,88 @@
+import { expect, type Page } from "@playwright/test";
+import { adminCredentials, fieldCredentials, type TestCredentials } from "./testData";
+
+async function login(page: Page, creds: TestCredentials) {
+  await page.goto("/v2/login");
+  await page.getByTestId("login-username").fill(creds.username);
+  await page.getByTestId("login-password").fill(creds.password);
+  await page.getByTestId("login-submit").click();
+}
+
+export async function loginAsAdmin(page: Page) {
+  const creds = adminCredentials();
+  if (!creds) throw new Error("Admin smoke credentials are not configured.");
+  await login(page, creds);
+  await expect(page).toHaveURL(/\/command-centre(?:\?|$)/);
+}
+
+export async function loginAsField(page: Page) {
+  const creds = fieldCredentials();
+  if (!creds) throw new Error("Field smoke credentials are not configured.");
+  await login(page, creds);
+  await expect(page).toHaveURL(/\/phil\/my-day(?:\?|$)/);
+}
+
+export async function logout(page: Page) {
+  await page.getByTestId("logout").click();
+  await expect(page).toHaveURL(/\/v2\/login(?:\?|$)/);
+}
+
+export async function waitForSavedState(page: Page) {
+  await expect(page.getByTestId("save-state")).toHaveText(/Unsaved changes/i);
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/jobs") && response.request().method() === "PUT" && response.ok(),
+    // A cold preview deployment can take well over 10s to return the save PUT,
+    // so give it a generous ceiling — a cold serverless start shouldn't flake
+    // the save step.
+    { timeout: 30_000 }
+  );
+  await page.getByTestId("save-changes").click();
+  await saved;
+  await expect(page.getByTestId("save-state")).toHaveText(/All changes saved/i);
+}
+
+export function collectConsoleErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  page.on("pageerror", (error) => errors.push(error.message));
+  return errors;
+}
+
+export function collectNetworkFailures(page: Page): string[] {
+  const failures: string[] = [];
+  page.on("requestfailed", (request) => {
+    const errorText = request.failure()?.errorText ?? "";
+    // net::ERR_ABORTED is a cancellation, not a failure: the Next.js App Router
+    // aborts in-flight RSC prefetches on navigation, and Vercel preview
+    // protection (/.well-known/vercel/jwe) + service-worker probes abort
+    // routinely. Don't treat those as runtime failures — genuine transport
+    // failures (DNS / connection / TLS) and >=500 responses are still collected.
+    if (errorText.includes("ERR_ABORTED")) return;
+    failures.push(`${request.method()} ${request.url()} ${errorText}`);
+  });
+  page.on("response", (response) => {
+    if (response.status() >= 500) {
+      failures.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+    }
+  });
+  return failures;
+}
+
+export async function parkJobAsDraft(page: Page) {
+  await page.getByTestId("builder-publish-tab").click();
+  const unpublish = page.getByTestId("unpublish-to-draft");
+  if (await unpublish.isVisible().catch(() => false)) {
+    const parked = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/jobs") &&
+        response.request().method() === "PUT" &&
+        response.ok()
+    );
+    await unpublish.click();
+    await parked;
+  }
+  await expect(page.getByText(/Office-only \(not yet published\)/i)).toBeVisible();
+}

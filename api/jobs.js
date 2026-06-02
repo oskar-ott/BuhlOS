@@ -171,12 +171,12 @@ module.exports = async (req, res) => {
     if (id) {
       const job = data.jobs.find(j => j.id === id);
       if (!job) return res.status(404).json({ error: 'job not found' });
-      // Draft jobs are office-only. An admin building a job can open it, but
-      // it stays invisible to the field (and clients) until published — even
-      // to a worker it's already assigned to. Reported as "not found" so a
-      // draft never leaks before it's ready. publishJob() flips it to 'active'
-      // (src/domains/jobs/client.ts); see also the list filter below.
-      if (job.status === 'draft' && me.role !== 'admin') {
+      // Draft and archived jobs are office-only. An admin building a job can
+      // open them, but they stay invisible to the field (and clients) — even
+      // to a worker already assigned to the job. Reported as "not found" so
+      // unpublished or retired work never leaks. publishJob() flips a draft
+      // to 'active' (src/domains/jobs/client.ts); see also the list filter.
+      if ((job.status === 'draft' || job.status === 'archived') && me.role !== 'admin') {
         return res.status(404).json({ error: 'job not found' });
       }
       const canSee =
@@ -193,15 +193,21 @@ module.exports = async (req, res) => {
       const cleaned = projectJobStructure(job, { includeArchived });
       return res.status(200).json({ job: { ...cleaned, modules: effectiveModules(job) } });
     }
-    // Non-admin roles never see draft jobs (office-only until published).
+    // Non-admin roles never see draft or archived jobs (office-only).
     // Admin sees every status so the Builder can list + open its own drafts.
     let visible;
     if (me.role === 'admin') {
       visible = data.jobs;
     } else if (me.role === 'client') {
-      visible = data.jobs.filter(j => j.clientUserId === me.id && j.status !== 'draft');
+      visible = data.jobs.filter(j =>
+        j.clientUserId === me.id && j.status !== 'draft' && j.status !== 'archived'
+      );
     } else {
-      visible = data.jobs.filter(j => (me.assignedJobIds || []).includes(j.id) && j.status !== 'draft');
+      visible = data.jobs.filter(j =>
+        (me.assignedJobIds || []).includes(j.id) &&
+        j.status !== 'draft' &&
+        j.status !== 'archived'
+      );
     }
     // Enrich with human-readable type name (cheap lookup; small list).
     // Clients/tradies can't read /api/job-types, so resolve server-side.

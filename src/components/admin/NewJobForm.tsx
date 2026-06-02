@@ -67,8 +67,8 @@ export function NewJobForm() {
     <Card>
       <CardTitle>New job</CardTitle>
       <CardDescription className="mt-1">
-        Creates a draft. Drafts are office-only — they stay invisible to the
-        field until you publish from the Builder.
+        Creates a draft. Drafts are office-only — they stay invisible to the field until you publish
+        from the Builder.
       </CardDescription>
 
       {error ? (
@@ -81,12 +81,9 @@ export function NewJobForm() {
       ) : null}
 
       <div className="mt-4 space-y-3">
-        <Field
-          label="Job name"
-          required
-          error={showErrors ? fieldErrors.name : undefined}
-        >
+        <Field label="Job name" required error={showErrors ? fieldErrors.name : undefined}>
           <input
+            data-testid="job-name"
             autoFocus
             className={cn(inputClass, showErrors && fieldErrors.name && "border-rose-400")}
             value={name}
@@ -122,7 +119,7 @@ export function NewJobForm() {
         >
           Cancel
         </Link>
-        <Button disabled={!canSubmit} onClick={submit}>
+        <Button data-testid="create-draft" disabled={!canSubmit} onClick={submit}>
           {submitting ? "Creating…" : "Create draft →"}
         </Button>
       </div>
