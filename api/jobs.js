@@ -1,5 +1,5 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, getCurrentUser, canManageJob } = require('./_lib/auth');
+const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs } = require('./_lib/auth');
 const { validateAreaGroups, validateTasks, validateCustomFields, visibleStructural } = require('./_lib/validation');
 const { areaProgressPct } = require('./_lib/job-tasks');
 const { appendAudit } = require('./_lib/job-audit');
@@ -176,7 +176,15 @@ module.exports = async (req, res) => {
       // to a worker already assigned to the job. Reported as "not found" so
       // unpublished or retired work never leaks. publishJob() flips a draft
       // to 'active' (src/domains/jobs/client.ts); see also the list filter.
-      if ((job.status === 'draft' || job.status === 'archived') && me.role !== 'admin') {
+      // Draft/archived single-GET visibility now matches canManageJob: the
+      // admin TIER (boss/owner/manager/office/pm/estimator) may open them, not
+      // just literal 'admin' — previously an office user could edit a draft via
+      // PUT (canManageJob) yet 404'd opening it here. Field/LH/clients still
+      // never see draft or archived work.
+      if (
+        (job.status === 'draft' && !canViewDraftJobs(me.role)) ||
+        (job.status === 'archived' && !canViewArchivedJobs(me.role))
+      ) {
         return res.status(404).json({ error: 'job not found' });
       }
       const canSee =
@@ -548,8 +556,11 @@ module.exports = async (req, res) => {
       }),
     };
 
-    // leadingHand may only patch areaGroups, roughInTasks, fitOffTasks, clientUserId
-    if (me.role === 'leadingHand') {
+    // leadingHand may only patch areaGroups, roughInTasks, fitOffTasks, clientUserId.
+    // Tier-aware so every LH alias (lh / leadinghand / leading-hand) is held to
+    // the restriction — a literal 'leadingHand' check let an aliased LH (who
+    // still passes canManageJob) edit money + module fields.
+    if (isLeadingHandRole(me.role)) {
       if (name !== undefined || type !== undefined || status !== undefined ||
           contractValue !== undefined || labourEstimate !== undefined ||
           materialEstimate !== undefined || claimedToDate !== undefined ||

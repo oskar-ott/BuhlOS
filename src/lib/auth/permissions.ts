@@ -3,6 +3,7 @@ import {
   isClientRole,
   isFieldRole,
   isLeadingHandRole,
+  isStaffRole,
   normaliseRole,
 } from "./roles";
 
@@ -43,4 +44,62 @@ export function canAccessSurface(role: unknown, surface: Surface): boolean {
  */
 export function canCreateJob(role: unknown): boolean {
   return normaliseRole(role) === "admin";
+}
+
+/**
+ * Named capability helpers — the page-side mirror of the same wrappers in
+ * api/_lib/auth.js. They gate by INTENT so pages and APIs read the same way
+ * ("can this role approve hours?") instead of re-deriving tiers inline. All
+ * are thin wrappers over the role tiers in roles.ts; keep names + meaning in
+ * sync with the CJS copy. (No new abstraction is introduced — these alias the
+ * existing tier helpers; they exist for call-site readability + a single
+ * tested contract.)
+ */
+
+// Surfaces (aliases of canAccessSurface, named for readability at call sites)
+export function isOfficeRole(role: unknown): boolean {
+  return isAdminRole(role);
+}
+export function canAccessBuhlOS(role: unknown): boolean {
+  return isAdminRole(role);
+}
+export function canAccessPhil(role: unknown): boolean {
+  return isFieldRole(role) || isLeadingHandRole(role);
+}
+
+// Jobs — draft/archived are office-only (admin tier); publish is a status
+// flip the LH restriction blocks, so it's admin tier too.
+export function canViewDraftJobs(role: unknown): boolean {
+  return isAdminRole(role);
+}
+export function canViewArchivedJobs(role: unknown): boolean {
+  return isAdminRole(role);
+}
+export function canPublishJobs(role: unknown): boolean {
+  return isAdminRole(role);
+}
+
+// Hours
+export function canSubmitHours(role: unknown): boolean {
+  return isFieldRole(role) || isLeadingHandRole(role);
+}
+export function canApproveHours(role: unknown): boolean {
+  return isStaffRole(role);
+}
+
+// Evidence / gear / plans
+export function canReviewEvidence(role: unknown): boolean {
+  return isAdminRole(role);
+}
+export function canManageGear(role: unknown): boolean {
+  return isAdminRole(role);
+}
+export function canViewAssignedGear(role: unknown): boolean {
+  return isFieldRole(role) || isLeadingHandRole(role);
+}
+export function canViewCurrentPlans(role: unknown): boolean {
+  return isAdminRole(role) || isLeadingHandRole(role) || isFieldRole(role);
+}
+export function canViewSupersededPlans(role: unknown): boolean {
+  return isAdminRole(role) || isLeadingHandRole(role);
 }
