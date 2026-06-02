@@ -221,7 +221,7 @@ async function handlePatch(req, res, user) {
     const usersBlob = await readBlob('users.json', { users: [] });
     const target = (usersBlob.users || []).find(u => u.id === targetUserId);
     if (!target) return res.status(404).json({ error: 'target user not found' });
-    if (target.role === 'client') return res.status(400).json({ error: 'cannot edit hours for clients' });
+    if (!canSubmitHours(target.role)) return res.status(400).json({ error: 'cannot edit hours for this role' });
     if (isLH) {
       const myJobs = new Set(user.assignedJobIds || []);
       const sharesJob = (target.assignedJobIds || []).some(j => myJobs.has(j));

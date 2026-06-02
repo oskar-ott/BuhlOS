@@ -268,6 +268,32 @@ describe("PATCH /api/time-entries — self-approval is blocked (payroll integrit
     expect(entry.notes).toBe("Office correction");
     expect(entry.updatedBy).toBe("u_office");
   });
+
+  it("denies delegated edits for an unknown-role target", async () => {
+    blob.set("users.json", {
+      users: [
+        ...((blob.get("users.json") as { users: unknown[] }).users || []),
+        { id: "u_unknown", username: "unknown", role: "nonsense", assignedJobIds: ["job-x"] },
+      ],
+    });
+    blob.set(`users/u_unknown/time-entries/${TODAY}.json`, {
+      ...validEntry(),
+      id: "e_unknown",
+      userId: "u_unknown",
+      userName: "unknown",
+      userRole: "nonsense",
+      status: "submitted",
+    });
+    const res = await call({
+      method: "PATCH",
+      userId: "u_office",
+      role: "office",
+      query: { date: TODAY, userId: "u_unknown" },
+      body: validEntry({ notes: "Should not persist" }),
+    });
+    expect(res.statusCode).toBe(400);
+    expect((blob.get(`users/u_unknown/time-entries/${TODAY}.json`) as { notes?: string }).notes).toBeUndefined();
+  });
 });
 
 describe("on-behalf hours — gated on the staff tier, not literal admin/LH", () => {
