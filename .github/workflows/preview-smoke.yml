@@ -24,31 +24,55 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - name: Install
-        run: npm ci --no-audit --no-fund
-      - name: Report configured QA secrets (names only — never values)
+      # Validate inputs BEFORE installing anything (fail fast): refuse
+      # production/unsupported targets, and REQUIRE both admin and field
+      # credentials so Phil coverage is deterministic (never silently skipped).
+      # Prints secret NAMES only — never values.
+      - name: Validate Preview Smoke inputs (URL guard + required secrets)
         run: |
-          ok=0; miss=0
-          check() { if [ -n "${!1}" ]; then echo "  present  $1"; ok=$((ok+1)); else echo "  MISSING  $1"; miss=$((miss+1)); fi; }
-          echo "QA inputs/secrets presence (values are NEVER printed):"
+          set -uo pipefail
+          miss=0
+          check() { if [ -n "${!1:-}" ]; then echo "  present  $1"; else echo "  MISSING  $1"; miss=$((miss+1)); fi; }
+          echo "Preview Smoke inputs/secrets (values are NEVER printed):"
           check PLAYWRIGHT_BASE_URL
           check BUHLOS_TEST_ADMIN_EMAIL
           check BUHLOS_TEST_ADMIN_PASSWORD
           check BUHLOS_TEST_FIELD_EMAIL
           check BUHLOS_TEST_FIELD_PASSWORD
-          echo "present=$ok missing=$miss"
-      - name: Validate smoke inputs
-        run: |
-          if [ -z "$PLAYWRIGHT_BASE_URL" ] || [ -z "$BUHLOS_TEST_ADMIN_EMAIL" ] || [ -z "$BUHLOS_TEST_ADMIN_PASSWORD" ]; then
-            echo "::error::Preview URL and admin smoke credentials are required."
+          if [ "$miss" -ne 0 ]; then
+            echo "::error::Missing required Preview Smoke secrets/inputs (see MISSING above). Admin AND field credentials are required — Phil coverage must not silently skip."
             exit 1
           fi
-          if [ -z "$BUHLOS_TEST_FIELD_EMAIL" ] || [ -z "$BUHLOS_TEST_FIELD_PASSWORD" ]; then
-            echo "::warning::Field credentials are absent. Phil live-render tests will skip; mocked-Blob API filtering still runs in CI."
-          fi
+          # Preview-only URL guard. Production is the buhlos.com custom domain; the
+          # smoke CREATES and briefly publishes jobs, so it must never hit prod.
+          host=$(printf '%s' "$PLAYWRIGHT_BASE_URL" | sed -E 's#^https?://##; s#/.*$##; s#:.*$##' | tr 'A-Z' 'a-z')
+          case "$host" in
+            buhlos.com|www.buhlos.com|"")
+              echo "::error::Refusing to run credentialed Preview Smoke against production or unsupported URL: '${PLAYWRIGHT_BASE_URL}'."
+              exit 1 ;;
+            localhost|127.0.0.1)
+              echo "URL guard OK (local): $host" ;;
+            *.vercel.app)
+              if printf '%s' "$host" | grep -q 'oskars-projects'; then
+                echo "URL guard OK (project preview): $host"
+              else
+                echo "::error::Refusing to run credentialed Preview Smoke against production or unsupported URL: '${PLAYWRIGHT_BASE_URL}' (not a project preview deployment)."
+                exit 1
+              fi ;;
+            *)
+              echo "::error::Refusing to run credentialed Preview Smoke against production or unsupported URL: '${PLAYWRIGHT_BASE_URL}' (host '$host')."
+              exit 1 ;;
+          esac
+      - name: Install
+        run: npm ci --no-audit --no-fund
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Run preview smoke
+        # Strict mode: credentials are required above, so credential-gated specs
+        # must RUN (not skip), and the assigned-active-job fixture must exist —
+        # no silent Phil data-skips in Preview Smoke.
+        env:
+          BUHLOS_SMOKE_STRICT: "1"
         run: npm run test:smoke
       - name: Upload HTML report
         if: always()

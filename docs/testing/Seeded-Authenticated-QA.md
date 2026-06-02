@@ -22,10 +22,18 @@ login, and never the production admin:
 | Account | Role | Purpose |
 |---|---|---|
 | **QA Admin** | an admin-tier role (`admin` / `office` / `pm` / …) | authenticated BuhlOS admin smoke → lands on `/command-centre` |
-| **QA Field** | a field/LH role (`tradie` / `electrician` / `leadinghand` / …) | Phil field smoke → lands on `/phil/my-day` |
+| **QA Field** | a **field-tier** role (`tradie` / `electrician` / `apprentice` / `labourer`) | Phil field smoke → lands on `/phil/my-day` |
 
-The QA Field account should be assigned to at least one **active** job so the
-"open an assigned active job" spec exercises the read-only field view.
+**QA Field must be a field-tier role** that lands on `/phil/my-day`. Do **not**
+use a `leadingHand`/LH account: `landingFor()` routes LH to `/lh`, not Phil, so
+the field smoke (which expects `/phil/my-day`) would fail. A dedicated LH smoke
+flow, if ever needed, is a separate future contract — not part of this harness.
+
+The QA Field account must be assigned to the stable active fixture
+**`QA_SEED_FIELD_ACTIVE_JOB`** — the only `QA_SEED_` job allowed to stay Active
+(see §6–§7) — so the "open an assigned active job" spec runs deterministically
+instead of skipping. (In strict Preview Smoke, `BUHLOS_SMOKE_STRICT=1` makes a
+missing fixture a **failure**, not a skip.)
 
 ## 2. Creating the accounts (manual — no seed API is run by tooling)
 
@@ -101,8 +109,9 @@ BLOB_READ_WRITE_TOKEN=… npm run qa:list-smoke-jobs
 ```
 
 Read-only. Lists every `SMOKE_TEST_` / `STRESS_TEST_` / `QA_SEED_` job with its
-status and **exits non-zero (2) if any are ACTIVE**. The token comes from the
-environment — the script never reads, prints, or stores it. (Prefixes are
+status and **exits non-zero (2) if any are ACTIVE except the allowed stable
+fixture** `QA_SEED_FIELD_ACTIVE_JOB`. The token comes from the environment — the
+script never reads, prints, or stores it. (Prefixes + the fixture exception are
 locked by `src/domains/qa/smoke-jobs.test.ts`.)
 
 ## 7. Parking / cleaning test jobs
@@ -110,10 +119,13 @@ locked by `src/domains/qa/smoke-jobs.test.ts`.)
 There is **no job delete endpoint**, so the rule is: **leave nothing Active.**
 
 - The job-builder smoke parks its generated job back to **Draft** in a `finally`.
-- If `qa:list-smoke-jobs` reports an Active test job, park it: open it in the
-  admin builder and **unpublish to Draft** (Active → Draft). Re-run the lister
-  to confirm `active=0`.
-- Leftover **Draft** test jobs are acceptable; **Active** ones are not.
+- Generated `SMOKE_TEST_`/`STRESS_TEST_` jobs must never be left Active. The one
+  exception is the stable fixture `QA_SEED_FIELD_ACTIVE_JOB`, which is
+  **intentionally** Active and assigned to QA Field — the lister allows it.
+- If `qa:list-smoke-jobs` reports any other Active test job, park it: open it in
+  the admin builder and **unpublish to Draft** (Active → Draft). Re-run the
+  lister to confirm `disallowed=0`.
+- Leftover **Draft** test jobs are acceptable; Active ones are not (except the fixture).
 
 This repo does **not** ship a destructive auto-park script: parking is a `PUT`
 that writes to the (possibly prod-shared) Blob, so it's done deliberately via

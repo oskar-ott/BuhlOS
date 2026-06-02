@@ -27,7 +27,18 @@ test.describe("Phil field smoke", () => {
     await loginAsField(page);
     await page.goto("/phil/jobs");
     const jobs = page.locator('a[href^="/phil/jobs/"]');
-    test.skip((await jobs.count()) === 0, "QA field account has no assigned active jobs.");
+    if ((await jobs.count()) === 0) {
+      // In strict Preview Smoke (BUHLOS_SMOKE_STRICT) the seeded fixture MUST
+      // exist — no silent Phil data-skip. Locally it's allowed to skip.
+      if (process.env.BUHLOS_SMOKE_STRICT) {
+        throw new Error(
+          "QA Field has no assigned ACTIVE job. Seed the stable fixture QA_SEED_FIELD_ACTIVE_JOB " +
+            "and assign QA Field to it (docs/testing/Seeded-Authenticated-QA.md) — strict Preview " +
+            "Smoke must not silently skip Phil coverage."
+        );
+      }
+      test.skip(true, "QA field account has no assigned active jobs (local run).");
+    }
 
     await jobs.first().click();
     await expect(page.getByTestId("phil-shell")).toBeVisible();
