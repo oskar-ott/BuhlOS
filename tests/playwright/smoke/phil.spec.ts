@@ -26,21 +26,27 @@ test.describe("Phil field smoke", () => {
   }) => {
     await loginAsField(page);
     await page.goto("/phil/jobs");
+    const fixtureName = "QA_SEED_FIELD_ACTIVE_JOB";
     const jobs = page.locator('a[href^="/phil/jobs/"]');
-    if ((await jobs.count()) === 0) {
-      // In strict Preview Smoke (BUHLOS_SMOKE_STRICT) the seeded fixture MUST
-      // exist — no silent Phil data-skip. Locally it's allowed to skip.
-      if (process.env.BUHLOS_SMOKE_STRICT) {
-        throw new Error(
-          "QA Field has no assigned ACTIVE job. Seed the stable fixture QA_SEED_FIELD_ACTIVE_JOB " +
-            "and assign QA Field to it (docs/testing/Seeded-Authenticated-QA.md) — strict Preview " +
-            "Smoke must not silently skip Phil coverage."
-        );
-      }
-      test.skip(true, "QA field account has no assigned active jobs (local run).");
-    }
+    const fixtureLink = page.locator('a[href^="/phil/jobs/"]', { hasText: fixtureName });
 
-    await jobs.first().click();
+    if (process.env.BUHLOS_SMOKE_STRICT) {
+      // Strict Preview Smoke is deterministic: the EXACT named fixture must be
+      // present + active + assigned to QA Field — not "any job happens to exist"
+      // (which could otherwise pass against an incidental production-style job).
+      await expect(
+        fixtureLink,
+        `Strict Preview Smoke requires the seeded fixture "${fixtureName}" active + assigned to QA Field (docs/testing/Seeded-Authenticated-QA.md).`
+      ).toHaveCount(1);
+      await fixtureLink.first().click();
+    } else if ((await fixtureLink.count()) > 0) {
+      await fixtureLink.first().click();
+    } else if ((await jobs.count()) > 0) {
+      // Local non-strict runs may be more permissive: open any assigned job.
+      await jobs.first().click();
+    } else {
+      test.skip(true, "QA field account has no assigned active job (local run).");
+    }
     await expect(page.getByTestId("phil-shell")).toBeVisible();
     await expect(page.getByRole("button", { name: /Capture evidence/i })).toBeVisible();
     await expect(page.getByText(/Save changes|Publish to field/i)).toHaveCount(0);

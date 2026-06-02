@@ -28,7 +28,7 @@ jobs:
       # production/unsupported targets, and REQUIRE both admin and field
       # credentials so Phil coverage is deterministic (never silently skipped).
       # Prints secret NAMES only — never values.
-      - name: Validate Preview Smoke inputs (URL guard + required secrets)
+      - name: Validate Preview Smoke secrets (names only; admin + field required)
         run: |
           set -uo pipefail
           miss=0
@@ -43,26 +43,11 @@ jobs:
             echo "::error::Missing required Preview Smoke secrets/inputs (see MISSING above). Admin AND field credentials are required — Phil coverage must not silently skip."
             exit 1
           fi
-          # Preview-only URL guard. Production is the buhlos.com custom domain; the
-          # smoke CREATES and briefly publishes jobs, so it must never hit prod.
-          host=$(printf '%s' "$PLAYWRIGHT_BASE_URL" | sed -E 's#^https?://##; s#/.*$##; s#:.*$##' | tr 'A-Z' 'a-z')
-          case "$host" in
-            buhlos.com|www.buhlos.com|"")
-              echo "::error::Refusing to run credentialed Preview Smoke against production or unsupported URL: '${PLAYWRIGHT_BASE_URL}'."
-              exit 1 ;;
-            localhost|127.0.0.1)
-              echo "URL guard OK (local): $host" ;;
-            *.vercel.app)
-              if printf '%s' "$host" | grep -q 'oskars-projects'; then
-                echo "URL guard OK (project preview): $host"
-              else
-                echo "::error::Refusing to run credentialed Preview Smoke against production or unsupported URL: '${PLAYWRIGHT_BASE_URL}' (not a project preview deployment)."
-                exit 1
-              fi ;;
-            *)
-              echo "::error::Refusing to run credentialed Preview Smoke against production or unsupported URL: '${PLAYWRIGHT_BASE_URL}' (host '$host')."
-              exit 1 ;;
-          esac
+      # Preview-only URL guard via a real URL parser (rejects production, empty,
+      # malformed, bad ports, and look-alike hosts; logs sanitized host/protocol
+      # only). Runs before npm ci. See scripts/qa/validate-preview-url.js.
+      - name: Validate preview URL (no production targets)
+        run: node scripts/qa/validate-preview-url.js
       - name: Install
         run: npm ci --no-audit --no-fund
       - name: Install Playwright Chromium

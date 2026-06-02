@@ -42,8 +42,10 @@ admin:
 
 1. Sign in to the admin surface.
 2. Create an employee for **QA Admin** with an admin-tier role and a password.
-3. Create an employee for **QA Field** with a field/LH role + password, and
-   assign it to a test/active job.
+3. Create an employee for **QA Field** with a **field-tier** role
+   (`tradie` / `electrician` / `apprentice` / `labourer`) + password, and assign
+   it to the stable active fixture **`QA_SEED_FIELD_ACTIVE_JOB`** (see §6–§7).
+   Do **not** use a `leadingHand`/LH role for QA Field.
 4. Confirm both can log in (step 4 below).
 
 > If/when a dedicated seed endpoint or script is added, it must be idempotent,
@@ -97,8 +99,9 @@ gh workflow run preview-smoke.yml \
 ```
 
 Order of signal in the run log: the **secret-presence report** (names only) →
-**Validate smoke inputs** (hard-fails if the preview URL or admin creds are
-missing; warns if field creds are absent) → Playwright. A Playwright failure
+**Validate inputs** (hard-fails if the preview URL or **admin OR field** creds
+are missing — field is required, not warning-only) → **preview URL guard**
+(rejects production / non-preview targets) → Playwright. A Playwright failure
 with a "REJECTED / wrong role" message is a **credential/account** problem, not
 an app bug; a normal assertion failure is an app/test problem.
 

@@ -73,15 +73,24 @@ describe("classify — flags every Active test job except the allowed fixture", 
     { id: "smoke-draft", name: "SMOKE_TEST_98_Job_Builder", status: "draft" },
     { id: "fixture-active", name: "QA_SEED_FIELD_ACTIVE_JOB", status: "active" },
     { id: "seed-other-active", name: "QA_SEED_other", status: "active" },
+    { id: "stress-active", name: "STRESS_TEST_load_run", status: "active" },
     { id: "smoke-arch", name: "SMOKE_TEST_97_Job_Builder", status: "archived" },
   ];
 
-  it("ignores real jobs; an Active SMOKE_TEST_ is disallowed", () => {
+  it("ignores real jobs; Active SMOKE_TEST_ + STRESS_TEST_ + other-QA_SEED_ are disallowed", () => {
     const c = classify(jobs);
     expect(c.test.some((j) => j.id === "real-active")).toBe(false);
     expect(c.disallowedActive.map((j) => j.id).sort()).toEqual(
-      ["seed-other-active", "smoke-active"].sort()
+      ["seed-other-active", "smoke-active", "stress-active"].sort()
     );
+  });
+
+  it("an Active SMOKE_TEST_ job is disallowed", () => {
+    expect(classify(jobs).disallowedActive.some((j) => j.id === "smoke-active")).toBe(true);
+  });
+
+  it("an Active STRESS_TEST_ job is disallowed", () => {
+    expect(classify(jobs).disallowedActive.some((j) => j.id === "stress-active")).toBe(true);
   });
 
   it("a Draft SMOKE_TEST_ is fine (not active)", () => {
@@ -100,7 +109,9 @@ describe("classify — flags every Active test job except the allowed fixture", 
   });
 
   it("clean state: only the allowed fixture is Active → no disallowed", () => {
-    const clean = jobs.filter((j) => !["smoke-active", "seed-other-active"].includes(j.id));
+    const clean = jobs.filter(
+      (j) => !["smoke-active", "seed-other-active", "stress-active"].includes(j.id)
+    );
     expect(classify(clean).disallowedActive).toEqual([]);
     expect(classify(clean).allowedActive.map((j) => j.id)).toEqual(["fixture-active"]);
   });
