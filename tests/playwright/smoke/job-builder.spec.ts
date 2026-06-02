@@ -51,8 +51,11 @@ test.describe("job builder lifecycle", () => {
       await expect(page.getByText(/Errors block publishing; warnings are advisory/i)).toBeVisible();
       await expect(page.getByText(/No blocking issues/i)).toBeVisible();
       await page.getByTestId("publish-to-field").click();
-      await expect(page.getByText(/Visible to the field/i)).toBeVisible();
-      await expect(page.getByTestId("unpublish-to-draft")).toBeVisible();
+      // Publishing does a server round-trip; a cold preview deployment can take
+      // well over the default 10s to reflect the published state, so give these
+      // post-publish assertions a longer ceiling to avoid a slow-preview flake.
+      await expect(page.getByText(/Visible to the field/i)).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId("unpublish-to-draft")).toBeVisible({ timeout: 30_000 });
     } finally {
       if (builderOpened) await parkJobAsDraft(page);
     }

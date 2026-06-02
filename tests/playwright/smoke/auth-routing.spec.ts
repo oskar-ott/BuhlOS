@@ -29,7 +29,10 @@ test.describe("authenticated admin routing", () => {
 
     await page.goto("/v2/jobs");
     await expect(page.getByTestId("buhlos-admin-shell")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
+    // The shell renders the page title as <h1>Jobs</h1>; the page body also has
+    // a <CardTitle> that renders <h2>Jobs</h2>. Target the h1 specifically so
+    // the locator isn't a strict-mode match against both headings.
+    await expect(page.getByRole("heading", { level: 1, name: "Jobs" })).toBeVisible();
     expect(consoleErrors).toEqual([]);
     expect(networkFailures).toEqual([]);
   });
