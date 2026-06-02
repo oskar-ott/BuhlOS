@@ -27,6 +27,7 @@ describe("validatePreviewUrl — reject production / unsupported", () => {
     ["look-alike vercel host", "https://evil-oskars-projects.vercel.app"],
     ["arbitrary vercel host", "https://something-oskars-projects-86c0cb7e.vercel.app"],
     ["non-http protocol", "ftp://birdwood-git-branch-oskars-projects-86c0cb7e.vercel.app"],
+    ["http remote preview (must be https)", "http://birdwood-git-branch-oskars-projects-86c0cb7e.vercel.app"],
   ];
   for (const [label, url] of rejected) {
     it(`rejects: ${label}`, () => {

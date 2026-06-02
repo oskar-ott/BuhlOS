@@ -56,10 +56,15 @@ function validatePreviewUrl(raw) {
     return { ok: false, reason: 'production host', host, protocol };
   }
   if (LOCAL_HOSTS.has(host)) {
-    return { ok: true, reason: 'localhost', host, protocol };
+    // Local dev may use http; credentialed REMOTE smoke must use https (below).
+    return { ok: true, reason: `localhost (${protocol})`, host, protocol };
   }
   if (BIRDWOOD_PREVIEW.test(host)) {
-    return { ok: true, reason: 'birdwood vercel preview', host, protocol };
+    // Credentialed remote smoke must never travel over plaintext http.
+    if (protocol !== 'https') {
+      return { ok: false, reason: 'remote preview must use HTTPS', host, protocol };
+    }
+    return { ok: true, reason: 'birdwood vercel preview (https)', host, protocol };
   }
   return { ok: false, reason: 'not a permitted preview target', host, protocol };
 }

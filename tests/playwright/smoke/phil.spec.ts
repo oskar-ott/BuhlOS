@@ -28,7 +28,11 @@ test.describe("Phil field smoke", () => {
     await page.goto("/phil/jobs");
     const fixtureName = "QA_SEED_FIELD_ACTIVE_JOB";
     const jobs = page.locator('a[href^="/phil/jobs/"]');
-    const fixtureLink = page.locator('a[href^="/phil/jobs/"]', { hasText: fixtureName });
+    // EXACT accessible-name match. The Phil job link is aria-label="Open <name>"
+    // (src/components/phil/PhilJobsList.tsx), so { exact: true } means a substring
+    // look-alike like "QA_SEED_FIELD_ACTIVE_JOB_2" ("Open …_2") does NOT satisfy
+    // strict mode — only the exact fixture does.
+    const fixtureLink = page.getByRole("link", { name: `Open ${fixtureName}`, exact: true });
 
     if (process.env.BUHLOS_SMOKE_STRICT) {
       // Strict Preview Smoke is deterministic: the EXACT named fixture must be
@@ -36,7 +40,7 @@ test.describe("Phil field smoke", () => {
       // (which could otherwise pass against an incidental production-style job).
       await expect(
         fixtureLink,
-        `Strict Preview Smoke requires the seeded fixture "${fixtureName}" active + assigned to QA Field (docs/testing/Seeded-Authenticated-QA.md).`
+        `Strict Preview Smoke requires the exact seeded fixture "${fixtureName}" active + assigned to QA Field (docs/testing/Seeded-Authenticated-QA.md).`
       ).toHaveCount(1);
       await fixtureLink.first().click();
     } else if ((await fixtureLink.count()) > 0) {
