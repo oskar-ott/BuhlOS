@@ -31,7 +31,11 @@ export async function waitForSavedState(page: Page) {
   await expect(page.getByTestId("save-state")).toHaveText(/Unsaved changes/i);
   const saved = page.waitForResponse(
     (response) =>
-      response.url().includes("/api/jobs") && response.request().method() === "PUT" && response.ok()
+      response.url().includes("/api/jobs") && response.request().method() === "PUT" && response.ok(),
+    // A cold preview deployment can take well over 10s to return the save PUT,
+    // so give it a generous ceiling — a cold serverless start shouldn't flake
+    // the save step.
+    { timeout: 30_000 }
   );
   await page.getByTestId("save-changes").click();
   await saved;
