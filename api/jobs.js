@@ -188,7 +188,7 @@ module.exports = async (req, res) => {
         return res.status(404).json({ error: 'job not found' });
       }
       const canSee =
-        me.role === 'admin' ||
+        canManageJob(me, id) ||
         (me.assignedJobIds || []).includes(id) ||
         (me.role === 'client' && job.clientUserId === me.id);
       if (!canSee) return res.status(403).json({ error: 'forbidden' });
@@ -197,14 +197,17 @@ module.exports = async (req, res) => {
       // tradie surfaces see the live structure; archived rooms / tasks
       // disappear from their lists without ever being deleted (rigidity
       // audit R2 — archive is the universal "remove" verb).
-      const includeArchived = req.query && req.query.includeArchived === '1';
+      const includeArchived =
+        req.query &&
+        req.query.includeArchived === '1' &&
+        canViewArchivedJobs(me.role);
       const cleaned = projectJobStructure(job, { includeArchived });
       return res.status(200).json({ job: { ...cleaned, modules: effectiveModules(job) } });
     }
     // Non-admin roles never see draft or archived jobs (office-only).
     // Admin sees every status so the Builder can list + open its own drafts.
     let visible;
-    if (me.role === 'admin') {
+    if (canViewDraftJobs(me.role) && canViewArchivedJobs(me.role)) {
       visible = data.jobs;
     } else if (me.role === 'client') {
       visible = data.jobs.filter(j =>
@@ -227,7 +230,10 @@ module.exports = async (req, res) => {
     // Listing surface filters archived structural items by default.
     // The admin job-list page doesn't need them; if a future surface
     // does it can opt in (?includeArchived=1) like the single-job GET.
-    const includeArchivedList = req.query && req.query.includeArchived === '1';
+    const includeArchivedList =
+      req.query &&
+      req.query.includeArchived === '1' &&
+      canViewArchivedJobs(me.role);
     let enriched = visible.map(j => {
       const base = j.type && typeMap[j.type] ? { ...j, typeName: typeMap[j.type] } : { ...j };
       const projected = projectJobStructure(base, { includeArchived: includeArchivedList });

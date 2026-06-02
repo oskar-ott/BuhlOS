@@ -92,7 +92,7 @@ beforeEach(() => {
             id: "u_office",
             username: "office",
             role: "office",
-            assignedJobIds: ["job-active", "job-draft", "job-archived"],
+            assignedJobIds: [],
           },
           {
             id: "u_lh",
@@ -107,7 +107,21 @@ beforeEach(() => {
       "jobs.json",
       {
         jobs: [
-          { id: "job-active", name: "Active", status: "active" },
+          {
+            id: "job-active",
+            name: "Active",
+            status: "active",
+            areaGroups: [
+              {
+                id: "group-a",
+                name: "Group A",
+                areas: [
+                  { id: "area-current", name: "Current area" },
+                  { id: "area-archived", name: "Archived area", archived: true },
+                ],
+              },
+            ],
+          },
           { id: "job-draft", name: "Draft", status: "draft" },
           { id: "job-archived", name: "Archived", status: "archived" },
         ],
@@ -203,7 +217,7 @@ describe("POST and PUT /api/jobs", () => {
 });
 
 describe("role normalisation — admin tier + LH aliases", () => {
-  it("admin-tier (office) can open its own draft/archived jobs (single GET)", async () => {
+  it("unassigned admin-tier (office) can open and list draft/archived jobs", async () => {
     // Regression for the literal `role === 'admin'` single-GET gate: the admin
     // TIER can edit a draft via PUT (canManageJob) and must be able to open it.
     for (const id of ["job-draft", "job-archived"]) {
@@ -211,6 +225,13 @@ describe("role normalisation — admin tier + LH aliases", () => {
       expect(res.statusCode).toBe(200);
       expect((res.body as { job: { id: string } }).job.id).toBe(id);
     }
+    const list = await call({ method: "GET", userId: "u_office", role: "office" });
+    expect(list.statusCode).toBe(200);
+    expect((list.body as { jobs: Array<{ id: string }> }).jobs.map((job) => job.id)).toEqual([
+      "job-active",
+      "job-draft",
+      "job-archived",
+    ]);
   });
 
   it("field users still 404 on draft/archived single GET (no widening)", async () => {
@@ -239,5 +260,31 @@ describe("role normalisation — admin tier + LH aliases", () => {
     });
     expect(res.statusCode).toBe(200);
     expect((res.body as { job: { siteAddress: string } }).job.siteAddress).toBe("7 Cable St");
+  });
+
+  it("only office-tier callers can opt into archived structural data", async () => {
+    const field = await call({
+      method: "GET",
+      userId: "u_field",
+      role: "electrician",
+      query: { id: "job-active", includeArchived: "1" },
+    });
+    expect(field.statusCode).toBe(200);
+    expect(
+      (field.body as { job: { areaGroups: Array<{ areas: Array<{ id: string }> }> } }).job
+        .areaGroups[0]!.areas.map((area) => area.id)
+    ).toEqual(["area-current"]);
+
+    const office = await call({
+      method: "GET",
+      userId: "u_office",
+      role: "office",
+      query: { id: "job-active", includeArchived: "1" },
+    });
+    expect(office.statusCode).toBe(200);
+    expect(
+      (office.body as { job: { areaGroups: Array<{ areas: Array<{ id: string }> }> } }).job
+        .areaGroups[0]!.areas.map((area) => area.id)
+    ).toEqual(["area-current", "area-archived"]);
   });
 });

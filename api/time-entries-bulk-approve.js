@@ -27,7 +27,7 @@
 //   by the pending Phase 07 work — a separate file avoids a merge knot.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole } = require('./_lib/auth');
+const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
 const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
 const { sendPushToUserId } = require('./_lib/push');
 
@@ -40,7 +40,7 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
-  if (!isStaffRole(me.role)) {
+  if (!canApproveHours(me.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 
@@ -59,7 +59,7 @@ module.exports = async (req, res) => {
     for (const u of (usersData.users || [])) userById[u.id] = u;
   } catch { /* fall through; LH check will defensively skip the lookup */ }
 
-  const myJobs = me.role === 'leadingHand'
+  const myJobs = isLeadingHandRole(me.role)
     ? new Set(me.assignedJobIds || [])
     : null;
 
@@ -76,6 +76,10 @@ module.exports = async (req, res) => {
     const date   = ref && ref.date;
     if (!userId || !date) {
       failed.push({ userId: userId || null, date: date || null, error: 'userId and date required' });
+      continue;
+    }
+    if (userId === me.id) {
+      failed.push({ userId, date, error: 'cannot approve your own hours' });
       continue;
     }
 
@@ -95,9 +99,9 @@ module.exports = async (req, res) => {
     }
 
     // LH gating — same rules as the single endpoint.
-    if (me.role === 'leadingHand') {
+    if (isLeadingHandRole(me.role)) {
       const submitter = userById[userId];
-      if (submitter && submitter.role === 'leadingHand') {
+      if (!submitter || isLeadingHandRole(submitter.role)) {
         failed.push({ userId, date, error: 'leading hands cannot approve other leading hands' });
         continue;
       }

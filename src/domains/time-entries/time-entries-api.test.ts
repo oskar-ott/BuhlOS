@@ -106,7 +106,7 @@ beforeEach(() => {
       },
     ],
     // A submitted entry owned by the field worker — used to prove a worker
-    // cannot flip it to approved, and that a legit draft->submitted edit works.
+    // cannot flip it to approved and that legitimate edits still work.
     [
       `users/u_field/time-entries/${TODAY}.json`,
       {
@@ -185,19 +185,88 @@ describe("PATCH /api/time-entries — self-approval is blocked (payroll integrit
     }
   });
 
-  it("still allows a legit draft->submitted edit, and never lets the body inject approval fields", async () => {
+  it("allows a legitimate edit while ignoring injected control metadata", async () => {
     const res = await call({
       method: "PATCH",
       userId: "u_field",
       role: "electrician",
       query: { date: TODAY },
-      // Crafted body tries to smuggle approval fields alongside a normal edit.
-      body: validEntry({ status: "submitted", approvedBy: "u_evil", approvedAt: "2020-01-01" }),
+      body: validEntry({
+        notes: "Legitimate site note",
+        approvedBy: "u_evil",
+        approvedAt: "2020-01-01",
+        rejectedBy: "u_evil",
+        rejectedAt: "2020-01-01",
+        exportedAt: "2020-01-01",
+        exportId: "exp_evil",
+        reopenedBy: "u_evil",
+        reopenedAt: "2020-01-01",
+        unknownControl: "ignored",
+      }),
     });
     expect(res.statusCode).toBe(200);
-    const entry = (res.body as { entry: { status: string; approvedBy: string | null } }).entry;
+    const entry = (res.body as { entry: Record<string, unknown> }).entry;
     expect(entry.status).toBe("submitted");
+    expect(entry.notes).toBe("Legitimate site note");
     expect(entry.approvedBy).toBeNull();
+    expect(entry.approvedAt).toBeNull();
+    expect(entry.rejectedBy).toBeUndefined();
+    expect(entry.rejectedAt).toBeUndefined();
+    expect(entry.exportedAt).toBeUndefined();
+    expect(entry.exportId).toBeUndefined();
+    expect(entry.reopenedBy).toBeUndefined();
+    expect(entry.reopenedAt).toBeUndefined();
+    expect(entry.unknownControl).toBeUndefined();
+  });
+
+  it("blocks generic status rewinds instead of letting PATCH unsubmit hours", async () => {
+    const res = await call({
+      method: "PATCH",
+      userId: "u_field",
+      role: "electrician",
+      query: { date: TODAY },
+      body: { status: "draft" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect((blob.get(`users/u_field/time-entries/${TODAY}.json`) as { status: string }).status).toBe(
+      "submitted"
+    );
+  });
+
+  it("keeps the explicit rejected-to-submitted correction workflow", async () => {
+    const key = `users/u_field/time-entries/${TODAY}.json`;
+    blob.set(key, {
+      ...(blob.get(key) as Record<string, unknown>),
+      status: "rejected",
+      rejectedReason: "Wrong allocation",
+      rejectedBy: "u_office",
+      rejectedAt: `${TODAY}T09:00:00.000Z`,
+    });
+    const res = await call({
+      method: "PATCH",
+      userId: "u_field",
+      role: "electrician",
+      query: { date: TODAY },
+      body: validEntry({ status: "submitted", notes: "Corrected" }),
+    });
+    expect(res.statusCode).toBe(200);
+    const entry = (res.body as { entry: { status: string; rejectedReason: string | null } }).entry;
+    expect(entry.status).toBe("submitted");
+    expect(entry.rejectedReason).toBeNull();
+  });
+
+  it("allows an office user to edit a worker entry on behalf", async () => {
+    const res = await call({
+      method: "PATCH",
+      userId: "u_office",
+      role: "office",
+      query: { date: TODAY, userId: "u_field" },
+      body: validEntry({ notes: "Office correction" }),
+    });
+    expect(res.statusCode).toBe(200);
+    const entry = (res.body as { entry: { notes: string; updatedBy: string } }).entry;
+    expect(entry.notes).toBe("Office correction");
+    expect(entry.updatedBy).toBe("u_office");
   });
 });
 
@@ -223,5 +292,33 @@ describe("on-behalf hours — gated on the staff tier, not literal admin/LH", ()
       body: validEntry(),
     });
     expect(res.statusCode).toBe(403);
+  });
+
+  it("denies unknown and client roles from logging their own hours", async () => {
+    for (const [userId, role] of [
+      ["u_unknown", "nonsense"],
+      ["u_client", "client"],
+    ] as const) {
+      blob.set("users.json", {
+        users: [
+          ...((blob.get("users.json") as { users: unknown[] }).users || []),
+          { id: userId, username: role, role, assignedJobIds: ["job-x"] },
+        ],
+      });
+      const res = await call({ method: "POST", userId, role, body: validEntry() });
+      expect(res.statusCode).toBe(403);
+    }
+  });
+
+  it("allows field and LH-alias users to log their own hours", async () => {
+    for (const [userId, role] of [
+      ["u_field2", "tradie"],
+      ["u_lh", "lh"],
+    ] as const) {
+      const res = await call({ method: "POST", userId, role, body: validEntry() });
+      expect(res.statusCode).toBe(201);
+      expect((res.body as { entry: { userId: string } }).entry.userId).toBe(userId);
+      blob.delete(`users/${userId}/time-entries/${TODAY}.json`);
+    }
   });
 });
