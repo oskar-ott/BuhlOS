@@ -26,6 +26,17 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci --no-audit --no-fund
+      - name: Report configured QA secrets (names only — never values)
+        run: |
+          ok=0; miss=0
+          check() { if [ -n "${!1}" ]; then echo "  present  $1"; ok=$((ok+1)); else echo "  MISSING  $1"; miss=$((miss+1)); fi; }
+          echo "QA inputs/secrets presence (values are NEVER printed):"
+          check PLAYWRIGHT_BASE_URL
+          check BUHLOS_TEST_ADMIN_EMAIL
+          check BUHLOS_TEST_ADMIN_PASSWORD
+          check BUHLOS_TEST_FIELD_EMAIL
+          check BUHLOS_TEST_FIELD_PASSWORD
+          echo "present=$ok missing=$miss"
       - name: Validate smoke inputs
         run: |
           if [ -z "$PLAYWRIGHT_BASE_URL" ] || [ -z "$BUHLOS_TEST_ADMIN_EMAIL" ] || [ -z "$BUHLOS_TEST_ADMIN_PASSWORD" ]; then

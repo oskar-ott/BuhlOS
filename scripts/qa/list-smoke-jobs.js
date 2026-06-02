@@ -1,0 +1,95 @@
+#!/usr/bin/env node
+// QA harness — list automated-test jobs and flag any that are still ACTIVE.
+//
+//   node scripts/qa/list-smoke-jobs.js
+//   npm run qa:list-smoke-jobs
+//
+// READ-ONLY. Reads jobs.json through the existing blob helper (which uses the
+// BLOB_READ_WRITE_TOKEN from the environment — this script never reads, prints,
+// or stores that token or any credential). It does NOT mutate anything.
+//
+// Purpose (docs/testing/Seeded-Authenticated-QA.md): authenticated preview
+// smoke creates SMOKE_TEST_<run> jobs and parks them as Draft. This gives a
+// deterministic way to answer "did any test job get left ACTIVE?" without
+// logging in or trusting the test's own cleanup.
+//
+// Exit codes:
+//   0 — no test jobs are Active (clean)
+//   2 — at least one test job is Active (needs parking — see qa:park guidance)
+//   1 — could not read jobs (e.g. BLOB_READ_WRITE_TOKEN not set) — NOT a clean result
+//
+// Test data prefixes (keep in sync with docs/testing/Test-Data-Rules.md).
+const QA_PREFIXES = ['SMOKE_TEST_', 'STRESS_TEST_', 'QA_SEED_'];
+
+/** True if a job NAME is automated QA/test data (prefix match, case-sensitive). */
+function isQaTestJob(name) {
+  const n = String(name || '');
+  return QA_PREFIXES.some((p) => n.startsWith(p));
+}
+
+/**
+ * Classify a jobs array into the test-data buckets we care about. Pure — no IO
+ * — so it is unit-tested (src/domains/qa/smoke-jobs.test.ts) without the blob.
+ * `active` is the bucket that must be empty after a smoke run.
+ */
+function classify(jobs) {
+  const test = (Array.isArray(jobs) ? jobs : []).filter((j) => j && isQaTestJob(j.name));
+  const byStatus = (status) => test.filter((j) => j.status === status);
+  return {
+    test,
+    active: byStatus('active'),
+    draft: byStatus('draft'),
+    archived: byStatus('archived'),
+    other: test.filter((j) => !['active', 'draft', 'archived'].includes(j.status)),
+  };
+}
+
+async function main() {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    console.error(
+      'ERROR: BLOB_READ_WRITE_TOKEN is not set — cannot read jobs.json. ' +
+        'This is NOT a clean result; set the token (do not paste it here) and re-run.'
+    );
+    process.exit(1);
+  }
+  let jobs;
+  try {
+    // Lazy-require so importing this module for unit tests never touches the blob SDK.
+    const { readBlobFresh } = require('../../api/_lib/blob.js');
+    const data = await readBlobFresh('jobs.json', { jobs: [] });
+    jobs = (data && data.jobs) || [];
+  } catch (e) {
+    console.error('ERROR reading jobs.json:', (e && e.message) || String(e));
+    process.exit(1);
+  }
+
+  const { test, active, draft, archived, other } = classify(jobs);
+  const pad = (s, n) => (String(s) + ' '.repeat(n)).slice(0, n);
+  console.log(`QA/test jobs found: ${test.length} (of ${jobs.length} total)`);
+  for (const j of test) {
+    const flag = j.status === 'active' ? '  <-- ACTIVE (must be parked)' : '';
+    console.log(`  ${pad(j.status || '(none)', 9)} ${pad(j.id, 28)} ${j.name}${flag}`);
+  }
+  console.log(
+    `\nactive=${active.length}  draft=${draft.length}  archived=${archived.length}  other=${other.length}`
+  );
+  if (active.length > 0) {
+    console.error(
+      `\nFAIL: ${active.length} test job(s) are ACTIVE. Park them to Draft (unpublish) ` +
+        `via the admin builder or qa:park guidance in docs/testing/Seeded-Authenticated-QA.md.`
+    );
+    process.exit(2);
+  }
+  console.log('\nOK: no test jobs are Active.');
+  process.exit(0);
+}
+
+module.exports = { QA_PREFIXES, isQaTestJob, classify };
+
+// Run as CLI only when invoked directly (not when required by the unit test).
+if (require.main === module) {
+  main().catch((e) => {
+    console.error('qa:list-smoke-jobs crashed:', (e && e.stack) || e);
+    process.exit(1);
+  });
+}

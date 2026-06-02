@@ -1,25 +1,80 @@
 import { expect, type Page } from "@playwright/test";
 import { adminCredentials, fieldCredentials, type TestCredentials } from "./testData";
 
-async function login(page: Page, creds: TestCredentials) {
+/**
+ * Log in at /v2/login and assert the role landed on the EXPECTED surface, with
+ * diagnostics that distinguish the three failure modes seeded-QA cares about
+ * (docs/testing/Seeded-Authenticated-QA.md):
+ *   - missing credentials  → thrown by the caller before we reach here
+ *   - bad credentials      → still on /v2/login after submit
+ *   - wrong role / surface → authenticated, but landed somewhere else
+ * Never logs the password value.
+ */
+async function loginExpectingSurface(
+  page: Page,
+  creds: TestCredentials,
+  label: string,
+  envPrefix: string,
+  expected: RegExp,
+  surfaceName: string
+) {
   await page.goto("/v2/login");
   await page.getByTestId("login-username").fill(creds.username);
   await page.getByTestId("login-password").fill(creds.password);
   await page.getByTestId("login-submit").click();
+  // Wait for the post-login redirect to leave the login page (or time out).
+  await page
+    .waitForURL((url) => !/\/v2\/login(?:\?|$)/.test(new URL(url).pathname), { timeout: 15_000 })
+    .catch(() => {});
+  const path = new URL(page.url()).pathname;
+  if (/^\/v2\/login(?:\/|$)/.test(path)) {
+    throw new Error(
+      `${label} login REJECTED: still on /v2/login after submit — ${envPrefix}_EMAIL / ` +
+        `${envPrefix}_PASSWORD do not match a valid account (bad credentials). Point them at a ` +
+        `dedicated QA ${surfaceName} account (docs/testing/Seeded-Authenticated-QA.md).`
+    );
+  }
+  if (!expected.test(path)) {
+    throw new Error(
+      `${label} login landed on "${path}", expected ${surfaceName}. The account authenticated ` +
+        `but its ROLE does not grant ${surfaceName} access (wrong role / wrong surface). Use a ` +
+        `dedicated QA ${surfaceName} account for ${envPrefix}_*.`
+    );
+  }
 }
 
 export async function loginAsAdmin(page: Page) {
   const creds = adminCredentials();
-  if (!creds) throw new Error("Admin smoke credentials are not configured.");
-  await login(page, creds);
-  await expect(page).toHaveURL(/\/command-centre(?:\?|$)/);
+  if (!creds) {
+    throw new Error(
+      "Admin smoke credentials are not configured — set BUHLOS_TEST_ADMIN_EMAIL and BUHLOS_TEST_ADMIN_PASSWORD."
+    );
+  }
+  await loginExpectingSurface(
+    page,
+    creds,
+    "Admin",
+    "BUHLOS_TEST_ADMIN",
+    /^\/command-centre(?:\/|$)/,
+    "BuhlOS admin (/command-centre)"
+  );
 }
 
 export async function loginAsField(page: Page) {
   const creds = fieldCredentials();
-  if (!creds) throw new Error("Field smoke credentials are not configured.");
-  await login(page, creds);
-  await expect(page).toHaveURL(/\/phil\/my-day(?:\?|$)/);
+  if (!creds) {
+    throw new Error(
+      "Field smoke credentials are not configured — set BUHLOS_TEST_FIELD_EMAIL and BUHLOS_TEST_FIELD_PASSWORD."
+    );
+  }
+  await loginExpectingSurface(
+    page,
+    creds,
+    "Field",
+    "BUHLOS_TEST_FIELD",
+    /^\/phil\/my-day(?:\/|$)/,
+    "Phil field (/phil/my-day)"
+  );
 }
 
 export async function logout(page: Page) {
