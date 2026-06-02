@@ -3,7 +3,7 @@
 // and never against another LH's submission.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole } = require('./_lib/auth');
+const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
 const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
 const { sendPushToUserId } = require('./_lib/push');
 const { appendActivity } = require('./_lib/activity');
@@ -15,7 +15,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
-  if (!isStaffRole(user.role)) {
+  if (!canApproveHours(user.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 
@@ -27,10 +27,23 @@ module.exports = async (req, res) => {
   // (Brief §09 follow-up — safety net for accidental hits.)
   const isUndo = req.query && (req.query.undo === '1' || req.query.undo === 'true');
   if (!userId || !date) return res.status(400).json({ error: 'userId and date required' });
+  if (userId === user.id) return res.status(403).json({ error: 'cannot reject your own hours' });
   if (!isUndo && (!reason || !String(reason).trim())) return res.status(400).json({ error: 'reason required' });
 
   const entry = await readEntry(userId, date);
   if (!entry) return res.status(404).json({ error: 'not found' });
+
+  if (isLeadingHandRole(user.role)) {
+    const submitter = await readUser(userId);
+    if (!submitter || isLeadingHandRole(submitter.role)) {
+      return res.status(403).json({ error: 'leading hands cannot act on other leading hands — admin only' });
+    }
+    const myJobs = new Set(user.assignedJobIds || []);
+    const allOnMyJobs = (entry.allocations || []).every(a => a.jobId && myJobs.has(a.jobId));
+    if (!allOnMyJobs) {
+      return res.status(403).json({ error: 'you can only reject hours for jobs you run' });
+    }
+  }
 
   if (isUndo) {
     if (entry.status !== 'rejected') return res.status(400).json({ error: 'entry is not rejected — nothing to undo' });
@@ -64,18 +77,6 @@ module.exports = async (req, res) => {
   }
 
   if (entry.status !== 'submitted') return res.status(400).json({ error: 'entry is not submitted' });
-
-  if (user.role === 'leadingHand') {
-    const submitter = await readUser(userId);
-    if (submitter && submitter.role === 'leadingHand') {
-      return res.status(403).json({ error: 'leading hands cannot act on other leading hands — admin only' });
-    }
-    const myJobs = new Set(user.assignedJobIds || []);
-    const allOnMyJobs = (entry.allocations || []).every(a => a.jobId && myJobs.has(a.jobId));
-    if (!allOnMyJobs) {
-      return res.status(403).json({ error: 'you can only reject hours for jobs you run' });
-    }
-  }
 
   const now = new Date().toISOString();
   const trimmedReason = String(reason).trim();

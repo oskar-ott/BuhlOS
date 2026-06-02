@@ -26,7 +26,7 @@
 //   shape on a query flag is a merge knot.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole } = require('./_lib/auth');
+const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
 const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
 const { sendPushToUserId } = require('./_lib/push');
 
@@ -39,7 +39,7 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
-  if (!isStaffRole(me.role)) {
+  if (!canApproveHours(me.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 
@@ -59,7 +59,7 @@ module.exports = async (req, res) => {
     for (const u of (usersData.users || [])) userById[u.id] = u;
   } catch { /* defensive: LH check will skip lookup */ }
 
-  const myJobs = me.role === 'leadingHand'
+  const myJobs = isLeadingHandRole(me.role)
     ? new Set(me.assignedJobIds || [])
     : null;
 
@@ -74,6 +74,10 @@ module.exports = async (req, res) => {
 
     if (!userId || !date) {
       failed.push({ userId: userId || null, date: date || null, error: 'userId and date required' });
+      continue;
+    }
+    if (userId === me.id) {
+      failed.push({ userId, date, error: 'cannot reject your own hours' });
       continue;
     }
     if (!reason) {
@@ -96,9 +100,9 @@ module.exports = async (req, res) => {
       continue;
     }
 
-    if (me.role === 'leadingHand') {
+    if (isLeadingHandRole(me.role)) {
       const submitter = userById[userId];
-      if (submitter && submitter.role === 'leadingHand') {
+      if (!submitter || isLeadingHandRole(submitter.role)) {
         failed.push({ userId, date, error: 'leading hands cannot reject other leading hands' });
         continue;
       }

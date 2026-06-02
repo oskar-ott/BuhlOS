@@ -4,7 +4,7 @@
 // entries (admin-only). Internal/no-job allocations are admin-only.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole } = require('./_lib/auth');
+const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
 const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
 const { sendPushToUserId } = require('./_lib/push');
 const { appendActivity } = require('./_lib/activity');
@@ -16,21 +16,22 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
-  if (!isStaffRole(user.role)) {
+  if (!canApproveHours(user.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 
   const { userId, date } = req.body || {};
   if (!userId || !date) return res.status(400).json({ error: 'userId and date required' });
+  if (userId === user.id) return res.status(403).json({ error: 'cannot approve your own hours' });
 
   const entry = await readEntry(userId, date);
   if (!entry) return res.status(404).json({ error: 'not found' });
   if (entry.status !== 'submitted') return res.status(400).json({ error: 'entry is not submitted' });
 
   // LH gating ─────────────────────────────────────────────────────────
-  if (user.role === 'leadingHand') {
+  if (isLeadingHandRole(user.role)) {
     const submitter = await readUser(userId);
-    if (submitter && submitter.role === 'leadingHand') {
+    if (!submitter || isLeadingHandRole(submitter.role)) {
       return res.status(403).json({ error: 'leading hands cannot approve other leading hands — admin only' });
     }
     const myJobs = new Set(user.assignedJobIds || []);

@@ -11,7 +11,7 @@
 //   DELETE /api/time-entries?date=YYYY-MM-DD     → delete own draft
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole, isAdminRole, isLeadingHandRole } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isAdminRole, isLeadingHandRole, canSubmitHours } = require('./_lib/auth');
 const {
   newId,
   validateEntryShape,
@@ -82,7 +82,11 @@ async function handleCreate(req, res, user) {
   const errors = validateEntryShape(body);
   if (errors.length) return res.status(400).json({ error: errors.join('; ') });
 
-  if (user.role === 'client') return res.status(403).json({ error: 'clients cannot log hours' });
+  const overrideUserId = (req.query && req.query.userId) || (body && body.targetUserId) || null;
+  const isOnBehalfRequest = overrideUserId && overrideUserId !== user.id;
+  if (!isOnBehalfRequest && !canSubmitHours(user.role)) {
+    return res.status(403).json({ error: 'forbidden — this role cannot log hours' });
+  }
 
   // ── On-behalf creation ────────────────────────────────────────────
   // Admin can create on behalf of anyone (except clients).
@@ -91,7 +95,6 @@ async function handleCreate(req, res, user) {
   let targetUserId  = user.id;
   let targetUserName = user.username;
   let targetUserRole = user.role;
-  const overrideUserId = (req.query && req.query.userId) || (body && body.targetUserId) || null;
   let onBehalf = false;
   if (overrideUserId && overrideUserId !== user.id) {
     if (!isStaffRole(user.role)) {
@@ -100,7 +103,7 @@ async function handleCreate(req, res, user) {
     const usersBlob = await readBlob('users.json', { users: [] });
     const target = (usersBlob.users || []).find(u => u.id === overrideUserId);
     if (!target) return res.status(404).json({ error: 'target user not found' });
-    if (target.role === 'client') return res.status(400).json({ error: 'cannot log hours for clients' });
+    if (!canSubmitHours(target.role)) return res.status(400).json({ error: 'cannot log hours for this role' });
     if (isLeadingHandRole(user.role)) {
       const myJobs = new Set(user.assignedJobIds || []);
       const sharesJob = (target.assignedJobIds || []).some(j => myJobs.has(j));
@@ -176,16 +179,16 @@ async function handlePatch(req, res, user) {
   const isSelf  = (targetUserId === user.id);
   const isAdmin = isAdminRole(user.role);
   const isLH    = isLeadingHandRole(user.role);
+  if (isSelf && !canSubmitHours(user.role)) {
+    return res.status(403).json({ error: 'forbidden — this role cannot edit hours' });
+  }
   if (!isSelf && !isAdmin && !isLH) {
     return res.status(403).json({ error: 'forbidden' });
   }
 
-  // Approval transitions (approved / rejected) MUST go through the dedicated
-  // approve/reject endpoints, which stamp approvedBy/rejectedBy and gate on
-  // canApproveHours (staff). The generic edit PATCH must NEVER move an entry
-  // into a payroll-trusted state — otherwise a worker could self-approve their
-  // own hours (the payroll export keys on status === 'approved', NOT on
-  // approvedBy). Only draft <-> submitted transitions are allowed here.
+  // Approval transitions MUST go through dedicated endpoints. PATCH supports
+  // only the narrow draft/rejected -> submitted workflow used when a worker
+  // edits and submits or fixes rejected hours.
   if (body.status === 'approved' || body.status === 'rejected') {
     return res.status(403).json({
       error: 'use the approve/reject endpoints to change approval status',
@@ -194,6 +197,20 @@ async function handlePatch(req, res, user) {
 
   const existing = await readEntry(targetUserId, date);
   if (!existing) return res.status(404).json({ error: 'not found' });
+
+  const requestedStatus = body.status;
+  const transitioningToSubmitted =
+    requestedStatus === 'submitted' &&
+    (existing.status === 'draft' || existing.status === 'rejected');
+  if (
+    requestedStatus !== undefined &&
+    requestedStatus !== existing.status &&
+    !transitioningToSubmitted
+  ) {
+    return res.status(403).json({
+      error: 'status can only change to submitted after editing draft or rejected hours',
+    });
+  }
 
   // LH gate — must share at least one assigned job with the target worker.
   // We read the target's own assignedJobIds (not just the entry's
@@ -204,7 +221,7 @@ async function handlePatch(req, res, user) {
     const usersBlob = await readBlob('users.json', { users: [] });
     const target = (usersBlob.users || []).find(u => u.id === targetUserId);
     if (!target) return res.status(404).json({ error: 'target user not found' });
-    if (target.role === 'client') return res.status(400).json({ error: 'cannot edit hours for clients' });
+    if (!canSubmitHours(target.role)) return res.status(400).json({ error: 'cannot edit hours for this role' });
     if (isLH) {
       const myJobs = new Set(user.assignedJobIds || []);
       const sharesJob = (target.assignedJobIds || []).some(j => myJobs.has(j));
@@ -224,22 +241,25 @@ async function handlePatch(req, res, user) {
     return res.status(403).json({ error: 'cannot edit entry already exported to payroll — ask admin to reopen it' });
   }
 
-  // Build merged shape and validate
+  // Build merged shape from an explicit allowlist. Generic PATCH must not
+  // spread caller-controlled metadata into payroll, approval or audit fields.
+  const editable = editableEntryPatch(body);
+  const nextStatus = transitioningToSubmitted ? 'submitted' : existing.status;
   const merged = {
     ...existing,
-    ...body,
-    allocations: body.allocations || existing.allocations,
+    ...editable,
+    status: nextStatus,
+    allocations: editable.allocations || existing.allocations,
   };
   const errors = validateEntryShape(merged);
   if (errors.length) return res.status(400).json({ error: errors.join('; ') });
 
   const now = new Date().toISOString();
   const wasRejected = existing.status === 'rejected';
-  const transitioningToSubmitted = body.status === 'submitted' && existing.status !== 'submitted';
 
   const updated = {
     ...existing,
-    ...body,
+    ...editable,
     // Preserve immutable fields
     id: existing.id,
     userId: existing.userId,
@@ -247,15 +267,9 @@ async function handlePatch(req, res, user) {
     userRole: existing.userRole,
     createdAt: existing.createdAt,
     updatedAt: now,
+    status: nextStatus,
     submittedAt: transitioningToSubmitted ? now : existing.submittedAt,
-    rejectedReason: wasRejected && body.status === 'submitted' ? null : existing.rejectedReason,
-    // Defence-in-depth: payroll/approval fields are never writable via the
-    // generic edit PATCH (approval is handled by the guard above + the
-    // dedicated approve/reject endpoints). Pin them from the existing record so
-    // a crafted body can't inject approvedBy/approvedAt or a payroll exportId.
-    approvedBy: existing.approvedBy,
-    approvedAt: existing.approvedAt,
-    exportId: existing.exportId,
+    rejectedReason: wasRejected && transitioningToSubmitted ? null : existing.rejectedReason,
     // If a non-self user (LH or admin) is editing, refresh the
     // delegated-entry fields so the tradie's My Day reflects the latest
     // person who touched it. We never overwrite the original
@@ -276,7 +290,7 @@ async function handlePatch(req, res, user) {
     // entered-by attribution.
     updatedBy:       user.id,
     updatedByName:   user.username,
-    allocations: (body.allocations || existing.allocations).map((a, i) => ({
+    allocations: (editable.allocations || existing.allocations).map((a, i) => ({
       jobId: a.jobId || null,
       hours: Number(a.hours),
       notes: a.notes || null,
@@ -295,6 +309,24 @@ async function handlePatch(req, res, user) {
   );
 
   return res.status(200).json({ entry: updated });
+}
+
+function editableEntryPatch(body) {
+  const patch = {};
+  for (const field of [
+    'startTime',
+    'endTime',
+    'breakMinutes',
+    'totalHours',
+    'ordinaryHours',
+    'overtimeHours',
+    'otOverridden',
+    'notes',
+    'allocations',
+  ]) {
+    if (body[field] !== undefined) patch[field] = body[field];
+  }
+  return patch;
 }
 
 async function handleDelete(req, res, user) {
