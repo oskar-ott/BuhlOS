@@ -26,6 +26,7 @@
     "check:production-shell": "node scripts/check-production-shell.js",
     "check:prod-branch": "node scripts/check-prod-branch.js",
     "check:route-ownership": "node scripts/check-route-ownership.js",
+    "check:shell-contract": "node scripts/check-shell-contract.js",
     "smoke:admin-routes": "node scripts/smoke-admin-routes.js",
     "smoke:evidence-routes": "node scripts/smoke-evidence-routes.js",
     "smoke:auth-d55-snags": "bash scripts/auth-smoke-d55-snags.sh",
@@ -33,8 +34,8 @@
     "smoke:auth-onboarding-o3": "bash scripts/auth-smoke-onboarding-o3.sh",
     "smoke:auth-observations": "bash scripts/auth-smoke-observations.sh",
     "qa:list-smoke-jobs": "node scripts/qa/list-smoke-jobs.js",
-    "predeploy": "npm run check:admin-shell && npm run check:sw-cache-version && npm run check:production-shell && npm run check:route-ownership && npm run smoke:admin-routes",
-    "predeploy:preview": "npm run check:admin-shell && npm run check:sw-cache-version && npm run check:production-shell && npm run check:route-ownership && npm run smoke:admin-routes",
+    "predeploy": "npm run check:admin-shell && npm run check:sw-cache-version && npm run check:production-shell && npm run check:route-ownership && npm run check:shell-contract && npm run smoke:admin-routes",
+    "predeploy:preview": "npm run check:admin-shell && npm run check:sw-cache-version && npm run check:production-shell && npm run check:route-ownership && npm run check:shell-contract && npm run smoke:admin-routes",
     "deploy:preview": "vercel deploy --yes"
   },
   "dependencies": {

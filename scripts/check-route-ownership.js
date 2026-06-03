@@ -68,12 +68,27 @@ const APPROVED_PHIL_HREFS = new Set([
 const FORBIDDEN_NAV_PATTERNS = [
   /\.html(\b|$)/,        // any public/*.html
   /^\/admin\//,          // legacy admin module URLs
+  /^\/admin-legacy$/,    // the pre-BuhlOS 8k-line admin (route-ownership §7)
   /^\/buhlos\//,         // discarded /buhlos/* mirrors
+  /^\/dev\/site-office/, // deprecated "Site Office" naming (route-ownership §7)
   /^\/my-day$/,          // legacy tradie home
   /^\/my-gear$/,         // legacy gear page
   /^\/overview$/,        // legacy alias of /admin/operations
   /^\/approvals$/,       // legacy alias of /admin/approvals
   /^\/phil$/,            // bare /phil is legacy phil.html in prod
+];
+
+// Deprecated PRODUCT names. Per docs/architecture/00-rebuild-non-negotiables.md
+// the surfaces are BuhlOS and Phil; "Switchboard" / "Site Office" are old
+// product names and must not reappear as current UI. Matched against modern nav
+// LABELS only (a controlled vocabulary) so the electrical-domain senses survive:
+//   - \bSwitchboard\b matches the singular product name but NOT "Switchboards"
+//     (the electrical register sense) — see src/domains/itp scope labels.
+//   - the legacy shell's own `data-sec="switchboard"` ban lives in
+//     scripts/smoke-admin-routes.js.
+const DEPRECATED_NAME_PATTERNS = [
+  { re: /\bswitchboard\b/i, name: 'Switchboard' },
+  { re: /\bsite[ -]?office\b/i, name: 'Site Office' },
 ];
 
 // Route source files that the contract names as canonical/transitional. If one
@@ -85,16 +100,24 @@ const REQUIRED_SOURCES = [
   'src/app/(admin)/hours/approvals/page.tsx',
   'src/app/(admin)/gear/page.tsx',
   'src/app/(admin)/employees/page.tsx',
+  'src/app/(admin)/employees/[id]/page.tsx',
   'src/app/(admin)/observations/page.tsx',
   'src/app/(admin)/material-requests/page.tsx',
   'src/app/v2/jobs/page.tsx',
   'src/app/v2/jobs/[jobId]/page.tsx',
+  'src/app/v2/jobs/[jobId]/builder/page.tsx',
+  'src/app/v2/jobs/[jobId]/plans/page.tsx',
   'src/app/phil/my-day/page.tsx',
   'src/app/phil/jobs/page.tsx',
+  'src/app/phil/jobs/[jobId]/page.tsx',
+  'src/app/phil/jobs/[jobId]/plans/page.tsx',
   'src/app/phil/hours/page.tsx',
   'src/app/phil/gear/page.tsx',
   'src/app/v2/phil/page.tsx',
+  // Shell components (their markers are enforced by check-shell-contract.js).
+  'src/components/admin/AdminShell.tsx',
   'src/components/admin/AdminSidebar.tsx',
+  'src/components/phil/PhilShell.tsx',
   'src/components/phil/PhilTabBar.tsx',
   'src/lib/auth/landing.ts',
 ];
@@ -136,7 +159,12 @@ function parseNavItems(src, arrayName) {
     const hrefM = obj.match(/href:\s*"([^"]+)"/);
     if (!hrefM) continue;
     const statusM = obj.match(/status:\s*"([^"]+)"/);
-    items.push({ href: hrefM[1], status: statusM ? statusM[1] : 'live' });
+    const labelM = obj.match(/label:\s*"([^"]+)"/);
+    items.push({
+      href: hrefM[1],
+      status: statusM ? statusM[1] : 'live',
+      label: labelM ? labelM[1] : '',
+    });
   }
   return items;
 }
@@ -154,6 +182,18 @@ function checkNav(file, arrayNames, approved, label) {
       'Expected `const ' + arrayNames.join('/') + ' = [ { href, status? }, ... ]`. ' +
       'If the nav shape changed, update scripts/check-route-ownership.js.');
     return;
+  }
+  // Deprecated product names must not reappear as a nav label — live OR UC.
+  for (const item of items) {
+    for (const dep of DEPRECATED_NAME_PATTERNS) {
+      if (item.label && dep.re.test(item.label)) {
+        fail(label + ': nav label uses the deprecated product name "' + dep.name +
+          '" ("' + item.label + '")',
+          'The surfaces are BuhlOS and Phil; "Switchboard" / "Site Office" are ' +
+          'deprecated product names and must not appear as current UI. ' +
+          'See docs/route-ownership.md §2 and docs/architecture/00-rebuild-non-negotiables.md.');
+      }
+    }
   }
   const live = items.filter((i) => i.status === 'live');
   if (live.length === 0) {
