@@ -55,6 +55,31 @@ no new permission surface, no extra fetch**.
 Ordering is deterministic: **critical → warning → info**, then oldest first,
 then id.
 
+## 4a. Action links & states (action hardening)
+
+Every item's "next action" resolves through a **canonical route registry**
+(`src/domains/exceptions/routes.ts`). Each entry ties an action to the
+**page file that implements it** (`sourceFile`); `routes.test.ts` asserts those
+files exist on disk, so *"the link goes somewhere real"* is an enforced,
+test-backed contract that catches a future route rename instead of shipping a
+broken link. As of this PR **all nine Phase-1 actions resolve to real,
+implemented surfaces** — none are fabricated.
+
+`ExceptionItem` carries an honest `actionState` (and `actionReason`):
+
+| `actionState` | Meaning | UI |
+|---|---|---|
+| `available` | a real registered route, with a safe encoded internal href | clickable link |
+| `unavailable` | route can't be satisfied (no jobId, unknown key, unsafe href) | **muted "not available yet"** + reason — never a link |
+| `future` | a planned source not built yet | muted (reserved; no Phase-1 source uses it) |
+
+`resolveAction(key, params)` builds the href (encoding dynamic segments via
+`encodeURIComponent`) and derives the state; it returns a **safe fallback** href
+or none — never an unsafe/`available` href. `isSafeActionHref` is hardened:
+internal absolute paths only — **rejects** external URLs, any scheme
+(`javascript:`/`http:`/…), protocol-relative `//`, backslashes, whitespace and
+control chars; printable punctuation like `-` in a jobId is allowed.
+
 ## 5. Sources intentionally deferred
 
 - **Plan markups (PR #68)** — overlays are stored per `(job, plan, page)` with no

@@ -9,7 +9,7 @@ import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
 import {
   filterExceptions,
-  isSafeActionHref,
+  isActionable,
   jobOptions,
   summariseExceptions,
 } from "@/domains/exceptions/service";
@@ -145,7 +145,7 @@ export function ExceptionsInbox({ initialItems, partial = false }: Props) {
 
           {filtered.length === 0 ? (
             <p className="text-sm text-text-muted" data-testid="exceptions-empty-filtered">
-              No items match these filters.
+              {`None of the ${summary.total} open item${summary.total === 1 ? "" : "s"} match the current filters — adjust the filters above to see ${summary.total === 1 ? "it" : "them"}.`}
             </p>
           ) : (
             <ul className="divide-y divide-border rounded-card border border-border">
@@ -162,15 +162,27 @@ export function ExceptionsInbox({ initialItems, partial = false }: Props) {
                   {item.summary ? (
                     <p className="mt-0.5 text-sm text-text-muted">{item.summary}</p>
                   ) : null}
-                  {isSafeActionHref(item.actionHref) ? (
+                  {isActionable(item) ? (
                     <Link
                       href={item.actionHref as Route}
+                      data-testid="exception-action-link"
                       className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
                     >
                       {item.actionLabel ?? "Open"}
                       <ArrowRight className="h-4 w-4" aria-hidden />
                     </Link>
-                  ) : null}
+                  ) : (
+                    <span
+                      data-testid="exception-action-unavailable"
+                      className="mt-2 inline-flex items-center gap-1 text-sm text-text-muted"
+                      title={item.actionReason ?? undefined}
+                    >
+                      {(item.actionLabel ?? "Open") + " — not available yet"}
+                      {item.actionReason ? (
+                        <span className="text-xs">· {item.actionReason}</span>
+                      ) : null}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>

@@ -77,8 +77,9 @@ describe("hoursExceptions", () => {
       [te({ id: "t2", status: "rejected", rejectedReason: "Wrong job", rejectedAt: "2026-06-02T00:00:00.000Z" })],
     );
     expect(items.map((i) => i.id)).toEqual(["hours-pending:t1", "hours-rejected:t2"]);
-    expect(items[0]).toMatchObject({ source: "hours", severity: "warning", status: "waiting", actionHref: "/hours/approvals", jobId: "job-1" });
-    expect(items[1]).toMatchObject({ status: "blocked", summary: "Reason: Wrong job" });
+    expect(items[0]).toMatchObject({ source: "hours", severity: "warning", status: "waiting", actionHref: "/hours/approvals", actionState: "available", jobId: "job-1" });
+    expect(items[1]).toMatchObject({ status: "blocked" });
+    expect(items[1]!.summary).toContain("Wrong job");
   });
 
   it("ignores entries whose status does not match the queue", () => {
@@ -191,9 +192,13 @@ describe("buildExceptions", () => {
     expect(items[items.length - 1]!.id).toBe("job-draft:j3");
   });
 
-  it("produces unique ids and only safe internal action hrefs", () => {
+  it("produces unique ids, all `available`, with only safe internal action hrefs", () => {
     expect(new Set(items.map((i) => i.id)).size).toBe(items.length);
-    for (const it of items) expect(isSafeActionHref(it.actionHref)).toBe(true);
+    for (const it of items) {
+      // Every Phase-1 source links to a real registered route → available.
+      expect(it.actionState).toBe("available");
+      expect(isSafeActionHref(it.actionHref)).toBe(true);
+    }
   });
 
   it("is order-independent (same multiset of ids regardless of source order)", () => {
