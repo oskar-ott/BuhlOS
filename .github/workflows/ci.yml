@@ -30,10 +30,11 @@ jobs:
         run: npm run test:unit
       - name: Build
         run: npm run build
-      - name: Legacy production guards
+      - name: Route + shell guards (legacy production + modern surfaces)
         run: |
           npm run check:admin-shell
           npm run check:sw-cache-version
           npm run check:production-shell
           npm run check:route-ownership
+          npm run check:shell-contract
           npm run smoke:admin-routes

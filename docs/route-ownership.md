@@ -1,7 +1,9 @@
 # BuhlOS + Phil Route Ownership Contract
 
-> Status: **living contract** · Owner: platform · Last reconciled against code: PR 1
-> (route-ownership-shell-stabilisation). Guarded by `scripts/check-route-ownership.js`.
+> Status: **living contract** · Owner: platform · Last reconciled against code:
+> `foundation/route-ownership-shell-contract` (per-page shell enforcement).
+> Guarded by `scripts/check-route-ownership.js` + `scripts/check-shell-contract.js`,
+> with the redirect/landing contract unit-tested in `src/middleware.test.ts`.
 
 ## 1. Purpose
 
@@ -180,6 +182,70 @@ for removal in a later, intentional cleanup PR (not this one).
 | `/v2/phil` | Phil | `v2/phil` | PhilShell | transitional | field/LH | tab "More" / "Snag" (UC) | profile/More placeholder |
 | `/phil/invite/[token]` | Phil | `phil/invite/[token]` | (own) | transitional | **public** | invite email | worker setup, no session yet |
 
+### 8.1 Shell + guard coverage matrix
+
+The same picture as a **safety** view: every route the platform classifies, its
+intended shell, and the guard that holds the line. "Risk" is the specific
+failure that has happened (or could) if the row is left unguarded.
+
+| Route | Owner | Shell | Source file | Status | Risk | Test/guard |
+| --- | --- | --- | --- | --- | --- | --- |
+| `/` | shared | none (redirect) | prod `public/login.html` (vercel) · dev `src/app/page.tsx` | canonical | legacy prototype root leaks to prod | `check-production-shell` (`/`→`login.html`), `smoke-admin-routes` |
+| `/login` | legacy | legacy login | `public/login.html` (vercel) | legacy | admin→ops redirect breaks | `smoke-admin-routes` (login→`/admin/operations`) |
+| `/v2/login` | shared | none (bespoke) | `src/app/v2/login/page.tsx` | canonical | shell creep; gets gated | `check-route-ownership` (required source), `check-shell-contract` (SHELL_EXEMPT), `middleware.test` (always public) |
+| `/command-centre` | BuhlOS | AdminShell | `src/app/(admin)/command-centre/page.tsx` | canonical | blank after login / wrong shell | `check-shell-contract`, `middleware.test`, `auth-routing.spec` |
+| `/hours` · `/hours/approvals` · `/gear` · `/employees` · `/employees/[id]` · `/observations` · `/material-requests` | BuhlOS | AdminShell | `src/app/(admin)/**` | canonical | blank / wrong shell | `check-shell-contract`, `middleware.test`, `check-route-ownership` |
+| `/admin` · `/admin/` | legacy | legacy shim | `public/admin/index.html` (vercel) | legacy | dead redirect | `smoke-admin-routes` (admin→ops) |
+| `/admin/operations` (+ `/overview`) | legacy | legacy BuhlOS SPA | `public/admin/operations.html` (vercel) | legacy (load-bearing) | blank ops / wrong shell / stale SW | `check-production-shell`, `check-admin-shell`, `smoke-admin-routes`, `check-sw-cache-version` |
+| `/admin/*` (approvals, jobs, itp, plans, variations, reports, …) | legacy | legacy `_shell.js` | `public/admin/*.html` (vercel) | legacy | blank page (missing boot) / stale SW | `check-admin-shell`, `check-sw-cache-version` |
+| `/v2/jobs` | BuhlOS | AdminShell | `src/app/v2/jobs/page.tsx` | transitional | wrong shell / nav drift | `check-shell-contract`, `check-route-ownership` (approved nav), `middleware.test`, `auth-routing.spec` |
+| `/v2/jobs/new` · `/v2/jobs/[jobId]` (+ evidence/snags/itps/documents/observations/material-requests/history) | BuhlOS | AdminShell | `src/app/v2/jobs/[jobId]/**` | transitional | wrong shell | `check-shell-contract`, `middleware.test` |
+| `/v2/jobs/[jobId]/builder` | BuhlOS | AdminShell | `…/builder/page.tsx` | transitional | wrong shell; admin-only gate | `check-shell-contract`, `check-route-ownership` (required source) |
+| `/v2/jobs/[jobId]/plans` | BuhlOS | AdminShell | `…/plans/page.tsx` | transitional | wrong shell | `check-shell-contract`, `check-route-ownership` (required source) |
+| `/v2/phil` | Phil | PhilShell | `src/app/v2/phil/page.tsx` | transitional | renders the admin shell | `check-shell-contract` (cross-shell), `middleware.test` |
+| `/phil` · `/phil/app` | legacy | legacy `phil.html` | `public/phil.html` (vercel) | legacy | bare `/phil` linked from modern nav | `check-route-ownership` (forbidden `/phil`) |
+| `/phil/my-day` · `/phil/hours` · `/phil/gear` · `/phil/jobs` · `/phil/jobs/[jobId]` (+ itps) · `/phil/onboarding` | Phil | PhilShell | `src/app/phil/**` | canonical | renders admin shell / blank | `check-shell-contract`, `middleware.test`, `phil.spec` |
+| `/phil/jobs/[jobId]/plans` | Phil | PhilShell | `…/plans/page.tsx` | canonical | wrong shell | `check-shell-contract`, `check-route-ownership` (required source) |
+| `/phil/invite/[token]` | Phil | own (public) | `src/app/phil/invite/[token]/page.tsx` | transitional | gets gated / wrong shell | `check-shell-contract` (SHELL_EXEMPT; cross-shell still applies) |
+| `/my-day` | legacy | legacy tradie home | `public/my-day.html` (vercel) | legacy | linked from modern nav | `check-route-ownership` (forbidden `/my-day`) |
+| `/my-gear` | legacy | legacy gear | `public/my-gear.html` (vercel) | legacy | linked from modern nav | `check-route-ownership` (forbidden `/my-gear`) |
+| `/lh` · `/lh-home` · `/client` · `/jobs` · `/install` · `/approvals` | legacy | legacy HTML | `public/*.html` · `public/admin/*.html` (vercel) | legacy | linked from modern nav / dead | `check-route-ownership` (forbidden), `smoke-admin-routes` (overview/approvals) |
+| `/buhlos/*` (22 mirrors of `/admin/*`) | legacy | legacy `_shell.js` | `public/admin/*.html` (vercel) | deprecated | re-linked from modern nav | `check-route-ownership` (forbidden `/buhlos/`) |
+| `/dev/site-office` · `/dev/site-office/components` | legacy | dev components | `public/dev/site-office/components.html` (vercel) | **deprecated naming** | "Site Office" reappears as current | `check-route-ownership` (forbidden + deprecated-name label), `smoke-admin-routes` (no `data-sec="switchboard"`) |
+| `/admin-legacy` · `/admin.html` | legacy | pre-BuhlOS admin | `public/admin.html` (vercel) | deprecated | leaks as current admin | `check-route-ownership` (forbidden), `check-production-shell` (no "Birdwood IV3232") |
+
+### 8.2 Shell rendering contract (per-page) — `scripts/check-shell-contract.js`
+
+The modern surfaces apply their shell chrome **per page**: each `page.tsx` wraps
+its body in `<AdminShell>` or `<PhilShell>` (or delegates to a co-located screen
+component that does, e.g. `src/app/(admin)/employees/EmployeesScreen.tsx`). The
+route-group layouts (`src/app/(admin)/layout.tsx`, `src/app/phil/layout.tsx`,
+`src/app/v2/phil/layout.tsx`) are deliberate pass-throughs.
+
+That convention is flexible but was previously unguarded — a new admin page
+could forget `<AdminShell>` and render a chromeless blank, or a Phil page could
+import the wrong shell and show a tradie the desktop admin sidebar. The shells
+carry stable markers (`AdminShell` → `data-testid="buhlos-admin-shell"`,
+`PhilShell` → `data-testid="phil-shell"`) that the Playwright smoke also asserts.
+
+`check-shell-contract.js` freezes three rules statically (no build, no network):
+
+- **A — cross-shell prohibition.** No file under an admin route subtree
+  (`src/app/(admin)`, `src/app/v2/jobs`) may import `PhilShell`; no file under a
+  Phil subtree (`src/app/phil`, `src/app/v2/phil`) may import `AdminShell`. A
+  BuhlOS route can never render the Phil shell, and vice versa.
+- **B — shell presence (no silent blanks).** Every `page.tsx` under those
+  subtrees must reach its own shell, in the page or a co-located component it
+  imports. The only exemptions (full-screen / public chrome, no surface shell)
+  are an explicit, reasoned allowlist: `/v2/login`, `/phil/invite/[token]`,
+  `/phil/onboarding`.
+- **C — marker stability.** `AdminShell` / `PhilShell` still exist and still
+  carry their `data-testid` + nav chrome, so the runtime smoke can't assert a
+  marker that was silently renamed away.
+
+When a route intentionally changes surface, update the `DOMAINS` / `SHELL_EXEMPT`
+lists in the guard **and** §8 / §8.1 here in the same PR.
+
 ## 9. Navigation contract
 
 - **BuhlOS sidebar** (`src/components/admin/AdminSidebar.tsx`) — `live` items may
@@ -198,9 +264,17 @@ for removal in a later, intentional cleanup PR (not this one).
   nav `<Link>`, so it carries no route. The guard parses both tab arrays and
   treats every tab as live (the `status` field was dropped with the FAB rework).
 - **No modern nav component may link to a legacy `public/*.html` route or a
-  legacy `/admin/*` URL.** The single intentional legacy link in the app is the
-  clearly-labelled "Open legacy Phil" bail-out on `/v2/phil`; it is a page-level
-  link, not navigation chrome, and is exempt.
+  legacy/deprecated URL.** The forbidden set is `*.html`, `/admin/*`,
+  `/admin-legacy`, `/buhlos/*`, `/dev/site-office*`, `/my-day`, `/my-gear`,
+  `/overview`, `/approvals`, and bare `/phil`. The single intentional legacy link
+  in the app is the clearly-labelled "Open legacy Phil" bail-out on `/v2/phil`;
+  it is a page-level link, not navigation chrome, and is exempt.
+- **Deprecated product names must not reappear as current UI.** No modern nav
+  label may be "Switchboard" or "Site Office" (the old surface names; the
+  surfaces are **BuhlOS** and **Phil**). The guard matches `\bSwitchboard\b`,
+  which spares the electrical-register sense "Switchboards" and the ITP scope
+  value `switchboard`; the legacy shell's own `data-sec="switchboard"` ban lives
+  in `scripts/smoke-admin-routes.js`.
 - `/v2/jobs` is the live Jobs route **for now**. When `/admin/jobs` (modern) is
   built, update the sidebar href, this contract, and the guard together.
 
@@ -238,6 +312,14 @@ Other intentional redirects:
 `landingFor` returning `/lh` / `/client` (legacy URLs unknown to Next's
 `typedRoutes`) is why call sites cast `as Route`. That cast is expected until LH
 and client surfaces are rebuilt.
+
+The middleware decisions above are unit-tested in `src/middleware.test.ts`
+(runs in `npm run test:unit`, no browser/preview/credentials): `/v2/login`
+always passes, unauthenticated gated routes `307` to `/v2/login?next=<path>`,
+each role reaches its own surface, and wrong-surface users `307` to
+`landingFor(role)`. The Playwright `auth-routing.spec.ts` proves the same
+contract end-to-end against a live preview; the unit test catches a regression
+before a preview even builds.
 
 ## 11. Service worker / cache assessment
 
@@ -285,12 +367,13 @@ Every step above changes the contract; update §4–§10 **and**
 ```bash
 npm run typecheck            # tsc --noEmit (typedRoutes validates Link/redirect paths)
 npm run lint                 # next lint (no alert/inline-style/deprecated naming)
-npm test                     # vitest unit tests
+npm run test:unit            # vitest (incl. src/middleware.test.ts redirect contract)
 npm run build                # next build
 npm run check:admin-shell    # legacy admin pages call SHELL.boot()
 npm run check:production-shell  # prod HTML is the BuhlOS shell; vercel "/" → login.html
 npm run check:sw-cache-version  # shell changes paired with CACHE_VERSION bump
-npm run check:route-ownership   # nav/landing contract (this document)
+npm run check:route-ownership   # nav/landing contract + deprecated-name nav (this document)
+npm run check:shell-contract    # every modern route renders its intended shell (§8.2)
 npm run smoke:admin-routes      # static legacy /admin/operations route chain
 # post-deploy, against the preview/prod URL:
 npm run smoke:evidence-routes -- <url>   # live status codes for canonical/legacy/API
@@ -307,5 +390,7 @@ preview URL and that is where it is verified. Rollback is `vercel promote <prev>
 - Migration strategy: [`rebuild-audit/16-migration-strategy.md`](rebuild-audit/16-migration-strategy.md)
 - Deploy process + critical routes: [`deploy-checklist.md`](deploy-checklist.md)
 - Blank-page regression history: [`regressions/admin-operations-blank.md`](regressions/admin-operations-blank.md)
-- Route gating: `src/middleware.ts` · Landing map: `src/lib/auth/landing.ts`
+- Route gating: `src/middleware.ts` (tested: `src/middleware.test.ts`) · Landing map: `src/lib/auth/landing.ts`
 - Admin nav: `src/components/admin/AdminSidebar.tsx` · Phil nav: `src/components/phil/PhilTabBar.tsx`
+- Shells: `src/components/admin/AdminShell.tsx` · `src/components/phil/PhilShell.tsx`
+- Route/shell guards: `scripts/check-route-ownership.js` · `scripts/check-shell-contract.js` (§8.2)
