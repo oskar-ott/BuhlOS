@@ -11,6 +11,10 @@ import type { ExceptionItem, ExceptionSeverity } from "./types";
  * `actionHref` is a canonical internal route the office can act on.
  */
 
+function routeSegment(value: string): string {
+  return encodeURIComponent(value);
+}
+
 /** The single distinct job an hours entry is allocated to, or undefined. */
 function singleAllocationJobId(entry: TimeEntry): string | undefined {
   const ids = new Set(
@@ -95,7 +99,7 @@ export function observationExceptions(
       dueAt: o.dueDate ?? undefined,
       actionLabel: "Open observation",
       // Deep-link to the per-job slice when we know the job; else the inbox.
-      actionHref: o.jobId ? `/v2/jobs/${o.jobId}/observations` : "/observations",
+      actionHref: o.jobId ? `/v2/jobs/${routeSegment(o.jobId)}/observations` : "/observations",
       tags: ["observation", o.type],
     });
   }
@@ -120,15 +124,15 @@ export function jobExceptions(jobs: ReadonlyArray<Job>): ExceptionItem[] {
     if (status !== "draft") {
       const evidence = j.statsEvidenceV2Pending ?? 0;
       if (evidence > 0) {
-        out.push(jobStatItem(j, "evidence", evidence, `${name}: ${evidence} evidence to review`, `/v2/jobs/${j.id}/evidence`, "warning", "Open evidence"));
+        out.push(jobStatItem(j, "evidence", evidence, `${name}: ${evidence} evidence to review`, `/v2/jobs/${routeSegment(j.id)}/evidence`, "warning", "Open evidence"));
       }
       const snags = j.statsSnagsV2Active ?? 0;
       if (snags > 0) {
-        out.push(jobStatItem(j, "snag", snags, `${name}: ${snags} open snag${snags === 1 ? "" : "s"}`, `/v2/jobs/${j.id}/snags`, "warning", "Open snags"));
+        out.push(jobStatItem(j, "snag", snags, `${name}: ${snags} open snag${snags === 1 ? "" : "s"}`, `/v2/jobs/${routeSegment(j.id)}/snags`, "warning", "Open snags"));
       }
       const itps = j.statsItpsNeedsReview ?? 0;
       if (itps > 0) {
-        out.push(jobStatItem(j, "itp", itps, `${name}: ${itps} ITP${itps === 1 ? "" : "s"} need sign-off`, `/v2/jobs/${j.id}/itps`, "warning", "Open ITPs"));
+        out.push(jobStatItem(j, "itp", itps, `${name}: ${itps} ITP${itps === 1 ? "" : "s"} need sign-off`, `/v2/jobs/${routeSegment(j.id)}/itps`, "warning", "Open ITPs"));
       }
     }
 
@@ -146,7 +150,7 @@ export function jobExceptions(jobs: ReadonlyArray<Job>): ExceptionItem[] {
         status: "blocked",
         ownerRole: "office",
         actionLabel: "Assign workers",
-        actionHref: `/v2/jobs/${j.id}/builder`,
+        actionHref: `/v2/jobs/${routeSegment(j.id)}/builder`,
         tags: ["job", "crew"],
       });
     }
@@ -165,7 +169,7 @@ export function jobExceptions(jobs: ReadonlyArray<Job>): ExceptionItem[] {
         status: "open",
         ownerRole: "office",
         actionLabel: "Open builder",
-        actionHref: `/v2/jobs/${j.id}/builder`,
+        actionHref: `/v2/jobs/${routeSegment(j.id)}/builder`,
         tags: ["job", "draft"],
       });
     }

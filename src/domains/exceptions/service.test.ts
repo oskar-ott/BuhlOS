@@ -110,6 +110,12 @@ describe("observationExceptions", () => {
     const item = observationExceptions([obs({ id: "o1", jobId: undefined as unknown as string })])[0];
     expect(item!.actionHref).toBe("/observations");
   });
+
+  it("encodes dynamic job route segments in action hrefs", () => {
+    const item = observationExceptions([obs({ id: "o1", jobId: "job/1?bad=true" })])[0];
+    expect(item!.actionHref).toBe("/v2/jobs/job%2F1%3Fbad%3Dtrue/observations");
+    expect(isSafeActionHref(item!.actionHref)).toBe(true);
+  });
 });
 
 // ── jobs ──────────────────────────────────────────────────────────────
@@ -131,6 +137,14 @@ describe("jobExceptions", () => {
     expect(ids).not.toContain("snag-job:j4");
     expect(items.find((i) => i.id === "job-no-crew:j2")).toMatchObject({ severity: "critical", actionHref: "/v2/jobs/j2/builder", actionLabel: "Assign workers" });
     expect(items.find((i) => i.id === "job-draft:j3")!.severity).toBe("info");
+  });
+
+  it("encodes dynamic job route segments for job-derived action hrefs", () => {
+    const items = jobExceptions([
+      job({ id: "j/1#frag", name: "Odd id", status: "active", statsCrewCount: 0 }),
+    ]);
+    expect(items[0]!.actionHref).toBe("/v2/jobs/j%2F1%23frag/builder");
+    expect(isSafeActionHref(items[0]!.actionHref)).toBe(true);
   });
 });
 
