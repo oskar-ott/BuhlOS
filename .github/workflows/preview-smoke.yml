@@ -24,20 +24,40 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - name: Install
-        run: npm ci --no-audit --no-fund
-      - name: Validate smoke inputs
+      # Validate inputs BEFORE installing anything (fail fast): refuse
+      # production/unsupported targets, and REQUIRE both admin and field
+      # credentials so Phil coverage is deterministic (never silently skipped).
+      # Prints secret NAMES only — never values.
+      - name: Validate Preview Smoke secrets (names only; admin + field required)
         run: |
-          if [ -z "$PLAYWRIGHT_BASE_URL" ] || [ -z "$BUHLOS_TEST_ADMIN_EMAIL" ] || [ -z "$BUHLOS_TEST_ADMIN_PASSWORD" ]; then
-            echo "::error::Preview URL and admin smoke credentials are required."
+          set -uo pipefail
+          miss=0
+          check() { if [ -n "${!1:-}" ]; then echo "  present  $1"; else echo "  MISSING  $1"; miss=$((miss+1)); fi; }
+          echo "Preview Smoke inputs/secrets (values are NEVER printed):"
+          check PLAYWRIGHT_BASE_URL
+          check BUHLOS_TEST_ADMIN_EMAIL
+          check BUHLOS_TEST_ADMIN_PASSWORD
+          check BUHLOS_TEST_FIELD_EMAIL
+          check BUHLOS_TEST_FIELD_PASSWORD
+          if [ "$miss" -ne 0 ]; then
+            echo "::error::Missing required Preview Smoke secrets/inputs (see MISSING above). Admin AND field credentials are required — Phil coverage must not silently skip."
             exit 1
           fi
-          if [ -z "$BUHLOS_TEST_FIELD_EMAIL" ] || [ -z "$BUHLOS_TEST_FIELD_PASSWORD" ]; then
-            echo "::warning::Field credentials are absent. Phil live-render tests will skip; mocked-Blob API filtering still runs in CI."
-          fi
+      # Preview-only URL guard via a real URL parser (rejects production, empty,
+      # malformed, bad ports, and look-alike hosts; logs sanitized host/protocol
+      # only). Runs before npm ci. See scripts/qa/validate-preview-url.js.
+      - name: Validate preview URL (no production targets)
+        run: node scripts/qa/validate-preview-url.js
+      - name: Install
+        run: npm ci --no-audit --no-fund
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Run preview smoke
+        # Strict mode: credentials are required above, so credential-gated specs
+        # must RUN (not skip), and the assigned-active-job fixture must exist —
+        # no silent Phil data-skips in Preview Smoke.
+        env:
+          BUHLOS_SMOKE_STRICT: "1"
         run: npm run test:smoke
       - name: Upload HTML report
         if: always()

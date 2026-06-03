@@ -26,10 +26,31 @@ test.describe("Phil field smoke", () => {
   }) => {
     await loginAsField(page);
     await page.goto("/phil/jobs");
+    const fixtureName = "QA_SEED_FIELD_ACTIVE_JOB";
     const jobs = page.locator('a[href^="/phil/jobs/"]');
-    test.skip((await jobs.count()) === 0, "QA field account has no assigned active jobs.");
+    // EXACT accessible-name match. The Phil job link is aria-label="Open <name>"
+    // (src/components/phil/PhilJobsList.tsx), so { exact: true } means a substring
+    // look-alike like "QA_SEED_FIELD_ACTIVE_JOB_2" ("Open …_2") does NOT satisfy
+    // strict mode — only the exact fixture does.
+    const fixtureLink = page.getByRole("link", { name: `Open ${fixtureName}`, exact: true });
 
-    await jobs.first().click();
+    if (process.env.BUHLOS_SMOKE_STRICT) {
+      // Strict Preview Smoke is deterministic: the EXACT named fixture must be
+      // present + active + assigned to QA Field — not "any job happens to exist"
+      // (which could otherwise pass against an incidental production-style job).
+      await expect(
+        fixtureLink,
+        `Strict Preview Smoke requires the exact seeded fixture "${fixtureName}" active + assigned to QA Field (docs/testing/Seeded-Authenticated-QA.md).`
+      ).toHaveCount(1);
+      await fixtureLink.first().click();
+    } else if ((await fixtureLink.count()) > 0) {
+      await fixtureLink.first().click();
+    } else if ((await jobs.count()) > 0) {
+      // Local non-strict runs may be more permissive: open any assigned job.
+      await jobs.first().click();
+    } else {
+      test.skip(true, "QA field account has no assigned active job (local run).");
+    }
     await expect(page.getByTestId("phil-shell")).toBeVisible();
     await expect(page.getByRole("button", { name: /Capture evidence/i })).toBeVisible();
     await expect(page.getByText(/Save changes|Publish to field/i)).toHaveCount(0);
