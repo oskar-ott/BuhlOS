@@ -103,3 +103,19 @@ export function canViewCurrentPlans(role: unknown): boolean {
 export function canViewSupersededPlans(role: unknown): boolean {
   return isAdminRole(role) || isLeadingHandRole(role);
 }
+
+// Plan markups (Plans Phase 2 overlays). Role-tier intent helpers — the API
+// additionally job-scopes management via canManageJob (admin tier any job, LH
+// on assigned job). Mirror in api/_lib/auth.js.
+//   - manage  = create/edit/archive/toggle visibleToPhil (office side)
+//   - view    = see ALL non-archived overlays (office side)
+//   - philView= see only visibleToPhil non-archived overlays (field side)
+export function canManagePlanMarkups(role: unknown): boolean {
+  return isAdminRole(role) || isLeadingHandRole(role);
+}
+export function canViewPlanMarkups(role: unknown): boolean {
+  return isAdminRole(role) || isLeadingHandRole(role);
+}
+export function canViewPhilPlanMarkups(role: unknown): boolean {
+  return isFieldRole(role) || isLeadingHandRole(role);
+}

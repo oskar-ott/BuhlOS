@@ -21,6 +21,7 @@ import {
   viewablePlans,
 } from "@/domains/plans/format";
 import { PlanViewer } from "./PlanViewer";
+import { PlanOverlayController } from "./PlanOverlayController";
 
 /**
  * Read-only Plans surface (Phase 1) shared by the admin and Phil routes.
@@ -39,12 +40,19 @@ interface PlansClientProps {
   mode: "admin" | "phil";
   initialDocuments: ReadonlyArray<Document>;
   fetchError?: string | null;
+  /**
+   * Plans Phase 2: when provided, the viewer gains the markup overlay layer
+   * (admin can add/edit/toggle/archive; Phil reads visibleToPhil overlays).
+   * Omitted → pure Phase 1 read-only viewer (unchanged).
+   */
+  jobId?: string;
 }
 
 export function PlansClient({
   mode,
   initialDocuments,
   fetchError = null,
+  jobId,
 }: PlansClientProps) {
   const visible = useMemo(() => {
     const set = mode === "phil" ? currentPlans(initialDocuments) : viewablePlans(initialDocuments);
@@ -136,7 +144,11 @@ export function PlansClient({
 
       {/* Viewer */}
       <div className="min-w-0 rounded-card border border-border bg-surface-raised p-5 shadow-card">
-        <PlanViewer plan={toPlan(selected)} />
+        {jobId ? (
+          <PlanOverlayController jobId={jobId} plan={toPlan(selected)} mode={mode} />
+        ) : (
+          <PlanViewer plan={toPlan(selected)} />
+        )}
       </div>
     </div>
   );
