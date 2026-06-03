@@ -33,6 +33,8 @@ import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { MaterialRequestItem } from "@/domains/material-requests/types";
 import { relativeWhen } from "@/domains/jobs/format";
+import { buildExceptions } from "@/domains/exceptions/service";
+import { ExceptionsInbox } from "@/components/admin/ExceptionsInbox";
 import { summariseItpReviewQueue } from "./itp-queue-card";
 
 export const dynamic = "force-dynamic";
@@ -163,6 +165,22 @@ export default async function CommandCentrePage() {
     !observationsError &&
     !materialRequestsError;
 
+  // Itemised "Needs attention" projection over the SAME already-loaded,
+  // admin-gated sources the count cards use — no new fetch, no new store.
+  const exceptions = buildExceptions({
+    hoursPending,
+    hoursRejected,
+    jobs,
+    observations,
+    materialRequests,
+  });
+  const anySourceError =
+    !!(hoursError ||
+      hoursRejectedError ||
+      jobsError ||
+      observationsError ||
+      materialRequestsError);
+
   return (
     <AdminShell title="Command Centre">
       <div className="mx-auto max-w-5xl space-y-6">
@@ -286,6 +304,10 @@ export default async function CommandCentrePage() {
               empty="No material requests waiting on the office."
             />
           </div>
+        </section>
+
+        <section aria-label="Needs attention — item by item">
+          <ExceptionsInbox initialItems={exceptions} partial={anySourceError} />
         </section>
 
         <section>
