@@ -84,6 +84,7 @@ beforeEach(() => {
           { id: "u_field", username: "sparky", role: "electrician", assignedJobIds: ["job-1"] },
           { id: "u_field2", username: "appy", role: "tradie", assignedJobIds: ["job-2"] },
           { id: "u_client", username: "client", role: "client", assignedJobIds: ["job-1"] },
+          { id: "u_unknown", username: "subbie", role: "subcontractor", assignedJobIds: ["job-1"] },
         ],
       },
     ],
@@ -163,8 +164,9 @@ describe("field workers cannot write", () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it("403s a client and denies an off-job worker's GET", async () => {
+  it("403s a client, unknown assigned role, and off-job worker's GET", async () => {
     expect((await call({ method: "GET", userId: "u_client", role: "client", query: { jobId: "job-1", planId: "plan-current", page: "0" } })).statusCode).toBe(403);
+    expect((await call({ method: "GET", userId: "u_unknown", role: "subcontractor", query: { jobId: "job-1", planId: "plan-current", page: "0" } })).statusCode).toBe(403);
     expect((await call({ method: "GET", userId: "u_field2", role: "tradie", query: { jobId: "job-1", planId: "plan-current", page: "0" } })).statusCode).toBe(403);
   });
 });

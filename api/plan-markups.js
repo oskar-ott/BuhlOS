@@ -17,7 +17,7 @@
 // Coordinates are normalised 0..1 (matches src/domains/plans/coords.ts).
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canManageJob } = require('./_lib/auth');
+const { requireAuth, canManageJob, canViewPhilPlanMarkups } = require('./_lib/auth');
 
 const MARKUP_TYPES = ['pin', 'note', 'line', 'area'];
 const MARKUP_TONES = ['navy', 'yellow', 'red', 'green', 'grey'];
@@ -87,7 +87,8 @@ module.exports = async (req, res) => {
       }
     }
 
-    const hasAccess = canManage || isCrewOnJob(user, jobId);
+    const hasFieldReadAccess = canViewPhilPlanMarkups(user.role) && isCrewOnJob(user, jobId);
+    const hasAccess = canManage || hasFieldReadAccess;
     if (!hasAccess) return res.status(403).json({ error: 'no access to this job' });
 
     const index = await readPlanIndex(jobId);
