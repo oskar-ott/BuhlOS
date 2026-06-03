@@ -63,11 +63,12 @@ const SHELL_IMPORT = {
   admin: /@\/components\/admin\/AdminShell/,
   phil: /@\/components\/phil\/PhilShell/,
 };
-// A file "provides" a shell if it imports the module OR renders the JSX tag.
-// Lenient OR — used for the positive presence check (Check B).
-const SHELL_PROVIDES = {
-  admin: [/@\/components\/admin\/AdminShell/, /<AdminShell[\s/>]/],
-  phil: [/@\/components\/phil\/PhilShell/, /<PhilShell[\s/>]/],
+// A file "renders" a shell only if the JSX tag is present. The positive
+// presence check must not treat an import as enough: an import-only page can
+// still return chromeless content.
+const SHELL_RENDER = {
+  admin: /<AdminShell[\s/>]/,
+  phil: /<PhilShell[\s/>]/,
 };
 
 // Pages that intentionally render NO surface shell (bespoke full-screen / public
@@ -163,10 +164,8 @@ for (const domain of DOMAINS) {
       const pageRel = rel(pageAbs);
       if (SHELL_EXEMPT.has(pageRel)) continue;
       const closure = colocatedClosure(pageAbs);
-      const provides = closure.some(({ src }) =>
-        SHELL_PROVIDES[domain.shell].some((re) => re.test(src)),
-      );
-      if (!provides) {
+      const renders = closure.some(({ src }) => SHELL_RENDER[domain.shell].test(src));
+      if (!renders) {
         fail(domain.name + ' route renders no ' + SHELL_LABEL[domain.shell] + ': ' + pageRel,
           'This page (and the co-located components it imports) never reaches ' +
           SHELL_LABEL[domain.shell] + ' — it would render without the ' + domain.name +
