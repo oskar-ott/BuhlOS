@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   ExternalLink,
@@ -22,8 +22,32 @@ import {
   statusLabel,
   statusTone,
 } from "@/domains/documents/format";
-import { fitZoom, type Rotation } from "@/domains/plans/coords";
+import { fitZoom, type PageView, type Rotation } from "@/domains/plans/coords";
 import type { Plan } from "@/domains/plans/types";
+
+/**
+ * Geometry handed to an overlay renderer (Plans Phase 2). `view` is the
+ * coords.ts PageView for the rendered page (offset 0 — the overlay is a child
+ * of the stage box, so it shares the page's scroll/pan); `boxW`/`boxH` are the
+ * rotated, zoomed page-box size in CSS px; `pageIndex` is the page on screen.
+ */
+export interface PlanOverlayGeom {
+  pageIndex: number;
+  view: PageView;
+  boxW: number;
+  boxH: number;
+}
+
+interface PlanViewerProps {
+  plan: Plan;
+  /**
+   * Optional Phase 2 overlay. Rendered INSIDE the stage box (over the raster),
+   * so it pans/scrolls with the page. Omitted → pure Phase 1 read-only viewer.
+   */
+  renderOverlay?: (geom: PlanOverlayGeom) => ReactNode;
+  /** Notified of the on-screen page so an overlay owner can scope its data. */
+  onPageChange?: (pageIndex: number) => void;
+}
 
 /**
  * Phase 1 Plan Viewer — read-only raster display.
@@ -51,7 +75,7 @@ function clampZoom(z: number): number {
   return z < MIN_ZOOM ? MIN_ZOOM : z > MAX_ZOOM ? MAX_ZOOM : z;
 }
 
-export function PlanViewer({ plan }: { plan: Plan }) {
+export function PlanViewer({ plan, renderOverlay, onPageChange }: PlanViewerProps) {
   const pages = plan.pages;
   const superseded = isSuperseded(plan);
   const title = displayTitle(plan);
@@ -135,6 +159,28 @@ export function PlanViewer({ plan }: { plan: Plan }) {
       setNatural({ w: el.naturalWidth, h: el.naturalHeight });
     }
   }, []);
+
+  // Tell an overlay owner which page is on screen (so it can scope its data).
+  useEffect(() => {
+    onPageChange?.(pageIndex);
+  }, [pageIndex, onPageChange]);
+
+  // Geometry for the overlay layer: offset 0 because the overlay is a child of
+  // the stage box and pans/scrolls with the page. Built from the same
+  // natural/zoom/rotation state the imperative geometry effect uses, so the
+  // SVG layer and the <img> stay pixel-aligned.
+  const overlayGeom = useMemo<PlanOverlayGeom | null>(() => {
+    if (!natural) return null;
+    const rotated = rotation === 90 || rotation === 270;
+    const sW = natural.w * zoom;
+    const sH = natural.h * zoom;
+    return {
+      pageIndex,
+      boxW: rotated ? sH : sW,
+      boxH: rotated ? sW : sH,
+      view: { baseWidth: natural.w, baseHeight: natural.h, zoom, rotation, offsetX: 0, offsetY: 0 },
+    };
+  }, [natural, zoom, rotation, pageIndex]);
 
   const openOriginal = (
     <a
@@ -314,6 +360,7 @@ export function PlanViewer({ plan }: { plan: Plan }) {
               className="absolute select-none"
               draggable={false}
             />
+            {renderOverlay && overlayGeom ? renderOverlay(overlayGeom) : null}
           </div>
         </div>
       </div>

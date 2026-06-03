@@ -225,6 +225,12 @@ function canViewAssignedGear(role) { return isFieldRole(role) || isLeadingHandRo
 function canManagePlans(user, jobId) { return canManageJob(user, jobId); }
 function canViewCurrentPlans(role) { return isAdminRole(role) || isLeadingHandRole(role) || isFieldRole(role); }
 
+// Plan markups (Plans Phase 2 overlays) — mirror src/lib/auth/permissions.ts.
+// Management is job-scoped via canManageJob; these tier helpers gate intent.
+function canManagePlanMarkups(role) { return isAdminRole(role) || isLeadingHandRole(role); }
+function canViewPlanMarkups(role) { return isAdminRole(role) || isLeadingHandRole(role); }
+function canViewPhilPlanMarkups(role) { return isFieldRole(role) || isLeadingHandRole(role); }
+
 module.exports = {
   SESSION_COOKIE,
   ADMIN_ROLES,
@@ -255,4 +261,7 @@ module.exports = {
   canViewAssignedGear,
   canManagePlans,
   canViewCurrentPlans,
+  canManagePlanMarkups,
+  canViewPlanMarkups,
+  canViewPhilPlanMarkups,
 };

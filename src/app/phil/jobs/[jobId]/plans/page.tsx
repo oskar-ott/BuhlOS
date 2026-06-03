@@ -114,6 +114,7 @@ export default async function PhilPlansPage({ params }: PageParams) {
         </Link>
         <PlansClient
           mode="phil"
+          jobId={jobId}
           initialDocuments={plansResult.documents}
           fetchError={plansResult.error}
         />

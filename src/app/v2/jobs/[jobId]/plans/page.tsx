@@ -122,6 +122,7 @@ export default async function AdminPlansPage({ params }: PageParams) {
       <div className="mx-auto max-w-6xl">
         <PlansClient
           mode="admin"
+          jobId={jobId}
           initialDocuments={plansResult.kind === "ok" ? plansResult.documents : []}
           fetchError={plansResult.kind === "error" ? plansResult.message : null}
         />
