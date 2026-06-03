@@ -4,10 +4,14 @@ import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { JobBuilderClient } from "@/components/admin/JobBuilderClient";
+import { JobAssignmentPanel } from "@/components/admin/JobAssignmentPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import type { Job } from "@/domains/jobs/types";
+import { UsersListResponseSchema } from "@/domains/users/schema";
+import { filterAssignableWorkers } from "@/domains/users/assignment";
+import type { AssignableWorker } from "@/domains/users/types";
 
 export const dynamic = "force-dynamic";
 
@@ -80,9 +84,17 @@ export default async function JobBuilderPage({ params }: PageParams) {
     );
   }
 
+  const workers = await loadAssignableWorkers(raw);
+
   return (
     <BuilderShell jobId={jobId} title={result.job.name}>
       <JobBuilderClient job={result.job} />
+      <JobAssignmentPanel
+        jobId={jobId}
+        jobName={result.job.name}
+        initialWorkers={workers.workers}
+        loadError={workers.error}
+      />
     </BuilderShell>
   );
 }
@@ -152,6 +164,41 @@ async function loadJob(
     return {
       kind: "error",
       message: err instanceof Error ? err.message : "Network error",
+    };
+  }
+}
+
+/**
+ * Load the assignable field/LH workers for the "Assigned field workers" panel.
+ *
+ * GET /api/users is admin-tier-gated; this page is already admin-only, so the
+ * forwarded session cookie passes. We filter to active field/LH accounts
+ * server-side (filterAssignableWorkers) so the client only ever receives the
+ * four secret-free worker fields — never hashes or non-field accounts. A failure
+ * is non-blocking: the panel shows an error banner, the builder still renders.
+ */
+async function loadAssignableWorkers(cookieValue: string | undefined): Promise<{
+  workers: AssignableWorker[];
+  error: string | null;
+}> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(`${base}/api/users`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (!res.ok) return { workers: [], error: `API returned ${res.status}` };
+    const body = await res.json();
+    const parsed = UsersListResponseSchema.safeParse(body);
+    if (!parsed.success) return { workers: [], error: "Unexpected response shape" };
+    return { workers: filterAssignableWorkers(parsed.data.users), error: null };
+  } catch (err) {
+    return {
+      workers: [],
+      error: err instanceof Error ? err.message : "Network error",
     };
   }
 }
