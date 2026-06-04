@@ -63,8 +63,44 @@ export interface ExceptionItem {
   actionState: ExceptionActionState;
   /** Why the action is unavailable/future (shown as muted help text). */
   actionReason?: string;
+  /** Human label for `source` (set by buildExceptions; used in group headers). */
+  sourceLabel?: string;
+  /** Relative age of `createdAt`, e.g. "3d ago" — set by decorateAges(now). */
+  ageLabel?: string;
   tags?: string[];
 }
+
+/** A job (or "General") group of exception items, with rolled-up counts. */
+export interface ExceptionJobGroup {
+  jobId: string | null;
+  jobName: string;
+  items: ExceptionItem[];
+  count: number;
+  highestSeverity: ExceptionSeverity;
+}
+
+/** A source group of exception items. */
+export interface ExceptionSourceGroup {
+  source: ExceptionSource;
+  sourceLabel: string;
+  items: ExceptionItem[];
+  count: number;
+}
+
+/** Rolled-up counts for the inbox summary header. */
+export interface ExceptionCounts {
+  total: number;
+  bySeverity: Record<ExceptionSeverity, number>;
+  bySource: Partial<Record<ExceptionSource, number>>;
+  jobsAffected: number;
+  /** Items whose action is clickable now (available or fallback). */
+  actionable: number;
+  /** Items with no clickable action (unavailable/future). */
+  waiting: number;
+}
+
+/** Action-availability filter buckets. */
+export type ActionAvailability = "all" | "actionable" | "waiting";
 
 /** The already-loaded, admin-gated source snapshot the projection reads. */
 export interface ExceptionSources {
@@ -79,6 +115,10 @@ export interface ExceptionFilters {
   source?: ExceptionSource | "all";
   severity?: ExceptionSeverity | "all";
   jobId?: string | "all";
+  /** "actionable" = available/fallback; "waiting" = unavailable/future. */
+  availability?: ActionAvailability;
+  /** Free-text match against title / summary / jobName (case-insensitive). */
+  query?: string;
 }
 
 export interface ExceptionSummary {

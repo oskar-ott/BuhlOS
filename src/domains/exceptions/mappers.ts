@@ -3,7 +3,7 @@ import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem, ObservationPriority } from "@/domains/observations/types";
 import type { MaterialRequestItem, MaterialRequestUrgency } from "@/domains/material-requests/types";
 import { isOpenObservation } from "@/domains/observations/service";
-import { resolveAction, type ResolvedAction } from "./routes";
+import { resolveAction, jobHubHref, type ResolvedAction } from "./routes";
 import type { ExceptionItem, ExceptionSeverity } from "./types";
 
 /**
@@ -133,17 +133,18 @@ export function jobExceptions(jobs: ReadonlyArray<Job>): ExceptionItem[] {
 
     // Field-work queues only apply once a job is real (not a draft).
     if (status !== "draft") {
+      const hub = jobHubHref(j.id); // safe parent surface if a section route ever goes missing
       const evidence = j.statsEvidenceV2Pending ?? 0;
       if (evidence > 0) {
-        out.push(jobStatItem(j, "evidence", evidence, `${name}: ${evidence} evidence to review`, resolveAction("jobEvidence", { jobId: j.id }, { label: "Open evidence" }), "warning"));
+        out.push(jobStatItem(j, "evidence", evidence, `${name}: ${evidence} evidence to review`, resolveAction("jobEvidence", { jobId: j.id }, { label: "Open evidence", fallbackHref: hub }), "warning"));
       }
       const snags = j.statsSnagsV2Active ?? 0;
       if (snags > 0) {
-        out.push(jobStatItem(j, "snag", snags, `${name}: ${snags} open snag${snags === 1 ? "" : "s"}`, resolveAction("jobSnags", { jobId: j.id }, { label: "Open snags" }), "warning"));
+        out.push(jobStatItem(j, "snag", snags, `${name}: ${snags} open snag${snags === 1 ? "" : "s"}`, resolveAction("jobSnags", { jobId: j.id }, { label: "Open snags", fallbackHref: hub }), "warning"));
       }
       const itps = j.statsItpsNeedsReview ?? 0;
       if (itps > 0) {
-        out.push(jobStatItem(j, "itp", itps, `${name}: ${itps} ITP${itps === 1 ? "" : "s"} need sign-off`, resolveAction("jobItps", { jobId: j.id }, { label: "Open ITPs" }), "warning"));
+        out.push(jobStatItem(j, "itp", itps, `${name}: ${itps} ITP${itps === 1 ? "" : "s"} need sign-off`, resolveAction("jobItps", { jobId: j.id }, { label: "Open ITPs", fallbackHref: hub }), "warning"));
       }
     }
 

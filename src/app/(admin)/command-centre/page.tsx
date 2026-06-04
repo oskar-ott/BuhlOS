@@ -33,7 +33,7 @@ import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { MaterialRequestItem } from "@/domains/material-requests/types";
 import { relativeWhen } from "@/domains/jobs/format";
-import { buildExceptions } from "@/domains/exceptions/service";
+import { buildExceptions, decorateAges } from "@/domains/exceptions/service";
 import { ExceptionsInbox } from "@/components/admin/ExceptionsInbox";
 import { summariseItpReviewQueue } from "./itp-queue-card";
 
@@ -167,13 +167,16 @@ export default async function CommandCentrePage() {
 
   // Itemised "Needs attention" projection over the SAME already-loaded,
   // admin-gated sources the count cards use — no new fetch, no new store.
-  const exceptions = buildExceptions({
-    hoursPending,
-    hoursRejected,
-    jobs,
-    observations,
-    materialRequests,
-  });
+  const exceptions = decorateAges(
+    buildExceptions({
+      hoursPending,
+      hoursRejected,
+      jobs,
+      observations,
+      materialRequests,
+    }),
+    Date.now(),
+  );
   const anySourceError =
     !!(hoursError ||
       hoursRejectedError ||

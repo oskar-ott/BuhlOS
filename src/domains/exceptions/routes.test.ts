@@ -74,9 +74,9 @@ describe("encodeSegment + resolveAction", () => {
     expect(a.actionReason).toMatch(/specific job/i);
   });
 
-  it("uses a SAFE fallback href when the primary can't resolve, and drops an unsafe one", () => {
+  it("degrades to `fallback` with a SAFE fallback href, or `unavailable` without one", () => {
     const safe = resolveAction("jobObservations", {}, { fallbackHref: "/observations" });
-    expect(safe).toMatchObject({ actionState: "unavailable", actionHref: "/observations" });
+    expect(safe).toMatchObject({ actionState: "fallback", actionHref: "/observations" });
     const unsafe = resolveAction("jobObservations", {}, { fallbackHref: "https://evil.example" });
     expect(unsafe.actionState).toBe("unavailable");
     expect(unsafe.actionHref).toBeUndefined();
