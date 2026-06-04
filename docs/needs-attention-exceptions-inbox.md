@@ -48,8 +48,8 @@ no new permission surface, no extra fetch**.
 | Job evidence (`statsEvidenceV2Pending`) | "{job}: N evidence to review" | warning | `/v2/jobs/{id}/evidence` |
 | Job snags (`statsSnagsV2Active`) | "{job}: N open snags" | warning | `/v2/jobs/{id}/snags` |
 | Job ITP (`statsItpsNeedsReview`) | "{job}: N ITPs need sign-off" | warning | `/v2/jobs/{id}/itps` |
-| Active job, no crew (`statsCrewCount===0`, PR #67 source of truth) | "{job}: active but no field workers assigned" | **critical** | `/v2/jobs/{id}/builder` |
-| Draft job (`status==='draft'`) | "{job}: draft, not published" | info | `/v2/jobs/{id}/builder` |
+| Active job, no crew (`statsCrewCount===0`, PR #67 source of truth) | "{job}: active but no field workers assigned" | **critical** | `/v2/jobs/{id}/builder#assigned-field-workers` |
+| Draft job (`status==='draft'`) | "{job}: draft, not published" | info | `/v2/jobs/{id}/builder#publish` |
 | Material requests (`requested`/`approved`) | "{job}: {item} ({status})" | urgent→critical / high→warning / else info | `/material-requests` |
 
 Ordering is deterministic: **critical → warning → info**, then oldest first,
@@ -78,6 +78,28 @@ Per-job section items (evidence/snags/ITP) pass the job hub as a `fallbackHref`,
 so if a section route were ever removed they degrade to `fallback` (the job
 surface) rather than breaking. All nine Phase-1 actions currently resolve to
 `available`.
+
+**Section anchors (deep-links).** Two job actions deep-link to a precise section
+rather than the page top, via `resolveAction(..., { fragment })` (allowlisted
+lowercase ids only — never derived from input):
+
+- **no crew → `…/builder#assigned-field-workers`** — the PR #67 assignment panel
+  (a sibling on the builder page) carries `id="assigned-field-workers"`, so the
+  browser scrolls straight to it.
+- **draft → `…/builder#publish`** — `JobBuilderClient` reads the URL hash on mount
+  (`tabFromHash`) and opens the matching tab; an unknown hash (e.g. the assignment
+  anchor) leaves the default tab untouched.
+
+The jobId is `encodeURIComponent`'d **before** the literal `#fragment` is
+appended, so a jobId containing `#`/`/` becomes `%23`/`%2F` and can never inject
+an anchor; the combined href is re-checked by `isSafeActionHref`.
+
+**No URL query-filters (deferred):** the target pages (hours approvals,
+observations, material requests) are not URL-filter-driven today — they filter
+client-side — so the inbox does **not** append cosmetic `?status=` params that
+the page wouldn't honour. Per-item anchors (e.g. `#mr-{id}`) and a rejected-hours
+review surface are deferred (no such surface exists yet; rejected hours link to
+the real approver queue).
 
 `resolveAction(key, params)` builds the href (encoding dynamic segments via
 `encodeURIComponent`) and derives the state; it returns a **safe fallback** href

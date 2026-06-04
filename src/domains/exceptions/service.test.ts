@@ -140,15 +140,24 @@ describe("jobExceptions", () => {
     expect(ids).toContain("job-draft:j3");
     // archived job never surfaces, draft job has no field-work queues
     expect(ids).not.toContain("snag-job:j4");
-    expect(items.find((i) => i.id === "job-no-crew:j2")).toMatchObject({ severity: "critical", actionHref: "/v2/jobs/j2/builder", actionLabel: "Assign workers" });
-    expect(items.find((i) => i.id === "job-draft:j3")!.severity).toBe("info");
+    // no-crew deep-links to the assignment section anchor; draft to the publish tab
+    expect(items.find((i) => i.id === "job-no-crew:j2")).toMatchObject({
+      severity: "critical",
+      actionHref: "/v2/jobs/j2/builder#assigned-field-workers",
+      actionLabel: "Assign field workers",
+    });
+    expect(items.find((i) => i.id === "job-draft:j3")).toMatchObject({
+      severity: "info",
+      actionHref: "/v2/jobs/j3/builder#publish",
+      actionLabel: "Publish job",
+    });
   });
 
-  it("encodes dynamic job route segments for job-derived action hrefs", () => {
+  it("encodes dynamic job route segments BEFORE the anchor (jobId '#' → %23, only the literal anchor '#' remains)", () => {
     const items = jobExceptions([
       job({ id: "j/1#frag", name: "Odd id", status: "active", statsCrewCount: 0 }),
     ]);
-    expect(items[0]!.actionHref).toBe("/v2/jobs/j%2F1%23frag/builder");
+    expect(items[0]!.actionHref).toBe("/v2/jobs/j%2F1%23frag/builder#assigned-field-workers");
     expect(isSafeActionHref(items[0]!.actionHref)).toBe(true);
   });
 });

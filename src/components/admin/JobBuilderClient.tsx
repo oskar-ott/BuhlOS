@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import Link from "next/link";
@@ -91,6 +91,20 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "more", label: "More" },
 ];
 
+const TAB_KEYS: ReadonlySet<string> = new Set(TABS.map((t) => t.key));
+
+/**
+ * Resolve a deep-link URL hash to a builder tab, or null. Lets a Needs Attention
+ * action open the right tab (e.g. `…/builder#publish` for a draft job). Unknown
+ * hashes (e.g. `#assigned-field-workers`, which targets the sibling assignment
+ * panel) return null — the tab is left on its default. Pure + tested.
+ */
+export function tabFromHash(hash: string | undefined | null): TabKey | null {
+  if (!hash) return null;
+  const key = hash.replace(/^#/, "");
+  return TAB_KEYS.has(key) ? (key as TabKey) : null;
+}
+
 /** Field-facing module toggles, in display order. Other module keys
  *  (switchboards / circuits / levels) round-trip untouched — they're
  *  advanced structural concepts, not field on/off switches. */
@@ -153,6 +167,12 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
   const [savedJob, setSavedJob] = useState<Job>(initialJob);
   const [form, setForm] = useState<JobBuilderForm>(() => jobToForm(initialJob));
   const [tab, setTab] = useState<TabKey>("basics");
+  // Honour a deep-link hash on mount (e.g. `…/builder#publish`). Runs once,
+  // client-only; a non-tab hash leaves the default tab untouched.
+  useEffect(() => {
+    const t = tabFromHash(typeof window !== "undefined" ? window.location.hash : null);
+    if (t) setTab(t);
+  }, []);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedTick, setSavedTick] = useState(false);
