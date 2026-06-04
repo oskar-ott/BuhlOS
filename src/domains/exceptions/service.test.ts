@@ -7,9 +7,13 @@ import {
 } from "./mappers";
 import {
   buildExceptions,
+  decorateAges,
+  deriveAgeLabel,
   filterExceptions,
+  isActionable,
   isSafeActionHref,
   jobOptions,
+  sortExceptions,
   summariseExceptions,
 } from "./service";
 import type { TimeEntry } from "@/domains/timesheets/types";
@@ -242,5 +246,58 @@ describe("isSafeActionHref", () => {
     expect(isSafeActionHref("//evil.example")).toBe(false);
     expect(isSafeActionHref("https://evil.example")).toBe(false);
     expect(isSafeActionHref(undefined)).toBe(false);
+  });
+});
+
+describe("filterExceptions — availability + text query", () => {
+  const items = buildExceptions(SOURCES);
+
+  it("filters to actionable (available/fallback) vs waiting (unavailable/future)", () => {
+    // All Phase-1 sources are available, so 'actionable' keeps all, 'waiting' none.
+    expect(filterExceptions(items, { availability: "actionable" })).toHaveLength(items.length);
+    expect(filterExceptions(items, { availability: "waiting" })).toHaveLength(0);
+  });
+
+  it("filters by free-text against title / summary / jobName", () => {
+    const bravo = filterExceptions(items, { query: "bravo" });
+    expect(bravo.length).toBeGreaterThan(0);
+    expect(bravo.every((i) => `${i.title} ${i.summary ?? ""} ${i.jobName ?? ""}`.toLowerCase().includes("bravo"))).toBe(true);
+    expect(filterExceptions(items, { query: "zzz-nope" })).toHaveLength(0);
+  });
+});
+
+describe("sort — explainable & deterministic", () => {
+  it("orders actionable before waiting within the same severity", () => {
+    const sorted = sortExceptions([
+      { id: "w", source: "gear", sourceId: "w", title: "waiting", severity: "warning", actionState: "unavailable" },
+      { id: "a", source: "hours", sourceId: "a", title: "actionable", severity: "warning", actionState: "available", actionHref: "/hours/approvals" },
+    ] as never);
+    expect(sorted.map((i) => i.id)).toEqual(["a", "w"]);
+  });
+
+  it("isActionable is true for available + fallback, false otherwise", () => {
+    expect(isActionable({ actionState: "available", actionHref: "/x" } as never)).toBe(true);
+    expect(isActionable({ actionState: "fallback", actionHref: "/x" } as never)).toBe(true);
+    expect(isActionable({ actionState: "unavailable", actionHref: undefined } as never)).toBe(false);
+    expect(isActionable({ actionState: "future", actionHref: "/x" } as never)).toBe(false);
+  });
+});
+
+describe("age labels", () => {
+  const now = Date.parse("2026-06-04T12:00:00.000Z");
+  it("derives relative age buckets", () => {
+    expect(deriveAgeLabel("2026-06-04T11:59:30.000Z", now)).toBe("just now");
+    expect(deriveAgeLabel("2026-06-04T11:30:00.000Z", now)).toBe("30m ago");
+    expect(deriveAgeLabel("2026-06-04T09:00:00.000Z", now)).toBe("3h ago");
+    expect(deriveAgeLabel("2026-06-01T12:00:00.000Z", now)).toBe("3d ago");
+    expect(deriveAgeLabel(undefined, now)).toBeUndefined();
+    expect(deriveAgeLabel("not-a-date", now)).toBeUndefined();
+  });
+
+  it("decorateAges adds ageLabel without re-sorting", () => {
+    const items = buildExceptions(SOURCES);
+    const decorated = decorateAges(items, now);
+    expect(decorated.map((i) => i.id)).toEqual(items.map((i) => i.id));
+    expect(decorated.some((i) => i.ageLabel)).toBe(true);
   });
 });

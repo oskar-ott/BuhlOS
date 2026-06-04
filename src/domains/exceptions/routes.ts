@@ -14,7 +14,7 @@
  * "action unavailable", never a clickable broken link.
  */
 
-export type ExceptionActionState = "available" | "unavailable" | "future";
+export type ExceptionActionState = "available" | "fallback" | "unavailable" | "future";
 
 /** Encode a single dynamic path segment (jobId, etc.). */
 export function encodeSegment(value: string): string {
@@ -75,6 +75,12 @@ export const ACTION_ROUTES = {
     defaultLabel: "Open material requests",
     perJob: false,
   },
+  jobHub: {
+    build: (p) => `/v2/jobs/${encodeSegment(p.jobId!)}`,
+    sourceFile: "src/app/v2/jobs/[jobId]/page.tsx",
+    defaultLabel: "Open job",
+    perJob: true,
+  },
   jobBuilder: {
     build: (p) => `/v2/jobs/${encodeSegment(p.jobId!)}/builder`,
     sourceFile: "src/app/v2/jobs/[jobId]/builder/page.tsx",
@@ -129,30 +135,26 @@ export function resolveAction(
 ): ResolvedAction {
   const def = ACTION_ROUTES[key];
   const safeFallback = isSafeActionHref(opts.fallbackHref) ? opts.fallbackHref : undefined;
-  if (!def) {
-    return {
-      actionHref: safeFallback,
-      actionLabel: opts.label ?? "Open",
-      actionState: "unavailable",
-      actionReason: `No route registered for "${String(key)}".`,
-    };
-  }
-  if (def.perJob && !params.jobId) {
-    return {
-      actionHref: safeFallback,
-      actionLabel: opts.label ?? def.defaultLabel,
-      actionState: "unavailable",
-      actionReason: "This item isn’t linked to a specific job.",
-    };
-  }
+
+  // When the primary target can't be used, degrade to a SAFE fallback href as
+  // `fallback` (still clickable, just a less-specific parent surface) or — if
+  // there's no safe fallback — `unavailable` (no clickable link at all).
+  const degrade = (reason: string): ResolvedAction =>
+    safeFallback
+      ? { actionHref: safeFallback, actionLabel: opts.label ?? def?.defaultLabel ?? "Open", actionState: "fallback", actionReason: reason }
+      : { actionHref: undefined, actionLabel: opts.label ?? def?.defaultLabel ?? "Open", actionState: "unavailable", actionReason: reason };
+
+  if (!def) return degrade(`No route registered for "${String(key)}".`);
+  if (def.perJob && !params.jobId) return degrade("This item isn’t linked to a specific job.");
   const href = def.build(params);
-  if (!isSafeActionHref(href)) {
-    return {
-      actionHref: safeFallback,
-      actionLabel: opts.label ?? def.defaultLabel,
-      actionState: "unavailable",
-      actionReason: "Computed link wasn’t a safe internal path.",
-    };
-  }
+  if (!isSafeActionHref(href)) return degrade("Computed link wasn’t a safe internal path.");
+
   return { actionHref: href, actionLabel: opts.label ?? def.defaultLabel, actionState: "available" };
+}
+
+/** A safe href to the per-job hub (`/v2/jobs/{id}`), or undefined. Used as the
+ *  fallback target for per-job section items. */
+export function jobHubHref(jobId: string | undefined): string | undefined {
+  if (!jobId) return undefined;
+  return resolveAction("jobHub", { jobId }).actionHref;
 }

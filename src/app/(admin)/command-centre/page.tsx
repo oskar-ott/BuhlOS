@@ -33,9 +33,10 @@ import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { MaterialRequestItem } from "@/domains/material-requests/types";
 import { relativeWhen } from "@/domains/jobs/format";
-import { buildExceptions } from "@/domains/exceptions/service";
+import { buildExceptions, decorateAges } from "@/domains/exceptions/service";
 import { ExceptionsInbox } from "@/components/admin/ExceptionsInbox";
 import { summariseItpReviewQueue } from "./itp-queue-card";
+import { singleJobTarget } from "./queue-card-targets";
 
 export const dynamic = "force-dynamic";
 
@@ -167,13 +168,16 @@ export default async function CommandCentrePage() {
 
   // Itemised "Needs attention" projection over the SAME already-loaded,
   // admin-gated sources the count cards use — no new fetch, no new store.
-  const exceptions = buildExceptions({
-    hoursPending,
-    hoursRejected,
-    jobs,
-    observations,
-    materialRequests,
-  });
+  const exceptions = decorateAges(
+    buildExceptions({
+      hoursPending,
+      hoursRejected,
+      jobs,
+      observations,
+      materialRequests,
+    }),
+    Date.now(),
+  );
   const anySourceError =
     !!(hoursError ||
       hoursRejectedError ||
@@ -474,25 +478,6 @@ function SurfaceLink({
       <span className="text-xs text-text-muted">{hint}</span>
     </Link>
   );
-}
-
-/**
- * Where a cross-job queue card should point. When exactly one job carries
- * the whole count, deep-link to that job's section so the owner is one
- * click from the work; otherwise fall back to the jobs index (the
- * cross-job inbox is still UC).
- */
-function singleJobTarget(
-  jobsAffected: ReadonlyArray<Job>,
-  section: "evidence" | "snags",
-): { href: string; cta: string } {
-  if (jobsAffected.length === 1) {
-    return {
-      href: `/v2/jobs/${jobsAffected[0]!.id}/${section}`,
-      cta: section === "evidence" ? "Open evidence" : "Open snags",
-    };
-  }
-  return { href: "/v2/jobs", cta: "Open jobs" };
 }
 
 function oldestAge(timestamps: ReadonlyArray<string>): string | null {

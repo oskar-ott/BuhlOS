@@ -70,8 +70,14 @@ implemented surfaces** — none are fabricated.
 | `actionState` | Meaning | UI |
 |---|---|---|
 | `available` | a real registered route, with a safe encoded internal href | clickable link |
-| `unavailable` | route can't be satisfied (no jobId, unknown key, unsafe href) | **muted "not available yet"** + reason — never a link |
+| `fallback` | primary deep-link couldn't resolve, but a **real safe parent surface** (e.g. the job hub `/v2/jobs/{id}`) is used | clickable link, flagged "(job)" |
+| `unavailable` | no safe route at all (no jobId, unknown key, unsafe href, no fallback) | **muted "not available yet"** + reason — never a link |
 | `future` | a planned source not built yet | muted (reserved; no Phase-1 source uses it) |
+
+Per-job section items (evidence/snags/ITP) pass the job hub as a `fallbackHref`,
+so if a section route were ever removed they degrade to `fallback` (the job
+surface) rather than breaking. All nine Phase-1 actions currently resolve to
+`available`.
 
 `resolveAction(key, params)` builds the href (encoding dynamic segments via
 `encodeURIComponent`) and derives the state; it returns a **safe fallback** href
@@ -79,6 +85,33 @@ or none — never an unsafe/`available` href. `isSafeActionHref` is hardened:
 internal absolute paths only — **rejects** external URLs, any scheme
 (`javascript:`/`http:`/…), protocol-relative `//`, backslashes, whitespace and
 control chars; printable punctuation like `-` in a jobId is allowed.
+
+## 4b. Operational view — grouping, sorting, summary
+
+The inbox is an operational list, not a KPI dashboard. Pure helpers in
+`src/domains/exceptions/{service,grouping}.ts` (all deterministic + tested):
+
+- **Summary** (`getExceptionCounts`): total open · critical count · jobs
+  affected · actionable count — shown in the header.
+- **Sort** (`sortExceptions`/`compareExceptions`) — explainable + stable:
+  1. severity (critical → warning → info), 2. **actionable now** (available,
+  fallback) before **waiting** (unavailable, future), 3. oldest `createdAt`
+  first, 4. id tiebreaker.
+- **Grouping**: `groupExceptionsByJob` (no-job items under **"General"**, last;
+  groups ordered by highest severity then name; per-job count + highest severity)
+  and `groupExceptionsBySource` (by count desc).
+- **Age** (`deriveAgeLabel` + `decorateAges`): relative `ageLabel` ("3h ago",
+  "2d ago"), computed in the Command Centre page with a server `now` (kept out of
+  the pure mappers so they stay deterministic).
+- **Filtering** (`filterExceptions`): severity · job · **action availability**
+  (actionable/waiting) · **free-text** (title/summary/job).
+
+UI (`ExceptionsInbox.tsx`): a summary header, **view tabs** — All · Needs
+action · Waiting · By job · By source — plus severity/job/search filters that
+refine within every tab. Each row shows severity + source badges, job context,
+age, the "why", and the next action (link, fallback link, or muted state).
+Empty states distinguish **"All clear"** (no open items) from **filters hiding
+all items**.
 
 ## 5. Sources intentionally deferred
 
