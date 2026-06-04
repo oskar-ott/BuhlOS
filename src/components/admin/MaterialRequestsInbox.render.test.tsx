@@ -124,4 +124,30 @@ describe("MaterialRequestsInbox", () => {
     const selectCount = (html.match(/<select/g) || []).length;
     expect(selectCount).toBe(2);
   });
+
+  it("honours the ?status= deep-link seed (filters the list to that status)", () => {
+    const html = renderToString(
+      createElement(MaterialRequestsInbox, {
+        initialRequests: [
+          mr({ id: "a", status: "requested", item: "Conduit A" }),
+          mr({ id: "b", status: "approved", item: "Cable B" }),
+        ],
+        fetchError: null,
+        initialStatus: "approved",
+      })
+    );
+    expect(html).toContain("Cable B"); // approved row visible
+    expect(html).not.toContain("Conduit A"); // requested row filtered out by the seed
+  });
+
+  it("tolerates an unknown ?focus= id (no crash, list still renders)", () => {
+    const html = renderToString(
+      createElement(MaterialRequestsInbox, {
+        initialRequests: [mr({ id: "a", item: "Conduit A" })],
+        fetchError: null,
+        initialSelectedId: "does-not-exist",
+      })
+    );
+    expect(html).toContain("Conduit A");
+  });
 });

@@ -50,7 +50,7 @@ no new permission surface, no extra fetch**.
 | Job ITP (`statsItpsNeedsReview`) | "{job}: N ITPs need sign-off" | warning | `/v2/jobs/{id}/itps` |
 | Active job, no crew (`statsCrewCount===0`, PR #67 source of truth) | "{job}: active but no field workers assigned" | **critical** | `/v2/jobs/{id}/builder#assigned-field-workers` |
 | Draft job (`status==='draft'`) | "{job}: draft, not published" | info | `/v2/jobs/{id}/builder#publish` |
-| Material requests (`requested`/`approved`) | "{job}: {item} ({status})" | urgent→critical / high→warning / else info | `/material-requests` |
+| Material requests (`requested`/`approved`) | "{job}: {item} ({status})" | urgent→critical / high→warning / else info | `/material-requests?focus={id}` |
 
 Ordering is deterministic: **critical → warning → info**, then oldest first,
 then id.
@@ -67,12 +67,21 @@ implemented surfaces** — none are fabricated.
 
 `ExceptionItem` carries an honest `actionState` (and `actionReason`):
 
-| `actionState` | Meaning | UI |
-|---|---|---|
-| `available` | a real registered route, with a safe encoded internal href | clickable link |
-| `fallback` | primary deep-link couldn't resolve, but a **real safe parent surface** (e.g. the job hub `/v2/jobs/{id}`) is used | clickable link, flagged "(job)" |
-| `unavailable` | no safe route at all (no jobId, unknown key, unsafe href, no fallback) | **muted "not available yet"** + reason — never a link |
-| `future` | a planned source not built yet | muted (reserved; no Phase-1 source uses it) |
+Every item carries an `actionState`, surfaced as a **badge** beside the action
+(`ACTION_STATE_BADGE` in `labels.ts`) so "exact vs fallback vs not-built vs
+future" is honest at a glance:
+
+| `actionState` | Badge | Meaning | UI |
+|---|---|---|---|
+| `available` | **Exact action** (success) | a real registered route, safe encoded internal href | clickable link |
+| `fallback` | **Fallback** (warning) | primary deep-link couldn't resolve, but a **real safe parent surface** (e.g. the job hub) is used | clickable link + the `actionReason` shown |
+| `unavailable` | **Not built** (neutral) | no safe route at all (no jobId, unknown key, unsafe href, no fallback) | **non-clickable** "— source surface not built" + reason |
+| `future` | **Future** (neutral) | a source/workflow intentionally deferred, not broken | **non-clickable** "— coming later, not broken" + reason |
+
+`isActionable` = `available \|\| fallback` (both carry a safe href); `unavailable`
+and `future` never render a clickable link. No Phase-1 source currently emits
+`unavailable`/`future` (all resolve to `available`); the states + rendering exist
+for honesty when a future source's surface isn't built.
 
 Per-job section items (evidence/snags/ITP) pass the job hub as a `fallbackHref`,
 so if a section route were ever removed they degrade to `fallback` (the job
@@ -90,16 +99,26 @@ lowercase ids only — never derived from input):
   (`tabFromHash`) and opens the matching tab; an unknown hash (e.g. the assignment
   anchor) leaves the default tab untouched.
 
-The jobId is `encodeURIComponent`'d **before** the literal `#fragment` is
-appended, so a jobId containing `#`/`/` becomes `%23`/`%2F` and can never inject
-an anchor; the combined href is re-checked by `isSafeActionHref`.
+- **material → `/material-requests?focus={id}`** — `resolveAction(..., { query })`
+  appends an **encoded** query string (via `withQuery`); the `/material-requests`
+  page reads `?focus=` and opens that request's detail drawer on mount (and
+  `?status=`, validated against the real status enum, seeds the status filter).
+  Both are **tolerant**: an unknown focus id opens nothing, an unknown status is
+  ignored — the page never errors on a missing/garbage query. The actionable
+  statuses are **`requested`** (approve/reject) and **`approved`** (place the
+  order); `ordered`/`delivered`/`cancelled` are not exceptions. **No ordering /
+  PO / supplier / Xero / stock workflow is built or implied** — the inbox links
+  to the existing surface; it never mutates a request.
 
-**No URL query-filters (deferred):** the target pages (hours approvals,
-observations, material requests) are not URL-filter-driven today — they filter
-client-side — so the inbox does **not** append cosmetic `?status=` params that
-the page wouldn't honour. Per-item anchors (e.g. `#mr-{id}`) and a rejected-hours
-review surface are deferred (no such surface exists yet; rejected hours link to
-the real approver queue).
+Dynamic segments are `encodeURIComponent`'d **before** the literal `?query` /
+`#fragment` is appended (so a jobId/requestId containing `#`/`/`/`?`/space becomes
+`%23`/`%2F`/`%3F`/`%20` and can never inject a param or anchor); the combined href
+is re-checked by `isSafeActionHref` (internal-only).
+
+**Still deferred (no URL support):** hours-approvals and observations pages are
+not URL-filter-driven, so the inbox does not append params they wouldn't honour;
+a rejected-hours *review* surface and per-item observation anchors don't exist
+yet (rejected hours link to the real approver queue).
 
 `resolveAction(key, params)` builds the href (encoding dynamic segments via
 `encodeURIComponent`) and derives the state; it returns a **safe fallback** href
@@ -125,13 +144,15 @@ The inbox is an operational list, not a KPI dashboard. Pure helpers in
 - **Age** (`deriveAgeLabel` + `decorateAges`): relative `ageLabel` ("3h ago",
   "2d ago"), computed in the Command Centre page with a server `now` (kept out of
   the pure mappers so they stay deterministic).
-- **Filtering** (`filterExceptions`): severity · job · **action availability**
-  (actionable/waiting) · **free-text** (title/summary/job).
+- **Filtering** (`filterExceptions`): source · severity · job · **action
+  availability** (actionable/waiting) · **free-text** (title/summary/job).
 
 UI (`ExceptionsInbox.tsx`): a summary header, **view tabs** — All · Needs
-action · Waiting · By job · By source — plus severity/job/search filters that
-refine within every tab. Each row shows severity + source badges, job context,
-age, the "why", and the next action (link, fallback link, or muted state).
+action · Waiting · By job · By source — plus source/severity/job/search filters
+that refine within every tab. Each row shows severity + source badges, job
+context, age, the "why", and the next action (link, fallback link, or muted
+state) with an **action-state badge** (Exact action / Fallback / Not built /
+Future).
 Empty states distinguish **"All clear"** (no open items) from **filters hiding
 all items**.
 

@@ -1,4 +1,4 @@
-import type { ExceptionSeverity, ExceptionSource } from "./types";
+import type { ExceptionActionState, ExceptionSeverity, ExceptionSource } from "./types";
 
 /**
  * Shared presentation labels/tones for the exceptions projection — used by both
@@ -48,3 +48,18 @@ export const SEVERITY_TONE: Record<ExceptionSeverity, PillTone> = {
 export function sourceLabel(source: ExceptionSource): string {
   return SOURCE_LABEL[source] ?? source;
 }
+
+/**
+ * Per-action-state badge: a short label + tone + whether the action is
+ * clickable. Lets the inbox make "exact vs fallback vs not-built vs future"
+ * visually distinct and honest at a glance. Single source of truth (UI + tests).
+ */
+export const ACTION_STATE_BADGE: Record<
+  ExceptionActionState,
+  { label: string; tone: PillTone; clickable: boolean }
+> = {
+  available: { label: "Exact action", tone: "success", clickable: true },
+  fallback: { label: "Fallback", tone: "warning", clickable: true },
+  unavailable: { label: "Not built", tone: "neutral", clickable: false },
+  future: { label: "Future", tone: "neutral", clickable: false },
+};

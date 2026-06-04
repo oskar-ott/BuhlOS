@@ -48,6 +48,10 @@ interface Props {
   actionsEnabled?: boolean;
   /** PR 11: hide job filter when scoped to one job. */
   showJobFilter?: boolean;
+  /** Deep-link: pre-seed the status filter (from `?status=`). Ignored if blank. */
+  initialStatus?: MaterialRequestStatus | "";
+  /** Deep-link: open this request's drawer on mount (from `?focus=`). */
+  initialSelectedId?: string | null;
 }
 
 interface Filters {
@@ -70,14 +74,19 @@ export function MaterialRequestsInbox({
   fetchError,
   actionsEnabled = true,
   showJobFilter = true,
+  initialStatus = "",
+  initialSelectedId = null,
 }: Props) {
   // viewer intentionally not on Props: v1 procurement actions don't branch on
   // the viewer client-side — the API stamps the actor from the session cookie.
   // ObservationsInbox carries `viewer` because of "Assign to me"; this inbox
   // has no per-viewer affordances yet.
   const [requests, setRequests] = useState<ReadonlyArray<MaterialRequestItem>>(initialRequests);
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Deep-link seed (from `?status=`/`?focus=`): the status filter pre-applies and
+  // the focused request's drawer opens. A `focus` id that isn't in the list just
+  // leaves the drawer closed (see `selected` below) — safe, no error.
+  const [filters, setFilters] = useState<Filters>({ ...EMPTY_FILTERS, status: initialStatus });
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState<{ tone: "success" | "danger"; message: string } | null>(null);
   const [supplierDraft, setSupplierDraft] = useState("");

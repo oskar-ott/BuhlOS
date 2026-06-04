@@ -5,8 +5,11 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { MaterialRequestsInbox } from "@/components/admin/MaterialRequestsInbox";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { MaterialRequestListResponseSchema } from "@/domains/material-requests/schema";
-import type { MaterialRequestItem } from "@/domains/material-requests/types";
+import {
+  MATERIAL_REQUEST_STATUSES,
+  MaterialRequestListResponseSchema,
+} from "@/domains/material-requests/schema";
+import type { MaterialRequestItem, MaterialRequestStatus } from "@/domains/material-requests/types";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +26,11 @@ export const dynamic = "force-dynamic";
  *   docs/architecture/observations.md §5 (Snag conversion was the precedent)
  *   api/material-requests.js
  */
-export default async function MaterialRequestsPage() {
+export default async function MaterialRequestsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string; focus?: string }>;
+}) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
   const session = decodeSessionCookie(raw);
@@ -33,6 +40,16 @@ export default async function MaterialRequestsPage() {
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
   }
+
+  // Deep-link query (Needs Attention → a specific request). Both are validated
+  // and tolerant: an unknown status is ignored, an unknown focus id just opens
+  // nothing. The page never errors on a missing/garbage query.
+  const sp = await searchParams;
+  const initialStatus: MaterialRequestStatus | "" =
+    sp.status && (MATERIAL_REQUEST_STATUSES as readonly string[]).includes(sp.status)
+      ? (sp.status as MaterialRequestStatus)
+      : "";
+  const initialSelectedId = typeof sp.focus === "string" && sp.focus ? sp.focus : null;
 
   const { requests, fetchError } = await loadRequests(raw);
 
@@ -54,6 +71,8 @@ export default async function MaterialRequestsPage() {
         <MaterialRequestsInbox
           initialRequests={requests}
           fetchError={fetchError}
+          initialStatus={initialStatus}
+          initialSelectedId={initialSelectedId}
         />
       </div>
     </AdminShell>
