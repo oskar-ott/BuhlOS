@@ -1,8 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { JobBuilderClient } from "./JobBuilderClient";
+import { JobBuilderClient, tabFromHash } from "./JobBuilderClient";
 import type { Job } from "@/domains/jobs/types";
+
+describe("tabFromHash (deep-link hash → builder tab)", () => {
+  it("resolves a known tab hash, ignores unknown/empty hashes", () => {
+    expect(tabFromHash("#publish")).toBe("publish");
+    expect(tabFromHash("#basics")).toBe("basics");
+    // the no-crew anchor targets the sibling panel, not a tab → no tab change
+    expect(tabFromHash("#assigned-field-workers")).toBeNull();
+    expect(tabFromHash("#nonsense")).toBeNull();
+    expect(tabFromHash("")).toBeNull();
+    expect(tabFromHash(null)).toBeNull();
+    expect(tabFromHash(undefined)).toBeNull();
+  });
+});
 
 // JobBuilderClient calls useRouter (refresh after save/publish). Stub it so the
 // SSR smoke doesn't need a mounted app router.

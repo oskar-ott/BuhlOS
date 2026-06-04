@@ -22,8 +22,8 @@ const ITEMS: ExceptionItem[] = [
     title: "Bravo: active but no field workers assigned",
     summary: "Assign workers so the crew can see this job in Phil.",
     severity: "critical",
-    actionLabel: "Assign workers",
-    actionHref: "/v2/jobs/j2/builder",
+    actionLabel: "Assign field workers",
+    actionHref: "/v2/jobs/j2/builder#assigned-field-workers",
     actionState: "available",
     sourceLabel: "Jobs",
     ageLabel: "3h ago",
@@ -98,7 +98,9 @@ describe("ExceptionsInbox", () => {
   it("renders available actions as links and a fallback as a link to the parent surface", () => {
     const html = render({ initialItems: [...ITEMS, FALLBACK_ITEM] });
     expect(html).toContain('data-testid="exception-action-link"');
-    expect(html).toContain('href="/v2/jobs/j2/builder"');
+    // no-crew item deep-links to the assignment-section anchor
+    expect(html).toContain('href="/v2/jobs/j2/builder#assigned-field-workers"');
+    expect(html).toContain("Assign field workers");
     expect(html).toContain('href="/hours/approvals"');
     // fallback still renders a (safe) link, flagged "(job)"
     expect(html).toContain('href="/v2/jobs/j9"');

@@ -7,6 +7,7 @@ import {
   encodeSegment,
   isSafeActionHref,
   resolveAction,
+  withFragment,
   type ActionRouteKey,
 } from "./routes";
 
@@ -87,5 +88,35 @@ describe("encodeSegment + resolveAction", () => {
     expect(a.actionState).toBe("unavailable");
     expect(a.actionHref).toBeUndefined();
     expect(a.actionReason).toMatch(/no route registered/i);
+  });
+});
+
+describe("withFragment + resolveAction fragments (deep-link anchors)", () => {
+  it("appends a valid fragment and keeps the href safe", () => {
+    expect(withFragment("/v2/jobs/j1/builder", "assigned-field-workers")).toBe("/v2/jobs/j1/builder#assigned-field-workers");
+    expect(isSafeActionHref(withFragment("/v2/jobs/j1/builder", "publish"))).toBe(true);
+  });
+
+  it("ignores empty / malformed fragments (no anchor appended)", () => {
+    expect(withFragment("/x", undefined)).toBe("/x");
+    expect(withFragment("/x", "")).toBe("/x");
+    expect(withFragment("/x", "Bad Frag")).toBe("/x"); // space
+    expect(withFragment("/x", "../escape")).toBe("/x"); // not an id
+    expect(withFragment("/x", "a#b")).toBe("/x"); // second hash
+  });
+
+  it("resolveAction applies the fragment only on the resolved available href", () => {
+    const ok = resolveAction("jobBuilder", { jobId: "j1" }, { fragment: "assigned-field-workers", label: "Assign field workers" });
+    expect(ok).toMatchObject({ actionState: "available", actionHref: "/v2/jobs/j1/builder#assigned-field-workers", actionLabel: "Assign field workers" });
+    // a degraded (fallback/unavailable) result never carries the primary anchor
+    const degraded = resolveAction("jobBuilder", {}, { fragment: "publish", fallbackHref: "/v2/jobs" });
+    expect(degraded.actionState).toBe("fallback");
+    expect(degraded.actionHref).toBe("/v2/jobs");
+  });
+
+  it("encodes the jobId before appending the anchor (jobId '#' cannot inject)", () => {
+    const a = resolveAction("jobBuilder", { jobId: "j#1/2" }, { fragment: "publish" });
+    expect(a.actionHref).toBe("/v2/jobs/j%231%2F2/builder#publish");
+    expect(isSafeActionHref(a.actionHref)).toBe(true);
   });
 });

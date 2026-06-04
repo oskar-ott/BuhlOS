@@ -161,7 +161,8 @@ export function jobExceptions(jobs: ReadonlyArray<Job>): ExceptionItem[] {
         severity: "critical",
         status: "blocked",
         ownerRole: "office",
-        ...withAction(resolveAction("jobBuilder", { jobId: j.id }, { label: "Assign workers" })),
+        // Deep-link straight to the PR #67 assignment section on the builder.
+        ...withAction(resolveAction("jobBuilder", { jobId: j.id }, { label: "Assign field workers", fragment: "assigned-field-workers" })),
         tags: ["job", "crew"],
       });
     }
@@ -179,7 +180,8 @@ export function jobExceptions(jobs: ReadonlyArray<Job>): ExceptionItem[] {
         severity: "info",
         status: "open",
         ownerRole: "office",
-        ...withAction(resolveAction("jobBuilder", { jobId: j.id }, { label: "Open builder" })),
+        // Deep-link to the builder's Publish tab (honoured via the URL hash).
+        ...withAction(resolveAction("jobBuilder", { jobId: j.id }, { label: "Publish job", fragment: "publish" })),
         tags: ["job", "draft"],
       });
     }

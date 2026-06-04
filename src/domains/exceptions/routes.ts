@@ -131,7 +131,7 @@ export interface ResolvedAction {
 export function resolveAction(
   key: ActionRouteKey,
   params: { jobId?: string } = {},
-  opts: { label?: string; fallbackHref?: string } = {},
+  opts: { label?: string; fallbackHref?: string; fragment?: string } = {},
 ): ResolvedAction {
   const def = ACTION_ROUTES[key];
   const safeFallback = isSafeActionHref(opts.fallbackHref) ? opts.fallbackHref : undefined;
@@ -149,7 +149,11 @@ export function resolveAction(
   const href = def.build(params);
   if (!isSafeActionHref(href)) return degrade("Computed link wasn’t a safe internal path.");
 
-  return { actionHref: href, actionLabel: opts.label ?? def.defaultLabel, actionState: "available" };
+  return {
+    actionHref: withFragment(href, opts.fragment),
+    actionLabel: opts.label ?? def.defaultLabel,
+    actionState: "available",
+  };
 }
 
 /** A safe href to the per-job hub (`/v2/jobs/{id}`), or undefined. Used as the
@@ -157,4 +161,18 @@ export function resolveAction(
 export function jobHubHref(jobId: string | undefined): string | undefined {
   if (!jobId) return undefined;
   return resolveAction("jobHub", { jobId }).actionHref;
+}
+
+// Anchor fragments are a fixed allowlist of lowercase ids — never derived from
+// untrusted input — so a deep-link can target a stable section/tab without ever
+// letting a jobId inject a fragment (the jobId is encodeURIComponent'd first, so
+// any '#' in it becomes %23; the only literal '#' is this controlled suffix).
+const FRAGMENT_RE = /^[a-z][a-z0-9-]*$/;
+
+/** Append `#fragment` to a safe href when the fragment is a valid id and the
+ *  result is still a safe internal href; otherwise return the href unchanged. */
+export function withFragment(href: string, fragment: string | undefined): string {
+  if (!fragment || !FRAGMENT_RE.test(fragment)) return href;
+  const full = `${href}#${fragment}`;
+  return isSafeActionHref(full) ? full : href;
 }

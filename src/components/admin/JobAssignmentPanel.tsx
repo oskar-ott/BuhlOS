@@ -108,7 +108,11 @@ export function JobAssignmentPanel({
   }
 
   return (
-    <Card className="mt-6 space-y-4" aria-labelledby="assign-workers-heading">
+    <Card
+      id="assigned-field-workers"
+      className="mt-6 scroll-mt-6 space-y-4"
+      aria-labelledby="assign-workers-heading"
+    >
       <div className="space-y-1">
         <CardTitle className="flex items-center gap-2">
           <span id="assign-workers-heading">Assigned field workers</span>
