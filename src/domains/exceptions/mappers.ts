@@ -3,16 +3,26 @@ import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem, ObservationPriority } from "@/domains/observations/types";
 import type { MaterialRequestItem, MaterialRequestUrgency } from "@/domains/material-requests/types";
 import { isOpenObservation } from "@/domains/observations/service";
+import { resolveAction, type ResolvedAction } from "./routes";
 import type { ExceptionItem, ExceptionSeverity } from "./types";
 
 /**
  * Source-specific mappers: each turns real source records into ExceptionItems.
- * Pure + deterministic — no fetching, no Date.now(), no randomness. Each item's
- * `actionHref` is a canonical internal route the office can act on.
+ * Pure + deterministic — no fetching, no Date.now(), no randomness.
+ *
+ * Every item's action goes through the route registry (resolveAction) so the
+ * link is canonical, encoded, and either `available` (a real implemented
+ * surface) or honestly `unavailable` — never a fabricated or broken route.
  */
 
-function routeSegment(value: string): string {
-  return encodeURIComponent(value);
+/** Merge a resolved action's fields onto an item (href/label/state/reason). */
+function withAction(action: ResolvedAction) {
+  return {
+    actionHref: action.actionHref,
+    actionLabel: action.actionLabel,
+    actionState: action.actionState,
+    actionReason: action.actionReason,
+  };
 }
 
 /** The single distinct job an hours entry is allocated to, or undefined. */
@@ -37,13 +47,12 @@ export function hoursExceptions(
       sourceId: e.id,
       jobId: singleAllocationJobId(e),
       title: `Hours from ${e.userName ?? "a worker"} (${e.date}) awaiting approval`,
-      summary: `${e.totalHours}h submitted — review and approve or reject.`,
+      summary: `${e.totalHours}h submitted — approve or reject in the hours queue.`,
       severity: "warning",
       status: "waiting",
       ownerRole: "office",
       createdAt: e.submittedAt ?? e.createdAt,
-      actionLabel: "Review approvals",
-      actionHref: "/hours/approvals",
+      ...withAction(resolveAction("hoursApprovals", {}, { label: "Review approvals" })),
       tags: ["hours", "approval"],
     });
   }
@@ -56,14 +65,13 @@ export function hoursExceptions(
       jobId: singleAllocationJobId(e),
       title: `Rejected hours from ${e.userName ?? "a worker"} (${e.date}) need correction`,
       summary: e.rejectedReason
-        ? `Reason: ${e.rejectedReason}`
-        : "Worker needs to fix and resubmit — nudge them or correct it.",
+        ? `Reason: ${e.rejectedReason} — review and nudge the worker to resubmit.`
+        : "Worker needs to fix and resubmit — review the rejection.",
       severity: "warning",
       status: "blocked",
       ownerRole: "office",
       createdAt: e.rejectedAt ?? e.submittedAt ?? e.createdAt,
-      actionLabel: "Review approvals",
-      actionHref: "/hours/approvals",
+      ...withAction(resolveAction("hoursApprovals", {}, { label: "Review rejections" })),
       tags: ["hours", "rejected"],
     });
   }
@@ -84,6 +92,11 @@ export function observationExceptions(
   const out: ExceptionItem[] = [];
   for (const o of observations) {
     if (!isOpenObservation(o.status) || !o.requiresAction) continue;
+    // Deep-link to the per-job slice when we know the job; else the cross-job
+    // inbox (also a real, safe route used as the fallback).
+    const action = o.jobId
+      ? resolveAction("jobObservations", { jobId: o.jobId }, { label: "Open observation", fallbackHref: "/observations" })
+      : resolveAction("observationsInbox", {}, { label: "Open observations" });
     out.push({
       id: `observation:${o.id}`,
       source: "observation",
@@ -97,9 +110,7 @@ export function observationExceptions(
       ownerRole: "office",
       createdAt: o.createdAt,
       dueAt: o.dueDate ?? undefined,
-      actionLabel: "Open observation",
-      // Deep-link to the per-job slice when we know the job; else the inbox.
-      actionHref: o.jobId ? `/v2/jobs/${routeSegment(o.jobId)}/observations` : "/observations",
+      ...withAction(action),
       tags: ["observation", o.type],
     });
   }
@@ -124,15 +135,15 @@ export function jobExceptions(jobs: ReadonlyArray<Job>): ExceptionItem[] {
     if (status !== "draft") {
       const evidence = j.statsEvidenceV2Pending ?? 0;
       if (evidence > 0) {
-        out.push(jobStatItem(j, "evidence", evidence, `${name}: ${evidence} evidence to review`, `/v2/jobs/${routeSegment(j.id)}/evidence`, "warning", "Open evidence"));
+        out.push(jobStatItem(j, "evidence", evidence, `${name}: ${evidence} evidence to review`, resolveAction("jobEvidence", { jobId: j.id }, { label: "Open evidence" }), "warning"));
       }
       const snags = j.statsSnagsV2Active ?? 0;
       if (snags > 0) {
-        out.push(jobStatItem(j, "snag", snags, `${name}: ${snags} open snag${snags === 1 ? "" : "s"}`, `/v2/jobs/${routeSegment(j.id)}/snags`, "warning", "Open snags"));
+        out.push(jobStatItem(j, "snag", snags, `${name}: ${snags} open snag${snags === 1 ? "" : "s"}`, resolveAction("jobSnags", { jobId: j.id }, { label: "Open snags" }), "warning"));
       }
       const itps = j.statsItpsNeedsReview ?? 0;
       if (itps > 0) {
-        out.push(jobStatItem(j, "itp", itps, `${name}: ${itps} ITP${itps === 1 ? "" : "s"} need sign-off`, `/v2/jobs/${routeSegment(j.id)}/itps`, "warning", "Open ITPs"));
+        out.push(jobStatItem(j, "itp", itps, `${name}: ${itps} ITP${itps === 1 ? "" : "s"} need sign-off`, resolveAction("jobItps", { jobId: j.id }, { label: "Open ITPs" }), "warning"));
       }
     }
 
@@ -149,8 +160,7 @@ export function jobExceptions(jobs: ReadonlyArray<Job>): ExceptionItem[] {
         severity: "critical",
         status: "blocked",
         ownerRole: "office",
-        actionLabel: "Assign workers",
-        actionHref: `/v2/jobs/${routeSegment(j.id)}/builder`,
+        ...withAction(resolveAction("jobBuilder", { jobId: j.id }, { label: "Assign workers" })),
         tags: ["job", "crew"],
       });
     }
@@ -168,8 +178,7 @@ export function jobExceptions(jobs: ReadonlyArray<Job>): ExceptionItem[] {
         severity: "info",
         status: "open",
         ownerRole: "office",
-        actionLabel: "Open builder",
-        actionHref: `/v2/jobs/${routeSegment(j.id)}/builder`,
+        ...withAction(resolveAction("jobBuilder", { jobId: j.id }, { label: "Open builder" })),
         tags: ["job", "draft"],
       });
     }
@@ -182,9 +191,8 @@ function jobStatItem(
   source: ExceptionItem["source"],
   count: number,
   title: string,
-  href: string,
+  action: ResolvedAction,
   severity: ExceptionSeverity,
-  actionLabel: string,
 ): ExceptionItem {
   return {
     id: `${source}-job:${j.id}`,
@@ -196,8 +204,7 @@ function jobStatItem(
     severity,
     status: "open",
     ownerRole: "office",
-    actionLabel,
-    actionHref: href,
+    ...withAction(action),
     tags: ["job", source, `count:${count}`],
   };
 }
@@ -234,8 +241,7 @@ export function materialExceptions(
       status: m.status === "approved" ? "waiting" : "open",
       ownerRole: "office",
       createdAt: m.createdAt,
-      actionLabel: "Open material requests",
-      actionHref: "/material-requests",
+      ...withAction(resolveAction("materialRequests", {}, { label: "Open material requests" })),
       tags: ["material", m.status],
     });
   }

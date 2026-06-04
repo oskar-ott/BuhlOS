@@ -4,6 +4,7 @@ import {
   materialExceptions,
   observationExceptions,
 } from "./mappers";
+import { isSafeActionHref } from "./routes";
 import type {
   ExceptionFilters,
   ExceptionItem,
@@ -99,14 +100,16 @@ export function jobOptions(
     .sort((a, b) => a.jobName.localeCompare(b.jobName));
 }
 
+// The canonical internal-href guard lives with the route registry (it's the
+// same rule the registry uses). Re-exported so existing callers keep importing
+// it from the service.
+export { isSafeActionHref } from "./routes";
+
 /**
- * An actionHref is only allowed to be a CANONICAL internal path: it must start
- * with a single "/" (not "//" — protocol-relative — and not an absolute URL).
- * The inbox links nowhere external and never to a raw source record.
+ * Whether an item's action should render as a clickable link: it must be
+ * `available` AND carry a safe internal href. Anything else renders as a muted
+ * "unavailable" state — never a broken link.
  */
-export function isSafeActionHref(href: string | undefined): boolean {
-  if (!href) return false;
-  if (!href.startsWith("/")) return false;
-  if (href.startsWith("//")) return false;
-  return true;
+export function isActionable(item: ExceptionItem): boolean {
+  return item.actionState === "available" && isSafeActionHref(item.actionHref);
 }

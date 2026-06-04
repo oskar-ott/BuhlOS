@@ -2,6 +2,9 @@ import type { TimeEntry } from "@/domains/timesheets/types";
 import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { MaterialRequestItem } from "@/domains/material-requests/types";
+import type { ExceptionActionState } from "./routes";
+
+export type { ExceptionActionState } from "./routes";
 
 /**
  * Exceptions Inbox ("Needs Attention") — a PROJECTION layer, not a new source
@@ -51,6 +54,15 @@ export interface ExceptionItem {
   /** The next action — label + a CANONICAL internal route (starts with "/"). */
   actionLabel?: string;
   actionHref?: string;
+  /**
+   * Whether the action is usable. `available` → render the link;
+   * `unavailable` → the source route isn't reachable for this item (render a
+   * muted state, never a broken link); `future` → a planned source not built
+   * yet. Derived from the route registry (resolveAction), never persisted.
+   */
+  actionState: ExceptionActionState;
+  /** Why the action is unavailable/future (shown as muted help text). */
+  actionReason?: string;
   tags?: string[];
 }
 
