@@ -8,11 +8,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/cn";
-import {
-  filterExceptions,
-  isActionable,
-  jobOptions,
-} from "@/domains/exceptions/service";
+import { filterExceptions, isActionable, jobOptions } from "@/domains/exceptions/service";
 import {
   getExceptionCounts,
   groupExceptionsByJob,
@@ -28,6 +24,7 @@ import type {
   ActionAvailability,
   ExceptionItem,
   ExceptionSeverity,
+  ExceptionSource,
 } from "@/domains/exceptions/types";
 
 /**
@@ -57,24 +54,34 @@ interface Props {
   initialItems: ReadonlyArray<ExceptionItem>;
   /** True when one or more source loads failed (list may be incomplete). */
   partial?: boolean;
+  /** Optional initial source filter for server-rendered selected states. */
+  initialSource?: ExceptionSource | "all";
 }
 
-export function ExceptionsInbox({ initialItems, partial = false }: Props) {
+export function ExceptionsInbox({ initialItems, partial = false, initialSource = "all" }: Props) {
   const [tab, setTab] = useState<TabKey>("all");
+  const [source, setSource] = useState<ExceptionSource | "all">(initialSource);
   const [severity, setSeverity] = useState<ExceptionSeverity | "all">("all");
   const [jobId, setJobId] = useState<string>("all");
   const [query, setQuery] = useState("");
 
   const counts = useMemo(() => getExceptionCounts(initialItems), [initialItems]);
   const jobs = useMemo(() => jobOptions(initialItems), [initialItems]);
+  const sourcesPresent = useMemo(
+    () =>
+      [...new Set(initialItems.map((i) => i.source))].sort((a, b) =>
+        (SOURCE_LABEL[a] ?? a).localeCompare(SOURCE_LABEL[b] ?? b)
+      ),
+    [initialItems]
+  );
 
   const availability: ActionAvailability =
     tab === "action" ? "actionable" : tab === "waiting" ? "waiting" : "all";
   const grouped = tab === "by-job" || tab === "by-source";
 
   const filtered = useMemo(
-    () => filterExceptions(initialItems, { severity, jobId, query, availability }),
-    [initialItems, severity, jobId, query, availability],
+    () => filterExceptions(initialItems, { source, severity, jobId, query, availability }),
+    [initialItems, source, severity, jobId, query, availability]
   );
 
   return (
@@ -88,7 +95,9 @@ export function ExceptionsInbox({ initialItems, partial = false }: Props) {
               : `${counts.total} open · ${counts.bySeverity.critical} critical · ${counts.jobsAffected} job${counts.jobsAffected === 1 ? "" : "s"} affected · ${counts.actionable} actionable`}
           </CardDescription>
         </div>
-        <Pill tone={counts.bySeverity.critical > 0 ? "danger" : "neutral"}>{`${counts.total} open`}</Pill>
+        <Pill
+          tone={counts.bySeverity.critical > 0 ? "danger" : "neutral"}
+        >{`${counts.total} open`}</Pill>
       </div>
 
       {partial ? (
@@ -118,7 +127,7 @@ export function ExceptionsInbox({ initialItems, partial = false }: Props) {
                   "rounded-pill px-3 py-1 text-sm font-medium transition-colors",
                   tab === t.key
                     ? "bg-brand-navy text-text-inverse"
-                    : "bg-surface-subtle text-text-muted hover:bg-surface",
+                    : "bg-surface-subtle text-text-muted hover:bg-surface"
                 )}
               >
                 {t.label}
@@ -129,13 +138,26 @@ export function ExceptionsInbox({ initialItems, partial = false }: Props) {
           {/* Refining filters (apply within every tab) */}
           <div className="flex flex-wrap items-center gap-2">
             <FilterSelect
+              testid="exceptions-filter-source"
+              label="Source"
+              value={source}
+              onChange={(v) => setSource(v as ExceptionSource | "all")}
+              options={[
+                { value: "all", label: "All sources" },
+                ...sourcesPresent.map((s) => ({ value: s, label: SOURCE_LABEL[s] ?? s })),
+              ]}
+            />
+            <FilterSelect
               testid="exceptions-filter-severity"
               label="Severity"
               value={severity}
               onChange={(v) => setSeverity(v as ExceptionSeverity | "all")}
               options={[
                 { value: "all", label: "All severities" },
-                ...SEVERITIES.filter((s) => counts.bySeverity[s] > 0).map((s) => ({ value: s, label: SEVERITY_LABEL[s] })),
+                ...SEVERITIES.filter((s) => counts.bySeverity[s] > 0).map((s) => ({
+                  value: s,
+                  label: SEVERITY_LABEL[s],
+                })),
               ]}
             />
             {jobs.length > 0 ? (
@@ -144,7 +166,10 @@ export function ExceptionsInbox({ initialItems, partial = false }: Props) {
                 label="Job"
                 value={jobId}
                 onChange={setJobId}
-                options={[{ value: "all", label: "All jobs" }, ...jobs.map((j) => ({ value: j.jobId, label: j.jobName }))]}
+                options={[
+                  { value: "all", label: "All jobs" },
+                  ...jobs.map((j) => ({ value: j.jobId, label: j.jobName })),
+                ]}
               />
             ) : null}
             <label className="inline-flex items-center gap-1 rounded-card border border-border bg-surface px-2 text-text-muted">
@@ -216,9 +241,13 @@ function ExceptionList({ items }: { items: ReadonlyArray<ExceptionItem> }) {
         <li key={item.id} className="p-4" data-testid="exception-item">
           <div className="flex flex-wrap items-center gap-2">
             <Pill tone={SEVERITY_TONE[item.severity]}>{SEVERITY_LABEL[item.severity]}</Pill>
-            <Pill tone={SOURCE_TONE[item.source]}>{item.sourceLabel ?? SOURCE_LABEL[item.source]}</Pill>
+            <Pill tone={SOURCE_TONE[item.source]}>
+              {item.sourceLabel ?? SOURCE_LABEL[item.source]}
+            </Pill>
             {item.jobName ? <span className="text-xs text-text-muted">{item.jobName}</span> : null}
-            {item.ageLabel ? <span className="text-xs text-text-muted">· {item.ageLabel}</span> : null}
+            {item.ageLabel ? (
+              <span className="text-xs text-text-muted">· {item.ageLabel}</span>
+            ) : null}
           </div>
           <p className="mt-2 font-medium text-text">{item.title}</p>
           {item.summary ? <p className="mt-0.5 text-sm text-text-muted">{item.summary}</p> : null}
@@ -229,7 +258,9 @@ function ExceptionList({ items }: { items: ReadonlyArray<ExceptionItem> }) {
               className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
             >
               {item.actionLabel ?? "Open"}
-              {item.actionState === "fallback" ? <span className="text-xs text-text-muted">(job)</span> : null}
+              {item.actionState === "fallback" ? (
+                <span className="text-xs text-text-muted">(job)</span>
+              ) : null}
               <ArrowRight className="h-4 w-4" aria-hidden />
             </Link>
           ) : (

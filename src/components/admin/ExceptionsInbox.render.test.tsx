@@ -114,11 +114,25 @@ describe("ExceptionsInbox", () => {
     expect(html).not.toContain("href=");
   });
 
-  it("renders the refining filters (severity, job, search) when there are items", () => {
+  it("renders the refining filters (source, severity, job, search) when there are items", () => {
     const html = render({ initialItems: ITEMS });
+    expect(html).toContain('data-testid="exceptions-filter-source"');
+    expect(html).toContain("All sources");
+    expect(html).toContain("Hours");
+    expect(html).toContain("Jobs");
     expect(html).toContain('data-testid="exceptions-filter-severity"');
     expect(html).toContain('data-testid="exceptions-filter-job"');
     expect(html).toContain('data-testid="exceptions-search"');
+  });
+
+  it("applies and clears the source filter in rendered component state", () => {
+    const filteredHtml = render({ initialItems: ITEMS, initialSource: "hours" });
+    expect(filteredHtml).toContain("Rejected hours from Oskar");
+    expect(filteredHtml).not.toContain("Bravo: active but no field workers assigned");
+
+    const resetHtml = render({ initialItems: ITEMS, initialSource: "all" });
+    expect(resetHtml).toContain("Rejected hours from Oskar");
+    expect(resetHtml).toContain("Bravo: active but no field workers assigned");
   });
 
   it("renders the All clear empty state (no tabs/filters) when there are no items", () => {
