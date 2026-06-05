@@ -7,11 +7,12 @@
 
 **Golden rules for every dogfood session**
 
-1. Use **explicit test jobs** with an obvious prefix (e.g. `DOGFOOD —`). Never test against a real customer job.
-2. Treat all data as **disposable** — there are no transactional guarantees and no automated cleanup.
-3. One **supervised** field user at a time. The supervisor stays present.
-4. If you hit a **stop condition** (§6), stop immediately and record it.
-5. Some labels mean **placeholder, not feature** — see "depending on merge state" notes; verify against `main` before relying on a flow.
+1. **Mutating dogfood runs on a non-production target only.** Anything that writes — create/reuse a test job, assign a field worker, publish/activate, log hours, archive/delete cleanup — must run against a **preview / seeded / controlled test environment**, never production. Production is **read-only** during routine dogfood; do not create/publish/assign/log/clean up test data there. A production *change* requires explicit, separate approval **and** a documented production-change procedure. **Preview Smoke is preview-only — never dispatch it against production.**
+2. Use **explicit test jobs** with an obvious prefix (e.g. `DOGFOOD —`). Never test against a real customer job.
+3. Treat all data as **disposable** — there are no transactional guarantees and no automated cleanup.
+4. One **supervised** field user at a time. The supervisor stays present.
+5. If you hit a **stop condition** (§6), stop immediately and record it.
+6. Some labels mean **placeholder, not feature** — see "depending on merge state" notes; verify against `main` before relying on a flow.
 
 Status shorthand used below: ✅ pass · ⚠️ pass-with-note · ❌ fail · ⏭️ not-applicable.
 
@@ -20,7 +21,8 @@ Status shorthand used below: ✅ pass · ⚠️ pass-with-note · ❌ fail · �
 ## 1 · Before dogfood
 
 - [ ] **Confirm the current main / PR stack.** `git fetch origin && git log --oneline origin/main -15` and `gh pr list --state open`. Note the snapshot SHA you are testing.
-- [ ] **Confirm the Vercel deploy is healthy** for the commit under test (preview or production target as agreed). Unauth gated routes should 307 to `/v2/login`; APIs should 401 unauth; no 500s, no blank pages.
+- [ ] **Confirm the dogfood target is a preview / seeded / controlled test environment — not production.** Every mutating step below (create/assign/publish/log/cleanup) runs against that target only. Production is **read-only** for this session: limit any production check to safe read-only verification unless a separate, approved production-change procedure exists. **Do not dispatch Preview Smoke against production.**
+- [ ] **Confirm the Vercel deploy is healthy** for the commit under test (on the preview / seeded target above). Unauth gated routes should 307 to `/v2/login`; APIs should 401 unauth; no 500s, no blank pages.
 - [ ] **Confirm seeded QA accounts exist** and you have the credentials out-of-band (admin + field at minimum). See [docs/testing/Seeded-Authenticated-QA.md](../testing/Seeded-Authenticated-QA.md).
 - [ ] **Confirm no exposed / test passwords** are committed, pasted into the report, or visible on screen during capture. Credentials live in secrets, never in this repo.
 - [ ] **Confirm no active disallowed `SMOKE_TEST` / `STRESS_TEST` jobs** are lingering. `npm run qa:list-smoke-jobs` and clear anything that should not be live.
@@ -115,7 +117,8 @@ Copy this block per session and fill it in. Keep it in the team's dogfood log
 - Date:                 YYYY-MM-DD
 - Tester:               <name>
 - Account role:         admin | leading hand | field | client
-- Snapshot under test:  main @ <sha>  (preview URL or prod)
+- Environment:          preview | seeded | controlled-test   (production = read-only checks only)
+- Snapshot under test:  main @ <sha>  (preview / seeded URL; prod only for read-only checks)
 - Job used:             <prefixed test job id/name>  (Draft? yes/no)
 
 ### Flows tested  (✅ / ⚠️ / ❌ / ⏭️)

@@ -94,6 +94,17 @@ Prioritised. A `P0` blocks even a *supervised* trial that touches real data; a
 | P2-3 | **Old legacy routes still reachable.** `/phil`, `/my-day`, `/my-gear`, `/admin/*.html`, `/buhlos/*` mirrors, `/dev/site-office` remain rewritten in production (preserved on purpose). | `DEFERRED` (quarantine) | guarded by `check:route-ownership` against re-linking from modern nav. |
 | P2-4 | **Modules that look complete but are partial.** Needs Attention is projection-only (no dismiss/snooze); Plans is read + markup-foundation only; Hours lacks the rejected-hours correction loop + payroll export. | mixed | [KNOWN_LIMITATIONS](./KNOWN_LIMITATIONS.md) is the authoritative list. |
 
+### Open PRs at this snapshot (completeness)
+
+So this status is complete, every open PR touching the product at the snapshot
+is accounted for here:
+
+- **#76 deprecated-naming cleanup** — `OPEN PR`; a blocker (P1-3 above).
+- **#57 complete the Hours money-control workflow** — `OPEN PR`; advances the rejected-hours correction loop (P2-4 above; see [KNOWN_LIMITATIONS](./KNOWN_LIMITATIONS.md) and [NEXT_HARDENING_LANE](./NEXT_HARDENING_LANE.md)). Not a dogfood blocker on its own.
+- **#51 onboarding copy** — `OPEN PR`; lower-risk copy/readiness item, not a field-rollout blocker unless it affects active user onboarding copy.
+
+(#78 is this docs pack itself.)
+
 ---
 
 ## 4 · What is safe for dogfood
