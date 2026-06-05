@@ -373,14 +373,25 @@ function EntryRow({
 
 function AllocationLine({ entry }: { entry: TimeEntry }): ReactNode {
   if (!entry.allocations || entry.allocations.length === 0) return null;
-  const labels = entry.allocations.map((a, i) => {
-    const job = (a.jobName as string | null | undefined) ?? a.jobId ?? "no job";
-    return (
-      <span key={i} className="text-xs text-text-muted">
-        {formatHoursLabel(a.hours)} → {job}
-        {i < entry.allocations.length - 1 ? <span aria-hidden="true"> · </span> : null}
-      </span>
-    );
-  });
-  return <p className="space-x-0">{labels}</p>;
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      {entry.allocations.map((a, i) => {
+        // Legacy / unattributed allocations (jobId null) are flagged so an
+        // approver can see at a glance which hours lack job context — they
+        // remain fully approvable/rejectable, this is display only.
+        const unattributed = !a.jobId;
+        const job = a.jobName ?? a.jobId ?? "No job assigned";
+        return (
+          <span key={i} className="inline-flex items-center gap-1 text-xs text-text-muted">
+            <span>{formatHoursLabel(a.hours)} →</span>
+            {unattributed ? (
+              <Pill tone="warning">No job assigned</Pill>
+            ) : (
+              <span className="font-medium text-text">{job}</span>
+            )}
+          </span>
+        );
+      })}
+    </p>
+  );
 }

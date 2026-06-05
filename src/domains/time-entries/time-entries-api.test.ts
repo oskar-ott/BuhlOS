@@ -105,6 +105,13 @@ beforeEach(() => {
         ],
       },
     ],
+    // job-x is an active job every seeded user is assigned to, so field
+    // self-submissions pass the create-path attribution gate (a field worker
+    // may only log against an active job they're assigned to).
+    [
+      "jobs.json",
+      { jobs: [{ id: "job-x", name: "Job X", status: "active" }] },
+    ],
     // A submitted entry owned by the field worker — used to prove a worker
     // cannot flip it to approved and that legitimate edits still work.
     [

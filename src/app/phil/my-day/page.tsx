@@ -13,6 +13,8 @@ import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
+import { JobListResponseSchema } from "@/domains/jobs/schema";
+import { isVisibleToField } from "@/domains/jobs/builder";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +41,13 @@ export default async function MyDayPage() {
     redirect("/v2/login");
   }
 
-  const { todayEntry, recentEntries, fetchError } = await loadEntries(raw);
+  // Load the worker's recent entries AND their active assigned jobs in
+  // parallel. The jobs feed the LogHoursSheet job-attribution block so a
+  // field submission is tied to a real active job instead of jobId: null.
+  const [{ todayEntry, recentEntries, fetchError }, assignedJobs] = await Promise.all([
+    loadEntries(raw),
+    loadAssignedJobs(raw),
+  ]);
 
   // Bible vNext §16.3 quick-win: surface the most recent rejected entry
   // at the top of My day so the worker can act in five seconds. Only one
@@ -73,7 +81,12 @@ export default async function MyDayPage() {
           />
         ) : null}
 
-        <LogHoursSheet initialTodayEntry={todayEntry} recentEntries={recentEntries} />
+        <LogHoursSheet
+          initialTodayEntry={todayEntry}
+          recentEntries={recentEntries}
+          assignedJobs={assignedJobs.jobs}
+          jobsError={assignedJobs.error}
+        />
 
         {fetchError ? (
           <Card className="border-amber-200 bg-amber-50" role="alert">
@@ -171,6 +184,44 @@ async function loadEntries(cookieValue: string | undefined): Promise<{
       recentEntries: [],
       fetchError: err instanceof Error ? err.message : "Network error",
     };
+  }
+}
+
+/**
+ * Load the worker's active assigned jobs for hours attribution.
+ *
+ * Source of truth: users.json.assignedJobIds — the same source Phil already
+ * uses for job visibility. The legacy GET /api/jobs already scopes a field
+ * caller to their assignedJobIds and strips draft/archived (api/jobs.js); the
+ * isVisibleToField filter here is defence-in-depth so an admin previewing My
+ * Day never sees a draft/archived job as a log target. Returns `error: true`
+ * on any failure so the sheet can block submission rather than fall back to an
+ * unattributed entry.
+ */
+async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
+  jobs: ReadonlyArray<{ id: string; name: string }>;
+  error: boolean;
+}> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+
+  try {
+    const res = await fetch(`${base}/api/jobs`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (!res.ok) return { jobs: [], error: true };
+    const body = await res.json();
+    const parsed = JobListResponseSchema.safeParse(body);
+    if (!parsed.success) return { jobs: [], error: true };
+    const jobs = parsed.data.jobs
+      .filter((j) => isVisibleToField(j))
+      .map((j) => ({ id: j.id, name: j.name }));
+    return { jobs, error: false };
+  } catch {
+    return { jobs: [], error: true };
   }
 }
 

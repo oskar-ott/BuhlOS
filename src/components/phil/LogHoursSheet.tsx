@@ -40,6 +40,24 @@ interface LogHoursSheetProps {
    * the source of truth — this is just UI hinting).
    */
   recentEntries: ReadonlyArray<TimeEntry>;
+  /**
+   * The worker's ACTIVE assigned jobs (id + name), loaded server-side from
+   * /api/jobs (source of truth: users.json.assignedJobIds). Drives the job
+   * attribution block: hours must be tied to one of these so we never submit
+   * jobId: null when the worker has active jobs.
+   */
+  assignedJobs: ReadonlyArray<{ id: string; name: string }>;
+  /**
+   * True when the assigned-jobs fetch failed. Submission is blocked (rather
+   * than falling back to an unattributed entry) until jobs load.
+   */
+  jobsError?: boolean;
+  /**
+   * Optional preselected job — e.g. if a future entry point launches the
+   * sheet from a specific job context. Only takes effect when it is one of
+   * the worker's active assigned jobs.
+   */
+  initialJobId?: string | null;
 }
 
 type Mode = "standard" | "custom";
@@ -60,13 +78,51 @@ type SubmitState =
  *   - Notes optional, single-line
  *   - Status line shows what the server last accepted
  */
-export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursSheetProps) {
+export function LogHoursSheet({
+  initialTodayEntry,
+  recentEntries,
+  assignedJobs,
+  jobsError = false,
+  initialJobId = null,
+}: LogHoursSheetProps) {
   const [todayEntry, setTodayEntry] = useState<TimeEntry | null>(initialTodayEntry);
   const [date, setDate] = useState<string>(() => localDateString());
   const [notes, setNotes] = useState<string>("");
   const [customOpen, setCustomOpen] = useState(false);
   const [customHours, setCustomHours] = useState<number>(STANDARD_DAY_HOURS);
   const [state, setState] = useState<SubmitState>({ kind: "idle" });
+  // Job attribution. Preselect when launched with a valid job context, else
+  // auto-select the sole assigned job; multiple jobs require an explicit pick.
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(() => {
+    if (initialJobId && assignedJobs.some((j) => j.id === initialJobId)) return initialJobId;
+    return assignedJobs.length === 1 ? assignedJobs[0]!.id : null;
+  });
+
+  const hasJobs = assignedJobs.length > 0;
+  const selectedJob = assignedJobs.find((j) => j.id === selectedJobId) ?? null;
+  // Safe to attribute a submission iff jobs loaded, at least one exists, and
+  // one is selected. When false the submit buttons are disabled and the guard
+  // below produces an honest message rather than an unattributed entry.
+  const jobReady = !jobsError && hasJobs && !!selectedJob;
+
+  /**
+   * Returns an error to show instead of submitting, or null when job
+   * attribution is satisfied. Mirrors the product rule: block when jobs
+   * failed to load, when there is no active assigned job, or when a worker
+   * with multiple jobs hasn't picked one. Never allows a silent jobId: null.
+   */
+  function jobAttributionError(): { message: string; status: number } | null {
+    if (jobsError) {
+      return { message: "Couldn't load your jobs. Pull to refresh and try again.", status: 0 };
+    }
+    if (!hasJobs) {
+      return { message: "No active assigned job. Ask the office to assign you to a job.", status: 0 };
+    }
+    if (!selectedJob) {
+      return { message: "Pick which job these hours are for.", status: 0 };
+    }
+    return null;
+  }
 
   // When the worker changes the date, surface the existing entry for that
   // day (if any) so they see status / hours without re-fetching.
@@ -90,6 +146,11 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
     : false;
 
   async function submitStandardDay() {
+    const jobErr = jobAttributionError();
+    if (jobErr) {
+      setState({ kind: "error", ...jobErr });
+      return;
+    }
     if (!dateInWindow) {
       setState({
         kind: "error",
@@ -101,7 +162,7 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
     setState({ kind: "submitting" });
     const payload = buildStandardDayPayload({
       date,
-      jobId: null,
+      jobId: selectedJobId,
       notes: notes || null,
     });
     const result = await timesheetsClient.submitNewEntry(payload);
@@ -109,6 +170,12 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
   }
 
   async function submitCustom() {
+    const jobErr = jobAttributionError();
+    if (jobErr) {
+      setCustomOpen(false);
+      setState({ kind: "error", ...jobErr });
+      return;
+    }
     if (!dateInWindow) {
       setState({
         kind: "error",
@@ -130,7 +197,7 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
     const payload = buildCustomHoursPayload({
       date,
       totalHours: customHours,
-      jobId: null,
+      jobId: selectedJobId,
       notes: notes || null,
     });
     const result = await timesheetsClient.submitNewEntry(payload);
@@ -177,6 +244,14 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
       <StatusLine entry={entryForSelectedDate ?? todayEntry} selectedDate={date} />
 
       <Card className="space-y-4 p-4">
+        <JobAttribution
+          jobs={assignedJobs}
+          selectedJobId={selectedJobId}
+          onSelect={setSelectedJobId}
+          jobsError={jobsError}
+          disabled={submitting}
+        />
+
         <div>
           <p className="font-display text-xs uppercase tracking-widest text-text-muted">Day</p>
           <p className="mt-1 text-base text-text">{formatDateLabel(date)}</p>
@@ -185,7 +260,7 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
         <button
           type="button"
           onClick={submitStandardDay}
-          disabled={submitting || lockedByStatus || !dateInWindow}
+          disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
           aria-label="Submit Standard day, 7 hours 36 minutes"
           className={cn(
             "block w-full rounded-card bg-brand-navy px-5 py-6 text-left text-text-inverse",
@@ -208,7 +283,7 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
           variant="secondary"
           size="lg"
           onClick={() => setCustomOpen(true)}
-          disabled={submitting || lockedByStatus || !dateInWindow}
+          disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
           className="w-full"
         >
           Custom hours
@@ -289,6 +364,115 @@ export function LogHoursSheet({ initialTodayEntry, recentEntries }: LogHoursShee
           </div>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/**
+ * Job attribution block. Renders one of four states:
+ *   - jobs failed to load   → warning, submit blocked
+ *   - zero active jobs       → honest "ask the office" message, submit blocked
+ *   - exactly one job        → preselected, shown read-only (no friction)
+ *   - multiple jobs          → a required radio list (mobile-friendly taps)
+ * It never lets the worker proceed with no job when active jobs exist.
+ */
+function JobAttribution({
+  jobs,
+  selectedJobId,
+  onSelect,
+  jobsError,
+  disabled,
+}: {
+  jobs: ReadonlyArray<{ id: string; name: string }>;
+  selectedJobId: string | null;
+  onSelect: (id: string) => void;
+  jobsError: boolean;
+  disabled: boolean;
+}): ReactNode {
+  const label = (
+    <p className="font-display text-xs uppercase tracking-widest text-text-muted">Job</p>
+  );
+
+  if (jobsError) {
+    return (
+      <div
+        role="status"
+        className="rounded-card border border-border border-l-4 border-l-state-warning bg-surface-subtle p-3"
+      >
+        {label}
+        <p className="mt-1 text-sm font-medium text-text">Couldn&rsquo;t load your jobs</p>
+        <p className="mt-0.5 text-xs text-text-muted">
+          Pull to refresh and try again — hours can&rsquo;t be logged until your jobs load.
+        </p>
+      </div>
+    );
+  }
+
+  if (jobs.length === 0) {
+    return (
+      <div
+        role="status"
+        className="rounded-card border border-border border-l-4 border-l-state-warning bg-surface-subtle p-3"
+      >
+        {label}
+        <p className="mt-1 text-sm font-medium text-text">No active assigned job</p>
+        <p className="mt-0.5 text-xs text-text-muted">
+          Ask the office to assign you to a job before logging hours.
+        </p>
+      </div>
+    );
+  }
+
+  if (jobs.length === 1) {
+    return (
+      <div>
+        {label}
+        <div className="mt-1 flex items-center justify-between gap-2 rounded-card border border-border bg-surface-subtle px-3 py-2">
+          <span className="min-w-0 truncate text-sm font-medium text-text">{jobs[0]!.name}</span>
+          <Pill tone="neutral">Assigned job</Pill>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        {label}
+        {!selectedJobId ? (
+          <span className="text-xs font-medium text-state-warning">Pick one</span>
+        ) : null}
+      </div>
+      <ul className="mt-1 space-y-2" role="radiogroup" aria-label="Choose the job for these hours">
+        {jobs.map((j) => {
+          const active = j.id === selectedJobId;
+          return (
+            <li key={j.id}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={active}
+                disabled={disabled}
+                onClick={() => onSelect(j.id)}
+                className={cn(
+                  "flex min-h-[48px] w-full items-center gap-2 rounded-card border px-3 py-2 text-left text-sm font-medium",
+                  "disabled:cursor-not-allowed disabled:opacity-60",
+                  active
+                    ? "border-brand-navy bg-brand-navy text-text-inverse"
+                    : "border-border bg-surface text-text hover:border-border-strong"
+                )}
+              >
+                <span className="min-w-0 flex-1 truncate">{j.name}</span>
+                {active ? (
+                  <span aria-hidden="true" className="text-accent-yellow">
+                    ✓
+                  </span>
+                ) : null}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
