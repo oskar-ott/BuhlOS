@@ -24,7 +24,7 @@ In a real browser, against a guarded preview (or local dev):
 2. **Field sees only assigned active work** — QA Field reaches the Phil shell, `/phil/jobs` shows no Draft/Archived leak, and the seeded fixture `QA_SEED_FIELD_ACTIVE_JOB` is visible (in strict mode it MUST be).
 3. **Field opens the job, read-only** — the opened job shows the field capture affordance and **no** admin Save/Publish controls.
 4. **Field is locked out of admin** — a field role hitting `/v2/jobs/<id>/builder` is redirected to `/phil/my-day`.
-5. **Hours attribution (#77)** — logging a Standard Day attaches the assigned job: the real `POST /api/time-entries` request carries a **non-null `jobId`**. The Standard Day button is enabled only when a job is attributed, so the UI can never submit `jobId:null` while an active assigned job exists.
+5. **Hours attribution (#77)** — logging a Standard Day attaches the assigned job: the real `POST /api/time-entries` request carries a non-empty `allocations` array whose `jobId` is the **assigned job's id** (in strict mode the resolved fixture id, read from its `/phil/jobs/<id>` link), not merely *some* non-null value. The Standard Day button is enabled only when a job is attributed, so the UI can never submit `jobId:null` while an active assigned job exists.
 6. **Office sees the queue with job context** — QA Admin reaches `/hours/approvals`; the approver surface renders (no blank shell). Per-entry job-context display (job name, or amber "No job assigned") is locked by the unit test `HoursApprovalsQueue.render.test.tsx`.
 
 ## 2. What this smoke does NOT prove (deferred, on purpose)
@@ -112,8 +112,9 @@ manual step, not part of the automated smoke.
 - A `"requires the exact seeded fixture QA_SEED_FIELD_ACTIVE_JOB"` failure means
   QA Field isn't assigned to the active fixture — fix the seed
   ([Seeded-Authenticated-QA.md](./Seeded-Authenticated-QA.md)), don't relax the test.
-- An attribution failure (`must attach a non-null jobId`) is a **real #77
-  regression** — stop and report; do not weaken the assertion.
+- An attribution failure (`must attach a non-null jobId`, or `must attribute to
+  the assigned job`) is a **real #77 regression** — stop and report; do not
+  weaken the assertion.
 
 ---
 

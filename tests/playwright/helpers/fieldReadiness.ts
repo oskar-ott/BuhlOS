@@ -67,6 +67,38 @@ export async function openAssignedActiveJob(page: Page): Promise<boolean> {
 }
 
 /**
+ * Resolve the id of the seeded fixture job from /phil/jobs, so the hours smoke
+ * can assert the Standard Day POST attributes to THAT specific assigned job —
+ * not merely to "some" non-null job. PhilJobsList renders the link as
+ * href="/phil/jobs/<encodeURIComponent(id)>", so the id is the (decoded) last
+ * path segment.
+ *   - strict: the exact fixture MUST be present (assigned + active) → its id.
+ *   - local non-strict: the fixture id if present, else null so the caller falls
+ *     back to a non-null (rather than exact-match) attribution check.
+ */
+export async function resolveAssignedFixtureJobId(page: Page): Promise<string | null> {
+  await page.goto("/phil/jobs");
+  await expect(page.getByTestId("phil-shell")).toBeVisible();
+  const link = fixtureJobLink(page);
+  if (isStrict()) {
+    await expect(
+      link,
+      `Strict Preview Smoke requires the exact seeded fixture "${FIXTURE_JOB_NAME}" ` +
+        `active + assigned to QA Field (docs/testing/Seeded-Authenticated-QA.md).`
+    ).toHaveCount(1);
+  } else if ((await link.count()) === 0) {
+    return null;
+  }
+  const href = await link.first().getAttribute("href");
+  const id = decodeURIComponent(href?.split("/").pop() ?? "");
+  expect(
+    id,
+    `Could not parse a job id from the fixture link href "${href ?? "(null)"}".`
+  ).toMatch(/.+/);
+  return id;
+}
+
+/**
  * Assert the opened Phil job is the read-only field view: the field capture
  * affordance is present, and there are NO admin save/publish controls (those
  * belong to the builder, which the field role can't reach).
@@ -143,8 +175,17 @@ export async function prepareAttributedStandardDay(page: Page): Promise<void> {
 
 /**
  * Click Standard Day, capture the POST /api/time-entries request, assert it
- * carries a NON-NULL job attribution, then ABORT it before it reaches the
+ * attributes the hours to the assigned job, then ABORT it before it reaches the
  * server.
+ *
+ * Attribution is checked at full strength:
+ *   - the body carries a non-empty `allocations` array (explicit existence);
+ *   - EVERY allocation carries a non-null jobId (a partial-null regression like
+ *     [{null},{real}] must not slip through a "first truthy" search); and
+ *   - when the caller passes the assigned job's id (`expectedJobId`, resolved via
+ *     resolveAssignedFixtureJobId), every allocation's jobId must EQUAL it — so a
+ *     regression that attributes to the wrong job ({ jobId: "some-other-job" })
+ *     fails, not just an outright jobId:null.
  *
  * Why abort: the create endpoint writes to a Vercel Blob that may be SHARED
  * with production (docs/testing/Seeded-Authenticated-QA.md §9). Aborting proves
@@ -155,16 +196,19 @@ export async function prepareAttributedStandardDay(page: Page): Promise<void> {
  *
  * Returns the attributed jobId the UI put on the wire.
  */
-export async function submitStandardDayAndCaptureAttribution(page: Page): Promise<string> {
-  let capturedJobId: string | null | undefined;
+export async function submitStandardDayAndCaptureAttribution(
+  page: Page,
+  opts: { expectedJobId?: string | null } = {}
+): Promise<string> {
+  const { expectedJobId } = opts;
+  let capturedAllocations: Array<{ jobId: string | null }> | null | undefined;
   await page.route("**/api/time-entries", async (route) => {
     const req = route.request();
     if (req.method() !== "POST") return route.continue();
     const body = req.postDataJSON() as {
       allocations?: Array<{ jobId: string | null }>;
     } | null;
-    const attributed = body?.allocations?.find((a) => a.jobId);
-    capturedJobId = attributed?.jobId ?? null;
+    capturedAllocations = body?.allocations ?? null;
     await route.abort(); // prod-safety: never let the write reach the (shared) Blob
   });
 
@@ -172,13 +216,33 @@ export async function submitStandardDayAndCaptureAttribution(page: Page): Promis
   await expect(button).toBeEnabled();
   await button.click();
   await expect
-    .poll(() => capturedJobId !== undefined, { timeout: 15_000 })
+    .poll(() => capturedAllocations !== undefined, { timeout: 15_000 })
     .toBeTruthy();
   await page.unroute("**/api/time-entries");
 
+  // Allocations must exist explicitly — a non-empty array, not a missing/empty
+  // field that an "any truthy jobId" search would silently treat as attributed.
   expect(
-    capturedJobId,
-    "Standard Day must attach a non-null jobId — never jobId:null when the worker has an active assigned job."
-  ).toBeTruthy();
-  return capturedJobId as string;
+    Array.isArray(capturedAllocations) && capturedAllocations.length > 0,
+    "Standard Day POST must carry a non-empty allocations array."
+  ).toBe(true);
+  const allocations = capturedAllocations as Array<{ jobId: string | null }>;
+
+  for (const a of allocations) {
+    // Never jobId:null when the worker has an active assigned job (#77).
+    expect(
+      a.jobId,
+      "Standard Day allocation must attach a non-null jobId — never jobId:null with an active assigned job."
+    ).toBeTruthy();
+    // When we know the assigned job, the hours must attribute to THAT job — not
+    // merely to some non-null job.
+    if (expectedJobId) {
+      expect(
+        a.jobId,
+        `Standard Day must attribute to the assigned job "${expectedJobId}", got "${a.jobId}".`
+      ).toBe(expectedJobId);
+    }
+  }
+
+  return allocations[0]?.jobId as string;
 }

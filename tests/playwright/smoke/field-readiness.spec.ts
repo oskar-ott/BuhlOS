@@ -7,6 +7,7 @@ import {
   gotoPhilJobsAndAssertCleanList,
   openAssignedActiveJob,
   prepareAttributedStandardDay,
+  resolveAssignedFixtureJobId,
   submitStandardDayAndCaptureAttribution,
 } from "../helpers/fieldReadiness";
 
@@ -84,8 +85,14 @@ test.describe("Field-readiness smoke — BuhlOS → Phil critical flow", () => {
       page,
     }) => {
       await loginAsField(page);
+      // Resolve the assigned fixture's job id first, so we can assert the hours
+      // POST attributes to THAT specific job — the actual #77 guarantee — not
+      // merely to "some" non-null job. Strict Preview Smoke requires the fixture;
+      // locally it is best-effort (null → fall back to a non-null check).
+      const expectedJobId = await resolveAssignedFixtureJobId(page);
+      await page.goto("/phil/my-day");
       await prepareAttributedStandardDay(page);
-      const jobId = await submitStandardDayAndCaptureAttribution(page);
+      const jobId = await submitStandardDayAndCaptureAttribution(page, { expectedJobId });
       expect(
         jobId,
         "the attributed jobId must be a non-empty active assigned job id"
