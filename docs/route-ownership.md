@@ -151,7 +151,7 @@ for removal in a later, intentional cleanup PR (not this one).
 | `/buhlos/*` (22 mirrors of `/admin/*`) | Pure duplicates of `/admin/*`. Salvage map says discard. Never add a new `/buhlos/*` rewrite. |
 | `/overview` , `/approvals` | Bare aliases of `/admin/operations` / `/admin/approvals`. Use the `/admin/*` form (legacy) or the modern route. |
 | `/admin-legacy` , `/admin.html` | The pre-BuhlOS 8,180-line admin. Should be deleted in a future PR. |
-| `/dev/site-office` , `/dev/site-office/components` | **Deprecated naming** ("Site Office"). Must be removed; never linked. |
+| `/dev/site-office` , `/dev/site-office/components` | **Deprecated naming** ("Site Office"). Must be removed; never linked. Until removed it must carry a visible **DEPRECATED** banner (asserted by `check-route-ownership.js`). |
 
 ## 8. Route ownership table (modern surfaces)
 
@@ -275,6 +275,16 @@ lists in the guard **and** §8 / §8.1 here in the same PR.
   which spares the electrical-register sense "Switchboards" and the ITP scope
   value `switchboard`; the legacy shell's own `data-sec="switchboard"` ban lives
   in `scripts/smoke-admin-routes.js`.
+- **Deprecated product names must not survive in the active _legacy_ surfaces
+  either.** Beyond nav labels, `check-route-ownership.js` scans the production
+  user-facing legacy files — `public/login.html`, `public/phil.html`,
+  `public/lh-home.html`, `public/admin/_shell.js` — and fails if the deprecated
+  product name **Site Office** appears. Replace office-app references with
+  **BuhlOS**. Two senses are spared: the `buhl-site-office-*` localStorage key
+  prefix (kept so existing prefs aren't orphaned; the modern app cleans it up in
+  `src/app/v2/login/login-form.tsx`) and the electrical sense of _switchboard_
+  (never matched by this check). The same invariant is unit-tested in
+  `src/naming/deprecated-naming.test.ts`.
 - `/v2/jobs` is the live Jobs route **for now**. When `/admin/jobs` (modern) is
   built, update the sidebar href, this contract, and the guard together.
 
@@ -323,7 +333,7 @@ before a preview even builds.
 
 ## 11. Service worker / cache assessment
 
-`public/sw.js` (`CACHE_VERSION = 'buhl-shell-v7'`) caches **only** the legacy
+`public/sw.js` (`CACHE_VERSION = 'buhl-shell-v8'`) caches **only** the legacy
 static-shell asset list: `/admin/_shell.css`, `/admin/_shell.js`, `/theme.css`,
 `/manifest.json`, `/BUHL_LOGO.png`, `/icon-192.png`. Its `fetch` handler
 intercepts a request **only if** the pathname is in that list. HTML and API
@@ -372,7 +382,7 @@ npm run build                # next build
 npm run check:admin-shell    # legacy admin pages call SHELL.boot()
 npm run check:production-shell  # prod HTML is the BuhlOS shell; vercel "/" → login.html
 npm run check:sw-cache-version  # shell changes paired with CACHE_VERSION bump
-npm run check:route-ownership   # nav/landing contract + deprecated-name nav (this document)
+npm run check:route-ownership   # nav/landing + deprecated naming (nav labels + active legacy surfaces)
 npm run check:shell-contract    # every modern route renders its intended shell (§8.2)
 npm run smoke:admin-routes      # static legacy /admin/operations route chain
 # post-deploy, against the preview/prod URL:

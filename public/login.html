@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BuhlOS">
 <style>
-/* /login — mobile-first themed login per the BuhlOS site-office system.
+/* /login — mobile-first themed login per the BuhlOS admin design system.
    Single file, vanilla, no external fonts/images. PIN pad for crew + a
    username/password form for admin/office, swappable via a role toggle.
    Above 520px the .frame is rendered inside a phone bezel so the file
@@ -68,7 +68,7 @@ a { color: inherit; text-decoration: none; }
   background: var(--navy-900);
   display: flex; flex-direction: column;
   padding-bottom: var(--safe-b);
-  /* Quiet site-office grid background — two crossed gradients masked
+  /* Quiet BuhlOS grid background — two crossed gradients masked
      top/bottom + two soft yellow radial washes. Never fights content. */
   background-image:
     radial-gradient(ellipse at 50% 0%, rgba(245,197,24,.10), transparent 55%),
@@ -539,7 +539,7 @@ a { color: inherit; text-decoration: none; }
 
   <!-- Brand band — single mark, no eyebrow. The user explicitly asked
        for the cluttered top stripped away ("I hate this login page"). The
-       fake mobile status bar, "Site office · BuhlOS" eyebrow, and big
+       fake mobile status bar, the old product eyebrow, and big
        "Sign in" title above the form are all gone; the brand mark IS the
        page title now. -->
   <div class="brand">
@@ -645,8 +645,8 @@ a { color: inherit; text-decoration: none; }
   </div>
 
   <!-- Footer — slimmed to a single mono environment chip. The acceptable-
-       use policy text and the second "bühl electrical · Site office
-       console" line were removed; AUP links are surfaced from /admin
+       use policy text and the second environment-console
+       line were removed; AUP links are surfaced from /admin
        once signed in, and the brand mark above already names the app. -->
   <div class="foot">
     <div class="foot-env">Production · v0.41</div>
@@ -738,10 +738,10 @@ a { color: inherit; text-decoration: none; }
 // Each role lands in a deliberate, role-specific surface (the "Admin/LH
 // rebuild" — see /lh-home.html and /admin/operations.html). Sharing the
 // command-centre between admin and LH meant the LH had to mentally
-// filter the page on every load; the field-control vs site-office split
+// filter the page on every load; the field-control vs office split
 // keeps each user in their own context.
 //
-//   admin       → /admin/operations  (Site Office / Command Centre)
+//   admin       → /admin/operations  (BuhlOS Command Centre)
 //   leadingHand → /lh                 (Field Control / Leading Hand Home)
 //   tradie      → /my-day             (Worker Home — unchanged)
 //   client      → /client             (Client read-only portal — unchanged)
