@@ -150,4 +150,20 @@ describe("MaterialRequestsInbox", () => {
     );
     expect(html).toContain("Conduit A");
   });
+
+  it("opens the ?focus= drawer pre-filled with the request's existing supplier/ref (no null-out on Mark ordered)", () => {
+    const html = renderToString(
+      createElement(MaterialRequestsInbox, {
+        initialRequests: [
+          mr({ id: "x", status: "approved", item: "Cable B", supplier: "ACME Supplies", orderRef: "PO-99" }),
+        ],
+        fetchError: null,
+        initialSelectedId: "x",
+      })
+    );
+    // The order form opens seeded from the request, NOT blank — so "Mark ordered"
+    // keeps the existing supplier/ref instead of PATCHing them to null.
+    expect(html).toContain('value="ACME Supplies"');
+    expect(html).toContain('value="PO-99"');
+  });
 });

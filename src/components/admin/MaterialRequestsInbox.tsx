@@ -89,11 +89,20 @@ export function MaterialRequestsInbox({
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState<{ tone: "success" | "danger"; message: string } | null>(null);
-  const [supplierDraft, setSupplierDraft] = useState("");
-  const [orderRefDraft, setOrderRefDraft] = useState("");
-  const [supplierNoteDraft, setSupplierNoteDraft] = useState("");
+  // Seed the action drafts from the deep-linked (?focus=) request so a focused
+  // requested/approved item's order form renders with its EXISTING supplier /
+  // ref / notes. Without this, those inputs would be blank and "Mark ordered"
+  // would PATCH them to null. Row clicks reset drafts via resetDrafts(); this
+  // covers the initial drawer that opens without a click.
+  const focusedRequest =
+    initialSelectedId != null
+      ? initialRequests.find((r) => r.id === initialSelectedId) ?? null
+      : null;
+  const [supplierDraft, setSupplierDraft] = useState(focusedRequest?.supplier ?? "");
+  const [orderRefDraft, setOrderRefDraft] = useState(focusedRequest?.orderRef ?? "");
+  const [supplierNoteDraft, setSupplierNoteDraft] = useState(focusedRequest?.supplierNote ?? "");
   const [cancelReasonDraft, setCancelReasonDraft] = useState("");
-  const [deliveryNoteDraft, setDeliveryNoteDraft] = useState("");
+  const [deliveryNoteDraft, setDeliveryNoteDraft] = useState(focusedRequest?.deliveryNote ?? "");
 
   const summary = useMemo(() => summariseInbox(requests), [requests]);
 
