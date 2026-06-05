@@ -174,6 +174,15 @@ describe("materialExceptions", () => {
     expect(items[0]!.severity).toBe("critical");
     expect(items[1]).toMatchObject({ severity: "info", status: "waiting" });
   });
+
+  it("deep-links each request to its focused drawer (?focus=<id>), available + safe", () => {
+    const items = materialExceptions([mr({ id: "mr_7", status: "requested" })]);
+    expect(items[0]).toMatchObject({
+      actionState: "available",
+      actionHref: "/material-requests?focus=mr_7",
+      actionLabel: "Open request",
+    });
+  });
 });
 
 // ── aggregation / sort / filters ──────────────────────────────────────

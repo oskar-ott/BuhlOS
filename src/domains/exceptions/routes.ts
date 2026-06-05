@@ -131,7 +131,12 @@ export interface ResolvedAction {
 export function resolveAction(
   key: ActionRouteKey,
   params: { jobId?: string } = {},
-  opts: { label?: string; fallbackHref?: string; fragment?: string } = {},
+  opts: {
+    label?: string;
+    fallbackHref?: string;
+    fragment?: string;
+    query?: Record<string, string | undefined | null>;
+  } = {},
 ): ResolvedAction {
   const def = ACTION_ROUTES[key];
   const safeFallback = isSafeActionHref(opts.fallbackHref) ? opts.fallbackHref : undefined;
@@ -149,8 +154,10 @@ export function resolveAction(
   const href = def.build(params);
   if (!isSafeActionHref(href)) return degrade("Computed link wasn’t a safe internal path.");
 
+  // URL order: path?query#fragment.
+  const withQ = opts.query ? withQuery(href, opts.query) : href;
   return {
-    actionHref: withFragment(href, opts.fragment),
+    actionHref: withFragment(withQ, opts.fragment),
     actionLabel: opts.label ?? def.defaultLabel,
     actionState: "available",
   };
@@ -174,5 +181,25 @@ const FRAGMENT_RE = /^[a-z][a-z0-9-]*$/;
 export function withFragment(href: string, fragment: string | undefined): string {
   if (!fragment || !FRAGMENT_RE.test(fragment)) return href;
   const full = `${href}#${fragment}`;
+  return isSafeActionHref(full) ? full : href;
+}
+
+/**
+ * Append a `?key=value` query string to a safe href, with both keys and values
+ * `encodeURIComponent`'d (so an id with `/?#`/spaces can never break the path or
+ * inject another param). Empty/nullish values are dropped; the result is
+ * re-validated by isSafeActionHref. Used to deep-link to a list page that reads
+ * the query (e.g. `/material-requests?focus=<id>`).
+ */
+export function withQuery(
+  href: string,
+  params: Record<string, string | undefined | null>,
+): string {
+  const qs = Object.entries(params)
+    .filter(([, v]) => v != null && v !== "")
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v as string)}`)
+    .join("&");
+  if (!qs) return href;
+  const full = `${href}?${qs}`;
   return isSafeActionHref(full) ? full : href;
 }

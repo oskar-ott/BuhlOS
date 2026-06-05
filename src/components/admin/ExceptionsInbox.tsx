@@ -15,6 +15,7 @@ import {
   groupExceptionsBySource,
 } from "@/domains/exceptions/grouping";
 import {
+  ACTION_STATE_BADGE,
   SEVERITY_LABEL,
   SEVERITY_TONE,
   SOURCE_LABEL,
@@ -251,28 +252,42 @@ function ExceptionList({ items }: { items: ReadonlyArray<ExceptionItem> }) {
           </div>
           <p className="mt-2 font-medium text-text">{item.title}</p>
           {item.summary ? <p className="mt-0.5 text-sm text-text-muted">{item.summary}</p> : null}
-          {isActionable(item) ? (
-            <Link
-              href={item.actionHref as Route}
-              data-testid="exception-action-link"
-              className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
+
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Pill
+              tone={ACTION_STATE_BADGE[item.actionState].tone}
+              className="px-2 py-0 text-[10px] font-semibold uppercase tracking-wide"
+              data-testid="exception-action-badge"
             >
-              {item.actionLabel ?? "Open"}
-              {item.actionState === "fallback" ? (
-                <span className="text-xs text-text-muted">(job)</span>
-              ) : null}
-              <ArrowRight className="h-4 w-4" aria-hidden />
-            </Link>
-          ) : (
-            <span
-              data-testid="exception-action-unavailable"
-              className="mt-2 inline-flex items-center gap-1 text-sm text-text-muted"
-              title={item.actionReason ?? undefined}
-            >
-              {(item.actionLabel ?? "Open") + " — not available yet"}
-              {item.actionReason ? <span className="text-xs">· {item.actionReason}</span> : null}
-            </span>
-          )}
+              {ACTION_STATE_BADGE[item.actionState].label}
+            </Pill>
+            {isActionable(item) ? (
+              <Link
+                href={item.actionHref as Route}
+                data-testid="exception-action-link"
+                className="inline-flex items-center gap-1 text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
+              >
+                {item.actionLabel ?? "Open"}
+                <ArrowRight className="h-4 w-4" aria-hidden />
+              </Link>
+            ) : (
+              <span
+                data-testid="exception-action-unavailable"
+                className="inline-flex items-center gap-1 text-sm text-text-muted"
+              >
+                {item.actionLabel ?? "Open"}
+                <span className="text-xs">
+                  {item.actionState === "future" ? "— coming later, not broken" : "— source surface not built"}
+                </span>
+              </span>
+            )}
+          </div>
+          {/* Why a non-exact action sends you elsewhere / can't run yet. */}
+          {item.actionState !== "available" && item.actionReason ? (
+            <p className="mt-1 text-xs text-text-muted" data-testid="exception-action-reason">
+              {item.actionReason}
+            </p>
+          ) : null}
         </li>
       ))}
     </ul>

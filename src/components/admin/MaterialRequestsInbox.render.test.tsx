@@ -124,4 +124,46 @@ describe("MaterialRequestsInbox", () => {
     const selectCount = (html.match(/<select/g) || []).length;
     expect(selectCount).toBe(2);
   });
+
+  it("honours the ?status= deep-link seed (filters the list to that status)", () => {
+    const html = renderToString(
+      createElement(MaterialRequestsInbox, {
+        initialRequests: [
+          mr({ id: "a", status: "requested", item: "Conduit A" }),
+          mr({ id: "b", status: "approved", item: "Cable B" }),
+        ],
+        fetchError: null,
+        initialStatus: "approved",
+      })
+    );
+    expect(html).toContain("Cable B"); // approved row visible
+    expect(html).not.toContain("Conduit A"); // requested row filtered out by the seed
+  });
+
+  it("tolerates an unknown ?focus= id (no crash, list still renders)", () => {
+    const html = renderToString(
+      createElement(MaterialRequestsInbox, {
+        initialRequests: [mr({ id: "a", item: "Conduit A" })],
+        fetchError: null,
+        initialSelectedId: "does-not-exist",
+      })
+    );
+    expect(html).toContain("Conduit A");
+  });
+
+  it("opens the ?focus= drawer pre-filled with the request's existing supplier/ref (no null-out on Mark ordered)", () => {
+    const html = renderToString(
+      createElement(MaterialRequestsInbox, {
+        initialRequests: [
+          mr({ id: "x", status: "approved", item: "Cable B", supplier: "ACME Supplies", orderRef: "PO-99" }),
+        ],
+        fetchError: null,
+        initialSelectedId: "x",
+      })
+    );
+    // The order form opens seeded from the request, NOT blank — so "Mark ordered"
+    // keeps the existing supplier/ref instead of PATCHing them to null.
+    expect(html).toContain('value="ACME Supplies"');
+    expect(html).toContain('value="PO-99"');
+  });
 });

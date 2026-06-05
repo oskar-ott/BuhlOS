@@ -244,7 +244,9 @@ export function materialExceptions(
       status: m.status === "approved" ? "waiting" : "open",
       ownerRole: "office",
       createdAt: m.createdAt,
-      ...withAction(resolveAction("materialRequests", {}, { label: "Open material requests" })),
+      // Deep-link straight to this request (the inbox opens its drawer on the
+      // ?focus id) — the office can act on it without hunting the list.
+      ...withAction(resolveAction("materialRequests", {}, { label: "Open request", query: { focus: m.id } })),
       tags: ["material", m.status],
     });
   }

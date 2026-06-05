@@ -8,6 +8,7 @@ import {
   isSafeActionHref,
   resolveAction,
   withFragment,
+  withQuery,
   type ActionRouteKey,
 } from "./routes";
 
@@ -117,6 +118,32 @@ describe("withFragment + resolveAction fragments (deep-link anchors)", () => {
   it("encodes the jobId before appending the anchor (jobId '#' cannot inject)", () => {
     const a = resolveAction("jobBuilder", { jobId: "j#1/2" }, { fragment: "publish" });
     expect(a.actionHref).toBe("/v2/jobs/j%231%2F2/builder#publish");
+    expect(isSafeActionHref(a.actionHref)).toBe(true);
+  });
+});
+
+describe("withQuery + resolveAction query (deep-link to a focused list item)", () => {
+  it("appends an encoded query string and stays safe", () => {
+    expect(withQuery("/material-requests", { focus: "mr_1" })).toBe("/material-requests?focus=mr_1");
+    expect(isSafeActionHref(withQuery("/material-requests", { focus: "mr_1" }))).toBe(true);
+  });
+
+  it("encodes ids containing / ? # and spaces (no path break, no param injection)", () => {
+    expect(withQuery("/material-requests", { focus: "a/b?c#d e" })).toBe(
+      "/material-requests?focus=a%2Fb%3Fc%23d%20e",
+    );
+    expect(isSafeActionHref(withQuery("/material-requests", { focus: "a/b?c#d e" }))).toBe(true);
+  });
+
+  it("drops empty / nullish params", () => {
+    expect(withQuery("/x", { a: "", b: undefined, c: null })).toBe("/x");
+    expect(withQuery("/x", { a: "1", b: "" })).toBe("/x?a=1");
+  });
+
+  it("resolveAction applies a query to the material-requests deep-link", () => {
+    const a = resolveAction("materialRequests", {}, { label: "Open request", query: { focus: "mr#7/8" } });
+    expect(a).toMatchObject({ actionState: "available", actionLabel: "Open request" });
+    expect(a.actionHref).toBe("/material-requests?focus=mr%237%2F8");
     expect(isSafeActionHref(a.actionHref)).toBe(true);
   });
 });

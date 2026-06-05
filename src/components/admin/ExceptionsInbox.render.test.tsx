@@ -95,25 +95,38 @@ describe("ExceptionsInbox", () => {
     expect(html).toContain("3h ago"); // age label
   });
 
-  it("renders available actions as links and a fallback as a link to the parent surface", () => {
+  it("renders available actions as links (with an 'Exact action' badge) and a fallback as a clickable parent-surface link", () => {
     const html = render({ initialItems: [...ITEMS, FALLBACK_ITEM] });
     expect(html).toContain('data-testid="exception-action-link"');
+    expect(html).toContain('data-testid="exception-action-badge"');
     // no-crew item deep-links to the assignment-section anchor
     expect(html).toContain('href="/v2/jobs/j2/builder#assigned-field-workers"');
     expect(html).toContain("Assign field workers");
     expect(html).toContain('href="/hours/approvals"');
-    // fallback still renders a (safe) link, flagged "(job)"
+    // available → "Exact action" badge; fallback → clickable link + "Fallback" badge + reason
+    expect(html).toContain("Exact action");
     expect(html).toContain('href="/v2/jobs/j9"');
-    expect(html).toContain("(job)");
+    expect(html).toContain("Fallback");
+    expect(html).toContain("Section route unavailable"); // FALLBACK_ITEM.actionReason
   });
 
-  it("renders an unavailable action as a muted state, never a broken link", () => {
+  it("renders an unavailable action as a non-clickable 'Not built' state, never a broken link", () => {
     const html = render({ initialItems: [UNAVAILABLE_ITEM] });
     expect(html).toContain('data-testid="exception-action-unavailable"');
-    expect(html).toContain("not available yet");
-    expect(html).toContain("Gear surface isn");
+    expect(html).toContain("Not built"); // badge
+    expect(html).toContain("source surface not built");
+    expect(html).toContain("Gear surface isn"); // actionReason
     expect(html).not.toContain('data-testid="exception-action-link"');
     expect(html).not.toContain("href=");
+  });
+
+  it("renders a future action as muted 'Future' (not broken), non-clickable", () => {
+    const futureItem = { ...UNAVAILABLE_ITEM, id: "future:y1", actionState: "future" as const, actionReason: "Ordering workflow is deferred." };
+    const html = render({ initialItems: [futureItem] });
+    expect(html).toContain("Future"); // badge
+    expect(html).toContain("coming later, not broken");
+    expect(html).toContain("Ordering workflow is deferred.");
+    expect(html).not.toContain('data-testid="exception-action-link"');
   });
 
   it("renders the refining filters (source, severity, job, search) when there are items", () => {
