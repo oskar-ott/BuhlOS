@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import { assertTimeEntryPostUsesExpectedJob } from "../../../src/domains/time-entries/time-entry-attribution";
 
 /**
  * Helpers for the deterministic Field-Readiness Smoke
@@ -194,6 +195,13 @@ export async function prepareAttributedStandardDay(page: Page): Promise<void> {
  * covered by the API unit tests added in #77
  * (src/domains/time-entries/time-entry-attribution-api.test.ts).
  *
+ * The attribution assertion itself is delegated to the pure, unit-tested
+ * assertTimeEntryPostUsesExpectedJob (src/domains/time-entries/
+ * time-entry-attribution.ts) — the single source of truth, so normal CI
+ * exercises the same logic this credentialed smoke runs on the wire. It throws
+ * a clear Error on violation (failing the smoke exactly as the previous inline
+ * expect()s did) and otherwise returns the attributed jobId.
+ *
  * Returns the attributed jobId the UI put on the wire.
  */
 export async function submitStandardDayAndCaptureAttribution(
@@ -201,48 +209,26 @@ export async function submitStandardDayAndCaptureAttribution(
   opts: { expectedJobId?: string | null } = {}
 ): Promise<string> {
   const { expectedJobId } = opts;
-  let capturedAllocations: Array<{ jobId: string | null }> | null | undefined;
+  let capturedBody: unknown;
+  let captured = false;
   await page.route("**/api/time-entries", async (route) => {
     const req = route.request();
     if (req.method() !== "POST") return route.continue();
-    const body = req.postDataJSON() as {
-      allocations?: Array<{ jobId: string | null }>;
-    } | null;
-    capturedAllocations = body?.allocations ?? null;
+    capturedBody = (req.postDataJSON() as unknown) ?? null;
+    captured = true;
     await route.abort(); // prod-safety: never let the write reach the (shared) Blob
   });
 
   const button = page.getByRole("button", { name: /Submit Standard day/i });
   await expect(button).toBeEnabled();
   await button.click();
-  await expect
-    .poll(() => capturedAllocations !== undefined, { timeout: 15_000 })
-    .toBeTruthy();
+  await expect.poll(() => captured, { timeout: 15_000 }).toBeTruthy();
   await page.unroute("**/api/time-entries");
 
-  // Allocations must exist explicitly — a non-empty array, not a missing/empty
-  // field that an "any truthy jobId" search would silently treat as attributed.
-  expect(
-    Array.isArray(capturedAllocations) && capturedAllocations.length > 0,
-    "Standard Day POST must carry a non-empty allocations array."
-  ).toBe(true);
-  const allocations = capturedAllocations as Array<{ jobId: string | null }>;
-
-  for (const a of allocations) {
-    // Never jobId:null when the worker has an active assigned job (#77).
-    expect(
-      a.jobId,
-      "Standard Day allocation must attach a non-null jobId — never jobId:null with an active assigned job."
-    ).toBeTruthy();
-    // When we know the assigned job, the hours must attribute to THAT job — not
-    // merely to some non-null job.
-    if (expectedJobId) {
-      expect(
-        a.jobId,
-        `Standard Day must attribute to the assigned job "${expectedJobId}", got "${a.jobId}".`
-      ).toBe(expectedJobId);
-    }
-  }
-
-  return allocations[0]?.jobId as string;
+  // Single source of truth: the same pure validator unit-tested in
+  // src/domains/time-entries/time-entry-attribution.test.ts. It throws a clear
+  // Error if the body lacks a non-empty allocations array, any allocation has a
+  // null/missing jobId, or (when expectedJobId is given) any allocation is
+  // attributed to a different job; otherwise it returns the attributed jobId.
+  return assertTimeEntryPostUsesExpectedJob(capturedBody, expectedJobId);
 }
