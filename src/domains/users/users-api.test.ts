@@ -240,3 +240,69 @@ describe("Phil visibility is gated on status, not just assignment", () => {
     expect(await philJobIds("u_field2", "tradie")).toEqual(["job-active"]);
   });
 });
+
+/**
+ * GET ?action=listTradies — the assignable-worker directory behind the Gear
+ * holder picker AND job assignment. The field-readiness audit found it gated on
+ * literal `admin`/`leadingHand` (403'd office/boss/PM callers) and returning
+ * only literal `tradie`/`leadingHand` (dropping electrician/apprentice/labourer
+ * + LH aliases). These pin the normalised behaviour.
+ */
+describe("GET ?action=listTradies — assignable-worker directory (Gear + jobs)", () => {
+  async function listTradies(userId: string, role: string) {
+    return call(usersHandler, { method: "GET", userId, role, query: { action: "listTradies" } });
+  }
+  function rolesIn(res: Res): string[] {
+    return (res.body as { users: Array<{ role: string }> }).users.map((u) => u.role).sort();
+  }
+
+  it("admin gets every field-tier worker + leading hand, never admins/office/clients", async () => {
+    const res = await listTradies("u_admin", "admin");
+    expect(res.statusCode).toBe(200);
+    // electrician + tradie are field-tier; lh is a leading hand. office/admin/client excluded.
+    expect(rolesIn(res)).toEqual(["electrician", "lh", "tradie"]);
+  });
+
+  it("OFFICE (admin tier, not literal 'admin') is allowed to call it — was a 403", async () => {
+    const res = await listTradies("u_office", "office");
+    expect(res.statusCode).toBe(200);
+    expect(rolesIn(res)).toEqual(["electrician", "lh", "tradie"]);
+  });
+
+  it("a leading hand may call it", async () => {
+    const res = await listTradies("u_lh", "lh");
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("403s a field worker (not staff)", async () => {
+    const res = await listTradies("u_field", "electrician");
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("403s a client", async () => {
+    const res = await listTradies("u_client", "client");
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("strips passwordHash from every returned worker", async () => {
+    const res = await listTradies("u_admin", "admin");
+    const users = (res.body as { users: Array<Record<string, unknown>> }).users;
+    expect(users.length).toBeGreaterThan(0);
+    for (const u of users) expect(u).not.toHaveProperty("passwordHash");
+    expect(JSON.stringify(res.body)).not.toContain("passwordHash");
+  });
+
+  it("excludes a disabled field worker (not assignable)", async () => {
+    (blob.get("users.json") as { users: Array<Record<string, unknown>> }).users.push({
+      id: "u_exfield",
+      username: "exfield",
+      role: "tradie",
+      disabled: true,
+      passwordHash: "$2a$10$x",
+      assignedJobIds: [],
+    });
+    const res = await listTradies("u_admin", "admin");
+    const ids = (res.body as { users: Array<{ id: string }> }).users.map((u) => u.id);
+    expect(ids).not.toContain("u_exfield");
+  });
+});

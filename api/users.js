@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { list } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, getCurrentUser, canManageJob } = require('./_lib/auth');
+const { requireAuth, getCurrentUser, canManageJob, isStaffRole, isFieldRole, isLeadingHandRole, isDisabledUser } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
 
 const VALID_ROLES = ['admin', 'tradie', 'leadingHand', 'client'];
@@ -69,16 +69,23 @@ module.exports = async (req, res) => {
     return res.status(200).json({ user: safe });
   }
 
-  // GET ?action=listTradies — admin or leadingHand; returns non-client non-admin users
+  // GET ?action=listTradies — the assignable-worker directory used by the Gear
+  // holder picker AND job assignment. Caller must be staff: admin-TIER (admin/
+  // office/boss/owner/manager/pm/estimator) OR a leading hand — not a literal
+  // `admin`/`leadingHand`, so office/boss/PM are no longer locked out. Returns
+  // field-tier workers (tradie/electrician/apprentice/labourer) + leading hands
+  // — the people who can actually hold gear or be put on a job — never admins/
+  // office/clients/unknown, never disabled or archived users, passwordHash
+  // stripped. Normalised role checks, not brittle literal strings.
   if (req.method === 'GET' && action === 'listTradies') {
     const user = await getCurrentUser(req);
     if (!user) return res.status(401).json({ error: 'not authenticated' });
-    if (user.role !== 'admin' && user.role !== 'leadingHand') {
+    if (!isStaffRole(user.role)) {
       return res.status(403).json({ error: 'forbidden' });
     }
     const data = await readBlob('users.json', { users: [] });
     const users = (data.users || [])
-      .filter(u => u.role === 'tradie' || u.role === 'leadingHand')
+      .filter(u => (isFieldRole(u.role) || isLeadingHandRole(u.role)) && !isDisabledUser(u))
       .map(({ passwordHash, ...u }) => u);
     return res.status(200).json({ users });
   }

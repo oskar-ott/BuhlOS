@@ -6,6 +6,7 @@ import type {
   GearHistoryKind,
   ReportKind,
 } from "./types";
+import { isAdminRole } from "@/lib/auth/roles";
 
 /**
  * Pure helpers for the gear domain. No I/O, no React, no globals —
@@ -63,14 +64,15 @@ export function canTransition(current: GearAssetStatus, next: GearAssetStatus): 
 /**
  * True if the supplied user is allowed to act on the supplied asset from
  * Phil. Tradies / LH / apprentices / labourers / electricians may only act
- * on gear currently held by them. Admin sees all and bypasses this check.
+ * on gear currently held by them. Admin TIER sees all and bypasses this check
+ * (normalised, so office/boss/pm bypass too — not a literal `role === "admin"`).
  */
 export function canWorkerActOnAsset(
   asset: Pick<GearAsset, "currentHolderId">,
   userId: string,
   role: string
 ): boolean {
-  if (role === "admin") return true;
+  if (isAdminRole(role)) return true;
   return asset.currentHolderId === userId;
 }
 

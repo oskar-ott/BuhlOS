@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { isFieldRole, isLeadingHandRole } from "@/lib/auth/roles";
 import { GearListResponseSchema } from "@/domains/gear/schema";
 import type { GearAsset, GearHolderUser } from "@/domains/gear/types";
 import { GearRegisterClient } from "@/components/admin/GearRegisterClient";
@@ -134,8 +135,12 @@ async function loadRegister(cookieValue: string | undefined): Promise<{
       const holdersBody = await holdersRes.json();
       const holdersParsed = HoldersResponseSchema.safeParse(holdersBody);
       if (holdersParsed.success) {
+        // Only field-tier workers + leading hands can hold gear (same rule the
+        // assets API enforces on transfer). Defence-in-depth against a brittle
+        // literal check: was `role !== "admin" && role !== "client"`, which
+        // would have surfaced office/boss/pm/unknown roles as pickable holders.
         holders = holdersParsed.data.users.filter(
-          (u) => u.role !== "admin" && u.role !== "client"
+          (u) => isFieldRole(u.role) || isLeadingHandRole(u.role)
         );
       }
     }
