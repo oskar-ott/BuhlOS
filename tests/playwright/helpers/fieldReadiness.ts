@@ -1,5 +1,10 @@
 import { expect, type Page } from "@playwright/test";
 
+// Pure, framework-neutral attribution rule, unit-tested in normal CI
+// (src/domains/qa/time-entry-attribution.test.ts). Relative import: the
+// Playwright runner has no `@/` alias configured.
+import { assertTimeEntryPostUsesExpectedJob } from "../../../src/domains/qa/time-entry-attribution";
+
 /**
  * Helpers for the deterministic Field-Readiness Smoke
  * (tests/playwright/smoke/field-readiness.spec.ts).
@@ -187,6 +192,12 @@ export async function prepareAttributedStandardDay(page: Page): Promise<void> {
  *     regression that attributes to the wrong job ({ jobId: "some-other-job" })
  *     fails, not just an outright jobId:null.
  *
+ * The body-shape rule itself is a pure, framework-neutral helper
+ * (src/domains/qa/time-entry-attribution.ts) unit-tested in normal CI
+ * (src/domains/qa/time-entry-attribution.test.ts), so the negative cases (null /
+ * wrong / missing / malformed) are guarded even when Preview Smoke doesn't run.
+ * Here we run that same check against the real request the UI put on the wire.
+ *
  * Why abort: the create endpoint writes to a Vercel Blob that may be SHARED
  * with production (docs/testing/Seeded-Authenticated-QA.md §9). Aborting proves
  * the real Phil UI attaches the job to the real request WITHOUT mutating any
@@ -201,14 +212,11 @@ export async function submitStandardDayAndCaptureAttribution(
   opts: { expectedJobId?: string | null } = {}
 ): Promise<string> {
   const { expectedJobId } = opts;
-  let capturedAllocations: Array<{ jobId: string | null }> | null | undefined;
+  let capturedBody: unknown;
   await page.route("**/api/time-entries", async (route) => {
     const req = route.request();
     if (req.method() !== "POST") return route.continue();
-    const body = req.postDataJSON() as {
-      allocations?: Array<{ jobId: string | null }>;
-    } | null;
-    capturedAllocations = body?.allocations ?? null;
+    capturedBody = req.postDataJSON();
     await route.abort(); // prod-safety: never let the write reach the (shared) Blob
   });
 
@@ -216,33 +224,34 @@ export async function submitStandardDayAndCaptureAttribution(
   await expect(button).toBeEnabled();
   await button.click();
   await expect
-    .poll(() => capturedAllocations !== undefined, { timeout: 15_000 })
+    .poll(() => capturedBody !== undefined, { timeout: 15_000 })
     .toBeTruthy();
   await page.unroute("**/api/time-entries");
 
-  // Allocations must exist explicitly — a non-empty array, not a missing/empty
-  // field that an "any truthy jobId" search would silently treat as attributed.
-  expect(
-    Array.isArray(capturedAllocations) && capturedAllocations.length > 0,
-    "Standard Day POST must carry a non-empty allocations array."
-  ).toBe(true);
-  const allocations = capturedAllocations as Array<{ jobId: string | null }>;
-
-  for (const a of allocations) {
-    // Never jobId:null when the worker has an active assigned job (#77).
+  if (expectedJobId) {
+    // Strict / Preview Smoke path: assert EVERY allocation attributes to the
+    // resolved assigned job, via the unit-tested pure rule.
+    const result = assertTimeEntryPostUsesExpectedJob(capturedBody, expectedJobId);
+    expect(result.ok, result.ok ? "" : result.reason).toBe(true);
+  } else {
+    // Local non-strict fallback (no seeded fixture resolved): an exact-job match
+    // isn't possible, so keep the minimal prior guarantee — a non-empty
+    // allocations array whose every jobId is non-null.
+    const allocations = (capturedBody as { allocations?: Array<{ jobId?: unknown }> } | null)
+      ?.allocations;
     expect(
-      a.jobId,
-      "Standard Day allocation must attach a non-null jobId — never jobId:null with an active assigned job."
-    ).toBeTruthy();
-    // When we know the assigned job, the hours must attribute to THAT job — not
-    // merely to some non-null job.
-    if (expectedJobId) {
+      Array.isArray(allocations) && allocations.length > 0,
+      "Standard Day POST must carry a non-empty allocations array."
+    ).toBe(true);
+    for (const allocation of allocations as Array<{ jobId?: unknown }>) {
       expect(
-        a.jobId,
-        `Standard Day must attribute to the assigned job "${expectedJobId}", got "${a.jobId}".`
-      ).toBe(expectedJobId);
+        allocation?.jobId,
+        "Standard Day allocation must attach a non-null jobId — never jobId:null with an active assigned job."
+      ).toBeTruthy();
     }
   }
 
-  return allocations[0]?.jobId as string;
+  const attributed = (capturedBody as { allocations?: Array<{ jobId?: unknown }> } | null)
+    ?.allocations?.[0]?.jobId;
+  return String(attributed ?? "");
 }

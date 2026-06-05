@@ -27,6 +27,16 @@ In a real browser, against a guarded preview (or local dev):
 5. **Hours attribution (#77)** — logging a Standard Day attaches the assigned job: the real `POST /api/time-entries` request carries a non-empty `allocations` array whose `jobId` is the **assigned job's id** (in strict mode the resolved fixture id, read from its `/phil/jobs/<id>` link), not merely *some* non-null value. The Standard Day button is enabled only when a job is attributed, so the UI can never submit `jobId:null` while an active assigned job exists.
 6. **Office sees the queue with job context** — QA Admin reaches `/hours/approvals`; the approver surface renders (no blank shell). Per-entry job-context display (job name, or amber "No job assigned") is locked by the unit test `HoursApprovalsQueue.render.test.tsx`.
 
+> **The POST-body attribution rule is unit-tested separately.** The exact-job
+> check that item 5 asserts on the wire lives in a pure, framework-neutral helper
+> (`src/domains/qa/time-entry-attribution.ts`) covered by
+> `src/domains/qa/time-entry-attribution.test.ts` under `npm run test:unit`.
+> Preview Smoke proves the live Phil UI *produces* the expected request; the unit
+> tests protect the malformed / wrong-job / null-job request-body cases in normal
+> CI, even when Preview Smoke does not run. This is request-shape coverage only —
+> it does not change field-roll-out readiness (see
+> `docs/field-readiness/ROLL_OUT_STATUS.md`).
+
 ## 2. What this smoke does NOT prove (deferred, on purpose)
 
 - **Server-side persistence of the submitted hours.** The hours `POST` is asserted on the wire and then **aborted before it reaches the server**, so the smoke never writes a time entry to the (possibly production-shared) Blob. Server-side attribution acceptance/rejection is covered by the API unit tests added in #77 (`src/domains/time-entries/time-entry-attribution-api.test.ts`).
