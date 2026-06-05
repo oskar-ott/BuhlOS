@@ -22,9 +22,17 @@
 
 const { put, list } = require('@vercel/blob');
 const { readBlob, readBlobFresh, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isAdminRole } = require('./_lib/auth');
+const { requireAuth, isAdminRole, isFieldRole, isLeadingHandRole, isDisabledUser } = require('./_lib/auth');
 
 const VALID_TYPES = ['vehicle', 'key', 'tool', 'accessory', 'ppe', 'other'];
+
+// Who can HOLD an asset: field-tier (tradie/apprentice/labourer/electrician) or
+// a leading hand — the people who actually carry gear on site. Admin-tier
+// (admin/office/boss/pm/…), clients and unknown roles are never gear holders.
+// Normalised via the role helpers, not literal strings.
+function isAssignableHolderRole(role) {
+  return isFieldRole(role) || isLeadingHandRole(role);
+}
 
 function newAssetId() {
   return 'a_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -149,7 +157,12 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  // Gear is for admin-tier (manage all assets) and field-tier + leading hands
+  // (their own held gear). Clients and any unknown role are denied outright —
+  // normalised, not a literal `role === 'client'` check.
+  if (!isAdminRole(user.role) && !isAssignableHolderRole(user.role)) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
 
   // ── Transfer subroute — accepts POST with action=transfer or path-like
   //   ?transfer=1 / pathname ending in /transfer. We expose it as a query
@@ -183,7 +196,11 @@ module.exports = async (req, res) => {
       return res.status(200).json({ asset: { ...a, currentHolderName: holderName }, history: enriched });
     }
     const all = (await listAllAssets()).filter(a => !a.archived || (req.query && req.query.archived === '1'));
-    const visible = user.role === 'admin'
+    // Admin TIER (admin/office/boss/owner/manager/pm/estimator) sees the whole
+    // register; field-tier + leading hands see only what they currently hold.
+    // (Was a literal `role === 'admin'`, which hid the register from office/
+    // boss/PM — the field-readiness audit's P1 Gear bug.)
+    const visible = isAdminRole(user.role)
       ? all
       : all.filter(a => a.currentHolderId === user.id);
     // Same name enrichment as single-asset for the list view.
@@ -215,17 +232,20 @@ module.exports = async (req, res) => {
         // Validated below.
       }
 
-      // Resolve destination user if non-null
+      // Resolve destination user if non-null (null = return to storage/depot).
       let toUser = null;
       if (toUserId) {
         const usersBlob = await readBlob('users.json', { users: [] });
         toUser = (usersBlob.users || []).find(u => u.id === toUserId);
         if (!toUser) return res.status(404).json({ error: 'destination user not found' });
-        if (toUser.role === 'client') return res.status(400).json({ error: 'cannot assign asset to a client' });
-        // Tradies can't assign to admin (would surrender ownership chain
-        // without an audit reason). Admin transfer can go anywhere.
-        if (!isAdminRole(user.role) && toUser.role === 'admin') {
-          return res.status(403).json({ error: 'transfer to admin must be done by admin' });
+        // Asset holders must be a field worker or leading hand — never an
+        // admin/office/client/unknown user (they manage gear, they don't carry
+        // it). Normalised, so office/boss/pm are correctly rejected as holders.
+        if (!isAssignableHolderRole(toUser.role)) {
+          return res.status(400).json({ error: 'asset holder must be a field worker or leading hand' });
+        }
+        if (isDisabledUser(toUser)) {
+          return res.status(400).json({ error: 'cannot assign to a disabled or archived user' });
         }
       }
 
@@ -359,6 +379,20 @@ module.exports = async (req, res) => {
     }
     const parsed = sanitiseAsset(body, {});
     if (parsed.error) return res.status(400).json({ error: parsed.error });
+    // If creating-and-assigning in one move, the holder must be a real field
+    // worker or leading hand (same rule as transfer) — never admin/office/
+    // client/unknown, and never a disabled/archived user.
+    if (body.currentHolderId) {
+      const usersBlob = await readBlob('users.json', { users: [] });
+      const holder = (usersBlob.users || []).find(u => u.id === body.currentHolderId);
+      if (!holder) return res.status(404).json({ error: 'destination user not found' });
+      if (!isAssignableHolderRole(holder.role)) {
+        return res.status(400).json({ error: 'asset holder must be a field worker or leading hand' });
+      }
+      if (isDisabledUser(holder)) {
+        return res.status(400).json({ error: 'cannot assign to a disabled or archived user' });
+      }
+    }
     const now = new Date().toISOString();
     const asset = {
       id: newAssetId(),

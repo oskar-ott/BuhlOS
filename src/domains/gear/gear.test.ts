@@ -158,6 +158,14 @@ describe("canWorkerActOnAsset()", () => {
     );
   });
 
+  it("admin-TIER aliases (office/boss/pm) bypass too — not a literal 'admin'", () => {
+    for (const role of ["office", "boss", "pm", "owner"]) {
+      expect(
+        canWorkerActOnAsset({ ...baseAsset, currentHolderId: "u_sam" }, "u_other", role)
+      ).toBe(true);
+    }
+  });
+
   it("worker can act on assets they hold", () => {
     expect(
       canWorkerActOnAsset({ ...baseAsset, currentHolderId: "u_sam" }, "u_sam", "tradie")

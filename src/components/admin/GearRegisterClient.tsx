@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { Modal } from "@/components/ui/Modal";
 import { markGearGood, reportGear, transferGear } from "@/domains/gear/client";
+import { isLeadingHandRole } from "@/lib/auth/roles";
 import { deriveStatus, statusTone } from "@/domains/gear/service";
 import {
   assetDisplayName,
@@ -258,7 +259,9 @@ interface AssetDrawerProps {
   isPending: boolean;
 }
 
-function AssetDrawer({ asset, holders, onClose, onMutate, isPending }: AssetDrawerProps) {
+// Exported for the holder-picker render test: it renders the transfer <select>
+// of eligible holders (field-tier + leading hands) and the per-asset actions.
+export function AssetDrawer({ asset, holders, onClose, onMutate, isPending }: AssetDrawerProps) {
   const [history, setHistory] = useState<ReadonlyArray<GearHistoryEntry> | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [toUserId, setToUserId] = useState<string>(asset.currentHolderId ?? "");
@@ -325,7 +328,7 @@ function AssetDrawer({ asset, holders, onClose, onMutate, isPending }: AssetDraw
                 {eligibleHolders.map((h) => (
                   <option key={h.id} value={h.id}>
                     {h.username}
-                    {h.role === "leadingHand" ? " (LH)" : ""}
+                    {isLeadingHandRole(h.role) ? " (LH)" : ""}
                   </option>
                 ))}
               </select>
