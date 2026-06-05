@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
-import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilJobsList } from "@/components/phil/PhilJobsList";
+import { PhilPageIntro } from "@/components/phil/ui/PhilPageIntro";
+import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
@@ -53,24 +54,25 @@ export default async function PhilJobsPage() {
   return (
     <PhilShell title="Jobs">
       <div className="space-y-4">
-        <div className="flex items-baseline justify-between gap-3">
-          <p className="text-sm text-text-muted">
-            {visible.length === 0
-              ? "No jobs assigned yet"
-              : `${visible.length} ${visible.length === 1 ? "job" : "jobs"} assigned to you`}
-          </p>
-        </div>
+        <PhilPageIntro
+          title="Jobs"
+          description="Sites you’re currently assigned to. Tap one for site details, plans and capture."
+          meta={
+            visible.length > 0 ? (
+              <span className="whitespace-nowrap text-xs uppercase tracking-wider text-text-muted">
+                {visible.length} {visible.length === 1 ? "job" : "jobs"}
+              </span>
+            ) : undefined
+          }
+        />
 
         {fetchError ? (
-          <Card className="border-amber-200 bg-amber-50" role="alert">
-            <CardTitle>Couldn&rsquo;t load your jobs</CardTitle>
-            <CardDescription className="text-amber-900">
-              {fetchError}. If it keeps failing, ask the office to check the API.
-            </CardDescription>
+          <PhilNotice tone="warning" title="Couldn’t load your jobs" role="alert">
+            <p>{fetchError}. If it keeps failing, ask the office to check the API.</p>
             <div className="mt-3">
               <RefreshButton />
             </div>
-          </Card>
+          </PhilNotice>
         ) : null}
 
         <PhilJobsList initialJobs={visible} />

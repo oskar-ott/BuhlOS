@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
@@ -6,6 +5,9 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
+import { PhilPageIntro } from "@/components/phil/ui/PhilPageIntro";
+import { PhilNotice } from "@/components/phil/ui/PhilNotice";
+import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
@@ -58,20 +60,17 @@ export default async function PhilHoursPage() {
   return (
     <PhilShell title="Hours history">
       <div className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <Link
-            href="/phil/my-day"
-            className="text-sm text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
-          >
-            ← My day
-          </Link>
-        </div>
+        <PhilBackLink href="/phil/my-day">My day</PhilBackLink>
+
+        <PhilPageIntro
+          title="Hours history"
+          description="Your recent submissions and where they’re up to. Read-only."
+        />
 
         {fetchError ? (
-          <Card className="border-amber-200 bg-amber-50" role="alert">
-            <CardTitle>Couldn&rsquo;t load history</CardTitle>
-            <CardDescription className="text-amber-900">{fetchError}</CardDescription>
-          </Card>
+          <PhilNotice tone="warning" title="Couldn’t load history" role="alert">
+            {fetchError}
+          </PhilNotice>
         ) : null}
 
         {entries.length === 0 ? (
@@ -120,12 +119,9 @@ function EntryCard({ entry }: { entry: TimeEntry }) {
       ) : null}
 
       {entry.status === "rejected" && entry.rejectedReason ? (
-        <div className="rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
-          <p className="font-display text-[11px] font-semibold uppercase tracking-wider text-rose-700">
-            Why
-          </p>
-          <p className="mt-0.5 whitespace-pre-line">{entry.rejectedReason}</p>
-        </div>
+        <PhilNotice tone="danger" title="Why it bounced back">
+          <p className="whitespace-pre-line">{entry.rejectedReason}</p>
+        </PhilNotice>
       ) : null}
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-text-muted">

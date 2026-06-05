@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { Modal } from "@/components/ui/Modal";
+import { PhilNotice } from "./ui/PhilNotice";
 import { cn } from "@/lib/cn";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import {
@@ -506,13 +507,13 @@ function StatusLine({
         <Pill tone={statusTone(entry.status)}>{statusLabel(entry.status)}</Pill>
       </div>
       {entry.status === "rejected" && entry.rejectedReason ? (
-        <p className="rounded-card bg-rose-50 px-3 py-2 text-sm text-rose-900">
-          <span className="font-medium">Rejected:</span> {entry.rejectedReason}
-          <span className="mt-1 block text-xs text-rose-700">
+        <PhilNotice tone="danger" title="Rejected">
+          <p>{entry.rejectedReason}</p>
+          <p className="mt-1 text-xs">
             Open the legacy My day to edit and resubmit — the in-Phil edit
             flow is still being built.
-          </span>
-        </p>
+          </p>
+        </PhilNotice>
       ) : null}
     </Card>
   );
@@ -521,25 +522,23 @@ function StatusLine({
 function FeedbackBanner({ state }: { state: SubmitState }): ReactNode {
   if (state.kind === "success") {
     return (
-      <Card className="border-emerald-200 bg-emerald-50" role="status" aria-live="polite">
-        <CardTitle>{formatHoursLabel(state.entry.totalHours)} sent for approval</CardTitle>
-        <CardDescription>
-          Submitted at{" "}
-          {new Date(state.entry.submittedAt ?? state.entry.updatedAt).toLocaleTimeString("en-AU")}.
-          The office will get a push when they review.
-        </CardDescription>
-      </Card>
+      <PhilNotice
+        tone="success"
+        role="status"
+        title={`${formatHoursLabel(state.entry.totalHours)} sent for approval`}
+      >
+        Submitted at{" "}
+        {new Date(state.entry.submittedAt ?? state.entry.updatedAt).toLocaleTimeString("en-AU")}.
+        The office will get a push when they review.
+      </PhilNotice>
     );
   }
   if (state.kind === "error") {
     return (
-      <Card className="border-rose-200 bg-rose-50" role="alert" aria-live="assertive">
-        <CardTitle>Couldn&rsquo;t submit</CardTitle>
-        <CardDescription className="text-rose-900">
-          {state.message}
-          {state.status ? <span className="ml-1 text-xs">(HTTP {state.status})</span> : null}
-        </CardDescription>
-      </Card>
+      <PhilNotice tone="danger" role="alert" title="Couldn’t submit">
+        {state.message}
+        {state.status ? <span className="ml-1 text-xs">(HTTP {state.status})</span> : null}
+      </PhilNotice>
     );
   }
   return null;

@@ -7,6 +7,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
+import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
@@ -73,7 +74,7 @@ export default async function MyDayPage() {
             cta={
               <Link
                 href="/phil/hours"
-                className="underline decoration-rose-400 decoration-2 underline-offset-2 hover:text-rose-950"
+                className="inline-flex min-h-[44px] items-center font-semibold text-text underline decoration-accent-yellow decoration-2 underline-offset-4"
               >
                 Fix &amp; resubmit →
               </Link>
@@ -89,16 +90,15 @@ export default async function MyDayPage() {
         />
 
         {fetchError ? (
-          <Card className="border-amber-200 bg-amber-50" role="alert">
-            <CardTitle>Couldn&rsquo;t load recent entries</CardTitle>
-            <CardDescription className="text-amber-900">
-              {fetchError}. You can still submit a new entry — it&rsquo;ll appear here once
-              we&rsquo;re back online.
-            </CardDescription>
+          <PhilNotice tone="warning" title="Couldn’t load recent entries" role="alert">
+            <p>
+              {fetchError}. You can still submit a new entry — it’ll appear here once
+              we’re back online.
+            </p>
             <div className="mt-3">
               <RefreshButton />
             </div>
-          </Card>
+          </PhilNotice>
         ) : null}
 
         <Card>
@@ -239,7 +239,7 @@ function RecentEntriesTable({ entries }: { entries: ReadonlyArray<TimeEntry> }) 
         const isRejected = entry.status === "rejected" && entry.rejectedReason;
         return (
           <li key={entry.id} className="py-2">
-            <div className="flex items-center justify-between gap-2 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-sm">
               <span className="font-medium text-text">{formatShortDate(entry.date)}</span>
               <span className="text-text-muted">{formatShortHours(entry.totalHours)}</span>
               <StatusChip tone={HOURS_TONE[entry.status]}>
@@ -247,16 +247,18 @@ function RecentEntriesTable({ entries }: { entries: ReadonlyArray<TimeEntry> }) 
               </StatusChip>
             </div>
             {isRejected ? (
-              <p className="mt-1 text-xs leading-snug text-rose-800">
-                <span className="font-semibold">Why:</span>{" "}
-                {entry.rejectedReason}{" "}
+              <div className="mt-1 space-y-1">
+                <p className="text-xs leading-snug text-text-muted">
+                  <span className="font-semibold text-state-danger">Why:</span>{" "}
+                  {entry.rejectedReason}
+                </p>
                 <Link
                   href="/phil/hours"
-                  className="ml-1 underline decoration-rose-400 decoration-2 underline-offset-2"
+                  className="inline-flex min-h-[44px] items-center text-xs font-semibold text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
                 >
-                  Fix &amp; resubmit
+                  Fix &amp; resubmit →
                 </Link>
-              </p>
+              </div>
             ) : null}
           </li>
         );

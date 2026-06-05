@@ -119,7 +119,7 @@ function AnchorChip({ section }: { section: AnchorSection }) {
     <a
       href={`#${section.id}`}
       className={cn(
-        "flex min-h-[40px] items-center gap-1.5 rounded-pill border px-3 py-1.5 text-sm",
+        "flex min-h-[44px] items-center gap-1.5 rounded-pill border px-3.5 py-1.5 text-sm",
         "border-border bg-surface text-text",
         "hover:bg-surface-subtle focus:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy",
         section.uc ? "text-text-muted" : "",

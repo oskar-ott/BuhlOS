@@ -13,8 +13,9 @@ import {
   Squircle,
   User,
 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { PhilActionButton } from "./ui/PhilActionButton";
+import { PhilNotice } from "./ui/PhilNotice";
 import { moduleEnabled } from "@/domains/jobs/builder";
 import {
   effectiveTasks,
@@ -208,6 +209,14 @@ export function PhilJobDetail({
     [initialSnags, initialItps, evidenceItems],
   );
 
+  // id→name for this job's areas, so a capture's "Target" line can show the
+  // area name rather than a raw id. Built from the same flattened areas the
+  // work tree uses — no new data source.
+  const areaNames = useMemo(
+    () => Object.fromEntries(flatAreas.map((a) => [a.id, a.name] as const)),
+    [flatAreas],
+  );
+
   // The drill-in renders below the whole area list, so on a long list a
   // tap mid-list can leave the detail off-screen with no visible
   // feedback. Bring it into view on a user tap (only — the initial
@@ -346,14 +355,9 @@ export function PhilJobDetail({
                   </SiteField>
                 ) : null}
                 {job.inductionRequired ? (
-                  <div className="rounded-card border border-amber-200 bg-amber-50 p-3 text-amber-900">
-                    <p className="font-display text-sm font-semibold">
-                      Site induction required
-                    </p>
-                    <p className="mt-0.5 text-xs">
-                      Confirm with your leading hand before starting.
-                    </p>
-                  </div>
+                  <PhilNotice tone="warning" title="Site induction required">
+                    Confirm with your leading hand before starting.
+                  </PhilNotice>
                 ) : null}
               </dl>
             ) : null}
@@ -450,23 +454,24 @@ export function PhilJobDetail({
             stage and area carry through to the capture sheet.
           </CardDescription>
           <div className="mt-3">
-            <Button
-              type="button"
-              variant="primary"
+            <PhilActionButton
               size="lg"
               onClick={() => {
                 setCaptureBanner(null);
                 setCaptureOpen(true);
               }}
-              className="w-full bg-accent-yellow text-brand-navy hover:bg-accent-yellow"
             >
               <Camera aria-hidden="true" className="h-5 w-5" />
               Capture evidence
-            </Button>
+            </PhilActionButton>
           </div>
         </Card>
 
-        <TodaysCapturesStrip items={evidenceItems} banner={captureBanner} />
+        <TodaysCapturesStrip
+          items={evidenceItems}
+          banner={captureBanner}
+          areaNames={areaNames}
+        />
       </section>
 
       {viewer ? (

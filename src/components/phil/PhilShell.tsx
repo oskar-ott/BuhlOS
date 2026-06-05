@@ -21,7 +21,9 @@ export function PhilShell({ children, title }: PhilShellProps) {
       className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-surface"
     >
       <PhilHeader title={title} />
-      <main className="flex-1 overflow-y-auto px-4 py-4">{children}</main>
+      {/* Subtle-grey content surface so the white `surface-raised` cards
+          lift off the page instead of blending into a flat-white shell. */}
+      <main className="flex-1 overflow-y-auto bg-surface-subtle px-4 py-4">{children}</main>
       <PhilTabBar />
     </div>
   );

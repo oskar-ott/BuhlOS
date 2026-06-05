@@ -17,6 +17,8 @@ import { visibleAreaGroups } from "@/domains/jobs/format";
 import type { Job, JobStage } from "@/domains/jobs/types";
 import { CapturePhotoPicker } from "./CapturePhotoPicker";
 import { CaptureTargetPickers } from "./CaptureTargetPickers";
+import { PhilActionButton } from "./ui/PhilActionButton";
+import { PhilNotice } from "./ui/PhilNotice";
 import { cn } from "@/lib/cn";
 
 interface InitialContext {
@@ -277,12 +279,9 @@ export function CaptureSheet({
       <div className="flex-1 overflow-y-auto px-4 py-4">
         <div className="mx-auto max-w-lg space-y-6">
           {phase.kind === "failed" ? (
-            <p
-              role="alert"
-              className="rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800"
-            >
+            <PhilNotice tone="danger" role="alert">
               {phase.message}
-            </p>
+            </PhilNotice>
           ) : null}
 
           <CapturePhotoPicker
@@ -354,17 +353,16 @@ export function CaptureSheet({
           >
             Cancel
           </Button>
-          <Button
-            type="button"
-            variant="primary"
+          <PhilActionButton
             size="lg"
+            fullWidth={false}
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className={cn("flex-1", canSubmit ? "bg-accent-yellow text-brand-navy hover:bg-accent-yellow" : "")}
+            className="flex-1"
             aria-busy={busy}
           >
             {busy ? "Saving…" : "Submit"}
-          </Button>
+          </PhilActionButton>
         </div>
       </footer>
     </div>

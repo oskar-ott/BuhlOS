@@ -62,14 +62,14 @@ export function PhilJobAreaCard({
     countChips.push({
       icon: AlertOctagon,
       label: counts.snags === 1 ? "1 snag" : `${counts.snags} snags`,
-      accent: "text-rose-600",
+      accent: "text-state-danger",
     });
   }
   if (counts.itps > 0) {
     countChips.push({
       icon: ClipboardCheck,
       label: counts.itps === 1 ? "1 ITP" : `${counts.itps} ITPs`,
-      accent: "text-sky-700",
+      accent: "text-state-info",
     });
   }
   if (counts.photos > 0) {

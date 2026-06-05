@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { FileText, Image as ImageIcon, X } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import { PhilNotice } from "./ui/PhilNotice";
 import {
   kindLabel,
   statusLabel,
@@ -28,6 +29,10 @@ interface Props {
   /** Optional banner the parent surfaces above the strip after a
    *  capture event (success or failure). */
   banner?: { tone: "info" | "success" | "danger"; message: string } | null;
+  /** id→name for the job's areas. Lets a capture's "Target" line show the
+   *  area NAME instead of leaking the raw area id. Ids without a name fall
+   *  back to the stage only. */
+  areaNames?: Record<string, string>;
 }
 
 /**
@@ -41,7 +46,7 @@ interface Props {
  *   docs/rebuild-audit/29-phase-d3-phil-capture-spec.md §7.8 + §9
  *   src/domains/evidence/format.ts — status palette
  */
-export function TodaysCapturesStrip({ items, banner }: Props) {
+export function TodaysCapturesStrip({ items, banner, areaNames }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const sorted = useMemo(
@@ -70,19 +75,13 @@ export function TodaysCapturesStrip({ items, banner }: Props) {
       </CardDescription>
 
       {banner ? (
-        <p
+        <PhilNotice
+          tone={banner.tone}
           role={banner.tone === "danger" ? "alert" : "status"}
-          className={cn(
-            "mt-3 rounded-card border px-3 py-2 text-sm",
-            banner.tone === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : banner.tone === "danger"
-                ? "border-rose-200 bg-rose-50 text-rose-800"
-                : "border-sky-200 bg-sky-50 text-sky-800"
-          )}
+          className="mt-3"
         >
           {banner.message}
-        </p>
+        </PhilNotice>
       ) : null}
 
       {sorted.length === 0 ? (
@@ -127,7 +126,11 @@ export function TodaysCapturesStrip({ items, banner }: Props) {
       )}
 
       {selected ? (
-        <EvidenceDrawer item={selected} onClose={() => setSelectedId(null)} />
+        <EvidenceDrawer
+          item={selected}
+          areaNames={areaNames}
+          onClose={() => setSelectedId(null)}
+        />
       ) : null}
     </Card>
   );
@@ -156,17 +159,20 @@ function CaptureThumb({ item }: { item: EvidenceItem }) {
 
 function EvidenceDrawer({
   item,
+  areaNames,
   onClose,
 }: {
   item: EvidenceItem;
+  areaNames?: Record<string, string>;
   onClose: () => void;
 }) {
+  const target = formatTarget(item, areaNames);
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Evidence detail"
-      className="fixed inset-0 z-40 flex flex-col bg-surface-raised pb-[env(safe-area-inset-bottom)]"
+      className="fixed inset-0 z-40 flex flex-col bg-surface-raised pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]"
     >
       <header className="flex items-center justify-between gap-3 border-b border-border bg-surface-raised px-4 py-3">
         <div className="min-w-0">
@@ -223,24 +229,19 @@ function EvidenceDrawer({
             </div>
           ) : null}
 
-          {item.stage || item.areaId || item.taskId ? (
+          {target !== "Unattached" ? (
             <div>
               <p className="font-display text-xs uppercase tracking-wider text-text-muted">
                 Target
               </p>
-              <p className="mt-1 text-sm text-text">
-                {formatTarget(item)}
-              </p>
+              <p className="mt-1 text-sm text-text">{target}</p>
             </div>
           ) : null}
 
           {item.status === "rejected" && item.rejectionReason ? (
-            <div className="rounded-card border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
-              <p className="font-display text-xs uppercase tracking-wider">
-                Rejection reason
-              </p>
-              <p className="mt-1 whitespace-pre-wrap">{item.rejectionReason}</p>
-            </div>
+            <PhilNotice tone="danger" title="Rejection reason">
+              <p className="whitespace-pre-wrap">{item.rejectionReason}</p>
+            </PhilNotice>
           ) : null}
         </div>
       </div>
@@ -248,11 +249,19 @@ function EvidenceDrawer({
   );
 }
 
-function formatTarget(item: EvidenceItem): string {
+/**
+ * Human-readable capture target. Shows the stage and, when we can resolve
+ * it, the area NAME — never a raw area/task id (those are internal and read
+ * as leaked data to a field worker). Task-level pins fall back to the stage.
+ */
+function formatTarget(
+  item: EvidenceItem,
+  areaNames?: Record<string, string>,
+): string {
   const parts: string[] = [];
   if (item.stage) parts.push(item.stage === "roughIn" ? "Rough-in" : "Fit-off");
-  if (item.areaId) parts.push(`Area ${item.areaId}`);
-  if (item.taskId) parts.push(`Task ${item.taskId}`);
+  const areaName = item.areaId ? areaNames?.[item.areaId] : undefined;
+  if (areaName) parts.push(areaName);
   return parts.length ? parts.join(" · ") : "Unattached";
 }
 

@@ -21,28 +21,25 @@ const TONE_STYLES: Record<
   }
 > = {
   danger: {
-    container: "border-rose-300 bg-rose-50",
-    label: "text-rose-700",
+    container: "border-l-state-danger bg-surface-subtle",
+    label: "text-state-danger",
     icon: AlertOctagon,
-    iconClass: "text-rose-600",
-    actionClass:
-      "border-rose-300 bg-rose-100 text-rose-900 hover:bg-rose-200",
+    iconClass: "text-state-danger",
+    actionClass: "border-border bg-surface text-brand-navy hover:bg-surface-subtle",
   },
   warning: {
-    container: "border-amber-300 bg-amber-50",
-    label: "text-amber-700",
+    container: "border-l-state-warning bg-surface-subtle",
+    label: "text-state-warning",
     icon: AlertTriangle,
-    iconClass: "text-amber-700",
-    actionClass:
-      "border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-200",
+    iconClass: "text-state-warning",
+    actionClass: "border-border bg-surface text-brand-navy hover:bg-surface-subtle",
   },
   info: {
-    container: "border-brand-navy/20 bg-brand-navy/[0.04]",
-    label: "text-brand-navy/80",
+    container: "border-l-state-info bg-surface-subtle",
+    label: "text-state-info",
     icon: Info,
-    iconClass: "text-brand-navy",
-    actionClass:
-      "border-brand-navy/30 bg-surface text-brand-navy hover:bg-surface-subtle",
+    iconClass: "text-state-info",
+    actionClass: "border-border bg-surface text-brand-navy hover:bg-surface-subtle",
   },
 };
 
@@ -111,7 +108,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
         <div className="min-w-0 flex-1">
           <p
             className={cn(
-              "font-display text-[10px] font-semibold uppercase tracking-wider",
+              "font-display text-[11px] font-semibold uppercase tracking-wider",
               tone.label,
             )}
           >
@@ -126,7 +123,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
           <a
             href={item.anchor}
             className={cn(
-              "mt-2 inline-flex min-h-[36px] items-center justify-center gap-1 rounded-card border px-3 py-1.5 text-xs font-semibold transition-colors",
+              "mt-2 inline-flex min-h-[44px] items-center justify-center gap-1 rounded-card border px-4 text-xs font-semibold transition-colors",
               tone.actionClass,
             )}
           >

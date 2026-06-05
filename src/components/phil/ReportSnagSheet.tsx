@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { PhilActionButton } from "./ui/PhilActionButton";
+import { PhilNotice } from "./ui/PhilNotice";
 import { createSnag } from "@/domains/snags/client";
 import {
   SNAG_DESCRIPTION_MAX,
@@ -310,26 +311,21 @@ export function ReportSnagSheet({
           ) : null}
 
           {errorMessage ? (
-            <div
-              role="alert"
-              className="rounded-card border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900"
-            >
+            <PhilNotice tone="danger" role="alert">
               {errorMessage}
-            </div>
+            </PhilNotice>
           ) : null}
         </div>
 
         <footer className="border-t border-border px-4 py-3">
-          <Button
-            type="button"
-            variant="primary"
+          <PhilActionButton
             size="lg"
             disabled={submitDisabled}
             onClick={handleSubmit}
-            className="w-full bg-accent-yellow text-brand-navy hover:bg-accent-yellow"
+            aria-busy={busy}
           >
             {busy ? "Saving…" : "Report snag"}
-          </Button>
+          </PhilActionButton>
         </footer>
       </div>
     </div>

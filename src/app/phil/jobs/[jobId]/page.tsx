@@ -1,9 +1,10 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilJobDetail } from "@/components/phil/PhilJobDetail";
+import { PhilNotice } from "@/components/phil/ui/PhilNotice";
+import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
@@ -85,12 +86,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
     return (
       <PhilShell title="Job">
         <div className="space-y-4">
-          <Link
-            href="/phil/jobs"
-            className="inline-flex items-center gap-1 text-sm text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
-          >
-            ← All jobs
-          </Link>
+          <PhilBackLink href="/phil/jobs">All jobs</PhilBackLink>
           <Card>
             <CardTitle>This job isn&rsquo;t assigned to you</CardTitle>
             <CardDescription className="mt-2">
@@ -108,21 +104,13 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
     return (
       <PhilShell title="Job">
         <div className="space-y-4">
-          <Link
-            href="/phil/jobs"
-            className="inline-flex items-center gap-1 text-sm text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
-          >
-            ← All jobs
-          </Link>
-          <Card className="border-amber-200 bg-amber-50" role="alert">
-            <CardTitle>Couldn&rsquo;t load this job</CardTitle>
-            <CardDescription className="text-amber-900">
-              {result.message}.
-            </CardDescription>
+          <PhilBackLink href="/phil/jobs">All jobs</PhilBackLink>
+          <PhilNotice tone="warning" title="Couldn’t load this job" role="alert">
+            <p>{result.message}.</p>
             <div className="mt-3">
               <RefreshButton />
             </div>
-          </Card>
+          </PhilNotice>
         </div>
       </PhilShell>
     );
