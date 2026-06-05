@@ -28,6 +28,8 @@ jobs:
         run: npm run lint
       - name: Unit and mocked-Blob API tests
         run: npm run test:unit
+      - name: Field-readiness smoke compiles & is discoverable (Playwright --list; no browser, server, secrets, or data)
+        run: npm run check:field-readiness-smoke-list
       - name: Build
         run: npm run build
       - name: Route + shell guards (legacy production + modern surfaces)

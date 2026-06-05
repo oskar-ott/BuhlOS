@@ -37,6 +37,15 @@ In a real browser, against a guarded preview (or local dev):
 > it does not change field-roll-out readiness (see
 > `docs/field-readiness/ROLL_OUT_STATUS.md`).
 
+> **The spec itself is compile-checked in normal CI.** A no-browser Playwright
+> discovery step — `npm run check:field-readiness-smoke-list`, wired into the CI
+> `check` job — lists this spec, compiling it and its
+> `fieldReadiness.ts` → `src/domains/qa/time-entry-attribution.ts` import chain.
+> So a broken spec or a broken helper import fails CI immediately, **without**
+> launching a browser, starting a server, using secrets, or dispatching the
+> credentialed Preview Smoke. It proves the suite *loads & is discoverable*, not
+> that the flow *passes* — that remains Preview Smoke's job (§9).
+
 ## 2. What this smoke does NOT prove (deferred, on purpose)
 
 - **Server-side persistence of the submitted hours.** The hours `POST` is asserted on the wire and then **aborted before it reaches the server**, so the smoke never writes a time entry to the (possibly production-shared) Blob. Server-side attribution acceptance/rejection is covered by the API unit tests added in #77 (`src/domains/time-entries/time-entry-attribution-api.test.ts`).
