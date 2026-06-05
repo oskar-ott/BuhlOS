@@ -11,7 +11,7 @@
 //   DELETE /api/time-entries?date=YYYY-MM-DD     → delete own draft
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole, isAdminRole, isLeadingHandRole, canSubmitHours } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isAdminRole, isLeadingHandRole, isFieldRole, canSubmitHours } = require('./_lib/auth');
 const {
   newId,
   validateEntryShape,
@@ -113,6 +113,38 @@ async function handleCreate(req, res, user) {
     targetUserName = target.username;
     targetUserRole = target.role;
     onBehalf = true;
+  }
+
+  // ── Job attribution integrity (field self-submissions) ──────────────
+  // A field worker logging their OWN hours may only attribute a non-null
+  // allocation jobId to a job they are assigned to that is active (not draft
+  // or archived). This closes the field-readiness gap where the create path
+  // accepted any/arbitrary/unassigned/archived jobId with no check.
+  //
+  // Deliberately narrow: admin/LH and on-behalf flows keep their existing
+  // latitude, and a null jobId is still accepted here for backward
+  // compatibility (legacy submissions, overhead). The Phil UI is what blocks
+  // a null jobId when the worker has active assigned jobs; a server-side
+  // null-block for field roles is a documented follow-up.
+  if (!onBehalf && isFieldRole(user.role)) {
+    const allocJobIds = [...new Set(
+      (body.allocations || []).map((a) => a.jobId).filter(Boolean)
+    )];
+    if (allocJobIds.length) {
+      const jobsBlob = await readBlob('jobs.json', { jobs: [] });
+      const jobById = {};
+      (jobsBlob.jobs || []).forEach((j) => { jobById[j.id] = j; });
+      const assigned = new Set(user.assignedJobIds || []);
+      for (const jid of allocJobIds) {
+        const job = jobById[jid];
+        const activeForField = job && job.status !== 'archived' && job.status !== 'draft';
+        if (!job || !assigned.has(jid) || !activeForField) {
+          return res.status(403).json({
+            error: 'forbidden — hours can only be logged against an active job you are assigned to',
+          });
+        }
+      }
+    }
   }
 
   // Refuse if entry for that user+date already exists — caller should PATCH instead
