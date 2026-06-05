@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { ArrowLeft, Camera, CheckCircle2, ChevronRight, Loader2, MapPin, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { PhilNotice } from "./ui/PhilNotice";
 import { listJobs } from "@/domains/jobs/client";
 import { createObservation } from "@/domains/observations/client";
 import {
@@ -169,7 +170,7 @@ export function PhilCaptureLauncher({ open, onClose, initialJobId }: Props) {
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-md flex-col rounded-t-2xl border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] shadow-raised"
+        className="flex max-h-[85vh] w-full max-w-md flex-col rounded-t-card border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] shadow-raised"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
@@ -179,7 +180,7 @@ export function PhilCaptureLauncher({ open, onClose, initialJobId }: Props) {
                 type="button"
                 onClick={headerBack}
                 aria-label="Back"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-card text-text-muted hover:bg-surface-subtle"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-card text-text-muted hover:bg-surface-subtle"
               >
                 <ArrowLeft aria-hidden="true" className="h-5 w-5" />
               </button>
@@ -208,12 +209,9 @@ export function PhilCaptureLauncher({ open, onClose, initialJobId }: Props) {
 
           {view.v === "error" ? (
             <div className="space-y-3">
-              <p
-                role="alert"
-                className="rounded-card border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
-              >
+              <PhilNotice tone="warning" role="alert">
                 {view.message}
-              </p>
+              </PhilNotice>
               <Button
                 type="button"
                 variant="secondary"
@@ -349,12 +347,9 @@ export function PhilCaptureLauncher({ open, onClose, initialJobId }: Props) {
                 <p className="text-xs text-text-muted">This is saved to the job&rsquo;s history.</p>
               )}
               {submitError ? (
-                <p
-                  role="alert"
-                  className="rounded-card border border-rose-200 bg-rose-50 p-2 text-sm text-rose-900"
-                >
+                <PhilNotice tone="danger" role="alert">
                   {submitError}
-                </p>
+                </PhilNotice>
               ) : null}
               <Button
                 type="button"
@@ -378,7 +373,7 @@ export function PhilCaptureLauncher({ open, onClose, initialJobId }: Props) {
 
           {view.v === "done" ? (
             <div className="space-y-4 py-4 text-center">
-              <CheckCircle2 aria-hidden="true" className="mx-auto h-12 w-12 text-emerald-500" />
+              <CheckCircle2 aria-hidden="true" className="mx-auto h-12 w-12 text-state-success" />
               <div>
                 <p className="font-display text-lg text-text">Sent to BuhlOS</p>
                 <p className="mt-1 text-sm text-text-muted">

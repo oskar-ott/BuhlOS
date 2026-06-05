@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { ExternalLink, FileText, Image as ImageIcon } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import { PhilNotice } from "./ui/PhilNotice";
 import {
   categoryLabel,
   displayTitle,
@@ -68,21 +69,14 @@ export function JobDocumentsPanel({
           </CardDescription>
         </div>
         {current.length > 0 ? (
-          <Pill tone="neutral">
-            {current.length}
-            {current.length === 1 ? " current" : " current"}
-          </Pill>
+          <Pill tone="neutral">{current.length} current</Pill>
         ) : null}
       </div>
 
       {fetchError ? (
-        <p
-          role="status"
-          className="mt-3 rounded-card border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
-        >
-          Couldn&rsquo;t load every document. Showing what we have. Refresh
-          to try again.
-        </p>
+        <PhilNotice tone="warning" role="status" className="mt-3">
+          Couldn’t load every document. Showing what we have. Refresh to try again.
+        </PhilNotice>
       ) : null}
 
       {current.length === 0 ? (

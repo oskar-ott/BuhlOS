@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import { PhilNotice } from "./ui/PhilNotice";
 import { listGear, reportGear, transferGear } from "@/domains/gear/client";
 import { buildReturnToDepotPayload, deriveStatus, statusTone } from "@/domains/gear/service";
 import {
@@ -75,14 +76,14 @@ export function PhilGearList({ initialAssets }: Props) {
   return (
     <div className="space-y-3">
       {errorMessage ? (
-        <Card className="border-rose-200 bg-rose-50" role="alert">
-          <p className="text-sm text-rose-900">{errorMessage}</p>
-        </Card>
+        <PhilNotice tone="danger" role="alert">
+          {errorMessage}
+        </PhilNotice>
       ) : null}
       {successMessage ? (
-        <Card className="border-emerald-200 bg-emerald-50" role="status">
-          <p className="text-sm text-emerald-900">{successMessage}</p>
-        </Card>
+        <PhilNotice tone="success" role="status">
+          {successMessage}
+        </PhilNotice>
       ) : null}
 
       <ul className="space-y-3">
@@ -110,7 +111,7 @@ export function PhilGearList({ initialAssets }: Props) {
                   <dt>Held since</dt>
                   <dd className="text-text">{formatTimestamp(asset.assignedAt) ?? "—"}</dd>
                   <dt>Expected return</dt>
-                  <dd className={overdue ? "text-rose-900 font-medium" : "text-text"}>
+                  <dd className={overdue ? "font-medium text-state-danger" : "text-text"}>
                     {formatShortDate(asset.expectedReturn) ?? "open-ended"}
                     {overdue ? " · overdue" : ""}
                   </dd>

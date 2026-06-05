@@ -61,12 +61,12 @@ function TabLink({ tab, pathname }: { tab: Tab; pathname: string }) {
       <span className="flex flex-col items-center justify-center gap-0.5">
         <Icon
           aria-hidden="true"
-          className={cn("h-5 w-5", isActive ? "text-brand-navy" : "text-text")}
+          className={cn("h-5 w-5", isActive ? "text-brand-navy" : "text-text-muted")}
         />
         <span
           className={cn(
             "text-[11px] uppercase tracking-wider",
-            isActive ? "font-semibold text-brand-navy" : "text-text",
+            isActive ? "font-semibold text-brand-navy" : "font-medium text-text-muted",
           )}
         >
           {tab.label}

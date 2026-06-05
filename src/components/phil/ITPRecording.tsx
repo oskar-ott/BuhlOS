@@ -16,7 +16,7 @@ import type { ITPInstance, ITPTemplatePoint } from "@/domains/itp/types";
 import type { Job } from "@/domains/jobs/types";
 import { ITPPointCard } from "./ITPPointCard";
 import { resolveScopeName } from "./itp-scope";
-import { cn } from "@/lib/cn";
+import { PhilNotice } from "./ui/PhilNotice";
 
 interface Props {
   job: Job;
@@ -144,35 +144,27 @@ export function ITPRecording({ job, instance: initial, viewer }: Props) {
       </section>
 
       {lockedReason ? (
-        <div
-          role="status"
-          className="rounded-card border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
-        >
+        <PhilNotice tone="warning" role="status">
           {lockedReason}
-        </div>
+        </PhilNotice>
       ) : null}
 
       {banner ? (
-        <div
+        <PhilNotice
+          tone={banner.kind === "danger" ? "danger" : "info"}
           role={banner.kind === "danger" ? "alert" : "status"}
-          className={cn(
-            "rounded-card border p-3 text-sm",
-            banner.kind === "danger"
-              ? "border-rose-200 bg-rose-50 text-rose-900"
-              : "border-sky-200 bg-sky-50 text-sky-900",
-          )}
         >
           <p>{banner.message}</p>
           {banner.kind === "danger" && banner.needsReload ? (
             <button
               type="button"
               onClick={handleReload}
-              className="mt-2 inline-flex min-h-[48px] items-center justify-center rounded-card border border-rose-300 bg-white px-4 text-sm font-medium text-rose-900 hover:bg-rose-100"
+              className="mt-2 inline-flex min-h-[44px] items-center justify-center rounded-card border border-border bg-surface px-4 text-sm font-medium text-text hover:bg-surface-subtle"
             >
               Reload
             </button>
           ) : null}
-        </div>
+        </PhilNotice>
       ) : null}
 
       {visiblePoints.length === 0 ? (

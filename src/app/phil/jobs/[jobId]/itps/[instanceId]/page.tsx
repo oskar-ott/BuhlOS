@@ -1,9 +1,10 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { ITPRecording } from "@/components/phil/ITPRecording";
+import { PhilNotice } from "@/components/phil/ui/PhilNotice";
+import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
@@ -65,12 +66,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
     return (
       <PhilShell title="ITP">
         <div className="space-y-4">
-          <Link
-            href="/phil/jobs"
-            className="inline-flex items-center gap-1 text-sm text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
-          >
-            ← All jobs
-          </Link>
+          <PhilBackLink href="/phil/jobs">All jobs</PhilBackLink>
           <Card>
             <CardTitle>This job isn&rsquo;t assigned to you</CardTitle>
             <CardDescription className="mt-2">
@@ -94,18 +90,12 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
     return (
       <PhilShell title="ITP">
         <div className="space-y-4">
-          <Link
-            href={`/phil/jobs/${encodeURIComponent(jobId)}`}
-            className="inline-flex items-center gap-1 text-sm text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
-          >
-            ← Back to job
-          </Link>
-          <Card className="border-amber-200 bg-amber-50" role="alert">
-            <CardTitle>Couldn&rsquo;t load this ITP</CardTitle>
-            <CardDescription className="text-amber-900">
-              {message}. Try again in a moment.
-            </CardDescription>
-          </Card>
+          <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}`}>
+            Back to job
+          </PhilBackLink>
+          <PhilNotice tone="warning" title="Couldn’t load this ITP" role="alert">
+            {message}. Try again in a moment.
+          </PhilNotice>
         </div>
       </PhilShell>
     );
@@ -116,12 +106,9 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
     return (
       <PhilShell title="ITP">
         <div className="space-y-4">
-          <Link
-            href={`/phil/jobs/${encodeURIComponent(jobId)}`}
-            className="inline-flex items-center gap-1 text-sm text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
-          >
-            ← Back to job
-          </Link>
+          <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}`}>
+            Back to job
+          </PhilBackLink>
           <Card>
             <CardTitle>ITP not found</CardTitle>
             <CardDescription className="mt-2">

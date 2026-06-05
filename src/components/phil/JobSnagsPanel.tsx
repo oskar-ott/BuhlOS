@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import { PhilActionButton } from "./ui/PhilActionButton";
+import { PhilNotice } from "./ui/PhilNotice";
 import {
   isDone,
   needsWorkerAttention,
@@ -167,19 +169,16 @@ export function JobSnagsPanel({
       </div>
 
       <div className="mt-3">
-        <Button
-          type="button"
-          variant="primary"
+        <PhilActionButton
           size="lg"
           onClick={() => {
             setAction({ kind: "idle" });
             setSheetOpen(true);
           }}
-          className="w-full bg-accent-yellow text-brand-navy hover:bg-accent-yellow"
         >
           <AlertTriangle aria-hidden="true" className="h-5 w-5" />
           Report snag
-        </Button>
+        </PhilActionButton>
       </div>
 
       <ActionFeedback state={action} />
@@ -246,7 +245,7 @@ function SnagRow({ snag, viewer, busy, onTransition }: RowProps) {
     <li
       className={cn(
         "rounded-card border border-border bg-surface p-3",
-        snag.status === "rejected" ? "border-rose-200 bg-rose-50/40" : "",
+        snag.status === "rejected" ? "border-l-4 border-l-state-danger" : "",
         busy ? "opacity-70" : ""
       )}
     >
@@ -274,17 +273,14 @@ function SnagRow({ snag, viewer, busy, onTransition }: RowProps) {
         </div>
       </div>
       {snag.status === "rejected" && snag.rejectionReason ? (
-        <div
+        <PhilNotice
+          tone="danger"
           role="alert"
-          className="mt-2 rounded-card border border-rose-200 bg-rose-50 p-2.5 text-sm text-rose-900"
+          className="mt-2"
+          title={`Rejected${snag.rejectedByName ? ` by ${snag.rejectedByName}` : ""}`}
         >
-          <p className="font-display text-[11px] uppercase tracking-wider text-rose-700">
-            Rejected{snag.rejectedByName ? ` by ${snag.rejectedByName}` : ""}
-          </p>
-          <p className="mt-1 whitespace-pre-line break-words">
-            {snag.rejectionReason}
-          </p>
-        </div>
+          <p className="whitespace-pre-line break-words">{snag.rejectionReason}</p>
+        </PhilNotice>
       ) : null}
       {canClaim || canResolve || canReopen ? (
         <div className="mt-2 flex flex-wrap gap-2">
@@ -305,7 +301,6 @@ function SnagRow({ snag, viewer, busy, onTransition }: RowProps) {
               variant="primary"
               disabled={busy}
               onClick={() => onTransition(snag, "resolved")}
-              className="bg-brand-navy text-text-inverse hover:bg-accent-ink"
             >
               {busy ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}
               Mark resolved
@@ -330,25 +325,16 @@ function SnagRow({ snag, viewer, busy, onTransition }: RowProps) {
 function ActionFeedback({ state }: { state: ActionState }) {
   if (state.kind === "success") {
     return (
-      <div
-        role="status"
-        aria-live="polite"
-        className="mt-3 flex items-center gap-2 rounded-card border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"
-      >
-        <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
+      <PhilNotice tone="success" role="status" className="mt-3">
         {state.message}
-      </div>
+      </PhilNotice>
     );
   }
   if (state.kind === "error") {
     return (
-      <div
-        role="alert"
-        aria-live="assertive"
-        className="mt-3 rounded-card border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900"
-      >
+      <PhilNotice tone="danger" role="alert" className="mt-3">
         {state.message}
-      </div>
+      </PhilNotice>
     );
   }
   return null;

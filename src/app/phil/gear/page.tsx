@@ -1,10 +1,11 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
-import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
+import { PhilPageIntro } from "@/components/phil/ui/PhilPageIntro";
+import { PhilNotice } from "@/components/phil/ui/PhilNotice";
+import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { GearListResponseSchema } from "@/domains/gear/schema";
@@ -41,23 +42,24 @@ export default async function PhilGearPage() {
   return (
     <PhilShell title="My gear">
       <div className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <Link
-            href="/phil/my-day"
-            className="text-sm text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
-          >
-            ← My day
-          </Link>
-          <p className="text-xs text-text-muted">{assets.length} {assets.length === 1 ? "item" : "items"}</p>
-        </div>
+        <PhilBackLink href="/phil/my-day">My day</PhilBackLink>
+
+        <PhilPageIntro
+          title="My gear"
+          description="Tools and equipment checked out to you. Return or report condition here."
+          meta={
+            assets.length > 0 ? (
+              <span className="whitespace-nowrap text-xs uppercase tracking-wider text-text-muted">
+                {assets.length} {assets.length === 1 ? "item" : "items"}
+              </span>
+            ) : undefined
+          }
+        />
 
         {fetchError ? (
-          <Card className="border-amber-200 bg-amber-50" role="alert">
-            <CardTitle>Couldn&rsquo;t load gear</CardTitle>
-            <CardDescription className="text-amber-900">
-              {fetchError}. Pull down to refresh or open the legacy My gear page below.
-            </CardDescription>
-          </Card>
+          <PhilNotice tone="warning" title="Couldn’t load gear" role="alert">
+            {fetchError}. Try again shortly, or open the legacy My gear page below.
+          </PhilNotice>
         ) : null}
 
         {assets.length === 0 && !fetchError ? (
