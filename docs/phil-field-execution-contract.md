@@ -21,7 +21,7 @@ The Phil job interface is **not** a stub. `/phil/jobs/[jobId]` → `PhilJobDetai
 | Capture evidence | `CaptureSheet` + `PhilCaptureLauncher` (FAB) + `TodaysCapturesStrip` | `/api/photos` → Vercel Blob, `/api/evidence` → `jobs/{id}/data.json` | **Real**, two-phase persist, honest failure states |
 | ITPs / checks | `JobItpPanel` + `ITPRecording` + `ITPPointCard` | `/api/job-itps` → `jobs/{id}/itps.json` | **Real**, worker records points; 50% independence rule (no self-sign-off) |
 | Snags / issues | `JobSnagsPanel` + `ReportSnagSheet` | `/api/snags` → `snagsV2[]` | **Real**, worker reports + transitions open→in_progress→resolved; admin-only verify/close/reject |
-| Plans / docs | `/phil/jobs/[jobId]/plans` + `JobDocumentsPanel` | `/api/plans` | **Real**, current-only (superseded/archived hidden); opens external viewer |
+| Plans / docs | `/phil/jobs/[jobId]/plans` + `JobDocumentsPanel` | `/api/plans` | **Real**, current-only (superseded/archived hidden); plans render in-app, document/spec rows open the Blob URL |
 | Hours | `/phil/my-day` (Standard Day + custom) + `/phil/hours` (history) | `/api/time-entries` | **Real**; job attribution guaranteed non-null (#77); **not on the job screen** |
 | Gear | `/phil/gear` → `PhilGearList` | `/api/assets` | **Real**, return / report damaged / missing |
 | Materials | `JobMaterialsPanel` | — | **Honest UC stub** (E4 lane) |
@@ -41,7 +41,7 @@ Nav (`PhilTabBar`): **Today** (`/phil/my-day` = hours) · **Jobs** · **Capture 
 | 4 | Capture evidence | `CaptureSheet` | `/api/photos`+`/api/evidence` (Blob) | Real | Write | Med-High (no queue) | `philCapture.test` (helpers); no E2E capture chain | CTA mid-page; no offline retry queue |
 | 5 | Log hours | `/phil/my-day` `LogHoursSheet` | `POST /api/time-entries` | Real | Write | Med | `time-entry-attribution.test`, `timesheets.test`, field-readiness smoke | Not reachable from the job; **in-flight (#57)** |
 | 6 | ITPs / checks | `JobItpPanel`/`ITPRecording` | `/api/job-itps` (Blob) | Real | Write (record) | Med | `itp.test` (state machine + independence) | Stale-read 750ms cross-instance; no E2E |
-| 7 | Plans / docs | `/phil/jobs/[jobId]/plans`, `JobDocumentsPanel` | `/api/plans` | Real | Read | Low | `documents.test` | No in-app render (opens external viewer) |
+| 7 | Plans / docs | `/phil/jobs/[jobId]/plans`, `JobDocumentsPanel` | `/api/plans` | Real | Read | Low | `documents.test` | Plans have an in-app viewer; document/spec rows still open the Blob URL |
 | 8 | Snags / issues | `JobSnagsPanel`/`ReportSnagSheet` | `/api/snags` (Blob) | Real | Write (report+transition) | Med | `snags.test` | No "assigned to me" filter; photo via evidence-link only |
 | 9 | Gear / materials | `/phil/gear`; `JobMaterialsPanel` | `/api/assets`; — | Gear Real / Materials UC | Gear write | Med | `gear.test` | Materials UC — worker phones PM |
 | 10 | End of day | — | — | **Absent** | — | — | — | **No closeout** prompt (hours? evidence? checks? blockers?) |
@@ -90,7 +90,7 @@ What a Phil job should expose to a field worker. (★ = already satisfied today.
 
 Ranked by on-site severity × abandonment risk × execution value × (data already exists) × (reduces calls to Tom/admin), tempered by ease/safety.
 
-1. **Task completion is dormant.** `/api/task-toggle` is functional but only legacy `public/phil.html` calls it; the new Phil renders tasks read-only. An electrician literally cannot mark work done — the core "site bible" action. *Data+API exist; medium build (write UI + per-task state); high value; cuts "is X done?" calls.*
+1. **Task completion is dormant.** `/api/task-toggle` exists, but the new Phil never calls it; the job screen renders tasks read-only. An electrician literally cannot mark work done — the core "site bible" action. *Data+API exist; medium build (write UI + per-task state); high value; cuts "is X done?" calls.*
 2. **No "Today / Next actions" hub.** Opening a job leads with what's *wrong*, then Site/Areas before the Capture CTA. No positive "what to do next." *Derivable from existing data; easy-medium; high abandonment-prevention.*
 3. **No end-of-day closeout.** Nothing prompts "hours logged? evidence captured? checks done? anything blocked?" before leaving site. *Derivable read-only summary; medium; cuts missing-timesheet chases; safety-adjacent.*
 4. **No offline / sync.** Dead-signal sites make the app unusable (reads server-render; writes online-only; no queue/SW/IndexedDB). *High severity + abandonment, but large infra; its own lane.*
