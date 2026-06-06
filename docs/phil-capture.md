@@ -144,6 +144,10 @@ built (D4/D5) at `/v2/jobs/[jobId]/evidence`.
   **Capture FAB** as a named button, the four field tabs + hrefs, and that the
   launcher stays closed until tapped. This is the one capture affordance that
   previously had no automated guard.
+- **`src/domains/evidence/phil-capture.test.ts`** *(added)* — the job-first
+  capture-metadata contract: builds a safe `PhilCaptureEvidence`, never
+  fabricates a record when the job is missing (`no_job`), never claims
+  `uploaded` without a real `blobUrl`, and keeps `not_configured` honest.
 - `npm run check:smoke-list` — proves the smoke specs (incl. `phil.spec.ts`)
   compile/discover.
 
@@ -161,7 +165,47 @@ built (D4/D5) at `/v2/jobs/[jobId]/evidence`.
 
 ---
 
-## 7 · Cross-references
+## 7 · BuhlOS Job Evidence compatibility
+
+Evidence is **job context, not a standalone admin module.** There is **no**
+global Evidence route or sidebar item — the admin surface is **per-job** at
+`/v2/jobs/[jobId]/evidence` (`EvidenceQueue` + `EvidenceDrawer`, admin-write /
+LH-read), reading the **same persisted `EvidenceItem`** Phil capture writes. The
+end-to-end loop (Phil POST → Blob + `jobs/<id>/data.json` → admin per-job read)
+already works.
+
+**The job-first client contract** lives at `src/domains/evidence/phil-capture.ts`
+(`PhilCaptureEvidence` + `buildPhilCaptureEvidence`). It is deliberately in the
+shell-neutral evidence domain so the future Job-Evidence surface can import it
+**without** a cross-shell violation. It is keyed on `jobId` and encodes the
+honesty rules as invariants (no job → no record; `uploaded` requires a real
+`blobUrl`; `not_configured` carries no URL).
+
+| Capture metadata available now | Future Job-Evidence surface it feeds |
+| --- | --- |
+| `jobId` (required), `jobName` | Job Overview evidence summary; the per-job Evidence tab/panel |
+| `stage` (roughIn/fitOff), `taskId`/`taskName` | task/stage evidence indicators; "missing evidence" prompts per stage/task |
+| `workerId`/`workerName`, `createdAt`, `note` | Evidence detail drawer (who/when/what) |
+| `blobUrl`/`thumbnailUrl`, `fileName`/`contentType`/`sizeBytes`, `status` | thumbnail grid + detail drawer; status pills |
+| `source: "phil_capture"` (→ persisted `"phil"`) | provenance filter on the per-job queue |
+
+**Intentionally not built here** (next PR — see below): the admin Job-Evidence
+*surface enhancements* (Overview evidence summary card, per-task/stage evidence
+indicators, missing-evidence prompts, deeper ITP/snag links). The core per-job
+review queue + drawer already exist (D4/D5) and must **not** be duplicated.
+
+**Upload/storage status:** **real** (Vercel Blob, two-step) — not stubbed. The
+`not_configured` status exists in the contract for honesty/other contexts; the
+live `CaptureSheet` does not use it because upload IS connected.
+
+**Recommended next PR:** `feat/buhlos-job-evidence-surface` — scoped to the **Job
+page** Evidence summary + per-stage/task indicators + missing-evidence prompts
+that consume `PhilCaptureEvidence` / `EvidenceItem`. **Not** a global Evidence
+module and **not** a new sidebar item.
+
+---
+
+## 8 · Cross-references
 
 - Spec / plan: [rebuild-audit/29-phase-d3-phil-capture-spec.md](./rebuild-audit/29-phase-d3-phil-capture-spec.md),
   [rebuild-audit/24-phase-d-jobs-evidence-plan.md](./rebuild-audit/24-phase-d-jobs-evidence-plan.md),
@@ -169,5 +213,8 @@ built (D4/D5) at `/v2/jobs/[jobId]/evidence`.
 - Field readiness: [field-readiness/ROLL_OUT_STATUS.md](./field-readiness/ROLL_OUT_STATUS.md),
   [field-readiness/KNOWN_LIMITATIONS.md](./field-readiness/KNOWN_LIMITATIONS.md)
 - Code: `src/components/phil/PhilTabBar.tsx`, `PhilCaptureLauncher.tsx`,
-  `CaptureSheet.tsx`, `CapturePhotoPicker.tsx`, `src/domains/evidence/*`,
+  `CaptureSheet.tsx`, `CapturePhotoPicker.tsx`, `src/domains/evidence/*`
+  (incl. `phil-capture.ts` — the job-first client contract),
   `api/evidence.js`, `api/photos.js`, `api/_lib/blob.js`
+- Admin per-job surface (do not duplicate): `src/app/v2/jobs/[jobId]/evidence/page.tsx`,
+  `src/components/admin/EvidenceQueue.tsx`, `EvidenceDrawer.tsx`
