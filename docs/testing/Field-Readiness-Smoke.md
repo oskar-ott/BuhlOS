@@ -7,6 +7,8 @@ loop works end-to-end before controlled internal dogfood.
 - Helpers: [`tests/playwright/helpers/fieldReadiness.ts`](../../tests/playwright/helpers/fieldReadiness.ts)
 - Runs as part of `npm run test:smoke` (the Preview Smoke workflow), default
   `desktop-chrome` project.
+- Where this sits in the wider suite (and what is / isn't covered):
+  [Smoke-Coverage.md](./Smoke-Coverage.md).
 
 > **This supports controlled internal dogfood only.** A green run does **not**
 > mean the app is ready for real field rollout. Real rollout still requires
