@@ -4,14 +4,17 @@ import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { PhilPageIntro } from "@/components/phil/ui/PhilPageIntro";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
+import { RejectedHoursResubmitSheet } from "@/components/phil/RejectedHoursResubmitSheet";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
 import type { TimeEntry } from "@/domains/timesheets/types";
+import { canResubmitInPhil, type AssignableJob } from "@/domains/timesheets/resubmit";
+import { JobListResponseSchema } from "@/domains/jobs/schema";
+import { isVisibleToField } from "@/domains/jobs/builder";
 import {
   formatDateLabel,
   formatHoursLabel,
@@ -36,13 +39,18 @@ export const dynamic = "force-dynamic";
 /**
  * /phil/hours — the worker's own history of submissions.
  *
- * Read-only by design for Phase B: editing a rejected entry happens on the
- * legacy /my-day surface until Phase C ships the in-place edit flow. Putting
- * an edit form here would duplicate the legacy capture sheet without a
- * complete UX (LogHoursSheet is "create"-only).
+ * Mostly read-only: the one write action is fixing a REJECTED entry. Each
+ * rejected single-allocation entry gets an in-place
+ * <RejectedHoursResubmitSheet/> that edits the hours / job / note and PATCHes
+ * the entry back to `submitted` via the existing /api/time-entries endpoint
+ * (the rejected→submitted transition `main` already supports — no API change).
  *
- * Cross-ref: docs/rebuild-audit/19-phase-b-hours-implementation-brief.md
- *            §"/phil/hours (history)"
+ * The worker's active assigned jobs are loaded alongside the history so the
+ * resubmit form can preserve the original job attribution (or require a real
+ * assigned job) — a worker with active jobs can never resubmit jobId:null.
+ *
+ * Cross-ref: docs/buhlos-hours-safe-foundation.md (#92 deferred this slice here)
+ *            docs/rebuild-audit/19-phase-b-hours-implementation-brief.md
  */
 export default async function PhilHoursPage() {
   const cookieStore = await cookies();
@@ -55,7 +63,12 @@ export default async function PhilHoursPage() {
     redirect("/v2/login");
   }
 
-  const { entries, fetchError } = await loadHistory(raw);
+  // History + the worker's active assigned jobs in parallel — the jobs feed
+  // the resubmit form's attribution guard so a fix can't land jobId:null.
+  const [{ entries, fetchError }, assignedJobs] = await Promise.all([
+    loadHistory(raw),
+    loadAssignedJobs(raw),
+  ]);
 
   return (
     <PhilShell title="Hours history">
@@ -82,24 +95,29 @@ export default async function PhilHoursPage() {
           <ul className="space-y-3">
             {entries.map((entry) => (
               <li key={entry.id}>
-                <EntryCard entry={entry} />
+                <EntryCard
+                  entry={entry}
+                  assignedJobs={assignedJobs.jobs}
+                  jobsError={assignedJobs.error}
+                />
               </li>
             ))}
           </ul>
         )}
-
-        <UnderConstructionPanel
-          feature="Edit rejected entry"
-          description="Tapping a rejected entry to edit and resubmit isn't wired here yet. For now, use the legacy My day — fix the entry, resubmit, and it'll come back through approval with the new submission timestamp."
-          legacyHref="/my-day"
-          legacyLabel="Open legacy My day"
-        />
       </div>
     </PhilShell>
   );
 }
 
-function EntryCard({ entry }: { entry: TimeEntry }) {
+function EntryCard({
+  entry,
+  assignedJobs,
+  jobsError,
+}: {
+  entry: TimeEntry;
+  assignedJobs: ReadonlyArray<AssignableJob>;
+  jobsError: boolean;
+}) {
   return (
     <Card className="space-y-2">
       <div className="flex items-start justify-between gap-3">
@@ -122,6 +140,14 @@ function EntryCard({ entry }: { entry: TimeEntry }) {
         <PhilNotice tone="danger" title="Why it bounced back">
           <p className="whitespace-pre-line">{entry.rejectedReason}</p>
         </PhilNotice>
+      ) : null}
+
+      {canResubmitInPhil(entry) ? (
+        <RejectedHoursResubmitSheet
+          entry={entry}
+          assignedJobs={assignedJobs}
+          jobsError={jobsError}
+        />
       ) : null}
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-text-muted">
@@ -171,5 +197,41 @@ async function loadHistory(cookieValue: string | undefined): Promise<{
       entries: [],
       fetchError: err instanceof Error ? err.message : "Network error",
     };
+  }
+}
+
+/**
+ * Load the worker's active assigned jobs for resubmit attribution.
+ *
+ * Mirrors src/app/phil/my-day/page.tsx loadAssignedJobs(): source of truth is
+ * users.json.assignedJobIds (GET /api/jobs already scopes a field caller to it
+ * and strips draft/archived); isVisibleToField is defence-in-depth. Returns
+ * `error: true` on any failure so the resubmit form blocks rather than falling
+ * back to an unattributed entry.
+ */
+async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
+  jobs: ReadonlyArray<AssignableJob>;
+  error: boolean;
+}> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+
+  try {
+    const res = await fetch(`${base}/api/jobs`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (!res.ok) return { jobs: [], error: true };
+    const body = await res.json();
+    const parsed = JobListResponseSchema.safeParse(body);
+    if (!parsed.success) return { jobs: [], error: true };
+    const jobs = parsed.data.jobs
+      .filter((j) => isVisibleToField(j))
+      .map((j) => ({ id: j.id, name: j.name }));
+    return { jobs, error: false };
+  } catch {
+    return { jobs: [], error: true };
   }
 }
