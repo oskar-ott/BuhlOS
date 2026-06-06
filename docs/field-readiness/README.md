@@ -26,3 +26,4 @@ Current readiness rating: **2 / 5**.
 - [../testing/Seeded-Authenticated-QA.md](../testing/Seeded-Authenticated-QA.md) · [../qa/authenticated-smokes.md](../qa/authenticated-smokes.md) — seeded QA accounts and authed smokes.
 - [../testing/Claude-Authed-Preview-Smoke.md](../testing/Claude-Authed-Preview-Smoke.md) · [../testing/Known-Risk-Areas.md](../testing/Known-Risk-Areas.md) — Preview Smoke and the standing risk register.
 - [../rebuild-audit/35-current-product-state-audit.md](../rebuild-audit/35-current-product-state-audit.md) — the deeper (earlier) product-state audit this pack distils for rollout.
+- [../phil-capture.md](../phil-capture.md) — Phil photo/evidence Capture: shipped-state reference (what's real, metadata, honest states, permissions, tests, what's not built).
