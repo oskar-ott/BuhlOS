@@ -27,10 +27,13 @@ import {
   canApprove,
   localDateString,
   weekStartOf,
+  weekEndOf,
+  addDays,
   buildStandardDayPayload,
   buildCustomHoursPayload,
   isWithinBackdateWindow,
   primaryJobId,
+  summariseMissing,
 } from "./service";
 import { formatHoursLabel, statusLabel, statusTone, formatDateLabel } from "./format";
 
@@ -610,5 +613,96 @@ describe("timesheets client wrappers", () => {
       expect(r.data.entry.status).toBe("rejected");
       expect(r.data.entry.rejectedReason).toBe("Wrong job");
     }
+  });
+});
+
+describe("weekEndOf() / addDays() (admin weekly overview helpers)", () => {
+  it("weekEndOf returns the Sunday of that ISO week", () => {
+    // 2026-05-04 is a Monday; the week ends Sunday 2026-05-10.
+    expect(weekEndOf("2026-05-04")).toBe("2026-05-10");
+    expect(weekEndOf("2026-05-07")).toBe("2026-05-10");
+    expect(weekEndOf("2026-05-10")).toBe("2026-05-10");
+  });
+
+  it("weekEndOf is always 6 days after the matching weekStartOf", () => {
+    for (const d of ["2026-01-01", "2026-02-28", "2026-12-31", "2026-05-07"]) {
+      expect(weekEndOf(d)).toBe(addDays(weekStartOf(d), 6));
+    }
+  });
+
+  it("addDays shifts forwards and backwards across month/year boundaries", () => {
+    expect(addDays("2026-05-04", 7)).toBe("2026-05-11");
+    expect(addDays("2026-05-04", -7)).toBe("2026-04-27");
+    expect(addDays("2026-05-31", 1)).toBe("2026-06-01");
+    expect(addDays("2026-01-01", -1)).toBe("2025-12-31");
+    expect(addDays("2026-05-04", 0)).toBe("2026-05-04");
+  });
+
+  it("returns the input unchanged for a malformed date", () => {
+    expect(addDays("not-a-date", 3)).toBe("not-a-date");
+    expect(weekEndOf("not-a-date")).toBe("not-a-date");
+  });
+});
+
+describe("summariseMissing() (missing-hours rollup)", () => {
+  const missing = [
+    { date: "2026-05-06", userId: "u-1", userName: "Bob", role: "tradie" },
+    { date: "2026-05-05", userId: "u-1", userName: "Bob", role: "tradie" },
+    { date: "2026-05-05", userId: "u-2", userName: "Alice", role: "leadingHand" },
+  ];
+
+  it("counts distinct workers and dates, not raw cells", () => {
+    const s = summariseMissing(missing);
+    expect(s.total).toBe(3);
+    expect(s.workerCount).toBe(2);
+    expect(s.dateCount).toBe(2);
+  });
+
+  it("oldestDate is the earliest missing date (for an age label)", () => {
+    expect(summariseMissing(missing).oldestDate).toBe("2026-05-05");
+  });
+
+  it("groups by worker, most-missing first, with sorted dates", () => {
+    const s = summariseMissing(missing);
+    expect(s.byWorker.map((w) => w.userId)).toEqual(["u-1", "u-2"]);
+    expect(s.byWorker[0]!.dates).toEqual(["2026-05-05", "2026-05-06"]);
+    expect(s.byWorker[1]!.dates).toEqual(["2026-05-05"]);
+  });
+
+  it("groups by date ascending with workers alphabetical", () => {
+    const s = summariseMissing(missing);
+    expect(s.byDate.map((d) => d.date)).toEqual(["2026-05-05", "2026-05-06"]);
+    expect(s.byDate[0]!.workers.map((w) => w.userName)).toEqual(["Alice", "Bob"]);
+    expect(s.byDate[1]!.workers.map((w) => w.userName)).toEqual(["Bob"]);
+  });
+
+  it("dedupes a repeated worker on the same date", () => {
+    const s = summariseMissing([
+      { date: "2026-05-05", userId: "u-1", userName: "Bob", role: "tradie" },
+      { date: "2026-05-05", userId: "u-1", userName: "Bob", role: "tradie" },
+    ]);
+    expect(s.total).toBe(2); // raw cells, unchanged
+    expect(s.workerCount).toBe(1);
+    expect(s.dateCount).toBe(1);
+    expect(s.byWorker[0]!.dates).toEqual(["2026-05-05"]);
+    expect(s.byDate[0]!.workers).toHaveLength(1);
+  });
+
+  it("returns an empty, zeroed summary for no missing logs", () => {
+    const s = summariseMissing([]);
+    expect(s).toEqual({
+      total: 0,
+      workerCount: 0,
+      dateCount: 0,
+      oldestDate: null,
+      byWorker: [],
+      byDate: [],
+    });
+  });
+
+  it("tolerates a missing role (optional field) by normalising to null", () => {
+    const s = summariseMissing([{ date: "2026-05-05", userId: "u-9", userName: "Sam" }]);
+    expect(s.byWorker[0]!.role).toBeNull();
+    expect(s.byDate[0]!.workers[0]!.role).toBeNull();
   });
 });

@@ -152,6 +152,170 @@ export const TimeEntryMutationResponseSchema = z.object({
   entry: TimeEntrySchema,
 });
 
+/**
+ * Schemas for GET /api/time-entries-overview (admin/LH cross-user rollup).
+ *
+ * The wire shape mirrors api/time-entries-overview.js verbatim. Totals are
+ * computed server-side by summing *allocation* hours so per-job figures stay
+ * correct when an entry is split across jobs. `missing` is the existing
+ * server-side missing-hours detection (assigned crew, weekdays, past/today).
+ *
+ * `entries` are enriched (userName + per-allocation jobName) but still satisfy
+ * TimeEntrySchema, which is already permissive (`.passthrough()`), so we reuse
+ * it rather than declaring a second entry shape that could drift.
+ */
+export const OverviewByJobSchema = z.object({
+  jobId: z.string().nullable(),
+  jobName: z.string(),
+  hours: z.number(),
+});
+
+export const OverviewByUserSchema = z.object({
+  userId: z.string(),
+  userName: z.string(),
+  role: z.string().nullable(),
+  hours: z.number(),
+});
+
+export const OverviewByDateSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  hours: z.number(),
+  count: z.number().int().nonnegative(),
+});
+
+export const OverviewByStatusSchema = z.object({
+  draft: z.number().int().nonnegative(),
+  submitted: z.number().int().nonnegative(),
+  approved: z.number().int().nonnegative(),
+  rejected: z.number().int().nonnegative(),
+});
+
+export const OverviewTotalsSchema = z.object({
+  totalHours: z.number(),
+  byJob: z.array(OverviewByJobSchema),
+  byUser: z.array(OverviewByUserSchema),
+  byDate: z.array(OverviewByDateSchema),
+  byStatus: OverviewByStatusSchema,
+});
+
+/**
+ * One missing-hours alert: an assigned crew member with no entry of any
+ * status on a given weekday. Field names match the server (`userName`, not
+ * `workerName`).
+ */
+export const MissingLogSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  userId: z.string(),
+  userName: z.string(),
+  role: z.string().nullable().optional(),
+});
+
+export const OverviewJobSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.string(),
+});
+
+export const OverviewUserSchema = z.object({
+  id: z.string(),
+  username: z.string(),
+  role: z.string().nullable().optional(),
+});
+
+export const TimeEntryOverviewResponseSchema = z.object({
+  range: z.object({
+    fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
+  entries: z.array(TimeEntrySchema),
+  totals: OverviewTotalsSchema,
+  missing: z.array(MissingLogSchema),
+  jobs: z.array(OverviewJobSchema),
+  users: z.array(OverviewUserSchema),
+});
+
+/**
+ * Schemas for GET /api/time-entries-export?dryRun=1&format=json (admin-only
+ * payroll preview). The dry-run never stamps entries, so it's safe to call on
+ * page load to show "what would export this week" before the admin commits to
+ * the real CSV download.
+ *
+ * We model only `range` + `summary` (the numbers the preview card shows) and
+ * ignore the `rows[]` payload — the page never renders individual rows, the
+ * CSV download is the artifact for that. The wire shape mirrors
+ * api/time-entries-export.js `summarise()`.
+ */
+export const PayrollExportSummarySchema = z
+  .object({
+    rowCount: z.number().int().nonnegative(),
+    totalHours: z.number(),
+    totalCostExGst: z.number(),
+    workerCount: z.number().int().nonnegative(),
+    jobCount: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
+export const PayrollExportPreviewResponseSchema = z
+  .object({
+    range: z
+      .object({
+        fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        status: z.string(),
+        dryRun: z.boolean(),
+      })
+      .passthrough(),
+    summary: PayrollExportSummarySchema,
+  })
+  .passthrough();
+
+/**
+ * Schemas for GET /api/today-pulse?date=YYYY-MM-DD — the live "what's on site
+ * today" snapshot that backs the end-of-day closeout panel on /hours. Same
+ * numbers the 17:00 digest cron composes, but on-demand at any point in the
+ * day. Staff-gated (admin = all; leading-hand = own jobs; 403 otherwise).
+ *
+ * We model the whole response (hours + snags + jobs) so the typed client is
+ * honest about what the endpoint returns, but the closeout panel only renders
+ * the `hours` block. `.passthrough()` keeps future fields from breaking parse.
+ *
+ * Wire shape mirrors api/today-pulse.js verbatim.
+ */
+export const TodayPulseHoursSchema = z
+  .object({
+    submittedCount: z.number().int().nonnegative(),
+    submittedTotal: z.number(),
+    approvedCount: z.number().int().nonnegative(),
+    approvedTotal: z.number(),
+    pendingCount: z.number().int().nonnegative(),
+    draftCount: z.number().int().nonnegative(),
+    crewOnSite: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
+export const TodayPulseSnagsSchema = z
+  .object({
+    openedToday: z.number().int().nonnegative(),
+    resolvedToday: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
+export const TodayPulseJobsSchema = z
+  .object({
+    activeJobs: z.number().int().nonnegative(),
+    jobsWithActivityToday: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
+export const TodayPulseResponseSchema = z
+  .object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    hours: TodayPulseHoursSchema,
+    snags: TodayPulseSnagsSchema,
+    jobs: TodayPulseJobsSchema,
+  })
+  .passthrough();
+
 export const ApiErrorBodySchema = z.object({
   error: z.string(),
 });
