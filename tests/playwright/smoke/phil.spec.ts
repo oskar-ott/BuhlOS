@@ -21,6 +21,37 @@ test.describe("Phil field smoke", () => {
     await expect(page).toHaveURL(/\/phil\/my-day(?:\?|$)/);
   });
 
+  test("field user can open the global Capture launcher from the bottom nav", async ({
+    page,
+  }) => {
+    await loginAsField(page);
+    await expect(page.getByTestId("phil-shell")).toBeVisible();
+
+    // The centre Capture FAB is the universal field action — present on every
+    // Phil screen (src/components/phil/PhilTabBar.tsx), aria-label="Capture".
+    const fab = page.getByRole("button", { name: "Capture", exact: true });
+    await expect(fab).toBeVisible();
+    await fab.click();
+
+    // Tapping it opens the capture launcher dialog. This is READ-ONLY: the
+    // launcher only lists the worker's jobs (GET /api/jobs); it never uploads a
+    // photo or writes anything, so it is safe to run against a (possibly
+    // production-shared) preview Blob — nothing is mutated.
+    const launcher = page.getByRole("dialog", { name: "Capture", exact: true });
+    await expect(launcher).toBeVisible();
+    // Honest resolution only — a job picker, a single-job chooser, or an
+    // explicit empty state. Never a fabricated "saved" confirmation.
+    await expect(
+      launcher.getByText(
+        /Take a photo \/ evidence|Which job is this for|No jobs assigned|Loading your jobs/i
+      )
+    ).toBeVisible();
+
+    // Esc closes the launcher without writing anything.
+    await page.keyboard.press("Escape");
+    await expect(launcher).toBeHidden();
+  });
+
   test("field user can open an assigned active job when the QA account has one", async ({
     page,
   }) => {
@@ -54,5 +85,18 @@ test.describe("Phil field smoke", () => {
     await expect(page.getByTestId("phil-shell")).toBeVisible();
     await expect(page.getByRole("button", { name: /Capture evidence/i })).toBeVisible();
     await expect(page.getByText(/Save changes|Publish to field/i)).toHaveCount(0);
+
+    // The on-page Capture CTA opens the evidence sheet wired to THIS job's
+    // context (the sheet is constructed from the job — header job name, stage +
+    // area pickers). Opening it proves the capture panel surfaces the real
+    // photo affordance, not a placeholder. NON-MUTATING: we open and close the
+    // sheet without picking a photo or submitting, so nothing is uploaded or
+    // written. Real persistence is covered by evidence.test.ts (mocked Blob).
+    await page.getByRole("button", { name: /Capture evidence/i }).click();
+    const sheet = page.getByRole("dialog", { name: /Capture evidence/i });
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByText("Take a photo")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
   });
 });
