@@ -3,7 +3,8 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { PhilJobAreaDetail } from "./PhilJobAreaDetail";
 import type { AreaCounts, AreaStageAvailability } from "./philJobWorkTree";
-import type { JobStage, JobTaskTemplate } from "@/domains/jobs/types";
+import type { JobStage } from "@/domains/jobs/types";
+import type { TaskState, WorkerTask } from "@/domains/jobs/taskState";
 
 /**
  * Render observation for the area drill-in. No JSX (matches
@@ -21,8 +22,10 @@ function render(props: {
   spaceType?: string | null;
   stages: AreaStageAvailability;
   stage: JobStage;
-  tasks: ReadonlyArray<JobTaskTemplate>;
+  tasks: ReadonlyArray<WorkerTask>;
   counts: AreaCounts;
+  onToggleTask?: (taskId: string, next: TaskState) => void;
+  pendingTaskIds?: ReadonlySet<string>;
 }) {
   return renderToString(
     createElement(PhilJobAreaDetail, { ...props, onStageChange: noop }),
@@ -37,7 +40,11 @@ function text(html: string): string {
     .trim();
 }
 
-const task = (id: string, name: string): JobTaskTemplate => ({ id, name });
+const task = (
+  id: string,
+  name: string,
+  state: TaskState = "not_started",
+): WorkerTask => ({ id, name, state });
 const BOTH: AreaStageAvailability = { roughIn: true, fitOff: true };
 const RI: AreaStageAvailability = { roughIn: true, fitOff: false };
 const FO: AreaStageAvailability = { roughIn: false, fitOff: true };
@@ -190,6 +197,112 @@ describe("PhilJobAreaDetail render — quick links (real data only)", () => {
     });
     expect(html).not.toContain("#phil-job-documents");
     expect(html).not.toContain("#phil-job-materials");
+  });
+});
+
+describe("PhilJobAreaDetail render — task state + toggle", () => {
+  it("read-only (no onToggleTask) shows a real state pill and no controls", () => {
+    const html = render({
+      areaName: "Main Bar",
+      stages: RI,
+      stage: "roughIn",
+      tasks: [task("t1", "Pull power", "complete"), task("t2", "Rough lighting")],
+      counts: NO_COUNTS,
+    });
+    const t = text(html);
+    expect(t).toContain("Done"); // state of the complete task
+    expect(t).toContain("To do"); // state of the not-started task
+    // No mutation affordance when the parent didn't wire one.
+    expect(t).not.toContain("Mark done");
+    expect(t).not.toContain("Undo");
+  });
+
+  it("interactive: Mark done for not-done tasks, Undo for done tasks", () => {
+    const html = render({
+      areaName: "Main Bar",
+      stages: RI,
+      stage: "roughIn",
+      tasks: [task("t1", "Pull power"), task("t2", "Rough lighting", "complete")],
+      counts: NO_COUNTS,
+      onToggleTask: noop,
+    });
+    const t = text(html);
+    expect(t).toContain("Mark done");
+    expect(t).toContain("Undo");
+  });
+
+  it("displays a pre-existing in_progress state but still offers Mark done (binary v1)", () => {
+    const html = render({
+      areaName: "Main Bar",
+      stages: RI,
+      stage: "roughIn",
+      tasks: [task("t1", "Pull power", "in_progress")],
+      counts: NO_COUNTS,
+      onToggleTask: noop,
+    });
+    // We faithfully render in_progress (never hide real state) but the v1
+    // control drives it straight to done.
+    expect(text(html)).toContain("Mark done");
+  });
+
+  it("shows a saving state and disables the control for a pending task", () => {
+    const html = render({
+      areaName: "Main Bar",
+      stages: RI,
+      stage: "roughIn",
+      tasks: [task("t1", "Pull power")],
+      counts: NO_COUNTS,
+      onToggleTask: noop,
+      pendingTaskIds: new Set(["t1"]),
+    });
+    expect(text(html)).toContain("Saving");
+    expect(html).toContain("disabled");
+  });
+
+  it("shows an honest completion count for the viewed stage", () => {
+    const html = render({
+      areaName: "Main Bar",
+      stages: RI,
+      stage: "roughIn",
+      tasks: [
+        task("t1", "a", "complete"),
+        task("t2", "b"),
+        task("t3", "c", "complete"),
+      ],
+      counts: NO_COUNTS,
+    });
+    expect(text(html)).toContain("2 of 3 done");
+  });
+
+  it("reads 'All N done' only when every task is complete", () => {
+    const html = render({
+      areaName: "Main Bar",
+      stages: RI,
+      stage: "roughIn",
+      tasks: [task("t1", "a", "complete"), task("t2", "b", "complete")],
+      counts: NO_COUNTS,
+    });
+    expect(text(html)).toContain("All 2 done");
+  });
+
+  it("never renders admin/editor controls in the field drill-in", () => {
+    const html = render({
+      areaName: "Main Bar",
+      stages: BOTH,
+      stage: "roughIn",
+      tasks: [task("t1", "Pull power")],
+      counts: NO_COUNTS,
+      onToggleTask: noop,
+    });
+    const t = text(html).toLowerCase();
+    expect(t).not.toContain("edit task");
+    expect(t).not.toContain("add task");
+    expect(t).not.toContain("delete");
+    expect(t).not.toContain("archive");
+    // No free-text editors leak the office builder into the field view.
+    expect(html).not.toContain("<input");
+    expect(html).not.toContain("<textarea");
+    expect(html).not.toContain("contentEditable");
   });
 });
 
