@@ -2,11 +2,16 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { ChevronRight, MapPin } from "lucide-react";
+import { AlertOctagon, ChevronRight, ClipboardCheck, MapPin } from "lucide-react";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { lastActivityCaption, statusLabel, statusTone } from "@/domains/jobs/format";
 import type { Job } from "@/domains/jobs/types";
+import {
+  jobOpenWork,
+  jobOpenWorkSummary,
+  type JobOpenWorkKey,
+} from "./philJobsListSignals";
 
 // Bridge the jobs-domain tone vocabulary onto the shared StatusChip
 // palette. JobStatusTone is neutral/success/warning today; the explicit
@@ -17,13 +22,26 @@ const JOBS_CHIP_TONE: Record<ReturnType<typeof statusTone>, StatusTone> = {
   warning: "warning",
 };
 
+// Icons for the per-row "open work on this site" chips — same vocabulary as
+// the per-job area cards (PhilJobAreaCard) so the list and the job agree.
+const OPEN_WORK_ICON: Record<JobOpenWorkKey, typeof AlertOctagon> = {
+  snags: AlertOctagon,
+  itps: ClipboardCheck,
+};
+
 interface Props {
   initialJobs: ReadonlyArray<Job>;
 }
 
 /**
  * Phil jobs list — vertical full-width rows, status pill left, job name
- * large, address smaller, "Updated / Created X ago" right-aligned.
+ * large, address smaller, "Updated / Created X ago" right-aligned, and a
+ * row of real "open work on this site" chips (open snags · active ITPs)
+ * so a worker can see at a glance which site has outstanding work before
+ * tapping in. The chips come from the opt-in `?withStats=1` stats and are
+ * job-wide site signals — the scoped, personal attention lives on the job
+ * screen. When stats are absent the chips simply don't render (no fake
+ * "all clear"); see philJobsListSignals.ts.
  *
  * Tap target is the whole row (per doc 27 §8.4). No filters (workers have
  * 1-5 jobs; filtering is meaningless at that scale). Empty state speaks
@@ -61,11 +79,15 @@ export function PhilJobsList({ initialJobs }: Props) {
 function JobRow({ job }: { job: Job }) {
   const caption = lastActivityCaption(job);
   const address = (job.siteAddress ?? "").trim();
+  // Real, opt-in (?withStats=1) site signals: open snags + active ITPs. Empty
+  // when stats are absent, so the row degrades to exactly its prior look.
+  const signals = jobOpenWork(job);
+  const summary = jobOpenWorkSummary(signals);
   return (
     <Link
       href={`/phil/jobs/${encodeURIComponent(job.id)}` as Route}
       className="flex min-h-[88px] items-stretch gap-3 px-4 py-3 hover:bg-surface-subtle focus:bg-surface-subtle focus:outline-none"
-      aria-label={`Open ${job.name}`}
+      aria-label={summary ? `Open ${job.name} — ${summary}` : `Open ${job.name}`}
     >
       <div className="flex shrink-0 items-start pt-1">
         <StatusChip tone={JOBS_CHIP_TONE[statusTone(job.status)]}>
@@ -85,6 +107,26 @@ function JobRow({ job }: { job: Job }) {
         ) : null}
         {job.ref ? (
           <p className="mt-0.5 truncate text-xs text-text-muted">Ref {job.ref}</p>
+        ) : null}
+
+        {signals.length > 0 ? (
+          <ul
+            className="mt-1.5 flex flex-wrap items-center gap-1.5"
+            aria-hidden="true"
+          >
+            {signals.map((s) => {
+              const Icon = OPEN_WORK_ICON[s.key];
+              return (
+                <li
+                  key={s.key}
+                  className="inline-flex items-center gap-1 rounded-pill border border-border bg-surface px-2 py-0.5 text-[11px] font-medium text-text-muted"
+                >
+                  <Icon aria-hidden="true" className="h-3 w-3 shrink-0" />
+                  {s.label}
+                </li>
+              );
+            })}
+          </ul>
         ) : null}
       </div>
 
