@@ -9,9 +9,18 @@ import { Pill } from "@/components/ui/Pill";
 import { JobInterfaceSectionNav } from "@/components/admin/JobInterfaceSectionNav";
 import { JobOverviewSummary } from "@/components/admin/JobOverviewSummary";
 import { JobFieldViewCard } from "@/components/admin/JobFieldViewCard";
+import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
+import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
+import { JobRecentActivity } from "@/components/admin/JobRecentActivity";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { JobDetailResponseSchema } from "@/domains/jobs/schema";
+import {
+  parseActivityResult,
+  parseEvidenceResult,
+  parseHoursResult,
+  parseJobResult,
+  type JobInterfaceData,
+} from "@/domains/jobs/job-interface-data";
 import { hasSiteContext, statusLabel, statusTone } from "@/domains/jobs/format";
 import { isVisibleToField, summariseStructure } from "@/domains/jobs/builder";
 import type { Job } from "@/domains/jobs/types";
@@ -29,16 +38,21 @@ interface PageParams {
  * as the only way to land on a per-job admin surface; lets admins see
  * every section in one place and tap into the live ones.
  *
- * Sections rendered here:
+ * Sections rendered here (top to bottom):
  *   - Overview header: job name, ref, type, status pill, archived badge
+ *   - Status summary (PR #87) + "What the field sees" (PR #88)
+ *   - Operational loop (read-only, real data):
+ *       Labour    &mdash; hours awaiting approval on this job (time-entries)
+ *       Evidence  &mdash; capture summary by status (per-job evidence)
+ *       Activity  &mdash; latest audit-log events (scope=job)
  *   - Site context: address / contact / access / parking / safety / induction
- *   - Section nav: Evidence (live) / Snags (live) / ITP (UC) / Documents (UC)
- *     / Materials (UC) / History (UC)
+ *   - Section nav: Evidence / Snags / Observations / ITP / Documents / Plans /
+ *     Material requests (live) + Materials legacy (UC)
  *
  * Live counts on the section nav come from /api/jobs?withStats=1
- * (statsEvidenceV2Pending, statsSnagsV2Active &mdash; statsItpsActive is
- * already on the API post-E1a but the ITP section row stays UC until
- * E1b/E1c ship the matching UI).
+ * (statsEvidenceV2Pending, statsSnagsV2Active, statsItpsActive,
+ * statsDocumentsCurrent). The operational-loop cards each load their own
+ * per-job slice in parallel (see loadJobInterface) and degrade independently.
  *
  * This page does NOT replace the /v2/jobs/[jobId]/evidence and /snags
  * routes &mdash; it adds a parent hub. JobsList row chips still deep-link
@@ -67,7 +81,8 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
   }
   const canBuild = canAccessSurface(session.role, "admin");
 
-  const result = await loadJob(raw, jobId);
+  const data = await loadJobInterface(raw, jobId);
+  const result = data.job;
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
     return (
@@ -140,6 +155,19 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
         <JobOverviewSummary job={job} />
         <JobBuildCard job={job} canBuild={canBuild} />
         <JobFieldViewCard job={job} />
+        {/* Operational loop — what's actually happening on the job, derived
+            from real time-entry / evidence / audit-log data (read-only). */}
+        <JobLabourSummary entries={data.hours.entries} jobId={job.id} fetchError={data.hours.error} />
+        <JobEvidenceSummary
+          evidence={data.evidence.evidence}
+          jobId={job.id}
+          fetchError={data.evidence.error}
+        />
+        <JobRecentActivity
+          entries={data.activity.entries}
+          jobId={job.id}
+          fetchError={data.activity.error}
+        />
         {hasSiteContext(job) ? <SiteContextCard job={job} /> : null}
         <JobInterfaceSectionNav job={job} />
       </div>
@@ -299,46 +327,51 @@ function SiteField({
   );
 }
 
-type LoadResult =
-  | { kind: "ok"; job: Job }
-  | { kind: "not_found" }
-  | { kind: "forbidden" }
-  | { kind: "error"; message: string };
-
-async function loadJob(
+/**
+ * Load the job + its operational-loop data in one parallel pass.
+ *
+ * The job fetch (withStats=1, so the existing Status/Field/Section cards keep
+ * their real counts) gates the page's not_found/forbidden/error states. The
+ * three operational fetches are best-effort and independent — modelled on the
+ * history page's Promise.allSettled pattern — so a slow or failed hours /
+ * evidence / activity read degrades to that one card's error state rather than
+ * blanking the whole hub. All reads are GETs forwarding the session cookie;
+ * nothing here mutates. Response parsing (and its rejected/!ok/malformed
+ * branches) lives in — and is unit-tested via — src/domains/jobs/job-interface-data.ts.
+ */
+async function loadJobInterface(
   cookieValue: string | undefined,
   jobId: string
-): Promise<LoadResult> {
+): Promise<JobInterfaceData> {
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
-  try {
-    // withStats=1 so the section nav can show evidence + snag counts on
-    // the live rows. statsItpsActive is also enriched by the API
-    // post-E1a (PR #34) but the ITP row stays UC until E1b/E1c.
-    const res = await fetch(
-      `${base}/api/jobs?id=${encodeURIComponent(jobId)}&withStats=1`,
-      {
-        cache: "no-store",
-        headers: cookieValue
-          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
-          : undefined,
-      }
-    );
-    if (res.status === 404) return { kind: "not_found" };
-    if (res.status === 403) return { kind: "forbidden" };
-    if (!res.ok) return { kind: "error", message: `API returned ${res.status}` };
-    const body = await res.json();
-    const parsed = JobDetailResponseSchema.safeParse(body);
-    if (!parsed.success) {
-      return { kind: "error", message: "Unexpected response shape" };
-    }
-    return { kind: "ok", job: parsed.data.job };
-  } catch (err) {
-    return {
-      kind: "error",
-      message: err instanceof Error ? err.message : "Network error",
-    };
-  }
+  const enc = encodeURIComponent(jobId);
+  const init = {
+    cache: "no-store" as const,
+    headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+  };
+
+  const [jobRes, hoursRes, evidenceRes, activityRes] = await Promise.allSettled([
+    // withStats=1 so the section nav + Status/Field cards can show evidence +
+    // snag + ITP + document counts on the loaded Job.
+    fetch(`${base}/api/jobs?id=${enc}&withStats=1`, init),
+    // scope=approver&status=submitted is exactly the /hours/approvals queue —
+    // the hours awaiting office approval. The Labour card filters its
+    // allocations down to this job.
+    fetch(`${base}/api/time-entries?scope=approver&status=submitted`, init),
+    fetch(`${base}/api/evidence?jobId=${enc}`, init),
+    // months=4 mirrors the history tab's window (history/page.tsx) so the
+    // Activity card's "+N more · View all" count and the full feed it links to
+    // are computed over the same set.
+    fetch(`${base}/api/audit-log?jobId=${enc}&scope=job&months=4`, init),
+  ]);
+
+  return {
+    job: await parseJobResult(jobRes),
+    hours: await parseHoursResult(hoursRes),
+    evidence: await parseEvidenceResult(evidenceRes),
+    activity: await parseActivityResult(activityRes),
+  };
 }
