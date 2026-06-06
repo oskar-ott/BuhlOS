@@ -75,4 +75,43 @@ describe("summariseJobEvidence", () => {
     expect(s.total).toBe(1);
     expect(s.pendingReview + s.reviewed + s.rejected).toBe(1);
   });
+
+  it("attributes provenance from the real source stamp (field vs office)", () => {
+    const s = summariseJobEvidence(
+      [
+        ev({ id: "a", source: "phil" }),
+        ev({ id: "b", source: "phil" }),
+        ev({ id: "c", source: "admin" }),
+      ],
+      "job-1",
+    );
+    expect(s.fromField).toBe(2);
+    expect(s.fromOffice).toBe(1);
+    expect(s.fromField + s.fromOffice).toBe(s.total);
+  });
+
+  it("never guesses provenance — reserved/unknown sources count in total only", () => {
+    const weird = { ...ev({ id: "c" }), source: "weird" } as unknown as EvidenceItem;
+    const s = summariseJobEvidence(
+      [ev({ id: "a", source: "phil" }), ev({ id: "b", source: "system" }), weird],
+      "job-1",
+    );
+    expect(s.total).toBe(3);
+    expect(s.fromField).toBe(1);
+    expect(s.fromOffice).toBe(0);
+  });
+
+  it("splits captures by kind (photo vs note)", () => {
+    const s = summariseJobEvidence(
+      [
+        ev({ id: "a", kind: "photo", photoId: "p", photoUrl: "u" }),
+        ev({ id: "b", kind: "note", note: "tap done", photoId: null, photoUrl: null }),
+        ev({ id: "c", kind: "note", note: "second note", photoId: null, photoUrl: null }),
+      ],
+      "job-1",
+    );
+    expect(s.photos).toBe(1);
+    expect(s.notes).toBe(2);
+    expect(s.photos + s.notes).toBe(s.total);
+  });
 });

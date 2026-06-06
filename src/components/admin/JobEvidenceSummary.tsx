@@ -14,11 +14,12 @@ import type { EvidenceItem } from "@/domains/evidence/types";
  * and GET /api/evidence?jobId=<id> already returns only this job's items, so
  * every count here is real — never a fabricated row or a fake upload.
  *
- * This is a SUMMARY, not the review queue: a status breakdown + latest-capture
- * caption that deep-links to the full /v2/jobs/[id]/evidence surface (where the
- * thumbnails, drawer, review and reject actions live). It is intentionally NOT
- * a global Evidence module and NOT a photo wall on the landing page — evidence
- * belongs inside the job interface.
+ * This is a SUMMARY, not the review queue: a status breakdown, provenance
+ * (field/Phil vs office), a photo/note split, and a latest-capture caption that
+ * deep-links to the full /v2/jobs/[id]/evidence surface (where the thumbnails,
+ * drawer, review and reject actions live). It is intentionally NOT a global
+ * Evidence module and NOT a photo wall on the landing page — evidence belongs
+ * inside the job interface.
  *
  * Honest empty state: "No evidence captured for this job yet." If the field
  * captures nothing, nothing is invented.
@@ -42,6 +43,23 @@ export function JobEvidenceSummary({
   const summary = summariseJobEvidence(evidence, jobId);
   const evidenceHref = `/v2/jobs/${encodeURIComponent(jobId)}/evidence` as Route;
   const latestWhen = summary.latest ? relativeWhen(summary.latest.capturedAt) : null;
+
+  // Provenance — "did this come from the field?" — read off the real `source`
+  // stamp (never guessed). Only shown when there is evidence to attribute.
+  const provenance =
+    summary.fromField === summary.total
+      ? "All captured in the field via Phil"
+      : summary.fromOffice === summary.total
+        ? "All added in the office"
+        : `${summary.fromField} from the field · ${summary.fromOffice} from the office`;
+  const kindParts: string[] = [];
+  if (summary.photos > 0) {
+    kindParts.push(`${summary.photos} photo${summary.photos === 1 ? "" : "s"}`);
+  }
+  if (summary.notes > 0) {
+    kindParts.push(`${summary.notes} note${summary.notes === 1 ? "" : "s"}`);
+  }
+  const kindClause = kindParts.join(", ");
 
   return (
     <Card>
@@ -96,6 +114,11 @@ export function JobEvidenceSummary({
                 <span className="text-text">{summary.latest.capturedByName}</span>
               </>
             ) : null}
+          </p>
+
+          <p className="mt-1 text-xs text-text-muted">
+            {provenance}
+            {kindClause ? ` · ${kindClause}` : null}
           </p>
 
           {summary.missingContext > 0 ? (

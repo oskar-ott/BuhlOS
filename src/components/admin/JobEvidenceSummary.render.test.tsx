@@ -69,6 +69,42 @@ describe("JobEvidenceSummary", () => {
     expect(html).toContain("not linked to a task or area");
   });
 
+  it("reads all-field captures as 'from the field via Phil'", () => {
+    const html = render({
+      evidence: [ev({ id: "a", source: "phil" }), ev({ id: "b", source: "phil" })],
+      jobId: "job-1",
+      fetchError: null,
+    });
+    expect(html).toContain("All captured in the field via Phil");
+  });
+
+  it("shows the field/office split when provenance is mixed", () => {
+    const html = render({
+      evidence: [
+        ev({ id: "a", source: "phil" }),
+        ev({ id: "b", source: "phil" }),
+        ev({ id: "c", source: "admin" }),
+      ],
+      jobId: "job-1",
+      fetchError: null,
+    });
+    expect(html).toContain("2 from the field");
+    expect(html).toContain("1 from the office");
+  });
+
+  it("shows a photo/note split", () => {
+    const html = render({
+      evidence: [
+        ev({ id: "a", kind: "photo" }),
+        ev({ id: "b", kind: "note", note: "done" }),
+      ],
+      jobId: "job-1",
+      fetchError: null,
+    });
+    expect(html).toContain("1 photo");
+    expect(html).toContain("1 note");
+  });
+
   it("does not fabricate evidence on a fetch error", () => {
     const html = render({ evidence: [], jobId: "job-1", fetchError: "API returned 502" });
     expect(html).toContain("load evidence for this job");

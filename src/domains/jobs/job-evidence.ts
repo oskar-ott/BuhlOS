@@ -18,6 +18,15 @@ import type { EvidenceItem } from "@/domains/evidence/types";
  * stage. It is a real, derivable quality signal (the office may want the field
  * to say where a loose photo belongs), not a fabricated one.
  *
+ * Provenance is a real persisted signal too. api/evidence.js stamps every
+ * capture with `source`: an admin-role capture writes `admin`, anyone else
+ * (the tradies / leading hands who use Phil in the field) writes `phil` (see
+ * sourceForUser). So `fromField` / `fromOffice` answer "did this come from the
+ * field?" honestly — they are read straight off the row, never guessed. A
+ * source that is neither (the reserved `system`, or an unknown future value)
+ * counts toward `total` but is attributed to neither bucket. `kind` is the
+ * other real discriminator — `photo` vs `note` — surfaced as a plain split.
+ *
  * Strictly pure (no fetch, no React) and never fabricates: empty input yields
  * a zeroed summary with `hasAny: false`, so the card can show an honest "no
  * evidence yet" rather than invented rows.
@@ -41,6 +50,14 @@ export interface JobEvidenceSummary {
   missingContext: number;
   /** Distinct workers who captured evidence on this job. */
   workerCount: number;
+  /** source === "phil" — captured in the field via the Phil app. */
+  fromField: number;
+  /** source === "admin" — added from the office. */
+  fromOffice: number;
+  /** kind === "photo". */
+  photos: number;
+  /** kind === "note". */
+  notes: number;
   /** Newest capture, for the "latest" caption, or null. */
   latest: { capturedByName: string; capturedAt: string } | null;
   hasAny: boolean;
@@ -68,6 +85,10 @@ export function summariseJobEvidence(
     rejected: 0,
     missingContext: 0,
     workerCount: 0,
+    fromField: 0,
+    fromOffice: 0,
+    photos: 0,
+    notes: 0,
     latest: null,
     hasAny: false,
   };
@@ -82,6 +103,14 @@ export function summariseJobEvidence(
     summary.hasAny = true;
     if (item.capturedById) workers.add(item.capturedById);
     if (isMissingContext(item)) summary.missingContext += 1;
+
+    // Provenance, read straight off the row (api/evidence.js sourceForUser).
+    // A "system"/unknown source is intentionally attributed to neither bucket.
+    if (item.source === "phil") summary.fromField += 1;
+    else if (item.source === "admin") summary.fromOffice += 1;
+
+    if (item.kind === "photo") summary.photos += 1;
+    else if (item.kind === "note") summary.notes += 1;
 
     switch (item.status) {
       case "submitted":
