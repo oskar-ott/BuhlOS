@@ -14,16 +14,16 @@ import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
 import { JobRecentActivity } from "@/components/admin/JobRecentActivity";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { JobDetailResponseSchema } from "@/domains/jobs/schema";
-import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
-import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
-import { AuditLogListResponseSchema } from "@/domains/audit-log/schema";
+import {
+  parseActivityResult,
+  parseEvidenceResult,
+  parseHoursResult,
+  parseJobResult,
+  type JobInterfaceData,
+} from "@/domains/jobs/job-interface-data";
 import { hasSiteContext, statusLabel, statusTone } from "@/domains/jobs/format";
 import { isVisibleToField, summariseStructure } from "@/domains/jobs/builder";
 import type { Job } from "@/domains/jobs/types";
-import type { TimeEntry } from "@/domains/timesheets/types";
-import type { EvidenceItem } from "@/domains/evidence/types";
-import type { AuditLogEntry } from "@/domains/audit-log/types";
 
 export const dynamic = "force-dynamic";
 
@@ -327,24 +327,6 @@ function SiteField({
   );
 }
 
-type LoadResult =
-  | { kind: "ok"; job: Job }
-  | { kind: "not_found" }
-  | { kind: "forbidden" }
-  | { kind: "error"; message: string };
-
-interface JobInterfaceData {
-  job: LoadResult;
-  /** Approver SUBMITTED queue — the hours awaiting approval (cross-job; the
-   *  Labour card filters to this job). Best-effort: a failure surfaces in the
-   *  card, never blocks the page. */
-  hours: { entries: TimeEntry[]; error: string | null };
-  /** Per-job evidence captures (already job-scoped server-side). */
-  evidence: { evidence: EvidenceItem[]; error: string | null };
-  /** Per-job audit-log activity (scope=job). */
-  activity: { entries: AuditLogEntry[]; error: string | null };
-}
-
 /**
  * Load the job + its operational-loop data in one parallel pass.
  *
@@ -354,7 +336,8 @@ interface JobInterfaceData {
  * history page's Promise.allSettled pattern — so a slow or failed hours /
  * evidence / activity read degrades to that one card's error state rather than
  * blanking the whole hub. All reads are GETs forwarding the session cookie;
- * nothing here mutates.
+ * nothing here mutates. Response parsing (and its rejected/!ok/malformed
+ * branches) lives in — and is unit-tested via — src/domains/jobs/job-interface-data.ts.
  */
 async function loadJobInterface(
   cookieValue: string | undefined,
@@ -379,82 +362,16 @@ async function loadJobInterface(
     // allocations down to this job.
     fetch(`${base}/api/time-entries?scope=approver&status=submitted`, init),
     fetch(`${base}/api/evidence?jobId=${enc}`, init),
-    // months=4 matches the history tab's window; the card shows the newest few.
+    // months=4 mirrors the history tab's window (history/page.tsx) so the
+    // Activity card's "+N more · View all" count and the full feed it links to
+    // are computed over the same set.
     fetch(`${base}/api/audit-log?jobId=${enc}&scope=job&months=4`, init),
   ]);
 
   return {
-    job: await parseJob(jobRes),
-    hours: await parseHours(hoursRes),
-    evidence: await parseEvidence(evidenceRes),
-    activity: await parseActivity(activityRes),
+    job: await parseJobResult(jobRes),
+    hours: await parseHoursResult(hoursRes),
+    evidence: await parseEvidenceResult(evidenceRes),
+    activity: await parseActivityResult(activityRes),
   };
-}
-
-async function parseJob(settled: PromiseSettledResult<Response>): Promise<LoadResult> {
-  if (settled.status === "rejected") {
-    return {
-      kind: "error",
-      message: settled.reason instanceof Error ? settled.reason.message : "Network error",
-    };
-  }
-  const res = settled.value;
-  if (res.status === 404) return { kind: "not_found" };
-  if (res.status === 403) return { kind: "forbidden" };
-  if (!res.ok) return { kind: "error", message: `API returned ${res.status}` };
-  const body = await res.json().catch(() => null);
-  const parsed = JobDetailResponseSchema.safeParse(body);
-  if (!parsed.success) return { kind: "error", message: "Unexpected response shape" };
-  return { kind: "ok", job: parsed.data.job };
-}
-
-async function parseHours(
-  settled: PromiseSettledResult<Response>
-): Promise<{ entries: TimeEntry[]; error: string | null }> {
-  if (settled.status === "rejected") {
-    return {
-      entries: [],
-      error: settled.reason instanceof Error ? settled.reason.message : "Network error",
-    };
-  }
-  const res = settled.value;
-  if (!res.ok) return { entries: [], error: `Hours API returned ${res.status}` };
-  const body = await res.json().catch(() => null);
-  const parsed = TimeEntryListResponseSchema.safeParse(body);
-  if (!parsed.success) return { entries: [], error: "Unexpected hours response shape" };
-  return { entries: parsed.data.entries, error: null };
-}
-
-async function parseEvidence(
-  settled: PromiseSettledResult<Response>
-): Promise<{ evidence: EvidenceItem[]; error: string | null }> {
-  if (settled.status === "rejected") {
-    return {
-      evidence: [],
-      error: settled.reason instanceof Error ? settled.reason.message : "Network error",
-    };
-  }
-  const res = settled.value;
-  if (!res.ok) return { evidence: [], error: `Evidence API returned ${res.status}` };
-  const body = await res.json().catch(() => null);
-  const parsed = EvidenceListResponseSchema.safeParse(body);
-  if (!parsed.success) return { evidence: [], error: "Unexpected evidence response shape" };
-  return { evidence: parsed.data.evidence, error: null };
-}
-
-async function parseActivity(
-  settled: PromiseSettledResult<Response>
-): Promise<{ entries: AuditLogEntry[]; error: string | null }> {
-  if (settled.status === "rejected") {
-    return {
-      entries: [],
-      error: settled.reason instanceof Error ? settled.reason.message : "Network error",
-    };
-  }
-  const res = settled.value;
-  if (!res.ok) return { entries: [], error: `Activity API returned ${res.status}` };
-  const body = await res.json().catch(() => null);
-  const parsed = AuditLogListResponseSchema.safeParse(body);
-  if (!parsed.success) return { entries: [], error: "Unexpected activity response shape" };
-  return { entries: parsed.data.entries, error: null };
 }

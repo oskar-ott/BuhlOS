@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  deriveEvidenceAttention,
-  groupEvidenceByStage,
-  summariseJobEvidence,
-} from "./job-evidence";
+import { summariseJobEvidence } from "./job-evidence";
 import type { EvidenceItem } from "@/domains/evidence/types";
 
 function ev(over: Partial<EvidenceItem> = {}): EvidenceItem {
@@ -78,40 +74,5 @@ describe("summariseJobEvidence", () => {
     const s = summariseJobEvidence([ev({ id: "a" })], "job-1");
     expect(s.total).toBe(1);
     expect(s.pendingReview + s.reviewed + s.rejected).toBe(1);
-  });
-});
-
-describe("groupEvidenceByStage", () => {
-  it("counts by stage and omits empty stages", () => {
-    const groups = groupEvidenceByStage(
-      [
-        ev({ id: "a", stage: "roughIn" }),
-        ev({ id: "b", stage: "roughIn" }),
-        ev({ id: "c", stage: "fitOff" }),
-        ev({ id: "d", stage: null, taskId: null }),
-      ],
-      "job-1",
-    );
-    expect(groups).toEqual([
-      { stage: "roughIn", count: 2 },
-      { stage: "fitOff", count: 1 },
-      { stage: "none", count: 1 },
-    ]);
-  });
-
-  it("is empty for no evidence", () => {
-    expect(groupEvidenceByStage([], "job-1")).toEqual([]);
-  });
-});
-
-describe("deriveEvidenceAttention", () => {
-  it("flags review needed when captures are pending", () => {
-    const s = summariseJobEvidence([ev({ status: "submitted" })], "job-1");
-    expect(deriveEvidenceAttention(s)).toEqual({ needsReview: true, count: 1 });
-  });
-
-  it("is calm when everything is reviewed", () => {
-    const s = summariseJobEvidence([ev({ status: "reviewed" })], "job-1");
-    expect(deriveEvidenceAttention(s).needsReview).toBe(false);
   });
 });

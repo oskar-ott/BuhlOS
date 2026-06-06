@@ -46,13 +46,6 @@ export interface JobEvidenceSummary {
   hasAny: boolean;
 }
 
-export type EvidenceStageKey = "roughIn" | "fitOff" | "none";
-
-export interface JobEvidenceStageGroup {
-  stage: EvidenceStageKey;
-  count: number;
-}
-
 /** A capture with no task / area / stage is "unattached" — missing context. */
 function isMissingContext(item: EvidenceItem): boolean {
   return !item.taskId && !item.areaId && !item.stage;
@@ -116,43 +109,4 @@ export function summariseJobEvidence(
 
   summary.workerCount = workers.size;
   return summary;
-}
-
-/**
- * Count this job's captures by stage (rough-in / fit-off / unstaged). Useful
- * for a subtle "where the evidence sits" breakdown without a photo wall.
- */
-export function groupEvidenceByStage(
-  evidence: ReadonlyArray<EvidenceItem>,
-  jobId: string,
-): JobEvidenceStageGroup[] {
-  const counts: Record<EvidenceStageKey, number> = { roughIn: 0, fitOff: 0, none: 0 };
-  if (Array.isArray(evidence)) {
-    for (const item of evidence) {
-      if (!item || item.jobId !== jobId) continue;
-      const key: EvidenceStageKey =
-        item.stage === "roughIn" ? "roughIn" : item.stage === "fitOff" ? "fitOff" : "none";
-      counts[key] += 1;
-    }
-  }
-  return (["roughIn", "fitOff", "none"] as const)
-    .map((stage) => ({ stage, count: counts[stage] }))
-    .filter((g) => g.count > 0);
-}
-
-export interface JobEvidenceAttention {
-  /** True when captures are awaiting admin review on this job. */
-  needsReview: boolean;
-  count: number;
-}
-
-/**
- * The actionable signal for the office: are there captures awaiting review?
- * Mirrors deriveJobAttention's positive-only discipline.
- */
-export function deriveEvidenceAttention(summary: JobEvidenceSummary): JobEvidenceAttention {
-  return {
-    needsReview: summary.pendingReview > 0,
-    count: summary.pendingReview,
-  };
 }

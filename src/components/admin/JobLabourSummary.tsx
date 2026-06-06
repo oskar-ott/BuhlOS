@@ -58,9 +58,14 @@ export function JobLabourSummary({
   jobId: string;
   fetchError: string | null;
 }) {
-  const summary = summariseJobHours(entries, jobId);
+  // This card is exclusively about hours AWAITING APPROVAL, so scope every
+  // figure (headline hours, count, latest date, and the per-worker breakdown)
+  // to submitted entries. Today the loader feeds submitted only, so this is a
+  // no-op; it keeps the card honest if it's ever handed a mixed-status list.
+  const pendingEntries = entries.filter((e) => e.status === "submitted");
+  const summary = summariseJobHours(pendingEntries, jobId);
   const attention = deriveJobHoursAttention(summary);
-  const workers = groupJobHoursByWorker(entries, jobId).slice(0, WORKER_LIMIT);
+  const workers = groupJobHoursByWorker(pendingEntries, jobId).slice(0, WORKER_LIMIT);
 
   return (
     <Card>

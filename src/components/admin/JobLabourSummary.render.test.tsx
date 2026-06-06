@@ -56,6 +56,21 @@ describe("JobLabourSummary", () => {
     expect(html).toContain("4h");
   });
 
+  it("scopes everything to pending — approved/rejected hours never show", () => {
+    const html = render({
+      entries: [
+        entry({ id: "a", userId: "u1", userName: "Jack", status: "submitted", allocations: [{ jobId: "job-1", hours: 8 }] } as Partial<TimeEntry>),
+        entry({ id: "b", userId: "u2", userName: "Sam", status: "approved", allocations: [{ jobId: "job-1", hours: 99 }] } as Partial<TimeEntry>),
+      ],
+      jobId: "job-1",
+      fetchError: null,
+    });
+    expect(html).toContain("Jack");
+    expect(html).toContain("8h"); // pending only
+    expect(html).not.toContain("Sam"); // approved worker excluded from breakdown
+    expect(html).not.toContain("99h"); // approved hours never surface
+  });
+
   it("filters to this job — other jobs' hours never leak in", () => {
     const html = render({
       entries: [entry({ allocations: [{ jobId: "job-OTHER", hours: 8 }] } as Partial<TimeEntry>)],
