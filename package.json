@@ -27,7 +27,7 @@
     "check:prod-branch": "node scripts/check-prod-branch.js",
     "check:route-ownership": "node scripts/check-route-ownership.js",
     "check:shell-contract": "node scripts/check-shell-contract.js",
-    "check:field-readiness-smoke-list": "playwright test tests/playwright/smoke/field-readiness.spec.ts --list",
+    "check:smoke-list": "playwright test tests/playwright/smoke --list",
     "smoke:admin-routes": "node scripts/smoke-admin-routes.js",
     "smoke:evidence-routes": "node scripts/smoke-evidence-routes.js",
     "smoke:auth-d55-snags": "bash scripts/auth-smoke-d55-snags.sh",
