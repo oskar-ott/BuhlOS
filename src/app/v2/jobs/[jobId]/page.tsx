@@ -7,6 +7,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { JobInterfaceSectionNav } from "@/components/admin/JobInterfaceSectionNav";
+import { JobOverviewSummary } from "@/components/admin/JobOverviewSummary";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
@@ -135,6 +136,7 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
     >
       <div className="mx-auto max-w-4xl space-y-4">
         <JobHeaderCard job={job} />
+        <JobOverviewSummary job={job} />
         <JobBuildCard job={job} canBuild={canBuild} />
         {hasSiteContext(job) ? <SiteContextCard job={job} /> : null}
         <JobInterfaceSectionNav job={job} />
