@@ -25,8 +25,8 @@ import {
   type JobTaskState,
   type TaskState,
 } from "@/domains/jobs/taskState";
-import { needsWorkerAttention as itpNeedsAttention } from "@/domains/itp/format";
-import { needsWorkerAttention as snagNeedsAttention } from "@/domains/snags/format";
+import { buildPhilJobCommandModel } from "@/domains/phil/job-command-model";
+import { philJobCommandInputFromJobData } from "@/domains/phil/job-command-input";
 import type { Job, JobStage } from "@/domains/jobs/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
@@ -40,8 +40,8 @@ import { JobDocumentsPanel } from "./JobDocumentsPanel";
 import { JobMaterialsPanel } from "./JobMaterialsPanel";
 import { JobHistoryPanel } from "./JobHistoryPanel";
 import { PhilJobHero } from "./PhilJobHero";
+import { PhilJobCommandPanel } from "./PhilJobCommandPanel";
 import { PhilJobAttentionStrip } from "./PhilJobAttentionStrip";
-import { PhilJobSectionAnchors } from "./PhilJobSectionAnchors";
 import { PhilJobAreaCard } from "./PhilJobAreaCard";
 import { PhilJobAreaDetail } from "./PhilJobAreaDetail";
 import {
@@ -92,12 +92,15 @@ interface Props {
  *
  *   1. Back link → /phil/jobs
  *   2. <PhilJobHero/> — job name + status pill + address summary
- *   3. <PhilJobAttentionStrip/> — strict, max 3, derived from real
- *      signals (rejected snags, assigned-to-me, pending ITPs,
- *      induction). Hidden when nothing qualifies.
- *   4. <PhilJobSectionAnchors/> — in-page jump chips so the worker
- *      can reach Site / Work / Capture / Snags / ITPs / Site files /
- *      Materials without endless scroll.
+ *   3. <PhilJobCommandPanel/> — "Next on this job": the model-driven
+ *      (#96) primary action + ranked secondary actions + honest
+ *      limitations, plus a hard-blocker notice. Replaces the old flat
+ *      section-anchor strip (the panel's actions jump to the same
+ *      in-page sections, prioritised, with a primary CTA).
+ *   4. <PhilJobAttentionStrip/> — strict, max 3, viewer-scoped real
+ *      signals (rejected / assigned-to-me snags, pending ITPs,
+ *      induction). Hidden when nothing qualifies. Attention stays here,
+ *      not in the command panel, so the two never duplicate.
  *   5. Site card (#phil-job-site) — address / contact / access /
  *      parking / safety / induction. Collapsible.
  *   6. Work block (#phil-job-work) — stage chooser + area picker +
@@ -279,21 +282,33 @@ export function PhilJobDetail({
 
   const showSiteContext = hasSiteContext(job);
 
-  // Counts feeding the section-anchors chips. We use the same
-  // "needsWorkerAttention" predicates the panels use to decide what
-  // counts as visible — so the chip number agrees with the section
-  // contents without a second source of truth.
-  const snagsActive = useMemo(
+  // "Next on this job" — the model-driven command panel (replaces the old flat
+  // section-anchor strip). Built from the data the page already loaded; the
+  // bridge marks anything not derivable here as an honest limitation (e.g.
+  // per-job rejected hours isn't fetched on the job screen). Task state is
+  // passed only when it loaded cleanly, so an errored/empty load is never read
+  // as "all tasks incomplete".
+  const commandModel = useMemo(
     () =>
-      (initialSnags ?? []).filter((s) => snagNeedsAttention(s.status)).length,
-    [initialSnags],
-  );
-  const itpsActive = useMemo(
-    () =>
-      (initialItps ?? []).filter(
-        (i) => !i.archived && itpNeedsAttention(i.status),
-      ).length,
-    [initialItps],
+      buildPhilJobCommandModel(
+        philJobCommandInputFromJobData({
+          job,
+          snags: initialSnags ? [...initialSnags] : undefined,
+          itps: initialItps ? [...initialItps] : undefined,
+          documents: initialDocuments ? [...initialDocuments] : undefined,
+          taskState: taskStateError ? undefined : initialTaskState,
+          loadErrors: { documents: documentsError != null },
+        }),
+      ),
+    [
+      job,
+      initialSnags,
+      initialItps,
+      initialDocuments,
+      documentsError,
+      initialTaskState,
+      taskStateError,
+    ],
   );
 
   // Per-area count maps for the work-tree cards. Built once from the
@@ -376,18 +391,13 @@ export function PhilJobDetail({
 
       <PhilJobHero job={job} />
 
+      <PhilJobCommandPanel model={commandModel} />
+
       <PhilJobAttentionStrip
         job={job}
         snags={initialSnags ?? []}
         itps={initialItps ?? []}
         viewerId={viewer?.id ?? null}
-      />
-
-      <PhilJobSectionAnchors
-        hasSite={showSiteContext}
-        hasAreas={flatAreas.length > 0}
-        snagsActive={snagsActive}
-        itpsActive={itpsActive}
       />
 
       {showSiteContext ? (
