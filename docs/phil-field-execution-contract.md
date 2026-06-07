@@ -1,10 +1,10 @@
 # Phil Field Execution System v1 — Contract & sequencing plan
 
-_Audit + contract only. No runtime code in this PR. Branch `docs/phil-field-execution-contract`._
+_Living contract. Updated by `feat/phil-worker-visible-tasks` after the capture and Phil-hours foundations landed._
 
 **Goal:** make a Phil job feel like a **site bible in your pocket** — open a job and know what to do, what's done, what's blocked, and what to log before leaving site — not a desktop dashboard squeezed onto a phone.
 
-This document captures the field-execution audit (2026-06-06, against `main` @ `f47fd86`), the contract a Phil job should expose, the ranked usability gaps, and the safe PR sequence. It exists because the two surfaces a Field Execution build must touch — **capture** (PR #86) and **hours** (PR #57) — are still **open**, so runtime work is sequenced behind them rather than built on shifting ground.
+This document captures the field-execution audit (2026-06-06, now refreshed after PR #86 capture, PR #92/#93 Phil hours, and this worker-task slice), the contract a Phil job should expose, the ranked usability gaps, and the safe PR sequence.
 
 ---
 
@@ -17,7 +17,7 @@ The Phil job interface is **not** a stub. `/phil/jobs/[jobId]` → `PhilJobDetai
 | Job list | `/phil/jobs` → `PhilJobsList` | `/api/jobs` (scoped to `assignedJobIds`) | **Real**, read-only |
 | Job identity / hero | `PhilJobHero` | `/api/jobs` | **Real** |
 | Needs attention | `PhilJobAttentionStrip` ← `PhilJobAttention.deriveAttention` | snags + ITPs + induction | **Real** (max 3, every item actionable) |
-| Work plan (areas/stages/tasks) | `philJobWorkTree` + `PhilJobAreaCard`/`Detail` ← `effectiveTasks`/`visibleAreaGroups` | `/api/jobs` structure | **Real but READ-ONLY** (no completion) |
+| Work plan (areas/stages/tasks) | `philJobWorkTree` + `PhilJobAreaCard`/`Detail` ← `effectiveTasks`/`visibleAreaGroups` + `taskState` | `/api/jobs` structure + `jobs/{id}/data.json` task state | **Real**, with server-confirmed Mark done / Undo |
 | Capture evidence | `CaptureSheet` + `PhilCaptureLauncher` (FAB) + `TodaysCapturesStrip` | `/api/photos` → Vercel Blob, `/api/evidence` → `jobs/{id}/data.json` | **Real**, two-phase persist, honest failure states |
 | ITPs / checks | `JobItpPanel` + `ITPRecording` + `ITPPointCard` | `/api/job-itps` → `jobs/{id}/itps.json` | **Real**, worker records points; 50% independence rule (no self-sign-off) |
 | Snags / issues | `JobSnagsPanel` + `ReportSnagSheet` | `/api/snags` → `snagsV2[]` | **Real**, worker reports + transitions open→in_progress→resolved; admin-only verify/close/reject |
@@ -37,9 +37,9 @@ Nav (`PhilTabBar`): **Today** (`/phil/my-day` = hours) · **Jobs** · **Capture 
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Start day / open Phil | `/phil/my-day` | `/api/time-entries` (7d) + `/api/jobs` | Real | Write (hours) | High (2 fetches, no cache) | `LogHoursSheet`/`PhilShell` render tests | No offline fallback; jobs-load failure can block hours submit |
 | 2 | Open job | `/phil/jobs/[jobId]` | `/api/jobs` + evidence/snags/itps/docs | Real | Read | Med | route + `PhilJobsList` tests | Lands on "what's wrong", not "what to do today" |
-| 3 | Work plan | `PhilJobAreaDetail` ← `effectiveTasks` | `/api/jobs` structure | Real, **read-only** | — | Low | `philJobWorkTree.test`, `builder.test` | **Can't tick tasks done** — `/api/task-toggle` exists but new Phil never calls it |
+| 3 | Work plan | `PhilJobAreaDetail` ← `effectiveTasks` + `taskState` | `/api/jobs` structure + `/api/data` + `/api/task-toggle` | Real | Write (task state) | Med | `philJobWorkTree.test`, `taskState.test`, `task-toggle-api.test`, `PhilJobAreaDetail.test` | Task progress is online-only; load failure shows a warning and rows fall back to "to do" until refresh |
 | 4 | Capture evidence | `CaptureSheet` | `/api/photos`+`/api/evidence` (Blob) | Real | Write | Med-High (no queue) | `philCapture.test` (helpers); no E2E capture chain | CTA mid-page; no offline retry queue |
-| 5 | Log hours | `/phil/my-day` `LogHoursSheet` | `POST /api/time-entries` | Real | Write | Med | `time-entry-attribution.test`, `timesheets.test`, field-readiness smoke | Not reachable from the job; **in-flight (#57)** |
+| 5 | Log hours | `/phil/my-day` `LogHoursSheet`; `/phil/hours` history/resubmit | `POST/PATCH /api/time-entries` | Real | Write | Med | `time-entry-attribution.test`, `timesheets.test`, field-readiness smoke, resubmit tests | Not reachable from the job action surface yet |
 | 6 | ITPs / checks | `JobItpPanel`/`ITPRecording` | `/api/job-itps` (Blob) | Real | Write (record) | Med | `itp.test` (state machine + independence) | Stale-read 750ms cross-instance; no E2E |
 | 7 | Plans / docs | `/phil/jobs/[jobId]/plans`, `JobDocumentsPanel` | `/api/plans` | Real | Read | Low | `documents.test` | Plans have an in-app viewer; document/spec rows still open the Blob URL |
 | 8 | Snags / issues | `JobSnagsPanel`/`ReportSnagSheet` | `/api/snags` (Blob) | Real | Write (report+transition) | Med | `snags.test` | No "assigned to me" filter; photo via evidence-link only |
@@ -61,11 +61,11 @@ What a Phil job should expose to a field worker. (★ = already satisfied today.
 ### B. Worker-visible structure
 - ★ stages, areas, tasks derived from the **same** source as BuhlOS "What the field sees" (`buildPhilPreview` / `effectiveTasks` / `visibleAreaGroups`)
 - ★ archived/draft/admin-only content excluded
-- **task completion state** — *missing: tasks are read-only; `/api/task-toggle` is built but unwired in new Phil*
+- ★ **task completion state** — real per-area/per-stage task state from `jobs/{id}/data.json`, updated through `/api/task-toggle`
 
 ### C. Primary actions (only when backed by real capability)
 - ★ Capture evidence (real, job/stage/area/task context)
-- Log hours **for this job** — *missing on the job screen (lives on Today tab); #57 in-flight*
+- Log hours **for this job** — *missing on the job screen (lives on Today/Hours); rejected-hours resubmit is live*
 - ★ View plans / docs
 - ★ Complete check / record ITP point (respects independence rule)
 - ★ Report snag / issue
@@ -73,7 +73,7 @@ What a Phil job should expose to a field worker. (★ = already satisfied today.
 
 ### D. Operational state
 - ★ what needs attention (rejected snags, assigned-to-me, pending ITPs, induction)
-- what is **completed** vs **pending** — *partial: ITP/snag states real; task completion missing; History UC*
+- what is **completed** vs **pending** — *partial: tasks, ITPs, and snag states are real; History UC*
 - ★ what is blocked (rejected snags surfaced first)
 - what is **missing before leaving site** — *missing: no end-of-day closeout*
 
@@ -90,31 +90,29 @@ What a Phil job should expose to a field worker. (★ = already satisfied today.
 
 Ranked by on-site severity × abandonment risk × execution value × (data already exists) × (reduces calls to Tom/admin), tempered by ease/safety.
 
-1. **Task completion is dormant.** `/api/task-toggle` exists, but the new Phil never calls it; the job screen renders tasks read-only. An electrician literally cannot mark work done — the core "site bible" action. *Data+API exist; medium build (write UI + per-task state); high value; cuts "is X done?" calls.*
-2. **No "Today / Next actions" hub.** Opening a job leads with what's *wrong*, then Site/Areas before the Capture CTA. No positive "what to do next." *Derivable from existing data; easy-medium; high abandonment-prevention.*
-3. **No end-of-day closeout.** Nothing prompts "hours logged? evidence captured? checks done? anything blocked?" before leaving site. *Derivable read-only summary; medium; cuts missing-timesheet chases; safety-adjacent.*
-4. **No offline / sync.** Dead-signal sites make the app unusable (reads server-render; writes online-only; no queue/SW/IndexedDB). *High severity + abandonment, but large infra; its own lane.*
-5. **No in-job hours action.** Hours only on the global Today tab; "log hours for this job" means leaving job context. *Easy once #57 lands; blocked now.*
-6. **Capture CTA buried mid-page (~section 7/12).** The primary daily action sits below Site + Areas; the global FAB mitigates but the in-job CTA is low. *Easy; touches #86 surface.*
-7. **Current stage not surfaced at the top.** Rough-in vs fit-off is chosen inside Work, not shown at a glance. *Easy clarity win.*
-8. **History is UC.** "What's been completed" is only visible to admins via per-item drawers; could be a real worker feed from the append-only audit-log. *Medium; data exists.*
-9. **Materials is UC.** Worker can't request materials in-app (phones PM). *Bigger E4 lane; lower priority per existing docs.*
-10. **No crew visibility.** Worker can't see who else is on the job. *Low value; external comms acceptable.*
+1. **No "Today / Next actions" hub.** Opening a job leads with what's *wrong*, then Site/Areas before the Capture CTA. No positive "what to do next." *Derivable from existing data; easy-medium; high abandonment-prevention.*
+2. **No end-of-day closeout.** Nothing prompts "hours logged? evidence captured? checks done? anything blocked?" before leaving site. *Derivable read-only summary; medium; cuts missing-timesheet chases; safety-adjacent.*
+3. **No offline / sync.** Dead-signal sites make the app unusable (reads server-render; writes online-only; no queue/SW/IndexedDB). *High severity + abandonment, but large infra; its own lane.*
+4. **No in-job hours action.** Hours only on the global Today/Hours surfaces; "log hours for this job" means leaving job context. *Easy now that the hours foundation and rejected-hours resubmit are stable.*
+5. **Capture CTA buried mid-page (~section 7/12).** The primary daily action sits below Site + Areas; the global FAB mitigates but the in-job CTA is low. *Easy; capture surface is now stable.*
+6. **Current stage not surfaced at the top.** Rough-in vs fit-off is chosen inside Work, not shown at a glance. *Easy clarity win.*
+7. **History is UC.** "What's been completed" is only visible to admins via per-item drawers; could be a real worker feed from the append-only audit-log. *Medium; data exists.*
+8. **Materials is UC.** Worker can't request materials in-app (phones PM). *Bigger E4 lane; lower priority per existing docs.*
+9. **No crew visibility.** Worker can't see who else is on the job. *Low value; external comms acceptable.*
+10. **Task progress is binary in Phil v1.** Existing `in_progress` data is displayed honestly, but field workers write only Done / To do. *Deliberate v1 simplification; revisit if field users need an active in-progress state.*
 
 ---
 
 ## 5. Recommended PR sequence
 
-**Hard prerequisite:** land the two open Phil PRs first so capture/hours/smoke stop moving —
-- **#86** `feat/phil-capture-shutter-v1` (owns `src/domains/evidence/phil-capture.ts`, `PhilTabBar.render.test.tsx`, `tests/playwright/smoke/phil.spec.ts`)
-- **#57** `pr-hours/complete-hours-system` (owns `/phil/hours`, `/phil/my-day`, `LogHoursSheet.tsx`)
+**Prerequisites now satisfied:** capture is shipped (#86), safe Phil/Admin hours foundation is shipped (#92), and rejected-hours resubmit is shipped (#93). PR #57 was superseded/closed and must not be revived.
 
 Then, smallest-safe-first:
 
-1. **`feat/phil-job-action-hub`** (gap #2, #6, #7) — a top-of-job "Today / Next actions" hub. Pure tested helper `philJobNextActions(job, {snags, itps, evidence, documents, viewer})` → ordered actions (Capture / Log hours / Complete check / View plans / Continue task / Report issue), each with an honest disabled/empty state. Reuses the existing in-component `CaptureSheet` + section anchors; links hours to the (now-stable) `/phil/hours`. Render + unit tests; **no** edit to `phil.spec.ts`/capture/hours files.
-2. **`feat/phil-worker-visible-tasks`** (gap #1) — wire `/api/task-toggle` into `PhilJobAreaDetail` so a worker can mark a task done, with real per-task state (no fake progress). Its own design review (this is a *write* path); respects role gating.
-3. **`feat/phil-end-of-day-closeout`** (gap #3) — a read-only "before you leave" summary on the job (and/or Today): hours logged today? evidence captured? required checks open? blockers? Derived from real data; links, not new writes.
-4. **`feat/phil-offline-resilience`** (gap #4) — separate infra lane: capture/write queue + retry; out of scope for v1 tightening.
+1. **`feat/phil-job-action-hub`** (gap #1, #4, #5, #6) — a top-of-job "Today / Next actions" hub. Pure tested helper `philJobNextActions(job, {snags, itps, evidence, documents, viewer})` → ordered actions (Capture / Log hours / Complete check / View plans / Continue task / Report issue), each with an honest disabled/empty state. Reuses the existing in-component `CaptureSheet` + section anchors; links hours to the stable `/phil/hours`. Render + unit tests; **no** edit to `phil.spec.ts`/capture/hours files.
+2. **`feat/phil-worker-visible-tasks`** (former gap #1) — ✅ **SHIPPED** (Path C). Wired `/api/task-toggle` into `PhilJobAreaDetail`: each worker-visible task shows its real state and a Mark done / Undo control (non-optimistic — state only moves on a confirmed server write, so a failed toggle never shows done). Added defence-in-depth API guards (draft/archived job, archived area/group, archived task), malformed-state hardening, and a pure `taskState.ts` helper. No fake progress; binary done/undo in v1 (in_progress displayed, not written); no per-task evidence link (evidence has no `taskId`). See **`docs/phil-worker-visible-tasks.md`**.
+3. **`feat/phil-end-of-day-closeout`** (gap #2) — a read-only "before you leave" summary on the job (and/or Today): hours logged today? evidence captured? required checks open? blockers? Derived from real data; links, not new writes.
+4. **`feat/phil-offline-resilience`** (gap #3) — separate infra lane: capture/write queue + retry; out of scope for v1 tightening.
 
 Already shipped & real → **no dedicated PR** (the action hub just surfaces them better): capture (Path C), ITPs (Path D), plans (Path E), snags. Materials (gap #9) and a worker History feed (gap #8) are later lanes.
 
@@ -130,6 +128,6 @@ Already shipped & real → **no dedicated PR** (the action hub just surfaces the
 
 ---
 
-## 7. Conflict / sequencing note (why this is contract-only today)
+## 7. Conflict / sequencing note
 
-`main` @ `f47fd86` (after #89, the BuhlOS operational-loop, merged). The core Phil job screen (`PhilJobDetail`, route, work-tree, panels, capture sheet, ITP, snags) is owned by **no** open PR — but **#86 (capture + `phil.spec.ts`)** and **#57 (hours)** are still open and own the two headline actions a Field Execution build must wire. Building now risks collisions and rework. This contract sequences the work so that, once #86 and #57 land, the action hub (PR 1 above) is a turnkey, collision-free slice.
+After #93, the capture and hours foundations are stable and #94 has no file overlap with the rejected-hours resubmit slice. The next action hub should stay collision-free by reusing existing job-page sections and linking to `/phil/hours`, without touching capture upload behaviour, time-entry attribution, or smoke specs.

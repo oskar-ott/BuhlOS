@@ -33,10 +33,19 @@
 // Client: 403.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite } = require('./_lib/auth');
+const {
+  requireAuth,
+  canWrite,
+  canViewDraftJobs,
+  canViewArchivedJobs,
+} = require('./_lib/auth');
 
 const VALID_STATES = new Set(['not_started', 'in_progress', 'complete']);
 const VALID_STAGES = new Set(['roughIn', 'fitOff']);
+
+function isRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value);
+}
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -67,24 +76,49 @@ module.exports = async (req, res) => {
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });
   const job = (jobsBlob.jobs || []).find(j => j.id === jobId);
   if (!job) return res.status(404).json({ error: 'job not found' });
+
+  // Draft + archived jobs are office-only. api/jobs.js 404s a non-admin GET
+  // of these, so a field/LH worker can't even open them — but canWrite only
+  // checks role + assignment, not status. Mirror the GET visibility gate here
+  // as defence-in-depth: a stale mobile client still holding the ids after a
+  // job is parked (draft) or archived must not be able to write task state to
+  // it. The admin tier (which can view/edit drafts) is unaffected.
+  if (
+    (job.status === 'draft' && !canViewDraftJobs(me.role)) ||
+    (job.status === 'archived' && !canViewArchivedJobs(me.role))
+  ) {
+    return res.status(404).json({ error: 'job not found' });
+  }
+
+  // Match visibleAreaGroups (src/domains/jobs/format.ts): an archived area — or
+  // any area inside an archived group — is not field-visible, so it is not a
+  // valid toggle target. Folding the filter into the find keeps the existing
+  // 404 contract and prevents writing ghost state for hidden areas.
   const area = (job.areaGroups || [])
+    .filter(g => !g.archived)
     .flatMap(g => (g.areas || []))
-    .find(a => a.id === areaId);
+    .find(a => a.id === areaId && !a.archived);
   if (!area) return res.status(404).json({ error: 'area not found on job' });
+  // Resolve the effective task list with the same area-override-else-job rule
+  // as src/domains/jobs/format.ts#effectiveTasks, and reject archived tasks so
+  // the toggle target matches exactly what the worker can see — a retired task
+  // is no longer field-visible, so writing state for it would be ghost state.
   const taskList = stage === 'roughIn'
     ? ((Array.isArray(area.roughInTasks) && area.roughInTasks.length) ? area.roughInTasks : (job.roughInTasks || []))
     : ((Array.isArray(area.fitOffTasks)  && area.fitOffTasks.length)  ? area.fitOffTasks  : (job.fitOffTasks  || []));
-  if (!taskList.some(t => t.id === taskId)) {
+  if (!taskList.some(t => t.id === taskId && !t.archived)) {
     return res.status(404).json({ error: 'task not found for area + stage' });
   }
 
   // Read → mutate → write the data blob.
   const KEY = `jobs/${jobId}/data.json`;
   const data = await readBlob(KEY, { dwellings: {}, snags: [], notes: [] });
-  data.dwellings = data.dwellings || {};
-  const dw = (data.dwellings[areaId] = data.dwellings[areaId] || {});
-  const stageObj = (dw[stage] = dw[stage] || { tasks: {} });
-  stageObj.tasks = stageObj.tasks || {};
+  data.dwellings = isRecord(data.dwellings) ? data.dwellings : {};
+  if (!isRecord(data.dwellings[areaId])) data.dwellings[areaId] = {};
+  const dw = data.dwellings[areaId];
+  if (!isRecord(dw[stage])) dw[stage] = { tasks: {} };
+  const stageObj = dw[stage];
+  stageObj.tasks = isRecord(stageObj.tasks) ? stageObj.tasks : {};
 
   const previous = stageObj.tasks[taskId] || 'not_started';
   if (previous === state) {
