@@ -73,7 +73,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // is non-blocking: an empty list just shows the empty state, the
   // worker can still create new items, and the server will return
   // real data on the next refresh.
-  const [initialEvidence, initialSnags, initialItps, documentsResult, initialTaskState] =
+  const [initialEvidence, initialSnags, initialItps, documentsResult, taskStateResult] =
     result.kind === "ok"
       ? await Promise.all([
           loadInitialEvidence(raw, jobId),
@@ -87,7 +87,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           [],
           [],
           { documents: [] as Document[], error: null as string | null },
-          {} as JobTaskState,
+          { state: {} as JobTaskState, error: null as string | null },
         ];
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
@@ -133,7 +133,8 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
         initialItps={initialItps}
         initialDocuments={documentsResult.documents}
         documentsError={documentsResult.error}
-        initialTaskState={initialTaskState}
+        initialTaskState={taskStateResult.state}
+        taskStateError={taskStateResult.error}
         viewer={{
           id: session.userId ?? session.sub ?? "",
           role: String(session.role ?? ""),
@@ -350,14 +351,15 @@ async function loadInitialDocuments(
  * loads its own from /api/snags). The endpoint is gated by job access, so a
  * worker only ever reads state for a job they're assigned to.
  *
- * Non-blocking by design: any failure returns an empty map and every task
- * reads as "to do" until the next refresh — the worker can still mark work,
- * and the next confirmed toggle repopulates state.
+ * Non-blocking by design: any failure returns an empty map plus an honest
+ * warning. Every task then reads as "to do" until the next refresh, but the
+ * worker is told progress could not be loaded and any toggle still reconciles
+ * from the server-confirmed response.
  */
 async function loadInitialTaskState(
   cookieValue: string | undefined,
   jobId: string
-): Promise<JobTaskState> {
+): Promise<{ state: JobTaskState; error: string | null }> {
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";
@@ -372,10 +374,13 @@ async function loadInitialTaskState(
           : undefined,
       }
     );
-    if (!res.ok) return {};
+    if (!res.ok) return { state: {}, error: `Task state API returned ${res.status}` };
     const body = await res.json();
-    return parseJobTaskState(body);
-  } catch {
-    return {};
+    return { state: parseJobTaskState(body), error: null };
+  } catch (err) {
+    return {
+      state: {},
+      error: err instanceof Error ? err.message : "Task state network error",
+    };
   }
 }

@@ -69,9 +69,11 @@ interface Props {
    *  bar inside JobDocumentsPanel. Null when the fetch succeeded. */
   documentsError?: string | null;
   /** Initial worker-visible task state (areaId → stage → taskId → state),
-   *  parsed server-side from the job's data blob. Empty when unavailable —
-   *  every task then reads as "to do" until a refresh. */
+   *  parsed server-side from the job's data blob. Empty when unavailable. */
   initialTaskState?: JobTaskState;
+  /** Non-blocking error from the task-state fetch. When set, the task rows
+   *  still render from the plan, but the worker is told progress may be stale. */
+  taskStateError?: string | null;
   /** Current viewer — id + role drive snag transition button gating
    *  and attention-strip filters (e.g. "snags assigned to me"). */
   viewer?: { id: string; role: string };
@@ -126,6 +128,7 @@ export function PhilJobDetail({
   initialDocuments,
   documentsError,
   initialTaskState,
+  taskStateError,
   viewer,
   autoCaptureToken,
 }: Props) {
@@ -533,6 +536,16 @@ export function PhilJobDetail({
                   role="alert"
                 >
                   {taskError}
+                </PhilNotice>
+              ) : null}
+              {taskStateError ? (
+                <PhilNotice
+                  tone="warning"
+                  title="Couldn’t load task progress"
+                  role="status"
+                >
+                  Task rows may show as to do until you refresh. Saved changes
+                  will still update after the server confirms them.
                 </PhilNotice>
               ) : null}
               <PhilJobAreaDetail

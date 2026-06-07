@@ -54,6 +54,10 @@ area + task existence check; no-op short-circuit; real persistence to
    `visibleAreaGroups`.
 3. **Archived task → 404** — matches `effectiveTasks` (the `.some()` existence
    check now excludes `archived`).
+4. **Malformed existing task maps are coerced before write** — if an old/corrupt
+   `dwellings[areaId][stage]` or `.tasks` value is not an object, the endpoint
+   resets that narrow stage map before applying the confirmed task state instead
+   of crashing or returning a false success.
 
 Net: the only toggle targets the API accepts are exactly the ones a worker can
 see. No new endpoint, no schema change, no change to the legacy write path.
@@ -67,8 +71,9 @@ exists on `/phil/jobs/[jobId]`:
 
 - `page.tsx` loads initial task state server-side via `GET /api/data`
   (`loadInitialTaskState` → `parseJobTaskState`), alongside the existing
-  evidence/snags/ITPs/docs loads. Non-blocking: any failure → empty map, every
-  task reads "To do" until refresh.
+  evidence/snags/ITPs/docs loads. Non-blocking: any failure → empty map plus a
+  warning that progress could not load; every task reads "To do" until refresh
+  or a server-confirmed toggle reconciles it.
 - `PhilJobDetail` holds `taskState` + `pendingTaskIds`, derives the viewed
   stage's `WorkerTask[]` via `buildWorkerTasks`, and owns `handleToggleTask`.
 - `PhilJobAreaDetail` renders each task with its real state (icon + status Pill)
@@ -77,8 +82,9 @@ exists on `/phil/jobs/[jobId]`:
 
 **Non-optimistic by design.** A tapped row shows a *Saving…* state and its
 local state only advances once the server confirms the new value. A failed
-write surfaces a `PhilNotice` and leaves the task unchanged — so a task **never
-shows as done on a failed request**.
+write, malformed success response, or missing confirmation surfaces a
+`PhilNotice` and leaves the task unchanged — so a task **never shows as done on
+a failed request**.
 
 **Stage correctness.** The drill-in's task list + write target use the
 *viewed* stage (`soleStage(...) ?? stage`), not the raw parent `stage`. This
@@ -89,7 +95,8 @@ also fixes a latent first-load mismatch for single-stage areas.
 ## Honesty rules honoured
 
 - **No fake completion / progress.** A task is `complete` only if `data.json`
-  records it; counts are real integers, never a fabricated percentage.
+  records it or `/api/task-toggle` confirms it; counts are real integers, never
+  a fabricated percentage. If the initial state fetch fails, Phil says so.
 - **`in_progress` is displayed, not written.** v1's control is binary
   (done ↔ not_started); a pre-existing `in_progress` (office app / legacy data)
   renders faithfully as "In progress" but the binary control drives it to done.
@@ -117,18 +124,19 @@ also fixes a latent first-load mismatch for single-stage areas.
 - `src/domains/jobs/taskState.test.ts` — pure helper: blob parsing (coerces
   invalid values, ignores non-task fields), `readTaskState` defaults,
   `applyTaskState` immutability, `buildWorkerTasks` (archived hidden, override
-  vs job-level), `stageProgress`, binary `nextToggleState`, labels/tones.
+  vs job-level), `stageProgress`, binary `nextToggleState`, labels/tones, and
+  malformed toggle-result rejection.
 - `src/domains/jobs/task-toggle-api.test.ts` (registered in `test:api`) —
   persistence, no-op, undo, only-the-toggled-task-moves, light audit, role/auth
   gates (unassigned 403, client 403, 401, 405), draft/archived job 404, admin
   can toggle a draft, unknown/archived task 404, archived area + archived-group
-  404, body validation 400s.
+  404, malformed existing blob coercion, body validation 400s.
 - `src/components/phil/PhilJobAreaDetail.test.tsx` — extended for the
   `WorkerTask` shape: state pills (read-only), Mark done / Undo, pending
   "Saving…" + disabled, honest count, and "no admin/editor controls".
 
-Validation run: `typecheck`, `lint`, `test:unit` (1388), `test:api` (208),
-`build`, `check:smoke-list`, and the route/shell guards
+Validation for this PR must include `typecheck`, `lint`, `test:unit`,
+`test:api`, `build`, `check:smoke-list`, and the route/shell guards
 (`check:admin-shell`, `check:production-shell`, `check:route-ownership`,
-`check:shell-contract`, `check:sw-cache-version`, `smoke:admin-routes`) — all
-green. Preview Smoke was **not** dispatched.
+`check:shell-contract`, `check:sw-cache-version`, `smoke:admin-routes`).
+Preview Smoke is **not** dispatched for this slice.
