@@ -34,6 +34,18 @@ describe("jobOpenWork", () => {
   it("returns nothing when stats are absent — never fabricates a count", () => {
     expect(jobOpenWork(job())).toEqual([]);
   });
+
+  it("ignores invalid counts defensively", () => {
+    expect(
+      jobOpenWork(
+        job({
+          statsSnagsV2Active: 1.5,
+          statsItpsActive: Number.POSITIVE_INFINITY,
+        }),
+      ),
+    ).toEqual([]);
+    expect(jobOpenWork(job({ statsSnagsV2Active: -1, statsItpsActive: NaN }))).toEqual([]);
+  });
 });
 
 describe("jobOpenWorkSummary", () => {

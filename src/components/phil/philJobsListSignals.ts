@@ -33,12 +33,16 @@ export interface JobOpenWorkSignal {
   label: string;
 }
 
+function positiveInteger(value: number | undefined): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : 0;
+}
+
 export function jobOpenWork(
   job: Pick<Job, "statsSnagsV2Active" | "statsItpsActive">,
 ): JobOpenWorkSignal[] {
   const out: JobOpenWorkSignal[] = [];
 
-  const snags = job.statsSnagsV2Active ?? 0;
+  const snags = positiveInteger(job.statsSnagsV2Active);
   if (snags > 0) {
     out.push({
       key: "snags",
@@ -47,7 +51,7 @@ export function jobOpenWork(
     });
   }
 
-  const itps = job.statsItpsActive ?? 0;
+  const itps = positiveInteger(job.statsItpsActive);
   if (itps > 0) {
     out.push({
       key: "itps",

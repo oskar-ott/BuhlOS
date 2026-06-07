@@ -77,14 +77,14 @@ No link a field worker can't use; still no fake stock counts or request buttons.
 
 ## Tests & validation
 
-- `philJobsListSignals.test.ts` (6) — pluralisation, zero-omission, absent-stats
-  → empty (no fabrication), summary join.
+- `philJobsListSignals.test.ts` (7) — pluralisation, zero-omission, absent-stats
+  → empty (no fabrication), invalid counts ignored, summary join.
 - `PhilJobsList.render.test.tsx` (extended) — chips render with stats; **no**
   chips and unchanged row when stats absent; aria summary folded in.
 - `JobMaterialsPanel.render.test.tsx` (new) — honest UC stub, **no** `/admin`
   link, no anchor at all, points to PM.
 
-Run green: `typecheck`, `lint`, `test:unit` (1350), `test:api` (185), `build`,
+Run green: `typecheck`, `lint`, `test:unit` (1351), `test:api` (185), `build`,
 `check:smoke-list` (11), and the route/shell guards (`check:admin-shell`,
 `check:production-shell`, `check:route-ownership`, `check:shell-contract`,
 `check:sw-cache-version`, `smoke:admin-routes`). Preview Smoke was **not**
