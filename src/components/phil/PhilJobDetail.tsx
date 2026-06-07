@@ -17,11 +17,14 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilActionButton } from "./ui/PhilActionButton";
 import { PhilNotice } from "./ui/PhilNotice";
 import { moduleEnabled } from "@/domains/jobs/builder";
+import { hasSiteContext, visibleAreaGroups } from "@/domains/jobs/format";
 import {
-  effectiveTasks,
-  hasSiteContext,
-  visibleAreaGroups,
-} from "@/domains/jobs/format";
+  applyTaskState,
+  buildWorkerTasks,
+  parseTaskToggleResult,
+  type JobTaskState,
+  type TaskState,
+} from "@/domains/jobs/taskState";
 import { needsWorkerAttention as itpNeedsAttention } from "@/domains/itp/format";
 import { needsWorkerAttention as snagNeedsAttention } from "@/domains/snags/format";
 import type { Job, JobStage } from "@/domains/jobs/types";
@@ -65,6 +68,12 @@ interface Props {
   /** Non-blocking error from the documents fetch — surfaces an info
    *  bar inside JobDocumentsPanel. Null when the fetch succeeded. */
   documentsError?: string | null;
+  /** Initial worker-visible task state (areaId → stage → taskId → state),
+   *  parsed server-side from the job's data blob. Empty when unavailable. */
+  initialTaskState?: JobTaskState;
+  /** Non-blocking error from the task-state fetch. When set, the task rows
+   *  still render from the plan, but the worker is told progress may be stale. */
+  taskStateError?: string | null;
   /** Current viewer — id + role drive snag transition button gating
    *  and attention-strip filters (e.g. "snags assigned to me"). */
   viewer?: { id: string; role: string };
@@ -118,6 +127,8 @@ export function PhilJobDetail({
   initialItps,
   initialDocuments,
   documentsError,
+  initialTaskState,
+  taskStateError,
   viewer,
   autoCaptureToken,
 }: Props) {
@@ -152,6 +163,16 @@ export function PhilJobDetail({
     { tone: "info" | "success" | "danger"; message: string } | null
   >(null);
 
+  // Worker-visible task state (areaId → stage → taskId → state). Seeded from
+  // the server-loaded data blob; only ever advanced by a CONFIRMED
+  // /api/task-toggle response (never optimistically), so a failed write never
+  // shows a task as done.
+  const [taskState, setTaskState] = useState<JobTaskState>(initialTaskState ?? {});
+  const [pendingTaskIds, setPendingTaskIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  const [taskError, setTaskError] = useState<string | null>(null);
+
   // Deep-linked capture: the global Capture button (PhilTabBar) routes
   // here with a fresh ?capture=<token>. Keyed on the token (not a bare
   // boolean) so tapping Capture again for the same job re-opens the sheet.
@@ -169,9 +190,91 @@ export function PhilJobDetail({
     [flatAreas, selectedAreaId]
   );
 
-  const tasks = useMemo(
-    () => effectiveTasks(job, selectedArea, stage),
-    [job, selectedArea, stage]
+  // The stage actually shown for the selected area: a single-stage area
+  // forces its sole stage; a both-stage area follows the parent `stage`
+  // selection. Driving the task list + toggle off this (not the raw `stage`)
+  // keeps the rows, their state, and the write target in agreement even on
+  // first load before any stage tap.
+  const selectedStages = useMemo(
+    () =>
+      selectedArea
+        ? areaStageAvailability(job, selectedArea)
+        : { roughIn: false, fitOff: false },
+    [job, selectedArea],
+  );
+  const viewedStage: JobStage = soleStage(selectedStages) ?? stage;
+
+  // Field-visible tasks for the viewed stage, merged with their real state.
+  const workerTasks = useMemo(
+    () =>
+      selectedArea
+        ? buildWorkerTasks(job, selectedArea, viewedStage, taskState)
+        : [],
+    [job, selectedArea, viewedStage, taskState],
+  );
+
+  // Mark a task done / not-done via the dedicated fast-path endpoint. Tiny
+  // request body (no full-blob re-upload); the server is the single source of
+  // truth. Non-optimistic: the row shows a saving state, and local state only
+  // advances once the server confirms the new value — so a failed write never
+  // leaves a task showing as done.
+  const handleToggleTask = useCallback(
+    async (taskId: string, next: TaskState) => {
+      if (!selectedArea) return;
+      const areaId = selectedArea.id;
+      const stageForWrite = viewedStage;
+      setTaskError(null);
+      setPendingTaskIds((prev) => {
+        const set = new Set(prev);
+        set.add(taskId);
+        return set;
+      });
+      try {
+        const res = await fetch(
+          `/api/task-toggle?jobId=${encodeURIComponent(job.id)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              areaId,
+              stage: stageForWrite,
+              taskId,
+              state: next,
+            }),
+          },
+        );
+        if (!res.ok) {
+          let message = `Couldn't save that change (server returned ${res.status}).`;
+          try {
+            const body = await res.json();
+            if (body && typeof body.error === "string") message = body.error;
+          } catch {
+            /* keep the default message */
+          }
+          throw new Error(message);
+        }
+        const confirmed = parseTaskToggleResult(await res.json().catch(() => null));
+        if (!confirmed) {
+          throw new Error("Unexpected task update response.");
+        }
+        setTaskState((prev) =>
+          applyTaskState(prev, areaId, stageForWrite, taskId, confirmed),
+        );
+      } catch (err) {
+        setTaskError(
+          err instanceof Error
+            ? err.message
+            : "Couldn't save that change. Check your signal and try again.",
+        );
+      } finally {
+        setPendingTaskIds((prev) => {
+          const set = new Set(prev);
+          set.delete(taskId);
+          return set;
+        });
+      }
+    },
+    [job.id, selectedArea, viewedStage],
   );
 
   const showSiteContext = hasSiteContext(job);
@@ -425,15 +528,36 @@ export function PhilJobDetail({
           )}
 
           {selectedArea ? (
-            <div ref={areaDetailRef} className="scroll-mt-16">
+            <div ref={areaDetailRef} className="scroll-mt-16 space-y-3">
+              {taskError ? (
+                <PhilNotice
+                  tone="danger"
+                  title="Couldn’t update task"
+                  role="alert"
+                >
+                  {taskError}
+                </PhilNotice>
+              ) : null}
+              {taskStateError ? (
+                <PhilNotice
+                  tone="warning"
+                  title="Couldn’t load task progress"
+                  role="status"
+                >
+                  Task rows may show as to do until you refresh. Saved changes
+                  will still update after the server confirms them.
+                </PhilNotice>
+              ) : null}
               <PhilJobAreaDetail
                 areaName={selectedArea.name}
                 spaceType={selectedArea.spaceType}
-                stages={areaStageAvailability(job, selectedArea)}
-                stage={stage}
-                tasks={tasks}
+                stages={selectedStages}
+                stage={viewedStage}
+                tasks={workerTasks}
                 counts={countsForArea(areaCountMaps, selectedArea.id)}
                 onStageChange={setStage}
+                onToggleTask={handleToggleTask}
+                pendingTaskIds={pendingTaskIds}
               />
             </div>
           ) : null}

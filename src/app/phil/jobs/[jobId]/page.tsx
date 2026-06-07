@@ -9,6 +9,7 @@ import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
+import { parseJobTaskState, type JobTaskState } from "@/domains/jobs/taskState";
 import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
 import { SnagListResponseSchema } from "@/domains/snags/schema";
 import { ITPListResponseSchema } from "@/domains/itp/schema";
@@ -72,15 +73,22 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // is non-blocking: an empty list just shows the empty state, the
   // worker can still create new items, and the server will return
   // real data on the next refresh.
-  const [initialEvidence, initialSnags, initialItps, documentsResult] =
+  const [initialEvidence, initialSnags, initialItps, documentsResult, taskStateResult] =
     result.kind === "ok"
       ? await Promise.all([
           loadInitialEvidence(raw, jobId),
           loadInitialSnags(raw, jobId),
           loadInitialItps(raw, jobId),
           loadInitialDocuments(raw, jobId),
+          loadInitialTaskState(raw, jobId),
         ])
-      : [[], [], [], { documents: [] as Document[], error: null as string | null }];
+      : [
+          [],
+          [],
+          [],
+          { documents: [] as Document[], error: null as string | null },
+          { state: {} as JobTaskState, error: null as string | null },
+        ];
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
     return (
@@ -125,6 +133,8 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
         initialItps={initialItps}
         initialDocuments={documentsResult.documents}
         documentsError={documentsResult.error}
+        initialTaskState={taskStateResult.state}
+        taskStateError={taskStateResult.error}
         viewer={{
           id: session.userId ?? session.sub ?? "",
           role: String(session.role ?? ""),
@@ -329,6 +339,48 @@ async function loadInitialDocuments(
     return {
       documents: [],
       error: err instanceof Error ? err.message : "Plans network error",
+    };
+  }
+}
+
+/**
+ * Fetch worker-visible task state from the per-job data blob
+ * (GET /api/data → { dwellings, snags, notes }). `parseJobTaskState` keeps
+ * only the rough-in / fit-off task maps and coerces each value to a real
+ * three-state string; the snags in this blob are ignored here (the snag panel
+ * loads its own from /api/snags). The endpoint is gated by job access, so a
+ * worker only ever reads state for a job they're assigned to.
+ *
+ * Non-blocking by design: any failure returns an empty map plus an honest
+ * warning. Every task then reads as "to do" until the next refresh, but the
+ * worker is told progress could not be loaded and any toggle still reconciles
+ * from the server-confirmed response.
+ */
+async function loadInitialTaskState(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<{ state: JobTaskState; error: string | null }> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(
+      `${base}/api/data?jobId=${encodeURIComponent(jobId)}`,
+      {
+        cache: "no-store",
+        headers: cookieValue
+          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
+          : undefined,
+      }
+    );
+    if (!res.ok) return { state: {}, error: `Task state API returned ${res.status}` };
+    const body = await res.json();
+    return { state: parseJobTaskState(body), error: null };
+  } catch (err) {
+    return {
+      state: {},
+      error: err instanceof Error ? err.message : "Task state network error",
     };
   }
 }
