@@ -285,9 +285,10 @@ export function PhilJobDetail({
   // "Next on this job" — the model-driven command panel (replaces the old flat
   // section-anchor strip). Built from the data the page already loaded; the
   // bridge marks anything not derivable here as an honest limitation (e.g.
-  // per-job rejected hours isn't fetched on the job screen). Task state is
-  // passed only when it loaded cleanly, so an errored/empty load is never read
-  // as "all tasks incomplete".
+  // per-job rejected hours isn't fetched on the job screen). Live task state is
+  // passed only when it loaded cleanly, so an errored load is never read as
+  // "all tasks incomplete"; after a confirmed toggle, the panel updates from the
+  // same local state as the task rows.
   const commandModel = useMemo(
     () =>
       buildPhilJobCommandModel(
@@ -296,7 +297,7 @@ export function PhilJobDetail({
           snags: initialSnags ? [...initialSnags] : undefined,
           itps: initialItps ? [...initialItps] : undefined,
           documents: initialDocuments ? [...initialDocuments] : undefined,
-          taskState: taskStateError ? undefined : initialTaskState,
+          taskState: taskStateError ? undefined : taskState,
           loadErrors: { documents: documentsError != null },
         }),
       ),
@@ -306,7 +307,7 @@ export function PhilJobDetail({
       initialItps,
       initialDocuments,
       documentsError,
-      initialTaskState,
+      taskState,
       taskStateError,
     ],
   );

@@ -206,6 +206,23 @@ describe("PhilJobCommandPanel — from the real bridge", () => {
     expect(html).toContain("Rejected hours aren’t shown on the job screen");
   });
 
+  it("renders tracked task progress only when real task state is supplied", () => {
+    const model = buildPhilJobCommandModel(
+      philJobCommandInputFromJobData({
+        job: jobFixture(),
+        taskState: {
+          a1: { roughIn: { t1: "complete" }, fitOff: {} },
+        },
+      }),
+    );
+    const html = render(model);
+    expect(html).not.toContain("View your tasks");
+    expect(html).not.toContain("Task progress isn’t loaded in this section yet");
+    // There is one visible area task and it is complete, so no invented
+    // remaining-task action appears.
+    expect(html).not.toContain("task left");
+  });
+
   it("renders an honest office-only notice for a draft job", () => {
     const model = buildPhilJobCommandModel(
       philJobCommandInputFromJobData({ job: jobFixture({ status: "draft" }) }),

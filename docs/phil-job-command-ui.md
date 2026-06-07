@@ -32,7 +32,7 @@ model**. It never inspects raw job / evidence / hours / task data.
   const commandModel = useMemo(
     () => buildPhilJobCommandModel(philJobCommandInputFromJobData({
       job, snags, itps, documents,
-      taskState: taskStateError ? undefined : initialTaskState,
+      taskState: taskStateError ? undefined : taskState,
       loadErrors: { documents: documentsError != null },
     })),
     [...],
@@ -69,8 +69,9 @@ model**. It never inspects raw job / evidence / hours / task data.
   tab"), never a fake card. When a caller later passes `rejectedHoursForJob`,
   the `fix_rejected_hours` action lights up with no panel change.
 - Task completion shows as `tracked` only when real task state loaded cleanly;
-  on an errored/empty load the page passes `undefined`, so tasks stay
-  `list_only` ("View your tasks") — never a fabricated completion count.
+  on an errored load the page passes `undefined`, so tasks stay `list_only`
+  ("View your tasks") — never a fabricated completion count. After a confirmed
+  task toggle, the panel updates from the same live task state as the task rows.
 - No admin / payroll / Xero / dashboard language; no fake completed / uploaded /
   signed-off copy (asserted in tests).
 
@@ -88,8 +89,8 @@ model**. It never inspects raw job / evidence / hours / task data.
 anchor vs cross-surface href mapping, limitations, hard-blocker (no primary),
 **no** info/warning attention (de-dup guard), honest empty + null-render, no
 admin/payroll/Xero/dashboard language, no fake completion/upload/sign-off copy,
-and two **bridge → model → panel** end-to-end cases (released job; office-only
-draft). The #96 model/bridge keep their own 36 tests.
+and three **bridge → model → panel** end-to-end cases (released job, tracked
+task state, office-only draft). The #96 model/bridge keep their own 37 tests.
 
 Validation: `typecheck`, `lint`, `test:unit` (1475), `test:api` (209), `build`,
 `check:smoke-list` (11), route/shell guards — all green. Preview Smoke **not**
