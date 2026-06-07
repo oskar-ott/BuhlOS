@@ -43,6 +43,10 @@ const {
 const VALID_STATES = new Set(['not_started', 'in_progress', 'complete']);
 const VALID_STAGES = new Set(['roughIn', 'fitOff']);
 
+function isRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value);
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -109,10 +113,12 @@ module.exports = async (req, res) => {
   // Read → mutate → write the data blob.
   const KEY = `jobs/${jobId}/data.json`;
   const data = await readBlob(KEY, { dwellings: {}, snags: [], notes: [] });
-  data.dwellings = data.dwellings || {};
-  const dw = (data.dwellings[areaId] = data.dwellings[areaId] || {});
-  const stageObj = (dw[stage] = dw[stage] || { tasks: {} });
-  stageObj.tasks = stageObj.tasks || {};
+  data.dwellings = isRecord(data.dwellings) ? data.dwellings : {};
+  if (!isRecord(data.dwellings[areaId])) data.dwellings[areaId] = {};
+  const dw = data.dwellings[areaId];
+  if (!isRecord(dw[stage])) dw[stage] = { tasks: {} };
+  const stageObj = dw[stage];
+  stageObj.tasks = isRecord(stageObj.tasks) ? stageObj.tasks : {};
 
   const previous = stageObj.tasks[taskId] || 'not_started';
   if (previous === state) {

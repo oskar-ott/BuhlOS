@@ -5,6 +5,7 @@ import {
   isComplete,
   nextToggleState,
   parseJobTaskState,
+  parseTaskToggleResult,
   readTaskState,
   stageProgress,
   taskStateLabel,
@@ -79,6 +80,19 @@ describe("parseJobTaskState", () => {
     expect(parseJobTaskState({})).toEqual({});
     expect(parseJobTaskState({ dwellings: "nope" })).toEqual({});
     expect(parseJobTaskState("garbage")).toEqual({});
+  });
+});
+
+describe("parseTaskToggleResult", () => {
+  it("accepts a confirmed real task state from the server response", () => {
+    expect(parseTaskToggleResult({ state: "complete", changed: true })).toBe("complete");
+    expect(parseTaskToggleResult({ state: "not_started" })).toBe("not_started");
+  });
+
+  it("rejects malformed success responses so the UI does not invent state", () => {
+    expect(parseTaskToggleResult(null)).toBeNull();
+    expect(parseTaskToggleResult({})).toBeNull();
+    expect(parseTaskToggleResult({ state: "DONE!!" })).toBeNull();
   });
 });
 

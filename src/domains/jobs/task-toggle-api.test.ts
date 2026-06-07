@@ -246,6 +246,28 @@ describe("POST /api/task-toggle — happy path persistence", () => {
     expect(tasks.t2).toBeUndefined();
   });
 
+  it("coerces malformed existing dwelling/task maps before writing", async () => {
+    blob.set("jobs/job-active/data.json", {
+      dwellings: {
+        "area-1": {
+          roughIn: { tasks: "not an object" },
+          fitOff: "also not an object",
+        },
+        "area-corrupt": "not an object",
+      },
+    });
+
+    const res = await call({
+      userId: "u_field",
+      role: "electrician",
+      jobId: "job-active",
+      body: validBody({ taskId: "t1", state: "complete" }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(persistedTasks("job-active", "area-1", "roughIn")).toEqual({ t1: "complete" });
+  });
+
   it("supports undo back to not_started", async () => {
     await call({ userId: "u_field", role: "electrician", jobId: "job-active", body: validBody({ state: "complete" }) });
     const undo = await call({ userId: "u_field", role: "electrician", jobId: "job-active", body: validBody({ state: "not_started" }) });

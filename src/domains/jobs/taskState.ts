@@ -103,6 +103,17 @@ export function parseJobTaskState(data: unknown): JobTaskState {
   return out;
 }
 
+const TaskToggleResultSchema = z
+  .object({
+    state: z.enum(TASK_STATES),
+  })
+  .passthrough();
+
+export function parseTaskToggleResult(data: unknown): TaskState | null {
+  const parsed = TaskToggleResultSchema.safeParse(data);
+  return parsed.success ? parsed.data.state : null;
+}
+
 /** Read a single task's state, defaulting to not_started when unrecorded. */
 export function readTaskState(
   state: JobTaskState,

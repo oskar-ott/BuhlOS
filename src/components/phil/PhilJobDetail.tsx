@@ -21,6 +21,7 @@ import { hasSiteContext, visibleAreaGroups } from "@/domains/jobs/format";
 import {
   applyTaskState,
   buildWorkerTasks,
+  parseTaskToggleResult,
   type JobTaskState,
   type TaskState,
 } from "@/domains/jobs/taskState";
@@ -249,13 +250,10 @@ export function PhilJobDetail({
           }
           throw new Error(message);
         }
-        const body = (await res.json().catch(() => null)) as
-          | { state?: unknown }
-          | null;
-        const confirmed: TaskState =
-          body && typeof body.state === "string"
-            ? (body.state as TaskState)
-            : next;
+        const confirmed = parseTaskToggleResult(await res.json().catch(() => null));
+        if (!confirmed) {
+          throw new Error("Unexpected task update response.");
+        }
         setTaskState((prev) =>
           applyTaskState(prev, areaId, stageForWrite, taskId, confirmed),
         );
