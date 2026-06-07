@@ -91,7 +91,12 @@ async function loadJobs(cookieValue: string | undefined): Promise<{
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
 
   try {
-    const res = await fetch(`${base}/api/jobs`, {
+    // `?withStats=1` enriches each job with real, opt-in site stats
+    // (open snags + active ITPs etc.) so the list can show "open work on this
+    // site" chips. The enrichment fails soft server-side (api/jobs.js): on a
+    // bad read the core job still returns with zeroed stats, so the list keeps
+    // working and the chips just don't render.
+    const res = await fetch(`${base}/api/jobs?withStats=1`, {
       cache: "no-store",
       headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
     });

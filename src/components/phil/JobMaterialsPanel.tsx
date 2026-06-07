@@ -46,15 +46,9 @@ export function JobMaterialsPanel() {
           request buttons.
         </p>
         <p className="mt-2">
-          For now, materials live on the office app under{" "}
-          <a
-            href="/admin/materials"
-            className="underline decoration-accent-yellow decoration-2 underline-offset-2"
-          >
-            Materials
-          </a>
-          . Stick with the current office process &mdash; phone or text your
-          PM if you need something.
+          Need something on site? Phone or text your PM &mdash; they&rsquo;ll
+          order it through the office. We&rsquo;ll bring requests into Phil once
+          the worker-side flow is real, not before.
         </p>
       </div>
     </Card>
