@@ -37,8 +37,7 @@ import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
 import { JobSnagsPanel } from "./JobSnagsPanel";
 import { JobItpPanel } from "./JobItpPanel";
 import { JobDocumentsPanel } from "./JobDocumentsPanel";
-import { JobMaterialsPanel } from "./JobMaterialsPanel";
-import { JobHistoryPanel } from "./JobHistoryPanel";
+import { PhilJobDeferredNote } from "./PhilJobDeferredNote";
 import { PhilJobHero } from "./PhilJobHero";
 import { PhilJobCommandPanel } from "./PhilJobCommandPanel";
 import { PhilJobAttentionStrip } from "./PhilJobAttentionStrip";
@@ -109,13 +108,14 @@ interface Props {
  *      capture strip.
  *   8. Snags (#phil-job-snags) — JobSnagsPanel (live).
  *   9. ITPs (#phil-job-itps) — JobItpPanel (live, Phase E1b).
- *  10. Documents (#phil-job-documents) — JobDocumentsPanel (UC stub
- *      until the E2 read-only slice lands).
- *  11. Materials (#phil-job-materials) — JobMaterialsPanel (UC).
- *  12. History (#phil-job-history) — JobHistoryPanel (UC).
+ *  10. Documents (#phil-job-documents) — JobDocumentsPanel (live, E2
+ *      read-only — "Site files").
+ *  11. Not connected yet (#phil-job-more) — one concise PhilJobDeferredNote
+ *      for the deferred Materials + History surfaces. Replaces the two
+ *      former full-card UC panels so placeholders don't dominate the scroll.
  *
- * The Documents / Materials / History panels stay honest UC until
- * their dedicated slices land — no fake counts, no fake buttons.
+ * Deferred surfaces are an honest one-line note — no fake counts, no fake
+ * buttons, no full "under construction" cards.
  *
  * Cross-ref:
  *   /tmp/phil-bible/buhlos-phil/project/Phil Job Interface Bible.html
@@ -625,15 +625,13 @@ export function PhilJobDetail({
         </section>
       ) : null}
 
-      {/* Job-interface sections. Order matches
-          docs/rebuild-audit/34-phase-e-testing-checklist.md §B.2:
-          header → site → stage → areas → capture → strip → Snags →
-          ITPs, then Documents / Materials / History.
+      {/* Job-interface sections: header → command → attention → site →
+          areas/work → capture → Snags → ITPs → Plans → Documents, then one
+          honest "not connected yet" note for the deferred surfaces.
 
-          JobItpPanel is LIVE as of Phase E1b. JobDocumentsPanel is
-          LIVE as of Phase E2 (read-only). JobMaterialsPanel and
-          JobHistoryPanel stay UC until their dedicated slices land
-          in real implementations. */}
+          JobItpPanel is LIVE (E1b). JobDocumentsPanel is LIVE (E2, read-only).
+          Materials + History are deferred — a single PhilJobDeferredNote, not
+          two full UC cards. */}
       <section id="phil-job-itps" aria-label="ITPs" className="scroll-mt-16">
         <JobItpPanel job={job} initialItps={initialItps} />
       </section>
@@ -670,20 +668,15 @@ export function PhilJobDetail({
         />
       </section>
 
+      {/* Secondary — deferred surfaces. The Materials + History UC stubs used
+          to be two full cards here; consolidated into one honest, low-emphasis
+          "not connected yet" note so placeholders don't dominate the scroll. */}
       <section
-        id="phil-job-materials"
-        aria-label="Materials"
+        id="phil-job-more"
+        aria-label="Not connected yet"
         className="scroll-mt-16"
       >
-        <JobMaterialsPanel />
-      </section>
-
-      <section
-        id="phil-job-history"
-        aria-label="Job history"
-        className="scroll-mt-16"
-      >
-        <JobHistoryPanel />
+        <PhilJobDeferredNote />
       </section>
 
       <CaptureSheet
