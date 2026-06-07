@@ -1,8 +1,9 @@
 # Phil — fix & resubmit a rejected hours entry
 
-_Branch `feat/phil-hours-rejected-resubmit`. Built on current `main` (`ef8f221`,
-#92). The one genuinely-missing Phil hours feature #57 promised, kept separate
-because it touches the attribution-sensitive write-path UI._
+_Branch `feat/phil-hours-rejected-resubmit`. Built on the #92 safe-hours
+foundation and reviewed against current `main` after #95. The one
+genuinely-missing Phil hours feature #57 promised, kept separate because it
+touches the attribution-sensitive write-path UI._
 
 ## Why this exists
 
@@ -23,7 +24,9 @@ rejection reason, edits the hours (and, if needed, the job and a note), and taps
 
 The two "Fix & resubmit →" affordances already on `/phil/my-day` (the rejected
 AttentionBanner and the recent-entries list) deep-link here, so the loop is now
-complete end-to-end without touching `/phil/my-day` or `LogHoursSheet`.
+complete end-to-end without changing `/phil/my-day`. `LogHoursSheet` keeps its
+create-path behaviour but refreshes the rejected-status copy so it points to
+Hours history instead of saying the in-Phil flow is still being built.
 
 ## API / client path (no API change)
 
@@ -54,9 +57,10 @@ check, so — exactly as on the create path — the **Phil UI is the guardrail**
 - Submit is disabled until attribution resolves; `jobsError` blocks rather than
   degrading to an unattributed entry.
 
-`LogHoursSheet`, `/phil/my-day`, the attribution validator
+`/phil/my-day`, the attribution validator
 (`src/domains/qa/time-entry-attribution.ts`) and the field-readiness smoke are
-**unchanged**.
+**unchanged**. `LogHoursSheet` only receives the copy refresh noted above; its
+submit payload, job attribution guard, and create-path behaviour are unchanged.
 
 ## Scope / limitations
 
@@ -79,3 +83,6 @@ check, so — exactly as on the create path — the **Phil UI is the guardrail**
 - `src/components/phil/RejectedHoursResubmitSheet.render.test.tsx` — SSR render:
   collapsed trigger, open form with reason + job, multiple-jobs "pick one",
   jobs-error / no-jobs blocked states, and no admin/payroll controls.
+- `src/components/phil/LogHoursSheet.render.test.tsx` — verifies rejected-status
+  copy points workers to Hours history and no longer says the in-Phil flow is
+  still being built.

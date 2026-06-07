@@ -510,8 +510,7 @@ function StatusLine({
         <PhilNotice tone="danger" title="Rejected">
           <p>{entry.rejectedReason}</p>
           <p className="mt-1 text-xs">
-            Open the legacy My day to edit and resubmit — the in-Phil edit
-            flow is still being built.
+            Open Hours history to fix and resubmit this entry in Phil.
           </p>
         </PhilNotice>
       ) : null}

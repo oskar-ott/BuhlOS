@@ -65,3 +65,29 @@ describe("LogHoursSheet — job attribution", () => {
     expect(html).toContain("load your jobs");
   });
 });
+
+describe("LogHoursSheet — rejected status copy", () => {
+  it("points rejected entries to the Phil hours history resubmit flow", () => {
+    const html = render({
+      assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
+      recentEntries: [],
+      initialTodayEntry: {
+        id: "te-1",
+        userId: "u1",
+        date: "2026-06-07",
+        totalHours: 7.6,
+        ordinaryHours: 7.6,
+        overtimeHours: 0,
+        status: "rejected",
+        rejectedReason: "Wrong job",
+        allocations: [{ jobId: "j1", hours: 7.6, notes: null }],
+        createdAt: "2026-06-07T06:00:00Z",
+        updatedAt: "2026-06-07T06:00:00Z",
+      },
+    });
+
+    expect(html).toContain("Open Hours history to fix and resubmit this entry in Phil.");
+    expect(html).not.toContain("legacy My day");
+    expect(html).not.toContain("still being built");
+  });
+});
