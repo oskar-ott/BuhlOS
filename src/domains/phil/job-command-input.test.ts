@@ -68,6 +68,33 @@ describe("philJobCommandInputFromJobData — honest counts", () => {
     });
     expect(inp.tasks).toEqual({ kind: "list_only", visible: 1 });
   });
+
+  it("uses real task state when supplied, and does not invent completion when absent", () => {
+    const jobWithAreas = job({
+      areaGroups: [
+        {
+          id: "g1",
+          name: "Ground",
+          areas: [{ id: "area-1", name: "Kitchen" }],
+        },
+      ],
+      roughInTasks: [
+        { id: "t1", name: "Cable run" },
+        { id: "t2", name: "Back boxes" },
+      ],
+    });
+
+    const withoutState = philJobCommandInputFromJobData({ job: jobWithAreas });
+    expect(withoutState.tasks).toEqual({ kind: "list_only", visible: 2 });
+
+    const withState = philJobCommandInputFromJobData({
+      job: jobWithAreas,
+      taskState: {
+        "area-1": { roughIn: { t1: "complete" }, fitOff: {} },
+      },
+    });
+    expect(withState.tasks).toEqual({ kind: "tracked", visible: 2, incomplete: 1 });
+  });
 });
 
 describe("philJobCommandInputFromJobData — failed loads become unknown, not false zero", () => {

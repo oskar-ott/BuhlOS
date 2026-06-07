@@ -54,7 +54,7 @@ becomes a `limitation`, never a faked action or count.
 | Open snags | `moduleEnabled(job,"snags")` + `/api/snags` (`open`/`in_progress`/`resolved`) | **Real** | High | `report_issue` + `open-snags` attention | Low |
 | ITP checks | `moduleEnabled(job,"itps")` + `/api/job-itps` (`pending`/`in-progress`) | **Real** (module defaults **off**) | High when on | `complete_checks` when count > 0 | Low |
 | Worker-visible tasks | `buildPhilPreview(job)` structure | **Real (list)** | High | `tasks: list_only` → "View your tasks" | Low |
-| Task **completion** | `/api/task-toggle` dormant on `main`; **PR #94 open** | **Stub** | High | **not faked** — honest `tasks-read-only` limitation | Avoided |
+| Task **completion** | `GET /api/data` → `parseJobTaskState` + `/api/task-toggle` (#94) | **Real when supplied** | High | `tasks: tracked` only with real task state; otherwise honest `list_only` | Low |
 | Rejected hours (per job) | global only, via `TimeEntry.allocations[].jobId` on `/phil/hours`; **not fetched on the job page** | **Stub on job screen** | High | `rejectedHours: unknown` → limitation + **upgrade hook** | Low |
 | Hours logging | `/phil/my-day` `LogHoursSheet` (global, not job-scoped) | **Real, off-surface** | High | `log_hours` → `elsewhere` (Day tab) | Low |
 | Materials | `material-requests` domain exists; **no in-app request flow** | **Stub (UC)** | Med | limitation only ("call your PM") | Low |
@@ -118,12 +118,14 @@ time entries, so per-job rejected hours is genuinely unknowable there → the
 bridge returns `{ kind: "unknown" }` → the model emits an honest limitation, not
 a fake card.
 
-When a caller _can_ compute it (filter the worker's rejected `TimeEntry`s by
+When a caller _can_ compute rejected hours (filter the worker's rejected `TimeEntry`s by
 `allocations[].jobId`, using the helpers in `src/domains/timesheets/resubmit.ts`
 shipped in #93), it passes `rejectedHoursForJob` and the bridge returns
 `{ kind: "count", value }`. The model then lights up `fix_rejected_hours` as the
 top-priority action — **with zero change to the decision layer or the UI.** The
-same pattern applies to task completion (`list_only` → `tracked`) when #94 lands.
+same pattern applies to task completion: pass the real `JobTaskState` shipped in
+#94 and the bridge returns `tasks: tracked`; omit it and the model stays
+`list_only` without inventing completion.
 
 ## Intended UI integration (deferred — see "Scope")
 
@@ -154,11 +156,11 @@ const model = result.kind === "ok"
 ## Scope of the shipping PR
 
 **Model + bridge + tests + docs only.** The UI integration is intentionally
-**not** included: PR #94 (worker-visible tasks) is open and owns
-`src/components/phil/PhilJobDetail.tsx` and `src/app/phil/jobs/[jobId]/page.tsx`
-— the exact files the integration would touch. Per the brief, when an open PR
-owns the Phil job page, we ship the decision layer and defer the wiring, so #94
-merges cleanly and the follow-up is the near-one-liner above.
+**not** included. PR #94 has now merged and owns the worker-visible task UI and
+task-state load path; this PR keeps the command model isolated so the follow-up
+can wire it into `src/components/phil/PhilJobDetail.tsx` and
+`src/app/phil/jobs/[jobId]/page.tsx` without mixing UI layout decisions into the
+decision layer.
 
 ## Deliberate deviations from the brief
 
@@ -175,9 +177,9 @@ merges cleanly and the follow-up is the near-one-liner above.
 
 ## Tests
 
-- `job-command-model.test.ts` — 22 cases: every state; actions only from real
+- `job-command-model.test.ts` — every state; actions only from real
   data; no fake rejected hours / task completion / counts; unknown → limitation;
   priority + primary selection; stable ranking; no admin/payroll/Xero language.
-- `job-command-input.test.ts` — 14 cases: module gating, honest counts (snags /
-  ITPs / docs), empty-vs-failed loads, the rejected-hours upgrade hook, and
-  bridge→model end to end.
+- `job-command-input.test.ts` — module gating, honest counts (snags / ITPs /
+  docs), empty-vs-failed loads, optional real task-state tracking, the
+  rejected-hours upgrade hook, and bridge→model end to end.

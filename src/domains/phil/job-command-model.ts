@@ -8,7 +8,7 @@
  *
  * Why this exists
  * ---------------
- * Phil had started to accrete feature-specific UI blocks — an action hub here,
+ * Phil can accrete feature-specific UI blocks — an action hub here,
  * a rejected-hours card there, a task panel, an evidence chip. Every time the
  * job model changed, those blocks went stale and the field UI had to be
  * re-stitched. This module replaces that pattern with a single, stable
@@ -159,10 +159,9 @@ export type PhilAvailability =
   | { kind: "unknown" };
 
 /**
- * Worker-visible tasks. `tracked` carries real per-task completion (a future
- * capability); `list_only` is today's reality on `main` — tasks are shown for
- * reference but ticking them off isn't wired, so the model must never claim a
- * completion count.
+ * Worker-visible tasks. `tracked` carries real per-task completion; `list_only`
+ * means the task plan is real, but this caller has not supplied real task state,
+ * so the model must never claim a completion count.
  */
 export type PhilTaskSignal =
   | { kind: "tracked"; visible: number; incomplete: number }
@@ -453,8 +452,8 @@ export function buildPhilJobCommandModel(input: PhilJobCommandInput): PhilJobCom
       break;
     case "list_only":
       if (input.tasks.visible > 0) {
-        // Tasks are visible but completion isn't wired — offer "view", never a
-        // completion count, and state the limitation plainly.
+        // Tasks are visible but real task state was not supplied — offer "view",
+        // never a completion count, and state the limitation plainly.
         actions.push({
           id: "continue_tasks",
           label: "View your tasks",
@@ -463,8 +462,8 @@ export function buildPhilJobCommandModel(input: PhilJobCommandInput): PhilJobCom
         });
         limitations.push({
           id: "tasks-read-only",
-          label: "Ticking tasks off isn’t in the app yet",
-          reason: "Tasks are shown for reference — use them as your checklist.",
+          label: "Task progress isn’t loaded in this section yet",
+          reason: "Open the task list for the latest done / to-do state.",
         });
       }
       break;

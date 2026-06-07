@@ -154,6 +154,9 @@ describe("buildPhilJobCommandModel — no fake state", () => {
     expect(task?.label ?? "").not.toMatch(/\d/);
     expect(attentionIds(m)).not.toContain("tasks-remaining"); // no completion-derived attention
     expect(limitationIds(m)).toContain("tasks-read-only");
+    expect(m.limitations.find((l) => l.id === "tasks-read-only")?.label).toBe(
+      "Task progress isn’t loaded in this section yet",
+    );
   });
 
   it("uses a real completion count only when tasks are genuinely tracked", () => {

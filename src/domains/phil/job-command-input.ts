@@ -8,10 +8,10 @@
  * derive as `unknown` / `not_configured` rather than guessing.
  *
  * The split is deliberate. When the job, snag, ITP, or document schemas change
- * — or when a new real signal arrives (worker-visible task completion, per-job
- * rejected hours) — only this bridge moves. The decision layer, its ranking,
- * and the UI generated from it stay put. That is the whole point: Phil can
- * evolve without rewriting the field-worker surface every week.
+ * — or when a new real signal arrives (per-job rejected hours, richer task
+ * progress) — only this bridge moves. The decision layer, its ranking, and the
+ * UI generated from it stay put. That is the whole point: Phil can evolve
+ * without rewriting the field-worker surface every week.
  *
  * Honesty rules encoded here:
  *   - Module OFF for the job        → `not_configured` (no action, no noise).
@@ -30,7 +30,9 @@
  */
 
 import { buildPhilPreview, isVisibleToField, moduleEnabled } from "@/domains/jobs/builder";
-import type { Job } from "@/domains/jobs/types";
+import { effectiveTasks, visibleAreaGroups } from "@/domains/jobs/format";
+import { readTaskState, type JobTaskState } from "@/domains/jobs/taskState";
+import type { Job, JobStage } from "@/domains/jobs/types";
 import type { SnagItem } from "@/domains/snags/types";
 import type { ITPInstance } from "@/domains/itp/types";
 import type { Document } from "@/domains/documents/types";
@@ -49,6 +51,12 @@ export interface PhilJobDataForCommand {
   itps?: ITPInstance[];
   /** GET /api/plans?jobId — plan/spec documents. */
   documents?: Document[];
+  /**
+   * Optional real task state from GET /api/data → parseJobTaskState (#94). When
+   * present, the bridge can safely produce tracked task progress. When omitted,
+   * tasks remain `list_only` so no completion count is invented.
+   */
+  taskState?: JobTaskState;
   /**
    * Set a flag when a list fetch FAILED (as opposed to returning empty), so
    * the signal becomes `unknown` instead of a misleading 0. The page already
@@ -82,6 +90,7 @@ const OPEN_SNAG_STATUSES: ReadonlySet<string> = new Set([
 /** Checks the WORKER still has to record: pending / in-progress. `witnessed`
  *  (awaiting sign-off) and `signed-off` are not the worker's action. */
 const WORKER_ITP_STATUSES: ReadonlySet<string> = new Set(["pending", "in-progress"]);
+const JOB_STAGES: readonly JobStage[] = ["roughIn", "fitOff"];
 
 function countOpenSnags(snags: ReadonlyArray<SnagItem>): number {
   return snags.filter((s) => OPEN_SNAG_STATUSES.has(s.status)).length;
@@ -97,8 +106,9 @@ function countCurrentDocuments(documents: ReadonlyArray<Document>): number {
 }
 
 /** How many tasks the field worker would see — derived from the same preview
- *  the live surface uses, so it never diverges. Used only to decide whether to
- *  offer "View your tasks"; completion is NOT tracked on `main`. */
+ *  the live surface uses, so it never diverges. Used only when no real task
+ *  state is supplied, so the model can offer "View your tasks" without claiming
+ *  completion progress. */
 function countVisibleTasks(job: Job): number {
   const preview = buildPhilPreview(job);
   const areaTasks = preview.areas.reduce(
@@ -107,6 +117,28 @@ function countVisibleTasks(job: Job): number {
   );
   if (areaTasks > 0) return areaTasks;
   return preview.stages.reduce((n, s) => n + s.jobLevelTaskCount, 0);
+}
+
+function countTrackedAreaTasks(
+  job: Job,
+  taskState: JobTaskState,
+): PhilJobCommandInput["tasks"] | null {
+  let visible = 0;
+  let incomplete = 0;
+  for (const group of visibleAreaGroups(job.areaGroups)) {
+    for (const area of group.areas ?? []) {
+      for (const stage of JOB_STAGES) {
+        const tasks = effectiveTasks(job, area, stage);
+        visible += tasks.length;
+        for (const task of tasks) {
+          if (readTaskState(taskState, area.id, stage, task.id) !== "complete") {
+            incomplete += 1;
+          }
+        }
+      }
+    }
+  }
+  return visible > 0 ? { kind: "tracked", visible, incomplete } : null;
 }
 
 /**
@@ -159,9 +191,9 @@ export function philJobCommandInputFromJobData(
     plans,
     snags,
     itps,
-    // Tasks are visible but completion isn't wired on `main` (see #94). When it
-    // lands, return `{ kind: "tracked", visible, incomplete }` here instead.
-    tasks: { kind: "list_only", visible: countVisibleTasks(job) },
+    tasks: data.taskState
+      ? countTrackedAreaTasks(job, data.taskState) ?? { kind: "list_only", visible: countVisibleTasks(job) }
+      : { kind: "list_only", visible: countVisibleTasks(job) },
     rejectedHours,
     // Hours are logged on the Day tab, not per job — a real capability that
     // lives on another surface.
