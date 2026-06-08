@@ -55,13 +55,19 @@ describe("JobFieldViewCard (What the field sees)", () => {
     const html = render(job({ ...STRUCTURED, statsCrewCount: 0 }));
     expect(html).toContain("no field workers are assigned");
     expect(html).not.toContain("Visible in Phil to");
+    expect(html).toContain("Stages configured for Phil");
+    expect(html).toContain("If assigned and published, Phil would include");
+    expect(html).not.toContain("Stages the worker sees");
+    expect(html).not.toContain("Phil screen includes");
   });
 
   it("honestly flags a draft job as office-only (worker can't see it)", () => {
     const html = render(job({ ...STRUCTURED, status: "draft", statsCrewCount: 3 }));
     expect(html).toContain("Office-only — not published");
     expect(html).not.toContain("Visible in Phil to");
-    expect(html).toContain("If published, Phil would include");
+    expect(html).toContain("Stages configured for Phil");
+    expect(html).toContain("If assigned and published, Phil would include");
+    expect(html).not.toContain("Stages the worker sees");
     expect(html).not.toContain("Phil screen includes");
   });
 

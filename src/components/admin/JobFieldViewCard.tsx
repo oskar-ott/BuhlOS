@@ -131,6 +131,7 @@ export function JobFieldViewCard({ job }: { job: Job }) {
   const access = accessSummary(preview.isVisibleToField, crew);
   const AccessIcon = access.icon;
   const screenSections = currentPhilSections(job, preview);
+  const reachesField = preview.isVisibleToField && crew !== 0;
 
   return (
     <Card>
@@ -166,7 +167,7 @@ export function JobFieldViewCard({ job }: { job: Job }) {
       ) : preview.stages.length > 0 ? (
         <div className="mt-3">
           <p className="font-display text-[11px] uppercase tracking-wider text-text-muted">
-            Stages the worker sees
+            {reachesField ? "Stages the worker sees" : "Stages configured for Phil"}
           </p>
           <div className="mt-1 flex flex-wrap gap-2">
             {preview.stages.map((s) => (
@@ -181,7 +182,7 @@ export function JobFieldViewCard({ job }: { job: Job }) {
       {screenSections.length > 0 ? (
         <div className="mt-3">
           <p className="font-display text-[11px] uppercase tracking-wider text-text-muted">
-            {preview.isVisibleToField ? "Phil screen includes" : "If published, Phil would include"}
+            {reachesField ? "Phil screen includes" : "If assigned and published, Phil would include"}
           </p>
           <ul className="mt-1 grid gap-2 sm:grid-cols-2">
             {screenSections.map((s) => (
