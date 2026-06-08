@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { ChevronDown, ChevronUp, Tag, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import {
   createEvidence,
@@ -13,7 +13,7 @@ import type {
   CreateEvidencePayload,
   EvidenceItem,
 } from "@/domains/evidence/types";
-import { visibleAreaGroups } from "@/domains/jobs/format";
+import { effectiveTasks, stageLabel, visibleAreaGroups } from "@/domains/jobs/format";
 import type { Job, JobStage } from "@/domains/jobs/types";
 import { CapturePhotoPicker } from "./CapturePhotoPicker";
 import { CaptureTargetPickers } from "./CaptureTargetPickers";
@@ -84,6 +84,11 @@ export function CaptureSheet({
   const [taskId, setTaskId] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "ready" });
   const [resizing, setResizing] = useState(false);
+  // Context (stage / area / task) starts collapsed: the default sheet is photo
+  // + optional note + one optional line, not a wall of pickers. The pickers are
+  // one tap away and unchanged. Worker-first: take the photo now, add context
+  // only if it helps.
+  const [contextOpen, setContextOpen] = useState(false);
 
   // The sheet may unmount mid-flight (worker taps Cancel after Submit).
   // Track a per-submit signal so the async chain doesn't fire callbacks
@@ -134,6 +139,30 @@ export function CaptureSheet({
     // taskId requires stage AND area — keep the picker logic consistent
     // with the server-side check in api/evidence.js.
     (!taskId || (!!stage && !!areaId));
+
+  // Plain-language summary of whatever context is attached — shown on the
+  // collapsed row so nothing is hidden (the worker still sees a carried-in
+  // stage/area), while the full picker list stays one tap away. Resolved from
+  // the real job; never invented.
+  const selectedAreaName = useMemo(
+    () => (areaId ? flatAreas.find((a) => a.id === areaId)?.name ?? null : null),
+    [areaId, flatAreas],
+  );
+  const selectedTaskName = useMemo(() => {
+    if (!taskId || !areaId || !stage) return null;
+    const area =
+      (job.areaGroups ?? [])
+        .flatMap((g) => g.areas ?? [])
+        .find((a) => a.id === areaId) ?? null;
+    if (!area) return null;
+    return effectiveTasks(job, area, stage).find((t) => t.id === taskId)?.name ?? null;
+  }, [job, taskId, areaId, stage]);
+  const contextParts = [
+    stage ? stageLabel(stage) : null,
+    selectedAreaName,
+    selectedTaskName,
+  ].filter((p): p is string => Boolean(p));
+  const hasContext = contextParts.length > 0;
 
   const handlePick = useCallback(async (next: File) => {
     setFile(next);
@@ -314,24 +343,72 @@ export function CaptureSheet({
             </p>
           </div>
 
-          <CaptureTargetPickers
-            job={job}
-            flatAreas={flatAreas}
-            stage={stage}
-            areaId={areaId}
-            taskId={taskId}
-            busy={busy}
-            onStageChange={(s) => {
-              setStage(s);
-              // Clearing the stage invalidates the task (which depends on stage).
-              if (!s) setTaskId(null);
-            }}
-            onAreaChange={(a) => {
-              setAreaId(a);
-              if (!a) setTaskId(null);
-            }}
-            onTaskChange={setTaskId}
-          />
+          <div>
+            <button
+              type="button"
+              onClick={() => setContextOpen((v) => !v)}
+              disabled={busy}
+              aria-expanded={contextOpen}
+              aria-controls="capture-context"
+              className={cn(
+                "flex min-h-[48px] w-full items-center gap-3 rounded-card border border-border bg-surface px-3 py-2 text-left",
+                "transition-colors hover:bg-surface-subtle",
+                "disabled:cursor-not-allowed disabled:opacity-60"
+              )}
+            >
+              <Tag aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+              <span className="min-w-0 flex-1">
+                {hasContext ? (
+                  <>
+                    <span className="block truncate text-sm font-semibold text-text">
+                      {contextParts.join(" · ")}
+                    </span>
+                    <span className="block text-xs text-text-muted">
+                      Tap to change area, stage or task
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="block text-sm font-semibold text-text">
+                      Add area or stage{" "}
+                      <span className="font-normal text-text-muted">(optional)</span>
+                    </span>
+                    <span className="block text-xs text-text-muted">
+                      Skip it — a photo on the job is enough.
+                    </span>
+                  </>
+                )}
+              </span>
+              {contextOpen ? (
+                <ChevronUp aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+              ) : (
+                <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+              )}
+            </button>
+
+            {contextOpen ? (
+              <div id="capture-context" className="mt-3">
+                <CaptureTargetPickers
+                  job={job}
+                  flatAreas={flatAreas}
+                  stage={stage}
+                  areaId={areaId}
+                  taskId={taskId}
+                  busy={busy}
+                  onStageChange={(s) => {
+                    setStage(s);
+                    // Clearing the stage invalidates the task (which depends on stage).
+                    if (!s) setTaskId(null);
+                  }}
+                  onAreaChange={(a) => {
+                    setAreaId(a);
+                    if (!a) setTaskId(null);
+                  }}
+                  onTaskChange={setTaskId}
+                />
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 

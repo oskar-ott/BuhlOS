@@ -54,6 +54,18 @@ logging** (note / blocker / need material / question / etc. → `POST
 Two steps are intentional: the binary must land before the metadata row
 references it.
 
+### Worker-first sheet (v1)
+
+The sheet is **photo-first** and deliberately not a form. On open the worker
+sees the photo affordance, an **optional** note, and a single collapsed
+**"Add area or stage"** row — the stage/area/task pickers stay one tap away, so
+the default flow is *take a photo → (note if you want) → Submit*. Any context
+that carried in from the job page (e.g. the stage/area the worker had selected)
+is shown as a plain summary on that row, so nothing the capture will attach is
+hidden. Submit stays disabled until a photo is picked; the note and the context
+are never required. This is a **UI/UX** change only — the payload, endpoints,
+metadata, permissions and honest states below are unchanged.
+
 ### Honest states
 
 `ready → uploading → pending_sync → (success) | failed`
