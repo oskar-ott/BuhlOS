@@ -28,9 +28,11 @@ interface Props {
  * Phil — Job documents / specs panel (Phase E2, read-only).
  *
  * Replaces the PR #37 UC stub with a live, worker-safe document list.
- * Sits below JobItpPanel in PhilJobDetail (per the same vertical
- * render order — header → site → stage → areas → capture → strip →
- * Snags → ITPs → Documents → Materials → History).
+ * Owns its own `#phil-job-documents` section and renders **nothing** when the
+ * job has no documents and there's no fetch error — so an empty job doesn't show
+ * a "No documents" card padding the screen. A superseded-only job (real
+ * field-safety message) and any fetch error still render. Sits in the reference
+ * zone of PhilJobDetail, after the ITP/Checks panel.
  *
  * Workers see **current revisions only.** Superseded + archived rows
  * are filtered client-side here — the server already strips
@@ -58,46 +60,61 @@ export function JobDocumentsPanel({
     [initialDocuments],
   );
 
+  // Quiet the whole section when there's genuinely nothing to show: no
+  // documents at all AND no fetch error. Workers don't need an empty
+  // "No documents" card padding the job screen. Two cases deliberately still
+  // render: a superseded-only job (docs exist but none current) — "don't use
+  // stale drawings, ask your PM" is a real field-safety message — and any fetch
+  // error. Nothing navigates to #phil-job-documents, so hiding it removes no
+  // access (Plans is a separate section).
+  if (initialDocuments.length === 0 && !fetchError) return null;
+
   return (
-    <Card>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <CardTitle>Documents &amp; specs</CardTitle>
-          <CardDescription className="mt-1">
-            Current drawings and specs for this job. Tap a row to open
-            the file.
-          </CardDescription>
+    <section
+      id="phil-job-documents"
+      aria-label="Documents and specs"
+      className="scroll-mt-16"
+    >
+      <Card>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle>Documents &amp; specs</CardTitle>
+            <CardDescription className="mt-1">
+              Current drawings and specs for this job. Tap a row to open
+              the file.
+            </CardDescription>
+          </div>
+          {current.length > 0 ? (
+            <Pill tone="neutral">{current.length} current</Pill>
+          ) : null}
         </div>
-        {current.length > 0 ? (
-          <Pill tone="neutral">{current.length} current</Pill>
+
+        {fetchError ? (
+          <PhilNotice tone="warning" role="status" className="mt-3">
+            Couldn’t load every document. Showing what we have. Refresh to try again.
+          </PhilNotice>
         ) : null}
-      </div>
 
-      {fetchError ? (
-        <PhilNotice tone="warning" role="status" className="mt-3">
-          Couldn’t load every document. Showing what we have. Refresh to try again.
-        </PhilNotice>
-      ) : null}
-
-      {current.length === 0 ? (
-        <p
-          className="mt-3 rounded-card border border-dashed border-border bg-surface-subtle p-4 text-center text-sm text-text-muted"
-          role="status"
-        >
-          {initialDocuments.length === 0
-            ? "No documents on this job yet. Your PM uploads them on the office app."
-            : "No current revisions — everything on this job has been superseded. Ask your PM which one to use."}
-        </p>
-      ) : (
-        <ul className="mt-3 space-y-2">
-          {current.map((doc) => (
-            <li key={doc.id}>
-              <DocumentRow doc={doc} />
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
+        {current.length === 0 ? (
+          <p
+            className="mt-3 rounded-card border border-dashed border-border bg-surface-subtle p-4 text-center text-sm text-text-muted"
+            role="status"
+          >
+            {initialDocuments.length === 0
+              ? "No documents on this job yet. Your PM uploads them on the office app."
+              : "No current revisions — everything on this job has been superseded. Ask your PM which one to use."}
+          </p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {current.map((doc) => (
+              <li key={doc.id}>
+                <DocumentRow doc={doc} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </section>
   );
 }
 

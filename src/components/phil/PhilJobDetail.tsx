@@ -571,16 +571,14 @@ export function PhilJobDetail({
         </section>
       ) : null}
 
-      <section
-        id="phil-job-documents"
-        aria-label="Documents and specs"
-        className="scroll-mt-16"
-      >
-        <JobDocumentsPanel
-          initialDocuments={initialDocuments}
-          fetchError={documentsError ?? null}
-        />
-      </section>
+      {/* Documents & specs — JobDocumentsPanel owns its own
+          #phil-job-documents section and renders nothing when the job has no
+          documents and no fetch error (an empty job shows no card). A
+          superseded-only job and fetch errors still render. */}
+      <JobDocumentsPanel
+        initialDocuments={initialDocuments}
+        fetchError={documentsError ?? null}
+      />
 
       {/* Site details — reference info (address / access / parking / safety /
           induction). Demoted to the bottom "reference" zone so the active work
