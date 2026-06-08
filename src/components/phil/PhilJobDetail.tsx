@@ -2,22 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import {
-  Camera,
-  ChevronDown,
-  KeyRound,
-  Map as MapIcon,
-  MapPin,
-  Phone,
-  ShieldAlert,
-  Squircle,
-  User,
-} from "lucide-react";
+import { Camera, Map as MapIcon } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilActionButton } from "./ui/PhilActionButton";
 import { PhilNotice } from "./ui/PhilNotice";
 import { moduleEnabled } from "@/domains/jobs/builder";
-import { hasSiteContext, visibleAreaGroups } from "@/domains/jobs/format";
+import { visibleAreaGroups } from "@/domains/jobs/format";
 import {
   applyTaskState,
   buildWorkerTasks,
@@ -38,6 +28,7 @@ import { JobSnagsPanel } from "./JobSnagsPanel";
 import { JobItpPanel } from "./JobItpPanel";
 import { JobDocumentsPanel } from "./JobDocumentsPanel";
 import { PhilJobDeferredNote } from "./PhilJobDeferredNote";
+import { PhilJobSiteCard } from "./PhilJobSiteCard";
 import { PhilJobHero } from "./PhilJobHero";
 import { PhilJobCommandPanel } from "./PhilJobCommandPanel";
 import { PhilJobAttentionStrip } from "./PhilJobAttentionStrip";
@@ -49,7 +40,6 @@ import {
   countsForArea,
   soleStage,
 } from "./philJobWorkTree";
-import { cn } from "@/lib/cn";
 
 interface Props {
   job: Job;
@@ -100,20 +90,25 @@ interface Props {
  *      signals (rejected / assigned-to-me snags, pending ITPs,
  *      induction). Hidden when nothing qualifies. Attention stays here,
  *      not in the command panel, so the two never duplicate.
- *   5. Site card (#phil-job-site) — address / contact / access /
- *      parking / safety / induction. Collapsible.
- *   6. Work block (#phil-job-work) — stage chooser + area picker +
- *      effective task list (read-only).
- *   7. Capture block (#phil-job-capture) — primary CTA + today's
- *      capture strip.
- *   8. Snags (#phil-job-snags) — JobSnagsPanel (live).
- *   9. ITPs (#phil-job-itps) — JobItpPanel (live, Phase E1b).
+ *   5. "Work to do" (#phil-job-work) — stage chooser + area picker +
+ *      effective task list + per-task toggle. The active work, led first.
+ *   6. Capture block (#phil-job-capture) — primary CTA + today's
+ *      capture strip. ("Capture evidence" — kept verbatim; smoke/e2e
+ *      match this button + the CaptureSheet dialog name.)
+ *   7. Snags (#phil-job-snags) — JobSnagsPanel (live).
+ *   8. ITPs (#phil-job-itps) — JobItpPanel (live, Phase E1b).
+ *   9. Plans (#phil-job-plans) — in-app drawing viewer link.
  *  10. Documents (#phil-job-documents) — JobDocumentsPanel (live, E2
  *      read-only — "Site files").
- *  11. Not connected yet (#phil-job-more) — one concise PhilJobDeferredNote
- *      for the deferred Materials + History surfaces. Replaces the two
- *      former full-card UC panels so placeholders don't dominate the scroll.
+ *  11. <PhilJobSiteCard/> "Site details" (#phil-job-site) — reference info
+ *      (address / contact / access / parking / safety / induction),
+ *      collapsible. Demoted to the bottom reference zone so the active work
+ *      loop leads; keeps #phil-job-site for the induction attention link.
+ *  12. Not connected yet (#phil-job-more) — one concise PhilJobDeferredNote
+ *      for the deferred Materials + History surfaces.
  *
+ * Section ORDER is the worker flow: do the work → capture proof → handle
+ * problems/checks → references (plans/docs) → site details → what's not wired.
  * Deferred surfaces are an honest one-line note — no fake counts, no fake
  * buttons, no full "under construction" cards.
  *
@@ -156,7 +151,6 @@ export function PhilJobDetail({
     flatAreas[0]?.id ?? null
   );
   const [stage, setStage] = useState<JobStage>("roughIn");
-  const [siteOpen, setSiteOpen] = useState(true);
 
   const [captureOpen, setCaptureOpen] = useState(false);
   const [evidenceItems, setEvidenceItems] = useState<ReadonlyArray<EvidenceItem>>(
@@ -280,8 +274,6 @@ export function PhilJobDetail({
     [job.id, selectedArea, viewedStage],
   );
 
-  const showSiteContext = hasSiteContext(job);
-
   // "Next on this job" — the model-driven command panel (replaces the old flat
   // section-anchor strip). Built from the data the page already loaded; the
   // bridge marks anything not derivable here as an honest limitation (e.g.
@@ -401,84 +393,6 @@ export function PhilJobDetail({
         viewerId={viewer?.id ?? null}
       />
 
-      {showSiteContext ? (
-        <section id="phil-job-site" aria-labelledby="phil-job-site-h" className="scroll-mt-16">
-          <Card>
-            <button
-              type="button"
-              onClick={() => setSiteOpen((v) => !v)}
-              className="flex w-full items-center justify-between gap-2 text-left"
-              aria-expanded={siteOpen}
-              aria-controls="phil-job-site-body"
-            >
-              <CardTitle className="m-0" >
-                <span id="phil-job-site-h">Site</span>
-              </CardTitle>
-              <ChevronDown
-                aria-hidden="true"
-                className={cn(
-                  "h-5 w-5 shrink-0 text-text-muted transition-transform",
-                  siteOpen ? "rotate-180" : ""
-                )}
-              />
-            </button>
-            {siteOpen ? (
-              <dl id="phil-job-site-body" className="mt-3 space-y-3 text-sm">
-                {job.siteAddress ? (
-                  <SiteField icon={<MapPin className="h-4 w-4" />} label="Address">
-                    {job.siteAddress}
-                  </SiteField>
-                ) : null}
-                {(job.siteContactName?.trim() || job.siteContactPhone?.trim()) ? (
-                  <SiteField icon={<User className="h-4 w-4" />} label="Contact">
-                    {[
-                      job.siteContactName?.trim(),
-                      job.siteContactPhone?.trim() && (
-                        <span key="phone" className="inline-flex items-center gap-1">
-                          <Phone aria-hidden="true" className="h-3.5 w-3.5" />
-                          <a
-                            href={`tel:${job.siteContactPhone!.replace(/\s+/g, "")}`}
-                            className="underline decoration-accent-yellow decoration-2 underline-offset-2"
-                          >
-                            {job.siteContactPhone!.trim()}
-                          </a>
-                        </span>
-                      ),
-                    ]
-                      .filter(Boolean)
-                      .map((node, i) => (
-                        <span key={i} className="block">
-                          {node}
-                        </span>
-                      ))}
-                  </SiteField>
-                ) : null}
-                {job.accessNotes ? (
-                  <SiteField icon={<KeyRound className="h-4 w-4" />} label="Access">
-                    {job.accessNotes}
-                  </SiteField>
-                ) : null}
-                {job.parkingNotes ? (
-                  <SiteField icon={<Squircle className="h-4 w-4" />} label="Parking">
-                    {job.parkingNotes}
-                  </SiteField>
-                ) : null}
-                {job.safetyNotes ? (
-                  <SiteField icon={<ShieldAlert className="h-4 w-4" />} label="Safety">
-                    {job.safetyNotes}
-                  </SiteField>
-                ) : null}
-                {job.inductionRequired ? (
-                  <PhilNotice tone="warning" title="Site induction required">
-                    Confirm with your leading hand before starting.
-                  </PhilNotice>
-                ) : null}
-              </dl>
-            ) : null}
-          </Card>
-        </section>
-      ) : null}
-
       {flatAreas.length > 0 ? (
         <section
           id="phil-job-work"
@@ -488,7 +402,7 @@ export function PhilJobDetail({
           {groups.length > 0 ? (
             <Card>
               <CardTitle>
-                <span id="phil-job-work-h">Areas</span>
+                <span id="phil-job-work-h">Work to do</span>
               </CardTitle>
               <CardDescription className="mt-1">
                 Pick an area to drill in — its stages, tasks, and what&rsquo;s
@@ -529,7 +443,7 @@ export function PhilJobDetail({
           ) : (
             <Card>
               <CardTitle>
-                <span id="phil-job-work-h">Areas</span>
+                <span id="phil-job-work-h">Work to do</span>
               </CardTitle>
               <CardDescription className="mt-2">
                 No areas configured for this job yet. Ask your PM or check the
@@ -668,6 +582,12 @@ export function PhilJobDetail({
         />
       </section>
 
+      {/* Site details — reference info (address / access / parking / safety /
+          induction). Demoted to the bottom "reference" zone so the active work
+          loop (Work + Capture) leads the page. Keeps #phil-job-site so the
+          attention strip's induction item still scrolls here. */}
+      <PhilJobSiteCard job={job} />
+
       {/* Secondary — deferred surfaces. The Materials + History UC stubs used
           to be two full cards here; consolidated into one honest, low-emphasis
           "not connected yet" note so placeholders don't dominate the scroll. */}
@@ -687,30 +607,6 @@ export function PhilJobDetail({
         onCaptured={handleCaptured}
         onFailed={handleCaptureFailed}
       />
-    </div>
-  );
-}
-
-function SiteField({
-  icon,
-  label,
-  children,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-start gap-2">
-      <span aria-hidden="true" className="mt-0.5 shrink-0 text-text-muted">
-        {icon}
-      </span>
-      <div className="min-w-0 flex-1">
-        <dt className="font-display text-[11px] uppercase tracking-wider text-text-muted">
-          {label}
-        </dt>
-        <dd className="mt-0.5 whitespace-pre-line break-words text-text">{children}</dd>
-      </div>
     </div>
   );
 }
