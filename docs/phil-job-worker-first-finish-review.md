@@ -137,3 +137,13 @@ job-screen code.** If that surfaces a concrete, low-risk fix, take it as its own
 small PR (top candidate: the deferred *Today's captures* empty-state, handled
 with the banner + skipped-test care noted above). Do not stack more blind
 job-screen passes.
+
+The runnable test plan — participants, a five-minute on-phone script, an
+observation checklist, a scorecard, issue classes (A–E), and a post-test
+decision tree — lives in **[phil-job-field-validation.md](./phil-job-field-validation.md)**.
+
+> **Strong rule:** _no more Phil job-screen code until the worker preview produces
+> a **Class-A blocker** (a core action — plans / capture / issues — broken, fake/
+> misleading state, or data loss) or **repeated Class-B friction** (the same
+> too-slow / too-bossy / too-many-taps complaint from ≥2 workers)._ Everything
+> else waits for more evidence.
