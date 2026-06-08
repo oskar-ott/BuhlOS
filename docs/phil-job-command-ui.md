@@ -21,7 +21,7 @@ model**. It never inspects raw job / evidence / hours / task data.
   - honest `limitations` as muted one-liners.
   - Actions the model leaves `href`-less are in-page jumps; the panel maps them
     to the job page's section anchors (`#phil-job-capture`, `#phil-job-itps`,
-    `#phil-job-work`, `#phil-job-documents`, `#phil-job-snags`). Cross-surface
+    `#phil-job-work`, `#phil-job-plans`, `#phil-job-snags`). Cross-surface
     actions (hours → `/phil/my-day`, rejected hours → `/phil/hours`) use their
     own `href`.
 
