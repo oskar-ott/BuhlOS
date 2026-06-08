@@ -5,7 +5,8 @@ import { JobFieldViewCard } from "./JobFieldViewCard";
 import type { Job } from "@/domains/jobs/types";
 
 // Plain server component — renderToString needs no mocks. Asserts the hub
-// "What the field sees" card reuses buildPhilPreview + statsCrewCount honestly.
+// "What the field sees" card reuses saved job structure + statsCrewCount
+// honestly and does not pretend to know worker activity.
 function job(over: Partial<Job> = {}): Job {
   return { id: "job-1", name: "Birdwood IV3232", status: "active", ...over } as unknown as Job;
 }
@@ -23,15 +24,31 @@ function render(j: Job): string {
 }
 
 describe("JobFieldViewCard (What the field sees)", () => {
-  it("shows the published + assigned-crew connection and the real worker structure", () => {
-    const html = render(job({ ...STRUCTURED, statsCrewCount: 3 }));
+  it("shows the published + assigned-crew connection and current Phil screen sections", () => {
+    const html = render(
+      job({
+        ...STRUCTURED,
+        statsCrewCount: 3,
+        modules: { photos: true, snags: true, itps: true, plans: true },
+        siteAddress: "12 Birdwood Rd",
+      } as Partial<Job>),
+    );
     expect(html).toContain("What the field sees");
     expect(html).toContain("Visible in Phil to 3 assigned field workers");
+    expect(html).toContain("Current Phil job-screen structure");
+    expect(html).toContain("not worker activity telemetry");
     // Worker-visible stage derived from real job-level tasks.
     expect(html).toContain("Rough-in · 1 task");
-    // Enabled field tools (module defaults).
-    expect(html).toContain("Worker can");
-    expect(html).toContain("Capture photos / evidence");
+    // Current Phil screen shape, not the old generic "Worker can" tool list.
+    expect(html).toContain("Phil screen includes");
+    expect(html).toContain("Next on this job");
+    expect(html).toContain("Work to do");
+    expect(html).toContain("Capture evidence");
+    expect(html).toContain("Issues / snags");
+    expect(html).toContain("Checks / ITPs");
+    expect(html).toContain("Plans &amp; documents");
+    expect(html).toContain("Site details");
+    expect(html).toContain("Materials and job history are still shown in Phil as not connected yet");
   });
 
   it("honestly flags a published job with NO workers assigned (broken loop)", () => {
@@ -44,11 +61,26 @@ describe("JobFieldViewCard (What the field sees)", () => {
     const html = render(job({ ...STRUCTURED, status: "draft", statsCrewCount: 3 }));
     expect(html).toContain("Office-only — not published");
     expect(html).not.toContain("Visible in Phil to");
+    expect(html).toContain("If published, Phil would include");
+    expect(html).not.toContain("Phil screen includes");
   });
 
   it("shows an honest empty reason when there is no work structure yet", () => {
     const html = render(job({ statsCrewCount: 2 })); // no areas, no tasks
     expect(html).toContain("No areas or tasks yet");
     expect(html).not.toContain("Stages the worker sees");
+  });
+
+  it("does not fake worker activity, evidence, tasks, checks, hours, or payroll state", () => {
+    const html = render(job({ ...STRUCTURED, statsCrewCount: 1 })).toLowerCase();
+    expect(html).toContain("not represented here");
+    expect(html).toContain("whether a worker has viewed the job");
+    expect(html).toContain("completed tasks");
+    expect(html).toContain("captured evidence");
+    expect(html).toContain("fixed hours");
+    expect(html).toContain("finished checks");
+    for (const banned of ["payroll", "xero", "realtime", "synced", "ready for payroll"]) {
+      expect(html).not.toContain(banned);
+    }
   });
 });

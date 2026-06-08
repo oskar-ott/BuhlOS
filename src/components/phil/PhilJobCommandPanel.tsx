@@ -63,7 +63,7 @@ const IN_PAGE_ANCHOR: Partial<Record<PhilJobActionId, string>> = {
   capture: "#phil-job-capture",
   complete_checks: "#phil-job-itps",
   continue_tasks: "#phil-job-work",
-  view_plans: "#phil-job-documents",
+  view_plans: "#phil-job-plans",
   report_issue: "#phil-job-snags",
 };
 

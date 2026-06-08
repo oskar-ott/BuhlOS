@@ -61,13 +61,41 @@ describe("PhilJobCommandPanel — rendering each state", () => {
     expect(html).toContain("Take a photo or add a note");
     // in-page action → anchor on the job page itself (model leaves href unset)
     expect(html).toContain('href="#phil-job-capture"');
-    expect(html).toContain('href="#phil-job-documents"');
+    expect(html).toContain('href="#phil-job-plans"');
     expect(html).toContain('href="#phil-job-snags"');
     // cross-surface action → its real route
     expect(html).toContain('href="/phil/my-day"');
     expect(html).toContain("View plans"); // label is "View plans & docs (2)" (& is entity-encoded)
     expect(html).toContain("(2)");
     expect(html).toContain("Report an issue");
+  });
+
+  it("keeps every command action pointed at its current Phil job section or route", () => {
+    const html = render({
+      ...BASE,
+      primaryAction: { id: "continue_tasks", label: "View your tasks", status: "ready" },
+      actions: [
+        { id: "capture", label: "Take a photo or add a note", status: "ready" },
+        { id: "complete_checks", label: "Complete 2 checks", status: "attention" },
+        { id: "view_plans", label: "View plans & docs (2)", status: "ready" },
+        { id: "report_issue", label: "Report an issue", status: "ready" },
+        { id: "log_hours", label: "Log hours", href: "/phil/my-day", status: "ready" },
+        {
+          id: "fix_rejected_hours",
+          label: "Fix rejected hours",
+          href: "/phil/hours",
+          status: "attention",
+        },
+      ],
+    });
+    expect(html).toContain('href="#phil-job-work"');
+    expect(html).toContain('href="#phil-job-capture"');
+    expect(html).toContain('href="#phil-job-itps"');
+    expect(html).toContain('href="#phil-job-plans"');
+    expect(html).toContain('href="#phil-job-snags"');
+    expect(html).toContain('href="/phil/my-day"');
+    expect(html).toContain('href="/phil/hours"');
+    expect(html).not.toContain('href="#phil-job-documents"');
   });
 
   it("renders limitations as honest notes", () => {

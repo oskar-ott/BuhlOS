@@ -39,8 +39,10 @@ Flow reads as: do the work → capture proof → handle problems/checks → refe
 ## Compatibility — nothing breaks
 
 - **All 5 command-panel in-page anchors still resolve**: `#phil-job-work`,
-  `#phil-job-capture`, `#phil-job-snags`, `#phil-job-itps`, `#phil-job-documents`
-  — reordering moves whole `<section>`s, ids intact.
+  `#phil-job-capture`, `#phil-job-snags`, `#phil-job-itps`, `#phil-job-plans`
+  — reordering moves whole `<section>`s, ids intact. `#phil-job-documents`
+  remains a valid Documents section anchor, but the command panel's
+  `view_plans` action lands on the Plans viewer section.
 - **`#phil-job-site` preserved** on `PhilJobSiteCard` — the attention strip's
   "Site induction required" item still scrolls there
   (`PhilJobAttention.deriveAttention`).
