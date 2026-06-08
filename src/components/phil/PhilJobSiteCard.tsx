@@ -20,16 +20,28 @@ import { cn } from "@/lib/cn";
  * Phil — Site details card.
  *
  * Reference info for the job: address, contact, access, parking, safety and the
- * induction flag. Collapsible. Extracted from PhilJobDetail and moved to the
- * bottom "reference" zone of the job screen so the active work loop — Work +
- * Capture — leads the page instead of being pushed down by an open Site card.
- * Renders nothing when the job has no site context.
+ * induction flag. Collapsible, **collapsed by default** — it's bottom-of-page
+ * reference material a worker wants on arrival, not on every glance, and the
+ * address is already in the hero while induction is already surfaced in the
+ * attention strip. So the default screen stays quiet; the worker taps once to
+ * open the full site card. (`defaultOpen` lets a caller/test force it open.)
+ * Extracted from PhilJobDetail and moved to the bottom "reference" zone so the
+ * active work loop — Work + Capture — leads the page. Renders nothing when the
+ * job has no site context.
  *
  * Keeps `id="phil-job-site"` so the attention strip's "Site induction required"
  * item still scrolls here (PhilJobAttention.deriveAttention → `#phil-job-site`).
  */
-export function PhilJobSiteCard({ job }: { job: Job }) {
-  const [open, setOpen] = useState(true);
+export function PhilJobSiteCard({
+  job,
+  defaultOpen = false,
+}: {
+  job: Job;
+  /** Start expanded. Defaults to collapsed so the bottom reference zone stays
+   *  quiet; the worker opens it on arrival. */
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   if (!hasSiteContext(job)) return null;
 
   return (

@@ -16,7 +16,7 @@ function job(over: Partial<Job> = {}): Job {
  * and the copy stays plain field language.
  */
 describe("PhilJobSiteCard", () => {
-  it("renders 'Site details' with the real site fields", () => {
+  it("renders 'Site details' with the real site fields (when opened)", () => {
     const html = renderToString(
       createElement(PhilJobSiteCard, {
         job: job({
@@ -25,6 +25,7 @@ describe("PhilJobSiteCard", () => {
           parkingNotes: "Out the front",
           safetyNotes: "Live switchboard",
         }),
+        defaultOpen: true,
       }),
     );
     expect(html).toContain("Site details");
@@ -41,12 +42,30 @@ describe("PhilJobSiteCard", () => {
     expect(html).toContain('id="phil-job-site"');
   });
 
-  it("surfaces the induction warning when the site requires it", () => {
+  it("surfaces the induction warning when the site requires it (when opened)", () => {
     const html = renderToString(
-      createElement(PhilJobSiteCard, { job: job({ inductionRequired: true }) }),
+      createElement(PhilJobSiteCard, {
+        job: job({ inductionRequired: true }),
+        defaultOpen: true,
+      }),
     );
     expect(html).toContain("Site induction required");
     expect(html).toContain("leading hand");
+  });
+
+  it("is collapsed by default — the bottom reference zone stays quiet, access is one tap away", () => {
+    const html = renderToString(
+      createElement(PhilJobSiteCard, {
+        job: job({ siteAddress: "12 Birdwood Rd", accessNotes: "Gate code 1234" }),
+      }),
+    );
+    // The header + toggle still render (so the worker can open it)...
+    expect(html).toContain("Site details");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('id="phil-job-site"');
+    // ...but the reference body is NOT expanded by default (quiet, not removed).
+    expect(html).not.toContain("12 Birdwood Rd");
+    expect(html).not.toContain("Gate code 1234");
   });
 
   it("renders nothing when the job has no site context", () => {
@@ -58,6 +77,7 @@ describe("PhilJobSiteCard", () => {
     const html = renderToString(
       createElement(PhilJobSiteCard, {
         job: job({ siteAddress: "x", inductionRequired: true }),
+        defaultOpen: true,
       }),
     ).toLowerCase();
     for (const banned of ["payroll", "xero", "dashboard", "admin", "registry"]) {
