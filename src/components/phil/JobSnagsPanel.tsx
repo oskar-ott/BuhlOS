@@ -157,10 +157,9 @@ export function JobSnagsPanel({
     <Card>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <CardTitle>Snags</CardTitle>
+          <CardTitle>Issues</CardTitle>
           <CardDescription className="mt-1">
-            Issues raised on this job. Tap Report snag if something needs
-            fixing.
+            Things on site that need fixing. Tap Report snag to raise one.
           </CardDescription>
         </div>
         {doneCount > 0 ? (
@@ -188,7 +187,7 @@ export function JobSnagsPanel({
           className="mt-3 rounded-card border border-dashed border-border bg-surface-subtle p-4 text-center text-sm text-text-muted"
           role="status"
         >
-          No open snags on this job.
+          No open issues on this job.
         </p>
       ) : (
         <ul className="mt-3 space-y-2">

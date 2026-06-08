@@ -80,9 +80,9 @@ export function JobItpPanel({ job, initialItps = [] }: Props) {
     <Card>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <CardTitle>ITPs</CardTitle>
+          <CardTitle>Checks</CardTitle>
           <CardDescription className="mt-1">
-            Inspection &amp; test plans for this job. Tap one to record
+            Inspection checks (ITPs) for this job. Tap one to record
             points as you go.
           </CardDescription>
         </div>
@@ -97,8 +97,8 @@ export function JobItpPanel({ job, initialItps = [] }: Props) {
           role="status"
         >
           {live.length === 0
-            ? "No ITPs attached to this job yet. Your PM or leading hand attaches them."
-            : "All attached ITPs are signed off. Good work."}
+            ? "No checks listed for this job yet. Your PM or leading hand sets them up."
+            : "All checks are signed off. Good work."}
         </p>
       ) : (
         <ul className="mt-3 space-y-2">
