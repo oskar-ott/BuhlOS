@@ -41,7 +41,7 @@ describe("JobFieldViewCard (What the field sees)", () => {
     expect(html).toContain("Rough-in · 1 task");
     // Current Phil screen shape, not the old generic "Worker can" tool list.
     expect(html).toContain("Phil screen includes");
-    expect(html).toContain("Next on this job");
+    expect(html).toContain("Quick actions");
     expect(html).toContain("Work to do");
     expect(html).toContain("Capture evidence");
     expect(html).toContain("Issues / snags");

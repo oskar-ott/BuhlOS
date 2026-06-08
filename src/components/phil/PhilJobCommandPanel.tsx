@@ -21,10 +21,13 @@ import type {
 } from "@/domains/phil/job-command-model";
 
 /**
- * Phil — "Next on this job" command panel.
+ * Phil — "Quick actions" command panel.
  *
- * The single, model-driven answer to *"what should this worker do next on this
- * job?"*. It renders **only** from a {@link PhilJobCommandModel} produced by
+ * The worker-first surface for *"what are the fastest things I might need on this
+ * job?"* — presented as the worker's shortcuts, not the app's orders. (The
+ * heading was reframed from "Next on this job" to drop the digital-foreman feel;
+ * the model still ranks a primary action internally — the framing changed, the
+ * logic did not.) It renders **only** from a {@link PhilJobCommandModel} produced by
  * `buildPhilJobCommandModel` (the pure decision layer, #96) — it never inspects
  * raw job / evidence / hours / task data, so when a capability changes the
  * bridge moves and this panel stays put.
@@ -108,7 +111,7 @@ export function PhilJobCommandPanel({ model }: { model: PhilJobCommandModel }) {
   return (
     <Card aria-labelledby="phil-job-next-h">
       <CardTitle>
-        <span id="phil-job-next-h">Next on this job</span>
+        <span id="phil-job-next-h">Quick actions</span>
       </CardTitle>
 
       {blocked.length > 0 ? (

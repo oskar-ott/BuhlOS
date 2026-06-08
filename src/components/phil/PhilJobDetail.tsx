@@ -81,7 +81,7 @@ interface Props {
  *
  *   1. Back link → /phil/jobs
  *   2. <PhilJobHero/> — job name + status pill + address summary
- *   3. <PhilJobCommandPanel/> — "Next on this job": the model-driven
+ *   3. <PhilJobCommandPanel/> — "Quick actions": the model-driven
  *      (#96) primary action + ranked secondary actions + honest
  *      limitations, plus a hard-blocker notice. Replaces the old flat
  *      section-anchor strip (the panel's actions jump to the same
@@ -274,7 +274,7 @@ export function PhilJobDetail({
     [job.id, selectedArea, viewedStage],
   );
 
-  // "Next on this job" — the model-driven command panel (replaces the old flat
+  // "Quick actions" — the model-driven command panel (replaces the old flat
   // section-anchor strip). Built from the data the page already loaded; the
   // bridge marks anything not derivable here as an honest limitation (e.g.
   // per-job rejected hours isn't fetched on the job screen). Live task state is

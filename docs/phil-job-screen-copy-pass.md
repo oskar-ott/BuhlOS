@@ -21,7 +21,7 @@ issues · site details**, not an "ITP module" or a "compliance workflow".
 | Heading "Plans" / "Open plan viewer" | `PhilJobDetail` | drawings | already plain | — | none | **kept** |
 | "Capture evidence" (button + dialog) | `PhilJobDetail` / `CaptureSheet` | capture proof | smoke/E2E depend on it | — | **YES** | **kept verbatim** |
 | "Work to do" / "Site details" | `PhilJobDetail` / `PhilJobSiteCard` | — | already done in #99 | — | render test | **kept** |
-| "Next on this job" + action labels | `PhilJobCommandPanel` (from #96 model) | — | model-owned, tested | — | **YES** | **kept** |
+| "Quick actions" + action labels | `PhilJobCommandPanel` (from #96 model) | worker shortcuts | heading reframed after capture-shutter; labels remain model-owned | — | **YES** | **heading changed, labels kept** |
 | Count chips "1 ITP" / "2 snags" | area cards / jobs list | counts | compact, heavily tested | — | **YES (5 files)** | **deferred** |
 
 ## Chosen path: B — panel-level field-language pass
@@ -41,8 +41,8 @@ existing language** (the #96 model already says "Complete N **checks**" and
 - **"Capture evidence"** — the smoke + E2E specs (`phil.spec.ts`,
   `phase-d-d3-capture.spec.ts`, `fieldReadiness.ts`) match this button + the
   `CaptureSheet` dialog name. Renaming would break the smoke gate.
-- **Command-panel labels / action IDs** — owned by the #96 model and asserted
-  by its tests; already field-plain ("checks" / "issue"). Not touched.
+- **Command-panel action labels / action IDs** — owned by the #96 model and
+  asserted by its tests; already field-plain ("checks" / "issue"). Not touched.
 - **`JobDocumentsPanel`** — already field-appropriate ("Documents & specs",
   "Current drawings and specs…", honest empties). No change for change's sake.
 - **Count chips ("1 ITP", "2 snags")** — compact badges with heavy test

@@ -12,7 +12,7 @@ capability. This is step one (the clearest, lowest-risk win); a section
 |---|---|---|---|---|
 | 1 | Back link → All jobs | real | nav | keep |
 | 2 | `PhilJobHero` — name / status / address | real | "where am I" | keep |
-| 3 | `PhilJobCommandPanel` — "Next on this job" (#97) | real | "what's next" | keep |
+| 3 | `PhilJobCommandPanel` — "Quick actions" (#97, reframed after capture-shutter) | real | worker shortcuts | keep |
 | 4 | `PhilJobAttentionStrip` — viewer-scoped attention | real | "what's wrong" | keep |
 | 5 | Site (collapsible) — address/access/parking/safety/induction | real | "on arrival" | keep |
 | 6 | Work / Areas (#94) — area picker + task drill-in/toggle | real | core work | keep |

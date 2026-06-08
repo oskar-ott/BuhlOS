@@ -1,10 +1,18 @@
 # Phil job command UI (`feat/phil-job-command-ui`)
 
 Wires the **Phil Job Command Model** (#96) into the Phil job page as a compact,
-mobile-first **"Next on this job"** section. This is the UI half of #96, which
+mobile-first **"Quick actions"** section. This is the UI half of #96, which
 shipped the pure decision layer model-only (it couldn't touch the job page
 because #94 owned it at the time). #94 has since merged, so this slice safely
 adds the UI.
+
+> **Heading note (`fix/phil-job-worker-first-actions`):** this section originally
+> shipped as **"Next on this job"**. It was reframed to **"Quick actions"** so the
+> top of the job screen reads as the worker's shortcuts, not the app's orders
+> (Phil is not a digital foreman). **Framing only** — the command model still
+> ranks a primary action internally; action IDs, anchors, ranking, and the
+> capture/task/hours behaviour are unchanged. The admin "what the field sees"
+> mirror (`JobFieldViewCard`) was updated to match.
 
 It is **not** a hardcoded action hub: the panel renders **entirely from the
 model**. It never inspects raw job / evidence / hours / task data.
