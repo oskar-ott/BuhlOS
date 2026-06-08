@@ -80,8 +80,8 @@ function currentPhilSections(job: Job, preview: ReturnType<typeof buildPhilPrevi
   const sections = [
     {
       key: "next",
-      label: "Next on this job",
-      detail: "model-ranked actions and honest limitations",
+      label: "Quick actions",
+      detail: "model-ranked shortcuts and honest limitations",
       enabled: preview.isVisibleToField,
     },
     {

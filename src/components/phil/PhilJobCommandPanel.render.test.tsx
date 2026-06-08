@@ -56,7 +56,7 @@ describe("PhilJobCommandPanel — rendering each state", () => {
         { id: "report_issue", label: "Report an issue", status: "ready" },
       ],
     });
-    expect(html).toContain("Next on this job");
+    expect(html).toContain("Quick actions");
     // primary
     expect(html).toContain("Take a photo or add a note");
     // in-page action → anchor on the job page itself (model leaves href unset)
@@ -226,7 +226,7 @@ describe("PhilJobCommandPanel — from the real bridge", () => {
       }),
     );
     const html = render(model);
-    expect(html).toContain("Next on this job");
+    expect(html).toContain("Quick actions");
     expect(html).toContain("View your tasks"); // list_only, honest
     expect(html).toContain("Report an issue");
     expect(html).toContain("View plans"); // "View plans & docs (N)" — & is entity-encoded

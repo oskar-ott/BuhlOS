@@ -129,8 +129,10 @@ same pattern applies to task completion: pass the real `JobTaskState` shipped in
 
 ## Intended UI integration (deferred — see "Scope")
 
-A compact **"Next on this job"** block near the top of the Phil job page,
-rendered entirely from the model:
+A compact **"Quick actions"** block near the top of the Phil job page (shipped
+as "Next on this job" in #97, reframed to worker-first shortcuts in
+`fix/phil-job-worker-first-actions` — framing only; the model still ranks a
+primary action), rendered entirely from the model:
 
 - `primaryAction` as the single `PhilActionButton`;
 - the top 2–4 `actions` as secondary buttons/rows;
