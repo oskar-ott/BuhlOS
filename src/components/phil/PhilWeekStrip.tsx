@@ -2,16 +2,17 @@ import Link from "next/link";
 import { cn } from "@/lib/cn";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { buildPhilWeek, type WeekDayState } from "./philWeek";
+import styles from "./myDay.module.css";
 
-// state → day-box classes. The app's state-* tokens are solid colours (no
-// tinted fills), so tone is carried by border + text — the same way PhilNotice
-// works — never a coloured wash.
-const BOX: Record<WeekDayState, string> = {
-  logged: "border-state-success text-state-success",
-  today: "border-2 border-accent-yellow text-text",
-  miss: "border-dashed border-state-warning text-state-warning",
-  off: "border-dashed border-border text-text-muted opacity-60",
-  upcoming: "border-dashed border-border text-text-muted opacity-60",
+// state → the scoped day-cell class (filled tints / yellow ring / dashed),
+// faithful to the design's myday-v2.css. See myDay.module.css. (CSS-module
+// class lookups are `string | undefined` under noUncheckedIndexedAccess.)
+const DAY_STATE: Record<WeekDayState, string | undefined> = {
+  logged: styles.logged,
+  today: styles.today,
+  miss: styles.miss,
+  off: styles.off,
+  upcoming: styles.upcoming,
 };
 
 /** "7.6" — decimal hours, one place, as the design shows in the day cells. */
@@ -43,9 +44,12 @@ interface Props {
 
 /**
  * "This week" — the payroll timesheet at a glance (Mon–Sun), the lead block of
- * the approved final Phil My Day. Every cell is real (see philWeekStrip.ts);
- * nothing is fabricated, and a day with no entry is shown honestly (missing /
- * off / log now), never as a guessed value.
+ * the approved final Phil My Day. Every cell is real (see philWeek.ts); nothing
+ * is fabricated, and a day with no entry is shown honestly (missing / off / log
+ * now), never as a guessed value.
+ *
+ * Styled to the design via the scoped myDay.module.css (filled state tints +
+ * JetBrains Mono microcopy) rather than the app's flat utility defaults.
  */
 export function PhilWeekStrip({ entries, todayISO }: Props) {
   const week = buildPhilWeek(entries, { todayISO });
@@ -54,62 +58,42 @@ export function PhilWeekStrip({ entries, todayISO }: Props) {
     monthShort(week.weekStart) === monthShort(week.weekEnd)
       ? dayNum(week.weekStart)
       : dayMonth(week.weekStart);
-  const range = `Mon ${startLabel} – Sun ${dayMonth(week.weekEnd)}`;
+  // Single strings (not adjacent JSX text) so SSR doesn't split them with
+  // comment markers — keeps the rendered copy clean and testable.
+  const rangeLabel = `Mon ${startLabel} – Sun ${dayMonth(week.weekEnd)} · wk ${week.weekNumber}`;
+  const totalLabel = `${decimalHours(week.totalHours)}h`;
 
   return (
-    <section className="overflow-hidden rounded-card border border-border bg-surface-raised shadow-card">
-      <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+    <section className={styles.week}>
+      <header className={styles.weekHead}>
         <div>
-          <h2 className="font-display text-sm font-semibold tracking-tight text-text">
-            This week
-          </h2>
-          <p className="mt-0.5 text-[11px] uppercase tracking-wider text-text-muted">
-            {range} · wk {week.weekNumber}
-          </p>
+          <div className={styles.weekTitle}>This week</div>
+          <div className={styles.weekRange}>{rangeLabel}</div>
         </div>
-        <div className="text-right">
-          <p className="font-display text-lg font-semibold tabular-nums leading-none text-text">
-            {decimalHours(week.totalHours)}h
-          </p>
-          <p
-            className={cn(
-              "mt-1 text-[11px] uppercase tracking-wider",
-              week.todayLogged ? "text-text-muted" : "text-state-warning",
-            )}
-          >
+        <div className={styles.weekTotalWrap}>
+          <div className={styles.weekTotal}>{totalLabel}</div>
+          <div className={cn(styles.weekTodayFlag, !week.todayLogged && styles.warn)}>
             {week.todayLogged ? "Today logged" : "Today not logged"}
-          </p>
+          </div>
         </div>
       </header>
 
-      <ul className="flex gap-1.5 px-3 py-3">
+      <ul className={styles.days}>
         {week.days.map((d) => (
-          <li key={d.date} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-              {d.weekday}
-            </span>
-            <div
-              className={cn(
-                "flex h-12 w-full flex-col items-center justify-center gap-0.5 rounded-card border bg-surface-subtle",
-                BOX[d.state],
-              )}
-            >
-              <span className="font-display text-xs font-bold tabular-nums leading-none">
+          <li key={d.date} className={cn(styles.day, DAY_STATE[d.state])}>
+            <span className={styles.dayLabel}>{d.weekday}</span>
+            <div className={styles.box}>
+              <span className={styles.hours}>
                 {d.hours != null ? decimalHours(d.hours) : "—"}
               </span>
-              <span className="text-[7px] font-semibold uppercase tracking-wide leading-none">
-                {d.statusWord}
-              </span>
+              <span className={styles.status}>{d.statusWord}</span>
             </div>
           </li>
         ))}
       </ul>
 
-      <div className="border-t border-border px-4 py-2.5 text-right">
-        <Link
-          href="/phil/hours"
-          className="inline-flex min-h-[44px] items-center text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
-        >
+      <div className={styles.weekFoot}>
+        <Link href="/phil/hours" className={styles.seeHistory}>
           See history →
         </Link>
       </div>

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
+import { JetBrains_Mono } from "next/font/google";
+import { cn } from "@/lib/cn";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { AttentionBanner } from "@/components/ui/AttentionBanner";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
@@ -15,8 +17,19 @@ import type { TimeEntry } from "@/domains/timesheets/types";
 import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isVisibleToField } from "@/domains/jobs/builder";
+import styles from "@/components/phil/myDay.module.css";
 
 export const dynamic = "force-dynamic";
+
+// JetBrains Mono — the design's microcopy face. Scoped to the My Day wrapper
+// (its CSS variable is only applied there), so it never restyles the rest of
+// the app. The display/body faces (Inter Tight / Inter) already load globally.
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-jetbrains-mono",
+  display: "swap",
+});
 
 /**
  * /phil/my-day — the Phase B Phil home that replaces the placeholder
@@ -76,6 +89,7 @@ export default async function MyDayPage() {
   // timezone). The job they're on is shown only when there's exactly one
   // assigned job — there is no active-job signal, so we never guess.
   const firstName = session.name?.trim().split(/\s+/)[0] || null;
+  const initials = workerInitials(session.name);
   const partOfDay = businessPartOfDay();
   const greeting = firstName ? `${partOfDay}, ${firstName}` : partOfDay;
   const dateLabel = new Date().toLocaleDateString("en-AU", {
@@ -95,12 +109,17 @@ export default async function MyDayPage() {
 
   return (
     <PhilShell title="My day">
-      <div className="space-y-4">
-        <header>
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-text">
-            {greeting}
-          </h1>
-          <p className="mt-0.5 text-sm text-text-muted">{subtitle}</p>
+      <div className={cn(styles.surface, mono.variable)}>
+        <header className={styles.greet}>
+          <div className="min-w-0">
+            <h1 className={styles.greetName}>{greeting}</h1>
+            <p className={styles.greetSub}>{subtitle}</p>
+          </div>
+          {initials ? (
+            <div className={styles.avatar} aria-hidden="true">
+              {initials}
+            </div>
+          ) : null}
         </header>
 
         {rejectedEntry ? (
@@ -156,6 +175,14 @@ export default async function MyDayPage() {
       </div>
     </PhilShell>
   );
+}
+
+/** Up-to-two-letter avatar initials from the worker's real name, or null. */
+function workerInitials(name: string | undefined): string | null {
+  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
 /** "Morning" / "Arvo" / "Evening" in the business timezone (Australian register). */

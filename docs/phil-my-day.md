@@ -58,18 +58,42 @@ These are real product gaps (a weekly-submit workflow, an RFI surface, a
 cross-job needs-you feed) — backend/feature work, not UI. They can be wired
 later; until then My Day shows only what's real.
 
-## Styling
+## Styling — visual parity with the design
 
-Existing Tailwind tokens (`brand-navy` / `accent-yellow` / `surface-*` /
-`state-*` = the prototype palette) and `font-display`. Per-day tone is carried
-by **border + text** (the app's `state-*` tokens are solid, so no tinted fills,
-matching `PhilNotice`). Inter Tight / JetBrains Mono are **not** imported (no
-new font loading).
+The design's "feel" comes from two things the app's global tokens don't provide:
+**JetBrains Mono microcopy** (every label / range / status word) and **filled,
+tinted week-cell backgrounds**. The app's global palette is cool-slate; the
+prototype is warm navy + soft-gold with tinted `*-bg` state colours.
+
+Rather than restyle the global tokens (which would touch all of Phil + admin),
+the parity lives in a **scoped CSS module** — `src/components/phil/myDay.module.css`
+— the same isolation pattern as `src/app/v2/login/login.module.css`:
+
+- **JetBrains Mono** is loaded via `next/font` in the page and its CSS variable
+  is applied **only to the My Day wrapper**, so it never restyles the rest of
+  the app. (Inter / Inter Tight already load globally via `next/font`.)
+- The two genuinely-missing values — the tinted state backgrounds
+  (`--md-green-bg` etc., from the prototype `ops-base.css`) and the mono face —
+  live scoped in the module. Everything else reuses the global brand tokens
+  (`--brand-navy`, `--accent-yellow`, `--text`, `--border`) so My Day stays
+  consistent with the shell and the unchanged `LogHoursSheet`.
+- `PhilWeekStrip` renders the design's filled cells (green logged · yellow-ring
+  today · dashed amber `miss` · faded `off`) at the design's exact dimensions
+  (46px cells, 9px radius, mono 7–8.5px labels), and the greeting gets the
+  Inter-Tight name + mono subtitle + yellow initials avatar.
+
+**Known divergence (honest):** the hours area is the unchanged `LogHoursSheet`
+(its own navy "Standard day" card), not restyled to the design's compact
+"Log today's hours" button — it's the real, tested write surface and restyling
+its internals is out of scope. Yellow uses the app token `#ffcc00` (vs the
+design's softer `#f5d020`) to stay consistent with the shell's Capture FAB.
 
 ## Tests
 
 - `philWeek.test.ts` — the week logic: Mon–Sun states, total, today
   not/logged, ISO week number, the `miss` nudge, and **no fabricated hours**.
+- `PhilWeekStrip.render.test.tsx` — structure smoke: the seven weekday labels,
+  real range/total, the honest "log now" prompt, and the history link.
 - The hours flow + shell + Capture FAB stay covered by Preview Smoke
   (`phil.spec.ts`, `field-readiness.spec.ts`); their selectors (`phil-shell`,
   "Submit Standard day", the job radiogroup, the Capture FAB) are untouched.
