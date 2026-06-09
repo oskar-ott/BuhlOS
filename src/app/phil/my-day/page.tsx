@@ -7,6 +7,8 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
+import { PhilRightNowCard } from "@/components/phil/PhilRightNowCard";
+import { PhilJobsList } from "@/components/phil/PhilJobsList";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
@@ -15,6 +17,7 @@ import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
+import type { Job } from "@/domains/jobs/types";
 import { isVisibleToField } from "@/domains/jobs/builder";
 
 export const dynamic = "force-dynamic";
@@ -25,9 +28,17 @@ export const dynamic = "force-dynamic";
  * Phase C cutover; this is the parallel new surface that field workers
  * use once Phase B ships.
  *
+ * Laid out as the approved A·Right Now direction: identity (Hey, {name} +
+ * date) → what matters now (the assigned job as a navy accent hero, or the
+ * real jobs list for 2+ jobs) → the action (the unchanged LogHoursSheet) →
+ * this-week history → secondary links. The centre Capture shutter stays on
+ * the shell (PhilTabBar). No fabricated state: the worker name, job, address,
+ * status and open-work counts are all real or omitted.
+ *
  * Cross-ref:
  *   docs/rebuild-audit/13-ui-information-architecture.md §Phil/Today
  *   docs/rebuild-audit/19-phase-b-hours-implementation-brief.md §Phil surface
+ *   docs/phil-my-day-right-now.md (this surface)
  */
 export default async function MyDayPage() {
   const cookieStore = await cookies();
@@ -57,9 +68,37 @@ export default async function MyDayPage() {
     (e) => e.status === "rejected" && e.rejectedReason
   );
 
+  // A · Right Now identity line. The worker name rides on the session cookie
+  // (session.name) — no extra fetch — and degrades to a name-less lead when
+  // it's absent. Date is rendered in the business timezone so a UTC server
+  // never shows yesterday to a Sydney worker.
+  const firstName = session.name?.trim().split(/\s+/)[0] || null;
+  const todayLabel = new Date().toLocaleDateString("en-AU", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: BUSINESS_TIMEZONE,
+  });
+
+  // "What matters now" = the assigned job. We crown a single job "you're on"
+  // (the navy hero); with 2+ jobs there is no active-job signal, so we show
+  // the real jobs list and never fabricate a current job. The hours sheet
+  // keeps its own minimal {id,name} list (and is preselected when there's
+  // exactly one job) so the write/attribution path is byte-for-byte unchanged.
+  const jobs = assignedJobs.jobs;
+  const sheetJobs = jobs.map((j) => ({ id: j.id, name: j.name }));
+  const soleJobId = jobs.length === 1 ? jobs[0]!.id : null;
+
   return (
     <PhilShell title="My day">
       <div className="space-y-4">
+        <header>
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-text">
+            {firstName ? `Hey, ${firstName}.` : "Right now"}
+          </h1>
+          <p className="mt-0.5 text-sm text-text-muted">{todayLabel}</p>
+        </header>
+
         {rejectedEntry ? (
           <AttentionBanner
             chip="Rejected"
@@ -82,11 +121,23 @@ export default async function MyDayPage() {
           />
         ) : null}
 
+        {jobs.length === 1 ? (
+          <PhilRightNowCard job={jobs[0]!} />
+        ) : jobs.length > 1 ? (
+          <section className="space-y-2">
+            <h2 className="font-display text-xs font-semibold uppercase tracking-widest text-text-muted">
+              Your jobs
+            </h2>
+            <PhilJobsList initialJobs={jobs} />
+          </section>
+        ) : null}
+
         <LogHoursSheet
           initialTodayEntry={todayEntry}
           recentEntries={recentEntries}
-          assignedJobs={assignedJobs.jobs}
+          assignedJobs={sheetJobs}
           jobsError={assignedJobs.error}
+          initialJobId={soleJobId}
         />
 
         {fetchError ? (
@@ -116,6 +167,15 @@ export default async function MyDayPage() {
           </CardDescription>
           <RecentEntriesTable entries={recentEntries} />
         </Card>
+
+        <div className="px-1">
+          <Link
+            href="/phil/gear"
+            className="inline-flex min-h-[44px] items-center text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
+          >
+            My gear →
+          </Link>
+        </div>
 
         <UnderConstructionPanel
           feature="Multi-job allocation · job picker"
@@ -188,7 +248,7 @@ async function loadEntries(cookieValue: string | undefined): Promise<{
 }
 
 /**
- * Load the worker's active assigned jobs for hours attribution.
+ * Load the worker's active assigned jobs.
  *
  * Source of truth: users.json.assignedJobIds — the same source Phil already
  * uses for job visibility. The legacy GET /api/jobs already scopes a field
@@ -197,9 +257,18 @@ async function loadEntries(cookieValue: string | undefined): Promise<{
  * Day never sees a draft/archived job as a log target. Returns `error: true`
  * on any failure so the sheet can block submission rather than fall back to an
  * unattributed entry.
+ *
+ * `?withStats=1` enriches each job with real, opt-in site counts (open snags +
+ * active ITPs) for the A·Right Now lead card's open-work chips — the SAME
+ * proven-soft enrichment the Phil jobs list already uses (api/jobs.js fails
+ * soft: a bad stats read still returns the core job with zeroed stats, so the
+ * chips simply don't render and nothing else regresses). The full Job objects
+ * are kept (not narrowed to {id,name}) so the card has the real address/status;
+ * the hours sheet is handed a minimal {id,name} list by the page, so its
+ * client payload and attribution are unchanged.
  */
 async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
-  jobs: ReadonlyArray<{ id: string; name: string }>;
+  jobs: ReadonlyArray<Job>;
   error: boolean;
 }> {
   const h = await headers();
@@ -208,7 +277,7 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
 
   try {
-    const res = await fetch(`${base}/api/jobs`, {
+    const res = await fetch(`${base}/api/jobs?withStats=1`, {
       cache: "no-store",
       headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
     });
@@ -216,9 +285,7 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
     const body = await res.json();
     const parsed = JobListResponseSchema.safeParse(body);
     if (!parsed.success) return { jobs: [], error: true };
-    const jobs = parsed.data.jobs
-      .filter((j) => isVisibleToField(j))
-      .map((j) => ({ id: j.id, name: j.name }));
+    const jobs = parsed.data.jobs.filter((j) => isVisibleToField(j));
     return { jobs, error: false };
   } catch {
     return { jobs: [], error: true };
