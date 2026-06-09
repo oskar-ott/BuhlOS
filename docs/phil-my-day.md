@@ -10,22 +10,29 @@ payroll-focused home that opens straight into the week timesheet.
 
 ## Layout (top → bottom)
 
-1. **Greeting** — `Arvo, {firstName}` (time-of-day computed in
-   `BUSINESS_TIMEZONE`: Morning / Arvo / Evening) + `{weekday day month} · on
-   {job}`. The name rides on the session cookie (`session.name`, no fetch); the
-   "on {job}" line shows only when there's exactly one assigned job (no
-   active-job signal exists, so we never guess). Rendered on warm paper, not a
-   second navy band (the shell app-bar is the only navy).
+1. **Greeting** — a **navy header band** (full-bleed, flush under the shell
+   app-bar so the top reads as one navy header, matching the design's `.md-hdr`):
+   `Arvo, {firstName}` (time-of-day computed in `BUSINESS_TIMEZONE`: Morning /
+   Arvo / Evening) + a mono subtitle `{weekday day month} · on {job}` + a yellow
+   **initials avatar**. The name rides on the session cookie (`session.name`, no
+   fetch); the "on {job}" line shows only when there's exactly one assigned job
+   (no active-job signal exists, so we never guess).
 2. **Rejected-hours alert** — the most recent rejected entry with "Fix &
    resubmit". The only real "needs you" signal on this surface; kept at the top
    (a rejected day is about the hours flow right here), not the design's bottom
    slot.
 3. **This week** — `PhilWeekStrip`: a Mon–Sun payroll strip with per-day hours,
    a week total, and a "Today not logged" flag. Pure logic in `philWeek.ts`.
-4. **Log today's hours** — the unchanged `LogHoursSheet` (preselected via
-   `initialJobId` when there's one job). Its client payload and the hours
-   write/attribution path are byte-for-byte unchanged.
-5. **Under construction** — the unchanged multi-job allocation note.
+4. **Log today's hours** — `LogHoursSheet`, restyled to the design's **compact
+   yellow action** (`md-act.log`) instead of a screen-filling navy block: the
+   job-attribution pill, the yellow "Log today's hours" button, the day picker,
+   and a quiet "Custom hours or a note" disclosure. **Behaviour is unchanged** —
+   the same submit handler, disabled gating, "Submit Standard day" aria-label and
+   `{id,name}` payload; only the presentation moved. The redundant "No entry yet"
+   card was dropped (the week strip already shows today's state).
+5. **Heads-up note** — a quiet honest line about one-allocation-per-submission
+   (replaces the loud yellow/black under-construction hazard tape, which was not
+   in the design).
 
 The centre **Capture shutter** stays on the shell (`PhilTabBar`) — present on
 every Phil screen.

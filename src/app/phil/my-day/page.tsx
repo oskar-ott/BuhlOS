@@ -5,7 +5,6 @@ import { JetBrains_Mono } from "next/font/google";
 import { cn } from "@/lib/cn";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { AttentionBanner } from "@/components/ui/AttentionBanner";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
 import { PhilWeekStrip } from "@/components/phil/PhilWeekStrip";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
@@ -110,7 +109,7 @@ export default async function MyDayPage() {
   return (
     <PhilShell title="My day">
       <div className={cn(styles.surface, mono.variable)}>
-        <header className={styles.greet}>
+        <header className={styles.greetBar}>
           <div className="min-w-0">
             <h1 className={styles.greetName}>{greeting}</h1>
             <p className={styles.greetSub}>{subtitle}</p>
@@ -166,12 +165,16 @@ export default async function MyDayPage() {
           </PhilNotice>
         ) : null}
 
-        <UnderConstructionPanel
-          feature="Multi-job allocation · job picker"
-          description="One allocation per submission today. Splitting a day across two jobs, or picking which job a Standard day lands on, is still on the legacy My day — that loop lands here in a later phase."
-          legacyHref="/my-day"
-          legacyLabel="Use the legacy My day for multi-job allocations"
-        />
+        <div className={styles.deferNote}>
+          <div className={styles.deferNoteLabel}>Heads up</div>
+          <p className={styles.deferNoteBody}>
+            One allocation per submission. To split a day across two jobs, use the{" "}
+            <a href="/my-day" className={styles.deferNoteLink}>
+              legacy My day
+            </a>
+            .
+          </p>
+        </div>
       </div>
     </PhilShell>
   );
