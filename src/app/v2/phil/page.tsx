@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { PhilShell } from "@/components/phil/PhilShell";
+import { PhilSignOutButton } from "@/components/phil/PhilSignOutButton";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 
@@ -11,7 +12,7 @@ import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
  * cards on Phil home"), this surface no longer duplicates the bottom-tab
  * links to /phil/my-day, /phil/jobs and /phil/gear. The tab bar owns
  * those. What remains is: a short orientation line, an onboarding replay
- * card, and the profile/settings UC panel.
+ * card, an account card (sign out), and the profile/settings UC panel.
  */
 export default function PhilV2HomePage() {
   return (
@@ -43,9 +44,20 @@ export default function PhilV2HomePage() {
           </div>
         </Card>
 
+        <Card className="space-y-3">
+          <div>
+            <CardTitle>Account</CardTitle>
+            <CardDescription>
+              Signing out returns you to the login screen. You&rsquo;ll need
+              your username and PIN to get back in.
+            </CardDescription>
+          </div>
+          <PhilSignOutButton />
+        </Card>
+
         <UnderConstructionPanel
           feature="Profile · settings · notifications"
-          description="Your worker profile, push-notification preferences and a quick legacy bail-out live here once the loops above are field-stable. For now you can sign out from the legacy Phil if you need to."
+          description="Your worker profile and push-notification preferences live here once the loops above are field-stable. The legacy Phil app is still one tap away if you need it."
           legacyHref="/phil"
           legacyLabel="Open legacy Phil"
         />
