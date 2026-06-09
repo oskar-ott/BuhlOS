@@ -1,75 +1,75 @@
-# Phil · My Day — "Right Now" layout
+# Phil · My Day
 
-`/phil/my-day` is laid out as the approved **A · Right Now** design direction
-(one of four mocked in the Phil design handoff; the user picked A, optionally
-blended with D's count badges where the counts are real).
+`/phil/my-day` implements the approved final **Phil My Day** design (from the
+Claude design handoff `Phil My Day.html` + `phil/myday-v2.css`) — a
+payroll-focused home that opens straight into the week timesheet.
 
-## Why
-
-The previous My Day was hours-first: a flat stack that led with the hours
-sheet. Right Now leads with **what matters now** — the worker's job — then the
-action, so a worker lands and immediately sees where they are before logging a
-day.
+> Supersedes the interim "A · Right Now" job-hero layout. In the design session
+> the user removed the job hero ("this is bad remove") and crew review; the job
+> now lives only in the greeting subtitle.
 
 ## Layout (top → bottom)
 
-1. **Identity** — `Hey, {firstName}.` + today's date. The name comes from the
-   session cookie (`session.name`); no extra fetch. Falls back to "Right now"
-   when the session carries no name. Date is formatted in `BUSINESS_TIMEZONE`.
-2. **Rejected-hours banner** — unchanged; the most recent rejected entry with a
-   "Fix & resubmit" link (one banner max).
-3. **What matters now**
-   - **1 assigned job** → `PhilRightNowCard`: a navy accent hero (navy is used
-     only here, never as a page background) with the job name, real address,
-     real status chip, real open-work chips, and an "Open job" link to
-     `/phil/jobs/[id]`.
-   - **2+ jobs** → a "Your jobs" section rendering the existing `PhilJobsList`.
-     We never crown one job "you're on" with 2+ jobs — there is **no
-     active-job signal** in the data, so faking a current job is off the table.
-   - **0 jobs** → nothing here; the hours sheet shows its own honest
-     "No active assigned job" block.
-4. **The action** — the unchanged `LogHoursSheet`. When there's exactly one
-   assigned job it's preselected via `initialJobId`. The sheet still receives a
-   minimal `{id,name}` list, so its client payload and the hours
+1. **Greeting** — `Arvo, {firstName}` (time-of-day computed in
+   `BUSINESS_TIMEZONE`: Morning / Arvo / Evening) + `{weekday day month} · on
+   {job}`. The name rides on the session cookie (`session.name`, no fetch); the
+   "on {job}" line shows only when there's exactly one assigned job (no
+   active-job signal exists, so we never guess). Rendered on warm paper, not a
+   second navy band (the shell app-bar is the only navy).
+2. **Rejected-hours alert** — the most recent rejected entry with "Fix &
+   resubmit". The only real "needs you" signal on this surface; kept at the top
+   (a rejected day is about the hours flow right here), not the design's bottom
+   slot.
+3. **This week** — `PhilWeekStrip`: a Mon–Sun payroll strip with per-day hours,
+   a week total, and a "Today not logged" flag. Pure logic in `philWeek.ts`.
+4. **Log today's hours** — the unchanged `LogHoursSheet` (preselected via
+   `initialJobId` when there's one job). Its client payload and the hours
    write/attribution path are byte-for-byte unchanged.
-5. **This week** — unchanged recent-entries table + "See history".
-6. **Secondary** — "My gear" link.
-7. **Under construction** — the unchanged multi-job allocation note.
+5. **Under construction** — the unchanged multi-job allocation note.
 
-## Data honesty
+The centre **Capture shutter** stays on the shell (`PhilTabBar`) — present on
+every Phil screen.
 
-| Element | Source | When unavailable |
-|---|---|---|
-| Worker name | `session.name` (cookie) | "Right now" (no name) |
-| Today's date | `BUSINESS_TIMEZONE` | always available |
-| Current job | assigned jobs (1 → hero) | 2+ → real list; 0 → none |
-| Address / status | real `Job.siteAddress` / `Job.status` | address line omitted; status defaults to Active (as the jobs list does) |
-| Open-work counts | `jobOpenWork()` from `?withStats=1` (open snags · active ITPs) | **chips omitted** — never a fabricated count or "all clear" |
-| Clock-on state | — (does not exist) | not faked; real day-hours via the sheet |
-| Capture | shell `PhilTabBar` centre FAB | unchanged |
+## Week strip states (`philWeek.ts` — all real)
 
-`?withStats=1` is the same proven-soft enrichment the Phil jobs list already
-uses; a bad stats read returns the core job with zeroed stats, so the chips
-just don't render and nothing else regresses.
+| State | Meaning |
+|---|---|
+| `logged` | a real entry exists for that date (its hours are shown) |
+| `today` | the cell is today (prompts "log now" when no entry yet) |
+| `miss` | a **past weekday** with no entry — a soft "you haven't logged this" nudge, never a claim of wrongdoing |
+| `off` | a weekend with no entry |
+| `upcoming` | a future weekday in this week (nothing to show yet) |
 
-## Not in scope (deliberately omitted from the prototype)
+Every cell is derived from the worker's real time entries + the calendar.
+Nothing is fabricated. The rolling 7-day window the page already fetches always
+covers this week's Monday→today, so no extra fetch is needed.
 
-- A standalone **Plans** tile, a **crew-review** tile, **materials**, or any
-  unwired action tile — no route/data, so not shipped (would be fake state).
-- A bespoke **clock-on** timer — there is no such concept; the real daily
-  action is logging hours.
-- Restyling the Phil **shell header** to warm paper (chat14) — that's a
-  shell-wide change affecting every Phil screen and the smoke; out of scope.
-  Navy stays the app-bar; the warm-paper/navy-accent language is applied in the
-  page body. Typography uses the existing `font-display` tokens — Inter Tight /
-  JetBrains Mono are **not** imported (no new font loading).
+## Honesty gate — design elements NOT shipped (would be fake state)
+
+| Design element | Why omitted |
+|---|---|
+| **"Submit timesheet"** (weekly batch → office) | Logging a day already creates it as `submitted` (`buildStandardDayPayload`). There is **no weekly batch-submit workflow** — the week helpers are for the *admin* approval rollup. A "Submit timesheet" button would do nothing real. |
+| **"Needs you" — "Open RFI"** | RFIs don't exist in Phil (no route, no data). |
+| **"Needs you" — "L2 fix is held"** | No "holds" data source feeding a cross-job My Day list. |
+| **"Needs you" — "ITP ready to mark · Mark"** | No My-Day-level aggregation of "your ITPs ready to mark". ITP marking lives on the job screen. |
+| **Compact job strip + "9 on site · 7:00 start · 19° clear"** | The user removed it in the design session; and start-time / weather aren't wired (weather has no integration). |
+
+These are real product gaps (a weekly-submit workflow, an RFI surface, a
+cross-job needs-you feed) — backend/feature work, not UI. They can be wired
+later; until then My Day shows only what's real.
+
+## Styling
+
+Existing Tailwind tokens (`brand-navy` / `accent-yellow` / `surface-*` /
+`state-*` = the prototype palette) and `font-display`. Per-day tone is carried
+by **border + text** (the app's `state-*` tokens are solid, so no tinted fills,
+matching `PhilNotice`). Inter Tight / JetBrains Mono are **not** imported (no
+new font loading).
 
 ## Tests
 
-- `src/components/phil/PhilRightNowCard.render.test.tsx` — the lead card:
-  links to the real job, real status/address, real counts, **no fabricated
-  counts when stats are absent**, no "Draft" leak.
-- The hours flow + shell + Capture FAB stay covered by the existing Preview
-  Smoke (`tests/playwright/smoke/phil.spec.ts`, `field-readiness.spec.ts`),
-  whose selectors (`phil-shell`, "Submit Standard day", the job radiogroup,
-  the Capture FAB) are untouched.
+- `philWeek.test.ts` — the week logic: Mon–Sun states, total, today
+  not/logged, ISO week number, the `miss` nudge, and **no fabricated hours**.
+- The hours flow + shell + Capture FAB stay covered by Preview Smoke
+  (`phil.spec.ts`, `field-readiness.spec.ts`); their selectors (`phil-shell`,
+  "Submit Standard day", the job radiogroup, the Capture FAB) are untouched.
