@@ -24,12 +24,17 @@ payroll-focused home that opens straight into the week timesheet.
 3. **This week** — `PhilWeekStrip`: a Mon–Sun payroll strip with per-day hours,
    a week total, and a "Today not logged" flag. Pure logic in `philWeek.ts`.
 4. **Log today's hours** — `LogHoursSheet`, restyled to the design's **compact
-   yellow action** (`md-act.log`) instead of a screen-filling navy block: the
-   job-attribution pill, the yellow "Log today's hours" button, the day picker,
+   yellow action** (`md-act.log`) instead of a screen-filling navy block. There
+   is **no form-card wrapper** — the elements sit as standalone bars on the page
+   surface, like the design's action bars: a quiet inline job line (`{job}` +
+   "Assigned job" pill, not a boxed field — the job already headlines the
+   greeting), the yellow "Log today's hours" button, a compact "Day" date **chip**,
    and a quiet "Custom hours or a note" disclosure. **Behaviour is unchanged** —
    the same submit handler, disabled gating, "Submit Standard day" aria-label and
    `{id,name}` payload; only the presentation moved. The redundant "No entry yet"
    card was dropped (the week strip already shows today's state).
+   - **Smoke-required, kept visible:** the date `input[type=date]` (the
+     field-readiness helper fills it) and the "Assigned job" pill text.
 5. **Heads-up note** — a quiet honest line about one-allocation-per-submission
    (replaces the loud yellow/black under-construction hazard tape, which was not
    in the design).

@@ -243,10 +243,12 @@ export function LogHoursSheet({
   const submitting = state.kind === "submitting";
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <StatusLine entry={entryForSelectedDate ?? todayEntry} />
 
-      <Card className="space-y-4 p-4">
+      {/* No card wrapper — the design's actions sit as standalone bars on the
+          page surface, not inside a bordered form box. */}
+      <div className="space-y-3">
         <JobAttribution
           jobs={assignedJobs}
           selectedJobId={selectedJobId}
@@ -284,18 +286,18 @@ export function LogHoursSheet({
 
         {/* The date stays rendered (not display:none) so the field-readiness
             smoke can still set the day. */}
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium text-text">Day</span>
+        <label className="flex flex-wrap items-center gap-2 text-xs">
+          <span className={styles.mono}>Day</span>
           <input
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
             disabled={submitting}
-            className="h-12 w-full rounded-card border border-border bg-surface px-3 text-base focus:border-brand-navy focus:outline-none"
+            className="rounded-pill border border-border bg-surface px-3 py-1.5 text-xs text-text focus:border-brand-navy focus:outline-none"
           />
           {!dateInWindow ? (
-            <span className="mt-1 block text-xs text-state-danger">
-              Pick a date in the last {MAX_BACKDATE_DAYS} days (or today / tomorrow).
+            <span className="text-state-danger">
+              Pick a date in the last {MAX_BACKDATE_DAYS} days.
             </span>
           ) : null}
         </label>
@@ -329,7 +331,7 @@ export function LogHoursSheet({
             </label>
           </div>
         </details>
-      </Card>
+      </div>
 
       <FeedbackBanner state={state} />
 
@@ -436,13 +438,15 @@ function JobAttribution({
   }
 
   if (jobs.length === 1) {
+    // Quiet inline context, not a boxed form field — the job already headlines
+    // the greeting ("on {job}"). The "Assigned job" pill is kept verbatim (the
+    // field-readiness smoke asserts it for the single-job attribution path).
     return (
-      <div>
-        {label}
-        <div className="mt-1 flex items-center justify-between gap-2 rounded-card border border-border bg-surface-subtle px-3 py-2">
-          <span className="min-w-0 truncate text-sm font-medium text-text">{jobs[0]!.name}</span>
-          <Pill tone="neutral">Assigned job</Pill>
-        </div>
+      <div className="flex items-center gap-2 px-0.5">
+        <span className="min-w-0 truncate font-display text-sm font-semibold text-text">
+          {jobs[0]!.name}
+        </span>
+        <Pill tone="neutral">Assigned job</Pill>
       </div>
     );
   }
