@@ -15,6 +15,7 @@ import {
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { lastActivityCaption, statusLabel, statusTone } from "@/domains/jobs/format";
+import { isQaTestJobName } from "@/domains/jobs/test-data";
 import type { Job } from "@/domains/jobs/types";
 import { cn } from "@/lib/cn";
 
@@ -121,8 +122,11 @@ function JobRow({ job, canBuild }: { job: Job; canBuild: boolean }) {
         className="flex min-w-0 flex-1 items-start gap-3 hover:underline focus:outline-none focus:ring-2 focus:ring-brand-navy"
         aria-label={`Open evidence for ${job.name}`}
       >
-        <div className="flex shrink-0 items-start pt-1">
+        <div className="flex shrink-0 flex-col items-start gap-1 pt-1">
           <Pill tone={statusTone(job.status)}>{statusLabel(job.status)}</Pill>
+          {/* QA smoke runs leave SMOKE_TEST_/QA_SEED_ rows here — label them
+              so nobody mistakes the seeded fixture for a real site. */}
+          {isQaTestJobName(job.name) ? <Pill tone="neutral">Test data</Pill> : null}
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate font-display text-base font-semibold text-text">

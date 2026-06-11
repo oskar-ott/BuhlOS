@@ -18,6 +18,8 @@ playwright-report/
 test-results/
 .playwright/
 playwright/.cache/
+# Pre-purge jobs.json backups from scripts/qa/purge-smoke-jobs.js (live data — never commit)
+.qa-backups/
 
 # Editor / OS
 .DS_Store

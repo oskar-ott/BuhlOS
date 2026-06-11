@@ -12,6 +12,7 @@ const jobsPath = requireFromHere.resolve("../../../api/jobs.js");
 const auditPath = requireFromHere.resolve("../../../api/_lib/job-audit.js");
 
 let blob: Map<string, unknown>;
+let writeBlobMock: ReturnType<typeof vi.fn>;
 let auth: { signSession: (payload: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: ReturnType<typeof createRes>) => Promise<unknown>;
 
@@ -140,8 +141,11 @@ beforeEach(() => {
       readBlob: vi.fn(async (key: string, fallback: unknown) =>
         blob.has(key) ? clone(blob.get(key)) : fallback
       ),
-      writeBlob: vi.fn(async (key: string, data: unknown) => {
+      writeBlob: (writeBlobMock = vi.fn(async (key: string, data: unknown) => {
         blob.set(key, clone(data));
+      })),
+      deleteBlob: vi.fn(async (key: string) => {
+        blob.delete(key);
       }),
       setNoCache: vi.fn(),
     },
@@ -286,5 +290,162 @@ describe("role normalisation — admin tier + LH aliases", () => {
       (office.body as { job: { areaGroups: Array<{ areas: Array<{ id: string }> }> } }).job
         .areaGroups[0]!.areas.map((area) => area.id)
     ).toEqual(["area-current", "area-archived"]);
+  });
+});
+
+describe("DELETE /api/jobs — QA test-job cleanup", () => {
+  // Re-seed jobs.json with the test-data shapes this branch guards:
+  // a parked smoke job (deletable), the allowed Active fixture (refused —
+  // active), and a real draft (refused — not test data). Done per-test on
+  // top of beforeEach so the shared fixture other suites assert against
+  // stays untouched.
+  function seedTestJobs() {
+    blob.set("jobs.json", {
+      jobs: [
+        { id: "job-real-draft", name: "Real Client Fitout", status: "draft" },
+        { id: "smoke-test-1-job-b", name: "SMOKE_TEST_1_Job_Builder", status: "draft" },
+        { id: "smoke-test-2-job-b", name: "SMOKE_TEST_2_Job_Builder", status: "draft" },
+        { id: "qa-seed-field-active-job", name: "QA_SEED_FIELD_ACTIVE_JOB", status: "active" },
+      ],
+    });
+    blob.set("jobs/smoke-test-1-job-b/data.json", { dwellings: {}, snags: [], notes: [] });
+    blob.set("jobs/smoke-test-1-job-b/audit.json", { entries: [] });
+    blob.set("jobs/smoke-test-2-job-b/data.json", { dwellings: {}, snags: [], notes: [] });
+  }
+
+  function jobsIds(): string[] {
+    return (blob.get("jobs.json") as { jobs: Array<{ id: string }> }).jobs.map((j) => j.id);
+  }
+
+  it("is admin-only — field and office-tier callers get 403", async () => {
+    seedTestJobs();
+    for (const caller of [
+      { userId: "u_field", role: "electrician" },
+      { userId: "u_office", role: "office" },
+      { userId: "u_lh", role: "lh" },
+    ]) {
+      const res = await call({
+        method: "DELETE",
+        ...caller,
+        query: { id: "smoke-test-1-job-b" },
+      });
+      expect(res.statusCode).toBe(403);
+    }
+    expect(jobsIds()).toContain("smoke-test-1-job-b");
+  });
+
+  it("404s on an unknown id and 400s without an id", async () => {
+    seedTestJobs();
+    const missing = await call({
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "nope" },
+    });
+    expect(missing.statusCode).toBe(404);
+    const noId = await call({ method: "DELETE", userId: "u_admin", role: "admin" });
+    expect(noId.statusCode).toBe(400);
+  });
+
+  it("refuses real jobs — only QA-prefixed names are deletable", async () => {
+    seedTestJobs();
+    const res = await call({
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "job-real-draft" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/only automated test jobs/i);
+    expect(jobsIds()).toContain("job-real-draft");
+  });
+
+  it("refuses active test jobs — protects the allowed Active fixture", async () => {
+    seedTestJobs();
+    const res = await call({
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "qa-seed-field-active-job" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/park it to draft/i);
+    expect(jobsIds()).toContain("qa-seed-field-active-job");
+  });
+
+  it("deletes a parked smoke job: row removed, per-job blobs swept, others intact", async () => {
+    seedTestJobs();
+    const res = await call({
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "smoke-test-1-job-b" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ ok: true, deletedId: "smoke-test-1-job-b" });
+    expect(jobsIds()).toEqual([
+      "job-real-draft",
+      "smoke-test-2-job-b",
+      "qa-seed-field-active-job",
+    ]);
+    expect(blob.has("jobs/smoke-test-1-job-b/data.json")).toBe(false);
+    expect(blob.has("jobs/smoke-test-1-job-b/audit.json")).toBe(false);
+  });
+
+  it("batch-deletes several parked jobs with a SINGLE jobs.json write", async () => {
+    seedTestJobs();
+    const res = await call({
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "smoke-test-1-job-b,smoke-test-2-job-b" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      ok: true,
+      deleted: ["smoke-test-1-job-b", "smoke-test-2-job-b"],
+      refused: [],
+    });
+    expect(jobsIds()).toEqual(["job-real-draft", "qa-seed-field-active-job"]);
+    expect(blob.has("jobs/smoke-test-1-job-b/data.json")).toBe(false);
+    expect(blob.has("jobs/smoke-test-2-job-b/data.json")).toBe(false);
+    // The whole point of the batch form: one read-modify-write of
+    // jobs.json per request, so a second delete can never operate on (and
+    // resurrect from) a pre-write snapshot.
+    const jobsWrites = writeBlobMock.mock.calls.filter(([key]) => key === "jobs.json");
+    expect(jobsWrites).toHaveLength(1);
+  });
+
+  it("batch reports refused ids (real / live / unknown) without failing eligible ones", async () => {
+    seedTestJobs();
+    const res = await call({
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: {
+        id: "smoke-test-1-job-b,job-real-draft,qa-seed-field-active-job,nope",
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.body as {
+      ok: boolean;
+      deleted: string[];
+      refused: Array<{ id: string; error: string }>;
+    };
+    expect(body.deleted).toEqual(["smoke-test-1-job-b"]);
+    expect(body.refused.map((r) => r.id)).toEqual([
+      "job-real-draft",
+      "qa-seed-field-active-job",
+      "nope",
+    ]);
+    expect(body.refused[0]!.error).toMatch(/only automated test jobs/i);
+    expect(body.refused[1]!.error).toMatch(/park it to draft/i);
+    expect(body.refused[2]!.error).toMatch(/not found/i);
+    // Refused rows are untouched.
+    expect(jobsIds()).toEqual([
+      "job-real-draft",
+      "smoke-test-2-job-b",
+      "qa-seed-field-active-job",
+    ]);
   });
 });

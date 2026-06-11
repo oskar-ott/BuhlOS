@@ -119,7 +119,7 @@ locked by `src/domains/qa/smoke-jobs.test.ts`.)
 
 ## 7. Parking / cleaning test jobs
 
-There is **no job delete endpoint**, so the rule is: **leave nothing Active.**
+Two-step lifecycle: **park first, then delete.** Nothing may be left Active.
 
 - The job-builder smoke parks its generated job back to **Draft** in a `finally`.
 - Generated `SMOKE_TEST_`/`STRESS_TEST_` jobs must never be left Active. The one
@@ -128,11 +128,32 @@ There is **no job delete endpoint**, so the rule is: **leave nothing Active.**
 - If `qa:list-smoke-jobs` reports any other Active test job, park it: open it in
   the admin builder and **unpublish to Draft** (Active → Draft). Re-run the
   lister to confirm `disallowed=0`.
-- Leftover **Draft** test jobs are acceptable; Active ones are not (except the fixture).
+- Parked test jobs don't have to linger: delete them (next paragraph) so the
+  admin jobs index isn't one row of junk per smoke run.
 
-This repo does **not** ship a destructive auto-park script: parking is a `PUT`
-that writes to the (possibly prod-shared) Blob, so it's done deliberately via
-the admin UI rather than by unattended tooling.
+**Deleting parked test jobs.** `DELETE /api/jobs?id=<id>` (admin-only) removes a
+test job's `jobs.json` row plus its per-job blobs (`jobs/<id>/{data,tags,audit}.json`).
+The guard in `api/_lib/test-data.js` makes it test-data-only: anything without a
+`SMOKE_TEST_`/`STRESS_TEST_`/`QA_SEED_` name prefix is refused (real jobs are
+**never** deletable through this path — archive them instead), and only
+explicitly parked (**Draft**) or **Archived** jobs are accepted — active /
+complete / on-hold / missing-status jobs are all still field-visible and are
+refused, which inherently protects the Active fixture. Three ways to run it:
+
+1. **Admin UI** — `/v2/jobs` shows an "Automated test data" cleanup card to
+   literal admins whenever parked test jobs exist; one confirmed click deletes
+   them all.
+2. **Bulk script** — `BLOB_READ_WRITE_TOKEN=… npm run qa:purge-smoke-jobs` is a
+   **dry run** (prints what would go); add `-- --apply` to delete. On apply it
+   first writes the pre-purge `jobs.json` to gitignored `.qa-backups/`, so a
+   purge is recoverable.
+3. **Per-job / batch** — curl the DELETE endpoint with an admin session; a
+   comma-separated `?id=a,b,c` deletes several in ONE read+write (never loop
+   single deletes — back-to-back whole-document writes can resurrect rows via
+   stale cross-instance reads; see the DELETE handler comment in api/jobs.js).
+
+A smoke run's own teardown still only parks (delete-on-teardown would hide
+failures the lister exists to catch); cleanup is a deliberate follow-up action.
 
 ## 8. What NOT to do
 
@@ -155,4 +176,5 @@ you confirm preview uses an isolated store, note it here and relax the warning.
 
 Cross-refs: `docs/testing/Test-Data-Rules.md`, `docs/testing/Claude-Authed-Preview-Smoke.md`,
 `.github/workflows/preview-smoke.yml`, `scripts/qa/list-smoke-jobs.js`,
+`scripts/qa/purge-smoke-jobs.js`, `api/_lib/test-data.js`,
 `tests/playwright/helpers/auth.ts`.

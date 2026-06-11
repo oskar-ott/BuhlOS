@@ -12,8 +12,13 @@
     Active (the stable Phil field fixture, assigned to QA Field).
 - After any smoke run, verify cleanliness: `npm run qa:list-smoke-jobs` (read-only;
   exits non-zero if any disallowed test job is Active). See `docs/testing/Seeded-Authenticated-QA.md`.
-- If a test publishes a job, unpublish it before finishing.
-- If no delete endpoint exists, park the job as Draft.
+- If a test publishes a job, unpublish it before finishing — tests park, they
+  never delete (delete-on-teardown would hide what the lister exists to catch).
+- Parked test jobs are then deleted deliberately: `DELETE /api/jobs?id=<id>`
+  (admin-only; refuses non-QA-prefixed names and anything not Draft/Archived), the
+  `/v2/jobs` "Automated test data" cleanup card, or
+  `npm run qa:purge-smoke-jobs` (dry run; `-- --apply` deletes after writing a
+  `.qa-backups/` backup). Real jobs are never deletable through any of these.
 - Do not mutate production data destructively.
 - Assume a preview may share the production Blob store until proven otherwise.
 - Warn explicitly in every report when preview and production share storage.

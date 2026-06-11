@@ -5,9 +5,11 @@ import { Plus } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { JobsList } from "@/components/admin/JobsList";
+import { TestJobsCleanup } from "@/components/admin/TestJobsCleanup";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface, canCreateJob } from "@/lib/auth/permissions";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
+import { isDeletableTestJob } from "@/domains/jobs/test-data";
 import type { Job } from "@/domains/jobs/types";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +66,14 @@ export default async function AdminJobsPage() {
   // Matches the Phil-side filter for behavioural consistency.
   const visible = jobs.filter((j) => j.status !== "archived");
 
+  // Parked automated-test jobs (QA-prefixed, not active) accumulate one
+  // per smoke run with no other removal path — offer literal admins the
+  // one-shot cleanup. Computed from the UNFILTERED list so archived test
+  // junk gets purged too, not just the drafts cluttering the index.
+  const deletableTestJobs = canCreate
+    ? jobs.filter(isDeletableTestJob).map((j) => ({ id: j.id, name: j.name }))
+    : [];
+
   return (
     <AdminShell title="Jobs">
       <div className="mx-auto max-w-5xl space-y-4">
@@ -102,6 +112,8 @@ export default async function AdminJobsPage() {
             </CardDescription>
           </Card>
         ) : null}
+
+        <TestJobsCleanup jobs={deletableTestJobs} />
 
         <JobsList jobs={visible} canBuild={canBuild} />
       </div>
