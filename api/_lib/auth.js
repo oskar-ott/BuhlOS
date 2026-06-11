@@ -215,6 +215,29 @@ function canViewArchivedJobs(role) { return isAdminRole(role); }
 function canSubmitHours(role) { return isFieldRole(role) || isLeadingHandRole(role); }
 function canApproveHours(role) { return isStaffRole(role); }
 
+// "Expected to log hours" — the missing-hours / payroll-readiness tracking
+// tier. This is an EXPECTATION, not a permission: the workers whose days the
+// office chases when no entry exists (/api/time-entries-overview missing[],
+// the /hours missing card, /hours/weekly readiness, command-centre).
+//
+//   tracked:     the whole field tier (tradie, electrician, apprentice,
+//                labourer) + leading hands in every spelling — the same
+//                normalised tiers canSubmitHours uses. Pre-#114 this rule
+//                literal-matched 'tradie'/'leadingHand' only, so onboarded
+//                electricians/apprentices/labourers AND lowercase
+//                'leadinghand' accounts were invisible to missing-hours,
+//                silently understating "not payroll-ready" weeks.
+//   not tracked: admin/office tier, clients, unknown roles, and any
+//                archived/disabled account (an archived tradie is not
+//                expected to submit — same liveness rule listTradies uses).
+//
+// Takes the USER (not just the role) because expectation depends on account
+// liveness, not only tier.
+function isHoursTrackedWorker(user) {
+  if (!user || isDisabledUser(user)) return false;
+  return isFieldRole(user.role) || isLeadingHandRole(user.role);
+}
+
 // Evidence / gear — office/admin tier reviews + manages.
 function canReviewEvidence(role) { return isAdminRole(role); }
 function canManageGear(role) { return isAdminRole(role); }
@@ -256,6 +279,7 @@ module.exports = {
   canViewArchivedJobs,
   canSubmitHours,
   canApproveHours,
+  isHoursTrackedWorker,
   canReviewEvidence,
   canManageGear,
   canViewAssignedGear,

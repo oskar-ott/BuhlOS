@@ -166,6 +166,23 @@ describe("buildWeeklyHoursCloseout — readiness rules", () => {
     });
   });
 
+  it("server-flagged missing rows for ANY tracked field role flow into readiness (#114)", () => {
+    // The model is role-agnostic by design — whoever the server tracks counts.
+    // Pre-#114 the server never emitted rows for electricians/apprentices; now
+    // that it does, the week must go not-ready exactly the same way.
+    const c = build(
+      [entry({ userId: "u1", date: "2024-05-20" })],
+      [
+        { userId: "u_elec", date: "2024-05-21", userName: "Erin Sparks", role: "electrician" } as MissingLog,
+        { userId: "u_appr", date: "2024-05-21", userName: "Alex First", role: "apprentice" } as MissingLog,
+      ],
+    );
+    const elec = c.workers.find((w) => w.workerId === "u_elec")!;
+    expect(elec).toMatchObject({ readiness: "missing-hours", workerRole: "electrician" });
+    expect(c.summary.missingDays).toBe(2);
+    expect(c.summary.payrollReady).toBe(false);
+  });
+
   it("the week is payroll-ready only when ALL workers are ready", () => {
     const c = build([
       entry({ userId: "u1", date: "2024-05-20" }),

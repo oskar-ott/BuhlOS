@@ -16,9 +16,10 @@
 //       byDate:   [{date, hours, count}, ...]
 //       byStatus: { draft, submitted, approved, rejected }
 //     }
-//     missing: [{date, userId, userName}, ...]    // assigned crew with no entry that day
+//     missing: [{date, userId, userName}, ...]    // hours-tracked crew with no entry that day
 //     jobs:    [{id, name, status}, ...]          // visible jobs (admin: all; LH: assigned)
-//     users:   [{id, username, role}, ...]        // tradies + LHs visible to viewer
+//     users:   [{id, username, role}, ...]        // hours-tracked workers (field tier + LHs,
+//                                                 // live accounts) visible to viewer
 //   }
 //
 // Permissions:
@@ -29,7 +30,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isHoursTrackedWorker } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -72,10 +73,14 @@ module.exports = async (req, res) => {
     : jobs.filter(j => viewerJobs.has(j.id));
   const visibleJobIds = new Set(visibleJobs.map(j => j.id));
 
-  // Crew visible to viewer = tradies + LHs assigned to any visible job.
-  // Used both for filter dropdowns and "missing logs" computation.
+  // Crew visible to viewer = hours-tracked workers (the whole field tier +
+  // leading hands in any spelling, live accounts only — see
+  // isHoursTrackedWorker) assigned to any visible job. Used both for filter
+  // dropdowns and "missing logs" computation. Pre-#114 this literal-matched
+  // 'tradie'/'leadingHand', so onboarded electricians/apprentices/labourers
+  // and lowercase-leadinghand accounts never appeared as missing hours.
   const visibleCrew = users.filter(u => {
-    if (u.role !== 'tradie' && u.role !== 'leadingHand') return false;
+    if (!isHoursTrackedWorker(u)) return false;
     if (viewer.role === 'admin') return true;
     return (u.assignedJobIds || []).some(jid => visibleJobIds.has(jid));
   });
@@ -226,7 +231,16 @@ module.exports = async (req, res) => {
     const dow = cursor.getDay();
     const isWeekend = (dow === 0 || dow === 6);
     if (!isWeekend) {
-      const iso = cursor.toISOString().slice(0, 10);
+      // Format from the cursor's own calendar components, NOT toISOString():
+      // the cursor is local-midnight, so the UTC render shifted the emitted
+      // date by a day on any non-UTC host — entry-suppression then never
+      // matched. Invisible on UTC production, but wrong (and untestable)
+      // everywhere else; this keeps the date consistent with the local
+      // getDay() weekend check above.
+      const iso =
+        cursor.getFullYear() + '-' +
+        String(cursor.getMonth() + 1).padStart(2, '0') + '-' +
+        String(cursor.getDate()).padStart(2, '0');
       for (const u of crewForMissing) {
         if (!entryByUserDate[u.id + '|' + iso]) {
           missing.push({ date: iso, userId: u.id, userName: u.username, role: u.role });

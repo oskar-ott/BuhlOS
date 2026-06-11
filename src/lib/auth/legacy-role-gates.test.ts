@@ -22,6 +22,7 @@ interface AuthModule {
   isLeadingHandRole: (r: unknown) => boolean;
   isFieldRole: (r: unknown) => boolean;
   isStaffRole: (r: unknown) => boolean;
+  isHoursTrackedWorker: (u: unknown) => boolean;
   roleSatisfies: (userRole: unknown, allowed: string[]) => boolean;
   signSession: (payload: Record<string, unknown>) => string;
   requireAuth: (
@@ -107,6 +108,40 @@ describe("isStaffRole / roleSatisfying (legacy)", () => {
   it("unknown allow-entries (e.g. 'accounts') match themselves only", () => {
     expect(auth.roleSatisfies("accounts", ["accounts"])).toBe(true);
     expect(auth.roleSatisfies("admin", ["accounts"])).toBe(false);
+  });
+});
+
+describe("isHoursTrackedWorker — who is EXPECTED to log hours (#114)", () => {
+  const live = (role: string) => ({ id: "u", username: "u", role });
+
+  it("tracks the whole field tier, not just literal 'tradie'", () => {
+    for (const role of ["tradie", "electrician", "apprentice", "labourer"]) {
+      expect(auth.isHoursTrackedWorker(live(role))).toBe(true);
+    }
+  });
+
+  it("tracks leading hands in every stored spelling", () => {
+    for (const role of ["leadingHand", "leadinghand", "leading_hand", "leading-hand", "lh", "LeadingHand"]) {
+      expect(auth.isHoursTrackedWorker(live(role))).toBe(true);
+    }
+  });
+
+  it("never tracks admin/office tier, clients, or unknown roles", () => {
+    for (const role of ["admin", "boss", "owner", "manager", "office", "pm", "estimator", "client", "accounts", ""]) {
+      expect(auth.isHoursTrackedWorker(live(role))).toBe(false);
+    }
+  });
+
+  it("never tracks archived or disabled accounts (not expected to submit)", () => {
+    expect(auth.isHoursTrackedWorker({ ...live("tradie"), archived: true })).toBe(false);
+    expect(auth.isHoursTrackedWorker({ ...live("electrician"), disabled: true })).toBe(false);
+    expect(auth.isHoursTrackedWorker({ ...live("leadingHand"), status: "disabled" })).toBe(false);
+  });
+
+  it("handles missing users and roles safely", () => {
+    expect(auth.isHoursTrackedWorker(null)).toBe(false);
+    expect(auth.isHoursTrackedWorker(undefined)).toBe(false);
+    expect(auth.isHoursTrackedWorker({ id: "u", username: "u" })).toBe(false);
   });
 });
 
