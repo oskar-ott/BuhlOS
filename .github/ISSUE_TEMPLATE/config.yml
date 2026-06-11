@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Backlog conventions
+    url: https://github.com/oskar-ott/BuhlOS/blob/main/docs/issues.md
+    about: How issues are structured, labelled and tracked (epics, priorities, the nine sections).

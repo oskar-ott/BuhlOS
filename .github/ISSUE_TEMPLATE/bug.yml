@@ -1,0 +1,43 @@
+name: Bug
+description: Something is broken in BuhlOS or Phil
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - Phil (field app)
+        - BuhlOS (office/admin)
+        - Both / API
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you saw. Screenshots welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device / browser
+      placeholder: "iPhone 15, Phil PWA"
+  - type: dropdown
+    id: severity
+    attributes:
+      label: How bad
+      options:
+        - Blocks field work (P0)
+        - Wrong data / trust issue (P0)
+        - Annoying but there's a workaround
+        - Cosmetic
+    validations:
+      required: true

@@ -1,0 +1,65 @@
+name: Feature
+description: A feature or improvement — follows the nine-section backlog convention (docs/issues.md)
+labels: ["enhancement"]
+body:
+  - type: input
+    id: epic
+    attributes:
+      label: Part of
+      description: "Epic umbrella issue (see the index in #120), e.g. #168. Add the right epic:* / priority / surface labels after creating."
+      placeholder: "#168"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: The real pain, ≤3 sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: The outcome, ≤3 sentences.
+    validations:
+      required: true
+  - type: input
+    id: story
+    attributes:
+      label: User story
+      placeholder: "As a <role>, I want <capability>, so that <value>."
+    validations:
+      required: true
+  - type: textarea
+    id: ac
+    attributes:
+      label: Acceptance criteria
+      description: 3–7 testable checkboxes.
+      value: |
+        - [ ]
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current state (audited)
+      description: What exists today — check the code/docs first. "Greenfield" is valid; describing shipped work as missing is not.
+    validations:
+      required: true
+  - type: textarea
+    id: deps
+    attributes:
+      label: Dependencies
+      placeholder: "none"
+  - type: textarea
+    id: future
+    attributes:
+      label: Future considerations
+  - type: textarea
+    id: tech
+    attributes:
+      label: Technical notes
+      description: Endpoints, domains, constraints, test hooks.
