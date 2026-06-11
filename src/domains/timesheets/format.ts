@@ -76,6 +76,23 @@ export function formatDateLabel(date: string): string {
 }
 
 /**
+ * Title for the My Day quick-log action, naming the day being logged so the
+ * button is never generic. Today → "Log today's hours"; any other date →
+ * "Log Tuesday's hours" (the weekday of that date) — so tapping a past day in
+ * the week strip relabels the action to that day rather than claiming "today"
+ * or the vague "this day". `todayISO` is the worker's local today (the caller
+ * passes localDateString()), keeping the today-check timezone-correct.
+ */
+export function logActionTitle(date: string, todayISO: string): string {
+  if (date === todayISO) return "Log today's hours";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "Log hours for this day";
+  const weekday = new Date(date + "T00:00:00").toLocaleDateString("en-AU", {
+    weekday: "long",
+  });
+  return `Log ${weekday}'s hours`;
+}
+
+/**
  * Display an ISO timestamp as a short local-time label like "12 May, 4:32 pm".
  * Used on admin queue rows for submittedAt / approvedAt / rejectedAt.
  */

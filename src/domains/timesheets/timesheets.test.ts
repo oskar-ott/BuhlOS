@@ -36,7 +36,13 @@ import {
   primaryJobId,
   summariseMissing,
 } from "./service";
-import { formatHoursLabel, statusLabel, statusTone, formatDateLabel } from "./format";
+import {
+  formatHoursLabel,
+  statusLabel,
+  statusTone,
+  formatDateLabel,
+  logActionTitle,
+} from "./format";
 
 describe("timesheets service constants", () => {
   it("Standard Day equals 7.6 hours / 456 minutes", () => {
@@ -351,6 +357,16 @@ describe("formatting helpers", () => {
     const label = formatDateLabel("2026-05-04");
     expect(label).toMatch(/Mon/);
     expect(label).toMatch(/2026/);
+  });
+
+  it("logActionTitle says 'today' for today and names the weekday otherwise", () => {
+    const today = "2026-06-11"; // a Thursday
+    expect(logActionTitle(today, today)).toBe("Log today's hours");
+    // 2026-06-09 is a Tuesday — tapping it relabels the action to that day.
+    expect(logActionTitle("2026-06-09", today)).toBe("Log Tuesday's hours");
+    expect(logActionTitle("2026-06-08", today)).toBe("Log Monday's hours");
+    // Malformed input falls back to the generic label, never throws.
+    expect(logActionTitle("not-a-date", today)).toBe("Log hours for this day");
   });
 });
 

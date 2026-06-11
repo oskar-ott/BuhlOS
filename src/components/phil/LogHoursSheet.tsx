@@ -23,6 +23,7 @@ import {
 import {
   formatDateLabel,
   formatHoursLabel,
+  logActionTitle,
   statusLabel,
   statusTone,
 } from "@/domains/timesheets/format";
@@ -316,11 +317,7 @@ export function LogHoursSheet({
           </span>
           <span className={styles.logActionText}>
             <span className={styles.logActionTitle}>
-              {submitting
-                ? "Logging…"
-                : date === localDateString()
-                  ? "Log today's hours"
-                  : "Log hours for this day"}
+              {submitting ? "Logging…" : logActionTitle(date, localDateString())}
             </span>
             <span className={styles.logActionSub}>
               {formatDateLabel(date)} · standard day {formatHoursLabel(STANDARD_DAY_HOURS)}
