@@ -148,6 +148,14 @@ export default async function MyDayPage({
         <PhilWeekStrip entries={recentEntries} todayISO={todayISO} />
 
         <LogHoursSheet
+          // Remount when the deep-linked day changes. The sheet seeds its date
+          // (and the resubmit sheet's open state) in useState INITIALISERS, so
+          // on a same-page soft navigation — tapping a week-strip day, or a
+          // Needs You item, while already on /phil/my-day — React would keep
+          // the existing instance and silently ignore the new initialDate. The
+          // key makes the ?fixDate= contract hold for client-side navigations
+          // too, not just fresh document loads (push notifications).
+          key={fixDate ?? "no-fix-date"}
           initialTodayEntry={todayEntry}
           recentEntries={recentEntries}
           assignedJobs={jobs}
