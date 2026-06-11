@@ -114,6 +114,7 @@ describe("AuditLogEntrySchema", () => {
     // the legacy api/job-itps.js mutating actions + the itp_template
     // / itp_instance target types.
     expect([...AUDIT_ACTIONS].sort()).toEqual([
+      "backup.completed",
       "employee.activated",
       "employee.created",
       "employee.disabled",
@@ -160,6 +161,8 @@ describe("AuditLogEntrySchema", () => {
       // PR 6: observation as audit target (for observation.converted_to_snag).
       "observation",
       "snag",
+      // #151: platform-level events (backup runs).
+      "system",
     ]);
   });
 

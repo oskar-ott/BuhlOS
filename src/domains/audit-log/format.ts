@@ -37,6 +37,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "observation.converted_to_material_request": "Converted observation to material request",
   "material_request.created": "Raised material request",
   "material_request.transitioned": "Updated material request",
+  // #151: scheduled blob backup runs (targetType 'system' groups as Other).
+  "backup.completed": "Ran data backup",
 };
 
 export function actionLabel(action: AuditAction): string {

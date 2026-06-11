@@ -1,5 +1,8 @@
 {
   "framework": "nextjs",
+  "functions": {
+    "api/backup-snapshot.js": { "maxDuration": 60 }
+  },
   "rewrites": [
     { "source": "/login", "destination": "/login.html" },
     { "source": "/jobs", "destination": "/admin/jobs.html" },
@@ -89,6 +92,7 @@
     { "path": "/api/notifications?action=send-stale-snags",     "schedule": "0 23 * * 0"   },
     { "path": "/api/notifications?action=send-inactive-users",  "schedule": "0 23 * * 1"   },
     { "path": "/api/cash-watch?action=check-overruns",          "schedule": "30 22 * * *"  },
-    { "path": "/api/users?action=sweep",                        "schedule": "0 19 * * *"   }
+    { "path": "/api/users?action=sweep",                        "schedule": "0 19 * * *"   },
+    { "path": "/api/backup-snapshot?action=run",                "schedule": "0 16 * * *"   }
   ]
 }
