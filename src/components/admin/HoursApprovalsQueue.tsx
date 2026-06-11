@@ -242,7 +242,7 @@ export function HoursApprovalsQueue({ initialEntries, fetchError, canUndo = fals
       {entries.length === 0 ? (
         <EmptyState
           title="No entries to approve"
-          description="When workers submit hours from /phil/my-day they'll show up here grouped by worker. Leading hands only see entries on their own jobs."
+          description="When workers submit hours from /phil/my-day they'll show up here grouped by worker. Leading hands only see entries on their own jobs. Approved something by mistake? Reopen it from the weekly board."
         />
       ) : (
         <ul className="space-y-4">

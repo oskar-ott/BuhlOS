@@ -117,6 +117,16 @@ export function WeeklyHoursCloseoutBoard({
     day: WeeklyHoursDay;
   } | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  // Reopen (#125): unwind an approved/rejected day with a reason. Exported
+  // entries get the endpoint's block message + an explicit force step.
+  const [reopenTarget, setReopenTarget] = useState<{
+    worker: WeeklyWorkerHours;
+    day: WeeklyHoursDay;
+  } | null>(null);
+  const [reopenReason, setReopenReason] = useState("");
+  const [reopenToStatus, setReopenToStatus] = useState<"submitted" | "draft">("submitted");
+  const [reopenBlock, setReopenBlock] = useState<string | null>(null);
+  const [reopenBusy, setReopenBusy] = useState(false);
   const [, startTransition] = useTransition();
 
   const needAction = closeout.workers.filter((w) => w.readiness !== "payroll-ready");
@@ -184,6 +194,59 @@ export function WeeklyHoursCloseoutBoard({
         : { kind: "error", message: `Undo incomplete — ${failures.length} of ${total} couldn't be reopened: ${failures.join("; ")}` }
     );
     startTransition(() => router.refresh());
+  }
+
+  function openReopen(worker: WeeklyWorkerHours, day: WeeklyHoursDay) {
+    setReopenTarget({ worker, day });
+    setReopenReason("");
+    setReopenToStatus("submitted");
+    setReopenBlock(null);
+  }
+
+  async function confirmReopen(force: boolean) {
+    if (!reopenTarget || reopenBusy) return;
+    const trimmed = reopenReason.trim();
+    if (!trimmed) {
+      setAction({ kind: "error", message: "A reopen reason is required — it's stamped on the entry and the audit trail." });
+      return;
+    }
+    const { worker, day } = reopenTarget;
+    setReopenBusy(true);
+    const result = await timesheetsClient.reopenEntry({
+      userId: worker.workerId,
+      date: day.date,
+      toStatus: reopenToStatus,
+      reason: trimmed,
+      ...(force ? { force: true } : {}),
+    });
+    setReopenBusy(false);
+    if (result.ok) {
+      setReopenTarget(null);
+      setReopenBlock(null);
+      setAction({
+        kind: "success",
+        label:
+          reopenToStatus === "submitted"
+            ? `Reopened ${worker.workerName}'s ${dayLabel(day)} — back in the approvals queue.`
+            : `Reopened ${worker.workerName}'s ${dayLabel(day)} as a draft — back with the worker.`,
+      });
+      startTransition(() => router.refresh());
+      return;
+    }
+    if (result.error.status === 409 && !force) {
+      // Already in a sent payroll file — surface the endpoint's own message
+      // and require a second, explicit confirmation before forcing.
+      setReopenBlock(result.error.message || "This entry is already in a sent payroll export.");
+      return;
+    }
+    setReopenTarget(null);
+    setAction({
+      kind: "error",
+      message:
+        result.error.status === 403
+          ? "Reopening needs an office login."
+          : result.error.message || "Couldn't reopen. Try again.",
+    });
   }
 
   async function approve(worker: WeeklyWorkerHours, day: WeeklyHoursDay) {
@@ -313,8 +376,10 @@ export function WeeklyHoursCloseoutBoard({
                       action={action}
                       defaultOpen={needAction.length <= 3}
                       bulkBusy={bulkBusyWorker === w.workerId}
+                      canReopen={canUndo}
                       onApprove={approve}
                       onApproveWeek={approveWeek}
+                      onReopen={openReopen}
                       onReject={(worker, day) => {
                         setRejectTarget({ worker, day });
                         setRejectReason("");
@@ -401,6 +466,97 @@ export function WeeklyHoursCloseoutBoard({
           </div>
         </div>
       </Modal>
+
+      <Modal
+        open={reopenTarget !== null}
+        onClose={() => {
+          if (reopenBusy) return;
+          setReopenTarget(null);
+          setReopenBlock(null);
+        }}
+        title={
+          reopenTarget
+            ? `Reopen ${reopenTarget.worker.workerName}'s ${dayLabel(reopenTarget.day)}`
+            : "Reopen"
+        }
+      >
+        <div className="space-y-4">
+          {reopenTarget ? (
+            <p className="text-sm text-text-muted">
+              {`This ${reopenTarget.day.status} day goes back to ${
+                reopenToStatus === "submitted" ? "the approvals queue" : "the worker as a draft"
+              }. The worker gets a push either way.`}
+            </p>
+          ) : null}
+
+          <div role="radiogroup" aria-label="Where does it go" className="space-y-2">
+            {(
+              [
+                ["submitted", "Back to the approvals queue (re-decide it here)"],
+                ["draft", "Back to the worker as a draft (they fix and resubmit)"],
+              ] as const
+            ).map(([value, label]) => (
+              <label key={value} className="flex items-center gap-2 text-sm text-text">
+                <input
+                  type="radio"
+                  name="reopen-to"
+                  checked={reopenToStatus === value}
+                  onChange={() => setReopenToStatus(value)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-text">Reason (required)</span>
+            <textarea
+              autoFocus
+              rows={3}
+              maxLength={500}
+              value={reopenReason}
+              onChange={(e) => setReopenReason(e.target.value)}
+              placeholder="e.g. Approved against the wrong job — needs reallocating"
+              className="block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none"
+            />
+          </label>
+
+          {reopenBlock ? (
+            <div
+              role="alert"
+              className="rounded-card border border-border border-l-4 border-l-state-danger bg-surface-subtle p-3 text-sm"
+            >
+              <p className="font-medium text-text">Already in a sent payroll file</p>
+              <p className="mt-1 text-text-muted">{reopenBlock}</p>
+              <p className="mt-1 text-text-muted">
+                Forcing the reopen diverges from the exported file — re-export and tell payroll.
+              </p>
+            </div>
+          ) : null}
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button
+              variant="ghost"
+              disabled={reopenBusy}
+              onClick={() => {
+                setReopenTarget(null);
+                setReopenBlock(null);
+              }}
+            >
+              Cancel
+            </Button>
+            {reopenBlock ? (
+              <Button variant="danger" disabled={reopenBusy} onClick={() => void confirmReopen(true)}>
+                {reopenBusy ? "Reopening…" : "Reopen anyway (diverges from export)"}
+              </Button>
+            ) : (
+              <Button disabled={reopenBusy} onClick={() => void confirmReopen(false)}>
+                {reopenBusy ? "Reopening…" : "Reopen"}
+              </Button>
+            )}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -481,16 +637,20 @@ function WorkerCard({
   action,
   defaultOpen,
   bulkBusy,
+  canReopen,
   onApprove,
   onApproveWeek,
+  onReopen,
   onReject,
 }: {
   worker: WeeklyWorkerHours;
   action: ActionState;
   defaultOpen: boolean;
   bulkBusy: boolean;
+  canReopen: boolean;
   onApprove: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
   onApproveWeek: (worker: WeeklyWorkerHours) => void;
+  onReopen: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
   onReject: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
 }): ReactNode {
   // Weekend rows only earn their place when something real happened on them.
@@ -530,7 +690,15 @@ function WorkerCard({
         <ul className="mt-3 divide-y divide-border border-t border-border">
           {days.map((day) => (
             <li key={day.date} className="py-2.5">
-              <DayRow worker={worker} day={day} action={action} onApprove={onApprove} onReject={onReject} />
+              <DayRow
+                worker={worker}
+                day={day}
+                action={action}
+                canReopen={canReopen}
+                onApprove={onApprove}
+                onReopen={onReopen}
+                onReject={onReject}
+              />
             </li>
           ))}
         </ul>
@@ -550,13 +718,17 @@ function DayRow({
   worker,
   day,
   action,
+  canReopen,
   onApprove,
+  onReopen,
   onReject,
 }: {
   worker: WeeklyWorkerHours;
   day: WeeklyHoursDay;
   action: ActionState;
+  canReopen: boolean;
   onApprove: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
+  onReopen: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
   onReject: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
 }): ReactNode {
   const key = dayKey(worker.workerId, day.date);
@@ -596,6 +768,12 @@ function DayRow({
           </Button>
           <Button size="sm" variant="danger" onClick={() => onReject(worker, day)} disabled={busy}>
             {rejecting ? "Rejecting…" : "Reject"}
+          </Button>
+        </div>
+      ) : (day.status === "approved" || day.status === "rejected") && canReopen && day.entryId ? (
+        <div className="flex gap-2 sm:justify-end">
+          <Button size="sm" variant="ghost" onClick={() => onReopen(worker, day)} disabled={busy}>
+            Reopen
           </Button>
         </div>
       ) : null}

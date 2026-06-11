@@ -40,6 +40,18 @@ function render(entries: TimeEntry[], missing: MissingLog[] = []) {
   );
 }
 
+function renderAsAdmin(entries: TimeEntry[], missing: MissingLog[] = []) {
+  const closeout = buildWeeklyHoursCloseout({
+    entries,
+    missing,
+    weekStart: WEEK_START,
+    todayISO: TODAY,
+  });
+  return renderToString(
+    createElement(WeeklyHoursCloseoutBoard, { closeout, fetchError: null, canUndo: true })
+  );
+}
+
 /**
  * SSR smoke for the /hours/weekly decision board. The derivation rules live in
  * weekly-closeout.test.ts — this pins what the BOSS actually sees: readiness
@@ -147,5 +159,29 @@ describe("Approve week (#124)", () => {
       entry({ userId: "u1", userName: "Sam", date: "2024-05-20", status: "rejected", rejectedReason: "x" }),
     ]);
     expect(html).not.toContain("Approve week");
+  });
+});
+
+describe("Reopen (#125)", () => {
+  it("offers Reopen on approved and rejected days for an admin-tier viewer", () => {
+    const html = renderAsAdmin([
+      entry({ userId: "u1", userName: "Sam", date: "2024-05-20", status: "approved" }),
+      entry({ userId: "u1", userName: "Sam", date: "2024-05-21", status: "rejected", rejectedReason: "wrong job" }),
+    ]);
+    expect((html.match(/Reopen/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("never offers Reopen to a viewer who can't reopen (no button that 403s)", () => {
+    const html = render([
+      entry({ userId: "u1", userName: "Sam", date: "2024-05-20", status: "approved" }),
+    ]);
+    expect(html).not.toContain("Reopen");
+  });
+
+  it("never offers Reopen on submitted or missing days", () => {
+    const html = renderAsAdmin([
+      entry({ userId: "u1", userName: "Sam", date: "2024-05-20", status: "submitted" }),
+    ]);
+    expect(html).not.toContain("Reopen");
   });
 });
