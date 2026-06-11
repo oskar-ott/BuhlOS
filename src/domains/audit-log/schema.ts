@@ -91,6 +91,8 @@ export const AUDIT_ACTIONS = [
   // #151: scheduled blob backup — one entry per run (metadata.ok carries
   // success/failure). Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
   "backup.completed",
+  // #157: a write guard refused a destructive/conflicting store write.
+  "storage.write_rejected",
   "observation.converted_to_material_request",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);

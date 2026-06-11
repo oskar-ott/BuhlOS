@@ -51,7 +51,16 @@ module.exports = async (req, res) => {
     rejectedReason: null,
     updatedAt: now,
   };
-  await writeEntry(userId, updated);
+  try {
+    await writeEntry(userId, updated);
+  } catch (e) {
+    if (e && e.code === 'stale_write') {
+      // #157: the day-file changed underneath this decision (concurrent
+      // approve/edit). Retryable — the client re-reads and re-decides.
+      return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
+    }
+    throw e;
+  }
   await appendAudit(userId, entry.id, 'approved', user.id);
   // Phase 09 (brief §14): global activity log row. Best-effort —
   // failure here doesn't fail the approval. The per-entry audit

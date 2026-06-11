@@ -55,7 +55,16 @@ module.exports = async (req, res) => {
       createdAt: new Date().toISOString(),
     };
     data.users.push(newUser);
-    await writeBlob('users.json', data);
+    try {
+      await writeBlob('users.json', data, { expectedRev: data.__rev });
+    } catch (e) {
+      if (e && e.code === 'stale_write') {
+        // #157: users.json moved underneath this edit (concurrent admin /
+        // sweep / push-prune). Retryable — re-read and re-apply.
+        return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
+      }
+      throw e;
+    }
 
     // Link client to job
     const jobsData = await readBlob('jobs.json', { jobs: [] });
@@ -134,7 +143,16 @@ module.exports = async (req, res) => {
       createdAt: new Date().toISOString(),
     };
     data.users.push(user);
-    await writeBlob('users.json', data);
+    try {
+      await writeBlob('users.json', data, { expectedRev: data.__rev });
+    } catch (e) {
+      if (e && e.code === 'stale_write') {
+        // #157: users.json moved underneath this edit (concurrent admin /
+        // sweep / push-prune). Retryable — re-read and re-apply.
+        return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
+      }
+      throw e;
+    }
     const { passwordHash: _, ...safe } = user;
     return res.status(200).json({ user: safe });
   }
@@ -172,7 +190,16 @@ module.exports = async (req, res) => {
       if (err) return res.status(400).json({ error: err });
       user.passwordHash = await bcrypt.hash(String(secret), 10);
     }
-    await writeBlob('users.json', data);
+    try {
+      await writeBlob('users.json', data, { expectedRev: data.__rev });
+    } catch (e) {
+      if (e && e.code === 'stale_write') {
+        // #157: users.json moved underneath this edit (concurrent admin /
+        // sweep / push-prune). Retryable — re-read and re-apply.
+        return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
+      }
+      throw e;
+    }
 
     // Best-effort push: tell the recipient they've been added to one or more
     // jobs. Skipped when the actor edits their own row, when push isn't
@@ -227,7 +254,16 @@ module.exports = async (req, res) => {
         });
       }
       data.users = data.users.filter(x => x.id !== id);
-      await writeBlob('users.json', data);
+      try {
+      await writeBlob('users.json', data, { expectedRev: data.__rev });
+    } catch (e) {
+      if (e && e.code === 'stale_write') {
+        // #157: users.json moved underneath this edit (concurrent admin /
+        // sweep / push-prune). Retryable — re-read and re-apply.
+        return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
+      }
+      throw e;
+    }
       return res.status(200).json({ ok: true, mode: 'hard' });
     }
 
@@ -239,7 +275,16 @@ module.exports = async (req, res) => {
     u.archived = true;
     u.archivedAt = new Date().toISOString();
     u.archivedBy = me.id;
-    await writeBlob('users.json', data);
+    try {
+      await writeBlob('users.json', data, { expectedRev: data.__rev });
+    } catch (e) {
+      if (e && e.code === 'stale_write') {
+        // #157: users.json moved underneath this edit (concurrent admin /
+        // sweep / push-prune). Retryable — re-read and re-apply.
+        return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
+      }
+      throw e;
+    }
     return res.status(200).json({ ok: true, mode: 'soft', restoreUntil: addDaysIso(u.archivedAt, 30) });
   }
 
@@ -259,7 +304,16 @@ module.exports = async (req, res) => {
     delete u.archivedAt;
     delete u.archivedBy;
     u.updatedAt = new Date().toISOString();
-    await writeBlob('users.json', data);
+    try {
+      await writeBlob('users.json', data, { expectedRev: data.__rev });
+    } catch (e) {
+      if (e && e.code === 'stale_write') {
+        // #157: users.json moved underneath this edit (concurrent admin /
+        // sweep / push-prune). Retryable — re-read and re-apply.
+        return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
+      }
+      throw e;
+    }
     const { passwordHash, ...safe } = u;
     return res.status(200).json({ user: safe });
   }
@@ -294,7 +348,16 @@ module.exports = async (req, res) => {
     }
     if (removed.length) {
       data.users = kept;
-      await writeBlob('users.json', data);
+      try {
+      await writeBlob('users.json', data, { expectedRev: data.__rev });
+    } catch (e) {
+      if (e && e.code === 'stale_write') {
+        // #157: users.json moved underneath this edit (concurrent admin /
+        // sweep / push-prune). Retryable — re-read and re-apply.
+        return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
+      }
+      throw e;
+    }
     }
     return res.status(200).json({ ok: true, removed, removedCount: removed.length });
   }

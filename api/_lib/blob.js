@@ -123,7 +123,32 @@ async function readBlobFresh(key, fallback = null) {
   return value;
 }
 
-async function writeBlob(key, data) {
+async function writeBlob(key, data, opts = {}) {
+  // #157 write guards: per-store validation, shrink refusal, revision
+  // stamping + optional stale-write rejection. The current document is read
+  // through this module's own cache (cheap); when the caller passes
+  // expectedRev we read FRESH so the conflict check is as tight as Vercel
+  // Blob allows (no CAS — this narrows the race, it can't eliminate it).
+  // A rejected write throws BEFORE the put and must never touch the cache.
+  const { applyGuards, auditRejection } = require('./blob-guards');
+  let current = null;
+  try {
+    current =
+      opts.expectedRev !== undefined && opts.expectedRev !== null
+        ? await readBlobFresh(key, null)
+        : await readBlob(key, null);
+  } catch {
+    current = null; // unreadable current → guards run without shrink/rev context
+  }
+  let stamped;
+  try {
+    stamped = applyGuards(key, data, current, opts);
+  } catch (err) {
+    auditRejection(key, err, opts.actor);
+    throw err;
+  }
+  data = stamped;
+
   const serialized = JSON.stringify(data);
   await put(key, serialized, {
     access: 'public',

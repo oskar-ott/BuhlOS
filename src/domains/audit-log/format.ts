@@ -39,6 +39,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "material_request.transitioned": "Updated material request",
   // #151: scheduled blob backup runs (targetType 'system' groups as Other).
   "backup.completed": "Ran data backup",
+  "storage.write_rejected": "Blocked a bad data write",
 };
 
 export function actionLabel(action: AuditAction): string {

@@ -329,7 +329,12 @@ describe("restore drill (#151 AC — executed against this non-production store)
       now: new Date("2026-06-11T10:00:00Z"),
     });
     expect(applied.applied).toBe(true);
-    expect(JSON.parse(store.get("users.json")!)).toEqual(JSON.parse(original));
+    // #157: restores write through the guard layer, which re-stamps
+    // { __rev, __updatedAt } — recovery is CONTENT-identical; the revision
+    // metadata is deliberately fresh (the restore IS a new write).
+    const { __rev, __updatedAt, ...recovered } = JSON.parse(store.get("users.json")!);
+    expect(recovered).toEqual(JSON.parse(original));
+    expect(__rev).toBeGreaterThanOrEqual(1);
     const safetyKey = [...store.keys()].find((k) => k.startsWith("backups/pre-restore-"));
     expect(safetyKey).toBeTruthy();
     expect(store.get(safetyKey!)).toBe(JSON.stringify({ users: [] })); // the clobbered state is itself recoverable

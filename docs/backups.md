@@ -102,3 +102,23 @@ matches expectations; the write path is already CI-proven.
   `metadata.ok`, copy/failure counts and pruned dates.
 - A *missed* run leaves no entry — heartbeat alerting lands with the
   monitoring issue (#159).
+
+## Write guards (#157) — prevention in front of this recovery
+
+`writeBlob` now refuses obviously-destructive writes before they persist
+(see [api/_lib/blob-guards.js](../api/_lib/blob-guards.js)):
+
+- **Validation** — `users.json`, `jobs.json`, `observations.json`,
+  `flags.json` and per-user time-entry day files are shape-checked on every
+  write; garbage fails the request loudly instead of destroying the store.
+- **Shrink refusal** — a write dropping >20% of a guarded store's records
+  (above a small floor) is rejected unless the caller passes an explicit
+  `allowShrink` — with the rejection audit-logged ("Blocked a bad data
+  write"), counts included.
+- **Revisions** — every stored doc carries `{ __rev, __updatedAt }`. Writers
+  passing `expectedRev` (all time-entry day-file writers via `writeEntry`,
+  every `users.json` writer) get a retryable `409 { error: 'conflict' }`
+  when the document moved underneath them. **Honest limit:** Vercel Blob has
+  no compare-and-swap, so this narrows the lost-update window to the
+  fresh-read-at-write moment — it cannot eliminate it. True CAS arrives with
+  the Postgres migration (its `revision` column is the same concept).

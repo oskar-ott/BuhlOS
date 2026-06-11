@@ -149,6 +149,7 @@ describe("AuditLogEntrySchema", () => {
       "observation.transitioned",
       "snag.created",
       "snag.transitioned",
+      "storage.write_rejected",
     ]);
     expect([...AUDIT_TARGET_TYPES].sort()).toEqual([
       "employee",
