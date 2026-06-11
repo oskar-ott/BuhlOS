@@ -30,7 +30,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole, isHoursTrackedWorker } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isAdminRole, isHoursTrackedWorker } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -68,7 +68,10 @@ module.exports = async (req, res) => {
   const jobById  = {}; jobs.forEach(j => { jobById[j.id]   = j; });
 
   const viewerJobs = new Set(viewer.assignedJobIds || []);
-  const visibleJobs = viewer.role === 'admin'
+  // Tier-aware (not literal 'admin'): office/boss/PM are admin-tier viewers
+  // and see the full company; leading hands stay job-scoped (#123).
+  const viewerIsAdminTier = isAdminRole(viewer.role);
+  const visibleJobs = viewerIsAdminTier
     ? jobs
     : jobs.filter(j => viewerJobs.has(j.id));
   const visibleJobIds = new Set(visibleJobs.map(j => j.id));
@@ -81,7 +84,7 @@ module.exports = async (req, res) => {
   // and lowercase-leadinghand accounts never appeared as missing hours.
   const visibleCrew = users.filter(u => {
     if (!isHoursTrackedWorker(u)) return false;
-    if (viewer.role === 'admin') return true;
+    if (viewerIsAdminTier) return true;
     return (u.assignedJobIds || []).some(jid => visibleJobIds.has(jid));
   });
 

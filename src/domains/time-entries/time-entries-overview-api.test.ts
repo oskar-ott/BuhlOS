@@ -307,3 +307,98 @@ describe("missing-hours crew coverage (#114)", () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+/**
+ * #123 — tier-aware viewer scoping. Pre-fix both endpoints literal-matched
+ * `role === 'admin'`, so office/boss/PM viewers fell into the leading-hand
+ * path with no assignedJobIds → empty visible set → blank /hours, /hours/weekly
+ * and today-pulse for exactly the people who run payroll. The fix routes the
+ * whole admin TIER through the full-company path; LH scoping is unchanged.
+ */
+describe("office-tier viewer scoping (#123)", () => {
+  const pulsePath = requireFromHere.resolve("../../../api/today-pulse.js");
+
+  async function pulse(viewerId: string, viewerRole: string, date: string) {
+    // Fresh require AFTER the shared beforeEach injected the blob/auth mocks,
+    // so the pulse handler binds to the same in-memory store.
+    delete requireFromHere.cache[pulsePath];
+    const pulseHandler = requireFromHere(pulsePath) as Handler;
+    const res = createRes();
+    await pulseHandler(
+      {
+        method: "GET",
+        query: { date },
+        headers: { cookie: cookieFor(viewerId, viewerRole) },
+      },
+      res
+    );
+    return res;
+  }
+
+  it("overview: an office viewer sees the same full-company missing crew as an admin", async () => {
+    const admin = await overview("u_admin", "admin", {
+      fromDate: PAST_WEEKDAY,
+      toDate: PAST_WEEKDAY,
+    });
+    const office = await overview("u_office", "office", {
+      fromDate: PAST_WEEKDAY,
+      toDate: PAST_WEEKDAY,
+    });
+    expect(office.statusCode).toBe(200);
+    expect(missingIds(office)).toEqual(missingIds(admin));
+    expect(missingIds(office).length).toBeGreaterThan(0); // not the empty LH path
+  });
+
+  it("overview: a boss viewer with no assigned jobs is admin-tier, not job-scoped", async () => {
+    (blob.get("users.json") as { users: unknown[] }).users.push(user("u_boss_v", "boss"));
+    const boss = await overview("u_boss_v", "boss", {
+      fromDate: PAST_WEEKDAY,
+      toDate: PAST_WEEKDAY,
+    });
+    expect(boss.statusCode).toBe(200);
+    expect(missingIds(boss).length).toBeGreaterThan(0);
+  });
+
+  it("overview: leading-hand scoping is unchanged by the tier fix", async () => {
+    const lh = await overview("u_lh_viewer", "leadingHand", {
+      fromDate: PAST_WEEKDAY,
+      toDate: PAST_WEEKDAY,
+    });
+    // job-x crew only (incl. the LH themself — leading hands are
+    // hours-tracked) — never the job-y workers an admin/office viewer sees.
+    expect(missingIds(lh)).toEqual(["u_elec", "u_lh_viewer", "u_lhand", "u_tradie"]);
+  });
+
+  it("today-pulse: an office viewer sees company-wide hours, not a blank pulse", async () => {
+    seedEntry("u_elec", PAST_WEEKDAY);
+    const office = await pulse("u_office", "office", PAST_WEEKDAY);
+    expect(office.statusCode).toBe(200);
+    const body = office.body as { hours: { submittedCount: number }; jobs: { activeJobs: number } };
+    expect(body.hours.submittedCount).toBe(1);
+    expect(body.jobs.activeJobs).toBe(2); // all active jobs, not zero
+  });
+
+  it("today-pulse: a leading hand stays scoped to allocations on their jobs", async () => {
+    seedEntry("u_elec", PAST_WEEKDAY); // allocation on job-x
+    blob.set(`users/u_appr/time-entries/${PAST_WEEKDAY}.json`, {
+      id: `te_u_appr_${PAST_WEEKDAY}`,
+      userId: "u_appr",
+      userName: "u_appr",
+      userRole: "apprentice",
+      date: PAST_WEEKDAY,
+      totalHours: 7.6,
+      ordinaryHours: 7.6,
+      overtimeHours: 0,
+      status: "submitted",
+      submittedAt: `${PAST_WEEKDAY}T08:00:00.000Z`,
+      allocations: [{ jobId: "job-y", hours: 7.6, notes: null, sortOrder: 0 }],
+      createdAt: `${PAST_WEEKDAY}T07:00:00.000Z`,
+      updatedAt: `${PAST_WEEKDAY}T08:00:00.000Z`,
+    });
+    const lh = await pulse("u_lh_viewer", "leadingHand", PAST_WEEKDAY);
+    expect(lh.statusCode).toBe(200);
+    const body = lh.body as { hours: { submittedCount: number }; jobs: { activeJobs: number } };
+    expect(body.hours.submittedCount).toBe(1); // only the job-x entry
+    expect(body.jobs.activeJobs).toBe(1); // only their job
+  });
+});
