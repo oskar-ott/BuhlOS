@@ -39,4 +39,5 @@ jobs:
           npm run check:production-shell
           npm run check:route-ownership
           npm run check:shell-contract
+          npm run check:backup-manifest
           npm run smoke:admin-routes

@@ -86,6 +86,9 @@ const VALID_ACTIONS = new Set([
   // material_request.created entry so the per-job timeline shows both).
   'material_request.created',
   'material_request.transitioned',
+  // #151: the scheduled blob backup writes one entry per run (ok or failed)
+  // so a quiet cron can't hide a broken backup. targetType 'system'.
+  'backup.completed',
   'observation.converted_to_material_request',
 ]);
 const VALID_TARGET_TYPES = new Set([
@@ -106,6 +109,8 @@ const VALID_TARGET_TYPES = new Set([
   'observation',
   // PR 11: Material Request module.
   'material_request',
+  // #151: platform-level events (backups) with no business record target.
+  'system',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

@@ -88,6 +88,9 @@ export const AUDIT_ACTIONS = [
   // verb — emitted by the convert action attributing the office decision.
   "material_request.created",
   "material_request.transitioned",
+  // #151: scheduled blob backup — one entry per run (metadata.ok carries
+  // success/failure). Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
+  "backup.completed",
   "observation.converted_to_material_request",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
@@ -104,6 +107,8 @@ export const AUDIT_TARGET_TYPES = [
   "observation",
   // PR 11: Material Request module.
   "material_request",
+  // #151: platform-level events (backups).
+  "system",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 
