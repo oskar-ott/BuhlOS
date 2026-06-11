@@ -113,7 +113,10 @@ export function PhilJobAreaDetail({
   // parent-controlled `stage` drives the list.
   const viewedStage: JobStage = sole ?? stage;
   // Honest completion count for the viewed stage — derived purely from the
-  // real task states, never a fabricated percentage.
+  // real task states, never a fabricated percentage. stageProgress IS the
+  // canonical stage-level counter: src/domains/jobs/progress.ts (#198)
+  // builds the office's area/job numbers on the same complete-only,
+  // archived-excluded semantics, so field and office can never disagree.
   const progress = stageProgress(tasks);
 
   return (

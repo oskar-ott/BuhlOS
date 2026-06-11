@@ -1,3 +1,8 @@
+// LEGACY-REPORTS-ONLY (#198): the roughInPct/fitOffPct/overallPct +
+// readiness maths below serve public/admin/reports.html ONLY. The canonical
+// job-progress definition every modern surface renders is
+// src/domains/jobs/progress.ts (mirrored for stats by api/_lib/job-tasks.js).
+// Do not consume these numbers from new code.
 // Handover readiness scorecard.
 //
 //   GET /api/handover-readiness?jobId=<id>

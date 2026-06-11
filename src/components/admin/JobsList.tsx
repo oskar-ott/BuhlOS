@@ -138,6 +138,15 @@ function JobRow({ job, canBuild }: { job: Job; canBuild: boolean }) {
               <span className="truncate">{address}</span>
             </p>
           ) : null}
+          {/* #198 canonical progress — counts first, % only with a total. */}
+          {typeof job.statsTasksTotal === "number" &&
+          typeof job.statsTasksComplete === "number" ? (
+            <p className="mt-0.5 text-xs text-text-muted">
+              {job.statsTasksTotal === 0
+                ? "No tasks yet"
+                : `${job.statsTasksComplete}/${job.statsTasksTotal} tasks · ${Math.round((job.statsTasksComplete / job.statsTasksTotal) * 100)}%`}
+            </p>
+          ) : null}
           {job.ref ? (
             <p className="mt-0.5 truncate text-xs text-text-muted">Ref {job.ref}</p>
           ) : null}

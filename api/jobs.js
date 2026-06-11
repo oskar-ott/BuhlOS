@@ -1,7 +1,7 @@
 const { readBlob, writeBlob, deleteBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs, isFieldRole, isClientRole } = require('./_lib/auth');
 const { validateAreaGroups, validateTasks, validateCustomFields, visibleStructural } = require('./_lib/validation');
-const { areaProgressPct } = require('./_lib/job-tasks');
+const { areaProgressPct, jobTaskCounts } = require('./_lib/job-tasks');
 const { appendAudit } = require('./_lib/job-audit');
 const { testJobDeleteEligibility } = require('./_lib/test-data');
 const { buildDuplicatePayload, copyName } = require('./_lib/job-duplicate');
@@ -128,33 +128,22 @@ function projectJobStructure(job, { includeArchived = false } = {}) {
   return out;
 }
 
-// Aggregate job-level stats. Uses the shared `areaProgressPct` helper so
-// per-area custom checklists are respected — an area with its own
-// rough-in / fit-off list contributes its own pct to the job average,
-// not a stat derived from the (possibly-different) job-level defaults.
-// Areas with no applicable checklist (no override, no defaults) are
-// excluded from the average — they don't pull the number down to 0%.
+// Aggregate job-level stats. #198: pct is now THE canonical pooled
+// task-count progress (jobTaskCounts — archived excluded, % only where a
+// total exists), replacing the old average-of-area-percentages. Counts ride
+// alongside so surfaces can stay counts-first.
 //
 // Snags counted as those with status === 'Open'.
-// Returns { pct, openSnags, areaCount }. pct is null for jobs with no areas.
 function computeJobStats(job, data) {
   const dwellings = (data && data.dwellings) || {};
   const snags     = (data && data.snags)     || [];
   const groups    = (job && job.areaGroups)  || [];
   const areas = groups.flatMap(g => (g.areas || []));
   const areaCount = areas.length;
-  let pct = null;
-  if (areaCount) {
-    let sum = 0, counted = 0;
-    for (const a of areas) {
-      const p = areaProgressPct(job, a, dwellings);
-      if (p == null) continue;
-      sum += p; counted++;
-    }
-    if (counted) pct = Math.round(sum / counted);
-  }
+  const counts = jobTaskCounts(job, dwellings);
+  const pct = counts.total ? Math.round((counts.complete / counts.total) * 100) : null;
   const openSnags = snags.filter(s => s && s.status === 'Open').length;
-  return { pct, openSnags, areaCount };
+  return { pct, openSnags, areaCount, tasksTotal: counts.total, tasksComplete: counts.complete };
 }
 
 module.exports = async (req, res) => {
@@ -372,6 +361,8 @@ module.exports = async (req, res) => {
           }
           return Object.assign({}, j, {
             statsPct:               stats.pct,
+            statsTasksTotal:        stats.tasksTotal,
+            statsTasksComplete:     stats.tasksComplete,
             statsOpenSnags:         stats.openSnags,
             statsCrewCount:         crewCountByJob[j.id] || 0,
             statsAreaCount:         stats.areaCount,
@@ -386,7 +377,7 @@ module.exports = async (req, res) => {
         } catch (e) {
           // Fail soft — caller still gets the core job, stats just absent.
           return Object.assign({}, j, {
-            statsPct: null, statsOpenSnags: 0,
+            statsPct: null, statsTasksTotal: 0, statsTasksComplete: 0, statsOpenSnags: 0,
             statsCrewCount: crewCountByJob[j.id] || 0,
             statsAreaCount: 0,
             statsExpiredTags: 0, statsExpiringTags: 0,

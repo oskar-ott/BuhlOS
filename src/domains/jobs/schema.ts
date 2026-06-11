@@ -161,6 +161,9 @@ export const JobSchema = z
     // index). All fields are best-effort: if the data.json read fails
     // the server returns zeroes rather than dropping the row.
     statsPct: z.number().nullable().optional(),
+    /** #198 canonical pooled task counts (archived excluded). */
+    statsTasksTotal: z.number().optional(),
+    statsTasksComplete: z.number().optional(),
     statsOpenSnags: z.number().optional(),
     statsCrewCount: z.number().optional(),
     statsAreaCount: z.number().optional(),
