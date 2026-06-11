@@ -9,6 +9,7 @@ import styles from "./myDay.module.css";
 // class lookups are `string | undefined` under noUncheckedIndexedAccess.)
 const DAY_STATE: Record<WeekDayState, string | undefined> = {
   logged: styles.logged,
+  fix: styles.fix,
   today: styles.today,
   miss: styles.miss,
   off: styles.off,

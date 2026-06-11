@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { ArrowLeft, ArrowRight, HardHat, UserX } from "lucide-react";
@@ -125,6 +126,28 @@ export default async function HoursOverviewPage({
             description="Workers see the reason in Phil and can edit + resubmit."
           />
         </div>
+
+        {/* ── Weekly closeout (the payroll ritual) ──────────────────── */}
+        <Card className="border-l-4 border-l-accent-yellow">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle>Weekly closeout</CardTitle>
+              <CardDescription className="mt-1">
+                The week&rsquo;s daily entries as one decision view — who&rsquo;s
+                payroll-ready, who&rsquo;s blocking, what needs action.
+              </CardDescription>
+            </div>
+            <Link
+              // `as Route` — typedRoutes' generated map is from the previous
+              // build and can't see the route this PR adds (same pattern as
+              // AdminSidebar's newer entries). Validated for real by `next build`.
+              href={"/hours/weekly" as Route}
+              className="inline-flex items-center rounded-card bg-brand-navy px-5 py-3 text-sm font-medium text-text-inverse hover:bg-accent-ink"
+            >
+              Open weekly closeout →
+            </Link>
+          </div>
+        </Card>
 
         {/* ── This week ─────────────────────────────────────────────── */}
         <Card>

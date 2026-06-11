@@ -72,6 +72,7 @@ describe("middleware — unauthenticated access to a gated route → /v2/login?n
     "/command-centre",
     "/hours",
     "/hours/approvals",
+    "/hours/weekly",
     "/gear",
     "/employees",
     "/observations",
@@ -96,6 +97,7 @@ describe("middleware — admin tier on BuhlOS admin surfaces", () => {
   it.each([
     "/command-centre",
     "/hours",
+    "/hours/weekly",
     "/gear",
     "/employees",
     "/observations",

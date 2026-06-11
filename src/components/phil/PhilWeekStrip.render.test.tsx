@@ -41,4 +41,13 @@ describe("PhilWeekStrip (render)", () => {
     expect(html).toContain("log now");
     expect(html).toContain("0.0h");
   });
+
+  it("shows a rejected day as fix — the worker can see it needs their hand", () => {
+    const html = render([
+      { date: "2024-05-20", totalHours: 7.6, status: "rejected" } as unknown as TimeEntry,
+      { date: "2024-05-21", totalHours: 7.6, status: "approved" } as unknown as TimeEntry,
+    ]);
+    expect(html).toContain("fix");
+    expect(html).toContain("approved");
+  });
 });
