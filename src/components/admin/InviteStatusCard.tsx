@@ -93,7 +93,7 @@ export function InviteStatusCard({
 
       {isActive ? (
         <p className={cn("mt-3 font-mono text-[11px] uppercase tracking-wider text-text-muted")}>
-          Reset PIN · lands in O3
+          Reset PIN · coming soon
         </p>
       ) : null}
     </section>

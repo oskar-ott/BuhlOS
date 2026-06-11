@@ -66,8 +66,8 @@ export async function EmployeesScreen({ selectedId }: { selectedId?: string | nu
         )}
 
         <UnderConstructionPanel
-          feature="Email invites · bulk re-invite · licences · vehicles · payroll"
-          description="O1 issues a real invite token with a copy-link. Automatic email sending (and resend / expired-replacement templates) lands in O2; the Phil setup screens (confirm details, PIN, intro) land in O3. Licence, vehicle and induction registers, bulk re-invite and payroll are O4/O5."
+          feature="Bulk re-invite · licences · vehicles · inductions · payroll"
+          description="Adding workers, email invites (with resend / expired-replacement), and the Phil setup flow (confirm details, PIN, intro) are live. Still to come: bulk re-invite, licence / vehicle / induction registers, and payroll."
         />
       </div>
     </AdminShell>
