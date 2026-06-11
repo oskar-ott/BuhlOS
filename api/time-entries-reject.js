@@ -108,12 +108,13 @@ module.exports = async (req, res) => {
 
   // Fire-and-forget push to the tradie with the rejection reason inline so
   // they don't have to open the app to find out why. ?fixDate=<iso> deep-links
-  // to /my-day with BuhlLogHours auto-opened on that date — fix-and-resubmit
-  // is one tap from the notification.
+  // to Phil My Day (the live field home per docs/route-ownership.md) with the
+  // fix-and-resubmit sheet auto-opened on that date — one tap from the
+  // notification to the fix.
   sendPushToUserId(userId, {
     title: 'Hours rejected — needs fix',
     body: `${entry.date} (${Number(entry.totalHours).toFixed(1)} hrs): ${trimmedReason}`,
-    url: '/my-day?fixDate=' + encodeURIComponent(entry.date),
+    url: '/phil/my-day?fixDate=' + encodeURIComponent(entry.date),
     tag: 'buhl-hours-rejected-' + entry.date,
   }).catch(() => {});
 

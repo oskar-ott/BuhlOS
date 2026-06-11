@@ -51,7 +51,7 @@ describe("buildPhilNeedsYou", () => {
     expect(items).toEqual([]);
   });
 
-  it("surfaces a rejected-hours item routed to the real /phil/hours fix flow", () => {
+  it("surfaces a rejected-hours item deep-linked to the My Day fix flow", () => {
     const items = buildPhilNeedsYou({
       viewerId: ME,
       entries: [
@@ -63,7 +63,9 @@ describe("buildPhilNeedsYou", () => {
     expect(items[0]).toMatchObject({
       kind: "rejected-hours",
       severity: "urgent",
-      href: "/phil/hours",
+      // Same ?fixDate= deep link the "Hours rejected" push uses — selects the
+      // day and auto-opens the inline fix-and-resubmit sheet on My Day.
+      href: "/phil/my-day?fixDate=2024-05-22",
       actionLabel: "Fix hours",
       detail: "Stage doesn't match roster",
     });

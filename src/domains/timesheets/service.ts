@@ -250,6 +250,18 @@ export function isWithinBackdateWindow(date: string, today: Date = new Date()): 
 }
 
 /**
+ * Validate a `?fixDate=` deep-link param (from the "Hours rejected" push
+ * notification or the Needs You feed) into a usable YYYY-MM-DD string, or
+ * null. Same shape rule as the legacy /my-day handler — anything else (extra
+ * segments, prose, malformed dates) is ignored rather than erroring, since a
+ * stale or mangled notification must never break the worker's home screen.
+ */
+export function parseFixDate(raw: string | string[] | undefined | null): string | null {
+  if (typeof raw !== "string") return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+}
+
+/**
  * Pull the primary job id from an entry for display purposes. Used by the
  * worker's history list which shows one job per row.
  */

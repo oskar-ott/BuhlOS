@@ -26,6 +26,8 @@ import {
   statusLabel,
   statusTone,
 } from "@/domains/timesheets/format";
+import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
+import { RejectedHoursResubmitSheet } from "./RejectedHoursResubmitSheet";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
 const CUSTOM_HOURS_OPTIONS = [4, 5, 6, 7, 7.6, 8, 9, 10] as const;
@@ -61,6 +63,19 @@ interface LogHoursSheetProps {
    * the worker's active assigned jobs.
    */
   initialJobId?: string | null;
+  /**
+   * Optional preselected date (validated YYYY-MM-DD — callers go through
+   * parseFixDate). Set by the ?fixDate= deep link on /phil/my-day so the
+   * "Hours rejected" push notification lands the worker on the exact day
+   * that needs fixing. Defaults to today.
+   */
+  initialDate?: string | null;
+  /**
+   * When true and the selected date's entry is rejected, the inline
+   * fix-and-resubmit sheet renders already expanded (the ?fixDate= deep-link
+   * behaviour — one tap from the notification to the fix).
+   */
+  autoOpenFix?: boolean;
 }
 
 type Mode = "standard" | "custom";
@@ -87,9 +102,11 @@ export function LogHoursSheet({
   assignedJobs,
   jobsError = false,
   initialJobId = null,
+  initialDate = null,
+  autoOpenFix = false,
 }: LogHoursSheetProps) {
   const [todayEntry, setTodayEntry] = useState<TimeEntry | null>(initialTodayEntry);
-  const [date, setDate] = useState<string>(() => localDateString());
+  const [date, setDate] = useState<string>(() => initialDate ?? localDateString());
   const [notes, setNotes] = useState<string>("");
   const [customOpen, setCustomOpen] = useState(false);
   const [customHours, setCustomHours] = useState<number>(STANDARD_DAY_HOURS);
@@ -220,7 +237,7 @@ export function LogHoursSheet({
     if (result.error.status === 409) {
       setState({
         kind: "error",
-        message: "You already have an entry for that date. Open the legacy app to edit it for now.",
+        message: "You already have an entry for that date — its status is shown above.",
         status: 409,
       });
       return;
@@ -241,10 +258,33 @@ export function LogHoursSheet({
   }
 
   const submitting = state.kind === "submitting";
+  const statusEntry = entryForSelectedDate ?? todayEntry;
 
   return (
     <div className="space-y-3">
-      <StatusLine entry={entryForSelectedDate ?? todayEntry} />
+      <StatusLine entry={statusEntry}>
+        {statusEntry?.status === "rejected" ? (
+          canResubmitInPhil(statusEntry) ? (
+            // Fix-and-resubmit right where the rejection is shown — the same
+            // tested sheet /phil/hours uses. Keyed by entry id so switching
+            // dates resets the form to that entry's values.
+            <RejectedHoursResubmitSheet
+              key={statusEntry.id}
+              entry={statusEntry}
+              assignedJobs={assignedJobs}
+              jobsError={jobsError}
+              defaultOpen={autoOpenFix}
+            />
+          ) : (
+            // Honest limit: a multi-allocation (split-day) entry can't be
+            // fixed by the single-job resubmit form. Same rule as /phil/hours.
+            <p className="text-xs text-text-muted">
+              This day splits hours across jobs, so it can&rsquo;t be fixed here — use
+              the legacy My day or ask the office.
+            </p>
+          )
+        ) : null}
+      </StatusLine>
 
       {/* No card wrapper — the design's actions sit as standalone bars on the
           page surface, not inside a bordered form box. */}
@@ -493,7 +533,14 @@ function JobAttribution({
   );
 }
 
-function StatusLine({ entry }: { entry: TimeEntry | null }): ReactNode {
+function StatusLine({
+  entry,
+  children,
+}: {
+  entry: TimeEntry | null;
+  /** Extra content under the status (the inline fix-and-resubmit sheet). */
+  children?: ReactNode;
+}): ReactNode {
   // The empty "No entry yet" state is intentionally NOT rendered here — the
   // PhilWeekStrip above already shows today as "log now / Today not logged",
   // so a second empty card would be redundant clutter against the design. Real
@@ -511,11 +558,9 @@ function StatusLine({ entry }: { entry: TimeEntry | null }): ReactNode {
       {entry.status === "rejected" && entry.rejectedReason ? (
         <PhilNotice tone="danger" title="Rejected">
           <p>{entry.rejectedReason}</p>
-          <p className="mt-1 text-xs">
-            Open Hours history to fix and resubmit this entry in Phil.
-          </p>
         </PhilNotice>
       ) : null}
+      {children}
     </Card>
   );
 }

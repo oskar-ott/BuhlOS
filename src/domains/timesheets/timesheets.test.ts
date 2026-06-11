@@ -32,6 +32,7 @@ import {
   buildStandardDayPayload,
   buildCustomHoursPayload,
   isWithinBackdateWindow,
+  parseFixDate,
   primaryJobId,
   summariseMissing,
 } from "./service";
@@ -704,5 +705,23 @@ describe("summariseMissing() (missing-hours rollup)", () => {
     const s = summariseMissing([{ date: "2026-05-05", userId: "u-9", userName: "Sam" }]);
     expect(s.byWorker[0]!.role).toBeNull();
     expect(s.byDate[0]!.workers[0]!.role).toBeNull();
+  });
+});
+
+describe("parseFixDate (?fixDate= deep-link param)", () => {
+  it("accepts a well-formed YYYY-MM-DD date", () => {
+    expect(parseFixDate("2026-06-01")).toBe("2026-06-01");
+  });
+
+  it("ignores everything else instead of erroring (stale/mangled notifications)", () => {
+    expect(parseFixDate(undefined)).toBeNull();
+    expect(parseFixDate(null)).toBeNull();
+    expect(parseFixDate("")).toBeNull();
+    expect(parseFixDate("2026-6-1")).toBeNull();
+    expect(parseFixDate("2026-06-01T00:00:00Z")).toBeNull();
+    expect(parseFixDate("not-a-date")).toBeNull();
+    expect(parseFixDate("2026-06-01/extra")).toBeNull();
+    // Next.js can hand back an array for repeated params — never a date.
+    expect(parseFixDate(["2026-06-01", "2026-06-02"])).toBeNull();
   });
 });

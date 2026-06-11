@@ -127,24 +127,8 @@ async function handleCreate(req, res, user) {
   // a null jobId when the worker has active assigned jobs; a server-side
   // null-block for field roles is a documented follow-up.
   if (!onBehalf && isFieldRole(user.role)) {
-    const allocJobIds = [...new Set(
-      (body.allocations || []).map((a) => a.jobId).filter(Boolean)
-    )];
-    if (allocJobIds.length) {
-      const jobsBlob = await readBlob('jobs.json', { jobs: [] });
-      const jobById = {};
-      (jobsBlob.jobs || []).forEach((j) => { jobById[j.id] = j; });
-      const assigned = new Set(user.assignedJobIds || []);
-      for (const jid of allocJobIds) {
-        const job = jobById[jid];
-        const activeForField = job && job.status !== 'archived' && job.status !== 'draft';
-        if (!job || !assigned.has(jid) || !activeForField) {
-          return res.status(403).json({
-            error: 'forbidden — hours can only be logged against an active job you are assigned to',
-          });
-        }
-      }
-    }
+    const gateError = await fieldAllocationGateError(user, body.allocations);
+    if (gateError) return res.status(403).json({ error: gateError });
   }
 
   // Refuse if entry for that user+date already exists — caller should PATCH instead
@@ -273,6 +257,19 @@ async function handlePatch(req, res, user) {
     return res.status(403).json({ error: 'cannot edit entry already exported to payroll — ask admin to reopen it' });
   }
 
+  // ── Job attribution integrity (field self-edits) ────────────────────
+  // Parity with handleCreate: a field worker re-allocating their OWN hours
+  // (the rejected→submitted fix path, or a draft edit) can only point them at
+  // an active job they are assigned to. Until now the Phil UI was the sole
+  // guard on this path. Scoped to PATCHes that actually send `allocations`, so
+  // a notes-only edit of an entry whose job has since been archived still
+  // works; delegated (admin/LH) edits keep their existing latitude; a null
+  // jobId stays accepted for backward compatibility, exactly like create.
+  if (isSelf && isFieldRole(user.role) && body.allocations !== undefined) {
+    const gateError = await fieldAllocationGateError(user, body.allocations);
+    if (gateError) return res.status(403).json({ error: gateError });
+  }
+
   // Build merged shape from an explicit allowlist. Generic PATCH must not
   // spread caller-controlled metadata into payroll, approval or audit fields.
   const editable = editableEntryPatch(body);
@@ -341,6 +338,31 @@ async function handlePatch(req, res, user) {
   );
 
   return res.status(200).json({ entry: updated });
+}
+
+/**
+ * Shared field-attribution gate (create + self-edit paths). Returns an error
+ * message when any non-null allocation jobId is not an ACTIVE job in the
+ * worker's assignedJobIds, else null. Null jobIds pass (legacy/overhead
+ * entries) — blocking new nulls stays a UI rule for now.
+ */
+async function fieldAllocationGateError(user, allocations) {
+  const allocJobIds = [...new Set(
+    (allocations || []).map((a) => a.jobId).filter(Boolean)
+  )];
+  if (!allocJobIds.length) return null;
+  const jobsBlob = await readBlob('jobs.json', { jobs: [] });
+  const jobById = {};
+  (jobsBlob.jobs || []).forEach((j) => { jobById[j.id] = j; });
+  const assigned = new Set(user.assignedJobIds || []);
+  for (const jid of allocJobIds) {
+    const job = jobById[jid];
+    const activeForField = job && job.status !== 'archived' && job.status !== 'draft';
+    if (!job || !assigned.has(jid) || !activeForField) {
+      return 'forbidden — hours can only be logged against an active job you are assigned to';
+    }
+  }
+  return null;
 }
 
 function editableEntryPatch(body) {
