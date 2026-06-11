@@ -19,45 +19,17 @@
 //       documented stable fixture QA_SEED_FIELD_ACTIVE_JOB — needs parking)
 //   1 — could not read jobs (e.g. BLOB_READ_WRITE_TOKEN not set) — NOT a clean result
 //
-// Test data prefixes (keep in sync with docs/testing/Test-Data-Rules.md).
-const QA_PREFIXES = ['SMOKE_TEST_', 'STRESS_TEST_', 'QA_SEED_'];
-
-/** True if a job NAME is automated QA/test data (prefix match, case-sensitive). */
-function isQaTestJob(name) {
-  const n = String(name || '');
-  return QA_PREFIXES.some((p) => n.startsWith(p));
-}
-
-// The ONLY QA test job allowed to remain ACTIVE: a stable seeded field fixture
-// assigned to QA Field (docs/testing/Seeded-Authenticated-QA.md). Generated
-// SMOKE_TEST_/STRESS_TEST_ jobs must NEVER be left Active.
-const ALLOWED_ACTIVE_FIXTURES = ['QA_SEED_FIELD_ACTIVE_JOB'];
-
-/** True if a job NAME is the documented stable fixture allowed to be Active. */
-function isAllowedActiveFixture(name) {
-  return ALLOWED_ACTIVE_FIXTURES.includes(String(name || ''));
-}
-
-/**
- * Classify a jobs array into the test-data buckets we care about. Pure — no IO
- * — so it is unit-tested (src/domains/qa/smoke-jobs.test.ts) without the blob.
- * `disallowedActive` is the bucket that must be empty after a smoke run: every
- * ACTIVE test job EXCEPT the one allowed stable fixture.
- */
-function classify(jobs) {
-  const test = (Array.isArray(jobs) ? jobs : []).filter((j) => j && isQaTestJob(j.name));
-  const byStatus = (status) => test.filter((j) => j.status === status);
-  const active = byStatus('active');
-  return {
-    test,
-    active,
-    allowedActive: active.filter((j) => isAllowedActiveFixture(j.name)),
-    disallowedActive: active.filter((j) => !isAllowedActiveFixture(j.name)),
-    draft: byStatus('draft'),
-    archived: byStatus('archived'),
-    other: test.filter((j) => !['active', 'draft', 'archived'].includes(j.status)),
-  };
-}
+// Test-data identification lives in api/_lib/test-data.js — shared with the
+// DELETE /api/jobs guard and scripts/qa/purge-smoke-jobs.js so "what counts
+// as test data" has exactly one definition. Re-exported below unchanged, so
+// this script's CLI surface and unit tests keep their import path.
+const {
+  QA_PREFIXES,
+  ALLOWED_ACTIVE_FIXTURES,
+  isQaTestJob,
+  isAllowedActiveFixture,
+  classify,
+} = require('../../api/_lib/test-data.js');
 
 async function main() {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {

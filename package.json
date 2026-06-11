@@ -35,6 +35,7 @@
     "smoke:auth-onboarding-o3": "bash scripts/auth-smoke-onboarding-o3.sh",
     "smoke:auth-observations": "bash scripts/auth-smoke-observations.sh",
     "qa:list-smoke-jobs": "node scripts/qa/list-smoke-jobs.js",
+    "qa:purge-smoke-jobs": "node scripts/qa/purge-smoke-jobs.js",
     "predeploy": "npm run check:admin-shell && npm run check:sw-cache-version && npm run check:production-shell && npm run check:route-ownership && npm run check:shell-contract && npm run smoke:admin-routes",
     "predeploy:preview": "npm run check:admin-shell && npm run check:sw-cache-version && npm run check:production-shell && npm run check:route-ownership && npm run check:shell-contract && npm run smoke:admin-routes",
     "deploy:preview": "vercel deploy --yes"

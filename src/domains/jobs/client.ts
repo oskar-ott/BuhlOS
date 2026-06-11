@@ -1,6 +1,7 @@
-import { httpGet, httpPost, httpPut, type HttpResult } from "@/lib/http";
+import { httpDelete, httpGet, httpPost, httpPut, type HttpResult } from "@/lib/http";
 import {
   JobCreateInputSchema,
+  JobDeleteResponseSchema,
   JobDetailResponseSchema,
   JobListResponseSchema,
   JobUpdateInputSchema,
@@ -120,6 +121,22 @@ export function unpublishJob(jobId: string): Promise<HttpResult<JobDetailRespons
   return updateJob({ id: jobId, status: "draft" });
 }
 
+/**
+ * Delete an automated QA/test job. Server-side (api/jobs.js DELETE) this is
+ * admin-only and refuses anything that isn't QA-prefixed test data
+ * (SMOKE_TEST_/STRESS_TEST_/QA_SEED_) or is still active — real jobs can
+ * NEVER be deleted through this path, so the worst a buggy caller gets is
+ * a 400. See src/domains/jobs/test-data.ts for the client-side gate.
+ */
+export function deleteTestJob(
+  jobId: string
+): Promise<HttpResult<{ ok: true; deletedId: string }>> {
+  return httpDelete(`/api/jobs?id=${encodeURIComponent(jobId)}`, {
+    schema: JobDeleteResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
 export const jobsClient = {
   listJobs,
   getJobDetail,
@@ -128,4 +145,5 @@ export const jobsClient = {
   updateJob,
   publishJob,
   unpublishJob,
+  deleteTestJob,
 } as const;

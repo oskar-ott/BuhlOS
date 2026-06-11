@@ -1,8 +1,9 @@
-const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
+const { readBlob, writeBlob, deleteBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs } = require('./_lib/auth');
 const { validateAreaGroups, validateTasks, validateCustomFields, visibleStructural } = require('./_lib/validation');
 const { areaProgressPct } = require('./_lib/job-tasks');
 const { appendAudit } = require('./_lib/job-audit');
+const { testJobDeleteEligibility } = require('./_lib/test-data');
 
 function slugify(s) {
   return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -776,6 +777,55 @@ module.exports = async (req, res) => {
     // admin editors get archived rows back too — they want to see what
     // they just archived. Mobile-facing GETs filter via the default.
     return res.status(200).json({ job: { ...projectJobStructure(job, { includeArchived: true }), modules: effectiveModules(job) } });
+  }
+
+  // DELETE — remove an automated QA/test job (admin only).
+  //
+  // Deliberately NARROW: this is test-data hygiene, not a general job
+  // delete. The guard (api/_lib/test-data.js) refuses anything whose name
+  // lacks a QA prefix (SMOKE_TEST_/STRESS_TEST_/QA_SEED_) — real jobs are
+  // never deletable through this path; archive them instead. Only
+  // explicitly parked (draft) or archived jobs are accepted — anything
+  // else (active/complete/on_hold/missing status) is still field-visible
+  // per the GET list gate above, which also protects the one
+  // allowed-Active fixture QA_SEED_FIELD_ACTIVE_JOB the field smoke
+  // depends on. See docs/testing/Test-Data-Rules.md.
+  //
+  // Removes the jobs.json row plus the canonical per-job blobs
+  // (jobs/<id>/data.json, tags.json, audit.json) best-effort. Generated
+  // smoke jobs never get other per-job blobs (the smoke is non-mutating
+  // beyond the builder round-trip), and ids may linger in users.json
+  // assignedJobIds — consumers resolve against the live jobs list, so a
+  // dangling id is inert. No cascade beyond that is attempted or implied.
+  if (req.method === 'DELETE') {
+    if (me.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+    const { id } = req.query || {};
+    if (!id) return res.status(400).json({ error: 'id required' });
+    const job = data.jobs.find(j => j.id === id);
+    if (!job) return res.status(404).json({ error: 'job not found' });
+
+    const eligibility = testJobDeleteEligibility(job);
+    if (!eligibility.ok) {
+      const message = eligibility.reason === 'live'
+        ? 'job is still live — park it to draft (unpublish) before deleting'
+        : 'only automated test jobs (SMOKE_TEST_ / STRESS_TEST_ / QA_SEED_) can be deleted';
+      return res.status(400).json({ error: message });
+    }
+
+    data.jobs = data.jobs.filter(j => j.id !== id);
+    await writeBlob('jobs.json', data);
+
+    // Per-job blobs are unreachable once the row is gone; sweep the known
+    // keys best-effort (deleteBlob already swallows + logs failures).
+    await deleteBlob(`jobs/${id}/data.json`);
+    await deleteBlob(`jobs/${id}/tags.json`);
+    await deleteBlob(`jobs/${id}/audit.json`);
+
+    // The per-job audit blob dies with the job, so the deletion itself is
+    // logged to the function output only — enough to trace who removed
+    // test data without keeping a tombstone store for it.
+    console.log(`test job deleted: ${id} ("${job.name}") by ${me.username || me.id}`);
+    return res.status(200).json({ ok: true, deletedId: id });
   }
 
   res.status(405).end();

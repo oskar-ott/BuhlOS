@@ -210,6 +210,15 @@ export const ApiErrorBodySchema = z.object({
   error: z.string(),
 });
 
+/**
+ * DELETE /api/jobs?id=X success body. The endpoint only accepts QA test
+ * jobs (see api/_lib/test-data.js) — there is no general job delete.
+ */
+export const JobDeleteResponseSchema = z.object({
+  ok: z.literal(true),
+  deletedId: z.string(),
+});
+
 /* ---------------------------------------------------------------------
  * Write / request payloads — Job Builder (modern write path).
  *
