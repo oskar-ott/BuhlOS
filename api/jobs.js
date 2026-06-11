@@ -4,6 +4,7 @@ const { validateAreaGroups, validateTasks, validateCustomFields, visibleStructur
 const { areaProgressPct } = require('./_lib/job-tasks');
 const { appendAudit } = require('./_lib/job-audit');
 const { testJobDeleteEligibility } = require('./_lib/test-data');
+const { buildDuplicatePayload, copyName } = require('./_lib/job-duplicate');
 
 function slugify(s) {
   return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -399,6 +400,76 @@ module.exports = async (req, res) => {
     }
 
     return res.status(200).json({ jobs: enriched });
+  }
+
+  // POST ?action=duplicate&id=<jobId> — copy a job's structure into a NEW
+  // draft (#190). Fresh ids + clean state by construction: the mapper strips
+  // ids/state/archived entries and the payload runs through the SAME
+  // validators as create. Nothing operational is carried (no assignment,
+  // evidence, snags, ITPs, hours, history).
+  if (req.method === 'POST' && (req.query && req.query.action) === 'duplicate') {
+    // role-literal-ok: duplication mints a job — same deliberate literal-admin gate as CREATE below
+    if (me.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+    const sourceId = String((req.query && req.query.id) || '');
+    if (!sourceId) return res.status(400).json({ error: 'id required' });
+    const source = data.jobs.find(j => j && j.id === sourceId);
+    if (!source) return res.status(404).json({ error: 'job not found' });
+
+    // Unique "<name> (copy[ n])" whose slug doesn't collide.
+    let name = null;
+    let jobId = null;
+    for (let attempt = 1; attempt <= 50 && !jobId; attempt++) {
+      const candidate = copyName(source.name, attempt);
+      const slug = slugify(candidate);
+      if (slug && !data.jobs.find(j => j && j.id === slug)) {
+        name = candidate;
+        jobId = slug;
+      }
+    }
+    if (!jobId) return res.status(409).json({ error: 'could not find a free copy name' });
+
+    const p = buildDuplicatePayload(source);
+    const parsedGroups = validateAreaGroups(p.areaGroups, 'areaGroups');
+    if (!parsedGroups.ok) return res.status(500).json({ error: 'duplicate mapping failed: ' + parsedGroups.error });
+    const ri = validateTasks(p.roughInTasks, 'rt');
+    if (!ri.ok) return res.status(500).json({ error: 'duplicate mapping failed: ' + ri.error });
+    const fo = validateTasks(p.fitOffTasks, 'ft');
+    if (!fo.ok) return res.status(500).json({ error: 'duplicate mapping failed: ' + fo.error });
+    let parsedCf = [];
+    if (p.customFields !== undefined) {
+      const cf = validateCustomFields(p.customFields, 'customFields');
+      if (!cf.ok) return res.status(500).json({ error: 'duplicate mapping failed: ' + cf.error });
+      parsedCf = cf.fields;
+    }
+    const basics = validateJobBasics(p);
+    if (!basics.ok) return res.status(500).json({ error: 'duplicate mapping failed: ' + basics.error });
+
+    const job = {
+      id: jobId,
+      name,
+      clientUserId: null,
+      type: p.type || null,
+      areaGroups: parsedGroups.groups,
+      roughInTasks: ri.tasks,
+      fitOffTasks: fo.tasks,
+      status: 'draft',
+      modules: sanitizeModules(p.modules),
+      customFields: parsedCf,
+      ...basics.patch,
+      createdAt: new Date().toISOString(),
+    };
+    data.jobs.push(job);
+    await writeBlob('jobs.json', data);
+    await writeBlob(`jobs/${jobId}/data.json`, { dwellings: {}, snags: [], notes: [] });
+    await writeBlob(`jobs/${jobId}/tags.json`, { tags: [] });
+    await writeBlob(`jobs/${jobId}/temps.json`, { temps: [] });
+    await appendAudit(jobId, {
+      byUserId: me.id,
+      byUsername: me.username || me.id,
+      kind: 'duplicated',
+      summary: `Duplicated from ${source.id} (${source.name})`,
+    }).catch(() => {});
+    return res.status(200).json({ job: { ...projectJobStructure(job), modules: effectiveModules(job) } });
   }
 
   // POST — create (admin only)

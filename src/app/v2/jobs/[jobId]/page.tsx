@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { Eye, KeyRound, Lock, MapPin, PencilRuler, Phone, ShieldAlert, Squircle, User } from "lucide-react";
 import type { Route } from "next";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { DuplicateJobButton } from "@/components/admin/DuplicateJobButton";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { JobInterfaceSectionNav } from "@/components/admin/JobInterfaceSectionNav";
@@ -217,14 +218,18 @@ function JobBuildCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
             )}
           </CardDescription>
         </div>
-        {canBuild ? (
-          <a
-            href={`/v2/jobs/${encodeURIComponent(job.id)}/builder` as Route}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
-          >
-            <PencilRuler aria-hidden="true" className="h-4 w-4" /> Open builder
-          </a>
-        ) : null}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {canBuild ? (
+            <a
+              href={`/v2/jobs/${encodeURIComponent(job.id)}/builder` as Route}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
+            >
+              <PencilRuler aria-hidden="true" className="h-4 w-4" /> Open builder
+            </a>
+          ) : null}
+          {/* #190 — copy structure + site basics into a new draft. */}
+          <DuplicateJobButton jobId={job.id} />
+        </div>
       </div>
       <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
         <StructureStat label="Area groups" value={s.areaGroupCount} />

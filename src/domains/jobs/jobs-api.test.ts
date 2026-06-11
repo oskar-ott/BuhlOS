@@ -449,3 +449,115 @@ describe("DELETE /api/jobs — QA test-job cleanup", () => {
     ]);
   });
 });
+
+describe("POST /api/jobs?action=duplicate (#190)", () => {
+  beforeEach(() => {
+    blob.set("jobs.json", {
+      jobs: [
+        {
+          id: "townhouse-a",
+          name: "Townhouse A",
+          status: "active",
+          type: null,
+          siteAddress: "1 Estate Rd",
+          siteContactName: "Bob the Super",
+          inductionRequired: true,
+          startDate: "2026-05-01",
+          ref: "JOB-0042",
+          clientUserId: "u_client_1",
+          statsCrewCount: 7,
+          roughInTasks: [
+            { id: "rt_1", name: "Rough-in power", order: 1 },
+            { id: "rt_2", name: "Old task", archived: true },
+          ],
+          fitOffTasks: [{ id: "ft_1", name: "Fit-off power" }],
+          areaGroups: [
+            {
+              id: "ag_1",
+              name: "Ground",
+              areas: [
+                {
+                  id: "ar_1",
+                  name: "Kitchen",
+                  spaceType: "wet area",
+                  roughInTasks: [{ id: "rt_9", name: "Island feed" }],
+                },
+                { id: "ar_2", name: "Old laundry", archived: true },
+              ],
+            },
+            { id: "ag_2", name: "Demolished wing", archived: true, areas: [] },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("admin duplicates: fresh ids, draft status, structure copied, archived + operational state dropped", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_admin",
+      role: "admin",
+      query: { action: "duplicate", id: "townhouse-a" },
+    });
+    expect(res.statusCode).toBe(200);
+    const job = (res.body as { job: Record<string, unknown> }).job;
+    expect(job.name).toBe("Townhouse A (copy)");
+    expect(job.status).toBe("draft");
+
+    const stored = (blob.get("jobs.json") as { jobs: Array<Record<string, unknown>> }).jobs.find(
+      (j) => j.name === "Townhouse A (copy)"
+    )!;
+    expect(stored.id).not.toBe("townhouse-a");
+    // structure copied, fresh ids
+    const groups = stored.areaGroups as Array<Record<string, unknown>>;
+    expect(groups).toHaveLength(1); // archived wing dropped
+    expect(groups[0]!.name).toBe("Ground");
+    expect(groups[0]!.id).not.toBe("ag_1");
+    const areas = groups[0]!.areas as Array<Record<string, unknown>>;
+    expect(areas).toHaveLength(1); // archived laundry dropped
+    expect(areas[0]!.name).toBe("Kitchen");
+    expect(areas[0]!.id).not.toBe("ar_1");
+    expect(areas[0]!.spaceType).toBe("wet area");
+    const overrides = areas[0]!.roughInTasks as Array<Record<string, unknown>>;
+    expect(overrides[0]!.name).toBe("Island feed");
+    expect(overrides[0]!.id).not.toBe("rt_9");
+    const rt = stored.roughInTasks as Array<Record<string, unknown>>;
+    expect(rt.map((t) => t.name)).toEqual(["Rough-in power"]); // archived task dropped
+    expect(rt[0]!.id).not.toBe("rt_1");
+    // site basics copied; operational state NOT
+    expect(stored.siteAddress).toBe("1 Estate Rd");
+    expect(stored.siteContactName).toBe("Bob the Super");
+    expect(stored.inductionRequired).toBe(true);
+    expect(stored.clientUserId).toBeNull();
+    expect(stored.ref).toBeUndefined();
+    expect(stored.startDate).toBeUndefined();
+    expect(stored.statsCrewCount).toBeUndefined();
+    // per-job blobs seeded EMPTY (no task state / evidence / history copied)
+    expect(blob.get(`jobs/${stored.id}/data.json`)).toEqual({ dwellings: {}, snags: [], notes: [] });
+    // audit records the source
+    const audit = blob.get(`jobs/${stored.id}/audit.json`) as { entries: Array<{ kind: string; summary: string }> };
+    expect(audit.entries[0]!.kind).toBe("duplicated");
+    expect(audit.entries[0]!.summary).toContain("townhouse-a");
+  });
+
+  it("second copy gets a non-colliding name and id", async () => {
+    await call({ method: "POST", userId: "u_admin", role: "admin", query: { action: "duplicate", id: "townhouse-a" } });
+    const res2 = await call({ method: "POST", userId: "u_admin", role: "admin", query: { action: "duplicate", id: "townhouse-a" } });
+    expect(res2.statusCode).toBe(200);
+    expect((res2.body as { job: { name: string } }).job.name).toBe("Townhouse A (copy 2)");
+  });
+
+  it("the duplicate is invisible to the field until published", async () => {
+    await call({ method: "POST", userId: "u_admin", role: "admin", query: { action: "duplicate", id: "townhouse-a" } });
+    const res = await call({ method: "GET", userId: "u_field", role: "electrician" });
+    const names = (res.body as { jobs: Array<{ name: string }> }).jobs.map((j) => j.name);
+    expect(names).not.toContain("Townhouse A (copy)");
+  });
+
+  it("403s non-admin tiers and 404s an unknown source", async () => {
+    const lh = await call({ method: "POST", userId: "u_lh", role: "lh", query: { action: "duplicate", id: "townhouse-a" } });
+    expect(lh.statusCode).toBe(403);
+    const missing = await call({ method: "POST", userId: "u_admin", role: "admin", query: { action: "duplicate", id: "nope" } });
+    expect(missing.statusCode).toBe(404);
+  });
+});
