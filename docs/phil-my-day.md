@@ -30,6 +30,12 @@ payroll-focused home that opens straight into the week timesheet.
    day auto-opens fix-and-resubmit; future days are inert (nothing to act on).
    The log action's title flips to "Log hours for this day" when the selected
    date isn't today.
+   **Soft-navigation contract:** the page keys `LogHoursSheet` by `fixDate`
+   (`key={fixDate ?? "no-fix-date"}`) so a SAME-PAGE client-side navigation
+   (strip tap / Needs You item while already on My Day) remounts the sheet and
+   its `useState` initialisers re-seed from the new date. Without the key the
+   URL changes but the form silently keeps the old date — the original v1 bug,
+   guarded by the strip-tap smoke test in `phil.spec.ts`.
 4. **Log today's hours** — `LogHoursSheet`, restyled to the design's **compact
    yellow action** (`md-act.log`) instead of a screen-filling navy block. There
    is **no form-card wrapper** — the elements sit as standalone bars on the page

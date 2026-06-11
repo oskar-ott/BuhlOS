@@ -52,6 +52,33 @@ test.describe("Phil field smoke", () => {
     await expect(launcher).toBeHidden();
   });
 
+  test("tapping a week-strip day preselects that date in the hours form", async ({
+    page,
+  }) => {
+    await loginAsField(page);
+    await page.goto("/phil/my-day");
+    await expect(page.getByTestId("phil-shell")).toBeVisible();
+
+    // The "This week" strip links today + past days to ?fixDate=<date>
+    // (src/components/phil/PhilWeekStrip.tsx). The FIRST such link in DOM
+    // order is Monday — always today-or-past, so always present. READ-ONLY:
+    // this clicks a link and reads the date input; nothing is submitted.
+    const dayLink = page.locator('a[href*="/phil/my-day?fixDate="]').first();
+    await expect(dayLink).toBeVisible();
+    const href = await dayLink.getAttribute("href");
+    const date = href?.split("fixDate=")[1] ?? "";
+    expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    await dayLink.click();
+    await expect(page).toHaveURL(new RegExp(`fixDate=${date}`));
+    // The regression this guards: a SAME-PAGE soft navigation must actually
+    // move the form's date. The sheet seeds its date in a useState initialiser,
+    // so without the key={fixDate} remount on the page, React keeps the old
+    // instance and the tap changes the URL but not the form (the date input is
+    // the same selector the field-readiness helper drives).
+    await expect(page.locator('input[type="date"]')).toHaveValue(date);
+  });
+
   test("field user can open an assigned active job when the QA account has one", async ({
     page,
   }) => {
