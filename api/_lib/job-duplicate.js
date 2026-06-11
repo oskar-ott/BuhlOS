@@ -88,4 +88,15 @@ function buildDuplicatePayload(source) {
   return payload;
 }
 
-module.exports = { buildDuplicatePayload, copyName };
+/** Capture ONE area group as a reusable preset shape (#192): ids stripped,
+ *  archived areas/tasks skipped, no task state — same rules as duplication. */
+function captureGroup(group) {
+  return {
+    name: group.name,
+    areas: (Array.isArray(group.areas) ? group.areas : [])
+      .filter((a) => a && !a.archived)
+      .map(copyArea),
+  };
+}
+
+module.exports = { buildDuplicatePayload, copyName, copyArea, copyTasks, captureGroup };

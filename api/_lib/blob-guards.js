@@ -96,6 +96,7 @@ const EXACT_GUARDS = {
   'flags.json': {
     validate: (doc) => (isPlainObject(doc) && isPlainObject(doc.flags) ? null : 'flags must be an object'),
   },
+  'structure-presets.json': { validate: arrayOfIdObjects('presets') },
 };
 
 /** Pattern validators (multi-document stores). */
