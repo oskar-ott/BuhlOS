@@ -58,3 +58,25 @@ describe("JobOverviewSummary", () => {
     expect(html).not.toContain("Evidence to review");
   });
 });
+
+describe("canonical progress (#198)", () => {
+  it("renders counts-first progress when the stats fields are present", () => {
+    const html = renderToString(
+      createElement(JobOverviewSummary, {
+        job: job({ statsTasksTotal: 30, statsTasksComplete: 12, statsPct: 40 }),
+      })
+    );
+    expect(html).toContain("12/30 done");
+    expect(html).toContain("40%");
+  });
+
+  it("renders the honest empty state for a zero-task job, never 0%", () => {
+    const html = renderToString(
+      createElement(JobOverviewSummary, {
+        job: job({ statsTasksTotal: 0, statsTasksComplete: 0, statsPct: null }),
+      })
+    );
+    expect(html).toContain("No tasks yet");
+    expect(html).not.toContain("0%");
+  });
+});

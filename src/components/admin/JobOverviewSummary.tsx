@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { lastActivityCaption } from "@/domains/jobs/format";
+import { progressCaption as canonicalProgressCaption, progressPct as canonicalProgressPct } from "@/domains/jobs/progress";
 import { deriveJobAttention, type JobAttentionKey } from "@/domains/jobs/attention";
 import type { Job } from "@/domains/jobs/types";
 
@@ -61,9 +62,24 @@ function HealthStat({
   );
 }
 
+function progressCaptionParts(counts: { total: number; complete: number }) {
+  return { caption: canonicalProgressCaption(counts), pct: canonicalProgressPct(counts) };
+}
+
 export function JobOverviewSummary({ job }: { job: Job }) {
   const attention = deriveJobAttention(job);
-  const pct = typeof job.statsPct === "number" ? Math.round(job.statsPct) : null;
+  // #198 canonical progress: counts first, % only where a total exists.
+  // statsPct stays as the fallback for payloads without the counts fields.
+  const counts =
+    typeof job.statsTasksTotal === "number" && typeof job.statsTasksComplete === "number"
+      ? progressCaptionParts({ total: job.statsTasksTotal, complete: job.statsTasksComplete })
+      : null;
+  const pct =
+    counts !== null
+      ? counts.pct
+      : typeof job.statsPct === "number"
+        ? Math.round(job.statsPct)
+        : null;
   const crew = typeof job.statsCrewCount === "number" ? job.statsCrewCount : null;
   const updated = lastActivityCaption(job);
   const jobIdEnc = encodeURIComponent(job.id);
@@ -76,13 +92,19 @@ export function JobOverviewSummary({ job }: { job: Job }) {
       </div>
 
       {/* Job health — only the signals we genuinely have on the loaded job. */}
-      {pct !== null || crew !== null ? (
+      {pct !== null || crew !== null || counts !== null ? (
         <dl className="mt-3 flex flex-wrap gap-2">
-          {pct !== null ? (
+          {counts !== null && counts.pct === null ? (
+            <HealthStat
+              icon={<TrendingUp className="h-4 w-4" />}
+              label="Tasks"
+              value="No tasks yet"
+            />
+          ) : pct !== null ? (
             <HealthStat
               icon={<TrendingUp className="h-4 w-4" />}
               label="Complete"
-              value={`${pct}%`}
+              value={counts !== null ? `${counts.caption} · ${pct}%` : `${pct}%`}
             />
           ) : null}
           {crew !== null ? (

@@ -41,26 +41,55 @@ function areaUsesCustomChecklist(area) {
   return null;
 }
 
-// Per-area progress percentage. Used by both the jobs API stats endpoint
-// and any client-side progress code that wants a single source of truth.
-//
-// Returns 0..100 (rounded), or null if the area has no applicable tasks
-// (caller should render "no checklist" rather than 0%).
-function areaProgressPct(job, area, dwellings) {
+// ── #198: CANONICAL counts-based progress ─────────────────────────────
+// CJS mirror of src/domains/jobs/progress.ts (parity-tested there). The
+// definition: complete = recorded state exactly 'complete' (in_progress is
+// NOT complete); ARCHIVED tasks/areas/groups excluded; % only where a
+// total exists; job-level progress is POOLED task counts, never an
+// average of area percentages.
+
+function liveTasks(tasks) {
+  return (Array.isArray(tasks) ? tasks : []).filter(t => t && !t.archived);
+}
+
+// Per-area pooled counts across both stages.
+function areaTaskCounts(job, area, dwellings) {
   const dw = (dwellings && dwellings[area.id]) || {};
-  const rough = effectiveRoughInTasks(job, area);
-  const fit   = effectiveFitOffTasks(job, area);
-  const rTasks = ((dw.roughIn || {}).tasks) || {};
-  const fTasks = ((dw.fitOff  || {}).tasks) || {};
-  if (!rough.length && !fit.length) return null;
-  const rPct = rough.length
-    ? Math.round(rough.filter(t => rTasks[t.id] === 'complete').length / rough.length * 100)
-    : 0;
-  const fPct = fit.length
-    ? Math.round(fit.filter(t => fTasks[t.id] === 'complete').length / fit.length * 100)
-    : 0;
-  if (rough.length && fit.length) return Math.round((rPct + fPct) / 2);
-  return rough.length ? rPct : fPct;
+  let total = 0, complete = 0;
+  const stages = [
+    [liveTasks(effectiveRoughInTasks(job, area)), ((dw.roughIn || {}).tasks) || {}],
+    [liveTasks(effectiveFitOffTasks(job, area)), ((dw.fitOff || {}).tasks) || {}],
+  ];
+  for (const [tasks, states] of stages) {
+    total += tasks.length;
+    for (const t of tasks) if (states[t.id] === 'complete') complete += 1;
+  }
+  return { total, complete };
+}
+
+// Whole-job pooled counts. Archived groups/areas excluded entirely.
+function jobTaskCounts(job, dwellings) {
+  let total = 0, complete = 0;
+  for (const g of (job && job.areaGroups) || []) {
+    if (!g || g.archived) continue;
+    for (const a of g.areas || []) {
+      if (!a || a.archived) continue;
+      const c = areaTaskCounts(job, a, dwellings);
+      total += c.total;
+      complete += c.complete;
+    }
+  }
+  return { total, complete };
+}
+
+// Per-area progress percentage — kept for existing consumers, now the
+// canonical pooled-counts math (was a stage-percentage average pre-#198).
+// Returns 0..100 (rounded), or null if the area has no applicable tasks
+// (caller renders "no checklist", never 0%).
+function areaProgressPct(job, area, dwellings) {
+  const c = areaTaskCounts(job, area, dwellings);
+  if (!c.total) return null;
+  return Math.round((c.complete / c.total) * 100);
 }
 
 module.exports = {
@@ -68,4 +97,6 @@ module.exports = {
   effectiveFitOffTasks,
   areaUsesCustomChecklist,
   areaProgressPct,
+  areaTaskCounts,
+  jobTaskCounts,
 };
