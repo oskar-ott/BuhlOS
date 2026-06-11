@@ -96,3 +96,28 @@ describe("ObservationsInbox", () => {
     expect(html).toContain("API returned 503");
   });
 });
+
+describe("ObservationsInbox — office items (no job)", () => {
+  it("renders an office item row with the honest no-job label", () => {
+    const html = renderToString(
+      createElement(ObservationsInbox, {
+        initialObservations: [
+          obs({
+            id: "ob_office",
+            jobId: null,
+            jobName: null,
+            type: "note",
+            title: "Parking fine on the ute",
+            photoUrls: ["https://blob.test/office-inbox/photos/p1.jpg"],
+          }),
+        ],
+        fetchError: null,
+        viewer: VIEWER,
+      })
+    );
+    expect(html).toContain("Parking fine on the ute");
+    expect(html).toContain("Office — no job");
+    // The row must never print a bare "null" where the job name was.
+    expect(html).not.toContain(">null<");
+  });
+});

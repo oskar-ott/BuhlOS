@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   buildObservationPayload,
+  buildOfficeObservationPayload,
   captureHref,
   launchableJobs,
   launcherDecision,
   philJobDetailId,
+  preselectCaptureJob,
 } from "./philCapture";
-import { workerOptionByKey } from "@/domains/observations/service";
+import { officeOptionByKey, workerOptionByKey } from "@/domains/observations/service";
 import type { Job } from "@/domains/jobs/types";
 
 function job(over: Partial<Job> & { id: string; name: string }): Job {
@@ -119,5 +121,63 @@ describe("buildObservationPayload", () => {
     const payload = buildObservationPayload(unsure, "Something's off near the board", "");
     expect(payload.type).toBe("note");
     expect(payload.requiresAction).toBe(true);
+  });
+});
+
+describe("preselectCaptureJob", () => {
+  const jobs = [
+    { id: "a", name: "Alpha", siteAddress: null },
+    { id: "b", name: "Bravo", siteAddress: null },
+  ];
+
+  it("preselects the job home the FAB was tapped on when it's launchable", () => {
+    expect(preselectCaptureJob(jobs, "b")).toBe("b");
+  });
+
+  it("ignores an initial job that isn't in the launchable list", () => {
+    expect(preselectCaptureJob(jobs, "archived-job")).toBeNull();
+  });
+
+  it("preselects the worker's only job", () => {
+    expect(preselectCaptureJob([jobs[0]!], null)).toBe("a");
+  });
+
+  it("never guesses between multiple jobs", () => {
+    expect(preselectCaptureJob(jobs, null)).toBeNull();
+    expect(preselectCaptureJob(jobs, undefined)).toBeNull();
+  });
+
+  it("returns null when there are no jobs at all", () => {
+    expect(preselectCaptureJob([], "a")).toBeNull();
+  });
+});
+
+describe("buildOfficeObservationPayload", () => {
+  it("maps an office category + gist into a no-job payload that always needs action", () => {
+    const gear = officeOptionByKey("gear")!;
+    const payload = buildOfficeObservationPayload(gear, "  Drill smoked itself  ", " on the way to site ");
+    expect(payload).toEqual({
+      type: "defect",
+      title: "Drill smoked itself",
+      requiresAction: true,
+      description: "on the way to site",
+    });
+  });
+
+  it("omits a blank description and keeps requiresAction true for paperwork", () => {
+    const paperwork = officeOptionByKey("paperwork")!;
+    const payload = buildOfficeObservationPayload(paperwork, "Parking fine", "   ");
+    expect(payload).toEqual({ type: "note", title: "Parking fine", requiresAction: true });
+    expect("description" in payload).toBe(false);
+  });
+
+  it("every office option maps to a valid type and never claims job context", () => {
+    for (const key of ["paperwork", "gear", "other"]) {
+      const option = officeOptionByKey(key)!;
+      const payload = buildOfficeObservationPayload(option, "x", "");
+      expect(payload.requiresAction).toBe(true);
+      expect("stage" in payload).toBe(false);
+      expect("areaId" in payload).toBe(false);
+    }
   });
 });

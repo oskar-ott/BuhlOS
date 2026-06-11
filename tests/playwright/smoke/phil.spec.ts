@@ -33,17 +33,24 @@ test.describe("Phil field smoke", () => {
     await expect(fab).toBeVisible();
     await fab.click();
 
-    // Tapping it opens the capture launcher dialog. This is READ-ONLY: the
-    // launcher only lists the worker's jobs (GET /api/jobs); it never uploads a
-    // photo or writes anything, so it is safe to run against a (possibly
+    // Tapping it opens the camera-first capture launcher (the same tap fires
+    // the hidden camera input — headless browsers don't open an OS picker, so
+    // the sheet shows its empty-tray state). READ-ONLY: the launcher only
+    // lists the worker's jobs (GET /api/jobs); it never uploads a photo or
+    // writes anything, so it is safe to run against a (possibly
     // production-shared) preview Blob — nothing is mutated.
     const launcher = page.getByRole("dialog", { name: "Capture", exact: true });
     await expect(launcher).toBeVisible();
-    // Honest resolution only — a job picker, a single-job chooser, or an
-    // explicit empty state. Never a fabricated "saved" confirmation.
+    // The tray's camera affordance is always the lead element of an empty
+    // sheet; the destination step ("Where does this go?") must NOT exist
+    // until a photo is actually in the tray.
+    await expect(launcher.getByText("Take a photo", { exact: true })).toBeVisible();
+    await expect(launcher.getByText("Where does this go?")).toHaveCount(0);
+    // No-photo logging resolves honestly: the log-something entry, an explicit
+    // no-jobs state, or the loading line. Never a fabricated confirmation.
     await expect(
       launcher.getByText(
-        /Take a photo \/ evidence|Which job is this for|No jobs assigned|Loading your jobs/i
+        /Log something without a photo|No jobs assigned|Loading your jobs/i
       )
     ).toBeVisible();
 

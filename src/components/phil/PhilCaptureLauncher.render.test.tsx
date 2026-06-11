@@ -1,20 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { PhilCaptureLauncher } from "./PhilCaptureLauncher";
 
-// The launcher uses useRouter for the evidence deep-link; stub it for SSR.
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: () => {}, refresh: () => {} }),
-}));
-
 /**
- * SSR smoke for the reworked Capture launcher. With initialJobId set the first
- * view is the chooser (the open-toggle effect doesn't run under renderToString),
- * so this verifies the chooser composition: the evidence path is preserved as
- * the prominent option, and the worker-facing classification labels render.
- * Submission/interaction is covered by philCapture.test.ts (payload shape) and
- * observations-api.test.ts (the POST).
+ * SSR smoke for the camera-first Capture launcher (v2). Effects don't run
+ * under renderToString, so this is the launcher's first paint: an empty tray
+ * (the big "Take a photo" affordance — the FAB fires the OS camera in the
+ * same tap, this is the in-sheet fallback/repeat affordance), jobs still
+ * loading, and the no-photo "log something" entry. Photo/batch interaction is
+ * covered by capture-batch.test.ts (submit loop) and philCapture.test.ts
+ * (preselection + payloads); the real-browser open/close proof lives in the
+ * Preview Smoke (phil.spec.ts).
  */
 describe("PhilCaptureLauncher", () => {
   it("renders nothing when closed", () => {
@@ -24,7 +21,7 @@ describe("PhilCaptureLauncher", () => {
     expect(html).toBe("");
   });
 
-  it("shows the capture chooser for a known job (photo + classifications)", () => {
+  it("opens camera-first: photo tray affordance + no-photo logging entry", () => {
     const html = renderToString(
       createElement(PhilCaptureLauncher, {
         open: true,
@@ -32,14 +29,13 @@ describe("PhilCaptureLauncher", () => {
         initialJobId: "job-1",
       })
     );
-    // The existing evidence path stays the prominent first option.
-    expect(html).toContain("Take a photo / evidence");
+    // The tray's camera affordance is the prominent first element.
+    expect(html).toContain("Take a photo");
+    expect(html).toContain("Camera opens by default");
+    // No-photo logging stays reachable (jobs are still loading at first paint).
     expect(html).toContain("Or log something");
-    // Worker-facing classification labels (never the internal type names).
-    expect(html).toContain("Site note");
-    expect(html).toContain("Blocker");
-    expect(html).toContain("Need material");
-    expect(html).toContain("Question for office");
-    expect(html).toContain("Not sure — office review");
+    expect(html).toContain("Loading your jobs");
+    // The destination step only appears once photos exist — never on first paint.
+    expect(html).not.toContain("Where does this go?");
   });
 });

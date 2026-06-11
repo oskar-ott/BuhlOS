@@ -26,9 +26,9 @@ Capture is reachable in one or two taps from anywhere in Phil:
 
 | Entry | Where | Behaviour |
 | --- | --- | --- |
-| **Capture FAB** | Centre of the bottom nav (`PhilTabBar`), every Phil screen. `aria-label="Capture"`. | Opens the global **capture launcher**. On a job home it already knows the job (skips the picker); elsewhere it asks which job. |
-| **On-page CTA** | "Capture evidence" button in the job detail capture block (`#phil-job-capture`). | Opens the evidence **capture sheet** directly for that job. |
-| **Deep link** | `/phil/jobs/<id>?capture=<token>` | The launcher's "Take a photo / evidence" option routes here; the job page auto-opens the sheet (`autoCaptureToken`). A fresh token re-opens it on a repeat launch. |
+| **Capture FAB** | Centre of the bottom nav (`PhilTabBar`), every Phil screen. `aria-label="Capture"`. | **Camera-first (v2):** the same tap fires the OS camera (an always-mounted hidden `input capture="environment"` — the click stays inside the user gesture, an iOS requirement) AND opens the global **capture launcher** behind it to receive the shot. On a job home that job is preselected as the destination. Cancelling the camera leaves the launcher open with its photo button + "log something" options. |
+| **On-page CTA** | "Capture evidence" button in the job detail capture block (`#phil-job-capture`). | Opens the in-context evidence **capture sheet** directly for that job (single-photo flow, unchanged). |
+| **Deep link** | `/phil/jobs/<id>?capture=<token>` | Still honoured by the job page (`autoCaptureToken`). The v2 launcher no longer generates it (it submits batches itself); `philCapture.captureHref` remains the canonical builder. |
 
 The launcher (`PhilCaptureLauncher`) also offers plain-English **observation
 logging** (note / blocker / need material / question / etc. → `POST
@@ -36,7 +36,56 @@ logging** (note / blocker / need material / question / etc. → `POST
 
 ---
 
-## 2 · The capture flow (photo / evidence)
+## 2a · The global camera-first flow (v2 — the FAB)
+
+`PhilTabBar` (camera input) → `PhilCaptureLauncher` (tray + destination) →
+`submitCaptureBatch` / `submitOfficeCapture`:
+
+1. **Shoot** — the FAB tap fires the camera; each shot lands in a multi-photo
+   **tray** (`CapturePhotoTray`, up to 10 — the observation photo cap). "Add
+   photo" re-fires the camera; mistakes are removable; each photo is resized
+   client-side (`resizeImageToDataUrl`, same as the job sheet). The tray
+   SURVIVES an accidental close/reopen — shots are never silently discarded.
+2. **Destination** — "Where does this go?":
+   - **A job** (assigned jobs; the job home / sole job preselects) + optional
+     note + optional area/stage/task (pickers appear once the job's detail
+     loads; load failure degrades honestly — capture still works).
+     Submit = `submitCaptureBatch` (src/domains/evidence/capture-batch.ts):
+     each photo becomes its OWN evidence row via the existing two-step path,
+     **sequentially** (data.json append is read-modify-write — parallel
+     creates could race). Per-photo results: failures stay in the tray with
+     a Retry, successes leave it; "N photos saved" only ever counts confirmed
+     rows.
+   - **Send to the office** — see § Office items below.
+3. **No-photo logging** is preserved: with an empty tray, "Log something
+   without a photo" runs the unchanged observation loop (job → label → note).
+
+## 2b · Office items — "Send to the office" (no job)
+
+For captures that aren't about any job — a parking fine, damaged gear,
+paperwork — which previously lived as texts to the boss:
+
+- Phil: destination "Send to the office" (available even with **zero
+  assigned jobs**) → category (`OFFICE_CAPTURE_OPTIONS`: fine/ticket/paperwork
+  → `note`, tool or gear → `defect`, something else → `note`) + required gist
+  + optional detail + the tray photos.
+- Submit = `submitOfficeCapture` (src/domains/observations/office-capture.ts):
+  photos upload first (`POST /api/observations?action=upload-office-photo`,
+  Blob prefix `office-inbox/photos/` — fully separate from job blobs), and the
+  ONE observation is only created when **all** binaries are up (a partial
+  upload never sends an incomplete record; retries reuse already-uploaded
+  URLs). Then `POST /api/observations?scope=office` persists it with
+  `jobId: null`, `requiresAction: true` by default, and **fans out a push to
+  every live admin-tier user** (tier-aware `isAdminRole`, archived/disabled
+  excluded) linking to `/observations`.
+- BuhlOS: the item lands in the existing cross-job **Observations inbox**
+  labelled "Office — no job", photos render as viewable thumbnails, triage /
+  resolve work as normal, and the job-only conversions (snag / material
+  request) are refused with an honest 400 + hidden in the drawer.
+- Server guards: job-context fields on an office item are rejected loudly
+  (400 `… not allowed on an office item`); clients are 403'd.
+
+## 2 · The job-page capture flow (photo / evidence)
 
 `CapturePhotoPicker` → `CaptureSheet` → two-step upload:
 
@@ -147,7 +196,17 @@ built (D4/D5) at `/v2/jobs/[jobId]/evidence`.
 **Normal CI (every PR, no browser, no secrets, no data):**
 
 - `philCapture.test.ts` — launcher decision logic (`launchableJobs`,
-  `launcherDecision`, `captureHref`, `philJobDetailId`, `buildObservationPayload`).
+  `launcherDecision`, `captureHref`, `philJobDetailId`, `buildObservationPayload`,
+  `preselectCaptureJob`, `buildOfficeObservationPayload`).
+- `capture-batch.test.ts` — the multi-photo job batch loop: sequential
+  upload→create interleaving, shared context, partial failure, progress.
+- `office-capture.test.ts` — the office submit loop: all-photos-or-nothing
+  create, retry reuses uploaded URLs, zero-photo support.
+- `observations-api.test.ts` — REAL handler coverage for the office scope:
+  create (jobId null, requiresAction default), job-context rejection, client
+  403 / anon 401, inbox listing, convert-to-snag refusal, the
+  upload-office-photo action, and the admin-tier push fan-out (boss receives,
+  creator/client/archived-admin do not).
 - `evidence.test.ts` — schema, the `canTransition` state machine, format
   helpers, and every client wrapper incl. `uploadEvidencePhoto` error paths
   (mocked Blob).

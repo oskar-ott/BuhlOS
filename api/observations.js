@@ -40,6 +40,7 @@ const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, isAdminRole } = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
 const { append: appendAuditLog } = require('./_lib/audit-log');
+const { sendPushToUserId } = require('./_lib/push');
 
 // PR 6: which observation types are eligible for one-click conversion to a
 // real Snag. Others need explicit ?force=1 — keeps the inbox honest about
@@ -363,6 +364,202 @@ async function createObservation(req, res, user, jobId) {
   return res.status(201).json({ observation: item });
 }
 
+// ── Office items (no job) ──────────────────────────────────────────────────
+// The Phil "send to office" path: a capture that isn't about a job — a parking
+// fine, damaged gear, paperwork — that previously lived as a text message to
+// the boss. Same store, same inbox, same triage loop; jobId is null and all
+// job context is rejected rather than silently dropped.
+
+function validateOfficeCreateBody(body) {
+  const errors = [];
+
+  const type = String(body.type || '');
+  if (!VALID_TYPES.has(type)) errors.push('invalid type');
+
+  const title = typeof body.title === 'string' ? body.title.trim() : '';
+  if (!title) errors.push('title is required');
+  else if (title.length > TITLE_MAX) errors.push(`title must be ${TITLE_MAX} characters or fewer`);
+
+  let description = null;
+  if (body.description != null) {
+    description = String(body.description);
+    if (description.length > DESCRIPTION_MAX) {
+      errors.push(`description must be ${DESCRIPTION_MAX} characters or fewer`);
+    }
+  }
+
+  let priority = 'normal';
+  if (body.priority != null) {
+    if (!VALID_PRIORITIES.has(String(body.priority))) errors.push('invalid priority');
+    else priority = String(body.priority);
+  }
+
+  // Job context is meaningless without a job — reject it loudly so a buggy
+  // caller can't quietly create an office item that pretends to have one.
+  for (const field of ['stage', 'areaId', 'taskId', 'linkedEvidenceId', 'linkedSnagId', 'assignedToId', 'dueDate']) {
+    if (body[field] != null) errors.push(`${field} is not allowed on an office item (no job)`);
+  }
+
+  if (body.photoUrls != null) {
+    if (!Array.isArray(body.photoUrls)) errors.push('photoUrls must be an array');
+    else if (body.photoUrls.length > PHOTO_MAX) {
+      errors.push(`photoUrls may not exceed ${PHOTO_MAX} links`);
+    }
+  }
+
+  return { errors, type, title, description, priority };
+}
+
+/**
+ * Push a "new office item" notification to every admin-tier user. Best-effort
+ * fan-out (cash-watch precedent): a push failure never fails the create, and
+ * sendPushToUserId itself silently skips when VAPID isn't configured. Uses the
+ * tier-aware isAdminRole — NOT the literal role === 'admin' — so office/boss/PM
+ * accounts are notified too; archived/disabled accounts are excluded.
+ */
+async function notifyAdminsOfficeItem(item) {
+  let admins = [];
+  try {
+    const data = await readBlob('users.json', { users: [] });
+    admins = (data.users || []).filter(
+      (u) => u && isAdminRole(u.role) && !u.archived && !u.disabled
+    );
+  } catch {
+    return;
+  }
+  for (const a of admins) {
+    try {
+      await sendPushToUserId(a.id, {
+        title: `Office item from ${item.createdByName}`,
+        body: String(item.title).slice(0, 120),
+        url: '/observations',
+        tag: 'buhl-office-' + item.id,
+      });
+    } catch {}
+  }
+}
+
+async function createOfficeObservation(req, res, user) {
+  const body = req.body || {};
+  const v = validateOfficeCreateBody(body);
+  if (v.errors.length) {
+    return res.status(400).json({ error: v.errors[0], errors: v.errors });
+  }
+
+  const nowIso = new Date().toISOString();
+  const photoUrls = Array.isArray(body.photoUrls)
+    ? body.photoUrls.map((u) => String(u)).slice(0, PHOTO_MAX)
+    : [];
+
+  // Office items default to actionable — the whole point of sending one is
+  // that the office does something with it (the caller may still mark a pure
+  // for-the-record item explicitly).
+  const requiresAction =
+    typeof body.requiresAction === 'boolean' ? body.requiresAction : true;
+
+  const item = {
+    id: nanoid('ob_'),
+    jobId: null,
+    jobName: null,
+    type: v.type,
+    title: v.title,
+    description: v.description ? v.description : null,
+    status: 'new',
+    priority: v.priority,
+    source: sourceForUser(user),
+    requiresAction,
+    stage: null,
+    areaId: null,
+    areaName: null,
+    taskId: null,
+    taskName: null,
+    linkedEvidenceId: null,
+    linkedSnagId: null,
+    photoUrls,
+    createdById: user.id,
+    createdByName: user.name || user.username || 'Unknown',
+    createdByRole: user.role || null,
+    assignedToId: null,
+    assignedToName: null,
+    dueDate: null,
+    resolutionNote: null,
+    resolvedAt: null,
+    resolvedById: null,
+    resolvedByName: null,
+    convertedTo: null,
+    convertedTargetId: null,
+    convertedAt: null,
+    convertedById: null,
+    convertedByName: null,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  const store = await readStore();
+  if (!Array.isArray(store.observations)) store.observations = [];
+  store.observations.push(item);
+  try {
+    await writeBlob(STORE_KEY, store);
+  } catch (e) {
+    return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
+  }
+
+  await appendAuditLog({
+    action: 'observation.created',
+    actorId: user.id,
+    actorName: user.name || user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId: null,
+    targetType: 'observation',
+    targetId: item.id,
+    summary: `office item raised — "${String(item.title).slice(0, 80)}"`,
+    metadata: {
+      type: item.type,
+      priority: item.priority,
+      source: item.source,
+      requiresAction: item.requiresAction,
+      office: true,
+      photoCount: photoUrls.length,
+    },
+  }).catch(() => null);
+
+  // Replaces the "text the boss" channel — the office must actually hear
+  // about it. Best-effort; never fails the request.
+  await notifyAdminsOfficeItem(item).catch(() => null);
+
+  return res.status(201).json({ observation: item });
+}
+
+/**
+ * Binary upload for an office-item photo. Same dataUrl contract + 6 MB cap as
+ * api/photos.js upload-evidence-photo, but with no job: storage prefix
+ * office-inbox/photos/ keeps office binaries fully separate from job blobs.
+ */
+async function uploadOfficePhoto(req, res, user) {
+  const { dataUrl } = req.body || {};
+  if (!dataUrl) return res.status(400).json({ error: 'dataUrl required' });
+  const base64Data = String(dataUrl).split(',')[1];
+  if (!base64Data) return res.status(400).json({ error: 'malformed dataUrl' });
+  const mimeType = (String(dataUrl).match(/data:([^;]+)/) || [, 'image/jpeg'])[1];
+  const buffer = Buffer.from(base64Data, 'base64');
+  if (buffer.length > 6 * 1024 * 1024) {
+    return res.status(413).json({ error: 'photo too large — try a smaller image' });
+  }
+  // Lazy require so the api harness can stub @vercel/blob per test.
+  const { put } = require('@vercel/blob');
+  const photoId = Date.now() + '_' + Math.random().toString(36).slice(2);
+  const blob = await put(`office-inbox/photos/${photoId}.jpg`, buffer, {
+    access: 'public',
+    contentType: mimeType,
+    token: process.env.BLOB_READ_WRITE_TOKEN,
+  });
+  return res.status(200).json({
+    id: photoId,
+    url: blob.url,
+    capturedAt: new Date().toISOString(),
+  });
+}
+
 async function updateObservation(req, res, user) {
   const body = req.body || {};
   const id = body.id ? String(body.id) : '';
@@ -567,6 +764,14 @@ async function convertObservationToSnag(req, res, user) {
   if (idx === -1) return res.status(404).json({ error: 'observation not found' });
   const observation = arr[idx];
 
+  // Office items (jobId null) have no job to raise a snag on — convert is a
+  // job concept. 400 with a clear reason instead of a misleading job-not-found.
+  if (!observation.jobId) {
+    return res.status(400).json({
+      error: "office item has no job — it can't be converted to a snag",
+    });
+  }
+
   if (observation.linkedSnagId || observation.convertedTo === 'snag') {
     return res.status(409).json({
       error: 'observation already converted to a snag',
@@ -758,6 +963,14 @@ async function convertObservationToMaterialRequest(req, res, user) {
   if (idx === -1) return res.status(404).json({ error: 'observation not found' });
   const observation = arr[idx];
 
+  // Office items (jobId null) can't become a material request — that workflow
+  // is job-scoped. Same guard as convert-to-snag.
+  if (!observation.jobId) {
+    return res.status(400).json({
+      error: "office item has no job — it can't be converted to a material request",
+    });
+  }
+
   if (
     (observation.linkedMaterialRequestId &&
       String(observation.linkedMaterialRequestId).length > 0) ||
@@ -947,6 +1160,36 @@ module.exports = async (req, res) => {
       return await convertObservationToMaterialRequest(req, res, user);
     } catch (e) {
       return res.status(500).json({ error: e.message || 'conversion failed' });
+    }
+  }
+
+  // --- POST ?action=upload-office-photo : binary for an office item -------
+  // Mirrors api/photos.js upload-evidence-photo but with NO job: any staff
+  // (field/LH/admin) can upload; clients cannot. Separate office-inbox/
+  // prefix so office binaries can't touch job data and future GC is scoped.
+  if (req.method === 'POST' && action === 'upload-office-photo') {
+    const user = await requireAuth(req, res);
+    if (!user) return;
+    if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+    try {
+      return await uploadOfficePhoto(req, res, user);
+    } catch (e) {
+      return res.status(500).json({ error: e.message || 'upload failed' });
+    }
+  }
+
+  // --- POST ?scope=office : an office item with NO job --------------------
+  // The Phil "send to office" path — something that isn't about a job
+  // (a parking fine, damaged gear, paperwork). Any staff can create one;
+  // it lands in the same cross-job inbox the office already triages.
+  if (req.method === 'POST' && String((req.query && req.query.scope) || '') === 'office') {
+    const user = await requireAuth(req, res);
+    if (!user) return;
+    if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+    try {
+      return await createOfficeObservation(req, res, user);
+    } catch (e) {
+      return res.status(500).json({ error: e.message || 'create failed' });
     }
   }
 

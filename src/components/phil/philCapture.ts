@@ -1,6 +1,13 @@
 import type { Job } from "@/domains/jobs/types";
-import { requiresActionForOption, type WorkerCaptureOption } from "@/domains/observations/service";
-import type { CreateObservationPayload } from "@/domains/observations/types";
+import {
+  requiresActionForOption,
+  type OfficeCaptureOption,
+  type WorkerCaptureOption,
+} from "@/domains/observations/service";
+import type {
+  CreateObservationPayload,
+  CreateOfficeObservationPayload,
+} from "@/domains/observations/types";
 
 /**
  * Pure helpers for the global Capture launcher (the centre FAB in
@@ -55,12 +62,29 @@ export function launcherDecision(jobs: ReadonlyArray<Job>): LauncherDecision {
 }
 
 /**
- * The deep link the launcher pushes. A fresh token each call (defaults to
- * now) so the detail page re-opens the capture sheet even when the worker
- * launches capture for the same job twice in a row.
+ * The job-page capture deep link (`?capture=<token>`). A fresh token each
+ * call (defaults to now) so the detail page re-opens its capture sheet even
+ * for a repeat launch. The v2 camera-first launcher no longer generates this
+ * link (it submits the batch itself), but PhilJobDetail still honours it —
+ * kept as the canonical builder for any other entry point.
  */
 export function captureHref(jobId: string, token: number = Date.now()): string {
   return `/phil/jobs/${encodeURIComponent(jobId)}?capture=${token}`;
+}
+
+/**
+ * Which job the camera-first capture should preselect as the destination:
+ * the job home the FAB was tapped on (when it's actually launchable), else
+ * the worker's only job, else none — a worker with multiple jobs makes an
+ * explicit choice, never a guessed one.
+ */
+export function preselectCaptureJob(
+  jobs: ReadonlyArray<LaunchableJob>,
+  initialJobId: string | null | undefined,
+): string | null {
+  if (initialJobId && jobs.some((j) => j.id === initialJobId)) return initialJobId;
+  if (jobs.length === 1) return jobs[0]!.id;
+  return null;
 }
 
 /**
@@ -94,6 +118,26 @@ export function buildObservationPayload(
     type: option.type,
     title: title.trim(),
     requiresAction: requiresActionForOption(option),
+    ...(trimmedDescription ? { description: trimmedDescription } : {}),
+  };
+}
+
+/**
+ * Build the create payload for a "send to office" capture (no job). Office
+ * items ALWAYS require office action — that's the point of sending one (it
+ * replaces the text-to-the-boss channel). photoUrls are appended by the
+ * submit loop (office-capture.ts) once the binaries are up.
+ */
+export function buildOfficeObservationPayload(
+  option: OfficeCaptureOption,
+  title: string,
+  description: string,
+): Omit<CreateOfficeObservationPayload, "photoUrls"> {
+  const trimmedDescription = description.trim();
+  return {
+    type: option.type,
+    title: title.trim(),
+    requiresAction: true,
     ...(trimmedDescription ? { description: trimmedDescription } : {}),
   };
 }
