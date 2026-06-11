@@ -134,3 +134,26 @@ export function isOverdue(
   if (!asset.expectedReturn) return false;
   return asset.expectedReturn < today;
 }
+
+/**
+ * Calibration flag for a test instrument (#305). `null` when the asset has
+ * no calibrationDue or it's comfortably in the future; otherwise the same
+ * status taxonomy as /api/tags-expiring ('expired' | 'expiring') with signed
+ * daysToExpiry. ISO string comparison keeps this timezone-naive like
+ * isOverdue above; day counts use UTC date math on the ISO days.
+ */
+export function calibrationFlag(
+  asset: { calibrationDue?: string | null; archived?: boolean },
+  today: string,
+  withinDays = 14
+): { status: "expired" | "expiring"; daysToExpiry: number } | null {
+  if (asset.archived) return null;
+  const due = (asset.calibrationDue ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return null;
+  const dueMs = Date.parse(due + "T00:00:00Z");
+  const todayMs = Date.parse(today.slice(0, 10) + "T00:00:00Z");
+  if (!Number.isFinite(dueMs) || !Number.isFinite(todayMs)) return null;
+  const daysToExpiry = Math.round((dueMs - todayMs) / 86_400_000);
+  if (daysToExpiry > withinDays) return null;
+  return { status: daysToExpiry < 0 ? "expired" : "expiring", daysToExpiry };
+}

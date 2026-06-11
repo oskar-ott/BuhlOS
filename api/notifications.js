@@ -28,8 +28,10 @@
 //                        which we also accept.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { getCurrentUser, isAdminRole, isLeadingHandRole, isFieldRole, isStaffRole } = require('./_lib/auth');
+const { getCurrentUser, isAdminRole, isLeadingHandRole, isFieldRole, isClientRole, isDisabledUser } = require('./_lib/auth');
 const { getWebPush, sendPushToUserId } = require('./_lib/push');
+const { expiringTagRows, expiringCalibrationRows, newCrossings } = require('./_lib/tag-compliance');
+const { listAllAssets } = require('./_lib/assets');
 
 const USERS_KEY = 'users.json';
 const MAX_SUBS_PER_USER = 5;
@@ -141,101 +143,125 @@ module.exports = async (req, res) => {
     return res.status(200).json({ ok: true, date: today, sent, skipped, pruned });
   }
 
-  // ── send-tag-reminders: weekly compliance digest ───────────────────────
-  // Cron-only fan-out: every Monday morning, push a digest to admins and
-  // leading hands listing how many tags are expired or expiring in the next
-  // 14 days across the jobs they oversee. Silent for users with nothing to
-  // do, and silent if the push stack isn't configured.
+  // ── send-tag-reminders: daily compliance threshold alerts (#305) ───────
+  // Cron-only fan-out, daily. Computes expiring/expired test tags (across
+  // ALL jobs) and instrument calibrations (asset register) via the SHARED
+  // api/_lib/tag-compliance.js, then pushes only items that NEWLY crossed
+  // an alert threshold (14d → 7d → expired) since the last run. Crossing
+  // state is persisted in tag-reminder-state.json so the same tag never
+  // re-alerts every morning — at most three pushes over its lifetime.
+  //
+  // Recipients (notificationPrefs.tagReminders opt-out respected):
+  //   - tags:         admins (all jobs) + leading hands (their assigned jobs)
+  //   - calibrations: admins + whoever currently HOLDS the instrument
+  //
+  // Silent when nothing crossed; state is still pruned so a retested item
+  // resets its alert lifecycle.
   if (action === 'send-tag-reminders' && req.method === 'GET') {
     if (!cronAuthorised(req)) return res.status(401).json({ error: 'unauthorised' });
     if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
 
     const WITHIN_DAYS = 14;
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const todayMs  = today.getTime();
-    const cutoffMs = todayMs + WITHIN_DAYS * 24 * 60 * 60 * 1000;
-
-    // Walk visible jobs once; compute per-user expired/soon counts based on
-    // role (admin = all jobs; LH = assignedJobIds). dd/mm/yyyy parser is
-    // duplicated from /api/tags-expiring — keeps this endpoint self-contained
-    // so cron can survive a refactor of that file.
-    const parseDDMM = s => {
-      if (!s) return NaN;
-      const m = String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (m) return new Date(+m[3], +m[2] - 1, +m[1]).getTime();
-      const m2 = String(s).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      if (m2) return new Date(+m2[1], +m2[2] - 1, +m2[3]).getTime();
-      return NaN;
-    };
+    const STATE_KEY = 'tag-reminder-state.json';
 
     const jobsBlob = await readBlob('jobs.json', { jobs: [] });
-    const allJobs  = jobsBlob.jobs || [];
-
-    // jobId → { expired, soon }
-    const tagsByJob = {};
-    for (const job of allJobs) {
-      let tagsBlob;
+    const allJobs = jobsBlob.jobs || [];
+    const tagsByJobId = {};
+    await Promise.all(allJobs.map(async job => {
       try {
-        tagsBlob = await readBlob('jobs/' + job.id + '/tags.json', { tags: [] });
-      } catch (e) { continue; }
-      let expired = 0, soon = 0;
-      for (const t of (tagsBlob.tags || [])) {
-        const ms = parseDDMM(t.expiryDate);
-        if (!Number.isFinite(ms) || ms > cutoffMs) continue;
-        if (ms < todayMs) expired++; else soon++;
-      }
-      if (expired || soon) tagsByJob[job.id] = { expired, soon, jobName: job.name };
-    }
-
-    if (!Object.keys(tagsByJob).length) {
-      return res.status(200).json({ ok: true, sent: 0, skipped: 'nothing to flag' });
-    }
+        const blob = await readBlob('jobs/' + job.id + '/tags.json', { tags: [] });
+        tagsByJobId[job.id] = blob.tags || [];
+      } catch (e) { tagsByJobId[job.id] = []; }
+    }));
+    const tagRows = expiringTagRows(allJobs, tagsByJobId, { withinDays: WITHIN_DAYS });
 
     const usersData = await readBlob(USERS_KEY, { users: [] });
     const users = usersData.users || [];
+    const nameById = {};
+    for (const u of users) nameById[u.id] = u.username || u.name || u.id;
+
+    let calRows = [];
+    try {
+      const assets = await listAllAssets();
+      calRows = expiringCalibrationRows(assets, { withinDays: WITHIN_DAYS, nameById });
+    } catch (e) { calRows = []; }
+
+    const stateBlob = await readBlob(STATE_KEY, { entries: {} });
+    const { crossed, nextState } = newCrossings(
+      tagRows.concat(calRows),
+      (stateBlob && stateBlob.entries) || {}
+    );
+
+    // State is written AFTER the sends: if the function dies mid-fan-out the
+    // next run re-alerts (duplicate push) rather than silently losing the
+    // alert — the right failure mode for a compliance loop.
+    if (!crossed.length) {
+      await writeBlob(STATE_KEY, { entries: nextState });
+      return res.status(200).json({ ok: true, crossed: 0, sent: 0 });
+    }
 
     let sent = 0, skipped = 0, pruned = 0;
 
     for (const u of users) {
-      if (!isStaffRole(u.role)) continue;
+      // NOT gated to isStaffRole: a field-tier tradie HOLDING a calibrated
+      // instrument must hear about it too. Clients and disabled accounts
+      // never get compliance pushes; everyone else is decided by the per-row
+      // visibility filter below.
+      if (isClientRole(u.role) || isDisabledUser(u)) continue;
+      // First sender to actually consult the notification-prefs seam — the
+      // documented `tagReminders` key covers the whole compliance loop.
+      if (u.notificationPrefs && u.notificationPrefs.tagReminders === false) { skipped++; continue; }
       if (!u.pushSubscriptions || !u.pushSubscriptions.length) { skipped++; continue; }
 
-      // Determine visible jobs for this user
-      const visibleIds = isAdminRole(u.role)
-        ? Object.keys(tagsByJob)
-        : Object.keys(tagsByJob).filter(jid => (u.assignedJobIds || []).includes(jid));
-      if (!visibleIds.length) { skipped++; continue; }
+      const admin = isAdminRole(u.role);
+      const mine = crossed.filter(r => {
+        if (r.kind === 'tag') {
+          return admin || (isLeadingHandRole(u.role) && (u.assignedJobIds || []).includes(r.jobId));
+        }
+        return admin || r.holderId === u.id;
+      });
+      if (!mine.length) { skipped++; continue; }
 
-      let userExpired = 0, userSoon = 0;
-      for (const jid of visibleIds) {
-        userExpired += tagsByJob[jid].expired;
-        userSoon    += tagsByJob[jid].soon;
-      }
-      if (!userExpired && !userSoon) { skipped++; continue; }
-
+      const nExpired = mine.filter(r => r.threshold === 'expired').length;
+      const n7  = mine.filter(r => r.threshold === 't7').length;
+      const n14 = mine.filter(r => r.threshold === 't14').length;
       const titleBits = [];
-      if (userExpired) titleBits.push(userExpired + ' expired');
-      if (userSoon)    titleBits.push(userSoon + ' due in 14d');
+      if (nExpired) titleBits.push(nExpired + ' expired');
+      if (n7)  titleBits.push(n7 + ' due in 7d');
+      if (n14) titleBits.push(n14 + ' due in 14d');
       const title = '⚠ Test & Tag — ' + titleBits.join(' · ');
-      const body  = 'Across ' + visibleIds.length + ' job' + (visibleIds.length === 1 ? '' : 's') +
-                    '. Tap to retest before they lapse.';
 
-      // Single-job → deep-link to that job on the recipient's surface
-      // (admins get the BuhlOS job hub, field/LH get the Phil job page);
-      // multiple jobs → the role home.
-      const url = visibleIds.length === 1
-        ? (isAdminRole(u.role) ? '/v2/jobs/' + visibleIds[0] : '/phil/jobs/' + visibleIds[0])
-        : (isAdminRole(u.role) ? '/command-centre' : '/phil/my-day');
+      const names = mine.slice(0, 3).map(r =>
+        r.kind === 'tag'
+          ? ((r.applianceType || r.tagNumber || 'tag') + ' at ' + r.jobName)
+          : (r.assetName + ' calibration')
+      );
+      const body = names.join(', ') + (mine.length > 3 ? ' +' + (mine.length - 3) + ' more' : '') +
+                   '. Tap to sort the retest.';
+
+      // Post-cutover targets only (every legacy URL is a 307 now): admins →
+      // the /gear compliance board; a LH whose crossings sit on one job →
+      // that job's Phil page; a holder alerted about their own instrument →
+      // their Phil gear list; otherwise the Phil home.
+      const tagJobIds = [...new Set(mine.filter(r => r.kind === 'tag').map(r => r.jobId))];
+      const url = admin
+        ? '/gear'
+        : tagJobIds.length === 1
+          ? '/phil/jobs/' + tagJobIds[0]
+          : tagJobIds.length === 0
+            ? '/phil/gear'
+            : '/phil/my-day';
 
       const r = await sendPushToUserId(u.id, {
         title, body, url,
-        tag: 'buhl-tags-weekly',
+        tag: 'buhl-tag-alerts',
       });
       sent   += (r.sent   || 0);
       pruned += (r.pruned || 0);
     }
 
-    return res.status(200).json({ ok: true, sent, skipped, pruned });
+    await writeBlob(STATE_KEY, { entries: nextState });
+    return res.status(200).json({ ok: true, crossed: crossed.length, sent, skipped, pruned });
   }
 
   // ── send-daily-digest: end-of-day push for admins ─────────────────────

@@ -20,9 +20,9 @@
 //                 tradie (or back to storage)
 //   client      — 403 everywhere
 
-const { put, list } = require('@vercel/blob');
 const { readBlob, readBlobFresh, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole, isFieldRole, isLeadingHandRole, isDisabledUser } = require('./_lib/auth');
+const { listAllAssets } = require('./_lib/assets');
 
 const VALID_TYPES = ['vehicle', 'key', 'tool', 'accessory', 'ppe', 'other'];
 
@@ -95,6 +95,18 @@ function sanitiseAsset(body, existing) {
   }
   if (body.hireSupplier !== undefined) next.hireSupplier = String(body.hireSupplier || '').trim().slice(0, 120) || null;
 
+  // #305: optional calibration due-date for test instruments (AS/NZS 3760
+  // loop). ISO date or null — null/absent means "not a calibrated
+  // instrument"; the compliance computation skips it entirely.
+  if (body.calibrationDue !== undefined) {
+    if (body.calibrationDue === null || body.calibrationDue === '') next.calibrationDue = null;
+    else {
+      const s = String(body.calibrationDue);
+      if (!/^\d{4}-\d{2}-\d{2}/.test(s)) return { error: 'calibrationDue must be an ISO date (YYYY-MM-DD) or null' };
+      next.calibrationDue = s;
+    }
+  }
+
   // Default ownership to 'owned' on new records so the dead-rent
   // calculator doesn't accidentally flag a missing field.
   if (existing && existing.ownership === undefined && next.ownership === undefined) {
@@ -127,29 +139,8 @@ async function appendHistory(id, entry) {
   await writeBlob('assets/' + id + '/history.json', log);
 }
 
-// List all assets (admin sees this set; tradie filters down to their own).
-async function listAllAssets() {
-  try {
-    const { blobs } = await list({ prefix: 'assets/', token: process.env.BLOB_READ_WRITE_TOKEN });
-    // Only the per-asset record files at the top level — exclude /history.json under each.
-    const flat = (blobs || []).filter(b =>
-      b.pathname.startsWith('assets/') &&
-      b.pathname.endsWith('.json') &&
-      !b.pathname.endsWith('/history.json')
-    );
-    const records = await Promise.all(flat.map(async b => {
-      try {
-        const r = await fetch(b.url + '?t=' + Date.now(), { cache: 'no-store' });
-        if (!r.ok) return null;
-        return await r.json();
-      } catch (e) { return null; }
-    }));
-    return records.filter(Boolean);
-  } catch (e) {
-    console.error('listAllAssets failed:', e.message);
-    return [];
-  }
-}
+// listAllAssets (admin sees the full set; tradie filters down to their own)
+// lives in ./_lib/assets — shared with the compliance loop (#305).
 
 module.exports = async (req, res) => {
   setNoCache(res);

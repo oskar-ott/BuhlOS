@@ -85,6 +85,10 @@ export const GearAssetSchema = z
     lastCheckedAt: z.string().nullable().optional(),
     lastCheckedBy: z.string().nullable().optional(),
 
+    // #305: optional calibration due-date (ISO YYYY-MM-DD) for test
+    // instruments — null/absent means "not a calibrated instrument".
+    calibrationDue: z.string().nullable().optional(),
+
     // Existing hired-gear fields (Phase 12 in legacy).
     ownership: z.enum(["owned", "hired"]).optional(),
     hireEndDate: z.string().nullable().optional(),
@@ -134,6 +138,33 @@ export const GearHistoryEntrySchema = z
 export const GearListResponseSchema = z.object({
   assets: z.array(GearAssetSchema),
 });
+
+/**
+ * One calibration row from GET /api/tags-expiring's additive `calibrations`
+ * array (#305) — computed server-side by api/_lib/tag-compliance.js from the
+ * asset register. Already holder-filtered for non-admin viewers.
+ */
+export const ExpiringCalibrationSchema = z
+  .object({
+    kind: z.literal("calibration"),
+    key: z.string(),
+    assetId: z.string(),
+    assetName: z.string(),
+    identifier: z.string().nullable().optional(),
+    holderId: z.string().nullable().optional(),
+    holderName: z.string().nullable().optional(),
+    calibrationDue: z.string(),
+    daysToExpiry: z.number(),
+    status: z.enum(["expired", "expiring"]),
+  })
+  .passthrough();
+
+/** The slice of the /api/tags-expiring response Phil my-day consumes. */
+export const TagsExpiringCalibrationsResponseSchema = z
+  .object({
+    calibrations: z.array(ExpiringCalibrationSchema).optional(),
+  })
+  .passthrough();
 
 export const GearDetailResponseSchema = z.object({
   asset: GearAssetSchema,

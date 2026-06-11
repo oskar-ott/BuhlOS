@@ -30,6 +30,7 @@ const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const vercelBlobPath = requireFromHere.resolve("@vercel/blob");
 const assetsPath = requireFromHere.resolve("../../../api/assets.js");
+const libAssetsPath = requireFromHere.resolve("../../../api/_lib/assets.js");
 
 type Res = ReturnType<typeof createRes>;
 let blob: Map<string, unknown>;
@@ -142,7 +143,7 @@ beforeEach(() => {
   seedAsset("a_storage", null);
   seedAsset("a_archived", null, { archived: true });
 
-  for (const p of [authPath, assetsPath]) delete requireFromHere.cache[p];
+  for (const p of [authPath, assetsPath, libAssetsPath]) delete requireFromHere.cache[p];
   requireFromHere.cache[blobPath] = {
     id: blobPath,
     filename: blobPath,
@@ -425,5 +426,76 @@ describe("never leaks passwordHash", () => {
     const json = JSON.stringify(res.body);
     expect(json).not.toContain("passwordHash");
     expect((res.body as { asset: { currentHolderName: string } }).asset.currentHolderName).toBe("sparky");
+  });
+});
+
+describe("calibrationDue (#305) — optional ISO date on create/edit", () => {
+  it("create accepts a valid ISO calibrationDue and stores it", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_admin",
+      role: "admin",
+      body: { name: "Fluke 1587", type: "tool", calibrationDue: "2026-09-30" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect((res.body as { asset: { calibrationDue: string } }).asset.calibrationDue).toBe(
+      "2026-09-30",
+    );
+  });
+
+  it("create REJECTS a non-ISO calibrationDue", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_admin",
+      role: "admin",
+      body: { name: "Fluke 1587", type: "tool", calibrationDue: "30/09/2026" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(String((res.body as { error: string }).error)).toContain("calibrationDue");
+  });
+
+  it("PUT sets calibrationDue on an existing asset and PUT null clears it", async () => {
+    const set = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "a_held" },
+      body: { calibrationDue: "2026-07-01" },
+    });
+    expect(set.statusCode).toBe(200);
+    expect((set.body as { asset: { calibrationDue: string } }).asset.calibrationDue).toBe(
+      "2026-07-01",
+    );
+
+    const clear = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "a_held" },
+      body: { calibrationDue: null },
+    });
+    expect(clear.statusCode).toBe(200);
+    expect((clear.body as { asset: { calibrationDue: null } }).asset.calibrationDue).toBeNull();
+  });
+
+  it("PUT leaves calibrationDue untouched when the field is absent (patch semantics)", async () => {
+    await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "a_held" },
+      body: { calibrationDue: "2026-07-01" },
+    });
+    const res = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "a_held" },
+      body: { notes: "serviced" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { asset: { calibrationDue: string } }).asset.calibrationDue).toBe(
+      "2026-07-01",
+    );
   });
 });
