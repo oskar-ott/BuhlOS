@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 import type { TimeEntry } from "@/domains/timesheets/types";
-import { buildPhilWeek, type WeekDayState } from "./philWeek";
+import { buildPhilWeek, type WeekDayCell, type WeekDayState } from "./philWeek";
 import styles from "./myDay.module.css";
 
 // state → the scoped day-cell class (filled tints / yellow ring / dashed),
@@ -38,6 +38,31 @@ function monthShort(dateISO: string): string {
   return parseUTC(dateISO).toLocaleDateString("en-AU", { month: "short", timeZone: "UTC" });
 }
 
+/**
+ * Screen-reader label for a tappable day cell. The visible cell already shows
+ * the state word; this spells out what the tap leads to (log / fix / open).
+ */
+function dayTapLabel(d: WeekDayCell, todayISO: string): string {
+  const datePart = `${d.weekday} ${dayMonth(d.date)}`;
+  if (d.date === todayISO) {
+    return d.hours == null
+      ? `${datePart} — today, not logged yet. Log today's hours.`
+      : `${datePart} — today, ${d.statusWord}. Open today in the hours form.`;
+  }
+  switch (d.state) {
+    case "fix":
+      return `${datePart} — rejected. Fix and resubmit this day.`;
+    case "miss":
+      return d.statusWord === "draft"
+        ? `${datePart} — draft. Open this day in the hours form.`
+        : `${datePart} — not logged. Log hours for this day.`;
+    case "off":
+      return `${datePart} — day off. Log hours if you worked.`;
+    default:
+      return `${datePart} — ${d.statusWord}. Open this day in the hours form.`;
+  }
+}
+
 interface Props {
   entries: ReadonlyArray<TimeEntry>;
   todayISO: string;
@@ -48,6 +73,12 @@ interface Props {
  * the approved final Phil My Day. Every cell is real (see philWeek.ts); nothing
  * is fabricated, and a day with no entry is shown honestly (missing / off / log
  * now), never as a guessed value.
+ *
+ * The strip is a directory, not just a glance: today and every past day link to
+ * `/phil/my-day?fixDate=<date>` — the same deep-link the "Hours rejected" push
+ * uses — so a missed day is one tap from the hours form preselected to that
+ * date (and a rejected day auto-opens fix-and-resubmit). Future days have
+ * nothing to act on, so they stay inert.
  *
  * Styled to the design via the scoped myDay.module.css (filled state tints +
  * JetBrains Mono microcopy) rather than the app's flat utility defaults.
@@ -80,17 +111,37 @@ export function PhilWeekStrip({ entries, todayISO }: Props) {
       </header>
 
       <ul className={styles.days}>
-        {week.days.map((d) => (
-          <li key={d.date} className={cn(styles.day, DAY_STATE[d.state])}>
-            <span className={styles.dayLabel}>{d.weekday}</span>
-            <div className={styles.box}>
-              <span className={styles.hours}>
-                {d.hours != null ? decimalHours(d.hours) : "—"}
-              </span>
-              <span className={styles.status}>{d.statusWord}</span>
-            </div>
-          </li>
-        ))}
+        {week.days.map((d) => {
+          const cell = (
+            <>
+              <span className={styles.dayLabel}>{d.weekday}</span>
+              <div className={styles.box}>
+                <span className={styles.hours}>
+                  {d.hours != null ? decimalHours(d.hours) : "—"}
+                </span>
+                <span className={styles.status}>{d.statusWord}</span>
+              </div>
+            </>
+          );
+          // ISO date strings compare lexicographically; future days are inert.
+          const tappable = d.date <= todayISO;
+          return (
+            <li key={d.date} className={cn(styles.day, DAY_STATE[d.state])}>
+              {tappable ? (
+                <Link
+                  href={`/phil/my-day?fixDate=${d.date}`}
+                  prefetch={false}
+                  className={styles.dayLink}
+                  aria-label={dayTapLabel(d, todayISO)}
+                >
+                  {cell}
+                </Link>
+              ) : (
+                cell
+              )}
+            </li>
+          );
+        })}
       </ul>
 
       <div className={styles.weekFoot}>
