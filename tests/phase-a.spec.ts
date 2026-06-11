@@ -19,14 +19,14 @@ test("unauthenticated /v2/phil redirects to /v2/login", async ({ page }) => {
   const response = await page.goto("/v2/phil", { waitUntil: "domcontentloaded" });
   expect(response).not.toBeNull();
   await expect(page).toHaveURL(/\/v2\/login(\?|$)/);
-  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Welcome back." })).toBeVisible();
 });
 
 test("/v2/login renders the new sign-in form", async ({ page }) => {
   await page.goto("/v2/login");
-  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
-  await expect(page.getByLabel("Email or username")).toBeVisible();
-  await expect(page.getByLabel("Password or PIN")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Welcome back." })).toBeVisible();
+  await expect(page.getByLabel("Work email", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 });
 

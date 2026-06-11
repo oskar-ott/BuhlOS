@@ -1,0 +1,229 @@
+/* ─────────────────────────────────────────────────────────────────────
+   BuhlOS — desktop sign-in.
+
+   Ported from the Claude Design handoff (buhlos-phil/project/login/login.css,
+   which built on ops-base.css tokens). Scoped to this route as a CSS Module:
+   the design's own colour/spacing system is preserved verbatim (the exact
+   bühl yellow #f5d020 + navy #0d1b34, JetBrains Mono labels, Inter Tight
+   headings) rather than re-derived from the global Tailwind tokens, which
+   differ slightly (#ffcc00 / #0d1f35) and have no mono face.
+
+   Tokens are declared on `.login` (not :root) so nothing leaks out of the
+   login subtree. Light theme only — the prototype's dark/HC/centered variants
+   were design-review tweaks, not shipped surfaces.
+   ───────────────────────────────────────────────────────────────────── */
+
+.login {
+  /* design tokens (ops-base.css "light"), scoped to the login subtree */
+  --bg:        #f4f5f7;
+  --paper:     #ffffff;
+  --paper-2:   #f8f9fb;
+  --paper-3:   #eef0f4;
+  --navy:      #0d1b34;
+  --ink:       #0d1b34;
+  --ink-2:     #36446b;
+  --ink-3:     #6a7591;
+  --ink-4:     #9aa3bc;
+  --rule:      #dde1ea;
+  --rule-2:    #c8cee0;
+  --yellow:    #f5d020;
+  --yellow-ink:#1d1700;
+  --red:       #c0312f;
+  --red-bg:    #fbeceb;
+  --red-bd:    #ecc6c4;
+
+  --font-body: var(--font-inter), "Inter", system-ui, sans-serif;
+  --font-display: var(--font-inter-tight), "Inter Tight", system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  min-height: 100dvh;
+  display: flex;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01", "cv11";
+  overflow: hidden;
+}
+
+/* ── Brand panel (left) ──────────────────────────────────────────────── */
+.brand {
+  width: 46%; max-width: 660px; flex-shrink: 0;
+  background: var(--navy);
+  color: #fff;
+  display: flex; flex-direction: column;
+  padding: 44px 52px;
+  position: relative; overflow: hidden;
+}
+.brand::before {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(720px 420px at 78% -5%, rgba(245, 208, 32, .12), transparent 60%);
+}
+.brand::after {
+  content: ""; position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, .06) 1px, transparent 1px);
+  background-size: 24px 24px;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, .7), transparent 72%);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, .7), transparent 72%);
+}
+.brand > * { position: relative; z-index: 1; }
+
+.brandTop { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.brandLogo { width: 150px; height: auto; margin: -8px 0 -14px -6px; }
+.brandCo {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase; color: rgba(255, 255, 255, .5);
+}
+
+.brandMid { margin-top: auto; margin-bottom: auto; padding: 28px 0; }
+.brandH {
+  font-family: var(--font-display); font-weight: 700; font-size: 42px;
+  line-height: 1.04; letter-spacing: -.032em; color: #fff; max-width: 15ch; margin: 0;
+  text-wrap: balance;
+}
+.brandH em { color: var(--yellow); font-style: normal; }
+.brandSub {
+  margin: 16px 0 0; font-size: 14.5px; line-height: 1.6; color: rgba(255, 255, 255, .62); max-width: 40ch;
+}
+.brandPoints { list-style: none; margin: 26px 0 0; padding: 0; display: flex; flex-direction: column; gap: 11px; }
+.brandPoints li {
+  display: flex; align-items: center; gap: 11px;
+  font-size: 13.5px; color: rgba(255, 255, 255, .82);
+}
+.brandPoints li .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--yellow); flex-shrink: 0; }
+
+.brandFoot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  letter-spacing: .1em; text-transform: uppercase; color: rgba(255, 255, 255, .4);
+  border-top: 1px solid rgba(255, 255, 255, .1); padding-top: 18px;
+}
+
+/* ── Sign-in side (right) ────────────────────────────────────────────── */
+.main {
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center;
+  padding: 32px; overflow: auto;
+}
+.card { width: 100%; max-width: 384px; }
+
+.topmark { display: none; align-items: center; justify-content: center; margin-bottom: 22px; }
+.topmarkLogo { width: 138px; height: auto; }
+
+.eyebrow {
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--ink-3);
+}
+.h {
+  font-family: var(--font-display); font-weight: 700; font-size: 27px;
+  letter-spacing: -.026em; color: var(--ink); margin: 7px 0 0; line-height: 1.1;
+}
+.p { font-size: 13.5px; color: var(--ink-2); margin: 8px 0 0; line-height: 1.5; max-width: 40ch; }
+
+.form { margin-top: 22px; display: flex; flex-direction: column; gap: 14px; }
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.label {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px; white-space: nowrap;
+  font-family: var(--font-mono); font-size: 9px; font-weight: 600;
+  letter-spacing: .13em; text-transform: uppercase; color: var(--ink-3);
+}
+
+.inputWrap { position: relative; display: flex; align-items: center; }
+.input {
+  width: 100%; height: 46px; box-sizing: border-box;
+  border: 1px solid var(--rule-2); border-radius: 11px; background: var(--paper);
+  padding: 0 14px; font-family: var(--font-body); font-size: 14.5px; color: var(--ink);
+  letter-spacing: -.005em; transition: border-color .12s, box-shadow .12s;
+}
+.input::placeholder { color: var(--ink-4); }
+.input:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 3px rgba(13, 27, 52, .09); }
+.input.hasEye { padding-right: 58px; }
+.input.err { border-color: var(--red); }
+.input.err:focus { box-shadow: 0 0 0 3px rgba(192, 49, 47, .12); }
+.eye {
+  position: absolute; right: 6px; height: 34px; padding: 0 11px; border: 0; background: transparent;
+  font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-3); cursor: pointer; border-radius: 7px;
+}
+.eye:hover { background: var(--paper-3); color: var(--ink); }
+.msg {
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .03em;
+  color: var(--red); display: flex; align-items: center; gap: 6px;
+}
+
+/* error banner — maps real /api/auth failures (401 / 403) */
+.banner {
+  display: flex; gap: 10px; align-items: flex-start;
+  border: 1px solid var(--red-bd); background: var(--red-bg); border-radius: 10px;
+  padding: 11px 13px;
+}
+.banner .ic {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; margin-top: 1px;
+  background: var(--red); color: #fff; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800; font-family: var(--font-display);
+}
+.banner b { font-family: var(--font-display); font-weight: 700; font-size: 12.5px; letter-spacing: -.01em; color: var(--ink); display: block; }
+.banner p { margin: 2px 0 0; font-size: 11.5px; color: var(--ink-2); line-height: 1.4; }
+
+/* submit */
+.submit {
+  height: 48px; border: 0; border-radius: 11px; width: 100%; margin-top: 2px; white-space: nowrap;
+  background: var(--yellow); color: var(--yellow-ink);
+  font-family: var(--font-display); font-weight: 700; font-size: 15.5px; letter-spacing: -.012em;
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  cursor: pointer; transition: filter .12s, transform .08s;
+}
+.submit:hover { filter: brightness(1.03); }
+.submit:active { transform: translateY(1px); }
+.submit.busy, .submit:disabled { background: var(--paper-3); color: var(--ink-4); pointer-events: none; }
+
+.spinner {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.or {
+  display: flex; align-items: center; gap: 12px; margin: 4px 0;
+  font-family: var(--font-mono); font-size: 9px; font-weight: 600;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--ink-4);
+}
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+
+/* SSO — present but not yet wired (no SSO backend); shown disabled. */
+.sso {
+  height: 46px; border: 1px solid var(--rule); border-radius: 11px; width: 100%; white-space: nowrap;
+  background: var(--paper-2); color: var(--ink-3);
+  font-family: var(--font-display); font-weight: 600; font-size: 14px; letter-spacing: -.01em;
+  display: flex; align-items: center; justify-content: center; gap: 10px; cursor: not-allowed;
+}
+.sso .key {
+  width: 16px; height: 16px; border-radius: 4px; background: var(--rule-2);
+  display: inline-flex; align-items: center; justify-content: center; color: var(--paper);
+  font-size: 10px; font-weight: 800;
+}
+.ssoNote {
+  margin: 8px 0 0; text-align: center;
+  font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+
+.foot {
+  margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--rule);
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;
+  color: var(--ink-3); line-height: 1.6; text-align: center;
+}
+.foot b { color: var(--ink-2); font-weight: 600; }
+
+/* ── Responsive — collapse to the centered card on narrow screens ─────── */
+@media (max-width: 900px) {
+  .brand { display: none; }
+  .main {
+    background: radial-gradient(900px 460px at 50% -8%, rgba(13, 27, 52, .05), transparent 60%), var(--bg);
+  }
+  .topmark { display: flex; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+}
