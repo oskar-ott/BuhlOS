@@ -63,12 +63,11 @@ describe("HoursApprovalsQueue — job attribution display", () => {
 
 describe("Approve all (#124)", () => {
   it("offers a per-worker Approve all naming the batch size", () => {
+    const a = entry("e1", "Sam", [{ jobId: "j1", jobName: "100 Arthur", hours: 8 }]);
+    const b = { ...entry("e2", "Sam", [{ jobId: "j1", jobName: "100 Arthur", hours: 8 }]), userId: a.userId, date: "2026-06-06" };
     const html = renderToString(
       createElement(HoursApprovalsQueue, {
-        initialEntries: [
-          entry({ userId: "u1", userName: "Sam", date: "2024-05-20" }),
-          entry({ userId: "u1", userName: "Sam", date: "2024-05-21" }),
-        ],
+        initialEntries: [a, b],
         fetchError: null,
       })
     );
