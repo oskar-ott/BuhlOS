@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
-import { Calendar, Briefcase, Camera, Wrench, MoreHorizontal } from "lucide-react";
+import { Calendar, Briefcase, Wrench, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { PhilCaptureLauncher, type IncomingCapturePhoto } from "./PhilCaptureLauncher";
 import { philJobDetailId } from "./philCapture";
@@ -147,9 +147,7 @@ export function PhilTabBar() {
               "border-4 border-surface bg-accent-yellow text-brand-navy shadow-raised",
               "transition-transform active:scale-95",
             )}
-          >
-            <Camera aria-hidden="true" className="h-6 w-6" />
-          </button>
+          />
           <span className="mt-0.5 text-[11px] font-semibold uppercase tracking-wider text-brand-navy">
             Capture
           </span>
