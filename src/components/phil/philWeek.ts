@@ -7,7 +7,11 @@ import { addDays, weekStartOf } from "@/domains/timesheets/service";
  *
  * Honest by construction: every cell is derived from the worker's real time
  * entries + the calendar. Nothing is fabricated —
- *   - logged   : a real entry exists for that date (its hours are shown)
+ *   - logged   : a real entry exists for that date (its hours are shown);
+ *                the status word tells the truth about where it's up to
+ *                (approved / waiting / draft)
+ *   - fix      : the entry was REJECTED — the one state that needs the
+ *                worker's hand, so it reads red instead of a green "logged"
  *   - today    : the cell IS today (prompts "log now" when no entry yet)
  *   - off      : a weekend with no entry (most don't work Sat/Sun)
  *   - miss     : a PAST weekday with no entry — a soft "you haven't logged
@@ -18,7 +22,7 @@ import { addDays, weekStartOf } from "@/domains/timesheets/service";
  * Monday→today (the week is at most six days behind today), so no extra fetch
  * is needed.
  */
-export type WeekDayState = "logged" | "today" | "miss" | "off" | "upcoming";
+export type WeekDayState = "logged" | "fix" | "today" | "miss" | "off" | "upcoming";
 
 export interface WeekDayCell {
   /** YYYY-MM-DD. */
@@ -45,6 +49,19 @@ export interface PhilWeek {
   weekEnd: string;
   /** ISO-8601 week number (1–53). */
   weekNumber: number;
+  /** Worker-facing week tallies — all derived from real entries/calendar. */
+  counts: {
+    /** Hours on APPROVED entries only (what's locked in). */
+    approvedHours: number;
+    /** Submitted entries waiting on the office. */
+    waiting: number;
+    /** Rejected entries the worker must fix. */
+    fix: number;
+    /** Draft entries logged but never submitted. */
+    draft: number;
+    /** Past weekdays with no entry at all. */
+    missed: number;
+  };
 }
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
@@ -62,22 +79,44 @@ export function isoWeekNumber(dateISO: string): number {
   return 1 + Math.round((d.getTime() - firstThursday.getTime()) / (7 * 86_400_000));
 }
 
+/** Worker-facing status word for a logged entry. Undefined status (older
+ *  callers / partial fixtures) keeps the original plain "logged". */
+function loggedStatusWord(status: TimeEntry["status"] | undefined): string {
+  switch (status) {
+    case "approved":
+      return "approved";
+    case "submitted":
+      return "waiting";
+    case "draft":
+      return "draft";
+    default:
+      return "logged";
+  }
+}
+
 export function buildPhilWeek(
-  entries: ReadonlyArray<Pick<TimeEntry, "date" | "totalHours">>,
+  entries: ReadonlyArray<
+    Pick<TimeEntry, "date" | "totalHours"> & { status?: TimeEntry["status"] }
+  >,
   opts: { todayISO: string },
 ): PhilWeek {
   const { todayISO } = opts;
   const weekStart = weekStartOf(todayISO);
 
-  // Sum hours per date (defensive against more than one entry on a date).
+  // Sum hours per date (defensive against more than one entry on a date) and
+  // remember the entry status — one entry per date is API-enforced, so the
+  // last status seen for a date is the status.
   const hoursByDate = new Map<string, number>();
+  const statusByDate = new Map<string, TimeEntry["status"] | undefined>();
   for (const e of entries) {
     if (!e.date) continue;
     hoursByDate.set(e.date, (hoursByDate.get(e.date) ?? 0) + (e.totalHours ?? 0));
+    statusByDate.set(e.date, e.status);
   }
 
   const days: WeekDayCell[] = [];
   let totalHours = 0;
+  const counts = { approvedHours: 0, waiting: 0, fix: 0, draft: 0, missed: 0 };
 
   for (let i = 0; i < 7; i++) {
     const date = addDays(weekStart, i);
@@ -85,16 +124,31 @@ export function buildPhilWeek(
     const isWeekend = i >= 5; // Sat=5, Sun=6
     const logged = hoursByDate.has(date);
     const hours = logged ? hoursByDate.get(date)! : null;
+    const status = statusByDate.get(date);
     if (logged) totalHours += hours!;
+
+    if (status === "approved") counts.approvedHours += hours ?? 0;
+    else if (status === "submitted") counts.waiting += 1;
+    else if (status === "rejected") counts.fix += 1;
+    else if (status === "draft") counts.draft += 1;
 
     let state: WeekDayState;
     let statusWord: string;
-    if (date === todayISO) {
+    if (logged && status === "rejected") {
+      // The one logged state that needs the worker's hand — never shown as a
+      // calm green "logged", even when it's today's entry.
+      state = "fix";
+      statusWord = "fix";
+    } else if (date === todayISO) {
       state = "today";
-      statusWord = logged ? "today" : "log now";
+      statusWord = logged ? (status ? loggedStatusWord(status) : "today") : "log now";
+    } else if (logged && status === "draft") {
+      // Logged but never submitted — amber attention, not a calm green tick.
+      state = "miss";
+      statusWord = "draft";
     } else if (logged) {
       state = "logged";
-      statusWord = "logged";
+      statusWord = loggedStatusWord(status);
     } else if (isWeekend) {
       // A weekend with no entry is off — whether it's already past or still
       // to come — never flagged as a "missing" weekday.
@@ -106,6 +160,7 @@ export function buildPhilWeek(
     } else {
       state = "miss";
       statusWord = "not logged";
+      counts.missed += 1;
     }
 
     days.push({ date, weekday, hours, state, statusWord });
@@ -118,5 +173,9 @@ export function buildPhilWeek(
     weekStart,
     weekEnd: addDays(weekStart, 6),
     weekNumber: isoWeekNumber(weekStart),
+    counts: {
+      ...counts,
+      approvedHours: Math.round(counts.approvedHours * 100) / 100,
+    },
   };
 }

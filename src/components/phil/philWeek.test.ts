@@ -64,3 +64,58 @@ describe("buildPhilWeek", () => {
     expect(monday.days[5]).toMatchObject({ state: "off" }); // Sat
   });
 });
+
+describe("buildPhilWeek — entry status awareness (#113 weekly view)", () => {
+  it("shows a rejected day as FIX (red), never a calm green logged — even today", () => {
+    const w = buildPhilWeek(
+      [{ date: "2024-05-22", totalHours: 7.6, status: "rejected" as const }],
+      { todayISO: TODAY },
+    );
+    expect(w.days[2]).toMatchObject({ state: "fix", statusWord: "fix", hours: 7.6 });
+
+    const today = buildPhilWeek(
+      [{ date: TODAY, totalHours: 7.6, status: "rejected" as const }],
+      { todayISO: TODAY },
+    );
+    expect(today.days[4]).toMatchObject({ state: "fix", statusWord: "fix" });
+  });
+
+  it("tells the truth about where a logged day is up to", () => {
+    const w = buildPhilWeek(
+      [
+        { date: "2024-05-20", totalHours: 7.6, status: "approved" as const },
+        { date: "2024-05-21", totalHours: 7.6, status: "submitted" as const },
+        { date: "2024-05-22", totalHours: 7.6, status: "draft" as const },
+      ],
+      { todayISO: TODAY },
+    );
+    expect(w.days[0]).toMatchObject({ state: "logged", statusWord: "approved" });
+    expect(w.days[1]).toMatchObject({ state: "logged", statusWord: "waiting" });
+    // Draft = logged but never submitted → amber attention, not a green tick.
+    expect(w.days[2]).toMatchObject({ state: "miss", statusWord: "draft", hours: 7.6 });
+  });
+
+  it("keeps the original words when status is unknown (older callers/fixtures)", () => {
+    const w = buildPhilWeek(WEEK, { todayISO: TODAY });
+    expect(w.days[0]!.statusWord).toBe("logged");
+  });
+
+  it("tallies the week honestly: approved hours, waiting, fix, draft, missed", () => {
+    const w = buildPhilWeek(
+      [
+        { date: "2024-05-20", totalHours: 7.6, status: "approved" as const },
+        { date: "2024-05-21", totalHours: 8, status: "approved" as const },
+        { date: "2024-05-22", totalHours: 7.6, status: "submitted" as const },
+        { date: "2024-05-23", totalHours: 7.6, status: "rejected" as const },
+      ],
+      { todayISO: TODAY },
+    );
+    // Mon+Tue approved; Wed waiting; Thu fix; Fri (today) is NOT missed.
+    expect(w.counts).toEqual({ approvedHours: 15.6, waiting: 1, fix: 1, draft: 0, missed: 0 });
+
+    const sparse = buildPhilWeek([], { todayISO: TODAY });
+    // Mon–Thu past weekdays with nothing logged; today never counts as missed.
+    expect(sparse.counts.missed).toBe(4);
+    expect(sparse.counts.approvedHours).toBe(0);
+  });
+});

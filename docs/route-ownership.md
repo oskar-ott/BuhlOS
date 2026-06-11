@@ -88,6 +88,7 @@ Confirmed in code. These are the intended destinations for new navigation.
 | `/command-centre` | `src/app/(admin)/command-centre/page.tsx` | BuhlOS admin **home**. Queue-shaped attention view + live-surface strip. |
 | `/hours` | `src/app/(admin)/hours/page.tsx` | Hours view. |
 | `/hours/approvals` | `src/app/(admin)/hours/approvals/page.tsx` | Approvals queue. |
+| `/hours/weekly` | `src/app/(admin)/hours/weekly/page.tsx` | Weekly closeout / payroll readiness (PR #113). |
 | `/gear` | `src/app/(admin)/gear/page.tsx` | Gear register. |
 | `/employees` | `src/app/(admin)/employees/page.tsx` | People / onboarding (O1+). |
 | `/employees/[id]` | `src/app/(admin)/employees/[id]/page.tsx` | Employee detail. |
@@ -162,6 +163,7 @@ for removal in a later, intentional cleanup PR (not this one).
 | `/command-centre` | BuhlOS | `(admin)/command-centre` | AdminShell | canonical | admin | sidebar, root landing | admin home; unauth → 307 `/v2/login` |
 | `/hours` | BuhlOS | `(admin)/hours` | AdminShell | canonical | admin | sidebar, command-centre | hours view |
 | `/hours/approvals` | BuhlOS | `(admin)/hours/approvals` | AdminShell | canonical | admin | sidebar, command-centre | approvals queue |
+| `/hours/weekly` | BuhlOS | `(admin)/hours/weekly` | AdminShell | canonical | admin | /hours CTA | weekly closeout / payroll readiness |
 | `/gear` | BuhlOS | `(admin)/gear` | AdminShell | canonical | admin | sidebar, command-centre | gear register |
 | `/employees` | BuhlOS | `(admin)/employees` | AdminShell | canonical | admin | sidebar | people / onboarding |
 | `/observations` | BuhlOS | `(admin)/observations` | AdminShell | canonical | admin | sidebar, command-centre | observations inbox; unauth → 307 `/v2/login` |
@@ -194,7 +196,7 @@ failure that has happened (or could) if the row is left unguarded.
 | `/login` | legacy | legacy login | `public/login.html` (vercel) | legacy | admin→ops redirect breaks | `smoke-admin-routes` (login→`/admin/operations`) |
 | `/v2/login` | shared | none (bespoke) | `src/app/v2/login/page.tsx` | canonical | shell creep; gets gated | `check-route-ownership` (required source), `check-shell-contract` (SHELL_EXEMPT), `middleware.test` (always public) |
 | `/command-centre` | BuhlOS | AdminShell | `src/app/(admin)/command-centre/page.tsx` | canonical | blank after login / wrong shell | `check-shell-contract`, `middleware.test`, `auth-routing.spec` |
-| `/hours` · `/hours/approvals` · `/gear` · `/employees` · `/employees/[id]` · `/observations` · `/material-requests` | BuhlOS | AdminShell | `src/app/(admin)/**` | canonical | blank / wrong shell | `check-shell-contract`, `middleware.test`, `check-route-ownership` |
+| `/hours` · `/hours/approvals` · `/hours/weekly` · `/gear` · `/employees` · `/employees/[id]` · `/observations` · `/material-requests` | BuhlOS | AdminShell | `src/app/(admin)/**` | canonical | blank / wrong shell | `check-shell-contract`, `middleware.test`, `check-route-ownership` |
 | `/admin` · `/admin/` | legacy | legacy shim | `public/admin/index.html` (vercel) | legacy | dead redirect | `smoke-admin-routes` (admin→ops) |
 | `/admin/operations` (+ `/overview`) | legacy | legacy BuhlOS SPA | `public/admin/operations.html` (vercel) | legacy (load-bearing) | blank ops / wrong shell / stale SW | `check-production-shell`, `check-admin-shell`, `smoke-admin-routes`, `check-sw-cache-version` |
 | `/admin/*` (approvals, jobs, itp, plans, variations, reports, …) | legacy | legacy `_shell.js` | `public/admin/*.html` (vercel) | legacy | blank page (missing boot) / stale SW | `check-admin-shell`, `check-sw-cache-version` |
@@ -250,7 +252,7 @@ lists in the guard **and** §8 / §8.1 here in the same PR.
 
 - **BuhlOS sidebar** (`src/components/admin/AdminSidebar.tsx`) — `live` items may
   only link to approved admin routes: `/command-centre`, `/hours`,
-  `/hours/approvals`, `/gear`, `/employees`, `/observations`,
+  `/hours/approvals`, `/hours/weekly`, `/gear`, `/employees`, `/observations`,
   `/material-requests`, `/v2/jobs`. Unbuilt
   items (`Snags`, `Support`, `Settings`) are rendered as **non-clickable** `UC`
   spans, never `<Link>`s — per the "every incomplete feature shows UNDER

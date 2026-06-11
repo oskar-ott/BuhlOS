@@ -84,6 +84,13 @@ Approve/reject push notifications deep-link to the **live Phil surface**:
 (They previously pointed at legacy `/my-day`; the legacy page keeps its own
 `?fixDate=` handler for direct visits.)
 
+## The weekly layer on top
+
+The business closes hours **week by week**: `/hours/weekly` (PR #113, see
+`docs/hours-weekly-closeout.md`) rolls these daily entries into a payroll-
+readiness board — who's ready, who's blocking, approve/reject in place. It is
+a pure projection over this loop; nothing below changed.
+
 ## What this loop is NOT (yet)
 
 - **Weekly batch "Submit timesheet"** — does not exist by design; logging a day

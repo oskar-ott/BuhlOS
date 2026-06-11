@@ -8,11 +8,13 @@ import { PhilPageIntro } from "@/components/phil/ui/PhilPageIntro";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
 import { RejectedHoursResubmitSheet } from "@/components/phil/RejectedHoursResubmitSheet";
+import { PhilWeekSummary } from "@/components/phil/PhilWeekSummary";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { canResubmitInPhil, type AssignableJob } from "@/domains/timesheets/resubmit";
+import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isVisibleToField } from "@/domains/jobs/builder";
 import {
@@ -84,7 +86,16 @@ export default async function PhilHoursPage() {
           <PhilNotice tone="warning" title="Couldn’t load history" role="alert">
             {fetchError}
           </PhilNotice>
-        ) : null}
+        ) : (
+          // The week at a glance — what's approved / waiting / needs fixing /
+          // not logged, with one-tap Fix / Log actions. Built purely from the
+          // same entries as the history below; hidden when they couldn't load
+          // so we never render a fabricated "all clear" week.
+          <PhilWeekSummary
+            entries={entries}
+            todayISO={localDateString(new Date(), BUSINESS_TIMEZONE)}
+          />
+        )}
 
         {entries.length === 0 ? (
           <EmptyState

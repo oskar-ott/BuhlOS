@@ -29,6 +29,9 @@
   --md-amber: #d18b1c;
   --md-amber-bg: #faf2e1;
   --md-amber-bd: #ecd5a5;
+  --md-red: #b3261e;
+  --md-red-bg: #fbeae9;
+  --md-red-bd: #efc4c1;
 }
 
 /* JetBrains Mono microcopy — every label / id / status word in the design. */
@@ -358,6 +361,16 @@ details[open] > .moreOptionsSummary::before {
 .miss .hours,
 .miss .status {
   color: var(--md-amber);
+}
+
+/* rejected entry — the one logged state that needs the worker's hand */
+.fix .box {
+  background: var(--md-red-bg);
+  border-color: var(--md-red-bd);
+}
+.fix .hours,
+.fix .status {
+  color: var(--md-red);
 }
 
 .off .box,

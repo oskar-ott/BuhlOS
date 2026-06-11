@@ -50,6 +50,7 @@ const APPROVED_ADMIN_HREFS = new Set([
   '/command-centre',
   '/hours',
   '/hours/approvals',
+  '/hours/weekly', // PR #113 — weekly hours closeout / payroll readiness
   '/gear',
   '/employees',
   '/observations', // PR 3 — cross-job field-to-office observations inbox
@@ -98,6 +99,7 @@ const REQUIRED_SOURCES = [
   'src/app/(admin)/command-centre/page.tsx',
   'src/app/(admin)/hours/page.tsx',
   'src/app/(admin)/hours/approvals/page.tsx',
+  'src/app/(admin)/hours/weekly/page.tsx',
   'src/app/(admin)/gear/page.tsx',
   'src/app/(admin)/employees/page.tsx',
   'src/app/(admin)/employees/[id]/page.tsx',
