@@ -339,3 +339,23 @@ export function weeklyDayStatusLabel(status: WeeklyDayStatus): string {
       return "—";
   }
 }
+
+/** Bulk-approve endpoint cap (api/time-entries-bulk-approve.js MAX_ENTRIES). */
+export const BULK_APPROVE_MAX = 50;
+
+/**
+ * The {userId, date} pairs for one worker's SUBMITTED days — the exact body
+ * "Approve week" sends to POST /api/time-entries-bulk-approve. Pure so the
+ * selection rule is unit-tested: only submitted days qualify (missing,
+ * rejected, draft, approved and future days are never touched), capped at
+ * the endpoint maximum (a single week is at most 7, so the cap is a guard,
+ * not a path).
+ */
+export function submittedWeekSelection(
+  worker: WeeklyWorkerHours,
+): Array<{ userId: string; date: string }> {
+  return worker.days
+    .filter((d) => d.status === "submitted")
+    .map((d) => ({ userId: worker.workerId, date: d.date }))
+    .slice(0, BULK_APPROVE_MAX);
+}

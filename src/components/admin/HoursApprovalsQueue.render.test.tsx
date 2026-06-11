@@ -60,3 +60,18 @@ describe("HoursApprovalsQueue — job attribution display", () => {
     expect(html).toContain("No job assigned");
   });
 });
+
+describe("Approve all (#124)", () => {
+  it("offers a per-worker Approve all naming the batch size", () => {
+    const html = renderToString(
+      createElement(HoursApprovalsQueue, {
+        initialEntries: [
+          entry({ userId: "u1", userName: "Sam", date: "2024-05-20" }),
+          entry({ userId: "u1", userName: "Sam", date: "2024-05-21" }),
+        ],
+        fetchError: null,
+      })
+    );
+    expect(html).toContain("Approve all (2)");
+  });
+});

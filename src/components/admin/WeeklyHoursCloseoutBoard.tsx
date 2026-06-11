@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -12,6 +12,7 @@ import { timesheetsClient } from "@/domains/timesheets/client";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import {
   readinessLabel,
+  submittedWeekSelection,
   weeklyDayStatusLabel,
   type WeeklyHoursCloseout,
   type WeeklyHoursDay,
@@ -37,6 +38,9 @@ import {
 interface WeeklyHoursCloseoutBoardProps {
   closeout: WeeklyHoursCloseout;
   fetchError: string | null;
+  /** True when the viewer can undo (reopen is admin-tier; leading hands
+   *  approve but cannot reopen, so they never see a button that would 403). */
+  canUndo?: boolean;
 }
 
 type ActionState =
@@ -45,6 +49,15 @@ type ActionState =
   | { kind: "rejecting"; key: string }
   | { kind: "success"; label: string }
   | { kind: "error"; message: string };
+
+/** Result of one "Approve week" call — per-day truth, never a rollup lie. */
+interface BulkOutcome {
+  workerName: string;
+  approvedCount: number;
+  failed: Array<{ date: string | null; error: string }>;
+  /** Entries the viewer can still revert (cleared when the 30s window ends). */
+  undo: Array<{ userId: string; date: string }>;
+}
 
 const READINESS_TONE: Record<WorkerWeekReadiness, "info" | "warning" | "success" | "danger"> = {
   "payroll-ready": "success",
@@ -87,9 +100,18 @@ function countLine(w: WeeklyWorkerHours): string {
   return parts.join(" · ") || "no entries";
 }
 
-export function WeeklyHoursCloseoutBoard({ closeout, fetchError }: WeeklyHoursCloseoutBoardProps) {
+export function WeeklyHoursCloseoutBoard({
+  closeout,
+  fetchError,
+  canUndo = false,
+}: WeeklyHoursCloseoutBoardProps) {
   const router = useRouter();
   const [action, setAction] = useState<ActionState>({ kind: "idle" });
+  const [bulk, setBulk] = useState<BulkOutcome | null>(null);
+  const [bulkBusyWorker, setBulkBusyWorker] = useState<string | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  // Monotonic id so a stale 30s timer never clears a NEWER bulk result.
+  const bulkSeqRef = useRef(0);
   const [rejectTarget, setRejectTarget] = useState<{
     worker: WeeklyWorkerHours;
     day: WeeklyHoursDay;
@@ -99,6 +121,70 @@ export function WeeklyHoursCloseoutBoard({ closeout, fetchError }: WeeklyHoursCl
 
   const needAction = closeout.workers.filter((w) => w.readiness !== "payroll-ready");
   const ready = closeout.workers.filter((w) => w.readiness === "payroll-ready");
+
+  async function approveWeek(worker: WeeklyWorkerHours) {
+    const entries = submittedWeekSelection(worker);
+    if (entries.length === 0 || bulkBusyWorker) return;
+    setBulkBusyWorker(worker.workerId);
+    setAction({ kind: "idle" });
+    setBulk(null);
+    const result = await timesheetsClient.bulkApproveEntries({ entries });
+    setBulkBusyWorker(null);
+    if (!result.ok) {
+      setAction({
+        kind: "error",
+        message:
+          result.error.status === 403
+            ? "You don't have permission to approve these entries."
+            : result.error.message || "Couldn't approve the week. Try again.",
+      });
+      return;
+    }
+    bulkSeqRef.current += 1;
+    const seq = bulkSeqRef.current;
+    const undo = canUndo
+      ? result.data.approved.map((a) => ({ userId: a.userId, date: a.date }))
+      : [];
+    setBulk({
+      workerName: worker.workerName,
+      approvedCount: result.data.approvedCount,
+      failed: result.data.failed.map((f) => ({ date: f.date, error: f.error })),
+      undo,
+    });
+    if (undo.length > 0) {
+      // The undo window matches single-approve affordances: 30 seconds, then
+      // the revert path is the admin reopen flow, not a stale button.
+      setTimeout(() => {
+        if (bulkSeqRef.current === seq) setBulk((b) => (b ? { ...b, undo: [] } : b));
+      }, 30_000);
+    }
+    startTransition(() => router.refresh());
+  }
+
+  async function undoBulk() {
+    if (!bulk || bulk.undo.length === 0 || undoBusy) return;
+    setUndoBusy(true);
+    const failures: string[] = [];
+    // Sequential — same reasoning as the endpoint: per-user day blobs are
+    // cheap and serial writes can't step on each other.
+    for (const ref of bulk.undo) {
+      const r = await timesheetsClient.reopenEntry({
+        userId: ref.userId,
+        date: ref.date,
+        toStatus: "submitted",
+      });
+      if (!r.ok) failures.push(`${ref.date}: ${r.error.message || `HTTP ${r.error.status}`}`);
+    }
+    const total = bulk.undo.length;
+    setUndoBusy(false);
+    setBulk(null);
+    setAction(
+      failures.length === 0
+        ? { kind: "success", label: `Undo complete — ${total} ${total === 1 ? "day" : "days"} back to submitted.` }
+        : { kind: "error", message: `Undo incomplete — ${failures.length} of ${total} couldn't be reopened: ${failures.join("; ")}` }
+    );
+    startTransition(() => router.refresh());
+  }
 
   async function approve(worker: WeeklyWorkerHours, day: WeeklyHoursDay) {
     const key = dayKey(worker.workerId, day.date);
@@ -175,6 +261,32 @@ export function WeeklyHoursCloseoutBoard({ closeout, fetchError }: WeeklyHoursCl
 
       <ActionFeedback state={action} />
 
+      {bulk ? (
+        <Card
+          className={bulk.failed.length > 0 ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardDescription className={bulk.failed.length > 0 ? "text-amber-900" : "text-emerald-900"}>
+              {`Approved ${bulk.approvedCount} ${bulk.approvedCount === 1 ? "day" : "days"} for ${bulk.workerName}.${bulk.failed.length > 0 ? ` ${bulk.failed.length} failed:` : ""}`}
+            </CardDescription>
+            {bulk.undo.length > 0 ? (
+              <Button size="sm" variant="secondary" onClick={undoBulk} disabled={undoBusy}>
+                {undoBusy ? "Undoing…" : `Undo (${bulk.undo.length})`}
+              </Button>
+            ) : null}
+          </div>
+          {bulk.failed.length > 0 ? (
+            <ul className="mt-2 list-disc pl-5 text-sm text-amber-900">
+              {bulk.failed.map((f, i) => (
+                <li key={`${f.date ?? "unknown"}-${i}`}>{`${f.date ?? "unknown day"} — ${f.error}`}</li>
+              ))}
+            </ul>
+          ) : null}
+        </Card>
+      ) : null}
+
       {closeout.workers.length === 0 ? (
         <EmptyState
           title="No hours found for this week"
@@ -200,7 +312,9 @@ export function WeeklyHoursCloseoutBoard({ closeout, fetchError }: WeeklyHoursCl
                       worker={w}
                       action={action}
                       defaultOpen={needAction.length <= 3}
+                      bulkBusy={bulkBusyWorker === w.workerId}
                       onApprove={approve}
+                      onApproveWeek={approveWeek}
                       onReject={(worker, day) => {
                         setRejectTarget({ worker, day });
                         setRejectReason("");
@@ -366,13 +480,17 @@ function WorkerCard({
   worker,
   action,
   defaultOpen,
+  bulkBusy,
   onApprove,
+  onApproveWeek,
   onReject,
 }: {
   worker: WeeklyWorkerHours;
   action: ActionState;
   defaultOpen: boolean;
+  bulkBusy: boolean;
   onApprove: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
+  onApproveWeek: (worker: WeeklyWorkerHours) => void;
   onReject: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
 }): ReactNode {
   // Weekend rows only earn their place when something real happened on them.
@@ -387,7 +505,26 @@ function WorkerCard({
             <CardTitle>{worker.workerName}</CardTitle>
             <CardDescription>{countLine(worker)}</CardDescription>
           </div>
-          <Pill tone={READINESS_TONE[worker.readiness]}>{readinessLabel(worker.readiness)}</Pill>
+          <div className="flex items-center gap-2">
+            {worker.submittedCount > 0 ? (
+              <Button
+                size="sm"
+                disabled={bulkBusy}
+                onClick={(e) => {
+                  // The button lives inside <summary> — stop the click from
+                  // toggling the disclosure.
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onApproveWeek(worker);
+                }}
+              >
+                {bulkBusy
+                  ? "Approving week…"
+                  : `Approve week (${worker.submittedCount})`}
+              </Button>
+            ) : null}
+            <Pill tone={READINESS_TONE[worker.readiness]}>{readinessLabel(worker.readiness)}</Pill>
+          </div>
         </summary>
 
         <ul className="mt-3 divide-y divide-border border-t border-border">

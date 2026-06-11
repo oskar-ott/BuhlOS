@@ -319,3 +319,48 @@ export const TodayPulseResponseSchema = z
 export const ApiErrorBodySchema = z.object({
   error: z.string(),
 });
+
+/** POST /api/time-entries-bulk-approve — body. Cap mirrors the endpoint. */
+export const BulkApprovePayloadSchema = z.object({
+  entries: z
+    .array(
+      z.object({
+        userId: z.string().min(1),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+      })
+    )
+    .min(1, "entries cannot be empty")
+    .max(50, "too many entries (max 50)"),
+});
+
+/** Bulk-approve response — per-entry results so partial failures surface. */
+export const BulkApproveResponseSchema = z
+  .object({
+    approvedCount: z.number(),
+    failedCount: z.number(),
+    approved: z.array(
+      z
+        .object({ userId: z.string(), date: z.string(), totalHours: z.number() })
+        .passthrough()
+    ),
+    failed: z.array(
+      z
+        .object({
+          userId: z.string().nullable(),
+          date: z.string().nullable(),
+          error: z.string(),
+        })
+        .passthrough()
+    ),
+  })
+  .passthrough();
+
+/** POST /api/time-entries-reopen — flip a decided entry back (admin tier).
+ *  Powers the 30s bulk-approve undo: reopen to "submitted". */
+export const ReopenEntryPayloadSchema = z.object({
+  userId: z.string().min(1),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+  toStatus: z.enum(["submitted", "draft"]),
+});
+
+export const ReopenEntryResponseSchema = z.object({}).passthrough();

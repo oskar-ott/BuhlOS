@@ -7,6 +7,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { WeeklyHoursCloseoutBoard } from "@/components/admin/WeeklyHoursCloseoutBoard";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { isAdminRole } from "@/lib/auth/roles";
 import { TimeEntryOverviewResponseSchema } from "@/domains/timesheets/schema";
 import type { TimeEntryOverviewResponse } from "@/domains/timesheets/types";
 import {
@@ -124,7 +125,7 @@ export default async function HoursWeeklyCloseoutPage({
           </CardDescription>
         </Card>
 
-        <WeeklyHoursCloseoutBoard closeout={closeout} fetchError={fetchError} />
+        <WeeklyHoursCloseoutBoard closeout={closeout} fetchError={fetchError} canUndo={isAdminRole(session.role)} />
       </div>
     </AdminShell>
   );

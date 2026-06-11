@@ -8,6 +8,10 @@ import {
   TimeEntryMutationResponseSchema,
   TimeEntryOverviewResponseSchema,
   TodayPulseResponseSchema,
+  BulkApprovePayloadSchema,
+  BulkApproveResponseSchema,
+  ReopenEntryPayloadSchema,
+  ReopenEntryResponseSchema,
 } from "./schema";
 import type {
   ApproveTimeEntryPayload,
@@ -18,6 +22,9 @@ import type {
   TimeEntryMutationResponse,
   TimeEntryOverviewResponse,
   TodayPulseResponse,
+  BulkApprovePayload,
+  BulkApproveResponse,
+  ReopenEntryPayload,
 } from "./types";
 
 /**
@@ -244,6 +251,57 @@ export function rejectEntry(
   });
 }
 
+/**
+ * POST /api/time-entries-bulk-approve — approve up to 50 submitted entries in
+ * one call. Per-entry results: a failure on one never blocks the rest. Same
+ * approver permissions as single approve (admin tier; LH scoped to their
+ * jobs, never another LH).
+ */
+export function bulkApproveEntries(
+  payload: BulkApprovePayload
+): Promise<HttpResult<BulkApproveResponse>> {
+  const parsed = BulkApprovePayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Promise.resolve({
+      ok: false,
+      error: {
+        status: 0,
+        body: parsed.error.flatten(),
+        message: `invalid bulk approve payload: ${parsed.error.message}`,
+      },
+    });
+  }
+  return httpPost<BulkApproveResponse>("/api/time-entries-bulk-approve", parsed.data, {
+    schema: BulkApproveResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/**
+ * POST /api/time-entries-reopen — flip an approved/rejected entry back to
+ * submitted or draft (admin tier only; 409 if already exported). Powers the
+ * bulk-approve undo.
+ */
+export function reopenEntry(
+  payload: ReopenEntryPayload
+): Promise<HttpResult<Record<string, unknown>>> {
+  const parsed = ReopenEntryPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Promise.resolve({
+      ok: false,
+      error: {
+        status: 0,
+        body: parsed.error.flatten(),
+        message: `invalid reopen payload: ${parsed.error.message}`,
+      },
+    });
+  }
+  return httpPost<Record<string, unknown>>("/api/time-entries-reopen", parsed.data, {
+    schema: ReopenEntryResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
 export const timesheetsClient = {
   listOwnEntries,
   listForApprover,
@@ -252,5 +310,7 @@ export const timesheetsClient = {
   submitNewEntry,
   editOwnEntry,
   approveEntry,
+  bulkApproveEntries,
+  reopenEntry,
   rejectEntry,
 } as const;
