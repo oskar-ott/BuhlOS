@@ -28,6 +28,7 @@ const EXACT_STORES = [
   'activity-archive.json',
   'user-activity.json',
   'policy.json',
+  'flags.json', // feature-flag runtime overrides (#155)
   'temps/assets.json',
   'temps/movements.json',
 ];

@@ -22,6 +22,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled, listFlags, isFlagOn } from "../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import {
   TimeEntryListResponseSchema,
@@ -119,6 +120,18 @@ export default async function CommandCentrePage() {
   const jobsWithSnags = jobs.filter((j) => (j.statsSnagsV2Active ?? 0) > 0);
   const itpReview = summariseItpReviewQueue(jobs);
 
+  // #155 pilot: the flags readout is itself flag-gated + admin-tier targeted
+  // — dark for everyone (incl. this page) until FLAG_ADMIN_FLAGS_READOUT or
+  // the flags.json override turns it on, and never rendered to non-admin
+  // tiers even then. The first consumer of the flag system is the flag
+  // system's own ops surface.
+  const showFlagsReadout = await isFlagEnabled("admin_flags_readout", session);
+  const flagStates = showFlagsReadout
+    ? await Promise.all(
+        listFlags().map(async (f) => ({ key: f.key, on: await isFlagOn(f.key), target: f.target }))
+      )
+    : [];
+
   // When a cross-job queue is concentrated on a single job, deep-link
   // straight to that job's section instead of dropping the owner on the
   // jobs index to hunt for it. Mirrors the ITP card's behaviour. The
@@ -213,6 +226,18 @@ export default async function CommandCentrePage() {
   return (
     <AdminShell title="Command Centre">
       <div className="mx-auto max-w-5xl space-y-6">
+        {showFlagsReadout ? (
+          <section
+            aria-label="Active feature flags"
+            className="rounded-card border border-dashed border-border bg-surface-subtle px-4 py-3 text-xs text-text-muted"
+          >
+            <span className="font-semibold uppercase tracking-wider">Feature flags</span>{" "}
+            {flagStates
+              .map((f) => `${f.key}: ${f.on ? "ON" : "off"}${f.target === "admin-tier" ? " (admin tier)" : ""}`)
+              .join(" · ")}{" "}
+            — flip via FLAG_* env or the flags.json override (docs/feature-flags.md).
+          </section>
+        ) : null}
         <section>
           <h2 className="font-display text-sm uppercase tracking-wider text-text-muted">
             Needs your attention

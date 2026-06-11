@@ -28,6 +28,7 @@
     "check:route-ownership": "node scripts/check-route-ownership.js",
     "check:backup-manifest": "node scripts/check-backup-manifest.js",
     "check:role-literals": "node scripts/check-role-literals.js",
+    "check:flag-expiry": "node scripts/check-flag-expiry.js",
     "check:shell-contract": "node scripts/check-shell-contract.js",
     "check:smoke-list": "playwright test tests/playwright/smoke --list",
     "smoke:admin-routes": "node scripts/smoke-admin-routes.js",
