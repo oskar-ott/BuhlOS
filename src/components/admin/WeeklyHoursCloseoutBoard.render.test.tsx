@@ -131,3 +131,21 @@ describe("WeeklyHoursCloseoutBoard (render)", () => {
     expect(html).not.toContain("Missing");
   });
 });
+
+describe("Approve week (#124)", () => {
+  it("offers Approve week on a worker with submitted days, naming the count", () => {
+    const html = render([
+      entry({ userId: "u1", userName: "Sam", date: "2024-05-20", status: "submitted" }),
+      entry({ userId: "u1", userName: "Sam", date: "2024-05-21", status: "submitted" }),
+      entry({ userId: "u1", userName: "Sam", date: "2024-05-22", status: "approved" }),
+    ]);
+    expect(html).toContain("Approve week (2)");
+  });
+
+  it("hides Approve week when the worker has nothing submitted", () => {
+    const html = render([
+      entry({ userId: "u1", userName: "Sam", date: "2024-05-20", status: "rejected", rejectedReason: "x" }),
+    ]);
+    expect(html).not.toContain("Approve week");
+  });
+});

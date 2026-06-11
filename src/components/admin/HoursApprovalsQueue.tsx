@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition, type ReactNode } from "react";
+import { useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -22,6 +22,8 @@ import type { TimeEntry } from "@/domains/timesheets/types";
 interface HoursApprovalsQueueProps {
   initialEntries: ReadonlyArray<TimeEntry>;
   fetchError: string | null;
+  /** Reopen (the undo path) is admin-tier only — LHs never see the button. */
+  canUndo?: boolean;
 }
 
 type ActionState =
@@ -49,15 +51,85 @@ function entryKey(entry: Pick<TimeEntry, "userId" | "date">): string {
  * 292479990. /gear works because it's only one route segment deep;
  * /hours/approvals is two and hits the bug. See PR #6.
  */
-export function HoursApprovalsQueue({ initialEntries, fetchError }: HoursApprovalsQueueProps) {
+export function HoursApprovalsQueue({ initialEntries, fetchError, canUndo = false }: HoursApprovalsQueueProps) {
   const router = useRouter();
   const [entries, setEntries] = useState<ReadonlyArray<TimeEntry>>(initialEntries);
   const [action, setAction] = useState<ActionState>({ kind: "idle" });
   const [rejectTarget, setRejectTarget] = useState<TimeEntry | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [bulk, setBulk] = useState<BulkOutcome | null>(null);
+  const [bulkBusyWorker, setBulkBusyWorker] = useState<string | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const bulkSeqRef = useRef(0);
   const [, startTransition] = useTransition();
 
   const grouped = useMemo(() => groupByWorker(entries), [entries]);
+
+  async function approveAll(group: WorkerGroupShape) {
+    // The queue lists submitted entries only; cap at the endpoint max with an
+    // honest remainder note rather than a silent truncation.
+    const all = group.entries.map((e) => ({ userId: e.userId, date: e.date }));
+    const entriesToSend = all.slice(0, 50);
+    if (entriesToSend.length === 0 || bulkBusyWorker) return;
+    setBulkBusyWorker(group.userId);
+    setAction({ kind: "idle" });
+    setBulk(null);
+    const result = await timesheetsClient.bulkApproveEntries({ entries: entriesToSend });
+    setBulkBusyWorker(null);
+    if (!result.ok) {
+      setAction({
+        kind: "error",
+        message:
+          result.error.status === 403
+            ? "You don't have permission to approve these entries."
+            : result.error.message || "Couldn't approve. Try again.",
+      });
+      return;
+    }
+    const approvedKeys = new Set(result.data.approved.map((a) => `${a.userId}:${a.date}`));
+    setEntries((current) => current.filter((e) => !approvedKeys.has(`${e.userId}:${e.date}`)));
+    bulkSeqRef.current += 1;
+    const seq = bulkSeqRef.current;
+    const undo = canUndo
+      ? result.data.approved.map((a) => ({ userId: a.userId, date: a.date }))
+      : [];
+    setBulk({
+      workerName: group.userName,
+      approvedCount: result.data.approvedCount,
+      failed: result.data.failed.map((f) => ({ date: f.date, error: f.error })),
+      remainder: all.length - entriesToSend.length,
+      undo,
+    });
+    if (undo.length > 0) {
+      setTimeout(() => {
+        if (bulkSeqRef.current === seq) setBulk((b) => (b ? { ...b, undo: [] } : b));
+      }, 30_000);
+    }
+    startTransition(() => router.refresh());
+  }
+
+  async function undoBulk() {
+    if (!bulk || bulk.undo.length === 0 || undoBusy) return;
+    setUndoBusy(true);
+    const failures: string[] = [];
+    for (const ref of bulk.undo) {
+      const r = await timesheetsClient.reopenEntry({
+        userId: ref.userId,
+        date: ref.date,
+        toStatus: "submitted",
+      });
+      if (!r.ok) failures.push(`${ref.date}: ${r.error.message || `HTTP ${r.error.status}`}`);
+    }
+    const total = bulk.undo.length;
+    setUndoBusy(false);
+    setBulk(null);
+    setAction(
+      failures.length === 0
+        ? { kind: "success", entryKey: "bulk-undo", label: `Undo complete — ${total} ${total === 1 ? "entry" : "entries"} back to submitted.` }
+        : { kind: "error", message: `Undo incomplete — ${failures.length} of ${total} couldn't be reopened: ${failures.join("; ")}` }
+    );
+    startTransition(() => router.refresh());
+  }
 
   async function approve(entry: TimeEntry) {
     const key = entryKey(entry);
@@ -141,6 +213,32 @@ export function HoursApprovalsQueue({ initialEntries, fetchError }: HoursApprova
 
       <ActionFeedback state={action} />
 
+      {bulk ? (
+        <Card
+          className={bulk.failed.length > 0 ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardDescription className={bulk.failed.length > 0 ? "text-amber-900" : "text-emerald-900"}>
+              {`Approved ${bulk.approvedCount} ${bulk.approvedCount === 1 ? "entry" : "entries"} for ${bulk.workerName}.${bulk.remainder > 0 ? ` ${bulk.remainder} more remain (50 per batch) — run it again.` : ""}${bulk.failed.length > 0 ? ` ${bulk.failed.length} failed:` : ""}`}
+            </CardDescription>
+            {bulk.undo.length > 0 ? (
+              <Button size="sm" variant="secondary" onClick={undoBulk} disabled={undoBusy}>
+                {undoBusy ? "Undoing…" : `Undo (${bulk.undo.length})`}
+              </Button>
+            ) : null}
+          </div>
+          {bulk.failed.length > 0 ? (
+            <ul className="mt-2 list-disc pl-5 text-sm text-amber-900">
+              {bulk.failed.map((f, i) => (
+                <li key={`${f.date ?? "unknown"}-${i}`}>{`${f.date ?? "unknown date"} — ${f.error}`}</li>
+              ))}
+            </ul>
+          ) : null}
+        </Card>
+      ) : null}
+
       {entries.length === 0 ? (
         <EmptyState
           title="No entries to approve"
@@ -153,7 +251,9 @@ export function HoursApprovalsQueue({ initialEntries, fetchError }: HoursApprova
               <WorkerGroup
                 group={group}
                 action={action}
+                bulkBusy={bulkBusyWorker === group.userId}
                 onApprove={approve}
+                onApproveAll={approveAll}
                 onReject={openReject}
               />
             </li>
@@ -209,6 +309,15 @@ export function HoursApprovalsQueue({ initialEntries, fetchError }: HoursApprova
       </Modal>
     </div>
   );
+}
+
+interface BulkOutcome {
+  workerName: string;
+  approvedCount: number;
+  failed: Array<{ date: string | null; error: string }>;
+  /** Entries beyond the 50-per-call endpoint cap, left submitted. */
+  remainder: number;
+  undo: Array<{ userId: string; date: string }>;
 }
 
 function ActionFeedback({ state }: { state: ActionState }) {
@@ -285,12 +394,16 @@ function groupByWorker(entries: ReadonlyArray<TimeEntry>): ReadonlyArray<WorkerG
 function WorkerGroup({
   group,
   action,
+  bulkBusy,
   onApprove,
+  onApproveAll,
   onReject,
 }: {
   group: WorkerGroupShape;
   action: ActionState;
+  bulkBusy: boolean;
   onApprove: (entry: TimeEntry) => void;
+  onApproveAll: (group: WorkerGroupShape) => void;
   onReject: (entry: TimeEntry) => void;
 }): ReactNode {
   return (
@@ -306,7 +419,14 @@ function WorkerGroup({
             Oldest {relativeWhen(group.oldestSubmittedAt)}
           </p>
         </div>
-        <Pill tone="info">{group.entries.length}</Pill>
+        <div className="flex items-center gap-2">
+          <Button size="sm" disabled={bulkBusy} onClick={() => onApproveAll(group)}>
+            {bulkBusy
+              ? "Approving…"
+              : `Approve all (${Math.min(group.entries.length, 50)})`}
+          </Button>
+          <Pill tone="info">{group.entries.length}</Pill>
+        </div>
       </div>
 
       <ul className="divide-y divide-border">

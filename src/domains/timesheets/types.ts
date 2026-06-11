@@ -22,6 +22,9 @@ import type {
   PayrollExportPreviewResponseSchema,
   TodayPulseHoursSchema,
   TodayPulseResponseSchema,
+  BulkApprovePayloadSchema,
+  BulkApproveResponseSchema,
+  ReopenEntryPayloadSchema,
 } from "./schema";
 
 /**
@@ -81,3 +84,7 @@ export type PayrollExportPreviewResponse = z.infer<typeof PayrollExportPreviewRe
 export type TodayPulseHours = z.infer<typeof TodayPulseHoursSchema>;
 
 export type TodayPulseResponse = z.infer<typeof TodayPulseResponseSchema>;
+
+export type BulkApprovePayload = z.infer<typeof BulkApprovePayloadSchema>;
+export type BulkApproveResponse = z.infer<typeof BulkApproveResponseSchema>;
+export type ReopenEntryPayload = z.infer<typeof ReopenEntryPayloadSchema>;

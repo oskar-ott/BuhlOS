@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { MissingLog, TimeEntry } from "./types";
 import {
+  BULK_APPROVE_MAX,
   buildWeeklyHoursCloseout,
   readinessLabel,
+  submittedWeekSelection,
   weeklyDayStatusLabel,
 } from "./weekly-closeout";
 
@@ -303,5 +305,60 @@ describe("labels", () => {
     expect(readinessLabel("missing-hours")).toBe("Missing hours");
     expect(weeklyDayStatusLabel("draft")).toBe("Draft — not submitted");
     expect(weeklyDayStatusLabel("future")).toBe("—");
+  });
+});
+
+describe("submittedWeekSelection (#124 — the Approve-week payload)", () => {
+  it("selects ONLY submitted days as {userId, date} pairs", () => {
+    const closeout = buildWeeklyHoursCloseout({
+      entries: [
+        entry({ userId: "u1", date: "2024-05-20", status: "submitted" }),
+        entry({ userId: "u1", date: "2024-05-21", status: "approved" }),
+        entry({ userId: "u1", date: "2024-05-22", status: "rejected", rejectedReason: "x" }),
+        entry({ userId: "u1", date: "2024-05-23", status: "draft" }),
+        entry({ userId: "u1", date: "2024-05-24", status: "submitted" }),
+      ],
+      missing: [],
+      weekStart: "2024-05-20",
+      todayISO: "2024-05-24",
+    });
+    const worker = closeout.workers.find((w) => w.workerId === "u1")!;
+    expect(submittedWeekSelection(worker)).toEqual([
+      { userId: "u1", date: "2024-05-20" },
+      { userId: "u1", date: "2024-05-24" },
+    ]);
+  });
+
+  it("returns an empty selection when nothing is submitted (button has nothing to do)", () => {
+    const closeout = buildWeeklyHoursCloseout({
+      entries: [entry({ userId: "u1", date: "2024-05-20", status: "approved" })],
+      missing: [],
+      weekStart: "2024-05-20",
+      todayISO: "2024-05-24",
+    });
+    const worker = closeout.workers.find((w) => w.workerId === "u1")!;
+    expect(submittedWeekSelection(worker)).toEqual([]);
+  });
+
+  it("caps at the endpoint maximum", () => {
+    expect(BULK_APPROVE_MAX).toBe(50);
+    const days = Array.from({ length: 7 }, (_, i) => ({
+      date: `2024-05-2${i % 7}`,
+      weekday: "Mon",
+      status: "submitted" as const,
+      hours: 7.6,
+      entryId: `e${i}`,
+      jobLabel: null,
+      note: null,
+      rejectedReason: null,
+    }));
+    const worker = {
+      workerId: "u1", workerName: "U", workerRole: null,
+      readiness: "needs-review" as const,
+      approvedHours: 0, approvedCount: 0, submittedCount: 7,
+      rejectedCount: 0, draftCount: 0, missingCount: 0,
+      blockers: [], days,
+    };
+    expect(submittedWeekSelection(worker).length).toBeLessThanOrEqual(BULK_APPROVE_MAX);
   });
 });

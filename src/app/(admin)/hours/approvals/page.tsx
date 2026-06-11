@@ -7,6 +7,7 @@ import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { HoursApprovalsQueue } from "@/components/admin/HoursApprovalsQueue";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { isAdminRole } from "@/lib/auth/roles";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
@@ -58,7 +59,7 @@ export default async function HoursApprovalsPage() {
           </CardDescription>
         </Card>
 
-        <HoursApprovalsQueue initialEntries={entries} fetchError={fetchError} />
+        <HoursApprovalsQueue initialEntries={entries} fetchError={fetchError} canUndo={isAdminRole(session.role)} />
 
         <UnderConstructionPanel
           feature="Bulk approve week · re-open approved entry · LH-scoped admin view"
