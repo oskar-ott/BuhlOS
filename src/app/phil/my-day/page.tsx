@@ -1,12 +1,11 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { JetBrains_Mono } from "next/font/google";
 import { cn } from "@/lib/cn";
 import { PhilShell } from "@/components/phil/PhilShell";
-import { AttentionBanner } from "@/components/ui/AttentionBanner";
 import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
 import { PhilWeekStrip } from "@/components/phil/PhilWeekStrip";
+import { PhilNeedsYouFeed } from "@/components/phil/PhilNeedsYouFeed";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
@@ -16,6 +15,8 @@ import type { TimeEntry } from "@/domains/timesheets/types";
 import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isVisibleToField } from "@/domains/jobs/builder";
+import { SnagListResponseSchema } from "@/domains/snags/schema";
+import { buildPhilNeedsYou, type JobSnags } from "@/domains/phil/needs-you";
 import styles from "@/components/phil/myDay.module.css";
 
 export const dynamic = "force-dynamic";
@@ -41,13 +42,15 @@ const mono = JetBrains_Mono({
  *   greeting ("Arvo, {name}" + date + the job they're on)
  *   → This week (the Mon–Sun PhilWeekStrip)
  *   → log today's hours (the unchanged LogHoursSheet)
- *   → rejected-hours alert (the only real "needs you" on this surface).
+ *   → "Needs you" feed (PhilNeedsYouFeed — real attention only).
  * The centre Capture shutter stays on the shell (PhilTabBar).
  *
- * Honesty: the design's "Submit timesheet" (weekly batch) and "Needs you"
- * RFI / ITP-mark rows are NOT shipped — logging a day already submits it to
- * the office (there is no weekly batch submit), and RFIs / a cross-job
- * needs-you feed don't exist in Phil yet. We never fabricate that state.
+ * Honesty: the "Needs you" feed is backed ONLY by real, worker-attributable
+ * sources — rejected hours + snagsV2 assigned to this worker (see
+ * buildPhilNeedsYou and docs/phil-my-day-needs-you.md). The design's "Submit
+ * timesheet" (weekly batch) is NOT shipped (no weekly batch-submit workflow
+ * exists — logging a day already submits it); unwired attention types (tasks,
+ * evidence, ITP, RFI) are omitted, never faked.
  *
  * Cross-ref:
  *   docs/rebuild-audit/13-ui-information-architecture.md §Phil/Today
@@ -75,13 +78,17 @@ export default async function MyDayPage() {
     loadAssignedJobs(raw),
   ]);
 
-  // Bible vNext §16.3 quick-win: surface the most recent rejected entry so the
-  // worker can act in five seconds. This is the only real "needs you" signal on
-  // My Day — kept at the top rather than the design's bottom slot because a
-  // rejected day is about the hours flow right here. Only one banner stacks.
-  const rejectedEntry = recentEntries.find(
-    (e) => e.status === "rejected" && e.rejectedReason
-  );
+  // "Needs you" feed — the worker's real, actionable attention across their
+  // assigned jobs. Snags are job-scoped (GET /api/snags?jobId=), so we fetch
+  // them per assigned job once the jobs are known; the build is a pure
+  // selector. Both inputs are real (rejected hours + snags assigned to ME) —
+  // see buildPhilNeedsYou; nothing here is fabricated.
+  const jobSnags = await loadAssignedSnags(assignedJobs.jobs, raw);
+  const needsYouItems = buildPhilNeedsYou({
+    viewerId: session.userId ?? null,
+    entries: recentEntries,
+    jobSnags,
+  });
 
   // Greeting. Time-of-day + worker name (both real: the name rides on the
   // session cookie, no extra fetch; the part-of-day is computed in the business
@@ -121,28 +128,6 @@ export default async function MyDayPage() {
           ) : null}
         </header>
 
-        {rejectedEntry ? (
-          <AttentionBanner
-            chip="Rejected"
-            tone="danger"
-            title={`${formatShortDate(rejectedEntry.date)} hours need a fix`}
-            description={
-              <>
-                <span className="font-medium">Why:</span>{" "}
-                {rejectedEntry.rejectedReason}
-              </>
-            }
-            cta={
-              <Link
-                href="/phil/hours"
-                className="inline-flex min-h-[44px] items-center font-semibold text-text underline decoration-accent-yellow decoration-2 underline-offset-4"
-              >
-                Fix &amp; resubmit →
-              </Link>
-            }
-          />
-        ) : null}
-
         <PhilWeekStrip entries={recentEntries} todayISO={todayISO} />
 
         <LogHoursSheet
@@ -164,6 +149,8 @@ export default async function MyDayPage() {
             </div>
           </PhilNotice>
         ) : null}
+
+        <PhilNeedsYouFeed items={needsYouItems} />
 
         <div className={styles.deferNote}>
           <div className={styles.deferNoteLabel}>Heads up</div>
@@ -302,8 +289,40 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
   }
 }
 
-function formatShortDate(date: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
-  const d = new Date(date + "T00:00:00");
-  return d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
+/**
+ * Load snagsV2 for each assigned job and aggregate into the "Needs you" feed
+ * input. snagsV2 is job-scoped (GET /api/snags?jobId=), so this fetches per
+ * assigned job in parallel and FAILS SOFT per job — a job whose snags can't be
+ * read is skipped (its snags don't appear), never an error that blanks the
+ * page. The pure selector (buildPhilNeedsYou) then keeps only snags assigned to
+ * THIS worker that are still open / in progress. Workers have a handful of
+ * assigned jobs, so this is a small, bounded fan-out.
+ */
+async function loadAssignedSnags(
+  jobs: ReadonlyArray<{ id: string; name: string }>,
+  cookieValue: string | undefined,
+): Promise<JobSnags[]> {
+  if (jobs.length === 0) return [];
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+
+  const results = await Promise.all(
+    jobs.map(async (job): Promise<JobSnags | null> => {
+      try {
+        const res = await fetch(`${base}/api/snags?jobId=${encodeURIComponent(job.id)}`, {
+          cache: "no-store",
+          headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+        });
+        if (!res.ok) return null;
+        const parsed = SnagListResponseSchema.safeParse(await res.json());
+        if (!parsed.success) return null;
+        return { jobId: job.id, jobName: job.name, snags: parsed.data.snags };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return results.filter((r): r is JobSnags => r !== null);
 }
