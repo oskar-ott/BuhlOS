@@ -163,22 +163,24 @@ async function expectStatus(name, url, opts) {
     expect: { status: [307] },
   });
 
-  // Legacy routes — served by vercel.json rewrite, should 200. These must keep
-  // working: the route contract preserves them (docs/route-ownership.md §6).
-  await expectStatus("HTML  /login (legacy)", `${base}/login`, {
-    expect: { status: [200], contentType: "text/html" },
+  // Old legacy URLs — redirected since the legacy-interface cutover
+  // (docs/route-ownership.md §6). The full matrix incl. Location targets
+  // lives in scripts/smoke-legacy-redirects.js; these spot-checks just
+  // prove the redirects exist (no legacy page can 200 here again).
+  await expectStatus("HTML  /login (→ /v2/login)", `${base}/login`, {
+    expect: { status: [307, 308] },
   });
-  await expectStatus("HTML  /phil (legacy)", `${base}/phil`, {
-    expect: { status: [200], contentType: "text/html" },
+  await expectStatus("HTML  /phil (→ /phil/my-day)", `${base}/phil`, {
+    expect: { status: [307, 308] },
   });
-  await expectStatus("HTML  /my-day (legacy tradie home)", `${base}/my-day`, {
-    expect: { status: [200], contentType: "text/html" },
+  await expectStatus("HTML  /my-day (→ /phil/my-day)", `${base}/my-day`, {
+    expect: { status: [307, 308] },
   });
-  await expectStatus("HTML  /my-gear (legacy)", `${base}/my-gear`, {
-    expect: { status: [200], contentType: "text/html" },
+  await expectStatus("HTML  /my-gear (→ /phil/gear)", `${base}/my-gear`, {
+    expect: { status: [307, 308] },
   });
-  await expectStatus("HTML  /admin/operations (legacy)", `${base}/admin/operations`, {
-    expect: { status: [200], contentType: "text/html" },
+  await expectStatus("HTML  /admin/operations (→ /command-centre)", `${base}/admin/operations`, {
+    expect: { status: [307, 308] },
   });
 
   // API GET — every endpoint returns 401 JSON without auth.
