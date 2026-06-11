@@ -27,7 +27,19 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
-import { publishJob, unpublishJob, updateJob } from "@/domains/jobs/client";
+import {
+  captureStructurePreset,
+  listStructurePresets,
+  publishJob,
+  unpublishJob,
+  updateJob,
+} from "@/domains/jobs/client";
+import {
+  autoNumberedNames,
+  instantiatePreset,
+  type StructurePreset,
+} from "@/domains/jobs/structure-presets";
+import { Modal } from "@/components/ui/Modal";
 import {
   buildPhilPreview,
   buildUpdatePayload,
@@ -178,6 +190,20 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
   const [savedTick, setSavedTick] = useState(false);
   const [busy, setBusy] = useState<null | "publish" | "unpublish">(null);
   const [publishError, setPublishError] = useState<string | null>(null);
+
+  // #192 — structure presets. Save captures the LAST-SAVED group server-side
+  // (same mapper family as job duplication); insert is pure client-side and
+  // rides the normal validated save.
+  const [presetSaveTarget, setPresetSaveTarget] = useState<number | null>(null);
+  const [presetName, setPresetName] = useState("");
+  const [presetInsertOpen, setPresetInsertOpen] = useState(false);
+  const [presets, setPresets] = useState<StructurePreset[] | null>(null);
+  const [presetsError, setPresetsError] = useState<string | null>(null);
+  const [insertPresetId, setInsertPresetId] = useState<string | null>(null);
+  const [insertBase, setInsertBase] = useState("");
+  const [insertCount, setInsertCount] = useState(1);
+  const [presetBusy, setPresetBusy] = useState(false);
+  const [presetError, setPresetError] = useState<string | null>(null);
 
   const structureFrozen = useMemo(() => hasArchivedStructure(savedJob), [savedJob]);
 
@@ -353,6 +379,148 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
       {tab === "preview" ? renderPreview() : null}
       {tab === "publish" ? renderPublish() : null}
       {tab === "more" ? renderMore() : null}
+
+      {/* #192 — save a saved group as a reusable preset */}
+      <Modal
+        open={presetSaveTarget !== null}
+        onClose={() => {
+          if (presetBusy) return;
+          setPresetSaveTarget(null);
+        }}
+        title="Save group as preset"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text-muted">
+            Captures the <span className="font-medium text-text">last saved</span> version of this
+            group — areas, space types and custom task lists; no progress, no ids.
+            {dirty ? " You have unsaved changes — save the job first to include them." : ""}
+          </p>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-text">Preset name</span>
+            <input
+              autoFocus
+              className={inputClass}
+              value={presetName}
+              maxLength={80}
+              onChange={(e) => setPresetName(e.target.value)}
+              placeholder="e.g. Townhouse unit — standard"
+            />
+          </label>
+          {presetError ? (
+            <p role="alert" className="text-sm text-state-danger">
+              {presetError}
+            </p>
+          ) : null}
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button variant="ghost" disabled={presetBusy} onClick={() => setPresetSaveTarget(null)}>
+              Cancel
+            </Button>
+            <Button disabled={presetBusy} onClick={() => void confirmSavePreset()}>
+              {presetBusy ? "Saving…" : "Save preset"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* #192 — insert a preset n times with auto-numbered names */}
+      <Modal
+        open={presetInsertOpen}
+        onClose={() => setPresetInsertOpen(false)}
+        title="Add groups from a preset"
+      >
+        <div className="space-y-4">
+          {presetsError ? (
+            <p role="alert" className="text-sm text-state-danger">
+              {presetsError}
+            </p>
+          ) : presets === null ? (
+            <p className="text-sm text-text-muted">Loading presets…</p>
+          ) : presets.length === 0 ? (
+            <p className="rounded-card border border-dashed border-border bg-surface-subtle p-3 text-sm text-text-muted">
+              No presets yet. Save any group as a preset first — it&rsquo;ll show up here for every
+              job.
+            </p>
+          ) : (
+            <>
+              <div role="radiogroup" aria-label="Preset" className="space-y-2">
+                {presets.map((preset) => {
+                  const active = preset.id === insertPresetId;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => {
+                        setInsertPresetId(preset.id);
+                        if (!insertBase) setInsertBase(preset.group.name);
+                      }}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-2 rounded-card border p-3 text-left text-sm",
+                        active
+                          ? "border-brand-navy bg-brand-navy text-text-inverse"
+                          : "border-border bg-surface text-text hover:bg-surface-subtle"
+                      )}
+                    >
+                      <span className="min-w-0 truncate font-medium">{preset.name}</span>
+                      <span className={active ? "text-text-inverse/80" : "text-text-muted"}>
+                        {preset.group.areas.length} areas
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="grid grid-cols-[1fr_auto] gap-2">
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium text-text">Group name base</span>
+                  <input
+                    className={inputClass}
+                    value={insertBase}
+                    onChange={(e) => setInsertBase(e.target.value)}
+                    placeholder="e.g. Unit"
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium text-text">Copies</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    className={cn(inputClass, "w-20")}
+                    value={insertCount}
+                    onChange={(e) =>
+                      setInsertCount(Math.max(1, Math.min(30, Number(e.target.value) || 1)))
+                    }
+                  />
+                </label>
+              </div>
+              {insertPresetId ? (
+                <p className="text-xs text-text-muted">
+                  {`Will add: ${autoNumberedNames(
+                    insertBase ||
+                      (presets.find((p) => p.id === insertPresetId)?.group.name ?? "Group"),
+                    insertCount,
+                    form.areaGroups.map((g) => g.name)
+                  ).join(", ")}`}
+                </p>
+              ) : null}
+              {presetError ? (
+                <p role="alert" className="text-sm text-state-danger">
+                  {presetError}
+                </p>
+              ) : null}
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button variant="ghost" onClick={() => setPresetInsertOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={confirmInsertPreset} disabled={!insertPresetId}>
+                  Insert
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 
@@ -524,9 +692,19 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
                 empty for a flat job, or turn off the Areas module.
               </CardDescription>
             </div>
-            <Button data-testid="add-group" size="sm" variant="secondary" onClick={addGroup}>
-              <Plus className="h-4 w-4" aria-hidden="true" /> Group
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                data-testid="add-from-preset"
+                size="sm"
+                variant="ghost"
+                onClick={() => void openInsertPresets()}
+              >
+                From preset
+              </Button>
+              <Button data-testid="add-group" size="sm" variant="secondary" onClick={addGroup}>
+                <Plus className="h-4 w-4" aria-hidden="true" /> Group
+              </Button>
+            </div>
           </div>
 
           {form.areaGroups.length === 0 ? (
@@ -545,6 +723,20 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
                       onChange={(e) => updateGroupName(gi, e.target.value)}
                       placeholder="Group name (e.g. Level 1)"
                     />
+                    {group.id ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setPresetSaveTarget(gi);
+                          setPresetName(group.name ? `${group.name} preset` : "");
+                          setPresetError(null);
+                        }}
+                        aria-label={`Save ${group.name || "group"} as preset`}
+                      >
+                        Save as preset
+                      </Button>
+                    ) : null}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -652,6 +844,67 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
         </Button>
       </div>
     );
+  }
+
+  /* ===================== structure presets (#192) ==================== */
+  async function openInsertPresets() {
+    setPresetInsertOpen(true);
+    setPresetError(null);
+    if (presets === null) {
+      const r = await listStructurePresets();
+      if (r.ok) {
+        setPresets(r.data.presets as StructurePreset[]);
+        setPresetsError(null);
+      } else {
+        setPresetsError(r.error.message || "Couldn't load presets.");
+      }
+    }
+  }
+
+  async function confirmSavePreset() {
+    if (presetSaveTarget === null || presetBusy) return;
+    const group = savedForm.areaGroups[presetSaveTarget];
+    const groupId = form.areaGroups[presetSaveTarget]?.id;
+    if (!group || !groupId) return;
+    const trimmed = presetName.trim();
+    if (!trimmed) {
+      setPresetError("Give the preset a name.");
+      return;
+    }
+    setPresetBusy(true);
+    setPresetError(null);
+    const r = await captureStructurePreset({ jobId: savedJob.id, groupId, name: trimmed });
+    setPresetBusy(false);
+    if (!r.ok) {
+      setPresetError(
+        r.error.status === 409
+          ? "A preset with that name already exists."
+          : r.error.message || "Couldn't save the preset."
+      );
+      return;
+    }
+    setPresets(null); // refetch next time — the list changed
+    setPresetSaveTarget(null);
+    setPresetName("");
+  }
+
+  function confirmInsertPreset() {
+    const preset = (presets ?? []).find((p) => p.id === insertPresetId);
+    if (!preset) {
+      setPresetError("Pick a preset to insert.");
+      return;
+    }
+    const names = autoNumberedNames(
+      insertBase || preset.group.name,
+      insertCount,
+      form.areaGroups.map((g) => g.name)
+    );
+    set("areaGroups", [...form.areaGroups, ...instantiatePreset(preset, names)]);
+    setPresetInsertOpen(false);
+    setInsertPresetId(null);
+    setInsertBase("");
+    setInsertCount(1);
+    setPresetError(null);
   }
 
   /* area-group / area mutators */

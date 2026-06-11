@@ -330,3 +330,37 @@ export const JobCreateInputSchema = JobWritableFieldsSchema.extend({
 export const JobUpdateInputSchema = JobWritableFieldsSchema.extend({
   id: z.string().min(1),
 }).passthrough();
+
+/** #192 — reusable area-group presets (api/structure-presets.js). */
+export const StructurePresetSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    group: z
+      .object({
+        name: z.string(),
+        areas: z.array(
+          z
+            .object({
+              name: z.string(),
+              spaceType: z.string().optional(),
+              order: z.number().optional(),
+              roughInTasks: z.array(z.object({ name: z.string() }).passthrough()).optional(),
+              fitOffTasks: z.array(z.object({ name: z.string() }).passthrough()).optional(),
+            })
+            .passthrough()
+        ),
+      })
+      .passthrough(),
+    sourceJobId: z.string().optional(),
+    createdAt: z.string().optional(),
+    createdByName: z.string().optional(),
+  })
+  .passthrough();
+
+export const StructurePresetListResponseSchema = z.object({
+  presets: z.array(StructurePresetSchema),
+});
+export const StructurePresetMutationResponseSchema = z.object({
+  preset: StructurePresetSchema,
+});

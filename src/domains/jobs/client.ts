@@ -6,6 +6,8 @@ import {
   JobDetailResponseSchema,
   JobListResponseSchema,
   JobUpdateInputSchema,
+  StructurePresetListResponseSchema,
+  StructurePresetMutationResponseSchema,
 } from "./schema";
 import type {
   JobCreateInput,
@@ -187,6 +189,32 @@ export async function deleteTestJobs(
   });
 }
 
+type StructurePresetListResponse = import("zod").infer<typeof StructurePresetListResponseSchema>;
+type StructurePresetMutationResponse = import("zod").infer<typeof StructurePresetMutationResponseSchema>;
+
+/** #192 — reusable area-group presets. Admin tier, like the builder. */
+export function listStructurePresets(): Promise<HttpResult<StructurePresetListResponse>> {
+  return httpGet<StructurePresetListResponse>("/api/structure-presets", {
+    schema: StructurePresetListResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+export function captureStructurePreset(input: {
+  jobId: string;
+  groupId: string;
+  name: string;
+}): Promise<HttpResult<StructurePresetMutationResponse>> {
+  return httpPost<StructurePresetMutationResponse>(
+    "/api/structure-presets?action=capture",
+    input,
+    {
+      schema: StructurePresetMutationResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
 export const jobsClient = {
   listJobs,
   getJobDetail,
@@ -194,6 +222,8 @@ export const jobsClient = {
   createJob,
   updateJob,
   duplicateJob,
+  listStructurePresets,
+  captureStructurePreset,
   publishJob,
   unpublishJob,
   deleteTestJob,
