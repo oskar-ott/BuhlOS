@@ -23,6 +23,13 @@ payroll-focused home that opens straight into the week timesheet.
    slot.
 3. **This week** — `PhilWeekStrip`: a Mon–Sun payroll strip with per-day hours,
    a week total, and a "Today not logged" flag. Pure logic in `philWeek.ts`.
+   The strip is also a **directory**: today + every past day is a link to
+   `/phil/my-day?fixDate=<date>` (the same deep-link the "Hours rejected" push
+   uses), so a missed day is one tap from the hours form preselected to that
+   date — no scrolling to the date chip and picking the day by hand. A rejected
+   day auto-opens fix-and-resubmit; future days are inert (nothing to act on).
+   The log action's title flips to "Log hours for this day" when the selected
+   date isn't today.
 4. **Log today's hours** — `LogHoursSheet`, restyled to the design's **compact
    yellow action** (`md-act.log`) instead of a screen-filling navy block. There
    is **no form-card wrapper** — the elements sit as standalone bars on the page
@@ -105,7 +112,9 @@ design's softer `#f5d020`) to stay consistent with the shell's Capture FAB.
 - `philWeek.test.ts` — the week logic: Mon–Sun states, total, today
   not/logged, ISO week number, the `miss` nudge, and **no fabricated hours**.
 - `PhilWeekStrip.render.test.tsx` — structure smoke: the seven weekday labels,
-  real range/total, the honest "log now" prompt, and the history link.
+  real range/total, the honest "log now" prompt, the history link, and the
+  day-cell directory links (today + past days link to `?fixDate=<date>`,
+  future days don't).
 - The hours flow + shell + Capture FAB stay covered by Preview Smoke
   (`phil.spec.ts`, `field-readiness.spec.ts`); their selectors (`phil-shell`,
   "Submit Standard day", the job radiogroup, the Capture FAB) are untouched.

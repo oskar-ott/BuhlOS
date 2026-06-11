@@ -78,10 +78,12 @@ export default async function MyDayPage({
     redirect("/v2/login");
   }
 
-  // ?fixDate=YYYY-MM-DD — landing from a "Hours rejected" push notification or
-  // the Needs You feed. Preselects that day in the hours sheet and auto-opens
-  // the fix-and-resubmit form, so the fix is one tap from the notification
-  // (parity with the legacy /my-day handler). Invalid values are ignored.
+  // ?fixDate=YYYY-MM-DD — landing from a "Hours rejected" push notification,
+  // the Needs You feed, or a tap on a week-strip day (PhilWeekStrip links
+  // today + past days here). Preselects that day in the hours sheet and
+  // auto-opens the fix-and-resubmit form when that day was rejected, so the
+  // fix is one tap from the notification (parity with the legacy /my-day
+  // handler). Invalid values are ignored.
   const sp = await searchParams;
   const fixDate = parseFixDate(sp.fixDate);
 

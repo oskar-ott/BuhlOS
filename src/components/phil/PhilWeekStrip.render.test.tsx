@@ -50,4 +50,24 @@ describe("PhilWeekStrip (render)", () => {
     expect(html).toContain("fix");
     expect(html).toContain("approved");
   });
+
+  it("links today + past days to the hours form for that date; future days stay inert", () => {
+    const html = render([entry("2024-05-20", 7.6)]);
+    // Mon (logged) … Fri (today) are all tappable directory entries.
+    expect(html).toContain('href="/phil/my-day?fixDate=2024-05-20"');
+    expect(html).toContain('href="/phil/my-day?fixDate=2024-05-23"');
+    expect(html).toContain('href="/phil/my-day?fixDate=2024-05-24"');
+    // Sat/Sun are still ahead of (Friday) today — nothing to act on, no link.
+    expect(html).not.toContain("fixDate=2024-05-25");
+    expect(html).not.toContain("fixDate=2024-05-26");
+  });
+
+  it("labels a missed day with a log prompt and a rejected day with a fix prompt", () => {
+    const html = render([
+      { date: "2024-05-20", totalHours: 7.6, status: "rejected" } as unknown as TimeEntry,
+    ]);
+    // Thu 2024-05-23 is a past weekday with no entry.
+    expect(html).toContain("not logged. Log hours for this day.");
+    expect(html).toContain("rejected. Fix and resubmit this day.");
+  });
 });

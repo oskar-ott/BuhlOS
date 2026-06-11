@@ -300,7 +300,10 @@ export function LogHoursSheet({
         {/* The design's compact yellow "Log today's hours" action (md-act.log)
             in place of a screen-filling navy block. Same submit handler, same
             disabled gating, same "Submit Standard day" aria-label the smoke
-            clicks — purely visual. */}
+            clicks — purely visual. The title flips to "Log hours for this day"
+            when the selected date isn't today (week-strip taps / ?fixDate=
+            deep links preselect past days), so it never claims "today" while
+            writing a backdated entry. */}
         <button
           type="button"
           onClick={submitStandardDay}
@@ -313,7 +316,11 @@ export function LogHoursSheet({
           </span>
           <span className={styles.logActionText}>
             <span className={styles.logActionTitle}>
-              {submitting ? "Logging…" : "Log today's hours"}
+              {submitting
+                ? "Logging…"
+                : date === localDateString()
+                  ? "Log today's hours"
+                  : "Log hours for this day"}
             </span>
             <span className={styles.logActionSub}>
               {formatDateLabel(date)} · standard day {formatHoursLabel(STANDARD_DAY_HOURS)}

@@ -293,6 +293,29 @@ details[open] > .moreOptionsSummary::before {
   align-items: center;
   gap: 5px;
 }
+/* Tappable day — today + past days wrap the whole cell (label + box) in a
+   link to ?fixDate=<date>, so the strip works as a directory into the hours
+   form. Replicates .day's column so a wrapped cell renders identically to an
+   inert (future) one; press feedback on the box only, never the row. */
+.dayLink {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  border-radius: 9px;
+  -webkit-tap-highlight-color: transparent;
+}
+.dayLink .box {
+  transition: transform 120ms ease;
+}
+.dayLink:active .box {
+  transform: scale(0.95);
+}
+.dayLink:focus-visible {
+  outline: 2px solid var(--brand-navy);
+  outline-offset: 2px;
+}
 .dayLabel {
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
   font-size: 8.5px;
