@@ -90,6 +90,22 @@ export function createJob(
   });
 }
 
+/**
+ * POST /api/jobs?action=duplicate&id=<jobId> — copy a job's structure into a
+ * NEW draft (#190): fresh ids, archived entries skipped, no operational state
+ * (assignment/evidence/snags/ITPs/hours/history). Admin only, like create.
+ */
+export function duplicateJob(jobId: string): Promise<HttpResult<JobDetailResponse>> {
+  return httpPost<JobDetailResponse>(
+    `/api/jobs?action=duplicate&id=${encodeURIComponent(jobId)}`,
+    {},
+    {
+      schema: JobDetailResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
 export function updateJob(
   input: JobUpdateInput
 ): Promise<HttpResult<JobDetailResponse>> {
@@ -177,6 +193,7 @@ export const jobsClient = {
   getJobForEdit,
   createJob,
   updateJob,
+  duplicateJob,
   publishJob,
   unpublishJob,
   deleteTestJob,
