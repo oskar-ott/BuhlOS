@@ -23,7 +23,7 @@
 // reasons. (One-line comment per the brief's storage-choice ask.)
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite, isAdminRole } = require('./_lib/auth');
+const { requireAuth, canWrite, isAdminRole, isClientRole } = require('./_lib/auth');
 
 const CATEGORIES = ['project', 'supplier'];
 
@@ -117,7 +117,7 @@ module.exports = async (req, res) => {
   // shouldn't surface in the client portal under any circumstance.
   const user = await requireAuth(req, res, { jobId });
   if (!user) return;
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
 
   const KEY = `jobs/${jobId}/contacts.json`;
 

@@ -37,7 +37,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite } = require('./_lib/auth');
+const { requireAuth, canWrite, isAdminRole, isClientRole } = require('./_lib/auth');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SNAG_OLD_DAYS = 7;
@@ -71,8 +71,8 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res, { jobId });
   if (!me) return;
-  if (me.role === 'client') return res.status(403).json({ error: 'forbidden' });
-  if (!canWrite(me, jobId) && me.role !== 'admin') {
+  if (isClientRole(me.role)) return res.status(403).json({ error: 'forbidden' });
+  if (!canWrite(me, jobId) && !isAdminRole(me.role)) {
     return res.status(403).json({ error: 'no access to job' });
   }
 

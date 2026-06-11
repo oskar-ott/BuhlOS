@@ -9,7 +9,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isLeadingHandRole, isFieldRole } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -41,7 +41,7 @@ module.exports = async (req, res) => {
   for (const u of usersData.users || []) {
     userById[u.id] = u;
     // Both tradies and LHs can have hourlyRate set; admins/clients don't.
-    if (u.role === 'tradie' || u.role === 'leadingHand') {
+    if (isFieldRole(u.role) || isLeadingHandRole(u.role)) {
       rateByUserId[u.id] = Number(u.hourlyRate) || 0;
     }
   }

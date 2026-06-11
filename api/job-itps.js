@@ -68,12 +68,7 @@
 // from Blob propagation lag.
 
 const { readBlob, readBlobFresh, writeBlob, setNoCache } = require('./_lib/blob');
-const {
-  requireAuth,
-  canWrite,
-  canManageJob,
-  isAdminRole,
-} = require('./_lib/auth');
+const { requireAuth, canWrite, canManageJob, isAdminRole, isClientRole } = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
 const { appendAudit } = require('./_lib/job-audit');
 const { append: appendAuditLog } = require('./_lib/audit-log');
@@ -174,7 +169,7 @@ module.exports = async (req, res) => {
   // which 403'd those users even though login.html had let them in.
   const canSee = isAdminRole(me.role)
               || (me.assignedJobIds || []).includes(jobId)
-              || (me.role === 'client' && job.clientUserId === me.id);
+              || (isClientRole(me.role) && job.clientUserId === me.id);
   if (!canSee) return res.status(403).json({ error: 'forbidden' });
 
   if (req.method === 'GET') {

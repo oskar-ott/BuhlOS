@@ -17,7 +17,7 @@
 //                 a job they're assigned to)
 
 const { setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isAdminRole, isLeadingHandRole } = require('./_lib/auth');
 const { readActivity, verifyChain } = require('./_lib/activity');
 
 module.exports = async (req, res) => {
@@ -32,7 +32,7 @@ module.exports = async (req, res) => {
   const q = req.query || {};
 
   if (q.action === 'verify') {
-    if (me.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+    if (!isAdminRole(me.role)) return res.status(403).json({ error: 'admin only' });
     const r = await verifyChain();
     return res.status(200).json(r);
   }
@@ -42,6 +42,7 @@ module.exports = async (req, res) => {
 
   // Role-aware scope hint.
   let scope = q.scope || null;
+  // role-literal-ok: 'accounts' is a single-purpose role outside the tiers — money-events-only scope
   if (me.role === 'accounts' && scope !== 'hours' && scope !== 'payroll') {
     scope = 'hours'; // forced — accounts only see money events
   }
@@ -54,10 +55,11 @@ module.exports = async (req, res) => {
   });
 
   // Office: only own-actor rows. LH: own jobs (target contains job id).
+  // role-literal-ok: deliberate carve-out — 'office' specifically sees own-actor rows; the rest of the admin tier sees all
   if (me.role === 'office') {
     entries = entries.filter(e => e.actor === me.id);
   }
-  if (me.role === 'leadingHand') {
+  if (isLeadingHandRole(me.role)) {
     const myJobs = new Set(me.assignedJobIds || []);
     entries = entries.filter(e => {
       const t = e.target || '';

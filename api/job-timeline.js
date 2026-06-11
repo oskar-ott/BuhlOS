@@ -40,7 +40,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { getCurrentUser, canManageJob } = require('./_lib/auth');
+const { getCurrentUser, canManageJob, isClientRole } = require('./_lib/auth');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_SINCE_DAYS = 30;
@@ -61,7 +61,7 @@ module.exports = async (req, res) => {
   const job = (jobsBlob.jobs || []).find(j => j.id === jobId);
   if (!job) return res.status(404).json({ error: 'job not found' });
 
-  const isClient = me.role === 'client' && job.clientUserId === me.id;
+  const isClient = isClientRole(me.role) && job.clientUserId === me.id;
   const isManager = canManageJob(me, jobId);
   if (!isClient && !isManager) {
     return res.status(403).json({ error: 'forbidden' });

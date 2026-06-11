@@ -25,7 +25,7 @@
 
 const { put, list } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isAdminRole, isFieldRole, isClientRole } = require('./_lib/auth');
 
 const VALID_SOURCES = ['manual', 'url_lookup', 'import'];
 const VALID_UNITS = ['ea', 'm', 'pkt', 'box', 'roll', 'pair', 'set', 'kg', 'l'];
@@ -136,8 +136,8 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
-  if (user.role === 'tradie') return res.status(403).json({ error: 'admin/LH only' });
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
+  if (isFieldRole(user.role)) return res.status(403).json({ error: 'admin/LH only' });
 
   const supplierId = (req.query && req.query.supplierId) || '';
   if (!supplierId) return res.status(400).json({ error: 'supplierId required' });
@@ -153,7 +153,7 @@ module.exports = async (req, res) => {
   }
 
   // Mutations: admin only
-  if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+  if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
 
   if (req.method === 'POST') {
     const body = req.body || {};

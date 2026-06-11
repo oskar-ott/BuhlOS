@@ -39,7 +39,7 @@
 // the job-level defaults).
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { getCurrentUser, canManageJob } = require('./_lib/auth');
+const { getCurrentUser, canManageJob, isClientRole } = require('./_lib/auth');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -77,7 +77,7 @@ module.exports = async (req, res) => {
   if (!job) return res.status(404).json({ error: 'job not found' });
 
   // Permission: client must own this job, admin/LH must manage it.
-  const ok = (me.role === 'client' && job.clientUserId === me.id)
+  const ok = (isClientRole(me.role) && job.clientUserId === me.id)
           || canManageJob(me, jobId);
   if (!ok) return res.status(403).json({ error: 'forbidden' });
 

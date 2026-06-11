@@ -244,6 +244,7 @@ export const CreateEmployeePayloadSchema = z
     inviteNote: z.string().trim().max(280).nullable().optional(),
   })
   .superRefine((val, ctx) => {
+    // eslint-disable-next-line no-restricted-syntax -- apprenticeYear belongs to the literal apprentice role, not a tier
     if (val.role === "apprentice" && (val.apprenticeYear == null)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

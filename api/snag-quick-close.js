@@ -18,7 +18,7 @@
 // Client: 403.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite } = require('./_lib/auth');
+const { requireAuth, canWrite, isClientRole } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -30,7 +30,7 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res, { jobId });
   if (!me) return;
-  if (me.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(me.role)) return res.status(403).json({ error: 'forbidden' });
   if (!canWrite(me, jobId)) return res.status(403).json({ error: 'no write access to job' });
 
   const body = req.body || {};

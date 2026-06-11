@@ -46,6 +46,7 @@ module.exports = async (req, res) => {
     if (!u) return res.status(404).json({ error: 'user not found' });
     const ok = await bcrypt.compare(String(currentSecret), u.passwordHash);
     if (!ok) return res.status(401).json({ error: 'current password incorrect' });
+    // role-literal-ok: credential FORMAT policy (admin password vs 4-digit PIN) is tied to the stored literal role, not the tier
     if (u.role === 'admin') {
       if (String(newSecret).length < 6) return res.status(400).json({ error: 'admin password must be at least 6 chars' });
     } else {

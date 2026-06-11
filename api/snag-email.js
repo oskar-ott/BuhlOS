@@ -16,7 +16,7 @@
 //   (SNAG_EMAIL_FROM optional override; defaults to noreply@buhl.com.au)
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite } = require('./_lib/auth');
+const { requireAuth, canWrite, isStaffRole, isClientRole } = require('./_lib/auth');
 
 const DEFAULT_FROM = 'BUHL Snags <noreply@buhlapp.xyz>';
 const MAX_ATTACHMENTS = 10;
@@ -166,7 +166,7 @@ module.exports = async (req, res) => {
 
   // ── GET ?action=list  — audit log for admin + leadingHand only.
   if (req.method === 'GET' && action === 'list') {
-    if (user.role !== 'admin' && user.role !== 'leadingHand') {
+    if (!isStaffRole(user.role)) {
       return res.status(403).json({ error: 'forbidden' });
     }
     const data = await readBlob(LOG_KEY, { emails: [] });
@@ -183,7 +183,7 @@ module.exports = async (req, res) => {
       .filter(e => e.snagId === snagId)
       // For non-admin/LH, strip body content and attachments (still show recipients + time)
       .map(e => {
-        if (user.role === 'admin' || user.role === 'leadingHand') return e;
+        if (isStaffRole(user.role)) return e;
         const { bodyText, html, attachments, ...safe } = e;
         return safe;
       });
@@ -193,7 +193,7 @@ module.exports = async (req, res) => {
   // ── POST — send email.
   if (req.method === 'POST') {
     if (!canWrite(user, jobId)) return res.status(403).json({ error: 'read-only' });
-    if (user.role === 'client') return res.status(403).json({ error: 'clients cannot send emails' });
+    if (isClientRole(user.role)) return res.status(403).json({ error: 'clients cannot send emails' });
     if (!user.email) return res.status(400).json({ error: 'your user profile has no email set — ask an admin to add one' });
 
     const { snagId, to, cc, subject, bodyText, includePhotos, attachments, dwellingName } = req.body || {};

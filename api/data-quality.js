@@ -40,7 +40,7 @@
 // Permissions: admin only — touches every namespace and exposes IDs.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isLeadingHandRole, isFieldRole } = require('./_lib/auth');
 
 const SAMPLE_CAP = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -91,7 +91,7 @@ module.exports = async (req, res) => {
   // Per-job LH set, for "active-job-no-lh".
   const lhsByJobId = {};
   for (const u of users) {
-    if (u.role !== 'leadingHand' || u.archived) continue;
+    if (!isLeadingHandRole(u.role) || u.archived) continue;
     for (const jid of (u.assignedJobIds || [])) {
       (lhsByJobId[jid] = lhsByJobId[jid] || []).push(u);
     }
@@ -116,7 +116,7 @@ module.exports = async (req, res) => {
   // ── Staff-level checks ───────────────────────────────────────────────
   for (const u of users) {
     if (u.archived) continue;
-    if (u.role !== 'tradie' && u.role !== 'leadingHand') continue;
+    if (!isFieldRole(u.role) && !isLeadingHandRole(u.role)) continue;
 
     if (!u.email) {
       record(cats.staffNoEmail, { id: u.id, label: u.username, sub: u.role });
@@ -124,7 +124,7 @@ module.exports = async (req, res) => {
     if (typeof u.hourlyRate !== 'number' || u.hourlyRate <= 0) {
       record(cats.staffNoRate, { id: u.id, label: u.username, sub: u.role });
     }
-    if (u.role === 'tradie' && (!u.assignedJobIds || !u.assignedJobIds.length)) {
+    if (isFieldRole(u.role) && (!u.assignedJobIds || !u.assignedJobIds.length)) {
       record(cats.staffNoJobs, { id: u.id, label: u.username, sub: 'tradie · no assignedJobIds' });
     }
   }

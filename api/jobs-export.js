@@ -21,7 +21,7 @@
 // job list — same sensitivity as the payroll / crew exports.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isLeadingHandRole } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -48,7 +48,7 @@ module.exports = async (req, res) => {
   // Per-job LH assignments: walk users once, accumulate per assignedJobIds.
   const lhsByJobId = {};
   for (const u of allUsers) {
-    if (u.role !== 'leadingHand' || u.archived) continue;
+    if (!isLeadingHandRole(u.role) || u.archived) continue;
     for (const jid of (u.assignedJobIds || [])) {
       (lhsByJobId[jid] = lhsByJobId[jid] || []).push(u.username || u.id);
     }

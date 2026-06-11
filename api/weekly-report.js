@@ -38,7 +38,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isAdminRole } = require('./_lib/auth');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -89,7 +89,7 @@ module.exports = async (req, res) => {
   // Visible jobs for this user.
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });
   const allJobs = jobsBlob.jobs || [];
-  const visible = (me.role === 'admin')
+  const visible = isAdminRole(me.role)
     ? allJobs
     : allJobs.filter(j => (me.assignedJobIds || []).includes(j.id));
   const visibleIds = new Set(visible.map(j => j.id));
@@ -132,7 +132,7 @@ module.exports = async (req, res) => {
     // For LH role, restrict to allocations that hit a visible job; admin
     // sees everything.
     const allocs = (entry.allocations || []).filter(a =>
-      me.role === 'admin' || (a.jobId && visibleIds.has(a.jobId)));
+      isAdminRole(me.role) || (a.jobId && visibleIds.has(a.jobId)));
     if (!allocs.length) return;
 
     const totalForWindow = allocs.reduce((s, a) => s + (Number(a.hours) || 0), 0);

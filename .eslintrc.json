@@ -36,6 +36,22 @@
       {
         "selector": "CallExpression[callee.name='prompt']",
         "message": "prompt() is banned in product code. Use a proper UI component."
+      },
+      {
+        "selector": "BinaryExpression[operator='==='][left.property.name='role'][right.type='Literal']",
+        "message": "Never compare role strings — use the tier predicates in src/lib/auth/roles.ts (isAdminRole, isFieldRole, …). Literal checks recur as tier bugs (#114/#123/#156)."
+      },
+      {
+        "selector": "BinaryExpression[operator='!=='][left.property.name='role'][right.type='Literal']",
+        "message": "Never compare role strings — use the tier predicates in src/lib/auth/roles.ts (isAdminRole, isFieldRole, …). Literal checks recur as tier bugs (#114/#123/#156)."
+      },
+      {
+        "selector": "BinaryExpression[operator='==='][right.property.name='role'][left.type='Literal']",
+        "message": "Never compare role strings — use the tier predicates in src/lib/auth/roles.ts (isAdminRole, isFieldRole, …)."
+      },
+      {
+        "selector": "BinaryExpression[operator='!=='][right.property.name='role'][left.type='Literal']",
+        "message": "Never compare role strings — use the tier predicates in src/lib/auth/roles.ts (isAdminRole, isFieldRole, …)."
       }
     ]
   }

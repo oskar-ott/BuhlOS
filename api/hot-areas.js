@@ -26,7 +26,7 @@
 // Permissions: admin / LH; tradies/clients 403.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canManageJob, isStaffRole } = require('./_lib/auth');
+const { requireAuth, canManageJob, isStaffRole, isAdminRole } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -59,7 +59,7 @@ module.exports = async (req, res) => {
     jobName = job.name;
   } else {
     const active = allJobs.filter(j => (j.status || 'active') === 'active');
-    walk = me.role === 'admin'
+    walk = isAdminRole(me.role)
       ? active
       : active.filter(j => (me.assignedJobIds || []).includes(j.id));
     scope = 'cross';

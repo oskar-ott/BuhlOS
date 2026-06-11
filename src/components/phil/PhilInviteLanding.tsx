@@ -137,6 +137,7 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
   const [notMe, setNotMe] = useState(false);
 
   const roleText =
+    // eslint-disable-next-line no-restricted-syntax -- apprenticeYear belongs to the literal apprentice role, not a tier
     invite.roleLabel + (invite.role === "apprentice" && invite.apprenticeYear ? ` · Y${invite.apprenticeYear}` : "");
   const phoneOk = !phone || isValidAuMobile(phone);
   const pinResult = validatePin(pin);

@@ -125,6 +125,13 @@ function isStaffRole(role) {
   return isAdminRole(role) || isLeadingHandRole(role);
 }
 
+// The client role is a single role, not a tier — but checks still go through
+// a predicate so the lint/guard sweep (#156) has one spelling to enforce.
+// Mirrors src/lib/auth/roles.ts isClientRole.
+function isClientRole(role) {
+  return normaliseRole(role) === 'client';
+}
+
 // Expand one allowed-role entry passed to requireAuth into the set of
 // stored role strings that satisfy it. A gate written `{ roles: ['admin'] }`
 // admits the whole admin tier; `{ roles: ['admin', 'leadingHand'] }` also
@@ -255,6 +262,7 @@ function canViewPlanMarkups(role) { return isAdminRole(role) || isLeadingHandRol
 function canViewPhilPlanMarkups(role) { return isFieldRole(role) || isLeadingHandRole(role); }
 
 module.exports = {
+  isClientRole,
   SESSION_COOKIE,
   ADMIN_ROLES,
   LEADING_HAND_ROLES,

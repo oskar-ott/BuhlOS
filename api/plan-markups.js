@@ -17,7 +17,7 @@
 // Coordinates are normalised 0..1 (matches src/domains/plans/coords.ts).
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canManageJob, canViewPhilPlanMarkups } = require('./_lib/auth');
+const { requireAuth, canManageJob, canViewPhilPlanMarkups, isClientRole } = require('./_lib/auth');
 
 const MARKUP_TYPES = ['pin', 'note', 'line', 'area'];
 const MARKUP_TONES = ['navy', 'yellow', 'red', 'green', 'grey'];
@@ -64,7 +64,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
 
   const jobId = (req.query && req.query.jobId) || '';
   if (!jobId) return res.status(400).json({ error: 'jobId required' });

@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { list } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, getCurrentUser, canManageJob, isStaffRole, isFieldRole, isLeadingHandRole, isDisabledUser } = require('./_lib/auth');
+const { requireAuth, getCurrentUser, canManageJob, isStaffRole, isFieldRole, isLeadingHandRole, isDisabledUser, isClientRole } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
 
 const VALID_ROLES = ['admin', 'tradie', 'leadingHand', 'client'];
@@ -178,7 +178,7 @@ module.exports = async (req, res) => {
     // jobs. Skipped when the actor edits their own row, when push isn't
     // configured, or when no new jobs were added. Bundles multiple new jobs
     // into a single notification so we don't spam.
-    if (addedJobIds.length && user.id !== me.id && user.role !== 'client') {
+    if (addedJobIds.length && user.id !== me.id && !isClientRole(user.role)) {
       try {
         const jobsBlob = await readBlob('jobs.json', { jobs: [] });
         const byId = {};

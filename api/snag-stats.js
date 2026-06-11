@@ -30,7 +30,7 @@
 //   - everyone else: 403
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canManageJob, isStaffRole } = require('./_lib/auth');
+const { requireAuth, canManageJob, isStaffRole, isAdminRole } = require('./_lib/auth');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PRIORITIES = ['High', 'Medium', 'Low'];
@@ -89,7 +89,7 @@ module.exports = async (req, res) => {
     jobName = job.name;
   } else {
     const active = allJobs.filter(j => (j.status || 'active') === 'active');
-    walkJobs = me.role === 'admin'
+    walkJobs = isAdminRole(me.role)
       ? active
       : active.filter(j => (me.assignedJobIds || []).includes(j.id));
     scope = 'cross';

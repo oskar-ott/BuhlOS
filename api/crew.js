@@ -12,7 +12,7 @@
 //   Unassign refuses to remove self or last admin.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canManageJob } = require('./_lib/auth');
+const { requireAuth, canManageJob, isAdminRole, isClientRole } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -24,7 +24,7 @@ module.exports = async (req, res) => {
   const user = await requireAuth(req, res, { jobId });
   if (!user) return;
 
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
 
   const action = (req.query && req.query.action) || '';
 
@@ -38,8 +38,8 @@ module.exports = async (req, res) => {
     const clientId = job ? job.clientUserId : null;
 
     const crew = (usersData.users || [])
-      .filter(u => u.role !== 'client' &&
-        (u.role === 'admin' || (u.assignedJobIds || []).includes(jobId)))
+      .filter(u => !isClientRole(u.role) &&
+        (isAdminRole(u.role) || (u.assignedJobIds || []).includes(jobId)))
       .map(u => ({ id: u.id, name: u.username, role: u.role }));
 
     let client = null;
@@ -61,7 +61,7 @@ module.exports = async (req, res) => {
     const usersData = await readBlob('users.json', { users: [] });
     const target = (usersData.users || []).find(u => u.id === userId);
     if (!target) return res.status(404).json({ error: 'user not found' });
-    if (target.role === 'client') return res.status(400).json({ error: 'cannot assign clients via crew endpoint' });
+    if (isClientRole(target.role)) return res.status(400).json({ error: 'cannot assign clients via crew endpoint' });
 
     if (action === 'assign') {
       if (!(target.assignedJobIds || []).includes(jobId)) {
@@ -76,9 +76,9 @@ module.exports = async (req, res) => {
       if (userId === user.id) return res.status(400).json({ error: 'cannot unassign yourself' });
 
       // Refuse to leave no admin on the job
-      if (target.role === 'admin') {
+      if (isAdminRole(target.role)) {
         const adminsOnJob = (usersData.users || []).filter(u =>
-          u.role === 'admin' && (u.assignedJobIds || []).includes(jobId) && u.id !== userId
+          isAdminRole(u.role) && (u.assignedJobIds || []).includes(jobId) && u.id !== userId
         );
         // Admin access is global (not job-scoped for admins), so only block if
         // removing an explicit assignment and no other admins remain assigned

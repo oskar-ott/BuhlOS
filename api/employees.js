@@ -365,6 +365,7 @@ module.exports = async (req, res) => {
       employee.appAccess = deriveAppAccess(role);
       if (role !== 'apprentice') employee.apprenticeYear = null;
     }
+    // role-literal-ok: apprenticeYear is a field of the literal 'apprentice' role, not a tier concept
     if (body.apprenticeYear !== undefined && employee.role === 'apprentice') {
       employee.apprenticeYear = Number(body.apprenticeYear) || null;
     }

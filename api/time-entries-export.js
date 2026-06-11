@@ -16,7 +16,7 @@
 const { list, put } = require('@vercel/blob');
 const crypto = require('crypto');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isLeadingHandRole, isFieldRole } = require('./_lib/auth');
 const { writeEntry, appendAudit } = require('./_lib/time-entries');
 const { appendActivity } = require('./_lib/activity');
 
@@ -102,7 +102,7 @@ module.exports = async (req, res) => {
   const rows = [];
   for (const e of filtered) {
     const u = userById[e.userId] || {};
-    const rate = (u.role === 'tradie' || u.role === 'leadingHand') ? Number(u.hourlyRate) || 0 : 0;
+    const rate = (isFieldRole(u.role) || isLeadingHandRole(u.role)) ? Number(u.hourlyRate) || 0 : 0;
     const allocations = (e.allocations || []).filter(a => !jobId || a.jobId === jobId);
     if (!allocations.length) continue;
     for (const a of allocations) {

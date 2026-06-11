@@ -143,6 +143,7 @@ export function EmployeeRegisterClient({
             <ul>
               {visible.map((row) => {
                 const e = row.employee;
+                // eslint-disable-next-line no-restricted-syntax -- apprenticeYear belongs to the literal apprentice role, not a tier
                 const apprentice = e.role === "apprentice" && e.apprenticeYear ? ` · Y${e.apprenticeYear}` : "";
                 return (
                   <li key={e.id}>

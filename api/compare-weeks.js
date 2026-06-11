@@ -32,7 +32,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isAdminRole } = require('./_lib/auth');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -154,11 +154,11 @@ module.exports = async (req, res) => {
 
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });
   const allJobs  = jobsBlob.jobs || [];
-  const visible = (me.role === 'admin')
+  const visible = isAdminRole(me.role)
     ? allJobs
     : allJobs.filter(j => (me.assignedJobIds || []).includes(j.id));
   const visibleIds = new Set(visible.map(j => j.id));
-  const isAdmin = me.role === 'admin';
+  const isAdmin = isAdminRole(me.role);
   const token = process.env.BLOB_READ_WRITE_TOKEN;
 
   const [thisWeek, lastWeek] = await Promise.all([

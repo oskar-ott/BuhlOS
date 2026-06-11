@@ -43,7 +43,7 @@
 // failure on either path never blocks the evidence write.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite, isAdminRole } = require('./_lib/auth');
+const { requireAuth, canWrite, isAdminRole, isFieldRole, isClientRole } = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
 const {
   effectiveRoughInTasks,
@@ -159,7 +159,7 @@ async function listEvidence(req, res, user, jobId) {
   const data = await readBlob(dataKey(jobId), emptyData());
   const all = Array.isArray(data && data.evidence) ? data.evidence : [];
   const visible =
-    user.role === 'tradie'
+    isFieldRole(user.role)
       ? all.filter((ev) => ev && ev.capturedById === user.id)
       : all;
   // Newest first — UI consumers want the most-recent capture on top.
@@ -383,7 +383,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res, { jobId });
   if (!user) return;
-  if (user.role === 'client') {
+  if (isClientRole(user.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 

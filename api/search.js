@@ -27,7 +27,7 @@
 //   - Results are sorted by score within type, then merged.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isAdminRole, isLeadingHandRole, isClientRole } = require('./_lib/auth');
 
 const TYPES = new Set(['jobs', 'snags', 'users']);
 
@@ -71,7 +71,7 @@ module.exports = async (req, res) => {
   const allUsers = usersBlob.users || [];
 
   // Visible job set
-  const visibleJobIds = (me.role === 'admin')
+  const visibleJobIds = isAdminRole(me.role)
     ? new Set(allJobs.map(j => j.id))
     : new Set(me.assignedJobIds || []);
   const visibleJobs = allJobs.filter(j => visibleJobIds.has(j.id));
@@ -110,7 +110,7 @@ module.exports = async (req, res) => {
   if (requestedTypes.includes('users')) {
     // LH only sees users sharing at least one assigned job.
     let candidates = allUsers;
-    if (me.role === 'leadingHand') {
+    if (isLeadingHandRole(me.role)) {
       candidates = candidates.filter(u =>
         u.id === me.id ||
         (u.assignedJobIds || []).some(jid => visibleJobIds.has(jid)));
@@ -128,7 +128,7 @@ module.exports = async (req, res) => {
           id: u.id,
           label: u.username,
           sub: u.role + (u.email ? ' · ' + u.email : ''),
-          url: u.role === 'client' ? null : '/admin/crew',
+          url: isClientRole(u.role) ? null : '/admin/crew',
           _score: s,
         });
       }

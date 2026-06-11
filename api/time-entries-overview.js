@@ -132,7 +132,7 @@ module.exports = async (req, res) => {
 
   // Visibility gate (LH): keep entries with at least one allocation on a visible job.
   // Admin sees everything.
-  if (viewer.role !== 'admin') {
+  if (!isAdminRole(viewer.role)) {
     entries = entries.filter(e =>
       (e.allocations || []).some(a => a.jobId && visibleJobIds.has(a.jobId))
     );

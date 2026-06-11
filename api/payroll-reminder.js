@@ -37,6 +37,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
+const { isAdminRole } = require('./_lib/auth');
 const { getWebPush, sendPushToUserId } = require('./_lib/push');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -116,7 +117,7 @@ module.exports = async (req, res) => {
 
   const usersData = await readBlob(USERS_KEY, { users: [] });
   const admins = (usersData.users || []).filter(u =>
-    u.role === 'admin' &&
+    isAdminRole(u.role) &&
     !u.archived &&
     Array.isArray(u.pushSubscriptions) && u.pushSubscriptions.length);
 

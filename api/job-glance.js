@@ -39,7 +39,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite } = require('./_lib/auth');
+const { requireAuth, canWrite, isAdminRole, isClientRole } = require('./_lib/auth');
 
 function sydneyToday() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -61,8 +61,8 @@ module.exports = async (req, res) => {
 
   // Clients get a different endpoint — the sanitised summary. Guard here
   // so a client deep-linking to /jobs/<id> doesn't trip on internal data.
-  if (me.role === 'client') return res.status(403).json({ error: 'forbidden' });
-  if (!canWrite(me, jobId) && me.role !== 'admin') {
+  if (isClientRole(me.role)) return res.status(403).json({ error: 'forbidden' });
+  if (!canWrite(me, jobId) && !isAdminRole(me.role)) {
     return res.status(403).json({ error: 'no access to job' });
   }
 
