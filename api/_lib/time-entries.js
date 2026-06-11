@@ -91,9 +91,15 @@ async function readEntry(userId, date) {
   return await readBlob(ENTRY_PATH(userId, date), null);
 }
 
-// Write one entry by user+date. Overwrites.
+// Write one entry by user+date. Overwrites. #157: when the entry object
+// came from readEntry it carries __rev — threading it as expectedRev turns
+// every read-modify-write on a day-file into a guarded write (a concurrent
+// approve/edit of the SAME day throws StaleWriteError instead of silently
+// losing one writer). Fresh creates carry no __rev → unguarded create.
 async function writeEntry(userId, entry) {
-  await writeBlob(ENTRY_PATH(userId, entry.date), entry);
+  await writeBlob(ENTRY_PATH(userId, entry.date), entry, {
+    expectedRev: entry.__rev,
+  });
   return entry;
 }
 

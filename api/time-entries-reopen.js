@@ -73,7 +73,16 @@ module.exports = async (req, res) => {
     updated.exportId = null;
   }
 
-  await writeEntry(userId, updated);
+  try {
+    await writeEntry(userId, updated);
+  } catch (e) {
+    if (e && e.code === 'stale_write') {
+      // #157: the day-file changed underneath this decision (concurrent
+      // approve/edit). Retryable — the client re-reads and re-decides.
+      return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
+    }
+    throw e;
+  }
   await appendAudit(userId, entry.id, 'reopened', user.id, reason || null, {
     fromStatus: entry.status,
     toStatus,

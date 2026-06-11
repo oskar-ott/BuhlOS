@@ -59,7 +59,16 @@ module.exports = async (req, res) => {
     delete reverted.rejectedReason;
     delete reverted.rejectedAt;
     delete reverted.rejectedBy;
-    await writeEntry(userId, reverted);
+    try {
+      await writeEntry(userId, reverted);
+    } catch (e) {
+      if (e && e.code === 'stale_write') {
+        // #157: the day-file changed underneath this decision (concurrent
+        // approve/edit). Retryable — the client re-reads and re-decides.
+        return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
+      }
+      throw e;
+    }
     await appendAudit(userId, entry.id, 'reject-undone', user.id, null);
     await appendActivity({
       action: 'hours.reject-undone',
@@ -88,7 +97,16 @@ module.exports = async (req, res) => {
     rejectedBy: user.id,
     updatedAt: now,
   };
-  await writeEntry(userId, updated);
+  try {
+    await writeEntry(userId, updated);
+  } catch (e) {
+    if (e && e.code === 'stale_write') {
+      // #157: the day-file changed underneath this decision (concurrent
+      // approve/edit). Retryable — the client re-reads and re-decides.
+      return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
+    }
+    throw e;
+  }
   await appendAudit(userId, entry.id, 'rejected', user.id, trimmedReason);
   // Phase 09 (brief §14): rejection event.
   await appendActivity({

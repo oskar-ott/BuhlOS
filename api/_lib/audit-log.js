@@ -89,6 +89,8 @@ const VALID_ACTIONS = new Set([
   // #151: the scheduled blob backup writes one entry per run (ok or failed)
   // so a quiet cron can't hide a broken backup. targetType 'system'.
   'backup.completed',
+  // #157: a write guard refused a destructive/conflicting store write.
+  'storage.write_rejected',
   'observation.converted_to_material_request',
 ]);
 const VALID_TARGET_TYPES = new Set([

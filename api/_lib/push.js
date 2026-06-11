@@ -68,7 +68,8 @@ async function sendPushToUserId(userId, payload, opts = {}) {
   }
   if (pruned > 0) {
     u.pushSubscriptions = keep;
-    try { await writeBlob(USERS_KEY, data); } catch (e) { /* swallow */ }
+    // #157: threaded + still best-effort — a stale prune just skips.
+    try { await writeBlob(USERS_KEY, data, { expectedRev: data.__rev }); } catch (e) { /* swallow */ }
   }
   return { sent, pruned, skipped: null };
 }
