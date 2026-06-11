@@ -33,7 +33,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isAdminRole } = require('./_lib/auth');
 
 function sydneyToday() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -62,7 +62,10 @@ module.exports = async (req, res) => {
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });
   const allJobs  = jobsBlob.jobs || [];
   const active   = allJobs.filter(j => (j.status || 'active') === 'active');
-  const visible  = (me.role === 'admin')
+  // Tier-aware (not literal 'admin'): office/boss/PM see the whole company's
+  // pulse; leading hands stay scoped to their jobs (#123).
+  const meIsAdminTier = isAdminRole(me.role);
+  const visible  = meIsAdminTier
     ? active
     : active.filter(j => (me.assignedJobIds || []).includes(j.id));
   const visibleIds = new Set(visible.map(j => j.id));
@@ -94,7 +97,7 @@ module.exports = async (req, res) => {
     for (const e of entries) {
       // LH-visibility filter on allocations.
       const allocs = (e.allocations || []).filter(a =>
-        me.role === 'admin' || (a.jobId && visibleIds.has(a.jobId)));
+        meIsAdminTier || (a.jobId && visibleIds.has(a.jobId)));
       if (!allocs.length) continue;
 
       const allocHours = allocs.reduce((s, a) => s + (Number(a.hours) || 0), 0);
