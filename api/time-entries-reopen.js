@@ -93,7 +93,7 @@ module.exports = async (req, res) => {
   sendPushToUserId(userId, {
     title: 'Hours reopened',
     body: `Your hours for ${date} were reopened by ${user.username}${reason ? ' — ' + reason : '.'}`,
-    url: '/my-day',
+    url: '/phil/my-day',
     tag: 'buhl-hours-reopened-' + date,
   }).catch(() => {});
 

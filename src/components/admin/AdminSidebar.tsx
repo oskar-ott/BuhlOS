@@ -108,7 +108,7 @@ const NAV: ReadonlyArray<NavItem> = [
     activeFor: ["/observations"],
   },
   // Material requests inbox (PR 11). The field-to-office procurement loop —
-  // separate from the legacy /admin/materials takeoff/PO/invoice surface.
+  // takeoff/PO/invoice procurement was a separate legacy module (retired).
   {
     label: "Material requests",
     href: "/material-requests" as Route,

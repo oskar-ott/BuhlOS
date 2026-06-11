@@ -1,32 +1,29 @@
 #!/usr/bin/env node
-// Static check: the production build must serve the BuhlOS admin shell,
-// not the legacy Birdwood prototype.
+// Static check: the production routing surface is the modern app — no
+// prototype, no legacy shell, no root rewrite into static HTML.
 //
-// Why: on 2026-05-20 a prototype branch (claude/infallible-galileo-b45de3,
-// commit d55529c) was deployed to buhlos.com via `vercel deploy --prod`,
-// replacing the real build with the legacy Birdwood IV3232 horizontal-
-// tab page. PR #4f69fcd added a branch-ancestry guard; this script
-// adds the *content* check: even if the branch ancestry is right, the
-// files about to be deployed must contain the BuhlOS shell, not the
-// prototype.
+// Why: on 2026-05-20 a prototype branch was deployed to buhlos.com via
+// `vercel deploy --prod`, replacing the real build with the legacy
+// "Birdwood IV3232" horizontal-tab page. Later, stale rewrites and a
+// caching service worker kept resurrecting old layouts after deploys.
+// The legacy-interface cutover removed the static estate entirely; this
+// script asserts the deployable tree keeps that shape.
 //
-// Rules:
-//   1. public/index.html must NOT exist, OR if it exists it must NOT
-//      contain "Birdwood IV3232" (the legacy prototype title).
-//   2. public/admin/operations.html must exist and contain the BuhlOS
-//      Command Centre shell markers (title "BuhlOS — Command Centre",
-//      the "BL" brand mark, and the splash element). These prove it's
-//      the new shell and not the site-office shell that was at this
-//      path before the merge.
-//   3. vercel.json must rewrite `/` → `/login.html` (no Birdwood root).
-//   4. vercel.json must rewrite `/admin/operations` → `/admin/operations.html`.
-//   5. NO root-level deployable HTML file may contain "Birdwood IV3232"
-//      (catches the prototype-shape regression at a different layer
-//      than the predeploy-prod-guard).
+// Rules (post-cutover):
+//   1. NO deployable file may contain "Birdwood IV3232" (the prototype
+//      marker that once replaced production).
+//   2. vercel.json must NOT rewrite or redirect `/` anywhere — the root
+//      is owned by src/app/page.tsx (session → landing, else /v2/login).
+//   3. vercel.json must redirect /admin/operations AND /admin to
+//      /command-centre, and /login to /v2/login (the highest-traffic
+//      legacy entries must land on the modern shell).
+//   4. The modern shells must exist: src/components/admin/AdminShell.tsx
+//      (data-testid="buhlos-admin-shell") and src/components/phil/
+//      PhilShell.tsx (data-testid="phil-shell").
 //
 // Run standalone:  node scripts/check-production-shell.js
 // Run via npm:     npm run check:production-shell
-// Auto-runs on:    npm run predeploy / predeploy:prod
+// Auto-runs on:    npm run predeploy / predeploy:preview + CI
 
 'use strict';
 
@@ -37,151 +34,97 @@ const REPO = path.resolve(__dirname, '..');
 const RED = '\x1b[31m';
 const GRN = '\x1b[32m';
 const YEL = '\x1b[33m';
-const DIM = '\x1b[2m';
 const RST = '\x1b[0m';
 
 const failures = [];
 function fail(msg, detail) { failures.push({ msg, detail: detail || '' }); }
-
-function read(rel) {
-  return fs.readFileSync(path.join(REPO, rel), 'utf8');
-}
-function readJSON(rel) { return JSON.parse(read(rel)); }
+function read(rel) { return fs.readFileSync(path.join(REPO, rel), 'utf8'); }
 function exists(rel) { return fs.existsSync(path.join(REPO, rel)); }
 
-// ── 1. public/index.html absent (or not Birdwood) ──────────────────
-if (exists('public/index.html')) {
-  const src = read('public/index.html');
-  if (/Birdwood IV3232/i.test(src)) {
-    fail('public/index.html contains "Birdwood IV3232"',
-      'This is the legacy prototype root that overwrites buhlos.com/ with the wrong UI. ' +
-      'Either delete the file or rename it (it was renamed to public/project.html in 41e2194).');
+// ── 1. Prototype marker ban in directly-served files ──────────────────
+// "Birdwood IV3232" is ALSO the real job's name, so it legitimately appears
+// in data/fixtures/tests. The prototype regression vector is a directly
+// served static page — scan public/ only.
+function walk(dirRel) {
+  const out = [];
+  if (!exists(dirRel)) return out;
+  for (const entry of fs.readdirSync(path.join(REPO, dirRel), { withFileTypes: true })) {
+    const rel = dirRel + '/' + entry.name;
+    if (entry.isDirectory()) out.push(...walk(rel));
+    else out.push(rel);
+  }
+  return out;
+}
+for (const rel of walk('public')) {
+  if (/\.(png|svg|ico|jpg|jpeg|webp|woff2?)$/i.test(rel)) continue;
+  if (/Birdwood IV3232/.test(read(rel))) {
+    fail(rel + ' contains the legacy prototype marker "Birdwood IV3232"',
+      'That prototype must never ship again as a static page.');
   }
 }
 
-// ── 2. operations.html has BuhlOS shell markers ─────────────────────
-if (!exists('public/admin/operations.html')) {
-  fail('public/admin/operations.html missing',
-    'The BuhlOS Command Centre shell file is required for /admin/operations.');
+// ── 2 + 3. vercel.json routing shape ──────────────────────────────────
+if (!exists('vercel.json')) {
+  fail('vercel.json missing');
 } else {
-  const ops = read('public/admin/operations.html');
-  if (!/BuhlOS\s*[—-]\s*Command Centre/i.test(ops)) {
-    fail('public/admin/operations.html missing BuhlOS Command Centre title',
-      'The page does not contain the "BuhlOS — Command Centre" title marker. ' +
-      'It may be the old site-office shell — check that the BuhlOS shell was kept post-merge.');
-  }
-  if (!/id=["']splash["']/.test(ops)) {
-    fail('public/admin/operations.html missing splash element',
-      'The BuhlOS shell expects a #splash overlay that the boot dismisses. ' +
-      'Without it the splash watchdog has nothing to dismiss.');
-  }
-  if (!/class=["']brand-mark["']/.test(ops)) {
-    fail('public/admin/operations.html missing BL brand mark',
-      'The BuhlOS shell renders a .brand-mark element with the BL identity. ' +
-      'Its absence usually means the shell was replaced with something else.');
-  }
-  if (!/showBootError/.test(ops)) {
-    fail('public/admin/operations.html missing showBootError defence',
-      'The shell should define showBootError() so any boot failure surfaces a visible recovery panel ' +
-      'instead of leaving the splash up. See docs/regressions/admin-operations-blank.md.');
-  }
-  // Sidebar must contain every required module per the design bible.
-  const requiredNav = ['command', 'jobs', 'builder', 'labour', 'itp', 'plans', 'materials', 'assets', 'variations', 'reports', 'settings'];
-  for (const sec of requiredNav) {
-    if (!new RegExp(`data-sec=["']${sec}["']`).test(ops)) {
-      fail('sidebar missing required module: ' + sec,
-        'Every required module must have a sidebar nav-link with data-sec="' + sec + '".');
+  let cfg = null;
+  try { cfg = JSON.parse(read('vercel.json')); }
+  catch (e) { fail('vercel.json is not valid JSON', String(e && e.message)); }
+  if (cfg) {
+    for (const r of cfg.rewrites || []) {
+      if (r.source === '/' || r.source === '/(.*)') {
+        fail('vercel.json rewrites `/` → ' + r.destination,
+          'The root belongs to src/app/page.tsx (session-aware landing). ' +
+          'Rewriting `/` into static HTML is the legacy-login regression.');
+      }
     }
-  }
-  // No legacy chrome patterns.
-  if (/<title>\s*Birdwood IV3232/i.test(ops)) {
-    fail('operations.html still has Birdwood IV3232 title', 'Should be "BuhlOS — Command Centre".');
-  }
-  if (/class=["']nav-pill["']/.test(ops)) {
-    fail('operations.html has legacy .nav-pill (top-pill) element',
-      'The BuhlOS shell is left-sidebar only — no top-pill nav.');
-  }
-  // Mock-data wiring present (the shell relies on this for fresh-install fallback).
-  if (!/admin-data\.js/.test(ops)) {
-    fail('operations.html does not load /admin/admin-data.js',
-      'The mock-data fallback layer is required so the shell demonstrates the product ' +
-      'on fresh installs / accounts with no real jobs yet.');
-  }
-}
-
-// ── 2b. admin-data.js exists and exports BUHLOS_MOCK ────────────────
-if (!exists('public/admin/admin-data.js')) {
-  fail('public/admin/admin-data.js missing',
-    'The mock-data layer is required by the shell\'s boot fallback.');
-} else {
-  const md = read('public/admin/admin-data.js');
-  if (!/BUHLOS_MOCK\s*=/.test(md)) {
-    fail('admin-data.js does not assign window.BUHLOS_MOCK',
-      'The shell looks for window.BUHLOS_MOCK during boot fallback.');
-  }
-  for (const key of ['jobs', 'workers', 'hoursByJob', 'itps', 'plans', 'variations', 'jobBuilderTemplates']) {
-    if (!new RegExp('\\b' + key + '\\b').test(md)) {
-      fail('admin-data.js missing key: ' + key,
-        'The mock data layer must define ' + key + ' so the corresponding section has demo content.');
+    for (const r of cfg.redirects || []) {
+      if (r.source === '/') {
+        fail('vercel.json redirects `/` → ' + r.destination,
+          'The root belongs to src/app/page.tsx; do not redirect it at the edge.');
+      }
+    }
+    const redirect = new Map((cfg.redirects || []).map((r) => [r.source, r.destination]));
+    const mustRedirect = [
+      ['/admin/operations', '/command-centre'],
+      ['/admin', '/command-centre'],
+      ['/login', '/v2/login'],
+    ];
+    for (const [src, dest] of mustRedirect) {
+      if (redirect.get(src) !== dest) {
+        fail('vercel.json must redirect ' + src + ' → ' + dest +
+          ' (got ' + (redirect.get(src) || 'nothing') + ')',
+          'Admins and crews still hold these URLs (bookmarks, installed PWAs, ' +
+          'muscle memory) — they must land on the modern shell.');
+      }
     }
   }
 }
 
-// ── 3. vercel.json: / → /login.html ─────────────────────────────────
-let vercel;
-try { vercel = readJSON('vercel.json'); } catch (e) {
-  fail('vercel.json missing or unparseable', e.message);
-}
-if (vercel) {
-  const rootRewrite = (vercel.rewrites || []).find(r => r.source === '/');
-  if (!rootRewrite) {
-    fail('vercel.json has no rewrite for "/"',
-      'Without it, Vercel falls back to serving public/index.html for the root URL — ' +
-      'which is exactly how the legacy Birdwood page leaked to production.');
-  } else if (rootRewrite.destination !== '/login.html') {
-    fail('vercel.json "/" rewrite destination is wrong',
-      'Expected /login.html, got "' + rootRewrite.destination + '". ' +
-      'Anything else risks serving the wrong page at buhlos.com/.');
-  }
-
-  const opsRewrite = (vercel.rewrites || []).find(r => r.source === '/admin/operations');
-  if (!opsRewrite || opsRewrite.destination !== '/admin/operations.html') {
-    fail('vercel.json /admin/operations rewrite missing or wrong',
-      'Expected /admin/operations → /admin/operations.html.');
+// ── 4. Modern shells exist with their markers ─────────────────────────
+const SHELLS = [
+  { rel: 'src/components/admin/AdminShell.tsx', marker: 'buhlos-admin-shell' },
+  { rel: 'src/components/phil/PhilShell.tsx', marker: 'phil-shell' },
+];
+for (const s of SHELLS) {
+  if (!exists(s.rel)) {
+    fail(s.rel + ' missing', 'The modern shell component must exist.');
+  } else if (!read(s.rel).includes(s.marker)) {
+    fail(s.rel + ' lost its data-testid marker "' + s.marker + '"',
+      'Smokes and shell checks key off this marker.');
   }
 }
 
-// ── 4. No deployable file at the repo root contains "Birdwood IV3232" ──
-// (catches the prototype-fingerprint that gets through if someone
-//  reintroduces an index.html at root.)
-const rootFiles = ['index.html', 'jobs.html', 'login.html', 'phil.html', 'buhlos.html'];
-for (const f of rootFiles) {
-  if (exists(f)) {
-    const src = read(f);
-    if (/Birdwood IV3232/i.test(src)) {
-      fail('root file ' + f + ' contains "Birdwood IV3232"',
-        'A deployable file at the repo root carries the legacy prototype title. ' +
-        'Deployment from this state would serve the wrong UI at buhlos.com/. ' +
-        'See docs/regressions/admin-operations-blank.md.');
-    }
-  }
-}
-
-// ── Execute ─────────────────────────────────────────────────────────
-console.log(DIM + 'check-production-shell · ' + failures.length + ' issue' +
-  (failures.length === 1 ? '' : 's') + RST);
-console.log('');
-
+// ── Execute ──────────────────────────────────────────────────────────
 if (failures.length) {
   for (const f of failures) {
     console.log(RED + 'FAIL ' + RST + f.msg);
     if (f.detail) console.log('     ' + YEL + f.detail + RST);
   }
   console.log('');
-  console.log(RED + 'Refusing to deploy — production shell is not in the expected shape.' + RST);
-  console.log(DIM + 'See docs/regressions/admin-operations-blank.md for context.' + RST);
+  console.log(RED + 'Production shell contract violated.' + RST);
   process.exit(1);
 }
 
-console.log(GRN + 'OK   ' + RST + 'production shell contains the BuhlOS Command Centre, no Birdwood IV3232.');
+console.log(GRN + 'OK   ' + RST + 'production routing is modern-only (root owned by Next, legacy entries redirect, shells intact).');
 process.exit(0);

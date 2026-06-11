@@ -94,7 +94,7 @@ module.exports = async (req, res) => {
           id: j.id,
           label: j.name,
           sub: (j.status || 'active'),
-          url: '/admin/jobs/' + j.id,
+          url: '/v2/jobs/' + j.id,
           _score: s,
         });
       }
@@ -128,7 +128,7 @@ module.exports = async (req, res) => {
           id: u.id,
           label: u.username,
           sub: u.role + (u.email ? ' · ' + u.email : ''),
-          url: isClientRole(u.role) ? null : '/admin/crew',
+          url: isClientRole(u.role) ? null : '/employees',
           _score: s,
         });
       }
@@ -158,7 +158,7 @@ module.exports = async (req, res) => {
             label: s.desc || '(no description)',
             sub: j.name + ' · ' + (s.status || 'Open') +
                  (s.priority ? ' · ' + s.priority : ''),
-            url: '/admin/jobs/' + j.id + '?openSnag=' + (s.id || ''),
+            url: '/v2/jobs/' + j.id + '/snags',
             _score: score,
             _createdAt: s.createdAt || s.date || '',
           });

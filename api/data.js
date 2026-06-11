@@ -101,7 +101,7 @@ module.exports = async (req, res) => {
           sendPushToUserId(s.assignedToUserId, {
             title: (s.priority === 'High' ? '⚠ HIGH · ' : '') + 'Snag assigned to you',
             body:  '[' + jobName + '] ' + String(s.desc || '(no description)').slice(0, 140),
-            url:   '/jobs/' + jobId + '?snag=' + encodeURIComponent(s.id) + '#snags',
+            url:   '/phil/jobs/' + jobId + '#phil-job-snags',
             tag:   'buhl-snag-assigned-' + s.id,
           }).catch(() => {});
         }

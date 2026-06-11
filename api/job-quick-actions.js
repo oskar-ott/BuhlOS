@@ -182,7 +182,7 @@ module.exports = async (req, res) => {
     actions.push({
       type: 'rejected-hours',
       label: `Fix rejected hours from ${prettyDate(date)}`,
-      url: '/my-day?fixDate=' + encodeURIComponent(date),
+      url: '/phil/my-day?fixDate=' + encodeURIComponent(date),
       meta: { date, reason: recentRejected.rejectedReason || null },
     });
   }
@@ -191,7 +191,7 @@ module.exports = async (req, res) => {
     actions.push({
       type: 'draft-hours',
       label: `Submit your hours (${(Math.round(myHoursOnJobToday * 10) / 10).toFixed(1)}h)`,
-      url: '/my-day?openHours=1',
+      url: '/phil/my-day',
       meta: { hours: Math.round(myHoursOnJobToday * 10) / 10 },
     });
   }
@@ -200,7 +200,7 @@ module.exports = async (req, res) => {
     actions.push({
       type: 'high-snags',
       label: `${myHighSnags.length} high-priority snag${myHighSnags.length === 1 ? '' : 's'} need attention`,
-      url: '/jobs/' + jobId + '#snags',
+      url: '/phil/jobs/' + jobId + '#phil-job-snags',
       meta: { count: myHighSnags.length },
     });
   }
@@ -209,7 +209,7 @@ module.exports = async (req, res) => {
     actions.push({
       type: 'snags-no-photo',
       label: `Add photo${myNoPhotoSnags.length === 1 ? '' : 's'} to ${myNoPhotoSnags.length} snag${myNoPhotoSnags.length === 1 ? '' : 's'}`,
-      url: '/jobs/' + jobId + '#snags',
+      url: '/phil/jobs/' + jobId + '#phil-job-snags',
       meta: { count: myNoPhotoSnags.length },
     });
   }
@@ -218,7 +218,7 @@ module.exports = async (req, res) => {
     actions.push({
       type: 'old-snags',
       label: `${myOldSnags.length} snag${myOldSnags.length === 1 ? '' : 's'} overdue (oldest ${oldestSnagAge}d)`,
-      url: '/jobs/' + jobId + '#snags',
+      url: '/phil/jobs/' + jobId + '#phil-job-snags',
       meta: { count: myOldSnags.length, oldestDays: oldestSnagAge },
     });
   }
@@ -227,7 +227,7 @@ module.exports = async (req, res) => {
     actions.push({
       type: 'log-hours',
       label: "Log today's hours",
-      url: '/my-day?openHours=1',
+      url: '/phil/my-day',
       meta: {},
     });
   }
@@ -236,7 +236,7 @@ module.exports = async (req, res) => {
     actions.push({
       type: 'continue-area',
       label: `Continue ${continueArea.name} (${continueArea.pct}% complete)`,
-      url: '/jobs/' + jobId + '?area=' + encodeURIComponent(continueArea.id),
+      url: '/phil/jobs/' + jobId,
       meta: { areaId: continueArea.id, areaName: continueArea.name, pct: continueArea.pct },
     });
   }

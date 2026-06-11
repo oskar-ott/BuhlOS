@@ -107,14 +107,9 @@ export function DocumentsList({
             <CardTitle>Documents &amp; specs · {job.name}</CardTitle>
             <CardDescription className="mt-1">
               Plans, specs and schedules attached to this job. Read-only
-              viewer — uploads + revision curation live on the legacy{" "}
-              <a
-                href="/admin/plans"
-                className="underline decoration-accent-yellow decoration-2 underline-offset-2"
-              >
-                /admin/plans
-              </a>{" "}
-              surface.
+              viewer — uploading and revision curation aren&rsquo;t available
+              yet (the legacy uploader was retired in the legacy cutover; a
+              modern one is on the backlog).
             </CardDescription>
           </div>
           <Pill tone="neutral">Read-only</Pill>

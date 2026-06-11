@@ -194,11 +194,9 @@ export default async function MyDayPage({
         <div className={styles.deferNote}>
           <div className={styles.deferNoteLabel}>Heads up</div>
           <p className={styles.deferNoteBody}>
-            One allocation per submission. To split a day across two jobs, use the{" "}
-            <a href="/my-day" className={styles.deferNoteLink}>
-              legacy My day
-            </a>
-            .
+            One allocation per submission. Splitting a day across two jobs
+            isn&rsquo;t supported yet — log the bigger block today and tell
+            the office; split-day logging is on the backlog.
           </p>
         </div>
       </div>

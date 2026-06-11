@@ -4,6 +4,7 @@ import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilSignOutButton } from "@/components/phil/PhilSignOutButton";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
+import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
 
 /**
  * /v2/phil — Phil landing / "More" tab profile placeholder.
@@ -55,11 +56,11 @@ export default function PhilV2HomePage() {
           <PhilSignOutButton />
         </Card>
 
+        <PushNotificationsCard audience="phil" />
+
         <UnderConstructionPanel
-          feature="Profile · settings · notifications"
-          description="Your worker profile and push-notification preferences live here once the loops above are field-stable. The legacy Phil app is still one tap away if you need it."
-          legacyHref="/phil"
-          legacyLabel="Open legacy Phil"
+          feature="Profile · settings"
+          description="Your worker profile and the rest of your settings live here once the loops above are field-stable."
         />
       </div>
     </PhilShell>

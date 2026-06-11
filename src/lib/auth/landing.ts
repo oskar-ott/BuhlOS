@@ -7,30 +7,29 @@ import {
 } from "./roles";
 
 /**
- * The ONE canonical landingFor() for the new Phase A surface.
+ * The ONE canonical landingFor() — post legacy-interface cutover.
  *
- * Phase A+ maps roles to a mix of new and legacy URLs:
- *   - admin    → /command-centre        (new BuhlOS admin shell)
- *   - field    → /phil/my-day           (new Phil home — the "Today" tab; its page
- *                                         docstring notes it "replaces the placeholder
- *                                         /v2/phil". /phil/my-day is gated to field/LH,
- *                                         so a field worker always passes the gate here.)
- *   - LH       → /lh                    (still legacy; vercel.json rewrites to lh-home.html)
- *   - client   → /client                (still legacy; vercel.json rewrites to client.html)
+ * The product has exactly two interfaces (docs/route-ownership.md §2):
+ *   - admin    → /command-centre        (BuhlOS — desktop/office)
+ *   - field    → /phil/my-day           (Phil — mobile/field; gated to field/LH)
+ *   - LH       → /phil/my-day           (leading hands are field-tier; the legacy
+ *                                         /lh home was removed in the cutover —
+ *                                         LHs additionally have read access to
+ *                                         /v2/jobs via the middleware "lh" surface)
+ *   - client   → /client                (the read-only client portal — the ONE
+ *                                         static page kept from the legacy estate,
+ *                                         external-customer-facing; replacement is
+ *                                         tracked as issue #271 / Epic 16)
  *   - unknown  → /v2/login              (so users can re-attempt)
  *
- * Route-ownership contract: docs/route-ownership.md §10.
- *
- * The legacy login.html keeps its own landingFor() pointing at /admin/operations,
- * /my-day, etc. — that's correct because legacy login serves the legacy surfaces.
- * Mixing the two is intentional in Phase A; cutover is Phase B+.
- *
- * Cross-ref: docs/rebuild-audit/08-next-claude-code-prompt.md §"For /login"
+ * Route-ownership contract: docs/route-ownership.md §10. The legacy
+ * login.html and its private landingFor() were deleted in the cutover —
+ * this function is the only landing logic in the product.
  */
 export function landingFor(role: unknown): string {
   const r = normaliseRole(role);
   if (isAdminRole(r)) return "/command-centre";
-  if (isLeadingHandRole(r)) return "/lh";
+  if (isLeadingHandRole(r)) return "/phil/my-day";
   if (isFieldRole(r)) return "/phil/my-day";
   if (isClientRole(r)) return "/client";
   return "/v2/login";

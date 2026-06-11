@@ -59,7 +59,7 @@ module.exports = async (req, res) => {
     : `If you're reading this, push is working. ${stamp} Sydney.`;
   const url = body.url
     ? String(body.url).slice(0, MAX_TEXT)
-    : '/my-day';
+    : '/phil/my-day';
 
   const payload = {
     title, body: text, url,

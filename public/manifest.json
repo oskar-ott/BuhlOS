@@ -1,8 +1,8 @@
 {
-  "name": "BuhlOS",
-  "short_name": "BuhlOS",
-  "description": "buhl electrical — job management",
-  "start_url": "/my-day",
+  "name": "Phil",
+  "short_name": "Phil",
+  "description": "buhl electrical — field app",
+  "start_url": "/phil/my-day",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
@@ -44,7 +44,7 @@
     {
       "name": "Log today's hours",
       "short_name": "Log hours",
-      "url": "/my-day?openHours=1"
+      "url": "/phil/my-day"
     }
   ]
 }

@@ -74,8 +74,6 @@ export default async function PhilGearPage() {
         <UnderConstructionPanel
           feature="QR scan check-out"
           description="Tap-to-scan from the van or depot is on the roadmap. For now, admin or a leading hand transfers gear to you through the office register, and you can return or report condition here."
-          legacyHref="/my-gear"
-          legacyLabel="Open legacy My gear"
         />
       </div>
     </PhilShell>

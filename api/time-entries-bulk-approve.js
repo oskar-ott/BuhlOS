@@ -135,7 +135,7 @@ module.exports = async (req, res) => {
     sendPushToUserId(userId, {
       title: 'Hours approved',
       body: `${Number(entry.totalHours).toFixed(1)} hrs on ${date} approved by ${me.username}.`,
-      url: '/my-day',
+      url: '/phil/my-day',
       tag: 'buhl-hours-approved-' + date,
     }).catch(() => {});
   }

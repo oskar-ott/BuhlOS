@@ -15,9 +15,9 @@ describe("landingFor()", () => {
     }
   });
 
-  it("routes leading hands to /lh", () => {
+  it("routes leading hands to /phil/my-day (legacy /lh home removed in the cutover)", () => {
     for (const role of ["leadinghand", "leading_hand", "leading-hand", "lh"]) {
-      expect(landingFor(role)).toBe("/lh");
+      expect(landingFor(role)).toBe("/phil/my-day");
     }
   });
 

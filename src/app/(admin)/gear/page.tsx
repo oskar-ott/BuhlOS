@@ -73,17 +73,15 @@ export default async function GearRegisterPage() {
         {assets.length === 0 && !fetchError ? (
           <EmptyState
             title="No assets yet"
-            description="Use the legacy /admin/assets page to seed the register; the new register reads the same store."
+            description="Nothing in the gear register yet. Assets appear here as soon as they're added to the store."
           />
         ) : (
           <GearRegisterClient initialAssets={assets} holders={holders} />
         )}
 
         <UnderConstructionPanel
-          feature="Bulk operations · QR scanning · label printing"
-          description="Bulk assign / bulk retire, camera-based QR scanning, and label printer (Nimbot/Brother) integration are deferred — the v1 register is single-item flows only. Use the legacy admin assets page for create / edit / archive in the meantime."
-          legacyHref="/admin/assets"
-          legacyLabel="Open legacy /admin/assets"
+          feature="Asset create / edit · bulk operations · QR scanning · label printing"
+          description="The v1 register is single-item assign/return flows only. Creating, editing and archiving assets was a legacy-only tool and was retired in the legacy cutover — a modern editor is on the backlog, along with bulk assign / bulk retire, camera-based QR scanning, and label printer (Nimbot/Brother) integration."
         />
       </div>
     </AdminShell>

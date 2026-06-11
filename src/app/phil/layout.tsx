@@ -1,16 +1,22 @@
 import type { ReactNode } from "react";
+import type { Metadata } from "next";
 
 /**
- * Layout segment for the new Phil surface at /phil/* (Phase B).
+ * Layout segment for the Phil field surface at /phil/*.
  *
- * Phase B mounts /phil/my-day and /phil/hours here. Legacy /phil and
- * /phil/app continue to be served by vercel.json rewrites to phil.html;
- * Next.js only owns the sub-paths that aren't claimed.
+ * Since the legacy-interface cutover this owns the whole field app —
+ * legacy /phil, /phil/app and /my-day now 307-redirect to /phil/my-day
+ * (vercel.json). The layout stays a pass-through: each page wraps itself
+ * in <PhilShell> (see scripts/check-shell-contract.js).
  *
- * Per docs/rebuild-audit/19-phase-b-hours-implementation-brief.md the new
- * Phil home becomes /phil/my-day. Route cutover (so that /phil also serves
- * the new shell) happens at the start of Phase C.
+ * The manifest link makes Phil installable from the modern pages — the
+ * PWA manifest's start_url is /phil/my-day, and PhilShell registers
+ * /sw.js for push delivery.
  */
+export const metadata: Metadata = {
+  manifest: "/manifest.json",
+};
+
 export default function PhilSurfaceLayout({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }

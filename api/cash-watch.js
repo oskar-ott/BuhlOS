@@ -177,7 +177,7 @@ module.exports = async (req, res) => {
           await sendPushToUserId(a.id, {
             title: `Job overrun · ${r.jobName}`,
             body,
-            url: `/admin/cash`,
+            url: `/command-centre`,
             tag: 'buhl-cash-watch-' + r.jobId,
           });
         } catch {}

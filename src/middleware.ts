@@ -6,9 +6,11 @@ import { landingFor } from "@/lib/auth/landing";
 /**
  * Phase A + B + C + D1 + D4 route gating.
  *
- * Only the new surfaces are gated here. Legacy URLs (/login, /admin/*, /phil,
- * /my-day, /my-gear, /lh, /client, ...) are owned by vercel.json rewrites and
- * never reach Next.js middleware in production.
+ * Only the modern surfaces are gated here. Old legacy URLs (/login, /admin/*,
+ * /phil, /my-day, /my-gear, /lh, ...) 307-redirect to their canonical modern
+ * routes at the platform edge (vercel.json "redirects") and never reach this
+ * middleware in production. /client is the one kept static page (client
+ * portal — vercel.json rewrite; replacement tracked as issue #271).
  *
  * Gates:
  *   /command-centre        → admin roles only       (Phase A)
