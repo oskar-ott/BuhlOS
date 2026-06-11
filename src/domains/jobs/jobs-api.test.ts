@@ -12,6 +12,7 @@ const jobsPath = requireFromHere.resolve("../../../api/jobs.js");
 const auditPath = requireFromHere.resolve("../../../api/_lib/job-audit.js");
 
 let blob: Map<string, unknown>;
+let writeBlobMock: ReturnType<typeof vi.fn>;
 let auth: { signSession: (payload: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: ReturnType<typeof createRes>) => Promise<unknown>;
 
@@ -140,9 +141,9 @@ beforeEach(() => {
       readBlob: vi.fn(async (key: string, fallback: unknown) =>
         blob.has(key) ? clone(blob.get(key)) : fallback
       ),
-      writeBlob: vi.fn(async (key: string, data: unknown) => {
+      writeBlob: (writeBlobMock = vi.fn(async (key: string, data: unknown) => {
         blob.set(key, clone(data));
-      }),
+      })),
       deleteBlob: vi.fn(async (key: string) => {
         blob.delete(key);
       }),
@@ -303,11 +304,13 @@ describe("DELETE /api/jobs — QA test-job cleanup", () => {
       jobs: [
         { id: "job-real-draft", name: "Real Client Fitout", status: "draft" },
         { id: "smoke-test-1-job-b", name: "SMOKE_TEST_1_Job_Builder", status: "draft" },
+        { id: "smoke-test-2-job-b", name: "SMOKE_TEST_2_Job_Builder", status: "draft" },
         { id: "qa-seed-field-active-job", name: "QA_SEED_FIELD_ACTIVE_JOB", status: "active" },
       ],
     });
     blob.set("jobs/smoke-test-1-job-b/data.json", { dwellings: {}, snags: [], notes: [] });
     blob.set("jobs/smoke-test-1-job-b/audit.json", { entries: [] });
+    blob.set("jobs/smoke-test-2-job-b/data.json", { dwellings: {}, snags: [], notes: [] });
   }
 
   function jobsIds(): string[] {
@@ -380,8 +383,69 @@ describe("DELETE /api/jobs — QA test-job cleanup", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ ok: true, deletedId: "smoke-test-1-job-b" });
-    expect(jobsIds()).toEqual(["job-real-draft", "qa-seed-field-active-job"]);
+    expect(jobsIds()).toEqual([
+      "job-real-draft",
+      "smoke-test-2-job-b",
+      "qa-seed-field-active-job",
+    ]);
     expect(blob.has("jobs/smoke-test-1-job-b/data.json")).toBe(false);
     expect(blob.has("jobs/smoke-test-1-job-b/audit.json")).toBe(false);
+  });
+
+  it("batch-deletes several parked jobs with a SINGLE jobs.json write", async () => {
+    seedTestJobs();
+    const res = await call({
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "smoke-test-1-job-b,smoke-test-2-job-b" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      ok: true,
+      deleted: ["smoke-test-1-job-b", "smoke-test-2-job-b"],
+      refused: [],
+    });
+    expect(jobsIds()).toEqual(["job-real-draft", "qa-seed-field-active-job"]);
+    expect(blob.has("jobs/smoke-test-1-job-b/data.json")).toBe(false);
+    expect(blob.has("jobs/smoke-test-2-job-b/data.json")).toBe(false);
+    // The whole point of the batch form: one read-modify-write of
+    // jobs.json per request, so a second delete can never operate on (and
+    // resurrect from) a pre-write snapshot.
+    const jobsWrites = writeBlobMock.mock.calls.filter(([key]) => key === "jobs.json");
+    expect(jobsWrites).toHaveLength(1);
+  });
+
+  it("batch reports refused ids (real / live / unknown) without failing eligible ones", async () => {
+    seedTestJobs();
+    const res = await call({
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: {
+        id: "smoke-test-1-job-b,job-real-draft,qa-seed-field-active-job,nope",
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.body as {
+      ok: boolean;
+      deleted: string[];
+      refused: Array<{ id: string; error: string }>;
+    };
+    expect(body.deleted).toEqual(["smoke-test-1-job-b"]);
+    expect(body.refused.map((r) => r.id)).toEqual([
+      "job-real-draft",
+      "qa-seed-field-active-job",
+      "nope",
+    ]);
+    expect(body.refused[0]!.error).toMatch(/only automated test jobs/i);
+    expect(body.refused[1]!.error).toMatch(/park it to draft/i);
+    expect(body.refused[2]!.error).toMatch(/not found/i);
+    // Refused rows are untouched.
+    expect(jobsIds()).toEqual([
+      "job-real-draft",
+      "smoke-test-2-job-b",
+      "qa-seed-field-active-job",
+    ]);
   });
 });

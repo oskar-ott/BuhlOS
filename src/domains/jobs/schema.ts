@@ -211,12 +211,25 @@ export const ApiErrorBodySchema = z.object({
 });
 
 /**
- * DELETE /api/jobs?id=X success body. The endpoint only accepts QA test
- * jobs (see api/_lib/test-data.js) — there is no general job delete.
+ * DELETE /api/jobs?id=X success body (single id). The endpoint only accepts
+ * QA test jobs (see api/_lib/test-data.js) — there is no general job delete.
  */
 export const JobDeleteResponseSchema = z.object({
   ok: z.literal(true),
   deletedId: z.string(),
+});
+
+/**
+ * DELETE /api/jobs?id=a,b,c success body (batch). One read + one write
+ * server-side — the safe way to clear several test jobs at once (see the
+ * DELETE handler comment in api/jobs.js on why sequential single deletes
+ * are not). Ineligible/unknown ids land in `refused` without failing the
+ * eligible ones.
+ */
+export const JobBatchDeleteResponseSchema = z.object({
+  ok: z.literal(true),
+  deleted: z.array(z.string()),
+  refused: z.array(z.object({ id: z.string(), error: z.string() })),
 });
 
 /* ---------------------------------------------------------------------

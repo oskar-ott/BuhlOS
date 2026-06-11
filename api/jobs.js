@@ -797,35 +797,79 @@ module.exports = async (req, res) => {
   // beyond the builder round-trip), and ids may linger in users.json
   // assignedJobIds — consumers resolve against the live jobs list, so a
   // dangling id is inert. No cascade beyond that is attempted or implied.
+  //
+  // Accepts ONE id or a comma-separated batch (`?id=a,b,c`). The batch
+  // form exists because back-to-back single deletes are not safe with
+  // this storage model: each request is a read-modify-write of the whole
+  // jobs.json, and a follow-up request can land on another function
+  // instance whose read (cached up to BLOB_TTL_MS, plus Vercel Blob's
+  // multi-second post-put propagation lag — see writeBlob in _lib/blob.js)
+  // predates the previous write, silently resurrecting the just-deleted
+  // row. A batch is ONE read and ONE write, so the cleanup card sends a
+  // single request no matter how many parked test jobs it clears.
   if (req.method === 'DELETE') {
     if (me.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
     const { id } = req.query || {};
     if (!id) return res.status(400).json({ error: 'id required' });
-    const job = data.jobs.find(j => j.id === id);
-    if (!job) return res.status(404).json({ error: 'job not found' });
+    const ids = String(id).split(',').map(s => s.trim()).filter(Boolean);
+    if (ids.length === 0) return res.status(400).json({ error: 'id required' });
 
-    const eligibility = testJobDeleteEligibility(job);
-    if (!eligibility.ok) {
-      const message = eligibility.reason === 'live'
+    const refusalMessage = (job, eligibility) => {
+      if (!job) return 'job not found';
+      return eligibility.reason === 'live'
         ? 'job is still live — park it to draft (unpublish) before deleting'
         : 'only automated test jobs (SMOKE_TEST_ / STRESS_TEST_ / QA_SEED_) can be deleted';
-      return res.status(400).json({ error: message });
+    };
+
+    const deletable = [];
+    const refused = [];
+    for (const one of ids) {
+      const job = data.jobs.find(j => j.id === one);
+      const eligibility = job ? testJobDeleteEligibility(job) : { ok: false };
+      if (job && eligibility.ok) deletable.push(job);
+      else refused.push({ id: one, error: refusalMessage(job, eligibility) });
     }
 
-    data.jobs = data.jobs.filter(j => j.id !== id);
-    await writeBlob('jobs.json', data);
+    // Single-id callers keep the original strict contract (404 unknown,
+    // 400 ineligible, 200 { ok, deletedId }) so curl/scripted use stays
+    // simple. The batch form reports per-id outcomes instead of failing
+    // the whole request because one id was already gone.
+    if (ids.length === 1 && refused.length === 1) {
+      const status = refused[0].error === 'job not found' ? 404 : 400;
+      return res.status(status).json({ error: refused[0].error });
+    }
 
-    // Per-job blobs are unreachable once the row is gone; sweep the known
-    // keys best-effort (deleteBlob already swallows + logs failures).
-    await deleteBlob(`jobs/${id}/data.json`);
-    await deleteBlob(`jobs/${id}/tags.json`);
-    await deleteBlob(`jobs/${id}/audit.json`);
+    if (deletable.length > 0) {
+      const dropIds = new Set(deletable.map(j => j.id));
+      data.jobs = data.jobs.filter(j => !dropIds.has(j.id));
+      await writeBlob('jobs.json', data);
 
-    // The per-job audit blob dies with the job, so the deletion itself is
-    // logged to the function output only — enough to trace who removed
-    // test data without keeping a tombstone store for it.
-    console.log(`test job deleted: ${id} ("${job.name}") by ${me.username || me.id}`);
-    return res.status(200).json({ ok: true, deletedId: id });
+      // Per-job blobs are unreachable once the rows are gone; sweep the
+      // known keys best-effort (deleteBlob already swallows + logs
+      // failures). Sweeping after the single jobs.json write keeps the
+      // jobs document the only read-modify-write in the request.
+      for (const job of deletable) {
+        await deleteBlob(`jobs/${job.id}/data.json`);
+        await deleteBlob(`jobs/${job.id}/tags.json`);
+        await deleteBlob(`jobs/${job.id}/audit.json`);
+      }
+
+      // The per-job audit blob dies with the job, so the deletion itself is
+      // logged to the function output only — enough to trace who removed
+      // test data without keeping a tombstone store for it.
+      for (const job of deletable) {
+        console.log(`test job deleted: ${job.id} ("${job.name}") by ${me.username || me.id}`);
+      }
+    }
+
+    if (ids.length === 1) {
+      return res.status(200).json({ ok: true, deletedId: ids[0] });
+    }
+    return res.status(200).json({
+      ok: true,
+      deleted: deletable.map(j => j.id),
+      refused,
+    });
   }
 
   res.status(405).end();

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { deleteTestJob } from "@/domains/jobs/client";
+import { deleteTestJobs } from "@/domains/jobs/client";
 
 interface Props {
   /**
@@ -28,14 +28,15 @@ interface Props {
  * (QA_SEED_FIELD_ACTIVE_JOB) is active, hence never offered.
  *
  * Confirmation is an inline arm/confirm step (house rule: no window
- * confirm()/alert() — see EvidenceRejectModal). Deletes run sequentially;
- * partial failures are reported and the list refreshes either way.
+ * confirm()/alert() — see EvidenceRejectModal). The whole batch goes in
+ * ONE request (deleteTestJobs) — sequential per-job deletes are unsafe
+ * with the blob storage model (see api/jobs.js DELETE). Refused ids are
+ * reported and the list refreshes either way.
  */
 export function TestJobsCleanup({ jobs }: Props) {
   const router = useRouter();
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   if (jobs.length === 0) return null;
@@ -45,16 +46,16 @@ export function TestJobsCleanup({ jobs }: Props) {
   async function run() {
     setBusy(true);
     setError(null);
-    const failures: string[] = [];
-    let done = 0;
-    for (const job of jobs) {
-      const result = await deleteTestJob(job.id);
-      if (!result.ok) failures.push(`${job.name}: ${result.error.message}`);
-      done += 1;
-      setProgress(done);
-    }
-    if (failures.length > 0) {
-      setError(`${failures.length} of ${jobs.length} could not be deleted — ${failures[0]}`);
+    const result = await deleteTestJobs(jobs.map((j) => j.id));
+    if (!result.ok) {
+      setError(`Could not delete — ${result.error.message}`);
+      setBusy(false);
+      setArmed(false);
+    } else if (result.data.refused.length > 0) {
+      const first = result.data.refused[0]!;
+      setError(
+        `${result.data.refused.length} of ${jobs.length} refused — ${first.id}: ${first.error}`
+      );
       setBusy(false);
       setArmed(false);
     }
@@ -74,7 +75,7 @@ export function TestJobsCleanup({ jobs }: Props) {
         </div>
         {busy ? (
           <span className="text-sm text-text-muted" data-testid="test-jobs-cleanup-busy">
-            Deleting… {progress}/{jobs.length}
+            Deleting {jobs.length} {noun}…
           </span>
         ) : armed ? (
           <div className="flex items-center gap-2">

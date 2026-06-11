@@ -147,7 +147,10 @@ refused, which inherently protects the Active fixture. Three ways to run it:
    **dry run** (prints what would go); add `-- --apply` to delete. On apply it
    first writes the pre-purge `jobs.json` to gitignored `.qa-backups/`, so a
    purge is recoverable.
-3. **Per-job** — curl the DELETE endpoint with an admin session.
+3. **Per-job / batch** — curl the DELETE endpoint with an admin session; a
+   comma-separated `?id=a,b,c` deletes several in ONE read+write (never loop
+   single deletes — back-to-back whole-document writes can resurrect rows via
+   stale cross-instance reads; see the DELETE handler comment in api/jobs.js).
 
 A smoke run's own teardown still only parks (delete-on-teardown would hide
 failures the lister exists to catch); cleanup is a deliberate follow-up action.

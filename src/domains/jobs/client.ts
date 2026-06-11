@@ -1,5 +1,6 @@
 import { httpDelete, httpGet, httpPost, httpPut, type HttpResult } from "@/lib/http";
 import {
+  JobBatchDeleteResponseSchema,
   JobCreateInputSchema,
   JobDeleteResponseSchema,
   JobDetailResponseSchema,
@@ -124,15 +125,48 @@ export function unpublishJob(jobId: string): Promise<HttpResult<JobDetailRespons
 /**
  * Delete an automated QA/test job. Server-side (api/jobs.js DELETE) this is
  * admin-only and refuses anything that isn't QA-prefixed test data
- * (SMOKE_TEST_/STRESS_TEST_/QA_SEED_) or is still active — real jobs can
- * NEVER be deleted through this path, so the worst a buggy caller gets is
- * a 400. See src/domains/jobs/test-data.ts for the client-side gate.
+ * (SMOKE_TEST_/STRESS_TEST_/QA_SEED_) or isn't parked (draft/archived) —
+ * real jobs can NEVER be deleted through this path, so the worst a buggy
+ * caller gets is a 400. See src/domains/jobs/test-data.ts for the
+ * client-side gate.
  */
 export function deleteTestJob(
   jobId: string
 ): Promise<HttpResult<{ ok: true; deletedId: string }>> {
   return httpDelete(`/api/jobs?id=${encodeURIComponent(jobId)}`, {
     schema: JobDeleteResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+export type JobBatchDeleteResult = {
+  ok: true;
+  deleted: string[];
+  refused: Array<{ id: string; error: string }>;
+};
+
+/**
+ * Delete several test jobs in ONE request (`?id=a,b,c`). Never issue
+ * sequential deleteTestJob calls for a batch: each single delete is a
+ * whole-document read-modify-write of jobs.json, and a follow-up request
+ * served by another function instance can read a pre-write snapshot and
+ * resurrect the row it didn't know was deleted (see the DELETE handler in
+ * api/jobs.js). The server's single-id response shape differs, so a
+ * one-element batch is adapted through deleteTestJob.
+ */
+export async function deleteTestJobs(
+  jobIds: ReadonlyArray<string>
+): Promise<HttpResult<JobBatchDeleteResult>> {
+  if (jobIds.length === 0) {
+    return { ok: true, data: { ok: true, deleted: [], refused: [] } };
+  }
+  if (jobIds.length === 1) {
+    const single = await deleteTestJob(jobIds[0]!);
+    if (!single.ok) return single;
+    return { ok: true, data: { ok: true, deleted: [single.data.deletedId], refused: [] } };
+  }
+  return httpDelete(`/api/jobs?id=${jobIds.map(encodeURIComponent).join(",")}`, {
+    schema: JobBatchDeleteResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
   });
 }
@@ -146,4 +180,5 @@ export const jobsClient = {
   publishJob,
   unpublishJob,
   deleteTestJob,
+  deleteTestJobs,
 } as const;
