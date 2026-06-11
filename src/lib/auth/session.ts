@@ -23,6 +23,7 @@ const SessionPayloadSchema = z.object({
   email: z.string().optional(),
   role: z.string().optional(),
   name: z.string().optional(),
+  username: z.string().optional(),
   exp: z.number().optional(),
 });
 
@@ -63,6 +64,10 @@ const MeResponseSchema = z.object({
       email: z.string().optional(),
       role: z.string().optional(),
       name: z.string().optional(),
+      // users.json usernames double as display names across the app (the
+      // hours pipeline stamps them onto entries; the employees bridge splits
+      // them into first/last) — surfaced here so greetings can use them too.
+      username: z.string().optional(),
     })
     .nullable()
     .optional(),

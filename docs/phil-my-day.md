@@ -14,9 +14,17 @@ payroll-focused home that opens straight into the week timesheet.
    app-bar so the top reads as one navy header, matching the design's `.md-hdr`):
    `Arvo, {firstName}` (time-of-day computed in `BUSINESS_TIMEZONE`: Morning /
    Arvo / Evening) + a mono subtitle `{weekday day month} · on {job}` + a yellow
-   **initials avatar**. The name rides on the session cookie (`session.name`, no
-   fetch); the "on {job}" line shows only when there's exactly one assigned job
-   (no active-job signal exists, so we never guess).
+   **initials avatar**. The name is resolved server-side from
+   `/api/auth?action=me` (the legacy login signs the cookie as
+   `{ userId, role }` only, so `session.name` is never populated in practice):
+   `name` → `username` → cookie `name` → impersonal greeting, no avatar.
+   users.json usernames double as display names app-wide (the hours pipeline
+   stamps them onto entries; the employees bridge splits them into first/last),
+   so the greeting follows the same convention. Composition is the pure
+   `buildPhilGreeting` (`src/domains/phil/greeting.ts`, unit-tested); the
+   profile fetch fails soft — an unreachable `me` endpoint degrades the header,
+   never blocks the page. The "on {job}" line shows only when there's exactly
+   one assigned job (no active-job signal exists, so we never guess).
 2. **Rejected-hours alert** — the most recent rejected entry with "Fix &
    resubmit". The only real "needs you" signal on this surface; kept at the top
    (a rejected day is about the hours flow right here), not the design's bottom
