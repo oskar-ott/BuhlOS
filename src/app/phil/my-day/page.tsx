@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
+import { JetBrains_Mono } from "next/font/google";
+import { cn } from "@/lib/cn";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { AttentionBanner } from "@/components/ui/AttentionBanner";
-import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
+import { PhilWeekStrip } from "@/components/phil/PhilWeekStrip";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
@@ -16,8 +16,19 @@ import type { TimeEntry } from "@/domains/timesheets/types";
 import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isVisibleToField } from "@/domains/jobs/builder";
+import styles from "@/components/phil/myDay.module.css";
 
 export const dynamic = "force-dynamic";
+
+// JetBrains Mono — the design's microcopy face. Scoped to the My Day wrapper
+// (its CSS variable is only applied there), so it never restyles the rest of
+// the app. The display/body faces (Inter Tight / Inter) already load globally.
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-jetbrains-mono",
+  display: "swap",
+});
 
 /**
  * /phil/my-day — the Phase B Phil home that replaces the placeholder
@@ -25,9 +36,23 @@ export const dynamic = "force-dynamic";
  * Phase C cutover; this is the parallel new surface that field workers
  * use once Phase B ships.
  *
+ * Laid out as the approved final "Phil My Day" design — a payroll-focused
+ * home that opens straight into the week timesheet:
+ *   greeting ("Arvo, {name}" + date + the job they're on)
+ *   → This week (the Mon–Sun PhilWeekStrip)
+ *   → log today's hours (the unchanged LogHoursSheet)
+ *   → rejected-hours alert (the only real "needs you" on this surface).
+ * The centre Capture shutter stays on the shell (PhilTabBar).
+ *
+ * Honesty: the design's "Submit timesheet" (weekly batch) and "Needs you"
+ * RFI / ITP-mark rows are NOT shipped — logging a day already submits it to
+ * the office (there is no weekly batch submit), and RFIs / a cross-job
+ * needs-you feed don't exist in Phil yet. We never fabricate that state.
+ *
  * Cross-ref:
  *   docs/rebuild-audit/13-ui-information-architecture.md §Phil/Today
  *   docs/rebuild-audit/19-phase-b-hours-implementation-brief.md §Phil surface
+ *   docs/phil-my-day.md (this surface)
  */
 export default async function MyDayPage() {
   const cookieStore = await cookies();
@@ -50,16 +75,52 @@ export default async function MyDayPage() {
     loadAssignedJobs(raw),
   ]);
 
-  // Bible vNext §16.3 quick-win: surface the most recent rejected entry
-  // at the top of My day so the worker can act in five seconds. Only one
-  // banner stacks — §13 forbids more than one AttentionBanner per screen.
+  // Bible vNext §16.3 quick-win: surface the most recent rejected entry so the
+  // worker can act in five seconds. This is the only real "needs you" signal on
+  // My Day — kept at the top rather than the design's bottom slot because a
+  // rejected day is about the hours flow right here. Only one banner stacks.
   const rejectedEntry = recentEntries.find(
     (e) => e.status === "rejected" && e.rejectedReason
   );
 
+  // Greeting. Time-of-day + worker name (both real: the name rides on the
+  // session cookie, no extra fetch; the part-of-day is computed in the business
+  // timezone). The job they're on is shown only when there's exactly one
+  // assigned job — there is no active-job signal, so we never guess.
+  const firstName = session.name?.trim().split(/\s+/)[0] || null;
+  const initials = workerInitials(session.name);
+  const partOfDay = businessPartOfDay();
+  const greeting = firstName ? `${partOfDay}, ${firstName}` : partOfDay;
+  const dateLabel = new Date().toLocaleDateString("en-AU", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: BUSINESS_TIMEZONE,
+  });
+  const jobs = assignedJobs.jobs;
+  const soleJob = jobs.length === 1 ? jobs[0]! : null;
+  const subtitle = soleJob ? `${dateLabel} · on ${soleJob.name}` : dateLabel;
+
+  const todayISO = localDateString(new Date(), BUSINESS_TIMEZONE);
+  // The hours sheet keeps its own minimal {id,name} list and is preselected
+  // when there's exactly one job, so the write/attribution path is unchanged.
+  const soleJobId = soleJob?.id ?? null;
+
   return (
     <PhilShell title="My day">
-      <div className="space-y-4">
+      <div className={cn(styles.surface, mono.variable)}>
+        <header className={styles.greetBar}>
+          <div className="min-w-0">
+            <h1 className={styles.greetName}>{greeting}</h1>
+            <p className={styles.greetSub}>{subtitle}</p>
+          </div>
+          {initials ? (
+            <div className={styles.avatar} aria-hidden="true">
+              {initials}
+            </div>
+          ) : null}
+        </header>
+
         {rejectedEntry ? (
           <AttentionBanner
             chip="Rejected"
@@ -82,11 +143,14 @@ export default async function MyDayPage() {
           />
         ) : null}
 
+        <PhilWeekStrip entries={recentEntries} todayISO={todayISO} />
+
         <LogHoursSheet
           initialTodayEntry={todayEntry}
           recentEntries={recentEntries}
-          assignedJobs={assignedJobs.jobs}
+          assignedJobs={jobs}
           jobsError={assignedJobs.error}
+          initialJobId={soleJobId}
         />
 
         {fetchError ? (
@@ -101,31 +165,41 @@ export default async function MyDayPage() {
           </PhilNotice>
         ) : null}
 
-        <Card>
-          <div className="flex items-center justify-between gap-3">
-            <CardTitle>This week</CardTitle>
-            <Link
-              href="/phil/hours"
-              className="text-sm text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
-            >
-              See history →
-            </Link>
-          </div>
-          <CardDescription className="mt-1">
-            Last 7 days. Tap the date to copy that day&rsquo;s notes when fixing a rejected entry.
-          </CardDescription>
-          <RecentEntriesTable entries={recentEntries} />
-        </Card>
-
-        <UnderConstructionPanel
-          feature="Multi-job allocation · job picker"
-          description="One allocation per submission today. Splitting a day across two jobs, or picking which job a Standard day lands on, is still on the legacy My day — that loop lands here in a later phase."
-          legacyHref="/my-day"
-          legacyLabel="Use the legacy My day for multi-job allocations"
-        />
+        <div className={styles.deferNote}>
+          <div className={styles.deferNoteLabel}>Heads up</div>
+          <p className={styles.deferNoteBody}>
+            One allocation per submission. To split a day across two jobs, use the{" "}
+            <a href="/my-day" className={styles.deferNoteLink}>
+              legacy My day
+            </a>
+            .
+          </p>
+        </div>
       </div>
     </PhilShell>
   );
+}
+
+/** Up-to-two-letter avatar initials from the worker's real name, or null. */
+function workerInitials(name: string | undefined): string | null {
+  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
+}
+
+/** "Morning" / "Arvo" / "Evening" in the business timezone (Australian register). */
+function businessPartOfDay(): string {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-AU", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: BUSINESS_TIMEZONE,
+    }).format(new Date())
+  );
+  if (Number.isNaN(hour) || hour < 12) return "Morning";
+  if (hour < 17) return "Arvo";
+  return "Evening";
 }
 
 async function loadEntries(cookieValue: string | undefined): Promise<{
@@ -141,7 +215,9 @@ async function loadEntries(cookieValue: string | undefined): Promise<{
   // Server-side "today" must use the business timezone so a Vercel UTC server
   // doesn't compute yesterday's date for a Sydney worker. The browser-local
   // date is still used inside the LogHoursSheet client form (it initialises
-  // its date state in the worker's actual timezone).
+  // its date state in the worker's actual timezone). The rolling 7-day window
+  // always covers this week's Monday→today, so PhilWeekStrip needs no extra
+  // fetch.
   const today = localDateString(new Date(), BUSINESS_TIMEZONE);
   const sevenDaysAgo = localDateString(
     new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
@@ -188,7 +264,7 @@ async function loadEntries(cookieValue: string | undefined): Promise<{
 }
 
 /**
- * Load the worker's active assigned jobs for hours attribution.
+ * Load the worker's active assigned jobs (id + name).
  *
  * Source of truth: users.json.assignedJobIds — the same source Phil already
  * uses for job visibility. The legacy GET /api/jobs already scopes a field
@@ -196,7 +272,8 @@ async function loadEntries(cookieValue: string | undefined): Promise<{
  * isVisibleToField filter here is defence-in-depth so an admin previewing My
  * Day never sees a draft/archived job as a log target. Returns `error: true`
  * on any failure so the sheet can block submission rather than fall back to an
- * unattributed entry.
+ * unattributed entry. Feeds both the LogHoursSheet attribution and the
+ * greeting's "on {job}" line (shown only for a single assigned job).
  */
 async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
   jobs: ReadonlyArray<{ id: string; name: string }>;
@@ -225,74 +302,8 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
   }
 }
 
-function RecentEntriesTable({ entries }: { entries: ReadonlyArray<TimeEntry> }) {
-  if (entries.length === 0) {
-    return (
-      <p className="mt-3 rounded-card border border-dashed border-border bg-surface-subtle p-4 text-sm text-text-muted">
-        No entries in the last 7 days. Tap Standard day above to log today.
-      </p>
-    );
-  }
-  return (
-    <ul className="mt-3 divide-y divide-border">
-      {entries.slice(0, 7).map((entry) => {
-        const isRejected = entry.status === "rejected" && entry.rejectedReason;
-        return (
-          <li key={entry.id} className="py-2">
-            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-sm">
-              <span className="font-medium text-text">{formatShortDate(entry.date)}</span>
-              <span className="text-text-muted">{formatShortHours(entry.totalHours)}</span>
-              <StatusChip tone={HOURS_TONE[entry.status]}>
-                {HOURS_LABEL[entry.status]}
-              </StatusChip>
-            </div>
-            {isRejected ? (
-              <div className="mt-1 space-y-1">
-                <p className="text-xs leading-snug text-text-muted">
-                  <span className="font-semibold text-state-danger">Why:</span>{" "}
-                  {entry.rejectedReason}
-                </p>
-                <Link
-                  href="/phil/hours"
-                  className="inline-flex min-h-[44px] items-center text-xs font-semibold text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
-                >
-                  Fix &amp; resubmit →
-                </Link>
-              </div>
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-const HOURS_TONE: Record<TimeEntry["status"], StatusTone> = {
-  draft: "neutral",
-  submitted: "info",
-  approved: "success",
-  rejected: "danger",
-};
-
-const HOURS_LABEL: Record<TimeEntry["status"], string> = {
-  draft: "Draft",
-  submitted: "Submitted",
-  approved: "Approved",
-  rejected: "Rejected",
-};
-
 function formatShortDate(date: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
   const d = new Date(date + "T00:00:00");
   return d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
-}
-
-function formatShortHours(decimalHours: number): string {
-  if (decimalHours <= 0) return "0h";
-  const totalMinutes = Math.round(decimalHours * 60);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes - hours * 60;
-  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h`;
-  return `${minutes}m`;
 }

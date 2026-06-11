@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { Clock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { Modal } from "@/components/ui/Modal";
 import { PhilNotice } from "./ui/PhilNotice";
 import { cn } from "@/lib/cn";
+import styles from "./myDay.module.css";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import {
   STANDARD_DAY_HOURS,
@@ -241,10 +243,12 @@ export function LogHoursSheet({
   const submitting = state.kind === "submitting";
 
   return (
-    <div className="space-y-4">
-      <StatusLine entry={entryForSelectedDate ?? todayEntry} selectedDate={date} />
+    <div className="space-y-3">
+      <StatusLine entry={entryForSelectedDate ?? todayEntry} />
 
-      <Card className="space-y-4 p-4">
+      {/* No card wrapper — the design's actions sit as standalone bars on the
+          page surface, not inside a bordered form box. */}
+      <div className="space-y-3">
         <JobAttribution
           jobs={assignedJobs}
           selectedJobId={selectedJobId}
@@ -253,72 +257,81 @@ export function LogHoursSheet({
           disabled={submitting}
         />
 
-        <div>
-          <p className="font-display text-xs uppercase tracking-widest text-text-muted">Day</p>
-          <p className="mt-1 text-base text-text">{formatDateLabel(date)}</p>
-        </div>
-
+        {/* The design's compact yellow "Log today's hours" action (md-act.log)
+            in place of a screen-filling navy block. Same submit handler, same
+            disabled gating, same "Submit Standard day" aria-label the smoke
+            clicks — purely visual. */}
         <button
           type="button"
           onClick={submitStandardDay}
           disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
           aria-label="Submit Standard day, 7 hours 36 minutes"
-          className={cn(
-            "block w-full rounded-card bg-brand-navy px-5 py-6 text-left text-text-inverse",
-            "transition-colors hover:bg-accent-ink active:bg-accent-ink",
-            "disabled:cursor-not-allowed disabled:bg-border disabled:text-text-muted"
-          )}
+          className={styles.logAction}
         >
-          <span className="block font-display text-xs uppercase tracking-widest text-accent-yellow">
-            Standard day
+          <span className={styles.logActionIcon} aria-hidden="true">
+            <Clock className="h-[18px] w-[18px]" />
           </span>
-          <span className="mt-1 block font-display text-3xl">
-            {formatHoursLabel(STANDARD_DAY_HOURS)}
+          <span className={styles.logActionText}>
+            <span className={styles.logActionTitle}>
+              {submitting ? "Logging…" : "Log today's hours"}
+            </span>
+            <span className={styles.logActionSub}>
+              {formatDateLabel(date)} · standard day {formatHoursLabel(STANDARD_DAY_HOURS)}
+            </span>
           </span>
-          <span className="mt-2 block text-xs text-text-inverse/80">
-            {submitting ? "Submitting…" : "One tap submits today's hours."}
+          <span className={styles.logActionArrow} aria-hidden="true">
+            →
           </span>
         </button>
 
-        <Button
-          variant="secondary"
-          size="lg"
-          onClick={() => setCustomOpen(true)}
-          disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
-          className="w-full"
-        >
-          Custom hours
-        </Button>
-
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium text-text">Date</span>
+        {/* The date stays rendered (not display:none) so the field-readiness
+            smoke can still set the day. */}
+        <label className="flex flex-wrap items-center gap-2 text-xs">
+          <span className={styles.mono}>Day</span>
           <input
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
             disabled={submitting}
-            className="h-12 w-full rounded-card border border-border bg-surface px-3 text-base focus:border-brand-navy focus:outline-none"
+            className="rounded-pill border border-border bg-surface px-3 py-1.5 text-xs text-text focus:border-brand-navy focus:outline-none"
           />
           {!dateInWindow ? (
-            <span className="mt-1 block text-xs text-state-danger">
-              Pick a date in the last {MAX_BACKDATE_DAYS} days (or today / tomorrow).
+            <span className="text-state-danger">
+              Pick a date in the last {MAX_BACKDATE_DAYS} days.
             </span>
           ) : null}
         </label>
 
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium text-text">Notes (optional)</span>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            disabled={submitting}
-            rows={2}
-            maxLength={500}
-            placeholder="Anything the office should know…"
-            className="block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none"
-          />
-        </label>
-      </Card>
+        {/* Custom hours + a note are real, but secondary — tucked under a quiet
+            disclosure so the yellow action leads, matching the design. */}
+        <details className={styles.moreOptions}>
+          <summary className={styles.moreOptionsSummary}>Custom hours or a note</summary>
+          <div className="mt-3 space-y-3">
+            <Button
+              variant="secondary"
+              size="lg"
+              onClick={() => setCustomOpen(true)}
+              disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
+              className="w-full"
+            >
+              Custom hours
+            </Button>
+
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium text-text">Notes (optional)</span>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                disabled={submitting}
+                rows={2}
+                maxLength={500}
+                placeholder="Anything the office should know…"
+                className="block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none"
+              />
+            </label>
+          </div>
+        </details>
+      </div>
 
       <FeedbackBanner state={state} />
 
@@ -425,13 +438,15 @@ function JobAttribution({
   }
 
   if (jobs.length === 1) {
+    // Quiet inline context, not a boxed form field — the job already headlines
+    // the greeting ("on {job}"). The "Assigned job" pill is kept verbatim (the
+    // field-readiness smoke asserts it for the single-job attribution path).
     return (
-      <div>
-        {label}
-        <div className="mt-1 flex items-center justify-between gap-2 rounded-card border border-border bg-surface-subtle px-3 py-2">
-          <span className="min-w-0 truncate text-sm font-medium text-text">{jobs[0]!.name}</span>
-          <Pill tone="neutral">Assigned job</Pill>
-        </div>
+      <div className="flex items-center gap-2 px-0.5">
+        <span className="min-w-0 truncate font-display text-sm font-semibold text-text">
+          {jobs[0]!.name}
+        </span>
+        <Pill tone="neutral">Assigned job</Pill>
       </div>
     );
   }
@@ -478,25 +493,12 @@ function JobAttribution({
   );
 }
 
-function StatusLine({
-  entry,
-  selectedDate,
-}: {
-  entry: TimeEntry | null;
-  selectedDate: string;
-}): ReactNode {
-  if (!entry) {
-    return (
-      <Card className="flex items-center justify-between bg-surface-subtle">
-        <div>
-          <CardTitle>No entry yet</CardTitle>
-          <CardDescription>
-            Nothing submitted for {formatDateLabel(selectedDate)} — tap Standard day to log it.
-          </CardDescription>
-        </div>
-      </Card>
-    );
-  }
+function StatusLine({ entry }: { entry: TimeEntry | null }): ReactNode {
+  // The empty "No entry yet" state is intentionally NOT rendered here — the
+  // PhilWeekStrip above already shows today as "log now / Today not logged",
+  // so a second empty card would be redundant clutter against the design. Real
+  // submitted/approved/rejected states still surface below.
+  if (!entry) return null;
   return (
     <Card className="space-y-2">
       <div className="flex items-center justify-between gap-3">

@@ -1,0 +1,389 @@
+/*
+ * Scoped Claude Design "Phil My Day" visual language.
+ *
+ * Mirrors the design handoff `phil/myday-v2.css` + the prototype `ops-base.css`
+ * tokens (a warm navy + soft-gold palette with tinted state backgrounds). It is
+ * SCOPED to My Day so it never harmonizes to the app's global cool-slate tokens
+ * — the same pattern as src/app/v2/login/login.module.css.
+ *
+ * Only the two things the global token set genuinely lacks live here as literal
+ * values: the tinted state backgrounds (the app's `state-*` tokens are solid)
+ * and the JetBrains Mono microcopy face (the design's signature for metadata).
+ * Everything else reuses the global brand tokens (--brand-navy, --accent-yellow,
+ * --text, --border, --font-inter-tight) so My Day stays consistent with the
+ * shell and the unchanged LogHoursSheet.
+ */
+
+.surface {
+  /* Tighter vertical rhythm than the app default — the design stacks
+     proportionate blocks at ~12px, not 16px. */
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  /* Tinted state backgrounds from the prototype palette (the app has no
+     --green-bg / --amber-bg tokens, so they are scoped here). */
+  --md-green: #1f8b5a;
+  --md-green-bg: #e6f3ec;
+  --md-green-bd: #b9dec8;
+  --md-amber: #d18b1c;
+  --md-amber-bg: #faf2e1;
+  --md-amber-bd: #ecd5a5;
+}
+
+/* JetBrains Mono microcopy — every label / id / status word in the design. */
+.mono {
+  font-family: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-variant-numeric: tabular-nums;
+}
+
+.display {
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  letter-spacing: -0.018em;
+}
+
+/* ── Greeting (navy header band, full-bleed under the app-bar) ─────────────
+   The design's top is a single navy header. We bleed past the shell <main>'s
+   16px padding so the navy runs edge-to-edge and flush with the navy app-bar
+   above — reading as one navy header rather than a white block. */
+.greetBar {
+  margin: -16px -16px 0;
+  padding: 12px 16px 16px;
+  background: var(--brand-navy);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.greetName {
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  color: #fff;
+}
+.greetSub {
+  margin-top: 5px;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+}
+.avatar {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--accent-yellow);
+  color: var(--accent-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  font-weight: 800;
+  font-size: 14px;
+}
+
+/* ── Compact "Log today's hours" action (design .md-act.log) ──────────────
+   A scoped restyle of LogHoursSheet's Standard-day submit button: the design's
+   single yellow action bar instead of a screen-filling navy block. Behaviour,
+   disabled gating and the "Submit Standard day" aria-label are unchanged. */
+.logAction {
+  width: 100%;
+  height: 56px;
+  border: 0;
+  border-radius: 13px;
+  background: var(--accent-yellow);
+  color: var(--accent-ink);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  text-align: left;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.logAction:hover {
+  filter: brightness(0.96);
+}
+.logAction:active {
+  filter: brightness(0.92);
+}
+.logAction:disabled {
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  cursor: not-allowed;
+}
+.logActionIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  background: var(--accent-ink);
+  color: var(--accent-yellow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.logAction:disabled .logActionIcon {
+  background: var(--border);
+  color: var(--text-muted);
+}
+.logActionText {
+  flex: 1;
+  min-width: 0;
+}
+.logActionTitle {
+  display: block;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  font-weight: 700;
+  font-size: 15.5px;
+  letter-spacing: -0.014em;
+}
+.logActionSub {
+  display: block;
+  margin-top: 1px;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.62;
+}
+.logActionArrow {
+  flex-shrink: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* ── Quiet honest note (replaces the loud UC hazard-tape on My Day) ──────── */
+.deferNote {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  padding: 11px 14px;
+}
+.deferNoteLabel {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.deferNoteBody {
+  margin-top: 4px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+.deferNoteLink {
+  color: var(--brand-navy);
+  text-decoration: underline;
+  text-decoration-color: var(--accent-yellow);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
+/* ── "More options" disclosure (custom hours / note tucked under the action) */
+.moreOptions {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.moreOptionsSummary {
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.moreOptionsSummary::-webkit-details-marker {
+  display: none;
+}
+.moreOptionsSummary::before {
+  content: "▸ ";
+}
+details[open] > .moreOptionsSummary::before {
+  content: "▾ ";
+}
+
+/* ── This week (payroll strip) ─────────────────────────────────────────── */
+.week {
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+.weekHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 15px 11px;
+  border-bottom: 1px solid var(--border);
+}
+.weekTitle {
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.014em;
+  color: var(--text);
+}
+.weekRange {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.weekTotalWrap {
+  text-align: right;
+  flex-shrink: 0;
+}
+.weekTotal {
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.weekTodayFlag {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.weekTodayFlag.warn {
+  color: var(--md-amber);
+}
+
+.days {
+  display: flex;
+  gap: 5px;
+  padding: 12px 11px 13px;
+}
+.day {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+.dayLabel {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.box {
+  width: 100%;
+  height: 46px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.hours {
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.status {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 7px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+/* per-day states (mirrors phil/myday-v2.css) */
+.logged .box {
+  background: var(--md-green-bg);
+  border-color: var(--md-green-bd);
+}
+.logged .hours,
+.logged .status {
+  color: var(--md-green);
+}
+
+.today .dayLabel {
+  color: var(--text);
+}
+.today .box {
+  background: var(--surface);
+  border: 2px solid var(--accent-yellow);
+  box-shadow: 0 0 0 3px rgba(255, 204, 0, 0.22);
+}
+.today .status {
+  color: var(--md-amber);
+}
+
+.miss .box {
+  background: var(--md-amber-bg);
+  border: 1px dashed var(--md-amber-bd);
+}
+.miss .hours,
+.miss .status {
+  color: var(--md-amber);
+}
+
+.off .box,
+.upcoming .box {
+  border-style: dashed;
+  background: transparent;
+  opacity: 0.5;
+}
+
+.weekFoot {
+  border-top: 1px solid var(--border);
+  padding: 8px 15px;
+  text-align: right;
+}
+.seeHistory {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-navy);
+  text-decoration: underline;
+  text-decoration-color: var(--accent-yellow);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
