@@ -1,11 +1,9 @@
 /**
- * Role taxonomy. Lifted verbatim from the legacy implementations:
- *   - public/admin/operations.html lines ~1541–1545
- *   - public/login.html landingFor()
- *
- * Keep these arrays in sync with the legacy values; the legacy login
- * is still active and the new login must redirect users to a surface
- * consistent with the existing auth cookie.
+ * Role taxonomy. Originally lifted verbatim from the legacy implementations
+ * (public/admin/operations.html ADMIN_ROLES + public/login.html landingFor(),
+ * both deleted in the legacy-interface cutover) so existing auth cookies and
+ * users.json role values keep resolving identically. This file is now the
+ * ONLY role taxonomy in the product — api/_lib/auth.js mirrors it.
  */
 
 export type Role =

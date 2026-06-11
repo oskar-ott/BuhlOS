@@ -16,13 +16,13 @@ import { z } from "zod";
  *   - Whole-doc rewrite race is bounded at SME-procurement volume; per-
  *     record split is Phase F+.
  *
- * Relationship to the legacy `/admin/materials` (takeoff + PO + invoice
- * match) is intentional and documented in
- * `docs/architecture/material-requests.md` — the legacy module owns
- * structured takeoff procurement; this module owns the **field-to-office
- * request** loop (worker raised a "Need material" observation → office
- * converted it to a tracked request → procurement marks it ordered /
- * delivered). The two don't overlap and neither replaces the other yet.
+ * Scope: this module owns the **field-to-office request** loop (worker
+ * raised a "Need material" observation → office converted it to a tracked
+ * request → procurement marks it ordered / delivered). Structured takeoff
+ * procurement (takeoff + PO + invoice match) was a separate legacy-only
+ * module retired in the legacy-interface cutover; a modern replacement is
+ * backlog work and would be a sibling domain, not an extension of this one
+ * (see `docs/architecture/material-requests.md`).
  *
  * Cross-ref:
  *   src/domains/snags/schema.ts — direct precedent (status workflow + actor
@@ -89,8 +89,8 @@ export const MaterialRequestItemSchema = z
     taskId: z.string().nullable().optional(),
     taskName: z.string().nullable().optional(),
 
-    // Links to existing job rows (the legacy /admin/materials surface is
-    // unrelated — those PO/invoice records live elsewhere).
+    // Links to existing job rows (takeoff/PO/invoice records were a
+    // separate, since-retired legacy module — unrelated to these links).
     linkedObservationId: z.string().nullable().optional(),
     linkedEvidenceId: z.string().nullable().optional(),
 

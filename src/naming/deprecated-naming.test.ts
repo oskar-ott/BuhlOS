@@ -1,57 +1,91 @@
 /* eslint-disable no-restricted-syntax --
  * This is the test that ENFORCES the deprecated-naming ban, so it must
  * contain the banned literals ("Site Office", the kept `buhl-site-office-*`
- * key, the `/dev/site-office` path) to verify the detector and surfaces.
- * The same `no-restricted-syntax` rule rightly bans these in product code
- * under src/; this test is the one sanctioned place they appear.
+ * key) to verify the detector and surfaces. The same `no-restricted-syntax`
+ * rule rightly bans these in product code under src/; this test is the one
+ * sanctioned place they appear.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 /**
- * Deprecated product-naming guard (unit level).
+ * Deprecated product-naming + legacy-estate guard (unit level).
  *
  * The product surfaces are **BuhlOS** (office / admin) and **Phil** (field).
  * "Site Office" and "Switchboard" (as a product) are deprecated names —
  * see docs/architecture/00-rebuild-non-negotiables.md and
- * docs/route-ownership.md §2/§7/§9.
+ * docs/route-ownership.md §2/§7.
  *
- * The field-readiness audit found the deprecated "Site Office" name still
- * rendering in the active *legacy* surfaces (public/phil.html, the LH home,
- * the shared admin shell). This test locks those surfaces free of it and
- * proves the electrical sense of "switchboard" (the real equipment) is
- * never banned. It mirrors the static guard scripts/check-route-ownership.js
- * so a regression fails in `npm run test:unit` before predeploy / CI.
+ * The legacy-interface cutover DELETED the legacy static estate
+ * (login.html, phil.html, my-day.html, the /admin/*.html suite, the
+ * dev/site-office gallery). This test locks both halves of that state:
+ *   1. the deleted surfaces stay deleted (resurrecting one fails CI), and
+ *   2. the files still served from public/ stay free of the deprecated
+ *      product name, while the electrical sense of "switchboard" (real
+ *      equipment) stays legal in the domain schemas.
+ *
+ * It mirrors the static guards scripts/check-legacy-quarantine.js +
+ * scripts/check-route-ownership.js so a regression fails in
+ * `npm run test:unit` before predeploy / CI.
  */
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const read = (rel: string): string => readFileSync(resolve(REPO, rel), "utf8");
 
 // "Site Office" as a product name, in any separator / case. The deprecated
-// localStorage key prefix `buhl-site-office-*` is intentionally spared (it
-// is kept so existing prefs aren't orphaned; the modern app cleans it up).
-// Keep this in sync with SITE_OFFICE_RE in scripts/check-route-ownership.js.
+// localStorage key prefix `buhl-site-office-*` is intentionally spared (the
+// modern login still cleans it up from old browsers).
+// Keep this in sync with SITE_OFFICE_RE in scripts/check-legacy-quarantine.js.
 const SITE_OFFICE_RE = /(?<!buhl-)\bsite[ -]?office\b/i;
 
-// The active, user-facing production legacy surfaces (route-ownership §6).
-const ACTIVE_SURFACES = [
-  "public/login.html",
-  "public/phil.html",
-  "public/lh-home.html",
-  "public/admin/_shell.js",
-];
+describe("legacy static estate stays deleted", () => {
+  it.each([
+    "public/login.html",
+    "public/phil.html",
+    "public/my-day.html",
+    "public/my-gear.html",
+    "public/phil-hours.html",
+    "public/lh-home.html",
+    "public/project.html",
+    "public/install.html",
+    "public/admin.html",
+    "public/admin",
+    "public/dev",
+    "public/components",
+    "public/lib",
+  ])("%s does not exist", (rel) => {
+    expect(existsSync(resolve(REPO, rel))).toBe(false);
+  });
+
+  it("public/ serves no HTML except the kept client portal", () => {
+    const html: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, entry.name);
+        if (entry.isDirectory()) walk(p);
+        else if (p.endsWith(".html")) html.push(p.slice(REPO.length + 1));
+      }
+    };
+    walk(resolve(REPO, "public"));
+    expect(html).toEqual(["public/client.html"]);
+  });
+});
 
 describe("deprecated 'Site Office' product name", () => {
-  it.each(ACTIVE_SURFACES)("is absent from %s", (rel) => {
-    const offenders = read(rel)
-      .split(/\r?\n/)
-      .map((line, i) => ({ line: line.trim(), n: i + 1 }))
-      .filter(({ line }) => SITE_OFFICE_RE.test(line))
-      .map(({ line, n }) => `${rel}:${n}  ${line}`);
-    expect(offenders).toEqual([]);
-  });
+  // Every text file still served from public/ must stay clean.
+  it.each(["public/client.html", "public/sw.js", "public/manifest.json", "public/theme.css", "public/css/buhlos.css"])(
+    "is absent from %s",
+    (rel) => {
+      const offenders = read(rel)
+        .split(/\r?\n/)
+        .map((line, i) => ({ line: line.trim(), n: i + 1 }))
+        .filter(({ line }) => SITE_OFFICE_RE.test(line))
+        .map(({ line, n }) => `${rel}:${n}  ${line}`);
+      expect(offenders).toEqual([]);
+    },
+  );
 });
 
 describe("Site Office detector semantics", () => {
@@ -95,22 +129,12 @@ describe("'Switchboard' nav-label detector spares the electrical sense", () => {
 });
 
 // Sanity: removing the product name must not nuke real electrical
-// terminology. These are the equipment/scope senses we must preserve.
+// terminology. The ITP scope schema is the canonical electrical sense.
 describe("electrical 'switchboard' terminology is preserved", () => {
-  it("admin mock data still references the electrical switchboard stage", () => {
-    expect(/switchboard/i.test(read("public/admin/admin-data.js"))).toBe(true);
-  });
   it("the ITP scope schema still defines the 'switchboard' scope", () => {
     expect(read("src/domains/itp/schema.ts")).toContain('"switchboard"');
   });
-});
-
-// The deprecated /dev/site-office surface can't be renamed in a naming PR
-// (route-ownership §12 step 5), so it must be visibly quarantined.
-describe("deprecated /dev/site-office surface is quarantined", () => {
-  it("carries a DEPRECATED marker", () => {
-    expect(/deprecated/i.test(read("public/dev/site-office/components.html"))).toBe(
-      true,
-    );
+  it("the jobs schema still models the switchboards field module", () => {
+    expect(read("src/domains/jobs/schema.ts")).toContain("switchboards");
   });
 });

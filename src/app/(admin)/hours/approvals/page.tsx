@@ -63,9 +63,7 @@ export default async function HoursApprovalsPage() {
 
         <UnderConstructionPanel
           feature="Bulk approve week · re-open approved entry · LH-scoped admin view"
-          description="Approving a worker's whole week in one tap, re-opening an approved entry that needs correction, and the dedicated leading-hand view of crew entries aren't wired here yet. Legacy /admin/hours still handles these flows."
-          legacyHref="/admin/hours"
-          legacyLabel="Use legacy /admin/hours for bulk-approve"
+          description="Approving a worker's whole week in one tap, re-opening an approved entry that needs correction, and the dedicated leading-hand view of crew entries aren't wired here yet. The legacy hours tool that covered these was retired in the legacy cutover — they're on the backlog."
         />
       </div>
     </AdminShell>

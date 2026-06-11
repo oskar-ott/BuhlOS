@@ -7,33 +7,37 @@
 
 ## 1. Purpose
 
-This repo is mid-migration: a **legacy** static surface (`public/*.html` + Vercel
-serverless `api/*.js`) and a **new** Next.js App Router surface (`src/app/**`)
-co-exist. They are wired together by `vercel.json` rewrites (which run *before*
-Next.js) and `src/middleware.ts` (which gates only the new surfaces).
+**The legacy interface is gone.** The 2026-06 legacy-interface cutover
+(`docs/legacy-cutover.md`) deleted the legacy static surface (`public/*.html`
+shells) and replaced every old URL with a `307` redirect to its canonical
+modern route. The product now has exactly two interfaces — **BuhlOS**
+(`src/app` admin routes, desktop/office) and **Phil** (`src/app/phil/*`,
+mobile/field) — plus the serverless `api/*.js` data layer and ONE kept static
+page (`/client`, the read-only client portal, replacement tracked as
+[#271](https://github.com/oskar-ott/BuhlOS/issues/271)).
 
-When multiple shells co-exist, the recurring failure mode is **the wrong UI
-appearing where the user expected a different one** — an old pill-tab admin
-layout where the BuhlOS left-nav should be, a placeholder where the worker's
-"Today" should be, a blank page from a route that nothing owns, or a stale
-cached shell after a deploy. Those failures have shipped to production before
+The recurring historical failure mode was **old UI resurfacing where modern UI
+should be** — stale static HTML, rewrites serving deleted shells, a service
+worker replaying cached layouts, "open the old page" links in modern chrome
 (see [`docs/regressions/admin-operations-blank.md`](regressions/admin-operations-blank.md)).
+Those failure paths are now structurally closed and guarded
+(`scripts/check-legacy-quarantine.js`).
 
 This document exists so that:
 
-- every important route has an **owner** (BuhlOS / Phil / shared / legacy) and a
-  **status** (canonical / transitional / legacy / deprecated);
-- every route either **renders intentionally** or **redirects intentionally**;
+- every important route has an **owner** (BuhlOS / Phil / shared) and a
+  **status** (canonical / transitional / redirected / removed);
+- every route either **renders intentionally**, **redirects intentionally**,
+  or **404s intentionally**;
 - modern navigation only links to **approved** modern routes;
-- legacy production routes are **preserved** (not deleted, not accidentally
-  re-linked from modern surfaces);
+- the legacy estate **stays deleted** — nothing may serve, link, cache,
+  rewrite to, or fall back to it;
 - `/v2/*`'s live-but-transitional status is unambiguous;
 - future agents can extend the product without resurrecting old layouts.
 
-This is the *reconciled* picture across both surfaces. The legacy-only,
-production-URL inventory lives in
+The pre-cutover, legacy-URL inventory survives as history in
 [`docs/rebuild-audit/01-current-route-map.md`](rebuild-audit/01-current-route-map.md)
-and is not duplicated here.
+(deprecated historical reference only — those files no longer exist).
 
 ## 2. Product surface definitions
 
@@ -41,33 +45,37 @@ and is not duplicated here.
 | --- | --- | --- | --- |
 | **BuhlOS Admin** | Desktop control plane — review, approve, manage. | `AdminShell` (`src/components/admin/`): left sidebar + topbar. | boss, admin, PM, estimator, office |
 | **Phil** | Mobile-first field app — capture-first, "what's next". | `PhilShell` (`src/components/phil/`): header + bottom tab bar. | tradie, apprentice, labourer, electrician, leading hand |
-| **Legacy static shell** | The current production surface: `public/*.html` booted by `public/admin/_shell.js` (admin) or self-contained SPA (`operations.html`, `phil.html`). | legacy JS shells | everyone, today |
-| **`/v2/*`** | New-surface routes parked on URLs `vercel.json` does **not** rewrite, so they can ship without a routing cutover. **Live, not abandoned.** | `AdminShell` (`/v2/jobs`) or `PhilShell` (`/v2/phil`) | per route |
-| **API** | `api/*.js` Vercel serverless. `buhl_session` cookie gate. Untouched by this PR. | n/a | n/a |
+| **Client portal** | `public/client.html` — the ONE static page kept from the legacy estate (read-only, external-customer-facing). Self-contained (`theme.css` + `css/buhlos.css`); replacement tracked as #271. | static page | clients |
+| **`/v2/*`** | Modern routes parked on `/v2` URLs from the parallel-running era. **Live, not abandoned** — renamed to canonical URLs in their own future cutovers. | `AdminShell` (`/v2/jobs`) or `PhilShell` (`/v2/phil`) | per route |
+| **API** | `api/*.js` Vercel serverless. `buhl_session` cookie gate. | n/a | n/a |
+
+The **legacy static shell** (`public/*.html` + `public/admin/_shell.js`) was
+**removed** in the legacy-interface cutover. It must not come back; see §6.
 
 Naming is fixed by [`docs/architecture/00-rebuild-non-negotiables.md`](architecture/00-rebuild-non-negotiables.md):
 the surfaces are **BuhlOS** and **Phil**. "Switchboard" / "Site Office" are
 deprecated product names and must not appear in new code or UI.
 
-## 3. The two routing layers (read this before changing a route)
+## 3. The routing layers (read this before changing a route)
 
-1. **`vercel.json` rewrites run first**, in production, and own every legacy URL
-   (`/`, `/login`, `/admin/*`, `/buhlos/*`, `/phil`, `/my-day`, `/my-gear`,
-   `/lh`, `/client`, `/jobs`, `/overview`, `/approvals`, `/install`, `/dev/*`).
-   A rewrite source that *exactly* matches a path wins; it does **not** capture
-   deeper paths. `{ "source": "/phil" }` rewrites only `/phil`, **not**
-   `/phil/my-day`.
-2. **Next.js owns everything `vercel.json` does not rewrite** — `/command-centre`,
-   `/hours/*`, `/gear`, `/employees/*`, `/v2/*`, `/phil/my-day`, `/phil/jobs/*`,
-   `/phil/hours`, `/phil/gear`, `/phil/onboarding`, `/phil/invite/*`.
-3. **`src/middleware.ts` gates only the new surfaces.** Unauthenticated access to
+1. **`vercel.json` redirects run first**, at the platform edge. Every old
+   legacy URL (`/login`, `/admin/*`, `/buhlos/*`, `/phil`, `/my-day`,
+   `/my-gear`, `/lh`, `/jobs`, `/overview`, `/approvals`, `/install`, plus the
+   old `*.html` paths) `307`-redirects to its canonical modern route — the full
+   matrix is in §6 and is guard-enforced. The ONLY rewrites left are
+   `/client` + `/client/jobs/:jobId` → `/client.html` (the kept client portal).
+2. **Next.js owns everything else** — `/` (session-aware landing in
+   `src/app/page.tsx`), `/command-centre`, `/hours/*`, `/gear`, `/employees/*`,
+   `/v2/*`, `/phil/my-day`, `/phil/jobs/*`, `/phil/hours`, `/phil/gear`,
+   `/phil/onboarding`, `/phil/invite/*`. Anything Next doesn't define is a 404
+   (e.g. `/admin-legacy`, `/dev/*` — intentionally dead).
+3. **`src/middleware.ts` gates the modern surfaces.** Unauthenticated access to
    a gated route → `307` redirect to `/v2/login?next=<path>`. Wrong-surface
    access (e.g. a tradie on `/command-centre`) → `307` to `landingFor(role)`.
-   Legacy URLs never reach the middleware.
+   Redirected legacy URLs never reach the middleware.
 
-**Consequence:** a bare `/phil` in production serves **legacy** `phil.html`; the
-modern Phil home is `/phil/my-day`. Do not link bare `/phil` from a modern Phil
-surface unless you intend to send the user to legacy.
+**Consequence:** there is no URL anywhere that renders legacy UI. A bare
+`/phil` redirects to `/phil/my-day`; `/` lands by session.
 
 ## 4. Canonical routes (today)
 
@@ -121,38 +129,61 @@ These work today and are intentionally linked, but carry a known future move.
 | `/v2/phil` | `src/app/v2/phil/page.tsx` | The Phil **"More" / profile placeholder** (orientation line + onboarding replay + a profile/settings UC panel). It is the destination of the Phil tab bar "More" and "Snag" (UC) tabs. The functional Phil home moved to `/phil/my-day`; `/v2/phil` is no longer a landing target (see §10). |
 | `/phil/invite/[token]` | `src/app/phil/invite/[token]/page.tsx` | Worker onboarding invite (O3). **Intentionally NOT gated** — a new worker has no session when they open their invite link. Public by design. |
 
-## 6. Legacy routes (preserved — production depends on them)
+## 6. Old legacy URLs (redirected — the files are deleted)
 
-Served by `vercel.json` → `public/*.html`. These are the current production
-surfaces. They are **kept working**; this PR does not delete or redirect them.
-Full per-file detail in
-[`01-current-route-map.md`](rebuild-audit/01-current-route-map.md).
+The legacy-interface cutover deleted every legacy page and turned the URLs
+into `307` redirects (`vercel.json` `redirects`; matrix guard-enforced by
+`scripts/check-legacy-quarantine.js` + `src/routing/legacy-redirects.test.ts`,
+live-verified by `npm run smoke:legacy-redirects -- <url>`). Installed field
+PWAs (old manifest `start_url: /my-day`), crew bookmarks and historical push
+deep-links depend on this matrix — **never remove an entry**; re-point it if a
+canonical route moves.
 
-| Route(s) | File | Why preserved |
+| Old URL(s) | Redirects to | Note |
 | --- | --- | --- |
-| `/` , `/login` , `/phil/login` , `/buhlos` , `/buhlos/login` | `public/login.html` | Production sign-in. Load-bearing — `check-production-shell.js` asserts `/` → `/login.html`. |
-| `/admin` , `/admin/` | `public/admin/index.html` | Role-redirect shim → `/admin/operations` / `/lh` / `/my-day` / `/client`. |
-| `/admin/operations` , `/overview` | `public/admin/operations.html` | **The current production BuhlOS Command Centre SPA.** Load-bearing — guarded by `check-production-shell.js` + `smoke-admin-routes.js`. |
-| `/admin/{approvals,snags,jobs,jobs/:id,job-builder,itp,plans,variations,reports,quotes,quotes/:id,hours,crew,suppliers,temps,settings,support,assets,activity,materials,cash}` | `public/admin/*.html` | Legacy admin modules (`_shell.js`). Still the production admin tools. |
-| `/phil` , `/phil/app` | `public/phil.html` | Legacy Phil (mock-data; signin endpoint mismatch documented). Reachable; not the modern Phil. |
-| `/my-day` | `public/my-day.html` | **Current production tradie home** (legacy login + manifest `start_url` both point here). |
-| `/my-gear` | `public/my-gear.html` | Legacy gear page for tradies. |
-| `/lh` , `/lh-home` | `public/lh-home.html` | Leading Hand home. `landingFor(lh)` → `/lh`. |
-| `/client` , `/client/jobs/:id` | `public/client.html` | Read-only client portal. `landingFor(client)` → `/client`. |
-| `/jobs` , `/jobs/:id` , `/jobs/:id/log-hours` | `public/admin/jobs.html` , `public/project.html` | Legacy jobs / per-job page. |
-| `/install` | `public/install.html` | PWA install instructions. |
+| `/login` , `/login.html` , `/buhlos` , `/buhlos/login` , `/phil/login` | `/v2/login` | The only sign-in. |
+| `/phil` , `/phil/app` , `/phil.html` , `/my-day` , `/my-day.html` | `/phil/my-day` | The Phil home. |
+| `/my-gear` , `/my-gear.html` | `/phil/gear` | |
+| `/phil-hours.html` | `/phil/hours` | |
+| `/lh` , `/lh-home` , `/lh-home.html` | `/phil/my-day` | LHs are field-tier; the LH home was absorbed into Phil (LH extras ride `/v2/jobs` read access). |
+| `/install` , `/install.html` , `/project.html` | `/phil/my-day` | Modern Phil is installable directly (manifest + SW). |
+| `/jobs` | `/v2/jobs` | Admin jobs index. |
+| `/jobs/:id` , `/jobs/:id/log-hours` | `/phil/jobs/:id` | Field-biased: these URLs circulated via worker push deep-links. |
+| `/admin` , `/admin.html` , `/admin/index.html` , `/admin/operations(.html)` , `/overview` , `/buhlos/admin(/operations)` | `/command-centre` | The admin entry. |
+| `/admin/approvals` , `/approvals` | `/hours/approvals` | |
+| `/admin/hours` | `/hours` | |
+| `/admin/crew` | `/employees` | |
+| `/admin/jobs` , `/admin/jobs/:id` , `/admin/job-builder` | `/v2/jobs` , `/v2/jobs/:id` , `/v2/jobs` | |
+| `/admin/assets` | `/gear` | |
+| `/admin/materials` | `/material-requests` | Field-request inbox; legacy takeoff/PO module retired (no modern equivalent yet). |
+| `/admin/{snags,itp,plans,variations,reports,quotes,quotes/:id,suppliers,temps,settings,support,activity,cash}` + `/buhlos/admin/*` mirrors | `/command-centre` | No modern equivalent yet — single honest entry; capability gaps tracked in the backlog. |
 
-## 7. Deprecated / not-for-new-links routes
+**Intentionally dead (404, no redirect):** `/admin-legacy`, `/dev/site-office*`,
+`/dev/components`, and every deleted static asset (`/admin/_shell.js`,
+`/admin/admin-data.js`, `/components/*.js`, `/lib/*.js`, `/install-prompt.js`,
+`/log-hours-sheet.js`, `/mobile-nav.js`, `/css/buhlos-admin.css`,
+`/BUHL_LOGO.png`, `/logo.png`). These were never user-entered URLs.
 
-Reachable today, but **must not be newly linked from modern navigation**. Slated
-for removal in a later, intentional cleanup PR (not this one).
+**The kept exception:** `/client` + `/client/jobs/:id` still rewrite to
+`public/client.html` (read-only client portal — external customers; replacement
+tracked as #271 / Epic 16). It is self-contained: `theme.css` +
+`css/buhlos.css` exist only for it.
 
-| Route(s) | Why |
-| --- | --- |
-| `/buhlos/*` (22 mirrors of `/admin/*`) | Pure duplicates of `/admin/*`. Salvage map says discard. Never add a new `/buhlos/*` rewrite. |
-| `/overview` , `/approvals` | Bare aliases of `/admin/operations` / `/admin/approvals`. Use the `/admin/*` form (legacy) or the modern route. |
-| `/admin-legacy` , `/admin.html` | The pre-BuhlOS 8,180-line admin. Should be deleted in a future PR. |
-| `/dev/site-office` , `/dev/site-office/components` | **Deprecated naming** ("Site Office"). Must be removed; never linked. Until removed it must carry a visible **DEPRECATED** banner (asserted by `check-route-ownership.js`). |
+## 7. Resurrection bans
+
+The legacy estate must stay dead. `scripts/check-legacy-quarantine.js`
+(predeploy + CI) fails the build if any of these reappear:
+
+- any deleted legacy file/dir (see list in the script);
+- any `.html` in `public/` other than `client.html`;
+- a `vercel.json` rewrite to anything except `/client.html`, a redirect to any
+  `.html`, or a missing/changed legacy redirect;
+- a manifest that isn't the Phil manifest (`start_url /phil/my-day`);
+- a service worker that precaches/serves assets or deep-links legacy URLs;
+- quoted legacy-URL literals (`'/my-day'`, `'/admin/…'`, `'/jobs/…'`, bare
+  `'/phil'`, any `'….html'`) or banned phrases ("Site Office", "legacy
+  layout", "old admin shell", "legacy fallback", "classic admin", "pills
+  layout", "Birdwood IV3232") in live code.
 
 ## 8. Route ownership table (modern surfaces)
 
@@ -300,30 +331,29 @@ role→landing map for the new surfaces (shared by `middleware.ts`,
 
 | Role class | Landing | Surface |
 | --- | --- | --- |
-| admin (admin/boss/owner/manager/office/pm/estimator) | `/command-centre` | new BuhlOS |
-| field (tradie/apprentice/labourer/electrician) | `/phil/my-day` | new Phil |
-| leading hand | `/lh` | legacy (LH home not yet rebuilt) |
-| client | `/client` | legacy client portal |
+| admin (admin/boss/owner/manager/office/pm/estimator) | `/command-centre` | BuhlOS |
+| field (tradie/apprentice/labourer/electrician) | `/phil/my-day` | Phil |
+| leading hand | `/phil/my-day` | Phil (the legacy `/lh` home was removed in the cutover; LHs additionally hold `/v2/jobs` read access via the middleware `lh` surface) |
+| client | `/client` | kept client portal (static; #271 replaces it) |
 | unknown / signed-out | `/v2/login` | — |
 
-> **PR 1 change:** field workers previously landed on `/v2/phil` (the *placeholder*).
-> They now land on `/phil/my-day` (the functional "Today" home) — the page that
-> page's own docstring says "replaces the placeholder `/v2/phil`". This only
-> affects the **new** login/middleware flow; the legacy `login.html` keeps its own
-> redirect to `/my-day` and is unchanged.
+> **Cutover note:** the legacy `login.html` carried its own private
+> `landingFor()` (admin → `/admin/operations`, tradie → `/my-day`, …). It was
+> deleted with the page — `src/lib/auth/landing.ts` is now the only landing
+> logic in the product, used by the login form, `src/app/page.tsx` and the
+> middleware alike.
 
 Other intentional redirects:
 
 - Unauthenticated → gated route ⇒ `307` to `/v2/login?next=<path>`; the login
   form returns the user to a **safe** (`startsWith("/")`) `next`, else `landingFor`.
 - Wrong-surface ⇒ `307` to `landingFor(role)` (never a loop: each role's landing
-  is on a surface that role can access; LH/client land on legacy, which the
-  middleware does not gate).
+  is on a surface that role can access; clients land on the ungated static portal).
 - Sign-out (`SignOutButton`) ⇒ `/v2/login`.
 
-`landingFor` returning `/lh` / `/client` (legacy URLs unknown to Next's
-`typedRoutes`) is why call sites cast `as Route`. That cast is expected until LH
-and client surfaces are rebuilt.
+`landingFor` returning `/client` (a static page unknown to Next's `typedRoutes`)
+is why call sites cast `as Route`. That cast disappears when the modern client
+portal lands (#271).
 
 The middleware decisions above are unit-tested in `src/middleware.test.ts`
 (runs in `npm run test:unit`, no browser/preview/credentials): `/v2/login`
@@ -333,62 +363,62 @@ each role reaches its own surface, and wrong-surface users `307` to
 contract end-to-end against a live preview; the unit test catches a regression
 before a preview even builds.
 
-## 11. Service worker / cache assessment
+## 11. Service worker / cache contract
 
-`public/sw.js` (`CACHE_VERSION = 'buhl-shell-v8'`) caches **only** the legacy
-static-shell asset list: `/admin/_shell.css`, `/admin/_shell.js`, `/theme.css`,
-`/manifest.json`, `/BUHL_LOGO.png`, `/icon-192.png`. Its `fetch` handler
-intercepts a request **only if** the pathname is in that list. HTML and API
-responses are deliberately never cached.
+`public/sw.js` (`SW_VERSION = 'buhl-sw-v9'`) is **push-only**:
 
-**The service worker never intercepts the Next.js surfaces** (`/command-centre`,
-`/v2/*`, `/phil/*`, …). Old modern UI cannot be resurrected by the SW — the
-stale-shell risk is confined to the legacy `/admin/*` shell assets, and is
-governed by `CACHE_VERSION` + `scripts/check-sw-cache-version.js` (which fails a
-deploy if `public/admin/_shell.{js,css}`, `public/theme.css`,
-`public/admin/*.html`, or `public/components/*.js` change without a version bump).
-
-**A CACHE_VERSION bump is required only when one of those legacy shell files
-changes.** Route/shell changes confined to `src/**`, `docs/**`, `scripts/**`, or
-`package.json` (as in this PR) do **not** require a bump, and
-`check-sw-cache-version` passes unchanged.
+- **No caching, no fetch handler.** The pre-cutover worker's
+  stale-while-revalidate shell cache is exactly how old layouts resurrected
+  after deploys; v9 caches nothing and its `activate` purges **every** cache
+  on the origin (devices still carrying `buhl-shell-v1..v8` come clean on
+  first contact).
+- **Web Push stays.** Hour reminders, office-inbox fan-out, digests and
+  overrun alerts deliver through this worker; deep-link defaults are
+  `/phil/my-day`. Existing `PushSubscription`s are registered against the
+  `/sw.js` URL — **never move or delete the file**; change behaviour and bump
+  `SW_VERSION`.
+- Registration happens in the modern shells (`PwaRegistrar` mounted by
+  `PhilShell` + `AdminShell`); explicit opt-in lives in
+  `PushNotificationsCard` (`/v2/phil` + `/command-centre`).
+- `scripts/check-sw-cache-version.js` fails a deploy that changes `sw.js`
+  without bumping `SW_VERSION`; `scripts/check-legacy-quarantine.js` fails one
+  that reintroduces caching or legacy references.
 
 ## 12. Future migration plan (safe order)
 
-1. **Normalise auth/API role gates** (PR 2) — align the new `roles.ts` /
-   `permissions.ts` taxonomy with the legacy `api/*.js` gates so the same user
-   has the same powers on both surfaces.
-2. **Rebuild LH + client on the new surfaces** so `landingFor` no longer needs
-   the `as Route` legacy casts.
-3. **`/admin/jobs` cutover** — build the modern Jobs index at `/admin/jobs`
-   (route currently legacy via vercel rewrite), flip the sidebar href and this
-   contract together, keep `/v2/jobs` as a redirect for one release.
-4. **Phil `/phil` cutover** — once the modern Phil is field-stable, decide whether
-   bare `/phil` redirects to `/phil/my-day` (requires removing the
-   `/phil` → `phil.html` rewrite) and update the manifest `start_url` from
-   `/my-day` to `/phil/my-day`.
-5. **Retire legacy** — only after each route has a render smoke test, move
-   `public/*.html` behind `/legacy/*` (per non-negotiables) and add compatibility
-   redirects; delete `/buhlos/*`, `/dev/site-office/*`, `/admin-legacy` last.
+1. **Rebuild the client portal** (#271 / Epic 16) — then retire
+   `public/client.html`, the two `/client` rewrites, `theme.css` +
+   `css/buhlos.css`, and the `as Route` cast in landing call sites.
+2. **`/admin/jobs` cutover** — build the modern Jobs index at `/admin/jobs`,
+   flip the sidebar href, re-point the `/admin/jobs*` (and `/v2/jobs*`)
+   redirect entries, and update §6 + the guards together.
+3. **Rebuild the retired legacy-only capabilities** where the backlog calls
+   for them (plan uploads + revision curation, materials takeoff/PO/invoice,
+   asset create/edit, quoting/variations/reports/cash) — each lands as a
+   modern surface; `/command-centre` redirect targets in §6 can then be
+   re-pointed to the real module.
 
 Every step above changes the contract; update §4–§10 **and**
-`scripts/check-route-ownership.js` in the same PR that makes the move.
+`scripts/check-route-ownership.js` + `scripts/check-legacy-quarantine.js` +
+`src/routing/legacy-redirects.test.ts` in the same PR that makes the move.
 
 ## 13. PR checklist (every route/shell PR runs these)
 
 ```bash
 npm run typecheck            # tsc --noEmit (typedRoutes validates Link/redirect paths)
 npm run lint                 # next lint (no alert/inline-style/deprecated naming)
-npm run test:unit            # vitest (incl. src/middleware.test.ts redirect contract)
+npm run test:unit            # vitest (incl. middleware + legacy-redirects contracts)
 npm run build                # next build
-npm run check:admin-shell    # legacy admin pages call SHELL.boot()
-npm run check:production-shell  # prod HTML is the BuhlOS shell; vercel "/" → login.html
-npm run check:sw-cache-version  # shell changes paired with CACHE_VERSION bump
-npm run check:route-ownership   # nav/landing + deprecated naming (nav labels + active legacy surfaces)
+npm run check:admin-shell    # legacy admin shell stays deleted
+npm run check:production-shell  # root owned by Next; legacy entries redirect; shells intact
+npm run check:sw-cache-version  # sw.js changes paired with SW_VERSION bump
+npm run check:route-ownership   # nav/landing contract + legacy-estate tripwire
 npm run check:shell-contract    # every modern route renders its intended shell (§8.2)
-npm run smoke:admin-routes      # static legacy /admin/operations route chain
+npm run check:legacy-quarantine # the legacy interface stays dead (§7)
+npm run smoke:admin-routes      # static admin chain: redirects → /command-centre
 # post-deploy, against the preview/prod URL:
-npm run smoke:evidence-routes -- <url>   # live status codes for canonical/legacy/API
+npm run smoke:evidence-routes -- <url>     # live status codes for canonical/API routes
+npm run smoke:legacy-redirects -- <url>    # live legacy-URL redirect/404 matrix
 ```
 
 Production ships from `main` only (Vercel GitHub integration). `vercel deploy --prod`

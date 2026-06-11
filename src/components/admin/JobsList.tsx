@@ -64,7 +64,7 @@ export function JobsList({ jobs, canBuild = false }: Props) {
     return (
       <EmptyState
         title="No active jobs"
-        description="When admin or PMs activate a job in the Job Builder, it'll appear here. Archived jobs still live in legacy /admin/jobs."
+        description="When admin or PMs activate a job in the Job Builder, it'll appear here. Archived jobs aren't listed."
       />
     );
   }

@@ -644,19 +644,13 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
             <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <div>
               <p className="font-display font-semibold">
-                Structure editing is on the legacy editor for this job
+                Structure editing is locked for this job
               </p>
               <p className="mt-1 text-xs">
-                This job has archived rooms or tasks. The modern builder saves structure as a whole,
-                which would disturb those archived items, so structure for jobs like this is edited
-                on the legacy{" "}
-                <a
-                  href="/admin/jobs.html"
-                  className="underline decoration-amber-400 underline-offset-2"
-                >
-                  /admin/jobs
-                </a>{" "}
-                editor. Basics, field modules, and publishing still work here.
+                This job has archived rooms or tasks. The builder saves structure as a whole, which
+                would disturb those archived items, so structure editing is locked for jobs like
+                this until the builder can edit around archived items. Basics, field modules, and
+                publishing still work here.
               </p>
             </div>
           </div>
@@ -1198,25 +1192,20 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
           <CardTitle>Not wired into the builder yet</CardTitle>
           <CardDescription className="mt-1">
             These belong to the job but aren&rsquo;t edited here. They&rsquo;re listed honestly so
-            the builder doesn&rsquo;t look more complete than it is. Where a real surface exists,
-            the link goes to it.
+            the builder doesn&rsquo;t look more complete than it is.
           </CardDescription>
           <ul className="mt-4 space-y-3">
             <MoreRow
               icon={FileText}
               title="Plans & documents"
-              real="Real — on the legacy plans surface."
-              body="Uploading plans/specs (with revision / current / superseded state) runs on /admin/plans, including a real AI plan→material takeoff. The job view's Documents section reads that index. Builder-side attach/upload isn't wired."
-              legacyHref="/admin/plans"
-              legacyLabel="Open /admin/plans"
+              real="Read-only for now."
+              body="The job view's Documents section shows the plans/specs already on the job. Uploading new plans (with revision / current / superseded state) was a legacy-only tool and was retired in the legacy cutover — a modern uploader is on the backlog. Builder-side attach/upload isn't wired."
             />
             <MoreRow
               icon={Package}
               title="Materials"
-              real="Real — on the legacy materials surface."
-              body="Job materials (takeoff, POs, invoice match) live on /admin/materials. A builder-side materials editor isn't wired; the job view shows Materials as under construction."
-              legacyHref="/admin/materials"
-              legacyLabel="Open /admin/materials"
+              real="Requests only for now."
+              body="Field material requests have their own inbox under Material requests in the sidebar. Job materials (takeoff, POs, invoice match) were a legacy-only tool and were retired in the legacy cutover — a modern materials editor is on the backlog."
             />
             <MoreRow
               icon={HardHat}
@@ -1359,15 +1348,11 @@ function MoreRow({
   title,
   real,
   body,
-  legacyHref,
-  legacyLabel,
 }: {
   icon: typeof FileText;
   title: string;
   real: string;
   body: string;
-  legacyHref?: string;
-  legacyLabel?: string;
 }) {
   return (
     <li className="flex items-start gap-3 rounded-card border border-border bg-surface p-3">
@@ -1380,14 +1365,6 @@ function MoreRow({
           </Pill>
         </div>
         <p className="mt-1 text-xs text-text-muted">{body}</p>
-        {legacyHref && legacyLabel ? (
-          <a
-            href={legacyHref}
-            className="mt-1 inline-block text-xs underline decoration-accent-yellow underline-offset-4 hover:text-brand-navy"
-          >
-            {legacyLabel}
-          </a>
-        ) : null}
       </div>
     </li>
   );

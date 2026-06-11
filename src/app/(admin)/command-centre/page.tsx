@@ -18,6 +18,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { RefreshButton } from "@/components/ui/RefreshButton";
@@ -409,6 +410,10 @@ export default async function CommandCentrePage() {
         </section>
 
         <section>
+          <PushNotificationsCard audience="admin" />
+        </section>
+
+        <section>
           <Card>
             <div className="flex items-baseline justify-between gap-3">
               <div>
@@ -416,11 +421,9 @@ export default async function CommandCentrePage() {
                 <CardDescription className="mt-1">
                   The cross-job snags inbox, reports / payroll exports and
                   full settings live behind the UC pills in the sidebar.
-                  Nothing in legacy production has changed — the canonical
-                  URLs (
-                  <code className="text-xs">/admin/operations</code>,{" "}
-                  <code className="text-xs">/admin/jobs</code>, …) keep
-                  serving via rewrites.
+                  This is the only admin interface — the old{" "}
+                  <code className="text-xs">/admin/*</code> tool suite was
+                  retired in the legacy cutover and its URLs redirect here.
                 </CardDescription>
               </div>
               <Pill tone="neutral">UC</Pill>

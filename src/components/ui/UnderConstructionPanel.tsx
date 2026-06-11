@@ -3,16 +3,6 @@ import { cn } from "@/lib/cn";
 interface UnderConstructionPanelProps {
   feature: string;
   description?: string;
-  /**
-   * Optional link to the equivalent legacy surface so users can still get
-   * work done while the new surface is being built.
-   *
-   * Legacy URLs are owned by vercel.json rewrites (not Next.js routes),
-   * so this uses a plain anchor — typedRoutes does not apply and a hard
-   * navigation is the honest behaviour (the destination is a separate SPA).
-   */
-  legacyHref?: string;
-  legacyLabel?: string;
   className?: string;
 }
 
@@ -28,8 +18,6 @@ interface UnderConstructionPanelProps {
 export function UnderConstructionPanel({
   feature,
   description,
-  legacyHref,
-  legacyLabel,
   className,
 }: UnderConstructionPanelProps) {
   return (
@@ -48,20 +36,10 @@ export function UnderConstructionPanel({
           <p className="mx-auto mt-3 max-w-lg text-sm text-text-muted">{description}</p>
         ) : (
           <p className="mx-auto mt-3 max-w-lg text-sm text-text-muted">
-            This surface is still being built. Working flows live in their
-            own tabs or on the legacy app until this lands.
+            This surface is still being built. It will appear here when it
+            lands — there is no other route to it.
           </p>
         )}
-        {legacyHref && legacyLabel ? (
-          <p className="mt-4 text-sm">
-            <a
-              href={legacyHref}
-              className="underline decoration-accent-yellow decoration-2 underline-offset-4 hover:text-brand-navy"
-            >
-              {legacyLabel}
-            </a>
-          </p>
-        ) : null}
       </div>
       <div aria-hidden="true" className="uc-tape h-3 w-full" />
     </section>

@@ -141,7 +141,7 @@ module.exports = async (req, res) => {
   const body = `${totalPendingHours.toFixed(1)}h pending · oldest from ${prettyDate(oldestDate)}`;
   const payload = {
     title, body,
-    url: '/admin/approvals',
+    url: '/hours/approvals',
     tag: 'buhl-payroll-reminder-' + today,
   };
 

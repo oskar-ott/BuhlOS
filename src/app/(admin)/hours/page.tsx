@@ -217,9 +217,7 @@ export default async function HoursOverviewPage({
 
         <UnderConstructionPanel
           feature="Committed payroll export · one-tap weekly approve · Xero push"
-          description="The preview above is a safe dry-run (nothing is marked exported). The committed payroll CSV run — which stamps entries as exported and locks them from edits — plus one-tap whole-week approve and a direct Xero push (the CSV is the Xero path for now; we don't fake the integration) still live on legacy /admin/hours."
-          legacyHref="/admin/hours"
-          legacyLabel="Legacy /admin/hours for committed export + weekly approve"
+          description="The preview above is a safe dry-run (nothing is marked exported). The committed payroll CSV run — which stamps entries as exported and locks them from edits — plus one-tap whole-week approve and a direct Xero push (we don't fake the integration) aren't built here yet. The legacy tool that ran the committed export was retired in the legacy cutover; the rebuild is on the backlog (hours-payroll epic)."
         />
       </div>
     </AdminShell>
@@ -589,14 +587,8 @@ function PayrollExportCard({
             <p className="text-xs text-text-muted">
               Preview only — no entries have been marked exported. The committed
               payroll run (which stamps these entries as exported, locks them
-              from edits and logs a content hash) runs from{" "}
-              <a
-                href="/admin/hours"
-                className="underline decoration-accent-yellow decoration-2 underline-offset-4 hover:text-brand-navy"
-              >
-                legacy /admin/hours
-              </a>
-              .
+              from edits and logs a content hash) isn&rsquo;t built on this
+              surface yet; until it lands, payroll works from this preview.
             </p>
           </div>
         ) : (
@@ -607,14 +599,9 @@ function PayrollExportCard({
         )
       ) : (
         <p className="mt-3 text-sm text-text-muted">
-          Export preview unavailable right now. The committed payroll run is on{" "}
-          <a
-            href="/admin/hours"
-            className="underline decoration-accent-yellow decoration-2 underline-offset-4 hover:text-brand-navy"
-          >
-            legacy /admin/hours
-          </a>
-          .
+          Export preview unavailable right now. Check the connection and
+          reload; the committed payroll run isn&rsquo;t built on this surface
+          yet.
         </p>
       )}
     </Card>

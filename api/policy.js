@@ -27,7 +27,7 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   if (req.method === 'GET') {
-    // Anyone with site-office access reads policy.
+    // Any office-tier role reads policy.
     const me = await requireAuth(req, res, { roles: ['admin', 'leadingHand', 'office', 'accounts'] });
     if (!me) return;
     const stored = await readBlob(KEY, null);

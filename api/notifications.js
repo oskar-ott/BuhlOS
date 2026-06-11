@@ -118,7 +118,7 @@ module.exports = async (req, res) => {
     const payload = {
       title: 'Did you log your hours?',
       body: "Quick reminder — tap to log today's hours before you knock off.",
-      url: '/my-day?openHours=1',
+      url: '/phil/my-day',
       tag: 'buhl-daily-hours',
     };
 
@@ -220,11 +220,12 @@ module.exports = async (req, res) => {
       const body  = 'Across ' + visibleIds.length + ' job' + (visibleIds.length === 1 ? '' : 's') +
                     '. Tap to retest before they lapse.';
 
-      // Single-job → deep-link to that job's T&T tab; otherwise → /overview
-      // (admins/LH have an "expiring tags" surface there now).
+      // Single-job → deep-link to that job on the recipient's surface
+      // (admins get the BuhlOS job hub, field/LH get the Phil job page);
+      // multiple jobs → the role home.
       const url = visibleIds.length === 1
-        ? '/jobs/' + visibleIds[0] + '#tags'
-        : (isAdminRole(u.role) ? '/overview' : '/my-day');
+        ? (isAdminRole(u.role) ? '/v2/jobs/' + visibleIds[0] : '/phil/jobs/' + visibleIds[0])
+        : (isAdminRole(u.role) ? '/command-centre' : '/phil/my-day');
 
       const r = await sendPushToUserId(u.id, {
         title, body, url,
@@ -323,7 +324,7 @@ module.exports = async (req, res) => {
     const payload = {
       title: 'End of day',
       body: bits.join(' · '),
-      url: '/admin/operations',
+      url: '/command-centre',
       tag: 'buhl-daily-digest-' + today,
     };
 
@@ -416,7 +417,7 @@ module.exports = async (req, res) => {
     const payload = {
       title: 'Snags need triage',
       body: bits.join(' · '),
-      url: '/admin/snags',
+      url: '/command-centre',
       tag: 'buhl-stale-snags-' + new Date().toISOString().slice(0, 10),
     };
 
@@ -527,7 +528,7 @@ module.exports = async (req, res) => {
 
     const payload = {
       title, body,
-      url: '/admin/crew',
+      url: '/hours',
       tag: 'buhl-inactive-crew-' + new Date().toISOString().slice(0, 10),
     };
 

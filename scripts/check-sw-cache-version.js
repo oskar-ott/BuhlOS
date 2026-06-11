@@ -1,136 +1,82 @@
 #!/usr/bin/env node
-// Static check: if the admin shell changed, public/sw.js's CACHE_VERSION
-// must change too. Otherwise clients on the old SW keep serving stale
-// _shell.js / _shell.css out of cache (stale-while-revalidate is the
-// default in sw.js), and the deploy looks broken to existing users
-// even though production is serving the right HTML.
+// Static check: any change to public/sw.js must bump its SW_VERSION
+// literal.
 //
-// This already burned us once. PR #234 fixed `blank /admin/operations`
-// in operations.html + _shell.js but forgot to bump CACHE_VERSION;
-// clients with the v2 SW kept rendering blank until a follow-up bumped
-// to v3.
+// History: the pre-cutover service worker precached the legacy admin
+// shell, and shipping shell changes without a CACHE_VERSION bump left
+// devices replaying stale layouts (the "blank /admin/operations" saga —
+// see git history). The legacy-interface cutover removed all caching from
+// the worker (v9 is push-only and purges every cache on activate), so the
+// stale-asset failure mode is gone. The bump rule stays for a simpler
+// reason: a visible version literal makes fleet rollout auditable — when
+// sw.js behaviour changes you can confirm from any device which worker
+// it runs, and the diff reviewer is forced to acknowledge they're
+// touching the push path every installed phone depends on.
 //
-// Rule: any change to the following files vs origin/main MUST be paired
-// with a CACHE_VERSION change in public/sw.js:
-//   - public/admin/_shell.js
-//   - public/admin/_shell.css
-//   - public/admin/*.html
-//   - public/components/*.js
-//   - public/theme.css
+// Rule: public/sw.js differs from origin/main ⇒ the SW_VERSION line must
+// differ too.
 //
 // Run standalone:  node scripts/check-sw-cache-version.js
 // Run via npm:     npm run check:sw-cache-version
-// Auto-runs on:    npm run predeploy
-//
-// Exits 0 if either (a) no shell files changed, (b) shell files changed
-// AND CACHE_VERSION changed. Exits 1 if shell files changed but
-// CACHE_VERSION didn't.
+// Auto-runs on:    npm run predeploy / predeploy:preview + CI
 
 'use strict';
 
+const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 
 const REPO = path.resolve(__dirname, '..');
-
 const RED = '\x1b[31m';
 const GRN = '\x1b[32m';
 const YEL = '\x1b[33m';
 const DIM = '\x1b[2m';
 const RST = '\x1b[0m';
 
-const SHELL_GLOBS = [
-  'public/admin/_shell.js',
-  'public/admin/_shell.css',
-  'public/theme.css',
-];
-const SHELL_DIRS = [
-  'public/admin/',     // any *.html under here
-  'public/components/', // any *.js under here
-];
+const SW = 'public/sw.js';
+const VERSION_RE = /const SW_VERSION = '([^']+)'/;
 
-function tryExec(cmd) {
-  try { return execSync(cmd, { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim(); }
-  catch (e) { return null; }
-}
-
-// Get the baseline (origin/main, or first parent of HEAD if main isn't
-// accessible — useful for local-only repos). We diff HEAD against the
-// baseline to find what changed.
-let baseline = tryExec('git rev-parse --verify origin/main 2>/dev/null');
-if (!baseline) baseline = tryExec('git rev-parse --verify HEAD~1');
-if (!baseline) {
-  console.log(YEL + 'WARN ' + RST + 'no baseline (no origin/main, no HEAD~1) — skipping SW cache check.');
-  console.log(DIM + '     This is normal on the first commit. Add the check back as the repo grows.' + RST);
-  process.exit(0);
-}
-
-// Files changed between baseline and the working tree (committed + staged
-// + unstaged). Use diff --name-only HEAD plus diff --name-only baseline..HEAD
-// then union both sets.
-const diffWorking = tryExec(`git diff --name-only ${baseline}`) || '';
-const diffStaged = tryExec(`git diff --name-only --cached ${baseline}`) || '';
-const changedSet = new Set();
-for (const line of (diffWorking + '\n' + diffStaged).split(/\r?\n/)) {
-  if (line) changedSet.add(line);
-}
-
-// Decide if any shell-impacting file changed.
-const changedShellFiles = [];
-for (const f of changedSet) {
-  if (SHELL_GLOBS.includes(f)) { changedShellFiles.push(f); continue; }
-  for (const d of SHELL_DIRS) {
-    if (f.startsWith(d)) {
-      // Only count .html under admin/ and .js under components/, etc.
-      if (d === 'public/admin/' && !f.endsWith('.html')) continue;
-      if (d === 'public/components/' && !f.endsWith('.js')) continue;
-      changedShellFiles.push(f);
-      break;
-    }
+function gitShow(ref, rel) {
+  try {
+    return execSync(`git show ${ref}:${rel}`, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return null;
   }
 }
 
-if (changedShellFiles.length === 0) {
-  console.log(GRN + 'OK   ' + RST + 'no admin shell files changed vs ' +
-    DIM + baseline.slice(0, 7) + RST + ' — CACHE_VERSION bump not required.');
+const current = fs.existsSync(path.join(REPO, SW))
+  ? fs.readFileSync(path.join(REPO, SW), 'utf8')
+  : null;
+
+if (current === null) {
+  console.log(RED + 'FAIL ' + RST + SW + ' is missing — existing PushSubscriptions are registered against /sw.js.');
+  process.exit(1);
+}
+
+const base = gitShow('origin/main', SW) ?? gitShow('main', SW);
+if (base === null) {
+  console.log(DIM + 'check-sw-cache-version · no origin/main baseline (fresh clone?) — skipping diff check.' + RST);
   process.exit(0);
 }
 
-// Shell changed — CACHE_VERSION must have changed too. Read the version
-// from sw.js at the baseline and the working tree, compare.
-function extractCacheVersion(src) {
-  const m = src.match(/CACHE_VERSION\s*=\s*['"]([^'"]+)['"]/);
-  return m ? m[1] : null;
-}
-
-const swCurrent = fs.readFileSync(path.join(REPO, 'public/sw.js'), 'utf8');
-const versionCurrent = extractCacheVersion(swCurrent);
-if (!versionCurrent) {
-  console.log(RED + 'FAIL ' + RST + 'cannot find CACHE_VERSION in public/sw.js');
+const curVer = (current.match(VERSION_RE) || [])[1];
+if (!curVer) {
+  console.log(RED + 'FAIL ' + RST + SW + " has no `const SW_VERSION = '...'` literal.");
+  console.log('     ' + YEL + 'The version literal is the fleet-rollout audit handle — keep it.' + RST);
   process.exit(1);
 }
 
-const swBaseline = tryExec(`git show ${baseline}:public/sw.js`);
-const versionBaseline = swBaseline ? extractCacheVersion(swBaseline) : null;
+if (base === current) {
+  console.log(GRN + 'OK   ' + RST + 'sw.js unchanged vs origin/main (' + DIM + curVer + RST + ').');
+  process.exit(0);
+}
 
-if (versionBaseline && versionCurrent === versionBaseline) {
-  console.log(RED + 'FAIL ' + RST + 'admin shell changed but CACHE_VERSION did not.');
-  console.log('');
-  console.log('     changed files:');
-  for (const f of changedShellFiles) console.log('       ' + YEL + f + RST);
-  console.log('');
-  console.log('     ' + DIM + 'baseline:' + RST + ' CACHE_VERSION = ' + DIM + versionBaseline + RST);
-  console.log('     ' + DIM + 'current: ' + RST + ' CACHE_VERSION = ' + DIM + versionCurrent + RST);
-  console.log('');
-  console.log(RED + 'Refusing to deploy.' + RST);
-  console.log(DIM + 'Bump CACHE_VERSION in public/sw.js (e.g. ' +
-    versionCurrent.replace(/(\d+)$/, (m) => String(parseInt(m, 10) + 1)) +
-    ') so existing clients get fresh shell assets after deploy.' + RST);
-  console.log(DIM + 'See docs/regressions/admin-operations-blank.md for context.' + RST);
+const baseVer = (base.match(VERSION_RE) || (base.match(/const CACHE_VERSION = '([^']+)'/) || []))[1];
+if (baseVer && baseVer === curVer) {
+  console.log(RED + 'FAIL ' + RST + 'sw.js changed but SW_VERSION did not (' + curVer + ').');
+  console.log('     ' + YEL + 'Bump SW_VERSION whenever sw.js behaviour changes so the fleet rollout is auditable.' + RST);
   process.exit(1);
 }
 
-console.log(GRN + 'OK   ' + RST + 'admin shell changed AND CACHE_VERSION bumped (' +
-  DIM + (versionBaseline || '(new)') + ' → ' + versionCurrent + RST + ').');
+console.log(GRN + 'OK   ' + RST + 'sw.js changed AND SW_VERSION bumped (' + DIM + (baseVer || '?') + ' → ' + curVer + RST + ').');
 process.exit(0);

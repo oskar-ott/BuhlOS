@@ -4,16 +4,16 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { landingFor } from "@/lib/auth/landing";
 
 /**
- * Root entry — in production `/` is rewritten by vercel.json to /login.html
- * (legacy), so this component is only hit in dev or when the rewrite is
- * disabled (Phase B+).
+ * Root entry — `/` is owned by Next.js since the legacy-interface cutover
+ * (the old vercel.json rewrite of `/` → /login.html is gone).
  *
  * Behaviour: if the user has a valid session, send them to their landing.
  * If not, send them to /v2/login.
  *
- * The `as Route` cast is intentional: landingFor() may return /lh or /client,
- * which are owned by vercel.json (legacy) and therefore not known to Next.js
- * typedRoutes. Cast goes away in Phase B+ when those move into src/app/.
+ * The `as Route` cast is intentional: landingFor() may return /client, which
+ * is the kept client-portal static page (vercel.json rewrite, not a Next.js
+ * route) and therefore not known to typedRoutes. The cast goes away when the
+ * modern client portal lands (issue #271 / Epic 16).
  */
 export default async function RootPage() {
   const user = await getCurrentUser();

@@ -222,8 +222,8 @@ module.exports = async (req, res) => {
           title,
           body,
           url: addedJobIds.length === 1 && byId[targetJobId]
-            ? '/jobs/' + targetJobId
-            : '/my-day',
+            ? '/phil/jobs/' + targetJobId
+            : '/phil/my-day',
           tag: 'buhl-job-assigned-' + Date.now(),
         });
       } catch (e) { /* swallow — best-effort */ }

@@ -60,16 +60,14 @@ module.exports = async (req, res) => {
   // (no job context), so always try to include it.
   const jobId = (req.body && req.body.jobId) || (req.query && req.query.jobId) || '';
 
-  // Deep-link to the specific snag row when we know the id, so the per-job
-  // page can scroll-and-flash it on load. Falls back gracefully if jobId or
-  // snag.id is missing.
+  // Deep-link to the job's Phil page (assignees are field/LH). The legacy
+  // ?snag=…#snags scroll-and-flash params died with project.html; the
+  // modern page's Issues section anchor is #phil-job-snags.
   let url;
-  if (jobId && snag.id) {
-    url = '/jobs/' + jobId + '?snag=' + encodeURIComponent(snag.id) + '#snags';
-  } else if (jobId) {
-    url = '/jobs/' + jobId + '#snags';
+  if (jobId) {
+    url = '/phil/jobs/' + jobId + '#phil-job-snags';
   } else {
-    url = '/my-day';
+    url = '/phil/my-day';
   }
 
   const result = await sendPushToUserId(userId, {

@@ -15,11 +15,13 @@
 //   4. Phil tab bar live tabs only link to APPROVED Phil routes.
 //   5. No live nav item links to a legacy public/*.html or /admin/* URL.
 //   6. landingFor() maps each role class to its approved landing (in particular
-//      field -> /phil/my-day, NOT the /v2/phil placeholder).
-//   7. The active legacy user-facing surfaces (login.html / phil.html /
-//      lh-home.html / admin/_shell.js) don't render the deprecated "Site
-//      Office" product name (the electrical "switchboard" sense is untouched).
-//   8. The deprecated /dev/site-office surface carries a DEPRECATED marker.
+//      field AND leading hands -> /phil/my-day, NOT the /v2/phil placeholder
+//      or the deleted legacy /lh home).
+//
+// The legacy static estate (login.html / phil.html / my-day.html / the
+// /admin suite / dev/site-office) was REMOVED in the legacy-interface
+// cutover. Its absence — plus the deprecated-naming and no-served-HTML
+// rules — is enforced by scripts/check-legacy-quarantine.js.
 //
 // When the contract intentionally changes (e.g. the /v2/jobs -> /admin/jobs
 // cutover), update the APPROVED_* sets below AND docs/route-ownership.md in the
@@ -232,7 +234,7 @@ if (exists('src/lib/auth/landing.ts')) {
   const src = read('src/lib/auth/landing.ts');
   const expected = [
     { role: 'admin', re: /isAdminRole\(r\)\)\s*return\s*"\/command-centre"/, landing: '/command-centre' },
-    { role: 'leading hand', re: /isLeadingHandRole\(r\)\)\s*return\s*"\/lh"/, landing: '/lh' },
+    { role: 'leading hand', re: /isLeadingHandRole\(r\)\)\s*return\s*"\/phil\/my-day"/, landing: '/phil/my-day' },
     { role: 'field', re: /isFieldRole\(r\)\)\s*return\s*"\/phil\/my-day"/, landing: '/phil/my-day' },
     { role: 'client', re: /isClientRole\(r\)\)\s*return\s*"\/client"/, landing: '/client' },
   ];
@@ -247,48 +249,18 @@ if (exists('src/lib/auth/landing.ts')) {
   }
 }
 
-// ── 7. Deprecated "Site Office" product name in active legacy UI ──────
-// The nav-label check above covers the modern surfaces' controlled
-// vocabulary. The recurring field-readiness leak is the *legacy* static
-// surface (public/*.html + the shared admin shell): it is production today
-// (route-ownership §6) and still rendered the deprecated "Site Office"
-// product name. Scan the curated active, user-facing surfaces and fail if
-// it reappears. Two senses are intentionally NOT flagged:
-//   - the deprecated localStorage key prefix `buhl-site-office-*`, kept so
-//     existing prefs aren't orphaned (the modern app cleans it up in
-//     src/app/v2/login/login-form.tsx) — spared via the lookbehind;
-//   - the electrical sense of "switchboard" is never matched here at all
-//     (this check is "Site Office" only; the Switchboard product-name ban
-//     stays scoped to nav labels + the operations.html data-sec check).
-const ACTIVE_USER_FACING_SURFACES = [
-  'public/login.html',
-  'public/phil.html',
-  'public/lh-home.html',
-  'public/admin/_shell.js',
-];
-const SITE_OFFICE_RE = /(?<!buhl-)\bsite[ -]?office\b/i;
-for (const rel of ACTIVE_USER_FACING_SURFACES) {
-  if (!exists(rel)) continue; // legacy surfaces; not in REQUIRED_SOURCES
-  read(rel).split(/\r?\n/).forEach((line, idx) => {
-    if (SITE_OFFICE_RE.test(line)) {
-      fail(rel + ':' + (idx + 1) + ' uses the deprecated product name "Site Office"',
-        'The active surfaces are BuhlOS (office) and Phil (field). "Site Office" is a ' +
-        'deprecated product name and must not appear in production UI — replace office-app ' +
-        'references with "BuhlOS". (The `buhl-site-office-*` localStorage key is exempt.) ' +
-        'See docs/route-ownership.md §7 / §9.');
-    }
-  });
-}
-
-// The deprecated /dev/site-office surface can't be renamed/removed in a
-// naming PR (route-ownership §12 step 5), so it must be visibly
-// quarantined: it must carry a DEPRECATED marker so anyone who lands on it
-// sees the old name is not current.
-const DEV_SITE_OFFICE = 'public/dev/site-office/components.html';
-if (exists(DEV_SITE_OFFICE) && !/deprecated/i.test(read(DEV_SITE_OFFICE))) {
-  fail(DEV_SITE_OFFICE + ' is the deprecated "Site Office" dev surface but has no DEPRECATED marker',
-    'It cannot be renamed/removed here (route-ownership §12), so it must be visibly ' +
-    'quarantined with a deprecation banner until the cleanup PR removes it.');
+// ── 7. Legacy estate stays deleted ────────────────────────────────────
+// The full set of absence / no-served-HTML / deprecated-naming rules lives
+// in scripts/check-legacy-quarantine.js (predeploy + CI). Here we keep one
+// cheap tripwire on the two highest-traffic resurrection shapes so a
+// route-contract PR can't quietly reintroduce them.
+for (const rel of ['public/login.html', 'public/admin', 'public/dev/site-office']) {
+  if (exists(rel)) {
+    fail(rel + ' exists — the legacy static estate must stay deleted',
+      'Legacy surfaces were removed in the legacy-interface cutover; old URLs ' +
+      'redirect to the modern routes (vercel.json). See docs/route-ownership.md §6 ' +
+      'and scripts/check-legacy-quarantine.js.');
+  }
 }
 
 // ── Execute ──────────────────────────────────────────────────────────
