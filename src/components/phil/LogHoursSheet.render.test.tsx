@@ -66,28 +66,74 @@ describe("LogHoursSheet — job attribution", () => {
   });
 });
 
-describe("LogHoursSheet — rejected status copy", () => {
-  it("points rejected entries to the Phil hours history resubmit flow", () => {
+function rejectedEntry(allocations: Array<{ jobId: string | null; hours: number; notes: null }>) {
+  return {
+    id: "te-1",
+    userId: "u1",
+    date: "2026-06-07",
+    totalHours: 7.6,
+    ordinaryHours: 7.6,
+    overtimeHours: 0,
+    status: "rejected" as const,
+    rejectedReason: "Wrong job",
+    allocations,
+    createdAt: "2026-06-07T06:00:00Z",
+    updatedAt: "2026-06-07T06:00:00Z",
+  };
+}
+
+describe("LogHoursSheet — rejected entry fix flow", () => {
+  const singleAllocation = [{ jobId: "j1", hours: 7.6, notes: null }];
+
+  it("offers the inline fix-and-resubmit sheet for a rejected single-job entry", () => {
     const html = render({
       assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
       recentEntries: [],
-      initialTodayEntry: {
-        id: "te-1",
-        userId: "u1",
-        date: "2026-06-07",
-        totalHours: 7.6,
-        ordinaryHours: 7.6,
-        overtimeHours: 0,
-        status: "rejected",
-        rejectedReason: "Wrong job",
-        allocations: [{ jobId: "j1", hours: 7.6, notes: null }],
-        createdAt: "2026-06-07T06:00:00Z",
-        updatedAt: "2026-06-07T06:00:00Z",
-      },
+      initialTodayEntry: rejectedEntry(singleAllocation),
     });
 
-    expect(html).toContain("Open Hours history to fix and resubmit this entry in Phil.");
+    // The rejection reason and the fix action live together on My Day —
+    // no dead-end "go open another screen" copy.
+    expect(html).toContain("Wrong job");
+    expect(html).toContain("Fix rejected hours");
+    expect(html).not.toContain("Open Hours history");
     expect(html).not.toContain("legacy My day");
-    expect(html).not.toContain("still being built");
+  });
+
+  it("auto-expands the fix sheet when launched from a ?fixDate= deep link", () => {
+    const html = render({
+      assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
+      recentEntries: [],
+      initialTodayEntry: rejectedEntry(singleAllocation),
+      autoOpenFix: true,
+    });
+
+    // Expanded form, not the collapsed button.
+    expect(html).toContain("Fix &amp; resubmit");
+  });
+
+  it("is honest about split-day entries the single-job form can't fix", () => {
+    const html = render({
+      assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
+      recentEntries: [],
+      initialTodayEntry: rejectedEntry([
+        { jobId: "j1", hours: 4, notes: null },
+        { jobId: "j2", hours: 3.6, notes: null },
+      ]),
+    });
+
+    expect(html).toContain("splits hours across jobs");
+    expect(html).not.toContain("Fix rejected hours");
+  });
+});
+
+describe("LogHoursSheet — deep-linked date", () => {
+  it("preselects the validated initialDate so the fix lands on the right day", () => {
+    const html = render({
+      ...base,
+      assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
+      initialDate: "2026-06-01",
+    });
+    expect(html).toContain('value="2026-06-01"');
   });
 });

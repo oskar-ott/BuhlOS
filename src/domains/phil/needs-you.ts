@@ -12,7 +12,9 @@ import type { TimeEntry } from "@/domains/timesheets/types";
  *
  *   - rejected-hours: a time entry the office rejected (status "rejected").
  *       Source: GET /api/time-entries (self-scoped to the worker).
- *       Action: /phil/hours (RejectedHoursResubmitSheet).
+ *       Action: /phil/my-day?fixDate=<date> — selects that day and auto-opens
+ *       the inline fix-and-resubmit sheet (same deep link the "Hours rejected"
+ *       push notification uses).
  *   - snag: a snagsV2 issue ASSIGNED TO THIS WORKER (assignedToId) that is
  *       still open / in progress. Source: GET /api/snags?jobId= per assigned
  *       job. Action: the job's Snags section.
@@ -83,7 +85,8 @@ export function buildPhilNeedsYou(input: PhilNeedsYouInput): PhilNeedsYouItem[] 
 
   // A. Rejected hours — real and blocks pay; the most urgent thing a worker
   //    can clear. A rejection always carries a date; the reason is shown when
-  //    the office left one.
+  //    the office left one. The link is the same ?fixDate= deep link the push
+  //    notification uses: one tap opens that day with the fix sheet expanded.
   for (const e of input.entries) {
     if (e.status !== "rejected") continue;
     items.push({
@@ -92,7 +95,7 @@ export function buildPhilNeedsYou(input: PhilNeedsYouInput): PhilNeedsYouItem[] 
       title: `${shortDay(e.date)} hours need a fix`,
       detail: e.rejectedReason ?? undefined,
       meta: hoursLabel(e.totalHours) || undefined,
-      href: "/phil/hours",
+      href: `/phil/my-day?fixDate=${encodeURIComponent(e.date)}`,
       actionLabel: "Fix hours",
       severity: "urgent",
     });

@@ -71,10 +71,12 @@ module.exports = async (req, res) => {
   });
 
   // Fire-and-forget push to the tradie. Failures don't affect the response.
+  // Lands on Phil My Day — the live field home — where the approved status
+  // shows on the week strip + status line.
   sendPushToUserId(userId, {
     title: 'Hours approved',
     body: `${Number(entry.totalHours).toFixed(1)} hrs on ${entry.date} approved by ${user.username}.`,
-    url: '/my-day',
+    url: '/phil/my-day',
     tag: 'buhl-hours-approved-' + entry.date,
   }).catch(() => {});
 

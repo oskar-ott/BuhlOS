@@ -133,7 +133,7 @@ module.exports = async (req, res) => {
     sendPushToUserId(userId, {
       title: 'Hours rejected — needs fix',
       body: `${date} (${Number(entry.totalHours).toFixed(1)} hrs): ${reason}`,
-      url: '/my-day?fixDate=' + encodeURIComponent(date),
+      url: '/phil/my-day?fixDate=' + encodeURIComponent(date),
       tag: 'buhl-hours-rejected-' + date,
     }).catch(() => {});
   }

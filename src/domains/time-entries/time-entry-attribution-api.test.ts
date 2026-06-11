@@ -201,3 +201,163 @@ describe("POST /api/time-entries — admin/on-behalf latitude preserved", () => 
     expect(res.statusCode).toBe(201);
   });
 });
+
+describe("POST /api/time-entries — one active entry per worker+date", () => {
+  it("refuses a duplicate submission for the same date with 409", async () => {
+    const first = await post("u_field", "electrician", entryFor("job-active"));
+    expect(first.statusCode).toBe(201);
+    const dupe = await post("u_field", "electrician", entryFor("job-active"));
+    expect(dupe.statusCode).toBe(409);
+  });
+});
+
+// ── PATCH /api/time-entries — the edit/resubmit path ─────────────────────────
+//
+// Parity with the create gate: until this gate existed, the Phil UI was the
+// ONLY thing stopping a field worker from re-allocating their hours to an
+// arbitrary / unassigned / archived job on resubmit (documented in
+// docs/phil-hours-job-attribution.md as a follow-up). These tests pin the
+// server-side rule.
+
+async function patch(
+  userId: string,
+  role: string,
+  body: unknown,
+  query: Record<string, string> = {},
+) {
+  const res = createRes();
+  await handler(
+    {
+      method: "PATCH",
+      query: { date: TODAY, ...query },
+      body,
+      headers: { cookie: cookieFor(userId, role) },
+    },
+    res,
+  );
+  return res;
+}
+
+/** Seed a stored entry for u_field directly into the blob map. */
+function seedStoredEntry(status: string, jobId: string | null) {
+  blob.set(`users/u_field/time-entries/${TODAY}.json`, {
+    id: "te_seeded",
+    userId: "u_field",
+    userName: "sparky",
+    userRole: "electrician",
+    date: TODAY,
+    startTime: null,
+    endTime: null,
+    breakMinutes: 30,
+    totalHours: 8,
+    ordinaryHours: 8,
+    overtimeHours: 0,
+    otOverridden: false,
+    notes: null,
+    status,
+    submittedAt: status === "draft" ? null : `${TODAY}T08:00:00.000Z`,
+    approvedBy: null,
+    approvedAt: null,
+    rejectedReason: status === "rejected" ? "Wrong job — reallocate" : null,
+    allocations: [{ jobId, hours: 8, notes: null, sortOrder: 0 }],
+    createdAt: `${TODAY}T07:00:00.000Z`,
+    updatedAt: `${TODAY}T08:00:00.000Z`,
+  });
+}
+
+function resubmitBody(jobId: string | null) {
+  return {
+    totalHours: 8,
+    ordinaryHours: 8,
+    overtimeHours: 0,
+    status: "submitted",
+    allocations: [{ jobId, hours: 8 }],
+    notes: null,
+  };
+}
+
+describe("PATCH /api/time-entries — field job attribution on self-edits", () => {
+  it("resubmits a rejected entry to an active assigned job (rejected → submitted)", async () => {
+    seedStoredEntry("rejected", "job-active");
+    const res = await patch("u_field", "electrician", resubmitBody("job-active"));
+    expect(res.statusCode).toBe(200);
+    const stored = storedFor("u_field") as unknown as {
+      status: string;
+      rejectedReason: string | null;
+      allocations: Array<{ jobId: string | null }>;
+    };
+    expect(stored.status).toBe("submitted");
+    expect(stored.rejectedReason).toBeNull();
+    expect(stored.allocations[0]?.jobId).toBe("job-active");
+  });
+
+  it("rejects re-allocating to a job the worker is NOT assigned to", async () => {
+    seedStoredEntry("rejected", "job-active");
+    const res = await patch("u_field", "electrician", resubmitBody("job-unassigned"));
+    expect(res.statusCode).toBe(403);
+    const stored = storedFor("u_field") as unknown as {
+      status: string;
+      allocations: Array<{ jobId: string | null }>;
+    };
+    expect(stored.status).toBe("rejected"); // untouched
+    expect(stored.allocations[0]?.jobId).toBe("job-active");
+  });
+
+  it("rejects re-allocating to an ARCHIVED assigned job", async () => {
+    seedStoredEntry("rejected", "job-active");
+    const res = await patch("u_field", "electrician", resubmitBody("job-archived"));
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("rejects re-allocating to a DRAFT assigned job", async () => {
+    seedStoredEntry("rejected", "job-active");
+    const res = await patch("u_field", "electrician", resubmitBody("job-draft"));
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("rejects re-allocating to an unknown jobId", async () => {
+    seedStoredEntry("rejected", "job-active");
+    const res = await patch("u_field", "electrician", resubmitBody("job-does-not-exist"));
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("still accepts a null jobId on edit (backward-compat, same as create)", async () => {
+    seedStoredEntry("rejected", null);
+    const res = await patch("u_field", "electrician", resubmitBody(null));
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("leaves edits that don't touch allocations alone (notes-only edit of an archived-job entry)", async () => {
+    // The stored entry points at a job that has since been archived. A
+    // notes-only PATCH must not be blocked by the attribution gate — only
+    // PATCHes that actually send `allocations` are validated.
+    seedStoredEntry("draft", "job-archived");
+    const res = await patch("u_field", "electrician", { notes: "forgot the gate code" });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("does not apply the field gate to delegated (office) edits", async () => {
+    seedStoredEntry("rejected", "job-active");
+    const res = await patch("u_office", "office", resubmitBody("job-unassigned"), {
+      userId: "u_field",
+    });
+    expect(res.statusCode).toBe(200);
+  });
+});
+
+describe("PATCH /api/time-entries — approved entries stay locked for workers", () => {
+  it("blocks the worker from editing an approved entry", async () => {
+    seedStoredEntry("approved", "job-active");
+    const res = await patch("u_field", "electrician", { notes: "tweak" });
+    expect(res.statusCode).toBe(403);
+    expect((res.body as { error: string }).error).toContain("approved");
+  });
+
+  it("blocks the worker from resubmitting an approved entry", async () => {
+    seedStoredEntry("approved", "job-active");
+    const res = await patch("u_field", "electrician", resubmitBody("job-active"));
+    expect(res.statusCode).toBe(403);
+    const stored = storedFor("u_field") as unknown as { status: string };
+    expect(stored.status).toBe("approved");
+  });
+});

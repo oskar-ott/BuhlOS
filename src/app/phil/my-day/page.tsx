@@ -12,7 +12,11 @@ import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
 import type { TimeEntry } from "@/domains/timesheets/types";
-import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
+import {
+  BUSINESS_TIMEZONE,
+  localDateString,
+  parseFixDate,
+} from "@/domains/timesheets/service";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isVisibleToField } from "@/domains/jobs/builder";
 import { SnagListResponseSchema } from "@/domains/snags/schema";
@@ -57,7 +61,11 @@ const mono = JetBrains_Mono({
  *   docs/rebuild-audit/19-phase-b-hours-implementation-brief.md §Phil surface
  *   docs/phil-my-day.md (this surface)
  */
-export default async function MyDayPage() {
+export default async function MyDayPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ fixDate?: string }>;
+}) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
   const session = decodeSessionCookie(raw);
@@ -70,11 +78,18 @@ export default async function MyDayPage() {
     redirect("/v2/login");
   }
 
+  // ?fixDate=YYYY-MM-DD — landing from a "Hours rejected" push notification or
+  // the Needs You feed. Preselects that day in the hours sheet and auto-opens
+  // the fix-and-resubmit form, so the fix is one tap from the notification
+  // (parity with the legacy /my-day handler). Invalid values are ignored.
+  const sp = await searchParams;
+  const fixDate = parseFixDate(sp.fixDate);
+
   // Load the worker's recent entries AND their active assigned jobs in
   // parallel. The jobs feed the LogHoursSheet job-attribution block so a
   // field submission is tied to a real active job instead of jobId: null.
   const [{ todayEntry, recentEntries, fetchError }, assignedJobs] = await Promise.all([
-    loadEntries(raw),
+    loadEntries(raw, fixDate),
     loadAssignedJobs(raw),
   ]);
 
@@ -136,6 +151,8 @@ export default async function MyDayPage() {
           assignedJobs={jobs}
           jobsError={assignedJobs.error}
           initialJobId={soleJobId}
+          initialDate={fixDate}
+          autoOpenFix={fixDate !== null}
         />
 
         {fetchError ? (
@@ -189,7 +206,10 @@ function businessPartOfDay(): string {
   return "Evening";
 }
 
-async function loadEntries(cookieValue: string | undefined): Promise<{
+async function loadEntries(
+  cookieValue: string | undefined,
+  fixDate: string | null = null
+): Promise<{
   todayEntry: TimeEntry | null;
   recentEntries: ReadonlyArray<TimeEntry>;
   fetchError: string | null;
@@ -204,16 +224,20 @@ async function loadEntries(cookieValue: string | undefined): Promise<{
   // date is still used inside the LogHoursSheet client form (it initialises
   // its date state in the worker's actual timezone). The rolling 7-day window
   // always covers this week's Monday→today, so PhilWeekStrip needs no extra
-  // fetch.
+  // fetch. A ?fixDate= deep link can point outside that window (rejections can
+  // be up to 14 days back), so the range stretches to include it — otherwise
+  // the worker would land on the right day but never see the entry to fix.
   const today = localDateString(new Date(), BUSINESS_TIMEZONE);
   const sevenDaysAgo = localDateString(
     new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
     BUSINESS_TIMEZONE
   );
+  const fromDate = fixDate && fixDate < sevenDaysAgo ? fixDate : sevenDaysAgo;
+  const toDate = fixDate && fixDate > today ? fixDate : today;
 
   try {
     const res = await fetch(
-      `${base}/api/time-entries?fromDate=${encodeURIComponent(sevenDaysAgo)}&toDate=${encodeURIComponent(today)}`,
+      `${base}/api/time-entries?fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}`,
       {
         cache: "no-store",
         headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,

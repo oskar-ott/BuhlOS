@@ -37,14 +37,21 @@ localStorage, mock/static job lists, or draft/archived jobs.
 
 ## Server enforcement
 
-`POST /api/time-entries` (`handleCreate`) rejects (`403`) a **field
-self-submission** whose non-null allocation `jobId` is not an active job the
-worker is assigned to (arbitrary, unknown, unassigned, draft, or archived).
+`POST /api/time-entries` (`handleCreate`) **and** `PATCH /api/time-entries`
+(`handlePatch`, the edit/resubmit path) reject (`403`) a **field self-submission
+/ self-edit** whose non-null allocation `jobId` is not an active job the worker
+is assigned to (arbitrary, unknown, unassigned, draft, or archived). Both paths
+share one gate (`fieldAllocationGateError`), so create and resubmit enforce the
+same rule — previously the Phil UI was the only guard on the PATCH path.
 
 Deliberately scoped:
 
 - **Admin / leading-hand and on-behalf flows keep their existing latitude** —
-  the gate only applies to non-delegated `isFieldRole` submissions.
+  the gate only applies to non-delegated `isFieldRole` submissions and
+  self-edits.
+- **PATCH is only gated when the body actually sends `allocations`** — a
+  notes-only edit of an entry whose job has since been archived still works;
+  untouched allocations keep their original (already-validated) attribution.
 - **A `null` jobId is still accepted server-side** for backward compatibility
   (legacy `public/phil.html`, existing records, future overhead). The Phil UI
   is what prevents a new `null` submission when active jobs exist.
@@ -67,9 +74,8 @@ _avoidable_ unattributed records.
   overhead.
 - **Server-side `null`-block for field roles**: deferred to avoid breaking the
   legacy Phil surface mid-rollout (UI-enforced for now).
-- **PATCH (rejected-hours edit) attribution validation**: the create path is
-  the audited flow and modern Phil has no in-app edit yet; PATCH attribution is
-  a follow-up.
+- ~~**PATCH (rejected-hours edit) attribution validation**~~: **done** — the
+  edit/resubmit path now runs the same gate as create (see Server enforcement).
 - **Needs Attention "unattributed hours" warning item**: small but additive
   with a de-dup design choice — deferred; the core fix stops new unattributed
   hours, and attributed hours now group by job for free.

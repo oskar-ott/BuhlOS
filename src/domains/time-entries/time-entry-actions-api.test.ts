@@ -347,6 +347,47 @@ describe("bulk approve/reject actions", () => {
   });
 });
 
+describe("worker push deep links land on the live Phil surface", () => {
+  function pushMock() {
+    return (requireFromHere.cache[pushPath] as NodeJS.Module).exports
+      .sendPushToUserId as ReturnType<typeof vi.fn>;
+  }
+
+  it("reject pushes carry the /phil/my-day?fixDate= deep link (one tap to the fix sheet)", async () => {
+    const res = await call(reject, "u_office", "office", {
+      userId: "u_field",
+      date: TODAY,
+      reason: "Wrong job",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(pushMock()).toHaveBeenCalledWith(
+      "u_field",
+      expect.objectContaining({ url: `/phil/my-day?fixDate=${TODAY}` })
+    );
+  });
+
+  it("bulk reject pushes carry the same fixDate deep link", async () => {
+    const res = await call(bulkReject, "u_office", "office", {
+      defaultReason: "Fix allocation",
+      entries: [{ userId: "u_field", date: TODAY }],
+    });
+    expect(res.statusCode).toBe(200);
+    expect(pushMock()).toHaveBeenCalledWith(
+      "u_field",
+      expect.objectContaining({ url: `/phil/my-day?fixDate=${TODAY}` })
+    );
+  });
+
+  it("approve pushes land on /phil/my-day (status visible on the week strip)", async () => {
+    const res = await call(approve, "u_office", "office", { userId: "u_field", date: TODAY });
+    expect(res.statusCode).toBe(200);
+    expect(pushMock()).toHaveBeenCalledWith(
+      "u_field",
+      expect.objectContaining({ url: "/phil/my-day" })
+    );
+  });
+});
+
 describe("payroll export eligibility", () => {
   it("excludes denied self-approval but exports a legitimate office-approved entry", async () => {
     const denied = await call(approve, "u_lh", "lh", { userId: "u_lh", date: TODAY });
