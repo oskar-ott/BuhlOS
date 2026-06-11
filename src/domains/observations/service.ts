@@ -200,3 +200,43 @@ export function summariseInbox(
   }
   return s;
 }
+
+/**
+ * A Phil "send to office" category — for captures that are NOT about a job:
+ * a parking fine, damaged gear, paperwork. Worker-facing labels only; each
+ * maps to an existing observation type (no new taxonomy) and every office
+ * item requires office action by definition — the whole point of sending it
+ * is that the office handles it (previously these were texts to the boss).
+ */
+export interface OfficeCaptureOption {
+  key: string;
+  label: string;
+  hint: string;
+  type: ObservationType;
+}
+
+export const OFFICE_CAPTURE_OPTIONS: ReadonlyArray<OfficeCaptureOption> = [
+  {
+    key: "paperwork",
+    label: "Fine / ticket / paperwork",
+    hint: "Parking fine, infringement, receipt",
+    type: "note",
+  },
+  {
+    key: "gear",
+    label: "Tool or gear problem",
+    hint: "Damaged, lost or playing up",
+    type: "defect",
+  },
+  {
+    key: "other",
+    label: "Something else",
+    hint: "Anything else the office should handle",
+    type: "note",
+  },
+];
+
+/** Office option by key, or null — mirror of workerOptionByKey. */
+export function officeOptionByKey(key: string): OfficeCaptureOption | null {
+  return OFFICE_CAPTURE_OPTIONS.find((o) => o.key === key) ?? null;
+}

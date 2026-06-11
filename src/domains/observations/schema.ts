@@ -102,7 +102,11 @@ export const OBSERVATION_PHOTO_MAX = 10;
 export const ObservationItemSchema = z
   .object({
     id: z.string(),
-    jobId: z.string(),
+    /** Null for an OFFICE item — a capture that isn't about any job (parking
+     *  fine, damaged gear, paperwork), created via POST ?scope=office. All job
+     *  context (stage/area/task/links) is null on those, and the job-scoped
+     *  conversion actions are refused server-side. */
+    jobId: z.string().nullable(),
     /** Denormalised job name stamped on create (like areaName/taskName) so the
      *  cross-job inbox renders + filters without re-reading jobs.json. */
     jobName: z.string().nullable().optional(),
@@ -214,6 +218,46 @@ export const CreateObservationPayloadSchema = z
       });
     }
   });
+
+/**
+ * Payload POSTed to /api/observations?scope=office — an OFFICE item with no
+ * job (the Phil "send to office" path: fines, damaged gear, paperwork).
+ * Deliberately has NO job-context fields: the server rejects any that arrive,
+ * so an office item can never half-pretend to belong to a job. photos ride as
+ * already-uploaded URLs (POST ?action=upload-office-photo first — same
+ * two-step shape as evidence capture).
+ */
+export const CreateOfficeObservationPayloadSchema = z.object({
+  type: ObservationTypeSchema,
+  title: z
+    .string()
+    .trim()
+    .min(1, "title is required")
+    .max(OBSERVATION_TITLE_MAX, `Title must be ${OBSERVATION_TITLE_MAX} characters or fewer`),
+  description: z
+    .string()
+    .max(
+      OBSERVATION_DESCRIPTION_MAX,
+      `Description must be ${OBSERVATION_DESCRIPTION_MAX} characters or fewer`
+    )
+    .nullable()
+    .optional(),
+  priority: ObservationPrioritySchema.optional(),
+  requiresAction: z.boolean().optional(),
+  photoUrls: z
+    .array(z.string())
+    .max(OBSERVATION_PHOTO_MAX, `photoUrls may not exceed ${OBSERVATION_PHOTO_MAX} links`)
+    .optional(),
+});
+
+/** POST /api/observations?action=upload-office-photo response — the binary
+ *  landed in Blob (office-inbox/photos/); the URL then rides on the office
+ *  item's photoUrls. Same `{ id, url, capturedAt }` shape as evidence photos. */
+export const OfficePhotoUploadResponseSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+  capturedAt: z.string(),
+});
 
 /**
  * Payload PATCHed to /api/observations?jobId=<id> to triage / update one.

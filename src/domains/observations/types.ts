@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type {
   CreateObservationPayloadSchema,
+  CreateOfficeObservationPayloadSchema,
   ObservationConvertTargetSchema,
   ObservationConvertToMaterialRequestResponseSchema,
   ObservationConvertToSnagResponseSchema,
@@ -12,6 +13,7 @@ import type {
   ObservationStageSchema,
   ObservationStatusSchema,
   ObservationTypeSchema,
+  OfficePhotoUploadResponseSchema,
   UpdateObservationPayloadSchema,
 } from "./schema";
 
@@ -32,6 +34,8 @@ export type ObservationConvertTarget = z.infer<typeof ObservationConvertTargetSc
 
 export type ObservationItem = z.infer<typeof ObservationItemSchema>;
 export type CreateObservationPayload = z.infer<typeof CreateObservationPayloadSchema>;
+export type CreateOfficeObservationPayload = z.infer<typeof CreateOfficeObservationPayloadSchema>;
+export type OfficePhotoUploadResponse = z.infer<typeof OfficePhotoUploadResponseSchema>;
 export type UpdateObservationPayload = z.infer<typeof UpdateObservationPayloadSchema>;
 
 export type ObservationListResponse = z.infer<typeof ObservationListResponseSchema>;

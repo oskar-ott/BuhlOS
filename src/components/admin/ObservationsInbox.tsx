@@ -127,6 +127,7 @@ export function ObservationsInbox({
   const jobOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const o of observations) {
+      if (!o.jobId) continue; // office items have no job — they appear under "all jobs"
       if (!map.has(o.jobId)) map.set(o.jobId, o.jobName || o.jobId);
     }
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
@@ -462,7 +463,9 @@ function ObservationRow({
         <p className="line-clamp-1 text-sm text-text-muted">{o.description}</p>
       ) : null}
       <p className="flex flex-wrap items-center gap-1.5 text-xs text-text-muted">
-        <span className="font-medium text-text">{o.jobName || o.jobId}</span>
+        <span className="font-medium text-text">
+          {o.jobId ? o.jobName || o.jobId : "Office — no job"}
+        </span>
         {o.areaName ? (
           <span className="inline-flex items-center gap-0.5">
             <MapPin aria-hidden="true" className="h-3 w-3" />
@@ -521,7 +524,7 @@ function ObservationDrawer({
       open={!!o}
       onClose={onClose}
       title={o.title}
-      subtitle={`${typeLabel(o.type)} · ${o.jobName || o.jobId}`}
+      subtitle={`${typeLabel(o.type)} · ${o.jobId ? o.jobName || o.jobId : "Office — no job"}`}
       footer={
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs text-text-muted">
@@ -551,7 +554,7 @@ function ObservationDrawer({
         )}
 
         <dl className="space-y-1.5 text-sm">
-          <DetailRow label="Job" value={o.jobName || o.jobId} />
+          <DetailRow label="Job" value={o.jobId ? o.jobName || o.jobId : "Office — no job"} />
           {o.areaName ? <DetailRow label="Area" value={o.areaName} /> : null}
           {o.stage ? <DetailRow label="Stage" value={o.stage === "roughIn" ? "Rough-in" : "Fit-off"} /> : null}
           {o.taskName ? <DetailRow label="Task" value={o.taskName} /> : null}
@@ -572,12 +575,42 @@ function ObservationDrawer({
               </dd>
             </div>
           ) : null}
-          {o.photoUrls.length > 0 ? <DetailRow label="Photos" value={`${o.photoUrls.length} attached`} /> : null}
           {o.resolutionNote ? <DetailRow label="Resolution" value={o.resolutionNote} /> : null}
           {o.convertedTo ? (
             <DetailRow label="Converted to" value={`${convertTargetLabel(o.convertedTo)} — module coming`} />
           ) : null}
         </dl>
+
+        {/* The photos ARE the payload for an office item (a fine, damaged
+            gear) — render viewable thumbnails linking to the Blob originals,
+            never just a count. Applies to job observations too. */}
+        {o.photoUrls.length > 0 ? (
+          <section className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Photos ({o.photoUrls.length})
+            </h3>
+            <ul className="grid grid-cols-3 gap-2">
+              {o.photoUrls.map((url) => (
+                <li key={url}>
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block overflow-hidden rounded-card border border-border"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- Blob photo; full size opens in a new tab */}
+                    <img
+                      src={url}
+                      alt="Observation photo"
+                      className="aspect-square w-full object-cover"
+                      loading="lazy"
+                    />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         {!actionsEnabled ? (
           <p className="rounded-card border border-dashed border-border bg-surface-subtle px-3 py-2 text-xs text-text-muted">
@@ -671,6 +704,18 @@ function ObservationDrawer({
           </Button>
         </section>
 
+        {!o.jobId ? (
+          <section className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Convert
+            </h3>
+            <p className="text-xs text-text-muted">
+              Office item — there&rsquo;s no job to raise a snag or material request on.
+              Triage and resolve it here.
+            </p>
+          </section>
+        ) : (
+        <>
         {/* Convert to Snag — REAL (PR 6) */}
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
@@ -752,6 +797,8 @@ function ObservationDrawer({
             ))}
           </div>
         </section>
+        </>
+        )}
         </>
         ) : null}
       </div>

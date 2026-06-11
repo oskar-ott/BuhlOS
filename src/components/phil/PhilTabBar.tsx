@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
 import { Calendar, Briefcase, Camera, Wrench, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { PhilCaptureLauncher } from "./PhilCaptureLauncher";
+import { PhilCaptureLauncher, type IncomingCapturePhoto } from "./PhilCaptureLauncher";
 import { philJobDetailId } from "./philCapture";
 
 interface Tab {
@@ -86,16 +86,46 @@ function TabLink({ tab, pathname }: { tab: Tab; pathname: string }) {
 export function PhilTabBar() {
   const pathname = usePathname() ?? "";
   const [launcherOpen, setLauncherOpen] = useState(false);
+  const [incoming, setIncoming] = useState<IncomingCapturePhoto | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const seqRef = useRef(0);
 
-  // The FAB always opens the capture launcher. On a job home we already know
-  // the job, so the launcher skips the picker and goes straight to the capture
-  // chooser (photo/evidence or a classified observation); anywhere else it
-  // asks which job first.
+  // Camera-first: the FAB fires the OS camera in the SAME tap (the input
+  // click must stay inside the user-gesture call stack — iOS blocks deferred
+  // programmatic file-input clicks) and opens the launcher behind it to
+  // receive the shot. Cancelling the camera just leaves the launcher open
+  // with its photo button + "log something" options. On a job home the
+  // launcher preselects that job as the destination.
   const currentJobId = philJobDetailId(pathname);
-  const onCapture = () => setLauncherOpen(true);
+  const fireCamera = () => cameraInputRef.current?.click();
+  const onCapture = () => {
+    fireCamera();
+    setLauncherOpen(true);
+  };
+  const onCameraChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset so the same photo can be re-taken back-to-back.
+    e.target.value = "";
+    if (!file) return;
+    seqRef.current += 1;
+    setIncoming({ file, seq: seqRef.current });
+  };
 
   return (
     <>
+      {/* Always-mounted global camera input — the single source of camera
+          shots for the capture launcher (first shot from the FAB tap, repeat
+          shots via the launcher's "Add photo"). */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="sr-only"
+        aria-hidden="true"
+        tabIndex={-1}
+        onChange={onCameraChange}
+      />
       <nav
         aria-label="Phil tabs"
         className="sticky bottom-0 flex h-16 shrink-0 items-stretch border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]"
@@ -134,6 +164,8 @@ export function PhilTabBar() {
         open={launcherOpen}
         onClose={() => setLauncherOpen(false)}
         initialJobId={currentJobId}
+        incoming={incoming}
+        onRequestCamera={fireCamera}
       />
     </>
   );

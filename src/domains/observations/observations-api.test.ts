@@ -13,9 +13,14 @@ const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const obsPath = requireFromHere.resolve("../../../api/observations.js");
 const mrPath = requireFromHere.resolve("../../../api/material-requests.js");
+const pushPath = requireFromHere.resolve("../../../api/_lib/push.js");
+const vercelBlobPath = requireFromHere.resolve("@vercel/blob");
 
 // Stateful in-memory blob store keyed like the real one.
 let blob: Map<string, unknown>;
+// Captured push fan-outs + binary uploads (office photos).
+let pushes: Array<{ userId: string; payload: Record<string, unknown> }>;
+let binaryPuts: string[];
 
 function clone<T>(v: T): T {
   return v === undefined ? v : JSON.parse(JSON.stringify(v));
@@ -79,6 +84,8 @@ beforeEach(() => {
           { id: "u_field", username: "sparky", role: "electrician", assignedJobIds: ["job-1"] },
           { id: "u_boss", username: "boss", role: "boss", assignedJobIds: [] },
           { id: "u_client", username: "client", role: "client", assignedJobIds: ["job-1"] },
+          // Archived admin — must NEVER receive the office push fan-out.
+          { id: "u_old_admin", username: "old", role: "admin", archived: true, assignedJobIds: [] },
         ],
       },
     ],
@@ -87,8 +94,11 @@ beforeEach(() => {
     ["observations.json", { observations: [] }],
   ]);
 
+  pushes = [];
+  binaryPuts = [];
   delete requireFromHere.cache[authPath];
   delete requireFromHere.cache[obsPath];
+  delete requireFromHere.cache[pushPath];
   // PR 11: observations.js requires material-requests.js for buildItem /
   // persistItem on the convert-to-material-request path. Flush the cached
   // copy so each test sees a fresh module pinned to THIS test's blob mock.
@@ -108,6 +118,30 @@ beforeEach(() => {
         blob.set(key, clone(data));
       }),
       setNoCache: vi.fn(),
+    },
+  } as NodeJS.Module;
+
+  requireFromHere.cache[pushPath] = {
+    id: pushPath,
+    filename: pushPath,
+    loaded: true,
+    exports: {
+      getWebPush: vi.fn(() => null),
+      sendPushToUserId: vi.fn(async (userId: string, payload: Record<string, unknown>) => {
+        pushes.push({ userId, payload });
+        return { sent: 1, pruned: 0, skipped: null };
+      }),
+    },
+  } as NodeJS.Module;
+  requireFromHere.cache[vercelBlobPath] = {
+    id: vercelBlobPath,
+    filename: vercelBlobPath,
+    loaded: true,
+    exports: {
+      put: vi.fn(async (path: string) => {
+        binaryPuts.push(path);
+        return { url: `https://blob.test/${path}` };
+      }),
     },
   } as NodeJS.Module;
 
@@ -787,5 +821,139 @@ describe("POST /api/observations?action=convert-to-material-request (PR 11)", ()
       body: { id: "missing", item: "x", quantity: 1, unit: "ea" },
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("POST /api/observations?scope=office (office items — no job)", () => {
+  it("a field worker creates an office item: jobId null, requiresAction defaults true, push fans out to live admin tier only", async () => {
+    const res = await call({
+      method: "POST",
+      role: "electrician",
+      query: { scope: "office" },
+      body: {
+        type: "note",
+        title: "Parking fine on the ute",
+        description: "Got pinged outside the Lane Cove site",
+        photoUrls: ["https://blob.test/office-inbox/photos/p1.jpg"],
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const o = (res.body as { observation: Record<string, unknown> }).observation;
+    expect(o.jobId).toBeNull();
+    expect(o.jobName).toBeNull();
+    expect(o.requiresAction).toBe(true);
+    expect(o.source).toBe("phil");
+    expect(o.photoUrls).toEqual(["https://blob.test/office-inbox/photos/p1.jpg"]);
+    expect(o.stage).toBeNull();
+    expect(o.areaId).toBeNull();
+
+    // Push fan-out: the admin TIER (boss), never the creator, the client, or
+    // an archived admin account.
+    const recipients = pushes.map((p) => p.userId);
+    expect(recipients).toContain("u_boss");
+    expect(recipients).not.toContain("u_field");
+    expect(recipients).not.toContain("u_client");
+    expect(recipients).not.toContain("u_old_admin");
+    const payload = pushes.find((p) => p.userId === "u_boss")!.payload;
+    expect(String(payload.url)).toBe("/observations");
+    expect(String(payload.body)).toContain("Parking fine");
+  });
+
+  it("rejects job-context fields loudly (400) — an office item can't half-belong to a job", async () => {
+    const res = await call({
+      method: "POST",
+      role: "electrician",
+      query: { scope: "office" },
+      body: { type: "note", title: "x", areaId: "area-1" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(String((res.body as { error: string }).error)).toContain("not allowed");
+  });
+
+  it("403s a client and 401s anonymous", async () => {
+    const client = await call({
+      method: "POST",
+      role: "client",
+      userId: "u_client",
+      query: { scope: "office" },
+      body: { type: "note", title: "x" },
+    });
+    expect(client.statusCode).toBe(403);
+    const anon = await call({
+      method: "POST",
+      role: "electrician",
+      anon: true,
+      query: { scope: "office" },
+      body: { type: "note", title: "x" },
+    });
+    expect(anon.statusCode).toBe(401);
+  });
+
+  it("office items appear in the cross-job inbox (admin GET)", async () => {
+    await call({
+      method: "POST",
+      role: "electrician",
+      query: { scope: "office" },
+      body: { type: "defect", title: "Drill smoked itself" },
+    });
+    const res = await call({ method: "GET", role: "boss", userId: "u_boss" });
+    expect(res.statusCode).toBe(200);
+    const rows = (res.body as { observations: Array<Record<string, unknown>> }).observations;
+    const office = rows.find((r) => r.title === "Drill smoked itself");
+    expect(office).toBeTruthy();
+    expect(office!.jobId).toBeNull();
+  });
+
+  it("convert-to-snag refuses an office item with a clear 400 (not a misleading job-not-found)", async () => {
+    const created = await call({
+      method: "POST",
+      role: "electrician",
+      query: { scope: "office" },
+      body: { type: "defect", title: "Busted ladder" },
+    });
+    const id = ((created.body as { observation: { id: string } }).observation).id;
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-snag" },
+      body: { id },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(String((res.body as { error: string }).error)).toContain("office item has no job");
+  });
+});
+
+describe("POST /api/observations?action=upload-office-photo", () => {
+  it("uploads a dataUrl to the office-inbox prefix and returns id/url/capturedAt", async () => {
+    const res = await call({
+      method: "POST",
+      role: "electrician",
+      query: { action: "upload-office-photo" },
+      body: { dataUrl: "data:image/jpeg;base64,QUFBQQ==" },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.body as { id: string; url: string; capturedAt: string };
+    expect(body.id).toBeTruthy();
+    expect(body.url).toContain("office-inbox/photos/");
+    expect(binaryPuts[0]).toMatch(/^office-inbox\/photos\//);
+  });
+
+  it("403s a client and 400s a missing dataUrl", async () => {
+    const client = await call({
+      method: "POST",
+      role: "client",
+      userId: "u_client",
+      query: { action: "upload-office-photo" },
+      body: { dataUrl: "data:image/jpeg;base64,QUFBQQ==" },
+    });
+    expect(client.statusCode).toBe(403);
+    const missing = await call({
+      method: "POST",
+      role: "electrician",
+      query: { action: "upload-office-photo" },
+      body: {},
+    });
+    expect(missing.statusCode).toBe(400);
   });
 });

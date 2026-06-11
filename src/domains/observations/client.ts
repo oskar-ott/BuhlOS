@@ -1,18 +1,22 @@
 import { httpGet, httpPatch, httpPost, type HttpResult } from "@/lib/http";
 import {
   CreateObservationPayloadSchema,
+  CreateOfficeObservationPayloadSchema,
   ObservationConvertToMaterialRequestResponseSchema,
   ObservationConvertToSnagResponseSchema,
   ObservationListResponseSchema,
   ObservationMutationResponseSchema,
+  OfficePhotoUploadResponseSchema,
   UpdateObservationPayloadSchema,
 } from "./schema";
 import type {
   CreateObservationPayload,
+  CreateOfficeObservationPayload,
   ObservationConvertToMaterialRequestResponse,
   ObservationConvertToSnagResponse,
   ObservationListResponse,
   ObservationMutationResponse,
+  OfficePhotoUploadResponse,
   ObservationPriority,
   ObservationStatus,
   ObservationType,
@@ -209,10 +213,60 @@ export function convertObservationToMaterialRequest(payload: {
   );
 }
 
+/**
+ * Create an OFFICE item — an observation with NO job (the Phil "send to
+ * office" path). POST /api/observations?scope=office; staff-only (the server
+ * 403s clients). Photos must already be uploaded (uploadOfficePhoto) — the
+ * payload carries their URLs.
+ */
+export function createOfficeObservation(
+  payload: CreateOfficeObservationPayload
+): Promise<HttpResult<ObservationMutationResponse>> {
+  const parsed = CreateOfficeObservationPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Promise.resolve({
+      ok: false,
+      error: {
+        status: 0,
+        body: parsed.error.flatten(),
+        message: `invalid office observation payload: ${parsed.error.message}`,
+      },
+    });
+  }
+  return httpPost<ObservationMutationResponse>(
+    "/api/observations?scope=office",
+    parsed.data,
+    {
+      schema: ObservationMutationResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
+/**
+ * Binary upload for an office-item photo (no job) — same dataUrl contract as
+ * evidence photos, stored under office-inbox/photos/. Two-step like evidence:
+ * upload first, then the returned URL rides on createOfficeObservation.
+ */
+export function uploadOfficePhoto(
+  dataUrl: string
+): Promise<HttpResult<OfficePhotoUploadResponse>> {
+  return httpPost<OfficePhotoUploadResponse>(
+    "/api/observations?action=upload-office-photo",
+    { dataUrl },
+    {
+      schema: OfficePhotoUploadResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
 export const observationsClient = {
   listObservations,
   listJobObservations,
   createObservation,
+  createOfficeObservation,
+  uploadOfficePhoto,
   updateObservation,
   convertObservationToSnag,
   convertObservationToMaterialRequest,

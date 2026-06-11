@@ -56,9 +56,18 @@ describe("PhilTabBar", () => {
 
   it("keeps the capture launcher closed until the FAB is tapped (no always-open modal)", () => {
     // The launcher is mounted but returns null while closed — there must be no
-    // dialog, and none of the launcher's chooser copy, in the initial render.
+    // dialog, and none of the launcher's sheet copy, in the initial render.
     expect(html).not.toContain('role="dialog"');
-    expect(html).not.toContain("Take a photo / evidence");
+    expect(html).not.toContain("Take a photo");
     expect(html).not.toContain("Or log something");
+    expect(html).not.toContain("Where does this go?");
+  });
+
+  it("mounts the global camera input for the camera-first FAB tap", () => {
+    // The hidden file input must exist in the initial render — the FAB click
+    // fires it synchronously (same user gesture), so it can't be conditional.
+    expect(html).toContain('type="file"');
+    expect(html).toContain('accept="image/*"');
+    expect(html).toContain('capture="environment"');
   });
 });

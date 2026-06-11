@@ -101,7 +101,7 @@ export function observationExceptions(
       id: `observation:${o.id}`,
       source: "observation",
       sourceId: o.id,
-      jobId: o.jobId,
+      jobId: o.jobId ?? undefined,
       jobName: o.jobName ?? undefined,
       title: o.title,
       summary: o.description ?? undefined,
