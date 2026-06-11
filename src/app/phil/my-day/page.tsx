@@ -8,7 +8,12 @@ import { PhilWeekStrip } from "@/components/phil/PhilWeekStrip";
 import { PhilNeedsYouFeed } from "@/components/phil/PhilNeedsYouFeed";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { RefreshButton } from "@/components/ui/RefreshButton";
-import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import {
+  SESSION_COOKIE,
+  decodeSessionCookie,
+  verifyViaApi,
+  type SessionPayload,
+} from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
 import type { TimeEntry } from "@/domains/timesheets/types";
@@ -21,6 +26,7 @@ import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isVisibleToField } from "@/domains/jobs/builder";
 import { SnagListResponseSchema } from "@/domains/snags/schema";
 import { buildPhilNeedsYou, type JobSnags } from "@/domains/phil/needs-you";
+import { buildPhilGreeting, hourInTimeZone } from "@/domains/phil/greeting";
 import styles from "@/components/phil/myDay.module.css";
 
 export const dynamic = "force-dynamic";
@@ -88,10 +94,9 @@ export default async function MyDayPage({
   // Load the worker's recent entries AND their active assigned jobs in
   // parallel. The jobs feed the LogHoursSheet job-attribution block so a
   // field submission is tied to a real active job instead of jobId: null.
-  const [{ todayEntry, recentEntries, fetchError }, assignedJobs] = await Promise.all([
-    loadEntries(raw, fixDate),
-    loadAssignedJobs(raw),
-  ]);
+  const [{ todayEntry, recentEntries, fetchError }, assignedJobs, profile] = await Promise.all(
+    [loadEntries(raw, fixDate), loadAssignedJobs(raw), loadWorkerProfile(raw)]
+  );
 
   // "Needs you" feed — the worker's real, actionable attention across their
   // assigned jobs. Snags are job-scoped (GET /api/snags?jobId=), so we fetch
@@ -105,14 +110,16 @@ export default async function MyDayPage({
     jobSnags,
   });
 
-  // Greeting. Time-of-day + worker name (both real: the name rides on the
-  // session cookie, no extra fetch; the part-of-day is computed in the business
-  // timezone). The job they're on is shown only when there's exactly one
-  // assigned job — there is no active-job signal, so we never guess.
-  const firstName = session.name?.trim().split(/\s+/)[0] || null;
-  const initials = workerInitials(session.name);
-  const partOfDay = businessPartOfDay();
-  const greeting = firstName ? `${partOfDay}, ${firstName}` : partOfDay;
+  // Greeting. Time-of-day + the worker's real display name. The legacy login
+  // signs the cookie as { userId, role } only — it never carries a name — so
+  // the name is resolved from /api/auth?action=me (users.json), where the
+  // username doubles as the display name app-wide (the hours pipeline stamps
+  // it onto entries; the employees bridge splits it into first/last). Fails
+  // soft: no profile → impersonal "Arvo" and no avatar, never a placeholder.
+  // The job they're on is shown only when there's exactly one assigned job —
+  // there is no active-job signal, so we never guess.
+  const displayName =
+    profile?.name?.trim() || profile?.username?.trim() || session.name?.trim() || null;
   const dateLabel = new Date().toLocaleDateString("en-AU", {
     weekday: "short",
     day: "numeric",
@@ -121,7 +128,12 @@ export default async function MyDayPage({
   });
   const jobs = assignedJobs.jobs;
   const soleJob = jobs.length === 1 ? jobs[0]! : null;
-  const subtitle = soleJob ? `${dateLabel} · on ${soleJob.name}` : dateLabel;
+  const { heading, subtitle, initials } = buildPhilGreeting({
+    displayName,
+    hour: hourInTimeZone(new Date(), BUSINESS_TIMEZONE),
+    dateLabel,
+    soleJobName: soleJob?.name ?? null,
+  });
 
   const todayISO = localDateString(new Date(), BUSINESS_TIMEZONE);
   // The hours sheet keeps its own minimal {id,name} list and is preselected
@@ -133,7 +145,7 @@ export default async function MyDayPage({
       <div className={cn(styles.surface, mono.variable)}>
         <header className={styles.greetBar}>
           <div className="min-w-0">
-            <h1 className={styles.greetName}>{greeting}</h1>
+            <h1 className={styles.greetName}>{heading}</h1>
             <p className={styles.greetSub}>{subtitle}</p>
           </div>
           {initials ? (
@@ -184,26 +196,22 @@ export default async function MyDayPage({
   );
 }
 
-/** Up-to-two-letter avatar initials from the worker's real name, or null. */
-function workerInitials(name: string | undefined): string | null {
-  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return null;
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
-}
-
-/** "Morning" / "Arvo" / "Evening" in the business timezone (Australian register). */
-function businessPartOfDay(): string {
-  const hour = Number(
-    new Intl.DateTimeFormat("en-AU", {
-      hour: "numeric",
-      hour12: false,
-      timeZone: BUSINESS_TIMEZONE,
-    }).format(new Date())
-  );
-  if (Number.isNaN(hour) || hour < 12) return "Morning";
-  if (hour < 17) return "Arvo";
-  return "Evening";
+/**
+ * Resolve the signed-in worker's profile (display name) via the authoritative
+ * /api/auth?action=me endpoint. The session cookie never carries a name (the
+ * legacy login signs { userId, role } only), and users.json is the one store
+ * that knows what this worker is called. Fails soft to null on any error —
+ * the greeting degrades to the impersonal form rather than blocking the page.
+ */
+async function loadWorkerProfile(
+  cookieValue: string | undefined
+): Promise<SessionPayload | null> {
+  if (!cookieValue) return null;
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  return verifyViaApi(`${SESSION_COOKIE}=${cookieValue}`, base);
 }
 
 async function loadEntries(
