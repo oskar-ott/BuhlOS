@@ -798,7 +798,7 @@ a { color: inherit; text-decoration: none; }
     <span class="hdr-bell-pip" id="hdr-bell-pip" hidden></span>
   </button>
   <button type="button" class="hdr-action" id="hdr-action" title="Open the leading-hand tools sheet" aria-haspopup="dialog">Tools</button>
-  <a href="/admin/operations" class="hdr-action hdr-action-admin" id="hdr-action-admin" title="Switch to site office view" style="display:none;margin-left:8px">Site office →</a>
+  <a href="/admin/operations" class="hdr-action hdr-action-admin" id="hdr-action-admin" title="Switch to BuhlOS (office view)" style="display:none;margin-left:8px">BuhlOS →</a>
 </div>
 
 <!-- Notification inbox drawer. Slides in from the right (desktop) or
@@ -974,7 +974,7 @@ async function boot() {
   document.getElementById('hdr-date').textContent = todayDate();
 
   // When an admin is previewing, flip the eyebrow and show the
-  // dedicated "Site office →" link alongside Tools (admin previews
+  // dedicated "BuhlOS →" link alongside Tools (admin previews
   // benefit from a fast escape hatch back to /admin/operations; LH
   // doesn't need one).
   if (ME.role === 'admin') {
@@ -1493,7 +1493,7 @@ function initPullToRefresh() {
 }
 
 // LH role gets the Tools button by default. Admin previewing /lh also
-// gets a dedicated "Site office →" link (shown in boot() above) for a
+// gets a dedicated "BuhlOS →" link (shown in boot() above) for a
 // fast escape back to /admin/operations. No additional role gating
 // needed here now that Tools handles every role's needs.
 boot();

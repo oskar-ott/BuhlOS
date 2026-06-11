@@ -51,7 +51,7 @@
 // implementations via _shell.js (from #240). Both architectures coexist:
 // per-page tools at /admin/<name> use the site-office shell; the SPA
 // at /admin/operations holds the same v2 tools as internal tabs.
-const CACHE_VERSION = 'buhl-shell-v7';
+const CACHE_VERSION = 'buhl-shell-v8';
 const STATIC_SHELL = [
   // Admin shell — every admin page boot needs these. Caching them
   // means cold loads paint sidebar + topbar from disk while the
