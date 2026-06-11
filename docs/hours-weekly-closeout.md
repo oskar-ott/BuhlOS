@@ -77,12 +77,27 @@ weekdays, past/today only. The model adds nothing to it:
 - workers appear on the board ONLY if they have an entry or a server-flagged
   missing day — no fabricated rows.
 
-**Known inherited limitation** (documented, not changed here): the server's
-crew filter tracks literal `tradie` / `leadingHand` roles, so workers with
-other field roles (e.g. `electrician`) never produce missing days — their
-unlogged weekdays render as untracked "—", not "Missing". Widening that
-filter is a server-behaviour change shared with `/hours` and the
-command-centre card, so it's a deliberate follow-up, not a silent change.
+**Tracked-worker rule (#114 — the #113 limitation is resolved):** the crew
+filter now uses the shared `isHoursTrackedWorker(user)` helper
+(`api/_lib/auth.js`) instead of literal `tradie`/`leadingHand` matching.
+
+| Tracked (expected to log hours) | Not tracked |
+| --- | --- |
+| the whole field tier: `tradie`, `electrician`, `apprentice`, `labourer` | admin/office tier: `admin`, `boss`, `owner`, `manager`, `office`, `pm`, `estimator` |
+| leading hands in every stored spelling (`leadingHand`, `leadinghand`, `leading_hand`, `lh` — normalised) | `client`, unknown roles |
+| live accounts only | archived / disabled accounts (not expected to submit — same liveness rule as `listTradies`) |
+
+This is an EXPECTATION tier (who the office chases), deliberately distinct
+from the `canSubmitHours` permission and from "can be assigned to jobs". The
+fix is server-side only — `/hours`, `/hours/weekly` and the command-centre
+card all consume the same corrected `missing[]`; no client-side missing-row
+generation was added, and future-day / weekend handling is unchanged.
+
+**Known follow-up (found in #114, deliberately not changed):** the overview's
+*viewer* scoping still literal-matches `viewer.role === 'admin'`, so
+admin-tier viewers other than literal `admin` (office/boss/pm…) get
+LH-scoped — likely empty — overview data. That's a viewer-visibility rule,
+not the tracked-worker rule, and widening it deserves its own reviewed PR.
 
 ## Actions and safety
 
