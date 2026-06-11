@@ -31,7 +31,7 @@
 //   - everyone else: 401 / 403 from auth as usual
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { getCurrentUser } = require('./_lib/auth');
+const { getCurrentUser, isAdminRole, isLeadingHandRole, isFieldRole, isClientRole } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -45,15 +45,15 @@ module.exports = async (req, res) => {
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });
   const allJobs  = jobsBlob.jobs || [];
   let visible;
-  if (me.role === 'admin') {
+  if (isAdminRole(me.role)) {
     visible = allJobs;
-  } else if (me.role === 'leadingHand') {
+  } else if (isLeadingHandRole(me.role)) {
     visible = allJobs.filter(j => (me.assignedJobIds || []).includes(j.id));
-  } else if (me.role === 'tradie') {
+  } else if (isFieldRole(me.role)) {
     // Tradies aren't the audience but they technically have access to
     // their jobs via /api/jobs already — return a minimal stub.
     visible = allJobs.filter(j => (me.assignedJobIds || []).includes(j.id));
-  } else if (me.role === 'client') {
+  } else if (isClientRole(me.role)) {
     visible = allJobs.filter(j => j.clientUserId === me.id);
   } else {
     return res.status(403).json({ error: 'forbidden' });

@@ -1,5 +1,5 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite } = require('./_lib/auth');
+const { requireAuth, canWrite, isFieldRole, isClientRole } = require('./_lib/auth');
 
 function newId() {
   return 'h_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -58,7 +58,7 @@ module.exports = async (req, res) => {
   if (!user) return;
 
   // Clients cannot access hours
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
 
   const KEY = `jobs/${jobId}/hours.json`;
 
@@ -107,9 +107,9 @@ module.exports = async (req, res) => {
         if (!userId) continue;
 
         // Role check: tradies can only write for themselves or other tradies on this job
-        if (user.role === 'tradie' && userId !== user.id) {
+        if (isFieldRole(user.role) && userId !== user.id) {
           const target = usersById[userId];
-          if (!target || target.role !== 'tradie') continue;
+          if (!target || !isFieldRole(target.role)) continue;
           if (!(target.assignedJobIds || []).includes(jobId)) continue;
         }
 

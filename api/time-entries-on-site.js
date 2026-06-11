@@ -19,7 +19,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite } = require('./_lib/auth');
+const { requireAuth, canWrite, isAdminRole, isClientRole } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -32,8 +32,8 @@ module.exports = async (req, res) => {
   const user = await requireAuth(req, res, { jobId });
   if (!user) return; // requireAuth already wrote 401/403
 
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
-  if (!canWrite(user, jobId) && user.role !== 'admin') {
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
+  if (!canWrite(user, jobId) && !isAdminRole(user.role)) {
     return res.status(403).json({ error: 'no access to job' });
   }
 

@@ -21,7 +21,7 @@
 //   - everyone else: 403
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isAdminRole } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -42,7 +42,7 @@ module.exports = async (req, res) => {
 
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });
   const allJobs = jobsBlob.jobs || [];
-  let visible = (me.role === 'admin')
+  let visible = isAdminRole(me.role)
     ? allJobs
     : allJobs.filter(j => (me.assignedJobIds || []).includes(j.id));
   if (wantJobId) visible = visible.filter(j => j.id === wantJobId);

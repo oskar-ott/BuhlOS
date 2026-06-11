@@ -1,5 +1,5 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite } = require('./_lib/auth');
+const { requireAuth, canWrite, isLeadingHandRole } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
 
 const VALID_TASK_STATES = new Set(['not_started', 'in_progress', 'complete']);
@@ -133,7 +133,7 @@ function findNewlyRaisedSnags(prev, next) {
 async function pickLeadingHandFor(jobId) {
   const usersBlob = await readBlob('users.json', { users: [] }).catch(() => ({ users: [] }));
   const lhs = (usersBlob.users || [])
-    .filter(u => u.role === 'leadingHand' && (u.assignedJobIds || []).includes(jobId))
+    .filter(u => isLeadingHandRole(u.role) && (u.assignedJobIds || []).includes(jobId))
     .sort((a, b) => (a.username || '').localeCompare(b.username || ''));
   return lhs[0] || null;
 }

@@ -22,7 +22,7 @@
 //   - clients: 403
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isAdminRole, isClientRole } = require('./_lib/auth');
 
 // Parse "dd/mm/yyyy" (the canonical storage format) → ms-since-epoch
 // at local midnight. Returns NaN if the string isn't in that shape.
@@ -55,7 +55,7 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
-  if (me.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(me.role)) return res.status(403).json({ error: 'forbidden' });
 
   const q = req.query || {};
   const withinDays = Math.max(1, Math.min(365, Number(q.withinDays) || 14));
@@ -68,7 +68,7 @@ module.exports = async (req, res) => {
 
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });
   const allJobs = jobsBlob.jobs || [];
-  let visible = (me.role === 'admin')
+  let visible = isAdminRole(me.role)
     ? allJobs
     : allJobs.filter(j => (me.assignedJobIds || []).includes(j.id));
   if (filterJobId) visible = visible.filter(j => j.id === filterJobId);

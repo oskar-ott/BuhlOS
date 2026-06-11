@@ -83,7 +83,7 @@
 // for v1 — quoting is admin-facing). Tradies + clients always 403.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isAdminRole, isLeadingHandRole, isFieldRole } = require('./_lib/auth');
 
 const VALID_STATUSES = [
   'draft', 'reviewing', 'estimating', 'submitted',
@@ -1421,7 +1421,7 @@ async function handleBenchmark(req, res, user) {
 
   const jobs = jobsBlob.jobs || [];
   const users = (usersBlob.users || []).filter(u =>
-    u.role === 'tradie' || u.role === 'leadingHand' || u.role === 'admin');
+    isFieldRole(u.role) || isLeadingHandRole(u.role) || isAdminRole(u.role));
 
   // Walk the last 180 days of time-entries for crew users. Per-user
   // per-day blobs are small; we use Promise.all + a soft concurrency cap
@@ -1535,7 +1535,7 @@ module.exports = async (req, res) => {
   const user = await requireAuth(req, res);
   if (!user) return;
   // Quoting is admin-only for v1. Tradies/clients always 403.
-  if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+  if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
 
   const action = (req.query && req.query.action) || '';
   const id = (req.query && req.query.id) || '';

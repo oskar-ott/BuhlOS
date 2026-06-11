@@ -28,7 +28,7 @@
 //                        which we also accept.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { getCurrentUser } = require('./_lib/auth');
+const { getCurrentUser, isAdminRole, isLeadingHandRole, isFieldRole, isStaffRole } = require('./_lib/auth');
 const { getWebPush, sendPushToUserId } = require('./_lib/push');
 
 const USERS_KEY = 'users.json';
@@ -126,7 +126,7 @@ module.exports = async (req, res) => {
 
     for (const u of users) {
       // Tradies + LHs both self-log via My Day; both should get the reminder.
-      if (u.role !== 'tradie' && u.role !== 'leadingHand') continue;
+      if (!isFieldRole(u.role) && !isLeadingHandRole(u.role)) continue;
       if (!u.pushSubscriptions || !u.pushSubscriptions.length) continue;
 
       // Skip if they already logged hours for today
@@ -197,11 +197,11 @@ module.exports = async (req, res) => {
     let sent = 0, skipped = 0, pruned = 0;
 
     for (const u of users) {
-      if (u.role !== 'admin' && u.role !== 'leadingHand') continue;
+      if (!isStaffRole(u.role)) continue;
       if (!u.pushSubscriptions || !u.pushSubscriptions.length) { skipped++; continue; }
 
       // Determine visible jobs for this user
-      const visibleIds = (u.role === 'admin')
+      const visibleIds = isAdminRole(u.role)
         ? Object.keys(tagsByJob)
         : Object.keys(tagsByJob).filter(jid => (u.assignedJobIds || []).includes(jid));
       if (!visibleIds.length) { skipped++; continue; }
@@ -224,7 +224,7 @@ module.exports = async (req, res) => {
       // (admins/LH have an "expiring tags" surface there now).
       const url = visibleIds.length === 1
         ? '/jobs/' + visibleIds[0] + '#tags'
-        : (u.role === 'admin' ? '/overview' : '/my-day');
+        : (isAdminRole(u.role) ? '/overview' : '/my-day');
 
       const r = await sendPushToUserId(u.id, {
         title, body, url,
@@ -299,7 +299,7 @@ module.exports = async (req, res) => {
 
     const usersData = await readBlob(USERS_KEY, { users: [] });
     const admins = (usersData.users || []).filter(u =>
-      u.role === 'admin' &&
+      isAdminRole(u.role) &&
       !u.archived &&
       Array.isArray(u.pushSubscriptions) && u.pushSubscriptions.length);
 
@@ -387,7 +387,7 @@ module.exports = async (req, res) => {
 
     const usersData = await readBlob(USERS_KEY, { users: [] });
     const admins = (usersData.users || []).filter(u =>
-      u.role === 'admin' &&
+      isAdminRole(u.role) &&
       !u.archived &&
       Array.isArray(u.pushSubscriptions) && u.pushSubscriptions.length);
 
@@ -458,7 +458,7 @@ module.exports = async (req, res) => {
 
     const usersData = await readBlob(USERS_KEY, { users: [] });
     const candidates = (usersData.users || []).filter(u =>
-      (u.role === 'tradie' || u.role === 'leadingHand') &&
+      (isFieldRole(u.role) || isLeadingHandRole(u.role)) &&
       !u.archived);
 
     // Only flag users who have actually been around long enough to have logged.
@@ -501,7 +501,7 @@ module.exports = async (req, res) => {
     }));
 
     const admins = (usersData.users || []).filter(u =>
-      u.role === 'admin' &&
+      isAdminRole(u.role) &&
       !u.archived &&
       Array.isArray(u.pushSubscriptions) && u.pushSubscriptions.length);
 

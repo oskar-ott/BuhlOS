@@ -19,7 +19,7 @@
 //   - Skips notifying the actor themselves (when actor === recipient)
 
 const { setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isClientRole } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
 
 module.exports = async (req, res) => {
@@ -29,7 +29,7 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
-  if (me.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(me.role)) return res.status(403).json({ error: 'forbidden' });
 
   const { userId, snag, kind = 'assigned' } = req.body || {};
   if (!userId) return res.status(400).json({ error: 'userId required' });

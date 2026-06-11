@@ -1,5 +1,5 @@
 const { readBlob, writeBlob, deleteBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs } = require('./_lib/auth');
+const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs, isFieldRole, isClientRole } = require('./_lib/auth');
 const { validateAreaGroups, validateTasks, validateCustomFields, visibleStructural } = require('./_lib/validation');
 const { areaProgressPct } = require('./_lib/job-tasks');
 const { appendAudit } = require('./_lib/job-audit');
@@ -191,7 +191,7 @@ module.exports = async (req, res) => {
       const canSee =
         canManageJob(me, id) ||
         (me.assignedJobIds || []).includes(id) ||
-        (me.role === 'client' && job.clientUserId === me.id);
+        (isClientRole(me.role) && job.clientUserId === me.id);
       if (!canSee) return res.status(403).json({ error: 'forbidden' });
       // Hydrate modules + filter archived structural items unless the
       // caller passes ?includeArchived=1 (admin editor only). Mobile +
@@ -210,7 +210,7 @@ module.exports = async (req, res) => {
     let visible;
     if (canViewDraftJobs(me.role) && canViewArchivedJobs(me.role)) {
       visible = data.jobs;
-    } else if (me.role === 'client') {
+    } else if (isClientRole(me.role)) {
       visible = data.jobs.filter(j =>
         j.clientUserId === me.id && j.status !== 'draft' && j.status !== 'archived'
       );
@@ -251,7 +251,7 @@ module.exports = async (req, res) => {
       try {
         const usersBlob = await readBlob('users.json', { users: [] });
         (usersBlob.users || []).forEach(u => {
-          if (u.role === 'tradie' || u.role === 'leadingHand') {
+          if (isFieldRole(u.role) || isLeadingHandRole(u.role)) {
             (u.assignedJobIds || []).forEach(jid => {
               crewCountByJob[jid] = (crewCountByJob[jid] || 0) + 1;
             });
@@ -403,6 +403,7 @@ module.exports = async (req, res) => {
 
   // POST — create (admin only)
   if (req.method === 'POST') {
+    // role-literal-ok: job CREATE is deliberately literal-admin (documented in src/lib/auth/permissions.ts + /v2/jobs/new) — widening is a product decision
     if (me.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
     const {
       name, id, clientUserId, type, status,
@@ -808,6 +809,7 @@ module.exports = async (req, res) => {
   // row. A batch is ONE read and ONE write, so the cleanup card sends a
   // single request no matter how many parked test jobs it clears.
   if (req.method === 'DELETE') {
+    // role-literal-ok: job DELETE (test-data purge) is deliberately literal-admin, mirroring the create gate
     if (me.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
     const { id } = req.query || {};
     if (!id) return res.status(400).json({ error: 'id required' });

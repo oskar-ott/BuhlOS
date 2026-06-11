@@ -30,7 +30,7 @@
 // canManageJob() against the target jobId.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canManageJob } = require('./_lib/auth');
+const { requireAuth, canManageJob, isAdminRole, isStaffRole, isClientRole } = require('./_lib/auth');
 
 const ASSETS_KEY    = 'temps/assets.json';
 const MOVEMENTS_KEY = 'temps/movements.json';
@@ -128,7 +128,7 @@ async function handleListAssets(req, res, user) {
 }
 
 async function handleCreateAsset(req, res, user) {
-  if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+  if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
   const body = req.body || {};
   const errors = [];
   if (!body.assetCode || !String(body.assetCode).trim()) errors.push('assetCode required');
@@ -183,7 +183,7 @@ async function handleCreateAsset(req, res, user) {
 }
 
 async function handleUpdateAsset(req, res, user) {
-  if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+  if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
   const id = req.query && req.query.id;
   if (!id) return res.status(400).json({ error: 'id required' });
   const body = req.body || {};
@@ -208,7 +208,7 @@ async function handleUpdateAsset(req, res, user) {
 }
 
 async function handleRetireAsset(req, res, user) {
-  if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+  if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
   const id = req.query && req.query.id;
   if (!id) return res.status(400).json({ error: 'id required' });
   const data = await readAssets();
@@ -248,7 +248,7 @@ async function handleListJobDeployments(req, res, user) {
   // Only admins + LHs see cost data per the brief — "Do not expose cost
   // rates to tradies or clients." Read deployments + assets in parallel
   // when cost is needed; otherwise just deployments.
-  const showCost = user.role === 'admin' || user.role === 'leadingHand';
+  const showCost = isStaffRole(user.role);
   let blob, assetsById = {};
   if (showCost) {
     const [d, a] = await Promise.all([
@@ -302,7 +302,7 @@ async function handleDeploy(req, res, user) {
   const body = req.body || {};
   const jobId = body.jobId || (req.query && req.query.jobId) || '';
   if (!jobId) return res.status(400).json({ error: 'jobId required' });
-  if (!canManageJob(user, jobId) && user.role !== 'admin') {
+  if (!canManageJob(user, jobId) && !isAdminRole(user.role)) {
     return res.status(403).json({ error: 'cannot deploy to this job' });
   }
   if (!body.tempItemId) return res.status(400).json({ error: 'tempItemId required' });
@@ -312,7 +312,7 @@ async function handleDeploy(req, res, user) {
   if (!asset) return res.status(404).json({ error: 'asset not found' });
   if (asset.status === 'retired') return res.status(409).json({ error: 'cannot deploy retired item' });
   if (asset.status === 'deployed') return res.status(409).json({ error: 'item already deployed — return it first' });
-  if ((asset.status === 'missing' || asset.status === 'damaged' || asset.status === 'repair') && user.role !== 'admin') {
+  if ((asset.status === 'missing' || asset.status === 'damaged' || asset.status === 'repair') && !isAdminRole(user.role)) {
     return res.status(409).json({ error: 'item is ' + asset.status + ' — admin override required' });
   }
 
@@ -377,7 +377,7 @@ async function handleReturn(req, res, user) {
   const jobId = body.jobId || (req.query && req.query.jobId) || '';
   if (!jobId) return res.status(400).json({ error: 'jobId required' });
   if (!body.deploymentId) return res.status(400).json({ error: 'deploymentId required' });
-  if (!canManageJob(user, jobId) && user.role !== 'admin') {
+  if (!canManageJob(user, jobId) && !isAdminRole(user.role)) {
     return res.status(403).json({ error: 'cannot return from this job' });
   }
 
@@ -453,7 +453,7 @@ async function handleReport(req, res, user) {
   // Reports are open to anyone with read access — even tradies. Server-side
   // canManageJob isn't required because this is a status flag, not a write
   // to job-config; we still gate to crew (no clients).
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
 
   const jobBlob = await readJobDeployments(jobId);
   const idx = (jobBlob.deployments || []).findIndex(d => d.id === body.deploymentId);
@@ -548,7 +548,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
 
   const action = (req.query && req.query.action) || '';
 

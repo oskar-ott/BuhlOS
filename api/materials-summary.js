@@ -38,7 +38,7 @@
 // parallel. Bounded by active-job count, not item or PO count.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isAdminRole } = require('./_lib/auth');
 
 const ITEM_STATUSES = ['pending', 'ordered', 'received', 'cancelled'];
 const PO_STATUSES   = ['draft', 'sent', 'confirmed', 'partial', 'fulfilled', 'cancelled'];
@@ -59,7 +59,7 @@ module.exports = async (req, res) => {
   const allJobs  = jobsBlob.jobs || [];
   const active   = allJobs.filter(j => (j.status || 'active') === 'active');
 
-  const visible = (me.role === 'admin')
+  const visible = isAdminRole(me.role)
     ? active
     : active.filter(j => (me.assignedJobIds || []).includes(j.id));
 

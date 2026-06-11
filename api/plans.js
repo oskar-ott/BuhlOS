@@ -58,7 +58,7 @@
 const crypto = require('crypto');
 const { put } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canManageJob } = require('./_lib/auth');
+const { requireAuth, canManageJob, isAdminRole, isClientRole } = require('./_lib/auth');
 
 const VALID_STATUSES = ['current', 'superseded', 'archived'];
 const MAX_BYTES = 25 * 1024 * 1024; // 25 MB cap on uploads
@@ -484,7 +484,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
 
   const jobId = (req.query && req.query.jobId) || '';
   if (!jobId) return res.status(400).json({ error: 'jobId required' });
@@ -493,7 +493,7 @@ module.exports = async (req, res) => {
   // ── GET ────────────────────────────────────────────────
   if (req.method === 'GET') {
     if (action === 'takeoff') {
-      if (user.role !== 'admin' && !canManageJob(user, jobId)) {
+      if (!isAdminRole(user.role) && !canManageJob(user, jobId)) {
         return res.status(403).json({ error: 'admin / LH only' });
       }
       const takeoff = await readTakeoff(jobId);
@@ -501,20 +501,20 @@ module.exports = async (req, res) => {
     }
     // Plain list (existing behaviour).
     const isCrew = (user.assignedJobIds || []).includes(jobId);
-    if (user.role !== 'admin' && !canManageJob(user, jobId) && !isCrew) {
+    if (!isAdminRole(user.role) && !canManageJob(user, jobId) && !isCrew) {
       return res.status(403).json({ error: 'no access to this job' });
     }
     const data = await readIndex(jobId);
     const includeArchived = req.query && req.query.includeArchived === '1';
     let plans = data.plans || [];
-    if (!includeArchived && user.role !== 'admin') {
+    if (!includeArchived && !isAdminRole(user.role)) {
       plans = plans.filter(p => p.status !== 'archived');
     }
     return res.status(200).json({ plans });
   }
 
   // All mutations require management of the job.
-  if (!canManageJob(user, jobId) && user.role !== 'admin') {
+  if (!canManageJob(user, jobId) && !isAdminRole(user.role)) {
     return res.status(403).json({ error: 'cannot manage this job' });
   }
 

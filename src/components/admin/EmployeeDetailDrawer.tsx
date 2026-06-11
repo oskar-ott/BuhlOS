@@ -32,6 +32,7 @@ export function EmployeeDetailDrawer({
 
   if (!row) return null;
   const { employee, invite } = row;
+  // eslint-disable-next-line no-restricted-syntax -- apprenticeYear belongs to the literal apprentice role, not a tier
   const apprentice = employee.role === "apprentice" && employee.apprenticeYear ? ` · Y${employee.apprenticeYear}` : "";
 
   async function doResend() {

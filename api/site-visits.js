@@ -39,7 +39,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isStaffRole } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isAdminRole } = require('./_lib/auth');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -93,7 +93,7 @@ module.exports = async (req, res) => {
     readBlob('users.json', { users: [] }),
   ]);
   const allJobs   = jobsBlob.jobs   || [];
-  const visibleIds = (me.role === 'admin')
+  const visibleIds = isAdminRole(me.role)
     ? new Set(allJobs.map(j => j.id))
     : new Set(me.assignedJobIds || []);
   const jobNameById = {};

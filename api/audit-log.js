@@ -46,7 +46,7 @@
 // to a server-side index in a later phase.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isAdminRole, isLeadingHandRole } = require('./_lib/auth');
+const { requireAuth, isAdminRole, isLeadingHandRole, isFieldRole, isClientRole } = require('./_lib/auth');
 const { readMonth } = require('./_lib/audit-log');
 
 // Kept in sync with api/_lib/audit-log.js VALID_TARGET_TYPES and
@@ -148,7 +148,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res, { jobId });
   if (!user) return;
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
 
   try {
     const yyyymms = recentMonths(Date.now(), months);
@@ -170,7 +170,7 @@ module.exports = async (req, res) => {
     // the whole snag history (same visibility as the snag itself in
     // api/snags.js GET). No per-actor filter applies. Tradie evidence
     // filter is unchanged.
-    if (user.role === 'tradie' && targetType === 'evidence') {
+    if (isFieldRole(user.role) && targetType === 'evidence') {
       let evCapturedById = null;
       try {
         const data = await readBlob(dataKey(jobId), { evidence: [] });

@@ -13,7 +13,7 @@
 
 const { put } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isAdminRole } = require('./_lib/auth');
 
 const VALID_STATUSES = ['current', 'superseded', 'archived'];
 const VALID_TYPES = [
@@ -57,7 +57,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
-  if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+  if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
 
   const quoteId = (req.query && req.query.quoteId) || '';
   if (!quoteId) return res.status(400).json({ error: 'quoteId required' });

@@ -143,7 +143,7 @@
 // Storage: jobs/<jobId>/materials-list.json — { items: [...], emailRequests: [...] }
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canManageJob } = require('./_lib/auth');
+const { requireAuth, canManageJob, isAdminRole, isClientRole } = require('./_lib/auth');
 const { put } = require('@vercel/blob');
 
 const VALID_STATUSES = ['draft', 'ready_to_price', 'priced', 'ordered', 'received', 'cancelled'];
@@ -1034,7 +1034,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
 
   const jobId = (req.query && req.query.jobId) || '';
   if (!jobId) return res.status(400).json({ error: 'jobId required' });
@@ -1043,13 +1043,13 @@ module.exports = async (req, res) => {
 
   if (req.method === 'GET') {
     const isCrew = (user.assignedJobIds || []).includes(jobId);
-    if (user.role !== 'admin' && !canManageJob(user, jobId) && !isCrew) {
+    if (!isAdminRole(user.role) && !canManageJob(user, jobId) && !isCrew) {
       return res.status(403).json({ error: 'no access to this job' });
     }
     if (action === 'schedule') {
       // Computed read — admin/LH only (it depends on data.json materials
       // that crew aren't expected to edit).
-      if (user.role !== 'admin' && !canManageJob(user, jobId)) {
+      if (!isAdminRole(user.role) && !canManageJob(user, jobId)) {
         return res.status(403).json({ error: 'admin / LH only' });
       }
       const sched = await computeSchedule(jobId);
@@ -1064,7 +1064,7 @@ module.exports = async (req, res) => {
   }
 
   // Mutations require manager-level access.
-  if (!canManageJob(user, jobId) && user.role !== 'admin') {
+  if (!canManageJob(user, jobId) && !isAdminRole(user.role)) {
     return res.status(403).json({ error: 'cannot manage this job' });
   }
 
@@ -1113,7 +1113,7 @@ module.exports = async (req, res) => {
 
     // Review a field-captured invoice (admin only — moves money).
     if (action === 'review-captured-invoice') {
-      if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+      if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
       const invId = (req.query && req.query.invId) || body.invId;
       if (!invId) return res.status(400).json({ error: 'invId required' });
       const result = await reviewCapturedInvoice(jobId, invId, body, user);
@@ -1123,7 +1123,7 @@ module.exports = async (req, res) => {
 
     // Phase 12 — supplier invoices + 3-way match (admin only — financial)
     if (['create-invoice', 'update-invoice', 'match-invoice'].includes(action)) {
-      if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+      if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
       if (action === 'create-invoice') {
         const result = await createInvoice(jobId, body, user);
         if (result.error) return res.status(result.status || 400).json({ error: result.error });

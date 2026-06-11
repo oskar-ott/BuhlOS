@@ -59,13 +59,7 @@
 // failure on either path never blocks the snag write.
 
 const { readBlob, readBlobFresh, writeBlob, setNoCache } = require('./_lib/blob');
-const {
-  requireAuth,
-  canWrite,
-  isAdminRole,
-  isFieldRole,
-  isLeadingHandRole,
-} = require('./_lib/auth');
+const { requireAuth, canWrite, isAdminRole, isFieldRole, isLeadingHandRole, isClientRole } = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
 const { appendAudit: appendLegacyAudit } = require('./_lib/job-audit');
 const { append: appendAuditLog } = require('./_lib/audit-log');
@@ -572,7 +566,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res, { jobId });
   if (!user) return;
-  if (user.role === 'client') {
+  if (isClientRole(user.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 

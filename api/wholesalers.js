@@ -15,7 +15,7 @@
 //   client:            403
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isStaffRole, isClientRole } = require('./_lib/auth');
 
 const KEY = 'wholesalers.json';
 
@@ -29,7 +29,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
 
   if (req.method === 'GET') {
     const data = await readBlob(KEY, { wholesalers: [] });
@@ -37,7 +37,7 @@ module.exports = async (req, res) => {
   }
 
   // Mutations: admin or LH only
-  if (user.role !== 'admin' && user.role !== 'leadingHand') {
+  if (!isStaffRole(user.role)) {
     return res.status(403).json({ error: 'admin/LH only' });
   }
 

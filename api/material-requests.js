@@ -34,7 +34,7 @@
 // test.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite, isAdminRole } = require('./_lib/auth');
+const { requireAuth, canWrite, isAdminRole, isClientRole } = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 
@@ -521,7 +521,7 @@ module.exports = async (req, res) => {
     if (jobId) {
       const user = await requireAuth(req, res, { jobId });
       if (!user) return;
-      if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+      if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
       try {
         return await listJobRequests(req, res, jobId);
       } catch (e) {

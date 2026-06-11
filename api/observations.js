@@ -37,7 +37,7 @@
 // is covered by src/domains/observations/observations.test.ts.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite, isAdminRole } = require('./_lib/auth');
+const { requireAuth, canWrite, isAdminRole, isClientRole } = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { sendPushToUserId } = require('./_lib/push');
@@ -94,7 +94,7 @@ function requiresActionForType(type) {
 
 function sourceForUser(user) {
   if (isAdminRole(user.role)) return 'buhlos';
-  if (user.role === 'client') return 'system';
+  if (isClientRole(user.role)) return 'system';
   return 'phil';
 }
 
@@ -1170,7 +1170,7 @@ module.exports = async (req, res) => {
   if (req.method === 'POST' && action === 'upload-office-photo') {
     const user = await requireAuth(req, res);
     if (!user) return;
-    if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+    if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
     try {
       return await uploadOfficePhoto(req, res, user);
     } catch (e) {
@@ -1185,7 +1185,7 @@ module.exports = async (req, res) => {
   if (req.method === 'POST' && String((req.query && req.query.scope) || '') === 'office') {
     const user = await requireAuth(req, res);
     if (!user) return;
-    if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+    if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
     try {
       return await createOfficeObservation(req, res, user);
     } catch (e) {
@@ -1198,7 +1198,7 @@ module.exports = async (req, res) => {
     if (!jobId) return res.status(400).json({ error: 'jobId required' });
     const user = await requireAuth(req, res, { jobId });
     if (!user) return;
-    if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+    if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
     if (!canWrite(user, jobId)) {
       return res.status(403).json({ error: 'no write access to job' });
     }
@@ -1226,7 +1226,7 @@ module.exports = async (req, res) => {
       // Job-scoped: field/LH on assigned job + admin-tier; clients excluded.
       const user = await requireAuth(req, res, { jobId });
       if (!user) return;
-      if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+      if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
       try {
         return await listJobObservations(req, res, jobId);
       } catch (e) {

@@ -21,7 +21,7 @@
 const crypto = require('crypto');
 const { list } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isAdminRole, isLeadingHandRole, isFieldRole } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
 const { appendActivity } = require('./_lib/activity');
 
@@ -65,7 +65,7 @@ module.exports = async (req, res) => {
   // a cron without nested HTTP calls.
   const rateByUserId = {};
   for (const u of users) {
-    if (u.role === 'tradie' || u.role === 'leadingHand') {
+    if (isFieldRole(u.role) || isLeadingHandRole(u.role)) {
       rateByUserId[u.id] = Number(u.hourlyRate) || 0;
     }
   }
@@ -146,7 +146,7 @@ module.exports = async (req, res) => {
       .slice(0, 16);
   }
 
-  const admins = users.filter(u => u.role === 'admin' && !u.archived);
+  const admins = users.filter(u => isAdminRole(u.role) && !u.archived);
   let alertCount = 0;
   const alerts = [];
 

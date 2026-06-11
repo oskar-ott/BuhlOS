@@ -17,7 +17,7 @@
 // to find matching snags.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isAdminRole, isClientRole } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -26,7 +26,7 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
-  if (me.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(me.role)) return res.status(403).json({ error: 'forbidden' });
 
   const q = req.query || {};
   const status = q.status || 'Open';
@@ -35,7 +35,7 @@ module.exports = async (req, res) => {
   // Which jobs to scan? Admin: all. LH/tradie: assignedJobIds.
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });
   const allJobs = jobsBlob.jobs || [];
-  const visible = (me.role === 'admin')
+  const visible = isAdminRole(me.role)
     ? allJobs
     : allJobs.filter(j => (me.assignedJobIds || []).includes(j.id));
 

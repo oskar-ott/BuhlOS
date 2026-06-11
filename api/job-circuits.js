@@ -49,7 +49,7 @@
 // Audit entries on every mutation via _lib/job-audit.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canManageJob } = require('./_lib/auth');
+const { requireAuth, canManageJob, isAdminRole, isClientRole } = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
 const { appendAudit } = require('./_lib/job-audit');
 
@@ -150,9 +150,9 @@ module.exports = async (req, res) => {
   if (!job) return res.status(404).json({ error: 'job not found' });
 
   // Read-access: anyone who can see the job; write-access: canManageJob.
-  const canSee = me.role === 'admin'
+  const canSee = isAdminRole(me.role)
               || (me.assignedJobIds || []).includes(jobId)
-              || (me.role === 'client' && job.clientUserId === me.id);
+              || (isClientRole(me.role) && job.clientUserId === me.id);
   if (!canSee) return res.status(403).json({ error: 'forbidden' });
 
   if (req.method === 'GET') {

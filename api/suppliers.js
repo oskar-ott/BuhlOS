@@ -32,7 +32,7 @@
 // Account number + paymentTerms are stripped for non-admin reads.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth } = require('./_lib/auth');
+const { requireAuth, isAdminRole, isClientRole } = require('./_lib/auth');
 
 const KEY = 'suppliers.json';
 
@@ -175,7 +175,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
-  if (user.role === 'client') return res.status(403).json({ error: 'forbidden' });
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
 
   const id = (req.query && req.query.id) || '';
   const action = (req.query && req.query.action) || '';
@@ -197,7 +197,7 @@ module.exports = async (req, res) => {
   }
 
   // ── All mutations: admin only ───────────────────────────────────────
-  if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
+  if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
 
   if (req.method === 'POST' && !id) {
     // Create a new supplier
