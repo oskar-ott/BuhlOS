@@ -361,6 +361,13 @@ export const ReopenEntryPayloadSchema = z.object({
   userId: z.string().min(1),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
   toStatus: z.enum(["submitted", "draft"]),
+  /** Why the decision is being unwound — required by the v2 reopen UI,
+   *  stamped onto the entry + audit trail (endpoint treats it as optional;
+   *  the bulk-approve UNDO path sends none). */
+  reason: z.string().max(500).optional(),
+  /** Explicit override for entries already in a sent payroll export —
+   *  only ever set after the user confirms the divergence warning. */
+  force: z.boolean().optional(),
 });
 
 export const ReopenEntryResponseSchema = z.object({}).passthrough();
