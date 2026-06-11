@@ -1,10 +1,8 @@
 -- ============================================================================
 -- Phase 1 hardening — advisor cleanup
--- DRAFTED 2026-06-11 (docs/supabase-migration-research-audit.md §7); NOT YET
--- APPLIED. Apply via the normal migration workflow after:
---   1. renaming the phase-1 file to 20260611142758_phase1_core_schema.sql
---      (to match the remote migration history), and
---   2. `supabase init` + `supabase link --project-ref wetctlrhsycfwhuxlarv`.
+-- Drafted 2026-06-11 (docs/supabase-migration-research-audit.md §7);
+-- APPLIED 2026-06-12 to project wetctlrhsycfwhuxlarv via MCP apply_migration
+-- (name: phase1_hardening; remote version = this file's timestamp prefix).
 --
 -- Addresses live advisors:
 --   * function_search_path_mutable (0011) on the two touch triggers
