@@ -237,6 +237,59 @@ export function buildCustomHoursPayload(input: {
 }
 
 /**
+ * Build a CreateTimeEntryPayload that SPLITS the day across 2+ jobs (#128).
+ * One entry, multiple allocations summing to the total — the model and the
+ * server have always supported this; this is the Phil-side builder. OT is
+ * split on the day TOTAL (overtime is a property of the day, not a job).
+ * Pure: validation (every jobId picked, hours > 0, sum = total ±0.01) is the
+ * caller's; this only assembles the shape the API + the single-job builders
+ * already use.
+ */
+export function buildSplitDayPayload(input: {
+  date: string;
+  totalHours: number;
+  allocations: ReadonlyArray<{ jobId: string | null; hours: number }>;
+  notes?: string | null;
+}): {
+  date: string;
+  totalHours: number;
+  ordinaryHours: number;
+  overtimeHours: number;
+  allocations: Array<{ jobId: string | null; hours: number; notes: null }>;
+  status: "submitted";
+  notes: string | null;
+} {
+  const { ordinary, overtime } = autoSplitOT(input.totalHours);
+  return {
+    date: input.date,
+    totalHours: input.totalHours,
+    ordinaryHours: ordinary,
+    overtimeHours: overtime,
+    allocations: input.allocations.map((a) => ({
+      jobId: a.jobId,
+      hours: a.hours,
+      notes: null,
+    })),
+    status: "submitted",
+    notes: input.notes ?? null,
+  };
+}
+
+/**
+ * The remainder for the LAST split row, so the worker never does subtraction:
+ * total minus the hours already entered on the earlier rows, rounded to 0.1
+ * and never negative. (#128 — "the maths does itself".)
+ */
+export function splitDayRemainder(
+  totalHours: number,
+  filledHours: ReadonlyArray<number>
+): number {
+  const used = filledHours.reduce((s, h) => s + (Number.isFinite(h) ? h : 0), 0);
+  const remainder = Math.round((totalHours - used) * 10) / 10;
+  return remainder > 0 ? remainder : 0;
+}
+
+/**
  * True if the supplied date string is within the legacy backdate window
  * (14 days back, no future dates). Used by the date picker.
  */
