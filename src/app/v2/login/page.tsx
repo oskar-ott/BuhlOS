@@ -36,7 +36,7 @@ export const metadata: Metadata = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; mode?: string }>;
 }) {
   const user = await getCurrentUser();
   // `as Route` — see src/app/page.tsx for the same Phase A cast rationale.
@@ -78,7 +78,7 @@ export default async function LoginPage({
       </aside>
 
       <main className={styles.main}>
-        <LoginForm next={params.next} />
+        <LoginForm next={params.next} initialMode={params.mode === "worker" ? "worker" : "office"} />
       </main>
     </div>
   );
