@@ -28,7 +28,10 @@ import { canAccessSurface } from "@/lib/auth/permissions";
 import {
   TimeEntryListResponseSchema,
   TimeEntryOverviewResponseSchema,
+  TodayPulseResponseSchema,
 } from "@/domains/timesheets/schema";
+import { summariseTodayStrip } from "@/domains/timesheets/today-strip";
+import { TodayStrip } from "@/components/admin/TodayStrip";
 import {
   BUSINESS_TIMEZONE,
   localDateString,
@@ -39,7 +42,11 @@ import { ObservationListResponseSchema } from "@/domains/observations/schema";
 import { isOpenObservation } from "@/domains/observations/service";
 import { MaterialRequestListResponseSchema } from "@/domains/material-requests/schema";
 import { isOpenRequest } from "@/domains/material-requests/service";
-import type { MissingLog, TimeEntry } from "@/domains/timesheets/types";
+import type {
+  MissingLog,
+  TimeEntry,
+  TodayPulseResponse,
+} from "@/domains/timesheets/types";
 import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { MaterialRequestItem } from "@/domains/material-requests/types";
@@ -76,6 +83,12 @@ export const dynamic = "force-dynamic";
  * Followed by a thin "Live surfaces" strip linking to the four working
  * admin pages (Hours, Approvals, Gear, Jobs). Anything else is still
  * being built and lives behind the sidebar UC pills.
+ *
+ * #185: the page LEADS with a compact "Today" strip (api/today-pulse via
+ * the same loadSnapshot pass — who's on the clock, hours logged today, and
+ * the SAME pending-approvals count the Hours queue card shows). That strip
+ * is the operational morning view; analytics tiles / the six-numbers board
+ * are #316's separate surface and must not creep in here.
  */
 export default async function CommandCentrePage() {
   const cookieStore = await cookies();
@@ -95,13 +108,20 @@ export default async function CommandCentrePage() {
     jobs,
     observations,
     materialRequests,
+    todayPulse,
     hoursError,
     hoursRejectedError,
     hoursMissingError,
     jobsError,
     observationsError,
     materialRequestsError,
+    todayPulseError,
   } = await loadSnapshot(raw);
+
+  // #185 Today strip — pure derivation from the pulse payload. Null model
+  // (failed fetch) renders the strip's own error chip; the queues are
+  // untouched either way.
+  const todayStrip = summariseTodayStrip(todayPulse);
 
   const evidencePending = jobs.reduce(
     (sum, j) => sum + (j.statsEvidenceV2Pending ?? 0),
@@ -203,7 +223,11 @@ export default async function CommandCentrePage() {
     !hoursMissingError &&
     !jobsError &&
     !observationsError &&
-    !materialRequestsError;
+    !materialRequestsError &&
+    // #185: the Today strip participates in all-clear — we can't claim the
+    // morning view is complete while its source failed. (A quiet zero-day
+    // pulse does NOT block all-clear; only a load failure does.)
+    !todayPulseError;
 
   // Itemised "Needs attention" projection over the SAME already-loaded,
   // admin-gated sources the count cards use — no new fetch, no new store.
@@ -239,6 +263,17 @@ export default async function CommandCentrePage() {
             — flip via FLAG_* env or the flags.json override (docs/feature-flags.md).
           </section>
         ) : null}
+        {/* #185 — Today strip: the operational morning view (who's on the
+            clock + the same pending count as the Hours card below). A strip,
+            not a hero: the needs-you queue cards stay above the fold. */}
+        <section aria-label="Today at a glance">
+          <TodayStrip
+            model={todayStrip}
+            pulseError={todayPulseError}
+            pendingApprovals={hoursPending.length}
+          />
+        </section>
+
         <section>
           <h2 className="font-display text-sm uppercase tracking-wider text-text-muted">
             Needs your attention
@@ -566,12 +601,14 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
   jobs: ReadonlyArray<Job>;
   observations: ReadonlyArray<ObservationItem>;
   materialRequests: ReadonlyArray<MaterialRequestItem>;
+  todayPulse: TodayPulseResponse | null;
   hoursError: string | null;
   hoursRejectedError: string | null;
   hoursMissingError: string | null;
   jobsError: string | null;
   observationsError: string | null;
   materialRequestsError: string | null;
+  todayPulseError: string | null;
 }> {
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
@@ -597,6 +634,7 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     jobsResult,
     obsResult,
     mrResult,
+    todayPulseResult,
   ] = await Promise.all([
     loadHoursByStatus(base, headersInit, "submitted"),
     loadHoursByStatus(base, headersInit, "rejected"),
@@ -604,6 +642,7 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     loadJobsWithStats(base, headersInit),
     loadObservations(base, headersInit),
     loadMaterialRequests(base, headersInit),
+    loadTodayPulse(base, headersInit),
   ]);
 
   return {
@@ -613,13 +652,49 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     jobs: jobsResult.jobs,
     observations: obsResult.observations,
     materialRequests: mrResult.requests,
+    todayPulse: todayPulseResult.pulse,
     hoursError: hoursResult.error,
     hoursRejectedError: hoursRejectedResult.error,
     hoursMissingError: hoursMissingResult.error,
     jobsError: jobsResult.error,
     observationsError: obsResult.error,
     materialRequestsError: mrResult.error,
+    todayPulseError: todayPulseResult.error,
   };
+}
+
+/**
+ * #185 — today's live hours pulse for the Today strip. No `date` param on
+ * purpose: api/today-pulse.js defaults to ITS Sydney day (sydneyToday()),
+ * the same boundary the /hours closeout reads — we never recompute the day
+ * client-side. It is the heaviest snapshot source (jobs.json + users/ blob
+ * list + per-active-job reads), which is exactly why it joins the same
+ * Promise.all and degrades to its own error chip instead of blocking queues.
+ */
+async function loadTodayPulse(
+  base: string,
+  headersInit: { cookie: string } | undefined
+): Promise<{ pulse: TodayPulseResponse | null; error: string | null }> {
+  try {
+    const res = await fetch(`${base}/api/today-pulse`, {
+      cache: "no-store",
+      headers: headersInit,
+    });
+    if (!res.ok) {
+      return { pulse: null, error: `Today pulse API returned ${res.status}` };
+    }
+    const body = await res.json();
+    const parsed = TodayPulseResponseSchema.safeParse(body);
+    if (!parsed.success) {
+      return { pulse: null, error: "Unexpected today pulse response shape" };
+    }
+    return { pulse: parsed.data, error: null };
+  } catch (err) {
+    return {
+      pulse: null,
+      error: err instanceof Error ? err.message : "Today pulse network error",
+    };
+  }
 }
 
 async function loadHoursOverview(
