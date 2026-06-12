@@ -13,6 +13,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "document.uploaded": "uploaded a document",
   "document.superseded": "document superseded",
   "document.made_current": "marked a drawing current",
+  "document.acknowledged": "acknowledged a drawing revision",
   "credential.added": "added a licence/ticket",
   "credential.updated": "updated a licence/ticket",
   "credential.removed": "removed a licence/ticket",

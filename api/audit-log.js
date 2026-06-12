@@ -66,6 +66,14 @@ const VALID_TARGET_TYPES = new Set([
   // PR 11: Material Request module — the GET endpoint must accept it so the
   // per-job feed (?scope=job) and a future row-history view both work.
   'material_request',
+  // Sync sweep (#299 noticed the drift): writers added these targets but the
+  // READ endpoint was still rejecting them as filters — #151 'system',
+  // #194 'document', #189 'contact', #331 'credential', #332 'induction'.
+  'system',
+  'document',
+  'contact',
+  'credential',
+  'induction',
 ]);
 const MAX_MONTHS = 12;
 const DEFAULT_MONTHS = 2;

@@ -18,12 +18,14 @@ const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const auditPath = requireFromHere.resolve("../../../api/_lib/audit-log.js");
 const vercelBlobPath = requireFromHere.resolve("@vercel/blob");
+const pushPath = requireFromHere.resolve("../../../api/_lib/push.js");
 const handlerPath = requireFromHere.resolve("../../../api/plans.js");
 
 type Res = ReturnType<typeof createRes>;
 let blob: Map<string, unknown>;
 let auth: { signSession: (payload: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
+let pushCalls: Array<{ userId: string; payload: { title: string; body: string; url: string } }>;
 
 function clone<T>(value: T): T {
   return value === undefined ? value : JSON.parse(JSON.stringify(value));
@@ -103,8 +105,23 @@ function auditActions(): string[] {
 beforeEach(() => {
   process.env.SESSION_SECRET = "test-session-secret-long-enough";
   blob = new Map<string, unknown>();
+  pushCalls = [];
   blob.set("users.json", {
-    users: [{ id: "u_admin", username: "boss", role: "office", passwordHash: "$2a$10$x" }],
+    users: [
+      { id: "u_admin", username: "boss", role: "office", passwordHash: "$2a$10$x" },
+      // #299 fixtures: assigned field crew (one with push, one without),
+      // an assigned client (never pushed/acks) and an unassigned worker.
+      {
+        id: "u_elec",
+        username: "sparky",
+        role: "electrician",
+        assignedJobIds: ["j1"],
+        pushSubscriptions: [{ endpoint: "https://push.example/1", keys: { p256dh: "k", auth: "a" } }],
+      },
+      { id: "u_tradie", username: "mick", role: "tradie", assignedJobIds: ["j1"] },
+      { id: "u_client", username: "client", role: "client", assignedJobIds: ["j1"] },
+      { id: "u_out", username: "out", role: "tradie", assignedJobIds: [] },
+    ],
   });
   blob.set("jobs.json", { jobs: [{ id: "j1", name: "Riverside" }] });
   blob.set("jobs/j1/plans-index.json", {
@@ -116,6 +133,18 @@ beforeEach(() => {
   });
 
   for (const p of [authPath, handlerPath, auditPath]) delete requireFromHere.cache[p];
+  requireFromHere.cache[pushPath] = {
+    id: pushPath,
+    filename: pushPath,
+    loaded: true,
+    exports: {
+      getWebPush: vi.fn(() => ({})),
+      sendPushToUserId: vi.fn(async (userId: string, payload: { title: string; body: string; url: string }) => {
+        pushCalls.push({ userId, payload });
+        return { sent: 1, pruned: 0 };
+      }),
+    },
+  } as NodeJS.Module;
   requireFromHere.cache[blobPath] = {
     id: blobPath,
     filename: blobPath,
@@ -214,5 +243,142 @@ describe("plans hardening (#194)", () => {
       { dataUrl: PNG_DATA_URL, fileName: "x.pdf", discipline: "nonsense" },
     );
     expect((posted.body as { plan: { discipline: string } }).plan.discipline).toBe("");
+  });
+});
+
+// ── #299: one-step revision flow + acknowledgements ───────────────────────
+
+async function callAs(
+  viewer: { id: string; role: string },
+  method: string,
+  query: Record<string, string>,
+  body?: unknown,
+): Promise<Res> {
+  const res = createRes();
+  await handler(
+    {
+      method,
+      query,
+      body,
+      headers: {
+        cookie: `buhl_session=${auth.signSession({ userId: viewer.id, role: viewer.role, exp: Date.now() + 60_000 })}`,
+      },
+    },
+    res,
+  );
+  return res;
+}
+
+const ELEC = { id: "u_elec", role: "electrician" };
+const TRADIE = { id: "u_tradie", role: "tradie" };
+const OUT = { id: "u_out", role: "tradie" };
+
+describe("one-step revision flow (#299)", () => {
+  it("revisesPlanId inherits identity, supersedes the predecessor and stores the summary", async () => {
+    const res = await call("POST", { jobId: "j1" }, {
+      dataUrl: PNG_DATA_URL,
+      fileName: "rev-b.pdf",
+      revision: "B",
+      revisesPlanId: "pl_a",
+      changeSummary: "Unit 4 power changed",
+    });
+    expect(res.statusCode).toBe(201);
+    const created = (res.body as { plan: Record<string, unknown> }).plan;
+    // Inherited from pl_a — the admin typed none of these.
+    expect(created.drawingNumber).toBe("E-101");
+    expect(created.title).toBe("Power L1 rev A");
+    expect(created.revision).toBe("B");
+    expect(created.changeSummary).toBe("Unit 4 power changed");
+    expect(created.supersedes).toBe("pl_a");
+    const prev = plansInStore().find((p) => p.id === "pl_a")!;
+    expect(prev.status).toBe("superseded");
+    expect(prev.supersededBy).toBe(created.id);
+    // Exactly one current on the number; audit verbs landed.
+    expect(
+      plansInStore().filter((p) => p.drawingNumber === "E-101" && p.status === "current"),
+    ).toHaveLength(1);
+    expect(auditActions()).toContain("document.uploaded");
+    expect(auditActions()).toContain("document.superseded");
+  });
+
+  it("a bad revisesPlanId is a hard 400 — explicit intent never degrades", async () => {
+    const res = await call("POST", { jobId: "j1" }, {
+      dataUrl: PNG_DATA_URL,
+      revisesPlanId: "pl_ghost",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("a real revision pushes assigned field workers (with subs) only — PII-free deep link", async () => {
+    const res = await call("POST", { jobId: "j1" }, {
+      dataUrl: PNG_DATA_URL,
+      revision: "B",
+      revisesPlanId: "pl_a",
+      changeSummary: "Kitchen circuit added",
+    });
+    expect((res.body as { notified: number }).notified).toBe(1);
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0]!.userId).toBe("u_elec"); // mick has no subscription
+    expect(pushCalls[0]!.payload.title).toContain("E-101");
+    expect(pushCalls[0]!.payload.title).toContain("Rev B");
+    expect(pushCalls[0]!.payload.body).toContain("Kitchen circuit added");
+    expect(pushCalls[0]!.payload.url).toBe("/phil/jobs/j1/plans");
+  });
+
+  it("first upload of a drawing supersedes nothing and notifies nobody", async () => {
+    const res = await call("POST", { jobId: "j1" }, {
+      dataUrl: PNG_DATA_URL,
+      drawingNumber: "E-999",
+      title: "Brand new sheet",
+      revision: "A",
+    });
+    expect(res.statusCode).toBe(201);
+    expect((res.body as { notified: number }).notified).toBe(0);
+    expect(pushCalls).toHaveLength(0);
+  });
+});
+
+describe("revision acknowledgements (#299)", () => {
+  it("assigned worker acks self-only; double-tap idempotent; audited", async () => {
+    const first = await callAs(ELEC, "POST", { jobId: "j1", action: "ack" }, { planId: "pl_a" });
+    expect(first.statusCode).toBe(201);
+    const ack = (first.body as { ack: Record<string, unknown> }).ack;
+    expect(ack).toMatchObject({ planId: "pl_a", userId: "u_elec", userName: "sparky" });
+    const again = await callAs(ELEC, "POST", { jobId: "j1", action: "ack" }, { planId: "pl_a" });
+    expect(again.statusCode).toBe(200);
+    expect((again.body as { already?: boolean }).already).toBe(true);
+    const store = blob.get("jobs/j1/plan-acks.json") as { acks: unknown[] };
+    expect(store.acks).toHaveLength(1);
+    expect(auditActions()).toContain("document.acknowledged");
+  });
+
+  it("unassigned workers 403; unknown plan 404", async () => {
+    const out = await callAs(OUT, "POST", { jobId: "j1", action: "ack" }, { planId: "pl_a" });
+    expect(out.statusCode).toBe(403);
+    const ghost = await callAs(ELEC, "POST", { jobId: "j1", action: "ack" }, { planId: "pl_ghost" });
+    expect(ghost.statusCode).toBe(404);
+  });
+
+  it("rollup: admin sees acked/outstanding from CURRENT field crew; field caller 403s", async () => {
+    await callAs(ELEC, "POST", { jobId: "j1", action: "ack" }, { planId: "pl_a" });
+    const rollup = await call("GET", { jobId: "j1", action: "acks", planId: "pl_a" });
+    expect(rollup.statusCode).toBe(200);
+    const body = rollup.body as {
+      acked: Array<{ userId: string }>;
+      outstanding: Array<{ userId: string }>;
+    };
+    expect(body.acked.map((a) => a.userId)).toEqual(["u_elec"]);
+    // mick outstanding; the assigned CLIENT is not audience; u_out unassigned.
+    expect(body.outstanding.map((o) => o.userId)).toEqual(["u_tradie"]);
+    const field = await callAs(ELEC, "GET", { jobId: "j1", action: "acks", planId: "pl_a" });
+    expect(field.statusCode).toBe(403);
+  });
+
+  it("my-acks returns only the viewer's planIds", async () => {
+    await callAs(ELEC, "POST", { jobId: "j1", action: "ack" }, { planId: "pl_a" });
+    await callAs(TRADIE, "POST", { jobId: "j1", action: "ack" }, { planId: "pl_b" });
+    const mine = await callAs(ELEC, "GET", { jobId: "j1", action: "my-acks" });
+    expect(mine.statusCode).toBe(200);
+    expect((mine.body as { planIds: string[] }).planIds).toEqual(["pl_a"]);
   });
 });

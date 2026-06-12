@@ -22,6 +22,7 @@ import {
 } from "@/domains/plans/format";
 import { PlanViewer } from "./PlanViewer";
 import { PlanOverlayController } from "./PlanOverlayController";
+import { PlanRevisionPanel } from "./PlanRevisionPanel";
 
 /**
  * Read-only Plans surface (Phase 1) shared by the admin and Phil routes.
@@ -144,6 +145,16 @@ export function PlansClient({
 
       {/* Viewer */}
       <div className="min-w-0 rounded-card border border-border bg-surface-raised p-5 shadow-card">
+        {/* #299: revision context — what changed, lineage, acks. Renders
+            nothing for plain first-issue drawings. */}
+        {jobId ? (
+          <PlanRevisionPanel
+            mode={mode}
+            jobId={jobId}
+            selected={selected}
+            documents={visible}
+          />
+        ) : null}
         {jobId ? (
           <PlanOverlayController jobId={jobId} plan={toPlan(selected)} mode={mode} />
         ) : (

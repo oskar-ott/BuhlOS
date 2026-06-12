@@ -97,6 +97,7 @@ export const AUDIT_ACTIONS = [
   "document.uploaded",
   "document.superseded",
   "document.made_current",
+  "document.acknowledged",
   "contact.saved",
   "contact.removed",
   "credential.added",

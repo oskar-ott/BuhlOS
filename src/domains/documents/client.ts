@@ -3,6 +3,9 @@ import {
   DocumentListResponseSchema,
   SetPagesResponseSchema,
   UploadDocumentResponseSchema,
+  AckMutationResponseSchema,
+  MyAcksResponseSchema,
+  PlanAcksRollupResponseSchema,
 } from "./schema";
 import type {
   DocumentListResponse,
@@ -78,6 +81,37 @@ export function setPlanPages(
     `/api/plans?jobId=${encodeURIComponent(jobId)}&id=${encodeURIComponent(planId)}&action=set-pages`,
     { pages: [page] },
     { schema: SetPagesResponseSchema, init: { cache: "no-store", credentials: "same-origin" } },
+  );
+}
+
+/** #299: worker acknowledges a revision — self-only, assigned crew. */
+export function ackRevision(
+  jobId: string,
+  planId: string,
+): Promise<HttpResult<{ ack: { planId: string; userId: string; userName: string; ackAt: string }; already?: boolean }>> {
+  return httpPost(
+    `/api/plans?jobId=${encodeURIComponent(jobId)}&action=ack`,
+    { planId },
+    { schema: AckMutationResponseSchema, init: { cache: "no-store", credentials: "same-origin" } },
+  );
+}
+
+/** #299: the viewer's own acked planIds on this job. */
+export function myPlanAcks(jobId: string): Promise<HttpResult<{ planIds: string[] }>> {
+  return httpGet(`/api/plans?jobId=${encodeURIComponent(jobId)}&action=my-acks`, {
+    schema: MyAcksResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/** #299: admin rollup — acked / outstanding for one revision. */
+export function planAcks(
+  jobId: string,
+  planId: string,
+): Promise<HttpResult<{ acked: Array<{ userId: string; userName: string; ackAt: string }>; outstanding: Array<{ userId: string; userName: string }> }>> {
+  return httpGet(
+    `/api/plans?jobId=${encodeURIComponent(jobId)}&action=acks&planId=${encodeURIComponent(planId)}`,
+    { schema: PlanAcksRollupResponseSchema, init: { cache: "no-store", credentials: "same-origin" } },
   );
 }
 

@@ -125,6 +125,9 @@ export const DocumentSchema = z
      *  forward. */
     supersedes: z.string().optional(),
     supersededBy: z.string().optional(),
+    /** #299: what changed in this revision — free text captured at
+     *  registration, shown in admin and Phil. Empty on first issues. */
+    changeSummary: z.string().optional(),
 
     uploadedAt: z.string().optional(),
     uploadedBy: z.string().optional(),
@@ -150,12 +153,37 @@ export const UploadDocumentPayloadSchema = z.object({
   drawingNumber: z.string().optional(),
   revision: z.string().optional(),
   discipline: z.string().optional(),
+  /** #299: explicit one-step revision — the predecessor's plan id. The
+   *  server inherits identity fields and supersedes it atomically. */
+  revisesPlanId: z.string().optional(),
+  changeSummary: z.string().optional(),
 });
 
 export const UploadDocumentResponseSchema = z.object({
   plan: DocumentSchema,
   /** Non-null when the upload auto-superseded a same-number current revision. */
   revisionWarning: z.string().nullable(),
+  /** #299: how many assigned field workers were pushed about the revision. */
+  notified: z.number().optional(),
+});
+
+/* #299: revision acknowledgements. */
+export const PlanAckSchema = z.object({
+  planId: z.string(),
+  userId: z.string(),
+  userName: z.string(),
+  ackAt: z.string(),
+});
+export const AckMutationResponseSchema = z.object({
+  ack: PlanAckSchema,
+  already: z.boolean().optional(),
+});
+export const MyAcksResponseSchema = z.object({
+  planIds: z.array(z.string()),
+});
+export const PlanAcksRollupResponseSchema = z.object({
+  acked: z.array(z.object({ userId: z.string(), userName: z.string(), ackAt: z.string() })),
+  outstanding: z.array(z.object({ userId: z.string(), userName: z.string() })),
 });
 
 /** POST ?action=set-pages — one rendered page per call (serverless body cap). */
