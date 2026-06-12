@@ -95,12 +95,19 @@ export function CapturePhotoTray({ photos, max, busy, onAdd, onRemove }: Props) 
                 type="button"
                 onClick={() => onRemove(p.id)}
                 aria-label={`Remove photo${p.file.name ? ` ${p.file.name}` : ""}`}
-                className={cn(
-                  "absolute -right-1.5 -top-1.5 inline-flex h-6 w-6 items-center justify-center",
-                  "rounded-full border border-border bg-surface text-text shadow-raised",
-                )}
+                // 44px transparent hit area (gloves); the 24px circle is the
+                // visual (#424).
+                className="absolute -right-3 -top-3 inline-flex h-11 w-11 items-center justify-center"
               >
-                <X aria-hidden="true" className="h-3.5 w-3.5" />
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "inline-flex h-6 w-6 items-center justify-center",
+                    "rounded-full border border-border bg-surface text-text shadow-raised",
+                  )}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </span>
               </button>
             ) : null}
             {p.status === "failed" && p.error ? (

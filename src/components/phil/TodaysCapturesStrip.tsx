@@ -70,9 +70,11 @@ export function TodaysCapturesStrip({ items, banner, areaNames }: Props) {
           <span className="text-xs text-text-muted">{sorted.length} captured</span>
         ) : null}
       </div>
-      <CardDescription className="mt-1">
-        Your recent evidence on this job. Tap a card for the full photo and status.
-      </CardDescription>
+      {sorted.length === 0 ? (
+        <CardDescription className="mt-1">
+          Your recent evidence on this job. Tap a card for the full photo and status.
+        </CardDescription>
+      ) : null}
 
       {banner ? (
         <PhilNotice

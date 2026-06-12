@@ -22,6 +22,10 @@ describe("PhilJobContactsCard", () => {
     expect(html).toContain('href="sms:0412345678"');
     expect(html).toContain('href="tel:+61299998888"');
     expect(html).toContain("Suppliers");
+    // #424: Call/Text are 48px glove targets and the explainer sentence is
+    // gone (the card only ever renders populated — the buttons speak for it).
+    expect(html).toContain("min-h-[48px]");
+    expect(html).not.toContain("key people");
   });
 
   it("legacy uncategorised rows never render", () => {

@@ -158,9 +158,11 @@ export function JobSnagsPanel({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <CardTitle>Issues</CardTitle>
-          <CardDescription className="mt-1">
-            Things on site that need fixing. Tap Report snag to raise one.
-          </CardDescription>
+          {visible.length === 0 ? (
+            <CardDescription className="mt-1">
+              Things on site that need fixing. Tap Report snag to raise one.
+            </CardDescription>
+          ) : null}
         </div>
         {doneCount > 0 ? (
           <Pill tone="success">{doneCount} done</Pill>
