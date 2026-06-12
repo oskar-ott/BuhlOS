@@ -65,7 +65,7 @@ function TabLink({ tab, pathname }: { tab: Tab; pathname: string }) {
         />
         <span
           className={cn(
-            "text-[11px] uppercase tracking-wider",
+            "text-[12px] uppercase tracking-wider",
             isActive ? "font-semibold text-brand-navy" : "font-medium text-text-muted",
           )}
         >
@@ -148,7 +148,7 @@ export function PhilTabBar() {
               "transition-transform active:scale-95",
             )}
           />
-          <span className="mt-0.5 text-[11px] font-semibold uppercase tracking-wider text-brand-navy">
+          <span className="mt-0.5 text-[12px] font-semibold uppercase tracking-wider text-brand-navy">
             Capture
           </span>
         </div>

@@ -111,7 +111,7 @@ export function TodaysCapturesStrip({ items, banner, areaNames }: Props) {
               >
                 <CaptureThumb item={it} />
                 <div className="flex items-center justify-between gap-1">
-                  <span className="text-[11px] uppercase tracking-wider text-text-muted">
+                  <span className="text-[12px] uppercase tracking-wider text-text-muted">
                     {formatTime(it.capturedAt)}
                   </span>
                   <Pill tone={PILL_TONE_MAP[statusTone(it.status)]}>{statusLabel(it.status)}</Pill>

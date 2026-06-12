@@ -72,7 +72,7 @@
 .greetSub {
   margin-top: 5px;
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -154,11 +154,11 @@
   display: block;
   margin-top: 1px;
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  opacity: 0.62;
+  color: var(--accent-ink);
 }
 .logActionArrow {
   flex-shrink: 0;
@@ -176,7 +176,7 @@
 }
 .deferNoteLabel {
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
-  font-size: 8.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -205,7 +205,7 @@
   cursor: pointer;
   list-style: none;
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -227,6 +227,7 @@ details[open] > .moreOptionsSummary::before {
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--surface-raised);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 .weekHead {
   display: flex;
@@ -247,7 +248,7 @@ details[open] > .moreOptionsSummary::before {
   display: block;
   margin-top: 3px;
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
-  font-size: 8.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -270,9 +271,9 @@ details[open] > .moreOptionsSummary::before {
   display: block;
   margin-top: 3px;
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
-  font-size: 8.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -318,7 +319,7 @@ details[open] > .moreOptionsSummary::before {
 }
 .dayLabel {
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
-  font-size: 8.5px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -339,7 +340,7 @@ details[open] > .moreOptionsSummary::before {
 .hours {
   font-family: var(--font-inter-tight), "Inter", sans-serif;
   font-weight: 700;
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: -0.01em;
   line-height: 1;
   color: var(--text);
@@ -347,12 +348,12 @@ details[open] > .moreOptionsSummary::before {
 }
 .status {
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
-  font-size: 7px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.01em;
   text-transform: uppercase;
   color: var(--text-muted);
-  line-height: 1;
+  line-height: 1.05;
 }
 
 /* per-day states (mirrors phil/myday-v2.css) */
@@ -399,8 +400,14 @@ details[open] > .moreOptionsSummary::before {
 .off .box,
 .upcoming .box {
   border-style: dashed;
-  background: transparent;
-  opacity: 0.5;
+  border-color: var(--border);
+  background: var(--surface-subtle);
+}
+.off .hours,
+.off .status,
+.upcoming .hours,
+.upcoming .status {
+  color: var(--text-muted);
 }
 
 .weekFoot {
@@ -413,7 +420,7 @@ details[open] > .moreOptionsSummary::before {
   align-items: center;
   min-height: 44px;
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -430,6 +437,7 @@ details[open] > .moreOptionsSummary::before {
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--surface-raised);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 .needsHead {
   display: flex;
@@ -439,7 +447,7 @@ details[open] > .moreOptionsSummary::before {
 }
 .needsTitle {
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -448,8 +456,8 @@ details[open] > .moreOptionsSummary::before {
 .needsCount {
   font-family: var(--font-inter-tight), "Inter", sans-serif;
   font-weight: 700;
-  font-size: 10px;
-  line-height: 1.6;
+  font-size: 12px;
+  line-height: 1.5;
   color: #fff;
   background: var(--state-danger);
   border-radius: 20px;
@@ -498,8 +506,8 @@ details[open] > .moreOptionsSummary::before {
 .needsItemDetail {
   display: block;
   margin-top: 2px;
-  font-size: 11.5px;
-  line-height: 1.3;
+  font-size: 12px;
+  line-height: 1.35;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -509,7 +517,7 @@ details[open] > .moreOptionsSummary::before {
   flex-shrink: 0;
   font-family: var(--font-inter-tight), "Inter", sans-serif;
   font-weight: 700;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--brand-navy);
   background: var(--surface-subtle);
   border: 1px solid var(--border);

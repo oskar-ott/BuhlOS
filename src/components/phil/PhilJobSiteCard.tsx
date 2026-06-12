@@ -192,7 +192,7 @@ function SiteField({
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <dt className="font-display text-[11px] uppercase tracking-wider text-text-muted">
+        <dt className="font-display text-[12px] uppercase tracking-wider text-text-muted">
           {label}
         </dt>
         <dd className="mt-0.5 whitespace-pre-line break-words text-text">

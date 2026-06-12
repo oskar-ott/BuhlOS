@@ -160,7 +160,7 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
     return (
       <Screen>
         <div className="rounded-card bg-brand-navy p-5 text-text-inverse">
-          <p className="font-mono text-[11px] uppercase tracking-widest text-accent-yellow">
+          <p className="font-mono text-[12px] uppercase tracking-widest text-accent-yellow">
             {invite.companyName}
           </p>
           <h1 className="mt-2 font-display text-2xl leading-tight">
@@ -170,16 +170,16 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
           </h1>
         </div>
         <div className="mt-3 rounded-card border border-border p-4">
-          <p className="font-mono text-[10px] uppercase tracking-widest text-text-muted">Role</p>
+          <p className="font-mono text-[12px] uppercase tracking-widest text-text-muted">Role</p>
           <p className="font-display text-lg text-text">{roleText}</p>
         </div>
         <div className="mt-3 rounded-card border border-border p-4">
-          <p className="font-mono text-[10px] uppercase tracking-widest text-text-muted">Phil is for</p>
+          <p className="font-mono text-[12px] uppercase tracking-widest text-text-muted">Phil is for</p>
           <p className="mt-1 text-sm text-text">
             Logging your hours, checking your gear, and seeing your jobs.
           </p>
         </div>
-        <p className="mt-3 inline-flex items-center gap-1.5 self-start rounded-pill border border-border px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider text-text-muted">
+        <p className="mt-3 inline-flex items-center gap-1.5 self-start rounded-pill border border-border px-2.5 py-1 font-mono text-[12px] uppercase tracking-wider text-text-muted">
           <Clock aria-hidden="true" className="h-3 w-3" /> expires {formatShortDate(invite.expiresAt)}
         </p>
         <div className="mt-auto pt-6">
@@ -189,7 +189,7 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
           <button
             type="button"
             onClick={() => setNotMe((v) => !v)}
-            className="mt-3 w-full text-center font-mono text-[11px] uppercase tracking-wider text-text-muted"
+            className="mt-3 w-full text-center font-mono text-[12px] uppercase tracking-wider text-text-muted"
           >
             This isn&rsquo;t me
           </button>
@@ -216,7 +216,7 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
             <ReadField label="Mobile" value={invite.phone} />
           ) : (
             <label className="block rounded-card border border-border p-3">
-              <span className="font-mono text-[10px] uppercase tracking-widest text-text-muted">
+              <span className="font-mono text-[12px] uppercase tracking-widest text-text-muted">
                 Mobile (optional)
               </span>
               <input
@@ -237,7 +237,7 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
             On the tools at: <span className="text-text">{invite.jobs.join(", ")}</span>
           </p>
         ) : null}
-        <p className="mt-3 text-center font-mono text-[11px] uppercase tracking-wider text-text-muted">
+        <p className="mt-3 text-center font-mono text-[12px] uppercase tracking-wider text-text-muted">
           Wrong? Tell your supervisor before continuing.
         </p>
         <PrimaryCta disabled={!phoneOk} onClick={() => setStep("pin")}>
@@ -296,7 +296,7 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
           </a>
         </div>
       ) : (
-        <p className="mt-4 text-center font-mono text-[11px] uppercase tracking-wider text-text-muted">
+        <p className="mt-4 text-center font-mono text-[12px] uppercase tracking-wider text-text-muted">
           Tip: add Phil to your home screen for one-tap access.
         </p>
       )}
@@ -312,7 +312,7 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
 function ReadField({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-card border border-border bg-surface-subtle p-3">
-      <p className="font-mono text-[10px] uppercase tracking-widest text-text-muted">{label}</p>
+      <p className="font-mono text-[12px] uppercase tracking-widest text-text-muted">{label}</p>
       <p className="mt-0.5 text-base text-text">{value}</p>
     </div>
   );
@@ -321,7 +321,7 @@ function ReadField({ label, value }: { label: string; value: string }) {
 function IntroCard({ tag, title, body }: { tag: string; title: string; body: string }) {
   return (
     <div className="rounded-card border border-border p-4">
-      <p className="font-mono text-[10px] uppercase tracking-widest text-text-muted">{tag}</p>
+      <p className="font-mono text-[12px] uppercase tracking-widest text-text-muted">{tag}</p>
       <p className="font-display text-base text-text">{title}</p>
       <p className="mt-0.5 text-sm text-text-muted">{body}</p>
     </div>
@@ -339,7 +339,7 @@ function PinInput({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block font-mono text-[10px] uppercase tracking-widest text-text-muted">
+      <span className="mb-1 block font-mono text-[12px] uppercase tracking-widest text-text-muted">
         {label}
       </span>
       <input
