@@ -21,7 +21,6 @@ interface Props {
 
 export function JobTagsPanel({ jobId, initialTags, loadError = false }: Props) {
   const counts = countTagRegister(initialTags);
-  const href = `/phil/jobs/${encodeURIComponent(jobId)}/tags`;
 
   return (
     <Card>
@@ -57,7 +56,7 @@ export function JobTagsPanel({ jobId, initialTags, loadError = false }: Props) {
 
       {!loadError ? (
         <Link
-          href={href}
+          href={`/phil/jobs/${encodeURIComponent(jobId)}/tags`}
           className="mt-3 inline-block text-sm font-medium text-brand-navy underline underline-offset-2"
           data-testid="open-tag-register"
         >
