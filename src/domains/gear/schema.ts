@@ -135,6 +135,21 @@ export const GearHistoryEntrySchema = z
   })
   .passthrough();
 
+/** Metadata patch for PUT /api/assets?id= (#389). Holder changes stay on
+ *  ?action=transfer — the server rejects them here by design. */
+export const UpdateGearAssetPayloadSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  type: GearAssetTypeSchema.optional(),
+  identifier: z.string().trim().max(120).nullable().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+  expectedReturn: z.string().nullable().optional(),
+  ownership: z.enum(["owned", "hired"]).optional(),
+  hireEndDate: z.string().nullable().optional(),
+  hireRateExGst: z.number().nullable().optional(),
+  hireSupplier: z.string().trim().max(120).nullable().optional(),
+  calibrationDue: z.string().nullable().optional(),
+});
+
 export const GearListResponseSchema = z.object({
   assets: z.array(GearAssetSchema),
 });
@@ -199,6 +214,11 @@ export const CreateGearAssetPayloadSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected return must be YYYY-MM-DD")
     .nullable()
     .optional(),
+  ownership: z.enum(["owned", "hired"]).optional(),
+  hireEndDate: z.string().nullable().optional(),
+  hireRateExGst: z.number().nullable().optional(),
+  hireSupplier: z.string().trim().max(120).nullable().optional(),
+  calibrationDue: z.string().nullable().optional(),
 });
 
 /**

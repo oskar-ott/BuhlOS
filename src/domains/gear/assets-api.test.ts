@@ -429,6 +429,64 @@ describe("never leaks passwordHash", () => {
   });
 });
 
+describe("create persists hire fields (#394) and archive works (#389)", () => {
+  it("create with hired-gear fields stores them verbatim — create and edit can't disagree", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_admin",
+      role: "admin",
+      body: {
+        name: "Genie lift",
+        type: "other",
+        ownership: "hired",
+        hireEndDate: "2026-07-31",
+        hireRateExGst: 180.5,
+        hireSupplier: "Coates Hire",
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    expect((res.body as { asset: Record<string, unknown> }).asset).toMatchObject({
+      ownership: "hired",
+      hireEndDate: "2026-07-31",
+      hireRateExGst: 180.5,
+      hireSupplier: "Coates Hire",
+    });
+  });
+
+  it("create without ownership defaults to owned with null hire fields", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_admin",
+      role: "admin",
+      body: { name: "Crimps", type: "tool" },
+    });
+    expect((res.body as { asset: Record<string, unknown> }).asset).toMatchObject({
+      ownership: "owned",
+      hireEndDate: null,
+      hireRateExGst: null,
+      hireSupplier: null,
+    });
+  });
+
+  it("DELETE soft-archives (admin only) — record kept, archived flag set", async () => {
+    const res = await call({
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "a_storage" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { asset: { archived: boolean } }).asset.archived).toBe(true);
+    const denied = await call({
+      method: "DELETE",
+      userId: "u_field",
+      role: "electrician",
+      query: { id: "a_held" },
+    });
+    expect(denied.statusCode).toBe(403);
+  });
+});
+
 describe("calibrationDue (#305) — optional ISO date on create/edit", () => {
   it("create accepts a valid ISO calibrationDue and stores it", async () => {
     const res = await call({

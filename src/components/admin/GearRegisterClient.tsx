@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { Modal } from "@/components/ui/Modal";
-import { markGearGood, reportGear, setGearCalibrationDue, transferGear } from "@/domains/gear/client";
+import { archiveGearAsset, markGearGood, reportGear, setGearCalibrationDue, transferGear } from "@/domains/gear/client";
+import { AssetEditorSheet } from "@/components/admin/AssetEditorSheet";
 import { isLeadingHandRole } from "@/lib/auth/roles";
 import { deriveStatus, statusTone } from "@/domains/gear/service";
 import {
@@ -97,6 +98,10 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
   }
 
   const drawerAsset = drawerAssetId ? assets.find((a) => a.id === drawerAssetId) ?? null : null;
+  const [editor, setEditor] = useState<
+    { mode: "create" } | { mode: "edit"; asset: GearAsset } | null
+  >(null);
+  const [archiveTarget, setArchiveTarget] = useState<GearAsset | null>(null);
 
   return (
     <>
@@ -118,6 +123,9 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
           <FilterTab label="Damaged" count={counts.damaged} active={filter === "damaged"} onClick={() => setFilter("damaged")} tone="danger" />
           <FilterTab label="Missing" count={counts.missing} active={filter === "missing"} onClick={() => setFilter("missing")} tone="warning" />
           <FilterTab label="Retired" count={counts.retired} active={filter === "retired"} onClick={() => setFilter("retired")} tone="neutral" />
+          <Button size="sm" onClick={() => setEditor({ mode: "create" })} data-testid="asset-editor-open">
+            Add an asset
+          </Button>
         </div>
 
         {errorMessage ? (
@@ -201,12 +209,56 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
         </div>
       </Card>
 
+      {archiveTarget ? (
+        <Modal open onClose={() => setArchiveTarget(null)} title={`Archive ${archiveTarget.name}?`} className="max-w-md">
+          <div className="space-y-4 text-sm">
+            <p className="text-text-muted">
+              It moves to Retired — the record and its history are kept, and it disappears from
+              assignment flows.
+            </p>
+            <div className="flex gap-2">
+              <Button variant="secondary" className="flex-1" onClick={() => setArchiveTarget(null)} disabled={isPending}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1"
+                disabled={isPending}
+                data-testid="asset-archive-confirm"
+                onClick={() => {
+                  const target = archiveTarget;
+                  setArchiveTarget(null);
+                  setDrawerAssetId(null);
+                  if (target) handleMutation(archiveGearAsset(target.id));
+                }}
+              >
+                Archive
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {editor ? (
+        <AssetEditorSheet
+          mode={editor.mode}
+          asset={editor.mode === "edit" ? editor.asset : undefined}
+          holders={holders}
+          onClose={() => setEditor(null)}
+          onSaved={() => {
+            setEditor(null);
+            handleMutation(Promise.resolve({ ok: true }));
+          }}
+        />
+      ) : null}
+
       {drawerAsset ? (
         <AssetDrawer
           asset={drawerAsset}
           holders={holders}
           onClose={() => setDrawerAssetId(null)}
           onMutate={handleMutation}
+          onEdit={() => setEditor({ mode: "edit", asset: drawerAsset })}
+          onArchive={() => setArchiveTarget(drawerAsset)}
           isPending={isPending}
         />
       ) : null}
@@ -255,13 +307,17 @@ interface AssetDrawerProps {
   asset: GearAsset;
   holders: ReadonlyArray<GearHolderUser>;
   onClose: () => void;
+  /** Opens the metadata editor for this asset (#389). */
+  onEdit: () => void;
+  /** Asks the parent to confirm archiving this asset (#389). */
+  onArchive: () => void;
   onMutate: (promise: Promise<{ ok: boolean; error?: { message: string } }>) => void;
   isPending: boolean;
 }
 
 // Exported for the holder-picker render test: it renders the transfer <select>
 // of eligible holders (field-tier + leading hands) and the per-asset actions.
-export function AssetDrawer({ asset, holders, onClose, onMutate, isPending }: AssetDrawerProps) {
+export function AssetDrawer({ asset, holders, onClose, onEdit, onArchive, onMutate, isPending }: AssetDrawerProps) {
   const [history, setHistory] = useState<ReadonlyArray<GearHistoryEntry> | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [toUserId, setToUserId] = useState<string>(asset.currentHolderId ?? "");
@@ -312,6 +368,23 @@ export function AssetDrawer({ asset, holders, onClose, onMutate, isPending }: As
             </>
           ) : null}
         </dl>
+
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" onClick={onEdit} disabled={isPending} data-testid="asset-drawer-edit">
+            Edit details
+          </Button>
+          {!asset.archived ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={isPending}
+              onClick={onArchive}
+              data-testid="asset-drawer-archive"
+            >
+              Archive
+            </Button>
+          ) : null}
+        </div>
 
         {asset.archived ? null : (
           <section aria-label="Calibration">
