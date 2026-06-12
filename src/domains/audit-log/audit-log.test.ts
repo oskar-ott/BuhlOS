@@ -133,6 +133,9 @@ describe("AuditLogEntrySchema", () => {
       "evidence.rejected",
       "evidence.reviewed",
       "evidence.unreviewed",
+      // #332: induction register (backfilled sorts before confirmed).
+      "induction.backfilled",
+      "induction.confirmed",
       "invite.accepted",
       "invite.issued",
       "invite.opened",
@@ -166,6 +169,7 @@ describe("AuditLogEntrySchema", () => {
       "document",
       "employee",
       "evidence",
+      "induction",
       "invite",
       "itp_instance",
       "itp_template",

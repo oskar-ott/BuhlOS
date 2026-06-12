@@ -18,6 +18,7 @@ function input(over: Partial<PhilJobCommandInput> = {}): PhilJobCommandInput {
       visibleToField: true,
       onHold: false,
       inductionRequired: false,
+    inductionDone: false,
     },
     capture: { kind: "unavailable" },
     plans: { kind: "not_configured" },
@@ -60,7 +61,7 @@ describe("buildPhilJobCommandModel — identity & state", () => {
 
   it("marks a draft / archived job as office-only with nothing for the field", () => {
     const m = buildPhilJobCommandModel(
-      input({ job: { kind: "ok", id: "j", name: "Draft job", visibleToField: false, onHold: false, inductionRequired: false } }),
+      input({ job: { kind: "ok", id: "j", name: "Draft job", visibleToField: false, onHold: false, inductionRequired: false, inductionDone: false } }),
     );
     expect(m.state).toBe("office_only");
     expect(m.primaryAction).toBeNull();
@@ -79,7 +80,7 @@ describe("buildPhilJobCommandModel — identity & state", () => {
   it("flags an on-hold job as blocked and does not lead the worker into work", () => {
     const m = buildPhilJobCommandModel(
       input({
-        job: { kind: "ok", id: "j", name: "Paused", visibleToField: true, onHold: true, inductionRequired: false },
+        job: { kind: "ok", id: "j", name: "Paused", visibleToField: true, onHold: true, inductionRequired: false, inductionDone: false },
         capture: { kind: "available" },
       }),
     );
@@ -233,10 +234,28 @@ describe("buildPhilJobCommandModel — priority & primary action", () => {
     expect(m.primaryAction?.id).toBe("complete_checks");
   });
 
+  it("induction attention shows when required and THIS worker has no record (#332)", () => {
+    const m = buildPhilJobCommandModel(
+      input({
+        job: { kind: "ok", id: "j", name: "n", visibleToField: true, onHold: false, inductionRequired: true, inductionDone: false },
+      }),
+    );
+    expect(m.attention.some((a) => a.id === "induction-required")).toBe(true);
+  });
+
+  it("induction attention is SUPPRESSED once the worker's record exists (#332)", () => {
+    const m = buildPhilJobCommandModel(
+      input({
+        job: { kind: "ok", id: "j", name: "n", visibleToField: true, onHold: false, inductionRequired: true, inductionDone: true },
+      }),
+    );
+    expect(m.attention.some((a) => a.id === "induction-required")).toBe(false);
+  });
+
   it("orders attention items blocked → warning → info", () => {
     const m = buildPhilJobCommandModel(
       input({
-        job: { kind: "ok", id: "j", name: "n", visibleToField: true, onHold: true, inductionRequired: true },
+        job: { kind: "ok", id: "j", name: "n", visibleToField: true, onHold: true, inductionRequired: true, inductionDone: false },
         snags: { kind: "count", value: 3 },
       }),
     );
@@ -294,7 +313,7 @@ describe("buildPhilJobCommandModel — Phil voice (no admin / payroll / Xero lan
     // A kitchen-sink model that exercises every action, attention and limitation.
     const m = buildPhilJobCommandModel(
       input({
-        job: { kind: "ok", id: "j", name: "n", visibleToField: true, onHold: false, inductionRequired: true },
+        job: { kind: "ok", id: "j", name: "n", visibleToField: true, onHold: false, inductionRequired: true, inductionDone: false },
         capture: { kind: "available" },
         plans: { kind: "count", value: 2 },
         snags: { kind: "count", value: 1 },

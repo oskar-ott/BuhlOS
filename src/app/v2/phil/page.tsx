@@ -3,6 +3,11 @@ import type { Route } from "next";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilMyLicencesCard } from "@/components/phil/PhilMyLicencesCard";
+import { PhilMyInductionsCard } from "@/components/phil/PhilMyInductionsCard";
+import {
+  MyInductionHistoryResponseSchema,
+  type InductionRecord,
+} from "@/domains/jobs/induction";
 import { SESSION_COOKIE } from "@/lib/auth/session";
 import { CredentialListResponseSchema } from "@/domains/workforce/schema";
 import type { Credential } from "@/domains/workforce/types";
@@ -23,7 +28,10 @@ import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
 export const dynamic = "force-dynamic";
 
 export default async function PhilV2HomePage() {
-  const { credentials, fetchError } = await loadMyLicences();
+  const [{ credentials, fetchError }, inductions] = await Promise.all([
+    loadMyLicences(),
+    loadMyInductions(),
+  ]);
   return (
     <PhilShell title="Phil">
       <div className="space-y-4">
@@ -68,6 +76,12 @@ export default async function PhilV2HomePage() {
             push deep-links to this page. */}
         <PhilMyLicencesCard credentials={credentials} fetchError={fetchError} />
 
+        {/* #332: jobs where this worker's site induction is on record. */}
+        <PhilMyInductionsCard
+          records={inductions.records}
+          fetchError={inductions.fetchError}
+        />
+
         <PushNotificationsCard audience="phil" />
 
         <UnderConstructionPanel
@@ -108,6 +122,35 @@ async function loadMyLicences(): Promise<{
   } catch (err) {
     return {
       credentials: [],
+      fetchError: err instanceof Error ? err.message : "network error",
+    };
+  }
+}
+
+/** #332: own induction history (?mine=1 — session identity only). Fail-soft. */
+async function loadMyInductions(): Promise<{
+  records: ReadonlyArray<InductionRecord>;
+  fetchError: string | null;
+}> {
+  try {
+    const store = await cookies();
+    const raw = store.get(SESSION_COOKIE)?.value;
+    if (!raw) return { records: [], fetchError: "not signed in" };
+    const h = await headers();
+    const host = h.get("x-forwarded-host") ?? h.get("host");
+    const proto = h.get("x-forwarded-proto") ?? "http";
+    const base = host ? `${proto}://${host}` : "http://localhost:3000";
+    const res = await fetch(`${base}/api/job-inductions?mine=1`, {
+      cache: "no-store",
+      headers: { cookie: `${SESSION_COOKIE}=${raw}` },
+    });
+    if (!res.ok) return { records: [], fetchError: `API ${res.status}` };
+    const parsed = MyInductionHistoryResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { records: [], fetchError: "bad shape" };
+    return { records: parsed.data.records, fetchError: null };
+  } catch (err) {
+    return {
+      records: [],
       fetchError: err instanceof Error ? err.message : "network error",
     };
   }

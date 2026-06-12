@@ -67,6 +67,9 @@ export interface DeriveAttentionInput {
   /** Current viewer id — used to scope "assigned to me" rows. Pass
    *  null/empty if unknown (the "assigned" item is then suppressed). */
   viewerId: string | null;
+  /** True when THIS worker has a recorded induction on this job (#332).
+   *  Undefined/false keeps the reminder — safe direction for compliance. */
+  inductionDone?: boolean;
 }
 
 const MAX_VISIBLE = 3;
@@ -159,8 +162,9 @@ export function deriveAttention(
     });
   }
 
-  // 4. Site induction required — first-visit reminder.
-  if (input.job.inductionRequired) {
+  // 4. Site induction required — first-visit reminder. Cleared once THIS
+  // worker has a record in the induction register (#332).
+  if (input.job.inductionRequired && !input.inductionDone) {
     items.push({
       id: `induction`,
       tone: "info",

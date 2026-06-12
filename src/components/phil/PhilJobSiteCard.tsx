@@ -11,6 +11,7 @@ import {
   User,
 } from "lucide-react";
 import { Card, CardTitle } from "@/components/ui/Card";
+import { PhilActionButton } from "./ui/PhilActionButton";
 import { PhilNotice } from "./ui/PhilNotice";
 import { hasSiteContext } from "@/domains/jobs/format";
 import type { Job } from "@/domains/jobs/types";
@@ -32,11 +33,27 @@ import { cn } from "@/lib/cn";
  * Keeps `id="phil-job-site"` so the attention strip's "Site induction required"
  * item still scrolls here (PhilJobAttention.deriveAttention → `#phil-job-site`).
  */
+export interface SiteCardInduction {
+  /** "required" = flag on, no record for THIS worker; "done" = record exists. */
+  state: "required" | "done";
+  /** completedAt of the worker's latest record (state "done"). */
+  completedAt: string | null;
+  /** One-tap confirm (#332) — non-optimistic; the caller flips state only
+   *  after the server says yes. Absent = render the legacy static warning. */
+  onConfirm?: () => void;
+  saving?: boolean;
+  error?: string | null;
+}
+
 export function PhilJobSiteCard({
   job,
+  induction,
   defaultOpen = false,
 }: {
   job: Job;
+  /** Induction completion state (#332). Optional — when the caller doesn't
+   *  load records, the card falls back to the original static warning. */
+  induction?: SiteCardInduction | null;
   /** Start expanded. Defaults to collapsed so the bottom reference zone stays
    *  quiet; the worker opens it on arrival. */
   defaultOpen?: boolean;
@@ -116,15 +133,48 @@ export function PhilJobSiteCard({
               </SiteField>
             ) : null}
             {job.inductionRequired ? (
-              <PhilNotice tone="warning" title="Site induction required">
-                Confirm with your leading hand before starting.
-              </PhilNotice>
+              induction?.state === "done" ? (
+                <PhilNotice tone="success" title="Site induction confirmed">
+                  {induction.completedAt
+                    ? `On record — ${formatInductionDate(induction.completedAt)}.`
+                    : "On record."}
+                </PhilNotice>
+              ) : (
+                <PhilNotice tone="warning" title="Site induction required">
+                  <p>Confirm with your leading hand before starting.</p>
+                  {induction?.onConfirm ? (
+                    <div className="mt-3 space-y-2">
+                      {induction.error ? (
+                        <p role="alert" className="text-sm text-state-danger">
+                          {induction.error}
+                        </p>
+                      ) : null}
+                      <PhilActionButton
+                        onClick={induction.onConfirm}
+                        disabled={Boolean(induction.saving)}
+                        data-testid="induction-confirm"
+                      >
+                        {induction.saving ? "Recording…" : "I’ve done my induction"}
+                      </PhilActionButton>
+                    </div>
+                  ) : null}
+                </PhilNotice>
+              )
             ) : null}
           </dl>
         ) : null}
       </Card>
     </section>
   );
+}
+
+/** "12 Jun 2026" from an ISO timestamp — compact, no time (the register
+ *  keeps the precise stamp; the card answers "am I sorted here?"). */
+function formatInductionDate(isoTimestamp: string): string {
+  const d = new Date(isoTimestamp);
+  if (Number.isNaN(d.getTime())) return isoTimestamp;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 function SiteField({
