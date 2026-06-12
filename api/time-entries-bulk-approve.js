@@ -29,7 +29,7 @@
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
 const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
-const { sendPushToUserId } = require('./_lib/push');
+const { notify } = require('./_lib/notify');
 
 const MAX_ENTRIES = 50;
 
@@ -129,14 +129,21 @@ module.exports = async (req, res) => {
     }
     approved.push({ userId, date, totalHours: Number(entry.totalHours) || 0 });
 
-    // Fire-and-forget per-entry push. Same payload shape as the single
-    // endpoint so the recipient gets the same notification regardless of
-    // how Daniel approved it.
-    sendPushToUserId(userId, {
-      title: 'Hours approved',
-      body: `${Number(entry.totalHours).toFixed(1)} hrs on ${date} approved by ${me.username}.`,
-      url: '/phil/my-day',
-      tag: 'buhl-hours-approved-' + date,
+    // Fire-and-forget PER-ENTRY push via notify() (#162). Routing prefs are
+    // applied per-recipient (the pre-loaded userById record carries
+    // notificationPrefs), NOT per-batch — so muting `hoursApproved` suppresses
+    // only that user's notifications while the rest of the batch still fire.
+    // Same payload shape as the single endpoint so the recipient gets the same
+    // notification regardless of how Daniel approved it.
+    notify({
+      kind: 'hoursApproved',
+      audience: [userById[userId] || { id: userId }],
+      payload: {
+        title: 'Hours approved',
+        body: `${Number(entry.totalHours).toFixed(1)} hrs on ${date} approved by ${me.username}.`,
+        url: '/phil/my-day',
+        tag: 'buhl-hours-approved-' + date,
+      },
     }).catch(() => {});
   }
 

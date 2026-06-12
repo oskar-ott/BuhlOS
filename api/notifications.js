@@ -30,6 +30,7 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { getCurrentUser, isAdminRole, isLeadingHandRole, isFieldRole, isClientRole, isDisabledUser } = require('./_lib/auth');
 const { getWebPush, sendPushToUserId } = require('./_lib/push');
+const { notify } = require('./_lib/notify');
 // #381: fail-closed cron gate (503 in production when CRON_SECRET unset).
 const { requireCron } = require('./_lib/cron-auth');
 const { readLeave, approvedLeaveByUserDate } = require('./_lib/leave');
@@ -516,12 +517,18 @@ module.exports = async (req, res) => {
       tag: 'buhl-stale-snags-' + new Date().toISOString().slice(0, 10),
     };
 
-    let sent = 0, pruned = 0;
-    for (const u of admins) {
-      const r = await sendPushToUserId(u.id, payload);
-      sent   += (r.sent   || 0);
-      pruned += (r.pruned || 0);
-    }
+    // PILOT cron migration (#162): fan out through the notify() engine so the
+    // `staleSnags` pref is finally consulted — an admin who muted stale-snag
+    // triage now gets nothing, while the rest still do. The audience
+    // (admin-tier, not archived, has subscriptions) and payload are unchanged;
+    // notify() layers the per-user prefs filter on top and returns the same
+    // { sent, pruned } shape this response already reports. One engine call
+    // routes the whole audience.
+    const { sent, pruned } = await notify({
+      kind: 'staleSnags',
+      audience: admins,
+      payload,
+    });
 
     return res.status(200).json({
       ok: true, sent, pruned,

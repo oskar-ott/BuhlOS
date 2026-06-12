@@ -43,6 +43,15 @@ test("unauthenticated users are redirected from the quote builder (#183)", async
   await expect(page.getByTestId("login-submit")).toBeVisible();
 });
 
+test("unauthenticated users are redirected from notification settings (#218)", async ({
+  page,
+}) => {
+  // Non-mutating: the /settings middleware gate fires before the page renders.
+  await page.goto("/settings/notifications");
+  await expect(page).toHaveURL(/\/v2\/login\?next=%2Fsettings%2Fnotifications/);
+  await expect(page.getByTestId("login-submit")).toBeVisible();
+});
+
 test.describe("authenticated admin routing", () => {
   test.skip(!adminCredentials(), "Set BUHLOS_TEST_ADMIN_EMAIL and BUHLOS_TEST_ADMIN_PASSWORD.");
 

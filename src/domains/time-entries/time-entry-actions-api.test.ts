@@ -13,6 +13,12 @@ const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const timeEntriesLibPath = requireFromHere.resolve("../../../api/_lib/time-entries.js");
 const pushPath = requireFromHere.resolve("../../../api/_lib/push.js");
+// #162: the approve/bulk-approve handlers now push via the notify() engine,
+// which require()s push.js underneath. Evict notify + its router each test so a
+// freshly-loaded engine binds to the freshly-mocked push.js (the cache is
+// process-global across test files — a stale notify would hold the real push).
+const notifyPath = requireFromHere.resolve("../../../api/_lib/notify.js");
+const notifyRoutingPath = requireFromHere.resolve("../../../api/_lib/notify-routing.js");
 const activityPath = requireFromHere.resolve("../../../api/_lib/activity.js");
 const approvePath = requireFromHere.resolve("../../../api/time-entries-approve.js");
 const rejectPath = requireFromHere.resolve("../../../api/time-entries-reject.js");
@@ -163,6 +169,8 @@ beforeEach(() => {
     authPath,
     timeEntriesLibPath,
     pushPath,
+    notifyPath,
+    notifyRoutingPath,
     activityPath,
     approvePath,
     rejectPath,

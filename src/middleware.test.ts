@@ -81,6 +81,7 @@ describe("middleware — unauthenticated access to a gated route → /v2/login?n
     "/reports",
     "/v2/quotes",
     "/v2/quotes/qv2_abc123",
+    "/settings/notifications",
     "/v2/jobs",
     "/v2/jobs/abc123/builder",
     "/v2/phil",
@@ -197,6 +198,25 @@ describe("middleware — /v2/quotes builder (#183, admin tier only)", () => {
 
   it("redirects a field worker off /v2/quotes to their Phil home", () => {
     const target = redirectTarget(middleware(request("/v2/quotes/qv2_abc123", { role: "tradie" })));
+    expect(target?.pathname).toBe("/phil/my-day");
+  });
+});
+
+describe("middleware — /settings notification prefs (#218, admin tier)", () => {
+  it("lets a boss (admin tier, not literal 'admin') through /settings/notifications", () => {
+    expect(
+      isPassThrough(middleware(request("/settings/notifications", { role: "boss" }))),
+    ).toBe(true);
+  });
+
+  it("lets an admin through /settings/notifications", () => {
+    expect(
+      isPassThrough(middleware(request("/settings/notifications", { role: "admin" }))),
+    ).toBe(true);
+  });
+
+  it("redirects a field worker off /settings to their Phil home", () => {
+    const target = redirectTarget(middleware(request("/settings/notifications", { role: "tradie" })));
     expect(target?.pathname).toBe("/phil/my-day");
   });
 });
