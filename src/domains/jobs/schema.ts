@@ -71,6 +71,18 @@ export const JobTaskTemplateSchema = z
  * itself (Job.customFields) and on areas. Display read-only in Phase D1;
  * editing lives in legacy Job Builder.
  */
+/** #200: one agreed scope-of-work line — captured in the builder, the
+ *  source structure/tasks/quotes build from. Admin-tier writes; LH reads;
+ *  the redaction layer keeps it out of field/client GET payloads. */
+export const ScopeOfWorkItemSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    detail: z.string(),
+    order: z.number(),
+  })
+  .passthrough();
+
 export const CustomFieldSchema = z
   .object({
     id: z.string(),
@@ -147,6 +159,8 @@ export const JobSchema = z
     roughInTasks: z.array(JobTaskTemplateSchema).optional(),
     fitOffTasks: z.array(JobTaskTemplateSchema).optional(),
     customFields: z.array(CustomFieldSchema).optional(),
+    /** #200: scope of work (admin/LH read; redacted for field/client). */
+    scopeOfWork: z.array(ScopeOfWorkItemSchema).optional(),
 
     // Feature flags.
     modules: JobModulesSchema.optional(),
@@ -334,6 +348,18 @@ const JobWritableFieldsSchema = z.object({
   fitOffTasks: z.array(JobTaskTemplateInputSchema).optional(),
 
   modules: JobModulesSchema.optional(),
+
+  /** #200: full-array replacement; ids/order are server-assigned. */
+  scopeOfWork: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        title: z.string().trim().min(1, "Scope item needs a title").max(200),
+        detail: z.string().max(2000).optional(),
+      })
+    )
+    .max(50)
+    .optional(),
 });
 
 /** POST /api/jobs body. `name` required; `id` optional (server slugifies

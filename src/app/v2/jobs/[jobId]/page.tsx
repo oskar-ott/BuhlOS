@@ -11,6 +11,7 @@ import { JobInterfaceSectionNav } from "@/components/admin/JobInterfaceSectionNa
 import { JobOverviewSummary } from "@/components/admin/JobOverviewSummary";
 import { JobFieldViewCard } from "@/components/admin/JobFieldViewCard";
 import { JobInductionCard } from "@/components/admin/JobInductionCard";
+import { JobScopeCard } from "@/components/admin/JobScopeCard";
 import {
   JobInductionsResponseSchema,
   type CrewInductionStatus,
@@ -163,6 +164,10 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
       <div className="mx-auto max-w-4xl space-y-4">
         <JobHeaderCard job={job} />
         <JobOverviewSummary job={job} />
+        {/* #200: the agreed scope, read-only. Field/client payloads never
+            carry the field (server redaction), so this renders for the
+            admin/LH viewers who can see this page with data present. */}
+        <JobScopeCard job={job} />
         <JobBuildCard job={job} canBuild={canBuild} />
         <JobFieldViewCard job={job} />
         {/* Operational loop — what's actually happening on the job, derived
