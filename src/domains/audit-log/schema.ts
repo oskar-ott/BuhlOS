@@ -99,6 +99,9 @@ export const AUDIT_ACTIONS = [
   "document.made_current",
   "contact.saved",
   "contact.removed",
+  "credential.added",
+  "credential.updated",
+  "credential.removed",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -118,6 +121,7 @@ export const AUDIT_TARGET_TYPES = [
   "system",
   "document",
   "contact",
+  "credential",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

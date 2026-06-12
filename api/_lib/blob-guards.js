@@ -105,6 +105,14 @@ const EXACT_GUARDS = {
     validate: (doc) =>
       isPlainObject(doc) && isPlainObject(doc.entries) ? null : 'entries must be an object',
   },
+  // Worker licence/ticket register (#331): { credentials: [{id, userId, …}] }.
+  'workforce/credentials.json': { validate: arrayOfIdObjects('credentials') },
+  // Licence alert dedupe state (#331) — same shape + no-shrink rationale as
+  // tag-reminder-state.json (renewals legitimately empty it).
+  'licence-reminder-state.json': {
+    validate: (doc) =>
+      isPlainObject(doc) && isPlainObject(doc.entries) ? null : 'entries must be an object',
+  },
 };
 
 /** Pattern validators (multi-document stores). */

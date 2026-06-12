@@ -32,6 +32,8 @@ const EXACT_STORES = [
   'structure-presets.json', // reusable area-group presets (#192)
   'tag-reminder-state.json', // tag/calibration alert dedupe state (#305)
   'leave-requests.json', // workforce leave request/approval store (#333)
+  'workforce/credentials.json', // worker licence/ticket register (#331)
+  'licence-reminder-state.json', // licence alert dedupe state (#331)
   'temps/assets.json',
   'temps/movements.json',
 ];

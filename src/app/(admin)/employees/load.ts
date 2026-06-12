@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { z } from "zod";
 import { SESSION_COOKIE } from "@/lib/auth/session";
 import { EmployeeListResponseSchema } from "@/domains/employees/schema";
+import { CredentialListResponseSchema } from "@/domains/workforce/schema";
 import type { EmployeeRow } from "@/domains/employees/types";
 import type { ActiveJobOption } from "@/components/admin/AddEmployeeDrawer";
 
@@ -32,6 +33,10 @@ export interface EmployeesView {
   activeJobs: ReadonlyArray<ActiveJobOption>;
   emailConfigured: boolean;
   fetchError: string | null;
+  /** Worst licence status per worker account id (#331) — 'expired' beats
+   *  'expiring' beats 'ok'. Absent userId = no records on file. Fail-soft:
+   *  an empty map just hides the chips, the register still works. */
+  licenceStatusByUserId: Readonly<Record<string, "expired" | "expiring" | "ok">>;
 }
 
 export async function loadEmployeesView(cookieValue: string | undefined): Promise<EmployeesView> {
@@ -44,9 +49,10 @@ export async function loadEmployeesView(cookieValue: string | undefined): Promis
     : undefined;
 
   try {
-    const [empRes, jobsRes] = await Promise.all([
+    const [empRes, jobsRes, licRes] = await Promise.all([
       fetch(`${base}/api/employees`, { cache: "no-store", headers: cookieHeader }),
       fetch(`${base}/api/jobs`, { cache: "no-store", headers: cookieHeader }),
+      fetch(`${base}/api/licences`, { cache: "no-store", headers: cookieHeader }).catch(() => null),
     ]);
 
     if (!empRes.ok) {
@@ -55,11 +61,18 @@ export async function loadEmployeesView(cookieValue: string | undefined): Promis
         activeJobs: [],
         emailConfigured: false,
         fetchError: `Employees API returned ${empRes.status}`,
+        licenceStatusByUserId: {},
       };
     }
     const empParsed = EmployeeListResponseSchema.safeParse(await empRes.json());
     if (!empParsed.success) {
-      return { rows: [], activeJobs: [], emailConfigured: false, fetchError: "Unexpected employees response shape" };
+      return {
+        rows: [],
+        activeJobs: [],
+        emailConfigured: false,
+        fetchError: "Unexpected employees response shape",
+        licenceStatusByUserId: {},
+      };
     }
 
     let activeJobs: ActiveJobOption[] = [];
@@ -72,11 +85,22 @@ export async function loadEmployeesView(cookieValue: string | undefined): Promis
       }
     }
 
+    let licenceStatusByUserId: Record<string, "expired" | "expiring" | "ok"> = {};
+    if (licRes?.ok) {
+      const licParsed = CredentialListResponseSchema.safeParse(await licRes.json());
+      if (licParsed.success && licParsed.data.worstByUser) {
+        // Server-computed by the one shared engine (renewal-aware) — never
+        // re-derived here.
+        licenceStatusByUserId = licParsed.data.worstByUser;
+      }
+    }
+
     return {
       rows: empParsed.data.employees,
       activeJobs,
       emailConfigured: empParsed.data.emailConfigured,
       fetchError: null,
+      licenceStatusByUserId,
     };
   } catch (err) {
     return {
@@ -84,6 +108,7 @@ export async function loadEmployeesView(cookieValue: string | undefined): Promis
       activeJobs: [],
       emailConfigured: false,
       fetchError: err instanceof Error ? err.message : "Network error",
+      licenceStatusByUserId: {},
     };
   }
 }

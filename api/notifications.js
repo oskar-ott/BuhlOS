@@ -34,6 +34,7 @@ const { getWebPush, sendPushToUserId } = require('./_lib/push');
 const { requireCron } = require('./_lib/cron-auth');
 const { readLeave, approvedLeaveByUserDate } = require('./_lib/leave');
 const { expiringTagRows, expiringCalibrationRows, newCrossings } = require('./_lib/tag-compliance');
+const { licenceRows, newLicenceCrossings } = require('./_lib/licence-compliance');
 const { listAllAssets } = require('./_lib/assets');
 
 const USERS_KEY = 'users.json';
@@ -255,6 +256,74 @@ module.exports = async (req, res) => {
       const r = await sendPushToUserId(u.id, {
         title, body, url,
         tag: 'buhl-tag-alerts',
+      });
+      sent   += (r.sent   || 0);
+      pruned += (r.pruned || 0);
+    }
+
+    await writeBlob(STATE_KEY, { entries: nextState });
+    return res.status(200).json({ ok: true, crossed: crossed.length, sent, skipped, pruned });
+  }
+
+  // ── send-licence-reminders: daily worker-ticket threshold alerts (#331) ─
+  // Same compliance-loop mechanics as send-tag-reminders, for HUMANS: the
+  // shared api/_lib/licence-compliance.js projects the credential register
+  // into expiring/expired rows (60d window, renewals supersede, archived
+  // workers never alert), and only NEW band crossings (60d → 14d → expired)
+  // push — state in licence-reminder-state.json, so a ticket alerts at most
+  // three times over its life. Admins get the whole digest (/employees);
+  // each worker hears about their OWN tickets only (/v2/phil self-view).
+  // PII: pushes name the ticket type, never the licence number.
+  if (action === 'send-licence-reminders' && req.method === 'GET') {
+    if (!requireCron(req, res)) return;
+    if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
+
+    const WITHIN_DAYS = 60;
+    const STATE_KEY = 'licence-reminder-state.json';
+
+    const credsBlob = await readBlob('workforce/credentials.json', { credentials: [] });
+    const usersData = await readBlob(USERS_KEY, { users: [] });
+    const users = usersData.users || [];
+    const rows = licenceRows(credsBlob.credentials || [], users, { withinDays: WITHIN_DAYS });
+
+    const stateBlob = await readBlob(STATE_KEY, { entries: {} });
+    const { crossed, nextState } = newLicenceCrossings(rows, (stateBlob && stateBlob.entries) || {});
+
+    // State is written AFTER the sends — same failure mode choice as the
+    // tag loop: a mid-fan-out crash re-alerts rather than silently losing.
+    if (!crossed.length) {
+      await writeBlob(STATE_KEY, { entries: nextState });
+      return res.status(200).json({ ok: true, crossed: 0, sent: 0 });
+    }
+
+    let sent = 0, skipped = 0, pruned = 0;
+    for (const u of users) {
+      if (isClientRole(u.role) || isDisabledUser(u)) continue;
+      if (u.notificationPrefs && u.notificationPrefs.licenceReminders === false) { skipped++; continue; }
+      if (!u.pushSubscriptions || !u.pushSubscriptions.length) { skipped++; continue; }
+
+      const admin = isAdminRole(u.role);
+      // Admins chase everyone's renewals; a worker hears about their own.
+      const mine = crossed.filter(r => admin || r.userId === u.id);
+      if (!mine.length) { skipped++; continue; }
+
+      const nExpired = mine.filter(r => r.threshold === 'expired').length;
+      const n14 = mine.filter(r => r.threshold === 't14').length;
+      const n60 = mine.filter(r => r.threshold === 't60').length;
+      const titleBits = [];
+      if (nExpired) titleBits.push(nExpired + ' expired');
+      if (n14) titleBits.push(n14 + ' due in 14d');
+      if (n60) titleBits.push(n60 + ' due in 60d');
+      const title = (admin ? '⚠ Licences — ' : '⚠ Your tickets — ') + titleBits.join(' · ');
+
+      const names = mine.slice(0, 3).map(r => (admin ? r.label + ' — ' + r.userName : r.label));
+      const body = names.join(', ') + (mine.length > 3 ? ' +' + (mine.length - 3) + ' more' : '') +
+                   (admin ? '. Tap to sort renewals.' : '. See the office about the renewal.');
+
+      const r = await sendPushToUserId(u.id, {
+        title, body,
+        url: admin ? '/employees' : '/v2/phil',
+        tag: 'buhl-licence-alerts',
       });
       sent   += (r.sent   || 0);
       pruned += (r.pruned || 0);

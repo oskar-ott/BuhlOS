@@ -1,6 +1,11 @@
 import Link from "next/link";
 import type { Route } from "next";
+import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
+import { PhilMyLicencesCard } from "@/components/phil/PhilMyLicencesCard";
+import { SESSION_COOKIE } from "@/lib/auth/session";
+import { CredentialListResponseSchema } from "@/domains/workforce/schema";
+import type { Credential } from "@/domains/workforce/types";
 import { PhilSignOutButton } from "@/components/phil/PhilSignOutButton";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
@@ -15,7 +20,10 @@ import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
  * those. What remains is: a short orientation line, an onboarding replay
  * card, an account card (sign out), and the profile/settings UC panel.
  */
-export default function PhilV2HomePage() {
+export const dynamic = "force-dynamic";
+
+export default async function PhilV2HomePage() {
+  const { credentials, fetchError } = await loadMyLicences();
   return (
     <PhilShell title="Phil">
       <div className="space-y-4">
@@ -56,6 +64,10 @@ export default function PhilV2HomePage() {
           <PhilSignOutButton />
         </Card>
 
+        {/* #331: the worker's own licence register — the licence-expiry
+            push deep-links to this page. */}
+        <PhilMyLicencesCard credentials={credentials} fetchError={fetchError} />
+
         <PushNotificationsCard audience="phil" />
 
         <UnderConstructionPanel
@@ -65,4 +77,38 @@ export default function PhilV2HomePage() {
       </div>
     </PhilShell>
   );
+}
+
+/**
+ * Own licences via GET /api/licences?mine=1 — the session cookie IS the
+ * identity (no userId parameter exists on the self route, so a worker can
+ * never read a colleague's records). Fail-soft: signed-out / API-down just
+ * renders the card's honest error state; this page has never gated.
+ */
+async function loadMyLicences(): Promise<{
+  credentials: ReadonlyArray<Credential>;
+  fetchError: string | null;
+}> {
+  try {
+    const store = await cookies();
+    const raw = store.get(SESSION_COOKIE)?.value;
+    if (!raw) return { credentials: [], fetchError: "not signed in" };
+    const h = await headers();
+    const host = h.get("x-forwarded-host") ?? h.get("host");
+    const proto = h.get("x-forwarded-proto") ?? "http";
+    const base = host ? `${proto}://${host}` : "http://localhost:3000";
+    const res = await fetch(`${base}/api/licences?mine=1`, {
+      cache: "no-store",
+      headers: { cookie: `${SESSION_COOKIE}=${raw}` },
+    });
+    if (!res.ok) return { credentials: [], fetchError: `API ${res.status}` };
+    const parsed = CredentialListResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { credentials: [], fetchError: "bad shape" };
+    return { credentials: parsed.data.credentials, fetchError: null };
+  } catch (err) {
+    return {
+      credentials: [],
+      fetchError: err instanceof Error ? err.message : "network error",
+    };
+  }
 }

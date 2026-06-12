@@ -117,6 +117,10 @@ describe("AuditLogEntrySchema", () => {
       "backup.completed",
       "contact.removed",
       "contact.saved",
+      // #331: worker licence register lifecycle.
+      "credential.added",
+      "credential.removed",
+      "credential.updated",
       "document.made_current",
       "document.superseded",
       "document.uploaded",
@@ -158,6 +162,7 @@ describe("AuditLogEntrySchema", () => {
     ]);
     expect([...AUDIT_TARGET_TYPES].sort()).toEqual([
       "contact",
+      "credential",
       "document",
       "employee",
       "evidence",

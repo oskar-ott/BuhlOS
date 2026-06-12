@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/cn";
@@ -24,6 +24,10 @@ interface EmployeeRegisterClientProps {
   activeJobs: ReadonlyArray<ActiveJobOption>;
   /** Deep-link: open this employee's detail drawer on mount (/employees/[id]). */
   initialSelectedId?: string | null;
+  /** #331: worst licence status per worker ACCOUNT id (renewal-aware,
+   *  server-computed). Drives the row warning chip + the needs-attention
+   *  toggle. Empty map = chips hidden (fail-soft). */
+  licenceStatusByUserId?: Readonly<Record<string, "expired" | "expiring" | "ok">>;
 }
 
 const FILTERS: { key: EmployeeFilterKey; label: string }[] = [
@@ -41,15 +45,33 @@ export function EmployeeRegisterClient({
   emailConfigured,
   activeJobs,
   initialSelectedId,
+  licenceStatusByUserId = {},
 }: EmployeeRegisterClientProps) {
   const [rows, setRows] = useState<EmployeeRow[]>([...initialRows]);
   const [filter, setFilter] = useState<EmployeeFilterKey>("all");
   const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null);
+  const [licenceAttentionOnly, setLicenceAttentionOnly] = useState(false);
+
+  const licenceFlagFor = (row: EmployeeRow): "expired" | "expiring" | null => {
+    const userId = row.employee.userId;
+    if (!userId) return null;
+    const worst = licenceStatusByUserId[userId];
+    return worst === "expired" || worst === "expiring" ? worst : null;
+  };
+  const licenceAttentionCount = useMemo(
+    () => rows.filter((r) => licenceFlagFor(r) !== null).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- licenceStatusByUserId is server-load stable
+    [rows, licenceStatusByUserId]
+  );
 
   const counts = useMemo(() => filterCounts(rows), [rows]);
-  const visible = useMemo(() => filterEmployees(rows, filter, search), [rows, filter, search]);
+  const visible = useMemo(() => {
+    const base = filterEmployees(rows, filter, search);
+    return licenceAttentionOnly ? base.filter((r) => licenceFlagFor(r) !== null) : base;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- licenceFlagFor derives from stable server data
+  }, [rows, filter, search, licenceAttentionOnly, licenceStatusByUserId]);
   const selected = useMemo(() => rows.find((r) => r.employee.id === selectedId) ?? null, [rows, selectedId]);
 
   function upsert(row: EmployeeRow) {
@@ -109,6 +131,25 @@ export function EmployeeRegisterClient({
               </button>
             );
           })}
+          {licenceAttentionCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setLicenceAttentionOnly((v) => !v)}
+              data-testid="licence-attention-toggle"
+              className={cn(
+                "flex items-center gap-1.5 rounded-pill border px-3 py-1 font-mono text-[10.5px] uppercase tracking-wider transition-colors",
+                licenceAttentionOnly
+                  ? "border-rose-700 bg-rose-700 text-text-inverse"
+                  : "border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100"
+              )}
+            >
+              <ShieldAlert aria-hidden="true" className="h-3.5 w-3.5" />
+              Licences need attention
+              <span className={cn("rounded-pill px-1.5 font-semibold", licenceAttentionOnly ? "bg-accent-yellow text-brand-navy" : "bg-surface text-rose-800")}>
+                {licenceAttentionCount}
+              </span>
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -167,7 +208,21 @@ export function EmployeeRegisterClient({
                           {e.appAccess === "phil" ? "Field · Phil" : e.appAccess === "both" ? "Field · Phil +" : "Office · BuhlOS"}
                         </span>
                       </span>
-                      <span><EmployeeStatusChip employee={e} invite={row.invite} /></span>
+                      <span className="flex flex-wrap items-center gap-1">
+                        <EmployeeStatusChip employee={e} invite={row.invite} />
+                        {licenceFlagFor(row) ? (
+                          <span
+                            className={cn(
+                              "rounded-pill px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider",
+                              licenceFlagFor(row) === "expired"
+                                ? "bg-rose-100 text-rose-800"
+                                : "bg-amber-100 text-amber-900"
+                            )}
+                          >
+                            {licenceFlagFor(row) === "expired" ? "Ticket expired" : "Ticket expiring"}
+                          </span>
+                        ) : null}
+                      </span>
                       <span className="font-mono tabular-nums text-text">{row.jobsCount || "—"}</span>
                       <span className="font-mono tabular-nums text-text">{row.gearCount || "—"}</span>
                       <span className="font-mono text-[11px] text-text-muted">{lastActiveLabel(e.lastActiveAt)}</span>
