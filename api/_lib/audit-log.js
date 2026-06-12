@@ -96,6 +96,9 @@ const VALID_ACTIONS = new Set([
   'document.uploaded',
   'document.superseded',
   'document.made_current',
+  // #189: per-job contacts maintained by the office.
+  'contact.saved',
+  'contact.removed',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -118,6 +121,7 @@ const VALID_TARGET_TYPES = new Set([
   // #151: platform-level events (backups) with no business record target.
   'system',
   'document',
+  'contact',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

@@ -18,6 +18,8 @@ import {
 import { buildPhilJobCommandModel } from "@/domains/phil/job-command-model";
 import { philJobCommandInputFromJobData } from "@/domains/phil/job-command-input";
 import { JobTagsPanel } from "./JobTagsPanel";
+import { PhilJobContactsCard } from "./PhilJobContactsCard";
+import type { JobContact } from "@/domains/contacts/schema";
 import type { TagItem } from "@/domains/tags/schema";
 import type { Job, JobStage } from "@/domains/jobs/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
@@ -58,6 +60,8 @@ interface Props {
   initialDocuments?: ReadonlyArray<Document>;
   /** Initial test & tag entries fetched server-side (#388). May be empty. */
   initialTags?: ReadonlyArray<TagItem>;
+  /** Categorised job contacts fetched server-side (#189). May be empty. */
+  initialContacts?: ReadonlyArray<JobContact>;
   /** True when the tags fetch FAILED (vs returning empty) — keeps the
    *  command signal honest (`unknown`, not a misleading 0). */
   tagsError?: boolean;
@@ -134,6 +138,7 @@ export function PhilJobDetail({
   documentsError,
   initialTags,
   tagsError,
+  initialContacts,
   initialTaskState,
   taskStateError,
   viewer,
@@ -603,6 +608,14 @@ export function PhilJobDetail({
           loop (Work + Capture) leads the page. Keeps #phil-job-site so the
           attention strip's induction item still scrolls here. */}
       <PhilJobSiteCard job={job} />
+
+      {/* Who to call (#189) — categorised job contacts with tap-to-call.
+          Renders nothing when the office hasn't added any. */}
+      {initialContacts && initialContacts.length > 0 ? (
+        <section id="phil-job-contacts" aria-label="Who to call" className="scroll-mt-16">
+          <PhilJobContactsCard contacts={initialContacts} />
+        </section>
+      ) : null}
 
       {/* Secondary — deferred surfaces. The Materials + History UC stubs used
           to be two full cards here; consolidated into one honest, low-emphasis

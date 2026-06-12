@@ -97,6 +97,8 @@ export const AUDIT_ACTIONS = [
   "document.uploaded",
   "document.superseded",
   "document.made_current",
+  "contact.saved",
+  "contact.removed",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -115,6 +117,7 @@ export const AUDIT_TARGET_TYPES = [
   // #151: platform-level events (backups).
   "system",
   "document",
+  "contact",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 
