@@ -5,6 +5,15 @@ Run-before-you-push list for any production deploy. The static checks in
 (eye-test critical routes, confirm SW behaviour, watch the deploy land)
 still matter.
 
+> **Gate locally with `npm run check:full-ci` before opening or updating any
+> PR.** It runs the same guard set as the CI `check` job
+> (`.github/workflows/ci.yml`) — typecheck, lint, unit/mocked-Blob tests,
+> build, smoke discovery, and the route/shell/manifest/quarantine guards listed
+> below — and stops on the first failure. `npm run check` alone is **not** CI
+> parity (typecheck + lint + unit only); relying on it merged two red PRs
+> (#436 backup-manifest, #438 legacy-quarantine). The individual guards are
+> still listed below for reference, but `check:full-ci` runs all of them.
+
 ## Production deploys from `main` only
 
 **Do not run `vercel deploy --prod` from a feature branch.** This has shipped
