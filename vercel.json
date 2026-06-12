@@ -91,6 +91,7 @@
   "crons": [
     { "path": "/api/notifications?action=send-daily-reminders", "schedule": "30 5 * * 1-5" },
     { "path": "/api/notifications?action=send-tag-reminders",   "schedule": "0 21 * * *"   },
+    { "path": "/api/notifications?action=send-licence-reminders", "schedule": "10 21 * * *" },
     { "path": "/api/notifications?action=send-daily-digest",    "schedule": "0 7 * * 1-5"  },
     { "path": "/api/notifications?action=send-stale-snags",     "schedule": "0 23 * * 0"   },
     { "path": "/api/notifications?action=send-inactive-users",  "schedule": "0 23 * * 1"   },

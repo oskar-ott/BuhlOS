@@ -5,6 +5,7 @@ import { Drawer } from "@/components/ui/Drawer";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { InviteStatusCard } from "./InviteStatusCard";
+import { LicencesSection } from "./LicencesSection";
 import { EmployeeStatusChip } from "./EmployeeStatusChip";
 import { cn } from "@/lib/cn";
 import { issueInvite, revokeInvite, disableEmployee, errorText } from "@/domains/employees/client";
@@ -105,6 +106,12 @@ export function EmployeeDetailDrawer({
           {employee.notes ? (
             <DetailField label="Notes (admin only)" value={employee.notes} />
           ) : null}
+
+          {/* Licences & tickets (#331) — keyed by the worker account id. */}
+          <LicencesSection
+            userId={employee.userId ?? null}
+            workerName={displayNameFor(employee)}
+          />
 
           <InviteStatusCard
             row={row}

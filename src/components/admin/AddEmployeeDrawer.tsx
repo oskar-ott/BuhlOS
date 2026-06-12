@@ -345,8 +345,8 @@ export function AddEmployeeDrawer({
         </div>
 
         <UnderConstructionPanel
-          feature="Gear · vehicles · licences · inductions"
-          description="Gear is assigned once the worker has set up Phil (so it links to their account); vehicle, licence and induction registers don't exist yet. These land in O4."
+          feature="Gear · vehicles · inductions"
+          description="Gear is assigned once the worker has set up Phil (so it links to their account), and licences/tickets are recorded the same way — open the worker's detail drawer after setup. Vehicle and induction registers don't exist yet."
         />
       </div>
     );

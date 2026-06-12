@@ -99,6 +99,10 @@ const VALID_ACTIONS = new Set([
   // #189: per-job contacts maintained by the office.
   'contact.saved',
   'contact.removed',
+  // #331: worker licence / ticket register (api/licences.js).
+  'credential.added',
+  'credential.updated',
+  'credential.removed',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -122,6 +126,8 @@ const VALID_TARGET_TYPES = new Set([
   'system',
   'document',
   'contact',
+  // #331: worker licence/ticket records (workforce/credentials.json).
+  'credential',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;
