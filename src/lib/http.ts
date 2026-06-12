@@ -17,7 +17,9 @@ export type HttpError = {
 export type HttpResult<T> = { ok: true; data: T } | { ok: false; error: HttpError };
 
 export interface HttpOptions<T> {
-  schema: z.ZodSchema<T>;
+  /** Output-typed schema; transforms with a different input shape are fine
+   *  (#383's lenient list parse) — safeParse takes unknown either way. */
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>;
   init?: RequestInit;
 }
 
