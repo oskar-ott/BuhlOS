@@ -1,4 +1,4 @@
-import { httpGet, httpPost, httpPut, type HttpResult } from "@/lib/http";
+import { httpDelete, httpGet, httpPost, httpPut, type HttpResult } from "@/lib/http";
 import {
   CreateGearAssetPayloadSchema,
   GearDetailResponseSchema,
@@ -7,6 +7,7 @@ import {
   MarkGearGoodPayloadSchema,
   ReportGearPayloadSchema,
   TransferGearPayloadSchema,
+  UpdateGearAssetPayloadSchema,
 } from "./schema";
 import type {
   CreateGearAssetPayload,
@@ -16,6 +17,7 @@ import type {
   MarkGearGoodPayload,
   ReportGearPayload,
   TransferGearPayload,
+  UpdateGearAssetPayload,
 } from "./types";
 
 /**
@@ -111,6 +113,38 @@ export function transferGear(
       init: { cache: "no-store", credentials: "same-origin" },
     }
   );
+}
+
+/** Edit asset metadata (#389). Admin-only server-side; holder changes are
+ *  rejected by the endpoint (use transferGear). */
+export function updateGearAsset(
+  assetId: string,
+  patch: UpdateGearAssetPayload,
+): Promise<HttpResult<GearMutationResponse>> {
+  const parsed = UpdateGearAssetPayloadSchema.safeParse(patch);
+  if (!parsed.success) {
+    return Promise.resolve({
+      ok: false,
+      error: {
+        status: 0,
+        body: parsed.error.flatten(),
+        message: parsed.error.issues.map((i) => i.message).join("; "),
+      },
+    });
+  }
+  return httpPut<GearMutationResponse>(
+    `/api/assets?id=${encodeURIComponent(assetId)}`,
+    parsed.data,
+    { schema: GearMutationResponseSchema, init: { cache: "no-store", credentials: "same-origin" } },
+  );
+}
+
+/** Soft-archive (#389) — record + history kept; register filter shows it under Retired. */
+export function archiveGearAsset(assetId: string): Promise<HttpResult<GearMutationResponse>> {
+  return httpDelete<GearMutationResponse>(`/api/assets?id=${encodeURIComponent(assetId)}`, {
+    schema: GearMutationResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
 }
 
 /**

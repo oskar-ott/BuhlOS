@@ -40,6 +40,8 @@ function render(asset: GearAsset, holders: GearHolderUser[]): string {
       asset,
       holders,
       onClose: () => {},
+      onEdit: () => {},
+      onArchive: () => {},
       onMutate: () => {},
       isPending: false,
     }),

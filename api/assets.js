@@ -397,6 +397,13 @@ module.exports = async (req, res) => {
       assignedAt: body.currentHolderId ? now : null,
       expectedReturn: parsed.asset.expectedReturn || null,
       calibrationDue: parsed.asset.calibrationDue || null,
+      // #394: persist everything sanitiseAsset accepted — create and edit
+      // must never disagree about which metadata exists. ownership defaults
+      // 'owned' inside sanitiseAsset.
+      ownership: parsed.asset.ownership,
+      hireEndDate: parsed.asset.hireEndDate ?? null,
+      hireRateExGst: parsed.asset.hireRateExGst ?? null,
+      hireSupplier: parsed.asset.hireSupplier ?? null,
       archived: false,
       createdAt: now,
       updatedAt: now,

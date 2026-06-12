@@ -85,8 +85,8 @@ export default async function GearRegisterPage() {
         )}
 
         <UnderConstructionPanel
-          feature="Asset create / edit · bulk operations · QR scanning · label printing"
-          description="The v1 register is single-item assign/return flows only. Creating, editing and archiving assets was a legacy-only tool and was retired in the legacy cutover — a modern editor is on the backlog, along with bulk assign / bulk retire, camera-based QR scanning, and label printer (Nimbot/Brother) integration."
+          feature="Bulk operations · QR scanning · label printing"
+          description="Create, edit and archive now live on the register above (#389). Still to come: bulk assign / bulk retire, camera-based QR scanning, and label printer (Nimbot/Brother) integration."
         />
       </div>
     </AdminShell>
