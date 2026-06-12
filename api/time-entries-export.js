@@ -19,6 +19,7 @@ const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isLeadingHandRole, isFieldRole } = require('./_lib/auth');
 const { writeEntry, appendAudit } = require('./_lib/time-entries');
 const { appendActivity } = require('./_lib/activity');
+const { prorateAllocations } = require('./_lib/payroll-rows');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -103,11 +104,17 @@ module.exports = async (req, res) => {
   for (const e of filtered) {
     const u = userById[e.userId] || {};
     const rate = (isFieldRole(u.role) || isLeadingHandRole(u.role)) ? Number(u.hourlyRate) || 0 : 0;
-    const allocations = (e.allocations || []).filter(a => !jobId || a.jobId === jobId);
+    // #380: prorate the DAY's ordinary/overtime across all allocations
+    // BEFORE any jobId filter — a filtered export must not re-attribute OT.
+    const allAllocations = e.allocations || [];
+    const prorated = prorateAllocations(e, allAllocations);
+    const allocations = allAllocations
+      .map((a, i) => ({ allocation: a, split: prorated[i] }))
+      .filter(({ allocation: a }) => !jobId || a.jobId === jobId);
     if (!allocations.length) continue;
-    for (const a of allocations) {
+    for (const { allocation: a, split } of allocations) {
       const j = a.jobId ? jobById[a.jobId] : null;
-      const hours = Number(a.hours) || 0;
+      const hours = split.hours;
       rows.push({
         weekStart: weekMondayOf(e.date),
         weekEnd:   weekSundayOf(e.date),
@@ -118,8 +125,8 @@ module.exports = async (req, res) => {
         jobName:    j ? j.name : (a.jobId ? '(unknown job)' : 'Internal — no job'),
         jobId:      a.jobId || '',
         hours:      hours,
-        ordinaryHours: e.ordinaryHours != null ? Math.min(hours, Number(e.ordinaryHours)) : Math.min(hours, 8),
-        overtimeHours: e.overtimeHours != null ? Math.max(0, hours - Math.min(hours, Number(e.ordinaryHours) || 8)) : Math.max(0, hours - 8),
+        ordinaryHours: split.ordinaryHours,
+        overtimeHours: split.overtimeHours,
         rateExGst:  rate,
         lineCostExGst: Math.round(hours * rate * 100) / 100,
         notes:      String(a.notes || e.notes || '').replace(/\r?\n/g, ' ').trim(),

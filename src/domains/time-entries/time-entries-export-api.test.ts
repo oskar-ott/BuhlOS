@@ -237,6 +237,51 @@ describe("GET /api/time-entries-export (#126)", () => {
     expect(runs).toHaveLength(2);
   });
 
+  it("#380: a split day conserves the entry's stored ordinary/overtime in the rows", async () => {
+    blob.set("jobs.json", { jobs: [{ id: "j1", name: "Riverside" }, { id: "j2", name: "Depot" }] });
+    blob.set(
+      "users/w1/time-entries/2026-06-11.json",
+      entry("w1", "2026-06-11", {
+        totalHours: 10,
+        ordinaryHours: 8,
+        overtimeHours: 2,
+        allocations: [
+          { jobId: "j1", jobName: "Riverside", hours: 5 },
+          { jobId: "j2", jobName: "Depot", hours: 5 },
+        ],
+      }),
+    );
+    const res = await call("u_admin", "office", {
+      fromDate: "2026-06-11",
+      toDate: "2026-06-11",
+      dryRun: "1",
+      format: "json",
+    });
+    const rows = (res.body as {
+      rows: Array<{ jobId: string; ordinaryHours: number; overtimeHours: number }>;
+    }).rows;
+    // rows sort by job NAME (Depot < Riverside) — compare as a set keyed by job
+    const byJob = Object.fromEntries(
+      rows.map((r) => [r.jobId, [r.ordinaryHours, r.overtimeHours]]),
+    );
+    expect(byJob).toEqual({ j1: [5, 0], j2: [3, 2] });
+
+    // a job-filtered export keeps the DAY-context proration — j2's row still
+    // carries the day's OT, it doesn't get re-derived as 5 ordinary.
+    const filtered = await call("u_admin", "office", {
+      fromDate: "2026-06-11",
+      toDate: "2026-06-11",
+      dryRun: "1",
+      format: "json",
+      jobId: "j2",
+    });
+    const fRows = (filtered.body as {
+      rows: Array<{ ordinaryHours: number; overtimeHours: number }>;
+    }).rows;
+    expect(fRows).toHaveLength(1);
+    expect(fRows[0]).toMatchObject({ ordinaryHours: 3, overtimeHours: 2 });
+  });
+
   it("an empty week commits nothing: no stamp, no run log entry", async () => {
     const res = await call("u_admin", "office", {
       fromDate: "2026-07-06",
