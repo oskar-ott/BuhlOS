@@ -1,5 +1,3 @@
-import Link from "next/link";
-import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
@@ -28,6 +26,8 @@ import { SnagListResponseSchema } from "@/domains/snags/schema";
 import { TagsExpiringCalibrationsResponseSchema } from "@/domains/gear/schema";
 import type { ExpiringCalibration } from "@/domains/gear/types";
 import { buildPhilNeedsYou, type JobSnags } from "@/domains/phil/needs-you";
+import { buildMyDayHero } from "@/domains/phil/my-day-hero";
+import { PhilMyDayHero } from "@/components/phil/PhilMyDayHero";
 import { buildPhilGreeting, hourInTimeZone } from "@/domains/phil/greeting";
 import styles from "@/components/phil/myDay.module.css";
 
@@ -109,6 +109,10 @@ export default async function MyDayPage({
     calibrations,
   });
 
+  // #422: the ONE "what now" answer, from a pure state model. soleJob is set
+  // below (exactly-one-assigned); compute the hero just before render so it
+  // sees the resolved job.
+
   // Greeting. Time-of-day + the worker's real display name. The legacy login
   // signs the cookie as { userId, role } only — it never carries a name — so
   // the name is resolved from /api/auth?action=me (users.json), where the
@@ -154,6 +158,19 @@ export default async function MyDayPage({
           ) : null}
         </header>
 
+        <PhilMyDayHero
+          hero={buildMyDayHero({
+            todayStatus: (todayEntry?.status as
+              | "draft"
+              | "submitted"
+              | "approved"
+              | "rejected"
+              | undefined) ?? null,
+            needsYouItems,
+            soleJob: soleJob ? { id: soleJob.id, name: soleJob.name } : null,
+          })}
+        />
+
         <PhilWeekStrip entries={recentEntries} todayISO={todayISO} />
 
         <LogHoursSheet
@@ -174,23 +191,6 @@ export default async function MyDayPage({
           autoOpenFix={fixDate !== null}
         />
 
-        {/* Leave entry point (#333) — the answer to "I can't log hours
-            because I'm not working". Quiet one-liner, not a card: the page
-            stays about logging today. */}
-        <p className={styles.deferNoteBody}>
-          Off sick or taking time off?{" "}
-          <Link
-            // `as Route` — /phil/leave is added in this same PR, so the
-            // typedRoutes map from the previous build can't see it yet.
-            // Validated for real by `next build`.
-            href={"/phil/leave" as Route}
-            className={styles.deferNoteLink}
-            data-testid="my-day-leave-link"
-          >
-            Request leave
-          </Link>
-        </p>
-
         {fetchError ? (
           <PhilNotice tone="warning" title="Couldn’t load recent entries" role="alert">
             <p>
@@ -204,15 +204,6 @@ export default async function MyDayPage({
         ) : null}
 
         <PhilNeedsYouFeed items={needsYouItems} />
-
-        <div className={styles.deferNote}>
-          <div className={styles.deferNoteLabel}>Heads up</div>
-          <p className={styles.deferNoteBody}>
-            One allocation per submission. Splitting a day across two jobs
-            isn&rsquo;t supported yet — log the bigger block today and tell
-            the office; split-day logging is on the backlog.
-          </p>
-        </div>
       </div>
     </PhilShell>
   );
