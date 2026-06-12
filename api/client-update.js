@@ -77,6 +77,12 @@ module.exports = async (req, res) => {
   if (!job) return res.status(404).json({ error: 'job not found' });
 
   // Permission: client must own this job, admin/LH must manage it.
+  // #386: clients never see draft/archived jobs — 404 (not 403) so the
+  // response doesn't confirm the job exists, matching /api/jobs scoping.
+  const status = job.status || 'active';
+  if (isClientRole(me.role) && (status === 'draft' || status === 'archived')) {
+    return res.status(404).json({ error: 'job not found' });
+  }
   const ok = (isClientRole(me.role) && job.clientUserId === me.id)
           || canManageJob(me, jobId);
   if (!ok) return res.status(403).json({ error: 'forbidden' });
