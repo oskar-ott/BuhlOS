@@ -284,7 +284,7 @@ lists in the guard **and** §8 / §8.1 here in the same PR.
 - **BuhlOS sidebar** (`src/components/admin/AdminSidebar.tsx`) — `live` items may
   only link to approved admin routes: `/command-centre`, `/hours`,
   `/hours/approvals`, `/hours/weekly`, `/gear`, `/employees`, `/observations`,
-  `/material-requests`, `/v2/jobs`. Unbuilt
+  `/material-requests`, `/v2/jobs`, `/itp-templates`. Unbuilt
   items (`Snags`, `Support`, `Settings`) are rendered as **non-clickable** `UC`
   spans, never `<Link>`s — per the "every incomplete feature shows UNDER
   CONSTRUCTION" non-negotiable. (`Snags` stays UC: per-job snag triage lives on
