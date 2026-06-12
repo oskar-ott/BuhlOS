@@ -396,6 +396,7 @@ module.exports = async (req, res) => {
       currentHolderId: body.currentHolderId || null,
       assignedAt: body.currentHolderId ? now : null,
       expectedReturn: parsed.asset.expectedReturn || null,
+      calibrationDue: parsed.asset.calibrationDue || null,
       archived: false,
       createdAt: now,
       updatedAt: now,
