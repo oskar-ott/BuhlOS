@@ -17,11 +17,27 @@ const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole, isClientRole, isHoursTrackedWorker } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
 const { KEY, LEAVE_TYPES, readLeave, rangesOverlap } = require('./_lib/leave');
+const { append: appendAuditLog } = require('./_lib/audit-log');
+const { covers } = require('./_lib/leave');
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 function newId() {
   return 'lv_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+async function auditLeave(me, action, request, summary) {
+  await appendAuditLog({
+    action,
+    actorId: me.id,
+    actorName: me.username || 'Unknown',
+    actorRole: me.role || null,
+    jobId: null,
+    targetType: 'leave',
+    targetId: request.id,
+    summary,
+    metadata: { userId: request.userId, type: request.type, fromDate: request.fromDate, toDate: request.toDate },
+  }).catch(() => {});
 }
 
 module.exports = async (req, res) => {
@@ -60,6 +76,7 @@ module.exports = async (req, res) => {
     r.decidedByName = me.username;
     r.decisionNote = note ? String(note).trim().slice(0, 500) : null;
     await writeBlob(KEY, data);
+    await auditLeave(me, 'leave.decided', r, `${approve ? 'approved' : 'declined'} ${r.type} leave for ${r.userName || r.userId} (${r.fromDate}${r.toDate !== r.fromDate ? ` → ${r.toDate}` : ''})`);
     try {
       await sendPushToUserId(r.userId, {
         title: approve ? 'Leave approved ✓' : 'Leave declined',
@@ -68,6 +85,30 @@ module.exports = async (req, res) => {
         tag: 'buhl-leave',
       });
     } catch {}
+    return res.status(200).json({ request: r });
+  }
+
+  // #127: admin "undo" of a marked not-worked day, by worker + date. Cancels
+  // the approved leave covering that date so the cell flips back to missing.
+  if (req.method === 'POST' && action === 'clear') {
+    if (!isAdminRole(me.role)) return res.status(403).json({ error: 'admin only' });
+    const { userId, date } = req.body || {};
+    if (!userId || !ISO.test(date || '')) {
+      return res.status(400).json({ error: 'userId and a YYYY-MM-DD date required' });
+    }
+    const data = await readLeave();
+    const r = data.requests.find(x =>
+      x.userId === userId &&
+      (x.status === 'approved' || x.status === 'pending') &&
+      covers(x, date)
+    );
+    if (!r) return res.status(404).json({ error: 'no marked leave covering that day' });
+    r.status = 'cancelled';
+    r.decidedAt = new Date().toISOString();
+    r.decidedBy = me.id;
+    r.decidedByName = me.username;
+    await writeBlob(KEY, data);
+    await auditLeave(me, 'leave.cancelled', r, `cleared ${r.type} leave for ${r.userName || r.userId} on ${date}`);
     return res.status(200).json({ request: r });
   }
 
@@ -143,6 +184,9 @@ module.exports = async (req, res) => {
     };
     data.requests.push(request);
     await writeBlob(KEY, data);
+    if (onBehalf) {
+      await auditLeave(me, 'leave.recorded', request, `recorded ${type} leave for ${target.username || target.id} (${fromDate}${toDate !== fromDate ? ` → ${toDate}` : ''})`);
+    }
     return res.status(201).json({ request });
   }
 

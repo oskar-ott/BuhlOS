@@ -9,6 +9,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Pill } from "@/components/ui/Pill";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { timesheetsClient } from "@/domains/timesheets/client";
+import { requestLeave, clearLeave } from "@/domains/timesheets/client";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import {
   readinessLabel,
@@ -113,6 +114,12 @@ export function WeeklyHoursCloseoutBoard({
   const [undoBusy, setUndoBusy] = useState(false);
   // Monotonic id so a stale 30s timer never clears a NEWER bulk result.
   const bulkSeqRef = useRef(0);
+  const [markTarget, setMarkTarget] = useState<{
+    worker: WeeklyWorkerHours;
+    day: WeeklyHoursDay;
+  } | null>(null);
+  const [markType, setMarkType] = useState("annual");
+  const [markBusy, setMarkBusy] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<{
     worker: WeeklyWorkerHours;
     day: WeeklyHoursDay;
@@ -132,6 +139,41 @@ export function WeeklyHoursCloseoutBoard({
 
   const needAction = closeout.workers.filter((w) => w.readiness !== "payroll-ready");
   const ready = closeout.workers.filter((w) => w.readiness === "payroll-ready");
+
+  // #127: mark a missing day as not-worked (records approved leave on the
+  // worker's behalf via #333's store) and undo it. The day flips to "leave"
+  // and stops counting as missing; readiness recomputes server-side.
+  async function confirmMark() {
+    if (!markTarget) return;
+    const { worker, day } = markTarget;
+    setMarkBusy(true);
+    setAction({ kind: "idle" });
+    const res = await requestLeave({
+      userId: worker.workerId,
+      type: markType,
+      fromDate: day.date,
+      toDate: day.date,
+    });
+    setMarkBusy(false);
+    setMarkTarget(null);
+    if (!res.ok) {
+      setAction({ kind: "error", message: res.error.message });
+      return;
+    }
+    setAction({ kind: "success", label: `${dayLabel(day)} marked not worked for ${worker.workerName}.` });
+    startTransition(() => router.refresh());
+  }
+
+  async function undoLeave(worker: WeeklyWorkerHours, day: WeeklyHoursDay) {
+    setAction({ kind: "idle" });
+    const res = await clearLeave(worker.workerId, day.date);
+    if (!res.ok) {
+      setAction({ kind: "error", message: res.error.message });
+      return;
+    }
+    setAction({ kind: "success", label: `Cleared ${dayLabel(day)} for ${worker.workerName}.` });
+    startTransition(() => router.refresh());
+  }
 
   async function approveWeek(worker: WeeklyWorkerHours) {
     const entries = submittedWeekSelection(worker);
@@ -381,6 +423,8 @@ export function WeeklyHoursCloseoutBoard({
                       onApprove={approve}
                       onApproveWeek={approveWeek}
                       onReopen={openReopen}
+                      onMarkNotWorked={(worker, day) => setMarkTarget({ worker, day })}
+                      onUndoLeave={undoLeave}
                       onReject={(worker, day) => {
                         setRejectTarget({ worker, day });
                         setRejectReason("");
@@ -463,6 +507,47 @@ export function WeeklyHoursCloseoutBoard({
             </Button>
             <Button variant="danger" onClick={confirmReject}>
               Reject with reason
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* #127: mark a missing day as not worked (type + optional note). */}
+      <Modal
+        open={markTarget !== null}
+        onClose={() => setMarkTarget(null)}
+        title={
+          markTarget
+            ? `${markTarget.worker.workerName} — ${dayLabel(markTarget.day)} not worked`
+            : "Mark not worked"
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text-muted">
+            This records an approved absence for the day, so the week can reach
+            payroll-ready. It creates no hours and never counts as worked time.
+          </p>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-text">Type</span>
+            <select
+              value={markType}
+              onChange={(e) => setMarkType(e.target.value)}
+              data-testid="mark-type"
+              className="block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none"
+            >
+              <option value="annual">Annual leave</option>
+              <option value="sick">Sick</option>
+              <option value="rdo">RDO</option>
+              <option value="unpaid">Unpaid</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button variant="ghost" onClick={() => setMarkTarget(null)} disabled={markBusy}>
+              Cancel
+            </Button>
+            <Button onClick={confirmMark} disabled={markBusy} data-testid="mark-confirm">
+              {markBusy ? "Saving…" : "Mark not worked"}
             </Button>
           </div>
         </div>
@@ -643,6 +728,8 @@ function WorkerCard({
   onApproveWeek,
   onReopen,
   onReject,
+  onMarkNotWorked,
+  onUndoLeave,
 }: {
   worker: WeeklyWorkerHours;
   action: ActionState;
@@ -653,6 +740,8 @@ function WorkerCard({
   onApproveWeek: (worker: WeeklyWorkerHours) => void;
   onReopen: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
   onReject: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
+  onMarkNotWorked: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
+  onUndoLeave: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
 }): ReactNode {
   // Weekend rows only earn their place when something real happened on them.
   const days = worker.days.filter(
@@ -699,6 +788,8 @@ function WorkerCard({
                 onApprove={onApprove}
                 onReopen={onReopen}
                 onReject={onReject}
+                onMarkNotWorked={onMarkNotWorked}
+                onUndoLeave={onUndoLeave}
               />
             </li>
           ))}
@@ -723,6 +814,8 @@ function DayRow({
   onApprove,
   onReopen,
   onReject,
+  onMarkNotWorked,
+  onUndoLeave,
 }: {
   worker: WeeklyWorkerHours;
   day: WeeklyHoursDay;
@@ -731,6 +824,8 @@ function DayRow({
   onApprove: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
   onReopen: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
   onReject: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
+  onMarkNotWorked: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
+  onUndoLeave: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
 }): ReactNode {
   const key = dayKey(worker.workerId, day.date);
   const approving = action.kind === "approving" && action.key === key;
@@ -788,6 +883,28 @@ function DayRow({
         <div className="flex gap-2 sm:justify-end">
           <Button size="sm" variant="ghost" onClick={() => onReopen(worker, day)} disabled={busy}>
             Reopen
+          </Button>
+        </div>
+      ) : day.status === "missing" ? (
+        <div className="flex gap-2 sm:justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onMarkNotWorked(worker, day)}
+            data-testid="mark-not-worked"
+          >
+            Mark not worked
+          </Button>
+        </div>
+      ) : day.status === "leave" ? (
+        <div className="flex gap-2 sm:justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onUndoLeave(worker, day)}
+            data-testid="undo-not-worked"
+          >
+            Undo
           </Button>
         </div>
       ) : null}

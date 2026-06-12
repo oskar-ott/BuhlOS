@@ -185,3 +185,48 @@ describe("Reopen (#125)", () => {
     expect(html).not.toContain("Reopen");
   });
 });
+
+describe("Mark not worked (#127)", () => {
+  const missingLog = {
+    userId: "u_jake",
+    userName: "Jake",
+    date: "2024-05-21", // a past weekday in the pinned week
+    role: "tradie",
+  } as unknown as MissingLog;
+
+  function renderWithLeave(opts: {
+    missing?: MissingLog[];
+    leave?: Array<{ date: string; userId: string; type: string }>;
+  }) {
+    const closeout = buildWeeklyHoursCloseout({
+      entries: [],
+      missing: opts.missing ?? [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+      leave: opts.leave,
+    });
+    return renderToString(
+      createElement(WeeklyHoursCloseoutBoard, { closeout, fetchError: null, canUndo: true })
+    );
+  }
+
+  it("a missing day offers 'Mark not worked'", () => {
+    const html = renderWithLeave({ missing: [missingLog] });
+    expect(html).toContain("mark-not-worked");
+    expect(html).toContain("Mark not worked");
+  });
+
+  it("a marked (leave) day offers 'Undo' and renders the worker — never vanishes", () => {
+    // Same worker, the day now covered by approved leave (no longer missing).
+    const html = renderWithLeave({
+      leave: [{ date: "2024-05-21", userId: "u_jake", type: "sick" }],
+      // Jake stays in the worker universe via a missing log on ANOTHER day so
+      // the board still lists him; his leave day shows Undo. (The overview
+      // keeps a partially-on-leave worker visible by construction.)
+      missing: [{ ...missingLog, date: "2024-05-22" }] as unknown as MissingLog[],
+    });
+    expect(html).toContain("Jake");
+    expect(html).toContain("undo-not-worked");
+  });
+});
+

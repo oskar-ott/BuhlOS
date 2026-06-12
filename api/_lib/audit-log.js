@@ -109,6 +109,10 @@ const VALID_ACTIONS = new Set([
   // Self-confirms and office backfills stay distinguishable by verb.
   'induction.confirmed',
   'induction.backfilled',
+  // #127: office marks/clears a not-worked (leave) day; #333 worker requests.
+  'leave.recorded',
+  'leave.decided',
+  'leave.cancelled',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -136,6 +140,8 @@ const VALID_TARGET_TYPES = new Set([
   'credential',
   // #332: per-job induction records (jobs/<id>/inductions.json).
   'induction',
+  // #127/#333: leave / not-worked records (leave-requests.json).
+  'leave',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;
