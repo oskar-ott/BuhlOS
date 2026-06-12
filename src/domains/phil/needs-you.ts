@@ -1,3 +1,4 @@
+import type { ExpiringCalibration } from "@/domains/gear/types";
 import type { SnagItem } from "@/domains/snags/types";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
@@ -18,6 +19,10 @@ import type { TimeEntry } from "@/domains/timesheets/types";
  *   - snag: a snagsV2 issue ASSIGNED TO THIS WORKER (assignedToId) that is
  *       still open / in progress. Source: GET /api/snags?jobId= per assigned
  *       job. Action: the job's Snags section.
+ *   - calibration: a test instrument THIS WORKER currently holds whose
+ *       calibration is expired or due within 14 days (#305). Source:
+ *       GET /api/tags-expiring `calibrations` (already holder-filtered
+ *       server-side for non-admin viewers). Action: their Phil gear list.
  *
  * Deliberately NOT included (no real, worker-attributable source — see
  * docs/phil-my-day-needs-you.md): assigned tasks (job-level, no assignee/due),
@@ -26,7 +31,7 @@ import type { TimeEntry } from "@/domains/timesheets/types";
  * batch-submit workflow). When nothing is real, the feed is empty — never a
  * placeholder row.
  */
-export type PhilNeedsYouKind = "rejected-hours" | "snag";
+export type PhilNeedsYouKind = "rejected-hours" | "snag" | "calibration";
 export type PhilNeedsYouSeverity = "urgent" | "warning" | "normal";
 
 export interface PhilNeedsYouItem {
@@ -55,6 +60,12 @@ export interface PhilNeedsYouInput {
   entries: ReadonlyArray<TimeEntry>;
   /** snagsV2 per assigned job. */
   jobSnags: ReadonlyArray<JobSnags>;
+  /**
+   * Expiring/expired calibrations on gear the worker HOLDS, from
+   * /api/tags-expiring (#305). Optional so existing callers/tests are
+   * untouched; absent ≙ none.
+   */
+  calibrations?: ReadonlyArray<ExpiringCalibration>;
 }
 
 const SEVERITY_RANK: Record<PhilNeedsYouSeverity, number> = {
@@ -125,6 +136,32 @@ export function buildPhilNeedsYou(input: PhilNeedsYouInput): PhilNeedsYouItem[] 
         }
       }
     }
+  }
+
+  // C. Calibration lapses on gear in MY hands (#305) — an expired
+  //    calibration means "stop testing with this instrument", which the
+  //    worker needs to hear before they use it today. Server already scopes
+  //    rows to the holder for non-admin viewers; the holderId check repeats
+  //    that defensively so an admin viewing Phil never sees the whole fleet.
+  for (const c of input.calibrations ?? []) {
+    if (input.viewerId && c.holderId && c.holderId !== input.viewerId) continue;
+    const due = c.calibrationDue.slice(0, 10);
+    items.push({
+      id: `calibration:${c.assetId}`,
+      kind: "calibration",
+      title:
+        c.status === "expired"
+          ? `${c.assetName} calibration expired`
+          : `${c.assetName} calibration due ${shortDay(due)}`,
+      detail:
+        c.status === "expired"
+          ? `Don't test with it — was due ${shortDay(due)}.`
+          : undefined,
+      meta: c.identifier ?? undefined,
+      href: "/phil/gear",
+      actionLabel: "View gear",
+      severity: c.status === "expired" ? "urgent" : "warning",
+    });
   }
 
   // urgent → warning → normal; stable within a rank (Array.sort is stable).

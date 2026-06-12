@@ -7,6 +7,7 @@ import type {
   GearHistoryEntrySchema,
   GearHistoryKindSchema,
   GearListResponseSchema,
+  ExpiringCalibrationSchema,
   GearDetailResponseSchema,
   CreateGearAssetPayloadSchema,
   TransferGearPayloadSchema,
@@ -52,6 +53,7 @@ export type ReportGearPayload = z.infer<typeof ReportGearPayloadSchema>;
 export type MarkGearGoodPayload = z.infer<typeof MarkGearGoodPayloadSchema>;
 
 export type GearListResponse = z.infer<typeof GearListResponseSchema>;
+export type ExpiringCalibration = z.infer<typeof ExpiringCalibrationSchema>;
 export type GearDetailResponse = z.infer<typeof GearDetailResponseSchema>;
 export type GearMutationResponse = z.infer<typeof GearMutationResponseSchema>;
 

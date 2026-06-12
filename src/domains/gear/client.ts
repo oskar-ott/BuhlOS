@@ -1,4 +1,4 @@
-import { httpGet, httpPost, type HttpResult } from "@/lib/http";
+import { httpGet, httpPost, httpPut, type HttpResult } from "@/lib/http";
 import {
   CreateGearAssetPayloadSchema,
   GearDetailResponseSchema,
@@ -106,6 +106,25 @@ export function transferGear(
   return httpPost<GearMutationResponse>(
     "/api/assets?action=transfer",
     parsed.data,
+    {
+      schema: GearMutationResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
+/**
+ * Set or clear an asset's calibration due-date (#305). Admin-only
+ * server-side (PUT /api/assets is the metadata-edit path; holder changes
+ * stay on ?action=transfer). `null` clears — "not a calibrated instrument".
+ */
+export function setGearCalibrationDue(
+  assetId: string,
+  calibrationDue: string | null
+): Promise<HttpResult<GearMutationResponse>> {
+  return httpPut<GearMutationResponse>(
+    `/api/assets?id=${encodeURIComponent(assetId)}`,
+    { calibrationDue },
     {
       schema: GearMutationResponseSchema,
       init: { cache: "no-store", credentials: "same-origin" },

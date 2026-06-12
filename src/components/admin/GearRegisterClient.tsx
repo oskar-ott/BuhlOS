@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { Modal } from "@/components/ui/Modal";
-import { markGearGood, reportGear, transferGear } from "@/domains/gear/client";
+import { markGearGood, reportGear, setGearCalibrationDue, transferGear } from "@/domains/gear/client";
 import { isLeadingHandRole } from "@/lib/auth/roles";
 import { deriveStatus, statusTone } from "@/domains/gear/service";
 import {
@@ -266,6 +266,7 @@ export function AssetDrawer({ asset, holders, onClose, onMutate, isPending }: As
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [toUserId, setToUserId] = useState<string>(asset.currentHolderId ?? "");
   const [note, setNote] = useState("");
+  const [calibrationDue, setCalibrationDue] = useState<string>(asset.calibrationDue ?? "");
 
   useEffect(() => {
     let cancelled = false;
@@ -311,6 +312,47 @@ export function AssetDrawer({ asset, holders, onClose, onMutate, isPending }: As
             </>
           ) : null}
         </dl>
+
+        {asset.archived ? null : (
+          <section aria-label="Calibration">
+            <h3 className="font-display text-sm uppercase tracking-wider text-text-muted">
+              Calibration
+            </h3>
+            <p className="mt-1 text-xs text-text-muted">
+              Test instruments only — a due date here feeds the daily compliance alerts, the
+              board above and the holder&rsquo;s Phil gear flag. Leave empty otherwise.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                value={calibrationDue}
+                onChange={(e) => setCalibrationDue(e.target.value)}
+                className="h-10 rounded-card border border-border bg-surface px-3 text-sm"
+                aria-label="Calibration due date"
+              />
+              <Button
+                size="sm"
+                disabled={isPending || calibrationDue === (asset.calibrationDue ?? "")}
+                onClick={() => onMutate(setGearCalibrationDue(asset.id, calibrationDue || null))}
+              >
+                Save
+              </Button>
+              {asset.calibrationDue ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={isPending}
+                  onClick={() => {
+                    setCalibrationDue("");
+                    onMutate(setGearCalibrationDue(asset.id, null));
+                  }}
+                >
+                  Clear
+                </Button>
+              ) : null}
+            </div>
+          </section>
+        )}
 
         {asset.archived ? null : (
           <section aria-label="Transfer or return">

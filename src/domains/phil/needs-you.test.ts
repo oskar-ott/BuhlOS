@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildPhilNeedsYou } from "./needs-you";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import type { SnagItem } from "@/domains/snags/types";
+import type { ExpiringCalibration } from "@/domains/gear/types";
 
 const ME = "user-me";
 
@@ -14,6 +15,21 @@ function entry(p: Partial<TimeEntry>): TimeEntry {
     rejectedReason: null,
     ...p,
   } as unknown as TimeEntry;
+}
+function calibration(p: Partial<ExpiringCalibration>): ExpiringCalibration {
+  return {
+    kind: "calibration",
+    key: "cal:a1",
+    assetId: "a1",
+    assetName: "Fluke 1587",
+    identifier: "FLK-01",
+    holderId: ME,
+    holderName: "Me",
+    calibrationDue: "2026-06-20",
+    daysToExpiry: 8,
+    status: "expiring",
+    ...p,
+  } as ExpiringCalibration;
 }
 function snag(p: Partial<SnagItem>): SnagItem {
   return {
@@ -128,5 +144,66 @@ describe("buildPhilNeedsYou", () => {
     expect(items.find((i) => i.id === "snag:low")!.severity).toBe("normal");
     // every item has a real, non-empty href
     expect(items.every((i) => i.href.startsWith("/phil/"))).toBe(true);
+  });
+});
+
+describe("buildPhilNeedsYou — calibration items (#305)", () => {
+  it("surfaces an EXPIRED calibration on held gear as urgent with a don't-use warning", () => {
+    const items = buildPhilNeedsYou({
+      viewerId: ME,
+      entries: [],
+      jobSnags: [],
+      calibrations: [
+        calibration({ status: "expired", daysToExpiry: -3, calibrationDue: "2026-06-09" }),
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      id: "calibration:a1",
+      kind: "calibration",
+      severity: "urgent",
+      href: "/phil/gear",
+      actionLabel: "View gear",
+    });
+    expect(items[0]!.title).toContain("Fluke 1587 calibration expired");
+    expect(items[0]!.detail).toContain("Don't test with it");
+  });
+
+  it("surfaces an upcoming calibration as a warning with the due date", () => {
+    const items = buildPhilNeedsYou({
+      viewerId: ME,
+      entries: [],
+      jobSnags: [],
+      calibrations: [calibration({})],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ severity: "warning" });
+    expect(items[0]!.title).toContain("calibration due");
+  });
+
+  it("drops a calibration row held by SOMEONE ELSE (defence-in-depth on holderId)", () => {
+    const items = buildPhilNeedsYou({
+      viewerId: ME,
+      entries: [],
+      jobSnags: [],
+      calibrations: [calibration({ holderId: "someone-else" })],
+    });
+    expect(items).toEqual([]);
+  });
+
+  it("omitting the calibrations input changes nothing (existing callers untouched)", () => {
+    expect(buildPhilNeedsYou({ viewerId: ME, entries: [], jobSnags: [] })).toEqual([]);
+  });
+
+  it("ranks an expired calibration alongside urgent rejected-hours, above snags", () => {
+    const items = buildPhilNeedsYou({
+      viewerId: ME,
+      entries: [entry({ id: "e9", status: "rejected", date: "2024-05-22" })],
+      jobSnags: [{ jobId: "j1", jobName: "100 Arthur", snags: [snag({})] }],
+      calibrations: [
+        calibration({ status: "expired", daysToExpiry: -1, calibrationDue: "2026-06-11" }),
+      ],
+    });
+    expect(items.map((i) => i.kind)).toEqual(["rejected-hours", "calibration", "snag"]);
   });
 });

@@ -25,6 +25,8 @@ import {
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isVisibleToField } from "@/domains/jobs/builder";
 import { SnagListResponseSchema } from "@/domains/snags/schema";
+import { TagsExpiringCalibrationsResponseSchema } from "@/domains/gear/schema";
+import type { ExpiringCalibration } from "@/domains/gear/types";
 import { buildPhilNeedsYou, type JobSnags } from "@/domains/phil/needs-you";
 import { buildPhilGreeting, hourInTimeZone } from "@/domains/phil/greeting";
 import styles from "@/components/phil/myDay.module.css";
@@ -103,13 +105,18 @@ export default async function MyDayPage({
   // "Needs you" feed — the worker's real, actionable attention across their
   // assigned jobs. Snags are job-scoped (GET /api/snags?jobId=), so we fetch
   // them per assigned job once the jobs are known; the build is a pure
-  // selector. Both inputs are real (rejected hours + snags assigned to ME) —
-  // see buildPhilNeedsYou; nothing here is fabricated.
-  const jobSnags = await loadAssignedSnags(assignedJobs.jobs, raw);
+  // selector. All inputs are real (rejected hours + snags assigned to ME +
+  // calibration lapses on gear I hold, #305) — see buildPhilNeedsYou;
+  // nothing here is fabricated.
+  const [jobSnags, calibrations] = await Promise.all([
+    loadAssignedSnags(assignedJobs.jobs, raw),
+    loadHeldCalibrations(raw),
+  ]);
   const needsYouItems = buildPhilNeedsYou({
     viewerId: session.userId ?? null,
     entries: recentEntries,
     jobSnags,
+    calibrations,
   });
 
   // Greeting. Time-of-day + the worker's real display name. The legacy login
@@ -365,4 +372,32 @@ async function loadAssignedSnags(
     }),
   );
   return results.filter((r): r is JobSnags => r !== null);
+}
+
+/**
+ * Expiring/expired calibrations on gear THIS worker holds (#305), from
+ * GET /api/tags-expiring (the shared compliance computation). The endpoint
+ * already filters calibrations to the caller's held gear for non-admin
+ * viewers. FAILS SOFT: any error → empty list, never a blanked page.
+ */
+async function loadHeldCalibrations(
+  cookieValue: string | undefined,
+): Promise<ExpiringCalibration[]> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+
+  try {
+    const res = await fetch(`${base}/api/tags-expiring`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (!res.ok) return [];
+    const parsed = TagsExpiringCalibrationsResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return [];
+    return parsed.data.calibrations ?? [];
+  } catch {
+    return [];
+  }
 }

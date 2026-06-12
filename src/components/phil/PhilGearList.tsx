@@ -9,6 +9,7 @@ import { PhilNotice } from "./ui/PhilNotice";
 import { listGear, reportGear, transferGear } from "@/domains/gear/client";
 import { buildReturnToDepotPayload, deriveStatus, statusTone } from "@/domains/gear/service";
 import {
+  calibrationFlag,
   conditionLabel,
   formatShortDate,
   formatTimestamp,
@@ -90,6 +91,7 @@ export function PhilGearList({ initialAssets }: Props) {
         {assets.map((asset) => {
           const status = deriveStatus(asset);
           const overdue = isOverdue(asset, today);
+          const calibration = calibrationFlag(asset, today);
           return (
             <li key={asset.id}>
               <Card className="space-y-3">
@@ -102,6 +104,17 @@ export function PhilGearList({ initialAssets }: Props) {
                   </div>
                   <Pill tone={statusTone(status)}>{statusLabel(status)}</Pill>
                 </div>
+
+                {calibration ? (
+                  <PhilNotice
+                    tone={calibration.status === "expired" ? "danger" : "warning"}
+                    role="status"
+                  >
+                    {calibration.status === "expired"
+                      ? `Calibration expired ${formatShortDate(asset.calibrationDue)} — don't test with this until it's recalibrated.`
+                      : `Calibration due ${formatShortDate(asset.calibrationDue)} (${calibration.daysToExpiry === 0 ? "today" : `in ${calibration.daysToExpiry}d`}).`}
+                  </PhilNotice>
+                ) : null}
 
                 <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-text-muted">
                   <dt>Type</dt>

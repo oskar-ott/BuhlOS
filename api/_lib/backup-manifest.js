@@ -30,6 +30,7 @@ const EXACT_STORES = [
   'policy.json',
   'flags.json', // feature-flag runtime overrides (#155)
   'structure-presets.json', // reusable area-group presets (#192)
+  'tag-reminder-state.json', // tag/calibration alert dedupe state (#305)
   'temps/assets.json',
   'temps/movements.json',
 ];
