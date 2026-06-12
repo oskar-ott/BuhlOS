@@ -108,6 +108,14 @@ export const ITPTemplatePointSchema = z
     /** Defaults to true on the writer side. Always present on
      *  api/itp-templates.js output (validatePoint sets it). */
     required: z.boolean().optional(),
+    /** #285 evidence gate. SEMANTICS (mirrored in api/job-itps.js — the
+     *  server gate is the source of truth): when true, EVERY record on
+     *  this point must carry a photoUrl from the ITP photo flow — any
+     *  record marks a point done, so the record is the moment evidence
+     *  must exist. Updates carry the existing photo forward; results
+     *  recorded before the flag are never retro-blocked (the flag rides
+     *  the attach-time snapshot). Absent on legacy points = off. */
+    evidenceRequired: z.boolean().optional(),
     /** Only meaningful for type='value' — unit string for the input
      *  label (e.g. "V", "Ω", "mm"). */
     unit: z.string().nullable().optional(),
@@ -289,6 +297,7 @@ export const ItpTemplatePointDraftSchema = z.object({
   label: z.string().trim().min(1, "Point label required").max(200),
   type: ITPPointTypeSchema,
   required: z.boolean().optional(),
+  evidenceRequired: z.boolean().optional(),
   unit: z.string().trim().max(30).optional(),
   min: z.number().optional(),
   max: z.number().optional(),

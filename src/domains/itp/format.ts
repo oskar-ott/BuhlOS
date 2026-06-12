@@ -198,6 +198,29 @@ export interface ITPProgress {
  * line matches the witnessed-state criterion the server uses. If a
  * snapshot has no required points the percent is 0 (avoids div-by-0).
  */
+/**
+ * #285: evidence coverage — "n of m evidence-required points photographed".
+ * Null when the snapshot has no flagged points, so surfaces never render
+ * "0 of 0". Photographed = the result row carries a photoUrl (the server
+ * gate guarantees new records do; old pre-flag results may not — that
+ * honesty is the point of showing the line).
+ */
+export function evidenceCoverage(
+  instance: ITPInstance
+): { required: number; photographed: number } | null {
+  const points = instance.templateSnapshot?.points ?? [];
+  const flagged = points.filter((p) => p.evidenceRequired === true);
+  if (flagged.length === 0) return null;
+  let photographed = 0;
+  for (const p of flagged) {
+    const result = instance.results?.[p.id];
+    if (result && typeof result.photoUrl === "string" && result.photoUrl.trim() !== "") {
+      photographed += 1;
+    }
+  }
+  return { required: flagged.length, photographed };
+}
+
 export function formatProgress(instance: ITPInstance): ITPProgress {
   const points = instance.templateSnapshot.points || [];
   const required = points.filter(

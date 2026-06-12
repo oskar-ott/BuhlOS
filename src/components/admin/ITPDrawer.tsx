@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import {
+  evidenceCoverage,
   formatProgress,
   pointTypeLabel,
   scopeContextLine,
@@ -232,6 +233,11 @@ export function ITPDrawer({
                 {progress.done} / {progress.total}
                 {progress.total > 0 ? " points" : null}
               </span>
+              {evidenceCoverage(instance) ? (
+                <span className="text-xs text-text-muted" data-testid="itp-evidence-coverage">
+                  · {evidenceCoverage(instance)!.photographed}/{evidenceCoverage(instance)!.required} photographed
+                </span>
+              ) : null}
               {instance.archived ? (
                 <Pill tone="neutral">Archived</Pill>
               ) : null}

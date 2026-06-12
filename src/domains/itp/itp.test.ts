@@ -36,6 +36,7 @@ import {
   statusTone,
   valuePassFail,
   valuePassFailLabel,
+  evidenceCoverage,
 } from "./format";
 import {
   allowedTransitionsList,
@@ -1285,5 +1286,60 @@ describe("itpClient — reopenItp + archiveItp", () => {
     } as unknown as Parameters<typeof archiveItp>[1]);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("evidenceCoverage (#285)", () => {
+  const inst = (points: unknown[], results: Record<string, unknown>) =>
+    ({
+      id: "i1",
+      templateSnapshot: { name: "T", points },
+      results,
+    }) as unknown as Parameters<typeof evidenceCoverage>[0];
+
+  it("null when the snapshot flags no points — never '0 of 0'", () => {
+    expect(evidenceCoverage(inst([{ id: "p1", label: "x", type: "photo" }], {}))).toBeNull();
+  });
+
+  it("counts photographed flagged points only", () => {
+    const c = evidenceCoverage(
+      inst(
+        [
+          { id: "p1", label: "a", type: "value", evidenceRequired: true },
+          { id: "p2", label: "b", type: "photo", evidenceRequired: true },
+          { id: "p3", label: "c", type: "note" }, // unflagged — not counted
+        ],
+        {
+          p1: { value: 42, photoUrl: "https://blob/x.jpg", at: "2026-06-01" },
+          p3: { note: "n", at: "2026-06-01" },
+        },
+      ),
+    );
+    expect(c).toEqual({ required: 2, photographed: 1 });
+  });
+
+  it("pre-flag results without photos read as unphotographed — that honesty is the point", () => {
+    const c = evidenceCoverage(
+      inst(
+        [{ id: "p1", label: "a", type: "value", evidenceRequired: true }],
+        { p1: { value: 9, photoUrl: "", at: "2026-01-01" } },
+      ),
+    );
+    expect(c).toEqual({ required: 1, photographed: 0 });
+  });
+});
+
+describe("ITPTemplatePointSchema — evidenceRequired flag (#285)", () => {
+  it("parses the flag and tolerates its absence on legacy points", () => {
+    const flagged = ITPTemplatePointSchema.safeParse({
+      id: "p1",
+      label: "MSB torque",
+      type: "value",
+      evidenceRequired: true,
+    });
+    expect(flagged.success).toBe(true);
+    const legacy = ITPTemplatePointSchema.safeParse({ id: "p2", label: "Old", type: "photo" });
+    expect(legacy.success).toBe(true);
+    expect((legacy as { data: { evidenceRequired?: boolean } }).data.evidenceRequired).toBeUndefined();
   });
 });

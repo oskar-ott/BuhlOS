@@ -212,12 +212,35 @@ module.exports = async (req, res) => {
       const point = (inst.templateSnapshot && inst.templateSnapshot.points || []).find(p => p.id === pointId);
       if (!point) return res.status(404).json({ error: 'point not found on template' });
 
-      const before = inst.status;
+      // #285: evidence gate. Semantics (documented in itp/schema.ts too):
+      // on an evidence-required point EVERY record must end up with a
+      // photo — any record marks the point done for progress + the
+      // witnessed auto-advance, so the record IS the moment evidence must
+      // exist. Updates carry the existing photo forward rather than
+      // silently stripping it. Only the app's own ITP photo path counts —
+      // an arbitrary URL can't satisfy a compliance gate. Flag lives on
+      // the attach-time templateSnapshot, so later template edits never
+      // retro-block existing instances.
       inst.results = inst.results || {};
+      const existingResult = inst.results[pointId] || null;
+      let effectivePhotoUrl = _str(photoUrl, 400);
+      if (point.evidenceRequired) {
+        if (!effectivePhotoUrl && existingResult && existingResult.photoUrl) {
+          effectivePhotoUrl = existingResult.photoUrl; // update keeps its evidence
+        }
+        if (!effectivePhotoUrl) {
+          return res.status(400).json({ error: 'Photo needed to pass this check — attach one first.' });
+        }
+        if (!effectivePhotoUrl.includes('/itp-photos/')) {
+          return res.status(400).json({ error: 'Photo must be captured through the check photo flow.' });
+        }
+      }
+
+      const before = inst.status;
       inst.results[pointId] = {
         value: value !== undefined ? value : null,
         note: _str(note, 500),
-        photoUrl: _str(photoUrl, 400),
+        photoUrl: point.evidenceRequired ? effectivePhotoUrl : _str(photoUrl, 400),
         byUserId: me.id,
         byUsername: me.username,
         at: new Date().toISOString(),

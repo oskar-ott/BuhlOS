@@ -8,6 +8,7 @@ import {
   ITP_SIGNOFF_INDEPENDENCE_THRESHOLD,
 } from "@/domains/itp/schema";
 import { canSignOff } from "@/domains/itp/service";
+import { evidenceCoverage } from "@/domains/itp/format";
 import type { ITPInstance } from "@/domains/itp/types";
 
 interface Props {
@@ -98,6 +99,19 @@ export function ITPSignOffModal({
       title={`Sign off "${templateName.slice(0, 60)}"`}
     >
       <div className="space-y-4">
+        {/* #285: evidence coverage — the sign-off decision should see how
+            much of the required photo evidence actually exists. Absent when
+            the template flags no points. */}
+        {instance && evidenceCoverage(instance) ? (
+          <p
+            className="rounded-card bg-surface-subtle px-3 py-2 text-sm text-text"
+            data-testid="itp-evidence-coverage"
+          >
+            {evidenceCoverage(instance)!.photographed} of {evidenceCoverage(instance)!.required}{" "}
+            evidence-required {evidenceCoverage(instance)!.required === 1 ? "point" : "points"}{" "}
+            photographed.
+          </p>
+        ) : null}
         {decision?.ok === false && decision.reason === "wrong-role" ? (
           <p
             role="alert"

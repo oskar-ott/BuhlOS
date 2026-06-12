@@ -171,6 +171,14 @@ export function ITPPointCard({
         return;
       }
       setPhotoUrl(body.url);
+      // #285: on an evidence-required value/signoff/note point the photo is
+      // staged — the worker still enters their value and taps Save (one
+      // record, fully formed). Photo-TYPE points keep their existing
+      // photo-then-record flow.
+      if (point.type !== "photo") {
+        setPhase({ kind: "dirty" });
+        return;
+      }
       // Photo uploads complete the photo half of the point but we still
       // need to POST /api/job-itps?action=record so the result row is
       // attributed to the worker + auto-advance logic runs.
@@ -245,6 +253,10 @@ export function ITPPointCard({
   }
 
   const required = point.required !== false;
+  // #285: evidence-required — the photo affordance leads and Save stays
+  // disabled until a photo exists, so the gate never reads as a dead-end
+  // error after typing. The server gate is the source of truth.
+  const needsEvidence = point.evidenceRequired === true;
   const passFail =
     point.type === "value" ? valuePassFailLabel(point, existing) : null;
   const labelTitle = point.label || pointTypeFallbackLabel(point.type);
@@ -275,6 +287,11 @@ export function ITPPointCard({
           {pointTypeHint(point) ? (
             <p className="mt-0.5 text-xs text-text-muted">{pointTypeHint(point)}</p>
           ) : null}
+          {needsEvidence && !photoUrl ? (
+            <p className="mt-0.5 text-xs font-medium text-state-warning" data-testid="itp-evidence-hint">
+              Photo needed to pass this check — add it first.
+            </p>
+          ) : null}
         </div>
         {pillTone ? (
           <Pill tone={pillTone} className="shrink-0">
@@ -295,7 +312,7 @@ export function ITPPointCard({
       </header>
 
       <div className="mt-3 space-y-3">
-        {point.type === "photo" ? (
+        {point.type === "photo" || needsEvidence ? (
           <PhotoSection
             inputRef={inputRef}
             photoUrl={photoUrl}
@@ -341,7 +358,8 @@ export function ITPPointCard({
             disabled={
               phase.kind === "submitting" ||
               phase.kind === "uploading" ||
-              disabledSignoff
+              disabledSignoff ||
+              (needsEvidence && !photoUrl)
             }
             className="w-full bg-accent-yellow text-brand-navy hover:bg-accent-yellow"
           >
