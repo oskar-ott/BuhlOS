@@ -5,6 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { HoursApprovalsQueue } from "@/components/admin/HoursApprovalsQueue";
+import { HoursTabs } from "@/components/admin/HoursTabs";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isAdminRole } from "@/lib/auth/roles";
@@ -50,6 +51,8 @@ export default async function HoursApprovalsPage() {
         </Link>
       }
     >
+      {/* Section tabs (#415) — navigation chrome only, above all content. */}
+      <HoursTabs />
       <div className="mx-auto max-w-4xl space-y-4">
         <Card>
           <CardTitle>Submitted entries</CardTitle>

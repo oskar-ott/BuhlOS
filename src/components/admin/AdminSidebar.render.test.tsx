@@ -11,6 +11,8 @@ import { AdminSidebar } from "./AdminSidebar";
 
 /**
  * #187 — one grouped sidebar, nothing dead, longest-prefix active state.
+ * #415 — hours collapsed to ONE sidebar item; Approvals / Weekly closeout
+ * moved into the in-page HoursTabs bar (see HoursTabs.render.test.tsx).
  */
 
 function render(path: string): string {
@@ -34,8 +36,6 @@ describe("AdminSidebar (#187)", () => {
       "Observations",
       "Material requests",
       "ITP templates",
-      "Weekly closeout",
-      "Approvals",
       "Employees",
       "Gear",
     ]) {
@@ -47,10 +47,19 @@ describe("AdminSidebar (#187)", () => {
     expect(html).not.toContain("aria-disabled");
   });
 
-  it("longest prefix wins: /hours vs /hours/approvals vs /hours/weekly", () => {
+  it("shows ONE Hours item (#415) — Approvals / Weekly closeout live in the in-page tabs, not here", () => {
+    const html = render("/command-centre");
+    expect(html.match(/href="\/hours"/g)).toHaveLength(1);
+    expect(html).not.toContain('href="/hours/approvals"');
+    expect(html).not.toContain('href="/hours/weekly"');
+    expect(html).not.toContain("Approvals");
+    expect(html).not.toContain("Weekly closeout");
+  });
+
+  it("the single Hours item stays active across all three hours routes (#415)", () => {
     expect(activeLabel(render("/hours"))).toBe("Hours");
-    expect(activeLabel(render("/hours/approvals"))).toBe("Approvals");
-    expect(activeLabel(render("/hours/weekly"))).toBe("Weekly closeout");
+    expect(activeLabel(render("/hours/approvals"))).toBe("Hours");
+    expect(activeLabel(render("/hours/weekly"))).toBe("Hours");
   });
 
   it("nested job paths keep Jobs active; templates route activates ITP templates", () => {
