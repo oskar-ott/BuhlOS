@@ -74,6 +74,7 @@ export type PhilJobActionId =
   | "capture"
   | "log_hours"
   | "view_plans"
+  | "view_tags"
   | "report_issue";
 
 /**
@@ -195,6 +196,8 @@ export interface PhilJobCommandInput {
   snags: PhilCountSignal;
   /** ITP points the worker still needs to record (pending / in-progress). */
   itps: PhilCountSignal;
+  /** Test & tag entries needing a retest — expired or due ≤14d (#388). */
+  tags: PhilCountSignal;
   /** Worker-visible tasks. */
   tasks: PhilTaskSignal;
   /** Rejected hour entries on this job the worker can fix + resubmit. */
@@ -223,6 +226,7 @@ export const PHIL_JOB_ACTION_PRIORITY: readonly PhilJobActionId[] = [
   "capture",
   "log_hours",
   "view_plans",
+  "view_tags",
   "report_issue",
 ];
 
@@ -235,6 +239,7 @@ const WORK_ACTION_IDS: ReadonlySet<PhilJobActionId> = new Set<PhilJobActionId>([
   "continue_tasks",
   "capture",
   "view_plans",
+  "view_tags",
 ]);
 
 const STATUS_WEIGHT: Record<PhilJobActionStatus, number> = {
@@ -554,6 +559,33 @@ export function buildPhilJobCommandModel(input: PhilJobCommandInput): PhilJobCom
       limitations.push({
         id: "plans-unknown",
         label: "Couldn’t load plans & documents",
+        reason: "Pull to refresh to try again.",
+      });
+      break;
+    case "not_configured":
+      break;
+  }
+
+  // -- Test & tag retests (#388). The register itself is a standing section
+  //    on the job page; the command panel only speaks up when something
+  //    actually needs the worker — an entry expired or inside the 14-day
+  //    window (#305's alert semantics). --
+  switch (input.tags.kind) {
+    case "count":
+      if (input.tags.value > 0) {
+        const n = input.tags.value;
+        actions.push({
+          id: "view_tags",
+          label: n === 1 ? "Test & tag — 1 needs retest" : `Test & tag — ${n} need retest`,
+          status: "attention",
+          reason: "Expired or due within 14 days on this job's register.",
+        });
+      }
+      break;
+    case "unknown":
+      limitations.push({
+        id: "tags-unknown",
+        label: "Couldn’t load the test & tag register",
         reason: "Pull to refresh to try again.",
       });
       break;

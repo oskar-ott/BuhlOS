@@ -9,6 +9,7 @@ import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
+import { TagListResponseSchema, type TagItem } from "@/domains/tags/schema";
 import { parseJobTaskState, type JobTaskState } from "@/domains/jobs/taskState";
 import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
 import { SnagListResponseSchema } from "@/domains/snags/schema";
@@ -73,7 +74,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // is non-blocking: an empty list just shows the empty state, the
   // worker can still create new items, and the server will return
   // real data on the next refresh.
-  const [initialEvidence, initialSnags, initialItps, documentsResult, taskStateResult] =
+  const [initialEvidence, initialSnags, initialItps, documentsResult, taskStateResult, tagsResult] =
     result.kind === "ok"
       ? await Promise.all([
           loadInitialEvidence(raw, jobId),
@@ -81,6 +82,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           loadInitialItps(raw, jobId),
           loadInitialDocuments(raw, jobId),
           loadInitialTaskState(raw, jobId),
+          loadInitialTags(raw, jobId),
         ])
       : [
           [],
@@ -88,6 +90,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           [],
           { documents: [] as Document[], error: null as string | null },
           { state: {} as JobTaskState, error: null as string | null },
+          { tags: [] as TagItem[], error: false },
         ];
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
@@ -133,6 +136,8 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
         initialItps={initialItps}
         initialDocuments={documentsResult.documents}
         documentsError={documentsResult.error}
+        initialTags={tagsResult.tags}
+        tagsError={tagsResult.error}
         initialTaskState={taskStateResult.state}
         taskStateError={taskStateResult.error}
         viewer={{
@@ -356,6 +361,37 @@ async function loadInitialDocuments(
  * worker is told progress could not be loaded and any toggle still reconciles
  * from the server-confirmed response.
  */
+/**
+ * Test & tag entries for the job-page section + command signal (#388).
+ * FAILS SOFT to an error FLAG (not a message): the section card shows a
+ * retry notice and the command model treats the count as unknown.
+ */
+async function loadInitialTags(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<{ tags: TagItem[]; error: boolean }> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(`${base}/api/tags?jobId=${encodeURIComponent(jobId)}`, {
+      cache: "no-store",
+      headers: cookieValue
+        ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
+        : undefined,
+    });
+    if (!res.ok) {
+      return { tags: [], error: res.status !== 403 };
+    }
+    const parsed = TagListResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { tags: [], error: true };
+    return { tags: [...parsed.data.tags], error: false };
+  } catch {
+    return { tags: [], error: true };
+  }
+}
+
 async function loadInitialTaskState(
   cookieValue: string | undefined,
   jobId: string
