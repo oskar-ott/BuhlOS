@@ -128,7 +128,10 @@ module.exports = async (req, res) => {
           id: u.id,
           label: u.username,
           sub: u.role + (u.email ? ' · ' + u.email : ''),
-          url: isClientRole(u.role) ? null : '/employees',
+          // #188: deep-link to the worker's detail drawer (the employees
+          // register keys on the same users.json id). Clients have no
+          // employee record → no link.
+          url: isClientRole(u.role) ? null : '/employees/' + u.id,
           _score: s,
         });
       }
