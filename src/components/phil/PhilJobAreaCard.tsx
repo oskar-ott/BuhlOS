@@ -130,7 +130,7 @@ export function PhilJobAreaCard({
               <span
                 key={label}
                 className={cn(
-                  "inline-flex items-center rounded-pill border px-2 py-0.5 text-[11px] font-medium",
+                  "inline-flex items-center rounded-pill border px-2 py-0.5 text-[12px] font-medium",
                   active
                     ? "border-text-inverse/30 text-text-inverse/90"
                     : "border-border bg-surface-subtle text-text-muted",
@@ -145,7 +145,7 @@ export function PhilJobAreaCard({
                 <span
                   key={chip.label}
                   className={cn(
-                    "inline-flex items-center gap-1 rounded-pill border px-2 py-0.5 text-[11px] font-medium",
+                    "inline-flex items-center gap-1 rounded-pill border px-2 py-0.5 text-[12px] font-medium",
                     active
                       ? "border-text-inverse/25 bg-text-inverse/10 text-text-inverse"
                       : "border-border bg-surface text-text",

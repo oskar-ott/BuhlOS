@@ -515,7 +515,7 @@ function TagForm({
 
 function LowConfidenceHint() {
   return (
-    <span className="ml-2 rounded-card border border-state-warning px-1.5 py-0.5 text-[11px] font-medium text-state-warning">
+    <span className="ml-2 rounded-card border border-state-warning px-1.5 py-0.5 text-[12px] font-medium text-state-warning">
       check this
     </span>
   );

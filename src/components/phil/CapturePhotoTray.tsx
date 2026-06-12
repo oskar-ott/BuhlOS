@@ -85,7 +85,7 @@ export function CapturePhotoTray({ photos, max, busy, onAdd, onRemove }: Props) 
               ) : p.status === "resizing" ? (
                 <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin text-text-muted" />
               ) : (
-                <span className="px-2 text-center text-[10px] text-state-danger">
+                <span className="px-2 text-center text-[12px] text-state-danger">
                   {p.error ?? "Couldn't read this photo"}
                 </span>
               )}
@@ -104,10 +104,10 @@ export function CapturePhotoTray({ photos, max, busy, onAdd, onRemove }: Props) 
               </button>
             ) : null}
             {p.status === "failed" && p.error ? (
-              <p className="mt-1 text-[10px] leading-tight text-state-danger">{p.error}</p>
+              <p className="mt-1 text-[12px] leading-tight text-state-danger">{p.error}</p>
             ) : null}
             {p.status === "ready" ? (
-              <p className="mt-1 truncate text-[10px] text-text-muted">
+              <p className="mt-1 truncate text-[12px] text-text-muted">
                 {humanFileSize(p.file.size)}
               </p>
             ) : null}

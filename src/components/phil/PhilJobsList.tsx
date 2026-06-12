@@ -119,7 +119,7 @@ function JobRow({ job }: { job: Job }) {
               return (
                 <li
                   key={s.key}
-                  className="inline-flex items-center gap-1 rounded-pill border border-border bg-surface px-2 py-0.5 text-[11px] font-medium text-text-muted"
+                  className="inline-flex items-center gap-1 rounded-pill border border-border bg-surface px-2 py-0.5 text-[12px] font-medium text-text-muted"
                 >
                   <Icon aria-hidden="true" className="h-3 w-3 shrink-0" />
                   {s.label}
@@ -132,7 +132,7 @@ function JobRow({ job }: { job: Job }) {
 
       <div className="flex shrink-0 flex-col items-end justify-between pt-1">
         {caption ? (
-          <span className="whitespace-nowrap text-[11px] uppercase tracking-wider text-text-muted">
+          <span className="whitespace-nowrap text-[12px] uppercase tracking-wider text-text-muted">
             {caption}
           </span>
         ) : (

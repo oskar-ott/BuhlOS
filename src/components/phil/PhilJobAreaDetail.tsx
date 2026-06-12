@@ -132,7 +132,7 @@ export function PhilJobAreaDetail({
 
       {links.length > 0 ? (
         <div className="mt-3">
-          <p className="font-display text-[11px] uppercase tracking-wider text-text-muted">
+          <p className="font-display text-[12px] uppercase tracking-wider text-text-muted">
             In this area
           </p>
           <ul className="mt-2 flex flex-wrap gap-2">
@@ -142,7 +142,7 @@ export function PhilJobAreaDetail({
               </li>
             ))}
           </ul>
-          <p className="mt-1.5 text-[11px] text-text-muted/80">
+          <p className="mt-1.5 text-[12px] text-text-muted/80">
             Counts are for this area. Tap to open the job-wide list.
           </p>
         </div>
@@ -151,7 +151,7 @@ export function PhilJobAreaDetail({
       <div className="mt-4">
         {showSelector ? (
           <>
-            <p className="font-display text-[11px] uppercase tracking-wider text-text-muted">
+            <p className="font-display text-[12px] uppercase tracking-wider text-text-muted">
               Stage
             </p>
             <div
@@ -172,7 +172,7 @@ export function PhilJobAreaDetail({
             </div>
           </>
         ) : hasAnyStage(stages) ? (
-          <p className="font-display text-[11px] uppercase tracking-wider text-text-muted">
+          <p className="font-display text-[12px] uppercase tracking-wider text-text-muted">
             {stageLabel(viewedStage)} tasks
           </p>
         ) : null}

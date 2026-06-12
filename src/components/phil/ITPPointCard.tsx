@@ -571,7 +571,7 @@ function NoteInput({
         className="min-h-[64px] w-full rounded-card border border-border bg-surface p-3 text-sm outline-none focus:border-brand-navy focus:ring-2 focus:ring-brand-navy"
         placeholder={required ? "What did you find?" : "Anything worth flagging?"}
       />
-      <p className="text-right text-[10px] text-text-muted/60">
+      <p className="text-right text-[12px] text-text-muted/60">
         {value.length} / {ITP_RESULT_NOTE_MAX}
       </p>
     </div>

@@ -73,13 +73,13 @@ export function PhilJobAttentionStrip(props: DeriveAttentionInput) {
       <div className="flex items-baseline justify-between gap-2 px-1">
         <h2
           id="phil-job-attention-h"
-          className="font-display text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+          className="font-display text-[12px] font-semibold uppercase tracking-wider text-text-muted"
         >
           Needs attention
         </h2>
         {total > items.length ? (
           <span
-            className="text-[11px] uppercase tracking-wider text-text-muted"
+            className="text-[12px] uppercase tracking-wider text-text-muted"
             aria-live="polite"
           >
             {items.length} of {total}
@@ -108,7 +108,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
         <div className="min-w-0 flex-1">
           <p
             className={cn(
-              "font-display text-[11px] font-semibold uppercase tracking-wider",
+              "font-display text-[12px] font-semibold uppercase tracking-wider",
               tone.label,
             )}
           >

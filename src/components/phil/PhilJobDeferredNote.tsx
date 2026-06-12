@@ -17,7 +17,7 @@
 export function PhilJobDeferredNote() {
   return (
     <div className="rounded-card border border-dashed border-border bg-surface-subtle px-4 py-3">
-      <p className="font-display text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+      <p className="font-display text-[12px] font-semibold uppercase tracking-wider text-text-muted">
         Not connected in Phil yet
       </p>
       <p className="mt-1 text-sm text-text-muted">
