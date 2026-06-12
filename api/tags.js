@@ -22,6 +22,11 @@ const { put } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite } = require('./_lib/auth');
 
+// OCR vision model (#378). Bare alias via env — the PLANS_AI_MODEL pattern.
+// Never pin a dated model id here: the previous dated pin had a 2026-06-15
+// retirement date and would have broken field OCR mid-job.
+const OCR_MODEL = process.env.TAGS_AI_MODEL || 'claude-sonnet-4-6';
+
 function newId() {
   return 'tag_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
@@ -104,7 +109,7 @@ async function runOcr(req, res, user) {
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: OCR_MODEL,
         max_tokens: 600,
         system: [
           { type: 'text', text: OCR_SYSTEM, cache_control: { type: 'ephemeral' } },

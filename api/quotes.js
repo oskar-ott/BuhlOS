@@ -1038,6 +1038,11 @@ async function handleAiRun(req, res, user, id) {
   return res.status(201).json({ review });
 }
 
+// AI-review model (#378). Bare alias via env — the PLANS_AI_MODEL pattern.
+// The previous pin belonged to a model family retired 2025-10-28, so this
+// action had been failing into its rawModelNotes fallback in production.
+const AI_REVIEW_MODEL = process.env.QUOTES_AI_MODEL || 'claude-sonnet-4-6';
+
 // Anthropic call — server-side only, never exposed to the client. Asks for
 // strict JSON. If parsing fails, drops back to summary-only output.
 async function _callAnthropic(apiKey, sourceText) {
@@ -1064,7 +1069,7 @@ async function _callAnthropic(apiKey, sourceText) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-3-5-sonnet-latest',
+      model: AI_REVIEW_MODEL,
       max_tokens: 2000,
       messages: [{ role: 'user', content: prompt }],
     }),
