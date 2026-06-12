@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { NewJobForm } from "@/components/admin/NewJobForm";
+import { StartFromBlueprintCard } from "@/components/admin/StartFromBlueprintCard";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canCreateJob } from "@/lib/auth/permissions";
 
@@ -48,6 +49,7 @@ export default async function NewJobPage() {
       }
     >
       <div className="mx-auto max-w-2xl space-y-4">
+        <StartFromBlueprintCard />
         <NewJobForm />
       </div>
     </AdminShell>
