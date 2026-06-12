@@ -72,6 +72,27 @@ export default async function PhilV2HomePage() {
           <PhilSignOutButton />
         </Card>
 
+        {/* #422: leave lives here on the More tab now, not on My Day —
+            My Day stays about today's one action. */}
+        <Card className="space-y-3">
+          <div>
+            <CardTitle>Time off</CardTitle>
+            <CardDescription>
+              Off sick or taking leave? Request it here — approved days stop
+              showing as missing hours.
+            </CardDescription>
+          </div>
+          <div>
+            <Link
+              href={"/phil/leave" as Route}
+              className="inline-flex h-11 items-center justify-center rounded-card border border-border bg-surface px-4 text-sm font-semibold text-text hover:border-brand-navy"
+              data-testid="more-leave-link"
+            >
+              Request leave →
+            </Link>
+          </div>
+        </Card>
+
         {/* #331: the worker's own licence register — the licence-expiry
             push deep-links to this page. */}
         <PhilMyLicencesCard credentials={credentials} fetchError={fetchError} />
