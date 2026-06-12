@@ -103,6 +103,7 @@ Confirmed in code. These are the intended destinations for new navigation.
 | `/observations` | `src/app/(admin)/observations/page.tsx` | **Observations Inbox** (PR 3). Cross-job field-to-office triage: blockers, plan mismatches, material needs, RFIs, variations, defects, site instructions. Admin-tier gated (matches the `/api/observations` cross-job gate). |
 | `/material-requests` | `src/app/(admin)/material-requests/page.tsx` | **Material Requests Inbox** (PR 11). Cross-job procurement queue: requested → approved → ordered → delivered (+ cancel). Admin-tier gated (matches the `/api/material-requests` cross-job gate). Distinct from the legacy `/admin/materials` takeoff/PO/invoice module — this is the field-to-office request loop. |
 | `/defects` | `src/app/(admin)/defects/page.tsx` | **Defects register** (#414). Cross-job snags queue — BOTH per-job stores (live `snagsV2` + pre-cutover legacy `snags[]`) normalised by `/api/snags-all`; status/job/priority filters (#216 pattern), rows deep-link to `/v2/jobs/[jobId]/snags`, bulk-close via `/api/snags-bulk-close`. Gated `lh` surface like `/v2/jobs` (admin tier sees all jobs; LH only their `assignedJobIds` — scoped by the API). |
+| `/reports` | `src/app/(admin)/reports/page.tsx` | **Reports — owner numbers** (#316). The six numbers the owner checks daily, defined ONE place each in `src/domains/analytics/owner-numbers.ts` (the #329 seed); six-source server-side fan-in with per-tile error degradation; every tile drills into the records surface (`/hours`, `/hours/approvals`, `/defects?status=open`, `/v2/jobs`). Admin-tier gated (commercial figures). Boundary with `/command-centre`: that page is attention/queues, this page is numbers — link, never duplicate. See `docs/owner-dashboard.md`. |
 
 **Phil** — `PhilShell`, field roles or leading hand (gated)
 
@@ -201,6 +202,7 @@ The legacy estate must stay dead. `scripts/check-legacy-quarantine.js`
 | `/observations` | BuhlOS | `(admin)/observations` | AdminShell | canonical | admin | sidebar, command-centre | observations inbox; unauth → 307 `/v2/login` |
 | `/material-requests` | BuhlOS | `(admin)/material-requests` | AdminShell | canonical | admin | sidebar, command-centre | material requests inbox; unauth → 307 `/v2/login` |
 | `/defects` | BuhlOS | `(admin)/defects` | AdminShell | canonical | admin/LH | sidebar "Defects" | cross-job defects register; unauth → 307 `/v2/login` |
+| `/reports` | BuhlOS | `(admin)/reports` | AdminShell | canonical | admin | sidebar "Reports" | owner numbers dashboard (#316); unauth → 307 `/v2/login` |
 | `/v2/jobs` | BuhlOS | `v2/jobs` | AdminShell | transitional | admin/LH | sidebar "Jobs", command-centre | admin jobs index; → `/admin/jobs` later |
 | `/v2/jobs/new` | BuhlOS | `v2/jobs/new` | AdminShell | transitional | **admin** | jobs index "New job" | create draft → 307 in-page non-admin → `/v2/jobs`; on create → `/v2/jobs/[jobId]/builder` |
 | `/v2/jobs/[jobId]` | BuhlOS | `v2/jobs/[jobId]` | AdminShell | transitional | admin/LH | jobs list rows, command-centre | job hub (overview, site, build/publish card, section nav) |
@@ -232,6 +234,7 @@ failure that has happened (or could) if the row is left unguarded.
 | `/v2/jobs/[jobId]/itps/pack` | BuhlOS | none (print document) | `src/app/v2/jobs/[jobId]/itps/pack/page.tsx` | canonical | admin chrome printing onto a builder-facing deliverable | `check-shell-contract` (SHELL_EXEMPT — #286; session-gated lh surface) |
 | `/hours` · `/hours/approvals` · `/hours/weekly` · `/gear` · `/employees` · `/employees/[id]` · `/observations` · `/material-requests` | BuhlOS | AdminShell | `src/app/(admin)/**` | canonical | blank / wrong shell | `check-shell-contract`, `middleware.test`, `check-route-ownership` |
 | `/defects` | BuhlOS | AdminShell | `src/app/(admin)/defects/page.tsx` | canonical | blank / wrong shell / nav drift | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved nav + required source), `auth-routing.spec` |
+| `/reports` | BuhlOS | AdminShell | `src/app/(admin)/reports/page.tsx` | canonical | blank / wrong shell / nav drift / numbers drifting from sources | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved nav + required source), `auth-routing.spec`, `owner-numbers.test` (per-tile definitions) |
 | `/admin` · `/admin/` | legacy | legacy shim | `public/admin/index.html` (vercel) | legacy | dead redirect | `smoke-admin-routes` (admin→ops) |
 | `/admin/operations` (+ `/overview`) | legacy | legacy BuhlOS SPA | `public/admin/operations.html` (vercel) | legacy (load-bearing) | blank ops / wrong shell / stale SW | `check-production-shell`, `check-admin-shell`, `smoke-admin-routes`, `check-sw-cache-version` |
 | `/admin/*` (approvals, jobs, itp, plans, variations, reports, …) | legacy | legacy `_shell.js` | `public/admin/*.html` (vercel) | legacy | blank page (missing boot) / stale SW | `check-admin-shell`, `check-sw-cache-version` |
@@ -288,12 +291,13 @@ lists in the guard **and** §8 / §8.1 here in the same PR.
 - **BuhlOS sidebar** (`src/components/admin/AdminSidebar.tsx`) — `live` items may
   only link to approved admin routes: `/command-centre`, `/hours`,
   `/hours/approvals`, `/hours/weekly`, `/gear`, `/employees`, `/observations`,
-  `/material-requests`, `/defects`, `/v2/jobs`, `/itp-templates`. Unbuilt
-  items (`Support`, `Settings`) are rendered as **non-clickable** `UC`
+  `/material-requests`, `/defects`, `/reports`, `/v2/jobs`, `/itp-templates`.
+  Unbuilt items (`Support`, `Settings`) are rendered as **non-clickable** `UC`
   spans, never `<Link>`s — per the "every incomplete feature shows UNDER
   CONSTRUCTION" non-negotiable. (The old `Snags` UC slot is now LIVE as
   **Defects** → `/defects`, the #414 cross-job register; per-job triage stays
-  on the Jobs surface.)
+  on the Jobs surface. The doc-13 `Reports` slot is now LIVE as **Reports** →
+  `/reports`, the #316 owner numbers dashboard, in a bottom `Company` group.)
 - **Phil bottom tab bar** (`src/components/phil/PhilTabBar.tsx`) — a 4-tab +
   centre Capture FAB layout. The `live` tabs (`LEFT_TABS` Today/Jobs, `RIGHT_TABS`
   Gear/More) may only link to approved Phil routes: `/phil/my-day`, `/phil/jobs`,

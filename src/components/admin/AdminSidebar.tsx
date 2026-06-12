@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   ClipboardList,
   Inbox,
+  BarChart3,
   Briefcase,
   Bug,
   Package,
@@ -123,6 +124,20 @@ const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/gear",
         icon: Wrench,
         activeFor: ["/gear"],
+      },
+    ],
+  },
+  {
+    heading: "Company",
+    items: [
+      {
+        // #316 — the six numbers the owner checks daily (doc 13 names
+        // this section "Reports"). Numbers + trends live here; queues
+        // stay on /command-centre.
+        label: "Reports",
+        href: "/reports" as Route,
+        icon: BarChart3,
+        activeFor: ["/reports"],
       },
     ],
   },

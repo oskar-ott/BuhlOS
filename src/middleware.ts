@@ -41,6 +41,9 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   // #414: cross-job defects register — same surface as /v2/jobs
   // (admin tier + LH; the API scopes an LH to their assignedJobIds).
   { prefix: "/defects", surface: "lh" },
+  // #316: owner numbers dashboard — admin tier only (commercial figures:
+  // quote pipeline, contract overruns).
+  { prefix: "/reports", surface: "admin" },
   { prefix: "/v2/phil", surface: "phil" },
   { prefix: "/v2/jobs", surface: "lh" },
   { prefix: "/phil/my-day", surface: "phil" },
@@ -94,6 +97,7 @@ export const config = {
     "/observations/:path*",
     "/material-requests/:path*",
     "/defects/:path*",
+    "/reports/:path*",
     "/v2/phil/:path*",
     "/v2/jobs/:path*",
     "/phil/my-day/:path*",
