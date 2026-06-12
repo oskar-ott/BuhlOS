@@ -79,6 +79,7 @@ export default async function HoursWeeklyCloseoutPage({
   const closeout = buildWeeklyHoursCloseout({
     entries: overview?.entries ?? [],
     missing: overview?.missing ?? [],
+    leave: overview?.leave ?? [],
     weekStart,
     todayISO,
   });

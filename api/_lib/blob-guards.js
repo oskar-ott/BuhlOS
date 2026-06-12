@@ -100,6 +100,7 @@ const EXACT_GUARDS = {
   // Tag/calibration reminder dedupe state (#305): { entries: { key → {threshold,
   // notifiedAt} } }. No shrink guard — it legitimately empties as items get
   // retested and leave the alert window.
+  'leave-requests.json': { validate: arrayOfIdObjects('requests') },
   'tag-reminder-state.json': {
     validate: (doc) =>
       isPlainObject(doc) && isPlainObject(doc.entries) ? null : 'entries must be an object',

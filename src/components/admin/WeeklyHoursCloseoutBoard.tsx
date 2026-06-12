@@ -72,6 +72,7 @@ const DAY_TONE: Record<WeeklyDayStatus, "neutral" | "info" | "success" | "danger
   rejected: "danger",
   draft: "warning",
   missing: "warning",
+  leave: "info",
   future: "neutral",
   "not-required": "neutral",
 };
@@ -751,6 +752,14 @@ function DayRow({
             <span className="text-text-muted">{formatHoursLabel(day.hours)}</span>
           ) : null}
           {day.jobLabel ? <span className="text-text-muted">· {day.jobLabel}</span> : null}
+          {day.status === "leave" && day.leaveType ? (
+            <span className="text-text-muted">({day.leaveType})</span>
+          ) : null}
+          {day.status !== "leave" && day.leaveType && day.entryId ? (
+            <Pill tone="warning" title="Hours were logged on an approved-leave day">
+              Logged on leave
+            </Pill>
+          ) : null}
           {day.status === "approved" && day.exportId ? (
             <Pill tone="neutral" title={`Payroll run ${day.exportId}`}>
               Exported

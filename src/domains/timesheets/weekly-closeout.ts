@@ -34,6 +34,7 @@ export type WeeklyDayStatus =
   | "rejected"
   | "draft"
   | "missing"
+  | "leave"
   | "future"
   | "not-required";
 
@@ -58,6 +59,9 @@ export interface WeeklyHoursDay {
   rejectedReason: string | null;
   /** Committed payroll run that included this day, when stamped (#126). */
   exportId: string | null;
+  /** Approved leave type covering this day (#333) — set on status "leave",
+   *  AND on a logged day that overlaps approved leave (the office flag). */
+  leaveType: string | null;
 }
 
 export interface WeeklyWorkerHours {
@@ -110,6 +114,8 @@ export interface WeeklyCloseoutInput {
   entries: ReadonlyArray<TimeEntry>;
   /** The server's missing-day detection for the same range. */
   missing: ReadonlyArray<MissingLog>;
+  /** Approved leave days from the same overview response (#333). */
+  leave?: ReadonlyArray<{ date: string; userId: string; type: string }>;
   /** Monday of the week (callers use weekStartOf()). */
   weekStart: string;
   /** Today in the business timezone — future-day classification. */
@@ -160,6 +166,8 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
     entryByWorkerDate.set(`${e.userId}|${e.date}`, e);
   }
   const missingSet = new Set<string>();
+  const leaveByKey = new Map<string, string>();
+  for (const l of input.leave ?? []) leaveByKey.set(`${l.userId}|${l.date}`, l.type);
   for (const m of missing) {
     missingSet.add(`${m.userId}|${m.date}`);
     if (!names.has(m.userId)) {
@@ -193,6 +201,9 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
           entry.status === "draft"
             ? entry.status
             : "draft";
+      } else if (leaveByKey.has(`${workerId}|${date}`)) {
+        // #333: approved leave — not an expectation, never "missing".
+        status = "leave";
       } else if (missingSet.has(`${workerId}|${date}`)) {
         status = "missing";
       } else if (isWeekend) {
@@ -224,6 +235,13 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
         blockers.push(`${weekday} missing`);
       }
 
+      const leaveType = leaveByKey.get(`${workerId}|${date}`) ?? null;
+      if (entry && leaveType) {
+        // Logged hours on an approved-leave day still count as WORK, but the
+        // office should see the collision (#333).
+        blockers.push(`${weekday} logged while on leave`);
+      }
+
       days.push({
         date,
         weekday,
@@ -234,6 +252,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
         note: entry?.notes ?? null,
         rejectedReason: entry?.rejectedReason ?? null,
         exportId: entry?.exportId ?? null,
+        leaveType,
       });
     }
 
@@ -336,6 +355,8 @@ export function weeklyDayStatusLabel(status: WeeklyDayStatus): string {
       return "Draft — not submitted";
     case "missing":
       return "Missing";
+    case "leave":
+      return "On leave";
     case "future":
       return "—";
     case "not-required":

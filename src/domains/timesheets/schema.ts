@@ -233,6 +233,12 @@ export const TimeEntryOverviewResponseSchema = z.object({
   entries: z.array(TimeEntrySchema),
   totals: OverviewTotalsSchema,
   missing: z.array(MissingLogSchema),
+  /** #333: approved-leave days in range — same source as `missing`. */
+  leave: z
+    .array(
+      z.object({ date: z.string(), userId: z.string(), type: z.string() }).passthrough(),
+    )
+    .optional(),
   jobs: z.array(OverviewJobSchema),
   users: z.array(OverviewUserSchema),
 });
@@ -406,3 +412,29 @@ export const ReopenEntryPayloadSchema = z.object({
 });
 
 export const ReopenEntryResponseSchema = z.object({}).passthrough();
+
+/** Leave request rows (api/leave.js, #333). */
+export const LeaveRequestSchema = z
+  .object({
+    id: z.string(),
+    userId: z.string(),
+    userName: z.string().optional(),
+    type: z.string(),
+    fromDate: z.string(),
+    toDate: z.string(),
+    note: z.string().nullable().optional(),
+    status: z.enum(["pending", "approved", "declined", "cancelled"]),
+    requestedAt: z.string().optional(),
+    decidedAt: z.string().optional(),
+    decidedByName: z.string().optional(),
+    decisionNote: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export const LeaveListResponseSchema = z.object({
+  requests: z.array(LeaveRequestSchema),
+});
+
+export const LeaveMutationResponseSchema = z.object({
+  request: LeaveRequestSchema,
+});

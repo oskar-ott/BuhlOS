@@ -17,6 +17,7 @@ const { isCoveredKey, BACKUP_PREFIX } = require('../api/_lib/backup-manifest');
 // file (relative to repo root) → write-key prefixes the guard can't extract.
 const KNOWN_DYNAMIC = {
   'api/_lib/audit-log.js': ['audit/'], // keyFor(): audit/<yyyy-mm>.json
+  'api/leave.js': ['leave-requests.json'], // KEY imported from _lib/leave.js
 };
 
 // The backup system itself: blob.js DEFINES writeBlob, backup.js's restore
