@@ -18,9 +18,10 @@
 //   - clients are 403'd
 //   - Skips notifying the actor themselves (when actor === recipient)
 
-const { setNoCache } = require('./_lib/blob');
+const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isClientRole } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
+const { notify } = require('./_lib/notify');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -70,11 +71,31 @@ module.exports = async (req, res) => {
     url = '/phil/my-day';
   }
 
-  const result = await sendPushToUserId(userId, {
+  const payload = {
     title,
     body,
     url,
     tag: 'buhl-snag-' + kind + '-' + (snag.id || ''),
-  });
+  };
+
+  // The 'assigned' push is the one the `snagAssigned` pref governs, so route it
+  // through the notify() engine (#162) — muting that type suppresses the
+  // assignment ping for that user. The 'resolved'/'reopened' kinds notify the
+  // raiser/assignee about an action on THEIR snag and carry no pref key (they
+  // are actionable signal, not opt-out noise — the future alwaysOn class, see
+  // api/_lib/notify.js); they stay on the direct push, audience + payload
+  // unchanged. Either path is best-effort and never fails the response.
+  if (kind === 'assigned') {
+    const data = await readBlob('users.json', { users: [] });
+    const recipient = (data.users || []).find((u) => u.id === userId) || { id: userId };
+    const result = await notify({
+      kind: 'snagAssigned',
+      audience: [recipient],
+      payload,
+    });
+    return res.status(200).json({ ok: true, result });
+  }
+
+  const result = await sendPushToUserId(userId, payload);
   return res.status(200).json({ ok: true, result });
 };

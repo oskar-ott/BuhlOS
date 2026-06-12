@@ -15,6 +15,7 @@ import {
   Clock,
   Wrench,
   Users,
+  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { SignOutButton } from "./SignOutButton";
@@ -222,7 +223,23 @@ export function AdminSidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-accent-ink p-3">
+      <div className="space-y-1 border-t border-accent-ink p-3">
+        {/* Settings is not a daily destination, so it lives in the footer next
+            to sign-out rather than as a nav-group item (#218). Today it is the
+            notification-prefs page only; #222 grows /settings into a hub. */}
+        <Link
+          href={"/settings/notifications" as Route}
+          aria-current={pathname.startsWith("/settings") ? "page" : undefined}
+          className={cn(
+            "flex w-full items-center gap-3 rounded-card px-3 py-2 text-sm transition-colors",
+            pathname.startsWith("/settings")
+              ? "bg-accent-ink font-semibold text-text-inverse"
+              : "text-slate-300 hover:bg-accent-ink hover:text-text-inverse",
+          )}
+        >
+          <Bell aria-hidden="true" className="h-4 w-4" />
+          <span className="flex-1 truncate">Notification settings</span>
+        </Link>
         <SignOutButton />
       </div>
     </aside>

@@ -47,6 +47,11 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   // #183: v2 quote builder — admin tier only (commercial figures; unlike
   // /v2/jobs there is no LH read access).
   { prefix: "/v2/quotes", surface: "admin" },
+  // #218: account settings (notification prefs today; #222 grows it into the
+  // settings hub). Admin-tier surface — reached from the sidebar footer. The
+  // prefs API itself is self-only and serves field users too, but the PANEL
+  // lives on the admin shell.
+  { prefix: "/settings", surface: "admin" },
   { prefix: "/v2/phil", surface: "phil" },
   { prefix: "/v2/jobs", surface: "lh" },
   { prefix: "/phil/my-day", surface: "phil" },
@@ -102,6 +107,7 @@ export const config = {
     "/defects/:path*",
     "/reports/:path*",
     "/v2/quotes/:path*",
+    "/settings/:path*",
     "/v2/phil/:path*",
     "/v2/jobs/:path*",
     "/phil/my-day/:path*",

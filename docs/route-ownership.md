@@ -104,6 +104,7 @@ Confirmed in code. These are the intended destinations for new navigation.
 | `/material-requests` | `src/app/(admin)/material-requests/page.tsx` | **Material Requests Inbox** (PR 11). Cross-job procurement queue: requested → approved → ordered → delivered (+ cancel). Admin-tier gated (matches the `/api/material-requests` cross-job gate). Distinct from the legacy `/admin/materials` takeoff/PO/invoice module — this is the field-to-office request loop. |
 | `/defects` | `src/app/(admin)/defects/page.tsx` | **Defects register** (#414). Cross-job snags queue — BOTH per-job stores (live `snagsV2` + pre-cutover legacy `snags[]`) normalised by `/api/snags-all`; status/job/priority filters (#216 pattern), rows deep-link to `/v2/jobs/[jobId]/snags`, bulk-close via `/api/snags-bulk-close`. Gated `lh` surface like `/v2/jobs` (admin tier sees all jobs; LH only their `assignedJobIds` — scoped by the API). |
 | `/reports` | `src/app/(admin)/reports/page.tsx` | **Reports — owner numbers** (#316). The six numbers the owner checks daily, defined ONE place each in `src/domains/analytics/owner-numbers.ts` (the #329 seed); six-source server-side fan-in with per-tile error degradation; every tile drills into the records surface (`/hours`, `/hours/approvals`, `/defects?status=open`, `/v2/jobs`). Admin-tier gated (commercial figures). Boundary with `/command-centre`: that page is attention/queues, this page is numbers — link, never duplicate. See `docs/owner-dashboard.md`. |
+| `/settings/notifications` | `src/app/(admin)/settings/notifications/page.tsx` | **Notification settings** (#218). Per-type toggles over the self-only `GET`/`PUT /api/notification-prefs`; optimistic flip + rollback + error chip. The toggles are now REAL — the notify() engine (#162) consults `notificationPrefs` at delivery. Admin-tier gated; reached from the sidebar FOOTER (not a nav group — settings isn't a daily destination). First page under `/settings`; #222 grows it into a settings hub. See `docs/notifications.md`. |
 
 **Phil** — `PhilShell`, field roles or leading hand (gated)
 
@@ -205,6 +206,7 @@ The legacy estate must stay dead. `scripts/check-legacy-quarantine.js`
 | `/material-requests` | BuhlOS | `(admin)/material-requests` | AdminShell | canonical | admin | sidebar, command-centre | material requests inbox; unauth → 307 `/v2/login` |
 | `/defects` | BuhlOS | `(admin)/defects` | AdminShell | canonical | admin/LH | sidebar "Defects" | cross-job defects register; unauth → 307 `/v2/login` |
 | `/reports` | BuhlOS | `(admin)/reports` | AdminShell | canonical | admin | sidebar "Reports" | owner numbers dashboard (#316); unauth → 307 `/v2/login` |
+| `/settings/notifications` | BuhlOS | `(admin)/settings/notifications` | AdminShell | canonical | admin | sidebar footer "Notification settings" | notification prefs panel (#218); unauth → 307 `/v2/login` |
 | `/v2/jobs` | BuhlOS | `v2/jobs` | AdminShell | transitional | admin/LH | sidebar "Jobs", command-centre | admin jobs index; → `/admin/jobs` later |
 | `/v2/jobs/new` | BuhlOS | `v2/jobs/new` | AdminShell | transitional | **admin** | jobs index "New job" | create draft → 307 in-page non-admin → `/v2/jobs`; on create → `/v2/jobs/[jobId]/builder` |
 | `/v2/jobs/[jobId]` | BuhlOS | `v2/jobs/[jobId]` | AdminShell | transitional | admin/LH | jobs list rows, command-centre | job hub (overview, site, build/publish card, section nav) |
@@ -239,6 +241,7 @@ failure that has happened (or could) if the row is left unguarded.
 | `/hours` · `/hours/approvals` · `/hours/weekly` · `/gear` · `/employees` · `/employees/[id]` · `/observations` · `/material-requests` | BuhlOS | AdminShell | `src/app/(admin)/**` | canonical | blank / wrong shell | `check-shell-contract`, `middleware.test`, `check-route-ownership` |
 | `/defects` | BuhlOS | AdminShell | `src/app/(admin)/defects/page.tsx` | canonical | blank / wrong shell / nav drift | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved nav + required source), `auth-routing.spec` |
 | `/reports` | BuhlOS | AdminShell | `src/app/(admin)/reports/page.tsx` | canonical | blank / wrong shell / nav drift / numbers drifting from sources | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved nav + required source), `auth-routing.spec`, `owner-numbers.test` (per-tile definitions) |
+| `/settings/notifications` | BuhlOS | AdminShell | `src/app/(admin)/settings/notifications/page.tsx` | canonical | blank / wrong shell / dead toggles / nav drift | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved href + required source), `auth-routing.spec`, `notification-item.test` (kinds↔keys 1:1) |
 | `/admin` · `/admin/` | legacy | legacy shim | `public/admin/index.html` (vercel) | legacy | dead redirect | `smoke-admin-routes` (admin→ops) |
 | `/admin/operations` (+ `/overview`) | legacy | legacy BuhlOS SPA | `public/admin/operations.html` (vercel) | legacy (load-bearing) | blank ops / wrong shell / stale SW | `check-production-shell`, `check-admin-shell`, `smoke-admin-routes`, `check-sw-cache-version` |
 | `/admin/*` (approvals, jobs, itp, plans, variations, reports, …) | legacy | legacy `_shell.js` | `public/admin/*.html` (vercel) | legacy | blank page (missing boot) / stale SW | `check-admin-shell`, `check-sw-cache-version` |
@@ -297,7 +300,11 @@ lists in the guard **and** §8 / §8.1 here in the same PR.
   only link to approved admin routes: `/command-centre`, `/hours`,
   `/hours/approvals`, `/hours/weekly`, `/gear`, `/employees`, `/observations`,
   `/material-requests`, `/defects`, `/reports`, `/v2/jobs`, `/v2/quotes`,
-  `/itp-templates`.
+  `/itp-templates`, `/settings/notifications`. The **footer** carries a small
+  `/settings/notifications` link (next to sign-out, #218) — settings is not a
+  daily destination, so it is intentionally NOT a nav-group item; the
+  route-ownership guard's nav parser only reads the `NAV_GROUPS` array, so the
+  footer link is covered by the approved-href set, not the per-group scan.
   Unbuilt items (`Support`, `Settings`) are rendered as **non-clickable** `UC`
   spans, never `<Link>`s — per the "every incomplete feature shows UNDER
   CONSTRUCTION" non-negotiable. (The old `Snags` UC slot is now LIVE as

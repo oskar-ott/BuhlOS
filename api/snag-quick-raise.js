@@ -24,7 +24,7 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, isLeadingHandRole, isClientRole } = require('./_lib/auth');
-const { sendPushToUserId } = require('./_lib/push');
+const { notify } = require('./_lib/notify');
 
 const VALID_PRIORITY = new Set(['High', 'Medium', 'Low']);
 const MAX_DESC = 1000;
@@ -111,13 +111,16 @@ module.exports = async (req, res) => {
     clientVisible,
   };
 
-  // Auto-assign rule (mirrors /api/data POST behaviour).
+  // Auto-assign rule (mirrors /api/data POST behaviour). Keep the resolved
+  // assignee RECORD around so notify() can read its notificationPrefs.
   let autoAssigned = false;
+  let assigneeRecord = null;
   if (explicitAssignee) {
     snag.assignedToUserId = explicitAssignee.id;
     snag.assignedToName   = explicitAssignee.username;
     snag.updatedBy        = me.username;
     snag.updatedAt        = nowIso;
+    assigneeRecord = explicitAssignee;
   } else {
     const lh = await pickLeadingHandFor(jobId);
     if (lh) {
@@ -127,6 +130,7 @@ module.exports = async (req, res) => {
       snag.updatedBy        = me.username;
       snag.updatedAt        = nowIso;
       autoAssigned = true;
+      assigneeRecord = lh;
     }
   }
 
@@ -142,12 +146,18 @@ module.exports = async (req, res) => {
   }
 
   // Fire-and-forget push to the assignee (auto or explicit), skip self.
+  // Routed through notify() (#162) so the assignee's `snagAssigned` pref is
+  // honoured; audience + payload are unchanged from the direct push.
   if (snag.assignedToUserId && snag.assignedToUserId !== me.id) {
-    sendPushToUserId(snag.assignedToUserId, {
-      title: (snag.priority === 'High' ? '⚠ HIGH · ' : '') + 'Snag assigned to you',
-      body:  '[' + (job.name || jobId) + '] ' + snag.desc.slice(0, 140),
-      url:   '/phil/jobs/' + jobId + '#phil-job-snags',
-      tag:   'buhl-snag-assigned-' + snag.id,
+    notify({
+      kind: 'snagAssigned',
+      audience: [assigneeRecord || { id: snag.assignedToUserId }],
+      payload: {
+        title: (snag.priority === 'High' ? '⚠ HIGH · ' : '') + 'Snag assigned to you',
+        body:  '[' + (job.name || jobId) + '] ' + snag.desc.slice(0, 140),
+        url:   '/phil/jobs/' + jobId + '#phil-job-snags',
+        tag:   'buhl-snag-assigned-' + snag.id,
+      },
     }).catch(() => {});
   }
 

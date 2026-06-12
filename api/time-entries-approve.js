@@ -6,7 +6,7 @@
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
 const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
-const { sendPushToUserId } = require('./_lib/push');
+const { notify } = require('./_lib/notify');
 const { appendActivity } = require('./_lib/activity');
 
 module.exports = async (req, res) => {
@@ -79,14 +79,24 @@ module.exports = async (req, res) => {
     },
   });
 
-  // Fire-and-forget push to the tradie. Failures don't affect the response.
-  // Lands on Phil My Day — the live field home — where the approved status
-  // shows on the week strip + status line.
-  sendPushToUserId(userId, {
-    title: 'Hours approved',
-    body: `${Number(entry.totalHours).toFixed(1)} hrs on ${entry.date} approved by ${user.username}.`,
-    url: '/phil/my-day',
-    tag: 'buhl-hours-approved-' + entry.date,
+  // Fire-and-forget push to the tradie, now routed through the platform
+  // notify() engine (#162) so the recipient's `hoursApproved` pref is honoured
+  // — muting that type suppresses THIS push for THAT user only. Audience +
+  // payload are unchanged from the direct sendPushToUserId call. Failures don't
+  // affect the response. Lands on Phil My Day — the live field home — where the
+  // approved status shows on the week strip + status line.
+  // Resolve the recipient's record so notify() can read their notificationPrefs
+  // (the LH branch above only loaded it for jobs it runs).
+  const recipient = await readUser(userId);
+  notify({
+    kind: 'hoursApproved',
+    audience: [recipient || { id: userId }],
+    payload: {
+      title: 'Hours approved',
+      body: `${Number(entry.totalHours).toFixed(1)} hrs on ${entry.date} approved by ${user.username}.`,
+      url: '/phil/my-day',
+      tag: 'buhl-hours-approved-' + entry.date,
+    },
   }).catch(() => {});
 
   return res.status(200).json({ entry: updated });
