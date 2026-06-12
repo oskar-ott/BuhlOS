@@ -32,6 +32,7 @@ const { getCurrentUser, isAdminRole, isLeadingHandRole, isFieldRole, isClientRol
 const { getWebPush, sendPushToUserId } = require('./_lib/push');
 // #381: fail-closed cron gate (503 in production when CRON_SECRET unset).
 const { requireCron } = require('./_lib/cron-auth');
+const { readLeave, approvedLeaveByUserDate } = require('./_lib/leave');
 const { expiringTagRows, expiringCalibrationRows, newCrossings } = require('./_lib/tag-compliance');
 const { listAllAssets } = require('./_lib/assets');
 
@@ -108,6 +109,12 @@ module.exports = async (req, res) => {
     const data = await readBlob(USERS_KEY, { users: [] });
     const users = data.users || [];
 
+    let leaveToday = {};
+    try {
+      const leaveData = await readLeave();
+      leaveToday = approvedLeaveByUserDate(leaveData.requests, today, today);
+    } catch { leaveToday = {}; }
+
     const payload = {
       title: 'Did you log your hours?',
       body: "Quick reminder — tap to log today's hours before you knock off.",
@@ -125,6 +132,8 @@ module.exports = async (req, res) => {
       // Skip if they already logged hours for today
       const logged = await userHasLoggedHoursToday(u, today);
       if (logged) { skipped++; continue; }
+      // #333: never nag a worker on approved leave today.
+      if (leaveToday[u.id + '|' + today]) { skipped++; continue; }
 
       const r = await sendPushToUserId(u.id, payload);
       sent   += (r.sent   || 0);

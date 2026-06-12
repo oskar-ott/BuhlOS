@@ -168,7 +168,13 @@ beforeEach(() => {
     ],
   ]);
 
-  for (const modulePath of [blobSdkPath, blobPath, authPath, handlerPath]) {
+  for (const modulePath of [
+    blobSdkPath,
+    blobPath,
+    authPath,
+    requireFromHere.resolve("../../../api/_lib/leave.js"),
+    handlerPath,
+  ]) {
     delete requireFromHere.cache[modulePath];
   }
 
@@ -305,6 +311,56 @@ describe("missing-hours crew coverage (#114)", () => {
       toDate: PAST_WEEKDAY,
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+/**
+ * #333 — approved leave exempts a day from missing-hours and surfaces in the
+ * response's leave[] so the boards can show "On leave (sick)" instead of a
+ * false "missing" chase.
+ */
+describe("approved leave exemption (#333)", () => {
+  function seedLeave(status: string, userId = "u_elec") {
+    blob.set("leave-requests.json", {
+      requests: [
+        {
+          id: "lv_1",
+          userId,
+          userName: userId,
+          type: "sick",
+          fromDate: PAST_WEEKDAY,
+          toDate: PAST_WEEKDAY,
+          status,
+        },
+      ],
+    });
+  }
+
+  it("an approved leave day is leave[], not missing[]", async () => {
+    seedLeave("approved");
+    const res = await overview("u_admin", "admin", {
+      fromDate: PAST_WEEKDAY,
+      toDate: PAST_WEEKDAY,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(missingIds(res)).not.toContain("u_elec");
+    expect(missingIds(res)).toContain("u_appr"); // others still chased
+    const leave = (res.body as {
+      leave: Array<{ date: string; userId: string; type: string }>;
+    }).leave;
+    expect(leave).toEqual([
+      { date: PAST_WEEKDAY, userId: "u_elec", userName: "u_elec", type: "sick" },
+    ]);
+  });
+
+  it("pending leave does NOT exempt — only an approval stops the chase", async () => {
+    seedLeave("pending");
+    const res = await overview("u_admin", "admin", {
+      fromDate: PAST_WEEKDAY,
+      toDate: PAST_WEEKDAY,
+    });
+    expect(missingIds(res)).toContain("u_elec");
+    expect((res.body as { leave: unknown[] }).leave).toEqual([]);
   });
 });
 

@@ -30,6 +30,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
+const { readLeave, approvedLeaveByUserDate } = require('./_lib/leave');
 const { requireAuth, isStaffRole, isAdminRole, isHoursTrackedWorker } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
@@ -228,6 +229,16 @@ module.exports = async (req, res) => {
   if (userIdFilter) crewForMissing = crewForMissing.filter(u => u.id === userIdFilter);
   if (jobIdFilter)  crewForMissing = crewForMissing.filter(u => (u.assignedJobIds || []).includes(jobIdFilter));
 
+  // #333: approved leave exempts a day from "missing" — it renders as
+  // leave (with type) instead. Computed HERE, server-side, so every
+  // consumer (weekly board, Phil week, reminder crons) agrees.
+  let leaveByUserDate = {};
+  try {
+    const leaveData = await readLeave();
+    leaveByUserDate = approvedLeaveByUserDate(leaveData.requests, fromDate, toDate);
+  } catch { leaveByUserDate = {}; }
+  const leave = [];
+
   const cursor = new Date(fromDate + 'T00:00:00');
   const end    = new Date(toDate   + 'T00:00:00');
   while (cursor <= end && cursor <= today0) {
@@ -245,7 +256,11 @@ module.exports = async (req, res) => {
         String(cursor.getMonth() + 1).padStart(2, '0') + '-' +
         String(cursor.getDate()).padStart(2, '0');
       for (const u of crewForMissing) {
-        if (!entryByUserDate[u.id + '|' + iso]) {
+        if (entryByUserDate[u.id + '|' + iso]) continue;
+        const leaveType = leaveByUserDate[u.id + '|' + iso];
+        if (leaveType) {
+          leave.push({ date: iso, userId: u.id, userName: u.username, type: leaveType });
+        } else {
           missing.push({ date: iso, userId: u.id, userName: u.username, role: u.role });
         }
       }
@@ -258,6 +273,7 @@ module.exports = async (req, res) => {
     entries: enriched,
     totals,
     missing,
+    leave,
     jobs:  visibleJobs.map(j => ({ id: j.id, name: j.name, status: j.status || 'active' })),
     users: visibleCrew.map(u => ({ id: u.id, username: u.username, role: u.role })),
   });

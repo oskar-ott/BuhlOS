@@ -14,6 +14,8 @@ import {
   ReopenEntryResponseSchema,
   PayrollExportPreviewResponseSchema,
   PayrollRunsResponseSchema,
+  LeaveListResponseSchema,
+  LeaveMutationResponseSchema,
 } from "./schema";
 import { payrollPreviewUrl } from "./payroll-export";
 import type {
@@ -30,6 +32,7 @@ import type {
   ReopenEntryPayload,
   PayrollExportPreviewResponse,
   PayrollRunsResponse,
+  LeaveRequest,
 } from "./types";
 
 /**
@@ -343,3 +346,48 @@ export function payrollRuns(limit = 10): Promise<HttpResult<PayrollRunsResponse>
   });
 }
 
+/** #333 leave verbs — see api/leave.js for the contract. */
+export function myLeave(): Promise<HttpResult<{ requests: LeaveRequest[] }>> {
+  return httpGet("/api/leave?mine=1", {
+    schema: LeaveListResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+export function allLeave(): Promise<HttpResult<{ requests: LeaveRequest[] }>> {
+  return httpGet("/api/leave", {
+    schema: LeaveListResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+export function requestLeave(payload: {
+  type: string;
+  fromDate: string;
+  toDate: string;
+  note?: string;
+  userId?: string;
+}): Promise<HttpResult<{ request: LeaveRequest }>> {
+  return httpPost("/api/leave", payload, {
+    schema: LeaveMutationResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+export function decideLeave(
+  id: string,
+  approve: boolean,
+  note?: string,
+): Promise<HttpResult<{ request: LeaveRequest }>> {
+  return httpPost("/api/leave?action=decide", { id, approve, note }, {
+    schema: LeaveMutationResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+export function cancelLeave(id: string): Promise<HttpResult<{ request: LeaveRequest }>> {
+  return httpPost("/api/leave?action=cancel", { id }, {
+    schema: LeaveMutationResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}

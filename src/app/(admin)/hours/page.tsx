@@ -16,7 +16,10 @@ import {
   TimeEntryOverviewResponseSchema,
   PayrollExportPreviewResponseSchema,
   TodayPulseResponseSchema,
+  LeaveListResponseSchema,
 } from "@/domains/timesheets/schema";
+import { UsersListResponseSchema } from "@/domains/users/schema";
+import { LeaveApprovalsCard } from "@/components/admin/LeaveApprovalsCard";
 import {
   BUSINESS_TIMEZONE,
   addDays,
@@ -31,6 +34,7 @@ import type {
   TimeEntryOverviewResponse,
   PayrollExportPreviewResponse,
   TodayPulseResponse,
+  LeaveRequest,
 } from "@/domains/timesheets/types";
 
 export const dynamic = "force-dynamic";
@@ -84,8 +88,18 @@ export default async function HoursOverviewPage({
   const thisWeekStart = weekStartOf(today);
   const isCurrentWeek = weekStart === thisWeekStart;
 
-  const { pending, approved, rejected, overview, exportPreview, pulse, errors } =
-    await loadHours(raw, weekStart, weekEnd, today, isAdmin);
+  const {
+    pending,
+    approved,
+    rejected,
+    overview,
+    exportPreview,
+    pulse,
+    leave,
+    leaveError,
+    workers,
+    errors,
+  } = await loadHours(raw, weekStart, weekEnd, today, isAdmin);
 
   const missing = overview ? summariseMissing(overview.missing) : null;
 
@@ -188,6 +202,17 @@ export default async function HoursOverviewPage({
             </CardDescription>
           )}
         </Card>
+
+        {/* ── Leave (admin only): approve requests + record on behalf.
+               Approved days are exempt from missing-hours detection, so this
+               sits right under the rollup where "missing" is reported. */}
+        {isAdmin ? (
+          <LeaveApprovalsCard
+            initialRequests={leave}
+            fetchError={leaveError}
+            workers={workers}
+          />
+        ) : null}
 
         {/* ── Payroll export preview (admin only) ───────────────────── */}
         {isAdmin ? (
@@ -649,6 +674,9 @@ interface LoadResult {
   overview: TimeEntryOverviewResponse | null;
   exportPreview: PayrollExportPreviewResponse | null;
   pulse: TodayPulseResponse | null;
+  leave: ReadonlyArray<LeaveRequest>;
+  leaveError: string | null;
+  workers: ReadonlyArray<{ id: string; username: string }>;
   errors: string[];
 }
 
@@ -665,18 +693,34 @@ async function loadHours(
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   const headersInit = cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined;
 
-  const [pendingRes, approvedRes, rejectedRes, overviewRes, exportRes, pulseRes] =
-    await Promise.all([
-      readList(base, headersInit, "submitted"),
-      readList(base, headersInit, "approved"),
-      readList(base, headersInit, "rejected"),
-      readOverview(base, headersInit, weekStart, weekEnd),
-      // Dry-run only — never stamps. Admin-only endpoint; skip for LHs.
-      isAdmin
-        ? readExportPreview(base, headersInit, weekStart, weekEnd)
-        : Promise.resolve({ preview: null, error: null }),
-      readPulse(base, headersInit, today),
-    ]);
+  const [
+    pendingRes,
+    approvedRes,
+    rejectedRes,
+    overviewRes,
+    exportRes,
+    pulseRes,
+    leaveRes,
+    workersRes,
+  ] = await Promise.all([
+    readList(base, headersInit, "submitted"),
+    readList(base, headersInit, "approved"),
+    readList(base, headersInit, "rejected"),
+    readOverview(base, headersInit, weekStart, weekEnd),
+    // Dry-run only — never stamps. Admin-only endpoint; skip for LHs.
+    isAdmin
+      ? readExportPreview(base, headersInit, weekStart, weekEnd)
+      : Promise.resolve({ preview: null, error: null }),
+    readPulse(base, headersInit, today),
+    // Leave queue + the on-behalf worker picker are admin-only widgets;
+    // their failures stay on the card (leaveError), not the page banner.
+    isAdmin
+      ? readLeave(base, headersInit)
+      : Promise.resolve({ requests: [] as LeaveRequest[], error: null }),
+    isAdmin
+      ? readWorkers(base, headersInit)
+      : Promise.resolve({ workers: [] as Array<{ id: string; username: string }> }),
+  ]);
 
   const errors: string[] = [];
   if (pendingRes.error) errors.push(pendingRes.error);
@@ -693,8 +737,58 @@ async function loadHours(
     overview: overviewRes.overview,
     exportPreview: exportRes.preview,
     pulse: pulseRes.pulse,
+    leave: leaveRes.requests,
+    leaveError: leaveRes.error,
+    workers: workersRes.workers,
     errors,
   };
+}
+
+async function readLeave(
+  base: string,
+  headersInit: { cookie: string } | undefined
+): Promise<{ requests: LeaveRequest[]; error: string | null }> {
+  try {
+    const res = await fetch(`${base}/api/leave`, {
+      cache: "no-store",
+      headers: headersInit,
+    });
+    if (!res.ok) return { requests: [], error: `Leave queue: API ${res.status}` };
+    const parsed = LeaveListResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { requests: [], error: "Leave queue: bad shape" };
+    return { requests: parsed.data.requests, error: null };
+  } catch (err) {
+    return {
+      requests: [],
+      error: `Leave queue: ${err instanceof Error ? err.message : "network error"}`,
+    };
+  }
+}
+
+/**
+ * Worker directory for the record-on-behalf picker. listTradies returns
+ * exactly the leave-trackable population (field tier + leading hands,
+ * never disabled/archived). Fail-soft: an empty picker just means the
+ * admin can't record on behalf until reload — approvals still work.
+ */
+async function readWorkers(
+  base: string,
+  headersInit: { cookie: string } | undefined
+): Promise<{ workers: Array<{ id: string; username: string }> }> {
+  try {
+    const res = await fetch(`${base}/api/users?action=listTradies`, {
+      cache: "no-store",
+      headers: headersInit,
+    });
+    if (!res.ok) return { workers: [] };
+    const parsed = UsersListResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { workers: [] };
+    return {
+      workers: parsed.data.users.map((u) => ({ id: u.id, username: u.username })),
+    };
+  } catch {
+    return { workers: [] };
+  }
 }
 
 async function readList(

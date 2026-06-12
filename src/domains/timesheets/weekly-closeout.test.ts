@@ -33,13 +33,18 @@ function missing(userId: string, date: string, userName = "Oskar Ott"): MissingL
 function build(
   entries: TimeEntry[],
   missingLogs: MissingLog[] = [],
-  opts: { weekStart?: string; todayISO?: string } = {},
+  opts: {
+    weekStart?: string;
+    todayISO?: string;
+    leave?: Array<{ date: string; userId: string; type: string }>;
+  } = {},
 ) {
   return buildWeeklyHoursCloseout({
     entries,
     missing: missingLogs,
     weekStart: opts.weekStart ?? WEEK_START,
     todayISO: opts.todayISO ?? TODAY,
+    leave: opts.leave,
   });
 }
 
@@ -268,6 +273,71 @@ describe("buildWeeklyHoursCloseout — day statuses are honest", () => {
   });
 });
 
+describe("buildWeeklyHoursCloseout — approved leave (#333)", () => {
+  it("a leave day reads as leave with its type — never missing", () => {
+    const c = build(
+      [entry({ userId: "u1", date: "2024-05-20" })],
+      // The server would NOT flag a leave day as missing (it exempts it),
+      // but even a stale missing row must lose to leave: leave is checked
+      // first in the classification chain.
+      [missing("u1", "2024-05-21")],
+      { leave: [{ date: "2024-05-21", userId: "u1", type: "sick" }] },
+    );
+    const tue = c.workers[0]!.days[1]!;
+    expect(tue.status).toBe("leave");
+    expect(tue.leaveType).toBe("sick");
+    expect(c.workers[0]!.missingCount).toBe(0);
+    expect(c.workers[0]!.blockers).toEqual([]);
+  });
+
+  it("leave never blocks payroll readiness", () => {
+    const c = build(
+      [
+        entry({ userId: "u1", date: "2024-05-20" }),
+        entry({ userId: "u1", date: "2024-05-21" }),
+        entry({ userId: "u1", date: "2024-05-22" }),
+      ],
+      [],
+      {
+        todayISO: "2024-05-24",
+        leave: [
+          { date: "2024-05-23", userId: "u1", type: "annual" },
+          { date: "2024-05-24", userId: "u1", type: "annual" },
+        ],
+      },
+    );
+    expect(c.workers[0]!.readiness).toBe("payroll-ready");
+  });
+
+  it("hours logged on an approved-leave day raise the collision blocker", () => {
+    const c = build(
+      [entry({ userId: "u1", date: "2024-05-20", status: "approved" })],
+      [],
+      { leave: [{ date: "2024-05-20", userId: "u1", type: "rdo" }] },
+    );
+    const mon = c.workers[0]!.days[0]!;
+    // The entry wins the cell (it's real work) but the office sees the flag.
+    expect(mon.status).toBe("approved");
+    expect(mon.leaveType).toBe("rdo");
+    expect(c.workers[0]!.blockers).toContain("Mon logged while on leave");
+  });
+
+  it("another worker's leave never bleeds across rows", () => {
+    const c = build(
+      [
+        entry({ userId: "u1", date: "2024-05-20" }),
+        entry({ userId: "u2", date: "2024-05-20", userName: "Jack Smith" }),
+      ],
+      [],
+      { leave: [{ date: "2024-05-21", userId: "u2", type: "annual" }] },
+    );
+    const u1 = c.workers.find((w) => w.workerId === "u1")!;
+    const u2 = c.workers.find((w) => w.workerId === "u2")!;
+    expect(u1.days[1]!.status).not.toBe("leave");
+    expect(u2.days[1]!.status).toBe("leave");
+  });
+});
+
 describe("buildWeeklyHoursCloseout — ordering", () => {
   it("orders needing-action bands before ready, names within a band", () => {
     const c = build(
@@ -305,6 +375,7 @@ describe("labels", () => {
     expect(readinessLabel("missing-hours")).toBe("Missing hours");
     expect(weeklyDayStatusLabel("draft")).toBe("Draft — not submitted");
     expect(weeklyDayStatusLabel("future")).toBe("—");
+    expect(weeklyDayStatusLabel("leave")).toBe("On leave");
   });
 });
 
@@ -352,6 +423,7 @@ describe("submittedWeekSelection (#124 — the Approve-week payload)", () => {
       note: null,
       rejectedReason: null,
       exportId: null,
+      leaveType: null,
     }));
     const worker = {
       workerId: "u1", workerName: "U", workerRole: null,

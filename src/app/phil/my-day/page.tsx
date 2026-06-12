@@ -1,3 +1,5 @@
+import Link from "next/link";
+import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { JetBrains_Mono } from "next/font/google";
@@ -183,6 +185,23 @@ export default async function MyDayPage({
           initialDate={fixDate}
           autoOpenFix={fixDate !== null}
         />
+
+        {/* Leave entry point (#333) — the answer to "I can't log hours
+            because I'm not working". Quiet one-liner, not a card: the page
+            stays about logging today. */}
+        <p className={styles.deferNoteBody}>
+          Off sick or taking time off?{" "}
+          <Link
+            // `as Route` — /phil/leave is added in this same PR, so the
+            // typedRoutes map from the previous build can't see it yet.
+            // Validated for real by `next build`.
+            href={"/phil/leave" as Route}
+            className={styles.deferNoteLink}
+            data-testid="my-day-leave-link"
+          >
+            Request leave
+          </Link>
+        </p>
 
         {fetchError ? (
           <PhilNotice tone="warning" title="Couldn’t load recent entries" role="alert">

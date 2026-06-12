@@ -28,6 +28,7 @@ import type {
   PayrollRunSchema,
   PayrollRunsResponseSchema,
   PayrollExportPreviewRowSchema,
+  LeaveRequestSchema,
 } from "./schema";
 
 /**
@@ -95,3 +96,5 @@ export type ReopenEntryPayload = z.infer<typeof ReopenEntryPayloadSchema>;
 export type PayrollExportPreviewRow = z.infer<typeof PayrollExportPreviewRowSchema>;
 export type PayrollRun = z.infer<typeof PayrollRunSchema>;
 export type PayrollRunsResponse = z.infer<typeof PayrollRunsResponseSchema>;
+
+export type LeaveRequest = z.infer<typeof LeaveRequestSchema>;
