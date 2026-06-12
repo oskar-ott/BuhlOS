@@ -215,12 +215,13 @@ describe("send-tag-reminders — daily threshold alerts (#305)", () => {
     expect(adminPush.url).toBe("/gear");
     expect(adminPush.tag).toBe("buhl-tag-alerts");
 
-    // LH on j1: only j1's expired tag, deep-linked to that job's T&T tab
+    // LH on j1: only j1's expired tag, deep-linked to that job's Phil page
+    // (post-cutover target — the legacy /jobs/:id#tags URL is a 307 now)
     expect(pushedTo("u_lh")).toHaveLength(1);
     const lhPush = pushedTo("u_lh")[0]!.payload;
     expect(lhPush.title).toContain("1 expired");
     expect(lhPush.title).not.toContain("due in 14d");
-    expect(lhPush.url).toBe("/jobs/j1#tags");
+    expect(lhPush.url).toBe("/phil/jobs/j1");
 
     // field-tier HOLDER: their instrument's calibration, pointed at Phil gear
     expect(pushedTo("u_field")).toHaveLength(1);

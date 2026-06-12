@@ -199,7 +199,7 @@ function ComplianceSection({ compliance }: { compliance: ComplianceData }) {
                 ) : null}
                 <span className="text-text-muted">
                   {" "}
-                  — <Link href={`/jobs/${t.jobId}#tags`} className="underline underline-offset-2">
+                  — <Link href={`/v2/jobs/${t.jobId}`} className="underline underline-offset-2">
                     {t.jobName}
                   </Link>
                   {t.owner ? ` · ${t.owner}` : ""}
