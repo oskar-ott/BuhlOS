@@ -56,6 +56,7 @@ import {
 } from "@/domains/jobs/builder";
 import { validateJobBasics } from "@/domains/jobs/validate";
 import { statusLabel, statusTone } from "@/domains/jobs/format";
+import { SaveAsBlueprintCard } from "./SaveAsBlueprintCard";
 import type { Job, JobModules, JobStage } from "@/domains/jobs/types";
 import { cn } from "@/lib/cn";
 
@@ -677,7 +678,7 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
     return (
       <div className="space-y-4">
         <Card>
-          <CardTitle>Task templates</CardTitle>
+          <CardTitle>Default task lists</CardTitle>
           <CardDescription className="mt-1">
             The default rough-in and fit-off checklist every area inherits. Stages are fixed
             (rough-in → fit-off). An area can override these with its own list in the legacy editor.
@@ -1138,6 +1139,8 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
             ))}
           </ul>
         </Card>
+
+        <SaveAsBlueprintCard jobId={savedJob.id} />
 
         <Card>
           <CardTitle>Publish to the field</CardTitle>

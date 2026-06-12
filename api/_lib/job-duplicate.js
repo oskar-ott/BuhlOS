@@ -99,4 +99,67 @@ function captureGroup(group) {
   };
 }
 
-module.exports = { buildDuplicatePayload, copyName, copyArea, copyTasks, captureGroup };
+/**
+ * Capture a WHOLE job's reusable shape as a blueprint (#191) — the same
+ * strip/skip rules as duplication, but a blueprint is a CROSS-SITE template:
+ * structure + modules + custom fields + job-level default task lists ONLY.
+ * It deliberately drops EVERYTHING site-specific that buildDuplicatePayload
+ * copies (address/access/parking/contacts/safety/induction) plus type,
+ * dates, money, client and all state — a blueprint is a shape reused across
+ * different sites, not a copy of one job.
+ *
+ * The captured shape is instantiate-ready: feed it back through POST
+ * /api/jobs and the create-path validators mint fresh ids (id-less by
+ * construction), status:'draft', clean task state.
+ */
+function captureBlueprintStructure(source) {
+  return {
+    modules: source.modules || undefined,
+    customFields: Array.isArray(source.customFields) && source.customFields.length
+      ? source.customFields
+      : undefined,
+    roughInTasks: copyTasks(source.roughInTasks),
+    fitOffTasks: copyTasks(source.fitOffTasks),
+    areaGroups: (Array.isArray(source.areaGroups) ? source.areaGroups : [])
+      .filter((g) => g && !g.archived)
+      .map((g) => {
+        const out = {
+          name: g.name,
+          areas: (Array.isArray(g.areas) ? g.areas : [])
+            .filter((a) => a && !a.archived)
+            .map(copyArea),
+        };
+        if (typeof g.order === 'number') out.order = g.order;
+        return out;
+      }),
+  };
+}
+
+/** Counts for a blueprint list summary — render lists from these, never the
+ *  full structure (a 200-area job's structure shouldn't ride every GET). */
+function blueprintSummary(structure) {
+  const groups = Array.isArray(structure.areaGroups) ? structure.areaGroups : [];
+  let areas = 0;
+  let areaTasks = 0;
+  for (const g of groups) {
+    const gAreas = Array.isArray(g.areas) ? g.areas : [];
+    areas += gAreas.length;
+    for (const a of gAreas) {
+      areaTasks += (Array.isArray(a.roughInTasks) ? a.roughInTasks.length : 0)
+        + (Array.isArray(a.fitOffTasks) ? a.fitOffTasks.length : 0);
+    }
+  }
+  const jobTasks = (Array.isArray(structure.roughInTasks) ? structure.roughInTasks.length : 0)
+    + (Array.isArray(structure.fitOffTasks) ? structure.fitOffTasks.length : 0);
+  return { groupCount: groups.length, areaCount: areas, taskCount: jobTasks + areaTasks };
+}
+
+module.exports = {
+  buildDuplicatePayload,
+  copyName,
+  copyArea,
+  copyTasks,
+  captureGroup,
+  captureBlueprintStructure,
+  blueprintSummary,
+};

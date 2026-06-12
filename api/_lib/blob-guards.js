@@ -97,6 +97,7 @@ const EXACT_GUARDS = {
     validate: (doc) => (isPlainObject(doc) && isPlainObject(doc.flags) ? null : 'flags must be an object'),
   },
   'structure-presets.json': { validate: arrayOfIdObjects('presets') },
+  'job-blueprints.json': { validate: arrayOfIdObjects('blueprints') }, // #191 global job shapes
   // Tag/calibration reminder dedupe state (#305): { entries: { key → {threshold,
   // notifiedAt} } }. No shrink guard — it legitimately empties as items get
   // retested and leave the alert window.
