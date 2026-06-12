@@ -146,6 +146,40 @@ describe("validation", () => {
     await blobLib.writeBlob("itp-templates.json", { templates: [] });
     expect(stored("itp-templates.json").__rev).toBe(1);
   });
+
+  it("validates the v2 quotes registry (#183) — rows must carry ids", async () => {
+    await expect(
+      blobLib.writeBlob("quotes-v2.json", { quotes: [{ name: "no id" }] })
+    ).rejects.toMatchObject({ code: "invalid_write" });
+    await blobLib.writeBlob("quotes-v2.json", {
+      quotes: [{ id: "qv2_a", name: "Shed", status: "draft" }],
+    });
+    expect(stored("quotes-v2.json").__rev).toBe(1);
+  });
+
+  it("validates v2 quote documents by pattern (#183) — sections/lines need ids", async () => {
+    await expect(
+      blobLib.writeBlob("quotes-v2/qv2_a.json", { id: "qv2_a", name: "Shed", status: "draft" })
+    ).rejects.toMatchObject({ code: "invalid_write" }); // sections missing
+    await expect(
+      blobLib.writeBlob("quotes-v2/qv2_a.json", {
+        id: "qv2_a",
+        name: "Shed",
+        status: "draft",
+        sections: [{ id: "qsec_a", lines: [{ kind: "material" }] }],
+      })
+    ).rejects.toMatchObject({ code: "invalid_write" }); // line missing id
+    await blobLib.writeBlob("quotes-v2/qv2_a.json", {
+      id: "qv2_a",
+      name: "Shed",
+      status: "draft",
+      sections: [{ id: "qsec_a", lines: [{ id: "qline_a", kind: "material" }] }],
+    });
+    expect(stored("quotes-v2/qv2_a.json").__rev).toBe(1);
+    // LEGACY per-section quote blobs (quotes/<id>/<section>.json) stay unguarded.
+    await blobLib.writeBlob("quotes/q_old/pricing.json", { gstPct: 10 });
+    expect(stored("quotes/q_old/pricing.json").__rev).toBe(1);
+  });
 });
 
 describe("shrinkage guard", () => {
@@ -165,6 +199,15 @@ describe("shrinkage guard", () => {
     seed("users.json", { users: manyUsers(5), __rev: 1 });
     await blobLib.writeBlob("users.json", { users: manyUsers(2) });
     expect((stored("users.json").users as unknown[]).length).toBe(2);
+  });
+
+  it("the v2 quotes registry is shrink-guarded (#183) — archive flips, never removals", async () => {
+    const manyQuotes = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ id: `qv2_${i}`, name: `Q${i}`, status: "draft" }));
+    seed("quotes-v2.json", { quotes: manyQuotes(12), __rev: 1 });
+    await expect(
+      blobLib.writeBlob("quotes-v2.json", { quotes: manyQuotes(6) })
+    ).rejects.toMatchObject({ code: "shrink_rejected", before: 12, after: 6 });
   });
 });
 

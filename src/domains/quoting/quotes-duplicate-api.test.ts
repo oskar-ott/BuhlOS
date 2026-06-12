@@ -262,3 +262,19 @@ describe("quotes duplicate/revise carries commercial sections (#384)", () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+describe("legacy convert is disabled (#172 ruling §8 step 1, first commit of #183)", () => {
+  it("410s an admin convert attempt and never touches jobs.json", async () => {
+    const res = await callAction("convert", SRC_ID);
+    expect(res.statusCode).toBe(410);
+    expect((res.body as { error: string }).error).toContain("v2 conversion arrives with #244");
+
+    // The dead write-path stays dead: no job store was created or written.
+    expect(blob.has("jobs.json")).toBe(false);
+    expect([...blob.keys()].some((k) => k.startsWith("jobs/"))).toBe(false);
+    // The quote was not flipped to converted_to_job.
+    const src = storedQuotes().quotes.find((s) => s.id === SRC_ID)!;
+    expect(src.status).toBe("won");
+    expect(src.convertedJobId).toBeNull();
+  });
+});

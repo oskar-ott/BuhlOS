@@ -1645,9 +1645,14 @@ module.exports = async (req, res) => {
     return handleUnaccept(req, res, user, id);
   }
   if (action === 'convert') {
-    if (!id) return res.status(400).json({ error: 'id required' });
-    if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
-    return handleConvert(req, res, user, id);
+    // DISABLED (#172 ruling §8 step 1, first commit of #183): the legacy
+    // convert wrote jobs.json + jobs/<id>/* directly via writeBlob, bypassing
+    // api/jobs.js validation and the draft/publish lifecycle. It was never
+    // used in production (0 conversions ever — #172 §3). Killed ahead of the
+    // v2 quoting rebuild so a second write-path to jobs.json never coexists
+    // with the v2 builder. handleConvert stays as the mapping reference for
+    // #244, which rebuilds conversion THROUGH the jobs API.
+    return res.status(410).json({ error: 'legacy convert disabled — v2 conversion arrives with #244' });
   }
   if (action === 'duplicate') {
     if (!id) return res.status(400).json({ error: 'id required' });

@@ -29,6 +29,20 @@ test("unauthenticated users are redirected from the reports dashboard (#316)", a
   await expect(page.getByTestId("login-submit")).toBeVisible();
 });
 
+test("unauthenticated users are redirected from the quotes list (#183)", async ({ page }) => {
+  await page.goto("/v2/quotes");
+  await expect(page).toHaveURL(/\/v2\/login\?next=%2Fv2%2Fquotes/);
+  await expect(page.getByTestId("login-submit")).toBeVisible();
+});
+
+test("unauthenticated users are redirected from the quote builder (#183)", async ({ page }) => {
+  // Non-mutating: any id works — the middleware gate fires before the page
+  // (and its API read) is ever reached.
+  await page.goto("/v2/quotes/qv2_smoke");
+  await expect(page).toHaveURL(/\/v2\/login\?next=%2Fv2%2Fquotes%2Fqv2_smoke/);
+  await expect(page.getByTestId("login-submit")).toBeVisible();
+});
+
 test.describe("authenticated admin routing", () => {
   test.skip(!adminCredentials(), "Set BUHLOS_TEST_ADMIN_EMAIL and BUHLOS_TEST_ADMIN_PASSWORD.");
 
