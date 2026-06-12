@@ -68,7 +68,7 @@ export default async function PhilGearPage() {
             description="When admin or a leading hand transfers something to you, it'll show up here."
           />
         ) : (
-          <PhilGearList initialAssets={assets} />
+          <PhilGearList initialAssets={assets} viewerId={session.userId ?? ""} />
         )}
 
         <UnderConstructionPanel

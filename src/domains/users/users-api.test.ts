@@ -274,9 +274,10 @@ describe("GET ?action=listTradies — assignable-worker directory (Gear + jobs)"
     expect(res.statusCode).toBe(200);
   });
 
-  it("403s a field worker (not staff)", async () => {
+  it("a field worker CAN list workmates — the #306 handover picker", async () => {
     const res = await listTradies("u_field", "electrician");
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.stringify(res.body)).not.toContain("passwordHash");
   });
 
   it("403s a client", async () => {

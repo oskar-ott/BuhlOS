@@ -23,6 +23,7 @@
 const { readBlob, readBlobFresh, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole, isFieldRole, isLeadingHandRole, isDisabledUser } = require('./_lib/auth');
 const { listAllAssets } = require('./_lib/assets');
+const { sendPushToUserId } = require('./_lib/push');
 
 const VALID_TYPES = ['vehicle', 'key', 'tool', 'accessory', 'ppe', 'other'];
 
@@ -32,6 +33,31 @@ const VALID_TYPES = ['vehicle', 'key', 'tool', 'accessory', 'ppe', 'other'];
 // Normalised via the role helpers, not literal strings.
 function isAssignableHolderRole(role) {
   return isFieldRole(role) || isLeadingHandRole(role);
+}
+
+// #306: worker↔worker transfers are a HANDSHAKE — pending until the
+// receiver accepts in Phil. Limbo guard: proposals auto-cancel after
+// this many days (lazily, on the next read/action that touches the asset).
+const PENDING_TRANSFER_DAYS = 5;
+
+/** Clears an expired pending transfer IN PLACE; returns the history entry
+ *  to append (caller writes), or null when nothing expired. */
+function expirePendingIfDue(asset) {
+  const p = asset && asset.pendingTransfer;
+  if (!p || !p.expiresAt || p.expiresAt > new Date().toISOString()) return null;
+  asset.pendingTransfer = null;
+  asset.updatedAt = new Date().toISOString();
+  return {
+    id: newHistoryId(),
+    kind: 'transfer_expired',
+    from: asset.currentHolderId || null,
+    to: p.toUserId || null,
+    at: asset.updatedAt,
+    byUserId: p.fromUserId || null,
+    byRole: null,
+    byName: 'system',
+    note: `handover to ${p.toUserName || p.toUserId} expired unaccepted after ${PENDING_TRANSFER_DAYS} days`,
+  };
 }
 
 function newAssetId() {
@@ -167,7 +193,11 @@ module.exports = async (req, res) => {
       const a = await readAsset(id);
       if (!a) return res.status(404).json({ error: 'not found' });
       // Visibility: admin sees all; tradie/LH sees only what they hold.
-      if (!isAdminRole(user.role) && a.currentHolderId !== user.id) {
+      if (
+        !isAdminRole(user.role) &&
+        a.currentHolderId !== user.id &&
+        !(a.pendingTransfer && a.pendingTransfer.toUserId === user.id)
+      ) {
         return res.status(403).json({ error: 'no access to this asset' });
       }
       const history = await readHistory(id);
@@ -193,7 +223,10 @@ module.exports = async (req, res) => {
     // boss/PM — the field-readiness audit's P1 Gear bug.)
     const visible = isAdminRole(user.role)
       ? all
-      : all.filter(a => a.currentHolderId === user.id);
+      : all.filter(a =>
+          a.currentHolderId === user.id ||
+          (a.pendingTransfer && a.pendingTransfer.toUserId === user.id)
+        );
     // Same name enrichment as single-asset for the list view.
     const usersBlob = await readBlob('users.json', { users: [] });
     const nameById = {};
@@ -252,6 +285,66 @@ module.exports = async (req, res) => {
         er = null;
       }
 
+      const expiredEntry = expirePendingIfDue(a);
+      if (expiredEntry) await appendHistory(assetId, expiredEntry);
+
+      // #306: worker→worker is a handshake — the asset stays the
+      // initiator's responsibility until the receiver accepts in Phil.
+      // Admin-initiated moves and returns-to-storage stay INSTANT.
+      if (!isAdminRole(user.role) && toUserId) {
+        if (a.pendingTransfer) {
+          return res.status(409).json({ error: 'a handover is already pending for this asset' });
+        }
+        const expiresAt = new Date(Date.now() + PENDING_TRANSFER_DAYS * 86400000).toISOString();
+        a.pendingTransfer = {
+          toUserId,
+          toUserName: toUser.username,
+          fromUserId: user.id,
+          fromUserName: user.username,
+          proposedAt: now,
+          expiresAt,
+          note: note ? String(note).trim().slice(0, 500) : null,
+        };
+        a.updatedAt = now;
+        await writeAsset(a);
+        await appendHistory(assetId, {
+          id: newHistoryId(),
+          kind: 'transfer_proposed',
+          from: user.id,
+          to: toUserId,
+          at: now,
+          byUserId: user.id,
+          byRole: user.role,
+          byName: user.username,
+          note: note ? String(note).trim().slice(0, 500) : null,
+        });
+        try {
+          await sendPushToUserId(toUserId, {
+            title: `${user.username} wants to hand you gear`,
+            body: `${a.name}${a.identifier ? ' · ' + a.identifier : ''} — accept or decline in your gear list.`,
+            url: '/phil/gear',
+            tag: 'buhl-gear-handover',
+          });
+        } catch {}
+        return res.status(200).json({ asset: a });
+      }
+
+      // Instant path: an authoritative move voids any pending handover.
+      if (a.pendingTransfer) {
+        await appendHistory(assetId, {
+          id: newHistoryId(),
+          kind: 'transfer_declined',
+          from: a.currentHolderId || null,
+          to: a.pendingTransfer.toUserId || null,
+          at: now,
+          byUserId: user.id,
+          byRole: user.role,
+          byName: user.username,
+          note: 'voided by an authoritative transfer',
+        });
+        a.pendingTransfer = null;
+      }
+
       const prev = { from: a.currentHolderId || null, to: toUserId || null };
       a.currentHolderId = toUserId || null;
       a.assignedAt = toUserId ? now : null;
@@ -267,6 +360,48 @@ module.exports = async (req, res) => {
         byRole:   user.role,
         byName:   user.username,
         note: note ? String(note).trim().slice(0, 500) : null,
+      });
+      return res.status(200).json({ asset: a });
+    }
+
+    // ── #306: ?action=transfer-response — receiver accepts/declines a
+    //   pending handover. Accept flips the holder; decline reverts cleanly.
+    if (action === 'transfer-response') {
+      const body = req.body || {};
+      const { assetId, accept } = body;
+      if (!assetId) return res.status(400).json({ error: 'assetId required' });
+      if (typeof accept !== 'boolean') return res.status(400).json({ error: 'accept must be true or false' });
+      const a = await readAsset(assetId);
+      if (!a) return res.status(404).json({ error: 'asset not found' });
+      const expiredEntry = expirePendingIfDue(a);
+      if (expiredEntry) {
+        await writeAsset(a);
+        await appendHistory(assetId, expiredEntry);
+        return res.status(409).json({ error: 'this handover expired' });
+      }
+      const p = a.pendingTransfer;
+      if (!p) return res.status(404).json({ error: 'no pending handover on this asset' });
+      if (p.toUserId !== user.id) {
+        return res.status(403).json({ error: 'only the receiving worker can respond to this handover' });
+      }
+      const now = new Date().toISOString();
+      a.pendingTransfer = null;
+      if (accept) {
+        a.currentHolderId = user.id;
+        a.assignedAt = now;
+      }
+      a.updatedAt = now;
+      await writeAsset(a);
+      await appendHistory(assetId, {
+        id: newHistoryId(),
+        kind: accept ? 'transfer_accepted' : 'transfer_declined',
+        from: p.fromUserId || null,
+        to: p.toUserId || null,
+        at: now,
+        byUserId: user.id,
+        byRole: user.role,
+        byName: user.username,
+        note: null,
       });
       return res.status(200).json({ asset: a });
     }

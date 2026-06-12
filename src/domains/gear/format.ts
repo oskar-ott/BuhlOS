@@ -53,6 +53,10 @@ const HISTORY_LABELS: Record<GearHistoryKind, string> = {
   report_damaged: "Reported damaged",
   report_missing: "Reported missing",
   admin_updated: "Admin updated",
+  transfer_proposed: "Handover proposed",
+  transfer_accepted: "Handover accepted",
+  transfer_declined: "Handover declined",
+  transfer_expired: "Handover expired",
 };
 
 export function historyKindLabel(kind: GearHistoryKind | undefined): string {

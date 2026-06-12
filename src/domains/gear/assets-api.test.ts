@@ -351,7 +351,7 @@ describe("POST ?action=transfer — an asset HOLDER must be field/LH", () => {
     expect(holderOf("a_held")).toBeNull();
   });
 
-  it("a field worker can hand THEIR held asset to another field worker", async () => {
+  it("a field worker handing THEIR asset to a workmate starts the handshake (#306)", async () => {
     const res = await call({
       method: "POST",
       userId: "u_field",
@@ -360,7 +360,9 @@ describe("POST ?action=transfer — an asset HOLDER must be field/LH", () => {
       body: { assetId: "a_held", toUserId: "u_field2" },
     });
     expect(res.statusCode).toBe(200);
-    expect(holderOf("a_held")).toBe("u_field2");
+    // No longer instant: pending until u_field2 accepts (handshake suite).
+    expect(holderOf("a_held")).toBe("u_field");
+    expect((res.body as { asset: { pendingTransfer: { toUserId: string } } }).asset.pendingTransfer.toUserId).toBe("u_field2");
   });
 
   it("403s a field worker transferring an asset they do NOT hold", async () => {
@@ -426,6 +428,140 @@ describe("never leaks passwordHash", () => {
     const json = JSON.stringify(res.body);
     expect(json).not.toContain("passwordHash");
     expect((res.body as { asset: { currentHolderName: string } }).asset.currentHolderName).toBe("sparky");
+  });
+});
+
+describe("worker↔worker handshake (#306)", () => {
+  it("a field transfer to a workmate goes PENDING — holder unchanged until accepted", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "transfer" },
+      body: { assetId: "a_held", toUserId: "u_field2", note: "smoko handover" },
+    });
+    expect(res.statusCode).toBe(200);
+    const asset = (res.body as { asset: Record<string, unknown> }).asset;
+    expect(asset.currentHolderId).toBe("u_field"); // STILL the initiator's
+    expect(asset.pendingTransfer).toMatchObject({ toUserId: "u_field2", fromUserId: "u_field" });
+
+    // a second proposal while one is pending is refused
+    const second = await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "transfer" },
+      body: { assetId: "a_held", toUserId: "u_lh" },
+    });
+    expect(second.statusCode).toBe(409);
+  });
+
+  it("the receiver sees the incoming asset in their list and can ACCEPT (holder flips)", async () => {
+    await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "transfer" },
+      body: { assetId: "a_held", toUserId: "u_field2" },
+    });
+    const list = await call({ method: "GET", userId: "u_field2", role: "tradie" });
+    expect(assetIds(list)).toContain("a_held");
+
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      query: { action: "transfer-response" },
+      body: { assetId: "a_held", accept: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { asset: { currentHolderId: string } }).asset.currentHolderId).toBe("u_field2");
+    expect(holderOf("a_held")).toBe("u_field2");
+  });
+
+  it("DECLINE reverts cleanly; only the named receiver may respond", async () => {
+    await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "transfer" },
+      body: { assetId: "a_held", toUserId: "u_field2" },
+    });
+    const wrong = await call({
+      method: "POST",
+      userId: "u_lh",
+      role: "lh",
+      query: { action: "transfer-response" },
+      body: { assetId: "a_held", accept: true },
+    });
+    expect(wrong.statusCode).toBe(403);
+
+    const declined = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      query: { action: "transfer-response" },
+      body: { assetId: "a_held", accept: false },
+    });
+    expect(declined.statusCode).toBe(200);
+    expect(holderOf("a_held")).toBe("u_field"); // reverted to the initiator
+    const after = (declined.body as { asset: { pendingTransfer: unknown } }).asset;
+    expect(after.pendingTransfer).toBeNull();
+  });
+
+  it("admin transfers stay INSTANT and void a pending handover; worker→storage stays instant", async () => {
+    await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "transfer" },
+      body: { assetId: "a_held", toUserId: "u_field2" },
+    });
+    const adminMove = await call({
+      method: "POST",
+      userId: "u_admin",
+      role: "admin",
+      query: { action: "transfer" },
+      body: { assetId: "a_held", toUserId: "u_lh" },
+    });
+    expect(adminMove.statusCode).toBe(200);
+    expect(holderOf("a_held")).toBe("u_lh"); // instant
+    expect((adminMove.body as { asset: { pendingTransfer: unknown } }).asset.pendingTransfer ?? null).toBeNull();
+
+    const toStorage = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      query: { action: "transfer" },
+      body: { assetId: "a_field2", toUserId: null },
+    });
+    expect(toStorage.statusCode).toBe(200);
+    expect(holderOf("a_field2")).toBeNull(); // instant return to depot
+  });
+
+  it("an expired proposal auto-cancels with history; responding to it 409s", async () => {
+    await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "transfer" },
+      body: { assetId: "a_held", toUserId: "u_field2" },
+    });
+    // age the proposal past the window
+    const stored = blob.get("assets/a_held.json") as { pendingTransfer: { expiresAt: string } };
+    stored.pendingTransfer.expiresAt = "2020-01-01T00:00:00.000Z";
+
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      query: { action: "transfer-response" },
+      body: { assetId: "a_held", accept: true },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(holderOf("a_held")).toBe("u_field"); // never moved
+    const history = blob.get("assets/a_held/history.json") as { entries: Array<{ kind?: string }> };
+    expect(history.entries.some((e) => e.kind === "transfer_expired")).toBe(true);
   });
 });
 

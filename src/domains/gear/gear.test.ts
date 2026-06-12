@@ -564,7 +564,18 @@ describe("enum surface area", () => {
 
   it("history kind enum discriminates transfers from reports", () => {
     expect([...GEAR_HISTORY_KINDS].sort()).toEqual(
-      ["admin_updated", "check", "report_damaged", "report_missing", "transfer"].sort()
+      [
+        "admin_updated",
+        "check",
+        "report_damaged",
+        "report_missing",
+        "transfer",
+        // #306 handshake lifecycle
+        "transfer_proposed",
+        "transfer_accepted",
+        "transfer_declined",
+        "transfer_expired",
+      ].sort()
     );
   });
 });

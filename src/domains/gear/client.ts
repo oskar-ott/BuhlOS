@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { httpDelete, httpGet, httpPost, httpPut, type HttpResult } from "@/lib/http";
 import {
   CreateGearAssetPayloadSchema,
@@ -113,6 +114,32 @@ export function transferGear(
       init: { cache: "no-store", credentials: "same-origin" },
     }
   );
+}
+
+/** #306: accept or decline a pending handover (receiver only, server-enforced). */
+export function respondToTransfer(
+  assetId: string,
+  accept: boolean,
+): Promise<HttpResult<GearMutationResponse>> {
+  return httpPost<GearMutationResponse>(
+    "/api/assets?action=transfer-response",
+    { assetId, accept },
+    { schema: GearMutationResponseSchema, init: { cache: "no-store", credentials: "same-origin" } },
+  );
+}
+
+const HoldersResponseSchema = z.object({
+  users: z.array(z.object({ id: z.string(), username: z.string() }).passthrough()),
+});
+
+/** Workmate directory for the handover picker (#306 widened the gate to field). */
+export function listGearHolders(): Promise<
+  HttpResult<{ users: Array<{ id: string; username: string }> }>
+> {
+  return httpGet("/api/users?action=listTradies", {
+    schema: HoldersResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
 }
 
 /** Edit asset metadata (#389). Admin-only server-side; holder changes are
