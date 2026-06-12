@@ -263,6 +263,24 @@ export const ITPInstanceSchema = z
  * so invalid payloads never hit the network.
  * -------------------------------------------------------------------*/
 
+/** One row from GET /api/itp-templates (server already excludes archived
+ *  for the default list — the attach picker never sees them, #387). */
+export const ITPTemplateSummarySchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    category: z.string().optional(),
+    description: z.string().optional(),
+    points: z.array(z.object({ id: z.string() }).passthrough()).optional(),
+    archived: z.boolean().optional(),
+  })
+  .passthrough();
+
+export const ITPTemplateListResponseSchema = z.object({
+  count: z.number().optional(),
+  templates: z.array(ITPTemplateSummarySchema),
+});
+
 /** POST /api/job-itps?jobId=X&action=attach body. */
 export const AttachITPPayloadSchema = z.object({
   templateId: z.string().min(1, "templateId required"),

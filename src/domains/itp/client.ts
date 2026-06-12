@@ -9,6 +9,7 @@ import {
   RecordITPPointPayloadSchema,
   ReopenITPPayloadSchema,
   SignOffITPPayloadSchema,
+  ITPTemplateListResponseSchema,
 } from "./schema";
 import type {
   ArchiveITPPayload,
@@ -20,6 +21,7 @@ import type {
   RecordITPPointPayload,
   ReopenITPPayload,
   SignOffITPPayload,
+  ITPTemplateListResponse,
 } from "./types";
 
 /**
@@ -64,6 +66,14 @@ export function listItps(
 ): Promise<HttpResult<ITPListResponse>> {
   return httpGet<ITPListResponse>(itpsUrl(jobId), {
     schema: ITPListResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/** Non-archived ITP templates for the attach picker (staff-tier read). */
+export function listItpTemplates(): Promise<HttpResult<ITPTemplateListResponse>> {
+  return httpGet<ITPTemplateListResponse>("/api/itp-templates", {
+    schema: ITPTemplateListResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
   });
 }
