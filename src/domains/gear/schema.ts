@@ -73,6 +73,21 @@ export const GearAssetSchema = z
     notes: z.string().nullable().optional(),
 
     currentHolderId: z.string().nullable().optional(),
+    /** #306: worker→worker handshake — set while a handover awaits the
+     *  receiver's accept/decline; the holder is unchanged until accepted. */
+    pendingTransfer: z
+      .object({
+        toUserId: z.string(),
+        toUserName: z.string().optional(),
+        fromUserId: z.string().optional(),
+        fromUserName: z.string().optional(),
+        proposedAt: z.string().optional(),
+        expiresAt: z.string().optional(),
+        note: z.string().nullable().optional(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
     currentHolderName: z.string().nullable().optional(),
     assignedAt: z.string().nullable().optional(),
     expectedReturn: z.string().nullable().optional(),
@@ -115,6 +130,11 @@ export const GEAR_HISTORY_KINDS = [
   "report_damaged",
   "report_missing",
   "admin_updated",
+  // #306 handshake lifecycle
+  "transfer_proposed",
+  "transfer_accepted",
+  "transfer_declined",
+  "transfer_expired",
 ] as const;
 export const GearHistoryKindSchema = z.enum(GEAR_HISTORY_KINDS);
 

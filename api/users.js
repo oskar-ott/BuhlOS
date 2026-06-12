@@ -90,7 +90,9 @@ module.exports = async (req, res) => {
   if (req.method === 'GET' && action === 'listTradies') {
     const user = await getCurrentUser(req);
     if (!user) return res.status(401).json({ error: 'not authenticated' });
-    if (!isStaffRole(user.role)) {
+    // #306: field workers need the workmate directory for the gear-handover
+    // picker — names/roles of holders only, nothing sensitive.
+    if (!isStaffRole(user.role) && !isFieldRole(user.role)) {
       return res.status(403).json({ error: 'forbidden' });
     }
     const data = await readBlob('users.json', { users: [] });
