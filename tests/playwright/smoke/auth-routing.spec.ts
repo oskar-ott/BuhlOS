@@ -13,6 +13,14 @@ test("unauthenticated users are redirected from protected BuhlOS routes", async 
   await expect(page.getByTestId("login-submit")).toBeVisible();
 });
 
+test("unauthenticated users are redirected from the defects register (#414)", async ({
+  page,
+}) => {
+  await page.goto("/defects");
+  await expect(page).toHaveURL(/\/v2\/login\?next=%2Fdefects/);
+  await expect(page.getByTestId("login-submit")).toBeVisible();
+});
+
 test.describe("authenticated admin routing", () => {
   test.skip(!adminCredentials(), "Set BUHLOS_TEST_ADMIN_EMAIL and BUHLOS_TEST_ADMIN_PASSWORD.");
 

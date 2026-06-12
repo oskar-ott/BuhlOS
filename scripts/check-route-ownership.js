@@ -61,6 +61,7 @@ const APPROVED_ADMIN_HREFS = new Set([
   '/employees',
   '/observations', // PR 3 — cross-job field-to-office observations inbox
   '/material-requests', // PR 11 — cross-job procurement inbox
+  '/defects', // #414 — cross-job defects register (both snag stores)
   '/v2/jobs',
   '/itp-templates', // #284 template library; nav entry added by #187 // transitional — live admin Jobs index; -> /admin/jobs later
 ]);
@@ -112,6 +113,7 @@ const REQUIRED_SOURCES = [
   'src/app/(admin)/employees/[id]/page.tsx',
   'src/app/(admin)/observations/page.tsx',
   'src/app/(admin)/material-requests/page.tsx',
+  'src/app/(admin)/defects/page.tsx',
   'src/app/v2/jobs/page.tsx',
   'src/app/v2/jobs/[jobId]/page.tsx',
   'src/app/v2/jobs/[jobId]/builder/page.tsx',

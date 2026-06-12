@@ -6,6 +6,7 @@ import {
   SnagTransitionResponseSchema,
   TransitionSnagPayloadSchema,
 } from "./schema";
+import { BulkCloseSnagsResponseSchema, type BulkCloseSnagsResponse } from "./register";
 import type {
   CreateSnagPayload,
   SnagCreateResponse,
@@ -94,8 +95,34 @@ export function transitionSnag(
   });
 }
 
+/**
+ * Bulk close snags on ONE job — backs the /defects register's bulk
+ * action (#414). The endpoint is per-job by design (one atomic
+ * read-modify-write of that job's data.json), so the register groups
+ * its cross-job selection BY JOB and issues one call per job.
+ *
+ * Server enforces: staff only, canManageJob (admin any job / LH
+ * assigned jobs), ≤100 ids, per-snag results (unknown ids reported in
+ * failed[], never fatal). Both stores are closed with their own
+ * semantics — see api/snags-bulk-close.js.
+ */
+export function bulkCloseSnags(
+  jobId: string,
+  snagIds: ReadonlyArray<string>
+): Promise<HttpResult<BulkCloseSnagsResponse>> {
+  return httpPost<BulkCloseSnagsResponse>(
+    `/api/snags-bulk-close?jobId=${encodeURIComponent(jobId)}`,
+    { snagIds: [...snagIds] },
+    {
+      schema: BulkCloseSnagsResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
 export const snagsClient = {
   listSnags,
   createSnag,
   transitionSnag,
+  bulkCloseSnags,
 } as const;

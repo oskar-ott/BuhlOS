@@ -35,6 +35,7 @@ describe("AdminSidebar (#187)", () => {
       "Command centre",
       "Observations",
       "Material requests",
+      "Defects",
       "ITP templates",
       "Employees",
       "Gear",
@@ -65,5 +66,13 @@ describe("AdminSidebar (#187)", () => {
   it("nested job paths keep Jobs active; templates route activates ITP templates", () => {
     expect(activeLabel(render("/v2/jobs/j1/itps"))).toBe("Jobs");
     expect(activeLabel(render("/itp-templates"))).toBe("ITP templates");
+  });
+
+  it("the Defects register (#414) sits in the Jobs group and activates on /defects", () => {
+    const html = render("/command-centre");
+    expect(html.match(/href="\/defects"/g)).toHaveLength(1);
+    expect(activeLabel(render("/defects"))).toBe("Defects");
+    // Filtered deep links keep it active too (URL-driven filters, #216).
+    expect(activeLabel(render("/defects/anything"))).toBe("Defects");
   });
 });
