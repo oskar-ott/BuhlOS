@@ -59,8 +59,13 @@ const crypto = require('crypto');
 const { put } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob, isAdminRole, isClientRole } = require('./_lib/auth');
+const { append: appendAuditLog } = require('./_lib/audit-log');
 
 const VALID_STATUSES = ['current', 'superseded', 'archived'];
+// #194: closed discipline set for DRAWING-type rows. Additive — legacy rows
+// without one group honestly under "other" in the UI. DOCUMENT_CATEGORIES
+// (plan/spec/…) is a different axis and stays untouched.
+const VALID_DISCIPLINES = ['architectural', 'electrical', 'services', 'structural', 'other'];
 const MAX_BYTES = 25 * 1024 * 1024; // 25 MB cap on uploads
 const VISION_MODEL = process.env.PLANS_AI_MODEL || 'claude-sonnet-4-5';
 const COST_CAP_USD = Number(process.env.PLANS_MAX_USD_PER_JOB || '5');
@@ -478,6 +483,26 @@ async function handleSetDwellingMaterials(req, res, jobId, body) {
 
 // ─── Router ───────────────────────────────────────────────────────────────
 
+// #194: ONE current revision max per drawing number. Demotes every OTHER
+// current row sharing `plan.drawingNumber` to superseded, maintains the
+// supersedes/supersededBy pointers both ways, and returns the demoted ids
+// (for audit rows). No-op when the plan has no drawing number.
+function enforceSingleCurrent(data, plan) {
+  if (!plan.drawingNumber || plan.status !== 'current') return [];
+  const demoted = [];
+  for (const p of data.plans) {
+    if (p.id === plan.id) continue;
+    if (p.drawingNumber === plan.drawingNumber && p.status === 'current') {
+      p.status = 'superseded';
+      p.supersededBy = plan.id;
+      p.updatedAt = new Date().toISOString();
+      if (!plan.supersedes) plan.supersedes = p.id;
+      demoted.push(p.id);
+    }
+  }
+  return demoted;
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -582,6 +607,7 @@ module.exports = async (req, res) => {
       mimeType:      mime,
       sizeBytes:     buf.length,
       drawingNumber: body.drawingNumber ? String(body.drawingNumber).trim() : '',
+      discipline: VALID_DISCIPLINES.includes(body.discipline) ? body.discipline : '',
       revision:      body.revision ? String(body.revision).trim() : '',
       title:         body.title ? String(body.title).trim() : '',
       level:         body.level ? String(body.level).trim() : '',
@@ -634,7 +660,35 @@ module.exports = async (req, res) => {
     }
 
     data.plans.push(plan);
+    // #194 hardening (c): an explicit body.supersedes pointing at a DIFFERENT
+    // row used to leave a second same-number current standing. One current
+    // max per drawing number — demote any other current and keep lineage.
+    const demoted = enforceSingleCurrent(data, plan);
     await writeIndex(jobId, data);
+    await appendAuditLog({
+      action: 'document.uploaded',
+      actorId: user.id,
+      actorName: user.username || 'Unknown',
+      actorRole: user.role || null,
+      jobId,
+      targetType: 'document',
+      targetId: plan.id,
+      summary: `uploaded "${(plan.title || plan.fileName || plan.id).slice(0, 80)}"`,
+      metadata: { drawingNumber: plan.drawingNumber || null, revision: plan.revision || null },
+    }).catch(() => {});
+    for (const d of demoted.concat(plan.supersedes ? [plan.supersedes] : [])) {
+      await appendAuditLog({
+        action: 'document.superseded',
+        actorId: user.id,
+        actorName: user.username || 'Unknown',
+        actorRole: user.role || null,
+        jobId,
+        targetType: 'document',
+        targetId: d,
+        summary: `superseded by "${(plan.title || plan.fileName || plan.id).slice(0, 80)}"`,
+        metadata: { supersededBy: plan.id },
+      }).catch(() => {});
+    }
     return res.status(201).json({ plan, revisionWarning });
   }
 
@@ -650,6 +704,13 @@ module.exports = async (req, res) => {
     const editable = ['drawingNumber', 'revision', 'title', 'level', 'category', 'notes', 'supersedes'];
     for (const k of editable) {
       if (body[k] !== undefined) data.plans[idx][k] = String(body[k] || '').trim();
+    }
+    if (body.discipline !== undefined) {
+      const d = String(body.discipline || '').trim();
+      if (d && !VALID_DISCIPLINES.includes(d)) {
+        return res.status(400).json({ error: 'discipline must be one of: ' + VALID_DISCIPLINES.join(', ') });
+      }
+      data.plans[idx].discipline = d;
     }
     // Maintain the back-reference symmetry: if admin set `supersedes`,
     // bidirectionally link the older plan and flip its status. Reset the
@@ -678,18 +739,51 @@ module.exports = async (req, res) => {
       data.plans[idx].linkedAreaGroups = body.linkedAreaGroups
         .filter(g => typeof g === 'string').map(g => g.trim()).filter(Boolean);
     }
+    let madeCurrent = false;
     if (body.status && VALID_STATUSES.includes(body.status)) {
       data.plans[idx].status = body.status;
-      if (body.status === 'current' && data.plans[idx].drawingNumber) {
-        for (const p of data.plans) {
-          if (p.id !== id && p.drawingNumber === data.plans[idx].drawingNumber && p.status === 'current') {
-            p.status = 'superseded';
-          }
-        }
+      madeCurrent = body.status === 'current';
+      if (madeCurrent) {
+        // #194 hardening (a): becoming current again means nothing
+        // supersedes this row any more — keep lineage in step with status.
+        data.plans[idx].supersededBy = '';
       }
     }
+    // #194 hardening (a)+(b): one current max per drawing number, with
+    // lineage pointers maintained — runs after BOTH a status flip and a
+    // drawingNumber edit (editing a number onto an existing current used
+    // to leave two currents standing).
+    const demoted = data.plans[idx].status === 'current'
+      ? enforceSingleCurrent(data, data.plans[idx])
+      : [];
     data.plans[idx].updatedAt = new Date().toISOString();
     await writeIndex(jobId, data);
+    if (madeCurrent) {
+      await appendAuditLog({
+        action: 'document.made_current',
+        actorId: user.id,
+        actorName: user.username || 'Unknown',
+        actorRole: user.role || null,
+        jobId,
+        targetType: 'document',
+        targetId: data.plans[idx].id,
+        summary: `marked "${(data.plans[idx].title || data.plans[idx].fileName || id).slice(0, 80)}" current`,
+        metadata: { drawingNumber: data.plans[idx].drawingNumber || null },
+      }).catch(() => {});
+    }
+    for (const d of demoted) {
+      await appendAuditLog({
+        action: 'document.superseded',
+        actorId: user.id,
+        actorName: user.username || 'Unknown',
+        actorRole: user.role || null,
+        jobId,
+        targetType: 'document',
+        targetId: d,
+        summary: `superseded by "${(data.plans[idx].title || data.plans[idx].fileName || id).slice(0, 80)}"`,
+        metadata: { supersededBy: data.plans[idx].id },
+      }).catch(() => {});
+    }
     return res.status(200).json({ plan: data.plans[idx] });
   }
 

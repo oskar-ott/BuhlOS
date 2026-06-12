@@ -62,6 +62,17 @@ export const DOCUMENT_CATEGORIES = [
 ] as const;
 export const DocumentCategorySchema = z.enum(DOCUMENT_CATEGORIES);
 
+/** #194: closed discipline set for drawing-type rows (additive — legacy
+ *  rows without one group under "other" in the UI). */
+export const DOCUMENT_DISCIPLINES = [
+  "architectural",
+  "electrical",
+  "services",
+  "structural",
+  "other",
+] as const;
+export const DocumentDisciplineSchema = z.enum(DOCUMENT_DISCIPLINES);
+
 /* ---------------------------------------------------------------------
  * Field caps (defensive — mirror api/plans.js upload validation)
  * -------------------------------------------------------------------*/
@@ -95,6 +106,7 @@ export const DocumentSchema = z
     mimeType: z.string().optional(),
     sizeBytes: z.number().optional(),
 
+    discipline: z.string().optional(),
     drawingNumber: z.string().optional(),
     revision: z.string().optional(),
     title: z.string().optional(),
@@ -137,6 +149,7 @@ export const UploadDocumentPayloadSchema = z.object({
   category: z.string().optional(),
   drawingNumber: z.string().optional(),
   revision: z.string().optional(),
+  discipline: z.string().optional(),
 });
 
 export const UploadDocumentResponseSchema = z.object({

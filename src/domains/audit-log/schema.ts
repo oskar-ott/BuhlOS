@@ -94,6 +94,9 @@ export const AUDIT_ACTIONS = [
   // #157: a write guard refused a destructive/conflicting store write.
   "storage.write_rejected",
   "observation.converted_to_material_request",
+  "document.uploaded",
+  "document.superseded",
+  "document.made_current",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -111,6 +114,7 @@ export const AUDIT_TARGET_TYPES = [
   "material_request",
   // #151: platform-level events (backups).
   "system",
+  "document",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

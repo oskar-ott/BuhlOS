@@ -233,3 +233,23 @@ export function groupByDrawing(
     };
   });
 }
+
+/** #194: display label for a drawing discipline; undefined/legacy → Other. */
+export function disciplineLabel(discipline: string | undefined | null): string {
+  switch (discipline) {
+    case "architectural": return "Architectural";
+    case "electrical": return "Electrical";
+    case "services": return "Services";
+    case "structural": return "Structural";
+    default: return "Other";
+  }
+}
+
+/** Stable section order for the grouped register view. */
+export const DISCIPLINE_ORDER = [
+  "electrical",
+  "architectural",
+  "services",
+  "structural",
+  "other",
+] as const;
