@@ -51,8 +51,19 @@ You need `SESSION_SECRET` (≥16 chars) in `.env.local` for auth-aware routes to
 
 ## Scripts
 
+> **Before opening or updating a PR, run `npm run check:full-ci`.** It mirrors
+> the CI `check` job (typecheck, lint, unit/mocked-Blob tests, build, smoke
+> discovery, and every route/shell/manifest/quarantine guard) and fails on the
+> first failing guard. **`npm run check` is NOT CI parity** — it runs only
+> typecheck + lint + unit, which is why backup-manifest (#436) and
+> legacy-quarantine (#438) slipped through locally and only failed in CI.
+> (`check:full` is a separate, heavier command that also runs the browser e2e
+> suite.)
+
 | Command | What it does |
 | --- | --- |
+| `npm run check:full-ci` | **Run this before every PR.** Full local CI-parity gate — the same guard set the CI `check` job runs, in order, failing hard on the first failure. Kept in sync with `.github/workflows/ci.yml` by a drift-guard test. |
+| `npm run check` | Fast inner-loop only: typecheck + lint + unit. **Not** CI parity — use `check:full-ci` before pushing. |
 | `npm run dev` | Next.js dev server. |
 | `npm run build` | Next.js production build. |
 | `npm run start` | Serve the production build. |
