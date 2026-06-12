@@ -37,6 +37,7 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
+const { requireCron } = require('./_lib/cron-auth');
 const { isAdminRole } = require('./_lib/auth');
 const { getWebPush, sendPushToUserId } = require('./_lib/push');
 
@@ -61,14 +62,6 @@ function sydneyMondayOf(today) {
     .toISOString().slice(0, 10);
 }
 
-function cronAuthorised(req) {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return true; // dev / preview: allow
-  const hdr = req.headers['authorization'] || '';
-  if (hdr === 'Bearer ' + expected) return true;
-  if ((req.headers['x-cron-secret'] || '') === expected) return true;
-  return false;
-}
 
 // Light pretty-printer: "Mon 11 May" — matches the pattern admins use
 // when chatting about which day's hours are stuck.
@@ -86,7 +79,7 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
 
-  if (!cronAuthorised(req)) return res.status(401).json({ error: 'unauthorised' });
+  if (!requireCron(req, res)) return;
   if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
 
   const today    = sydneyToday();

@@ -27,14 +27,15 @@ const {
   listSnapshotDates,
   todayStamp,
 } = require('./_lib/backup');
+const { cronAuthState } = require('./_lib/cron-auth');
 
+// Shares api/_lib/cron-auth.js but stays DELIBERATELY STRICTER: anything
+// short of a valid secret ('denied'/'unconfigured' — incl. preview's
+// permissive no-secret state) falls through to interactive admin auth
+// below, so a snapshot can always be triggered by a human but never by an
+// anonymous caller.
 function cronAuthorised(req) {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return false; // no secret configured → admin auth required
-  const hdr = (req.headers && req.headers['authorization']) || '';
-  if (hdr === `Bearer ${expected}`) return true;
-  if (((req.headers && req.headers['x-cron-secret']) || '') === expected) return true;
-  return false;
+  return cronAuthState(req) === 'ok' && Boolean(process.env.CRON_SECRET);
 }
 
 module.exports = async (req, res) => {

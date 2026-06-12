@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { list } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
+const { cronAuthState } = require('./_lib/cron-auth');
 const { requireAuth, getCurrentUser, canManageJob, isStaffRole, isFieldRole, isLeadingHandRole, isDisabledUser, isClientRole } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
 
@@ -99,12 +100,70 @@ module.exports = async (req, res) => {
     return res.status(200).json({ users });
   }
 
-  // ── All other user management: admin only ────────────────────────────────
-  const me = await requireAuth(req, res, { roles: ['admin'] });
-  if (!me) return;
+  // ── All other user management: admin only — EXCEPT the sweep cron (#381).
+  // A VALID CRON_SECRET authorises ?action=sweep without a session (this is
+  // what vercel.json's cron sends); anything else — wrong secret, no secret
+  // in any environment, unconfigured production — needs an interactive
+  // admin. Sweep is destructive, so the preview-no-secret convenience
+  // deliberately does NOT apply to it.
+  const cronSweep =
+    req.method === 'GET' && action === 'sweep' &&
+    Boolean(process.env.CRON_SECRET) && cronAuthState(req) === 'ok';
+  let me = null;
+  if (!cronSweep) {
+    me = await requireAuth(req, res, { roles: ['admin'] });
+    if (!me) return;
+  }
 
   const data = await readBlob('users.json', { users: [] });
   data.users = data.users || [];
+
+  // NOTE (#381): these two action-gated GET branches previously sat BELOW
+  // the bare-GET list and were unreachable — every GET returned the user
+  // list first. The sweep cron has never actually swept through this path.
+  // GET ?action=archived — list users archived but still inside the
+  // restore window. Used by the admin "Restore" UI on /admin/crew.
+  if (req.method === 'GET' && action === 'archived') {
+    const archived = (data.users || []).filter(u => u.archived).map(u => {
+      const { passwordHash, ...safe } = u;
+      const at = safe.archivedAt ? Date.parse(safe.archivedAt) : 0;
+      const ageDays = Number.isFinite(at) ? (Date.now() - at) / 86400000 : Infinity;
+      return { ...safe, restoreWindowDaysRemaining: Math.max(0, Math.ceil(30 - ageDays)) };
+    });
+    return res.status(200).json({ users: archived });
+  }
+
+  // GET ?action=sweep — cron-only: hard-delete archived users past the
+  // 30-day window (unless they have unapproved hours; those stay
+  // archived until a human clears them).
+  if (req.method === 'GET' && action === 'sweep') {
+    // Authorised above: valid cron secret (cronSweep) or an admin session.
+    const cutoffMs = Date.now() - 30 * 86400000;
+    const removed = [];
+    const kept = [];
+    for (const u of (data.users || [])) {
+      if (!u.archived) { kept.push(u); continue; }
+      const at = u.archivedAt ? Date.parse(u.archivedAt) : 0;
+      if (!Number.isFinite(at) || at > cutoffMs) { kept.push(u); continue; }
+      const pending = await userHasUnapprovedHours(u.id);
+      if (pending && pending.length) { kept.push(u); continue; }
+      removed.push({ id: u.id, username: u.username, archivedAt: u.archivedAt });
+    }
+    if (removed.length) {
+      data.users = kept;
+      try {
+      await writeBlob('users.json', data, { expectedRev: data.__rev });
+    } catch (e) {
+      if (e && e.code === 'stale_write') {
+        // #157: users.json moved underneath this edit (concurrent admin /
+        // sweep / push-prune). Retryable — re-read and re-apply.
+        return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
+      }
+      throw e;
+    }
+    }
+    return res.status(200).json({ ok: true, removed, removedCount: removed.length });
+  }
 
   if (req.method === 'GET') {
     // strip hashes
@@ -318,49 +377,7 @@ module.exports = async (req, res) => {
     return res.status(200).json({ user: safe });
   }
 
-  // GET ?action=archived — list users archived but still inside the
-  // restore window. Used by the admin "Restore" UI on /admin/crew.
-  if (req.method === 'GET' && action === 'archived') {
-    const archived = (data.users || []).filter(u => u.archived).map(u => {
-      const { passwordHash, ...safe } = u;
-      const at = safe.archivedAt ? Date.parse(safe.archivedAt) : 0;
-      const ageDays = Number.isFinite(at) ? (Date.now() - at) / 86400000 : Infinity;
-      return { ...safe, restoreWindowDaysRemaining: Math.max(0, Math.ceil(30 - ageDays)) };
-    });
-    return res.status(200).json({ users: archived });
-  }
 
-  // GET ?action=sweep — cron-only: hard-delete archived users past the
-  // 30-day window (unless they have unapproved hours; those stay
-  // archived until a human clears them).
-  if (req.method === 'GET' && action === 'sweep') {
-    if (!sweepAuthorised(req)) return res.status(401).json({ error: 'unauthorised' });
-    const cutoffMs = Date.now() - 30 * 86400000;
-    const removed = [];
-    const kept = [];
-    for (const u of (data.users || [])) {
-      if (!u.archived) { kept.push(u); continue; }
-      const at = u.archivedAt ? Date.parse(u.archivedAt) : 0;
-      if (!Number.isFinite(at) || at > cutoffMs) { kept.push(u); continue; }
-      const pending = await userHasUnapprovedHours(u.id);
-      if (pending && pending.length) { kept.push(u); continue; }
-      removed.push({ id: u.id, username: u.username, archivedAt: u.archivedAt });
-    }
-    if (removed.length) {
-      data.users = kept;
-      try {
-      await writeBlob('users.json', data, { expectedRev: data.__rev });
-    } catch (e) {
-      if (e && e.code === 'stale_write') {
-        // #157: users.json moved underneath this edit (concurrent admin /
-        // sweep / push-prune). Retryable — re-read and re-apply.
-        return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
-      }
-      throw e;
-    }
-    }
-    return res.status(200).json({ ok: true, removed, removedCount: removed.length });
-  }
 
   res.status(405).end();
 };
@@ -399,11 +416,3 @@ function addDaysIso(iso, days) {
   return d.toISOString();
 }
 
-function sweepAuthorised(req) {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return true;
-  const hdr = req.headers['authorization'] || '';
-  if (hdr === `Bearer ${expected}`) return true;
-  if ((req.headers['x-cron-secret'] || '') === expected) return true;
-  return false;
-}
