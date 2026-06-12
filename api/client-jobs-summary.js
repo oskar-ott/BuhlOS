@@ -54,7 +54,12 @@ module.exports = async (req, res) => {
     // their jobs via /api/jobs already — return a minimal stub.
     visible = allJobs.filter(j => (me.assignedJobIds || []).includes(j.id));
   } else if (isClientRole(me.role)) {
-    visible = allJobs.filter(j => j.clientUserId === me.id);
+    // #386: same status scoping as /api/jobs — a draft with a linked client
+    // (the v2 builder sets clientUserId on drafts) must not leak its
+    // existence, name or progress before publish; archived likewise.
+    visible = allJobs.filter(j =>
+      j.clientUserId === me.id && j.status !== 'draft' && j.status !== 'archived'
+    );
   } else {
     return res.status(403).json({ error: 'forbidden' });
   }
