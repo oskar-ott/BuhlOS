@@ -18,11 +18,14 @@ import {
 } from "@/domains/itp/format";
 import {
   archiveItp,
+  attachItp,
   reopenItp,
   signOffItp,
 } from "@/domains/itp/client";
+import { AttachITPModal } from "@/components/admin/AttachITPModal";
+import { isLeadingHandRole } from "@/lib/auth/roles";
 import { compareForQueue } from "@/domains/itp/service";
-import type { ITPInstance } from "@/domains/itp/types";
+import type { AttachITPPayload, ITPInstance } from "@/domains/itp/types";
 import type { Job } from "@/domains/jobs/types";
 import { resolveScopeName } from "@/components/phil/itp-scope";
 import { ITPDrawer } from "./ITPDrawer";
@@ -100,6 +103,31 @@ export function ITPsQueue({
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [signOffId, setSignOffId] = useState<string | null>(null);
   const [action, setAction] = useState<ActionState>({ kind: "idle" });
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [attachBusy, setAttachBusy] = useState(false);
+
+  // Attach parity with the API: canManageJob admits admin-tier AND leading
+  // hands on their assigned jobs (#387). The server re-checks; an
+  // unassigned LH gets a 403 surfaced through the normal error banner.
+  const canAttach = isAdmin || isLeadingHandRole(viewer.role);
+
+  function handleAttach(payload: AttachITPPayload) {
+    setAttachBusy(true);
+    void attachItp(job.id, payload).then((result) => {
+      setAttachBusy(false);
+      if (!result.ok) {
+        setAction({ kind: "error", message: `Attach failed: ${result.error.message}` });
+        return;
+      }
+      // Server-canonical instance, same as every other mutation here.
+      setItems((prev) => [...prev, result.data.instance]);
+      setAttachOpen(false);
+      setAction({
+        kind: "success",
+        message: `Attached "${result.data.instance.templateSnapshot?.name ?? "check"}".`,
+      });
+    });
+  }
 
   // Default filter hides archived globally — the "all" filter brings
   // them back so admins can audit historical archives.
@@ -223,9 +251,16 @@ export function ITPsQueue({
               instances or reopen ones that need rework.
             </CardDescription>
           </div>
-          {!isAdmin ? (
-            <Pill tone="neutral">Read-only — leading hand</Pill>
-          ) : null}
+          <div className="flex items-center gap-3">
+            {!isAdmin ? (
+              <Pill tone="neutral">Sign-off &amp; archive are office-only</Pill>
+            ) : null}
+            {canAttach ? (
+              <Button size="sm" onClick={() => setAttachOpen(true)} data-testid="attach-itp-open">
+                Attach a check
+              </Button>
+            ) : null}
+          </div>
         </div>
       </Card>
 
@@ -335,6 +370,14 @@ export function ITPsQueue({
         onArchive={() => {
           if (drawerItem) runArchive(drawerItem);
         }}
+      />
+
+      <AttachITPModal
+        open={attachOpen}
+        job={job}
+        busy={attachBusy}
+        onClose={() => setAttachOpen(false)}
+        onSubmit={handleAttach}
       />
 
       <ITPSignOffModal

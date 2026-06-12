@@ -18,6 +18,8 @@ import type {
   RecordITPPointPayloadSchema,
   ReopenITPPayloadSchema,
   SignOffITPPayloadSchema,
+  ITPTemplateSummarySchema,
+  ITPTemplateListResponseSchema,
 } from "./schema";
 
 /**
@@ -32,6 +34,8 @@ import type {
 export type ITPPointType = z.infer<typeof ITPPointTypeSchema>;
 export type ITPWitnessRole = z.infer<typeof ITPWitnessRoleSchema>;
 export type ITPScope = z.infer<typeof ITPScopeSchema>;
+export type ITPTemplateSummary = z.infer<typeof ITPTemplateSummarySchema>;
+export type ITPTemplateListResponse = z.infer<typeof ITPTemplateListResponseSchema>;
 export type ITPStatus = z.infer<typeof ITPStatusSchema>;
 
 export type ITPTemplatePoint = z.infer<typeof ITPTemplatePointSchema>;
