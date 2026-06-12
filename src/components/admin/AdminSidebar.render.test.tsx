@@ -35,6 +35,7 @@ describe("AdminSidebar (#187)", () => {
       "Command centre",
       "Observations",
       "Material requests",
+      "Quotes",
       "Defects",
       "ITP templates",
       "Employees",
@@ -81,5 +82,15 @@ describe("AdminSidebar (#187)", () => {
     const html = render("/command-centre");
     expect(html.match(/href="\/reports"/g)).toHaveLength(1);
     expect(activeLabel(render("/reports"))).toBe("Reports");
+  });
+
+  it("Quotes (#183) sits in the Jobs group and stays active into the builder", () => {
+    const html = render("/command-centre");
+    expect(html.match(/href="\/v2\/quotes"/g)).toHaveLength(1);
+    expect(activeLabel(render("/v2/quotes"))).toBe("Quotes");
+    // Builder deep link keeps the item active; the /v2/jobs prefix must NOT
+    // steal it (longest-prefix rule, distinct prefixes).
+    expect(activeLabel(render("/v2/quotes/qv2_abc123"))).toBe("Quotes");
+    expect(activeLabel(render("/v2/jobs/j1"))).toBe("Jobs");
   });
 });

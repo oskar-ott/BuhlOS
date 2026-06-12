@@ -79,6 +79,8 @@ describe("middleware — unauthenticated access to a gated route → /v2/login?n
     "/material-requests",
     "/defects",
     "/reports",
+    "/v2/quotes",
+    "/v2/quotes/qv2_abc123",
     "/v2/jobs",
     "/v2/jobs/abc123/builder",
     "/v2/phil",
@@ -172,6 +174,29 @@ describe("middleware — /reports owner numbers (#316, admin tier only)", () => 
 
   it("redirects a field worker off /reports to their Phil home", () => {
     const target = redirectTarget(middleware(request("/reports", { role: "tradie" })));
+    expect(target?.pathname).toBe("/phil/my-day");
+  });
+});
+
+describe("middleware — /v2/quotes builder (#183, admin tier only)", () => {
+  it.each(["/v2/quotes", "/v2/quotes/qv2_abc123"])(
+    "lets an estimator (admin tier, not literal 'admin') through %s",
+    (pathname) => {
+      expect(isPassThrough(middleware(request(pathname, { role: "estimator" })))).toBe(true);
+    },
+  );
+
+  it("lets an admin through /v2/quotes", () => {
+    expect(isPassThrough(middleware(request("/v2/quotes", { role: "admin" })))).toBe(true);
+  });
+
+  it("redirects a leading hand off /v2/quotes (commercial figures are admin-tier)", () => {
+    const target = redirectTarget(middleware(request("/v2/quotes", { role: "leadinghand" })));
+    expect(target?.pathname).toBe("/phil/my-day");
+  });
+
+  it("redirects a field worker off /v2/quotes to their Phil home", () => {
+    const target = redirectTarget(middleware(request("/v2/quotes/qv2_abc123", { role: "tradie" })));
     expect(target?.pathname).toBe("/phil/my-day");
   });
 });

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { Route } from "next";
 import {
   LayoutGrid,
+  Calculator,
   ClipboardList,
   Inbox,
   BarChart3,
@@ -79,6 +80,14 @@ const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/v2/jobs" as Route,
         icon: Briefcase,
         activeFor: ["/v2/jobs"],
+      },
+      {
+        // v2 quote builder foundation (#183) — quotes are where jobs are
+        // born (#120/WS2), so they live in the Jobs group.
+        label: "Quotes",
+        href: "/v2/quotes" as Route,
+        icon: Calculator,
+        activeFor: ["/v2/quotes"],
       },
       {
         // Cross-job defects register (#414) — doc 13 reserves this slot.

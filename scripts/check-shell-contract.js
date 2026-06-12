@@ -51,7 +51,7 @@ function read(rel) { return fs.readFileSync(path.join(REPO, rel), 'utf8'); }
 
 // ── Contract: route subtree → intended surface shell ─────────────────
 const DOMAINS = [
-  { name: 'BuhlOS admin', shell: 'admin', roots: ['src/app/(admin)', 'src/app/v2/jobs'] },
+  { name: 'BuhlOS admin', shell: 'admin', roots: ['src/app/(admin)', 'src/app/v2/jobs', 'src/app/v2/quotes'] },
   { name: 'Phil', shell: 'phil', roots: ['src/app/phil', 'src/app/v2/phil'] },
 ];
 const OTHER = { admin: 'phil', phil: 'admin' };

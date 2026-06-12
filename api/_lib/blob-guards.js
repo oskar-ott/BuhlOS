@@ -84,6 +84,29 @@ function timeEntryDoc(doc) {
   return null;
 }
 
+/** v2 quote document (#183): quotes-v2/<id>.json — one full document per
+ *  quote (sections → lines). Shape sanity only; field-level validation is
+ *  api/quotes-v2.js's job (mirroring src/domains/quoting/schema.ts). */
+function quoteV2Doc(doc) {
+  if (!isPlainObject(doc)) return 'quote must be an object';
+  if (typeof doc.id !== 'string' || !doc.id) return 'quote.id must be a non-empty string';
+  if (typeof doc.name !== 'string' || !doc.name) return 'quote.name must be a non-empty string';
+  if (typeof doc.status !== 'string' || !doc.status) return 'quote.status must be a string';
+  if (!Array.isArray(doc.sections)) return 'quote.sections must be an array';
+  for (let i = 0; i < doc.sections.length; i++) {
+    const s = doc.sections[i];
+    if (!isPlainObject(s)) return `quote.sections[${i}] must be an object`;
+    if (typeof s.id !== 'string' || !s.id) return `quote.sections[${i}].id must be a non-empty string`;
+    if (!Array.isArray(s.lines)) return `quote.sections[${i}].lines must be an array`;
+    for (let j = 0; j < s.lines.length; j++) {
+      const l = s.lines[j];
+      if (!isPlainObject(l)) return `quote.sections[${i}].lines[${j}] must be an object`;
+      if (typeof l.id !== 'string' || !l.id) return `quote.sections[${i}].lines[${j}].id must be a non-empty string`;
+    }
+  }
+  return null;
+}
+
 /** Exact-key validators + the shrink-guard config (highest blast radius first). */
 const EXACT_GUARDS = {
   'users.json': { validate: arrayOfIdObjects('users'), shrinkField: 'users', shrinkFloor: 10 },
@@ -108,6 +131,11 @@ const EXACT_GUARDS = {
   },
   // Worker licence/ticket register (#331): { credentials: [{id, userId, …}] }.
   'workforce/credentials.json': { validate: arrayOfIdObjects('credentials') },
+  // v2 quoting registry (#183): { quotes: [{id, name, status, …}] } — summary
+  // rows only; full documents live one-per-quote under quotes-v2/<id>.json.
+  // Shrink-guarded: the API never removes rows (DELETE is an archive status
+  // flip), so a shrinking write is corruption, not workflow.
+  'quotes-v2.json': { validate: arrayOfIdObjects('quotes'), shrinkField: 'quotes', shrinkFloor: 10 },
   // Licence alert dedupe state (#331) — same shape + no-shrink rationale as
   // tag-reminder-state.json (renewals legitimately empty it).
   'licence-reminder-state.json': {
@@ -121,6 +149,13 @@ const PATTERN_GUARDS = [
   {
     test: (key) => /^users\/[^/]+\/time-entries\/\d{4}-\d{2}-\d{2}\.json$/.test(key),
     validate: timeEntryDoc,
+  },
+  {
+    // One full v2 quote document per quote (#183). The pattern is exactly one
+    // path segment under quotes-v2/ — the LEGACY per-section blobs live under
+    // quotes/<id>/<section>.json and are intentionally not guarded here.
+    test: (key) => /^quotes-v2\/[^/]+\.json$/.test(key),
+    validate: quoteV2Doc,
   },
 ];
 

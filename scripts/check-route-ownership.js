@@ -64,6 +64,7 @@ const APPROVED_ADMIN_HREFS = new Set([
   '/defects', // #414 — cross-job defects register (both snag stores)
   '/reports', // #316 — owner numbers dashboard (the six daily numbers)
   '/v2/jobs',
+  '/v2/quotes', // #183 — v2 quote builder foundation; same /admin/* future as /v2/jobs
   '/itp-templates', // #284 template library; nav entry added by #187 // transitional — live admin Jobs index; -> /admin/jobs later
 ]);
 const APPROVED_PHIL_HREFS = new Set([
@@ -120,6 +121,8 @@ const REQUIRED_SOURCES = [
   'src/app/v2/jobs/[jobId]/page.tsx',
   'src/app/v2/jobs/[jobId]/builder/page.tsx',
   'src/app/v2/jobs/[jobId]/plans/page.tsx',
+  'src/app/v2/quotes/page.tsx',
+  'src/app/v2/quotes/[quoteId]/page.tsx',
   'src/app/phil/my-day/page.tsx',
   'src/app/phil/jobs/page.tsx',
   'src/app/phil/jobs/[jobId]/page.tsx',
