@@ -56,6 +56,8 @@ export interface WeeklyHoursDay {
   hours: number | null;
   note: string | null;
   rejectedReason: string | null;
+  /** Committed payroll run that included this day, when stamped (#126). */
+  exportId: string | null;
 }
 
 export interface WeeklyWorkerHours {
@@ -231,6 +233,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
         hours: entry ? (entry.totalHours ?? null) : null,
         note: entry?.notes ?? null,
         rejectedReason: entry?.rejectedReason ?? null,
+        exportId: entry?.exportId ?? null,
       });
     }
 
