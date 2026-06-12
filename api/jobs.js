@@ -1,5 +1,6 @@
 const { readBlob, writeBlob, deleteBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs, isFieldRole, isClientRole } = require('./_lib/auth');
+const { redactJobForViewer } = require('./_lib/job-redaction');
 const { validateAreaGroups, validateTasks, validateCustomFields, visibleStructural } = require('./_lib/validation');
 const { areaProgressPct, jobTaskCounts } = require('./_lib/job-tasks');
 const { appendAudit } = require('./_lib/job-audit');
@@ -193,7 +194,9 @@ module.exports = async (req, res) => {
         req.query.includeArchived === '1' &&
         canViewArchivedJobs(me.role);
       const cleaned = projectJobStructure(job, { includeArchived });
-      return res.status(200).json({ job: { ...cleaned, modules: effectiveModules(job) } });
+      return res.status(200).json({
+        job: redactJobForViewer({ ...cleaned, modules: effectiveModules(job) }, me.role),
+      });
     }
     // Non-admin roles never see draft or archived jobs (office-only).
     // Admin sees every status so the Builder can list + open its own drafts.
@@ -390,7 +393,9 @@ module.exports = async (req, res) => {
       }));
     }
 
-    return res.status(200).json({ jobs: enriched });
+    // #382: strip admin-only money fields for non-admin viewers (admin rows
+    // pass through untouched — byte-identical for the hub/cash surfaces).
+    return res.status(200).json({ jobs: enriched.map(j => redactJobForViewer(j, me.role)) });
   }
 
   // POST ?action=duplicate&id=<jobId> — copy a job's structure into a NEW

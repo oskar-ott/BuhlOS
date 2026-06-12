@@ -95,6 +95,7 @@ beforeEach(() => {
             role: "office",
             assignedJobIds: [],
           },
+          { id: "u_client", username: "builder", role: "client", assignedJobIds: [] },
           {
             id: "u_lh",
             username: "lead",
@@ -112,6 +113,13 @@ beforeEach(() => {
             id: "job-active",
             name: "Active",
             status: "active",
+            clientUserId: "u_client",
+            contractValue: 120000,
+            labourEstimate: 40000,
+            materialEstimate: 30000,
+            claimedToDate: 50000,
+            paidToDate: 45000,
+            oldestClaimDays: 12,
             areaGroups: [
               {
                 id: "group-a",
@@ -132,6 +140,7 @@ beforeEach(() => {
 
   delete requireFromHere.cache[authPath];
   delete requireFromHere.cache[jobsPath];
+  delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/job-redaction.js")];
   delete requireFromHere.cache[auditPath];
   requireFromHere.cache[blobPath] = {
     id: blobPath,
@@ -173,6 +182,63 @@ describe("GET /api/jobs field visibility", () => {
         query: { id },
       });
       expect(res.statusCode).toBe(404);
+    }
+  });
+});
+
+describe("money-field redaction (#382)", () => {
+  const MONEY = [
+    "contractValue",
+    "labourEstimate",
+    "materialEstimate",
+    "claimedToDate",
+    "paidToDate",
+    "oldestClaimDays",
+  ] as const;
+
+  it.each([
+    ["electrician (field)", "u_field", "electrician"],
+    ["leading hand", "u_lh", "lh"],
+    ["client (own job)", "u_client", "client"],
+  ])("%s sees NO money fields on single or list GET", async (_label, userId, role) => {
+    const single = await call({ method: "GET", userId, role, query: { id: "job-active" } });
+    expect(single.statusCode).toBe(200);
+    const job = (single.body as { job: Record<string, unknown> }).job;
+    for (const f of MONEY) expect(job, f).not.toHaveProperty(f);
+
+    const listRes = await call({ method: "GET", userId, role });
+    const rows = (listRes.body as { jobs: Record<string, unknown>[] }).jobs;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) for (const f of MONEY) expect(row, f).not.toHaveProperty(f);
+  });
+
+  it("withStats list rows are redacted the same way", async () => {
+    const res = await call({
+      method: "GET",
+      userId: "u_field",
+      role: "electrician",
+      query: { withStats: "1" },
+    });
+    const rows = (res.body as { jobs: Record<string, unknown>[] }).jobs;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) for (const f of MONEY) expect(row, f).not.toHaveProperty(f);
+  });
+
+  it("admin TIER responses keep every figure untouched", async () => {
+    for (const [userId, role] of [
+      ["u_admin", "admin"],
+      ["u_office", "office"],
+    ] as const) {
+      const single = await call({ method: "GET", userId, role, query: { id: "job-active" } });
+      const job = (single.body as { job: Record<string, unknown> }).job;
+      expect(job).toMatchObject({
+        contractValue: 120000,
+        labourEstimate: 40000,
+        materialEstimate: 30000,
+        claimedToDate: 50000,
+        paidToDate: 45000,
+        oldestClaimDays: 12,
+      });
     }
   });
 });
