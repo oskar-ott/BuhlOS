@@ -2,8 +2,6 @@ import Link from "next/link";
 import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
-import { JetBrains_Mono } from "next/font/google";
-import { cn } from "@/lib/cn";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
 import { PhilWeekStrip } from "@/components/phil/PhilWeekStrip";
@@ -34,16 +32,6 @@ import { buildPhilGreeting, hourInTimeZone } from "@/domains/phil/greeting";
 import styles from "@/components/phil/myDay.module.css";
 
 export const dynamic = "force-dynamic";
-
-// JetBrains Mono — the design's microcopy face. Scoped to the My Day wrapper
-// (its CSS variable is only applied there), so it never restyles the rest of
-// the app. The display/body faces (Inter Tight / Inter) already load globally.
-const mono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
-  variable: "--font-jetbrains-mono",
-  display: "swap",
-});
 
 /**
  * /phil/my-day — the Phase B Phil home that replaces the placeholder
@@ -153,7 +141,7 @@ export default async function MyDayPage({
 
   return (
     <PhilShell title="My day">
-      <div className={cn(styles.surface, mono.variable)}>
+      <div className={styles.surface}>
         <header className={styles.greetBar}>
           <div className="min-w-0">
             <h1 className={styles.greetName}>{heading}</h1>
