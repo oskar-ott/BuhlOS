@@ -77,6 +77,7 @@ describe("middleware — unauthenticated access to a gated route → /v2/login?n
     "/employees",
     "/observations",
     "/material-requests",
+    "/defects",
     "/v2/jobs",
     "/v2/jobs/abc123/builder",
     "/v2/phil",
@@ -153,6 +154,21 @@ describe("middleware — /v2/jobs admin-review surface (admin OR leading hand)",
 
   it("redirects a field worker off /v2/jobs to their Phil home", () => {
     const target = redirectTarget(middleware(request("/v2/jobs", { role: "tradie" })));
+    expect(target?.pathname).toBe("/phil/my-day");
+  });
+});
+
+describe("middleware — /defects register (#414, same surface as /v2/jobs)", () => {
+  it("lets an admin through /defects", () => {
+    expect(isPassThrough(middleware(request("/defects", { role: "admin" })))).toBe(true);
+  });
+
+  it("lets a leading hand through /defects (API scopes them to assigned jobs)", () => {
+    expect(isPassThrough(middleware(request("/defects", { role: "lh" })))).toBe(true);
+  });
+
+  it("redirects a field worker off /defects to their Phil home", () => {
+    const target = redirectTarget(middleware(request("/defects", { role: "tradie" })));
     expect(target?.pathname).toBe("/phil/my-day");
   });
 });

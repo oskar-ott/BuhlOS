@@ -38,6 +38,9 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   { prefix: "/observations", surface: "admin" },
   // PR 11: cross-job material requests inbox (admin-tier only).
   { prefix: "/material-requests", surface: "admin" },
+  // #414: cross-job defects register — same surface as /v2/jobs
+  // (admin tier + LH; the API scopes an LH to their assignedJobIds).
+  { prefix: "/defects", surface: "lh" },
   { prefix: "/v2/phil", surface: "phil" },
   { prefix: "/v2/jobs", surface: "lh" },
   { prefix: "/phil/my-day", surface: "phil" },
@@ -90,6 +93,7 @@ export const config = {
     "/employees/:path*",
     "/observations/:path*",
     "/material-requests/:path*",
+    "/defects/:path*",
     "/v2/phil/:path*",
     "/v2/jobs/:path*",
     "/phil/my-day/:path*",

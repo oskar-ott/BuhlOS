@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Inbox,
   Briefcase,
+  Bug,
   Package,
   Clock,
   Wrench,
@@ -77,6 +78,13 @@ const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/v2/jobs" as Route,
         icon: Briefcase,
         activeFor: ["/v2/jobs"],
+      },
+      {
+        // Cross-job defects register (#414) — doc 13 reserves this slot.
+        label: "Defects",
+        href: "/defects" as Route,
+        icon: Bug,
+        activeFor: ["/defects"],
       },
       {
         label: "ITP templates",
