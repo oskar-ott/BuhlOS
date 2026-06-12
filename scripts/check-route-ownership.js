@@ -61,7 +61,8 @@ const APPROVED_ADMIN_HREFS = new Set([
   '/employees',
   '/observations', // PR 3 — cross-job field-to-office observations inbox
   '/material-requests', // PR 11 — cross-job procurement inbox
-  '/v2/jobs', // transitional — live admin Jobs index; -> /admin/jobs later
+  '/v2/jobs',
+  '/itp-templates', // #284 template library; nav entry added by #187 // transitional — live admin Jobs index; -> /admin/jobs later
 ]);
 const APPROVED_PHIL_HREFS = new Set([
   '/phil/my-day',

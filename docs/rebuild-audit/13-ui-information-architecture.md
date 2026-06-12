@@ -34,6 +34,19 @@
 
 ### Left sidebar sections
 
+
+> **#187 update (2026-06-12, post-cutover):** the sidebar is now a grouped
+> single-world IA — the legacy estate this section originally bridged was
+> deleted by the cutover (#376). Source of truth for the groups:
+>
+> - **Today** — Command centre · Observations · Material requests
+> - **Jobs** — Jobs (/v2/jobs) · ITP templates (/itp-templates)
+> - **Hours** — Hours (/hours) · Weekly closeout (/hours/weekly) · Approvals (/hours/approvals)
+> - **People & gear** — Employees (/employees) · Gear (/gear)
+>
+> No under-construction stubs remain (hide-unfinished rule); active state
+> resolves by longest path prefix (AdminSidebar.render.test.tsx).
+
 The new admin sidebar has the following sections, in order:
 
 1. **Command Centre** — the home
