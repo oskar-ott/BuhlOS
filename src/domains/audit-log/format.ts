@@ -13,6 +13,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "document.uploaded": "uploaded a document",
   "document.superseded": "document superseded",
   "document.made_current": "marked a drawing current",
+  "contact.saved": "saved a job contact",
+  "contact.removed": "removed a job contact",
   "evidence.captured": "Captured evidence",
   "evidence.reviewed": "Reviewed evidence",
   "evidence.rejected": "Rejected evidence",

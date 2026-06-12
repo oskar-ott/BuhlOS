@@ -24,6 +24,22 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, isAdminRole, isClientRole } = require('./_lib/auth');
+const { append: appendAuditLog } = require('./_lib/audit-log');
+
+// #189: categorised contact edits land in the per-job history.
+async function auditContact(user, jobId, action, contact) {
+  await appendAuditLog({
+    action,
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'contact',
+    targetId: contact.id,
+    summary: `${action === 'contact.removed' ? 'removed' : 'saved'} contact "${String(contact.name || contact.id).slice(0, 80)}"`,
+    metadata: { category: contact.category || null, role: contact.role || null },
+  }).catch(() => {});
+}
 
 const CATEGORIES = ['project', 'supplier'];
 
@@ -150,6 +166,7 @@ module.exports = async (req, res) => {
         data.contacts = data.contacts || [];
         data.contacts.push(built.contact);
         await writeBlob(KEY, data);
+        await auditContact(user, jobId, 'contact.saved', built.contact);
         return res.status(200).json({ contact: built.contact });
       } catch (e) { return res.status(500).json({ error: e.message }); }
     }
@@ -203,6 +220,7 @@ module.exports = async (req, res) => {
         if (built.error) return res.status(400).json({ error: built.error });
         data.contacts[idx] = built.contact;
         await writeBlob(KEY, data);
+        await auditContact(user, jobId, 'contact.saved', built.contact);
         return res.status(200).json({ contact: built.contact });
       } else {
         if (!canWrite(user, jobId)) return res.status(403).json({ error: 'read-only' });
@@ -245,6 +263,7 @@ module.exports = async (req, res) => {
       }
       data.contacts = data.contacts.filter(c => c.id !== id);
       await writeBlob(KEY, data);
+      if (isCategorised(target)) await auditContact(user, jobId, 'contact.removed', target);
       return res.status(200).json({ ok: true });
     } catch (e) {
       return res.status(500).json({ error: e.message });

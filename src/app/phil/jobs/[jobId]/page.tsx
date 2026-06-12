@@ -10,6 +10,7 @@ import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { TagListResponseSchema, type TagItem } from "@/domains/tags/schema";
+import { JobContactsResponseSchema, type JobContact } from "@/domains/contacts/schema";
 import { parseJobTaskState, type JobTaskState } from "@/domains/jobs/taskState";
 import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
 import { SnagListResponseSchema } from "@/domains/snags/schema";
@@ -74,7 +75,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // is non-blocking: an empty list just shows the empty state, the
   // worker can still create new items, and the server will return
   // real data on the next refresh.
-  const [initialEvidence, initialSnags, initialItps, documentsResult, taskStateResult, tagsResult] =
+  const [initialEvidence, initialSnags, initialItps, documentsResult, taskStateResult, tagsResult, initialContacts] =
     result.kind === "ok"
       ? await Promise.all([
           loadInitialEvidence(raw, jobId),
@@ -83,6 +84,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           loadInitialDocuments(raw, jobId),
           loadInitialTaskState(raw, jobId),
           loadInitialTags(raw, jobId),
+          loadInitialContacts(raw, jobId),
         ])
       : [
           [],
@@ -91,6 +93,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           { documents: [] as Document[], error: null as string | null },
           { state: {} as JobTaskState, error: null as string | null },
           { tags: [] as TagItem[], error: false },
+          [] as JobContact[],
         ];
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
@@ -138,6 +141,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
         documentsError={documentsResult.error}
         initialTags={tagsResult.tags}
         tagsError={tagsResult.error}
+        initialContacts={initialContacts}
         initialTaskState={taskStateResult.state}
         taskStateError={taskStateResult.error}
         viewer={{
@@ -389,6 +393,29 @@ async function loadInitialTags(
     return { tags: [...parsed.data.tags], error: false };
   } catch {
     return { tags: [], error: true };
+  }
+}
+
+/** Categorised job contacts (#189) — fail-soft to none; the card hides itself. */
+async function loadInitialContacts(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<JobContact[]> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(`${base}/api/contacts?jobId=${encodeURIComponent(jobId)}`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (!res.ok) return [];
+    const parsed = JobContactsResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return [];
+    return [...parsed.data.contacts];
+  } catch {
+    return [];
   }
 }
 
