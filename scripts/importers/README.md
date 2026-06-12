@@ -36,5 +36,27 @@ warnings, and a summary. **Exit 0 = clean; exit 1 = hard validation errors.**
 Never wired to API routes, deploys or cron. Tests:
 `src/domains/importers/structure-import-plan.test.ts`.
 
-Next importer (#2): hours parity dry-run — consumes this run's user/job ref
-indexes; checksums per docs/supabase-importer-plan.md §E.
+## hours-dry-run.js
+
+Plans the payroll-critical hours slice: `time_entries`, `time_entry_allocations`,
+`payroll_runs` (and confirms `timesheet_approvals` stays empty — weekly closeout
+is projection-only).
+
+```sh
+# against live Blob (READ-ONLY; needs BLOB_READ_WRITE_TOKEN)
+node scripts/importers/hours-dry-run.js
+
+# against a local snapshot (users/<id>/time-entries/<date>.json, payroll-runs.json)
+node scripts/importers/hours-dry-run.js --from-dir /path/to/snapshot --json
+```
+
+Canonical source = `users/{userId}/time-entries/{date}.json` (one per user+day);
+`jobs/{jobId}/hours.json` is legacy and **not** a source. Output: proposed
+inserts + parity numbers (hours by user/week, by job/week, status splits,
+allocation reconciliation) + 14 quarantine buckets (missing refs, duplicate
+user+date, invalid dates/statuses/totals, ordinary+overtime≠total, over-16h,
+allocation-sum≠total, non-Monday week-start, reopen/approval inconsistencies).
+**Exit 0 = clean; exit 1 = hard validation errors.** Read-only by construction
+(only `list`/`fetch`/`readBlob`); `--write` passes the env guard then throws
+`WRITE_NOT_IMPLEMENTED`. Tests: `src/domains/importers/hours-import-plan.test.ts`.
+Findings: [docs/supabase-hours-dry-run-report.md](../../docs/supabase-hours-dry-run-report.md).
