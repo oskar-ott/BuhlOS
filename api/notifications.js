@@ -30,6 +30,8 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { getCurrentUser, isAdminRole, isLeadingHandRole, isFieldRole, isClientRole, isDisabledUser } = require('./_lib/auth');
 const { getWebPush, sendPushToUserId } = require('./_lib/push');
+// #381: fail-closed cron gate (503 in production when CRON_SECRET unset).
+const { requireCron } = require('./_lib/cron-auth');
 const { expiringTagRows, expiringCalibrationRows, newCrossings } = require('./_lib/tag-compliance');
 const { listAllAssets } = require('./_lib/assets');
 
@@ -54,17 +56,6 @@ async function userHasLoggedHoursToday(user, today) {
   return !!(entry && Number(entry.totalHours) > 0);
 }
 
-// Does the incoming cron request carry a valid secret? If no secret is
-// configured, we allow the call (useful in preview envs). Vercel Cron sends
-// `authorization: Bearer <CRON_SECRET>` automatically when CRON_SECRET is set.
-function cronAuthorised(req) {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return true;
-  const hdr = req.headers['authorization'] || '';
-  if (hdr === `Bearer ${expected}`) return true;
-  if ((req.headers['x-cron-secret'] || '') === expected) return true;
-  return false;
-}
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -110,7 +101,7 @@ module.exports = async (req, res) => {
 
   // ── send-daily-reminders: cron fan-out ─────────────────────────────────
   if (action === 'send-daily-reminders' && req.method === 'GET') {
-    if (!cronAuthorised(req)) return res.status(401).json({ error: 'unauthorised' });
+    if (!requireCron(req, res)) return;
     if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
 
     const today = sydneyToday();
@@ -158,7 +149,7 @@ module.exports = async (req, res) => {
   // Silent when nothing crossed; state is still pruned so a retested item
   // resets its alert lifecycle.
   if (action === 'send-tag-reminders' && req.method === 'GET') {
-    if (!cronAuthorised(req)) return res.status(401).json({ error: 'unauthorised' });
+    if (!requireCron(req, res)) return;
     if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
 
     const WITHIN_DAYS = 14;
@@ -272,7 +263,7 @@ module.exports = async (req, res) => {
   // Aggregated from the same blobs the admin Overview already reads — no
   // new endpoints, no new schemas. Best-effort; cron failures don't queue.
   if (action === 'send-daily-digest' && req.method === 'GET') {
-    if (!cronAuthorised(req)) return res.status(401).json({ error: 'unauthorised' });
+    if (!requireCron(req, res)) return;
     if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
 
     const today = sydneyToday();
@@ -382,7 +373,7 @@ module.exports = async (req, res) => {
   // Runs Mon 09:00 Sydney (= Sun 23:00 UTC). Skipped entirely when nothing
   // qualifies — same "silence is the signal" rule as the daily digest.
   if (action === 'send-stale-snags' && req.method === 'GET') {
-    if (!cronAuthorised(req)) return res.status(401).json({ error: 'unauthorised' });
+    if (!requireCron(req, res)) return;
     if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
 
     const now = Date.now();
@@ -476,7 +467,7 @@ module.exports = async (req, res) => {
   //
   // Silent when nothing qualifies — same rule as the digest.
   if (action === 'send-inactive-users' && req.method === 'GET') {
-    if (!cronAuthorised(req)) return res.status(401).json({ error: 'unauthorised' });
+    if (!requireCron(req, res)) return;
     if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
 
     const STALE_DAYS = 7;

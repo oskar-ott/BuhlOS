@@ -21,18 +21,11 @@
 const crypto = require('crypto');
 const { list } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
+const { cronAuthState } = require('./_lib/cron-auth');
 const { requireAuth, isAdminRole, isLeadingHandRole, isFieldRole } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
 const { appendActivity } = require('./_lib/activity');
 
-function cronAuthorised(req) {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return true;
-  const hdr = req.headers['authorization'] || '';
-  if (hdr === `Bearer ${expected}`) return true;
-  if ((req.headers['x-cron-secret'] || '') === expected) return true;
-  return false;
-}
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -44,9 +37,14 @@ module.exports = async (req, res) => {
 
   const dryRun = req.query.dryRun === '1' || req.query.dryRun === 'true';
 
-  // Manual mode for admins (dev / debug) vs cron-secret mode.
+  // Manual mode for admins (dev / debug) vs cron-secret mode (#381):
+  // 'ok' = valid secret header, or preview/dev with no secret configured
+  // (preview crons keep working). 'denied' (wrong/absent header while a
+  // secret is set) and the fail-closed production 'unconfigured' state both
+  // fall through to an interactive admin session — a human can always run
+  // it, an anonymous caller never can.
   let me = null;
-  if (!cronAuthorised(req)) {
+  if (cronAuthState(req) !== 'ok') {
     me = await requireAuth(req, res, { roles: ['admin'] });
     if (!me) return;
   }
