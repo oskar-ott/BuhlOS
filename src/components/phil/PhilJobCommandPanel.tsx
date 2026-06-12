@@ -10,6 +10,7 @@ import {
   Clock,
   ListChecks,
   Map as MapIcon,
+  ShieldCheck,
 } from "lucide-react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { PhilNotice } from "./ui/PhilNotice";
@@ -67,6 +68,7 @@ const IN_PAGE_ANCHOR: Partial<Record<PhilJobActionId, string>> = {
   complete_checks: "#phil-job-itps",
   continue_tasks: "#phil-job-work",
   view_plans: "#phil-job-plans",
+  view_tags: "#phil-job-tags",
   report_issue: "#phil-job-snags",
 };
 
@@ -77,6 +79,7 @@ const ACTION_ICON: Record<PhilJobActionId, typeof Camera> = {
   capture: Camera,
   log_hours: Clock,
   view_plans: MapIcon,
+  view_tags: ShieldCheck,
   report_issue: AlertOctagon,
 };
 

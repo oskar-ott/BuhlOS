@@ -30,6 +30,8 @@
  */
 
 import { buildPhilPreview, isVisibleToField, moduleEnabled } from "@/domains/jobs/builder";
+import { countTagRegister } from "@/domains/tags/expiry";
+import type { TagItem } from "@/domains/tags/schema";
 import { effectiveTasks, visibleAreaGroups } from "@/domains/jobs/format";
 import { readTaskState, type JobTaskState } from "@/domains/jobs/taskState";
 import type { Job, JobStage } from "@/domains/jobs/types";
@@ -49,6 +51,8 @@ export interface PhilJobDataForCommand {
   snags?: SnagItem[];
   /** GET /api/job-itps?jobId — attached ITP instances. */
   itps?: ITPInstance[];
+  /** Per-job test & tag entries (jobs/<id>/tags.json), when the page loaded them. */
+  tags?: TagItem[];
   /** GET /api/plans?jobId — plan/spec documents. */
   documents?: Document[];
   /**
@@ -68,6 +72,7 @@ export interface PhilJobDataForCommand {
     snags?: boolean;
     itps?: boolean;
     documents?: boolean;
+    tags?: boolean;
   };
   /**
    * Count of the worker's own REJECTED hour entries allocated to this job.
@@ -145,6 +150,12 @@ function countTrackedAreaTasks(
  * Build the command-model input from a successfully loaded job + its lists.
  * Pure (no fetch, no React) so it can be unit-tested with fixtures.
  */
+/** Entries needing a retest: expired + due within the 14-day window (#305 semantics). */
+function countTagsNeedingRetest(tags: TagItem[]): number {
+  const counts = countTagRegister(tags);
+  return counts.expired + counts.expiring;
+}
+
 export function philJobCommandInputFromJobData(
   data: PhilJobDataForCommand,
 ): PhilJobCommandInput {
@@ -173,6 +184,12 @@ export function philJobCommandInputFromJobData(
       ? { kind: "unknown" }
       : { kind: "count", value: countOutstandingItps(data.itps ?? []) };
 
+  const tags: PhilJobCommandInput["tags"] = !moduleEnabled(job, "tags")
+    ? { kind: "not_configured" }
+    : errors.tags
+      ? { kind: "unknown" }
+      : { kind: "count", value: countTagsNeedingRetest(data.tags ?? []) };
+
   const rejectedHours: PhilJobCommandInput["rejectedHours"] =
     typeof data.rejectedHoursForJob === "number"
       ? { kind: "count", value: Math.max(0, Math.trunc(data.rejectedHoursForJob)) }
@@ -191,6 +208,7 @@ export function philJobCommandInputFromJobData(
     plans,
     snags,
     itps,
+    tags,
     tasks: data.taskState
       ? countTrackedAreaTasks(job, data.taskState) ?? { kind: "list_only", visible: countVisibleTasks(job) }
       : { kind: "list_only", visible: countVisibleTasks(job) },
@@ -223,6 +241,7 @@ export function philJobCommandLoadFailureInput(opts: {
     plans: { kind: "unknown" },
     snags: { kind: "unknown" },
     itps: { kind: "unknown" },
+    tags: { kind: "unknown" },
     tasks: { kind: "unknown" },
     rejectedHours: { kind: "unknown" },
     hours: { kind: "unknown" },

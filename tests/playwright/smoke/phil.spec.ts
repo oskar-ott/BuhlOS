@@ -132,5 +132,16 @@ test.describe("Phil field smoke", () => {
     await expect(sheet.getByText("Take a photo")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(sheet).toBeHidden();
+
+    // Test & tag register entry point (#388) — the section card links to the
+    // per-job register sub-route. NON-MUTATING: we follow the link and assert
+    // the register page renders (a GET of jobs/<id>/tags.json); nothing is
+    // added, OCR'd or uploaded.
+    const tagsEntry = page.getByTestId("open-tag-register");
+    await tagsEntry.scrollIntoViewIfNeeded();
+    await expect(tagsEntry).toBeVisible();
+    await tagsEntry.click();
+    await expect(page.getByText("Test & tag register", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("tag-register-add")).toBeVisible();
   });
 });

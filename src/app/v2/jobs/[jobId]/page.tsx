@@ -11,6 +11,7 @@ import { JobInterfaceSectionNav } from "@/components/admin/JobInterfaceSectionNa
 import { JobOverviewSummary } from "@/components/admin/JobOverviewSummary";
 import { JobFieldViewCard } from "@/components/admin/JobFieldViewCard";
 import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
+import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
 import { JobRecentActivity } from "@/components/admin/JobRecentActivity";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
@@ -169,6 +170,7 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
           jobId={job.id}
           fetchError={data.activity.error}
         />
+        <JobTagsSummary job={job} />
         {hasSiteContext(job) ? <SiteContextCard job={job} /> : null}
         <JobInterfaceSectionNav job={job} />
       </div>

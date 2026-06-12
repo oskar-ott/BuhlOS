@@ -17,6 +17,8 @@ import {
 } from "@/domains/jobs/taskState";
 import { buildPhilJobCommandModel } from "@/domains/phil/job-command-model";
 import { philJobCommandInputFromJobData } from "@/domains/phil/job-command-input";
+import { JobTagsPanel } from "./JobTagsPanel";
+import type { TagItem } from "@/domains/tags/schema";
 import type { Job, JobStage } from "@/domains/jobs/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
@@ -54,6 +56,11 @@ interface Props {
   /** Initial documents (plans + specs) fetched server-side (Phase E2).
    *  May be empty on load. */
   initialDocuments?: ReadonlyArray<Document>;
+  /** Initial test & tag entries fetched server-side (#388). May be empty. */
+  initialTags?: ReadonlyArray<TagItem>;
+  /** True when the tags fetch FAILED (vs returning empty) — keeps the
+   *  command signal honest (`unknown`, not a misleading 0). */
+  tagsError?: boolean;
   /** Non-blocking error from the documents fetch — surfaces an info
    *  bar inside JobDocumentsPanel. Null when the fetch succeeded. */
   documentsError?: string | null;
@@ -125,6 +132,8 @@ export function PhilJobDetail({
   initialItps,
   initialDocuments,
   documentsError,
+  initialTags,
+  tagsError,
   initialTaskState,
   taskStateError,
   viewer,
@@ -289,8 +298,9 @@ export function PhilJobDetail({
           snags: initialSnags ? [...initialSnags] : undefined,
           itps: initialItps ? [...initialItps] : undefined,
           documents: initialDocuments ? [...initialDocuments] : undefined,
+          tags: initialTags ? [...initialTags] : undefined,
           taskState: taskStateError ? undefined : taskState,
-          loadErrors: { documents: documentsError != null },
+          loadErrors: { documents: documentsError != null, tags: tagsError === true },
         }),
       ),
     [
@@ -298,6 +308,8 @@ export function PhilJobDetail({
       initialSnags,
       initialItps,
       initialDocuments,
+      initialTags,
+      tagsError,
       documentsError,
       taskState,
       taskStateError,
@@ -549,6 +561,12 @@ export function PhilJobDetail({
       <section id="phil-job-itps" aria-label="ITPs" className="scroll-mt-16">
         <JobItpPanel job={job} initialItps={initialItps} />
       </section>
+
+      {moduleEnabled(job, "tags") ? (
+        <section id="phil-job-tags" aria-label="Test and tag" className="scroll-mt-16">
+          <JobTagsPanel jobId={job.id} initialTags={initialTags ?? []} loadError={tagsError} />
+        </section>
+      ) : null}
 
       {moduleEnabled(job, "plans") ? (
         <section id="phil-job-plans" aria-label="Plans" className="scroll-mt-16">

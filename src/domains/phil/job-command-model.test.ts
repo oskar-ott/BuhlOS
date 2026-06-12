@@ -23,6 +23,7 @@ function input(over: Partial<PhilJobCommandInput> = {}): PhilJobCommandInput {
     plans: { kind: "not_configured" },
     snags: { kind: "not_configured" },
     itps: { kind: "not_configured" },
+    tags: { kind: "not_configured" },
     tasks: { kind: "not_configured" },
     rejectedHours: { kind: "not_configured" },
     hours: { kind: "unavailable" },
@@ -107,6 +108,28 @@ describe("buildPhilJobCommandModel — actions only from real data", () => {
     expect(actionIds(buildPhilJobCommandModel(input({ plans: { kind: "count", value: 4 } })))).toContain("view_plans");
     expect(actionIds(buildPhilJobCommandModel(input({ plans: { kind: "count", value: 0 } })))).not.toContain("view_plans");
     expect(actionIds(buildPhilJobCommandModel(input({ plans: { kind: "not_configured" } })))).not.toContain("view_plans");
+  });
+
+  it("offers view_tags ONLY when entries need a retest (#388)", () => {
+    const withDue = buildPhilJobCommandModel(input({ tags: { kind: "count", value: 2 } }));
+    expect(actionIds(withDue)).toContain("view_tags");
+    const all = [withDue.primaryAction, ...withDue.actions].filter(Boolean);
+    const action = all.find((a) => a!.id === "view_tags");
+    expect(action?.status).toBe("attention");
+    expect(action?.label).toBe("Test & tag — 2 need retest");
+    const one = buildPhilJobCommandModel(input({ tags: { kind: "count", value: 1 } }));
+    expect(
+      [one.primaryAction, ...one.actions].filter(Boolean).find((a) => a!.id === "view_tags")?.label,
+    ).toBe("Test & tag — 1 needs retest");
+    // A compliant register stays quiet — the job-page section is the standing entry.
+    expect(actionIds(buildPhilJobCommandModel(input({ tags: { kind: "count", value: 0 } })))).not.toContain("view_tags");
+    expect(actionIds(buildPhilJobCommandModel(input({ tags: { kind: "not_configured" } })))).not.toContain("view_tags");
+  });
+
+  it("surfaces a limitation (not an action) when the tags fetch failed", () => {
+    const model = buildPhilJobCommandModel(input({ tags: { kind: "unknown" } }));
+    expect(actionIds(model)).not.toContain("view_tags");
+    expect(model.limitations.map((l) => l.id)).toContain("tags-unknown");
   });
 
   it("offers complete_checks ONLY when real ITP checks are outstanding", () => {
