@@ -132,7 +132,19 @@ export default async function AdminItpsPage({ params }: PageParams) {
         </Link>
       }
     >
-      <div className="mx-auto max-w-5xl">
+      <div className="mx-auto max-w-5xl space-y-3">
+        {/* #286: the deliverable a builder actually asks for. Opens the
+            printable pack in a new tab; print → Save as PDF there. */}
+        <div className="flex justify-end">
+          <Link
+            href={`/v2/jobs/${encodeURIComponent(jobId)}/itps/pack`}
+            target="_blank"
+            className="inline-flex items-center rounded-card border border-border bg-surface px-4 py-2 text-sm font-medium text-text hover:border-brand-navy"
+            data-testid="itp-pack-link"
+          >
+            Export compliance pack →
+          </Link>
+        </div>
         <ITPsQueue
           job={jobResult.job}
           initialItps={itpsResult.kind === "ok" ? itpsResult.instances : []}

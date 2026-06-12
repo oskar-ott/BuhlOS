@@ -78,6 +78,10 @@ const SHELL_EXEMPT = new Map([
   ['src/app/v2/login/page.tsx', 'bespoke sign-in surface — route-ownership §4 (shell: none)'],
   ['src/app/phil/invite/[token]/page.tsx', 'public worker invite, own chrome — route-ownership §5'],
   ['src/app/phil/onboarding/page.tsx', 'full-screen onboarding tour with its own layout'],
+  // #286: the compliance pack is a PRINT DOCUMENT (browser print → Save as
+  // PDF → sent to the builder) — admin chrome would print onto an external
+  // deliverable. Session-gated like the rest of /v2; no shell by design.
+  ['src/app/v2/jobs/[jobId]/itps/pack/page.tsx', 'printable compliance pack — print document, deliberately chromeless (route-ownership §8.1)'],
 ]);
 
 // ── helpers ──────────────────────────────────────────────────────────
