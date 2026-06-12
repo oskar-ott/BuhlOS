@@ -10,6 +10,11 @@ import { Pill } from "@/components/ui/Pill";
 import { JobInterfaceSectionNav } from "@/components/admin/JobInterfaceSectionNav";
 import { JobOverviewSummary } from "@/components/admin/JobOverviewSummary";
 import { JobFieldViewCard } from "@/components/admin/JobFieldViewCard";
+import { JobInductionCard } from "@/components/admin/JobInductionCard";
+import {
+  JobInductionsResponseSchema,
+  type CrewInductionStatus,
+} from "@/domains/jobs/induction";
 import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
@@ -83,7 +88,10 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
   }
   const canBuild = canAccessSurface(session.role, "admin");
 
-  const data = await loadJobInterface(raw, jobId);
+  const [data, inductions] = await Promise.all([
+    loadJobInterface(raw, jobId),
+    loadJobInductions(raw, jobId),
+  ]);
   const result = data.job;
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
@@ -170,6 +178,19 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
           jobId={job.id}
           fetchError={data.activity.error}
         />
+        {/* #332: crew induction register — current crew ∩ records. Shown when
+            the job requires induction, or when past records exist after the
+            flag was turned off (history is never hidden). Admin-tier data;
+            an LH viewer just doesn't get the card (fail-soft null). */}
+        {inductions && (inductions.inductionRequired || inductions.recordCount > 0) ? (
+          <JobInductionCard
+            jobId={job.id}
+            inductionRequired={inductions.inductionRequired}
+            initialCrew={inductions.crew}
+            recordCount={inductions.recordCount}
+            fetchError={inductions.error}
+          />
+        ) : null}
         <JobTagsSummary job={job} />
         {hasSiteContext(job) ? <SiteContextCard job={job} /> : null}
         <JobInterfaceSectionNav job={job} />
@@ -381,4 +402,51 @@ async function loadJobInterface(
     evidence: await parseEvidenceResult(evidenceRes),
     activity: await parseActivityResult(activityRes),
   };
+}
+
+/**
+ * #332: per-job induction register for the hub card. Admin-tier endpoint —
+ * an LH viewer's 403 resolves to null (card hidden), any other failure
+ * resolves to an empty-but-flagged result so the card can say so.
+ */
+async function loadJobInductions(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<{
+  crew: CrewInductionStatus[];
+  recordCount: number;
+  inductionRequired: boolean;
+  error: string | null;
+} | null> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(`${base}/api/job-inductions?jobId=${encodeURIComponent(jobId)}`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (res.status === 403) return null; // LH viewer — admin-only data, v1
+    if (!res.ok) {
+      return { crew: [], recordCount: 0, inductionRequired: false, error: `Induction register: API ${res.status}` };
+    }
+    const parsed = JobInductionsResponseSchema.safeParse(await res.json());
+    if (!parsed.success) {
+      return { crew: [], recordCount: 0, inductionRequired: false, error: "Induction register: bad shape" };
+    }
+    return {
+      crew: [...parsed.data.crew],
+      recordCount: parsed.data.records.length,
+      inductionRequired: parsed.data.inductionRequired,
+      error: null,
+    };
+  } catch (err) {
+    return {
+      crew: [],
+      recordCount: 0,
+      inductionRequired: false,
+      error: err instanceof Error ? err.message : "network error",
+    };
+  }
 }

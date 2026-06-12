@@ -182,6 +182,10 @@ export type PhilJobIdentity =
       /** status === "on_hold" — a real, worker-relevant blocker. */
       onHold: boolean;
       inductionRequired: boolean;
+      /** True when THIS worker has a recorded induction on this job (#332).
+       *  Suppresses the induction attention item — the register is the
+       *  source of truth, not the flag alone. */
+      inductionDone: boolean;
     }
   | { kind: "not_found"; id?: string }
   | { kind: "error"; id?: string; message?: string };
@@ -363,9 +367,9 @@ export function buildPhilJobCommandModel(input: PhilJobCommandInput): PhilJobCom
     });
   }
 
-  // -- Induction (we know it's REQUIRED; we can't know if THIS worker has done
-  //    it, so we flag, never assert non-completion) --
-  if (job.inductionRequired) {
+  // -- Induction: required AND this worker has no record yet (#332 made
+  //    completion knowable — the register, not the flag, is the truth) --
+  if (job.inductionRequired && !job.inductionDone) {
     attention.push({
       id: "induction-required",
       severity: "warning",

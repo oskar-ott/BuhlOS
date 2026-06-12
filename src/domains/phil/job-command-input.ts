@@ -75,6 +75,12 @@ export interface PhilJobDataForCommand {
     tags?: boolean;
   };
   /**
+   * This worker's latest induction record on this job (#332), when the page
+   * loaded it. Omitted/null = no record (or unknown) → the induction
+   * attention stays, which is the safe direction for a compliance nudge.
+   */
+  myInduction?: { completedAt: string } | null;
+  /**
    * Count of the worker's own REJECTED hour entries allocated to this job.
    * Omitted on `main` — the job page doesn't fetch time entries, so per-job
    * rejected hours is genuinely not knowable here and resolves to `unknown`.
@@ -203,6 +209,7 @@ export function philJobCommandInputFromJobData(
       visibleToField: isVisibleToField(job),
       onHold: (job.status ?? "active") === "on_hold",
       inductionRequired: Boolean(job.inductionRequired),
+      inductionDone: Boolean(data.myInduction),
     },
     capture,
     plans,

@@ -16,6 +16,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "credential.added": "added a licence/ticket",
   "credential.updated": "updated a licence/ticket",
   "credential.removed": "removed a licence/ticket",
+  "induction.confirmed": "confirmed site induction",
+  "induction.backfilled": "recorded a site induction (backfill)",
   "contact.saved": "saved a job contact",
   "contact.removed": "removed a job contact",
   "evidence.captured": "Captured evidence",

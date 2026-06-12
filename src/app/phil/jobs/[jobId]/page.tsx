@@ -3,6 +3,10 @@ import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilJobDetail } from "@/components/phil/PhilJobDetail";
+import {
+  MyInductionResponseSchema,
+  type InductionRecord,
+} from "@/domains/jobs/induction";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
 import { RefreshButton } from "@/components/ui/RefreshButton";
@@ -75,7 +79,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // is non-blocking: an empty list just shows the empty state, the
   // worker can still create new items, and the server will return
   // real data on the next refresh.
-  const [initialEvidence, initialSnags, initialItps, documentsResult, taskStateResult, tagsResult, initialContacts] =
+  const [initialEvidence, initialSnags, initialItps, documentsResult, taskStateResult, tagsResult, initialContacts, initialMyInduction] =
     result.kind === "ok"
       ? await Promise.all([
           loadInitialEvidence(raw, jobId),
@@ -85,6 +89,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           loadInitialTaskState(raw, jobId),
           loadInitialTags(raw, jobId),
           loadInitialContacts(raw, jobId),
+          loadInitialMyInduction(raw, jobId),
         ])
       : [
           [],
@@ -94,6 +99,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           { state: {} as JobTaskState, error: null as string | null },
           { tags: [] as TagItem[], error: false },
           [] as JobContact[],
+          null as InductionRecord | null,
         ];
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
@@ -142,6 +148,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
         initialTags={tagsResult.tags}
         tagsError={tagsResult.error}
         initialContacts={initialContacts}
+        initialMyInduction={initialMyInduction}
         initialTaskState={taskStateResult.state}
         taskStateError={taskStateResult.error}
         viewer={{
@@ -416,6 +423,36 @@ async function loadInitialContacts(
     return [...parsed.data.contacts];
   } catch {
     return [];
+  }
+}
+
+/**
+ * #332: this worker's latest induction record on this job. Fail-soft to
+ * null — the site card then shows the static "required" warning, which is
+ * the safe direction for a compliance prompt (never a phantom "done").
+ */
+async function loadInitialMyInduction(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<InductionRecord | null> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(
+      `${base}/api/job-inductions?jobId=${encodeURIComponent(jobId)}&mine=1`,
+      {
+        cache: "no-store",
+        headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+      }
+    );
+    if (!res.ok) return null;
+    const parsed = MyInductionResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return null;
+    return parsed.data.record;
+  } catch {
+    return null;
   }
 }
 

@@ -103,6 +103,10 @@ const VALID_ACTIONS = new Set([
   'credential.added',
   'credential.updated',
   'credential.removed',
+  // #332: per-job site induction register (api/job-inductions.js).
+  // Self-confirms and office backfills stay distinguishable by verb.
+  'induction.confirmed',
+  'induction.backfilled',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -128,6 +132,8 @@ const VALID_TARGET_TYPES = new Set([
   'contact',
   // #331: worker licence/ticket records (workforce/credentials.json).
   'credential',
+  // #332: per-job induction records (jobs/<id>/inductions.json).
+  'induction',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

@@ -17,6 +17,7 @@ import {
 } from "@/domains/jobs/taskState";
 import { buildPhilJobCommandModel } from "@/domains/phil/job-command-model";
 import { philJobCommandInputFromJobData } from "@/domains/phil/job-command-input";
+import { confirmInduction, type InductionRecord } from "@/domains/jobs/induction";
 import { JobTagsPanel } from "./JobTagsPanel";
 import { PhilJobContactsCard } from "./PhilJobContactsCard";
 import type { JobContact } from "@/domains/contacts/schema";
@@ -62,6 +63,10 @@ interface Props {
   initialTags?: ReadonlyArray<TagItem>;
   /** Categorised job contacts fetched server-side (#189). May be empty. */
   initialContacts?: ReadonlyArray<JobContact>;
+  /** This worker's latest induction record on this job (#332), loaded
+   *  server-side. Null = no record; undefined = not loaded (falls back to
+   *  the static warning — the safe direction). */
+  initialMyInduction?: InductionRecord | null;
   /** True when the tags fetch FAILED (vs returning empty) — keeps the
    *  command signal honest (`unknown`, not a misleading 0). */
   tagsError?: boolean;
@@ -139,11 +144,31 @@ export function PhilJobDetail({
   initialTags,
   tagsError,
   initialContacts,
+  initialMyInduction,
   initialTaskState,
   taskStateError,
   viewer,
   autoCaptureToken,
 }: Props) {
+  // #332: induction completion is server truth — the tap is NON-optimistic
+  // (state flips only after the API confirms; a failed save shows the error
+  // inside the notice, never a phantom "done").
+  const [myInduction, setMyInduction] = useState<InductionRecord | null>(
+    initialMyInduction ?? null,
+  );
+  const [inductionSaving, setInductionSaving] = useState(false);
+  const [inductionError, setInductionError] = useState<string | null>(null);
+  const handleConfirmInduction = useCallback(async () => {
+    setInductionSaving(true);
+    setInductionError(null);
+    const result = await confirmInduction(job.id);
+    setInductionSaving(false);
+    if (!result.ok) {
+      setInductionError(result.error.message);
+      return;
+    }
+    setMyInduction(result.data.record);
+  }, [job.id]);
   const groups = useMemo(() => visibleAreaGroups(job.areaGroups), [job.areaGroups]);
 
   // Flatten the visible areas across groups so the default selection
@@ -306,6 +331,7 @@ export function PhilJobDetail({
           tags: initialTags ? [...initialTags] : undefined,
           taskState: taskStateError ? undefined : taskState,
           loadErrors: { documents: documentsError != null, tags: tagsError === true },
+          myInduction: myInduction ? { completedAt: myInduction.completedAt } : null,
         }),
       ),
     [
@@ -318,6 +344,7 @@ export function PhilJobDetail({
       documentsError,
       taskState,
       taskStateError,
+      myInduction,
     ],
   );
 
@@ -408,6 +435,7 @@ export function PhilJobDetail({
         snags={initialSnags ?? []}
         itps={initialItps ?? []}
         viewerId={viewer?.id ?? null}
+        inductionDone={Boolean(myInduction)}
       />
 
       {flatAreas.length > 0 ? (
@@ -607,7 +635,22 @@ export function PhilJobDetail({
           induction). Demoted to the bottom "reference" zone so the active work
           loop (Work + Capture) leads the page. Keeps #phil-job-site so the
           attention strip's induction item still scrolls here. */}
-      <PhilJobSiteCard job={job} />
+      <PhilJobSiteCard
+        job={job}
+        induction={
+          job.inductionRequired
+            ? myInduction
+              ? { state: "done", completedAt: myInduction.completedAt }
+              : {
+                  state: "required",
+                  completedAt: null,
+                  onConfirm: handleConfirmInduction,
+                  saving: inductionSaving,
+                  error: inductionError,
+                }
+            : null
+        }
+      />
 
       {/* Who to call (#189) — categorised job contacts with tap-to-call.
           Renders nothing when the office hasn't added any. */}

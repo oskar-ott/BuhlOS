@@ -194,6 +194,18 @@ describe("deriveAttention", () => {
     expect(induction!.anchor).toBe("#phil-job-site");
   });
 
+  it("clears the induction item once THIS worker has a record (#332)", () => {
+    const inducedJob = { ...baseJob, inductionRequired: true } as Job;
+    const { items } = deriveAttention({
+      job: inducedJob,
+      snags: [],
+      itps: [],
+      viewerId,
+      inductionDone: true,
+    });
+    expect(items.find((i) => i.id === "induction")).toBeUndefined();
+  });
+
   it("caps visible items at three and reports the original total", () => {
     const inducedJob = { ...baseJob, inductionRequired: true } as Job;
     const { items, total } = deriveAttention({
