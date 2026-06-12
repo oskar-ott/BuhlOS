@@ -65,6 +65,11 @@ function validatePoint(raw, idx) {
     label, type,
     required: raw.required !== false, // default true
   };
+  // #285: evidence gate — when true, api/job-itps.js refuses ANY record on
+  // this point without a photo (every record marks a point done, so every
+  // record is the moment evidence must exist). Default off; only stored
+  // when explicitly set so legacy templates are byte-identical.
+  if (raw.evidenceRequired === true) out.evidenceRequired = true;
   if (type === 'value') {
     if (raw.unit) out.unit = _str(raw.unit, 16);
     if (raw.min !== undefined && raw.min !== null) {

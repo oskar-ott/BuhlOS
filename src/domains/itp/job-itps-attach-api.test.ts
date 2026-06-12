@@ -228,3 +228,103 @@ describe("POST /api/job-itps?action=attach (#387)", () => {
     expect(missing.statusCode).toBe(404);
   });
 });
+
+// ── #285: the evidence gate on action=record ───────────────────────────────
+
+const PHOTO = "https://blob.example/jobs/j1/itp-photos/itp_1/p_ev_abc.jpg";
+
+function seedInstance() {
+  blob.set("jobs/j1/itps.json", {
+    instances: [
+      {
+        id: "itp_1",
+        jobId: "j1",
+        templateId: "tpl_x",
+        status: "pending",
+        archived: false,
+        results: {},
+        templateSnapshot: {
+          name: "Energisation QA",
+          points: [
+            { id: "p_ev", label: "MSB torque check", type: "value", evidenceRequired: true },
+            { id: "p_plain", label: "Labels fitted", type: "signoff" },
+            { id: "p_photo_ev", label: "Board photo", type: "photo", evidenceRequired: true },
+          ],
+        },
+      },
+    ],
+  });
+}
+
+async function record(body: Record<string, unknown>): Promise<Res> {
+  const res = createRes();
+  await handler(
+    {
+      method: "POST",
+      query: { jobId: "j1", action: "record" },
+      headers: {
+        cookie: `buhl_session=${auth.signSession({ userId: "u_field", role: "electrician", exp: Date.now() + 60_000 })}`,
+      },
+      body,
+    },
+    res,
+  );
+  return res;
+}
+
+function resultFor(pointId: string): Record<string, unknown> | undefined {
+  const store = blob.get("jobs/j1/itps.json") as {
+    instances: Array<{ id: string; results: Record<string, Record<string, unknown>> }>;
+  };
+  return store.instances.find((i) => i.id === "itp_1")!.results[pointId];
+}
+
+describe("evidence gate on action=record (#285)", () => {
+  beforeEach(seedInstance);
+
+  it("rejects ANY record on a flagged point without a photo — worker-readable 400", async () => {
+    const res = await record({ instanceId: "itp_1", pointId: "p_ev", value: 42 });
+    expect(res.statusCode).toBe(400);
+    expect((res.body as { error: string }).error).toContain("Photo needed");
+    expect(resultFor("p_ev")).toBeUndefined(); // nothing written
+  });
+
+  it("accepts a flagged record carrying an ITP-flow photo", async () => {
+    const res = await record({
+      instanceId: "itp_1",
+      pointId: "p_ev",
+      value: 42,
+      photoUrl: PHOTO,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(resultFor("p_ev")).toMatchObject({ value: 42, photoUrl: PHOTO });
+  });
+
+  it("an arbitrary URL cannot satisfy a compliance gate", async () => {
+    const res = await record({
+      instanceId: "itp_1",
+      pointId: "p_ev",
+      value: 42,
+      photoUrl: "https://example.com/random.jpg",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("updating a flagged result without re-sending the photo carries it forward", async () => {
+    await record({ instanceId: "itp_1", pointId: "p_ev", value: 42, photoUrl: PHOTO });
+    const update = await record({ instanceId: "itp_1", pointId: "p_ev", value: 43 });
+    expect(update.statusCode).toBe(200);
+    expect(resultFor("p_ev")).toMatchObject({ value: 43, photoUrl: PHOTO });
+  });
+
+  it("photo-TYPE flagged points: the API hole is closed (record without photo 400s)", async () => {
+    const res = await record({ instanceId: "itp_1", pointId: "p_photo_ev" });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("unflagged points behave exactly as before — no photo needed, photo not invented", async () => {
+    const res = await record({ instanceId: "itp_1", pointId: "p_plain", value: true });
+    expect(res.statusCode).toBe(200);
+    expect(resultFor("p_plain")).toMatchObject({ value: true, photoUrl: "" });
+  });
+});

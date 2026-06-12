@@ -59,6 +59,7 @@ function rowsFromTemplate(template: ITPTemplateSummary | null): PointRow[] {
       label: String(p.label ?? ""),
       type: (p.type as PointRow["type"]) ?? "photo",
       required: p.required !== false,
+      evidenceRequired: p.evidenceRequired === true || undefined,
       unit: typeof p.unit === "string" && p.unit ? p.unit : undefined,
       min: typeof p.min === "number" ? p.min : undefined,
       max: typeof p.max === "number" ? p.max : undefined,
@@ -362,6 +363,17 @@ function TemplateEditorSheet({
                     />
                   </div>
                 ) : null}
+                <label className="flex items-center gap-2 text-xs text-text-muted">
+                  <input
+                    type="checkbox"
+                    checked={row.evidenceRequired === true}
+                    onChange={(e) =>
+                      setRow(row.key, { evidenceRequired: e.target.checked || undefined })
+                    }
+                    data-testid={`point-evidence-${idx}`}
+                  />
+                  Photo required — a record on this point can&rsquo;t save without one
+                </label>
                 {row.type === "signoff" ? (
                   <label className="block">
                     <span className="text-xs text-text-muted">Witnessed by</span>
