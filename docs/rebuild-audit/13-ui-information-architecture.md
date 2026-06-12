@@ -35,14 +35,17 @@
 ### Left sidebar sections
 
 
-> **#187 update (2026-06-12, post-cutover):** the sidebar is now a grouped
-> single-world IA — the legacy estate this section originally bridged was
-> deleted by the cutover (#376). Source of truth for the groups:
+> **#187 update (2026-06-12, post-cutover; refreshed by #414/#415/#316):**
+> the sidebar is now a grouped single-world IA — the legacy estate this
+> section originally bridged was deleted by the cutover (#376). Source of
+> truth for the groups:
 >
 > - **Today** — Command centre · Observations · Material requests
-> - **Jobs** — Jobs (/v2/jobs) · ITP templates (/itp-templates)
-> - **Hours** — Hours (/hours) · Weekly closeout (/hours/weekly) · Approvals (/hours/approvals)
+> - **Jobs** — Jobs (/v2/jobs) · Defects (/defects, #414) · ITP templates (/itp-templates)
+> - **Hours** — Hours (/hours) — ONE item per #415; Approvals + Weekly closeout are in-page tabs
 > - **People & gear** — Employees (/employees) · Gear (/gear)
+> - **Company** — Reports (/reports, #316 — the owner numbers dashboard; the
+>   "Reports" slot from the original list below, now live)
 >
 > No under-construction stubs remain (hide-unfinished rule); active state
 > resolves by longest path prefix (AdminSidebar.render.test.tsx).

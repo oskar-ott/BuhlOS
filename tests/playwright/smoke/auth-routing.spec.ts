@@ -21,6 +21,14 @@ test("unauthenticated users are redirected from the defects register (#414)", as
   await expect(page.getByTestId("login-submit")).toBeVisible();
 });
 
+test("unauthenticated users are redirected from the reports dashboard (#316)", async ({
+  page,
+}) => {
+  await page.goto("/reports");
+  await expect(page).toHaveURL(/\/v2\/login\?next=%2Freports/);
+  await expect(page.getByTestId("login-submit")).toBeVisible();
+});
+
 test.describe("authenticated admin routing", () => {
   test.skip(!adminCredentials(), "Set BUHLOS_TEST_ADMIN_EMAIL and BUHLOS_TEST_ADMIN_PASSWORD.");
 

@@ -78,6 +78,7 @@ describe("middleware — unauthenticated access to a gated route → /v2/login?n
     "/observations",
     "/material-requests",
     "/defects",
+    "/reports",
     "/v2/jobs",
     "/v2/jobs/abc123/builder",
     "/v2/phil",
@@ -103,6 +104,7 @@ describe("middleware — admin tier on BuhlOS admin surfaces", () => {
     "/employees",
     "/observations",
     "/material-requests",
+    "/reports",
     "/v2/jobs",
     "/v2/jobs/abc123/builder",
   ])("lets an admin through %s", (pathname) => {
@@ -154,6 +156,22 @@ describe("middleware — /v2/jobs admin-review surface (admin OR leading hand)",
 
   it("redirects a field worker off /v2/jobs to their Phil home", () => {
     const target = redirectTarget(middleware(request("/v2/jobs", { role: "tradie" })));
+    expect(target?.pathname).toBe("/phil/my-day");
+  });
+});
+
+describe("middleware — /reports owner numbers (#316, admin tier only)", () => {
+  it("lets a boss (admin tier, not literal 'admin') through /reports", () => {
+    expect(isPassThrough(middleware(request("/reports", { role: "boss" })))).toBe(true);
+  });
+
+  it("redirects a leading hand off /reports (commercial figures are admin-tier)", () => {
+    const target = redirectTarget(middleware(request("/reports", { role: "leadinghand" })));
+    expect(target?.pathname).toBe("/phil/my-day");
+  });
+
+  it("redirects a field worker off /reports to their Phil home", () => {
+    const target = redirectTarget(middleware(request("/reports", { role: "tradie" })));
     expect(target?.pathname).toBe("/phil/my-day");
   });
 });

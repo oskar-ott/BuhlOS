@@ -28,7 +28,7 @@ function activeLabel(html: string): string | null {
 describe("AdminSidebar (#187)", () => {
   it("renders the grouped IA with every live surface and NO dead items", () => {
     const html = render("/command-centre");
-    for (const heading of ["Today", "Jobs", "Hours", "People &amp; gear"]) {
+    for (const heading of ["Today", "Jobs", "Hours", "People &amp; gear", "Company"]) {
       expect(html).toContain(heading);
     }
     for (const label of [
@@ -39,6 +39,7 @@ describe("AdminSidebar (#187)", () => {
       "ITP templates",
       "Employees",
       "Gear",
+      "Reports",
     ]) {
       expect(html).toContain(label);
     }
@@ -74,5 +75,11 @@ describe("AdminSidebar (#187)", () => {
     expect(activeLabel(render("/defects"))).toBe("Defects");
     // Filtered deep links keep it active too (URL-driven filters, #216).
     expect(activeLabel(render("/defects/anything"))).toBe("Defects");
+  });
+
+  it("Reports (#316) sits in the Company group and activates on /reports", () => {
+    const html = render("/command-centre");
+    expect(html.match(/href="\/reports"/g)).toHaveLength(1);
+    expect(activeLabel(render("/reports"))).toBe("Reports");
   });
 });
