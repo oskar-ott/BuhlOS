@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { HoursTabs } from "@/components/admin/HoursTabs";
 import { WeeklyHoursCloseoutBoard } from "@/components/admin/WeeklyHoursCloseoutBoard";
 import { WeeklyPayrollExportPanel } from "@/components/admin/WeeklyPayrollExportPanel";
 import { notPayrollReadyWorkers } from "@/domains/timesheets/payroll-export";
@@ -96,6 +97,8 @@ export default async function HoursWeeklyCloseoutPage({
         </Link>
       }
     >
+      {/* Section tabs (#415) — navigation chrome only, above all content. */}
+      <HoursTabs />
       <div className="mx-auto max-w-4xl space-y-4">
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">

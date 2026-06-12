@@ -44,6 +44,7 @@ import {
   type PersonOption,
 } from "@/domains/timesheets/list-filter";
 import { HoursFilterBar } from "@/components/admin/HoursFilterBar";
+import { HoursTabs } from "@/components/admin/HoursTabs";
 import type {
   TimeEntry,
   TimeEntryOverviewResponse,
@@ -146,6 +147,8 @@ export default async function HoursOverviewPage({
 
   return (
     <AdminShell title="Hours">
+      {/* Section tabs (#415) — navigation chrome only, above all content. */}
+      <HoursTabs />
       <div className="mx-auto max-w-4xl space-y-4">
         {errors.length > 0 ? (
           <Card className="border-amber-200 bg-amber-50" role="alert">

@@ -5,9 +5,7 @@ import { usePathname } from "next/navigation";
 import type { Route } from "next";
 import {
   LayoutGrid,
-  ClipboardCheck,
   ClipboardList,
-  CalendarCheck,
   Inbox,
   Briefcase,
   Package,
@@ -23,7 +21,7 @@ interface NavItem {
   href: Route;
   icon: typeof LayoutGrid;
   /** Path prefix(es) that mark this item active; longest prefix wins
-   *  (so /hours/approvals beats /hours on its own pages). */
+   *  (so a deeper sibling entry would beat /hours on its own pages). */
   activeFor: ReadonlyArray<string>;
 }
 
@@ -91,23 +89,15 @@ const NAV_GROUPS: ReadonlyArray<NavGroup> = [
   {
     heading: "Hours",
     items: [
+      // ONE item for the whole hours workflow (#415) — Day, Approvals and
+      // Weekly closeout are in-page tabs (HoursTabs) on /hours/*, not
+      // sidebar entries. The /hours prefix keeps this item active across
+      // all three routes.
       {
         label: "Hours",
         href: "/hours",
         icon: Clock,
         activeFor: ["/hours"],
-      },
-      {
-        label: "Weekly closeout",
-        href: "/hours/weekly" as Route,
-        icon: CalendarCheck,
-        activeFor: ["/hours/weekly"],
-      },
-      {
-        label: "Approvals",
-        href: "/hours/approvals",
-        icon: ClipboardCheck,
-        activeFor: ["/hours/approvals"],
       },
     ],
   },
@@ -134,9 +124,10 @@ const ALL_ITEMS: ReadonlyArray<NavItem> = NAV_GROUPS.flatMap((g) => g.items);
 
 /**
  * The active item is the one whose `activeFor` prefix is the LONGEST match
- * for the pathname — /hours/approvals beats /hours on approvals pages,
- * /hours/weekly beats /hours on the closeout board, and /hours still wins
- * on its own pages because the longer prefixes don't match.
+ * for the pathname. With the hours section collapsed to one entry (#415)
+ * the /hours prefix alone keeps it active on /hours, /hours/approvals and
+ * /hours/weekly; the longest-prefix rule stays so a future deeper entry
+ * (e.g. a dedicated sub-route item) would win over its section root again.
  */
 function activeHref(pathname: string): string | null {
   let best: string | null = null;
