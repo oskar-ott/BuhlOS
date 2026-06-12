@@ -22,8 +22,8 @@
  *   - `deepLink` is a MODERN-route path (`/phil/my-day`, `/command-centre`,
  *     `/v2/jobs/<id>#…`). The CURRENT push payloads still carry some legacy
  *     URLs; `docs/notifications.md` records that the Epic 18 engine must emit
- *     modern targets when it adopts this contract. Never a legacy `*.html` or
- *     `/admin/*` URL.
+ *     modern targets when it adopts this contract — never a legacy static-HTML
+ *     page or a deleted legacy module route.
  *   - the feed is viewer-scoped (an office bell shows office-tier kinds only) —
  *     the bell takes its items as input and never fetches a global feed.
  */
