@@ -434,6 +434,60 @@ describe("POST /api/leave?action=cancel", () => {
   });
 });
 
+describe("POST /api/leave?action=clear — office undo by worker+date (#127)", () => {
+  function seedApproved(userId = "u_elec", from = "2026-07-06", to = "2026-07-08") {
+    blob.set("leave-requests.json", {
+      requests: [
+        { id: "lv_1", userId, userName: userId, type: "sick", fromDate: from, toDate: to, status: "approved" },
+      ],
+    });
+  }
+
+  it("admin clears the approved leave covering that day → cancelled + audited", async () => {
+    seedApproved();
+    const res = await call("u_admin", "admin", {
+      method: "POST",
+      query: { action: "clear" },
+      body: { userId: "u_elec", date: "2026-07-07" }, // inside the range
+    });
+    expect(res.statusCode).toBe(200);
+    expect(storedRequests()[0]!.status).toBe("cancelled");
+    const auditKeys = [...blob.keys()].filter((k) => k.startsWith("audit/"));
+    expect(auditKeys.length).toBeGreaterThan(0);
+    const entries = (blob.get(auditKeys[0]!) as { entries: Array<Record<string, unknown>> }).entries;
+    expect(entries.some((e) => e.action === "leave.cancelled" && e.targetType === "leave")).toBe(true);
+  });
+
+  it("404s when no leave covers that day; non-admin 403s", async () => {
+    seedApproved();
+    const miss = await call("u_admin", "admin", {
+      method: "POST",
+      query: { action: "clear" },
+      body: { userId: "u_elec", date: "2026-07-20" }, // outside range
+    });
+    expect(miss.statusCode).toBe(404);
+    const field = await call("u_elec", "electrician", {
+      method: "POST",
+      query: { action: "clear" },
+      body: { userId: "u_elec", date: "2026-07-07" },
+    });
+    expect(field.statusCode).toBe(403);
+  });
+});
+
+describe("audit trail on office leave actions (#127)", () => {
+  it("recording on behalf writes a leave.recorded audit row", async () => {
+    const res = await call("u_admin", "admin", {
+      method: "POST",
+      body: { type: "annual", fromDate: "2026-07-06", toDate: "2026-07-06", userId: "u_tradie" },
+    });
+    expect(res.statusCode).toBe(201);
+    const auditKeys = [...blob.keys()].filter((k) => k.startsWith("audit/"));
+    const entries = (blob.get(auditKeys[0]!) as { entries: Array<Record<string, unknown>> }).entries;
+    expect(entries.some((e) => e.action === "leave.recorded" && e.actorId === "u_admin")).toBe(true);
+  });
+});
+
 describe("GET /api/leave — scoping", () => {
   beforeEach(() => {
     blob.set("leave-requests.json", {

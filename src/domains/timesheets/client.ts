@@ -391,3 +391,14 @@ export function cancelLeave(id: string): Promise<HttpResult<{ request: LeaveRequ
     init: { cache: "no-store", credentials: "same-origin" },
   });
 }
+
+/** #127: office "undo" of a marked not-worked day, by worker + date. */
+export function clearLeave(
+  userId: string,
+  date: string
+): Promise<HttpResult<{ request: LeaveRequest }>> {
+  return httpPost("/api/leave?action=clear", { userId, date }, {
+    schema: LeaveMutationResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}

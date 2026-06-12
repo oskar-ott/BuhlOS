@@ -105,6 +105,9 @@ export const AUDIT_ACTIONS = [
   "credential.removed",
   "induction.confirmed",
   "induction.backfilled",
+  "leave.recorded",
+  "leave.decided",
+  "leave.cancelled",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -126,6 +129,7 @@ export const AUDIT_TARGET_TYPES = [
   "contact",
   "credential",
   "induction",
+  "leave",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

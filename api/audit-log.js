@@ -74,6 +74,7 @@ const VALID_TARGET_TYPES = new Set([
   'contact',
   'credential',
   'induction',
+  'leave',
 ]);
 const MAX_MONTHS = 12;
 const DEFAULT_MONTHS = 2;

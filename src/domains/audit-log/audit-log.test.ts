@@ -147,6 +147,10 @@ describe("AuditLogEntrySchema", () => {
       "itp.point.recorded",
       "itp.reopened",
       "itp.signed_off",
+      // #127/#333 leave lifecycle.
+      "leave.cancelled",
+      "leave.decided",
+      "leave.recorded",
       // PR 11: Material Request lifecycle.
       "material_request.created",
       "material_request.transitioned",
@@ -174,6 +178,7 @@ describe("AuditLogEntrySchema", () => {
       "invite",
       "itp_instance",
       "itp_template",
+      "leave",
       // PR 11: material requests as audit targets.
       "material_request",
       // PR 6: observation as audit target (for observation.converted_to_snag).
