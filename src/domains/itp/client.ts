@@ -1,4 +1,4 @@
-import { httpGet, httpPost, type HttpResult } from "@/lib/http";
+import { httpGet, httpPost, type HttpResult, httpPatch, httpDelete } from "@/lib/http";
 import {
   ArchiveITPPayloadSchema,
   AttachITPPayloadSchema,
@@ -10,6 +10,8 @@ import {
   ReopenITPPayloadSchema,
   SignOffITPPayloadSchema,
   ITPTemplateListResponseSchema,
+  CreateItpTemplatePayloadSchema,
+  ItpTemplateMutationResponseSchema,
 } from "./schema";
 import type {
   ArchiveITPPayload,
@@ -22,6 +24,9 @@ import type {
   ReopenITPPayload,
   SignOffITPPayload,
   ITPTemplateListResponse,
+  ITPTemplateSummary,
+  CreateItpTemplatePayload,
+  UpdateItpTemplatePayload,
 } from "./types";
 
 /**
@@ -74,6 +79,52 @@ export function listItps(
 export function listItpTemplates(): Promise<HttpResult<ITPTemplateListResponse>> {
   return httpGet<ITPTemplateListResponse>("/api/itp-templates", {
     schema: ITPTemplateListResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/** Library view: all templates incl. archived (admin-only server-side). */
+export function listItpTemplatesWithArchived(): Promise<HttpResult<ITPTemplateListResponse>> {
+  return httpGet<ITPTemplateListResponse>("/api/itp-templates?includeArchived=1", {
+    schema: ITPTemplateListResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+export function createItpTemplate(
+  payload: CreateItpTemplatePayload,
+): Promise<HttpResult<{ template: ITPTemplateSummary }>> {
+  return httpPost("/api/itp-templates", payload, {
+    schema: ItpTemplateMutationResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+export function updateItpTemplate(
+  id: string,
+  payload: UpdateItpTemplatePayload,
+): Promise<HttpResult<{ template: ITPTemplateSummary }>> {
+  return httpPatch(`/api/itp-templates?id=${encodeURIComponent(id)}`, payload, {
+    schema: ItpTemplateMutationResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+export function duplicateItpTemplate(
+  id: string,
+): Promise<HttpResult<{ template: ITPTemplateSummary }>> {
+  return httpPost(`/api/itp-templates?id=${encodeURIComponent(id)}&action=duplicate`, {}, {
+    schema: ItpTemplateMutationResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/** Soft-archive: leaves the attach picker; existing instances keep their snapshots. */
+export function archiveItpTemplate(
+  id: string,
+): Promise<HttpResult<{ template: ITPTemplateSummary }>> {
+  return httpDelete(`/api/itp-templates?id=${encodeURIComponent(id)}`, {
+    schema: ItpTemplateMutationResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
   });
 }

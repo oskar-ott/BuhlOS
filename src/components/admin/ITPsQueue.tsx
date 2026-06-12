@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -254,6 +255,14 @@ export function ITPsQueue({
           <div className="flex items-center gap-3">
             {!isAdmin ? (
               <Pill tone="neutral">Sign-off &amp; archive are office-only</Pill>
+            ) : null}
+            {isAdmin ? (
+              <Link
+                href="/itp-templates"
+                className="text-sm underline decoration-accent-yellow decoration-2 underline-offset-2"
+              >
+                Manage templates
+              </Link>
             ) : null}
             {canAttach ? (
               <Button size="sm" onClick={() => setAttachOpen(true)} data-testid="attach-itp-open">

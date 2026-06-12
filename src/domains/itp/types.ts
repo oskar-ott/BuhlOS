@@ -20,6 +20,9 @@ import type {
   SignOffITPPayloadSchema,
   ITPTemplateSummarySchema,
   ITPTemplateListResponseSchema,
+  ItpTemplatePointDraftSchema,
+  CreateItpTemplatePayloadSchema,
+  UpdateItpTemplatePayloadSchema,
 } from "./schema";
 
 /**
@@ -36,6 +39,9 @@ export type ITPWitnessRole = z.infer<typeof ITPWitnessRoleSchema>;
 export type ITPScope = z.infer<typeof ITPScopeSchema>;
 export type ITPTemplateSummary = z.infer<typeof ITPTemplateSummarySchema>;
 export type ITPTemplateListResponse = z.infer<typeof ITPTemplateListResponseSchema>;
+export type ItpTemplatePointDraft = z.infer<typeof ItpTemplatePointDraftSchema>;
+export type CreateItpTemplatePayload = z.infer<typeof CreateItpTemplatePayloadSchema>;
+export type UpdateItpTemplatePayload = z.infer<typeof UpdateItpTemplatePayloadSchema>;
 export type ITPStatus = z.infer<typeof ITPStatusSchema>;
 
 export type ITPTemplatePoint = z.infer<typeof ITPTemplatePointSchema>;

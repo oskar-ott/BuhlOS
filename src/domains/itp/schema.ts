@@ -281,6 +281,33 @@ export const ITPTemplateListResponseSchema = z.object({
   templates: z.array(ITPTemplateSummarySchema),
 });
 
+/** One authored template point (#284) — matches api/itp-templates.js
+ *  validatePoint. Type-specific fields only honoured for their type
+ *  (unit/min/max → value; witnessRole → signoff, defaults 'admin'). */
+export const ItpTemplatePointDraftSchema = z.object({
+  id: z.string().optional(),
+  label: z.string().trim().min(1, "Point label required").max(200),
+  type: ITPPointTypeSchema,
+  required: z.boolean().optional(),
+  unit: z.string().trim().max(30).optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  witnessRole: ITPWitnessRoleSchema.optional(),
+});
+
+export const CreateItpTemplatePayloadSchema = z.object({
+  name: z.string().trim().min(1, "Name required").max(120),
+  category: z.string().trim().max(80).optional(),
+  description: z.string().trim().max(2000).optional(),
+  points: z.array(ItpTemplatePointDraftSchema).min(1, "At least one point").max(100),
+});
+
+export const UpdateItpTemplatePayloadSchema = CreateItpTemplatePayloadSchema.partial();
+
+export const ItpTemplateMutationResponseSchema = z.object({
+  template: ITPTemplateSummarySchema,
+});
+
 /** POST /api/job-itps?jobId=X&action=attach body. */
 export const AttachITPPayloadSchema = z.object({
   templateId: z.string().min(1, "templateId required"),
