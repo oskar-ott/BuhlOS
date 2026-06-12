@@ -28,6 +28,17 @@ export function AdminTopbar({ title, breadcrumb }: AdminTopbarProps) {
       {/* #188: universal search — the topbar's one interactive element
           (no profile dropdown per doc 27 §13). Server-scoped admin/LH. */}
       <AdminSearchBox />
+      {/* #215: ONE topbar affordance for the ⌘K command layer — a subtle,
+          NON-interactive hint (not a second search input or clickable
+          control). ⌘K is the primary affordance; this just advertises it.
+          The palette itself is the surface (mounted in AdminShell). */}
+      <kbd
+        aria-hidden="true"
+        data-testid="admin-cmdk-hint"
+        className="hidden shrink-0 items-center gap-1 rounded-card border border-border px-2 py-1 font-mono text-[10px] text-text-muted lg:inline-flex"
+      >
+        <span className="text-sm leading-none">⌘</span>K
+      </kbd>
     </header>
   );
 }

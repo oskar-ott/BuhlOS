@@ -5,6 +5,7 @@ import { Eye, KeyRound, Lock, MapPin, PencilRuler, Phone, ShieldAlert, Squircle,
 import type { Route } from "next";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { DuplicateJobButton } from "@/components/admin/DuplicateJobButton";
+import { RecentItemTracker } from "@/components/admin/RecentItemTracker";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { JobInterfaceSectionNav } from "@/components/admin/JobInterfaceSectionNav";
@@ -162,6 +163,9 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
       }
     >
       <div className="mx-auto max-w-4xl space-y-4">
+        {/* #215 — record this job view in the device-local recents ring buffer
+            so ⌘K can offer a one-keystroke jump back. Renders nothing. */}
+        <RecentItemTracker path={`/v2/jobs/${job.id}`} title={job.name} type="job" />
         <JobHeaderCard job={job} />
         <JobOverviewSummary job={job} />
         {/* #200: the agreed scope, read-only. Field/client payloads never
