@@ -1,15 +1,25 @@
-import { httpGet, type HttpResult } from "@/lib/http";
-import { DocumentListResponseSchema } from "./schema";
-import type { DocumentListResponse } from "./types";
+import { httpGet, httpPost, type HttpResult } from "@/lib/http";
+import {
+  DocumentListResponseSchema,
+  SetPagesResponseSchema,
+  UploadDocumentResponseSchema,
+} from "./schema";
+import type {
+  DocumentListResponse,
+  SetPagesResponse,
+  UploadDocumentPayload,
+  UploadDocumentResponse,
+} from "./types";
 
 /**
  * Typed read-only wrapper around /api/plans.
  *
  *   GET /api/plans?jobId=<id> → list documents the viewer can see
  *
- * E2 ships **read-only** — no upload, no PATCH, no soft-archive, no
- * AI-takeoff. Uploads / curation keep happening on the legacy
- * /admin/plans surface.
+ * E2 shipped read-only; #379 adds the WRITE verbs the legacy cutover
+ * orphaned (the deleted admin estate was the only caller of upload +
+ * set-pages): uploadDocument and setPlanPages. PATCH / soft-archive
+ * stay out until their surfaces exist.
  *
  * Server permissions (api/plans.js:494-512):
  *   - anonymous           → 401
@@ -38,6 +48,41 @@ export function listDocuments(
   });
 }
 
+/**
+ * Upload a document (dataUrl ≤ 25 MB, PDF or image). The server may
+ * auto-supersede a same-drawing-number current revision and says so via
+ * `revisionWarning` (post-fact copy — the supersede has already happened).
+ */
+export function uploadDocument(
+  jobId: string,
+  payload: UploadDocumentPayload,
+): Promise<HttpResult<UploadDocumentResponse>> {
+  return httpPost<UploadDocumentResponse>(plansUrl(jobId), payload, {
+    schema: UploadDocumentResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/**
+ * Register ONE rendered page PNG on a plan (#379 restores the takeoff/
+ * overlay pipeline's ingestion). One page per call — a 180-DPI A1 PNG is
+ * ~2 MB base64 against Vercel's 4.5 MB serverless body cap; the server
+ * upserts by pageIndex so streaming pages is lossless.
+ */
+export function setPlanPages(
+  jobId: string,
+  planId: string,
+  page: { pageIndex: number; pngDataUrl: string },
+): Promise<HttpResult<SetPagesResponse>> {
+  return httpPost<SetPagesResponse>(
+    `/api/plans?jobId=${encodeURIComponent(jobId)}&id=${encodeURIComponent(planId)}&action=set-pages`,
+    { pages: [page] },
+    { schema: SetPagesResponseSchema, init: { cache: "no-store", credentials: "same-origin" } },
+  );
+}
+
 export const documentsClient = {
   listDocuments,
+  uploadDocument,
+  setPlanPages,
 } as const;

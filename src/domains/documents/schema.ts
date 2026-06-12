@@ -129,6 +129,27 @@ export const DocumentSchema = z
  * any of the three.
  * -------------------------------------------------------------------*/
 
+/** POST /api/plans?jobId= upload payload (#379) — dataUrl carries the file. */
+export const UploadDocumentPayloadSchema = z.object({
+  dataUrl: z.string().min(1),
+  fileName: z.string().optional(),
+  title: z.string().optional(),
+  category: z.string().optional(),
+  drawingNumber: z.string().optional(),
+  revision: z.string().optional(),
+});
+
+export const UploadDocumentResponseSchema = z.object({
+  plan: DocumentSchema,
+  /** Non-null when the upload auto-superseded a same-number current revision. */
+  revisionWarning: z.string().nullable(),
+});
+
+/** POST ?action=set-pages — one rendered page per call (serverless body cap). */
+export const SetPagesResponseSchema = z
+  .object({ plan: DocumentSchema.optional(), pages: z.unknown().optional() })
+  .passthrough();
+
 export const DocumentListResponseSchema = z.object({
   plans: z.array(DocumentSchema),
 });
