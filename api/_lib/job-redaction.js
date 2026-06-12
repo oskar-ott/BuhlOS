@@ -11,7 +11,7 @@
 // fields to 'adminAndLH' etc. without restructuring. Today: everything
 // admin-tier only.
 
-const { isAdminRole } = require('./auth');
+const { isAdminRole, isLeadingHandRole } = require('./auth');
 
 const FIELD_AUDIENCE = {
   contractValue:    'adminTier',
@@ -20,6 +20,10 @@ const FIELD_AUDIENCE = {
   claimedToDate:    'adminTier',
   paidToDate:       'adminTier',
   oldestClaimDays:  'adminTier',
+  // #200: scope of work is commercial text — the office writes it, a
+  // leading hand may READ it on site, a tradie's phone / client's browser
+  // console never receives it.
+  scopeOfWork:      'adminAndLH',
 };
 
 const REDACTED_FIELDS = Object.keys(FIELD_AUDIENCE);
@@ -28,9 +32,12 @@ const REDACTED_FIELDS = Object.keys(FIELD_AUDIENCE);
  *  (byte-identical responses for the surfaces that consume the figures). */
 function redactJobForViewer(job, role) {
   if (isAdminRole(role)) return job;
+  const lh = isLeadingHandRole(role);
   const out = { ...job };
-  for (const field of REDACTED_FIELDS) {
-    if (field in out) delete out[field];
+  for (const [field, audience] of Object.entries(FIELD_AUDIENCE)) {
+    if (!(field in out)) continue;
+    if (audience === 'adminAndLH' && lh) continue;
+    delete out[field];
   }
   return out;
 }

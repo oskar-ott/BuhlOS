@@ -366,4 +366,18 @@ describe("buildPhilPreview", () => {
     const preview = buildPhilPreview(makeJob({ id: "j", name: "J", status: "active" }));
     expect(preview.isVisibleToField).toBe(true);
   });
+
+  it("never carries scope of work into the field preview (#200)", () => {
+    const job = makeJob({
+      id: "j",
+      name: "J",
+      status: "active",
+      scopeOfWork: [{ id: "sw_1", title: "Commercial scope text", detail: "secret", order: 0 }],
+    });
+    const preview = buildPhilPreview(job);
+    // The preview is a curated derived model — scope is commercial text the
+    // field never sees. Assert it's nowhere in the serialised output.
+    expect(JSON.stringify(preview)).not.toContain("Commercial scope text");
+    expect(preview).not.toHaveProperty("scopeOfWork");
+  });
 });

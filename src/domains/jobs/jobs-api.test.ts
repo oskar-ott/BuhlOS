@@ -120,6 +120,9 @@ beforeEach(() => {
             claimedToDate: 50000,
             paidToDate: 45000,
             oldestClaimDays: 12,
+            scopeOfWork: [
+              { id: "sw_1", title: "Supply and install DB-1", detail: "Incl. testing", order: 0 },
+            ],
             areaGroups: [
               {
                 id: "group-a",
@@ -240,6 +243,98 @@ describe("money-field redaction (#382)", () => {
         oldestClaimDays: 12,
       });
     }
+  });
+});
+
+describe("scope-of-work visibility + writes (#200)", () => {
+  it("field and client GETs never carry scopeOfWork (single, list, withStats)", async () => {
+    for (const [userId, role] of [
+      ["u_field", "electrician"],
+      ["u_client", "client"],
+    ] as const) {
+      const single = await call({ method: "GET", userId, role, query: { id: "job-active" } });
+      expect((single.body as { job: Record<string, unknown> }).job).not.toHaveProperty("scopeOfWork");
+      const list = await call({ method: "GET", userId, role });
+      for (const row of (list.body as { jobs: Record<string, unknown>[] }).jobs) {
+        expect(row).not.toHaveProperty("scopeOfWork");
+      }
+      const stats = await call({ method: "GET", userId, role, query: { withStats: "1" } });
+      for (const row of (stats.body as { jobs: Record<string, unknown>[] }).jobs) {
+        expect(row).not.toHaveProperty("scopeOfWork");
+      }
+    }
+  });
+
+  it("a leading hand READS scope (audience adminAndLH) but cannot WRITE it", async () => {
+    const single = await call({
+      method: "GET",
+      userId: "u_lh",
+      role: "lh",
+      query: { id: "job-active" },
+    });
+    const job = (single.body as { job: { scopeOfWork: unknown[] } }).job;
+    expect(job.scopeOfWork).toHaveLength(1);
+    // ...but the LH still never sees money fields.
+    expect(job).not.toHaveProperty("contractValue");
+
+    const put = await call({
+      method: "PUT",
+      userId: "u_lh",
+      role: "lh",
+      body: { id: "job-active", scopeOfWork: [{ title: "Sneaky edit" }] },
+    });
+    expect(put.statusCode).toBe(403);
+  });
+
+  it("admin PUT round-trips with server ids + normalised order; empty array clears", async () => {
+    const put = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: {
+        id: "job-active",
+        scopeOfWork: [
+          { title: "Second item", detail: "" },
+          { id: "sw_1", title: "Supply and install DB-1", detail: "Incl. testing" },
+        ],
+      },
+    });
+    expect(put.statusCode).toBe(200);
+    const stored = (blob.get("jobs.json") as { jobs: Array<{ id: string; scopeOfWork: Array<Record<string, unknown>> }> })
+      .jobs.find((j) => j.id === "job-active")!.scopeOfWork;
+    expect(stored).toHaveLength(2);
+    expect(stored.map((i) => i.order)).toEqual([0, 1]); // normalised
+    expect(stored[1]!.id).toBe("sw_1"); // existing id preserved
+    expect(String(stored[0]!.id)).toMatch(/^sw_/); // server-assigned
+
+    const clear = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "job-active", scopeOfWork: [] },
+    });
+    expect(clear.statusCode).toBe(200);
+    const cleared = (blob.get("jobs.json") as { jobs: Array<{ id: string; scopeOfWork: unknown[] }> })
+      .jobs.find((j) => j.id === "job-active")!.scopeOfWork;
+    expect(cleared).toEqual([]);
+  });
+
+  it("validation: missing title and oversized detail are hard 400s", async () => {
+    const noTitle = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "job-active", scopeOfWork: [{ title: "" }] },
+    });
+    expect(noTitle.statusCode).toBe(400);
+    const huge = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "job-active", scopeOfWork: [{ title: "ok", detail: "x".repeat(2001) }] },
+    });
+    expect(huge.statusCode).toBe(400);
+    expect((huge.body as { error: string }).error).toContain("2000");
   });
 });
 

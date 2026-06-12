@@ -5,6 +5,33 @@ const { redactJobForViewer } = require('./_lib/job-redaction');
 // Canonical job statuses — keep in sync with src/domains/jobs/schema.ts JOB_STATUSES.
 const VALID_JOB_STATUS = new Set(['active', 'complete', 'archived', 'on_hold', 'draft']);
 const { validateAreaGroups, validateTasks, validateCustomFields, visibleStructural } = require('./_lib/validation');
+
+// #200: scope-of-work items — { id, title, detail, order }. ≤50 items,
+// title required ≤200, detail ≤2000 (a pasted 10-page PDF is a hard 400,
+// never silent truncation). Server ids; order rewritten 0..n-1.
+function validateScopeOfWork(raw) {
+  if (!Array.isArray(raw)) return { ok: false, error: 'scopeOfWork must be an array' };
+  if (raw.length > 50) return { ok: false, error: 'scopeOfWork: 50 items max' };
+  const items = [];
+  for (let i = 0; i < raw.length; i++) {
+    const it = raw[i];
+    if (!it || typeof it !== 'object') return { ok: false, error: `scopeOfWork[${i}] must be an object` };
+    const title = String(it.title || '').trim();
+    if (!title) return { ok: false, error: `scopeOfWork[${i}].title required` };
+    if (title.length > 200) return { ok: false, error: `scopeOfWork[${i}].title too long (200 max)` };
+    const detail = it.detail === undefined || it.detail === null ? '' : String(it.detail);
+    if (detail.length > 2000) {
+      return { ok: false, error: `scopeOfWork[${i}].detail too long (2000 characters max — split it into items)` };
+    }
+    items.push({
+      id: it.id && String(it.id).startsWith('sw_') ? String(it.id) : 'sw_' + Date.now().toString(36) + i + Math.random().toString(36).slice(2, 5),
+      title,
+      detail,
+      order: i,
+    });
+  }
+  return { ok: true, items };
+}
 const { areaProgressPct, jobTaskCounts } = require('./_lib/job-tasks');
 const { appendAudit } = require('./_lib/job-audit');
 const { testJobDeleteEligibility } = require('./_lib/test-data');
@@ -590,6 +617,9 @@ module.exports = async (req, res) => {
       modules,
       // Custom fields on the Job (rigidity audit R3). Admin or LH writable.
       customFields,
+      // #200: scope of work — ordered items, admin-tier writable, LH
+      // read-only (redaction layer), never in field/client payloads.
+      scopeOfWork,
       // Job Basics (audit C-1 / M-2 / M-3 / L-4). Admin / LH writable —
       // site address + access notes are field-needed information, LH
       // should be able to fix typos on site.
@@ -643,8 +673,8 @@ module.exports = async (req, res) => {
           contractValue !== undefined || labourEstimate !== undefined ||
           materialEstimate !== undefined || claimedToDate !== undefined ||
           paidToDate !== undefined || oldestClaimDays !== undefined ||
-          modules !== undefined) {
-        return res.status(403).json({ error: 'leadingHand cannot change job money or module fields' });
+          modules !== undefined || scopeOfWork !== undefined) {
+        return res.status(403).json({ error: 'leadingHand cannot change job money, module or scope fields' });
       }
     }
 
@@ -661,6 +691,15 @@ module.exports = async (req, res) => {
       const cf = validateCustomFields(customFields, 'customFields');
       if (!cf.ok) return res.status(400).json({ error: cf.error });
       job.customFields = cf.fields;
+    }
+
+    // #200: scope of work — full-array replacement, validated as a whole
+    // (the customFields precedent). Order is normalised server-side so
+    // reorders can't leave collisions; empty array clears honestly.
+    if (scopeOfWork !== undefined) {
+      const sw = validateScopeOfWork(scopeOfWork);
+      if (!sw.ok) return res.status(400).json({ error: sw.error });
+      job.scopeOfWork = sw.items;
     }
 
     // Job Basics — assign any of the validated fields the caller provided.

@@ -25,6 +25,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import {
@@ -373,7 +374,16 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
         ))}
       </div>
 
-      {tab === "basics" ? renderBasics() : null}
+      {tab === "basics" ? (
+        <>
+          {renderBasics()}
+          {/* #200: scope of work — capture lives with Basics (the lighter
+              v1; a dedicated tab is a later call if it earns one). */}
+          <div className="mt-4">
+            <ScopeOfWorkSection job={savedJob} />
+          </div>
+        </>
+      ) : null}
       {tab === "structure" ? renderStructure() : null}
       {tab === "modules" ? renderModules() : null}
       {tab === "preview" ? renderPreview() : null}
