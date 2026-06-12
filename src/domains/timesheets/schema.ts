@@ -63,6 +63,9 @@ export const TimeEntrySchema = z
     status: TimeEntryStatusSchema,
     submittedAt: z.string().nullable().optional(),
     approvedBy: z.string().nullable().optional(),
+    /** Stamped by the committed payroll export (#126). */
+    exportId: z.string().optional(),
+    exportedAt: z.string().optional(),
     approvedAt: z.string().nullable().optional(),
     rejectedReason: z.string().nullable().optional(),
     rejectedAt: z.string().nullable().optional(),
@@ -255,6 +258,19 @@ export const PayrollExportSummarySchema = z
   })
   .passthrough();
 
+/** One dry-run preview row — the slice the weekly export panel reads to
+ *  warn about already-exported entries (#126). Wire rows carry much more
+ *  (rates, costs); model ONLY what the UI needs — money stays unmodelled. */
+export const PayrollExportPreviewRowSchema = z
+  .object({
+    date: z.string(),
+    workerId: z.string(),
+    workerName: z.string(),
+    exportId: z.string().optional(),
+    status: z.string().optional(),
+  })
+  .passthrough();
+
 export const PayrollExportPreviewResponseSchema = z
   .object({
     range: z
@@ -265,8 +281,27 @@ export const PayrollExportPreviewResponseSchema = z
         dryRun: z.boolean(),
       })
       .passthrough(),
+    rows: z.array(PayrollExportPreviewRowSchema).optional(),
     summary: PayrollExportSummarySchema,
   })
+  .passthrough();
+
+/** GET /api/payroll-runs — the append-only committed-run log, verbatim. */
+export const PayrollRunSchema = z
+  .object({
+    exportId: z.string(),
+    hash: z.string().optional(),
+    actorName: z.string().optional(),
+    at: z.string(),
+    range: z
+      .object({ fromDate: z.string(), toDate: z.string(), status: z.string().optional() })
+      .passthrough(),
+    rowCount: z.number().optional(),
+  })
+  .passthrough();
+
+export const PayrollRunsResponseSchema = z
+  .object({ runs: z.array(PayrollRunSchema) })
   .passthrough();
 
 /**

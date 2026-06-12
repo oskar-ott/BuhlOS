@@ -12,7 +12,10 @@ import {
   BulkApproveResponseSchema,
   ReopenEntryPayloadSchema,
   ReopenEntryResponseSchema,
+  PayrollExportPreviewResponseSchema,
+  PayrollRunsResponseSchema,
 } from "./schema";
+import { payrollPreviewUrl } from "./payroll-export";
 import type {
   ApproveTimeEntryPayload,
   CreateTimeEntryPayload,
@@ -25,6 +28,8 @@ import type {
   BulkApprovePayload,
   BulkApproveResponse,
   ReopenEntryPayload,
+  PayrollExportPreviewResponse,
+  PayrollRunsResponse,
 } from "./types";
 
 /**
@@ -314,3 +319,27 @@ export const timesheetsClient = {
   reopenEntry,
   rejectEntry,
 } as const;
+
+/**
+ * Dry-run payroll preview for an explicit week (#126). NEVER omit the
+ * range — the endpoint's default week is server-local (UTC), which is the
+ * wrong week on a Sydney Monday morning (see payroll-export.ts).
+ */
+export function payrollPreview(range: {
+  fromDate: string;
+  toDate: string;
+}): Promise<HttpResult<PayrollExportPreviewResponse>> {
+  return httpGet<PayrollExportPreviewResponse>(payrollPreviewUrl(range), {
+    schema: PayrollExportPreviewResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/** The committed-run log, newest first. */
+export function payrollRuns(limit = 10): Promise<HttpResult<PayrollRunsResponse>> {
+  return httpGet<PayrollRunsResponse>(`/api/payroll-runs?limit=${limit}`, {
+    schema: PayrollRunsResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+

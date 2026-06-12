@@ -5,6 +5,10 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { WeeklyHoursCloseoutBoard } from "@/components/admin/WeeklyHoursCloseoutBoard";
+import { WeeklyPayrollExportPanel } from "@/components/admin/WeeklyPayrollExportPanel";
+import { notPayrollReadyWorkers } from "@/domains/timesheets/payroll-export";
+import { PayrollRunsResponseSchema } from "@/domains/timesheets/schema";
+import type { PayrollRun } from "@/domains/timesheets/types";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isAdminRole } from "@/lib/auth/roles";
@@ -68,7 +72,10 @@ export default async function HoursWeeklyCloseoutPage({
   const todayISO = localDateString(new Date(), BUSINESS_TIMEZONE);
   const isCurrentWeek = weekStart === weekStartOf(todayISO);
 
-  const { overview, fetchError } = await loadWeek(raw, weekStart, weekEnd);
+  const [{ overview, fetchError }, runsResult] = await Promise.all([
+    loadWeek(raw, weekStart, weekEnd),
+    loadRuns(raw),
+  ]);
   const closeout = buildWeeklyHoursCloseout({
     entries: overview?.entries ?? [],
     missing: overview?.missing ?? [],
@@ -126,6 +133,19 @@ export default async function HoursWeeklyCloseoutPage({
         </Card>
 
         <WeeklyHoursCloseoutBoard closeout={closeout} fetchError={fetchError} canUndo={isAdminRole(session.role)} />
+
+        {/* Committed payroll export (#126) — admin tier only; the endpoint
+            itself is admin-gated, so the panel never renders for LH. */}
+        {isAdminRole(session.role) ? (
+          <WeeklyPayrollExportPanel
+            weekStart={weekStart}
+            weekEnd={weekEnd}
+            weekLabel={`${formatDateLabel(weekStart)} – ${formatDateLabel(weekEnd)}`}
+            notReadyWorkers={notPayrollReadyWorkers(closeout.workers)}
+            initialRuns={runsResult.runs}
+            runsError={runsResult.error}
+          />
+        ) : null}
       </div>
     </AdminShell>
   );
@@ -150,6 +170,28 @@ function WeekNavLink({
       {icon}
     </Link>
   );
+}
+
+/** The committed-run log for the panel — fail-soft to an error string. */
+async function loadRuns(
+  cookieValue: string | undefined
+): Promise<{ runs: PayrollRun[]; error: string | null }> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(`${base}/api/payroll-runs?limit=8`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (!res.ok) return { runs: [], error: `Runs API returned ${res.status}` };
+    const parsed = PayrollRunsResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { runs: [], error: "Unexpected runs response shape" };
+    return { runs: [...parsed.data.runs], error: null };
+  } catch (err) {
+    return { runs: [], error: err instanceof Error ? err.message : "Network error" };
+  }
 }
 
 async function loadWeek(

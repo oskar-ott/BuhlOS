@@ -351,6 +351,7 @@ describe("submittedWeekSelection (#124 — the Approve-week payload)", () => {
       jobLabel: null,
       note: null,
       rejectedReason: null,
+      exportId: null,
     }));
     const worker = {
       workerId: "u1", workerName: "U", workerRole: null,

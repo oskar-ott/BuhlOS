@@ -216,8 +216,8 @@ export default async function HoursOverviewPage({
         </Card>
 
         <UnderConstructionPanel
-          feature="Committed payroll export · one-tap weekly approve · Xero push"
-          description="The preview above is a safe dry-run (nothing is marked exported). The committed payroll CSV run — which stamps entries as exported and locks them from edits — plus one-tap whole-week approve and a direct Xero push (we don't fake the integration) aren't built here yet. The legacy tool that ran the committed export was retired in the legacy cutover; the rebuild is on the backlog (hours-payroll epic)."
+          feature="Xero push"
+          description="The preview above is a safe dry-run (nothing is marked exported). The COMMITTED payroll run now lives on the weekly closeout board (/hours/weekly) — preview, confirm and download the stamped CSV there. A direct Xero push (we don't fake the integration) is still on the backlog (hours-payroll epic)."
         />
       </div>
     </AdminShell>

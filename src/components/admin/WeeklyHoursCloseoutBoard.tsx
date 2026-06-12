@@ -751,6 +751,11 @@ function DayRow({
             <span className="text-text-muted">{formatHoursLabel(day.hours)}</span>
           ) : null}
           {day.jobLabel ? <span className="text-text-muted">· {day.jobLabel}</span> : null}
+          {day.status === "approved" && day.exportId ? (
+            <Pill tone="neutral" title={`Payroll run ${day.exportId}`}>
+              Exported
+            </Pill>
+          ) : null}
           {day.status === "rejected" ? (
             <span className="text-xs text-text-muted">Waiting for worker</span>
           ) : null}
