@@ -19,6 +19,16 @@ const STATUS_LABELS: Record<JobStatus, string> = {
 };
 
 /**
+ * Every job status, in the display order the admin filter UIs use.
+ *
+ * Derived from STATUS_LABELS (whose Record<JobStatus, string> shape the
+ * compiler keeps exhaustive against the schema enum) so filter pill sets can
+ * never drift into a hand-written parallel status vocabulary — if a status
+ * is added to the domain, the label record must grow and this list follows.
+ */
+export const JOB_STATUS_OPTIONS = Object.keys(STATUS_LABELS) as ReadonlyArray<JobStatus>;
+
+/**
  * Display label for a job status. Falls back to "Active" when missing
  * because the legacy data has rows pre-status-field, and a worker seeing
  * "—" beside their assigned job is more confusing than the live default.

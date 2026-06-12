@@ -28,7 +28,22 @@ import {
   weekEndOf,
   weekStartOf,
 } from "@/domains/timesheets/service";
-import { formatDateLabel, formatHoursLabel } from "@/domains/timesheets/format";
+import {
+  formatDateLabel,
+  formatHoursLabel,
+  statusLabel,
+  statusTone,
+} from "@/domains/timesheets/format";
+import {
+  buildPersonOptions,
+  filterTimeEntries,
+  hoursEmptyStateMessage,
+  parseHoursFilterParams,
+  personDisplayName,
+  type HoursListFilter,
+  type PersonOption,
+} from "@/domains/timesheets/list-filter";
+import { HoursFilterBar } from "@/components/admin/HoursFilterBar";
 import type {
   TimeEntry,
   TimeEntryOverviewResponse,
@@ -56,11 +71,17 @@ export const dynamic = "force-dynamic";
  * Genuinely-unbuilt flows stay behind an UNDER CONSTRUCTION panel: one-tap
  * "approve the whole week", the committed/stamped payroll CSV run, and a
  * direct Xero push (CSV is the Xero path today; we never fake the integration).
+ *
+ * Filters (#216): `?status=` + `?person=` narrow the ALREADY-LOADED queue
+ * entries server-side (no new endpoints; the fetches are unchanged). The
+ * client HoursFilterBar only writes the query string; week navigation
+ * carries active filter params through. The deep-link contract for other
+ * surfaces: /hours?status=submitted|approved|rejected&person=<userId>.
  */
 export default async function HoursOverviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string }>;
+  searchParams: Promise<{ week?: string; status?: string; person?: string }>;
 }) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -88,6 +109,15 @@ export default async function HoursOverviewPage({
   const thisWeekStart = weekStartOf(today);
   const isCurrentWeek = weekStart === thisWeekStart;
 
+  // #216 — URL-driven status/person filters. Validated here (unknown values
+  // degrade silently to "all") and threaded through every week-nav link so
+  // ?week= navigation never drops an active filter.
+  const filter = parseHoursFilterParams(sp);
+  const filterQuery: Record<string, string> = {
+    ...(filter.status ? { status: filter.status } : {}),
+    ...(filter.person ? { person: filter.person } : {}),
+  };
+
   const {
     pending,
     approved,
@@ -102,6 +132,17 @@ export default async function HoursOverviewPage({
   } = await loadHours(raw, weekStart, weekEnd, today, isAdmin);
 
   const missing = overview ? summariseMissing(overview.missing) : null;
+
+  // Person options for the filter bar — built ONLY from data this viewer
+  // already received (queues + rollup + missing list), so the picker can
+  // never be wider than the viewer's tier-scoped visibility (#351).
+  const personOptions = buildPersonOptions([
+    pending,
+    approved,
+    rejected,
+    overview?.totals.byUser ?? [],
+    overview?.missing ?? [],
+  ]);
 
   return (
     <AdminShell title="Hours">
@@ -118,6 +159,23 @@ export default async function HoursOverviewPage({
 
         {/* ── End-of-day closeout (today) ───────────────────────────── */}
         <TodayCloseout pulse={pulse} today={today} />
+
+        {/* ── Filters (#216) — the bar writes ?status=/?person=; this
+               server component re-renders with the narrowed view below. */}
+        <HoursFilterBar personOptions={personOptions} />
+
+        {filter.status || filter.person ? (
+          <FilteredEntriesCard
+            filter={filter}
+            personOptions={personOptions}
+            pending={pending}
+            approved={approved}
+            rejected={rejected}
+            weekStart={weekStart}
+            weekEnd={weekEnd}
+            isCurrentWeek={isCurrentWeek}
+          />
+        ) : null}
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <QueueCard
@@ -173,14 +231,20 @@ export default async function HoursOverviewPage({
               </CardDescription>
             </div>
             <div className="flex items-center gap-1">
+              {/* Week links carry the active filter params (#216) so paging
+                  through weeks never drops the narrowed view. */}
               <WeekNavLink
                 week={prevWeek}
+                extraQuery={filterQuery}
                 label="Previous week"
                 icon={<ArrowLeft aria-hidden="true" className="h-4 w-4" />}
               />
               {!isCurrentWeek ? (
                 <Link
-                  href={{ pathname: "/hours", query: { week: thisWeekStart } }}
+                  href={{
+                    pathname: "/hours",
+                    query: { week: thisWeekStart, ...filterQuery },
+                  }}
                   className="rounded-card border border-border px-3 py-2 text-xs font-medium text-text hover:border-brand-navy"
                 >
                   This week
@@ -188,6 +252,7 @@ export default async function HoursOverviewPage({
               ) : null}
               <WeekNavLink
                 week={nextWeek}
+                extraQuery={filterQuery}
                 label="Next week"
                 icon={<ArrowRight aria-hidden="true" className="h-4 w-4" />}
               />
@@ -407,16 +472,19 @@ function CloseoutStat({
 
 function WeekNavLink({
   week,
+  extraQuery,
   label,
   icon,
 }: {
   week: string;
+  /** Active filter params (#216) — carried so week paging keeps the view. */
+  extraQuery: Record<string, string>;
   label: string;
   icon: React.ReactNode;
 }) {
   return (
     <Link
-      href={{ pathname: "/hours", query: { week } }}
+      href={{ pathname: "/hours", query: { week, ...extraQuery } }}
       aria-label={label}
       title={label}
       className="rounded-card border border-border p-2 text-text-muted hover:border-brand-navy hover:text-text"
@@ -424,6 +492,124 @@ function WeekNavLink({
       {icon}
     </Link>
   );
+}
+
+/**
+ * The filtered view itself (#216). Renders the already-loaded approver-queue
+ * entries narrowed by `?status=` + `?person=` and bounded to the viewed week
+ * (the queues are all-time; the week bound is what makes the filters compose
+ * with `?week=` navigation). Server-rendered straight from the URL params,
+ * so a shared link shows the identical view to anyone with the same
+ * visibility — and a viewer with narrower visibility gets the named empty
+ * state below, never a bare nothing-here.
+ *
+ * Renders only while a filter is active: with no params the page is
+ * byte-identical to the unfiltered layout (no regression, no layout shift).
+ */
+function FilteredEntriesCard({
+  filter,
+  personOptions,
+  pending,
+  approved,
+  rejected,
+  weekStart,
+  weekEnd,
+  isCurrentWeek,
+}: {
+  filter: HoursListFilter;
+  personOptions: ReadonlyArray<PersonOption>;
+  pending: ReadonlyArray<TimeEntry>;
+  approved: ReadonlyArray<TimeEntry>;
+  rejected: ReadonlyArray<TimeEntry>;
+  weekStart: string;
+  weekEnd: string;
+  isCurrentWeek: boolean;
+}) {
+  const source =
+    filter.status === "submitted"
+      ? pending
+      : filter.status === "approved"
+        ? approved
+        : filter.status === "rejected"
+          ? rejected
+          : [...pending, ...approved, ...rejected];
+  const entries = filterTimeEntries(source, filter, {
+    fromDate: weekStart,
+    toDate: weekEnd,
+  });
+  const personName = filter.person
+    ? personDisplayName(filter.person, personOptions)
+    : null;
+  const weekLabel = isCurrentWeek
+    ? "this week"
+    : `in the week of ${formatDateLabel(weekStart)}`;
+  const totalHours = entries.reduce((sum, e) => sum + e.totalHours, 0);
+
+  const headline = [
+    filter.status ? `${statusLabel(filter.status)} entries` : "All queue entries",
+    personName ? `for ${personName}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <Card className="border-l-4 border-l-brand-navy">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <CardTitle>Filtered entries</CardTitle>
+          <CardDescription className="mt-1">
+            {headline} · {formatDateLabel(weekStart)} – {formatDateLabel(weekEnd)}
+          </CardDescription>
+        </div>
+        {entries.length > 0 ? (
+          <Pill tone="navy">
+            {entries.length} {entries.length === 1 ? "entry" : "entries"} ·{" "}
+            {formatHoursLabel(totalHours)}
+          </Pill>
+        ) : null}
+      </div>
+
+      {entries.length === 0 ? (
+        <p className="mt-4 rounded-card bg-surface-subtle px-3 py-2 text-sm text-text-muted">
+          {hoursEmptyStateMessage(filter, personName, weekLabel)}
+        </p>
+      ) : (
+        <ul className="mt-4 divide-y divide-border rounded-card border border-border">
+          {entries.map((e) => (
+            <li
+              key={e.id}
+              className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2 text-sm"
+            >
+              <span className="flex min-w-0 flex-wrap items-center gap-2">
+                <Pill tone={statusTone(e.status)}>{statusLabel(e.status)}</Pill>
+                <span className="font-medium text-text">{e.userName ?? e.userId}</span>
+                <span className="text-text-muted">{formatDateLabel(e.date)}</span>
+              </span>
+              <span className="flex min-w-0 items-center gap-3">
+                <span className="truncate text-xs text-text-muted">
+                  {allocationSummary(e)}
+                </span>
+                <span className="shrink-0 font-medium tabular-nums text-text">
+                  {formatHoursLabel(e.totalHours)}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+/** Job names on an entry's allocations, deduped — "No job assigned" keeps
+ *  unattributed legacy allocations visible (same copy as the approvals queue). */
+function allocationSummary(entry: TimeEntry): string {
+  const names = entry.allocations.map((a) => {
+    const name = (a.jobName ?? "").trim();
+    if (name) return name;
+    return a.jobId ? "Unnamed job" : "No job assigned";
+  });
+  return Array.from(new Set(names)).join(" · ");
 }
 
 function WeekRollup({

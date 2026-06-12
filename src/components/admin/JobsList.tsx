@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   AlertOctagon,
   Camera,
@@ -11,12 +12,30 @@ import {
   MapPin,
   PencilRuler,
   Search,
+  X,
 } from "lucide-react";
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { lastActivityCaption, statusLabel, statusTone } from "@/domains/jobs/format";
+import {
+  JOB_STATUS_OPTIONS,
+  lastActivityCaption,
+  statusLabel,
+  statusTone,
+} from "@/domains/jobs/format";
+import {
+  filterJobs,
+  jobStatusCounts,
+  jobsEmptyStateMessage,
+  parseJobStatusParam,
+} from "@/domains/jobs/list-filter";
 import { isQaTestJobName } from "@/domains/jobs/test-data";
-import type { Job } from "@/domains/jobs/types";
+import type { Job, JobStatus } from "@/domains/jobs/types";
+import {
+  clearRememberedFilters,
+  writeRememberedFilters,
+  type RememberedFilterSpec,
+} from "@/lib/storage/remembered-filters";
+import { useApplyRememberedFiltersOnce } from "@/lib/storage/use-remembered-filters";
 import { cn } from "@/lib/cn";
 
 interface Props {
@@ -25,8 +44,19 @@ interface Props {
   canBuild?: boolean;
 }
 
+/** Per-device remembered default for this list (issue #216). Exported for
+ *  the render test so it exercises the real key + validators. */
+export const JOBS_FILTERS_STORAGE_KEY = "buhlos.jobs-list.filters";
+export const JOBS_FILTER_SPEC: RememberedFilterSpec = {
+  status: (v) => parseJobStatusParam(v) !== null,
+  q: (v) => v.trim() !== "" && v.length <= 200,
+};
+
+/** How long a search keystroke waits before being mirrored into the URL. */
+const SEARCH_URL_DEBOUNCE_MS = 250;
+
 /**
- * Admin jobs index list — Phase D6.
+ * Admin jobs index list — Phase D6, filters URL-driven since #216.
  *
  * Mirrors the Phil JobsList row shape (status pill, name, address, when
  * caption, chevron) but adds two pending-count chips per row that
@@ -37,28 +67,139 @@ interface Props {
  * server-side) the chips simply don't render — the row remains clickable
  * and the admin lands on the per-job page either way.
  *
- * Filtering is a single search box — Phase D6 ships ~5–20 active jobs
- * per admin, which is small enough that a name/address contains-match
- * beats a multi-facet filter bar. A status / pending-only filter can
- * come later if the admin asks for it.
+ * Filtering (#216): status pills + the search box, both reflected in the
+ * URL (`?status=` + `?q=`) so views are shareable, both restorable from a
+ * remembered per-device default. Mechanics:
+ *
+ *   - Filter state is read LIVE from useSearchParams() — never snapshotted
+ *     into useState — so same-route deep links re-filter the list (the
+ *     soft-nav pitfall, #116→#118).
+ *   - Filtering itself stays client-side over the already-loaded array.
+ *     Interaction writes mirror the URL via window.history.replaceState
+ *     (the Next-sanctioned shallow update): useSearchParams stays in sync
+ *     WITHOUT re-running the server component, so a pill click or
+ *     keystroke never refetches /api/jobs. router.replace is reserved for
+ *     the once-per-mount remembered-default application, where a server
+ *     round-trip is acceptable.
+ *   - The search <input> keeps local echo state for typing latency, synced
+ *     FROM the URL when the param changes externally (lastWrittenQueryRef
+ *     distinguishes our own debounced writes from external navigations).
+ *   - Memory: write-through on user interaction only; applied on mount
+ *     only when the URL carries neither filter param (URL always wins);
+ *     "Reset to all" clears the URL params and the stored default.
  *
  * Cross-ref:
  *   src/components/phil/PhilJobsList.tsx — row pattern precedent
  *   src/app/v2/jobs/page.tsx — server component that hydrates this list
+ *   src/domains/jobs/list-filter.ts — the pure filter matrix
  */
 export function JobsList({ jobs, canBuild = false }: Props) {
-  const [query, setQuery] = useState("");
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return jobs;
-    return jobs.filter((j) => {
-      const name = j.name.toLowerCase();
-      const address = (j.siteAddress ?? "").toLowerCase();
-      const ref = (j.ref ?? "").toLowerCase();
-      return name.includes(q) || address.includes(q) || ref.includes(q);
-    });
-  }, [jobs, query]);
+  // URL is the source of truth for the status filter (validated; unknown
+  // values degrade to "all").
+  const status = parseJobStatusParam(searchParams.get("status"));
+  const urlQuery = searchParams.get("q") ?? "";
+
+  // Local echo for the search box; the URL mirror is debounced. The ref
+  // tracks the last value THIS component intends/wrote so the sync effect
+  // below only adopts genuinely external URL changes (deep links) instead
+  // of clobbering in-flight typing with our own write echo.
+  const [query, setQuery] = useState(urlQuery);
+  const lastWrittenQueryRef = useRef(urlQuery);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (urlQuery !== lastWrittenQueryRef.current) {
+      lastWrittenQueryRef.current = urlQuery;
+      setQuery(urlQuery);
+    }
+  }, [urlQuery]);
+
+  // Clear any pending URL write on unmount.
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  // Apply the remembered per-device default (only when the URL is clean of
+  // both filter params; storage is read inside the effect, never in render).
+  useApplyRememberedFiltersOnce(JOBS_FILTERS_STORAGE_KEY, JOBS_FILTER_SPEC);
+
+  /**
+   * Mirror the given filter set into the URL + the per-device memory.
+   * Reads window.location.search at call time (interaction handlers only)
+   * so a debounced search write can't resurrect a status the user changed
+   * while the timer was pending.
+   */
+  const writeFilters = (next: { status: JobStatus | null; query: string }) => {
+    const params = new URLSearchParams(window.location.search);
+    if (next.status) params.set("status", next.status);
+    else params.delete("status");
+    const q = next.query.trim();
+    if (q) params.set("q", q);
+    else params.delete("q");
+    const qs = params.toString();
+    try {
+      window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
+    } catch {
+      // History API throttled — filtering still works from local state.
+    }
+    writeRememberedFilters(JOBS_FILTERS_STORAGE_KEY, { status: next.status, q });
+  };
+
+  const handleStatusClick = (next: JobStatus | null) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    writeFilters({ status: next, query });
+  };
+
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
+    lastWrittenQueryRef.current = value.trim();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const freshStatus = parseJobStatusParam(
+        new URLSearchParams(window.location.search).get("status")
+      );
+      writeFilters({ status: freshStatus, query: value });
+    }, SEARCH_URL_DEBOUNCE_MS);
+  };
+
+  const handleReset = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setQuery("");
+    lastWrittenQueryRef.current = "";
+    const params = new URLSearchParams(window.location.search);
+    params.delete("status");
+    params.delete("q");
+    const qs = params.toString();
+    try {
+      window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
+    } catch {
+      // Best-effort, as above.
+    }
+    clearRememberedFilters(JOBS_FILTERS_STORAGE_KEY);
+  };
+
+  // Filter on the LIVE keystroke value (not the debounced URL mirror) so
+  // the list narrows instantly while typing.
+  const filtered = useMemo(
+    () => filterJobs(jobs, { status, query }),
+    [jobs, status, query]
+  );
+
+  const counts = useMemo(() => jobStatusCounts(jobs), [jobs]);
+  // Statuses with zero jobs stay hidden (this page excludes archived rows
+  // server-side — a permanently-dead pill would imply otherwise) UNLESS the
+  // URL deep-links to one, in which case the pill renders so the active
+  // filter is visible and clearable.
+  const statusOptions = JOB_STATUS_OPTIONS.filter(
+    (s) => (counts.get(s) ?? 0) > 0 || status === s
+  );
+
+  const filtersActive = status !== null || query.trim() !== "";
 
   if (jobs.length === 0) {
     return (
@@ -71,21 +212,57 @@ export function JobsList({ jobs, canBuild = false }: Props) {
 
   return (
     <div className="space-y-3">
-      <label className="flex w-full max-w-md items-center gap-2 rounded-card border border-border bg-surface px-3 py-2 text-sm">
-        <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter by name, address, or ref"
-          aria-label="Filter jobs"
-          className="w-full bg-transparent text-text outline-none placeholder:text-text-muted"
-        />
-      </label>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <label className="flex w-full max-w-md items-center gap-2 rounded-card border border-border bg-surface px-3 py-2 text-sm">
+          <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => handleQueryChange(e.target.value)}
+            placeholder="Filter by name, address, or ref"
+            aria-label="Filter jobs"
+            className="w-full bg-transparent text-text outline-none placeholder:text-text-muted"
+          />
+        </label>
+
+        <div
+          role="group"
+          aria-label="Filter jobs by status"
+          className="flex flex-wrap items-center gap-1.5"
+        >
+          <FilterPill
+            label="All"
+            count={jobs.length}
+            selected={status === null}
+            onClick={() => handleStatusClick(null)}
+          />
+          {statusOptions.map((s) => (
+            <FilterPill
+              key={s}
+              label={statusLabel(s)}
+              count={counts.get(s) ?? 0}
+              selected={status === s}
+              onClick={() => handleStatusClick(s)}
+            />
+          ))}
+          {filtersActive ? (
+            <button
+              type="button"
+              onClick={handleReset}
+              className="inline-flex items-center gap-1 rounded-pill px-2.5 py-1 text-xs font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2 hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+            >
+              <X aria-hidden="true" className="h-3.5 w-3.5" />
+              Reset to all
+            </button>
+          ) : null}
+        </div>
+      </div>
 
       {filtered.length === 0 ? (
         <Card>
-          <CardEmpty query={query} />
+          <div className="py-6 text-center text-sm text-text-muted">
+            {jobsEmptyStateMessage({ status, query })}
+          </div>
         </Card>
       ) : (
         <ul className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised">
@@ -97,6 +274,47 @@ export function JobsList({ jobs, canBuild = false }: Props) {
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * Status filter pill. Selection uses the navy brand accent (doc 27 §6 —
+ * brand accents mark SELECTION, never entity state; the row's status Pill
+ * keeps the five-tone palette via statusTone).
+ */
+function FilterPill({
+  label,
+  count,
+  selected,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-pill border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
+        selected
+          ? "border-brand-navy bg-brand-navy text-text-inverse"
+          : "border-border bg-surface text-text hover:bg-surface-subtle"
+      )}
+    >
+      <span>{label}</span>
+      <span
+        className={cn(
+          "inline-flex h-4 min-w-[16px] items-center justify-center rounded-pill px-1 text-[10px] font-semibold",
+          selected ? "bg-accent-yellow text-brand-navy" : "bg-surface-subtle text-text-muted"
+        )}
+      >
+        {count}
+      </span>
+    </button>
   );
 }
 
@@ -253,14 +471,6 @@ function ActionChip({
         </span>
       ) : null}
     </Link>
-  );
-}
-
-function CardEmpty({ query }: { query: string }) {
-  return (
-    <div className="py-6 text-center text-sm text-text-muted">
-      No jobs match{query ? ` “${query}”` : ""}. Try a different search term.
-    </div>
   );
 }
 
