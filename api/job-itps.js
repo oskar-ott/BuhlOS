@@ -272,6 +272,9 @@ module.exports = async (req, res) => {
       const tplBlob = await readBlob('itp-templates.json', { templates: [] });
       const tpl = (tplBlob.templates || []).find(t => t.id === templateId);
       if (!tpl) return res.status(404).json({ error: 'template not found' });
+      // #284: the attach picker never offers archived templates; the server
+      // now refuses them too, so the gap can't be reached by hand either.
+      if (tpl.archived) return res.status(400).json({ error: 'template is archived' });
       const now = new Date().toISOString();
       const inst = {
         id: nanoid('itp_'),

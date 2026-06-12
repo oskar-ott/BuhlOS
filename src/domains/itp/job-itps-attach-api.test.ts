@@ -25,6 +25,7 @@ const requireFromHere = createRequire(import.meta.url);
 const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const handlerPath = requireFromHere.resolve("../../../api/job-itps.js");
+const templatesPath = requireFromHere.resolve("../../../api/itp-templates.js");
 
 type Res = ReturnType<typeof createRes>;
 let blob: Map<string, unknown>;
@@ -109,7 +110,7 @@ beforeEach(() => {
     ],
   });
 
-  for (const p of [authPath, handlerPath]) delete requireFromHere.cache[p];
+  for (const p of [authPath, handlerPath, templatesPath]) delete requireFromHere.cache[p];
   requireFromHere.cache[blobPath] = {
     id: blobPath,
     filename: blobPath,
@@ -179,6 +180,41 @@ describe("POST /api/job-itps?action=attach (#387)", () => {
       scope: "job",
     });
     expect(res.statusCode).toBe(403);
+  });
+
+  it("REFUSES an archived template (#284 closes the gap #387 deferred)", async () => {
+    blob.set("itp-templates.json", {
+      templates: [{ id: "tpl_old", name: "Retired QA", archived: true, points: [] }],
+    });
+    const res = await attach("u_admin", "office", { templateId: "tpl_old", scope: "job" });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("editing a template NEVER mutates an attached instance (snapshot semantics, #284)", async () => {
+    const attached = await attach("u_admin", "office", { templateId: "tpl_rough", scope: "job" });
+    expect(attached.statusCode).toBe(201);
+
+    // PATCH the template through the REAL templates handler
+    const templatesHandler = requireFromHere(templatesPath) as typeof handler;
+    const res = createRes();
+    await templatesHandler(
+      {
+        method: "PATCH",
+        query: { id: "tpl_rough" },
+        headers: {
+          cookie: `buhl_session=${auth.signSession({ userId: "u_admin", role: "office", exp: Date.now() + 60_000 })}`,
+        },
+        body: { name: "Renamed QA", points: [{ label: "Completely different", type: "note" }] },
+      },
+      res,
+    );
+    expect(res.statusCode).toBe(200);
+
+    const stored = blob.get("jobs/j1/itps.json") as {
+      instances: Array<{ templateSnapshot: { name: string; points: Array<{ id: string }> } }>;
+    };
+    expect(stored.instances[0]!.templateSnapshot.name).toBe("Rough-in QA");
+    expect(stored.instances[0]!.templateSnapshot.points.map((p) => p.id)).toEqual(["p1", "p3"]);
   });
 
   it("rejects an unknown scope and a missing template", async () => {
