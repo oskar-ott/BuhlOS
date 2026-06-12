@@ -1,6 +1,9 @@
 const { readBlob, writeBlob, deleteBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs, isFieldRole, isClientRole } = require('./_lib/auth');
 const { redactJobForViewer } = require('./_lib/job-redaction');
+
+// Canonical job statuses — keep in sync with src/domains/jobs/schema.ts JOB_STATUSES.
+const VALID_JOB_STATUS = new Set(['active', 'complete', 'archived', 'on_hold', 'draft']);
 const { validateAreaGroups, validateTasks, validateCustomFields, visibleStructural } = require('./_lib/validation');
 const { areaProgressPct, jobTaskCounts } = require('./_lib/job-tasks');
 const { appendAudit } = require('./_lib/job-audit');
@@ -687,7 +690,17 @@ module.exports = async (req, res) => {
       job.name = name.trim();
     }
     if (clientUserId !== undefined) job.clientUserId = clientUserId || null;
-    if (status !== undefined) job.status = status;
+    if (status !== undefined) {
+      // #383: any string used to become a job status (the deleted legacy
+      // builder offered 'paused'); one out-of-enum row breaks strict list
+      // parsers. Transition RULES stay with #349 — this is the enum gate.
+      if (!VALID_JOB_STATUS.has(status)) {
+        return res.status(400).json({
+          error: 'status must be one of: ' + [...VALID_JOB_STATUS].join(', '),
+        });
+      }
+      job.status = status;
+    }
 
     if (type !== undefined) {
       if (type !== null) {

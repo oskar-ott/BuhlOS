@@ -195,9 +195,27 @@ export const JobSchema = z
  * List response — api/jobs.js GET (no `id` query) returns `{ jobs: [...] }`.
  * Server already filters to assignedJobIds for non-admin roles.
  */
-export const JobListResponseSchema = z.object({
-  jobs: z.array(JobSchema),
-});
+/**
+ * LENIENT list parse (#383, documented decision): one bad row (e.g. a
+ * legacy out-of-enum status that predates the PUT gate) DROPS with a
+ * console warning instead of failing the whole jobs list for everyone.
+ * The output type is unchanged — consumers still get clean Job[].
+ */
+export const JobListResponseSchema = z
+  .object({ jobs: z.array(z.unknown()) })
+  .transform(({ jobs }) => ({
+    jobs: jobs.flatMap((row): Array<z.infer<typeof JobSchema>> => {
+      const parsed = JobSchema.safeParse(row);
+      if (parsed.success) return [parsed.data];
+      const id =
+        row && typeof row === "object" && "id" in row ? String((row as { id: unknown }).id) : "?";
+      console.warn(
+        `jobs list: dropping row ${id} that failed JobSchema —`,
+        parsed.error.issues[0]?.message ?? "unknown issue",
+      );
+      return [];
+    }),
+  }));
 
 /**
  * Single-job response — api/jobs.js GET `?id=X` returns `{ job: {...} }`.

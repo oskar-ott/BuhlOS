@@ -286,6 +286,31 @@ describe("POST and PUT /api/jobs", () => {
   });
 });
 
+describe("PUT status validation (#383)", () => {
+  it("rejects an out-of-enum status with 400 — 'paused' can never come back", async () => {
+    const res = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "job-active", status: "paused" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(String((res.body as { error: string }).error)).toContain("status must be one of");
+  });
+
+  it("accepts every canonical status", async () => {
+    for (const status of ["active", "complete", "archived", "on_hold", "draft"]) {
+      const res = await call({
+        method: "PUT",
+        userId: "u_admin",
+        role: "admin",
+        body: { id: "job-active", status },
+      });
+      expect(res.statusCode, status).toBe(200);
+    }
+  });
+});
+
 describe("role normalisation — admin tier + LH aliases", () => {
   it("unassigned admin-tier (office) can open and list draft/archived jobs", async () => {
     // Regression for the literal `role === 'admin'` single-GET gate: the admin
