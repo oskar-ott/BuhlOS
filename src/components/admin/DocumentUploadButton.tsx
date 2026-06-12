@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { setPlanPages, uploadDocument } from "@/domains/documents/client";
-import { DOCUMENT_CATEGORIES } from "@/domains/documents/schema";
+import { DOCUMENT_CATEGORIES, DOCUMENT_DISCIPLINES } from "@/domains/documents/schema";
 import { loadPdfJs } from "@/lib/pdfjs-loader";
 
 /**
@@ -72,6 +72,7 @@ export function DocumentUploadButton({ jobId, defaultCategory = "plan", defaultO
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<string>(defaultCategory);
   const [drawingNumber, setDrawingNumber] = useState("");
+  const [discipline, setDiscipline] = useState<string>("electrical");
   const [revision, setRevision] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -110,6 +111,7 @@ export function DocumentUploadButton({ jobId, defaultCategory = "plan", defaultO
         category,
         drawingNumber: category === "plan" ? drawingNumber.trim() : "",
         revision: category === "plan" ? revision.trim() : "",
+        discipline: category === "plan" ? discipline : undefined,
       });
       if (!uploaded.ok) {
         setPhase({ kind: "form" });
@@ -253,6 +255,23 @@ export function DocumentUploadButton({ jobId, defaultCategory = "plan", defaultO
                   </select>
                 </label>
 
+                {category === "plan" ? (
+                  <label className="block">
+                    <span className="text-text-muted">Discipline</span>
+                    <select
+                      value={discipline}
+                      onChange={(e) => setDiscipline(e.target.value)}
+                      className={inputClass}
+                      data-testid="document-upload-discipline"
+                    >
+                      {DOCUMENT_DISCIPLINES.map((dd) => (
+                        <option key={dd} value={dd}>
+                          {dd[0]!.toUpperCase() + dd.slice(1)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
                 {category === "plan" ? (
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block">

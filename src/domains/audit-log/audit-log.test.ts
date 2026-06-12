@@ -115,6 +115,9 @@ describe("AuditLogEntrySchema", () => {
     // / itp_instance target types.
     expect([...AUDIT_ACTIONS].sort()).toEqual([
       "backup.completed",
+      "document.made_current",
+      "document.superseded",
+      "document.uploaded",
       "employee.activated",
       "employee.created",
       "employee.disabled",
@@ -152,6 +155,7 @@ describe("AuditLogEntrySchema", () => {
       "storage.write_rejected",
     ]);
     expect([...AUDIT_TARGET_TYPES].sort()).toEqual([
+      "document",
       "employee",
       "evidence",
       "invite",

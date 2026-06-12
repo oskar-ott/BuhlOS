@@ -21,6 +21,8 @@ import {
   statusLabel,
   statusTone,
   type DocumentStatusTone,
+  disciplineLabel,
+  DISCIPLINE_ORDER,
 } from "@/domains/documents/format";
 import type { Document, DocumentStatus } from "@/domains/documents/types";
 import type { Job } from "@/domains/jobs/types";
@@ -84,6 +86,25 @@ export function DocumentsList({
   }, [initialDocuments, filter]);
 
   const groups = useMemo(() => groupByDrawing(filtered), [filtered]);
+  // #194: discipline sections over the drawing groups. A group's discipline
+  // is its newest row's; legacy rows without one land under "Other".
+  const sections = useMemo(() => {
+    const byDiscipline = new Map<string, (typeof groups)[number][]>();
+    for (const g of groups) {
+      const head = g.documents[0] as { discipline?: string } | undefined;
+      const key = DISCIPLINE_ORDER.includes((head?.discipline ?? "") as (typeof DISCIPLINE_ORDER)[number])
+        ? (head!.discipline as string)
+        : "other";
+      const list = byDiscipline.get(key) ?? [];
+      list.push(g);
+      byDiscipline.set(key, list);
+    }
+    return DISCIPLINE_ORDER.filter((k) => byDiscipline.has(k)).map((k) => ({
+      key: k,
+      label: disciplineLabel(k),
+      groups: byDiscipline.get(k)!,
+    }));
+  }, [groups]);
 
   const currentCount = useMemo(
     () =>
@@ -157,15 +178,22 @@ export function DocumentsList({
           </p>
         </Card>
       ) : (
-        <Card>
-          <ul className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface">
-            {groups.map((g, idx) => (
-              <li key={`${g.drawingNumber ?? "none"}:${idx}`}>
-                <DrawingGroup group={g} />
-              </li>
-            ))}
-          </ul>
-        </Card>
+        <div className="space-y-4">
+          {sections.map((section) => (
+            <Card key={section.key}>
+              <h3 className="font-display text-sm uppercase tracking-wider text-text-muted">
+                {section.label}
+              </h3>
+              <ul className="mt-2 divide-y divide-border overflow-hidden rounded-card border border-border bg-surface">
+                {section.groups.map((g, idx) => (
+                  <li key={`${g.drawingNumber ?? "none"}:${idx}`}>
+                    <DrawingGroup group={g} />
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   );

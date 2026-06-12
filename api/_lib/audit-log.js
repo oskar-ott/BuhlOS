@@ -92,6 +92,10 @@ const VALID_ACTIONS = new Set([
   // #157: a write guard refused a destructive/conflicting store write.
   'storage.write_rejected',
   'observation.converted_to_material_request',
+  // #194: drawing/document register lifecycle (api/plans.js).
+  'document.uploaded',
+  'document.superseded',
+  'document.made_current',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -113,6 +117,7 @@ const VALID_TARGET_TYPES = new Set([
   'material_request',
   // #151: platform-level events (backups) with no business record target.
   'system',
+  'document',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;
