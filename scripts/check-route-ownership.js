@@ -135,6 +135,9 @@ const REQUIRED_SOURCES = [
   // Shell components (their markers are enforced by check-shell-contract.js).
   'src/components/admin/AdminShell.tsx',
   'src/components/admin/AdminSidebar.tsx',
+  // The admin nav is the single source of truth for office IA (#215 extracted
+  // it from AdminSidebar so the sidebar and the ⌘K palette render one list).
+  'src/components/admin/nav.ts',
   'src/components/phil/PhilShell.tsx',
   'src/components/phil/PhilTabBar.tsx',
   'src/lib/auth/landing.ts',
@@ -161,10 +164,13 @@ for (const rel of REQUIRED_SOURCES) {
 // no nested braces, and the interface above `const <name>` is excluded by
 // slicing from the declaration. Returns [{ href, status }].
 //
-// `status` is optional: the admin NAV tags each item live/under-construction,
-// but the Phil tab bar (LEFT_TABS/RIGHT_TABS) dropped the field when the centre
-// Capture FAB replaced the old UC "Snag" tab — every remaining tab is live, so
-// a missing status defaults to 'live'.
+// `status` is optional and defaults to 'live'. The admin nav (NAV_GROUPS in
+// src/components/admin/nav.ts since #215) carries only live destinations — the
+// legacy cutover removed the UC stubs — and the Phil tab bar (LEFT_TABS/
+// RIGHT_TABS) likewise dropped the field when the centre Capture FAB replaced
+// the old UC "Snag" tab. The grouped NAV_GROUPS shape parses cleanly here: the
+// group wrappers ({ heading, items: [...] }) contain nested braces so the
+// innermost-object regex skips them and matches only the leaf nav items.
 function parseNavItems(src, arrayName) {
   const start = src.indexOf('const ' + arrayName);
   if (start === -1) return null;
@@ -234,7 +240,7 @@ function checkNav(file, arrayNames, approved, label) {
   }
 }
 
-checkNav('src/components/admin/AdminSidebar.tsx', ['NAV'], APPROVED_ADMIN_HREFS, 'AdminSidebar');
+checkNav('src/components/admin/nav.ts', ['NAV_GROUPS'], APPROVED_ADMIN_HREFS, 'AdminSidebar');
 checkNav('src/components/phil/PhilTabBar.tsx', ['LEFT_TABS', 'RIGHT_TABS'], APPROVED_PHIL_HREFS, 'PhilTabBar');
 
 // ── 6. landingFor() role -> landing map ──────────────────────────────

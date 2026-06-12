@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AdminSidebar } from "./AdminSidebar";
 import { AdminTopbar } from "./AdminTopbar";
+import { CommandPalette } from "./CommandPalette";
 import { PwaRegistrar } from "@/components/pwa/PwaRegistrar";
 
 interface AdminShellProps {
@@ -18,6 +19,10 @@ interface AdminShellProps {
  * (office inbox, digests, overrun alerts) and silently refreshes the push
  * subscription when permission is already granted. The explicit opt-in
  * lives on /command-centre (PushNotificationsCard).
+ *
+ * CommandPalette is the ⌘K keyboard command layer (#215) — mounted as a
+ * client child (same pattern as AdminSidebar) so this stays a server
+ * component. It renders nothing until ⌘K / Ctrl+K opens it.
  */
 export function AdminShell({ children, title, breadcrumb }: AdminShellProps) {
   return (
@@ -27,6 +32,7 @@ export function AdminShell({ children, title, breadcrumb }: AdminShellProps) {
         <AdminTopbar title={title} breadcrumb={breadcrumb} />
         <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
+      <CommandPalette />
       <PwaRegistrar />
     </div>
   );

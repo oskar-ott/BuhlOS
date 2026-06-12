@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
 import { EmployeeStatusChip } from "./EmployeeStatusChip";
 import { AddEmployeeDrawer, type ActiveJobOption } from "./AddEmployeeDrawer";
 import { EmployeeDetailDrawer } from "./EmployeeDetailDrawer";
+import { RecentItemTracker } from "./RecentItemTracker";
 import {
   filterEmployees,
   filterCounts,
@@ -88,6 +89,17 @@ export function EmployeeRegisterClient({
 
   return (
     <div className="space-y-4">
+      {/* #215 — when a worker is deep-linked open (/employees/[id]), record the
+          visit in the device-local recents ring buffer so ⌘K can offer a
+          one-keystroke jump back. Renders nothing; uses the resolved row so the
+          label is the worker's real display name. */}
+      {selected ? (
+        <RecentItemTracker
+          path={`/employees/${selected.employee.id}`}
+          title={displayNameFor(selected.employee)}
+          type="employee"
+        />
+      ) : null}
       {/* Header row */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 rounded-card border border-border bg-surface px-2">
