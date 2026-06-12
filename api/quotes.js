@@ -1309,19 +1309,24 @@ async function handleConvert(req, res, user, id) {
 //                       suffixed with " (rev N)"; parentQuoteId links back
 //                       to the original so the list view can group revisions.
 // In both modes we copy basics + structure + materials + labour + notes
-// (NOT documents — binary blobs are large; admin uploads the new pack
-// for revisions). Status resets to 'draft' and convertedJobId clears.
+// + pricing settings + provisional sums, so a copy's totals never silently
+// revert to PRICING_DEFAULTS (#384). Documents are deliberately NOT copied —
+// binary blobs are large; admin uploads the new pack for revisions. Status
+// resets to 'draft', convertedJobId clears, and the source's win/loss record
+// (acceptance / reasonLost) is stripped — a fresh draft has neither.
 async function handleDuplicate(req, res, user, srcId, opts) {
   const mode = (opts && opts.mode) || 'duplicate';
   const data = await readQuotes();
   const src = (data.quotes || []).find(q => q.id === srcId);
   if (!src) return res.status(404).json({ error: 'source quote not found' });
 
-  const [structure, materials, labour, notes] = await Promise.all([
+  const [structure, materials, labour, notes, pricing, provisional] = await Promise.all([
     readSection(srcId, 'structure'),
     readSection(srcId, 'materials'),
     readSection(srcId, 'labour'),
     readSection(srcId, 'notes'),
+    readSection(srcId, 'pricing'),
+    readSection(srcId, 'provisional'),
   ]);
 
   const now = new Date().toISOString();
@@ -1354,6 +1359,10 @@ async function handleDuplicate(req, res, user, srcId, opts) {
     createdAt:       now,
     createdBy:       user.username,
     updatedAt:       now,
+    // Undefined (not null) so JSON serialisation drops the keys entirely —
+    // a copy/revision must not inherit the source's win/loss record.
+    acceptance:      undefined,
+    reasonLost:      undefined,
   };
   data.quotes = data.quotes || [];
   data.quotes.push(newQuote);
@@ -1390,6 +1399,15 @@ async function handleDuplicate(req, res, user, srcId, opts) {
       updatedAt: now,
     })),
   };
+  const newProvisional = {
+    items: (provisional.items || []).map(ps => ({
+      ...ps,
+      id: newId('qps'),
+      quoteId: newQuote.id,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  };
 
   await Promise.all([
     writeSection(newQuote.id, 'structure', newStructure),
@@ -1401,6 +1419,11 @@ async function handleDuplicate(req, res, user, srcId, opts) {
       risks:          notes.risks || [],
       clarifications: notes.clarifications || [],
     }),
+    // Pricing settings + provisional sums travel with the copy so totals
+    // stay equal to the predecessor's (#384). Pricing is a settings object
+    // (no per-row ids); provisional items are re-id'd like materials/labour.
+    writeSection(newQuote.id, 'pricing', pricing),
+    writeSection(newQuote.id, 'provisional', newProvisional),
   ]);
 
   return res.status(201).json({ quote: newQuote });
@@ -1650,3 +1673,7 @@ module.exports = async (req, res) => {
 
   return res.status(405).json({ error: 'method not allowed' });
 };
+
+// Exposed for the #384 totals-parity regression test. Vercel invokes only the
+// default function export; an attached helper property is inert in production.
+module.exports.computeQuoteTotals = computeQuoteTotals;
