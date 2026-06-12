@@ -9,11 +9,13 @@ import { Pill } from "@/components/ui/Pill";
 import { Modal } from "@/components/ui/Modal";
 import { PhilNotice } from "./ui/PhilNotice";
 import { cn } from "@/lib/cn";
+import { SplitDaySheet } from "./SplitDaySheet";
 import styles from "./myDay.module.css";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import {
   STANDARD_DAY_HOURS,
   buildCustomHoursPayload,
+  buildSplitDayPayload,
   buildStandardDayPayload,
   localDateString,
   MAX_HOURS_PER_DAY,
@@ -111,6 +113,7 @@ export function LogHoursSheet({
   const [notes, setNotes] = useState<string>("");
   const [customOpen, setCustomOpen] = useState(false);
   const [customHours, setCustomHours] = useState<number>(STANDARD_DAY_HOURS);
+  const [splitOpen, setSplitOpen] = useState(false);
   const [state, setState] = useState<SubmitState>({ kind: "idle" });
   // Job attribution. Preselect when launched with a valid job context, else
   // auto-select the sole assigned job; multiple jobs require an explicit pick.
@@ -219,6 +222,33 @@ export function LogHoursSheet({
       date,
       totalHours: customHours,
       jobId: selectedJobId,
+      notes: notes || null,
+    });
+    const result = await timesheetsClient.submitNewEntry(payload);
+    handleResult(result, "custom");
+  }
+
+  async function submitSplit(
+    totalHours: number,
+    allocations: Array<{ jobId: string; hours: number }>
+  ) {
+    if (!dateInWindow) {
+      setState({
+        kind: "error",
+        message: `Pick a date in the last ${MAX_BACKDATE_DAYS} days (or today / tomorrow).`,
+        status: 0,
+      });
+      return;
+    }
+    setState({ kind: "submitting" });
+    setSplitOpen(false);
+    // Same gate as the single-job paths: the server validates every
+    // allocation's jobId against the worker's active assigned jobs. The
+    // SplitDaySheet already requires a picked job per row before it calls us.
+    const payload = buildSplitDayPayload({
+      date,
+      totalHours,
+      allocations,
       notes: notes || null,
     });
     const result = await timesheetsClient.submitNewEntry(payload);
@@ -361,6 +391,19 @@ export function LogHoursSheet({
               Custom hours
             </Button>
 
+            {assignedJobs.length > 1 ? (
+              <Button
+                variant="secondary"
+                size="lg"
+                onClick={() => setSplitOpen(true)}
+                disabled={submitting || lockedByStatus || !dateInWindow || !hasJobs}
+                className="w-full"
+                data-testid="split-across-jobs"
+              >
+                Split across jobs
+              </Button>
+            ) : null}
+
             <label className="block text-sm">
               <span className="mb-1 block font-medium text-text">Notes (optional)</span>
               <textarea
@@ -422,6 +465,14 @@ export function LogHoursSheet({
           </div>
         </div>
       </Modal>
+
+      <SplitDaySheet
+        open={splitOpen}
+        onClose={() => setSplitOpen(false)}
+        assignedJobs={assignedJobs}
+        submitting={submitting}
+        onSubmit={submitSplit}
+      />
     </div>
   );
 }
