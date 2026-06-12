@@ -227,3 +227,66 @@
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation: none; }
 }
+
+/* ── Worker sign-in (#421): big-key PIN keypad, glove-friendly ─────────── */
+.workerSwitch {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--navy);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.pinField {
+  width: 100%;
+  height: 52px;
+  border: 1px solid var(--paper-3, #d9dce3);
+  border-radius: 12px;
+  padding: 0 16px;
+  font-size: 22px;
+  letter-spacing: 0.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.pinField:focus {
+  outline: none;
+  border-color: var(--navy);
+  box-shadow: 0 0 0 3px rgba(13, 27, 52, 0.09);
+}
+.keypad {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.padKey,
+.padKeyMuted {
+  height: 56px;
+  min-width: 56px;
+  border-radius: 12px;
+  border: 1px solid var(--paper-3, #d9dce3);
+  background: var(--paper, #fff);
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink, #0f172a);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, transform 0.1s ease;
+}
+.padKeyMuted {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2, #475569);
+  background: var(--paper-2, #f6f7f9);
+}
+.padKey:active,
+.padKeyMuted:active {
+  transform: translateY(1px);
+  background: var(--paper-2, #f1f3f6);
+}

@@ -7,32 +7,32 @@ import styles from "./login.module.css";
 
 interface LoginFormProps {
   next?: string;
+  /** #421: deep-link straight into worker (name+PIN) mode via ?mode=worker —
+   *  e.g. from the invite-accepted screen. Defaults to the office form. */
+  initialMode?: "office" | "worker";
 }
 
 /**
  * The BuhlOS sign-in card (right side of the split layout). Recreated from the
  * Claude Design handoff (buhlos-phil/project/login/login.jsx).
  *
- * Wiring is real, not prototype: POSTs to the existing /api/auth?action=login
- * endpoint with `{ username, secret }` (the shape api/auth.js destructures —
- * see the earlier draft's 400 "username and secret required" bug). The endpoint
- * sets the buhl_session cookie; on success we HARD-navigate so the new cookie is
- * observed by middleware on the next request. landingFor() is the SAME source of
- * truth used by src/middleware.ts (no second copy — non-negotiable §"One
- * canonical source per concept").
+ * Two modes share the same credential model and the same POST to
+ * /api/auth?action=login with `{ username, secret }`:
+ *   • OFFICE (default) — the email + password desktop form. BYTE-IDENTICAL to
+ *     what shipped: the "Sign in" / "Welcome back." / "Work email" strings and
+ *     the login-username / login-password / login-submit testids are load-
+ *     bearing (field-readiness + auth-routing smoke). Do not touch them.
+ *   • WORKER (#421) — name + 4-digit PIN on big glove-friendly keys, no office
+ *     dialect ("Work email"/"Password" never appear). Same POST, distinct
+ *     worker-* testids so the office smoke is unaffected.
  *
  * Intentional deviations from the prototype, agreed with the user:
- *   • "Forgot password" — dropped (no self-service reset backend yet; the
- *     prototype's "email reset link" screen was a mock).
- *   • SSO — shown disabled / "coming soon" (no SSO/SAML/OAuth backend exists).
- *   • Dark / HC themes, centered layout, the Tweaks panel and the success/locked
- *     preview states — design-review controls, not shipped.
- *
- * The data-testid hooks (login-username / login-password / login-submit) and the
- * "Sign in" button name are load-bearing: the field-readiness smoke + auth-routing
- * specs drive login through them (tests/playwright/helpers/auth.ts).
+ *   • "Forgot password" — dropped (no self-service reset backend yet).
+ *   • SSO — shown disabled / "coming soon".
+ *   • Dark / HC themes, centered layout, the Tweaks panel — design-only.
  */
-export function LoginForm({ next }: LoginFormProps) {
+export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
+  const [mode, setMode] = useState<"office" | "worker">(initialMode);
   const [identifier, setIdentifier] = useState("");
   const [secret, setSecret] = useState("");
   const [show, setShow] = useState(false);
@@ -48,11 +48,10 @@ export function LoginForm({ next }: LoginFormProps) {
   const idErr = touched && !identifier.trim() ? "Enter your work email" : "";
   const pwErr = touched && !secret ? "Enter your password" : "";
 
-  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setTouched(true);
+  /** Shared sign-in: posts { username, secret } and navigates on success.
+   *  onFail lets each mode shape its own retry behaviour. */
+  function signIn(username: string, pin: string, onFail: (msg: string) => void) {
     setError(null);
-    if (!identifier.trim() || !secret) return;
     startTransition(async () => {
       try {
         const res = await fetch("/api/auth?action=login", {
@@ -60,12 +59,12 @@ export function LoginForm({ next }: LoginFormProps) {
           credentials: "same-origin",
           headers: { "content-type": "application/json" },
           // api/auth.js destructures { username, secret } — must match.
-          body: JSON.stringify({ username: identifier, secret }),
+          body: JSON.stringify({ username, secret: pin }),
           cache: "no-store",
         });
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as { error?: string };
-          setError(body.error ?? `Sign-in failed (${res.status}).`);
+          onFail(body.error ?? `Sign-in failed (${res.status}).`);
           return;
         }
         const body = (await res.json()) as { user?: { role?: string } };
@@ -73,9 +72,35 @@ export function LoginForm({ next }: LoginFormProps) {
         // Hard navigation so the new session cookie is read by the middleware.
         window.location.assign(target);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Network error.");
+        onFail(err instanceof Error ? err.message : "Network error.");
       }
     });
+  }
+
+  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setTouched(true);
+    if (!identifier.trim() || !secret) return;
+    signIn(identifier, secret, (msg) => setError(msg));
+  }
+
+  if (mode === "worker") {
+    return (
+      <WorkerSignIn
+        pending={pending}
+        error={error}
+        onBack={() => {
+          setMode("office");
+          setError(null);
+        }}
+        onSubmit={(name, pin, clearPin) =>
+          signIn(name, pin, (msg) => {
+            setError(msg);
+            clearPin();
+          })
+        }
+      />
+    );
   }
 
   const banner = error ? bannerFor(error) : null;
@@ -178,9 +203,178 @@ export function LoginForm({ next }: LoginFormProps) {
       </form>
 
       <div className={styles.foot}>
-        Field crew? You use <b>Phil</b> on your phone — not here.
+        <button
+          type="button"
+          className={styles.workerSwitch}
+          onClick={() => {
+            setMode("worker");
+            setError(null);
+          }}
+          data-testid="login-worker-switch"
+        >
+          On the tools? Sign in with your name &amp; PIN →
+        </button>
         <br />
         Trouble signing in? Call the office on <b>0421 558 902</b>.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * #421 — worker sign-in: name + 4-digit PIN on big keys. No "Work email" /
+ * "Password" anywhere. Same POST as the office form (name → username, PIN →
+ * secret). A wrong PIN clears the keys for an immediate retry.
+ */
+function WorkerSignIn({
+  pending,
+  error,
+  onBack,
+  onSubmit,
+}: {
+  pending: boolean;
+  error: string | null;
+  onBack: () => void;
+  onSubmit: (name: string, pin: string, clearPin: () => void) => void;
+}) {
+  const [name, setName] = useState("");
+  const [pin, setPin] = useState("");
+
+  const tapKey = (d: string) => setPin((p) => (p.length >= 4 ? p : p + d));
+  const backspace = () => setPin((p) => p.slice(0, -1));
+  const ready = name.trim().length > 0 && pin.length === 4 && !pending;
+
+  function submit() {
+    if (name.trim().length === 0 || pin.length !== 4 || pending) return;
+    onSubmit(name.trim(), pin, () => setPin(""));
+  }
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.topmark}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className={styles.topmarkLogo} src="/brand/buhl-logo-ink.png" alt="bühl electrical" />
+      </div>
+
+      <span className={styles.eyebrow}>Phil</span>
+      <h2 className={styles.h}>Let&apos;s get you in.</h2>
+      <p className={styles.p}>Your name and your 4-digit PIN. That&apos;s it.</p>
+
+      <form
+        className={styles.form}
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+        noValidate
+      >
+        {error ? (
+          <div className={styles.banner} role="alert" data-testid="worker-error">
+            <div className={styles.ic}>!</div>
+            <div>
+              <b>That PIN doesn&apos;t match</b>
+              <p>Try again — your name and 4-digit PIN.</p>
+            </div>
+          </div>
+        ) : null}
+
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="worker-name">
+            <span>Your name</span>
+          </label>
+          <div className={styles.inputWrap}>
+            <input
+              id="worker-name"
+              data-testid="worker-name"
+              className={styles.input}
+              type="text"
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              placeholder="e.g. jdoust"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
+          </div>
+        </div>
+
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="worker-pin">
+            <span>PIN</span>
+          </label>
+          {/* A native numeric field (inputMode=numeric) for accessibility +
+              the device keypad; the big on-screen keys below are the glove-
+              friendly primary input. Both write the same 4-digit PIN. */}
+          <input
+            id="worker-pin"
+            data-testid="worker-pin"
+            className={styles.pinField}
+            type="tel"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete="one-time-code"
+            maxLength={4}
+            placeholder="••••"
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+          />
+          <div className={styles.keypad}>
+            {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
+              <button
+                key={d}
+                type="button"
+                className={styles.padKey}
+                onClick={() => tapKey(d)}
+                data-testid={`worker-key-${d}`}
+              >
+                {d}
+              </button>
+            ))}
+            <button type="button" className={styles.padKeyMuted} onClick={onBack}>
+              Office
+            </button>
+            <button
+              type="button"
+              className={styles.padKey}
+              onClick={() => tapKey("0")}
+              data-testid="worker-key-0"
+            >
+              0
+            </button>
+            <button
+              type="button"
+              className={styles.padKeyMuted}
+              onClick={backspace}
+              aria-label="Delete"
+            >
+              ⌫
+            </button>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          data-testid="worker-submit"
+          className={`${styles.submit} ${pending ? styles.busy : ""}`}
+          disabled={!ready}
+        >
+          {pending ? (
+            <>
+              <span className={styles.spinner} />Signing in…
+            </>
+          ) : (
+            <>Sign in →</>
+          )}
+        </button>
+      </form>
+
+      <div className={styles.foot}>
+        <button type="button" className={styles.workerSwitch} onClick={onBack}>
+          ← Office sign-in (email &amp; password)
+        </button>
+        <br />
+        Trouble? Call the office on <b>0421 558 902</b>.
       </div>
     </div>
   );
