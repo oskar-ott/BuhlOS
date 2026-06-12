@@ -21,6 +21,7 @@ const EXACT_STORES = [
   'itp-templates.json',
   'job-types.json',
   'quotes.json',
+  'quotes-v2.json', // v2 quote registry (#183)
   'suppliers.json',
   'wholesalers.json',
   'payroll-runs.json',
@@ -46,6 +47,7 @@ const PREFIX_STORES = [
   'audit/', // audit-log monthly rollovers audit/<yyyy-mm>.json
   'assets/', // gear/asset documents
   'quotes/', // per-quote section documents (structure, pricing, …)
+  'quotes-v2/', // v2 per-quote documents (sections/lines) (#183)
   'suppliers/', // per-supplier products.json (supplier-products.js)
   'access-requests/',
   'password-resets/',
