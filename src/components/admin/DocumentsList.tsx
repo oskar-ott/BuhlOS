@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import { DocumentUploadButton } from "@/components/admin/DocumentUploadButton";
 import {
   categoryLabel,
   displayTitle,
@@ -43,7 +44,7 @@ const STATUS_PILL_TONE: Record<
 };
 
 /**
- * Phase E2 — admin documents list (read-only).
+ * Phase E2 — admin documents list (+ upload as of #379).
  *
  * Server component (page.tsx) does the initial fetch; this client
  * component owns filter state + the "Show old revisions" expander
@@ -106,13 +107,12 @@ export function DocumentsList({
           <div className="min-w-0">
             <CardTitle>Documents &amp; specs · {job.name}</CardTitle>
             <CardDescription className="mt-1">
-              Plans, specs and schedules attached to this job. Read-only
-              viewer — uploading and revision curation aren&rsquo;t available
-              yet (the legacy uploader was retired in the legacy cutover; a
-              modern one is on the backlog).
+              Plans, specs and schedules attached to this job. Uploading a
+              drawing with an existing number supersedes the old revision
+              automatically.
             </CardDescription>
           </div>
-          <Pill tone="neutral">Read-only</Pill>
+          <DocumentUploadButton jobId={job.id} />
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2" role="tablist">

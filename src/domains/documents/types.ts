@@ -4,6 +4,9 @@ import type {
   DocumentListResponseSchema,
   DocumentSchema,
   DocumentStatusSchema,
+  UploadDocumentPayloadSchema,
+  UploadDocumentResponseSchema,
+  SetPagesResponseSchema,
 } from "./schema";
 
 /**
@@ -19,3 +22,6 @@ export type DocumentStatus = z.infer<typeof DocumentStatusSchema>;
 export type DocumentCategory = z.infer<typeof DocumentCategorySchema>;
 export type Document = z.infer<typeof DocumentSchema>;
 export type DocumentListResponse = z.infer<typeof DocumentListResponseSchema>;
+export type UploadDocumentPayload = z.infer<typeof UploadDocumentPayloadSchema>;
+export type UploadDocumentResponse = z.infer<typeof UploadDocumentResponseSchema>;
+export type SetPagesResponse = z.infer<typeof SetPagesResponseSchema>;

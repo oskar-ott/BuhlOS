@@ -608,7 +608,9 @@ module.exports = async (req, res) => {
         p.drawingNumber && p.drawingNumber === plan.drawingNumber && p.status === 'current'
       );
       if (dupe) {
-        revisionWarning = 'Existing current drawing with this number — mark new one current?';
+        // #194 defect (d): by the time this string reaches the client the
+        // supersede below has already run — say what HAPPENED, don't ask.
+        revisionWarning = 'This drawing number already had a current revision — it is now marked superseded by this upload.';
         // Auto-fill `supersedes` if the caller didn't provide one — the
         // current plan on this drawing number is the obvious target. This
         // makes "upload a new revision" Just Work without admin extra step.
