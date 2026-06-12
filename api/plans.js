@@ -58,8 +58,9 @@
 const crypto = require('crypto');
 const { put } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canManageJob, isAdminRole, isClientRole } = require('./_lib/auth');
+const { requireAuth, canManageJob, isAdminRole, isClientRole, isFieldRole, isLeadingHandRole } = require('./_lib/auth');
 const { append: appendAuditLog } = require('./_lib/audit-log');
+const { sendPushToUserId } = require('./_lib/push');
 
 const VALID_STATUSES = ['current', 'superseded', 'archived'];
 // #194: closed discipline set for DRAWING-type rows. Additive — legacy rows
@@ -503,6 +504,17 @@ function enforceSingleCurrent(data, plan) {
   return demoted;
 }
 
+// #299: per-job revision acknowledgements — jobs/<jobId>/plan-acks.json
+// { acks: [{ planId, userId, userName, ackAt }] }. The ack — not push
+// delivery — is the only "seen" claim the register ever makes.
+function acksKey(jobId) {
+  return 'jobs/' + jobId + '/plan-acks.json';
+}
+async function readAcks(jobId) {
+  const data = await readBlob(acksKey(jobId), { acks: [] });
+  return Array.isArray(data.acks) ? data : { acks: [] };
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -517,6 +529,49 @@ module.exports = async (req, res) => {
 
   // ── GET ────────────────────────────────────────────────
   if (req.method === 'GET') {
+    // #299: per-revision acknowledgement rollup — who's seen it, who's
+    // outstanding. Audience = CURRENT field-tier assignment (a worker
+    // assigned after issue shows outstanding; an unassigned one drops out).
+    if (action === 'acks') {
+      if (!isAdminRole(user.role) && !canManageJob(user, jobId)) {
+        return res.status(403).json({ error: 'admin / LH only' });
+      }
+      const planId = req.query && req.query.planId;
+      if (!planId) return res.status(400).json({ error: 'planId required' });
+      const [ackData, usersBlob] = await Promise.all([
+        readAcks(jobId),
+        readBlob('users.json', { users: [] }),
+      ]);
+      const ackByUser = {};
+      for (const ack of ackData.acks) {
+        if (ack.planId === planId) ackByUser[ack.userId] = ack;
+      }
+      const acked = [];
+      const outstanding = [];
+      for (const u of usersBlob.users || []) {
+        if (!Array.isArray(u.assignedJobIds) || !u.assignedJobIds.includes(jobId)) continue;
+        if (u.archived || u.disabled || u.status === 'disabled') continue;
+        if (!isFieldRole(u.role) && !isLeadingHandRole(u.role)) continue;
+        const ack = ackByUser[u.id];
+        if (ack) acked.push({ userId: u.id, userName: u.username || u.id, ackAt: ack.ackAt });
+        else outstanding.push({ userId: u.id, userName: u.username || u.id });
+      }
+      return res.status(200).json({ acked, outstanding });
+    }
+
+    // #299: the viewer's own acks on this job — lets Phil render "Seen ✓"
+    // without exposing anyone else's state.
+    if (action === 'my-acks') {
+      const isCrew = (user.assignedJobIds || []).includes(jobId);
+      if (!isAdminRole(user.role) && !canManageJob(user, jobId) && !isCrew) {
+        return res.status(403).json({ error: 'no access to this job' });
+      }
+      const ackData = await readAcks(jobId);
+      return res.status(200).json({
+        planIds: ackData.acks.filter(a => a.userId === user.id).map(a => a.planId),
+      });
+    }
+
     if (action === 'takeoff') {
       if (!isAdminRole(user.role) && !canManageJob(user, jobId)) {
         return res.status(403).json({ error: 'admin / LH only' });
@@ -536,6 +591,45 @@ module.exports = async (req, res) => {
       plans = plans.filter(p => p.status !== 'archived');
     }
     return res.status(200).json({ plans });
+  }
+
+  // #299: worker acknowledges a revision — the one FIELD write on this
+  // endpoint, so it sits ABOVE the manage-gate. Self-only (session is the
+  // identity — #112 attribution discipline), assigned crew only, idempotent.
+  if (req.method === 'POST' && action === 'ack') {
+    const body = req.body || {};
+    const planId = body.planId;
+    if (!planId) return res.status(400).json({ error: 'planId required' });
+    const isCrew = (user.assignedJobIds || []).includes(jobId);
+    if (!isCrew && !isAdminRole(user.role) && !canManageJob(user, jobId)) {
+      return res.status(403).json({ error: 'not assigned to this job' });
+    }
+    const data = await readIndex(jobId);
+    const plan = (data.plans || []).find(p => p.id === planId);
+    if (!plan) return res.status(404).json({ error: 'plan not found' });
+    const ackData = await readAcks(jobId);
+    const existing = ackData.acks.find(a => a.planId === planId && a.userId === user.id);
+    if (existing) return res.status(200).json({ ack: existing, already: true });
+    const ack = {
+      planId,
+      userId: user.id,
+      userName: user.username || user.id,
+      ackAt: new Date().toISOString(),
+    };
+    ackData.acks.push(ack);
+    await writeBlob(acksKey(jobId), ackData);
+    await appendAuditLog({
+      action: 'document.acknowledged',
+      actorId: user.id,
+      actorName: user.username || 'Unknown',
+      actorRole: user.role || null,
+      jobId,
+      targetType: 'document',
+      targetId: planId,
+      summary: `acknowledged "${(plan.title || plan.fileName || plan.id).slice(0, 80)}"${plan.revision ? ' rev ' + plan.revision : ''}`,
+      metadata: { revision: plan.revision || null, drawingNumber: plan.drawingNumber || null },
+    }).catch(() => {});
+    return res.status(201).json({ ack });
   }
 
   // All mutations require management of the job.
@@ -620,6 +714,9 @@ module.exports = async (req, res) => {
       // reference (`supersededBy`) is set on the older plan below.
       supersedes:    body.supersedes ? String(body.supersedes).trim() : '',
       supersededBy:  '',
+      // #299: what changed in this revision — free text v1, shown in admin
+      // and Phil; #203's auto-diff replaces it later.
+      changeSummary: body.changeSummary ? String(body.changeSummary).trim().slice(0, 500) : '',
       uploadedAt:    now,
       uploadedBy:    user.username,
       uploadedByUserId: user.id,
@@ -627,6 +724,22 @@ module.exports = async (req, res) => {
 
     const data = await readIndex(jobId);
     data.plans = data.plans || [];
+
+    // #299: explicit one-step revision. `revisesPlanId` names the predecessor
+    // — no string matching — and the upload INHERITS its identity fields
+    // wherever the caller left them blank, so "new revision" never re-types
+    // (or mistypes) the drawing number. A bad id is a hard 400: explicit
+    // intent must not silently degrade into a fresh unrelated drawing.
+    if (body.revisesPlanId) {
+      const prev = data.plans.find(p => p.id === String(body.revisesPlanId).trim());
+      if (!prev) return res.status(400).json({ error: 'revisesPlanId does not match a plan on this job' });
+      plan.supersedes = prev.id;
+      if (!plan.drawingNumber) plan.drawingNumber = prev.drawingNumber || '';
+      if (!plan.discipline) plan.discipline = prev.discipline || '';
+      if (!plan.title) plan.title = prev.title || '';
+      if (!plan.level) plan.level = prev.level || '';
+      if (!plan.category) plan.category = prev.category || '';
+    }
 
     let revisionWarning = null;
     if (plan.drawingNumber) {
@@ -689,7 +802,37 @@ module.exports = async (req, res) => {
         metadata: { supersededBy: plan.id },
       }).catch(() => {});
     }
-    return res.status(201).json({ plan, revisionWarning });
+    // #299: a real revision (it superseded something) reaches the field —
+    // push every live assigned field-tier worker, deep-linked to the job's
+    // plans page. Best-effort: push failures never fail the upload, and the
+    // ack list — not delivery — is the only "seen" claim. First upload of a
+    // drawing supersedes nothing → no notification storm.
+    let notified = 0;
+    if (plan.supersedes) {
+      try {
+        const usersBlob = await readBlob('users.json', { users: [] });
+        const name = plan.drawingNumber || plan.title || plan.fileName;
+        const title = 'New revision — ' + name + (plan.revision ? ' Rev ' + plan.revision : '');
+        const pushBody = (plan.changeSummary || 'Tap to see the current sheet.') +
+          ' Open Plans and acknowledge it.';
+        for (const u of usersBlob.users || []) {
+          if (!Array.isArray(u.assignedJobIds) || !u.assignedJobIds.includes(jobId)) continue;
+          if (u.archived || u.disabled || u.status === 'disabled') continue;
+          if (!isFieldRole(u.role) && !isLeadingHandRole(u.role)) continue;
+          if (!u.pushSubscriptions || !u.pushSubscriptions.length) continue;
+          try {
+            const r = await sendPushToUserId(u.id, {
+              title,
+              body: pushBody,
+              url: '/phil/jobs/' + jobId + '/plans',
+              tag: 'buhl-plan-revision',
+            });
+            notified += (r && r.sent) || 0;
+          } catch {}
+        }
+      } catch {}
+    }
+    return res.status(201).json({ plan, revisionWarning, notified });
   }
 
   // ── PATCH (existing metadata edit) ─────────────────────

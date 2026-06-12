@@ -42,6 +42,17 @@ interface Props {
   defaultCategory?: (typeof DOCUMENT_CATEGORIES)[number];
   /** Render the form open immediately (render tests only). */
   defaultOpen?: boolean;
+  /**
+   * #299: "New revision" mode. Names the predecessor register row — the
+   * server inherits drawingNumber/discipline/title/level and supersedes it
+   * atomically, so the form shrinks to file + revision + what-changed.
+   */
+  revises?: {
+    id: string;
+    drawingNumber?: string;
+    title?: string;
+    revision?: string;
+  };
 }
 
 type Phase =
@@ -51,6 +62,8 @@ type Phase =
   | {
       kind: "done";
       revisionWarning: string | null;
+      /** #299: assigned field workers pushed about the revision. */
+      notified: number | null;
       pagesPrepared: number | null;
       pagePrepError: string | null;
     };
@@ -64,7 +77,12 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-export function DocumentUploadButton({ jobId, defaultCategory = "plan", defaultOpen = false }: Props) {
+export function DocumentUploadButton({
+  jobId,
+  defaultCategory = "plan",
+  defaultOpen = false,
+  revises,
+}: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(defaultOpen);
   const [phase, setPhase] = useState<Phase>({ kind: "form" });
@@ -74,7 +92,9 @@ export function DocumentUploadButton({ jobId, defaultCategory = "plan", defaultO
   const [drawingNumber, setDrawingNumber] = useState("");
   const [discipline, setDiscipline] = useState<string>("electrical");
   const [revision, setRevision] = useState("");
+  const [changeSummary, setChangeSummary] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const reviseName = revises ? (revises.drawingNumber || revises.title || "this drawing") : null;
 
   const busy = phase.kind === "uploading" || phase.kind === "rendering";
 
@@ -85,6 +105,7 @@ export function DocumentUploadButton({ jobId, defaultCategory = "plan", defaultO
     setCategory(defaultCategory);
     setDrawingNumber("");
     setRevision("");
+    setChangeSummary("");
     setErrorMessage(null);
   }
 
@@ -104,15 +125,28 @@ export function DocumentUploadButton({ jobId, defaultCategory = "plan", defaultO
     setPhase({ kind: "uploading" });
     try {
       const dataUrl = await readFileAsDataUrl(file);
-      const uploaded = await uploadDocument(jobId, {
-        dataUrl,
-        fileName: file.name,
-        title: title.trim(),
-        category,
-        drawingNumber: category === "plan" ? drawingNumber.trim() : "",
-        revision: category === "plan" ? revision.trim() : "",
-        discipline: category === "plan" ? discipline : undefined,
-      });
+      const uploaded = await uploadDocument(
+        jobId,
+        revises
+          ? {
+              // Revision mode: identity fields inherit server-side from the
+              // predecessor — only what's NEW travels.
+              dataUrl,
+              fileName: file.name,
+              revisesPlanId: revises.id,
+              revision: revision.trim(),
+              changeSummary: changeSummary.trim(),
+            }
+          : {
+              dataUrl,
+              fileName: file.name,
+              title: title.trim(),
+              category,
+              drawingNumber: category === "plan" ? drawingNumber.trim() : "",
+              revision: category === "plan" ? revision.trim() : "",
+              discipline: category === "plan" ? discipline : undefined,
+            },
+      );
       if (!uploaded.ok) {
         setPhase({ kind: "form" });
         setErrorMessage(uploaded.error.message);
@@ -158,6 +192,7 @@ export function DocumentUploadButton({ jobId, defaultCategory = "plan", defaultO
       setPhase({
         kind: "done",
         revisionWarning: uploaded.data.revisionWarning,
+        notified: uploaded.data.notified ?? null,
         pagesPrepared,
         pagePrepError,
       });
@@ -173,16 +208,32 @@ export function DocumentUploadButton({ jobId, defaultCategory = "plan", defaultO
 
   return (
     <>
-      <Button size="sm" onClick={() => setOpen(true)} data-testid="document-upload-open">
-        Upload a document
+      <Button
+        size="sm"
+        variant={revises ? "secondary" : "primary"}
+        onClick={() => setOpen(true)}
+        data-testid={revises ? "document-revise-open" : "document-upload-open"}
+      >
+        {revises ? "New revision" : "Upload a document"}
       </Button>
 
       {open ? (
-        <Modal open onClose={close} title="Upload a document" className="max-w-lg">
+        <Modal
+          open
+          onClose={close}
+          title={revises ? `New revision — ${reviseName}` : "Upload a document"}
+          className="max-w-lg"
+        >
           <div className="space-y-4 text-sm">
             {phase.kind === "done" ? (
               <div className="space-y-3" data-testid="document-upload-done">
                 <p className="text-text">Uploaded and marked current.</p>
+                {phase.notified !== null && phase.notified > 0 ? (
+                  <p className="text-text-muted" data-testid="document-revise-notified">
+                    {phase.notified} assigned {phase.notified === 1 ? "worker" : "workers"} notified
+                    in Phil — acknowledgements show on the register.
+                  </p>
+                ) : null}
                 {phase.revisionWarning ? (
                   <p className="rounded-card border border-state-warning px-3 py-2 text-state-warning" role="status">
                     {phase.revisionWarning}
@@ -228,6 +279,40 @@ export function DocumentUploadButton({ jobId, defaultCategory = "plan", defaultO
                   />
                 </label>
 
+                {revises ? (
+                  <>
+                    <p className="rounded-card bg-surface-subtle px-3 py-2 text-text-muted">
+                      Inherits {reviseName}&rsquo;s details and supersedes
+                      {revises.revision ? ` Rev ${revises.revision}` : " the current revision"} in
+                      one step. Assigned workers get a push and acknowledge in Phil.
+                    </p>
+                    <label className="block">
+                      <span className="text-text-muted">New revision</span>
+                      <input
+                        type="text"
+                        value={revision}
+                        onChange={(e) => setRevision(e.target.value)}
+                        placeholder={revises.revision ? `after ${revises.revision}` : "e.g. C"}
+                        className={inputClass}
+                        data-testid="document-revise-revision"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-text-muted">What changed (workers see this)</span>
+                      <textarea
+                        value={changeSummary}
+                        onChange={(e) => setChangeSummary(e.target.value)}
+                        placeholder="e.g. Unit 4 power layout changed — extra circuit in the kitchen"
+                        rows={3}
+                        className="mt-1 block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm"
+                        data-testid="document-revise-summary"
+                      />
+                    </label>
+                  </>
+                ) : null}
+
+                {!revises ? (
+                <>
                 <label className="block">
                   <span className="text-text-muted">Title</span>
                   <input
@@ -295,6 +380,8 @@ export function DocumentUploadButton({ jobId, defaultCategory = "plan", defaultO
                       />
                     </label>
                   </div>
+                ) : null}
+                </>
                 ) : null}
 
                 {phase.kind === "rendering" ? (

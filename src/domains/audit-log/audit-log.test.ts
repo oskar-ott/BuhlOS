@@ -121,6 +121,7 @@ describe("AuditLogEntrySchema", () => {
       "credential.added",
       "credential.removed",
       "credential.updated",
+      "document.acknowledged",
       "document.made_current",
       "document.superseded",
       "document.uploaded",

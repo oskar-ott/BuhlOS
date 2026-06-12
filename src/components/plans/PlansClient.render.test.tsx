@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// #299: PlanRevisionPanel mounts DocumentUploadButton (useRouter).
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => undefined, push: () => undefined }),
+}));
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { PlansClient } from "./PlansClient";
@@ -132,5 +137,73 @@ describe("PlanViewer (via PlansClient) — raster, fallback, guard", () => {
     );
     expect(html).toContain("Superseded revision");
     expect(html).toContain("not for construction");
+  });
+});
+
+describe("PlanRevisionPanel via PlansClient (#299)", () => {
+  const revB = makeDoc({
+    id: "rev_b",
+    title: "Power L1",
+    drawingNumber: "E-101",
+    revision: "B",
+    status: "current",
+    supersedes: "rev_a",
+    changeSummary: "Unit 4 power changed",
+    pages: rasterPages,
+  });
+  const revA = makeDoc({
+    id: "rev_a",
+    title: "Power L1",
+    drawingNumber: "E-101",
+    revision: "A",
+    status: "superseded",
+    supersededBy: "rev_b",
+    pages: rasterPages,
+  });
+
+  it("admin: lineage walk + what-changed + New revision + Who's-seen-it", () => {
+    const html = renderToString(
+      createElement(PlansClient, {
+        mode: "admin",
+        jobId: "j1",
+        initialDocuments: [revB, revA],
+      }),
+    );
+    expect(html).toContain("plan-revision-tools");
+    expect(html).toContain("Rev A");
+    expect(html).toContain("Rev B");
+    expect(html).toContain("(current)");
+    expect(html).toContain("Unit 4 power changed");
+    expect(html).toContain("document-revise-open"); // New revision action
+    expect(html).toContain("plan-acks-load"); // Who's seen it?
+  });
+
+  it("phil: what-changed banner on the current revision; no admin tools", () => {
+    const html = renderToString(
+      createElement(PlansClient, {
+        mode: "phil",
+        jobId: "j1",
+        initialDocuments: [revB, revA],
+      }),
+    );
+    expect(html).toContain("phil-revision-notice");
+    expect(html).toContain("What changed");
+    expect(html).toContain("Rev B");
+    expect(html).toContain("Unit 4 power changed");
+    expect(html).not.toContain("document-revise-open");
+    expect(html).not.toContain("plan-acks-load");
+  });
+
+  it("a plain first-issue drawing renders no revision chrome in either mode", () => {
+    const first = makeDoc({ id: "f", title: "Site plan", status: "current", pages: rasterPages });
+    for (const mode of ["admin", "phil"] as const) {
+      const html = renderToString(
+        createElement(PlansClient, { mode, jobId: "j1", initialDocuments: [first] }),
+      );
+      expect(html).not.toContain("phil-revision-notice");
+      expect(html).not.toContain("What changed");
+      // Admin still gets the New revision affordance on a current row.
+      if (mode === "admin") expect(html).toContain("document-revise-open");
+    }
   });
 });

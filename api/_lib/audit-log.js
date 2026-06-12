@@ -96,6 +96,8 @@ const VALID_ACTIONS = new Set([
   'document.uploaded',
   'document.superseded',
   'document.made_current',
+  // #299: a field worker acknowledged a revision ("seen rev C").
+  'document.acknowledged',
   // #189: per-job contacts maintained by the office.
   'contact.saved',
   'contact.removed',
