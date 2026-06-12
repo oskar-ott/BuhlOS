@@ -67,4 +67,16 @@ describe("Phil legibility floor (#423)", () => {
     const firstRule = offBlock.slice(0, offBlock.indexOf("}"));
     expect(firstRule).not.toContain("opacity");
   });
+
+  it("one design dialect — no JetBrains Mono face left in My Day (#423)", () => {
+    const css = readFileSync(join(PHIL_DIR, "myDay.module.css"), "utf8");
+    expect(css.toLowerCase()).not.toContain("jetbrains");
+    // ...and the page no longer imports/loads the mono font.
+    const page = readFileSync(
+      join(PHIL_DIR, "..", "..", "app", "phil", "my-day", "page.tsx"),
+      "utf8"
+    );
+    expect(page).not.toContain("JetBrains_Mono");
+    expect(page).not.toContain("font-jetbrains");
+  });
 });

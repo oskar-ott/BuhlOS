@@ -6,12 +6,12 @@
  * SCOPED to My Day so it never harmonizes to the app's global cool-slate tokens
  * — the same pattern as src/app/v2/login/login.module.css.
  *
- * Only the two things the global token set genuinely lacks live here as literal
- * values: the tinted state backgrounds (the app's `state-*` tokens are solid)
- * and the JetBrains Mono microcopy face (the design's signature for metadata).
- * Everything else reuses the global brand tokens (--brand-navy, --accent-yellow,
- * --text, --border, --font-inter-tight) so My Day stays consistent with the
- * shell and the unchanged LogHoursSheet.
+ * #423: My Day now renders from the GLOBAL design tokens — one dialect with
+ * the rest of Phil. The only scoped values are tinted state-cell backgrounds
+ * derived (via color-mix) from the global `--state-*` tokens, which ship
+ * solid; the typeface is the app's Inter/Inter-Tight (the prototype's
+ * monospace microcopy face was removed). Everything else is --brand-navy / --accent-
+ * yellow / --text / --border so My Day matches the shell and LogHoursSheet.
  */
 
 .surface {
@@ -21,24 +21,29 @@
   flex-direction: column;
   gap: 12px;
 
-  /* Tinted state backgrounds from the prototype palette (the app has no
-     --green-bg / --amber-bg tokens, so they are scoped here). */
-  --md-green: #1f8b5a;
-  --md-green-bg: #e6f3ec;
-  --md-green-bd: #b9dec8;
-  --md-amber: #d18b1c;
-  --md-amber-bg: #faf2e1;
-  --md-amber-bd: #ecd5a5;
-  --md-red: #b3261e;
-  --md-red-bg: #fbeae9;
-  --md-red-bd: #efc4c1;
+  /* State colours sourced from the GLOBAL tokens (#423 — one dialect):
+     the app's --state-* hues, not the prototype's warm gold. The tinted
+     state-cell BACKGROUNDS are derived from those same tokens (the global
+     set only ships solid state colours), so a logged/missing/fix cell
+     reads in the app's palette and nothing here is a one-off hex. */
+  --md-green: var(--state-success);
+  --md-green-bg: color-mix(in srgb, var(--state-success) 9%, var(--surface-raised));
+  --md-green-bd: color-mix(in srgb, var(--state-success) 28%, var(--surface-raised));
+  --md-amber: var(--state-warning);
+  --md-amber-bg: color-mix(in srgb, var(--state-warning) 9%, var(--surface-raised));
+  --md-amber-bd: color-mix(in srgb, var(--state-warning) 28%, var(--surface-raised));
+  --md-red: var(--state-danger);
+  --md-red-bg: color-mix(in srgb, var(--state-danger) 9%, var(--surface-raised));
+  --md-red-bd: color-mix(in srgb, var(--state-danger) 28%, var(--surface-raised));
 }
 
-/* JetBrains Mono microcopy — every label / id / status word in the design. */
+/* Caption microcopy — uppercase, letter-spaced, in the app's Inter face
+   (#423: the prototype monospace dialect was removed). Class name kept .mono
+   so the component bindings (styles.mono) don't churn. */
 .mono {
-  font-family: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -71,7 +76,7 @@
 }
 .greetSub {
   margin-top: 5px;
-  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.12em;
@@ -153,7 +158,7 @@
 .logActionSub {
   display: block;
   margin-top: 1px;
-  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -175,7 +180,7 @@
   padding: 11px 14px;
 }
 .deferNoteLabel {
-  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.1em;
@@ -204,7 +209,7 @@
 .moreOptionsSummary {
   cursor: pointer;
   list-style: none;
-  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -247,7 +252,7 @@ details[open] > .moreOptionsSummary::before {
 .weekRange {
   display: block;
   margin-top: 3px;
-  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -270,7 +275,7 @@ details[open] > .moreOptionsSummary::before {
 .weekTodayFlag {
   display: block;
   margin-top: 3px;
-  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -318,7 +323,7 @@ details[open] > .moreOptionsSummary::before {
   outline-offset: 2px;
 }
 .dayLabel {
-  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -347,7 +352,7 @@ details[open] > .moreOptionsSummary::before {
   font-variant-numeric: tabular-nums;
 }
 .status {
-  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -419,7 +424,7 @@ details[open] > .moreOptionsSummary::before {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
-  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -446,7 +451,7 @@ details[open] > .moreOptionsSummary::before {
   padding: 11px 15px 9px;
 }
 .needsTitle {
-  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.14em;
