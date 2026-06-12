@@ -317,7 +317,7 @@ function TaskRow({
           disabled={pending}
           aria-label={done ? `Mark ${task.name} not done` : `Mark ${task.name} done`}
           className={cn(
-            "inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-pill border border-border bg-surface px-3 font-display text-xs font-semibold text-text transition-colors",
+            "inline-flex min-h-[48px] shrink-0 items-center gap-1.5 rounded-pill border border-border bg-surface px-4 font-display text-xs font-semibold text-text transition-colors",
             "hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy",
             "disabled:cursor-not-allowed disabled:opacity-60",
           )}

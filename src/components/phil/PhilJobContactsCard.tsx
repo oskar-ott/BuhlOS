@@ -1,4 +1,4 @@
-import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { Card, CardTitle } from "@/components/ui/Card";
 import type { JobContact } from "@/domains/contacts/schema";
 
 /**
@@ -31,9 +31,6 @@ export function PhilJobContactsCard({ contacts }: Props) {
   return (
     <Card>
       <CardTitle>Who to call</CardTitle>
-      <CardDescription className="mt-1">
-        The job&rsquo;s key people — tap to ring or text.
-      </CardDescription>
 
       {[
         { label: null, rows: project },
@@ -60,14 +57,14 @@ export function PhilJobContactsCard({ contacts }: Props) {
                     <div className="flex shrink-0 gap-2">
                       <a
                         href={`tel:${clean(c.phone)}`}
-                        className="rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-white"
+                        className="inline-flex min-h-[48px] items-center rounded-card bg-brand-navy px-4 text-sm font-medium text-white"
                         data-testid="contact-call"
                       >
                         Call
                       </a>
                       <a
                         href={`sms:${clean(c.phone)}`}
-                        className="rounded-card border border-border px-3 py-2 text-sm font-medium text-text"
+                        className="inline-flex min-h-[48px] items-center rounded-card border border-border px-4 text-sm font-medium text-text"
                         data-testid="contact-sms"
                       >
                         Text

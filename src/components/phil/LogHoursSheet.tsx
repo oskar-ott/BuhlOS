@@ -533,6 +533,12 @@ function JobAttribution({
           );
         })}
       </ul>
+      {/* #424: the one-allocation rule lives here in the picker (only with
+          >1 job), not as a permanent apology on My Day. */}
+      <p className="mt-2 text-xs text-text-muted">
+        One job per submission. Working two today? Log the bigger block and tell
+        the office.
+      </p>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { JobSnagsPanel } from "./JobSnagsPanel";
 import type { Job } from "@/domains/jobs/types";
+import type { SnagItem } from "@/domains/snags/types";
 
 const job = { id: "j", name: "J", status: "active" } as unknown as Job;
 const viewer = { id: "u1", role: "electrician" };
@@ -27,6 +28,26 @@ describe("JobSnagsPanel — field language", () => {
       createElement(JobSnagsPanel, { job, initialSnags: [], context, viewer }),
     );
     expect(html).toContain("No open issues on this job");
+  });
+
+  it("explainer teaches only when empty; a populated panel is heading + content (#424)", () => {
+    const emptyHtml = renderToString(
+      createElement(JobSnagsPanel, { job, initialSnags: [], context, viewer }),
+    );
+    expect(emptyHtml).toContain("Things on site that need fixing");
+    const snag = {
+      id: "s1",
+      jobId: "j",
+      title: "Loose meter box",
+      status: "open",
+      severity: "normal",
+      createdAt: "2026-06-01",
+    } as unknown as SnagItem;
+    const fullHtml = renderToString(
+      createElement(JobSnagsPanel, { job, initialSnags: [snag], context, viewer }),
+    );
+    expect(fullHtml).not.toContain("Things on site that need fixing");
+    expect(fullHtml).toContain("Report snag"); // action still present
   });
 
   it("uses no admin / payroll / Xero / module jargon", () => {
