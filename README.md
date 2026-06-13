@@ -7,6 +7,10 @@ The BuhlOS operating layer plus its two surfaces:
 
 > Naming reference: see [`docs/architecture/00-rebuild-non-negotiables.md`](docs/architecture/00-rebuild-non-negotiables.md). "Switchboard" and "Site Office" are deprecated product names and must not appear in any new code or surface.
 
+## Governance
+
+Phil (the field app) is governed by a ratified constitution. All field-surface work derives from [the constitutional package](docs/phil-constitution.md) (law → [governance](docs/phil-governance.md) → [architecture](docs/phil-architecture.md) → [field validation](docs/phil-field-validation.md) → [roadmap](docs/phil-implementation-roadmap.md)). Agents start at [CLAUDE.md](CLAUDE.md).
+
 ---
 
 ## Where things live

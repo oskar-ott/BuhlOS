@@ -11,6 +11,18 @@ body:
     validations:
       required: true
   - type: textarea
+    id: constitutional_alignment
+    attributes:
+      label: Constitutional alignment
+      description: "Required for Phil-surface issues (docs/phil-governance.md §4). BuhlOS-only issues may write 'n/a'."
+      value: |
+        **Principles served:** P… , P…
+        **Worker outcome:** the field result, in site language.
+        **Cognitive / navigation impact:** which Level it touches; does it ADD a top-level surface? (P10 — if yes, what is REMOVED?)
+        **Why existing principles don't already cover this:**
+    validations:
+      required: true
+  - type: textarea
     id: problem
     attributes:
       label: Problem
