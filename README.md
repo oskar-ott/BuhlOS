@@ -1,132 +1,125 @@
-# Birdwood / BuhlOS
+# BuhlOS
 
-The BuhlOS operating layer plus its two surfaces:
+The operating layer for a small electrical / construction business — one place to run jobs, hours, gear, quotes, site capture, and compliance. Two surfaces share one Next.js codebase and one backend:
 
-- **BuhlOS Admin** — desktop/admin "Command Centre" for boss, admin staff, PMs, estimators.
-- **Phil** — field/mobile worker app for tradies, apprentices, labourers, electricians.
+- **BuhlOS** — the desktop **admin / office** interface (the "Command Centre"): for the boss, admin staff, PMs, estimators. Jobs, the job builder, quoting, hours + approvals, gear, employees, reports, ITPs/checks, material requests, notifications.
+- **Phil** — the **mobile / on-site field** app: for tradies, apprentices, labourers, electricians. My Day, job home, photo capture, hours, gear, ITP recording, leave, onboarding.
 
-> Naming reference: see [`docs/architecture/00-rebuild-non-negotiables.md`](docs/architecture/00-rebuild-non-negotiables.md). "Switchboard" and "Site Office" are deprecated product names and must not appear in any new code or surface.
+Production is live at **https://buhlos.com** (repo/package name: `birdwood-iv3232`).
+
+> **Naming:** use **BuhlOS** (admin/office) and **Phil** (field/mobile). **"Switchboard" and "Site Office" are deprecated** product names — do not introduce them in new code or UI (enforced by `npm run check:legacy-quarantine` and lint). See [`docs/architecture/00-rebuild-non-negotiables.md`](docs/architecture/00-rebuild-non-negotiables.md).
 
 ## Governance
 
-Phil (the field app) is governed by a ratified constitution. All field-surface work derives from [the constitutional package](docs/phil-constitution.md) (law → [governance](docs/phil-governance.md) → [architecture](docs/phil-architecture.md) → [field validation](docs/phil-field-validation.md) → [roadmap](docs/phil-implementation-roadmap.md)). Agents start at [CLAUDE.md](CLAUDE.md).
+Phil (the field app) is governed by a ratified constitution. Field-surface work derives from [the constitutional package](docs/phil-constitution.md) (law → [governance](docs/phil-governance.md) → [architecture](docs/phil-architecture.md) → [field validation](docs/phil-field-validation.md) → [roadmap](docs/phil-implementation-roadmap.md)). **Agents/sessions start at [CLAUDE.md](CLAUDE.md).**
 
 ---
 
-## Where things live
+## Architecture
 
-This repo is mid-migration. Two surfaces co-exist:
+A single **Next.js (App Router)** application plus **Vercel serverless functions** for the API, deployed on Vercel. The modern app **is production** — there is no separate legacy front-end anymore.
 
-| Layer | Location | Authoritative for |
+| Area | Location | What it is |
 | --- | --- | --- |
-| **Legacy app** | `public/*.html`, `public/admin/*.html`, `api/*.js` | Every production user-facing surface (logged in users land here today). |
-| **New app shell (Phase A)** | `src/app/**`, `src/components/**`, `src/lib/**` | Parallel test surfaces: `/command-centre`, `/v2/login`, `/v2/phil`. Nothing in production routes through this code yet. |
-| **Vercel routing** | `vercel.json` | Owns canonical URLs (`/`, `/login`, `/admin/*`, `/phil`, `/my-day`, ...). Untouched by Phase A. |
-| **Docs** | `docs/` | Audit, architecture, product scope, runbooks. |
+| **App (UI)** | `src/app/**` | All rendered surfaces (admin + field). |
+| **Admin (BuhlOS)** | `src/app/(admin)/**`, `src/app/v2/**` | Command Centre, jobs (`/v2/jobs`) + job builder, quotes (`/v2/quotes`), hours + approvals + weekly, gear, employees, reports, ITP templates, material requests, observations, defects, notification settings, login (`/v2/login`). |
+| **Field (Phil)** | `src/app/phil/**` | My Day, jobs + job home (capture, ITPs, plans, tags), hours, gear, leave, onboarding, invite. |
+| **Domain logic** | `src/domains/<entity>/**` | ~30 domains (jobs, quoting, timesheets, time-entries, evidence, snags, itp, gear, workforce, analytics, audit-log, platform, …) — pure logic + typed clients + tests. |
+| **Shared** | `src/components/**`, `src/lib/**`, `src/middleware.ts` | UI primitives, admin/phil shells, auth/session/roles, env (`src/lib/env.ts`), feature flags; middleware gates routes by role. |
+| **Backend API** | `api/**.js` | ~100 Vercel serverless functions (data in Vercel Blob; shared helpers in `api/_lib/`). |
+| **Static** | `public/` | **`client.html` only** (the client portal) plus brand assets, icons, `manifest.json`, `sw.js` (push-only service worker), CSS. |
+| **Routing / redirects** | `vercel.json` | `framework: nextjs`; rewrites `/client`; a **redirect matrix maps every legacy URL** (`/login`, `/admin/*`, `/phil`, `/my-day`, …) to its modern route (307). |
+| **Docs** | `docs/` | Architecture, product scope, runbooks, per-feature docs, audit pack. |
 
-The Phase A scaffold is **additive**: it occupies routes that `vercel.json` does not rewrite. See [`docs/rebuild-audit/08-next-claude-code-prompt.md`](docs/rebuild-audit/08-next-claude-code-prompt.md) for the full Phase A brief and [`docs/product/01-mvp-rebuild-scope.md`](docs/product/01-mvp-rebuild-scope.md) for the wider rebuild roadmap.
-
-Which URL belongs to which surface — canonical, transitional, or legacy — and the rules nav must follow are the **route ownership contract** in [`docs/route-ownership.md`](docs/route-ownership.md) (enforced by `npm run check:route-ownership`). The legacy-only production URL inventory is [`docs/rebuild-audit/01-current-route-map.md`](docs/rebuild-audit/01-current-route-map.md).
+> **Post-cutover:** the old static estate (`public/*.html`, `public/admin/*.html`, the flat legacy front-end) was **deleted** in the legacy cutover. Old URLs now **307-redirect** to the Next.js routes via `vercel.json` — never re-add legacy HTML pages, and never remove redirect entries. See [`docs/legacy-cutover.md`](docs/legacy-cutover.md) and the route-ownership contract [`docs/route-ownership.md`](docs/route-ownership.md) (enforced by `npm run check:route-ownership`).
 
 ---
 
-## Quickstart
+## Local development
 
 ```bash
 npm install
-npm run dev
+npm run dev          # Next.js dev server on http://localhost:3000
 ```
 
-Then open:
+Create `.env.local`. The env schema is Zod-validated in [`src/lib/env.ts`](src/lib/env.ts) (there is no `.env.example`):
 
-| URL | What you see |
+| Var | Required? | For |
+| --- | --- | --- |
+| `SESSION_SECRET` | **Required** (≥16 chars) | Auth / session — auth-aware routes throw without it |
+| `BLOB_READ_WRITE_TOKEN` | Optional | Vercel Blob data store (data is degraded/empty locally without it) |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Optional | Web-push notifications |
+| `RESEND_API_KEY` / `EMAIL_FROM` | Optional | Outbound email (invites, etc.) |
+| `APP_BASE_URL` | Optional | Absolute links in emails / notifications |
+
+Entry points once running:
+
+| URL | Surface |
 | --- | --- |
-| http://localhost:3000/v2/login | New Phase A sign-in form. Posts to the existing `/api/auth?action=login`. |
-| http://localhost:3000/command-centre | New BuhlOS Admin shell (sidebar + topbar, placeholder content). Gated to admin roles. |
-| http://localhost:3000/v2/phil | New Phil shell (header + bottom tab bar). Gated to field roles. |
-| http://localhost:3000/admin/operations | Legacy admin Command Centre — unchanged. |
-| http://localhost:3000/my-day | Legacy Phil home — unchanged. |
+| `/v2/login` | Sign-in (office email + password, or worker name + PIN) |
+| `/command-centre` | BuhlOS admin home (admin/office roles) |
+| `/v2/jobs` | Admin jobs + job builder |
+| `/phil/my-day` | Phil field home (field roles) |
 
-In `dev`, `vercel.json` rewrites do not apply, so `/` falls through to `src/app/page.tsx` (which redirects you to `/v2/login`). In production, `/` is still rewritten to `public/login.html` by `vercel.json`.
-
-You need `SESSION_SECRET` (≥16 chars) in `.env.local` for auth-aware routes to render without throwing.
+> Many routes need an authenticated session and live data (Blob), and some `api/*.js` functions only run on Vercel — not under `next dev`. Verify authenticated / server behavior on a Vercel **preview** deploy, not just localhost.
 
 ---
 
-## Scripts
+## Testing & checks
 
-> **Before opening or updating a PR, run `npm run check:full-ci`.** It mirrors
-> the CI `check` job (typecheck, lint, unit/mocked-Blob tests, build, smoke
-> discovery, and every route/shell/manifest/quarantine guard) and fails on the
-> first failing guard. **`npm run check` is NOT CI parity** — it runs only
-> typecheck + lint + unit, which is why backup-manifest (#436) and
-> legacy-quarantine (#438) slipped through locally and only failed in CI.
-> (`check:full` is a separate, heavier command that also runs the browser e2e
-> suite.)
+> **Before opening or updating a PR, run `npm run check:full-ci`.** It mirrors the CI `check` job (typecheck, lint, unit/mocked-Blob tests, build, smoke discovery, and every route/shell/manifest/quarantine guard) and fails on the first failing guard. `npm run check` is the fast inner loop only — **not** CI parity.
 
 | Command | What it does |
 | --- | --- |
-| `npm run check:full-ci` | **Run this before every PR.** Full local CI-parity gate — the same guard set the CI `check` job runs, in order, failing hard on the first failure. Kept in sync with `.github/workflows/ci.yml` by a drift-guard test. |
-| `npm run check` | Fast inner-loop only: typecheck + lint + unit. **Not** CI parity — use `check:full-ci` before pushing. |
-| `npm run dev` | Next.js dev server. |
-| `npm run build` | Next.js production build. |
-| `npm run start` | Serve the production build. |
-| `npm run lint` | `next lint` with custom rules (no `alert`, no inline styles, no deprecated naming). |
+| `npm run check:full-ci` | **Run before every PR.** Full local CI-parity gate; kept in sync with `.github/workflows/ci.yml` by a drift-guard test. |
+| `npm run check` | Fast inner loop: `typecheck` + `lint` + `test:unit`. Not CI parity. |
 | `npm run typecheck` | `tsc --noEmit`. |
-| `npm run test` | Vitest unit tests. |
-| `npm run test:e2e` | Playwright Phase A acceptance tests. Run `npx playwright install` once first. |
-| `npm run check:admin-shell` | Legacy guard (kept). |
-| `npm run check:sw-cache-version` | Legacy guard (kept). |
-| `npm run check:production-shell` | Legacy guard (kept). |
-| `npm run smoke:admin-routes` | Legacy guard (kept). |
+| `npm run lint` | `next lint` with custom rules (no `alert`, no inline styles, no deprecated naming). |
+| `npm run test` / `npm run test:unit` | Vitest unit / mocked-Blob tests (`test:watch` for watch mode). |
+| `npm run test:e2e` | Playwright e2e (run `npx playwright install` once first). |
+| `npm run test:smoke` | Playwright smoke specs. |
+| `npm run build` | Next.js production build. |
+| Guard scripts (`check:*`, `smoke:*`) | `route-ownership`, `shell-contract`, `production-shell`, `legacy-quarantine`, `prod-branch`, `backup-manifest`, `role-literals`, `model-ids`, `sw-cache-version`, `admin-shell`, `smoke:legacy-redirects`, … (most also run in the `predeploy` chain). |
 
-**Removed in Phase A:** `deploy:prod` and `predeploy:prod`. Direct production deploys from local CLIs are no longer supported — production happens via merge to `main` and Vercel's automatic redeploy. Rollbacks use `vercel promote <previous-deploy>` (see [`docs/rebuild-audit/06-deployment-audit.md`](docs/rebuild-audit/06-deployment-audit.md)).
-
-`deploy:preview` is kept for ad-hoc preview deploys; it does not promote.
+> A local `tsc --noEmit` may flag one Next.js typed-route error in `src/app/v2/jobs/[jobId]/itps/page.tsx` — Next typed routes need a `next build` to generate `.next/types/` first, so standalone `tsc` false-flags it. CI runs the build, so it stays green there.
 
 ---
 
-## Project structure (Phase A)
+## Production & deploy rules
 
-```
-src/
-├── app/                              Next.js routes
-│   ├── layout.tsx                    Root — Inter fonts, DemoModeBanner
-│   ├── page.tsx                      `/` (dev only — redirects per role)
-│   ├── error.tsx                     Global error boundary
-│   ├── not-found.tsx                 404
-│   ├── v2/login/                     New login (parallel to public/login.html)
-│   ├── v2/phil/                      New Phil shell (parallel to public/phil.html)
-│   └── (admin)/command-centre/       New admin shell (replaces /admin/operations later)
-├── components/
-│   ├── ui/                           Button, Card, Pill, EmptyState, Modal,
-│   │                                 UnderConstructionPanel, DemoModeBanner, StatusBadge
-│   ├── admin/                        AdminShell, AdminSidebar, AdminTopbar
-│   └── phil/                         PhilShell, PhilTabBar, PhilHeader
-├── lib/
-│   ├── auth/                         landing, roles, session, current-user, permissions
-│   ├── storage/                      migrate-local-storage (clears "buhl-site-office-*")
-│   ├── env.ts                        Zod-validated env
-│   ├── flags.ts                      Feature flags + DEMO MODE
-│   ├── http.ts                       Typed fetch wrapper
-│   └── cn.ts                         tailwind-merge helper
-├── middleware.ts                     Route gating (/command-centre, /v2/phil)
-├── styles/
-│   ├── tokens.css                    Brand colours + density tokens
-│   └── globals.css                   Tailwind directives + .uc-tape pattern
-└── types/index.ts                    Global type helpers
-```
-
-Domain folders (`src/domains/<entity>/`) are added when their first feature lands in Phase B+; see [`docs/architecture/01-target-rebuild-structure.md`](docs/architecture/01-target-rebuild-structure.md).
+- **Production = `main` only.** Vercel's Git integration auto-deploys `main` to `buhlos.com`. Do not change the production branch.
+- **Ship via PR → CI green → squash-merge to `main`.** The merge triggers the production deploy; there is no manual prod step.
+- **No manual production deploys from a branch/worktree.** `scripts/check-prod-branch.js` (`npm run check:prod-branch`) refuses a `--prod` deploy unless `HEAD === origin/main` — it exists because a prototype branch was once deployed over production. Don't bypass it (`GUARD_OVERRIDE` is for emergency reverts only).
+- `npm run deploy:preview` makes an ad-hoc **preview** (never promotes). `predeploy` / `predeploy:preview` run the shell / route / legacy guards first.
+- Rollback: `vercel promote <previous-deployment>`. See [`docs/deploy-checklist.md`](docs/deploy-checklist.md).
+- **Do not casually touch:** `vercel.json` (redirect matrix), `src/middleware.ts`, auth/session (`api/_lib/auth.js`, `src/lib/auth/**`), `public/sw.js` (bump its `SW_VERSION` on any change), and the CI guard tests.
 
 ---
 
-## What Phase A doesn't do
+## Repo hygiene
 
-- No Phil hours logging. That's Phase B, with `/api/time-entries` already in place.
-- No admin features beyond the empty Command Centre placeholder.
-- No `/admin` or `/login` cutover — both still served by the legacy surface.
-- No `vercel.json` edits.
-- No production deploys.
+A 2026-06-13 cleanup consolidated this repo from a sprawl of parallel branches/worktrees back to a single clean line. To keep it that way:
 
-If you reach for any of those, stop and re-read [`docs/rebuild-audit/08-next-claude-code-prompt.md`](docs/rebuild-audit/08-next-claude-code-prompt.md).
+- **One task = one branch**, cut from a clean, up-to-date `main`.
+- Open a **PR** → get **CI green** → **squash-merge** → **delete the branch**.
+- Avoid extra git worktrees unless you genuinely need parallel checkouts; remove them when done.
+- Don't reuse stale branches or resurrect deleted ones — start fresh from `main`.
+- No direct commits to `main`, no force-push.
+
+---
+
+## Current state (2026-06-13)
+
+- Local line is fully consolidated: `main = origin/main = production = 7f3d222`, one worktree, clean tree, zero open PRs at consolidation time.
+- Branches/worktrees/stashes removed during the cleanup are archived at `~/buhlos-backup/tranche-4-manual-review-preservation-20260613-181941` (outside the repo). Nothing was lost — don't try to "rescue" deleted branches.
+- One stash is intentionally retained as an implementation reference for audit-log durability (issue **#355**).
+- **PR #450** merged the audit-log durability spec pack ([`docs/audit-log/`](docs/audit-log/)) — the mutation policy matrix for **#355**; the durability *implementation* (blocking vs best-effort append) remains open under #355.
+- Remote-branch cleanup (the GitHub remote still carries many old branches) is a **separate, deliberate** task — do not bulk-delete remotes casually.
+
+---
+
+## Deprecated / do-not-use
+
+- **"Switchboard", "Site Office"** — deprecated product names; use **BuhlOS** / **Phil**. They should only appear when referring to historical docs.
+- **Legacy static pages** — `public/*.html` / `public/admin/*.html` and root `index.html` / `jobs.html` / `login.html` / `phil.html` were deleted in the cutover. Their old URLs 307-redirect to Next.js routes; do not recreate these files.
+- **"Phase A / mid-migration / nothing in production yet"** framing (from earlier in the rebuild) is obsolete — the Next.js app *is* production.
