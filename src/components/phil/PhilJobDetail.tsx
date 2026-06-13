@@ -39,6 +39,7 @@ import { PhilJobCommandPanel } from "./PhilJobCommandPanel";
 import { PhilJobAttentionStrip } from "./PhilJobAttentionStrip";
 import { PhilJobAreaCard } from "./PhilJobAreaCard";
 import { PhilJobAreaDetail } from "./PhilJobAreaDetail";
+import { readJobResume, writeJobResume } from "./jobResume";
 import {
   areaStageAvailability,
   buildAreaCountMaps,
@@ -239,6 +240,27 @@ export function PhilJobDetail({
     [job, selectedArea],
   );
   const viewedStage: JobStage = soleStage(selectedStages) ?? stage;
+
+  // Resume where you left off (#425 · P8 interruption recovery, P14 memory). On
+  // mount, if this job has a remembered area that STILL EXISTS, jump back to it,
+  // then keep the memory current as the worker moves. Effect-only (never the
+  // initial useState) so server and client first paint agree — no hydration
+  // mismatch — and the restore is silently skipped when storage is unavailable.
+  const resumeRestoredRef = useRef(false);
+  useEffect(() => {
+    if (resumeRestoredRef.current) return;
+    resumeRestoredRef.current = true;
+    const saved = readJobResume(job.id);
+    if (saved && flatAreas.some((a) => a.id === saved.areaId)) {
+      setSelectedAreaId(saved.areaId);
+      setStage(saved.stage);
+    }
+  }, [job.id, flatAreas]);
+
+  useEffect(() => {
+    if (!selectedAreaId) return;
+    writeJobResume(job.id, { areaId: selectedAreaId, stage: viewedStage });
+  }, [job.id, selectedAreaId, viewedStage]);
 
   // Field-visible tasks for the viewed stage, merged with their real state.
   const workerTasks = useMemo(
