@@ -1,5 +1,13 @@
 ## Summary
 
+## Constitutional compliance (Phil surfaces — `docs/phil-constitution.md`)
+
+- [ ] Principles addressed: P… (or n/a — not a field surface)
+- [ ] Cognitive budget (P10): top-level Phil section count unchanged — or one added / one removed
+- [ ] No new permanent top-level navigation introduced without removal
+- [ ] Field validation done / not-applicable (required for L1-surface changes: the what-now answer / job hero)
+- [ ] No constitution conflict. If one exists — **STOP**, amend the Constitution first (governance §3); do not ship the conflict.
+
 ## Required checks
 
 - [ ] `npm run typecheck`
