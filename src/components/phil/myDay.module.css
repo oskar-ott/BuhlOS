@@ -359,6 +359,12 @@ details[open] > .moreOptionsSummary::before {
   text-transform: uppercase;
   color: var(--text-muted);
   line-height: 1.05;
+  /* The day box is ~44–48px wide; keep the status word inside it. It wraps
+     (and, worst case, breaks) within the cell rather than spilling over the
+     neighbouring days — the 12px floor (#440) leaves no room to shrink. */
+  max-width: 100%;
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 /* per-day states (mirrors phil/myday-v2.css) */

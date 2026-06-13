@@ -21,6 +21,26 @@ function decimalHours(h: number): string {
   return h.toFixed(1);
 }
 
+/**
+ * Short token for the narrow day box. The strip is a glance and the cell colour
+ * already carries the state (#440), so long words that can't fit a 12px-floor
+ * cell ("approved" / "waiting") would overflow and overlap their neighbours.
+ * They show as a short field word here; the full status stays in the cell's
+ * screen-reader label (dayTapLabel) and the fuller PhilWeekSummary on
+ * /phil/hours. Short tokens ("fix", "draft", "off", "log now", "not logged")
+ * are passed through unchanged.
+ */
+function cellStatus(statusWord: string): string {
+  switch (statusWord) {
+    case "approved":
+      return "OK";
+    case "waiting":
+      return "sent";
+    default:
+      return statusWord;
+  }
+}
+
 function parseUTC(dateISO: string): Date {
   return new Date(dateISO + "T00:00:00Z");
 }
@@ -119,7 +139,7 @@ export function PhilWeekStrip({ entries, todayISO }: Props) {
                 <span className={styles.hours}>
                   {d.hours != null ? decimalHours(d.hours) : "—"}
                 </span>
-                <span className={styles.status}>{d.statusWord}</span>
+                <span className={styles.status}>{cellStatus(d.statusWord)}</span>
               </div>
             </>
           );
