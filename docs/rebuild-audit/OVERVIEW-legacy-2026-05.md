@@ -1,3 +1,8 @@
+> **Archived legacy snapshot — superseded.**
+> This document describes a pre-cutover Birdwood / buhlapp.xyz / static-HTML phase and is retained only for historical audit context.
+> For the current BuhlOS/Phil architecture, use the root `README.md`.
+
+
 # Birdwood — Project Overview for LLM Context
 
 **Live URL:** https://buhlapp.xyz  
