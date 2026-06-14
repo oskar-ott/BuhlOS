@@ -14,6 +14,7 @@ import type {
   JobTaskTemplateInputSchema,
   JobTaskTemplateSchema,
   JobUpdateInputSchema,
+  ScopeOfWorkItemSchema,
 } from "./schema";
 
 /**
@@ -29,6 +30,8 @@ export type CustomField = z.infer<typeof CustomFieldSchema>;
 export type JobArea = z.infer<typeof JobAreaSchema>;
 export type JobAreaGroup = z.infer<typeof JobAreaGroupSchema>;
 export type Job = z.infer<typeof JobSchema>;
+/** #200 scope-of-work clause — the spine's scope-clause reference (#364/#366). */
+export type ScopeOfWorkItem = z.infer<typeof ScopeOfWorkItemSchema>;
 
 export type JobListResponse = z.infer<typeof JobListResponseSchema>;
 export type JobDetailResponse = z.infer<typeof JobDetailResponseSchema>;
