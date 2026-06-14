@@ -101,25 +101,54 @@ export function philJobDetailId(pathname: string): string | null {
 }
 
 /**
+ * Extra fields for a structured variation flag (#369) — captured only when the
+ * chosen option is the "Variation / change" one. All optional; blanks are
+ * omitted, not sent empty.
+ */
+export interface VariationExtras {
+  askedBy?: string;
+  /** Rough labour hours — a guess, not a timesheet. */
+  labourHours?: number | null;
+  materialsNote?: string;
+}
+
+/**
  * Build the create-observation payload from a chosen worker capture option +
  * the worker's note. Kept pure (no fetch) so the classify-then-submit shape is
  * unit-testable. `requiresAction` is sent explicitly (computed from the option)
  * so the "Not sure — office review" override on a plain note still flags the
  * office; source is inferred server-side (phil for a field worker). Description
  * is omitted when blank rather than sent empty.
+ *
+ * For a `variation` option, the structured estimate fields ride along (#369);
+ * they are ignored for any other type, so a stray `extras` never leaks onto an
+ * unrelated capture.
  */
 export function buildObservationPayload(
   option: WorkerCaptureOption,
   title: string,
   description: string,
+  extras?: VariationExtras,
 ): CreateObservationPayload {
   const trimmedDescription = description.trim();
-  return {
+  const payload: CreateObservationPayload = {
     type: option.type,
     title: title.trim(),
     requiresAction: requiresActionForOption(option),
     ...(trimmedDescription ? { description: trimmedDescription } : {}),
   };
+
+  if (option.type === "variation" && extras) {
+    const askedBy = extras.askedBy?.trim();
+    if (askedBy) payload.variationAskedBy = askedBy;
+    if (typeof extras.labourHours === "number" && Number.isFinite(extras.labourHours)) {
+      payload.variationLabourHours = extras.labourHours;
+    }
+    const materialsNote = extras.materialsNote?.trim();
+    if (materialsNote) payload.variationMaterialsNote = materialsNote;
+  }
+
+  return payload;
 }
 
 /**

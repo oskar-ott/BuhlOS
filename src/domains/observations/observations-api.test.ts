@@ -198,6 +198,67 @@ describe("POST /api/observations (create)", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  // #369 — the load-bearing guard: the create handler builds a fixed object
+  // literal (not passthrough), so these assert the variation fields actually
+  // PERSIST on the returned record rather than being silently dropped.
+  it("#369: persists variation estimate fields + awaiting-decision marker", async () => {
+    const res = await call({
+      method: "POST",
+      role: "electrician",
+      query: { jobId: "job-1" },
+      body: {
+        type: "variation",
+        title: "Extra GPO in the store room",
+        variationAskedBy: "Foreman Dave",
+        variationLabourHours: 3,
+        variationMaterialsNote: "1x GPO + 10m TPS",
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const obs = (res.body as { observation: Record<string, unknown> }).observation;
+    expect(obs.type).toBe("variation");
+    expect(obs.variationAskedBy).toBe("Foreman Dave");
+    expect(obs.variationLabourHours).toBe(3);
+    expect(obs.variationMaterialsNote).toBe("1x GPO + 10m TPS");
+    expect(obs.variationAwaitingDecision).toBe(true);
+    expect(obs.requiresAction).toBe(true);
+  });
+
+  it("#369: a non-variation create never gets the awaiting-decision marker", async () => {
+    const res = await call({
+      method: "POST",
+      role: "electrician",
+      query: { jobId: "job-1" },
+      body: { type: "note", title: "Tidied up", variationAskedBy: "sneaky" },
+    });
+    expect(res.statusCode).toBe(201);
+    const obs = (res.body as { observation: Record<string, unknown> }).observation;
+    expect(obs.variationAwaitingDecision).toBeNull();
+    expect(obs.variationAskedBy).toBeNull(); // ignored — not a variation
+  });
+
+  it("#369: rejects an out-of-range variation labour hours (400)", async () => {
+    const res = await call({
+      method: "POST",
+      role: "electrician",
+      query: { jobId: "job-1" },
+      body: { type: "variation", title: "Extra", variationLabourHours: -2 },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("#369: never fakes an approved state — awaiting-decision stays true on create", async () => {
+    const res = await call({
+      method: "POST",
+      role: "electrician",
+      query: { jobId: "job-1" },
+      body: { type: "variation", title: "Extra work" },
+    });
+    const obs = (res.body as { observation: Record<string, unknown> }).observation;
+    expect(obs.status).toBe("new");
+    expect(obs.variationAwaitingDecision).toBe(true);
+  });
+
   it("validates linkedEvidenceId against the job (400 when missing)", async () => {
     const res = await call({
       method: "POST",

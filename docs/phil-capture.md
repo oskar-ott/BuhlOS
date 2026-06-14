@@ -289,3 +289,26 @@ module and **not** a new sidebar item.
   `api/evidence.js`, `api/photos.js`, `api/_lib/blob.js`
 - Admin per-job surface (do not duplicate): `src/app/v2/jobs/[jobId]/evidence/page.tsx`,
   `src/components/admin/EvidenceQueue.tsx`, `EvidenceDrawer.tsx`
+
+## Variation flag (#369)
+
+The "Variation / change" worker option in the Capture launcher
+(`PhilCaptureLauncher`, the global FAB — NOT the #132-frozen job screen) carries
+structured estimate fields so the office can decide before the work starts:
+
+- `variationAskedBy` — who asked (free text)
+- `variationLabourHours` — rough labour hours (optional number, 0–1000)
+- `variationMaterialsNote` — materials guess (optional)
+- `variationAwaitingDecision` — server-set `true` on a `variation` create; the
+  honest "awaiting office decision" marker. It **never** flips to a faked
+  "approved" — only the #280 variations module (via `convertedTo: 'variation'`)
+  owns approval. Until then the office responds with an acknowledgement +
+  `resolutionNote`.
+
+These ride on the existing `variation`-typed observation (no parallel module).
+The create handler (`api/observations.js`) builds a fixed object literal, so the
+fields are explicitly added there + validated; `observations-api.test.ts` asserts
+they persist. A before-photo nudge is shown (non-blocking). Offline behaviour is
+the existing observation loop — unchanged. The task-launched entry (from a
+variation-trigger task warning) and the worker "my flags" list on the job screen
+are deferred (Epic 2 task context #368 / the #132 job-screen wave).
