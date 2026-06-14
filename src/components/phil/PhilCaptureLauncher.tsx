@@ -151,6 +151,10 @@ export function PhilCaptureLauncher({
   const [obsDescription, setObsDescription] = useState("");
   const [obsSubmitting, setObsSubmitting] = useState(false);
   const [obsError, setObsError] = useState<string | null>(null);
+  // #369 — structured variation flag fields (only the "variation" option uses them).
+  const [obsAskedBy, setObsAskedBy] = useState("");
+  const [obsLabourHours, setObsLabourHours] = useState("");
+  const [obsMaterialsNote, setObsMaterialsNote] = useState("");
 
   // Guards: stale job fetches + already-consumed camera hand-offs.
   const reqRef = useRef(0);
@@ -195,6 +199,9 @@ export function PhilCaptureLauncher({
     if (!open) return;
     setObsTitle("");
     setObsDescription("");
+    setObsAskedBy("");
+    setObsLabourHours("");
+    setObsMaterialsNote("");
     setObsError(null);
     setObsSubmitting(false);
     setNoteFlow(null);
@@ -454,6 +461,9 @@ export function PhilCaptureLauncher({
   const startNoteFlow = useCallback(() => {
     setObsTitle("");
     setObsDescription("");
+    setObsAskedBy("");
+    setObsLabourHours("");
+    setObsMaterialsNote("");
     setObsError(null);
     if (jobsState.v !== "ready" || jobsState.jobs.length === 0) return;
     const preselected = preselectCaptureJob(jobsState.jobs, initialJobId ?? null);
@@ -470,9 +480,17 @@ export function PhilCaptureLauncher({
       if (!obsTitle.trim()) return;
       setObsSubmitting(true);
       setObsError(null);
+      const extras =
+        option.type === "variation"
+          ? {
+              askedBy: obsAskedBy,
+              labourHours: obsLabourHours.trim() ? Number(obsLabourHours) : null,
+              materialsNote: obsMaterialsNote,
+            }
+          : undefined;
       const r = await createObservation(
         job.id,
-        buildObservationPayload(option, obsTitle, obsDescription),
+        buildObservationPayload(option, obsTitle, obsDescription, extras),
       );
       setObsSubmitting(false);
       if (!r.ok) {
@@ -485,7 +503,7 @@ export function PhilCaptureLauncher({
       }
       setNoteFlow({ step: "done", requiresAction: requiresActionForOption(option) });
     },
-    [obsTitle, obsDescription],
+    [obsTitle, obsDescription, obsAskedBy, obsLabourHours, obsMaterialsNote],
   );
 
   if (!open) return null;
@@ -593,17 +611,27 @@ export function PhilCaptureLauncher({
               jobs={jobs}
               title={obsTitle}
               description={obsDescription}
+              askedBy={obsAskedBy}
+              labourHours={obsLabourHours}
+              materialsNote={obsMaterialsNote}
+              hasPhotos={photos.length > 0}
               submitting={obsSubmitting}
               error={obsError}
               onPickJob={(j) => setNoteFlow({ step: "options", job: j })}
               onChooseOption={(job, option) => {
                 setObsTitle("");
                 setObsDescription("");
+                setObsAskedBy("");
+                setObsLabourHours("");
+                setObsMaterialsNote("");
                 setObsError(null);
                 setNoteFlow({ step: "note", job, option });
               }}
               onTitle={setObsTitle}
               onDescription={setObsDescription}
+              onAskedBy={setObsAskedBy}
+              onLabourHours={setObsLabourHours}
+              onMaterialsNote={setObsMaterialsNote}
               onSubmit={(job, option) => void submitNote(job, option)}
               onDone={onClose}
             />
@@ -1069,12 +1097,19 @@ function NoteFlowBody({
   jobs,
   title,
   description,
+  askedBy,
+  labourHours,
+  materialsNote,
+  hasPhotos,
   submitting,
   error,
   onPickJob,
   onChooseOption,
   onTitle,
   onDescription,
+  onAskedBy,
+  onLabourHours,
+  onMaterialsNote,
   onSubmit,
   onDone,
 }: {
@@ -1082,12 +1117,19 @@ function NoteFlowBody({
   jobs: LaunchableJob[];
   title: string;
   description: string;
+  askedBy: string;
+  labourHours: string;
+  materialsNote: string;
+  hasPhotos: boolean;
   submitting: boolean;
   error: string | null;
   onPickJob: (job: Job0) => void;
   onChooseOption: (job: Job0, option: WorkerCaptureOption) => void;
   onTitle: (v: string) => void;
   onDescription: (v: string) => void;
+  onAskedBy: (v: string) => void;
+  onLabourHours: (v: string) => void;
+  onMaterialsNote: (v: string) => void;
   onSubmit: (job: Job0, option: WorkerCaptureOption) => void;
   onDone: () => void;
 }) {
@@ -1187,7 +1229,62 @@ function NoteFlowBody({
             className="mt-1 w-full rounded-card border border-border bg-surface px-3 py-2 text-base text-text"
           />
         </label>
-        {requiresActionForOption(flow.option) ? (
+        {flow.option.type === "variation" ? (
+          <div className="space-y-3 rounded-card border border-border bg-surface-subtle p-3">
+            <p className="text-xs text-text-muted">
+              Flag the extra work before you start so the office can say yes or no fast.
+            </p>
+            <label className="block">
+              <span className="text-xs uppercase tracking-wider text-text-muted">
+                Who asked? (optional)
+              </span>
+              <input
+                type="text"
+                value={askedBy}
+                maxLength={TITLE_MAX}
+                onChange={(e) => onAskedBy(e.target.value)}
+                placeholder="e.g. site foreman Dave"
+                className="mt-1 w-full rounded-card border border-border bg-surface px-3 py-2 text-base text-text"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs uppercase tracking-wider text-text-muted">
+                Rough labour hours (optional)
+              </span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                value={labourHours}
+                onChange={(e) => onLabourHours(e.target.value)}
+                placeholder="e.g. 4"
+                className="mt-1 w-full rounded-card border border-border bg-surface px-3 py-2 text-base text-text"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs uppercase tracking-wider text-text-muted">
+                Materials (optional)
+              </span>
+              <textarea
+                value={materialsNote}
+                rows={2}
+                onChange={(e) => onMaterialsNote(e.target.value)}
+                placeholder="What extra gear or material this needs"
+                className="mt-1 w-full rounded-card border border-border bg-surface px-3 py-2 text-base text-text"
+              />
+            </label>
+            {!hasPhotos ? (
+              <p className="text-xs text-text-muted">
+                Tip: snap a photo of the area before you start the extra work.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {flow.option.type === "variation" ? (
+          <p className="text-xs text-text-muted">
+            The office will see this and decide — don&rsquo;t start the extra work yet.
+          </p>
+        ) : requiresActionForOption(flow.option) ? (
           <p className="text-xs text-text-muted">This goes to the office for review.</p>
         ) : (
           <p className="text-xs text-text-muted">This is saved to the job&rsquo;s history.</p>

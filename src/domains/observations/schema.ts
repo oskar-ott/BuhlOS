@@ -89,6 +89,9 @@ export const OBSERVATION_RESOLUTION_NOTE_MAX = 1000;
 /** Cap photos per observation. Field capture is one or two shots; the cap
  *  just stops a runaway client from attaching an unbounded array. */
 export const OBSERVATION_PHOTO_MAX = 10;
+/** #369: sane upper bound on a rough variation labour estimate (a day-rate
+ *  guess, not a timesheet) — stops a fat-fingered entry, not a real number. */
+export const OBSERVATION_VARIATION_HOURS_MAX = 1000;
 
 /**
  * Full ObservationItem as persisted in observations.json and returned by
@@ -137,6 +140,16 @@ export const ObservationItemSchema = z
      *  a second convert with 409 if `convertedTo` is already set). */
     linkedMaterialRequestId: z.string().nullable().optional(),
     photoUrls: z.array(z.string()),
+
+    // Variation flag (#369). Set only on a `variation`-typed observation — a
+    // structured "extra work" record submitted before the work starts. These
+    // ride on the observation; they never imply approval. `awaitingDecision`
+    // is the honest worker-facing state until the office responds (or the #280
+    // variations module converts it). No fake "approved" state ever.
+    variationAskedBy: z.string().nullable().optional(),
+    variationLabourHours: z.number().nullable().optional(),
+    variationMaterialsNote: z.string().nullable().optional(),
+    variationAwaitingDecision: z.boolean().nullable().optional(),
 
     // Actor stamps. Worker/admin creates → office triages/resolves.
     createdById: z.string(),
@@ -204,6 +217,21 @@ export const CreateObservationPayloadSchema = z
     photoUrls: z
       .array(z.string())
       .max(OBSERVATION_PHOTO_MAX, `photoUrls may not exceed ${OBSERVATION_PHOTO_MAX} links`)
+      .optional(),
+
+    // Variation flag fields (#369) — sent only for a `variation`-typed capture.
+    variationAskedBy: z.string().trim().max(OBSERVATION_TITLE_MAX).nullable().optional(),
+    variationLabourHours: z
+      .number()
+      .finite()
+      .min(0)
+      .max(OBSERVATION_VARIATION_HOURS_MAX)
+      .nullable()
+      .optional(),
+    variationMaterialsNote: z
+      .string()
+      .max(OBSERVATION_DESCRIPTION_MAX)
+      .nullable()
       .optional(),
 
     assignedToId: z.string().nullable().optional(),

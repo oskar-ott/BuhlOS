@@ -122,6 +122,47 @@ describe("buildObservationPayload", () => {
     expect(payload.type).toBe("note");
     expect(payload.requiresAction).toBe(true);
   });
+
+  it("#369: carries variation estimate fields on a variation capture", () => {
+    const variation = workerOptionByKey("variation")!;
+    const payload = buildObservationPayload(variation, "Extra GPO in store", "boss wants it", {
+      askedBy: "  Dave  ",
+      labourHours: 3,
+      materialsNote: "  1x GPO + 10m cable  ",
+    });
+    expect(payload).toMatchObject({
+      type: "variation",
+      title: "Extra GPO in store",
+      variationAskedBy: "Dave",
+      variationLabourHours: 3,
+      variationMaterialsNote: "1x GPO + 10m cable",
+    });
+  });
+
+  it("#369: omits blank variation fields rather than sending them empty", () => {
+    const variation = workerOptionByKey("variation")!;
+    const payload = buildObservationPayload(variation, "Extra work", "", {
+      askedBy: "   ",
+      labourHours: null,
+      materialsNote: "",
+    });
+    expect("variationAskedBy" in payload).toBe(false);
+    expect("variationLabourHours" in payload).toBe(false);
+    expect("variationMaterialsNote" in payload).toBe(false);
+  });
+
+  it("#369: ignores variation extras on a non-variation option (no leakage)", () => {
+    const blocker = workerOptionByKey("blocker")!;
+    const payload = buildObservationPayload(blocker, "Blocked", "", { askedBy: "Dave", labourHours: 2 });
+    expect("variationAskedBy" in payload).toBe(false);
+    expect("variationLabourHours" in payload).toBe(false);
+  });
+
+  it("#369: drops a non-finite labour-hours value", () => {
+    const variation = workerOptionByKey("variation")!;
+    const payload = buildObservationPayload(variation, "Extra", "", { labourHours: Number.NaN });
+    expect("variationLabourHours" in payload).toBe(false);
+  });
 });
 
 describe("preselectCaptureJob", () => {

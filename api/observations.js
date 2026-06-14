@@ -86,6 +86,8 @@ const TITLE_MAX = 140;
 const DESCRIPTION_MAX = 2000;
 const RESOLUTION_NOTE_MAX = 1000;
 const PHOTO_MAX = 10;
+// #369 — mirrors OBSERVATION_VARIATION_HOURS_MAX in domains/observations/schema.ts.
+const VARIATION_HOURS_MAX = 1000;
 
 // Mirror of src/domains/observations/service.ts requiresActionForType.
 function requiresActionForType(type) {
@@ -190,7 +192,55 @@ function validateCreateBody(body, job) {
     }
   }
 
-  return { errors, type, title, description, priority, stage, area };
+  // #369 — structured variation estimate fields. Only meaningful on a
+  // `variation` capture; ignored (not persisted) for any other type so they
+  // can't leak onto an unrelated observation.
+  let variationAskedBy = null;
+  let variationLabourHours = null;
+  let variationMaterialsNote = null;
+  if (type === 'variation') {
+    if (body.variationAskedBy != null) {
+      if (typeof body.variationAskedBy !== 'string') {
+        errors.push('variationAskedBy must be a string');
+      } else {
+        variationAskedBy = body.variationAskedBy.trim() || null;
+        if (variationAskedBy && variationAskedBy.length > TITLE_MAX) {
+          errors.push(`variationAskedBy must be ${TITLE_MAX} characters or fewer`);
+        }
+      }
+    }
+    if (body.variationLabourHours != null) {
+      const n = Number(body.variationLabourHours);
+      if (!Number.isFinite(n) || n < 0 || n > VARIATION_HOURS_MAX) {
+        errors.push(`variationLabourHours must be a number between 0 and ${VARIATION_HOURS_MAX}`);
+      } else {
+        variationLabourHours = n;
+      }
+    }
+    if (body.variationMaterialsNote != null) {
+      if (typeof body.variationMaterialsNote !== 'string') {
+        errors.push('variationMaterialsNote must be a string');
+      } else {
+        variationMaterialsNote = body.variationMaterialsNote || null;
+        if (variationMaterialsNote && variationMaterialsNote.length > DESCRIPTION_MAX) {
+          errors.push(`variationMaterialsNote must be ${DESCRIPTION_MAX} characters or fewer`);
+        }
+      }
+    }
+  }
+
+  return {
+    errors,
+    type,
+    title,
+    description,
+    priority,
+    stage,
+    area,
+    variationAskedBy,
+    variationLabourHours,
+    variationMaterialsNote,
+  };
 }
 
 async function validateLinks(res, body, jobId) {
@@ -304,6 +354,13 @@ async function createObservation(req, res, user, jobId) {
     linkedEvidenceId: body.linkedEvidenceId ? String(body.linkedEvidenceId) : null,
     linkedSnagId: body.linkedSnagId ? String(body.linkedSnagId) : null,
     photoUrls,
+    // #369 — variation estimate + the honest awaiting-decision marker. Only a
+    // variation carries these; `awaitingDecision` is true on create and stays
+    // true until the office responds — it never flips to a faked "approved".
+    variationAskedBy: v.type === 'variation' ? v.variationAskedBy : null,
+    variationLabourHours: v.type === 'variation' ? v.variationLabourHours : null,
+    variationMaterialsNote: v.type === 'variation' ? v.variationMaterialsNote : null,
+    variationAwaitingDecision: v.type === 'variation' ? true : null,
     createdById: user.id,
     createdByName: user.name || user.username || 'Unknown',
     createdByRole: user.role || null,
