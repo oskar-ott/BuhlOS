@@ -82,12 +82,61 @@ export const BoqLineRefSchema = z
   })
   .passthrough();
 
+// ── Work-package provenance (#367 compile output, #368 field render) ─────────
+// The office-compiled context the field needs on a task. Populated by the
+// compile child (#367) from the reconciliation; read by Phil scope-context
+// (#368). All values are real compiled values or an honest absence — never
+// invented (P7).
+
+/** What proof the office wants for a piece of work. */
+export const REQUIRED_EVIDENCE_KINDS = ["photo", "test_result", "as_built", "certificate"] as const;
+export const RequiredEvidenceKindSchema = z.enum(REQUIRED_EVIDENCE_KINDS);
+export const RequiredEvidenceSchema = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    kind: RequiredEvidenceKindSchema,
+    note: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+/** The three site traps a clause classification can warn the field about. */
+export const WARNING_KINDS = ["by_others", "reuse_existing", "variation_trigger"] as const;
+export const WarningKindSchema = z.enum(WARNING_KINDS);
+export const WorkPackageWarningSchema = z
+  .object({
+    id: z.string(),
+    kind: WarningKindSchema,
+    text: z.string(),
+    /** The clause that raised it → `Job.scopeOfWork[].id`. */
+    scopeClauseId: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+/** Id-only reference into the existing documents/plans register (no bytes). */
+export const GoverningDocRefSchema = z
+  .object({
+    documentId: z.string(), // → Document.id
+    label: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export const WorkPackageMaterialSchema = z
+  .object({
+    label: z.string(),
+    qty: z.number().nullable().optional(),
+    unit: z.string().nullable().optional(),
+    boqLineRef: BoqLineRefSchema.nullable().optional(),
+  })
+  .passthrough();
+
 // ── New entity: WorkPackage ──────────────────────────────────────────────────
 
 /**
  * A unit of work the job is managed and claimed by. It ties agreed scope to
  * the priced lines that fund it and to the existing tasks that deliver it.
- * Provenance only — it references tasks, it does not replace them.
+ * Provenance only — it references tasks, it does not replace them, and it
+ * never carries task state (that stays in `dwellings`, progress.ts #198).
  */
 export const WorkPackageSchema = z
   .object({
@@ -101,6 +150,13 @@ export const WorkPackageSchema = z
     boqLineRefs: z.array(BoqLineRefSchema).default([]),
     /** Existing tasks that deliver it → area/stage/task coordinates. */
     taskRefs: z.array(TaskRefSchema).default([]),
+    // Provenance the field sees (#367 compiles, #368 renders). Optional so
+    // older / un-compiled packages parse unchanged (zero regression).
+    scopeNote: z.string().nullable().optional(),
+    governingDocRefs: z.array(GoverningDocRefSchema).optional(),
+    materials: z.array(WorkPackageMaterialSchema).optional(),
+    requiredEvidence: z.array(RequiredEvidenceSchema).optional(),
+    warnings: z.array(WorkPackageWarningSchema).optional(),
     order: z.number().default(0),
     notes: z.string().nullable().optional(),
     createdAt: z.string().optional(),

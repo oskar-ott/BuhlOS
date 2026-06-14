@@ -9,10 +9,16 @@ import type {
   CloseoutRequirementStatusSchema,
   EvidenceLinkSchema,
   EvidenceLinkRoleSchema,
+  GoverningDocRefSchema,
   JobControlSpineSchema,
   JobControlStageSchema,
+  RequiredEvidenceSchema,
+  RequiredEvidenceKindSchema,
   TaskRefSchema,
+  WarningKindSchema,
+  WorkPackageMaterialSchema,
   WorkPackageSchema,
+  WorkPackageWarningSchema,
 } from "./schema";
 
 /**
@@ -37,6 +43,12 @@ void _stageAlignment;
 export type TaskRef = z.infer<typeof TaskRefSchema>;
 export type BoqLineRef = z.infer<typeof BoqLineRefSchema>;
 
+export type RequiredEvidenceKind = z.infer<typeof RequiredEvidenceKindSchema>;
+export type RequiredEvidence = z.infer<typeof RequiredEvidenceSchema>;
+export type WarningKind = z.infer<typeof WarningKindSchema>;
+export type WorkPackageWarning = z.infer<typeof WorkPackageWarningSchema>;
+export type GoverningDocRef = z.infer<typeof GoverningDocRefSchema>;
+export type WorkPackageMaterial = z.infer<typeof WorkPackageMaterialSchema>;
 export type WorkPackage = z.infer<typeof WorkPackageSchema>;
 
 export type ClaimLineStatus = z.infer<typeof ClaimLineStatusSchema>;

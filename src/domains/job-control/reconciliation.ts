@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ScopeOfWorkItem } from "../jobs/types";
 import type { Quote } from "../quoting/schema";
-import { BoqLineRefSchema } from "./schema";
+import { BoqLineRefSchema, RequiredEvidenceSchema, TaskRefSchema } from "./schema";
 import { boqLineRefKey } from "./spine";
 import type { BoqLineRef } from "./types";
 
@@ -61,6 +61,13 @@ export const ScopeClauseClassificationSchema = z
     boqLineRefs: z.array(BoqLineRefSchema).default([]),
     /** Supporting documents (spec/drawing/cert) where relevant. */
     documentIds: z.array(z.string()).default([]),
+    /** Existing tasks the office confirms deliver this clause — area/stage/task
+     *  coordinates the compile child (#367) groups into work packages. Never a
+     *  by-name guess; admin-confirmed. */
+    deliveredBy: z.array(TaskRefSchema).default([]),
+    /** Proof the office wants for this clause — compiled onto the package (#367)
+     *  and shown on the task in Phil (#368). */
+    requiredEvidence: z.array(RequiredEvidenceSchema).default([]),
     /** Worker-facing warning text (for by_others / reuse_existing / variation_trigger). */
     warningText: z.string().nullable().optional(),
     note: z.string().nullable().optional(),
