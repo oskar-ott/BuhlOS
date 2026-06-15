@@ -5,6 +5,10 @@ import type { ScopeOfWorkItem } from "@/domains/jobs/types";
 import type { Quote } from "@/domains/quoting/schema";
 import { boqLineRefKey } from "@/domains/job-control/spine";
 import {
+  JobControlStageSchema,
+  RequiredEvidenceKindSchema,
+} from "@/domains/job-control/schema";
+import {
   ScopeClassificationSchema,
   ScopeReconciliationSchema,
   classifyClause,
@@ -97,9 +101,20 @@ export type PersistedScopeReconciliation = z.infer<typeof PersistedScopeReconcil
 
 /**
  * An admin classification for one clause — either the bare classification
- * (`"by_others"`) or an object carrying the warning text / note. The
- * classification MUST be one of the domain's closed set; an unknown value is
- * rejected at parse time (no fake classifications).
+ * (`"by_others"`) or an object carrying the warning text / note and, for a
+ * field-delivered clause, the two fields that make the field proof loop
+ * reachable: `deliveredBy` (the task coordinate the work happens on) and
+ * `requiredEvidence` (the proof the office wants for it). The classification
+ * MUST be one of the domain's closed set; an unknown value is rejected at parse
+ * time (no fake classifications).
+ *
+ * `deliveredBy` / `requiredEvidence` are OPTIONAL, so an older client that sends
+ * only `classification` / `warningText` / `note` is unchanged (zero regression);
+ * the compiler still emits a `no_delivering_task` gap for a priced clause that
+ * names no delivering task. A required-evidence item may omit its `id` — one is
+ * DERIVED deterministically from the label (see {@link deriveRequiredEvidenceId})
+ * so re-authoring the same proof keeps the same id and existing evidence links
+ * stay valid; an explicit `id` always wins.
  */
 export const ClauseClassificationInputSchema = z.union([
   ScopeClassificationSchema,
@@ -108,6 +123,25 @@ export const ClauseClassificationInputSchema = z.union([
       classification: ScopeClassificationSchema,
       warningText: z.string().nullable().optional(),
       note: z.string().nullable().optional(),
+      deliveredBy: z
+        .array(
+          z.object({
+            areaId: z.string().min(1),
+            stage: JobControlStageSchema,
+            taskId: z.string().min(1),
+          }),
+        )
+        .optional(),
+      requiredEvidence: z
+        .array(
+          z.object({
+            id: z.string().min(1).optional(),
+            label: z.string().trim().min(1),
+            kind: RequiredEvidenceKindSchema,
+            note: z.string().nullable().optional(),
+          }),
+        )
+        .optional(),
     })
     .passthrough(),
 ]);
@@ -116,6 +150,24 @@ export const ClauseClassificationInputSchema = z.union([
 export const ClassificationsInputSchema = z.record(z.string(), ClauseClassificationInputSchema);
 export type ClauseClassificationInput = z.infer<typeof ClauseClassificationInputSchema>;
 export type ClassificationsInput = z.infer<typeof ClassificationsInputSchema>;
+
+/**
+ * Deterministic id for an admin-authored required-evidence item when the author
+ * omits one. FNV-1a over the trimmed label (the repo's id-derivation idiom, cf.
+ * `deriveWorkPackageId`) → a stable `re_…` id: re-authoring the same proof yields
+ * the same id, so a previously-recorded `EvidenceLink.requiredEvidenceId` keeps
+ * pointing at the same requirement across recompiles (see schema.ts). Distinct
+ * labels get distinct ids; never random, never time-based.
+ */
+export function deriveRequiredEvidenceId(label: string): string {
+  const input = label.trim();
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `re_${(h >>> 0).toString(16).padStart(8, "0")}`;
+}
 
 type ClausePatch = Partial<Omit<ScopeClauseClassification, "clauseId">> & {
   classification: ScopeClassification;
@@ -126,6 +178,25 @@ function normalisePatch(input: ClauseClassificationInput): ClausePatch {
   const patch: ClausePatch = { classification: input.classification };
   if (input.warningText !== undefined) patch.warningText = input.warningText;
   if (input.note !== undefined) patch.note = input.note;
+  if (input.deliveredBy !== undefined) {
+    // Copy the task coordinate through verbatim — never a by-name guess; the
+    // compiler validates each ref against the live structure (task_not_found).
+    patch.deliveredBy = input.deliveredBy.map((t) => ({
+      areaId: t.areaId,
+      stage: t.stage,
+      taskId: t.taskId,
+    }));
+  }
+  if (input.requiredEvidence !== undefined) {
+    // Preserve the authored proof; derive a stable id only when one is omitted.
+    // We never fabricate proof — an absent `requiredEvidence` stays absent.
+    patch.requiredEvidence = input.requiredEvidence.map((e) => ({
+      id: e.id ?? deriveRequiredEvidenceId(e.label),
+      label: e.label.trim(),
+      kind: e.kind,
+      ...(e.note !== undefined ? { note: e.note } : {}),
+    }));
+  }
   return patch;
 }
 

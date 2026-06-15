@@ -9,6 +9,7 @@ import {
   computeScopeSourceHash,
   ClassificationsInputSchema,
   confirmReconciliationAuthorized,
+  deriveRequiredEvidenceId,
   PersistedScopeReconciliationSchema,
   prepareReconciliationConfirm,
   runReconciliationConfirm,
@@ -217,6 +218,167 @@ describe("ClassificationsInputSchema", () => {
     expect(
       ClassificationsInputSchema.safeParse({ a: { classification: "by_others", warningText: "x" } }).success,
     ).toBe(true);
+  });
+
+  it("accepts a field-delivered clause carrying deliveredBy + requiredEvidence (the authoring path)", () => {
+    expect(
+      ClassificationsInputSchema.safeParse({
+        sw_zip: {
+          classification: "priced",
+          deliveredBy: [{ areaId: "area_east_gym", stage: "fitOff", taskId: "task_zip" }],
+          requiredEvidence: [{ label: "Circuit test before energising", kind: "test_result" }],
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a malformed task coordinate / proof kind (no fake shapes)", () => {
+    // empty taskId
+    expect(
+      ClassificationsInputSchema.safeParse({
+        sw_zip: { classification: "priced", deliveredBy: [{ areaId: "a", stage: "fitOff", taskId: "" }] },
+      }).success,
+    ).toBe(false);
+    // a stage outside the closed job-control set
+    expect(
+      ClassificationsInputSchema.safeParse({
+        sw_zip: { classification: "priced", deliveredBy: [{ areaId: "a", stage: "commissioning", taskId: "t" }] },
+      }).success,
+    ).toBe(false);
+    // a proof kind outside the closed REQUIRED_EVIDENCE_KINDS set
+    expect(
+      ClassificationsInputSchema.safeParse({
+        sw_zip: { classification: "priced", requiredEvidence: [{ label: "x", kind: "selfie" }] },
+      }).success,
+    ).toBe(false);
+    // a blank proof label
+    expect(
+      ClassificationsInputSchema.safeParse({
+        sw_zip: { classification: "priced", requiredEvidence: [{ label: "   ", kind: "photo" }] },
+      }).success,
+    ).toBe(false);
+  });
+});
+
+// ── deriveRequiredEvidenceId (stable id when the author omits one) ─────────────
+
+describe("deriveRequiredEvidenceId", () => {
+  it("is deterministic, label-stable, and re-trims (same label → same re_… id)", () => {
+    const a = deriveRequiredEvidenceId("Circuit test");
+    expect(a).toMatch(/^re_[0-9a-f]{8}$/);
+    expect(deriveRequiredEvidenceId("Circuit test")).toBe(a);
+    // surrounding whitespace must not change the id (label is trimmed)
+    expect(deriveRequiredEvidenceId("  Circuit test  ")).toBe(a);
+  });
+
+  it("gives distinct labels distinct ids", () => {
+    expect(deriveRequiredEvidenceId("Photo of the board")).not.toBe(
+      deriveRequiredEvidenceId("Test results"),
+    );
+  });
+});
+
+// ── Authoring deliveredBy + requiredEvidence through preview/confirm ───────────
+// The product-unblock: an admin patch carrying a task coordinate + required proof
+// must survive normalisePatch onto the clause classification, so the L1 compiler
+// can emit work packages with required proof (no more no_delivering_task).
+
+describe("authoring deliveredBy + requiredEvidence onto a clause", () => {
+  const authored = {
+    sw_zip: {
+      classification: "priced" as const,
+      deliveredBy: [{ areaId: "area_east_gym", stage: "fitOff" as const, taskId: "task_zip" }],
+      requiredEvidence: [
+        { label: "Circuit test before energising", kind: "test_result" as const, note: "RCD trip time" },
+        { id: "re_custom", label: "Board photo", kind: "photo" as const },
+      ],
+    },
+  };
+
+  it("preserves the task coordinate and the proof items on the clause classification", () => {
+    const r = buildReconciliationPreview({
+      jobId: "j",
+      clauses: clauses(),
+      quote: null,
+      prior: null,
+      classifications: authored,
+    });
+    const cc = r.reconciliation.clauseClassifications.find((c) => c.clauseId === "sw_zip")!;
+    expect(cc.classification).toBe("priced");
+    expect(cc.deliveredBy).toEqual([{ areaId: "area_east_gym", stage: "fitOff", taskId: "task_zip" }]);
+    expect(cc.requiredEvidence).toHaveLength(2);
+    // the proof's label/kind/note are carried verbatim
+    expect(cc.requiredEvidence[0]).toMatchObject({
+      label: "Circuit test before energising",
+      kind: "test_result",
+      note: "RCD trip time",
+    });
+  });
+
+  it("derives a stable id for proof with no id, and honours an explicit id", () => {
+    const r = buildReconciliationPreview({
+      jobId: "j",
+      clauses: clauses(),
+      quote: null,
+      prior: null,
+      classifications: authored,
+    });
+    const cc = r.reconciliation.clauseClassifications.find((c) => c.clauseId === "sw_zip")!;
+    // omitted id → the deterministic derivation; explicit id wins unchanged
+    expect(cc.requiredEvidence[0]!.id).toBe(deriveRequiredEvidenceId("Circuit test before energising"));
+    expect(cc.requiredEvidence[1]!.id).toBe("re_custom");
+  });
+
+  it("never fabricates proof: a field clause with no requiredEvidence stays empty", () => {
+    const r = buildReconciliationPreview({
+      jobId: "j",
+      clauses: clauses(),
+      quote: null,
+      prior: null,
+      classifications: {
+        sw_zip: { classification: "priced", deliveredBy: [{ areaId: "area_east_gym", stage: "fitOff", taskId: "task_zip" }] },
+      },
+    });
+    const cc = r.reconciliation.clauseClassifications.find((c) => c.clauseId === "sw_zip")!;
+    expect(cc.requiredEvidence).toEqual([]);
+    expect(cc.deliveredBy).toHaveLength(1);
+  });
+
+  it("leaves the old minimal patch (classification/note/warning only) unchanged — zero regression", () => {
+    const r = buildReconciliationPreview({
+      jobId: "j",
+      clauses: clauses(),
+      quote: null,
+      prior: null,
+      classifications: { sw_av: { classification: "by_others", warningText: "cabling only", note: "n" } },
+    });
+    const cc = r.reconciliation.clauseClassifications.find((c) => c.clauseId === "sw_av")!;
+    expect(cc).toMatchObject({ classification: "by_others", warningText: "cabling only", note: "n" });
+    // the schema defaults keep the new arrays empty, never undefined
+    expect(cc.deliveredBy).toEqual([]);
+    expect(cc.requiredEvidence).toEqual([]);
+  });
+
+  it("persists deliveredBy + requiredEvidence into the confirmed envelope", () => {
+    const prep = prepareReconciliationConfirm({
+      jobId: "j",
+      clauses: clauses(),
+      quote: null,
+      prior: null,
+      classifications: authored,
+      confirmedBy: "u_admin",
+      at: AT,
+    });
+    expect(prep.ok).toBe(true);
+    if (!prep.ok) return;
+    const cc = prep.persisted.reconciliation.clauseClassifications.find((c) => c.clauseId === "sw_zip")!;
+    expect(cc.deliveredBy).toHaveLength(1);
+    expect(cc.requiredEvidence.map((e) => e.id)).toEqual([
+      deriveRequiredEvidenceId("Circuit test before energising"),
+      "re_custom",
+    ]);
+    // the envelope round-trips through the persisted schema unchanged
+    expect(PersistedScopeReconciliationSchema.safeParse(prep.persisted).success).toBe(true);
   });
 });
 
