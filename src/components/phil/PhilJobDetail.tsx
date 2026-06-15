@@ -19,6 +19,7 @@ import { buildPhilJobCommandModel } from "@/domains/phil/job-command-model";
 import { philJobCommandInputFromJobData } from "@/domains/phil/job-command-input";
 import { confirmInduction, type InductionRecord } from "@/domains/jobs/induction";
 import { JobTagsPanel } from "./JobTagsPanel";
+import { buildAreaTaskContext } from "./philTaskContext";
 import { PhilJobContactsCard } from "./PhilJobContactsCard";
 import type { JobContact } from "@/domains/contacts/schema";
 import type { TagItem } from "@/domains/tags/schema";
@@ -269,6 +270,24 @@ export function PhilJobDetail({
         ? buildWorkerTasks(job, selectedArea, viewedStage, taskState)
         : [],
     [job, selectedArea, viewedStage, taskState],
+  );
+
+  // Per-task scope context (#368) for the viewed area+stage, from the compiled
+  // work packages via the job-control model. The Phil job fetch does not carry
+  // compiled work packages yet (the #367 compile→Phil plumbing is a later
+  // slice), so this is empty in production today and every task renders exactly
+  // as it does now (zero regression). When that data flows, pass it through
+  // buildAreaTaskContext's workPackages/evidenceLinks here — no further UI change.
+  const taskContextById = useMemo(
+    () =>
+      selectedArea
+        ? buildAreaTaskContext({
+            areaId: selectedArea.id,
+            stage: viewedStage,
+            taskIds: workerTasks.map((t) => t.id),
+          })
+        : undefined,
+    [selectedArea, viewedStage, workerTasks],
   );
 
   // Mark a task done / not-done via the dedicated fast-path endpoint. Tiny
@@ -550,6 +569,7 @@ export function PhilJobDetail({
                 onStageChange={setStage}
                 onToggleTask={handleToggleTask}
                 pendingTaskIds={pendingTaskIds}
+                taskContextById={taskContextById}
               />
             </div>
           ) : null}
