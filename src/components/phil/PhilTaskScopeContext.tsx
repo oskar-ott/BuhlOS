@@ -13,6 +13,7 @@ import {
   type TaskContextEvidenceReq,
 } from "@/domains/job-control/task-context";
 import type { GoverningDocRef, WorkPackageMaterial } from "@/domains/job-control/types";
+import { proofStatusMessage, type ProofActionStatus } from "./jobControlEvidenceLinkClient";
 
 /**
  * Phil — task scope context (#368).
@@ -45,9 +46,29 @@ const EVIDENCE_KIND_LABEL: Record<TaskContextEvidenceReq["kind"], string> = {
   certificate: "Certificate",
 };
 
-export function PhilTaskScopeContext({ context }: { context: PhilTaskContext }) {
+export function PhilTaskScopeContext({
+  context,
+  onCaptureProof,
+  proofActionState,
+  canCaptureProof = false,
+}: {
+  context: PhilTaskContext;
+  /** Capture proof for a specific unmet requirement. When omitted, no capture
+   *  affordance renders (read-only context, today's behavior). */
+  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string }) => void;
+  /** Per-requirement (requiredEvidenceId → status) action feedback. */
+  proofActionState?: Readonly<Record<string, ProofActionStatus>>;
+  /** Whether a capture+link can run now (a job-control revision is available).
+   *  When false, the affordance is hidden — never a broken action. */
+  canCaptureProof?: boolean;
+}) {
   // Zero-regression guarantee: nothing compiled for this task → render nothing.
   if (context.isEmpty) return null;
+
+  const workPackageId = context.workPackageId;
+  // The capture affordance only appears with a real package + requirement, a
+  // wired handler, and a current revision — otherwise the row is read-only.
+  const canCapture = Boolean(onCaptureProof && canCaptureProof && workPackageId);
 
   const { variationTriggers, byOthers, reuseExisting } = classifyTaskWarnings(context.warnings);
   const hasWarning = context.warnings.length > 0;
@@ -143,6 +164,14 @@ export function PhilTaskScopeContext({ context }: { context: PhilTaskContext }) 
                     {e.note ? (
                       <span className="mt-0.5 block text-xs text-text-muted">{e.note}</span>
                     ) : null}
+                    {!e.met && canCapture ? (
+                      <ProofAction
+                        status={proofActionState?.[e.id]}
+                        onCapture={() =>
+                          onCaptureProof?.({ workPackageId: workPackageId as string, requiredEvidenceId: e.id })
+                        }
+                      />
+                    ) : null}
                   </span>
                 </li>
               ))}
@@ -151,6 +180,28 @@ export function PhilTaskScopeContext({ context }: { context: PhilTaskContext }) 
         ) : null}
       </div>
     </details>
+  );
+}
+
+/** The per-requirement capture affordance: a small "Capture proof" button plus a
+ *  one-line status. Tapping triggers the existing capture sheet (parent-wired);
+ *  the proof only reads `met` once the link route confirms. */
+function ProofAction({ status, onCapture }: { status?: ProofActionStatus; onCapture: () => void }) {
+  const saving = status === "saving";
+  return (
+    <span className="mt-1.5 block">
+      <button
+        type="button"
+        onClick={onCapture}
+        disabled={saving}
+        className="inline-flex min-h-[36px] items-center gap-1.5 rounded-pill border border-border bg-surface px-3 py-1 font-display text-xs font-semibold text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {saving ? "Saving…" : "Capture proof"}
+      </button>
+      {status && status !== "saving" ? (
+        <span className="mt-1 block text-xs text-state-warning">{proofStatusMessage(status)}</span>
+      ) : null}
+    </span>
   );
 }
 

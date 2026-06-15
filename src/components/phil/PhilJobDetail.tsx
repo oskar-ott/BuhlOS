@@ -20,6 +20,7 @@ import { philJobCommandInputFromJobData } from "@/domains/phil/job-command-input
 import { confirmInduction, type InductionRecord } from "@/domains/jobs/induction";
 import { JobTagsPanel } from "./JobTagsPanel";
 import { buildAreaTaskContext } from "./philTaskContext";
+import { linkAndApply, type ProofActionStatus } from "./jobControlEvidenceLinkClient";
 import { PhilJobContactsCard } from "./PhilJobContactsCard";
 import type { JobContact } from "@/domains/contacts/schema";
 import type { TagItem } from "@/domains/tags/schema";
@@ -91,8 +92,13 @@ interface Props {
    *  (zero regression — honest empty). */
   workPackages?: ReadonlyArray<WorkPackage>;
   /** Compiled evidence links for this job (L2 read). A required-evidence item
-   *  reads `met` ONLY when a real link names it — never a count. Read-only here. */
+   *  reads `met` ONLY when a real link names it — never a count. Seeds client
+   *  state so a successful proof link flips it to met without a full reload. */
   evidenceLinks?: ReadonlyArray<EvidenceLink>;
+  /** Current job-control artifact revision (#469 stale-write precondition).
+   *  Required to capture proof for a requirement; absent ⇒ the capture
+   *  affordance is hidden. */
+  jobControlRevision?: string;
   /** When set (and changing), auto-opens the capture sheet. Driven by
    *  the `?capture=<token>` deep link the global Capture launcher
    *  (PhilTabBar FAB) pushes, so a worker can start a capture from
@@ -160,7 +166,8 @@ export function PhilJobDetail({
   taskStateError,
   viewer,
   workPackages,
-  evidenceLinks,
+  evidenceLinks: initialEvidenceLinks,
+  jobControlRevision,
   autoCaptureToken,
 }: Props) {
   // #332: induction completion is server truth — the tap is NON-optimistic
@@ -211,6 +218,24 @@ export function PhilJobDetail({
   const [captureBanner, setCaptureBanner] = useState<
     { tone: "info" | "success" | "danger"; message: string } | null
   >(null);
+  // Compiled evidence links as client state, so a successful proof link flips the
+  // requirement to met without a full reload. Seeded from the server read.
+  const [evidenceLinks, setEvidenceLinks] = useState<ReadonlyArray<EvidenceLink>>(
+    initialEvidenceLinks ?? []
+  );
+  // Current artifact revision (advances on each successful link). The capture
+  // affordance is hidden when this is absent.
+  const [jcRevision, setJcRevision] = useState<string | undefined>(jobControlRevision);
+  // The requirement a pending capture is for (workPackageId + requiredEvidenceId
+  // + taskId); the area/stage come from the current selection. Cleared on
+  // capture/close.
+  const [pendingProofLink, setPendingProofLink] = useState<{
+    workPackageId: string;
+    requiredEvidenceId: string;
+    taskId: string;
+  } | null>(null);
+  // Per-requirement (requiredEvidenceId → status) capture/link feedback.
+  const [proofStatus, setProofStatus] = useState<Record<string, ProofActionStatus>>({});
 
   // Worker-visible task state (areaId → stage → taskId → state). Seeded from
   // the server-loaded data blob; only ever advanced by a CONFIRMED
@@ -458,15 +483,62 @@ export function PhilJobDetail({
     [flatAreas, job],
   );
 
-  const handleCaptured = useCallback((item: EvidenceItem) => {
-    setEvidenceItems((prev) => [item, ...prev]);
-    setCaptureBanner({ tone: "success", message: "Evidence captured." });
-    // Auto-decay the banner after 1.5s per doc 29 §7.7.
-    window.setTimeout(() => setCaptureBanner(null), 1500);
-  }, []);
+  // Open the existing capture sheet scoped to a specific required-proof item.
+  // The captured evidence is then auto-linked in handleCaptured.
+  const handleCaptureProof = useCallback(
+    (target: { workPackageId: string; requiredEvidenceId: string; taskId: string }) => {
+      setPendingProofLink(target);
+      setProofStatus((prev) => {
+        const next = { ...prev };
+        delete next[target.requiredEvidenceId];
+        return next;
+      });
+      setCaptureOpen(true);
+    },
+    [],
+  );
+
+  const handleCaptured = useCallback(
+    async (item: EvidenceItem) => {
+      setEvidenceItems((prev) => [item, ...prev]);
+      setCaptureBanner({ tone: "success", message: "Evidence captured." });
+      window.setTimeout(() => setCaptureBanner(null), 1500);
+
+      // If this capture was for a specific required-proof item, link it now.
+      const pending = pendingProofLink;
+      setPendingProofLink(null);
+      if (!pending || !jcRevision) return;
+
+      const req = pending.requiredEvidenceId;
+      setProofStatus((prev) => ({ ...prev, [req]: "saving" }));
+      const applied = await linkAndApply({
+        jobId: job.id,
+        workPackageId: pending.workPackageId,
+        requiredEvidenceId: req,
+        evidenceId: item.id, // the REAL saved id, never fabricated
+        expectedJobControlRevision: jcRevision,
+      });
+      if (applied.revision) setJcRevision(applied.revision);
+      if (applied.link) {
+        // Met ONLY after the link route confirmed — never optimistic.
+        const link = applied.link;
+        setEvidenceLinks((prev) => [...prev, link]);
+        setProofStatus((prev) => {
+          const next = { ...prev };
+          delete next[req];
+          return next;
+        });
+      } else if (applied.status) {
+        setProofStatus((prev) => ({ ...prev, [req]: applied.status! }));
+      }
+    },
+    [pendingProofLink, jcRevision, job.id],
+  );
 
   const handleCaptureFailed = useCallback((message: string) => {
     setCaptureBanner({ tone: "danger", message });
+    // A failed save never links proof; drop any pending target.
+    setPendingProofLink(null);
   }, []);
 
   return (
@@ -583,6 +655,9 @@ export function PhilJobDetail({
                 onToggleTask={handleToggleTask}
                 pendingTaskIds={pendingTaskIds}
                 taskContextById={taskContextById}
+                onCaptureProof={handleCaptureProof}
+                proofActionState={proofStatus}
+                canCaptureProof={Boolean(jcRevision)}
               />
             </div>
           ) : null}
@@ -730,7 +805,10 @@ export function PhilJobDetail({
         open={captureOpen}
         job={job}
         initialContext={{ stage, areaId: selectedAreaId }}
-        onClose={() => setCaptureOpen(false)}
+        onClose={() => {
+          setCaptureOpen(false);
+          setPendingProofLink(null);
+        }}
         onCaptured={handleCaptured}
         onFailed={handleCaptureFailed}
       />

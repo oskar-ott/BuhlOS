@@ -103,7 +103,11 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           { tags: [] as TagItem[], error: false },
           [] as JobContact[],
           null as InductionRecord | null,
-          { workPackages: [] as WorkPackage[], evidenceLinks: [] as EvidenceLink[] },
+          {
+            workPackages: [] as WorkPackage[],
+            evidenceLinks: [] as EvidenceLink[],
+            revision: undefined as string | undefined,
+          },
         ];
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
@@ -161,6 +165,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
         }}
         workPackages={jobControlResult.workPackages}
         evidenceLinks={jobControlResult.evidenceLinks}
+        jobControlRevision={jobControlResult.revision}
         autoCaptureToken={captureToken}
       />
     </PhilShell>
@@ -475,10 +480,12 @@ async function loadInitialMyInduction(
  */
 async function loadInitialJobControl(
   jobId: string
-): Promise<{ workPackages: WorkPackage[]; evidenceLinks: EvidenceLink[] }> {
+): Promise<{ workPackages: WorkPackage[]; evidenceLinks: EvidenceLink[]; revision?: string }> {
   try {
     const r = await readJobControlForField(blobJobControlReadDeps(), jobId);
-    if (r.ok && r.ready) return { workPackages: r.workPackages, evidenceLinks: r.evidenceLinks };
+    if (r.ok && r.ready) {
+      return { workPackages: r.workPackages, evidenceLinks: r.evidenceLinks, revision: r.meta.revision };
+    }
     return { workPackages: [], evidenceLinks: [] };
   } catch {
     return { workPackages: [], evidenceLinks: [] };

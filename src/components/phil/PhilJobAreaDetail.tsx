@@ -33,6 +33,7 @@ import {
   type AreaStageAvailability,
 } from "./philJobWorkTree";
 import { PhilTaskScopeContext } from "./PhilTaskScopeContext";
+import type { ProofActionStatus } from "./jobControlEvidenceLinkClient";
 import type { PhilTaskContext } from "@/domains/job-control/task-context";
 import { cn } from "@/lib/cn";
 
@@ -68,6 +69,13 @@ interface Props {
    *  and the Phil job fetch carries none until the compile→Phil plumbing lands,
    *  so this is `undefined` in production right now (zero regression). */
   taskContextById?: ReadonlyMap<string, PhilTaskContext>;
+  /** Capture proof for a specific unmet requirement on a task. The parent fills
+   *  the area/stage coordinate; the row adds `taskId`. Omitted ⇒ no affordance. */
+  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string }) => void;
+  /** Per-requirement (requiredEvidenceId → status) capture/link feedback. */
+  proofActionState?: Readonly<Record<string, ProofActionStatus>>;
+  /** Whether a capture+link can run now (a job-control revision is available). */
+  canCaptureProof?: boolean;
 }
 
 /**
@@ -114,6 +122,9 @@ export function PhilJobAreaDetail({
   onToggleTask,
   pendingTaskIds,
   taskContextById,
+  onCaptureProof,
+  proofActionState,
+  canCaptureProof,
 }: Props) {
   const links = areaQuickLinks(counts);
   const sole = soleStage(stages);
@@ -208,6 +219,9 @@ export function PhilJobAreaDetail({
                       ? () => onToggleTask(t.id, nextToggleState(t.state))
                       : undefined
                   }
+                  onCaptureProof={onCaptureProof}
+                  proofActionState={proofActionState}
+                  canCaptureProof={canCaptureProof}
                 />
               ))}
             </ul>
@@ -304,11 +318,17 @@ function TaskRow({
   pending,
   onToggle,
   context,
+  onCaptureProof,
+  proofActionState,
+  canCaptureProof,
 }: {
   task: WorkerTask;
   pending: boolean;
   onToggle?: () => void;
   context?: PhilTaskContext;
+  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string }) => void;
+  proofActionState?: Readonly<Record<string, ProofActionStatus>>;
+  canCaptureProof?: boolean;
 }) {
   const done = isComplete(task.state);
   return (
@@ -354,7 +374,18 @@ function TaskRow({
           <Pill tone={taskStateTone(task.state)}>{taskStateLabel(task.state)}</Pill>
         )}
       </div>
-      {context ? <PhilTaskScopeContext context={context} /> : null}
+      {context ? (
+        <PhilTaskScopeContext
+          context={context}
+          onCaptureProof={
+            onCaptureProof
+              ? (t) => onCaptureProof({ ...t, taskId: task.id })
+              : undefined
+          }
+          proofActionState={proofActionState}
+          canCaptureProof={canCaptureProof}
+        />
+      ) : null}
     </li>
   );
 }

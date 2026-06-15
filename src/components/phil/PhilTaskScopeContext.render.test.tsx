@@ -16,6 +16,24 @@ function render(context: PhilTaskContext): string {
   return renderToString(createElement(PhilTaskScopeContext, { context })).replace(/<!-- -->/g, "");
 }
 
+function renderWithProof(
+  context: PhilTaskContext,
+  opts: {
+    onCaptureProof?: (t: { workPackageId: string; requiredEvidenceId: string }) => void;
+    canCaptureProof?: boolean;
+    proofActionState?: Record<string, "saving" | "saved_not_linked" | "stale" | "error">;
+  },
+): string {
+  return renderToString(
+    createElement(PhilTaskScopeContext, {
+      context,
+      onCaptureProof: opts.onCaptureProof,
+      canCaptureProof: opts.canCaptureProof,
+      proofActionState: opts.proofActionState,
+    }),
+  ).replace(/<!-- -->/g, "");
+}
+
 const FULL: PhilTaskContext = {
   workPackageId: "wp_1",
   scopeNote: "Run a dedicated 20A circuit to the ZIP tap.",
@@ -110,5 +128,51 @@ describe("PhilTaskScopeContext", () => {
     expect(html).not.toContain('id="phil-job');
     expect(html).not.toContain("<h2");
     expect(html).toContain("<details");
+  });
+
+  it("renders NO capture affordance without a handler/revision (today's read-only default)", () => {
+    expect(render(FULL)).not.toContain("Capture proof");
+  });
+
+  it("renders a 'Capture proof' action ONLY for an unmet requirement when handler + revision + workPackage exist", () => {
+    // FULL has re1 met, re2 unmet → exactly one capture action (for re2).
+    const html = renderWithProof(FULL, { onCaptureProof: () => {}, canCaptureProof: true });
+    expect((html.match(/Capture proof/g) ?? []).length).toBe(1);
+  });
+
+  it("hides the capture action when no revision is available (canCaptureProof false)", () => {
+    expect(renderWithProof(FULL, { onCaptureProof: () => {}, canCaptureProof: false })).not.toContain(
+      "Capture proof",
+    );
+  });
+
+  it("hides the capture action when the task belongs to no work package (workPackageId null)", () => {
+    const noPkg: PhilTaskContext = {
+      ...FULL,
+      workPackageId: null,
+      // keep it non-empty so the disclosure still renders
+      scopeNote: "Some note",
+    };
+    expect(renderWithProof(noPkg, { onCaptureProof: () => {}, canCaptureProof: true })).not.toContain(
+      "Capture proof",
+    );
+  });
+
+  it("shows a plain status message for a stale link attempt", () => {
+    const html = renderWithProof(FULL, {
+      onCaptureProof: () => {},
+      canCaptureProof: true,
+      proofActionState: { re2: "stale" },
+    });
+    expect(html).toContain("Refresh and try again");
+  });
+
+  it("shows a 'Saving…' button while a link is in flight", () => {
+    const html = renderWithProof(FULL, {
+      onCaptureProof: () => {},
+      canCaptureProof: true,
+      proofActionState: { re2: "saving" },
+    });
+    expect(html).toContain("Saving…");
   });
 });
