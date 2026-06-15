@@ -20,7 +20,9 @@ import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
 import { SnagListResponseSchema } from "@/domains/snags/schema";
 import { ITPListResponseSchema } from "@/domains/itp/schema";
 import { DocumentListResponseSchema } from "@/domains/documents/schema";
+import { blobJobControlReadDeps, readJobControlForField } from "@/server/job-control/read";
 import type { Job } from "@/domains/jobs/types";
+import type { EvidenceLink, WorkPackage } from "@/domains/job-control/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
 import type { ITPInstance } from "@/domains/itp/types";
@@ -79,7 +81,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // is non-blocking: an empty list just shows the empty state, the
   // worker can still create new items, and the server will return
   // real data on the next refresh.
-  const [initialEvidence, initialSnags, initialItps, documentsResult, taskStateResult, tagsResult, initialContacts, initialMyInduction] =
+  const [initialEvidence, initialSnags, initialItps, documentsResult, taskStateResult, tagsResult, initialContacts, initialMyInduction, jobControlResult] =
     result.kind === "ok"
       ? await Promise.all([
           loadInitialEvidence(raw, jobId),
@@ -90,6 +92,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           loadInitialTags(raw, jobId),
           loadInitialContacts(raw, jobId),
           loadInitialMyInduction(raw, jobId),
+          loadInitialJobControl(jobId),
         ])
       : [
           [],
@@ -100,6 +103,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           { tags: [] as TagItem[], error: false },
           [] as JobContact[],
           null as InductionRecord | null,
+          { workPackages: [] as WorkPackage[], evidenceLinks: [] as EvidenceLink[] },
         ];
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
@@ -155,6 +159,8 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           id: session.userId ?? session.sub ?? "",
           role: String(session.role ?? ""),
         }}
+        workPackages={jobControlResult.workPackages}
+        evidenceLinks={jobControlResult.evidenceLinks}
         autoCaptureToken={captureToken}
       />
     </PhilShell>
@@ -453,6 +459,29 @@ async function loadInitialMyInduction(
     return parsed.data.record;
   } catch {
     return null;
+  }
+}
+
+/**
+ * L2/L3: the compiled job-control read for this job — the field-safe
+ * `{ workPackages, evidenceLinks }` subset that drives per-task scope context
+ * (#368) in PhilJobDetail. Read DIRECTLY server-side (no new public endpoint);
+ * it runs only after the job-access gate above (`result.kind === "ok"`), so it
+ * is no more exposed than the rest of this page's job fetch.
+ *
+ * FAILS SOFT to empty for BOTH a missing artifact (the normal case — most jobs
+ * aren't compiled yet) and an unreadable one, so a worker is never blocked: Phil
+ * then renders exactly as it does today (zero regression).
+ */
+async function loadInitialJobControl(
+  jobId: string
+): Promise<{ workPackages: WorkPackage[]; evidenceLinks: EvidenceLink[] }> {
+  try {
+    const r = await readJobControlForField(blobJobControlReadDeps(), jobId);
+    if (r.ok && r.ready) return { workPackages: r.workPackages, evidenceLinks: r.evidenceLinks };
+    return { workPackages: [], evidenceLinks: [] };
+  } catch {
+    return { workPackages: [], evidenceLinks: [] };
   }
 }
 
