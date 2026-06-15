@@ -67,6 +67,11 @@ routes.
   `jobs/<jobId>/job-control.json`, that key must be registered in
   `api/_lib/backup-manifest.js` (and the guard likely extended to scan
   `src/server`), or the store never gets backed up.
+- **Parallel-session safety:** this foundation is disjoint from the parallel
+  variation/daywork-approval domain work (Session 2). It touches **none** of
+  `src/domains/variations/**` or `docs/product/variation-daywork-approval-workflow.md`
+  — only the new `src/server/job-control/**`, `src/app/api/job-control/**`, and
+  this ADR. The two streams share no files.
 
 ## Next slices (not in this PR)
 
