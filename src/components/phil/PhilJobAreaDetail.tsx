@@ -32,6 +32,8 @@ import {
   type AreaQuickLink,
   type AreaStageAvailability,
 } from "./philJobWorkTree";
+import { PhilTaskScopeContext } from "./PhilTaskScopeContext";
+import type { PhilTaskContext } from "@/domains/job-control/task-context";
 import { cn } from "@/lib/cn";
 
 const LINK_ICON = {
@@ -60,6 +62,12 @@ interface Props {
   /** Task ids with a toggle in flight — the row shows a saving state and
    *  disables its control until the server confirms. */
   pendingTaskIds?: ReadonlySet<string>;
+  /** Per-task compiled scope context (#368), keyed by task id. Built by the
+   *  parent via the job-control model (`buildAreaTaskContext`). A task with no
+   *  entry renders exactly as today — the map only carries non-empty contexts,
+   *  and the Phil job fetch carries none until the compile→Phil plumbing lands,
+   *  so this is `undefined` in production right now (zero regression). */
+  taskContextById?: ReadonlyMap<string, PhilTaskContext>;
 }
 
 /**
@@ -105,6 +113,7 @@ export function PhilJobAreaDetail({
   onStageChange,
   onToggleTask,
   pendingTaskIds,
+  taskContextById,
 }: Props) {
   const links = areaQuickLinks(counts);
   const sole = soleStage(stages);
@@ -193,6 +202,7 @@ export function PhilJobAreaDetail({
                   key={t.id}
                   task={t}
                   pending={pendingTaskIds?.has(t.id) ?? false}
+                  context={taskContextById?.get(t.id)}
                   onToggle={
                     onToggleTask
                       ? () => onToggleTask(t.id, nextToggleState(t.state))
@@ -293,53 +303,58 @@ function TaskRow({
   task,
   pending,
   onToggle,
+  context,
 }: {
   task: WorkerTask;
   pending: boolean;
   onToggle?: () => void;
+  context?: PhilTaskContext;
 }) {
   const done = isComplete(task.state);
   return (
-    <li className="flex min-h-[52px] items-center gap-3 px-3 py-2.5 text-sm">
-      <TaskStateIcon state={task.state} />
-      <span
-        className={cn(
-          "flex-1 break-words",
-          done ? "text-text-muted line-through" : "text-text",
-        )}
-      >
-        {task.name}
-      </span>
-      {onToggle ? (
-        <button
-          type="button"
-          onClick={onToggle}
-          disabled={pending}
-          aria-label={done ? `Mark ${task.name} not done` : `Mark ${task.name} done`}
+    <li className="px-3 py-2.5 text-sm">
+      <div className="flex min-h-[52px] items-center gap-3">
+        <TaskStateIcon state={task.state} />
+        <span
           className={cn(
-            "inline-flex min-h-[48px] shrink-0 items-center gap-1.5 rounded-pill border border-border bg-surface px-4 font-display text-xs font-semibold text-text transition-colors",
-            "hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy",
-            "disabled:cursor-not-allowed disabled:opacity-60",
+            "flex-1 break-words",
+            done ? "text-text-muted line-through" : "text-text",
           )}
         >
-          {pending ? (
-            <Loader2
-              aria-hidden="true"
-              className="h-4 w-4 shrink-0 animate-spin text-text-muted"
-            />
-          ) : done ? (
-            <Undo2 aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
-          ) : (
-            <CheckCircle2
-              aria-hidden="true"
-              className="h-4 w-4 shrink-0 text-state-success"
-            />
-          )}
-          {pending ? "Saving…" : done ? "Undo" : "Mark done"}
-        </button>
-      ) : (
-        <Pill tone={taskStateTone(task.state)}>{taskStateLabel(task.state)}</Pill>
-      )}
+          {task.name}
+        </span>
+        {onToggle ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            disabled={pending}
+            aria-label={done ? `Mark ${task.name} not done` : `Mark ${task.name} done`}
+            className={cn(
+              "inline-flex min-h-[48px] shrink-0 items-center gap-1.5 rounded-pill border border-border bg-surface px-4 font-display text-xs font-semibold text-text transition-colors",
+              "hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy",
+              "disabled:cursor-not-allowed disabled:opacity-60",
+            )}
+          >
+            {pending ? (
+              <Loader2
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 animate-spin text-text-muted"
+              />
+            ) : done ? (
+              <Undo2 aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+            ) : (
+              <CheckCircle2
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 text-state-success"
+              />
+            )}
+            {pending ? "Saving…" : done ? "Undo" : "Mark done"}
+          </button>
+        ) : (
+          <Pill tone={taskStateTone(task.state)}>{taskStateLabel(task.state)}</Pill>
+        )}
+      </div>
+      {context ? <PhilTaskScopeContext context={context} /> : null}
     </li>
   );
 }
