@@ -225,6 +225,10 @@ export const EvidenceLinkSchema = z
     workPackageId: z.string().nullable().optional(), // → wp_…
     claimLineId: z.string().nullable().optional(), // → cl_…
     closeoutRequirementId: z.string().nullable().optional(), // → cr_…
+    /** The specific required-evidence item this link satisfies (#368) →
+     *  `WorkPackage.requiredEvidence[].id`. A requirement is "met" ONLY when a
+     *  link names it — never derived from a photo count. */
+    requiredEvidenceId: z.string().nullable().optional(),
     role: EvidenceLinkRoleSchema,
     createdAt: z.string().optional(),
     createdBy: z.string().optional(),
