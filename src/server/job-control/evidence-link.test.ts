@@ -10,7 +10,11 @@ import {
   type EvidenceLinkDeps,
   type EvidenceLinkRequest,
 } from "./evidence-link";
-import { PersistedJobControlSchema, type PersistedJobControl } from "./compile-producer";
+import {
+  PersistedJobControlSchema,
+  jobControlRevisionOf,
+  type PersistedJobControl,
+} from "./compile-producer";
 
 // ── Fixture: a compiled artifact with one package + two required-evidence items ─
 
@@ -61,9 +65,21 @@ function artifact(over: Record<string, unknown> = {}): PersistedJobControl {
 const AT = "2026-06-15T12:00:00.000Z";
 const REQ: EvidenceLinkRequest = { workPackageId: "wp_1", requiredEvidenceId: "re1", evidenceId: "ev_123" };
 
+/** The revision a caller would have read for a given raw artifact (matches the
+ *  writer's stale-write precondition). */
+function revOf(raw: unknown): string {
+  return jobControlRevisionOf(PersistedJobControlSchema.parse(raw));
+}
+
 function fakeDeps(
   over: Partial<{ raw: unknown; idPrefix: string }> = {},
-): EvidenceLinkDeps & { saved: PersistedJobControl[]; save: ReturnType<typeof vi.fn>; loadRaw: ReturnType<typeof vi.fn> } {
+): EvidenceLinkDeps & {
+  saved: PersistedJobControl[];
+  save: ReturnType<typeof vi.fn>;
+  loadRaw: ReturnType<typeof vi.fn>;
+  /** The matching expected revision for the served artifact (undefined if missing/unreadable). */
+  currentRevision: string | undefined;
+} {
   const raw = "raw" in over ? over.raw : artifactRaw();
   const saved: PersistedJobControl[] = [];
   const save = vi.fn(async (_jobId: string, a: PersistedJobControl) => {
@@ -71,8 +87,17 @@ function fakeDeps(
   });
   const loadRaw = vi.fn(async () => raw);
   let n = 0;
-  return { saved, save, loadRaw, mintId: () => `${over.idPrefix ?? "el_test_"}${++n}` };
+  let currentRevision: string | undefined;
+  try {
+    currentRevision = raw == null ? undefined : revOf(raw);
+  } catch {
+    currentRevision = undefined; // unreadable raw
+  }
+  return { saved, save, loadRaw, mintId: () => `${over.idPrefix ?? "el_test_"}${++n}`, currentRevision };
 }
+
+/** A correct expected revision for the default fixture. */
+const FIXTURE_REV = revOf(artifactRaw());
 
 // ── Request guards ───────────────────────────────────────────────────────────
 
@@ -156,48 +181,97 @@ describe("applyEvidenceLink", () => {
 // ── writeEvidenceLink (orchestration) ─────────────────────────────────────────
 
 describe("writeEvidenceLink", () => {
-  it("valid target → writes exactly once to job-control.json", async () => {
+  it("valid target + matching revision → writes once and advances the revision", async () => {
     const deps = fakeDeps();
-    const r = await writeEvidenceLink(deps, { jobId: "job_1", request: REQ, at: AT, createdBy: "u_worker" });
+    const r = await writeEvidenceLink(deps, {
+      jobId: "job_1",
+      request: REQ,
+      expectedRevision: deps.currentRevision!,
+      at: AT,
+      createdBy: "u_worker",
+    });
     expect(r).toMatchObject({ ok: true, status: 200, created: true });
+    if (!r.ok) return;
     expect(deps.save).toHaveBeenCalledTimes(1);
     expect(deps.saved[0]!.evidenceLinks).toHaveLength(1);
     expect(deps.saved[0]!.evidenceLinks[0]!.evidenceId).toBe("ev_123");
+    // revision advanced (content changed) and is stamped on the saved artifact
+    expect(r.revision).toBe(deps.saved[0]!.revision);
+    expect(r.revision).not.toBe(deps.currentRevision);
   });
 
-  it("missing artifact → warning, evidence-save unaffected, NO write", async () => {
+  it("STALE revision → 409, no write (does not erase the current artifact)", async () => {
+    const deps = fakeDeps();
+    const r = await writeEvidenceLink(deps, {
+      jobId: "job_1",
+      request: REQ,
+      expectedRevision: "stale-revision",
+      at: AT,
+    });
+    expect(r).toMatchObject({ ok: false, status: 409, reason: "stale_revision" });
+    if (!r.ok) expect(r.currentRevision).toBe(deps.currentRevision);
+    expect(deps.save).not.toHaveBeenCalled();
+  });
+
+  it("stale write does NOT erase a newer link that landed first", async () => {
+    // The artifact already carries a link X (e.g. another capture landed first),
+    // so its revision moved. A worker holding the OLD revision is rejected — X survives.
+    const deps = fakeDeps({
+      raw: artifactRaw({
+        evidenceLinks: [
+          { id: "el_X", jobId: "job_1", evidenceId: "ev_X", workPackageId: "wp_1", requiredEvidenceId: "re2", role: "progress" },
+        ],
+      }),
+    });
+    const r = await writeEvidenceLink(deps, {
+      jobId: "job_1",
+      request: REQ,
+      expectedRevision: FIXTURE_REV, // the pre-link revision the worker read
+      at: AT,
+    });
+    expect(r).toMatchObject({ ok: false, status: 409, reason: "stale_revision" });
+    expect(deps.save).not.toHaveBeenCalled(); // link X is never clobbered
+  });
+
+  it("missing artifact → 404, no write (revision check not reached)", async () => {
     const deps = fakeDeps({ raw: null });
-    const r = await writeEvidenceLink(deps, { jobId: "job_1", request: REQ, at: AT });
+    const r = await writeEvidenceLink(deps, { jobId: "job_1", request: REQ, expectedRevision: "anything", at: AT });
     expect(r).toMatchObject({ ok: false, status: 404, reason: "missing" });
     expect(deps.save).not.toHaveBeenCalled();
   });
 
-  it("unreadable artifact → warning, NOT overwritten", async () => {
+  it("unreadable artifact → 409, NOT overwritten", async () => {
     const deps = fakeDeps({ raw: { jobId: "job_1", workPackages: "not-an-array" } });
-    const r = await writeEvidenceLink(deps, { jobId: "job_1", request: REQ, at: AT });
+    const r = await writeEvidenceLink(deps, { jobId: "job_1", request: REQ, expectedRevision: "anything", at: AT });
     expect(r).toMatchObject({ ok: false, status: 409, reason: "unreadable" });
     expect(deps.save).not.toHaveBeenCalled();
   });
 
   it("invalid work package → 409, no write", async () => {
     const deps = fakeDeps();
-    const r = await writeEvidenceLink(deps, { jobId: "job_1", request: { ...REQ, workPackageId: "wp_nope" }, at: AT });
+    const r = await writeEvidenceLink(deps, {
+      jobId: "job_1",
+      request: { ...REQ, workPackageId: "wp_nope" },
+      expectedRevision: deps.currentRevision!,
+      at: AT,
+    });
     expect(r).toMatchObject({ ok: false, status: 409, reason: "invalid_work_package" });
     expect(deps.save).not.toHaveBeenCalled();
   });
 
   it("invalid requirement → 409, no write", async () => {
     const deps = fakeDeps();
-    const r = await writeEvidenceLink(deps, { jobId: "job_1", request: { ...REQ, requiredEvidenceId: "re_nope" }, at: AT });
+    const r = await writeEvidenceLink(deps, {
+      jobId: "job_1",
+      request: { ...REQ, requiredEvidenceId: "re_nope" },
+      expectedRevision: deps.currentRevision!,
+      at: AT,
+    });
     expect(r).toMatchObject({ ok: false, status: 409, reason: "invalid_requirement" });
     expect(deps.save).not.toHaveBeenCalled();
   });
 
-  it("duplicate request → no duplicate link, no second write", async () => {
-    const deps = fakeDeps();
-    await writeEvidenceLink(deps, { jobId: "job_1", request: REQ, at: AT });
-    // second call sees the original artifact (fake loadRaw returns the same raw) → still creates,
-    // so instead simulate a prior link already present:
+  it("duplicate request → idempotent, no second write, revision unchanged", async () => {
     const depsWithLink = fakeDeps({
       raw: artifactRaw({
         evidenceLinks: [
@@ -205,8 +279,14 @@ describe("writeEvidenceLink", () => {
         ],
       }),
     });
-    const r2 = await writeEvidenceLink(depsWithLink, { jobId: "job_1", request: REQ, at: AT });
-    expect(r2).toMatchObject({ ok: true, created: false });
+    const r = await writeEvidenceLink(depsWithLink, {
+      jobId: "job_1",
+      request: REQ,
+      expectedRevision: depsWithLink.currentRevision!,
+      at: AT,
+    });
+    expect(r).toMatchObject({ ok: true, created: false });
+    if (r.ok) expect(r.revision).toBe(depsWithLink.currentRevision);
     expect(depsWithLink.save).not.toHaveBeenCalled();
   });
 
@@ -215,6 +295,7 @@ describe("writeEvidenceLink", () => {
     const r = await writeEvidenceLink(deps, {
       jobId: "job_1",
       request: { workPackageId: "wp_1", requiredEvidenceId: "re1", observationId: "ob_1" },
+      expectedRevision: deps.currentRevision!,
       at: AT,
     });
     expect(r.ok).toBe(true);
@@ -234,7 +315,12 @@ describe("writeEvidenceLink", () => {
 describe("loop closes: written link → read → buildAreaTaskContext met", () => {
   it("the linked requirement flips to met; an unrelated one stays needed", async () => {
     const deps = fakeDeps();
-    await writeEvidenceLink(deps, { jobId: "job_1", request: REQ, at: AT }); // links re1
+    await writeEvidenceLink(deps, {
+      jobId: "job_1",
+      request: REQ,
+      expectedRevision: deps.currentRevision!,
+      at: AT,
+    }); // links re1
     const persisted = deps.saved[0]!;
 
     // Read it back through the field-safe boundary, then build task context.

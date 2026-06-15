@@ -1,5 +1,5 @@
 import type { EvidenceLink, WorkPackage } from "@/domains/job-control/types";
-import { PersistedJobControlSchema, jobControlKey } from "./compile-producer";
+import { PersistedJobControlSchema, jobControlKey, jobControlRevisionOf } from "./compile-producer";
 import { readJsonBlob } from "./blob";
 
 /**
@@ -27,6 +27,9 @@ export interface JobControlReadMeta {
   generatedAt?: string;
   confirmedAt?: string;
   sourceHash?: string;
+  /** Stale-write precondition token — a caller passes it back as
+   *  `expectedJobControlRevision` when writing (a one-way digest, not office data). */
+  revision?: string;
 }
 
 export type JobControlReadResult =
@@ -81,6 +84,7 @@ export function buildJobControlReadResult(jobId: string, raw: unknown | null): J
       generatedAt: parsed.data.compileMeta?.generatedAt,
       confirmedAt: parsed.data.compileMeta?.confirmedAt ?? undefined,
       sourceHash: parsed.data.compileMeta?.sourceHash,
+      revision: jobControlRevisionOf(parsed.data),
     },
   };
 }

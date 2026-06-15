@@ -29,7 +29,12 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const BodySchema = EvidenceLinkRequestSchema.extend({ jobId: z.string().min(1) });
+const BodySchema = EvidenceLinkRequestSchema.extend({
+  jobId: z.string().min(1),
+  /** Required: the artifact revision the caller read (stale-write guard). No UI
+   *  caller exists yet, so this is mandatory now to foreclose silent stale writes. */
+  expectedJobControlRevision: z.string().min(1),
+});
 
 export async function POST(req: Request): Promise<NextResponse> {
   const store = await cookies();
@@ -48,7 +53,10 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
   const body = BodySchema.safeParse(raw);
   if (!body.success) {
-    return NextResponse.json({ ok: false, error: "jobId, workPackageId and requiredEvidenceId are required" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "jobId, workPackageId, requiredEvidenceId and expectedJobControlRevision are required" },
+      { status: 400 },
+    );
   }
   if (!evidenceLinkRequestHasProof(body.data)) {
     return NextResponse.json({ ok: false, error: "A saved evidenceId or observationId is required" }, { status: 400 });
@@ -83,6 +91,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       observationId: body.data.observationId ?? null,
       role: body.data.role,
     },
+    expectedRevision: body.data.expectedJobControlRevision,
     at: new Date().toISOString(),
     createdBy: session.userId ?? session.sub ?? null,
   });
