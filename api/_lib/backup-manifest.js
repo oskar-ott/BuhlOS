@@ -42,7 +42,7 @@ const EXACT_STORES = [
 
 /** Multi-document stores (path prefixes; every *.json under them). */
 const PREFIX_STORES = [
-  'jobs/', // per-job data.json, itps.json, tags.json, materials-list.json, plans-index.json, photos-index.json, templates.json, temps.json, scope-reconciliation.json (job-control L0) …
+  'jobs/', // per-job data.json, itps.json, tags.json, materials-list.json, plans-index.json, photos-index.json, templates.json, temps.json, scope-reconciliation.json (job-control L0), job-control.json (job-control L1) …
   'users/', // per-user time-entries/<date>.json (payroll data)
   'audit/', // audit-log monthly rollovers audit/<yyyy-mm>.json
   'assets/', // gear/asset documents
