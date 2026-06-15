@@ -24,6 +24,7 @@ import { PhilJobContactsCard } from "./PhilJobContactsCard";
 import type { JobContact } from "@/domains/contacts/schema";
 import type { TagItem } from "@/domains/tags/schema";
 import type { Job, JobStage } from "@/domains/jobs/types";
+import type { EvidenceLink, WorkPackage } from "@/domains/job-control/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
 import type { ITPInstance } from "@/domains/itp/types";
@@ -84,6 +85,14 @@ interface Props {
   /** Current viewer — id + role drive snag transition button gating
    *  and attention-strip filters (e.g. "snags assigned to me"). */
   viewer?: { id: string; role: string };
+  /** Compiled work packages for this job (L2 read of `job-control.json`),
+   *  loaded server-side. Drives per-task scope context (#368) via
+   *  `buildAreaTaskContext`. Absent/empty ⇒ every task renders exactly as today
+   *  (zero regression — honest empty). */
+  workPackages?: ReadonlyArray<WorkPackage>;
+  /** Compiled evidence links for this job (L2 read). A required-evidence item
+   *  reads `met` ONLY when a real link names it — never a count. Read-only here. */
+  evidenceLinks?: ReadonlyArray<EvidenceLink>;
   /** When set (and changing), auto-opens the capture sheet. Driven by
    *  the `?capture=<token>` deep link the global Capture launcher
    *  (PhilTabBar FAB) pushes, so a worker can start a capture from
@@ -150,6 +159,8 @@ export function PhilJobDetail({
   initialTaskState,
   taskStateError,
   viewer,
+  workPackages,
+  evidenceLinks,
   autoCaptureToken,
 }: Props) {
   // #332: induction completion is server truth — the tap is NON-optimistic
@@ -272,12 +283,12 @@ export function PhilJobDetail({
     [job, selectedArea, viewedStage, taskState],
   );
 
-  // Per-task scope context (#368) for the viewed area+stage, from the compiled
-  // work packages via the job-control model. The Phil job fetch does not carry
-  // compiled work packages yet (the #367 compile→Phil plumbing is a later
-  // slice), so this is empty in production today and every task renders exactly
-  // as it does now (zero regression). When that data flows, pass it through
-  // buildAreaTaskContext's workPackages/evidenceLinks here — no further UI change.
+  // Per-task scope context (#368) for the viewed area+stage, from the job's
+  // compiled work packages (L2 read of `job-control.json`, wired in via props).
+  // When a job has no compiled artifact, `workPackages` is empty and the adapter
+  // returns an empty map — every task renders exactly as it does today (zero
+  // regression). When real compiled data exists, the existing render lights up
+  // with no further UI change.
   const taskContextById = useMemo(
     () =>
       selectedArea
@@ -285,9 +296,11 @@ export function PhilJobDetail({
             areaId: selectedArea.id,
             stage: viewedStage,
             taskIds: workerTasks.map((t) => t.id),
+            workPackages,
+            evidenceLinks,
           })
         : undefined,
-    [selectedArea, viewedStage, workerTasks],
+    [selectedArea, viewedStage, workerTasks, workPackages, evidenceLinks],
   );
 
   // Mark a task done / not-done via the dedicated fast-path endpoint. Tiny
