@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -137,7 +138,7 @@ export default async function AdminItpsPage({ params }: PageParams) {
             printable pack in a new tab; print → Save as PDF there. */}
         <div className="flex justify-end">
           <Link
-            href={`/v2/jobs/${encodeURIComponent(jobId)}/itps/pack`}
+            href={`/v2/jobs/${encodeURIComponent(jobId)}/itps/pack` as Route}
             target="_blank"
             className="inline-flex items-center rounded-card border border-border bg-surface px-4 py-2 text-sm font-medium text-text hover:border-brand-navy"
             data-testid="itp-pack-link"
