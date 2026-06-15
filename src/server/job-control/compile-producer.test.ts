@@ -13,9 +13,11 @@ import {
   blobCompileDeps,
   buildCompilePreview,
   computeCompileSourceHash,
+  computeJobControlRevision,
   computeStructureHash,
   confirmCompileAuthorized,
   jobControlKey,
+  jobControlRevisionOf,
   prepareCompileConfirm,
   runCompileConfirm,
   runCompilePreview,
@@ -310,8 +312,7 @@ describe("prepareCompileConfirm", () => {
       at: AT,
     });
     expect(prep.ok).toBe(false);
-    if (prep.ok) return;
-    expect(prep.code).toBe("stale_source");
+    if (prep.ok || prep.code !== "stale_source") return;
     expect(prep.currentSourceHash).toBe(computeCompileSourceHash(reconciliationEnvelope(), structure()));
   });
 
@@ -491,5 +492,116 @@ describe("gap clauses never appear as task coordinates", () => {
     });
     const keys = r.workPackages.flatMap((p) => p.taskRefs.map(taskRefKey));
     expect(keys.every((k) => !k.includes("sw_unclear"))).toBe(true);
+  });
+});
+
+// ── Revision / stale-write guard ──────────────────────────────────────────────
+
+describe("compile producer revision guard", () => {
+  function persistedNoPrevious() {
+    const prep = prepareCompileConfirm({
+      jobId: "job_100arthur",
+      persistedReconciliation: reconciliationEnvelope(),
+      structure: structure(),
+      previous: null,
+      at: "2026-06-14T00:00:00.000Z",
+    });
+    if (!prep.ok) throw new Error("fixture confirm failed");
+    return prep.persisted;
+  }
+
+  it("stamps a revision that recomputes consistently", () => {
+    const persisted = persistedNoPrevious();
+    expect(persisted.revision).toMatch(/^[0-9a-f]{64}$/);
+    expect(persisted.revision).toBe(computeJobControlRevision(persisted));
+    expect(jobControlRevisionOf(persisted)).toBe(persisted.revision);
+  });
+
+  it("the revision differs when the compiled content differs", () => {
+    const withAv = prepareCompileConfirm({
+      jobId: "job_100arthur",
+      persistedReconciliation: reconciliationEnvelope(),
+      structure: structure(),
+      previous: null,
+      at: AT,
+    });
+    const withoutAv = prepareCompileConfirm({
+      jobId: "job_100arthur",
+      persistedReconciliation: reconciliationEnvelope({ includeAv: false }),
+      structure: structure(),
+      previous: null,
+      at: AT,
+    });
+    if (!withAv.ok || !withoutAv.ok) throw new Error("confirm failed");
+    expect(withAv.persisted.revision).not.toBe(withoutAv.persisted.revision);
+  });
+
+  it("rejects a stale expected revision", () => {
+    const prior = persistedNoPrevious();
+    const prep = prepareCompileConfirm({
+      jobId: "job_100arthur",
+      persistedReconciliation: reconciliationEnvelope(),
+      structure: structure(),
+      previous: prior,
+      expectedRevision: "stale-revision",
+      at: AT,
+    });
+    expect(prep.ok).toBe(false);
+    if (prep.ok || prep.code !== "stale_revision") return;
+    expect(prep.currentRevision).toBe(jobControlRevisionOf(prior));
+  });
+
+  it("accepts a matching expected revision", () => {
+    const prior = persistedNoPrevious();
+    const prep = prepareCompileConfirm({
+      jobId: "job_100arthur",
+      persistedReconciliation: reconciliationEnvelope(),
+      structure: structure(),
+      previous: prior,
+      expectedRevision: jobControlRevisionOf(prior),
+      at: AT,
+    });
+    expect(prep.ok).toBe(true);
+  });
+
+  it("runCompileConfirm rejects a stale revision and does NOT erase the newer artifact (no save)", async () => {
+    const prior = persistedNoPrevious();
+    const link = {
+      id: "el_1",
+      jobId: "job_100arthur",
+      evidenceId: "ev_1",
+      workPackageId: prior.workPackages[0]!.id,
+      requiredEvidenceId: "re_x",
+      role: "progress" as const,
+    };
+    const priorWithLink: PersistedJobControl = { ...prior, evidenceLinks: [link] };
+    priorWithLink.revision = computeJobControlRevision(priorWithLink); // a newer revision than `prior`
+
+    const deps = fakeDeps({ previous: priorWithLink });
+    const r = await runCompileConfirm(deps, { jobId: "job_100arthur", expectedRevision: prior.revision, at: AT });
+    expect(r).toMatchObject({ ok: false, status: 409, code: "stale_revision" });
+    expect(deps.save).not.toHaveBeenCalled(); // the link survives — not clobbered
+  });
+
+  it("runCompileConfirm returns the new revision on success", async () => {
+    const deps = fakeDeps();
+    const r = await runCompileConfirm(deps, { jobId: "job_100arthur", at: AT });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.saved.revision).toMatch(/^[0-9a-f]{64}$/);
+    expect(r.saved.revision).toBe(deps.saved[0]!.revision);
+  });
+
+  it("handles a pre-guard artifact with no stored revision (migration-on-read)", async () => {
+    const prior = persistedNoPrevious();
+    const priorNoRev: PersistedJobControl = { ...prior };
+    delete priorNoRev.revision; // simulate an artifact written before this guard
+    const deps = fakeDeps({ previous: priorNoRev });
+    const r = await runCompileConfirm(deps, {
+      jobId: "job_100arthur",
+      expectedRevision: jobControlRevisionOf(priorNoRev), // computed, not stored
+      at: AT,
+    });
+    expect(r.ok).toBe(true);
   });
 });

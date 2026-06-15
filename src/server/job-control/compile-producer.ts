@@ -96,10 +96,53 @@ export const JobControlCompileMetaSchema = z
  */
 export const PersistedJobControlSchema = JobControlSpineSchema.extend({
   compileMeta: JobControlCompileMetaSchema.optional(),
+  /** Stale-write precondition token shared by both writers (revision guard).
+   *  `.optional()` so pre-guard artifacts read fine; every write after this
+   *  stamps it. */
+  revision: z.string().optional(),
 }).passthrough();
 
 export type PersistedCompileGap = z.infer<typeof PersistedCompileGapSchema>;
 export type PersistedJobControl = z.infer<typeof PersistedJobControlSchema>;
+
+// ── Artifact revision (stale-write precondition) ──────────────────────────────
+
+/**
+ * Content fingerprint used as the artifact REVISION — the precondition token both
+ * `job-control.json` writers (compile + evidence-link) share. Excludes `revision`
+ * and `updatedAt` so it is a stable function of meaningful content.
+ *
+ * NOT atomic CAS: `@vercel/blob` `put` (via `writeJsonBlob`) has no conditional
+ * write, so a writer reads → compares this revision → writes. That closes the
+ * common stale-write paths (stale preview, sequential writes, recompile-after-
+ * link), but a sub-second read-then-write (TOCTOU) race can still slip through.
+ * See docs/architecture/job-control-revision-guard.md.
+ */
+export function computeJobControlRevision(
+  a: Pick<
+    PersistedJobControl,
+    "jobId" | "workPackages" | "evidenceLinks" | "claimLines" | "closeoutRequirements" | "compileMeta"
+  >,
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        jobId: a.jobId,
+        workPackages: a.workPackages,
+        evidenceLinks: a.evidenceLinks,
+        claimLines: a.claimLines,
+        closeoutRequirements: a.closeoutRequirements,
+        compileMeta: a.compileMeta ?? null,
+      }),
+    )
+    .digest("hex");
+}
+
+/** The artifact's revision — its stored token, or computed for a pre-guard
+ *  artifact (migration-on-read; no write needed to read a stable revision). */
+export function jobControlRevisionOf(a: PersistedJobControl): string {
+  return a.revision ?? computeJobControlRevision(a);
+}
 
 // ── Source hashing (stale protection) ──────────────────────────────────────--
 
@@ -199,7 +242,8 @@ export function buildCompilePreview(input: {
 
 export type CompileConfirmPrep =
   | { ok: true; persisted: PersistedJobControl; preview: CompilePreviewResult }
-  | { ok: false; code: "stale_source"; error: string; currentSourceHash: string };
+  | { ok: false; code: "stale_source"; error: string; currentSourceHash: string }
+  | { ok: false; code: "stale_revision"; error: string; currentRevision: string };
 
 /**
  * Prepare the artifact to persist. Rebuilds the preview, enforces the optional
@@ -213,9 +257,27 @@ export function prepareCompileConfirm(input: {
   structure: JobStructure;
   previous: PersistedJobControl | null;
   expectedSourceHash?: string | null;
+  /** Optional artifact-revision precondition — reject if the existing
+   *  job-control.json moved since the caller read it (e.g. an evidence-link
+   *  append landed). Optional for compatibility (no UI passes it yet). */
+  expectedRevision?: string | null;
   confirmedBy?: string | null;
   at: string;
 }): CompileConfirmPrep {
+  if (
+    input.expectedRevision != null &&
+    input.previous != null &&
+    jobControlRevisionOf(input.previous) !== input.expectedRevision
+  ) {
+    return {
+      ok: false,
+      code: "stale_revision",
+      error:
+        "The job-control.json artifact changed since it was read (a newer write landed). Re-read it before confirming.",
+      currentRevision: jobControlRevisionOf(input.previous),
+    };
+  }
+
   const preview = buildCompilePreview({
     jobId: input.jobId,
     persistedReconciliation: input.persistedReconciliation,
@@ -259,7 +321,10 @@ export function prepareCompileConfirm(input: {
     },
   });
 
-  return { ok: true, persisted, preview };
+  // Stamp the revision from the parsed content (excludes revision/updatedAt), so a
+  // subsequent read recomputes the same token (self-consistent).
+  const stamped: PersistedJobControl = { ...persisted, revision: computeJobControlRevision(persisted) };
+  return { ok: true, persisted: stamped, preview };
 }
 
 // ── Orchestration (I/O via injected deps) ─────────────────────────────────────
@@ -320,6 +385,7 @@ export type RunCompileConfirmResult =
         workPackageCount: number;
         gapCount: number;
         sourceHash: string;
+        revision: string;
         confirmedBy: string | null;
         confirmedAt: string | null;
         updatedAt: string;
@@ -329,15 +395,22 @@ export type RunCompileConfirmResult =
   | {
       ok: false;
       status: 404 | 409;
-      code?: "job_not_found" | "no_reconciliation" | "stale_source" | "unreadable_previous";
+      code?: "job_not_found" | "no_reconciliation" | "stale_source" | "stale_revision" | "unreadable_previous";
       error: string;
       currentSourceHash?: string;
+      currentRevision?: string;
     };
 
 /** Confirm flow: load → prepare → (only if fresh) persist. Stale → 409, no write. */
 export async function runCompileConfirm(
   deps: CompileProducerDeps,
-  input: { jobId: string; expectedSourceHash?: string | null; confirmedBy?: string | null; at: string },
+  input: {
+    jobId: string;
+    expectedSourceHash?: string | null;
+    expectedRevision?: string | null;
+    confirmedBy?: string | null;
+    at: string;
+  },
 ): Promise<RunCompileConfirmResult> {
   const { found, structure } = await deps.loadStructure(input.jobId);
   if (!found || !structure) {
@@ -372,11 +445,19 @@ export async function runCompileConfirm(
     structure,
     previous,
     expectedSourceHash: input.expectedSourceHash,
+    expectedRevision: input.expectedRevision,
     confirmedBy: input.confirmedBy,
     at: input.at,
   });
   if (!prep.ok) {
-    return { ok: false, status: 409, code: prep.code, error: prep.error, currentSourceHash: prep.currentSourceHash };
+    return {
+      ok: false,
+      status: 409,
+      code: prep.code,
+      error: prep.error,
+      ...(prep.code === "stale_source" ? { currentSourceHash: prep.currentSourceHash } : {}),
+      ...(prep.code === "stale_revision" ? { currentRevision: prep.currentRevision } : {}),
+    };
   }
 
   await deps.savePersisted(input.jobId, prep.persisted);
@@ -389,6 +470,7 @@ export async function runCompileConfirm(
       workPackageCount: prep.persisted.workPackages.length,
       gapCount: meta?.gaps.length ?? 0,
       sourceHash: meta?.sourceHash ?? prep.preview.sourceHash,
+      revision: jobControlRevisionOf(prep.persisted),
       confirmedBy: meta?.confirmedBy ?? null,
       confirmedAt: meta?.confirmedAt ?? null,
       updatedAt: prep.persisted.updatedAt ?? input.at,
@@ -409,13 +491,14 @@ export async function confirmCompileAuthorized(
     baseUrl: string;
     verify: (cookieHeader: string, baseUrl: string) => Promise<VerifiedSession | null>;
   },
-  input: { jobId: string; expectedSourceHash?: string | null; at: string },
+  input: { jobId: string; expectedSourceHash?: string | null; expectedRevision?: string | null; at: string },
 ): Promise<RunCompileConfirmResult | { ok: false; status: 401 | 403; error: string }> {
   const a = await authorizeAdminViaVerify(auth);
   if (!a.ok) return a;
   return runCompileConfirm(deps, {
     jobId: input.jobId,
     expectedSourceHash: input.expectedSourceHash,
+    expectedRevision: input.expectedRevision,
     confirmedBy: a.confirmedBy,
     at: input.at,
   });

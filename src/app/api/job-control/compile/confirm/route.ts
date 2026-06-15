@@ -25,6 +25,9 @@ export const dynamic = "force-dynamic";
 const BodySchema = z.object({
   jobId: z.string().min(1),
   sourceHash: z.string().min(1).optional(),
+  /** Optional artifact-revision precondition — reject if job-control.json moved
+   *  since it was read (e.g. an evidence-link append). Optional for now. */
+  expectedJobControlRevision: z.string().min(1).optional(),
 });
 
 export async function POST(req: Request): Promise<NextResponse> {
@@ -48,6 +51,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     {
       jobId: body.data.jobId,
       expectedSourceHash: body.data.sourceHash ?? null,
+      expectedRevision: body.data.expectedJobControlRevision ?? null,
       at: new Date().toISOString(),
     },
   );

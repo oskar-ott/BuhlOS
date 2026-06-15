@@ -93,19 +93,14 @@ Supabase, no `api/evidence.js` change.
   evidence store's concern. The intended flow saves evidence first and passes back
   its id; an existence check (or invoking this writer only from the evidence-save
   path) is the next slice. Do not add evidence-store I/O to this writer.
-- **No concurrency control on `job-control.json`.** This writer and the admin
-  compile producer (`compile-producer.ts#savePersisted`) write the **same key**
-  via the guard-free `writeJsonBlob` with no `__rev`/compare-and-swap. Two
-  near-simultaneous link writes, or a stale link-write landing after an admin
-  recompile, can lose an update (the in-process idempotency check can't see a
-  concurrently-written link). Tolerable today because **no UI calls this route yet**
-  (the multi-writer window isn't live). Before the per-requirement capture UI
-  ships, add a **TS-side fresh-read revision check to BOTH writers** (load → apply
-  → re-read just before save → 409/retry if `updatedAt`/a revision moved). Note:
-  "route through `api/_lib/blob.js`" is **not** the fix — that key has no #157 blob
-  guard, and the TS route cannot import the JS layer (the runtime ADR's premise).
-  `blob.ts` itself defers this decision to "before any real production write" — this
-  is that write, so the race is acknowledged here and the mitigation is scheduled.
+- **Concurrency control — ADDRESSED (revision guard).** This writer and the admin
+  compile producer share the `job-control.json` key. They now participate in a
+  shared **revision precondition guard**: the evidence-link write **requires**
+  `expectedJobControlRevision` and rejects (`409 stale_revision`) if the artifact
+  moved since the caller read it. See
+  [job-control-revision-guard.md](job-control-revision-guard.md). This is NOT
+  storage-level atomic CAS (`@vercel/blob` `put` has no conditional write) — a
+  concurrent same-revision race still exists, documented there.
 
 ## Next
 

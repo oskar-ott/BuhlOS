@@ -79,6 +79,16 @@ artifact are preserved, never clobbered.
 PREFIX_STORE in `api/_lib/backup-manifest.js` (`isCoveredKey(...)` → true; the
 manifest comment now names it). `npm run check:backup-manifest` stays green.
 
+## Revision guard
+
+The artifact carries a `revision` content fingerprint, advanced on every write.
+Compile confirm accepts an **optional** `expectedJobControlRevision`; if supplied
+and the stored artifact has moved (e.g. a field evidence-link append landed),
+confirm is rejected `409 stale_revision` rather than clobbering it — and the
+saved result returns the new `revision`. Shared with the evidence-link writer;
+see [job-control-revision-guard.md](job-control-revision-guard.md). This is a
+revision precondition guard, **not** storage-level atomic CAS.
+
 ## Deliberately not built
 
 No Phil wiring (L3), no L2 read boundary, no evidence writing (L4), no task

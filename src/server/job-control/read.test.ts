@@ -68,11 +68,13 @@ describe("buildJobControlReadResult", () => {
     expect(r.workPackages).toHaveLength(1);
     expect(r.workPackages[0]!.id).toBe("wp_1");
     expect(r.evidenceLinks).toHaveLength(1);
-    expect(r.meta).toEqual({
+    expect(r.meta).toMatchObject({
       generatedAt: "2026-06-14T00:00:00.000Z",
       confirmedAt: "2026-06-15T00:00:00.000Z",
       sourceHash: "compile-source-hash",
     });
+    // a field-safe stale-write precondition token (a one-way digest, not office data)
+    expect(r.meta.revision).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("unreadable / invalid artifact → ok:false, no crash", () => {
@@ -92,7 +94,7 @@ describe("buildJobControlReadResult", () => {
     // office-only internals never leak to the field
     expect("gaps" in r).toBe(false);
     expect("compileMeta" in r).toBe(false);
-    expect(Object.keys(r.meta).sort()).toEqual(["confirmedAt", "generatedAt", "sourceHash"]);
+    expect(Object.keys(r.meta).sort()).toEqual(["confirmedAt", "generatedAt", "revision", "sourceHash"]);
     expect("sourceReconciliationHash" in r.meta).toBe(false);
     expect("sourceStructureHash" in r.meta).toBe(false);
   });

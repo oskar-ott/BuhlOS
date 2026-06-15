@@ -8,7 +8,9 @@ import {
 import type { EvidenceLink } from "@/domains/job-control/types";
 import {
   PersistedJobControlSchema,
+  computeJobControlRevision,
   jobControlKey,
+  jobControlRevisionOf,
   type PersistedJobControl,
 } from "./compile-producer";
 import { readJsonBlob, writeJsonBlob } from "./blob";
@@ -43,22 +45,22 @@ import { readJsonBlob, writeJsonBlob } from "./blob";
  * I/O deps (`EvidenceLinkDeps`), unit-tested without Next; `blobEvidenceLinkDeps()`
  * wires the real blob helpers.
  *
- * Known limitations (deferred to the per-requirement capture micro-slice, before
- * a UI makes this route live in product):
+ * Concurrency: this and the admin compile producer share the `job-control.json`
+ * key, so both participate in a shared REVISION precondition guard.
+ * `writeEvidenceLink` REQUIRES `expectedRevision`; it rejects with
+ * `409 stale_revision` when the stored artifact has moved since the caller read
+ * it, and stamps the advanced revision on a successful write. This is an
+ * application-level read → compare → write check, NOT `@vercel/blob` atomic CAS
+ * (its `put` has no conditional write) — a sub-second same-revision (TOCTOU)
+ * race still remains. See docs/architecture/job-control-revision-guard.md.
+ *
+ * Known limitation (deferred to the per-requirement capture micro-slice):
  *   - PROOF EXISTENCE IS TRUSTED, NOT VERIFIED. The writer persists the
  *     caller-supplied `evidenceId`/`observationId` verbatim; it never invents one,
  *     but it also does NOT confirm the referenced proof exists in the job's
  *     evidence store. The intended flow saves the evidence first and passes back
  *     its id. Server-side existence verification (or invoking this writer only
  *     from the evidence-save path) is the next slice — NOT evidence-store I/O here.
- *   - NO CONCURRENCY CONTROL. This and the admin compile producer
- *     (`compile-producer.ts#savePersisted`) both write the SAME `job-control.json`
- *     key via the guard-free `writeJsonBlob` (no `__rev`/compare-and-swap). Two
- *     near-simultaneous link writes, or a stale link-write landing after an admin
- *     recompile, can lose an update. Tolerable now (no capture UI calls this yet,
- *     so the multi-writer window isn't live); before that UI ships, add a TS-side
- *     fresh-read revision check to BOTH writers (the relevant guard — the key has
- *     no #157 blob-guard, and the TS route cannot import the JS layer per the ADR).
  */
 
 // ── Request ────────────────────────────────────────────────────────────────--
@@ -130,11 +132,13 @@ export function applyEvidenceLink(
     ...(ctx.createdBy ? { createdBy: ctx.createdBy } : {}),
   });
 
-  const next: PersistedJobControl = {
+  const base: PersistedJobControl = {
     ...artifact,
     evidenceLinks: [...artifact.evidenceLinks, link],
     updatedAt: ctx.at,
   };
+  // Advance the shared revision token from the new content.
+  const next: PersistedJobControl = { ...base, revision: computeJobControlRevision(base) };
   return { ok: true, created: true, artifact: next, link };
 }
 
@@ -150,12 +154,20 @@ export interface EvidenceLinkDeps {
 }
 
 export type WriteEvidenceLinkResult =
-  | { ok: true; status: 200; created: boolean; link: EvidenceLink }
+  | { ok: true; status: 200; created: boolean; link: EvidenceLink; revision: string }
   | {
       ok: false;
       status: 404 | 409;
-      reason: "missing" | "unreadable" | "invalid_work_package" | "invalid_requirement" | "missing_proof";
+      reason:
+        | "missing"
+        | "unreadable"
+        | "stale_revision"
+        | "invalid_work_package"
+        | "invalid_requirement"
+        | "missing_proof";
       warning: string;
+      /** Present on `stale_revision` — the caller should re-read and retry. */
+      currentRevision?: string;
     };
 
 const WARNINGS: Record<Exclude<WriteEvidenceLinkResult, { ok: true }>["reason"], string> = {
@@ -163,6 +175,8 @@ const WARNINGS: Record<Exclude<WriteEvidenceLinkResult, { ok: true }>["reason"],
     "No compiled job-control artifact for this job — the evidence was saved, but not linked to required proof.",
   unreadable:
     "The compiled job-control artifact is unreadable — the evidence was saved, but not linked (artifact left untouched).",
+  stale_revision:
+    "The job-control artifact changed since it was read — the evidence was saved, but not linked (re-read and retry).",
   invalid_work_package: "That work package is not in the compiled job-control artifact — no link written.",
   invalid_requirement:
     "That required-evidence item is not on the work package in the compiled artifact — no link written.",
@@ -176,7 +190,15 @@ const WARNINGS: Record<Exclude<WriteEvidenceLinkResult, { ok: true }>["reason"],
  */
 export async function writeEvidenceLink(
   deps: EvidenceLinkDeps,
-  input: { jobId: string; request: EvidenceLinkRequest; at: string; createdBy?: string | null },
+  input: {
+    jobId: string;
+    request: EvidenceLinkRequest;
+    /** Revision precondition: the artifact revision the caller last read. Reject
+     *  if the stored artifact has moved since (stale-write guard). */
+    expectedRevision: string;
+    at: string;
+    createdBy?: string | null;
+  },
 ): Promise<WriteEvidenceLinkResult> {
   const raw = await deps.loadRaw(input.jobId);
   if (raw == null) return { ok: false, status: 404, reason: "missing", warning: WARNINGS.missing };
@@ -184,6 +206,12 @@ export async function writeEvidenceLink(
   const parsed = PersistedJobControlSchema.safeParse(raw);
   if (!parsed.success) {
     return { ok: false, status: 409, reason: "unreadable", warning: WARNINGS.unreadable };
+  }
+
+  // Stale-write guard: the artifact must be the revision the caller read.
+  const currentRevision = jobControlRevisionOf(parsed.data);
+  if (input.expectedRevision !== currentRevision) {
+    return { ok: false, status: 409, reason: "stale_revision", warning: WARNINGS.stale_revision, currentRevision };
   }
 
   const applied = applyEvidenceLink(parsed.data, input.request, {
@@ -197,7 +225,13 @@ export async function writeEvidenceLink(
 
   // Only write when a genuinely new link was created (idempotent no-op otherwise).
   if (applied.created) await deps.save(input.jobId, applied.artifact);
-  return { ok: true, status: 200, created: applied.created, link: applied.link };
+  return {
+    ok: true,
+    status: 200,
+    created: applied.created,
+    link: applied.link,
+    revision: jobControlRevisionOf(applied.artifact),
+  };
 }
 
 // ── Real deps (Vercel Blob) ───────────────────────────────────────────────────
