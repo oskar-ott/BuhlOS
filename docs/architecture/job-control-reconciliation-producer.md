@@ -64,16 +64,28 @@ The confirmed envelope at `jobs/<jobId>/scope-reconciliation.json`:
 }
 ```
 
+## Auth
+
+- **Preview** (read-only) uses the lighter unverified `decodeSessionCookie` +
+  `isAdminRole` gate, like the #463 runtime-check route.
+- **Confirm** (write) uses the ADR-required **authoritative** HMAC-verified check
+  (`verifyViaApi` → /api/auth?action=me): a forged/unsigned cookie that fools the
+  unverified decode cannot reach the write. The gate lives in the pure,
+  injectable `authorizeAdminViaVerify` / `confirmReconciliationAuthorized`
+  (so it is unit-tested without Next), with the route wiring real `verifyViaApi`.
+
+## Backup coverage
+
+The confirmed store `jobs/<jobId>/scope-reconciliation.json` is **backed up**: it
+falls under the existing `jobs/` PREFIX_STORE in `api/_lib/backup-manifest.js`
+(`isCoveredKey(...)` → true), which the snapshot job (`api/_lib/backup.js`)
+enumerates by prefix and copies every `*.json` under. The manifest comment now
+names the document explicitly. (`scripts/check-backup-manifest.js` scans only
+`api/` writers, so it neither requires nor flags this TS write — coverage here is
+via the prefix, not the CI guard.)
+
 ## Known limitations / follow-ups
 
-- **Backup coverage.** `scripts/check-backup-manifest.js` scans only `api/`, so
-  this TS write is invisible to it (CI is unaffected). Register
-  `jobs/<jobId>/scope-reconciliation.json` in `api/_lib/backup-manifest.js` (and
-  extend the guard to scan `src/server`) before this is a trusted production
-  store — out of scope here because this PR does not touch `api/**`.
-- **Write auth.** Confirm reuses the runtime-check cookie-decode gate; per the
-  ADR a real mutation should use the authoritative HMAC-verified `verifyViaApi()`.
-  Harden before trusting the write.
 - **Quote link.** No job↔quote link yet (#244); reconciliation is clause-only
   until that lands.
 - **Warnings snapshot is clause-only.** The persisted `warnings` keep

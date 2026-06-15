@@ -399,6 +399,70 @@ export async function runReconciliationConfirm(
   };
 }
 
+// ── Authoritative admin gate for the WRITE route ──────────────────────────────
+
+/** The verified-session shape the authoritative check returns (subset of the
+ *  session payload — see `verifyViaApi` / /api/auth?action=me). */
+export interface VerifiedSession {
+  role?: string | null;
+  email?: string | null;
+  name?: string | null;
+  username?: string | null;
+}
+
+export type AuthoritativeAdminResult =
+  | { ok: true; confirmedBy: string | null }
+  | { ok: false; status: 401 | 403; error: string };
+
+/**
+ * Authoritative admin gate for the confirm WRITE (ADR: a real mutation must use
+ * the HMAC-verified check, not the unverified cookie decode). `verify` is the
+ * injected `verifyViaApi` — it hits /api/auth?action=me, which verifies the
+ * cookie's HMAC server-side. A missing / forged / unsigned / expired cookie
+ * makes `verify` return null → 401; a verified non-admin → 403. The unverified
+ * `decodeSessionCookie` is deliberately NOT used here.
+ */
+export async function authorizeAdminViaVerify(input: {
+  cookieHeader: string;
+  baseUrl: string;
+  verify: (cookieHeader: string, baseUrl: string) => Promise<VerifiedSession | null>;
+}): Promise<AuthoritativeAdminResult> {
+  const verified = await input.verify(input.cookieHeader, input.baseUrl);
+  const gate = authorizeAdmin(verified?.role ?? null);
+  if (!gate.ok) return gate;
+  return { ok: true, confirmedBy: verified?.username ?? verified?.email ?? verified?.name ?? null };
+}
+
+/**
+ * Confirm behind the authoritative gate: verify → (only if a verified admin)
+ * persist. A failed auth returns 401/403 and NEVER reaches `savePersisted`.
+ * This is the single seam the confirm route uses and the tests exercise.
+ */
+export async function confirmReconciliationAuthorized(
+  deps: ReconciliationProducerDeps,
+  auth: {
+    cookieHeader: string;
+    baseUrl: string;
+    verify: (cookieHeader: string, baseUrl: string) => Promise<VerifiedSession | null>;
+  },
+  input: {
+    jobId: string;
+    classifications?: ClassificationsInput;
+    expectedSourceHash?: string | null;
+    at: string;
+  },
+): Promise<RunConfirmResult | { ok: false; status: 401 | 403; error: string }> {
+  const a = await authorizeAdminViaVerify(auth);
+  if (!a.ok) return a;
+  return runReconciliationConfirm(deps, {
+    jobId: input.jobId,
+    classifications: input.classifications,
+    expectedSourceHash: input.expectedSourceHash,
+    confirmedBy: a.confirmedBy,
+    at: input.at,
+  });
+}
+
 // ── Real deps (Vercel Blob) ───────────────────────────────────────────────────
 
 interface JobsBlob {

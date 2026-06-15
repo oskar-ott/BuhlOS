@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ScopeOfWorkItem } from "@/domains/jobs/types";
+import { decodeSessionCookie } from "@/lib/auth/session";
 import {
   authorizeAdmin,
+  authorizeAdminViaVerify,
   blobReconciliationDeps,
   buildReconciliationPreview,
   computeScopeSourceHash,
   ClassificationsInputSchema,
+  confirmReconciliationAuthorized,
   PersistedScopeReconciliationSchema,
   prepareReconciliationConfirm,
   runReconciliationConfirm,
@@ -13,6 +16,7 @@ import {
   scopeReconciliationKey,
   type PersistedScopeReconciliation,
   type ReconciliationProducerDeps,
+  type VerifiedSession,
 } from "./reconciliation-producer";
 
 // ── Fixtures ───────────────────────────────────────────────────────────────--
@@ -429,6 +433,95 @@ describe("orchestration carries a prior reconciliation forward", () => {
     expect(r.reconciliation.clauseClassifications.find((c) => c.clauseId === "sw_av")?.classification).toBe(
       "by_others",
     );
+    expect(deps.save).not.toHaveBeenCalled();
+  });
+});
+
+// ── Authoritative write auth (confirm uses verifyViaApi, not cookie decode) ───
+
+const verifyAdmin = async (): Promise<VerifiedSession> => ({ role: "admin", username: "Boss" });
+const verifyField = async (): Promise<VerifiedSession> => ({ role: "electrician", username: "Sparky" });
+const verifyNull = async (): Promise<VerifiedSession | null> => null; // forged/unsigned/expired → /api/auth rejects
+
+describe("authorizeAdminViaVerify — authoritative gate for the write", () => {
+  it("401s when the authoritative check returns null (forged / unsigned / unauthenticated)", async () => {
+    const r = await authorizeAdminViaVerify({ cookieHeader: "buhl_session=x.badsig", baseUrl: "https://x", verify: verifyNull });
+    expect(r).toEqual({ ok: false, status: 401, error: "Not signed in" });
+  });
+  it("403s when the verified user is not an admin", async () => {
+    const r = await authorizeAdminViaVerify({ cookieHeader: "c", baseUrl: "https://x", verify: verifyField });
+    expect(r).toEqual({ ok: false, status: 403, error: "Admin only" });
+  });
+  it("allows a verified admin and derives confirmedBy from the verified identity", async () => {
+    const r = await authorizeAdminViaVerify({ cookieHeader: "c", baseUrl: "https://x", verify: verifyAdmin });
+    expect(r).toEqual({ ok: true, confirmedBy: "Boss" });
+  });
+});
+
+describe("confirmReconciliationAuthorized — only writes after authoritative admin verification", () => {
+  it("does NOT write when the authoritative check fails (unauthenticated → 401)", async () => {
+    const deps = fakeDeps();
+    const r = await confirmReconciliationAuthorized(
+      deps,
+      { cookieHeader: "buhl_session=x.badsig", baseUrl: "https://x", verify: verifyNull },
+      { jobId: "j", classifications: { sw_zip: "priced" }, at: AT },
+    );
+    expect(r).toMatchObject({ ok: false, status: 401 });
+    expect(deps.save).not.toHaveBeenCalled();
+  });
+
+  it("does NOT write for a verified non-admin (403)", async () => {
+    const deps = fakeDeps();
+    const r = await confirmReconciliationAuthorized(
+      deps,
+      { cookieHeader: "c", baseUrl: "https://x", verify: verifyField },
+      { jobId: "j", at: AT },
+    );
+    expect(r).toMatchObject({ ok: false, status: 403 });
+    expect(deps.save).not.toHaveBeenCalled();
+  });
+
+  it("rejects a FORGED cookie that the unverified decode would have accepted", async () => {
+    // A shape-valid, unexpired, but unsigned cookie: decodeSessionCookie is fooled
+    // into seeing an admin — the exact attack the authoritative path must defeat.
+    const forgedBody = Buffer.from(JSON.stringify({ role: "admin", exp: 4102444800000 })).toString("base64url");
+    const forgedCookie = `${forgedBody}.not-a-real-hmac`;
+    expect(decodeSessionCookie(forgedCookie)?.role).toBe("admin"); // unverified decode is fooled
+
+    const deps = fakeDeps();
+    const r = await confirmReconciliationAuthorized(
+      deps,
+      // the authoritative /api/auth?action=me rejects the bad HMAC → modelled as null
+      { cookieHeader: `buhl_session=${forgedCookie}`, baseUrl: "https://x", verify: verifyNull },
+      { jobId: "j", classifications: { sw_zip: "priced" }, at: AT },
+    );
+    expect(r).toMatchObject({ ok: false, status: 401 });
+    expect(deps.save).not.toHaveBeenCalled();
+  });
+
+  it("writes only after authoritative admin verification, stamping the verified confirmedBy", async () => {
+    const deps = fakeDeps();
+    const r = await confirmReconciliationAuthorized(
+      deps,
+      { cookieHeader: "c", baseUrl: "https://x", verify: verifyAdmin },
+      { jobId: "j", classifications: { sw_zip: "priced" }, at: AT },
+    );
+    expect(r.ok).toBe(true);
+    expect(deps.save).toHaveBeenCalledTimes(1);
+    expect(deps.saved[0]!.confirmedBy).toBe("Boss");
+    expect(deps.saved[0]!.reconciliation.clauseClassifications.find((c) => c.clauseId === "sw_zip")?.classification).toBe(
+      "priced",
+    );
+  });
+
+  it("still enforces stale-source protection under an authorised admin (no write)", async () => {
+    const deps = fakeDeps();
+    const r = await confirmReconciliationAuthorized(
+      deps,
+      { cookieHeader: "c", baseUrl: "https://x", verify: verifyAdmin },
+      { jobId: "j", expectedSourceHash: "stale", at: AT },
+    );
+    expect(r).toMatchObject({ ok: false, status: 409 });
     expect(deps.save).not.toHaveBeenCalled();
   });
 });

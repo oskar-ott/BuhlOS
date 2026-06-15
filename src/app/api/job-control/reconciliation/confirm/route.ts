@@ -1,27 +1,26 @@
-import { cookies } from "next/headers";
+import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { verifyViaApi } from "@/lib/auth/session";
 import {
   ClassificationsInputSchema,
-  authorizeAdmin,
   blobReconciliationDeps,
-  runReconciliationConfirm,
+  confirmReconciliationAuthorized,
 } from "@/server/job-control/reconciliation-producer";
 
 /**
  * POST /api/job-control/reconciliation/confirm — L0 reconciliation producer
  * (ADR: docs/architecture/job-control-runtime-adr.md).
  *
- * Admin-only. Persists the confirmed `ScopeReconciliation` to
+ * Admin-only WRITE. Persists the confirmed `ScopeReconciliation` to
  * `jobs/<jobId>/scope-reconciliation.json`. When a `sourceHash` is supplied it
  * is checked against the current scope and a stale confirm is rejected (409).
  * It compiles NOTHING and writes NO `jobs/<jobId>/job-control.json` (that is L1).
  *
- * AUTH LIMITATION (see the ADR): this reuses the same unverified cookie-decode
- * gate as the runtime-check route. Because this route WRITES, it should be
- * hardened to the authoritative HMAC-verified `verifyViaApi()` check before it
- * is trusted as a production mutation. Tracked as a follow-up.
+ * AUTH: because this route mutates, it uses the ADR-required AUTHORITATIVE
+ * HMAC-verified check (`verifyViaApi` → /api/auth?action=me), NOT the unverified
+ * cookie decode. A forged/unsigned cookie cannot reach the write. (The
+ * read-only preview route keeps the lighter cookie-decode gate.)
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,11 +32,6 @@ const BodySchema = z.object({
 });
 
 export async function POST(req: Request): Promise<NextResponse> {
-  const store = await cookies();
-  const session = decodeSessionCookie(store.get(SESSION_COOKIE)?.value);
-  const auth = authorizeAdmin(session?.role ?? null);
-  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
-
   let raw: unknown;
   try {
     raw = await req.json();
@@ -52,13 +46,19 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
-  const result = await runReconciliationConfirm(blobReconciliationDeps(), {
-    jobId: body.data.jobId,
-    classifications: body.data.classifications,
-    expectedSourceHash: body.data.sourceHash ?? null,
-    confirmedBy: session?.userId ?? session?.sub ?? session?.username ?? null,
-    at: new Date().toISOString(),
-  });
+  const cookieHeader = (await headers()).get("cookie") ?? "";
+  const baseUrl = new URL(req.url).origin;
+
+  const result = await confirmReconciliationAuthorized(
+    blobReconciliationDeps(),
+    { cookieHeader, baseUrl, verify: verifyViaApi },
+    {
+      jobId: body.data.jobId,
+      classifications: body.data.classifications,
+      expectedSourceHash: body.data.sourceHash ?? null,
+      at: new Date().toISOString(),
+    },
+  );
   if (!result.ok) return NextResponse.json(result, { status: result.status });
   return NextResponse.json(result, { status: 200 });
 }
