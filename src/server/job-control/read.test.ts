@@ -96,6 +96,26 @@ describe("buildJobControlReadResult", () => {
     expect("sourceReconciliationHash" in r.meta).toBe(false);
     expect("sourceStructureHash" in r.meta).toBe(false);
   });
+
+  it("LEAK GUARD: office internals never appear ANYWHERE in the serialized field result", () => {
+    // Future-proofs the explicit field-pick (the boundary relies on hand-written
+    // selection over .passthrough() schemas — a spread refactor would leak).
+    const r = buildJobControlReadResult("job_1", rawArtifact());
+    const serialized = JSON.stringify(r);
+    for (const forbidden of [
+      "compileMeta",
+      "gaps",
+      "sourceReconciliationHash",
+      "sourceStructureHash",
+      "unclassified_clause", // a gap kind that exists in the artifact
+      "recon-source-hash", // the office reconciliation fingerprint value
+      "structure-hash",
+      "confirmedBy",
+      "diff",
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
 });
 
 describe("readJobControlForField", () => {
