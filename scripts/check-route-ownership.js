@@ -66,6 +66,7 @@ const APPROVED_ADMIN_HREFS = new Set([
   '/v2/jobs',
   '/v2/quotes', // #183 — v2 quote builder foundation; same /admin/* future as /v2/jobs
   '/itp-templates', // #284 template library; nav entry added by #187 // transitional — live admin Jobs index; -> /admin/jobs later
+  '/qa', // #290 — cross-job ITP/QA status dashboard (read-only); Jobs group
   '/settings/notifications', // #218 — notification prefs; sidebar FOOTER link (not a nav group), #222 grows /settings into a hub
 ]);
 const APPROVED_PHIL_HREFS = new Set([
@@ -118,6 +119,7 @@ const REQUIRED_SOURCES = [
   'src/app/(admin)/material-requests/page.tsx',
   'src/app/(admin)/defects/page.tsx',
   'src/app/(admin)/reports/page.tsx',
+  'src/app/(admin)/qa/page.tsx',
   'src/app/v2/jobs/page.tsx',
   'src/app/v2/jobs/[jobId]/page.tsx',
   'src/app/v2/jobs/[jobId]/builder/page.tsx',

@@ -206,6 +206,7 @@ The legacy estate must stay dead. `scripts/check-legacy-quarantine.js`
 | `/material-requests` | BuhlOS | `(admin)/material-requests` | AdminShell | canonical | admin | sidebar, command-centre | material requests inbox; unauth → 307 `/v2/login` |
 | `/defects` | BuhlOS | `(admin)/defects` | AdminShell | canonical | admin/LH | sidebar "Defects" | cross-job defects register; unauth → 307 `/v2/login` |
 | `/reports` | BuhlOS | `(admin)/reports` | AdminShell | canonical | admin | sidebar "Reports" | owner numbers dashboard (#316); unauth → 307 `/v2/login` |
+| `/qa` | BuhlOS | `(admin)/qa` | AdminShell | canonical | admin | sidebar "QA status" | cross-job ITP/QA status dashboard (#290, read-only); drill-through to `/v2/jobs/[jobId]/itps`; unauth → 307 `/v2/login` |
 | `/settings/notifications` | BuhlOS | `(admin)/settings/notifications` | AdminShell | canonical | admin | sidebar footer "Notification settings" | notification prefs panel (#218); unauth → 307 `/v2/login` |
 | `/v2/jobs` | BuhlOS | `v2/jobs` | AdminShell | transitional | admin/LH | sidebar "Jobs", command-centre | admin jobs index; → `/admin/jobs` later |
 | `/v2/jobs/new` | BuhlOS | `v2/jobs/new` | AdminShell | transitional | **admin** | jobs index "New job" | create draft → 307 in-page non-admin → `/v2/jobs`; on create → `/v2/jobs/[jobId]/builder` |
@@ -241,6 +242,7 @@ failure that has happened (or could) if the row is left unguarded.
 | `/hours` · `/hours/approvals` · `/hours/weekly` · `/gear` · `/employees` · `/employees/[id]` · `/observations` · `/material-requests` | BuhlOS | AdminShell | `src/app/(admin)/**` | canonical | blank / wrong shell | `check-shell-contract`, `middleware.test`, `check-route-ownership` |
 | `/defects` | BuhlOS | AdminShell | `src/app/(admin)/defects/page.tsx` | canonical | blank / wrong shell / nav drift | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved nav + required source), `auth-routing.spec` |
 | `/reports` | BuhlOS | AdminShell | `src/app/(admin)/reports/page.tsx` | canonical | blank / wrong shell / nav drift / numbers drifting from sources | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved nav + required source), `auth-routing.spec`, `owner-numbers.test` (per-tile definitions) |
+| `/qa` | BuhlOS | AdminShell | `src/app/(admin)/qa/page.tsx` | canonical | blank / wrong shell / nav drift | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved nav + required source), `qa-rollup.test` / `qa-status.test` (aggregation) |
 | `/settings/notifications` | BuhlOS | AdminShell | `src/app/(admin)/settings/notifications/page.tsx` | canonical | blank / wrong shell / dead toggles / nav drift | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved href + required source), `auth-routing.spec`, `notification-item.test` (kinds↔keys 1:1) |
 | `/admin` · `/admin/` | legacy | legacy shim | `public/admin/index.html` (vercel) | legacy | dead redirect | `smoke-admin-routes` (admin→ops) |
 | `/admin/operations` (+ `/overview`) | legacy | legacy BuhlOS SPA | `public/admin/operations.html` (vercel) | legacy (load-bearing) | blank ops / wrong shell / stale SW | `check-production-shell`, `check-admin-shell`, `smoke-admin-routes`, `check-sw-cache-version` |
@@ -300,7 +302,7 @@ lists in the guard **and** §8 / §8.1 here in the same PR.
   only link to approved admin routes: `/command-centre`, `/hours`,
   `/hours/approvals`, `/hours/weekly`, `/gear`, `/employees`, `/observations`,
   `/material-requests`, `/defects`, `/reports`, `/v2/jobs`, `/v2/quotes`,
-  `/itp-templates`, `/settings/notifications`. The **footer** carries a small
+  `/itp-templates`, `/qa`, `/settings/notifications`. The **footer** carries a small
   `/settings/notifications` link (next to sign-out, #218) — settings is not a
   daily destination, so it is intentionally NOT a nav-group item; the
   route-ownership guard's nav parser only reads the `NAV_GROUPS` array, so the
