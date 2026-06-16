@@ -2,6 +2,7 @@ import {
   LayoutGrid,
   Calculator,
   ClipboardList,
+  ClipboardCheck,
   Inbox,
   BarChart3,
   Briefcase,
@@ -105,6 +106,14 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/itp-templates" as Route,
         icon: ClipboardList,
         activeFor: ["/itp-templates"],
+      },
+      {
+        // Cross-job QA status dashboard (#290) — ITP exposure across active
+        // jobs, drilling into each job's /v2/jobs/[jobId]/itps surface.
+        label: "QA status",
+        href: "/qa" as Route,
+        icon: ClipboardCheck,
+        activeFor: ["/qa"],
       },
     ],
   },

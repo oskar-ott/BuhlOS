@@ -31,6 +31,7 @@ describe("NAV_GROUPS / ALL_ITEMS (#215 shared source)", () => {
       "/v2/quotes",
       "/defects",
       "/itp-templates",
+      "/qa",
       "/hours",
       "/employees",
       "/gear",
@@ -51,6 +52,7 @@ describe("activeHref (#215 longest-prefix)", () => {
   it("matches an exact route to its own item", () => {
     expect(activeHref("/command-centre")).toBe("/command-centre");
     expect(activeHref("/reports")).toBe("/reports");
+    expect(activeHref("/qa")).toBe("/qa");
   });
 
   it("keeps the single Hours item active across all three hours routes (#415)", () => {
