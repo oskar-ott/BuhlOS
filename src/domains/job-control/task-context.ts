@@ -66,6 +66,26 @@ export function workPackageForTask(
 }
 
 /**
+ * A required-evidence item is MET only when a real EvidenceLink names it on its
+ * work package AND carries a proof (an evidence item or an observation) — never
+ * inferred from a photo count (P7). SHARED so the Phil task-context and the admin
+ * proof-status view derive "met" by the exact same rule (one source of truth, no
+ * drift).
+ */
+export function isRequiredEvidenceMet(
+  links: ReadonlyArray<EvidenceLink>,
+  workPackageId: string,
+  requiredEvidenceId: string,
+): boolean {
+  return links.some(
+    (el) =>
+      el.workPackageId === workPackageId &&
+      el.requiredEvidenceId === requiredEvidenceId &&
+      Boolean(el.evidenceId || el.observationId),
+  );
+}
+
+/**
  * Build the task-context view-model. Pure, defensive, hidden-when-empty. A
  * required-evidence item is `met` only when a real EvidenceLink ties a proof
  * (evidence or observation) to that specific requirement on this package.
@@ -79,17 +99,9 @@ export function buildPhilTaskContext(input: {
   if (!wp) return EMPTY_CONTEXT;
 
   const links = input.evidenceLinks ?? [];
-  const isMet = (requirementId: string): boolean =>
-    links.some(
-      (el) =>
-        el.workPackageId === wp.id &&
-        el.requiredEvidenceId === requirementId &&
-        Boolean(el.evidenceId || el.observationId),
-    );
-
   const requiredEvidence: TaskContextEvidenceReq[] = (wp.requiredEvidence ?? []).map((e) => ({
     ...e,
-    met: isMet(e.id),
+    met: isRequiredEvidenceMet(links, wp.id, e.id),
   }));
   const governingDocs = wp.governingDocRefs ?? [];
   const materials = wp.materials ?? [];
