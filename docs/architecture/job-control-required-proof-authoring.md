@@ -133,6 +133,37 @@ redesign, not a visual workflow editor.
 The panel **reuses the existing routes** — no new endpoint, no compiler change,
 no Phil/Capture change.
 
+## Compiled proof status (admin read-only)
+
+So the office can **audit** the loop — what proof was compiled, what's still
+needed, what's been captured, and which evidence satisfied which requirement — a
+read-only "Compiled proof status" section sits below the authoring panel on the
+same `/v2/jobs/[jobId]/job-control` page.
+
+- **Read path:** the admin page (already `isAdminRole`-gated) reads
+  `jobs/<jobId>/job-control.json` **directly server-side** via
+  [`runProofStatus`](../../src/server/job-control/status.ts) — exactly how the
+  Phil page calls `read.ts`. **No new HTTP route** (lower surface). It WRITES
+  NOTHING, compiles nothing, links nothing.
+- **Met rule is shared:** `status.ts` derives needed/met with the SAME
+  `isRequiredEvidenceMet` predicate Phil uses (extracted to
+  [`task-context.ts`](../../src/domains/job-control/task-context.ts)) — office and
+  field never disagree (P7, one source of truth). Met requires a matching
+  `EvidenceLink` that carries a real proof (evidence or observation), never a
+  photo count.
+- **Admin-appropriate, still safe:** unlike the field read it MAY show the
+  revision, source hashes and gap count; it still exposes no secrets / tokens /
+  signed URLs (none live in the artifact) — the response is an explicit field
+  allowlist, never a raw spread.
+- **States:** no artifact (`missing`) → "save + compile first"; corrupt
+  (`unreadable`) → surfaced; `compiled` → per-package needed/met with captured
+  evidence + linked timestamp; Blob error → "Could not load…". Raw ids / source
+  hashes only in a Developer foldout.
+- Component:
+  [`CompiledProofStatus.tsx`](../../src/components/admin/CompiledProofStatus.tsx)
+  (pure presentational); counts/copy in
+  [`jobControlStatusClient.ts`](../../src/components/admin/jobControlStatusClient.ts).
+
 ## Validation walkthrough (code-proven)
 
 [`src/server/job-control/required-proof-authoring.test.ts`](../../src/server/job-control/required-proof-authoring.test.ts)

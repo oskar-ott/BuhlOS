@@ -4,10 +4,16 @@ import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { JobControlAuthoringPanel } from "@/components/admin/JobControlAuthoringPanel";
+import { CompiledProofStatus } from "@/components/admin/CompiledProofStatus";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isAdminRole } from "@/lib/auth/roles";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import type { Job } from "@/domains/jobs/types";
+import {
+  blobProofStatusDeps,
+  runProofStatus,
+  type ProofStatusResult,
+} from "@/server/job-control/status";
 
 export const dynamic = "force-dynamic";
 
@@ -75,12 +81,19 @@ export default async function AdminJobControlPage({ params }: PageParams) {
     );
   }
 
+  // Read-only compiled proof status — read the artifact directly server-side
+  // (this path is already admin-gated, mirroring how the Phil page calls read.ts).
+  // Read only on the success path (skip the wasted read for missing/forbidden/error
+  // jobs). Total: a Blob error becomes { ok:false } → the panel shows a plain error.
+  const proofStatus: ProofStatusResult = await runProofStatus(blobProofStatusDeps(), jobId);
+
   return (
     <AdminShell
       title={`Job control · ${jobResult.job.name}`}
       breadcrumb={<BackToJob jobId={jobId} />}
     >
       <JobControlAuthoringPanel job={jobResult.job} />
+      <CompiledProofStatus status={proofStatus} />
     </AdminShell>
   );
 }
