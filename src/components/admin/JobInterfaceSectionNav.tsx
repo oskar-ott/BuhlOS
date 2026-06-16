@@ -8,6 +8,7 @@ import {
   FileText,
   History,
   Inbox,
+  ListChecks,
   Map as MapIcon,
   Package,
 } from "lucide-react";
@@ -102,6 +103,14 @@ export function JobInterfaceSectionNav({ job }: Props) {
       href: `/v2/jobs/${jobIdEnc}/itps` as Route,
       count: job.statsItpsActive,
       icon: ClipboardCheck,
+    },
+    {
+      kind: "live",
+      label: "Job control",
+      description:
+        "Author required proof: tie a scope clause to a worker task, set the proof the field must capture, and compile it for Phil.",
+      href: `/v2/jobs/${jobIdEnc}/job-control` as Route,
+      icon: ListChecks,
     },
     {
       kind: "live",

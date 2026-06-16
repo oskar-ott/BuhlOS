@@ -56,12 +56,14 @@ is all this slice adds. The compiler and routes are untouched.
 
 ## The authoring affordance — the documented route path
 
-There is **no admin reconciliation/scope UI** in the product today, and building
-one (clause list + per-clause classification + task picker + proof authoring) is
-the visual-job-builder work this slice deliberately does not do. The authoring
-affordance is therefore the **already-shipped admin route path**, which now
-carries proof because it consumes the extended `ClassificationsInputSchema`
-unchanged:
+> **Update (admin UI follow-up):** a minimal admin **click-path** now wraps these
+> routes — see [Admin click-path (UI)](#admin-click-path-ui) below. The route
+> contract here is unchanged; the UI just builds these exact request bodies. The
+> original #471 slice shipped routes-only because no admin reconciliation surface
+> existed yet.
+
+The authoring mechanism is the **already-shipped admin route path**, which carries
+proof because it consumes the extended `ClassificationsInputSchema` unchanged:
 
 | Step | Route | Body |
 |---|---|---|
@@ -99,6 +101,38 @@ Then `POST /api/job-control/compile/confirm { "jobId": "job_100arthur" }` writes
 > coordinate that resolves to nothing compiles to a named `task_not_found` gap,
 > never a silent task.
 
+## Admin click-path (UI)
+
+So Tom/admin can author proof **without DevTools JSON**, a minimal admin panel
+wraps the three routes above. It is deliberately small — not a job-builder
+redesign, not a visual workflow editor.
+
+- **Where:** a new job sub-route `/v2/jobs/[jobId]/job-control`
+  ([`page.tsx`](../../src/app/v2/jobs/[jobId]/job-control/page.tsx)), reachable
+  from the job hub's section nav ("Job control" row). Admin-tier gated
+  (`isAdminRole`); mirrors the other job sub-routes (auth gate → `/api/jobs?id=`
+  → `AdminShell` + client panel).
+- **Panel:**
+  [`JobControlAuthoringPanel.tsx`](../../src/components/admin/JobControlAuthoringPanel.tsx)
+  — one top-to-bottom flow: **scope clause → worker task → required proof →
+  compile for Phil**. The clause comes from `Job.scopeOfWork[]`; the
+  area/stage/task come from the real structure (`effectiveTasks`); the
+  classification select offers only the field-delivering set (`priced` /
+  `general_allowance` / `pc_provisional`, plain labels — never `field_delivered`).
+- **Logic:**
+  [`jobControlAuthoringClient.ts`](../../src/components/admin/jobControlAuthoringClient.ts)
+  is the pure, fetch-injectable core (payload builders, save-gate, route wrappers,
+  result summaries) — unit-tested without a browser (the repo has no RTL/jsdom).
+  It omits the proof `id` so the L0 producer derives the stable `re_…` id
+  (`deriveRequiredEvidenceId`).
+- **Honesty:** raw ids never appear as primary labels (titles/names do; ids live
+  in a "Developer details" foldout). It only ever sends real classifications +
+  real task coordinates, never an invented id or a fabricated proof item; an
+  empty scope renders an honest empty state.
+
+The panel **reuses the existing routes** — no new endpoint, no compiler change,
+no Phil/Capture change.
+
 ## Validation walkthrough (code-proven)
 
 [`src/server/job-control/required-proof-authoring.test.ts`](../../src/server/job-control/required-proof-authoring.test.ts)
@@ -129,7 +163,19 @@ lives in
 
 ## What this is NOT
 
-- **Not** field-proven. This is code-level proof; a real phone / real compiled
-  job field pass is the recommended next step.
-- **Not** a new UI, not a redesign of the admin app, not a visual job builder.
-- **Not** a compiler change — the compiler already read these fields.
+- **Not** a job-builder redesign or a visual workflow editor — just a minimal
+  three-step authoring panel on one job sub-route.
+- **Not** a Phil / Capture change, **not** a compiler change, **not** a route
+  change — the panel reuses the shipped L0/L1 routes, which already read these
+  fields.
+- **Not** a change to evidence save / evidence-link / revision-guard semantics.
+
+## Field status
+
+The route-based loop was **field-proven** on the validation job
+`qa-seed-field-validation-job-required-proof-loop` (author → compile →
+`requiredEvidence` with no gap → Phil "Capture proof" → worker captured →
+needed → met); the deployed build's derived proof id matched
+`deriveRequiredEvidenceId`. This follow-up makes the **admin authoring** step
+usable without DevTools. Re-run the same validation through the admin UI to
+confirm the click-path end-to-end.
