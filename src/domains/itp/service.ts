@@ -84,9 +84,9 @@ export function allowedTransitionsList(): ReadonlyArray<string> {
  *
  * Worker rules:
  *   - any field user (tradie / LH) assigned to the job can record
- *     points. Recording can auto-advance pending → in-progress and
- *     in-progress → witnessed; these auto-advances are allowed for
- *     any writer.
+ *     points. Recording can auto-advance pending → in-progress (the
+ *     one auto-advance left); reaching witnessed is the explicit
+ *     'submit' verb, which any writer is also allowed to trigger.
  *   - LH on an assigned job can also archive an instance (legacy
  *     behaviour: canManageJob includes LH on assigned jobs — see
  *     api/_lib/auth.js:158).
@@ -162,7 +162,8 @@ export function canRoleTransition(
   const isField = isFieldRole(ctx.role) || isLeadingHandRole(ctx.role);
   if (!isField) return false;
 
-  // Workers can drive the auto-advance transitions by recording.
+  // Workers can drive the record auto-advance (pending → in-progress)
+  // and the explicit 'submit' verb (in-progress → witnessed).
   if (from === "pending" && to === "in-progress") return true;
   if (from === "in-progress" && to === "witnessed") return true;
 

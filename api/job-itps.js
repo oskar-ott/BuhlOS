@@ -230,9 +230,10 @@ module.exports = async (req, res) => {
 
       // #285: evidence gate. Semantics (documented in itp/schema.ts too):
       // on an evidence-required point EVERY record must end up with a
-      // photo — any record marks the point done for progress + the
-      // witnessed auto-advance, so the record IS the moment evidence must
-      // exist. Updates carry the existing photo forward rather than
+      // photo — any record marks the point done for progress, and submit
+      // (the explicit witnessed handoff) later requires every point done,
+      // so the record IS the moment evidence must exist. Updates carry the
+      // existing photo forward rather than
       // silently stripping it. Only the app's own ITP photo path counts —
       // an arbitrary URL can't satisfy a compliance gate. Flag lives on
       // the attach-time templateSnapshot, so later template edits never
