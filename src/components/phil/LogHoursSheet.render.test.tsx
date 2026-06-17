@@ -54,6 +54,35 @@ describe("LogHoursSheet — job attribution", () => {
     expect(html).not.toContain("Pick one");
   });
 
+  it("collapses the multi-job picker to the chosen job (less clutter), with a Change affordance", () => {
+    const html = render({
+      ...base,
+      assignedJobs: [
+        { id: "j1", name: "Smith St Rewire" },
+        { id: "j2", name: "Depot Switchboard" },
+      ],
+      initialJobId: "j2",
+    });
+    // Collapsed: only the chosen job shows, plus a way to switch…
+    expect(html).toContain("Depot Switchboard");
+    expect(html).toContain("Change");
+    // …the full radiogroup and the other job are tucked away until "Change".
+    expect(html).not.toContain('role="radiogroup"');
+    expect(html).not.toContain("Smith St Rewire");
+  });
+
+  it("keeps the picker expanded while no job is chosen (a required choice is never hidden)", () => {
+    const html = render({
+      ...base,
+      assignedJobs: [
+        { id: "j1", name: "Smith St Rewire" },
+        { id: "j2", name: "Depot Switchboard" },
+      ],
+    });
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain("Pick one");
+  });
+
   it("blocks and explains when the worker has no active assigned job", () => {
     const html = render({ ...base, assignedJobs: [] });
     expect(html).toContain("No active assigned job");
@@ -127,15 +156,17 @@ describe("LogHoursSheet — rejected entry fix flow", () => {
   });
 });
 
-describe("LogHoursSheet — custom / overtime hours is surfaced", () => {
-  it("shows custom/overtime as a visible action, not buried under the old disclosure", () => {
+describe("LogHoursSheet — secondary log controls under 'More options'", () => {
+  it("tucks custom/overtime, split and the note under one 'More options' expander (calm log area)", () => {
     const html = render({ ...base, assignedJobs: [{ id: "j1", name: "Smith St Rewire" }] });
-    // The second action is now a visible button so logging overtime is easy to find.
+    // One expander now holds the secondary controls — the lead is just the
+    // job + the yellow Standard-day action.
+    expect(html).toContain("More options");
+    // Custom / overtime is still reachable (inside the expander, in the DOM)…
     expect(html).toContain("Custom / overtime hours");
-    // The old buried "Custom hours or a note" disclosure summary is gone…
+    // …and the old standalone "Add a note" disclosure is gone (folded in).
+    expect(html).not.toContain("Add a note");
     expect(html).not.toContain("Custom hours or a note");
-    // …only the optional note stays under a quiet disclosure.
-    expect(html).toContain("Add a note");
   });
 });
 
