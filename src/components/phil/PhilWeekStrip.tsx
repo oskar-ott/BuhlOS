@@ -12,7 +12,6 @@ const DAY_STATE: Record<WeekDayState, string | undefined> = {
   fix: styles.fix,
   today: styles.today,
   miss: styles.miss,
-  off: styles.off,
   upcoming: styles.upcoming,
 };
 
@@ -56,8 +55,6 @@ function dayTapLabel(d: WeekDayCell, todayISO: string): string {
       return d.statusWord === "draft"
         ? `${datePart} — draft. Open this day in the hours form.`
         : `${datePart} — not logged. Log hours for this day.`;
-    case "off":
-      return `${datePart} — day off. Log hours if you worked.`;
     default:
       return `${datePart} — ${d.statusWord}. Open this day in the hours form.`;
   }
@@ -87,7 +84,7 @@ function cellStatusLabel(d: WeekDayCell): string {
     case "today":
       return ""; // number + tint conveys it; the word would overflow / be redundant
     default:
-      return d.statusWord; // "log now" | "off" | "fix" | "—" — already short enough
+      return d.statusWord; // "log now" | "fix" | "—" — already short enough
   }
 }
 
@@ -99,8 +96,8 @@ interface Props {
 /**
  * "This week" — the payroll timesheet at a glance (Mon–Sun), the lead block of
  * the approved final Phil My Day. Every cell is real (see philWeek.ts); nothing
- * is fabricated, and a day with no entry is shown honestly (missing / off / log
- * now), never as a guessed value.
+ * is fabricated, and a day with no entry is shown honestly (missing / log now),
+ * never as a guessed value.
  *
  * The strip is a directory, not just a glance: today and every past day link to
  * `/phil/my-day?fixDate=<date>` — the same deep-link the "Hours rejected" push

@@ -33,7 +33,10 @@ import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
 import { RejectedHoursResubmitSheet } from "./RejectedHoursResubmitSheet";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
-const CUSTOM_HOURS_OPTIONS = [4, 5, 6, 7, 7.6, 8, 9, 10] as const;
+// Quick-pick amounts in the custom sheet — half-days through overtime. The
+// overtime values (11, 12) make logging a long day a single tap; anything up
+// to MAX_HOURS_PER_DAY can still be typed exactly.
+const CUSTOM_HOURS_OPTIONS = [4, 5, 6, 7, 7.6, 8, 9, 10, 11, 12] as const;
 
 interface LogHoursSheetProps {
   /**
@@ -376,34 +379,38 @@ export function LogHoursSheet({
           ) : null}
         </label>
 
-        {/* Custom hours + a note are real, but secondary — tucked under a quiet
-            disclosure so the yellow action leads, matching the design. */}
+        {/* Custom / overtime hours is now a VISIBLE second action — it used to
+            be buried under a quiet disclosure, which made logging more or fewer
+            than a standard day hard to find. Whole-day 7.6h still leads above;
+            this opens the same proven chips + exact-decimal sheet. */}
+        <Button
+          variant="secondary"
+          size="lg"
+          onClick={() => setCustomOpen(true)}
+          disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
+          className="w-full"
+        >
+          Custom / overtime hours
+        </Button>
+
+        {assignedJobs.length > 1 ? (
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={() => setSplitOpen(true)}
+            disabled={submitting || lockedByStatus || !dateInWindow || !hasJobs}
+            className="w-full"
+            data-testid="split-across-jobs"
+          >
+            Split across jobs
+          </Button>
+        ) : null}
+
+        {/* A note is genuinely optional, so it stays under a quiet disclosure —
+            keeps the two hour actions leading (P10 cognitive budget). */}
         <details className={styles.moreOptions}>
-          <summary className={styles.moreOptionsSummary}>Custom hours or a note</summary>
-          <div className="mt-3 space-y-3">
-            <Button
-              variant="secondary"
-              size="lg"
-              onClick={() => setCustomOpen(true)}
-              disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
-              className="w-full"
-            >
-              Custom hours
-            </Button>
-
-            {assignedJobs.length > 1 ? (
-              <Button
-                variant="secondary"
-                size="lg"
-                onClick={() => setSplitOpen(true)}
-                disabled={submitting || lockedByStatus || !dateInWindow || !hasJobs}
-                className="w-full"
-                data-testid="split-across-jobs"
-              >
-                Split across jobs
-              </Button>
-            ) : null}
-
+          <summary className={styles.moreOptionsSummary}>Add a note</summary>
+          <div className="mt-3">
             <label className="block text-sm">
               <span className="mb-1 block font-medium text-text">Notes (optional)</span>
               <textarea
@@ -422,9 +429,11 @@ export function LogHoursSheet({
 
       <FeedbackBanner state={state} />
 
-      <Modal open={customOpen} onClose={() => setCustomOpen(false)} title="Custom hours">
+      <Modal open={customOpen} onClose={() => setCustomOpen(false)} title="Custom or overtime hours">
         <div className="space-y-4">
-          <p className="text-sm text-text-muted">Pick a quick amount or type the exact decimal.</p>
+          <p className="text-sm text-text-muted">
+            Pick a quick amount (overtime included) or type the exact decimal.
+          </p>
           <div className="grid grid-cols-4 gap-2">
             {CUSTOM_HOURS_OPTIONS.map((hours) => (
               <button

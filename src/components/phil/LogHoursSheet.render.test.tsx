@@ -127,6 +127,18 @@ describe("LogHoursSheet — rejected entry fix flow", () => {
   });
 });
 
+describe("LogHoursSheet — custom / overtime hours is surfaced", () => {
+  it("shows custom/overtime as a visible action, not buried under the old disclosure", () => {
+    const html = render({ ...base, assignedJobs: [{ id: "j1", name: "Smith St Rewire" }] });
+    // The second action is now a visible button so logging overtime is easy to find.
+    expect(html).toContain("Custom / overtime hours");
+    // The old buried "Custom hours or a note" disclosure summary is gone…
+    expect(html).not.toContain("Custom hours or a note");
+    // …only the optional note stays under a quiet disclosure.
+    expect(html).toContain("Add a note");
+  });
+});
+
 describe("LogHoursSheet — deep-linked date", () => {
   it("preselects the validated initialDate so the fix lands on the right day", () => {
     const html = render({

@@ -82,10 +82,13 @@ describe("PhilWeekSummary (render)", () => {
     expect(html).not.toContain("/phil/my-day?fixDate=2024-05-20");
   });
 
-  it("hides weekends that weren't worked and never uses admin/payroll words", () => {
-    const html = render([entry("2024-05-20", "approved")]);
-    expect(html).not.toContain("Sat");
-    expect(html).not.toContain("Sun");
+  it("treats a past weekend like a weekday — it's loggable — and never uses admin/payroll words", () => {
+    // Today = Sunday 2024-05-26, so Saturday 2024-05-25 just gone.
+    const html = render([entry("2024-05-20", "approved")], "2024-05-26");
+    // The weekend now appears and a worked Saturday is one tap from logging…
+    expect(html).toContain("Sat");
+    expect(html).toContain("/phil/my-day?fixDate=2024-05-25");
+    // …while the language stays worker-side, never admin/payroll.
     expect(html).not.toContain("Payroll");
     expect(html).not.toContain("payroll");
     expect(html).not.toContain("Approve<"); // no admin verbs

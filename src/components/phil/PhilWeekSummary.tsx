@@ -130,11 +130,6 @@ function rowFor(day: WeekDayCell, todayISO: string): DayRowView | null {
       };
     case "upcoming":
       return { label, hours: null, status: "—", muted: true, danger: false, action: null };
-    case "off":
-      // Weekends appear only when worked (handled by `logged`/`fix` above).
-      return day.date <= todayISO && day.hours != null
-        ? { label, hours, status: statusText(day.statusWord), muted: false, danger: false, action: null }
-        : null;
   }
 }
 

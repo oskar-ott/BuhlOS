@@ -33,9 +33,9 @@ describe("buildPhilWeek", () => {
     expect(w.days[2]).toMatchObject({ state: "logged", hours: 8.2 });
     // Friday is today, not yet logged → prompts a log.
     expect(w.days[4]).toMatchObject({ date: TODAY, state: "today", hours: null, statusWord: "log now" });
-    // Weekend with no entry → off (faded), never "missing".
-    expect(w.days[5]).toMatchObject({ state: "off", hours: null });
-    expect(w.days[6]).toMatchObject({ state: "off", hours: null });
+    // Weekend still ahead of today (Friday) → upcoming, like any future day.
+    expect(w.days[5]).toMatchObject({ state: "upcoming", hours: null });
+    expect(w.days[6]).toMatchObject({ state: "upcoming", hours: null });
 
     expect(w.totalHours).toBeCloseTo(31.0, 5);
     expect(w.todayLogged).toBe(false);
@@ -45,6 +45,17 @@ describe("buildPhilWeek", () => {
     // Drop Wednesday — a past weekday this week.
     const w = buildPhilWeek(WEEK.filter((e) => e.date !== "2024-05-22"), { todayISO: TODAY });
     expect(w.days[2]).toMatchObject({ state: "miss", hours: null, statusWord: "not logged" });
+  });
+
+  it("treats a PAST weekend like a weekday for LOGGING but never duns it as missed", () => {
+    // Today = Sunday 2024-05-26; Saturday 2024-05-25 just gone, nothing logged.
+    const w = buildPhilWeek([], { todayISO: "2024-05-26" });
+    // The Saturday cell is a loggable "miss" (tap to log if you worked) …
+    expect(w.days[5]).toMatchObject({ state: "miss", hours: null, statusWord: "not logged" });
+    // … but a blank weekend is NOT tallied as missed — only the five past
+    // weekdays (Mon–Fri) are — so the week never flips to "needs action" just
+    // because Saturday is empty.
+    expect(w.counts.missed).toBe(5);
   });
 
   it("reflects a logged today and counts it in the total", () => {
@@ -58,10 +69,10 @@ describe("buildPhilWeek", () => {
     const w = buildPhilWeek([], { todayISO: TODAY });
     expect(w.totalHours).toBe(0);
     expect(w.days.every((d) => d.hours === null)).toBe(true);
-    // a future WEEKDAY in the week reads as upcoming; a future weekend as off
+    // every future day in the week reads as upcoming — weekday or weekend alike
     const monday = buildPhilWeek([], { todayISO: "2024-05-20" });
     expect(monday.days[4]).toMatchObject({ state: "upcoming" }); // Fri is future when today is Mon
-    expect(monday.days[5]).toMatchObject({ state: "off" }); // Sat
+    expect(monday.days[5]).toMatchObject({ state: "upcoming" }); // Sat (future) — like any future day
   });
 });
 

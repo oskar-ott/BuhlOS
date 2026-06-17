@@ -62,6 +62,13 @@ describe("PhilWeekStrip (render)", () => {
     expect(html).not.toContain("fixDate=2024-05-26");
   });
 
+  it("makes a PAST weekend day a tappable log link, like a weekday (no inert 'off' day)", () => {
+    // Today = Sunday 2024-05-26; Saturday 2024-05-25 just gone, nothing logged.
+    const html = render([], "2024-05-26");
+    expect(html).toContain('href="/phil/my-day?fixDate=2024-05-25"'); // Sat is now a log link
+    expect(html).toContain("not logged. Log hours for this day."); // prompts to log if you worked
+  });
+
   it("labels a missed day with a log prompt and a rejected day with a fix prompt", () => {
     const html = render([
       { date: "2024-05-20", totalHours: 7.6, status: "rejected" } as unknown as TimeEntry,

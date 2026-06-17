@@ -13,16 +13,18 @@ import { addDays, weekStartOf } from "@/domains/timesheets/service";
  *   - fix      : the entry was REJECTED — the one state that needs the
  *                worker's hand, so it reads red instead of a green "logged"
  *   - today    : the cell IS today (prompts "log now" when no entry yet)
- *   - off      : a weekend with no entry (most don't work Sat/Sun)
- *   - miss     : a PAST weekday with no entry — a soft "you haven't logged
- *                this" nudge, never a claim the worker did anything wrong
- *   - upcoming : a future weekday in this week (nothing to show yet)
+ *   - miss     : a PAST day with no entry — a soft "you haven't logged this"
+ *                nudge, never a claim the worker did anything wrong. Weekends
+ *                are loggable like weekdays (tap to log if you worked Sat/Sun),
+ *                but an unworked weekend is NOT tallied as missed — most crews
+ *                don't work weekends, so a blank weekend never reads as overdue.
+ *   - upcoming : a future day in this week (nothing to show yet)
  *
  * The rolling 7-day window the page already fetches always covers this week's
  * Monday→today (the week is at most six days behind today), so no extra fetch
  * is needed.
  */
-export type WeekDayState = "logged" | "fix" | "today" | "miss" | "off" | "upcoming";
+export type WeekDayState = "logged" | "fix" | "today" | "miss" | "upcoming";
 
 export interface WeekDayCell {
   /** YYYY-MM-DD. */
@@ -149,18 +151,18 @@ export function buildPhilWeek(
     } else if (logged) {
       state = "logged";
       statusWord = loggedStatusWord(status);
-    } else if (isWeekend) {
-      // A weekend with no entry is off — whether it's already past or still
-      // to come — never flagged as a "missing" weekday.
-      state = "off";
-      statusWord = "off";
     } else if (date > todayISO) {
+      // Nothing to act on yet — true of a future weekday or weekend alike.
       state = "upcoming";
       statusWord = "—";
     } else {
+      // A PAST day with no entry. Weekends are loggable like weekdays now —
+      // the cell invites a tap to log if you worked Sat/Sun — but an unworked
+      // weekend is NOT tallied as missed: most crews don't work weekends, so a
+      // blank weekend must never flip the week to "needs action".
       state = "miss";
       statusWord = "not logged";
-      counts.missed += 1;
+      if (!isWeekend) counts.missed += 1;
     }
 
     days.push({ date, weekday, hours, state, statusWord });

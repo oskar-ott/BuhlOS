@@ -412,14 +412,11 @@ details[open] > .moreOptionsSummary::before {
   color: var(--md-red);
 }
 
-.off .box,
 .upcoming .box {
   border-style: dashed;
   border-color: var(--border);
   background: var(--surface-subtle);
 }
-.off .hours,
-.off .status,
 .upcoming .hours,
 .upcoming .status {
   color: var(--text-muted);
