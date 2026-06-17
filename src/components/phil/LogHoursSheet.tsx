@@ -365,56 +365,55 @@ export function LogHoursSheet({
           </span>
         </button>
 
-        {/* The date stays rendered (not display:none) so the field-readiness
-            smoke can still set the day. */}
-        <label className="flex flex-wrap items-center gap-2 text-xs">
-          <span className={styles.mono}>Day</span>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            disabled={submitting}
-            className="rounded-pill border border-border bg-surface px-3 py-1.5 text-xs text-text focus:border-brand-navy focus:outline-none"
-          />
-          {!dateInWindow ? (
-            <span className="text-state-danger">
-              Pick a date in the last {MAX_BACKDATE_DAYS} days.
-            </span>
-          ) : null}
-        </label>
-
-        {/* Custom / overtime hours is now a VISIBLE second action — it used to
-            be buried under a quiet disclosure, which made logging more or fewer
-            than a standard day hard to find. Whole-day 7.6h still leads above;
-            this opens the same proven chips + exact-decimal sheet. */}
-        <Button
-          variant="secondary"
-          size="lg"
-          onClick={() => setCustomOpen(true)}
-          disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
-          className="w-full"
-        >
-          Custom / overtime hours
-        </Button>
-
-        {assignedJobs.length > 1 ? (
-          <Button
-            variant="secondary"
-            size="lg"
-            onClick={() => setSplitOpen(true)}
-            disabled={submitting || lockedByStatus || !dateInWindow || !hasJobs}
-            className="w-full"
-            data-testid="split-across-jobs"
-          >
-            Split across jobs
-          </Button>
-        ) : null}
-
-        {/* A note is genuinely optional, so it stays under a quiet disclosure —
-            keeps the two hour actions leading (P10 cognitive budget). */}
+        {/* Everything past the one-tap standard day is tucked under a single
+            "More options" expander so the log area stays calm (P10): the lead
+            is just the job + the yellow action. Expand to pick a different day,
+            log custom / overtime, split across jobs, or add a note. The date
+            input stays in the DOM (not display:none) so the ?fixDate= deep link
+            still seeds it; the field-readiness smoke opens this disclosure
+            before driving the day. */}
         <details className={styles.moreOptions}>
-          <summary className={styles.moreOptionsSummary}>Add a note</summary>
-          <div className="mt-3">
+          <summary className={styles.moreOptionsSummary}>More options</summary>
+          <div className="mt-3 space-y-3">
+            <label className="flex flex-wrap items-center gap-2 text-xs">
+              <span className={styles.mono}>Day</span>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                disabled={submitting}
+                className="rounded-pill border border-border bg-surface px-3 py-1.5 text-xs text-text focus:border-brand-navy focus:outline-none"
+              />
+              {!dateInWindow ? (
+                <span className="text-state-danger">
+                  Pick a date in the last {MAX_BACKDATE_DAYS} days.
+                </span>
+              ) : null}
+            </label>
+
+            <Button
+              variant="secondary"
+              size="lg"
+              onClick={() => setCustomOpen(true)}
+              disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
+              className="w-full"
+            >
+              Custom / overtime hours
+            </Button>
+
+            {assignedJobs.length > 1 ? (
+              <Button
+                variant="secondary"
+                size="lg"
+                onClick={() => setSplitOpen(true)}
+                disabled={submitting || lockedByStatus || !dateInWindow || !hasJobs}
+                className="w-full"
+                data-testid="split-across-jobs"
+              >
+                Split across jobs
+              </Button>
+            ) : null}
+
             <label className="block text-sm">
               <span className="mb-1 block font-medium text-text">Notes (optional)</span>
               <textarea
@@ -511,6 +510,11 @@ function JobAttribution({
   jobsError: boolean;
   disabled: boolean;
 }): ReactNode {
+  // Multi-job: collapse to the chosen job once one is picked ("Change" reopens
+  // the list); stay expanded while nothing is picked so the required choice is
+  // never hidden. Declared at the top (before the single-job / empty / error
+  // early returns) to satisfy the rules of hooks.
+  const [pickerOpen, setPickerOpen] = useState<boolean>(!selectedJobId);
   const label = (
     <p className="font-display text-xs uppercase tracking-widest text-text-muted">Job</p>
   );
@@ -559,13 +563,50 @@ function JobAttribution({
     );
   }
 
+  // Once a job is chosen, collapse to a one-line summary so the picker stops
+  // taking up the screen — tap "Change" to reopen the list.
+  const selected = jobs.find((j) => j.id === selectedJobId) ?? null;
+  if (selected && !pickerOpen) {
+    return (
+      <div className="flex items-center justify-between gap-2 px-0.5">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate font-display text-sm font-semibold text-text">
+            {selected.name}
+          </span>
+          <Pill tone="neutral">Job</Pill>
+        </span>
+        <button
+          type="button"
+          onClick={() => setPickerOpen(true)}
+          disabled={disabled}
+          aria-expanded={false}
+          className="shrink-0 text-xs font-semibold text-brand-navy underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Change
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
         {label}
         {!selectedJobId ? (
           <span className="text-xs font-medium text-state-warning">Pick one</span>
-        ) : null}
+        ) : (
+          // Reopened via "Change" with a job already chosen — let the worker
+          // collapse back without having to re-pick.
+          <button
+            type="button"
+            onClick={() => setPickerOpen(false)}
+            disabled={disabled}
+            aria-expanded
+            className="text-xs font-semibold text-brand-navy underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Done
+          </button>
+        )}
       </div>
       <ul className="mt-1 space-y-2" role="radiogroup" aria-label="Choose the job for these hours">
         {jobs.map((j) => {
@@ -577,7 +618,10 @@ function JobAttribution({
                 role="radio"
                 aria-checked={active}
                 disabled={disabled}
-                onClick={() => onSelect(j.id)}
+                onClick={() => {
+                  onSelect(j.id);
+                  setPickerOpen(false);
+                }}
                 className={cn(
                   "flex min-h-[48px] w-full items-center gap-2 rounded-card border px-3 py-2 text-left text-sm font-medium",
                   "disabled:cursor-not-allowed disabled:opacity-60",
