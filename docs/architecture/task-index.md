@@ -39,3 +39,18 @@ rack, "metadata" ≠ data.
 This is a read-model aid only. It does not migrate storage, change identity
 (`id` stays tuple-derived, never name-derived), or create a structured authoring
 field yet.
+
+## Job-control compatibility
+
+Current job-control still uses legacy `TaskRef` `{ areaId, stage, taskId }`
+(stored in `WorkPackage.taskRefs`, resolved by `compile.resolveTaskRef`).
+
+`src/domains/job-control/task-ref-compat.ts` resolves these refs to canonical
+task ids and back, but storage and compile output remain unchanged — the helpers
+are pure and not wired into compile, Phil, evidence, or the proof-status reader.
+Matching defers to the task-index's own source helpers, so identity stays the
+tuple: an inherited template shared across areas never collapses, and a ref for
+one area/stage never resolves another's instance.
+
+This bridge prevents a storage migration while allowing future proof/QA/blocker
+work to use canonical task identity.
