@@ -64,6 +64,15 @@ The rules that apply to every line of code written in the rebuild. Product rules
 4. **All new data structures should be backend-ready, not random UI-only objects.** Every type that touches the API has its schema in `src/domains/<domain>/schema.ts`. Types are derived from schemas, not the other way around.
 5. **One canonical source per concept.** No two files define `landingFor()`. No two components both call themselves "the JobHeader". No two CSS files both define `--accent`.
 
+### Task-led architecture
+
+1. **Tasks are first-class job objects.** A job is the operating context; the task instance is the operational spine. Areas, stages, systems, workers, dependencies, blockers, proof, QA, materials, RFIs and drawings are **facets of a task**. Every list (by area, stage, system, worker, blocked, QA, proof) is a **view — a projection over task instances**. Views stay views. See [task-led-job-architecture.md](task-led-job-architecture.md) and [task-led-jobs-adr.md](task-led-jobs-adr.md).
+2. **Areas/stages are not the final task owner.** The `Job → Area → Stage → Task` hierarchy is **current storage and a place-first view**, not the long-term owner. New task-facet work keys off **canonical task identity** (the canonical task index / `task-ref-compat`), not raw area arrays.
+3. **The `jobId + areaId + stage + taskId` model is a compatibility bridge** over the older area/stage storage — load-bearing today (write paths, Phil display, job-control `TaskRef`, proof keying), but not the final architecture. The long-term target is a stable `taskInstanceId` (which exists **nowhere** in the code yet — it is a target, not a type).
+4. **Do not deepen area-owned task arrays** (`dwellings[areaId][stage].tasks[taskId]`) as the *owner* of a task unless the change **explicitly documents itself as a temporary compatibility bridge**. Adding new facets onto the area-owned shape without that label entrenches the wrong architecture.
+5. **Live area ids are unique within a job** — the invariant that lets a `(areaId, stage, taskId)` tuple resolve exactly one instance. Enforced server-side on every write path (`findDuplicateLiveAreaId`).
+6. **Proof is area/package-granular today** — surfaced per Phil task but not authored per canonical task instance. Do not claim per-task proof or admin proof approval as existing. See [proof-review-model.md](proof-review-model.md).
+
 ### API and persistence
 
 1. **Every feature must have schema, UI, mutation/API path, and test path** before it leaves draft.
@@ -142,6 +151,8 @@ Things to refuse even if asked. Each refusal points at the rule that bans it.
 | 100KB+ single-component file                                    | "No file >100KB without a clear reason."                    |
 | Adding a `/buhlos/*` mirror route                               | Discarded in salvage map.                                   |
 | Naming a file or folder `site-office`                            | Forbidden name.                                              |
+| Deepening area-owned task arrays without labelling it a bridge   | "Task-led architecture" rule 4.                             |
+| Claiming `taskInstanceId`, per-task proof, or admin proof approval as built | "Task-led architecture" rules 3/6.                |
 
 ---
 

@@ -22,6 +22,25 @@ of authority:
 - Field evidence > measured fact > domain reasoning > AI argument > elegance.
 - Evidence hierarchy & amendment process: `docs/phil-governance.md` §3.
 
+## Task-led job architecture — load it before job/task/proof work (cross-surface)
+The data direction for **both** surfaces: a job is the operating context; the
+**task instance is the operational spine**. Areas, stages, systems, workers,
+dependencies, blockers, proof, QA, materials, RFIs and drawings are **facets of a
+task**; every list is a **view — a projection over task instances**.
+1. [docs/architecture/task-led-job-architecture.md](docs/architecture/task-led-job-architecture.md) — the principle, the worked example, the bridge, the target
+2. [docs/architecture/task-led-jobs-adr.md](docs/architecture/task-led-jobs-adr.md) — the decision record
+3. [docs/architecture/proof-review-model.md](docs/architecture/proof-review-model.md) — proof is **area/package-granular** today; admin approval is **not** built
+4. Engineering rules: [docs/architecture/00-rebuild-non-negotiables.md](docs/architecture/00-rebuild-non-negotiables.md) → "Task-led architecture"
+
+**Hard rules for agents:**
+- The `jobId + areaId + stage + taskId` model is a **labelled compatibility bridge**, not the final architecture. `taskInstanceId` is a **target term only — it exists nowhere in the code.** Do not write docs/code that claim it, per-task proof, or admin proof approval as built.
+- New task-facet work keys off **canonical task identity** (the canonical task index / `task-ref-compat`), never raw area arrays. **Do not deepen area-owned task arrays** unless the change explicitly labels itself a temporary bridge.
+- This is an **architecture** direction, not a Phil-constitution amendment: Phil's place-first navigation is a view and stays. Behavioural change to the ratified Phil package still goes via governance §3 / P15.
+
+## Source of truth & the Constitution Gate
+- **Source-of-truth hierarchy** (higher wins on conflict): repo docs (`/docs`, `README.md`, `CLAUDE.md`) → GitHub Wiki (published handbook) → AI memory (working context, may be stale) → prompts (per-task instructions, **not permanent truth**). See [docs/wiki-sync.md](docs/wiki-sync.md).
+- **Constitution Gate (architecture-relevant prompts):** before changing an architecture/product principle, identify the governing doc, state the change against it, and update the doc. A prompt may direct work; it does not amend the constitution. Repo-docs PR first, **wiki sync after merge** (the wiki-touch rule).
+
 ## Backlog & process
 - Issue conventions: [docs/issues.md](docs/issues.md) (nine sections, epics, labels)
 - Backlog index: north-star epic #120; Phil epic #121

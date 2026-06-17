@@ -13,6 +13,10 @@ Production is live at **https://buhlos.com** (repo/package name: `birdwood-iv323
 
 Phil (the field app) is governed by a ratified constitution. Field-surface work derives from [the constitutional package](docs/phil-constitution.md) (law → [governance](docs/phil-governance.md) → [architecture](docs/phil-architecture.md) → [field validation](docs/phil-field-validation.md) → [roadmap](docs/phil-implementation-roadmap.md)). **Agents/sessions start at [CLAUDE.md](CLAUDE.md).**
 
+The cross-surface data direction is **task-led jobs** — tasks are first-class; areas/stages/systems/workers/proof/blockers/QA are facets; views are projections over task instances. The current `jobId + areaId + stage + taskId` model is a labelled **compatibility bridge**, not the final architecture. See [`docs/architecture/task-led-job-architecture.md`](docs/architecture/task-led-job-architecture.md) (spec), [`task-led-jobs-adr.md`](docs/architecture/task-led-jobs-adr.md) (decision), and [`proof-review-model.md`](docs/architecture/proof-review-model.md) (current proof limits). The engineering rules for this live in [`00-rebuild-non-negotiables.md`](docs/architecture/00-rebuild-non-negotiables.md) ("Task-led architecture").
+
+**Source-of-truth hierarchy:** repo docs (`/docs`, `README.md`, `CLAUDE.md`) → GitHub Wiki (published handbook) → AI memory (working context) → prompts (per-task instructions). The higher one wins on conflict; see [`docs/wiki-sync.md`](docs/wiki-sync.md).
+
 ---
 
 ## Architecture
