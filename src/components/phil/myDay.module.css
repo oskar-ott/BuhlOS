@@ -359,6 +359,16 @@ details[open] > .moreOptionsSummary::before {
   text-transform: uppercase;
   color: var(--text-muted);
   line-height: 1.05;
+  /* Reserve two lines so a status that wraps ("NOT LOGGED" / "LOG NOW") is the
+     SAME content height as a one-word one ("OFF" / "—"). The box centres its
+     content (justify-content: center), so unequal heights pushed the taller
+     two-line cells' number up and the hours row zig-zagged across the strip.
+     Equal content height + centring keeps every cell's number on one baseline. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 2.1em; /* ~2 lines at line-height 1.05 */
 }
 
 /* per-day states (mirrors phil/myday-v2.css) */
