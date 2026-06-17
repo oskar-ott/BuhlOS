@@ -41,6 +41,7 @@ export function emptySpine(jobId: string): JobControlSpine {
     claimLines: [],
     closeoutRequirements: [],
     evidenceLinks: [],
+    proofReviews: [],
   };
 }
 

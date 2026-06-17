@@ -22,7 +22,7 @@ import { ITPListResponseSchema } from "@/domains/itp/schema";
 import { DocumentListResponseSchema } from "@/domains/documents/schema";
 import { blobJobControlReadDeps, readJobControlForField } from "@/server/job-control/read";
 import type { Job } from "@/domains/jobs/types";
-import type { EvidenceLink, WorkPackage } from "@/domains/job-control/types";
+import type { EvidenceLink, ProofReview, WorkPackage } from "@/domains/job-control/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
 import type { ITPInstance } from "@/domains/itp/types";
@@ -106,6 +106,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           {
             workPackages: [] as WorkPackage[],
             evidenceLinks: [] as EvidenceLink[],
+            proofReviews: [] as ProofReview[],
             revision: undefined as string | undefined,
           },
         ];
@@ -166,6 +167,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
         workPackages={jobControlResult.workPackages}
         evidenceLinks={jobControlResult.evidenceLinks}
         jobControlRevision={jobControlResult.revision}
+        initialProofReviews={jobControlResult.proofReviews}
         autoCaptureToken={captureToken}
       />
     </PhilShell>
@@ -480,15 +482,25 @@ async function loadInitialMyInduction(
  */
 async function loadInitialJobControl(
   jobId: string
-): Promise<{ workPackages: WorkPackage[]; evidenceLinks: EvidenceLink[]; revision?: string }> {
+): Promise<{
+  workPackages: WorkPackage[];
+  evidenceLinks: EvidenceLink[];
+  proofReviews: ProofReview[];
+  revision?: string;
+}> {
   try {
     const r = await readJobControlForField(blobJobControlReadDeps(), jobId);
     if (r.ok && r.ready) {
-      return { workPackages: r.workPackages, evidenceLinks: r.evidenceLinks, revision: r.meta.revision };
+      return {
+        workPackages: r.workPackages,
+        evidenceLinks: r.evidenceLinks,
+        proofReviews: r.proofReviews,
+        revision: r.meta.revision,
+      };
     }
-    return { workPackages: [], evidenceLinks: [] };
+    return { workPackages: [], evidenceLinks: [], proofReviews: [] };
   } catch {
-    return { workPackages: [], evidenceLinks: [] };
+    return { workPackages: [], evidenceLinks: [], proofReviews: [] };
   }
 }
 

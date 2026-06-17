@@ -41,6 +41,7 @@ export const ID_PREFIXES = {
   claimLine: "cl_",
   closeoutRequirement: "cr_",
   evidenceLink: "el_",
+  proofReview: "pr_",
 } as const;
 
 // ── Stage (shared with the jobs domain) ──────────────────────────────────────
@@ -278,6 +279,36 @@ export const CloseoutRequirementSchema = z
   })
   .passthrough();
 
+// ── New entity: ProofReview ──────────────────────────────────────────────────
+// The office review lifecycle for a work package's required proof. Once the field
+// has captured every required-evidence item for a package (all `met` via
+// EvidenceLink), a worker SUBMITS the package for review; an admin then APPROVES
+// or REJECTS it (with a short reason). This is the office sign-off on captured
+// proof — DISTINCT from ITP sign-off (its own state machine) and from task
+// completion (dwellings, progress.ts #198). Keyed by `workPackageId` because
+// required proof is currently package/area-granular (#494); per-canonical-task
+// review is future work. Only the WRITTEN states live here — `not_required` /
+// `not_ready` / `ready` are DERIVED from the proof summary, never stored.
+
+export const PROOF_REVIEW_STATUSES = ["submitted", "approved", "rejected"] as const;
+export const ProofReviewStatusSchema = z.enum(PROOF_REVIEW_STATUSES);
+
+export const ProofReviewSchema = z
+  .object({
+    id: z.string(), // pr_…
+    jobId: z.string(),
+    /** The reviewed unit → `wp_…` (the current package/area-granular boundary). */
+    workPackageId: z.string(),
+    status: ProofReviewStatusSchema,
+    /** Set on reject — a short, worker-readable reason. Cleared on resubmit. */
+    reason: z.string().nullable().optional(),
+    submittedAt: z.string().optional(),
+    submittedBy: z.string().nullable().optional(),
+    reviewedAt: z.string().nullable().optional(),
+    reviewedBy: z.string().nullable().optional(),
+  })
+  .passthrough();
+
 // ── Container blob ───────────────────────────────────────────────────────────
 // Per-job home: `jobs/<jobId>/job-control.json`. Holds ONLY the new entities
 // and links. Scope clauses stay on jobs.json (#200); BOQ lines stay in the
@@ -290,6 +321,7 @@ export const JobControlSpineSchema = z
     claimLines: z.array(ClaimLineSchema).default([]),
     closeoutRequirements: z.array(CloseoutRequirementSchema).default([]),
     evidenceLinks: z.array(EvidenceLinkSchema).default([]),
+    proofReviews: z.array(ProofReviewSchema).default([]),
     updatedAt: z.string().optional(),
   })
   .passthrough();

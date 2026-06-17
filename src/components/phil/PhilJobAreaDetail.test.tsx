@@ -7,6 +7,7 @@ import type { JobStage } from "@/domains/jobs/types";
 import type { TaskState, WorkerTask } from "@/domains/jobs/taskState";
 import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
 import type { PhilTaskContext } from "@/domains/job-control/task-context";
+import type { ProofReview } from "@/domains/job-control/types";
 
 /**
  * Render observation for the area drill-in. No JSX (matches
@@ -472,5 +473,81 @@ describe("PhilJobAreaDetail render — at-a-glance required-proof line", () => {
     expect(out).not.toContain("captured");
     expect(out).not.toContain("ready for review");
     expect(out).toContain("Pull power");
+  });
+});
+
+describe("PhilJobAreaDetail render — proof review state + submit affordance", () => {
+  const ctxAllMet = (): PhilTaskContext => ({
+    workPackageId: "wp1",
+    scopeNote: null,
+    governingDocs: [],
+    materials: [],
+    requiredEvidence: [{ id: "re1", label: "Final fit-off photo", kind: "photo", met: true }],
+    warnings: [],
+    isEmpty: false,
+  });
+
+  function render(opts: {
+    proofReviews?: ReadonlyArray<ProofReview>;
+    onSubmitForReview?: (workPackageId: string) => void;
+    canSubmitForReview?: boolean;
+  }): string {
+    return renderToString(
+      createElement(PhilJobAreaDetail, {
+        areaName: "Main Bar",
+        stages: RI,
+        stage: "roughIn" as JobStage,
+        tasks: [task("t1", "Pull power")],
+        counts: NO_COUNTS,
+        onStageChange: noop,
+        taskContextById: new Map([["t1", ctxAllMet()]]),
+        ...opts,
+      }),
+    );
+  }
+  const review = (over: Partial<ProofReview>): ProofReview => ({
+    id: "pr1",
+    jobId: "j",
+    workPackageId: "wp1",
+    status: "submitted",
+    ...over,
+  });
+
+  it("ready: shows 'ready for review' + a Submit button when a handler is wired", () => {
+    const out = text(render({ onSubmitForReview: noop, canSubmitForReview: true }));
+    expect(out).toContain("ready for review");
+    expect(out).toContain("Submit for review");
+  });
+
+  it("ready but no submit handler → no button (read-only)", () => {
+    const out = text(render({}));
+    expect(out).toContain("ready for review");
+    expect(out).not.toContain("Submit for review");
+  });
+
+  it("submitted: shows 'submitted for review', no submit button", () => {
+    const out = text(
+      render({ proofReviews: [review({ status: "submitted" })], onSubmitForReview: noop, canSubmitForReview: true }),
+    );
+    expect(out).toContain("submitted for review");
+    expect(out).not.toContain("Submit for review");
+  });
+
+  it("approved: shows 'approved'", () => {
+    const out = text(render({ proofReviews: [review({ status: "approved" })] }));
+    expect(out).toContain("approved");
+  });
+
+  it("rejected: shows the reason + a Resubmit button", () => {
+    const out = text(
+      render({
+        proofReviews: [review({ status: "rejected", reason: "Missing label photo" })],
+        onSubmitForReview: noop,
+        canSubmitForReview: true,
+      }),
+    );
+    expect(out).toContain("sent back");
+    expect(out).toContain("Missing label photo");
+    expect(out).toContain("Resubmit for review");
   });
 });

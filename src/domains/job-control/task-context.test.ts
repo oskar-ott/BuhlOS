@@ -7,7 +7,10 @@ import {
   classifyTaskWarnings,
   unmetRequiredEvidenceCount,
   summarisePhilTaskProof,
+  philTaskProofView,
+  canSubmitProofForReview,
 } from "./task-context";
+import type { ProofReview } from "./types";
 
 const TASK: TaskRef = { areaId: "area_east_gym", stage: "fitOff", taskId: "task_zip" };
 
@@ -309,5 +312,66 @@ describe("unmetRequiredEvidenceCount (unknown ≠ zero)", () => {
     );
     const ctx = buildPhilTaskContext({ workPackages: [compiledPackage()], task: TASK, evidenceLinks: links });
     expect(unmetRequiredEvidenceCount(ctx)).toBe(0);
+  });
+});
+
+describe("philTaskProofView + canSubmitProofForReview (review lifecycle)", () => {
+  const wp = compiledPackage(); // wp_east_gym, requires re_test + re_photo
+  const bothMet = ["re_test", "re_photo"].map((rid, i) =>
+    EvidenceLinkSchema.parse({
+      id: `el_${i}`,
+      jobId: "j",
+      evidenceId: `ev_${i}`,
+      workPackageId: "wp_east_gym",
+      requiredEvidenceId: rid,
+      role: "progress",
+    }),
+  );
+  const readyCtx = () => buildPhilTaskContext({ workPackages: [wp], task: TASK, evidenceLinks: bothMet });
+  const partialCtx = () => buildPhilTaskContext({ workPackages: [wp], task: TASK });
+  const review = (over: Partial<ProofReview>): ProofReview => ({
+    id: "pr_1",
+    jobId: "j",
+    workPackageId: "wp_east_gym",
+    status: "submitted",
+    ...over,
+  });
+
+  it("not_required when the task has no required proof", () => {
+    expect(philTaskProofView(buildPhilTaskContext({ workPackages: [barePackage()], task: TASK })).status).toBe(
+      "not_required",
+    );
+  });
+
+  it("not_ready while required proof is outstanding, ready once all met", () => {
+    expect(philTaskProofView(partialCtx()).status).toBe("not_ready");
+    expect(philTaskProofView(readyCtx()).status).toBe("ready");
+  });
+
+  it("reflects the office review record (submitted / approved / rejected + reason)", () => {
+    expect(philTaskProofView(readyCtx(), [review({ status: "submitted" })]).status).toBe("submitted");
+    expect(philTaskProofView(readyCtx(), [review({ status: "approved" })]).status).toBe("approved");
+    const rej = philTaskProofView(readyCtx(), [review({ status: "rejected", reason: "Missing label" })]);
+    expect(rej.status).toBe("rejected");
+    expect(rej.reason).toBe("Missing label");
+  });
+
+  it("a review for a DIFFERENT work package does not affect this task (isolation)", () => {
+    const v = philTaskProofView(readyCtx(), [review({ workPackageId: "wp_other", status: "approved" })]);
+    expect(v.status).toBe("ready");
+  });
+
+  it("canSubmit: not_required, incomplete, then ok when all proof is met", () => {
+    expect(canSubmitProofForReview(buildPhilTaskContext({ workPackages: [barePackage()], task: TASK })).ok).toBe(false);
+    const inc = canSubmitProofForReview(partialCtx());
+    expect(inc.ok).toBe(false);
+    if (!inc.ok) expect(inc.reason).toBe("incomplete");
+    expect(canSubmitProofForReview(readyCtx()).ok).toBe(true);
+  });
+
+  it("canSubmit: blocked while submitted/approved, allowed again after rejected", () => {
+    expect(canSubmitProofForReview(readyCtx(), [review({ status: "submitted" })]).ok).toBe(false);
+    expect(canSubmitProofForReview(readyCtx(), [review({ status: "approved" })]).ok).toBe(false);
+    expect(canSubmitProofForReview(readyCtx(), [review({ status: "rejected", reason: "x" })]).ok).toBe(true);
   });
 });

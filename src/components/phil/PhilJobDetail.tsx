@@ -25,11 +25,16 @@ import { confirmInduction, type InductionRecord } from "@/domains/jobs/induction
 import { JobTagsPanel } from "./JobTagsPanel";
 import { buildAreaTaskContext } from "./philTaskContext";
 import { linkAndApply, type ProofActionStatus } from "./jobControlEvidenceLinkClient";
+import {
+  submitProofForReview,
+  applySubmitResult,
+  type SubmitActionStatus,
+} from "./jobControlProofReviewClient";
 import { PhilJobContactsCard } from "./PhilJobContactsCard";
 import type { JobContact } from "@/domains/contacts/schema";
 import type { TagItem } from "@/domains/tags/schema";
 import type { Job, JobStage } from "@/domains/jobs/types";
-import type { EvidenceLink, WorkPackage } from "@/domains/job-control/types";
+import type { EvidenceLink, ProofReview, WorkPackage } from "@/domains/job-control/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
 import type { ITPInstance } from "@/domains/itp/types";
@@ -103,6 +108,11 @@ interface Props {
    *  Required to capture proof for a requirement; absent ⇒ the capture
    *  affordance is hidden. */
   jobControlRevision?: string;
+  /** Compiled proof-review records for this job (L2 read), keyed by work package.
+   *  Drives the per-task review state (ready/submitted/approved/rejected) and the
+   *  Submit-for-review affordance. Seeds client state so a submit reflects without
+   *  a full reload. Absent/empty ⇒ no review state shown (zero regression). */
+  initialProofReviews?: ReadonlyArray<ProofReview>;
   /** When set (and changing), auto-opens the capture sheet. Driven by
    *  the `?capture=<token>` deep link the global Capture launcher
    *  (PhilTabBar FAB) pushes, so a worker can start a capture from
@@ -172,6 +182,7 @@ export function PhilJobDetail({
   workPackages,
   evidenceLinks: initialEvidenceLinks,
   jobControlRevision,
+  initialProofReviews,
   autoCaptureToken,
 }: Props) {
   // #332: induction completion is server truth — the tap is NON-optimistic
@@ -240,6 +251,13 @@ export function PhilJobDetail({
   } | null>(null);
   // Per-requirement (requiredEvidenceId → status) capture/link feedback.
   const [proofStatus, setProofStatus] = useState<Record<string, ProofActionStatus>>({});
+  // Proof-review records as client state, so a submit reflects without a full
+  // reload. Seeded from the server read.
+  const [proofReviews, setProofReviews] = useState<ReadonlyArray<ProofReview>>(
+    initialProofReviews ?? []
+  );
+  // Per-work-package submit-for-review feedback (workPackageId → status).
+  const [proofReviewStatus, setProofReviewStatus] = useState<Record<string, SubmitActionStatus>>({});
 
   // Worker-visible task state (areaId → stage → taskId → state). Seeded from
   // the server-loaded data blob; only ever advanced by a CONFIRMED
@@ -534,6 +552,36 @@ export function PhilJobDetail({
     [],
   );
 
+  // Submit a work package's captured proof for office review (worker action). The
+  // server re-verifies every required item is met. Non-optimistic: review state
+  // only advances on a confirmed 200, mirroring the capture→link flow.
+  const handleSubmitForReview = useCallback(
+    async (workPackageId: string) => {
+      if (!jcRevision) return;
+      setProofReviewStatus((prev) => ({ ...prev, [workPackageId]: "saving" }));
+      const applied = applySubmitResult(
+        await submitProofForReview({
+          jobId: job.id,
+          workPackageId,
+          expectedJobControlRevision: jcRevision,
+        }),
+      );
+      if (applied.revision) setJcRevision(applied.revision);
+      if (applied.review) {
+        const review = applied.review;
+        setProofReviews((prev) => [...prev.filter((r) => r.workPackageId !== workPackageId), review]);
+        setProofReviewStatus((prev) => {
+          const next = { ...prev };
+          delete next[workPackageId];
+          return next;
+        });
+      } else if (applied.status) {
+        setProofReviewStatus((prev) => ({ ...prev, [workPackageId]: applied.status! }));
+      }
+    },
+    [jcRevision, job.id],
+  );
+
   const handleCaptured = useCallback(
     async (item: EvidenceItem) => {
       setEvidenceItems((prev) => [item, ...prev]);
@@ -695,6 +743,10 @@ export function PhilJobDetail({
                 onCaptureProof={handleCaptureProof}
                 proofActionState={proofStatus}
                 canCaptureProof={Boolean(jcRevision)}
+                proofReviews={proofReviews}
+                onSubmitForReview={handleSubmitForReview}
+                proofReviewState={proofReviewStatus}
+                canSubmitForReview={Boolean(jcRevision)}
               />
             </div>
           ) : null}

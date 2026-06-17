@@ -35,7 +35,13 @@ import {
 } from "./philJobWorkTree";
 import { PhilTaskScopeContext } from "./PhilTaskScopeContext";
 import type { ProofActionStatus } from "./jobControlEvidenceLinkClient";
-import { summarisePhilTaskProof, type PhilTaskContext } from "@/domains/job-control/task-context";
+import {
+  philTaskProofView,
+  type PhilTaskContext,
+  type PhilTaskProofView,
+} from "@/domains/job-control/task-context";
+import type { ProofReview } from "@/domains/job-control/types";
+import { submitStatusMessage, type SubmitActionStatus } from "./jobControlProofReviewClient";
 import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
 import { cn } from "@/lib/cn";
 
@@ -85,6 +91,16 @@ interface Props {
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   /** Whether a capture+link can run now (a job-control revision is available). */
   canCaptureProof?: boolean;
+  /** Compiled proof-review records (keyed by work package), driving the per-task
+   *  review state line (ready/submitted/approved/rejected). */
+  proofReviews?: ReadonlyArray<ProofReview>;
+  /** Submit a work package's captured proof for office review. Omitted ⇒ no
+   *  submit affordance (read-only review state). */
+  onSubmitForReview?: (workPackageId: string) => void;
+  /** Per-work-package (workPackageId → status) submit feedback. */
+  proofReviewState?: Readonly<Record<string, SubmitActionStatus>>;
+  /** Whether a submit can run now (a job-control revision is available). */
+  canSubmitForReview?: boolean;
 }
 
 /**
@@ -135,6 +151,10 @@ export function PhilJobAreaDetail({
   onCaptureProof,
   proofActionState,
   canCaptureProof,
+  proofReviews,
+  onSubmitForReview,
+  proofReviewState,
+  canSubmitForReview,
 }: Props) {
   const links = areaQuickLinks(counts);
   const sole = soleStage(stages);
@@ -233,6 +253,10 @@ export function PhilJobAreaDetail({
                   onCaptureProof={onCaptureProof}
                   proofActionState={proofActionState}
                   canCaptureProof={canCaptureProof}
+                  proofReviews={proofReviews}
+                  onSubmitForReview={onSubmitForReview}
+                  proofReviewState={proofReviewState}
+                  canSubmitForReview={canSubmitForReview}
                 />
               ))}
             </ul>
@@ -333,6 +357,10 @@ function TaskRow({
   onCaptureProof,
   proofActionState,
   canCaptureProof,
+  proofReviews,
+  onSubmitForReview,
+  proofReviewState,
+  canSubmitForReview,
 }: {
   task: WorkerTask;
   pending: boolean;
@@ -342,6 +370,10 @@ function TaskRow({
   onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string }) => void;
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   canCaptureProof?: boolean;
+  proofReviews?: ReadonlyArray<ProofReview>;
+  onSubmitForReview?: (workPackageId: string) => void;
+  proofReviewState?: Readonly<Record<string, SubmitActionStatus>>;
+  canSubmitForReview?: boolean;
 }) {
   const done = isComplete(task.state);
   const blocked = readiness?.readiness === "blocked";
@@ -352,7 +384,7 @@ function TaskRow({
   // AREA work package today, so this reflects the area's compiled proof and reads
   // the same on every task the package delivers (per-task-instance proof is later
   // work) — consistent with the "Proof needed" list already in PhilTaskScopeContext.
-  const proof = context ? summarisePhilTaskProof(context) : null;
+  const proofView = context ? philTaskProofView(context, proofReviews ?? []) : null;
   return (
     <li className="px-3 py-2.5 text-sm">
       <div className="flex min-h-[52px] items-center gap-3">
@@ -405,24 +437,17 @@ function TaskRow({
           </span>
         </p>
       ) : null}
-      {proof ? (
-        proof.eligibleForReview ? (
-          <p className="mt-1.5 flex items-start gap-1.5 text-xs text-state-success">
-            <CheckCircle2 aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>
-              <span className="font-display font-semibold">Proof</span> — all captured · ready for
-              review
-            </span>
-          </p>
-        ) : (
-          <p className="mt-1.5 flex items-start gap-1.5 text-xs text-state-warning">
-            <Camera aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>
-              <span className="font-display font-semibold">Proof</span>
-              {` — ${proof.metCount}/${proof.requiredCount} captured`}
-            </span>
-          </p>
-        )
+      {proofView && proofView.status !== "not_required" ? (
+        <ProofReviewLine
+          view={proofView}
+          onSubmit={
+            onSubmitForReview && proofView.workPackageId
+              ? () => onSubmitForReview(proofView.workPackageId as string)
+              : undefined
+          }
+          submitStatus={proofView.workPackageId ? proofReviewState?.[proofView.workPackageId] : undefined}
+          canSubmit={canSubmitForReview ?? false}
+        />
       ) : null}
       {context ? (
         <PhilTaskScopeContext
@@ -438,4 +463,95 @@ function TaskRow({
       ) : null}
     </li>
   );
+}
+
+/**
+ * Compact, always-visible required-proof + review-state line for a task row.
+ * Reads the unified `PhilTaskProofView`: shows the capture count while
+ * outstanding, "ready for review" when all proof is met, and the office review
+ * outcome (submitted / approved / sent back + reason). A Submit-for-review button
+ * appears only when the work is `ready` (or sent back `rejected`) AND the parent
+ * wired a submit handler with a current revision — never an action that can't run.
+ */
+function ProofReviewLine({
+  view,
+  onSubmit,
+  submitStatus,
+  canSubmit,
+}: {
+  view: PhilTaskProofView;
+  onSubmit?: () => void;
+  submitStatus?: SubmitActionStatus;
+  canSubmit: boolean;
+}) {
+  const submitting = submitStatus === "saving";
+  const showSubmit =
+    Boolean(onSubmit && canSubmit && view.workPackageId) &&
+    (view.status === "ready" || view.status === "rejected");
+  const { tone, Icon, text } = proofLineDisplay(view);
+  return (
+    <div className="mt-1.5">
+      <p className={cn("flex items-start gap-1.5 text-xs", tone)}>
+        <Icon aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>
+          <span className="font-display font-semibold">Proof</span>
+          {text}
+        </span>
+      </p>
+      {showSubmit ? (
+        <span className="mt-1 block">
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={submitting}
+            className={cn(
+              "inline-flex min-h-[36px] items-center gap-1.5 rounded-pill border border-border bg-surface px-3 py-1 font-display text-xs font-semibold text-text transition-colors",
+              "hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy disabled:cursor-not-allowed disabled:opacity-60",
+            )}
+          >
+            {submitting
+              ? "Submitting…"
+              : view.status === "rejected"
+                ? "Resubmit for review"
+                : "Submit for review"}
+          </button>
+          {submitStatus && submitStatus !== "saving" ? (
+            <span className="mt-1 block text-xs text-state-warning">{submitStatusMessage(submitStatus)}</span>
+          ) : null}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** Tone + icon + trailing text for a proof-review line, by status. `not_required`
+ *  never reaches here (the row filters it out). */
+function proofLineDisplay(view: PhilTaskProofView): {
+  tone: string;
+  Icon: typeof CheckCircle2;
+  text: string;
+} {
+  switch (view.status) {
+    case "ready":
+      return { tone: "text-state-success", Icon: CheckCircle2, text: " — all captured · ready for review" };
+    case "submitted":
+      return { tone: "text-state-info", Icon: ClipboardCheck, text: " — submitted for review" };
+    case "approved":
+      return { tone: "text-state-success", Icon: CheckCircle2, text: " — approved" };
+    case "rejected":
+      return {
+        tone: "text-state-danger",
+        Icon: AlertOctagon,
+        text: view.reason ? ` — sent back: ${view.reason}` : " — sent back",
+      };
+    case "not_ready":
+    default: {
+      const s = view.summary;
+      return {
+        tone: "text-state-warning",
+        Icon: Camera,
+        text: s ? ` — ${s.metCount}/${s.requiredCount} captured` : "",
+      };
+    }
+  }
 }

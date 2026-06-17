@@ -2,6 +2,8 @@ import { taskRefKey } from "./spine";
 import type {
   EvidenceLink,
   GoverningDocRef,
+  ProofReview,
+  ProofReviewStatus,
   RequiredEvidence,
   TaskRef,
   WorkPackageMaterial,
@@ -182,4 +184,115 @@ export function summarisePhilTaskProof(ctx: PhilTaskContext): PhilTaskProofSumma
   const requiredCount = reqs.length;
   const missingCount = requiredCount - metCount;
   return { requiredCount, metCount, missingCount, eligibleForReview: missingCount === 0 };
+}
+
+// ── Proof review (submit → approve/reject) — read model + shared gate ─────────
+// The review lifecycle layered on top of the capture→met loop. The WRITTEN states
+// (submitted/approved/rejected) live in `proofReviews` on the artifact, keyed by
+// workPackageId (proof is package/area-granular today, #494). The DERIVED states
+// (not_required/not_ready/ready) are computed from the proof summary — never
+// stored. These pure helpers are the single source of truth shared by the Phil
+// display, the Phil submit affordance, and (re-derived against the artifact) the
+// server writer, so field and office never disagree (P7).
+
+/** The unified worker-facing proof state for a task. `not_required`/`not_ready`/
+ *  `ready` are derived from captured proof; `submitted`/`approved`/`rejected`
+ *  come from the office review record on the task's work package. */
+export type TaskProofReviewStatus =
+  | "not_required"
+  | "not_ready"
+  | "ready"
+  | ProofReviewStatus;
+
+export interface PhilTaskProofView {
+  /** The review boundary — the package that owns this task, or null. */
+  workPackageId: string | null;
+  /** Captured-proof counts, or null when the task has no required proof. */
+  summary: PhilTaskProofSummary | null;
+  status: TaskProofReviewStatus;
+  /** Short worker-readable reason, present only when `status === "rejected"`. */
+  reason: string | null;
+}
+
+/** The current review record for a work package, or null. The writer keeps ONE
+ *  review per package (upsert); if more than one is somehow present, the
+ *  most-recently-touched wins. */
+function latestReviewForPackage(
+  reviews: ReadonlyArray<ProofReview>,
+  workPackageId: string | null,
+): ProofReview | null {
+  if (!workPackageId) return null;
+  let latest: ProofReview | null = null;
+  for (const r of reviews) {
+    if (r.workPackageId !== workPackageId) continue;
+    if (!latest) {
+      latest = r;
+      continue;
+    }
+    const t = r.reviewedAt ?? r.submittedAt ?? "";
+    const lt = latest.reviewedAt ?? latest.submittedAt ?? "";
+    if (t >= lt) latest = r;
+  }
+  return latest;
+}
+
+/**
+ * Combine the captured-proof summary with the office review record into the one
+ * state Phil renders. Pure. A review record (submitted/approved/rejected) takes
+ * precedence over the derived ready/not_ready; with no record it's `ready` when
+ * all proof is met, else `not_ready`; with no required proof at all it's
+ * `not_required` (renders nothing).
+ */
+export function philTaskProofView(
+  ctx: PhilTaskContext,
+  proofReviews: ReadonlyArray<ProofReview> = [],
+): PhilTaskProofView {
+  const summary = summarisePhilTaskProof(ctx);
+  const workPackageId = ctx.workPackageId;
+  if (!summary) return { workPackageId, summary: null, status: "not_required", reason: null };
+
+  const review = latestReviewForPackage(proofReviews, workPackageId);
+  if (review) {
+    return {
+      workPackageId,
+      summary,
+      status: review.status,
+      reason: review.status === "rejected" ? review.reason ?? null : null,
+    };
+  }
+  return {
+    workPackageId,
+    summary,
+    status: summary.eligibleForReview ? "ready" : "not_ready",
+    reason: null,
+  };
+}
+
+/**
+ * Can a worker submit this task's work package for office review right now? The
+ * SHARED gate for the Phil affordance; the server writer re-derives the same
+ * conditions against the stored artifact (never trusts the client). Submittable
+ * only when there IS required proof, every item is met, a package owns the task,
+ * and there is no in-flight (`submitted`) or terminal (`approved`) review — a
+ * `rejected` review may be resubmitted.
+ */
+export type CanSubmitProofResult =
+  | { ok: true; workPackageId: string }
+  | {
+      ok: false;
+      reason: "not_required" | "no_package" | "incomplete" | "already_submitted" | "already_approved";
+    };
+
+export function canSubmitProofForReview(
+  ctx: PhilTaskContext,
+  proofReviews: ReadonlyArray<ProofReview> = [],
+): CanSubmitProofResult {
+  const summary = summarisePhilTaskProof(ctx);
+  if (!summary) return { ok: false, reason: "not_required" };
+  if (!ctx.workPackageId) return { ok: false, reason: "no_package" };
+  if (!summary.eligibleForReview) return { ok: false, reason: "incomplete" };
+  const review = latestReviewForPackage(proofReviews, ctx.workPackageId);
+  if (review?.status === "submitted") return { ok: false, reason: "already_submitted" };
+  if (review?.status === "approved") return { ok: false, reason: "already_approved" };
+  return { ok: true, workPackageId: ctx.workPackageId };
 }
