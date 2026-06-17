@@ -19,6 +19,7 @@ import {
   philTaskReadinessByTemplateId,
   workerTasksFromCanonicalIndex,
 } from "@/domains/jobs/phil-task-projection";
+import { taskBlockersFromObservations } from "@/domains/observations/task-blockers";
 import { buildPhilJobCommandModel } from "@/domains/phil/job-command-model";
 import { philJobCommandInputFromJobData } from "@/domains/phil/job-command-input";
 import { confirmInduction, type InductionRecord } from "@/domains/jobs/induction";
@@ -32,6 +33,7 @@ import type { Job, JobStage } from "@/domains/jobs/types";
 import type { EvidenceLink, WorkPackage } from "@/domains/job-control/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
+import type { ObservationItem } from "@/domains/observations/types";
 import type { ITPInstance } from "@/domains/itp/types";
 import type { Document } from "@/domains/documents/types";
 import { CaptureSheet } from "./CaptureSheet";
@@ -61,6 +63,11 @@ interface Props {
   initialEvidence?: ReadonlyArray<EvidenceItem>;
   /** Initial snags list fetched server-side. May be empty. */
   initialSnags?: ReadonlyArray<SnagItem>;
+  /** Initial observations fetched server-side (#504). Source for real task
+   *  blockers: an open, task-scoped, blocking-type observation marks its task
+   *  `blocked` in the readiness display. Absent/empty ⇒ nothing blocked (honest
+   *  empty, exactly as today). */
+  initialObservations?: ReadonlyArray<ObservationItem>;
   /** Initial ITP instances list fetched server-side (Phase E1b).
    *  May be empty on load. */
   initialItps?: ReadonlyArray<ITPInstance>;
@@ -159,6 +166,7 @@ export function PhilJobDetail({
   job,
   initialEvidence,
   initialSnags,
+  initialObservations,
   initialItps,
   initialDocuments,
   documentsError,
@@ -324,14 +332,25 @@ export function PhilJobDetail({
     [canonicalTasks, selectedArea, viewedStage],
   );
 
+  // Real task blockers (#504): derived from this job's observations — an open,
+  // task-scoped, blocking-type observation (rfi / variation / material / drawing /
+  // client / explicit blocker) becomes a canonical-keyed `TaskBlocker`. Pure +
+  // honest: a job with no such observation yields none, so nothing is blocked
+  // (exactly as before). Computed once per (observations, job) and fed to the
+  // readiness model below; the #493 display lights up only for genuinely-blocked
+  // tasks, with no further UI change.
+  const jobTaskBlockers = useMemo(
+    () => taskBlockersFromObservations({ observations: initialObservations ?? [], jobId: job.id }),
+    [initialObservations, job.id],
+  );
+
   // Per-task readiness (#482 model) for the viewed area+stage, keyed by task id —
   // the same key the rows + scope-context use. The row shows a "Blocked — reason"
-  // line only when a task resolves to `blocked`. No real blocker/dependency
-  // source exists yet (task-blockers.ts persists nothing), so we pass none: every
-  // not-complete task is `ready`, every done task `complete`, NOTHING is blocked,
-  // and the rows render exactly as today (zero visual change). When a future
-  // slice feeds real blockers/dependencies here, the blocked line lights up with
-  // no further UI change — the same honest-empty pattern as the scope context.
+  // line only when a task resolves to `blocked`. Blockers come from real
+  // observations (#504); `deriveTaskReadiness` matches them by canonical task id,
+  // so passing the whole-job list is correct (a blocker can sit on any task). When
+  // a job has no qualifying observation, this is empty and every not-complete task
+  // is `ready` — zero visual change.
   const taskReadinessById = useMemo(
     () =>
       selectedArea
@@ -339,9 +358,10 @@ export function PhilJobDetail({
             canonicalTasks,
             areaId: selectedArea.id,
             stage: viewedStage,
+            blockers: jobTaskBlockers,
           })
         : undefined,
-    [canonicalTasks, selectedArea, viewedStage],
+    [canonicalTasks, selectedArea, viewedStage, jobTaskBlockers],
   );
 
   // Per-task scope context (#368) for the viewed area+stage, from the job's
