@@ -41,6 +41,7 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob } = require('./_lib/auth');
 const { appendAudit } = require('./_lib/job-audit');
+const { findDuplicateLiveAreaId } = require('./_lib/validation');
 
 const MAX_OPS = 200;
 const VALID_STAGES = new Set(['roughIn', 'fitOff']);
@@ -245,6 +246,23 @@ module.exports = async (req, res) => {
     } catch (e) {
       failed.push({ index: i, op: op.op || null, reason: e.message || 'failed' });
     }
+  }
+
+  // Area-id uniqueness must hold AFTER these mutations, not only on the
+  // create/PUT path. unarchive-area resurrects a live area and move-area shuffles
+  // areas between groups — either can surface a duplicate LIVE area id, the exact
+  // silent mis-key validateAreaGroups rejects elsewhere (the whole Phil +
+  // task-state stack keys on a unique live areaId — see findDuplicateLiveAreaId).
+  // Re-check the final live-area set with the SAME guard and abort the WHOLE
+  // batch before persisting if a collision would result — atomic: nothing is
+  // written on rejection, so disk never gains a duplicate live area id.
+  const dupAreaId = findDuplicateLiveAreaId(job.areaGroups);
+  if (dupAreaId) {
+    return res.status(409).json({
+      error: `operation would create a duplicate live area id: ${dupAreaId}`,
+      applied: 0,
+      failed,
+    });
   }
 
   // Single blob write at the end. Atomic from the caller's perspective.

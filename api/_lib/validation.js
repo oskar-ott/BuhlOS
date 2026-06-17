@@ -98,7 +98,47 @@ function validateAreaGroups(raw, fieldName) {
     }
     groups.push(groupOut);
   }
+  // Area ids must be unique among the job's LIVE (non-archived) areas — checked
+  // here on the normalised output so every caller (create / PUT / duplicate /
+  // draft) rejects a collision. The bulk-edit path (api/jobs-bulk-edit.js) runs
+  // the SAME findDuplicateLiveAreaId check before it persists, so resurrecting
+  // (unarchive) or moving an area can't slip a duplicate live id onto disk either.
+  const dupAreaId = findDuplicateLiveAreaId(groups);
+  if (dupAreaId) return { ok: false, error: `${f} duplicate live area id: ${dupAreaId}` };
   return { ok: true, groups };
+}
+
+/**
+ * The id of the first NON-ARCHIVED area that repeats within a job's area groups,
+ * or null when every live area id is unique. Pure; reads only `id` + `archived`,
+ * never mutates. Shared by validateAreaGroups and api/jobs-bulk-edit.js so the
+ * invariant has ONE definition.
+ *
+ * Why live-only: the whole Phil + task-state stack keys on a unique LIVE areaId —
+ * task state at dwellings[areaId][stage].tasks[taskId], the /api/task-toggle
+ * write target, the Phil area selector's first-match `areas.find(a => a.id === id)`,
+ * and the canonical task index filter by source.areaId. Two LIVE areas sharing an
+ * id silently mis-key (rows concatenate, the wrong area renders, the write target
+ * is ambiguous). Archived areas are excluded: they're filtered out before any
+ * keying, so two archived areas — or a live area reusing an archived id — are
+ * harmless WHILE archived. The invariant is enforced by EVERY write path that can
+ * change the live-area set: validateAreaGroups (create/PUT/duplicate/draft) and
+ * api/jobs-bulk-edit.js (archive/unarchive/move) both call this before persisting,
+ * so a resurrected or moved collision is caught then.
+ */
+function findDuplicateLiveAreaId(areaGroups) {
+  if (!Array.isArray(areaGroups)) return null;
+  const seen = new Set();
+  for (const g of areaGroups) {
+    if (!g || !Array.isArray(g.areas)) continue;
+    for (const a of g.areas) {
+      if (!a || a.archived) continue;
+      if (a.id == null) continue;
+      if (seen.has(a.id)) return a.id;
+      seen.add(a.id);
+    }
+  }
+  return null;
 }
 
 // Validate and normalise a tasks array (roughInTasks / fitOffTasks).
@@ -192,6 +232,7 @@ function visibleStructural(arr, { includeArchived = false } = {}) {
 module.exports = {
   nanoid,
   validateAreaGroups,
+  findDuplicateLiveAreaId,
   validateTasks,
   validateCustomFields,
   visibleStructural,

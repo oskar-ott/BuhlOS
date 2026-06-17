@@ -319,6 +319,75 @@ describe("scope-of-work visibility + writes (#200)", () => {
     expect(cleared).toEqual([]);
   });
 
+  it("PUT rejects a same-name remap that collapses into duplicate live area ids (no write)", async () => {
+    // job-active already has a live area "Current area" (id area-current). Two
+    // input areas BOTH named "Current area" carry distinct submitted ids, so
+    // validateAreaGroups passes — but the name-based remap reuses area-current
+    // for both, collapsing them onto one live id. The persisted-output guard
+    // must reject this before writeBlob.
+    const writesBefore = writeBlobMock.mock.calls.length;
+    const put = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: {
+        id: "job-active",
+        areaGroups: [
+          {
+            id: "group-a",
+            name: "Group A",
+            areas: [
+              { id: "ar_new1", name: "Current area" },
+              { id: "ar_new2", name: "Current area" },
+            ],
+          },
+        ],
+      },
+    });
+    expect(put.statusCode).toBe(400);
+    expect((put.body as { error: string }).error).toContain("duplicate");
+    expect((put.body as { error: string }).error).toContain("area-current");
+    // No jobs.json write happened for this rejected PUT.
+    expect(writeBlobMock.mock.calls.length).toBe(writesBefore);
+    // And the stored job still has exactly one live area-current.
+    const stored = (blob.get("jobs.json") as {
+      jobs: Array<{ id: string; areaGroups?: Array<{ areas?: Array<{ id: string; archived?: boolean }> }> }>;
+    }).jobs.find((j) => j.id === "job-active");
+    const liveCurrent = (stored?.areaGroups ?? [])
+      .flatMap((g) => g.areas ?? [])
+      .filter((a) => a.id === "area-current" && !a.archived);
+    expect(liveCurrent).toHaveLength(1);
+  });
+
+  it("PUT accepts a valid areaGroups update that remaps without a collision", async () => {
+    const put = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: {
+        id: "job-active",
+        areaGroups: [
+          {
+            id: "group-a",
+            name: "Group A",
+            areas: [
+              { id: "area-current", name: "Current area" },
+              { id: "ar_new", name: "New room" },
+            ],
+          },
+        ],
+      },
+    });
+    expect(put.statusCode).toBe(200);
+    const stored = (blob.get("jobs.json") as {
+      jobs: Array<{ id: string; areaGroups: Array<{ areas: Array<{ id: string; name: string }> }> }>;
+    }).jobs.find((j) => j.id === "job-active")!;
+    const ids = stored.areaGroups.flatMap((g) => g.areas).map((a) => a.id);
+    expect(new Set(ids).size).toBe(ids.length); // unique
+    expect(ids).toContain("area-current");
+    expect(stored.areaGroups[0]!.areas.map((a) => a.name)).toContain("New room");
+  });
+
   it("validation: missing title and oversized detail are hard 400s", async () => {
     const noTitle = await call({
       method: "PUT",
