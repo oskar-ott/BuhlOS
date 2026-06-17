@@ -44,6 +44,8 @@ import {
   buildOfficeObservationPayload,
   preselectCaptureJob,
   launcherDecision,
+  resolveQuickCapture,
+  type CaptureQuickAction,
   type LaunchableJob,
 } from "./philCapture";
 import { cn } from "@/lib/cn";
@@ -66,6 +68,14 @@ interface Props {
   /** Re-fires the global camera input. Must be invoked from a direct tap so
    *  the browser treats it as a user gesture (iOS requirement). */
   onRequestCamera?: () => void;
+  /** When opened from a My Day quick-action tile, the launcher jumps straight
+   *  to that action (office option, or a worker option on the single job) once
+   *  it opens. Null/undefined for the FAB, which opens the normal flow. */
+  initialAction?: CaptureQuickAction | null;
+  /** Monotonic id of the current quick-action request (0 = none). A new value
+   *  — a fresh tile tap, or a different tile while the sheet is already open —
+   *  re-applies the preset, so switching tiles isn't swallowed. */
+  actionSeq?: number;
 }
 
 type Job0 = { id: string; name: string | null };
@@ -126,6 +136,8 @@ export function PhilCaptureLauncher({
   initialJobId,
   incoming,
   onRequestCamera,
+  initialAction,
+  actionSeq = 0,
 }: Props) {
   const [jobsState, setJobsState] = useState<JobsState>({ v: "loading" });
   const [photos, setPhotos] = useState<TrayPhoto[]>([]);
@@ -147,6 +159,10 @@ export function PhilCaptureLauncher({
 
   // No-photo observation loop state (pre-existing flow).
   const [noteFlow, setNoteFlow] = useState<NoteFlow>(null);
+  // A worker quick-action option carried through the job picker (when the
+  // worker has several jobs): once they pick a job we land straight on its
+  // note step for this option instead of the generic option list.
+  const [pendingWorkerOption, setPendingWorkerOption] = useState<WorkerCaptureOption | null>(null);
   const [obsTitle, setObsTitle] = useState("");
   const [obsDescription, setObsDescription] = useState("");
   const [obsSubmitting, setObsSubmitting] = useState(false);
@@ -206,9 +222,69 @@ export function PhilCaptureLauncher({
     setObsSubmitting(false);
     setNoteFlow(null);
     setOfficeError(null);
+    // Clean slate for the destination each open so a prior tile's "send to
+    // office" / carried worker option never leaks into a fresh FAB capture.
+    setDestOffice(false);
+    setOfficeOptionKey(null);
+    setPendingWorkerOption(null);
     setSubmit((s) => (s.v === "submitting" || s.v === "sending" ? s : { v: "idle" }));
     void loadJobs();
   }, [open, loadJobs]);
+
+  // Quick-action preset (My Day tiles): when the launcher is opened with an
+  // initialAction, jump straight to it. Office options need no job and apply at
+  // once; a worker option waits for jobs to land, then targets the sole job (or
+  // carries the option through the picker for a multi-job worker). Keyed on the
+  // request seq, so each new tap — including switching to a DIFFERENT tile while
+  // the sheet is open — re-applies, and so the same seq never double-applies
+  // (e.g. while jobs are still loading). The FAB passes seq 0, so its flow is
+  // untouched. Each apply first clears the other destination, since the open
+  // reset effect doesn't re-run when switching tiles within one open session.
+  const appliedSeqRef = useRef(0);
+  useEffect(() => {
+    if (!open) {
+      // Reset the preset lifecycle AND the destination while the sheet is
+      // hidden (it renders null when closed), so the next open — the FAB or
+      // another tile — starts clean with no one-frame flash of the prior
+      // tile's office/note state on reopen. The photo tray survives by design.
+      appliedSeqRef.current = 0;
+      setDestOffice(false);
+      setOfficeOptionKey(null);
+      setNoteFlow(null);
+      setPendingWorkerOption(null);
+      return;
+    }
+    if (!initialAction || actionSeq === 0 || appliedSeqRef.current === actionSeq) return;
+    if (initialAction.kind === "worker" && jobsState.v !== "ready") return; // await jobs
+    const jobsList = jobsState.v === "ready" ? jobsState.jobs : [];
+    const preset = resolveQuickCapture(initialAction, jobsList, initialJobId ?? null);
+    appliedSeqRef.current = actionSeq;
+    // Clean slate for the destination before applying, so switching tiles
+    // mid-open never leaves the previous tile's office/note state behind.
+    setDestOffice(false);
+    setOfficeOptionKey(null);
+    setNoteFlow(null);
+    setPendingWorkerOption(null);
+    switch (preset.mode) {
+      case "office":
+        setDestOffice(true);
+        setOfficeOptionKey(preset.option.key);
+        break;
+      case "worker-note":
+        setNoteFlow({
+          step: "note",
+          job: { id: preset.job.id, name: preset.job.name },
+          option: preset.option,
+        });
+        break;
+      case "worker-pick":
+        setPendingWorkerOption(preset.option);
+        setNoteFlow({ step: "pick" });
+        break;
+      case "none":
+        break;
+    }
+  }, [open, initialAction, actionSeq, jobsState, initialJobId]);
 
   // Consume a photo handed in from the global camera input.
   useEffect(() => {
@@ -617,7 +693,17 @@ export function PhilCaptureLauncher({
               hasPhotos={photos.length > 0}
               submitting={obsSubmitting}
               error={obsError}
-              onPickJob={(j) => setNoteFlow({ step: "options", job: j })}
+              onPickJob={(j) => {
+                // Carry a quick-action option straight to its note step; a
+                // plain "log something" pick still lands on the option list.
+                if (pendingWorkerOption) {
+                  const option = pendingWorkerOption;
+                  setPendingWorkerOption(null);
+                  setNoteFlow({ step: "note", job: j, option });
+                } else {
+                  setNoteFlow({ step: "options", job: j });
+                }
+              }}
               onChooseOption={(job, option) => {
                 setObsTitle("");
                 setObsDescription("");

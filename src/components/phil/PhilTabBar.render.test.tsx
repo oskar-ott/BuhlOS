@@ -12,6 +12,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { PhilTabBar } from "./PhilTabBar";
+import { CaptureLauncherProvider } from "./captureLauncherContext";
 
 /**
  * Locks the Phil bottom-nav contract — and specifically the global Capture
@@ -30,7 +31,10 @@ import { PhilTabBar } from "./PhilTabBar";
  * lives in tests/playwright/smoke/phil.spec.ts (Preview Smoke).
  */
 describe("PhilTabBar", () => {
-  const html = renderToString(createElement(PhilTabBar));
+  // PhilTabBar reads the capture-launcher context (the shell provides it).
+  const html = renderToString(
+    createElement(CaptureLauncherProvider, null, createElement(PhilTabBar)),
+  );
 
   it("renders the four field tabs with their canonical hrefs", () => {
     expect(html).toContain('aria-label="Phil tabs"');

@@ -1,6 +1,8 @@
 import type { Job } from "@/domains/jobs/types";
 import {
+  officeOptionByKey,
   requiresActionForOption,
+  workerOptionByKey,
   type OfficeCaptureOption,
   type WorkerCaptureOption,
 } from "@/domains/observations/service";
@@ -169,4 +171,50 @@ export function buildOfficeObservationPayload(
     requiresAction: true,
     ...(trimmedDescription ? { description: trimmedDescription } : {}),
   };
+}
+
+/**
+ * A My Day quick-action tile target: a single Capture option the worker can
+ * launch straight into, instead of stepping through the camera-first flow.
+ * `kind` says which Capture destination it belongs to (a job-scoped worker
+ * option, or the no-job "send to office" set); `optionKey` is the option's key
+ * in WORKER_CAPTURE_OPTIONS / OFFICE_CAPTURE_OPTIONS.
+ */
+export type CaptureQuickAction =
+  | { kind: "worker"; optionKey: string }
+  | { kind: "office"; optionKey: string };
+
+/**
+ * How the Capture launcher should open for a quick action:
+ *   - office       → "send to office" mode with the option chosen
+ *   - worker-note  → a single resolvable job, jump straight to its note step
+ *   - worker-pick  → several jobs, open the picker carrying the option
+ *   - none         → unknown key; open the launcher as a normal capture
+ */
+export type QuickCapturePreset =
+  | { mode: "office"; option: OfficeCaptureOption }
+  | { mode: "worker-note"; job: LaunchableJob; option: WorkerCaptureOption }
+  | { mode: "worker-pick"; option: WorkerCaptureOption }
+  | { mode: "none" };
+
+/**
+ * Map a quick-action tile to how the launcher should open. Pure (no fetch / no
+ * render) so the office-vs-worker and single-vs-many-job branching is unit
+ * tested without driving the launcher's state machine. An unrecognised key
+ * falls back to a normal launcher open rather than a dead end.
+ */
+export function resolveQuickCapture(
+  action: CaptureQuickAction,
+  jobs: ReadonlyArray<LaunchableJob>,
+  initialJobId: string | null,
+): QuickCapturePreset {
+  if (action.kind === "office") {
+    const option = officeOptionByKey(action.optionKey);
+    return option ? { mode: "office", option } : { mode: "none" };
+  }
+  const option = workerOptionByKey(action.optionKey);
+  if (!option) return { mode: "none" };
+  const jobId = preselectCaptureJob(jobs, initialJobId);
+  const job = jobId ? (jobs.find((j) => j.id === jobId) ?? null) : null;
+  return job ? { mode: "worker-note", job, option } : { mode: "worker-pick", option };
 }

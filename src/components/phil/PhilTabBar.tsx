@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
@@ -8,6 +8,7 @@ import { Calendar, Briefcase, Wrench, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { PhilCaptureLauncher, type IncomingCapturePhoto } from "./PhilCaptureLauncher";
 import { philJobDetailId } from "./philCapture";
+import { useCaptureLauncher, type QuickCaptureRequest } from "./captureLauncherContext";
 
 interface Tab {
   label: string;
@@ -90,6 +91,20 @@ export function PhilTabBar() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const seqRef = useRef(0);
 
+  // A My Day quick-action tile (or any screen) can ask the global launcher to
+  // open preset to one action. The FAB path leaves quickAction null, so the
+  // camera-first flow is unchanged.
+  const { request, clearRequest } = useCaptureLauncher();
+  const [quickRequest, setQuickRequest] = useState<QuickCaptureRequest | null>(null);
+  const handledSeqRef = useRef(0);
+  useEffect(() => {
+    if (request && request.seq !== handledSeqRef.current) {
+      handledSeqRef.current = request.seq;
+      setQuickRequest(request);
+      setLauncherOpen(true);
+    }
+  }, [request]);
+
   // Camera-first: the FAB fires the OS camera in the SAME tap (the input
   // click must stay inside the user-gesture call stack — iOS blocks deferred
   // programmatic file-input clicks) and opens the launcher behind it to
@@ -160,10 +175,16 @@ export function PhilTabBar() {
 
       <PhilCaptureLauncher
         open={launcherOpen}
-        onClose={() => setLauncherOpen(false)}
+        onClose={() => {
+          setLauncherOpen(false);
+          setQuickRequest(null);
+          clearRequest();
+        }}
         initialJobId={currentJobId}
         incoming={incoming}
         onRequestCamera={fireCamera}
+        initialAction={quickRequest?.action ?? null}
+        actionSeq={quickRequest?.seq ?? 0}
       />
     </>
   );
