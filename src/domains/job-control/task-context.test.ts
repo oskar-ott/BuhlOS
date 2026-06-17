@@ -6,6 +6,7 @@ import {
   buildPhilTaskContext,
   classifyTaskWarnings,
   unmetRequiredEvidenceCount,
+  summarisePhilTaskProof,
 } from "./task-context";
 
 const TASK: TaskRef = { areaId: "area_east_gym", stage: "fitOff", taskId: "task_zip" };
@@ -141,6 +142,148 @@ describe("classifyTaskWarnings", () => {
     expect(c.variationTriggers).toHaveLength(1);
     expect(c.byOthers).toHaveLength(1);
     expect(c.reuseExisting).toHaveLength(0);
+  });
+});
+
+describe("summarisePhilTaskProof — task-level review-eligibility roll-up", () => {
+  const linkFor = (rid: string, i = 0) =>
+    EvidenceLinkSchema.parse({
+      id: `el_${rid}_${i}`,
+      jobId: "j",
+      evidenceId: `ev_${rid}_${i}`,
+      workPackageId: "wp_east_gym",
+      requiredEvidenceId: rid,
+      role: "progress",
+    });
+
+  it("null when the task has no required proof (unknown ≠ done) — un-compiled renders nothing", () => {
+    const ctx = buildPhilTaskContext({ workPackages: [barePackage()], task: TASK });
+    expect(summarisePhilTaskProof(ctx)).toBeNull();
+  });
+
+  it("reports the required count and that nothing is captured yet (not eligible)", () => {
+    const ctx = buildPhilTaskContext({ workPackages: [compiledPackage()], task: TASK });
+    expect(summarisePhilTaskProof(ctx)).toEqual({
+      requiredCount: 2,
+      metCount: 0,
+      missingCount: 2,
+      eligibleForReview: false,
+    });
+  });
+
+  it("partial capture is still not eligible for review", () => {
+    const ctx = buildPhilTaskContext({
+      workPackages: [compiledPackage()],
+      task: TASK,
+      evidenceLinks: [linkFor("re_test")],
+    });
+    expect(summarisePhilTaskProof(ctx)).toEqual({
+      requiredCount: 2,
+      metCount: 1,
+      missingCount: 1,
+      eligibleForReview: false,
+    });
+  });
+
+  it("all required proof met → eligible for review", () => {
+    const ctx = buildPhilTaskContext({
+      workPackages: [compiledPackage()],
+      task: TASK,
+      evidenceLinks: [linkFor("re_test"), linkFor("re_photo")],
+    });
+    expect(summarisePhilTaskProof(ctx)).toEqual({
+      requiredCount: 2,
+      metCount: 2,
+      missingCount: 0,
+      eligibleForReview: true,
+    });
+  });
+});
+
+describe("summarisePhilTaskProof — granularity: cross-area isolated, area-granular within an area", () => {
+  // Required proof lives on the AREA work package, so the isolation that holds is
+  // cross-AREA (a different area is a different package). WITHIN an area both
+  // stages share one package, so they share the summary — see the area-granular
+  // test below. Same template id + same requiredEvidence id in two DIFFERENT
+  // areas → two distinct packages; a proof linked to one must not satisfy the other.
+  const reqs = [{ id: "re_photo", label: "Photo before wall close", kind: "photo" }];
+  const wpEast = WorkPackageSchema.parse({
+    id: "wp_east",
+    jobId: "j",
+    title: "East",
+    taskRefs: [{ areaId: "area_east", stage: "roughIn", taskId: "t_shared" }],
+    requiredEvidence: reqs,
+  });
+  const wpWest = WorkPackageSchema.parse({
+    id: "wp_west",
+    jobId: "j",
+    title: "West",
+    taskRefs: [{ areaId: "area_west", stage: "roughIn", taskId: "t_shared" }],
+    requiredEvidence: reqs,
+  });
+  const eastLink = EvidenceLinkSchema.parse({
+    id: "el_east",
+    jobId: "j",
+    evidenceId: "ev_east",
+    workPackageId: "wp_east",
+    requiredEvidenceId: "re_photo",
+    role: "progress",
+  });
+
+  it("a different AREA is a different package — same taskId there is not cross-satisfied", () => {
+    const wps = [wpEast, wpWest];
+    const east = summarisePhilTaskProof(
+      buildPhilTaskContext({
+        workPackages: wps,
+        task: { areaId: "area_east", stage: "roughIn", taskId: "t_shared" },
+        evidenceLinks: [eastLink],
+      }),
+    );
+    const west = summarisePhilTaskProof(
+      buildPhilTaskContext({
+        workPackages: wps,
+        task: { areaId: "area_west", stage: "roughIn", taskId: "t_shared" },
+        evidenceLinks: [eastLink],
+      }),
+    );
+    expect(east?.eligibleForReview).toBe(true);
+    expect(west).toEqual({ requiredCount: 1, metCount: 0, missingCount: 1, eligibleForReview: false });
+  });
+
+  it("is AREA-granular within an area: both stages share the one area package, so the same proof flips both (honest reflection of the compiler's one-package-per-area shape)", () => {
+    // The real compiler emits ONE package per area whose taskRefs include both
+    // stages (compile.ts groups by areaId, deriveWorkPackageId(jobId, areaId)).
+    // So a rough-in task and a fit-off task in the same area resolve to the SAME
+    // package + SAME requiredEvidence — there is no per-stage / per-task proof.
+    // Capturing the area's proof therefore satisfies BOTH stage instances. This
+    // documents the current granularity truthfully (per-instance proof is future
+    // work); do NOT read it as cross-stage isolation.
+    const wp = WorkPackageSchema.parse({
+      id: "wp_area",
+      jobId: "j",
+      title: "Area",
+      taskRefs: [
+        { areaId: "area_x", stage: "roughIn", taskId: "t" },
+        { areaId: "area_x", stage: "fitOff", taskId: "t" },
+      ],
+      requiredEvidence: reqs,
+    });
+    const link = EvidenceLinkSchema.parse({
+      id: "el_area",
+      jobId: "j",
+      evidenceId: "ev_area",
+      workPackageId: "wp_area",
+      requiredEvidenceId: "re_photo",
+      role: "progress",
+    });
+    const ri = summarisePhilTaskProof(
+      buildPhilTaskContext({ workPackages: [wp], task: { areaId: "area_x", stage: "roughIn", taskId: "t" }, evidenceLinks: [link] }),
+    );
+    const fo = summarisePhilTaskProof(
+      buildPhilTaskContext({ workPackages: [wp], task: { areaId: "area_x", stage: "fitOff", taskId: "t" }, evidenceLinks: [link] }),
+    );
+    expect(ri).toEqual({ requiredCount: 1, metCount: 1, missingCount: 0, eligibleForReview: true });
+    expect(fo).toEqual(ri); // same area package → identical summary (area-granular, not per-stage)
   });
 });
 

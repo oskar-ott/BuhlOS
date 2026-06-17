@@ -35,7 +35,7 @@ import {
 } from "./philJobWorkTree";
 import { PhilTaskScopeContext } from "./PhilTaskScopeContext";
 import type { ProofActionStatus } from "./jobControlEvidenceLinkClient";
-import type { PhilTaskContext } from "@/domains/job-control/task-context";
+import { summarisePhilTaskProof, type PhilTaskContext } from "@/domains/job-control/task-context";
 import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
 import { cn } from "@/lib/cn";
 
@@ -345,6 +345,14 @@ function TaskRow({
 }) {
   const done = isComplete(task.state);
   const blocked = readiness?.readiness === "blocked";
+  // At-a-glance required-proof status, read straight off the office-compiled
+  // context (#368) via the shared summary — null when there's no required proof
+  // (un-compiled ⇒ renders nothing). Surfaces the count WITHOUT making the worker
+  // expand the collapsible "Task context". NB: required proof is authored on the
+  // AREA work package today, so this reflects the area's compiled proof and reads
+  // the same on every task the package delivers (per-task-instance proof is later
+  // work) — consistent with the "Proof needed" list already in PhilTaskScopeContext.
+  const proof = context ? summarisePhilTaskProof(context) : null;
   return (
     <li className="px-3 py-2.5 text-sm">
       <div className="flex min-h-[52px] items-center gap-3">
@@ -396,6 +404,25 @@ function TaskRow({
             {readiness?.blockedReason ? <> — {readiness.blockedReason}</> : null}
           </span>
         </p>
+      ) : null}
+      {proof ? (
+        proof.eligibleForReview ? (
+          <p className="mt-1.5 flex items-start gap-1.5 text-xs text-state-success">
+            <CheckCircle2 aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              <span className="font-display font-semibold">Proof</span> — all captured · ready for
+              review
+            </span>
+          </p>
+        ) : (
+          <p className="mt-1.5 flex items-start gap-1.5 text-xs text-state-warning">
+            <Camera aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              <span className="font-display font-semibold">Proof</span>
+              {` — ${proof.metCount}/${proof.requiredCount} captured`}
+            </span>
+          </p>
+        )
       ) : null}
       {context ? (
         <PhilTaskScopeContext
