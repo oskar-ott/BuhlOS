@@ -15,7 +15,10 @@ import {
   type TaskState,
 } from "@/domains/jobs/taskState";
 import { buildCanonicalTaskIndex } from "@/domains/jobs/task-index";
-import { workerTasksFromCanonicalIndex } from "@/domains/jobs/phil-task-projection";
+import {
+  philTaskReadinessByTemplateId,
+  workerTasksFromCanonicalIndex,
+} from "@/domains/jobs/phil-task-projection";
 import { buildPhilJobCommandModel } from "@/domains/phil/job-command-model";
 import { philJobCommandInputFromJobData } from "@/domains/phil/job-command-input";
 import { confirmInduction, type InductionRecord } from "@/domains/jobs/induction";
@@ -318,6 +321,26 @@ export function PhilJobDetail({
       selectedArea
         ? workerTasksFromCanonicalIndex(canonicalTasks, selectedArea.id, viewedStage)
         : [],
+    [canonicalTasks, selectedArea, viewedStage],
+  );
+
+  // Per-task readiness (#482 model) for the viewed area+stage, keyed by task id —
+  // the same key the rows + scope-context use. The row shows a "Blocked — reason"
+  // line only when a task resolves to `blocked`. No real blocker/dependency
+  // source exists yet (task-blockers.ts persists nothing), so we pass none: every
+  // not-complete task is `ready`, every done task `complete`, NOTHING is blocked,
+  // and the rows render exactly as today (zero visual change). When a future
+  // slice feeds real blockers/dependencies here, the blocked line lights up with
+  // no further UI change — the same honest-empty pattern as the scope context.
+  const taskReadinessById = useMemo(
+    () =>
+      selectedArea
+        ? philTaskReadinessByTemplateId({
+            canonicalTasks,
+            areaId: selectedArea.id,
+            stage: viewedStage,
+          })
+        : undefined,
     [canonicalTasks, selectedArea, viewedStage],
   );
 
@@ -668,6 +691,7 @@ export function PhilJobDetail({
                 onToggleTask={handleToggleTask}
                 pendingTaskIds={pendingTaskIds}
                 taskContextById={taskContextById}
+                readinessByTaskId={taskReadinessById}
                 onCaptureProof={handleCaptureProof}
                 proofActionState={proofStatus}
                 canCaptureProof={Boolean(jcRevision)}

@@ -5,6 +5,7 @@ import { PhilJobAreaDetail } from "./PhilJobAreaDetail";
 import type { AreaCounts, AreaStageAvailability } from "./philJobWorkTree";
 import type { JobStage } from "@/domains/jobs/types";
 import type { TaskState, WorkerTask } from "@/domains/jobs/taskState";
+import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
 
 /**
  * Render observation for the area drill-in. No JSX (matches
@@ -337,5 +338,64 @@ describe("PhilJobAreaDetail render — observation dump", () => {
       console.log(`\n[${label}]\n  ${text(render(props))}`);
     }
     expect(cases.length).toBe(5);
+  });
+});
+
+describe("PhilJobAreaDetail render — readiness/blocker indicator", () => {
+  function renderWithReadiness(
+    readinessByTaskId: ReadonlyMap<string, PhilTaskReadiness>,
+  ): string {
+    return renderToString(
+      createElement(PhilJobAreaDetail, {
+        areaName: "Main Bar",
+        stages: RI,
+        stage: "roughIn" as JobStage,
+        tasks: [task("t1", "Pull power"), task("t2", "Rough lighting")],
+        counts: NO_COUNTS,
+        onStageChange: noop,
+        readinessByTaskId,
+      }),
+    );
+  }
+
+  it("shows a 'Blocked — <reason>' line only for the blocked task", () => {
+    const map = new Map<string, PhilTaskReadiness>([
+      ["t1", { readiness: "blocked", blockedReason: "Waiting on switchgear" }],
+      ["t2", { readiness: "ready", blockedReason: null }],
+    ]);
+    const out = text(renderWithReadiness(map));
+    expect(out).toContain("Blocked");
+    expect(out).toContain("Waiting on switchgear");
+    // The ready task contributes no blocked/ready label (no clutter).
+    expect(out).not.toContain("Ready");
+  });
+
+  it("renders no blocked line when nothing is blocked (honest-empty = zero change)", () => {
+    const map = new Map<string, PhilTaskReadiness>([
+      ["t1", { readiness: "ready", blockedReason: null }],
+      ["t2", { readiness: "complete", blockedReason: null }],
+    ]);
+    const out = text(renderWithReadiness(map));
+    expect(out).not.toContain("Blocked");
+    // The task names still render exactly as before.
+    expect(out).toContain("Pull power");
+    expect(out).toContain("Rough lighting");
+  });
+
+  it("with no readiness map at all, rows render exactly as today (no blocked line)", () => {
+    const out = text(
+      renderToString(
+        createElement(PhilJobAreaDetail, {
+          areaName: "Main Bar",
+          stages: RI,
+          stage: "roughIn" as JobStage,
+          tasks: [task("t1", "Pull power")],
+          counts: NO_COUNTS,
+          onStageChange: noop,
+        }),
+      ),
+    );
+    expect(out).not.toContain("Blocked");
+    expect(out).toContain("Pull power");
   });
 });

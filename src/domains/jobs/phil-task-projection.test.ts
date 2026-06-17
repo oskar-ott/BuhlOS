@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { workerTasksFromCanonicalIndex } from "./phil-task-projection";
-import { buildCanonicalTaskIndex } from "./task-index";
+import {
+  philTaskReadinessByTemplateId,
+  workerTasksFromCanonicalIndex,
+} from "./phil-task-projection";
+import { buildCanonicalTaskIndex, deriveCanonicalTaskId } from "./task-index";
 import { buildWorkerTasks, parseJobTaskState } from "./taskState";
 import { visibleAreaGroups } from "./format";
+import type { TaskBlocker, TaskDependency } from "./task-blockers";
 import {
   canonicalTaskToLegacyTaskRef,
   findCanonicalTaskForLegacyRef,
@@ -191,5 +195,173 @@ describe("workerTasksFromCanonicalIndex — legacy TaskRef compatibility (#483)"
     expect(findCanonicalTaskForLegacyRef({ canonicalTasks: index, ref: westRef })?.areaId).toBe(
       "west",
     );
+  });
+});
+
+describe("philTaskReadinessByTemplateId — readiness overlay (#482 model)", () => {
+  // A two-area job; both inherit one rough-in template + one fit-off template.
+  const j = job({
+    roughInTasks: [{ id: "t_ri", name: "Rough-in power" }],
+    fitOffTasks: [{ id: "t_fo", name: "Fit-off power" }],
+    areaGroups: [
+      {
+        id: "g1",
+        name: "G",
+        areas: [
+          { id: "east", name: "East" },
+          { id: "west", name: "West" },
+        ],
+      },
+    ],
+  });
+
+  // Canonical id helper for blocker/dependency wiring (#482 keys on canonical id).
+  const cid = (areaId: string, stage: "roughIn" | "fitOff", taskId: string) =>
+    deriveCanonicalTaskId({ jobId: j.id, areaId, stage, taskId });
+
+  it("honest-empty default: no blockers/deps ⇒ every row ready or complete, none blocked", () => {
+    const taskState = parseJobTaskState({
+      dwellings: { east: { roughIn: { tasks: { t_ri: "complete" } } } },
+    });
+    const index = buildCanonicalTaskIndex({ job: j, taskState });
+    const map = philTaskReadinessByTemplateId({ canonicalTasks: index, areaId: "east", stage: "roughIn" });
+
+    expect(map.get("t_ri")).toEqual({ readiness: "complete", blockedReason: null });
+    // West (not complete, no blockers) is ready, never blocked.
+    const westMap = philTaskReadinessByTemplateId({ canonicalTasks: index, areaId: "west", stage: "roughIn" });
+    expect(westMap.get("t_ri")).toEqual({ readiness: "ready", blockedReason: null });
+    // Nothing is blocked anywhere with empty inputs.
+    expect([...map.values(), ...westMap.values()].some((r) => r.readiness === "blocked")).toBe(false);
+  });
+
+  it("a ready task renders no blocked reason", () => {
+    const index = buildCanonicalTaskIndex({ job: j });
+    const map = philTaskReadinessByTemplateId({ canonicalTasks: index, areaId: "east", stage: "roughIn" });
+    expect(map.get("t_ri")).toEqual({ readiness: "ready", blockedReason: null });
+  });
+
+  it("an open blocker ⇒ blocked, with the blocker title as the worker-readable reason", () => {
+    const index = buildCanonicalTaskIndex({ job: j });
+    const blockers: TaskBlocker[] = [
+      {
+        id: "b1",
+        taskId: cid("east", "roughIn", "t_ri"),
+        type: "material",
+        title: "Waiting on switchgear",
+        status: "open",
+      },
+    ];
+    const map = philTaskReadinessByTemplateId({
+      canonicalTasks: index,
+      areaId: "east",
+      stage: "roughIn",
+      blockers,
+    });
+    expect(map.get("t_ri")).toEqual({ readiness: "blocked", blockedReason: "Waiting on switchgear" });
+  });
+
+  it("a resolved blocker does not block", () => {
+    const index = buildCanonicalTaskIndex({ job: j });
+    const blockers: TaskBlocker[] = [
+      { id: "b1", taskId: cid("east", "roughIn", "t_ri"), type: "material", title: "Switchgear arrived", status: "resolved" },
+    ];
+    const map = philTaskReadinessByTemplateId({ canonicalTasks: index, areaId: "east", stage: "roughIn", blockers });
+    expect(map.get("t_ri")?.readiness).toBe("ready");
+  });
+
+  it("an incomplete dependency ⇒ blocked, naming the prerequisite task", () => {
+    // East rough-in waits on West rough-in (cross-area dependency); West is not complete.
+    const index = buildCanonicalTaskIndex({ job: j });
+    const dependencies: TaskDependency[] = [
+      { taskId: cid("east", "roughIn", "t_ri"), dependsOnTaskId: cid("west", "roughIn", "t_ri") },
+    ];
+    const map = philTaskReadinessByTemplateId({
+      canonicalTasks: index,
+      areaId: "east",
+      stage: "roughIn",
+      dependencies,
+    });
+    expect(map.get("t_ri")).toEqual({ readiness: "blocked", blockedReason: "Waiting on Rough-in power" });
+  });
+
+  it("a satisfied dependency (prerequisite complete) ⇒ ready", () => {
+    const taskState = parseJobTaskState({
+      dwellings: { west: { roughIn: { tasks: { t_ri: "complete" } } } },
+    });
+    const index = buildCanonicalTaskIndex({ job: j, taskState });
+    const dependencies: TaskDependency[] = [
+      { taskId: cid("east", "roughIn", "t_ri"), dependsOnTaskId: cid("west", "roughIn", "t_ri") },
+    ];
+    const map = philTaskReadinessByTemplateId({ canonicalTasks: index, areaId: "east", stage: "roughIn", dependencies });
+    expect(map.get("t_ri")?.readiness).toBe("ready");
+  });
+
+  it("a missing/unknown prerequisite ⇒ blocked with a generic reason (never a raw id)", () => {
+    const index = buildCanonicalTaskIndex({ job: j });
+    const dependencies: TaskDependency[] = [
+      { taskId: cid("east", "roughIn", "t_ri"), dependsOnTaskId: "ct_doesnotexist" },
+    ];
+    const map = philTaskReadinessByTemplateId({ canonicalTasks: index, areaId: "east", stage: "roughIn", dependencies });
+    const entry = map.get("t_ri");
+    expect(entry?.readiness).toBe("blocked");
+    expect(entry?.blockedReason).toBe("Dependency incomplete");
+    // Never leak the raw canonical id into worker copy.
+    expect(entry?.blockedReason).not.toContain("ct_");
+  });
+
+  it("a complete task is never blocked, even with an open blocker on it", () => {
+    const taskState = parseJobTaskState({
+      dwellings: { east: { roughIn: { tasks: { t_ri: "complete" } } } },
+    });
+    const index = buildCanonicalTaskIndex({ job: j, taskState });
+    const blockers: TaskBlocker[] = [
+      { id: "b1", taskId: cid("east", "roughIn", "t_ri"), type: "material", title: "stale blocker", status: "open" },
+    ];
+    const map = philTaskReadinessByTemplateId({ canonicalTasks: index, areaId: "east", stage: "roughIn", blockers });
+    expect(map.get("t_ri")).toEqual({ readiness: "complete", blockedReason: null });
+  });
+
+  it("the same template in two areas has INDEPENDENT readiness (bare taskId is not identity)", () => {
+    const index = buildCanonicalTaskIndex({ job: j });
+    // Block ONLY east's instance of the shared template.
+    const blockers: TaskBlocker[] = [
+      { id: "b1", taskId: cid("east", "roughIn", "t_ri"), type: "access", title: "No site access", status: "open" },
+    ];
+    const east = philTaskReadinessByTemplateId({ canonicalTasks: index, areaId: "east", stage: "roughIn", blockers });
+    const west = philTaskReadinessByTemplateId({ canonicalTasks: index, areaId: "west", stage: "roughIn", blockers });
+    expect(east.get("t_ri")?.readiness).toBe("blocked");
+    expect(west.get("t_ri")?.readiness).toBe("ready"); // same templateId, different instance
+  });
+
+  it("the same template across stages has INDEPENDENT readiness", () => {
+    const index = buildCanonicalTaskIndex({
+      job: job({
+        roughInTasks: [{ id: "t_x", name: "Test & commission" }],
+        fitOffTasks: [{ id: "t_x", name: "Test & commission" }],
+        areaGroups: [{ id: "g1", name: "G", areas: [{ id: "east", name: "East" }] }],
+      }),
+    });
+    const eastJobId = "j1";
+    const blockers: TaskBlocker[] = [
+      {
+        id: "b1",
+        taskId: deriveCanonicalTaskId({ jobId: eastJobId, areaId: "east", stage: "roughIn", taskId: "t_x" }),
+        type: "inspection",
+        title: "Awaiting inspection",
+        status: "open",
+      },
+    ];
+    const ri = philTaskReadinessByTemplateId({ canonicalTasks: index, areaId: "east", stage: "roughIn", blockers });
+    const fo = philTaskReadinessByTemplateId({ canonicalTasks: index, areaId: "east", stage: "fitOff", blockers });
+    expect(ri.get("t_x")?.readiness).toBe("blocked");
+    expect(fo.get("t_x")?.readiness).toBe("ready"); // same templateId, different stage instance
+  });
+
+  it("does not weaken #490 parity: the worker rows are unchanged alongside readiness", () => {
+    const index = buildCanonicalTaskIndex({ job: j });
+    // The row source is still the #484 projection, independent of readiness.
+    expect(workerTasksFromCanonicalIndex(index, "east", "roughIn")).toEqual([
+      { id: "t_ri", name: "Rough-in power", state: "not_started" },
+    ]);
   });
 });
