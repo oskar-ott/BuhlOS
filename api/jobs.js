@@ -4,7 +4,7 @@ const { redactJobForViewer } = require('./_lib/job-redaction');
 
 // Canonical job statuses — keep in sync with src/domains/jobs/schema.ts JOB_STATUSES.
 const VALID_JOB_STATUS = new Set(['active', 'complete', 'archived', 'on_hold', 'draft']);
-const { validateAreaGroups, validateTasks, validateCustomFields, visibleStructural } = require('./_lib/validation');
+const { validateAreaGroups, findDuplicateLiveAreaId, validateTasks, validateCustomFields, visibleStructural } = require('./_lib/validation');
 
 // #200: scope-of-work items — { id, title, detail, order }. ≤50 items,
 // title required ≤200, detail ≤2000 (a pasted 10-page PDF is a hard 400,
@@ -790,6 +790,20 @@ module.exports = async (req, res) => {
         });
         return { id: groupId, name: g.name, areas };
       });
+
+      // Invariant guard at the PERSISTED-OUTPUT boundary, not just the incoming
+      // payload. The name-based id remap above reuses an existing area's id for
+      // every input area matched by name, so two input areas that share a name
+      // collapse onto ONE id even when the SUBMITTED ids were distinct (and so
+      // passed validateAreaGroups). Re-run the SAME live-area-id uniqueness check
+      // on the FINAL job.areaGroups before writeBlob and reject (400, no write)
+      // if the merge produced a duplicate — the whole Phil + task-state stack
+      // keys on a unique live areaId (dwellings[areaId], /api/task-toggle target,
+      // the Phil area selector's first-match find, the canonical task index).
+      const dupAfterRemap = findDuplicateLiveAreaId(job.areaGroups);
+      if (dupAfterRemap) {
+        return res.status(400).json({ error: `areaGroups duplicate live area id after merge: ${dupAfterRemap}` });
+      }
     }
 
     // Patch roughInTasks — preserve existing IDs for tasks matched by name
