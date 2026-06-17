@@ -30,8 +30,8 @@ import { z } from "zod";
  * D2 adds `evidence.captured`. D4 adds `evidence.reviewed` +
  * `evidence.rejected`. D5 adds `evidence.unreviewed`. D.5 (snags)
  * adds `snag.created` + `snag.transitioned`. E1a (ITPs) adds the
- * five `itp.*` verbs covering the legacy api/job-itps.js mutating
- * actions (attach, record, signoff, reopen, archive). Future phases
+ * `itp.*` verbs covering the api/job-itps.js mutating actions (attach,
+ * record, submit, signoff, reopen, archive). Future phases
  * append new verbs (`hours.submitted`, `gear.transferred`, ...)
  * without breaking existing rows.
  *
@@ -52,6 +52,9 @@ export const AUDIT_ACTIONS = [
   "snag.transitioned",
   "itp.attached",
   "itp.point.recorded",
+  // Submit-for-review: the explicit in-progress → witnessed handoff
+  // (replaced the implicit auto-witness on the last record).
+  "itp.submitted",
   "itp.signed_off",
   "itp.reopened",
   "itp.archived",

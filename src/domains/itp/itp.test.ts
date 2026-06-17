@@ -43,6 +43,7 @@ import {
   canRecord,
   canRoleTransition,
   canSignOff,
+  canSubmitForReview,
   canTransition,
   compareForQueue,
   isAdminRole,
@@ -57,6 +58,7 @@ import {
   recordItpPoint,
   reopenItp,
   signOffItp,
+  submitItpForReview,
 } from "./client";
 import type {
   ITPInstance,
@@ -709,6 +711,109 @@ describe("canRecord", () => {
 });
 
 /* ----------------------------------------------------------------------
+ * Service — canSubmitForReview (the explicit submit gate)
+ * -------------------------------------------------------------------- */
+
+describe("canSubmitForReview", () => {
+  const tradie = { userId: "user-tradie-1", role: "tradie" };
+  const lh = { userId: "u-lh", role: "leadingHand" };
+  const admin = { userId: "user-admin-1", role: "admin" };
+  const client = { userId: "u-client", role: "client" };
+
+  // in-progress with every REQUIRED point recorded (photo/value/signoff);
+  // note is optional and intentionally left blank.
+  const completeInProgress: ITPInstance = {
+    ...baseInstance,
+    status: "in-progress",
+    results: {
+      [photoPoint.id]: photoResult,
+      [valuePoint.id]: valueResult,
+      [signoffPoint.id]: signoffResult,
+    },
+  };
+
+  it("allows submit once all required points are recorded (field / LH / admin)", () => {
+    expect(canSubmitForReview(completeInProgress, tradie)).toEqual({ ok: true });
+    expect(canSubmitForReview(completeInProgress, lh)).toEqual({ ok: true });
+    expect(canSubmitForReview(completeInProgress, admin)).toEqual({ ok: true });
+  });
+
+  it("blocks submit while required points are still open", () => {
+    const partial: ITPInstance = {
+      ...baseInstance,
+      status: "in-progress",
+      results: { [photoPoint.id]: photoResult }, // 1 of 3 required
+    };
+    expect(canSubmitForReview(partial, tradie)).toEqual({
+      ok: false,
+      reason: "incomplete-points",
+    });
+  });
+
+  it("blocks submit when the template has no required points", () => {
+    const allOptional: ITPInstance = {
+      ...baseInstance,
+      status: "in-progress",
+      templateSnapshot: {
+        ...baseInstance.templateSnapshot,
+        points: [{ ...notePoint, required: false }],
+      },
+      results: { [notePoint.id]: photoResult },
+    };
+    expect(canSubmitForReview(allOptional, tradie)).toEqual({
+      ok: false,
+      reason: "no-required-points",
+    });
+  });
+
+  it("blocks submit from a pending instance (nothing recorded yet)", () => {
+    expect(canSubmitForReview(baseInstance, tradie)).toEqual({
+      ok: false,
+      reason: "wrong-status",
+    });
+  });
+
+  it("blocks a second submit — already witnessed", () => {
+    const witnessed: ITPInstance = { ...completeInProgress, status: "witnessed" };
+    expect(canSubmitForReview(witnessed, tradie)).toEqual({
+      ok: false,
+      reason: "wrong-status",
+    });
+  });
+
+  it("blocks submit on a signed-off instance", () => {
+    const signed: ITPInstance = {
+      ...completeInProgress,
+      status: "signed-off",
+      signedOffBy: "anna",
+      signedOffAt: "2026-05-26T11:00:00.000Z",
+    };
+    expect(canSubmitForReview(signed, admin)).toEqual({
+      ok: false,
+      reason: "wrong-status",
+    });
+  });
+
+  it("blocks submit on an archived instance", () => {
+    const archived: ITPInstance = { ...completeInProgress, archived: true };
+    expect(canSubmitForReview(archived, tradie)).toEqual({
+      ok: false,
+      reason: "archived",
+    });
+  });
+
+  it("blocks clients + unknown roles before any state check", () => {
+    expect(canSubmitForReview(completeInProgress, client)).toEqual({
+      ok: false,
+      reason: "wrong-role",
+    });
+    expect(
+      canSubmitForReview(completeInProgress, { userId: "x", role: null }),
+    ).toEqual({ ok: false, reason: "wrong-role" });
+  });
+});
+
+/* ----------------------------------------------------------------------
  * Service — independence rule
  * -------------------------------------------------------------------- */
 
@@ -1286,6 +1391,50 @@ describe("itpClient — reopenItp + archiveItp", () => {
     } as unknown as Parameters<typeof archiveItp>[1]);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("itpClient — submitItpForReview", () => {
+  it("sends a POST to action=submit and returns the witnessed instance", async () => {
+    const witnessed = {
+      ...baseInstance,
+      status: "witnessed" as const,
+      results: {
+        [photoPoint.id]: photoResult,
+        [valuePoint.id]: valueResult,
+        [signoffPoint.id]: signoffResult,
+      },
+      updatedAt: "2026-05-26T10:30:00.000Z",
+    };
+    const fetchMock = mockFetchOnce({ status: 200, body: { instance: witnessed } });
+    const r = await submitItpForReview("j1", { instanceId: baseInstance.id });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const url = String(fetchMock.mock.calls[0]![0]);
+    expect(url).toBe("/api/job-itps?jobId=j1&action=submit");
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body)).instanceId).toBe(baseInstance.id);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data.instance.status).toBe("witnessed");
+  });
+
+  it("rejects an empty instanceId locally (never hits the network)", async () => {
+    const fetchMock = mockFetchOnce({ status: 200, body: { instance: baseInstance } });
+    const r = await submitItpForReview("j1", {
+      instanceId: "",
+    } as unknown as Parameters<typeof submitItpForReview>[1]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(r.ok).toBe(false);
+  });
+
+  it("maps a server 409 (incomplete / wrong-status) to an ok=false result", async () => {
+    mockFetchOnce({
+      status: 409,
+      body: { error: "cannot submit — complete all required points first" },
+    });
+    const r = await submitItpForReview("j1", { instanceId: "itp_1" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.status).toBe(409);
   });
 });
 

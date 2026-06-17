@@ -34,8 +34,17 @@
 //          body: { instanceId, pointId, value?, note?, photoUrl? }
 //          Anyone with write access to the job (tradies + LH + admin).
 //          Sets/updates that point's result; auto-advances status to
-//          'in-progress' on first record, 'witnessed' when all required
-//          points are filled.
+//          'in-progress' on first record. It does NOT auto-advance to
+//          'witnessed' — reaching witnessed is now the explicit 'submit'
+//          action below (so completing the last point no longer silently
+//          hands the ITP to the office).
+//
+//   POST   /api/job-itps?jobId=X&action=submit
+//          body: { instanceId }
+//          Anyone with write access to the job (tradies + LH + admin).
+//          "Submit for review": flips a completed in-progress instance to
+//          'witnessed' (= awaiting sign-off in /qa). Rejects (409) unless
+//          status is 'in-progress' and every required point is recorded.
 //
 //   POST   /api/job-itps?jobId=X&action=signoff
 //          body: { instanceId, overrideJustification? }
@@ -112,20 +121,27 @@ async function writeInstances(jobId, instances) {
 }
 
 function autoAdvanceStatus(inst) {
-  // pending → in-progress on first record
-  // in-progress → witnessed when every required point has a result
+  // pending → in-progress on first record. The in-progress → witnessed
+  // step is NO LONGER automatic — it's the explicit 'submit' action, so
+  // a worker can finish recording without the ITP silently jumping into
+  // the office's awaiting-sign-off queue. See requiredPointsComplete +
+  // the action=submit handler below.
   if (inst.status === 'pending') {
     if (Object.keys(inst.results || {}).length > 0) {
       inst.status = 'in-progress';
     }
   }
-  if (inst.status === 'in-progress') {
-    const requiredPoints = (inst.templateSnapshot && inst.templateSnapshot.points || [])
-      .filter(p => p.required !== false && !p.archived);
-    const allDone = requiredPoints.length > 0 && requiredPoints.every(p =>
-      inst.results && inst.results[p.id] && inst.results[p.id].at);
-    if (allDone) inst.status = 'witnessed';
-  }
+}
+
+// All required (non-archived) points have a recorded result. Mirrors
+// src/domains/itp/format.ts formatProgress (done === total, total > 0)
+// and src/domains/itp/service.ts canSubmitForReview. This is the gate the
+// 'submit' action enforces before flipping to 'witnessed'.
+function requiredPointsComplete(inst) {
+  const requiredPoints = ((inst.templateSnapshot && inst.templateSnapshot.points) || [])
+    .filter(p => p && p.required !== false && !p.archived);
+  return requiredPoints.length > 0 && requiredPoints.every(p =>
+    inst.results && inst.results[p.id] && inst.results[p.id].at);
 }
 
 // Mirror src/domains/itp/service.ts pointsRecordedByUserRatio so the
@@ -274,6 +290,69 @@ module.exports = async (req, res) => {
           noteProvided: !!(note && String(note).trim()),
           statusBefore: before,
           statusAfter: inst.status,
+        },
+      }).catch(() => {});
+
+      return res.status(200).json({ instance: inst });
+    }
+
+    // ── submit — anyone with canWrite (tradies + LH + admin) ──────────
+    //
+    // "Submit for review": the explicit in-progress → witnessed handoff
+    // that replaced the old implicit auto-witness on the last record. A
+    // worker (or the office) declares the ITP complete so it surfaces in
+    // /qa as awaiting sign-off. Mirrors src/domains/itp/service.ts
+    // canSubmitForReview. Same PR #26 stale-read retry as record/signoff
+    // so a just-recorded last point on another warm instance doesn't 409.
+    if (action === 'submit') {
+      if (!canWrite(me, jobId)) return res.status(403).json({ error: 'forbidden' });
+      const body = req.body || {};
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return res.status(400).json({ error: 'body must be an object' });
+      }
+      const { instanceId } = body;
+      if (!instanceId) return res.status(400).json({ error: 'instanceId required' });
+
+      let instances = await readInstances(jobId);
+      let inst = instances.find(x => x.id === instanceId);
+      const guardRejects = !inst || inst.archived || inst.status !== 'in-progress';
+      if (guardRejects) {
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        instances = await readInstancesFresh(jobId);
+        inst = instances.find(x => x.id === instanceId);
+      }
+      if (!inst) return res.status(404).json({ error: 'instance not found' });
+      if (inst.archived) return res.status(409).json({ error: 'instance archived' });
+      if (inst.status !== 'in-progress') {
+        return res.status(409).json({ error: 'cannot submit — status must be in-progress' });
+      }
+      if (!requiredPointsComplete(inst)) {
+        return res.status(409).json({ error: 'cannot submit — complete all required points first' });
+      }
+
+      inst.status = 'witnessed';
+      inst.updatedAt = new Date().toISOString();
+      try {
+        await writeInstances(jobId, instances);
+      } catch (e) {
+        return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
+      }
+
+      appendAudit(jobId, {
+        byUserId: me.id, byUsername: me.username, kind: 'itp-submit',
+        summary: `Submitted ITP "${inst.templateSnapshot && inst.templateSnapshot.name || instanceId}" for review`,
+      }).catch(() => {});
+      appendAuditLog({
+        action: 'itp.submitted',
+        actorId: me.id,
+        actorName: me.name || me.username || 'Unknown',
+        actorRole: me.role || null,
+        jobId,
+        targetType: 'itp_instance',
+        targetId: inst.id,
+        summary: `submitted "${_str(inst.templateSnapshot && inst.templateSnapshot.name, 80)}" for review`,
+        metadata: {
+          pointCount: ((inst.templateSnapshot && inst.templateSnapshot.points) || []).length,
         },
       }).catch(() => {});
 

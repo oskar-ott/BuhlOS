@@ -30,15 +30,17 @@ const VALID_ACTIONS = new Set([
   // metadata.from / metadata.to fields carry the direction.
   'snag.created',
   'snag.transitioned',
-  // Phase E1a (ITPs). One verb per legacy api/job-itps.js mutating
-  // action: attach (admin attaches a template), point.recorded (worker
-  // records a point — covers the auto-advance from pending →
-  // in-progress and in-progress → witnessed since both ride the same
-  // POST), signed_off (admin signs off — terminal), reopened (admin
-  // reverses signoff), archived (admin/LH soft-archives an instance).
+  // Phase E1a (ITPs). One verb per api/job-itps.js mutating action:
+  // attach (admin attaches a template), point.recorded (worker records a
+  // point — still covers the pending → in-progress auto-advance),
+  // submitted (worker/office taps "Submit for review", the explicit
+  // in-progress → witnessed handoff), signed_off (admin signs off —
+  // terminal), reopened (admin reverses signoff), archived (admin/LH
+  // soft-archives an instance).
   // Kept in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'itp.attached',
   'itp.point.recorded',
+  'itp.submitted',
   'itp.signed_off',
   'itp.reopened',
   'itp.archived',

@@ -146,3 +146,51 @@ describe("buildQaDashboard", () => {
     expect(d.oldestActiveAgeDays).toBeNull();
   });
 });
+
+/* ----------------------------------------------------------------------
+ * Submit-for-review lifecycle effect on /qa
+ *
+ * The explicit submit (in-progress → witnessed) is the moment a job
+ * shows up in the office's awaiting-sign-off column. These pin that the
+ * rollup reflects the transition: a COMPLETE-but-not-yet-submitted ITP is
+ * active with 0 open points yet NOT awaiting sign-off; submitting flips
+ * it to awaiting sign-off without re-opening any points.
+ * -------------------------------------------------------------------- */
+
+describe("buildJobQaRollup — submit lifecycle", () => {
+  const POINTS = [{ id: "p1" }, { id: "p2" }];
+
+  it("a complete in-progress ITP is active + 0 open points but NOT yet awaiting sign-off", () => {
+    const r = buildJobQaRollup(
+      [inst("in-progress", { points: POINTS, recorded: ["p1", "p2"] })],
+      NOW,
+    );
+    expect(r.activeCount).toBe(1);
+    expect(r.openPoints).toBe(0); // all required recorded
+    expect(r.awaitingSignOff).toBe(0); // not submitted yet
+  });
+
+  it("after submit (now witnessed) it counts as awaiting sign-off with 0 open points", () => {
+    const r = buildJobQaRollup(
+      [inst("witnessed", { points: POINTS, recorded: ["p1", "p2"] })],
+      NOW,
+    );
+    expect(r.activeCount).toBe(1); // still needs QA attention
+    expect(r.awaitingSignOff).toBe(1); // ← the submit moved it here
+    expect(r.openPoints).toBe(0);
+  });
+
+  it("dashboard totals bump awaiting sign-off by exactly 1 when an ITP is submitted", () => {
+    const before = buildQaDashboard(
+      [{ jobId: "j1", jobName: "J", instances: [inst("in-progress", { points: POINTS, recorded: ["p1", "p2"] })] }],
+      NOW,
+    );
+    const after = buildQaDashboard(
+      [{ jobId: "j1", jobName: "J", instances: [inst("witnessed", { points: POINTS, recorded: ["p1", "p2"] })] }],
+      NOW,
+    );
+    expect(before.totals.awaitingSignOff).toBe(0);
+    expect(after.totals.awaitingSignOff).toBe(1);
+    expect(after.totals.openPoints).toBe(0);
+  });
+});

@@ -22,6 +22,7 @@ import {
   attachItp,
   reopenItp,
   signOffItp,
+  submitItpForReview,
 } from "@/domains/itp/client";
 import { AttachITPModal } from "@/components/admin/AttachITPModal";
 import { isLeadingHandRole } from "@/lib/auth/roles";
@@ -72,10 +73,11 @@ type ActionState =
  * across the two surfaces (header → filter tabs → table → drawer/modal).
  *
  * Row primary actions per status:
- *   pending     → "No actions"  (worker still recording)
- *   in-progress → "No actions"
- *   witnessed   → "Sign off"    (opens ITPSignOffModal)
- *   signed-off  → "Reopen"      (direct POST)
+ *   pending             → "No actions"        (worker still recording)
+ *   in-progress (open)  → "No actions"
+ *   in-progress (done)  → "Submit for review" (all required points recorded)
+ *   witnessed           → "Sign off"          (opens ITPSignOffModal)
+ *   signed-off          → "Reopen"            (direct POST)
  *
  * Archive lives in the drawer footer (inline confirm) — same pattern
  * as snag re-open via drawer-only.
@@ -202,6 +204,21 @@ export function ITPsQueue({
         applyServer(r.data.instance);
         setAction({ kind: "success", message: "Signed off." });
         setSignOffId(null);
+        startTransition(() => router.refresh());
+      } else {
+        surfaceError(r.error.status, r.error.message);
+      }
+    },
+    [job.id, applyServer, router, surfaceError],
+  );
+
+  const runSubmit = useCallback(
+    async (instance: ITPInstance) => {
+      setAction({ kind: "in_flight", instanceId: instance.id });
+      const r = await submitItpForReview(job.id, { instanceId: instance.id });
+      if (r.ok) {
+        applyServer(r.data.instance);
+        setAction({ kind: "success", message: "Submitted for review." });
         startTransition(() => router.refresh());
       } else {
         surfaceError(r.error.status, r.error.message);
@@ -347,6 +364,7 @@ export function ITPsQueue({
                     action.kind === "in_flight" && action.instanceId === i.id
                   }
                   onOpen={() => setDrawerId(i.id)}
+                  onSubmit={() => runSubmit(i)}
                   onSignOff={() => setSignOffId(i.id)}
                   onReopen={() => runReopen(i)}
                 />
@@ -370,6 +388,9 @@ export function ITPsQueue({
             : false
         }
         onClose={() => setDrawerId(null)}
+        onSubmit={() => {
+          if (drawerItem) runSubmit(drawerItem);
+        }}
         onSignOff={() => {
           if (drawerItem) setSignOffId(drawerItem.id);
         }}
@@ -466,6 +487,7 @@ interface RowProps {
   isAdmin: boolean;
   busy: boolean;
   onOpen: () => void;
+  onSubmit: () => void;
   onSignOff: () => void;
   onReopen: () => void;
 }
@@ -476,6 +498,7 @@ function ITPRow({
   isAdmin,
   busy,
   onOpen,
+  onSubmit,
   onSignOff,
   onReopen,
 }: RowProps) {
@@ -486,11 +509,17 @@ function ITPRow({
     instance.templateSnapshot?.name?.trim() || "Untitled ITP";
 
   // Primary admin action surfaces the most-relevant next step per status.
-  // Pending + in-progress have no admin action — the worker is still
-  // recording. Witnessed is the canonical sign-off cue. Signed-off
-  // exposes Reopen.
+  // Pending + in-progress-still-open have no admin action — the worker is
+  // still recording. An in-progress instance with every required point
+  // recorded can be submitted for review (office safety valve; the field
+  // worker normally submits from Phil). Witnessed is the sign-off cue;
+  // signed-off exposes Reopen.
+  const requiredComplete = progress.total > 0 && progress.done === progress.total;
   const adminPrimary = ((): { label: string; onClick: () => void } | null => {
     if (!isAdmin || instance.archived) return null;
+    if (instance.status === "in-progress" && requiredComplete) {
+      return { label: "Submit for review", onClick: onSubmit };
+    }
     if (instance.status === "witnessed") {
       return { label: "Sign off", onClick: onSignOff };
     }
