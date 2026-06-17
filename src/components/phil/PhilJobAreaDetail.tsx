@@ -2,6 +2,7 @@
 
 import {
   AlertOctagon,
+  AlertTriangle,
   Camera,
   CheckCircle2,
   ChevronRight,
@@ -35,6 +36,7 @@ import {
 import { PhilTaskScopeContext } from "./PhilTaskScopeContext";
 import type { ProofActionStatus } from "./jobControlEvidenceLinkClient";
 import type { PhilTaskContext } from "@/domains/job-control/task-context";
+import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
 import { cn } from "@/lib/cn";
 
 const LINK_ICON = {
@@ -69,6 +71,13 @@ interface Props {
    *  and the Phil job fetch carries none until the compile→Phil plumbing lands,
    *  so this is `undefined` in production right now (zero regression). */
   taskContextById?: ReadonlyMap<string, PhilTaskContext>;
+  /** Per-task readiness (#482 model), keyed by task id — same key as
+   *  `taskContextById`. The row shows a "Blocked — <reason>" line ONLY when a
+   *  task's readiness is `blocked`; `ready` / `complete` render exactly as today.
+   *  With no real blocker/dependency source yet, no entry is `blocked` in
+   *  production, so this is visually inert until that data flows (zero
+   *  regression). */
+  readinessByTaskId?: ReadonlyMap<string, PhilTaskReadiness>;
   /** Capture proof for a specific unmet requirement on a task. The parent fills
    *  the area/stage coordinate; the row adds `taskId`. Omitted ⇒ no affordance. */
   onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string }) => void;
@@ -122,6 +131,7 @@ export function PhilJobAreaDetail({
   onToggleTask,
   pendingTaskIds,
   taskContextById,
+  readinessByTaskId,
   onCaptureProof,
   proofActionState,
   canCaptureProof,
@@ -214,6 +224,7 @@ export function PhilJobAreaDetail({
                   task={t}
                   pending={pendingTaskIds?.has(t.id) ?? false}
                   context={taskContextById?.get(t.id)}
+                  readiness={readinessByTaskId?.get(t.id)}
                   onToggle={
                     onToggleTask
                       ? () => onToggleTask(t.id, nextToggleState(t.state))
@@ -318,6 +329,7 @@ function TaskRow({
   pending,
   onToggle,
   context,
+  readiness,
   onCaptureProof,
   proofActionState,
   canCaptureProof,
@@ -326,11 +338,13 @@ function TaskRow({
   pending: boolean;
   onToggle?: () => void;
   context?: PhilTaskContext;
+  readiness?: PhilTaskReadiness;
   onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string }) => void;
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   canCaptureProof?: boolean;
 }) {
   const done = isComplete(task.state);
+  const blocked = readiness?.readiness === "blocked";
   return (
     <li className="px-3 py-2.5 text-sm">
       <div className="flex min-h-[52px] items-center gap-3">
@@ -374,6 +388,15 @@ function TaskRow({
           <Pill tone={taskStateTone(task.state)}>{taskStateLabel(task.state)}</Pill>
         )}
       </div>
+      {blocked ? (
+        <p className="mt-1.5 flex items-start gap-1.5 text-xs text-state-warning">
+          <AlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            <span className="font-display font-semibold">Blocked</span>
+            {readiness?.blockedReason ? <> — {readiness.blockedReason}</> : null}
+          </span>
+        </p>
+      ) : null}
       {context ? (
         <PhilTaskScopeContext
           context={context}
