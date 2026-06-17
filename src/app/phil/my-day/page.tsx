@@ -3,6 +3,7 @@ import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
 import { PhilWeekStrip } from "@/components/phil/PhilWeekStrip";
+import { PhilMyDayTiles } from "@/components/phil/PhilMyDayTiles";
 import { PhilNeedsYouFeed } from "@/components/phil/PhilNeedsYouFeed";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { RefreshButton } from "@/components/ui/RefreshButton";
@@ -202,6 +203,8 @@ export default async function MyDayPage({
             </div>
           </PhilNotice>
         ) : null}
+
+        <PhilMyDayTiles />
 
         <PhilNeedsYouFeed items={needsYouItems} />
       </div>

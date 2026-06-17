@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { PhilHeader } from "./PhilHeader";
 import { PhilTabBar } from "./PhilTabBar";
+import { CaptureLauncherProvider } from "./captureLauncherContext";
 import { PwaRegistrar } from "@/components/pwa/PwaRegistrar";
 
 interface PhilShellProps {
@@ -26,10 +27,16 @@ export function PhilShell({ children, title }: PhilShellProps) {
       className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-surface"
     >
       <PhilHeader title={title} />
-      {/* Subtle-grey content surface so the white `surface-raised` cards
-          lift off the page instead of blending into a flat-white shell. */}
-      <main className="flex-1 overflow-y-auto bg-surface-subtle px-4 py-4">{children}</main>
-      <PhilTabBar />
+      {/* The provider lets in-page quick-action tiles open the global Capture
+          launcher (mounted inside PhilTabBar) preset to one action. Wraps both
+          the content and the tab bar so the request flows from a tile to the
+          launcher. */}
+      <CaptureLauncherProvider>
+        {/* Subtle-grey content surface so the white `surface-raised` cards
+            lift off the page instead of blending into a flat-white shell. */}
+        <main className="flex-1 overflow-y-auto bg-surface-subtle px-4 py-4">{children}</main>
+        <PhilTabBar />
+      </CaptureLauncherProvider>
       <PwaRegistrar />
     </div>
   );

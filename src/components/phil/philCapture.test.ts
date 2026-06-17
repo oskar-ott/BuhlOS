@@ -7,6 +7,8 @@ import {
   launcherDecision,
   philJobDetailId,
   preselectCaptureJob,
+  resolveQuickCapture,
+  type LaunchableJob,
 } from "./philCapture";
 import { officeOptionByKey, workerOptionByKey } from "@/domains/observations/service";
 import type { Job } from "@/domains/jobs/types";
@@ -220,5 +222,43 @@ describe("buildOfficeObservationPayload", () => {
       expect("stage" in payload).toBe(false);
       expect("areaId" in payload).toBe(false);
     }
+  });
+});
+
+describe("resolveQuickCapture", () => {
+  const lj = (id: string, name: string): LaunchableJob => ({ id, name, siteAddress: null });
+  const ONE = [lj("only", "Only Job")];
+  const MANY = [lj("a", "Alpha"), lj("b", "Bravo")];
+
+  it("maps an office option to send-to-office mode with that option", () => {
+    const r = resolveQuickCapture({ kind: "office", optionKey: "paperwork" }, MANY, null);
+    expect(r.mode).toBe("office");
+    if (r.mode === "office") expect(r.option.key).toBe("paperwork");
+  });
+
+  it("jumps a worker option straight to the note step on the worker's only job", () => {
+    const r = resolveQuickCapture({ kind: "worker", optionKey: "blocker" }, ONE, null);
+    expect(r.mode).toBe("worker-note");
+    if (r.mode === "worker-note") {
+      expect(r.job.id).toBe("only");
+      expect(r.option.key).toBe("blocker");
+    }
+  });
+
+  it("targets the launched job when several exist and one is preselected", () => {
+    const r = resolveQuickCapture({ kind: "worker", optionKey: "material_request" }, MANY, "b");
+    expect(r.mode).toBe("worker-note");
+    if (r.mode === "worker-note") expect(r.job.id).toBe("b");
+  });
+
+  it("falls back to the job picker (carrying the option) when the job is ambiguous", () => {
+    const r = resolveQuickCapture({ kind: "worker", optionKey: "defect" }, MANY, null);
+    expect(r.mode).toBe("worker-pick");
+    if (r.mode === "worker-pick") expect(r.option.key).toBe("defect");
+  });
+
+  it("returns 'none' for an unknown key rather than a dead end (worker + office)", () => {
+    expect(resolveQuickCapture({ kind: "worker", optionKey: "nope" }, ONE, null).mode).toBe("none");
+    expect(resolveQuickCapture({ kind: "office", optionKey: "nope" }, ONE, null).mode).toBe("none");
   });
 });
