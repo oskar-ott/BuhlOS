@@ -4,8 +4,10 @@ import {
   EvidenceLinkRoleSchema,
   EvidenceLinkSchema,
   ID_PREFIXES,
+  TaskRefSchema,
 } from "@/domains/job-control/schema";
-import type { EvidenceLink } from "@/domains/job-control/types";
+import type { EvidenceLink, TaskRef } from "@/domains/job-control/types";
+import { taskRefKey } from "@/domains/job-control/spine";
 import {
   PersistedJobControlSchema,
   computeJobControlRevision,
@@ -71,6 +73,14 @@ export const EvidenceLinkRequestSchema = z.object({
   /** The saved proof — at least one of these is required (see `hasProof`). */
   evidenceId: z.string().min(1).nullable().optional(),
   observationId: z.string().min(1).nullable().optional(),
+  /**
+   * OPTIONAL per-task-instance scope (#502). Omit (every caller today) → a
+   * PACKAGE-LEVEL link, byte-identical to before. Provide a `(areaId, stage,
+   * taskId)` tuple → a TASK-SCOPED link that satisfies the requirement for only
+   * that task instance (read by `isRequiredEvidenceMetForTask`). Additive and
+   * back-compatible; no existing caller passes it.
+   */
+  taskRef: TaskRefSchema.nullable().optional(),
   role: EvidenceLinkRoleSchema.optional(), // defaults to "progress"
 });
 export type EvidenceLinkRequest = z.infer<typeof EvidenceLinkRequestSchema>;
@@ -82,6 +92,15 @@ export function evidenceLinkRequestHasProof(req: EvidenceLinkRequest): boolean {
 
 function proofId(req: EvidenceLinkRequest): string | null {
   return req.evidenceId ?? req.observationId ?? null;
+}
+
+/** True when two task scopes are the same. Two absent scopes (package-level)
+ *  match; a present scope matches only an equal tuple. Keeps the idempotency key
+ *  back-compatible: existing untagged links compare exactly as before. */
+function sameTaskScope(a: TaskRef | null | undefined, b: TaskRef | null | undefined): boolean {
+  if (a == null && b == null) return true;
+  if (a == null || b == null) return false;
+  return taskRefKey(a) === taskRefKey(b);
 }
 
 // ── Pure apply ───────────────────────────────────────────────────────────────
@@ -113,10 +132,13 @@ export function applyEvidenceLink(
     (el) =>
       el.workPackageId === request.workPackageId &&
       el.requiredEvidenceId === request.requiredEvidenceId &&
-      (el.evidenceId ?? el.observationId ?? null) === pid,
+      (el.evidenceId ?? el.observationId ?? null) === pid &&
+      // task scope is part of identity: the same proof scoped to a different task
+      // (or package-level vs task-scoped) is a distinct link, not a duplicate.
+      sameTaskScope(el.taskRef, request.taskRef),
   );
   if (existing) {
-    // Idempotent — the same proof is already linked to this requirement.
+    // Idempotent — the same proof is already linked to this requirement (and task).
     return { ok: true, created: false, artifact, link: existing };
   }
 
@@ -127,6 +149,9 @@ export function applyEvidenceLink(
     observationId: request.observationId ?? null,
     workPackageId: request.workPackageId,
     requiredEvidenceId: request.requiredEvidenceId,
+    // only stamp a task scope when the caller opts in — otherwise the link is
+    // byte-identical to a pre-#502 package-level link (no `taskRef` key).
+    ...(request.taskRef ? { taskRef: request.taskRef } : {}),
     role: request.role ?? "progress",
     createdAt: ctx.at,
     ...(ctx.createdBy ? { createdBy: ctx.createdBy } : {}),

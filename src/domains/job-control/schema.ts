@@ -229,6 +229,19 @@ export const EvidenceLinkSchema = z
      *  `WorkPackage.requiredEvidence[].id`. A requirement is "met" ONLY when a
      *  link names it — never derived from a photo count. */
     requiredEvidenceId: z.string().nullable().optional(),
+    /**
+     * OPTIONAL per-task-instance scope (#502). When present, this link satisfies
+     * the requirement for ONLY this task instance `(areaId, stage, taskId)` — the
+     * canonical task identity expressed in bridge/tuple form (#480/#483; resolve
+     * to `ct_…` via the #501 bridge). When ABSENT — every link today — the link is
+     * PACKAGE-LEVEL and satisfies the requirement for every task the package
+     * delivers, preserving the current area/package-granular behaviour. Additive
+     * and back-compatible: the stored shape stays the tuple (no storage
+     * migration), and existing links/readers are unaffected. The task-aware met
+     * rule (`isRequiredEvidenceMetForTask`) reads this; the package-level
+     * `isRequiredEvidenceMet` ignores it.
+     */
+    taskRef: TaskRefSchema.nullable().optional(),
     role: EvidenceLinkRoleSchema,
     createdAt: z.string().optional(),
     createdBy: z.string().optional(),

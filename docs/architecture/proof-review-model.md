@@ -76,9 +76,47 @@ keying moves to canonical task identity (or that direction is explicitly deferre
 with a dated rationale). This is a recommendation for sequencing, not a blocker on
 #495's already-built, tested, non-mutating pieces.
 
+## Per-task proof — the #502 foundation (additive, not yet live)
+
+The path off area/package granularity toward **per-canonical-task** proof is being
+laid additively so nothing in the live loop changes until consumers opt in. The
+foundation (#502, first slice) is:
+
+- **`EvidenceLink.taskRef?`** — an OPTIONAL `(areaId, stage, taskId)` scope on a
+  link (`schema.ts`). Absent on every link today ⇒ the link stays **package-level**
+  (covers every task the package delivers). Present ⇒ the link is **task-scoped**
+  (covers only that task instance). The tuple is the canonical identity in
+  bridge form (`ct_…` via [`task-led-job-architecture.md`](task-led-job-architecture.md));
+  the stored shape stays the tuple — **no storage migration**.
+- **`isRequiredEvidenceMetForTask(links, wp, req, task)`** (`task-context.ts`) —
+  a task-aware met rule that **generalises** the package rule: an untagged link
+  satisfies the task (today's behaviour, byte-for-byte), a task-scoped link
+  satisfies only its task. It returns the exact same answer as
+  `isRequiredEvidenceMet` on current (untagged) data — proven in
+  `per-task-proof.test.ts`.
+- The **writer** (`evidence-link.ts`) optionally accepts and persists `taskRef`,
+  with the idempotency key including it; existing callers (no `taskRef`) produce
+  byte-identical links.
+
+**Deliberately deferred (later #502 sub-slices), so prod stays area/package today:**
+
+- The capture flow does not yet pass a `taskRef` — no task-scoped links are
+  produced in prod.
+- `isRequiredEvidenceMet` and its consumers (Phil `buildPhilTaskContext`, the
+  admin status view, the #500 projection's injected proof) are **unchanged** —
+  they remain package-level until a slice flips them to the task-aware rule.
+- Per-canonical-task **authoring** of `requiredEvidence` and canonical-id keying
+  via the #501 bridge are separate slices.
+
+Until those land, **proof is still area/package-granular in prod** — do not claim
+otherwise.
+
 ## What this is NOT
 
 - **Not** a new proof model or a second `requiredEvidence` system — everything
   above reuses the one job-control loop and the shared `isRequiredEvidenceMet`.
-- **Not** a claim that proof is per-task — it is **area/package-granular**.
+  The #502 foundation is an **additive scope on the same `EvidenceLink`**, not a
+  parallel model.
+- **Not** a claim that proof is per-task — it is **area/package-granular** until
+  the deferred #502 consumer slices land.
 - **Not** a claim that admin approval exists — it does **not** on `main`.
