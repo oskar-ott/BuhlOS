@@ -171,7 +171,7 @@ export default async function MyDayPage({
           })}
         />
 
-        <PhilWeekStrip entries={recentEntries} todayISO={todayISO} />
+        <PhilWeekStrip entries={recentEntries} todayISO={todayISO} selectedDate={fixDate} />
 
         <LogHoursSheet
           // Remount when the deep-linked day changes. The sheet seeds its date

@@ -9,8 +9,18 @@ const TODAY = "2024-05-24";
 function entry(date: string, totalHours: number): TimeEntry {
   return { date, totalHours } as unknown as TimeEntry;
 }
-function render(entries: TimeEntry[], todayISO = TODAY) {
-  return renderToString(createElement(PhilWeekStrip, { entries, todayISO }));
+function render(entries: TimeEntry[], todayISO = TODAY, selectedDate?: string) {
+  return renderToString(createElement(PhilWeekStrip, { entries, todayISO, selectedDate }));
+}
+
+/** The opening <a> tag for the cell linking to a given date (so we can assert
+ *  attributes like aria-current without depending on hashed module classes). */
+function dayAnchor(html: string, date: string): string {
+  const hrefAt = html.indexOf(`fixDate=${date}`);
+  if (hrefAt < 0) return "";
+  const start = html.lastIndexOf("<a", hrefAt);
+  const end = html.indexOf(">", hrefAt);
+  return html.slice(start, end + 1);
 }
 
 /**
@@ -77,6 +87,20 @@ describe("PhilWeekStrip (render)", () => {
     expect(html).toContain("miss"); // the short visible chip (was the too-wide "not logged")
     // the full semantic word is preserved for screen readers in the tap label
     expect(html).toContain("not logged. Log hours for this day.");
+  });
+
+  it("highlights TODAY by default (aria-current on today, not on a past day)", () => {
+    const html = render([entry("2024-05-20", 7.6)]); // no selectedDate → defaults to today
+    expect(dayAnchor(html, "2024-05-24")).toContain('aria-current="date"'); // Fri = today
+    expect(dayAnchor(html, "2024-05-20")).not.toContain('aria-current="date"'); // Mon
+    expect((html.match(/aria-current="date"/g) ?? []).length).toBe(1); // exactly one selected
+  });
+
+  it("moves the highlight to the SELECTED day when a fixDate is open (so the date change is visible)", () => {
+    const html = render([entry("2024-05-20", 7.6)], TODAY, "2024-05-20"); // editing Monday
+    expect(dayAnchor(html, "2024-05-20")).toContain('aria-current="date"'); // ring follows Mon
+    expect(dayAnchor(html, "2024-05-24")).not.toContain('aria-current="date"'); // today no longer ringed
+    expect((html.match(/aria-current="date"/g) ?? []).length).toBe(1);
   });
 
   it("a logged day shows its hours number, not a redundant status WORD in the chip", () => {
