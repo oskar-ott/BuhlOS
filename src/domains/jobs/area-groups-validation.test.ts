@@ -21,8 +21,11 @@ type AreaOut = { id: string; name: string; archived?: boolean };
 type GroupOut = { id: string; name: string; areas: AreaOut[] };
 type Result = { ok: true; groups: GroupOut[] } | { ok: false; error: string };
 
-const { validateAreaGroups } = requireFromHere("../../../api/_lib/validation.js") as {
+const { validateAreaGroups, findDuplicateLiveAreaId } = requireFromHere(
+  "../../../api/_lib/validation.js",
+) as {
   validateAreaGroups: (raw: unknown, fieldName?: string) => Result;
+  findDuplicateLiveAreaId: (areaGroups: unknown) => string | null;
 };
 
 function flatAreas(result: Result): AreaOut[] {
@@ -58,8 +61,11 @@ describe("validateAreaGroups area-id uniqueness", () => {
   });
 
   it("allows a non-archived area to reuse the id of an ARCHIVED area", () => {
-    // Archived areas are filtered out before any keying, so they don't
-    // collide — and un-archiving re-runs this guard, catching it then.
+    // Archived areas are filtered out before any keying, so they don't collide
+    // WHILE archived. Resurrecting the archived one (unarchive) is guarded by
+    // the SAME findDuplicateLiveAreaId check on the bulk-edit write path before
+    // it persists (see jobs-bulk-edit-api.test.ts) — so the collision is caught
+    // at the moment it would become two LIVE areas, not silently written.
     const result = validateAreaGroups([
       {
         name: "Level 1",
@@ -111,5 +117,74 @@ describe("validateAreaGroups area-id uniqueness", () => {
     const ids = flatAreas(result).map((a) => a.id);
     expect(ids.every((id) => id.startsWith("ar_"))).toBe(true);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("findDuplicateLiveAreaId (shared guard)", () => {
+  it("returns null when every live area id is unique", () => {
+    expect(
+      findDuplicateLiveAreaId([
+        { id: "g1", name: "G1", areas: [{ id: "ar_a", name: "A" }, { id: "ar_b", name: "B" }] },
+        { id: "g2", name: "G2", areas: [{ id: "ar_c", name: "C" }] },
+      ]),
+    ).toBeNull();
+  });
+
+  it("returns the first repeated LIVE area id (within and across groups)", () => {
+    expect(
+      findDuplicateLiveAreaId([
+        { id: "g1", name: "G1", areas: [{ id: "ar_dup", name: "A" }] },
+        { id: "g2", name: "G2", areas: [{ id: "ar_dup", name: "B" }] },
+      ]),
+    ).toBe("ar_dup");
+  });
+
+  it("ignores archived areas — a live area may reuse an archived id", () => {
+    expect(
+      findDuplicateLiveAreaId([
+        {
+          id: "g1",
+          name: "G1",
+          areas: [
+            { id: "ar_dup", name: "Old", archived: true },
+            { id: "ar_dup", name: "New" },
+          ],
+        },
+      ]),
+    ).toBeNull();
+  });
+
+  it("flags TWO LIVE areas sharing an id even when an archived copy also exists", () => {
+    // This is the on-disk corruption the bulk-edit guard must catch: two live
+    // areas keyed the same. (The archived third copy is irrelevant.)
+    expect(
+      findDuplicateLiveAreaId([
+        {
+          id: "g1",
+          name: "G1",
+          areas: [
+            { id: "ar_dup", name: "Live A" },
+            { id: "ar_dup", name: "Live B" },
+            { id: "ar_dup", name: "Archived", archived: true },
+          ],
+        },
+      ]),
+    ).toBe("ar_dup");
+  });
+
+  it("is pure — does not mutate the input", () => {
+    const input = [
+      { id: "g1", name: "G1", areas: [{ id: "ar_a", name: "A" }, { id: "ar_a", name: "B" }] },
+    ];
+    const snapshot = JSON.parse(JSON.stringify(input));
+    findDuplicateLiveAreaId(input);
+    expect(input).toEqual(snapshot);
+  });
+
+  it("tolerates malformed input without throwing", () => {
+    expect(findDuplicateLiveAreaId(null)).toBeNull();
+    expect(findDuplicateLiveAreaId(undefined)).toBeNull();
+    expect(findDuplicateLiveAreaId([{ name: "no areas array" }])).toBeNull();
+    expect(findDuplicateLiveAreaId([{ areas: [null, { name: "no id" }] }])).toBeNull();
   });
 });
