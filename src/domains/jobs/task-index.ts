@@ -26,8 +26,10 @@ import type { Job, JobStage } from "./types";
  *   - It derives state ONLY from the existing stored three-state value
  *     (`not_started | in_progress | complete`) via the shared `readTaskState`
  *     — it never invents `ready` / `blocked` / `needs_review` / `signed_off`.
- *   - `system` is always `"general"`. Discipline inference (power / data /
- *     lighting / …) is #481, not here.
+ *   - `system` is a CONSERVATIVE read-only classification of the task text
+ *     (#481) — explicit electrical-system terms only, else `general`. It adds no
+ *     storage and no authoring field; free text is never treated as reliable
+ *     structured data.
  *   - `areaRefs` is always `[areaId]`. Multi-area tasks are future work.
  *
  * Parity guarantee
@@ -55,9 +57,24 @@ export type CanonicalTaskStage = JobStage;
  *  index never introduces a second, divergent state vocabulary. */
 export type CanonicalTaskState = TaskState;
 
-/** Discipline classification. #480 only ever emits `general`; the real
- *  power/data/lighting enum lands with the inference slice (#481). */
-export type CanonicalTaskSystem = "general";
+/**
+ * Electrical work-system classification (#481). Derived CONSERVATIVELY from the
+ * task text by `classifyCanonicalTaskSystem`; `general` whenever the text isn't
+ * an explicit, unambiguous match. This is a read-model aid only — there is no
+ * structured authoring field for it yet, and free text is not treated as
+ * reliable structured data (P7: never invent certainty).
+ */
+export type CanonicalTaskSystem =
+  | "power"
+  | "data"
+  | "lighting"
+  | "emergency_lighting"
+  | "fire"
+  | "security"
+  | "access_control"
+  | "audio_visual"
+  | "mechanical_controls"
+  | "general";
 
 /** The existing-storage coordinate a canonical task was materialised from. Kept
  *  on every task so callers can map a canonical id back to `(areaId, stage,
@@ -151,6 +168,201 @@ export function canonicalTaskMatchesSource(
   return canonicalTaskSourceKey(task.source) === canonicalTaskSourceKey(source);
 }
 
+// ── Task system classification (#481) ────────────────────────────────────────
+// Conservative, ordered, explicit-term classification of a task's TEXT into one
+// electrical work system. Free text is not reliable structured data, so the bar
+// is "an unambiguous term is present"; anything else is `general` (P7 — never
+// invent certainty).
+//
+// Two matching modes against the normalised text (lowercased, punctuation →
+// single spaces, e.g. "Fit-off A/V" → "fit off a v"):
+//   - phrase(t): whole-word / whole-phrase match (space-padded) — used for short
+//                or ambiguous tokens so "bracket" ≠ "rack", "metadata" ≠ "data",
+//                "swap" ≠ "wap", "available" ≠ "av", "plan" ≠ "lan".
+//   - loose(t):  substring match — used only for safe stems, e.g. "light" (so
+//                "downlight"/"lighting" match) and "switchboard".
+//
+// ORDER MATTERS and is the main false-positive guard: more specific systems are
+// tested first so a shared token can't be stolen by a broader one —
+//   emergency_lighting → access_control → data → lighting → fire → security →
+//   audio_visual → mechanical_controls → power → general
+// e.g. "lighting circuit" → lighting (not power); "data outlet" → data (not
+// power); "emergency light" → emergency_lighting (not lighting); "card reader"
+// → access_control (not security).
+//
+// Deliberately NOT matched (too ambiguous → left `general`): bare "switch" /
+// "switching", bare "sensor", bare "fire" (fire-rated / fire collar = passive
+// fire, not electrical), bare "alarm", bare "cable", bare "mechanical".
+
+function normaliseTaskText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+interface SystemRule {
+  system: CanonicalTaskSystem;
+  /** Whole-word / whole-phrase terms (matched space-padded). */
+  phrases?: ReadonlyArray<string>;
+  /** Substring stems — only safe, unambiguous stems. */
+  loose?: ReadonlyArray<string>;
+}
+
+const SYSTEM_RULES: ReadonlyArray<SystemRule> = [
+  {
+    system: "emergency_lighting",
+    loose: ["emergency light", "exit light", "egress light"],
+  },
+  {
+    system: "access_control",
+    phrases: [
+      "card reader",
+      "card access",
+      "swipe",
+      "door strike",
+      "electric strike",
+      "mag lock",
+      "maglock",
+      "rex",
+      "request to exit",
+    ],
+    loose: ["access control"],
+  },
+  {
+    system: "data",
+    phrases: [
+      "data",
+      "comms",
+      "rack",
+      "patch",
+      "wap",
+      "network",
+      "ethernet",
+      "cat5",
+      "cat6",
+      "cat6a",
+      "rj45",
+      "lan",
+      "fibre",
+      "fiber",
+    ],
+    loose: ["structured cabling", "patch panel"],
+  },
+  {
+    system: "lighting",
+    phrases: [
+      "dali",
+      "luminaire",
+      "luminaires",
+      "batten",
+      "lux",
+      "photocell",
+      "light switch",
+    ],
+    loose: ["light", "occupancy sensor", "daylight sensor", "pe cell"],
+  },
+  {
+    system: "fire",
+    phrases: ["fip", "ewis"],
+    loose: [
+      "fire alarm",
+      "fire detection",
+      "fire detector",
+      "fire indicator",
+      "smoke detector",
+      "smoke detection",
+      "smoke alarm",
+      "heat detector",
+      "thermal detector",
+    ],
+  },
+  {
+    system: "security",
+    phrases: ["cctv", "security", "intruder", "surveillance", "nvr", "pir", "duress"],
+    loose: ["security alarm", "intruder alarm", "alarm panel", "motion detector"],
+  },
+  {
+    system: "audio_visual",
+    phrases: [
+      "av",
+      "audio",
+      "audiovisual",
+      "projector",
+      "speaker",
+      "speakers",
+      "display",
+      "displays",
+      "hdmi",
+      "vga",
+      "amplifier",
+    ],
+    loose: ["audio visual", "pa system", "public address", "sound system", "tv outlet", "tv point"],
+  },
+  {
+    system: "mechanical_controls",
+    phrases: ["bms", "ahu", "vsd", "vav", "fcu"],
+    loose: [
+      "mechanical control",
+      "mechanical services",
+      "mechanical interface",
+      "building management",
+      "hvac control",
+      "plant control",
+    ],
+  },
+  {
+    system: "power",
+    phrases: [
+      "power",
+      "gpo",
+      "circuit",
+      "mains",
+      "submain",
+      "isolator",
+      "socket",
+      "outlet",
+      "rcd",
+      "rcbo",
+      "mcb",
+      "busbar",
+      "db",
+    ],
+    loose: [
+      "switchboard",
+      "distribution board",
+      "sub board",
+      "subboard",
+      "power point",
+      "powerpoint",
+      "consumer mains",
+    ],
+  },
+];
+
+/**
+ * Classify a task's text into an electrical work system. Pure and conservative:
+ * returns `general` unless an explicit, unambiguous term matches (see
+ * SYSTEM_RULES + the ordering rationale above). Reads `description` too for
+ * forward-compatibility, though task templates carry no description today.
+ */
+export function classifyCanonicalTaskSystem(input: {
+  title: string;
+  description?: string | null;
+}): CanonicalTaskSystem {
+  const text = normaliseTaskText(`${input.title} ${input.description ?? ""}`);
+  if (!text) return "general";
+  const padded = ` ${text} `;
+  const hasPhrase = (t: string) => padded.includes(` ${t} `);
+  const hasLoose = (t: string) => text.includes(t);
+
+  for (const rule of SYSTEM_RULES) {
+    if (rule.phrases?.some(hasPhrase)) return rule.system;
+    if (rule.loose?.some(hasLoose)) return rule.system;
+  }
+  return "general";
+}
+
 /**
  * Build the canonical task index for a job. Pure and read-only.
  *
@@ -188,7 +400,7 @@ export function buildCanonicalTaskIndex(args: {
             areaRefs: [area.id],
             stage,
             state: readTaskState(taskState, area.id, stage, template.id),
-            system: "general",
+            system: classifyCanonicalTaskSystem({ title: template.name }),
             source,
           });
         }
