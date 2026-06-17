@@ -150,10 +150,19 @@ export function unmetRequiredEvidenceCount(ctx: PhilTaskContext): number | null 
  *
  * `eligibleForReview` is the first task-level review-readiness signal: true only
  * when there IS required proof and every item is met. It is a READ-MODEL only —
- * there is no task submit action or task review state yet (a later slice). It
- * reads the existing per-task context (resolved by `workPackageForTask` against
- * the `(areaId, stage, taskId)` coordinate), so proof attaches to the canonical
- * task instance, never a bare template id.
+ * there is no task submit action or task review state yet (a later slice).
+ *
+ * Granularity (be honest — P7): required proof is authored on the AREA work
+ * package today (the compiler emits one package per area holding the UNION of its
+ * tasks' requirements), and `buildPhilTaskContext` resolves a task to that
+ * package without per-task filtering. So this summary is AREA/PACKAGE-granular:
+ * every task the package delivers — both stages — shares the same
+ * `requiredEvidence` and therefore the SAME summary, and capturing one item flips
+ * all of them. The isolation that DOES hold is cross-AREA: a different area is a
+ * different package, never cross-satisfied. Per-task-instance proof (distinct
+ * requirements keyed to `(areaId,stage,taskId)`) is future work — when compile/
+ * keying becomes per-instance this same selector yields per-instance summaries
+ * with no change here.
  */
 export interface PhilTaskProofSummary {
   /** Total required-evidence items the office compiled for this task. */

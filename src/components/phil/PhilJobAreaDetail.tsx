@@ -345,10 +345,13 @@ function TaskRow({
 }) {
   const done = isComplete(task.state);
   const blocked = readiness?.readiness === "blocked";
-  // At-a-glance required-proof status for this task, read straight off the
-  // office-compiled context (#368) via the shared summary — null when the task
-  // has no required proof (un-compiled ⇒ renders nothing). Surfaces the count
-  // WITHOUT making the worker expand the collapsible "Task context" details.
+  // At-a-glance required-proof status, read straight off the office-compiled
+  // context (#368) via the shared summary — null when there's no required proof
+  // (un-compiled ⇒ renders nothing). Surfaces the count WITHOUT making the worker
+  // expand the collapsible "Task context". NB: required proof is authored on the
+  // AREA work package today, so this reflects the area's compiled proof and reads
+  // the same on every task the package delivers (per-task-instance proof is later
+  // work) — consistent with the "Proof needed" list already in PhilTaskScopeContext.
   const proof = context ? summarisePhilTaskProof(context) : null;
   return (
     <li className="px-3 py-2.5 text-sm">

@@ -200,9 +200,12 @@ describe("summarisePhilTaskProof — task-level review-eligibility roll-up", () 
   });
 });
 
-describe("summarisePhilTaskProof — proof attaches to the canonical task instance, not a bare taskId", () => {
-  // Same template id + same requiredEvidence id in two DIFFERENT areas → two
-  // distinct packages. A proof linked to one must not satisfy the other.
+describe("summarisePhilTaskProof — granularity: cross-area isolated, area-granular within an area", () => {
+  // Required proof lives on the AREA work package, so the isolation that holds is
+  // cross-AREA (a different area is a different package). WITHIN an area both
+  // stages share one package, so they share the summary — see the area-granular
+  // test below. Same template id + same requiredEvidence id in two DIFFERENT
+  // areas → two distinct packages; a proof linked to one must not satisfy the other.
   const reqs = [{ id: "re_photo", label: "Photo before wall close", kind: "photo" }];
   const wpEast = WorkPackageSchema.parse({
     id: "wp_east",
@@ -227,7 +230,7 @@ describe("summarisePhilTaskProof — proof attaches to the canonical task instan
     role: "progress",
   });
 
-  it("same taskId in a DIFFERENT area is not cross-satisfied", () => {
+  it("a different AREA is a different package — same taskId there is not cross-satisfied", () => {
     const wps = [wpEast, wpWest];
     const east = summarisePhilTaskProof(
       buildPhilTaskContext({
@@ -247,41 +250,40 @@ describe("summarisePhilTaskProof — proof attaches to the canonical task instan
     expect(west).toEqual({ requiredCount: 1, metCount: 0, missingCount: 1, eligibleForReview: false });
   });
 
-  it("same taskId in a DIFFERENT stage is not cross-satisfied", () => {
-    // Two packages keyed to the same area+template but different STAGE coordinate.
-    // The lookup is by the full (areaId, stage, taskId) tuple, so a proof linked
-    // to the rough-in package never satisfies the fit-off instance.
-    const wpRi = WorkPackageSchema.parse({
-      id: "wp_ri",
+  it("is AREA-granular within an area: both stages share the one area package, so the same proof flips both (honest reflection of the compiler's one-package-per-area shape)", () => {
+    // The real compiler emits ONE package per area whose taskRefs include both
+    // stages (compile.ts groups by areaId, deriveWorkPackageId(jobId, areaId)).
+    // So a rough-in task and a fit-off task in the same area resolve to the SAME
+    // package + SAME requiredEvidence — there is no per-stage / per-task proof.
+    // Capturing the area's proof therefore satisfies BOTH stage instances. This
+    // documents the current granularity truthfully (per-instance proof is future
+    // work); do NOT read it as cross-stage isolation.
+    const wp = WorkPackageSchema.parse({
+      id: "wp_area",
       jobId: "j",
-      title: "RI",
-      taskRefs: [{ areaId: "area_x", stage: "roughIn", taskId: "t" }],
+      title: "Area",
+      taskRefs: [
+        { areaId: "area_x", stage: "roughIn", taskId: "t" },
+        { areaId: "area_x", stage: "fitOff", taskId: "t" },
+      ],
       requiredEvidence: reqs,
     });
-    const wpFo = WorkPackageSchema.parse({
-      id: "wp_fo",
+    const link = EvidenceLinkSchema.parse({
+      id: "el_area",
       jobId: "j",
-      title: "FO",
-      taskRefs: [{ areaId: "area_x", stage: "fitOff", taskId: "t" }],
-      requiredEvidence: reqs,
-    });
-    const riLink = EvidenceLinkSchema.parse({
-      id: "el_ri",
-      jobId: "j",
-      evidenceId: "ev_ri",
-      workPackageId: "wp_ri",
+      evidenceId: "ev_area",
+      workPackageId: "wp_area",
       requiredEvidenceId: "re_photo",
       role: "progress",
     });
-    const wps = [wpRi, wpFo];
     const ri = summarisePhilTaskProof(
-      buildPhilTaskContext({ workPackages: wps, task: { areaId: "area_x", stage: "roughIn", taskId: "t" }, evidenceLinks: [riLink] }),
+      buildPhilTaskContext({ workPackages: [wp], task: { areaId: "area_x", stage: "roughIn", taskId: "t" }, evidenceLinks: [link] }),
     );
     const fo = summarisePhilTaskProof(
-      buildPhilTaskContext({ workPackages: wps, task: { areaId: "area_x", stage: "fitOff", taskId: "t" }, evidenceLinks: [riLink] }),
+      buildPhilTaskContext({ workPackages: [wp], task: { areaId: "area_x", stage: "fitOff", taskId: "t" }, evidenceLinks: [link] }),
     );
-    expect(ri?.eligibleForReview).toBe(true);
-    expect(fo).toEqual({ requiredCount: 1, metCount: 0, missingCount: 1, eligibleForReview: false });
+    expect(ri).toEqual({ requiredCount: 1, metCount: 1, missingCount: 0, eligibleForReview: true });
+    expect(fo).toEqual(ri); // same area package → identical summary (area-granular, not per-stage)
   });
 });
 
