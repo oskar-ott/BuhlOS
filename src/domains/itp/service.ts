@@ -1,4 +1,5 @@
 import { ITP_SIGNOFF_INDEPENDENCE_THRESHOLD } from "./schema";
+import { formatProgress } from "./format";
 import type { ITPInstance, ITPStatus } from "./types";
 
 /**
@@ -22,7 +23,7 @@ import type { ITPInstance, ITPStatus } from "./types";
  * Happy path:
  *   null         → pending       (admin attaches template)
  *   pending      → in-progress   (worker records first point)
- *   in-progress  → witnessed     (all required points have results)
+ *   in-progress  → witnessed     (worker/office taps "Submit for review")
  *   witnessed    → signed-off    (admin signs off — terminal happy path)
  *
  * Recovery / reverse paths:
@@ -31,12 +32,16 @@ import type { ITPInstance, ITPStatus } from "./types";
  * Notes:
  *   - Direct close from pending / in-progress to signed-off is NOT
  *     allowed. Status must reach witnessed first (i.e. the writer has
- *     captured every required point) before sign-off is offered.
- *   - The legacy writer auto-advances pending → in-progress and
- *     in-progress → witnessed inside the record action; there's no
- *     explicit verb for those. ALLOWED_TRANSITIONS still includes them
- *     because canTransition() is the source of truth for "is this
- *     status flip legal" — the caller decides which verb triggered it.
+ *     captured every required point AND submitted it) before sign-off
+ *     is offered.
+ *   - pending → in-progress is the one auto-advance left in the record
+ *     action. in-progress → witnessed is now an EXPLICIT 'submit' verb
+ *     (see canSubmitForReview + api/job-itps.js action=submit) — it used
+ *     to flip implicitly on the last record, which left no room for a
+ *     deliberate "send it for review" step. ALLOWED_TRANSITIONS still
+ *     lists in-progress → witnessed because canTransition() is the source
+ *     of truth for "is this status flip legal" — the caller (record vs
+ *     submit) decides which verb triggered it.
  *   - Archive is a separate boolean field, not a status; it does not
  *     appear in this machine. See ARCHIVE_VERBS below.
  * -------------------------------------------------------------------*/
@@ -177,6 +182,65 @@ export function canRecord(
   if (instance.status === "signed-off") return false;
   if (isAdminRole(ctx.role)) return true;
   return isFieldRole(ctx.role) || isLeadingHandRole(ctx.role);
+}
+
+/* ---------------------------------------------------------------------
+ * Submit for review (in-progress → witnessed)
+ *
+ * The explicit "Submit for review" gate. An instance can be submitted
+ * when it's mid-flight (in-progress), not archived, and every REQUIRED
+ * point has been recorded. Submitting moves it to 'witnessed' — the
+ * existing awaiting-sign-off state that /qa already counts. Anyone who
+ * can record (field / LH / admin) can submit; the office can also push a
+ * field-completed ITP for sign-off.
+ *
+ * Server enforces the same rules in api/job-itps.js action=submit; this
+ * helper lets both the Phil recording panel and the admin queue hide /
+ * disable the button without a round-trip. Tagged result so the UI can
+ * pick precise copy:
+ *   { ok: true }                              → safe to submit
+ *   { ok: false, reason: 'wrong-role' }       → not a recorder/admin
+ *   { ok: false, reason: 'archived' }         → instance archived
+ *   { ok: false, reason: 'wrong-status' }     → not in-progress
+ *                                               (pending/witnessed/signed-off)
+ *   { ok: false, reason: 'no-required-points' } → template has no required
+ *                                                 points to complete
+ *   { ok: false, reason: 'incomplete-points' } → required points still open
+ * -------------------------------------------------------------------*/
+
+export type CanSubmitForReviewResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason:
+        | "wrong-role"
+        | "archived"
+        | "wrong-status"
+        | "no-required-points"
+        | "incomplete-points";
+    };
+
+export function canSubmitForReview(
+  instance: ITPInstance,
+  ctx: RolePermissionContext,
+): CanSubmitForReviewResult {
+  const canAct =
+    isAdminRole(ctx.role) ||
+    isFieldRole(ctx.role) ||
+    isLeadingHandRole(ctx.role);
+  if (!canAct) return { ok: false, reason: "wrong-role" };
+  if (instance.archived) return { ok: false, reason: "archived" };
+  if (instance.status !== "in-progress") {
+    return { ok: false, reason: "wrong-status" };
+  }
+  // Reuse the domain's own progress criterion (required-points-with-`at`)
+  // so the gate, the progress badge, and the server agree (P7).
+  const progress = formatProgress(instance);
+  if (progress.total === 0) return { ok: false, reason: "no-required-points" };
+  if (progress.done < progress.total) {
+    return { ok: false, reason: "incomplete-points" };
+  }
+  return { ok: true };
 }
 
 /* ---------------------------------------------------------------------

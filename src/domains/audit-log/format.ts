@@ -32,6 +32,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "snag.transitioned": "Moved snag",
   "itp.attached": "Attached ITP",
   "itp.point.recorded": "Recorded ITP point",
+  "itp.submitted": "Submitted ITP for review",
   "itp.signed_off": "Signed off ITP",
   "itp.reopened": "Re-opened ITP",
   "itp.archived": "Archived ITP",

@@ -9,6 +9,7 @@ import {
   RecordITPPointPayloadSchema,
   ReopenITPPayloadSchema,
   SignOffITPPayloadSchema,
+  SubmitITPPayloadSchema,
   ITPTemplateListResponseSchema,
   CreateItpTemplatePayloadSchema,
   ItpTemplateMutationResponseSchema,
@@ -23,6 +24,7 @@ import type {
   RecordITPPointPayload,
   ReopenITPPayload,
   SignOffITPPayload,
+  SubmitITPPayload,
   ITPTemplateListResponse,
   ITPTemplateSummary,
   CreateItpTemplatePayload,
@@ -35,6 +37,7 @@ import type {
  *   GET    /api/job-itps?jobId=<id>                       → list instances
  *   POST   /api/job-itps?jobId=<id>&action=attach         → admin attaches a template
  *   POST   /api/job-itps?jobId=<id>&action=record         → worker records a point
+ *   POST   /api/job-itps?jobId=<id>&action=submit         → worker/office submits for review
  *   POST   /api/job-itps?jobId=<id>&action=signoff        → admin signs off
  *   POST   /api/job-itps?jobId=<id>&action=reopen         → admin reopens
  *   DELETE /api/job-itps?jobId=<id>&id=<instanceId>       → admin/LH archives
@@ -192,6 +195,36 @@ export function signOffItp(
   });
 }
 
+/**
+ * Submit a completed in-progress instance for review → 'witnessed'.
+ *
+ * The explicit "Submit for review" action: once every required point is
+ * recorded the worker (or office) submits, moving the ITP into the
+ * awaiting-sign-off state that /qa surfaces. Server re-validates the
+ * state machine + required-points-complete; the client schema only
+ * catches an empty instanceId before the network.
+ */
+export function submitItpForReview(
+  jobId: string,
+  payload: SubmitITPPayload,
+): Promise<HttpResult<ITPTransitionResponse>> {
+  const parsed = SubmitITPPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Promise.resolve({
+      ok: false,
+      error: {
+        status: 0,
+        body: parsed.error.flatten(),
+        message: `invalid submit payload: ${parsed.error.message}`,
+      },
+    });
+  }
+  return httpPost<ITPTransitionResponse>(itpsUrl(jobId, "submit"), parsed.data, {
+    schema: ITPTransitionResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
 export function reopenItp(
   jobId: string,
   payload: ReopenITPPayload,
@@ -294,6 +327,7 @@ export const itpClient = {
   listItps,
   attachItp,
   recordItpPoint,
+  submitItpForReview,
   signOffItp,
   reopenItp,
   archiveItp,

@@ -25,6 +25,23 @@ sorted worst-first (most awaiting sign-off → oldest active age → name), each
 **drilling through** to the existing `/v2/jobs/[jobId]/itps` surface (no duplicate
 detail view, per the #290 AC).
 
+## How a check reaches "awaiting sign-off" (the Submit-for-review handoff)
+
+An ITP only counts as **awaiting sign-off** once it's `witnessed`. Reaching
+`witnessed` is an **explicit step**: after every required point is recorded, the
+worker (in Phil) or the office (in the admin queue) taps **"Submit for review"** —
+`POST /api/job-itps?action=submit`, guarded by the pure `canSubmitForReview`
+([`src/domains/itp/service.ts`](../../src/domains/itp/service.ts)).
+
+This replaced the older *implicit* behaviour where recording the last required
+point silently flipped the instance to `witnessed`. The implicit flip left the
+office no signal that work was *declared* done versus merely *recorded*, and gave
+the worker no deliberate "send it in" moment. Now `record` only auto-advances
+`pending → in-progress`; `in-progress → witnessed` is the submit verb. The rollup
+is unchanged — it still counts `witnessed` as awaiting sign-off — but a job now
+appears in that column when someone **submits**, not as a side effect of the last
+record.
+
 ## Aggregation strategy (the #290 AC: documented + cost)
 
 There is **no cross-job ITP index**. The reader

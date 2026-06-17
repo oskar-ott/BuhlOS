@@ -15,6 +15,7 @@ import {
 import type { ITPInstance, ITPTemplatePoint } from "@/domains/itp/types";
 import type { Job } from "@/domains/jobs/types";
 import { ITPPointCard } from "./ITPPointCard";
+import { ITPSubmitForReview } from "./ITPSubmitForReview";
 import { resolveScopeName } from "./itp-scope";
 import { PhilNotice } from "./ui/PhilNotice";
 
@@ -188,6 +189,16 @@ export function ITPRecording({ job, instance: initial, viewer }: Props) {
           ))}
         </ul>
       )}
+
+      {visiblePoints.length > 0 ? (
+        <ITPSubmitForReview
+          jobId={job.id}
+          instance={instance}
+          viewer={viewer}
+          onSaved={handleSaved}
+          onError={handleError}
+        />
+      ) : null}
     </div>
   );
 }

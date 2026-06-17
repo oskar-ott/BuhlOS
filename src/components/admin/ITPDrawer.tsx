@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   PenSquare,
   RotateCcw,
+  Send,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -23,6 +24,7 @@ import {
 } from "@/domains/itp/format";
 import {
   canSignOff,
+  canSubmitForReview,
   canTransition,
   pointsRecordedByUserRatio,
 } from "@/domains/itp/service";
@@ -57,6 +59,7 @@ interface Props {
   viewer: { id: string; role: string };
   busy: boolean;
   onClose: () => void;
+  onSubmit: () => void;
   onSignOff: () => void;
   onReopen: () => void;
   onArchive: () => void;
@@ -85,6 +88,9 @@ type HistoryState =
  *     catch the just-written audit row past the Vercel Blob 5s cache.
  *
  * Footer (admin only):
+ *   - "Submit for review" — direct POST. Shown only on an in-progress
+ *     instance whose required points are all recorded (canSubmitForReview).
+ *     The office safety valve; the field worker normally submits from Phil.
  *   - "Sign off" — opens the sign-off modal (with independence rule).
  *     Shown only when canTransition(status, 'signed-off') passes.
  *   - "Reopen" — direct POST. Shown only on signed-off rows.
@@ -105,6 +111,7 @@ export function ITPDrawer({
   viewer,
   busy,
   onClose,
+  onSubmit,
   onSignOff,
   onReopen,
   onArchive,
@@ -195,6 +202,9 @@ export function ITPDrawer({
     userId: viewer.id,
     role: viewer.role,
   });
+  const canSubmitHere =
+    isAdmin &&
+    canSubmitForReview(instance, { userId: viewer.id, role: viewer.role }).ok;
   const canSignOffHere =
     isAdmin && canTransition(instance.status, "signed-off");
   const canReopenHere =
@@ -322,10 +332,25 @@ export function ITPDrawer({
 
         {isAdmin ? (
           <footer className="border-t border-border px-4 py-3 space-y-2">
-            {!canSignOffHere && !canReopenHere && !canArchiveHere ? (
+            {!canSubmitHere &&
+            !canSignOffHere &&
+            !canReopenHere &&
+            !canArchiveHere ? (
               <p className="text-xs text-text-muted">
                 No actions available from {statusLabel(instance.status)}.
               </p>
+            ) : null}
+            {canSubmitHere ? (
+              <Button
+                type="button"
+                variant="primary"
+                onClick={onSubmit}
+                disabled={busy}
+                className="w-full bg-brand-navy text-text-inverse hover:bg-accent-ink"
+              >
+                <Send aria-hidden="true" className="h-4 w-4" />
+                Submit for review
+              </Button>
             ) : null}
             {canSignOffHere ? (
               <Button
@@ -582,6 +607,14 @@ function iconForAction(action: AuditAction) {
       <PenSquare
         aria-hidden="true"
         className="mt-0.5 h-4 w-4 shrink-0 text-text-muted"
+      />
+    );
+  }
+  if (action === "itp.submitted") {
+    return (
+      <Send
+        aria-hidden="true"
+        className="mt-0.5 h-4 w-4 shrink-0 text-sky-600"
       />
     );
   }

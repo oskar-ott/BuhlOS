@@ -18,6 +18,7 @@ import type {
   RecordITPPointPayloadSchema,
   ReopenITPPayloadSchema,
   SignOffITPPayloadSchema,
+  SubmitITPPayloadSchema,
   ITPTemplateSummarySchema,
   ITPTemplateListResponseSchema,
   ItpTemplatePointDraftSchema,
@@ -54,6 +55,7 @@ export type AttachITPPayload = z.infer<typeof AttachITPPayloadSchema>;
 export type RecordITPPointPayload = z.infer<typeof RecordITPPointPayloadSchema>;
 export type SignOffITPPayload = z.infer<typeof SignOffITPPayloadSchema>;
 export type ReopenITPPayload = z.infer<typeof ReopenITPPayloadSchema>;
+export type SubmitITPPayload = z.infer<typeof SubmitITPPayloadSchema>;
 export type ArchiveITPPayload = z.infer<typeof ArchiveITPPayloadSchema>;
 
 export type ITPListResponse = z.infer<typeof ITPListResponseSchema>;

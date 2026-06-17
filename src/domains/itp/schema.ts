@@ -368,6 +368,17 @@ export const ReopenITPPayloadSchema = z.object({
   instanceId: z.string().min(1, "instanceId required"),
 });
 
+/** POST /api/job-itps?jobId=X&action=submit body.
+ *
+ *  "Submit for review" — the explicit `in-progress → witnessed` step.
+ *  Replaces the old implicit auto-advance that flipped to witnessed on
+ *  the last record: now the worker (or office) deliberately submits a
+ *  completed ITP so it surfaces in /qa as awaiting sign-off. Same
+ *  minimal body shape as reopen/archive (server re-checks state). */
+export const SubmitITPPayloadSchema = z.object({
+  instanceId: z.string().min(1, "instanceId required"),
+});
+
 /** DELETE /api/job-itps?jobId=X&id=Y query (no body). */
 export const ArchiveITPPayloadSchema = z.object({
   instanceId: z.string().min(1, "instanceId required"),

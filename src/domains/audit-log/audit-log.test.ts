@@ -110,9 +110,10 @@ describe("AuditLogEntrySchema", () => {
     // D5 added evidence.unreviewed for the reviewed → submitted
     // transition so the History panel can distinguish it from the
     // original review. D.5 added snag.created + snag.transitioned and
-    // the 'snag' targetType. E1a adds the five itp.* verbs covering
-    // the legacy api/job-itps.js mutating actions + the itp_template
-    // / itp_instance target types.
+    // the 'snag' targetType. E1a adds the itp.* verbs covering the
+    // api/job-itps.js mutating actions (incl. itp.submitted, the
+    // explicit submit-for-review handoff) + the itp_template /
+    // itp_instance target types.
     expect([...AUDIT_ACTIONS].sort()).toEqual([
       "backup.completed",
       "contact.removed",
@@ -147,6 +148,7 @@ describe("AuditLogEntrySchema", () => {
       "itp.point.recorded",
       "itp.reopened",
       "itp.signed_off",
+      "itp.submitted",
       // #127/#333 leave lifecycle.
       "leave.cancelled",
       "leave.decided",
