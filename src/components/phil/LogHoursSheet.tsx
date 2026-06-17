@@ -352,8 +352,12 @@ export function LogHoursSheet({
             <span className={styles.logActionTitle}>
               {submitting ? "Logging…" : logActionTitle(date, localDateString())}
             </span>
+            {/* Kept short: this sub-label is UPPERCASE + wide letter-spacing, so
+                the old "<date> · standard day 7h 36m" overflowed the fixed-height
+                button. The day is already named in the title above and the exact
+                date sits in the Day picker right below, so the date is dropped. */}
             <span className={styles.logActionSub}>
-              {formatDateLabel(date)} · standard day {formatHoursLabel(STANDARD_DAY_HOURS)}
+              Standard day · {formatHoursLabel(STANDARD_DAY_HOURS)}
             </span>
           </span>
           <span className={styles.logActionArrow} aria-hidden="true">
