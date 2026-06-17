@@ -23,6 +23,20 @@ function validateAreaGroups(raw, fieldName) {
   const f = fieldName || 'areaGroups';
   if (!Array.isArray(raw)) return { ok: false, error: `${f} must be an array` };
   const groups = [];
+  // Area ids must be unique among the NON-ARCHIVED areas of a job. The whole
+  // Phil + task-state stack keys on areaId — task state lives at
+  // dwellings[areaId][stage].tasks[taskId], /api/task-toggle writes to that
+  // { areaId, stage, taskId } target, the Phil area selector does a
+  // first-match `areas.find(a => a.id === id)`, and the canonical task index
+  // is filtered by source.areaId. Two live areas sharing an id silently
+  // mis-key: task rows concatenate, the wrong area renders, the toggle write
+  // target is ambiguous. Ids are normally nanoid-minted (below) so this is
+  // unreachable for builder-authored data, but a client-supplied `a.id` is
+  // trusted verbatim, so we enforce the invariant here — the schema layer
+  // (src/domains/jobs/schema.ts) documents id-uniqueness as a server concern.
+  // Archived areas are excluded: they're filtered out before any keying, and
+  // un-archiving re-runs this guard so a resurrected collision is caught then.
+  const seenAreaIds = new Set();
   for (let gi = 0; gi < raw.length; gi++) {
     const g = raw[gi];
     if (!g || typeof g !== 'object') return { ok: false, error: `${f}[${gi}] must be an object` };
@@ -84,6 +98,11 @@ function validateAreaGroups(raw, fieldName) {
           if (!v.ok) return { ok: false, error: `${f}[${gi}].areas[${ai}].${v.error}` };
           out.fitOffTasks = v.tasks;
         }
+      }
+      if (!out.archived) {
+        if (seenAreaIds.has(out.id))
+          return { ok: false, error: `${f}[${gi}].areas[${ai}].id duplicate: ${out.id}` };
+        seenAreaIds.add(out.id);
       }
       areas.push(out);
     }
