@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { EvidenceLinkSchema } from "./schema";
 import type { EvidenceLink, TaskRef } from "./types";
-import { isRequiredEvidenceMet, isRequiredEvidenceMetForTask } from "./task-context";
+import {
+  buildPhilTaskContext,
+  isRequiredEvidenceMet,
+  isRequiredEvidenceMetForTask,
+} from "./task-context";
+import type { WorkPackage } from "./types";
 import {
   PersistedJobControlSchema,
   type PersistedJobControl,
@@ -165,5 +170,64 @@ describe("applyEvidenceLink — optional task scope (#502, back-compatible)", ()
     if (!again.ok) throw new Error("unreachable");
     expect(again.created).toBe(false);
     expect(first.artifact.evidenceLinks).toHaveLength(1);
+  });
+});
+
+// ── The consumer (buildPhilTaskContext now resolves met per task) ─────────────
+
+/** One package delivering two tasks (t1, t2) in the same area, with one
+ *  required-evidence item — the area/package-granular shape the compiler emits. */
+const pkgTwoTasks = [
+  {
+    id: "wp_1",
+    jobId: "job_1",
+    title: "East Gym",
+    scopeClauseIds: [],
+    boqLineRefs: [],
+    taskRefs: [
+      { areaId: "a1", stage: "roughIn", taskId: "t1" },
+      { areaId: "a1", stage: "roughIn", taskId: "t2" },
+    ],
+    order: 0,
+    requiredEvidence: [{ id: "re1", label: "Circuit test", kind: "test_result" }],
+  },
+] as unknown as WorkPackage[];
+
+const metFor = (taskId: string, links: EvidenceLink[]): boolean => {
+  const ctx = buildPhilTaskContext({
+    workPackages: pkgTwoTasks,
+    task: { areaId: "a1", stage: "roughIn", taskId },
+    evidenceLinks: links,
+  });
+  return ctx.requiredEvidence[0]!.met;
+};
+
+describe("buildPhilTaskContext — resolves met per task (#502 consumer)", () => {
+  it("PARITY: a package-level link marks the requirement met for EVERY task (today's behaviour)", () => {
+    const links = [link({ taskRef: undefined })]; // package-level
+    expect(metFor("t1", links)).toBe(true);
+    expect(metFor("t2", links)).toBe(true);
+  });
+
+  it("PARITY: no proof link → not met for any task (honest empty)", () => {
+    expect(metFor("t1", [])).toBe(false);
+    expect(metFor("t2", [])).toBe(false);
+  });
+
+  it("a task-scoped link marks the requirement met ONLY for that task instance", () => {
+    const links = [link({ taskRef: T1 })];
+    expect(metFor("t1", links)).toBe(true); // the captured task
+    expect(metFor("t2", links)).toBe(false); // its sibling in the same package is NOT cross-satisfied
+  });
+
+  it("the required-evidence ITEMS are still the package's (authoring stays package-level)", () => {
+    const ctx = buildPhilTaskContext({
+      workPackages: pkgTwoTasks,
+      task: { areaId: "a1", stage: "roughIn", taskId: "t2" },
+      evidenceLinks: [link({ taskRef: T1 })],
+    });
+    // t2 still SEES the requirement (shared authoring) — it is just not met for t2
+    expect(ctx.requiredEvidence.map((e) => e.id)).toEqual(["re1"]);
+    expect(ctx.requiredEvidence[0]!.met).toBe(false);
   });
 });

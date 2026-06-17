@@ -126,7 +126,16 @@ export function isRequiredEvidenceMetForTask(
 /**
  * Build the task-context view-model. Pure, defensive, hidden-when-empty. A
  * required-evidence item is `met` only when a real EvidenceLink ties a proof
- * (evidence or observation) to that specific requirement on this package.
+ * (evidence or observation) to that specific requirement.
+ *
+ * Met-ness is resolved per TASK INSTANCE via `isRequiredEvidenceMetForTask`
+ * (#502 consumer): a package-level link (no `taskRef`) satisfies the requirement
+ * for this task exactly as before, and a task-scoped link satisfies only its own
+ * task. On `main` today every link is package-level, so this is byte-for-byte the
+ * old package-level result (proven by parity tests) — it only diverges once a
+ * producer writes task-scoped links. The required-evidence ITEMS are still the
+ * package's (authoring stays package-level until a later slice); only their
+ * fulfilment is now per-task.
  */
 export function buildPhilTaskContext(input: {
   workPackages: ReadonlyArray<WorkPackage>;
@@ -139,7 +148,7 @@ export function buildPhilTaskContext(input: {
   const links = input.evidenceLinks ?? [];
   const requiredEvidence: TaskContextEvidenceReq[] = (wp.requiredEvidence ?? []).map((e) => ({
     ...e,
-    met: isRequiredEvidenceMet(links, wp.id, e.id),
+    met: isRequiredEvidenceMetForTask(links, wp.id, e.id, input.task),
   }));
   const governingDocs = wp.governingDocRefs ?? [];
   const materials = wp.materials ?? [];
