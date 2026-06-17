@@ -386,8 +386,6 @@ details[open] > .moreOptionsSummary::before {
 }
 .today .box {
   background: var(--surface);
-  border: 2px solid var(--accent-yellow);
-  box-shadow: 0 0 0 3px rgba(255, 204, 0, 0.22);
 }
 .today .status {
   color: var(--md-amber);
@@ -420,6 +418,15 @@ details[open] > .moreOptionsSummary::before {
 .upcoming .hours,
 .upcoming .status {
   color: var(--text-muted);
+}
+
+/* The day currently open in the form (selectedDate = ?fixDate, default today).
+   The yellow ring follows the SELECTED day so tapping a day moves the highlight
+   onto it — the underlying state tint (miss / logged / off) stays visible
+   beneath the ring. Placed after the state rules so its border/shadow win. */
+.selected .box {
+  border: 2px solid var(--accent-yellow);
+  box-shadow: 0 0 0 3px rgba(255, 204, 0, 0.22);
 }
 
 .weekFoot {

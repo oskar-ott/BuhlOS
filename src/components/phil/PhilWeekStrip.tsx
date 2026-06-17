@@ -91,6 +91,10 @@ function cellStatusLabel(d: WeekDayCell): string {
 interface Props {
   entries: ReadonlyArray<TimeEntry>;
   todayISO: string;
+  /** The day currently open in the form (the `?fixDate=` deep link). The cell
+   *  for this date carries the highlight ring, so tapping a day moves the ring
+   *  onto it. Defaults to today when no day is being fixed. */
+  selectedDate?: string | null;
 }
 
 /**
@@ -108,8 +112,11 @@ interface Props {
  * Styled to the design via the scoped myDay.module.css (filled state tints +
  * JetBrains Mono microcopy) rather than the app's flat utility defaults.
  */
-export function PhilWeekStrip({ entries, todayISO }: Props) {
+export function PhilWeekStrip({ entries, todayISO, selectedDate }: Props) {
   const week = buildPhilWeek(entries, { todayISO });
+  // The highlighted cell follows the day open in the form (?fixDate=), so the
+  // ring moves to the day you tapped; with no fix in progress it's today.
+  const selected = selectedDate ?? todayISO;
   // "Mon 20 – Sun 26 May", widening to show the start month across a boundary.
   const startLabel =
     monthShort(week.weekStart) === monthShort(week.weekEnd)
@@ -150,14 +157,19 @@ export function PhilWeekStrip({ entries, todayISO }: Props) {
           );
           // ISO date strings compare lexicographically; future days are inert.
           const tappable = d.date <= todayISO;
+          const isSelected = d.date === selected;
           return (
-            <li key={d.date} className={cn(styles.day, DAY_STATE[d.state])}>
+            <li
+              key={d.date}
+              className={cn(styles.day, DAY_STATE[d.state], isSelected && styles.selected)}
+            >
               {tappable ? (
                 <Link
                   href={`/phil/my-day?fixDate=${d.date}`}
                   prefetch={false}
                   className={styles.dayLink}
                   aria-label={dayTapLabel(d, todayISO)}
+                  aria-current={isSelected ? "date" : undefined}
                 >
                   {cell}
                 </Link>
