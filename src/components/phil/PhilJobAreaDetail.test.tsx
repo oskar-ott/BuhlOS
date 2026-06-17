@@ -6,6 +6,7 @@ import type { AreaCounts, AreaStageAvailability } from "./philJobWorkTree";
 import type { JobStage } from "@/domains/jobs/types";
 import type { TaskState, WorkerTask } from "@/domains/jobs/taskState";
 import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
+import type { PhilTaskContext } from "@/domains/job-control/task-context";
 
 /**
  * Render observation for the area drill-in. No JSX (matches
@@ -396,6 +397,80 @@ describe("PhilJobAreaDetail render — readiness/blocker indicator", () => {
       ),
     );
     expect(out).not.toContain("Blocked");
+    expect(out).toContain("Pull power");
+  });
+});
+
+describe("PhilJobAreaDetail render — at-a-glance required-proof line", () => {
+  const ctx = (
+    reqs: ReadonlyArray<{
+      id: string;
+      label: string;
+      kind: "photo" | "test_result" | "as_built" | "certificate";
+      met: boolean;
+    }>,
+  ): PhilTaskContext => ({
+    workPackageId: "wp1",
+    scopeNote: null,
+    governingDocs: [],
+    materials: [],
+    requiredEvidence: [...reqs],
+    warnings: [],
+    isEmpty: false,
+  });
+
+  function renderWithContext(
+    taskContextById: ReadonlyMap<string, PhilTaskContext>,
+  ): string {
+    return renderToString(
+      createElement(PhilJobAreaDetail, {
+        areaName: "Main Bar",
+        stages: RI,
+        stage: "roughIn" as JobStage,
+        tasks: [task("t1", "Pull power")],
+        counts: NO_COUNTS,
+        onStageChange: noop,
+        taskContextById,
+      }),
+    );
+  }
+
+  it("shows 'N/M captured' when required proof is outstanding (not eligible)", () => {
+    const out = text(
+      renderWithContext(
+        new Map([
+          [
+            "t1",
+            ctx([
+              { id: "re_a", label: "Photo before wall close", kind: "photo", met: true },
+              { id: "re_b", label: "Circuit test result", kind: "test_result", met: false },
+            ]),
+          ],
+        ]),
+      ),
+    );
+    expect(out).toContain("Proof");
+    expect(out).toContain("1/2 captured");
+    expect(out).not.toContain("ready for review");
+  });
+
+  it("shows 'ready for review' when all required proof is captured", () => {
+    const out = text(
+      renderWithContext(
+        new Map([
+          ["t1", ctx([{ id: "re_a", label: "Final fit-off photo", kind: "photo", met: true }])],
+        ]),
+      ),
+    );
+    expect(out).toContain("all captured");
+    expect(out).toContain("ready for review");
+    expect(out).not.toContain("1/"); // not the 'N/M captured' (outstanding) variant
+  });
+
+  it("shows no proof line when the task has no required proof (un-compiled)", () => {
+    const out = text(renderWithContext(new Map([["t1", ctx([])]])));
+    expect(out).not.toContain("captured");
+    expect(out).not.toContain("ready for review");
     expect(out).toContain("Pull power");
   });
 });

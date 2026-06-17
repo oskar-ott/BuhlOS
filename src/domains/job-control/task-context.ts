@@ -138,3 +138,39 @@ export function unmetRequiredEvidenceCount(ctx: PhilTaskContext): number | null 
   if (ctx.requiredEvidence.length === 0) return null;
   return ctx.requiredEvidence.filter((e) => !e.met).length;
 }
+
+/**
+ * A compact, at-a-glance roll-up of a task's required-proof status, derived
+ * PURELY from the already-resolved `requiredEvidence` on its context — each
+ * `met` came from the shared `isRequiredEvidenceMet` rule, so this NEVER
+ * re-derives "met" and never counts photos (P7). Returns `null` when the package
+ * carries no required evidence (unknown ≠ "all done"), mirroring
+ * `unmetRequiredEvidenceCount`'s honest-null contract so an un-compiled task
+ * surfaces nothing (zero regression, P10).
+ *
+ * `eligibleForReview` is the first task-level review-readiness signal: true only
+ * when there IS required proof and every item is met. It is a READ-MODEL only —
+ * there is no task submit action or task review state yet (a later slice). It
+ * reads the existing per-task context (resolved by `workPackageForTask` against
+ * the `(areaId, stage, taskId)` coordinate), so proof attaches to the canonical
+ * task instance, never a bare template id.
+ */
+export interface PhilTaskProofSummary {
+  /** Total required-evidence items the office compiled for this task. */
+  requiredCount: number;
+  /** How many are met (a real EvidenceLink names them). */
+  metCount: number;
+  /** Still outstanding (requiredCount − metCount). */
+  missingCount: number;
+  /** True iff there is required proof and every item is met. */
+  eligibleForReview: boolean;
+}
+
+export function summarisePhilTaskProof(ctx: PhilTaskContext): PhilTaskProofSummary | null {
+  const reqs = ctx.requiredEvidence;
+  if (reqs.length === 0) return null;
+  const metCount = reqs.reduce((n, e) => (e.met ? n + 1 : n), 0);
+  const requiredCount = reqs.length;
+  const missingCount = requiredCount - metCount;
+  return { requiredCount, metCount, missingCount, eligibleForReview: missingCount === 0 };
+}

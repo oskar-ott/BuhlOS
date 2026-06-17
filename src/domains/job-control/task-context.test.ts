@@ -6,6 +6,7 @@ import {
   buildPhilTaskContext,
   classifyTaskWarnings,
   unmetRequiredEvidenceCount,
+  summarisePhilTaskProof,
 } from "./task-context";
 
 const TASK: TaskRef = { areaId: "area_east_gym", stage: "fitOff", taskId: "task_zip" };
@@ -141,6 +142,146 @@ describe("classifyTaskWarnings", () => {
     expect(c.variationTriggers).toHaveLength(1);
     expect(c.byOthers).toHaveLength(1);
     expect(c.reuseExisting).toHaveLength(0);
+  });
+});
+
+describe("summarisePhilTaskProof — task-level review-eligibility roll-up", () => {
+  const linkFor = (rid: string, i = 0) =>
+    EvidenceLinkSchema.parse({
+      id: `el_${rid}_${i}`,
+      jobId: "j",
+      evidenceId: `ev_${rid}_${i}`,
+      workPackageId: "wp_east_gym",
+      requiredEvidenceId: rid,
+      role: "progress",
+    });
+
+  it("null when the task has no required proof (unknown ≠ done) — un-compiled renders nothing", () => {
+    const ctx = buildPhilTaskContext({ workPackages: [barePackage()], task: TASK });
+    expect(summarisePhilTaskProof(ctx)).toBeNull();
+  });
+
+  it("reports the required count and that nothing is captured yet (not eligible)", () => {
+    const ctx = buildPhilTaskContext({ workPackages: [compiledPackage()], task: TASK });
+    expect(summarisePhilTaskProof(ctx)).toEqual({
+      requiredCount: 2,
+      metCount: 0,
+      missingCount: 2,
+      eligibleForReview: false,
+    });
+  });
+
+  it("partial capture is still not eligible for review", () => {
+    const ctx = buildPhilTaskContext({
+      workPackages: [compiledPackage()],
+      task: TASK,
+      evidenceLinks: [linkFor("re_test")],
+    });
+    expect(summarisePhilTaskProof(ctx)).toEqual({
+      requiredCount: 2,
+      metCount: 1,
+      missingCount: 1,
+      eligibleForReview: false,
+    });
+  });
+
+  it("all required proof met → eligible for review", () => {
+    const ctx = buildPhilTaskContext({
+      workPackages: [compiledPackage()],
+      task: TASK,
+      evidenceLinks: [linkFor("re_test"), linkFor("re_photo")],
+    });
+    expect(summarisePhilTaskProof(ctx)).toEqual({
+      requiredCount: 2,
+      metCount: 2,
+      missingCount: 0,
+      eligibleForReview: true,
+    });
+  });
+});
+
+describe("summarisePhilTaskProof — proof attaches to the canonical task instance, not a bare taskId", () => {
+  // Same template id + same requiredEvidence id in two DIFFERENT areas → two
+  // distinct packages. A proof linked to one must not satisfy the other.
+  const reqs = [{ id: "re_photo", label: "Photo before wall close", kind: "photo" }];
+  const wpEast = WorkPackageSchema.parse({
+    id: "wp_east",
+    jobId: "j",
+    title: "East",
+    taskRefs: [{ areaId: "area_east", stage: "roughIn", taskId: "t_shared" }],
+    requiredEvidence: reqs,
+  });
+  const wpWest = WorkPackageSchema.parse({
+    id: "wp_west",
+    jobId: "j",
+    title: "West",
+    taskRefs: [{ areaId: "area_west", stage: "roughIn", taskId: "t_shared" }],
+    requiredEvidence: reqs,
+  });
+  const eastLink = EvidenceLinkSchema.parse({
+    id: "el_east",
+    jobId: "j",
+    evidenceId: "ev_east",
+    workPackageId: "wp_east",
+    requiredEvidenceId: "re_photo",
+    role: "progress",
+  });
+
+  it("same taskId in a DIFFERENT area is not cross-satisfied", () => {
+    const wps = [wpEast, wpWest];
+    const east = summarisePhilTaskProof(
+      buildPhilTaskContext({
+        workPackages: wps,
+        task: { areaId: "area_east", stage: "roughIn", taskId: "t_shared" },
+        evidenceLinks: [eastLink],
+      }),
+    );
+    const west = summarisePhilTaskProof(
+      buildPhilTaskContext({
+        workPackages: wps,
+        task: { areaId: "area_west", stage: "roughIn", taskId: "t_shared" },
+        evidenceLinks: [eastLink],
+      }),
+    );
+    expect(east?.eligibleForReview).toBe(true);
+    expect(west).toEqual({ requiredCount: 1, metCount: 0, missingCount: 1, eligibleForReview: false });
+  });
+
+  it("same taskId in a DIFFERENT stage is not cross-satisfied", () => {
+    // Two packages keyed to the same area+template but different STAGE coordinate.
+    // The lookup is by the full (areaId, stage, taskId) tuple, so a proof linked
+    // to the rough-in package never satisfies the fit-off instance.
+    const wpRi = WorkPackageSchema.parse({
+      id: "wp_ri",
+      jobId: "j",
+      title: "RI",
+      taskRefs: [{ areaId: "area_x", stage: "roughIn", taskId: "t" }],
+      requiredEvidence: reqs,
+    });
+    const wpFo = WorkPackageSchema.parse({
+      id: "wp_fo",
+      jobId: "j",
+      title: "FO",
+      taskRefs: [{ areaId: "area_x", stage: "fitOff", taskId: "t" }],
+      requiredEvidence: reqs,
+    });
+    const riLink = EvidenceLinkSchema.parse({
+      id: "el_ri",
+      jobId: "j",
+      evidenceId: "ev_ri",
+      workPackageId: "wp_ri",
+      requiredEvidenceId: "re_photo",
+      role: "progress",
+    });
+    const wps = [wpRi, wpFo];
+    const ri = summarisePhilTaskProof(
+      buildPhilTaskContext({ workPackages: wps, task: { areaId: "area_x", stage: "roughIn", taskId: "t" }, evidenceLinks: [riLink] }),
+    );
+    const fo = summarisePhilTaskProof(
+      buildPhilTaskContext({ workPackages: wps, task: { areaId: "area_x", stage: "fitOff", taskId: "t" }, evidenceLinks: [riLink] }),
+    );
+    expect(ri?.eligibleForReview).toBe(true);
+    expect(fo).toEqual({ requiredCount: 1, metCount: 0, missingCount: 1, eligibleForReview: false });
   });
 });
 
