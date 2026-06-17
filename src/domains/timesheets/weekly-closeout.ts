@@ -207,8 +207,10 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
       } else if (missingSet.has(`${workerId}|${date}`)) {
         status = "missing";
       } else if (isWeekend) {
-        // A weekend with no entry is not required — whether already past or
-        // still to come (same convention as the Phil strip's "off").
+        // A weekend with no entry is not required for payroll — whether already
+        // past or still to come. (Phil now lets a worker LOG a weekend if they
+        // worked it, but an unworked weekend is never counted as missing here or
+        // in the strip's missed tally.)
         status = "not-required";
       } else if (date > todayISO) {
         status = "future";
