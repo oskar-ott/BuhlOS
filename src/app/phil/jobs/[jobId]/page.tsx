@@ -18,6 +18,7 @@ import { JobContactsResponseSchema, type JobContact } from "@/domains/contacts/s
 import { parseJobTaskState, type JobTaskState } from "@/domains/jobs/taskState";
 import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
 import { SnagListResponseSchema } from "@/domains/snags/schema";
+import { ObservationListResponseSchema } from "@/domains/observations/schema";
 import { ITPListResponseSchema } from "@/domains/itp/schema";
 import { DocumentListResponseSchema } from "@/domains/documents/schema";
 import { blobJobControlReadDeps, readJobControlForField } from "@/server/job-control/read";
@@ -25,6 +26,7 @@ import type { Job } from "@/domains/jobs/types";
 import type { EvidenceLink, WorkPackage } from "@/domains/job-control/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
+import type { ObservationItem } from "@/domains/observations/types";
 import type { ITPInstance } from "@/domains/itp/types";
 import type { Document } from "@/domains/documents/types";
 
@@ -81,11 +83,12 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // is non-blocking: an empty list just shows the empty state, the
   // worker can still create new items, and the server will return
   // real data on the next refresh.
-  const [initialEvidence, initialSnags, initialItps, documentsResult, taskStateResult, tagsResult, initialContacts, initialMyInduction, jobControlResult] =
+  const [initialEvidence, initialSnags, initialObservations, initialItps, documentsResult, taskStateResult, tagsResult, initialContacts, initialMyInduction, jobControlResult] =
     result.kind === "ok"
       ? await Promise.all([
           loadInitialEvidence(raw, jobId),
           loadInitialSnags(raw, jobId),
+          loadInitialObservations(raw, jobId),
           loadInitialItps(raw, jobId),
           loadInitialDocuments(raw, jobId),
           loadInitialTaskState(raw, jobId),
@@ -95,6 +98,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           loadInitialJobControl(jobId),
         ])
       : [
+          [],
           [],
           [],
           [],
@@ -150,6 +154,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
         job={result.job}
         initialEvidence={initialEvidence}
         initialSnags={initialSnags}
+        initialObservations={initialObservations}
         initialItps={initialItps}
         initialDocuments={documentsResult.documents}
         documentsError={documentsResult.error}
@@ -277,6 +282,39 @@ async function loadInitialSnags(
     const parsed = SnagListResponseSchema.safeParse(body);
     if (!parsed.success) return [];
     return parsed.data.snags;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch the observations for this job (#504 — the real blocker source). Server
+ * returns the job's observations the viewer may see. Non-blocking: a failure
+ * returns [] and nothing is treated as blocked. Mirrors loadInitialSnags.
+ */
+async function loadInitialObservations(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<ObservationItem[]> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(
+      `${base}/api/observations?jobId=${encodeURIComponent(jobId)}`,
+      {
+        cache: "no-store",
+        headers: cookieValue
+          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
+          : undefined,
+      }
+    );
+    if (!res.ok) return [];
+    const body = await res.json();
+    const parsed = ObservationListResponseSchema.safeParse(body);
+    if (!parsed.success) return [];
+    return [...parsed.data.observations];
   } catch {
     return [];
   }
