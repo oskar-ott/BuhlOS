@@ -86,6 +86,44 @@ export function isRequiredEvidenceMet(
 }
 
 /**
+ * Per-task-instance variant of {@link isRequiredEvidenceMet} (#502 foundation).
+ *
+ * A requirement is MET FOR A SPECIFIC TASK when a real proof-bearing link names
+ * it on the package AND that link applies to the task — which it does in either
+ * of two ways:
+ *   - PACKAGE-LEVEL link (no `taskRef`): applies to EVERY task the package
+ *     delivers. This is every link on `main` today, so this function returns the
+ *     exact same answer as `isRequiredEvidenceMet` for current data.
+ *   - TASK-SCOPED link (`taskRef` set, #502): applies to ONLY that task
+ *     instance, compared by the canonical tuple key (`taskRefKey` — the same key
+ *     rule the spine uses, identity-equivalent to the `ct_…` canonical id).
+ *
+ * This is a strict GENERALISATION: it never makes a requirement "less met" than
+ * the package rule, and adds task-scoping only when a link opts in. It is the
+ * read foundation for moving proof to per-task ownership; the existing
+ * package-level `isRequiredEvidenceMet` and its callers are intentionally
+ * unchanged until a later slice flips consumers over (proof stays
+ * area/package-granular in prod until then — see proof-review-model.md).
+ */
+export function isRequiredEvidenceMetForTask(
+  links: ReadonlyArray<EvidenceLink>,
+  workPackageId: string,
+  requiredEvidenceId: string,
+  task: TaskRef,
+): boolean {
+  const taskKey = taskRefKey(task);
+  return links.some(
+    (el) =>
+      el.workPackageId === workPackageId &&
+      el.requiredEvidenceId === requiredEvidenceId &&
+      Boolean(el.evidenceId || el.observationId) &&
+      // a package-level link (no taskRef) applies to every task; a task-scoped
+      // link applies only to its own task instance.
+      (el.taskRef == null || taskRefKey(el.taskRef) === taskKey),
+  );
+}
+
+/**
  * Build the task-context view-model. Pure, defensive, hidden-when-empty. A
  * required-evidence item is `met` only when a real EvidenceLink ties a proof
  * (evidence or observation) to that specific requirement on this package.
