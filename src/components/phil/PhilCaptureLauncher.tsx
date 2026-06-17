@@ -153,7 +153,9 @@ export function PhilCaptureLauncher({
   // "Send to office" destination (no job) — fines, damaged gear, paperwork.
   const [destOffice, setDestOffice] = useState(false);
   const [officeOptionKey, setOfficeOptionKey] = useState<string | null>(null);
-  const [officeTitle, setOfficeTitle] = useState("");
+  // Office sends are photo-first: a photo + an OPTIONAL note. The item is
+  // auto-titled from the chosen option (e.g. "Fine / ticket / paperwork"), so
+  // the worker never has to type a title to send.
   const [officeDetail, setOfficeDetail] = useState("");
   const [officeError, setOfficeError] = useState<string | null>(null);
 
@@ -250,6 +252,7 @@ export function PhilCaptureLauncher({
       appliedSeqRef.current = 0;
       setDestOffice(false);
       setOfficeOptionKey(null);
+      setOfficeDetail("");
       setNoteFlow(null);
       setPendingWorkerOption(null);
       return;
@@ -470,13 +473,10 @@ export function PhilCaptureLauncher({
   const officePhotos = photos.filter(
     (p) => (p.status === "ready" && p.dataUrl) || p.officeUrl || (p.status === "failed" && p.dataUrl),
   );
-  const canSubmitOffice =
-    !submitting &&
-    !resizing &&
-    officePhotos.length > 0 &&
-    !!officeOption &&
-    officeTitle.trim().length > 0 &&
-    officeTitle.length <= TITLE_MAX;
+  // Photo-first: a photo + a chosen option is enough to send. The note is
+  // optional and the title is auto-derived from the option, so there is no
+  // required typing.
+  const canSubmitOffice = !submitting && !resizing && officePhotos.length > 0 && !!officeOption;
 
   const handleSubmitOffice = useCallback(async () => {
     if (!canSubmitOffice || !officeOption) return;
@@ -492,7 +492,7 @@ export function PhilCaptureLauncher({
 
     const result = await submitOfficeCapture(
       batch,
-      buildOfficeObservationPayload(officeOption, officeTitle, officeDetail),
+      buildOfficeObservationPayload(officeOption, officeOption.label, officeDetail),
       { uploadPhoto: uploadOfficePhoto, create: createOfficeObservation },
       (p) => {
         if (mySignal !== submitSignalRef.current) return;
@@ -507,7 +507,6 @@ export function PhilCaptureLauncher({
 
     if (result.ok) {
       setPhotos([]);
-      setOfficeTitle("");
       setOfficeDetail("");
       setOfficeOptionKey(null);
       setDestOffice(false);
@@ -531,7 +530,7 @@ export function PhilCaptureLauncher({
     );
     setOfficeError(result.message);
     setSubmit({ v: "idle" });
-  }, [canSubmitOffice, officeOption, officePhotos, officeTitle, officeDetail]);
+  }, [canSubmitOffice, officeOption, officePhotos, officeDetail]);
 
   // ── No-photo observation loop (pre-existing behaviour) ────────────────
   const startNoteFlow = useCallback(() => {
@@ -888,7 +887,8 @@ export function PhilCaptureLauncher({
                   </div>
 
                   {destOffice ? (
-                    /* ── Office details: category + gist + optional detail ── */
+                    /* ── Office details: pick a category + an optional note (the
+                       photo carries the rest; the item is auto-titled) ── */
                     <div className="space-y-4">
                       <div>
                         <p className="font-display text-sm font-semibold text-text">What is it?</p>
@@ -941,28 +941,12 @@ export function PhilCaptureLauncher({
                         </ul>
                       </div>
 
+                      {/* Photo-first: the only field is an OPTIONAL note. The
+                          item is auto-titled from the chosen option above, so a
+                          photo alone can be sent. */}
                       <label className="block">
                         <span className="font-display text-sm font-semibold text-text">
-                          What&rsquo;s the gist?
-                        </span>
-                        <input
-                          type="text"
-                          value={officeTitle}
-                          maxLength={TITLE_MAX}
-                          onChange={(e) => setOfficeTitle(e.target.value)}
-                          disabled={submitting}
-                          placeholder="e.g. Parking fine on the ute"
-                          className={cn(
-                            "mt-2 w-full rounded-card border border-border bg-surface px-3 py-2 text-base text-text",
-                            "placeholder:text-text-muted/70 focus:border-brand-navy focus:outline-none",
-                            "disabled:cursor-not-allowed disabled:opacity-60",
-                          )}
-                        />
-                      </label>
-
-                      <label className="block">
-                        <span className="font-display text-sm font-semibold text-text">
-                          More detail{" "}
+                          Add a note{" "}
                           <span className="font-normal text-text-muted">(optional)</span>
                         </span>
                         <textarea
