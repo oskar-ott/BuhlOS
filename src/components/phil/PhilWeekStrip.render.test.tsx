@@ -70,4 +70,21 @@ describe("PhilWeekStrip (render)", () => {
     expect(html).toContain("not logged. Log hours for this day.");
     expect(html).toContain("rejected. Fix and resubmit this day.");
   });
+
+  it("paints the SHORT 'miss' chip for a missed day (the full words overflow the cell), keeping the full word in the aria-label", () => {
+    // Thu 2024-05-23 is a past weekday with no entry → a missed day.
+    const html = render([entry("2024-05-20", 7.6)]);
+    expect(html).toContain("miss"); // the short visible chip (was the too-wide "not logged")
+    // the full semantic word is preserved for screen readers in the tap label
+    expect(html).toContain("not logged. Log hours for this day.");
+  });
+
+  it("a logged day shows its hours number, not a redundant status WORD in the chip", () => {
+    // Mon 2024-05-20 approved → the chip is the number; the word stays in the aria-label only.
+    const html = render([
+      { date: "2024-05-20", totalHours: 7.6, status: "approved" } as unknown as TimeEntry,
+    ]);
+    expect(html).toContain("7.6"); // the number is the chip content for a logged day
+    expect(html).toContain("approved. Open this day in the hours form."); // word kept for a11y
+  });
 });
