@@ -10,11 +10,12 @@ import { moduleEnabled } from "@/domains/jobs/builder";
 import { visibleAreaGroups } from "@/domains/jobs/format";
 import {
   applyTaskState,
-  buildWorkerTasks,
   parseTaskToggleResult,
   type JobTaskState,
   type TaskState,
 } from "@/domains/jobs/taskState";
+import { buildCanonicalTaskIndex } from "@/domains/jobs/task-index";
+import { workerTasksFromCanonicalIndex } from "@/domains/jobs/phil-task-projection";
 import { buildPhilJobCommandModel } from "@/domains/phil/job-command-model";
 import { philJobCommandInputFromJobData } from "@/domains/phil/job-command-input";
 import { confirmInduction, type InductionRecord } from "@/domains/jobs/induction";
@@ -299,13 +300,25 @@ export function PhilJobDetail({
     writeJobResume(job.id, { areaId: selectedAreaId, stage: viewedStage });
   }, [job.id, selectedAreaId, viewedStage]);
 
-  // Field-visible tasks for the viewed stage, merged with their real state.
+  // Canonical task index (#480) for this job — rebuilt only when the plan or the
+  // recorded state changes. This is now the SOURCE for the worker task rows
+  // (#484): the platform treats a task as a job-level instance keyed by
+  // (areaId, stage, taskId) while Phil keeps its area-first view.
+  const canonicalTasks = useMemo(
+    () => buildCanonicalTaskIndex({ job, taskState }),
+    [job, taskState],
+  );
+
+  // Field-visible tasks for the selected area + viewed stage — projected from the
+  // canonical index (filter by source coordinate, render the template id). This
+  // is behaviourally identical to the previous buildWorkerTasks path (proven in
+  // phil-task-projection.test.ts): same rows, order, state, and toggle target.
   const workerTasks = useMemo(
     () =>
       selectedArea
-        ? buildWorkerTasks(job, selectedArea, viewedStage, taskState)
+        ? workerTasksFromCanonicalIndex(canonicalTasks, selectedArea.id, viewedStage)
         : [],
-    [job, selectedArea, viewedStage, taskState],
+    [canonicalTasks, selectedArea, viewedStage],
   );
 
   // Per-task scope context (#368) for the viewed area+stage, from the job's
