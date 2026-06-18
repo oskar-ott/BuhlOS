@@ -51,6 +51,7 @@ const {
 } = require('./_lib/job-tasks');
 const { appendAudit: appendLegacyAudit } = require('./_lib/job-audit');
 const { append: appendAuditLog } = require('./_lib/audit-log');
+const { idempotencyKeyFrom, findIdempotent, recordIdempotent } = require('./_lib/idempotency');
 
 const VALID_KINDS = new Set(['photo', 'note']);
 const VALID_STAGES = new Set(['roughIn', 'fitOff']);
@@ -181,6 +182,20 @@ async function createEvidence(req, res, user, jobId) {
   }
 
   const body = req.body || {};
+
+  // Read the per-job document up front so a replay-safe (#497) check runs before
+  // any side effect. A retry carrying the same idempotency key returns the
+  // already-created evidence item — no second append, no duplicate audit/push.
+  const KEY = dataKey(jobId);
+  const data = await readBlob(KEY, emptyData());
+  if (!Array.isArray(data.evidence)) data.evidence = [];
+
+  const idemKey = idempotencyKeyFrom(req);
+  const replay = idemKey ? findIdempotent(data, idemKey) : null;
+  if (replay) {
+    return res.status(201).json({ evidenceItem: replay, idempotentReplay: true });
+  }
+
   const nowIso = new Date().toISOString();
   const item = {
     id: nanoid('ev_'),
@@ -237,10 +252,10 @@ async function createEvidence(req, res, user, jobId) {
   }).catch(() => null);
   if (auditEntry && auditEntry.id) item.auditLogIds.push(auditEntry.id);
 
-  const KEY = dataKey(jobId);
-  const data = await readBlob(KEY, emptyData());
-  if (!Array.isArray(data.evidence)) data.evidence = [];
   data.evidence.push(item);
+  // Persist the idempotency key alongside the item in the same write, so a later
+  // retry with this key resolves to this exact item (#497).
+  recordIdempotent(data, idemKey, item);
 
   try {
     await writeBlob(KEY, data);
