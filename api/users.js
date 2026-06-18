@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { list } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
+const { writeGuardErrorResponse } = require('./_lib/blob-guards');
 const { cronAuthState } = require('./_lib/cron-auth');
 const { requireAuth, getCurrentUser, canManageJob, isStaffRole, isFieldRole, isLeadingHandRole, isDisabledUser, isClientRole } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
@@ -154,15 +155,17 @@ module.exports = async (req, res) => {
     if (removed.length) {
       data.users = kept;
       try {
-      await writeBlob('users.json', data, { expectedRev: data.__rev });
-    } catch (e) {
-      if (e && e.code === 'stale_write') {
-        // #157: users.json moved underneath this edit (concurrent admin /
-        // sweep / push-prune). Retryable — re-read and re-apply.
-        return res.status(409).json({ error: 'conflict', currentRev: e.currentRev });
+        // Deliberate bulk removal of reaped archived users — allowShrink so a
+        // >20% drop (e.g. 13→10) does not trip the shrink guard and 500 the cron
+        // (#512). expectedRev still guards against a concurrent edit.
+        await writeBlob('users.json', data, { expectedRev: data.__rev, allowShrink: true });
+      } catch (e) {
+        // Clean operator-facing error for any tripped guard (stale_write → 409,
+        // etc.) instead of a generic 500.
+        const mapped = writeGuardErrorResponse(e);
+        if (mapped) return res.status(mapped.status).json(mapped.body);
+        throw e;
       }
-      throw e;
-    }
     }
     return res.status(200).json({ ok: true, removed, removedCount: removed.length });
   }
