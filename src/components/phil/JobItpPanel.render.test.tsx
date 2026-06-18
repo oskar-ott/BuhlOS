@@ -7,17 +7,19 @@ import type { Job } from "@/domains/jobs/types";
 const job = { id: "j", name: "J", status: "active" } as unknown as Job;
 
 /**
- * Field-language guard for the checks panel. The heading leads with "Checks"
- * (plain field language) while the description keeps "(ITPs)" for recognition,
- * and the empty state is honest + plain. No office/module jargon, no fake state.
+ * Field-language guard for the checks panel: site language to leaf (#516, P11).
+ * The heading AND the description speak "Checks" — the "(ITPs)" parenthetical is
+ * gone so no screen shows both dialects for the same thing. Empty state honest +
+ * plain. No office/module jargon, no fake state.
  */
 describe("JobItpPanel — field language", () => {
-  it("leads with 'Checks', keeping ITP recognisable in the description", () => {
+  it("leads with 'Checks' and the description no longer carries the '(ITPs)' parenthetical", () => {
     const html = renderToString(
       createElement(JobItpPanel, { job, initialItps: [] }),
     );
     expect(html).toContain("Checks");
-    expect(html).toContain("ITPs"); // retained for recognition, not the lead label
+    expect(html).toContain("Inspection checks for this job");
+    expect(html).not.toContain("(ITPs)"); // P11 — one dialect per thing
   });
 
   it("shows an honest, plain empty state", () => {
