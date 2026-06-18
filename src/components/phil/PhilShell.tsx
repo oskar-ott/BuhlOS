@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { PhilHeader } from "./PhilHeader";
 import { PhilTabBar } from "./PhilTabBar";
 import { CaptureLauncherProvider } from "./captureLauncherContext";
+import { PhilOfflineBanner } from "./PhilOfflineBanner";
 import { PwaRegistrar } from "@/components/pwa/PwaRegistrar";
 
 interface PhilShellProps {
@@ -34,7 +35,10 @@ export function PhilShell({ children, title }: PhilShellProps) {
       <CaptureLauncherProvider>
         {/* Subtle-grey content surface so the white `surface-raised` cards
             lift off the page instead of blending into a flat-white shell. */}
-        <main className="flex-1 overflow-y-auto bg-surface-subtle px-4 py-4">{children}</main>
+        <main className="flex-1 overflow-y-auto bg-surface-subtle px-4 py-4">
+          <PhilOfflineBanner />
+          {children}
+        </main>
         <PhilTabBar />
       </CaptureLauncherProvider>
       <PwaRegistrar />

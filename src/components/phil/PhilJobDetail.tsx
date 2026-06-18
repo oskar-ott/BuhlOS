@@ -22,6 +22,7 @@ import {
 import { taskBlockersFromObservations } from "@/domains/observations/task-blockers";
 import { buildPhilJobCommandModel } from "@/domains/phil/job-command-model";
 import { philJobCommandInputFromJobData } from "@/domains/phil/job-command-input";
+import { philWrite } from "@/domains/phil/write-client";
 import { confirmInduction, type InductionRecord } from "@/domains/jobs/induction";
 import { JobTagsPanel } from "./JobTagsPanel";
 import { buildAreaTaskContext } from "./philTaskContext";
@@ -400,49 +401,29 @@ export function PhilJobDetail({
         set.add(taskId);
         return set;
       });
-      try {
-        const res = await fetch(
-          `/api/task-toggle?jobId=${encodeURIComponent(job.id)}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              areaId,
-              stage: stageForWrite,
-              taskId,
-              state: next,
-            }),
-          },
-        );
-        if (!res.ok) {
-          let message = `Couldn't save that change (server returned ${res.status}).`;
-          try {
-            const body = await res.json();
-            if (body && typeof body.error === "string") message = body.error;
-          } catch {
-            /* keep the default message */
-          }
-          throw new Error(message);
-        }
-        const confirmed = parseTaskToggleResult(await res.json().catch(() => null));
-        if (!confirmed) {
-          throw new Error("Unexpected task update response.");
-        }
+      // Routed through philWrite: a bounded 15s timeout (no infinite "saving"
+      // spinner), an offline pre-check, and one honest message per failure
+      // mode. Still NON-OPTIMISTIC — task state only advances on a confirmed
+      // server reply, so a failed write never leaves a task showing as done.
+      const result = await philWrite(
+        `/api/task-toggle?jobId=${encodeURIComponent(job.id)}`,
+        { areaId, stage: stageForWrite, taskId, state: next },
+        (raw) => parseTaskToggleResult(raw),
+      );
+      setPendingTaskIds((prev) => {
+        const set = new Set(prev);
+        set.delete(taskId);
+        return set;
+      });
+      if (result.ok) {
         setTaskState((prev) =>
-          applyTaskState(prev, areaId, stageForWrite, taskId, confirmed),
+          applyTaskState(prev, areaId, stageForWrite, taskId, result.data),
         );
-      } catch (err) {
+      } else if (result.error.kind !== "cancelled") {
         setTaskError(
-          err instanceof Error
-            ? err.message
-            : "Couldn't save that change. Check your signal and try again.",
+          result.error.message ||
+            "Couldn't save that change. Check your signal and try again.",
         );
-      } finally {
-        setPendingTaskIds((prev) => {
-          const set = new Set(prev);
-          set.delete(taskId);
-          return set;
-        });
       }
     },
     [job.id, selectedArea, viewedStage],
