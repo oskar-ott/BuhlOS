@@ -49,6 +49,17 @@ no duplicate snag and no second notification. The stored `result` is the exact
 `{ snag, autoAssigned }` payload, so the replay is byte-identical. Covered by
 `src/domains/snags/snag-quick-raise-idempotency-api.test.ts`.
 
+## Wired: observation create (`api/observations.js`)
+
+Both create paths — the job-scoped observation and the "send to office" item —
+read `observations.json` up front and check the key **before any side effect**
+(the append, the `observation.created` audit, and, for office items, the admin
+push fan-out), returning `{ observation, idempotentReplay: true }` on a hit. The
+ledger lives on the cross-job `observations.json` store doc itself (not a per-job
+`data.json`), which the bounded ring handles unchanged. This is the path the
+offline capture queue (#143) replays when a worker sends evidence/notes from a
+dead zone. Covered by `src/domains/observations/observations-create-idempotency-api.test.ts`.
+
 ## Adopt next (same three-line pattern)
 
 Each appends to `jobs/<jobId>/data.json` and should read → `findIdempotent` →
