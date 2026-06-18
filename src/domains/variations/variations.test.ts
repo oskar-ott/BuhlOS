@@ -398,3 +398,272 @@ describe("schema", () => {
     expect(() => VariationApprovalRecordSchema.parse({ ...record(), status: "shipped" })).toThrow();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Variation CLAIM module (#280) — the billable claim (scope/value/evidence)
+// that sits beside the approval-state workflow above.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { VariationClaimRecordSchema } from "./claim-schema";
+import type {
+  VariationApprovalEvidence,
+  VariationClaimRecord,
+} from "./claim-types";
+import {
+  canTransitionClaimStatus,
+  createVariationClaim,
+  isApprovalEvidenceComplete,
+  nextClaimRef,
+  summariseVariationClaims,
+  transitionVariationClaim,
+} from "./claim-service";
+import { formatClaimValue, variationClaimStatusLabel } from "./claim-format";
+
+const CLAIM_AT = "2026-06-19T00:00:00.000Z";
+
+function claim(over: Partial<VariationClaimRecord> = {}): VariationClaimRecord {
+  return VariationClaimRecordSchema.parse({
+    id: "vc_1",
+    jobId: "job_100arthur",
+    ref: "VO-001",
+    scope: "Extra GPOs, East Gym",
+    status: "draft",
+    valueCents: 123450,
+    createdAt: "2026-06-18T00:00:00.000Z",
+    ...over,
+  });
+}
+
+const FULL_EVIDENCE: VariationApprovalEvidence = {
+  approvedBy: "Jane Builder",
+  approvedAt: "2026-06-19T01:00:00.000Z",
+  method: "email",
+  reference: "RE: VO-001 approved — see thread",
+};
+
+describe("claim factory + schema", () => {
+  it("stamps a draft claim with the supplied ref + value + empty links", () => {
+    const rec = createVariationClaim(
+      {
+        id: "vc_2",
+        jobId: "job-1",
+        ref: "VO-002",
+        scope: "Move the board",
+        valueCents: 50000,
+        createdById: "u_admin",
+        createdByName: "Admin",
+      },
+      CLAIM_AT,
+    );
+    expect(rec.status).toBe("draft");
+    expect(rec.ref).toBe("VO-002");
+    expect(rec.valueCents).toBe(50000);
+    expect(rec.approval).toBeNull();
+    expect(rec.links).toEqual({ observationId: null, evidenceIds: [], documentIds: [] });
+    expect(rec.createdAt).toBe(CLAIM_AT);
+    expect(rec.auditLogIds).toEqual([]);
+  });
+
+  it("defaults valueCents to null and the audit array to empty", () => {
+    const rec = VariationClaimRecordSchema.parse({
+      id: "vc_x",
+      jobId: "j",
+      ref: "VO-009",
+      scope: "s",
+      status: "draft",
+      createdAt: CLAIM_AT,
+    });
+    expect(rec.valueCents).toBeNull();
+    expect(rec.auditLogIds).toEqual([]);
+    expect(rec.approval).toBeNull();
+  });
+
+  it("rejects an out-of-enum claim status", () => {
+    expect(() =>
+      VariationClaimRecordSchema.parse({ ...claim(), status: "shipped" }),
+    ).toThrow();
+  });
+
+  it("rejects a non-integer valueCents", () => {
+    expect(() =>
+      VariationClaimRecordSchema.parse({ ...claim(), valueCents: 12.5 }),
+    ).toThrow();
+  });
+});
+
+describe("nextClaimRef — collision-safe, zero-padded", () => {
+  it("starts at VO-001 with no existing claims", () => {
+    expect(nextClaimRef([])).toBe("VO-001");
+  });
+
+  it("takes max+1, not count+1 (a removed claim never re-mints a live ref)", () => {
+    // count is 2 but the live refs are VO-001 and VO-005 → next is VO-006.
+    expect(nextClaimRef([{ ref: "VO-001" }, { ref: "VO-005" }])).toBe("VO-006");
+  });
+
+  it("ignores malformed refs", () => {
+    expect(nextClaimRef([{ ref: "garbage" }, { ref: null }, { ref: "VO-003" }])).toBe("VO-004");
+  });
+
+  it("zero-pads to three digits and grows past them", () => {
+    expect(nextClaimRef([{ ref: "VO-009" }])).toBe("VO-010");
+    expect(nextClaimRef([{ ref: "VO-999" }])).toBe("VO-1000");
+  });
+});
+
+describe("claim transition table", () => {
+  it("allows the forward pipeline incl. the skip-quote shortcut", () => {
+    expect(canTransitionClaimStatus("draft", "quoted")).toBe(true);
+    expect(canTransitionClaimStatus("draft", "submitted")).toBe(true);
+    expect(canTransitionClaimStatus("quoted", "submitted")).toBe(true);
+    expect(canTransitionClaimStatus("submitted", "approved")).toBe(true);
+    expect(canTransitionClaimStatus("submitted", "rejected")).toBe(true);
+    expect(canTransitionClaimStatus("approved", "invoiced")).toBe(true);
+  });
+
+  it("allows re-work back to draft from quoted/submitted/rejected", () => {
+    expect(canTransitionClaimStatus("quoted", "draft")).toBe(true);
+    expect(canTransitionClaimStatus("submitted", "draft")).toBe(true);
+    expect(canTransitionClaimStatus("rejected", "draft")).toBe(true);
+  });
+
+  it("forbids skipping the gate (draft → approved) and going backwards from invoiced", () => {
+    expect(canTransitionClaimStatus("draft", "approved")).toBe(false);
+    expect(canTransitionClaimStatus("draft", "invoiced")).toBe(false);
+    expect(canTransitionClaimStatus("invoiced", "draft")).toBe(false);
+    expect(canTransitionClaimStatus("approved", "rejected")).toBe(false);
+  });
+});
+
+describe("approval-evidence gate", () => {
+  it("isApprovalEvidenceComplete requires all four fields + a valid method", () => {
+    expect(isApprovalEvidenceComplete(FULL_EVIDENCE)).toBe(true);
+    expect(isApprovalEvidenceComplete(null)).toBe(false);
+    expect(isApprovalEvidenceComplete({ ...FULL_EVIDENCE, approvedBy: "" })).toBe(false);
+    expect(isApprovalEvidenceComplete({ ...FULL_EVIDENCE, approvedAt: "  " })).toBe(false);
+    expect(isApprovalEvidenceComplete({ ...FULL_EVIDENCE, reference: "" })).toBe(false);
+    expect(
+      isApprovalEvidenceComplete({
+        ...FULL_EVIDENCE,
+        method: "carrier-pigeon" as VariationApprovalEvidence["method"],
+      }),
+    ).toBe(false);
+  });
+
+  it("approve WITHOUT evidence is rejected and leaves the record untouched", () => {
+    const submitted = claim({ status: "submitted" });
+    const r = transitionVariationClaim(submitted, {
+      type: "approve",
+      at: CLAIM_AT,
+      approval: { ...FULL_EVIDENCE, reference: "" },
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("missing_approval_evidence");
+    expect(r.record.status).toBe("submitted");
+    expect(r.record.approval).toBeNull();
+  });
+
+  it("approve WITH evidence stamps the evidence and moves to approved", () => {
+    const submitted = claim({ status: "submitted" });
+    const r = transitionVariationClaim(submitted, {
+      type: "approve",
+      at: CLAIM_AT,
+      approval: FULL_EVIDENCE,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.record.status).toBe("approved");
+    expect(r.record.approval).toEqual(FULL_EVIDENCE);
+    expect(r.record.updatedAt).toBe(CLAIM_AT);
+  });
+
+  it("does not mutate the input record", () => {
+    const submitted = claim({ status: "submitted" });
+    transitionVariationClaim(submitted, { type: "approve", at: CLAIM_AT, approval: FULL_EVIDENCE });
+    expect(submitted.status).toBe("submitted");
+    expect(submitted.approval).toBeNull();
+  });
+});
+
+describe("invoice transition", () => {
+  it("rejects marking invoiced without a reference", () => {
+    const approved = claim({ status: "approved", approval: FULL_EVIDENCE });
+    const r = transitionVariationClaim(approved, { type: "invoice", at: CLAIM_AT, invoiceRef: "  " });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("missing_invoice_ref");
+    expect(r.record.status).toBe("approved");
+  });
+
+  it("stores a trimmed manual invoice reference", () => {
+    const approved = claim({ status: "approved", approval: FULL_EVIDENCE });
+    const r = transitionVariationClaim(approved, {
+      type: "invoice",
+      at: CLAIM_AT,
+      invoiceRef: "  INV-2026-0042  ",
+    });
+    expect(r.ok).toBe(true);
+    expect(r.record.status).toBe("invoiced");
+    expect(r.record.invoiceRef).toBe("INV-2026-0042");
+    expect(r.record.invoicedAt).toBe(CLAIM_AT);
+  });
+
+  it("rejects an invalid structural transition (draft → invoiced)", () => {
+    const r = transitionVariationClaim(claim({ status: "draft" }), {
+      type: "invoice",
+      at: CLAIM_AT,
+      invoiceRef: "INV-1",
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("invalid_transition");
+  });
+});
+
+describe("summariseVariationClaims — integer-cents rollup, no float drift", () => {
+  it("buckets value by status and never floats", () => {
+    const list = [
+      claim({ id: "a", status: "draft", valueCents: 10000 }),
+      claim({ id: "b", status: "quoted", valueCents: 20000 }),
+      claim({ id: "c", status: "submitted", valueCents: 30000 }),
+      claim({ id: "d", status: "approved", valueCents: 40000, approval: FULL_EVIDENCE }),
+      claim({ id: "e", status: "invoiced", valueCents: 50000, invoiceRef: "INV-1" }),
+      claim({ id: "f", status: "rejected", valueCents: 60000 }),
+    ];
+    const r = summariseVariationClaims(list);
+    expect(r.openCents).toBe(60000); // draft + quoted + submitted
+    expect(r.approvedCents).toBe(40000);
+    expect(r.invoicedCents).toBe(50000);
+    expect(r.lostCents).toBe(60000);
+    expect(r.totalCents).toBe(150000); // open + approved + invoiced (not lost)
+    expect(r.total).toBe(6);
+    expect(r.counts.draft).toBe(1);
+    expect(r.counts.rejected).toBe(1);
+    // The hazard a float convention would hit: 0.1 + 0.2 ≠ 0.3 in dollars.
+    const cents = summariseVariationClaims([
+      claim({ id: "g", status: "draft", valueCents: 10 }),
+      claim({ id: "h", status: "draft", valueCents: 20 }),
+    ]);
+    expect(cents.openCents).toBe(30);
+  });
+
+  it("treats a null value as 0 and counts an empty list cleanly", () => {
+    const r = summariseVariationClaims([claim({ status: "draft", valueCents: null })]);
+    expect(r.openCents).toBe(0);
+    const empty = summariseVariationClaims([]);
+    expect(empty.total).toBe(0);
+    expect(empty.totalCents).toBe(0);
+    expect(empty.counts.approved).toBe(0);
+  });
+});
+
+describe("claim format helpers", () => {
+  it("labels every status in site language", () => {
+    expect(variationClaimStatusLabel("draft")).toBe("Draft");
+    expect(variationClaimStatusLabel("invoiced")).toBe("Invoiced");
+  });
+
+  it("formats integer cents as a dollar string", () => {
+    expect(formatClaimValue(123450)).toBe("$1,234.50");
+    expect(formatClaimValue(0)).toBe("$0.00");
+    expect(formatClaimValue(5)).toBe("$0.05");
+    expect(formatClaimValue(null)).toBe("—");
+  });
+});
