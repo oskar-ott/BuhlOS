@@ -47,8 +47,10 @@ project only**:
 - `FLAG_SUPABASE_READ_HEALTH=1`
 
 Then sign in as an admin and hit `/api/supabase-health`. A healthy response
-shows `publicTables: 31`, `migrations: 2`, and a `PostgreSQL …` server string —
-the same facts the dev database mirrors from production.
+shows a non-zero `publicTables` (31 base tables at the dev schema today),
+a `migrations` count (2 today), and a `PostgreSQL …` server string. Those
+figures are read live from the dev database and will drift if its schema
+changes — they're a liveness signal, not invariants.
 
 Production is intentionally left unwired; the flag stays off there.
 

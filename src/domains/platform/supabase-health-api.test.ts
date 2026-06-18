@@ -20,7 +20,7 @@ const handlerPath = requireFromHere.resolve("../../../api/supabase-health.js");
 let auth: { signSession: (p: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: ReturnType<typeof createRes>) => Promise<unknown>;
 let getDbCalls: number;
-let dbMode: "ok" | "fail";
+let dbMode: "ok" | "fail" | "guard-throw";
 let blob: Map<string, unknown>;
 
 function clone<T>(v: T): T {
@@ -134,6 +134,12 @@ beforeEach(() => {
     exports: {
       getDb: vi.fn(() => {
         getDbCalls++;
+        // The supabase-env guard throws SYNCHRONOUSLY inside the real getDb()
+        // on a misconfigured / production-without-env runtime — simulate that
+        // so the headline "guarded → fails closed → 502" path is pinned.
+        if (dbMode === "guard-throw") {
+          throw Object.assign(new Error("SUPABASE_ENV is not set"), { code: "MISSING_ENV" });
+        }
         return fakeSql;
       }),
       closeDb: vi.fn(async () => {}),
@@ -179,6 +185,16 @@ describe("GET /api/supabase-health (#533 read-only proving slice)", () => {
     expect(body.enabled).toBe(true);
     expect(body.ok).toBe(false);
     expect(String(body.error)).toContain("28P01");
+  });
+
+  it("flag on + admin + the env guard throws inside getDb → 502 (the 'fails closed' path)", async () => {
+    process.env.FLAG_SUPABASE_READ_HEALTH = "true";
+    dbMode = "guard-throw";
+    const res = await call({ role: "boss" });
+    expect(res.statusCode).toBe(502);
+    const body = res.body as Record<string, unknown>;
+    expect(body.ok).toBe(false);
+    expect(String(body.error)).toContain("MISSING_ENV");
   });
 
   it("403s a field worker even with the flag on, and never touches the DB", async () => {

@@ -50,7 +50,7 @@ module.exports = async (req, res) => {
     // never a silent connection or write.
     const sql = getDb({ mode: 'read' });
     const [tables, migrations, version] = await Promise.all([
-      sql`select count(*)::int as n from information_schema.tables where table_schema = 'public'`,
+      sql`select count(*)::int as n from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'`,
       sql`select count(*)::int as n from supabase_migrations.schema_migrations`,
       sql`select version() as v`,
     ]);
