@@ -6,20 +6,22 @@
 //   - Purge every legacy static-shell cache left behind by the
 //     pre-cutover service worker (v1–v8 cached the old /admin shell)
 //
-// v10 (#135 Layer 1 — honest offline fallback): the modern Next.js app
-// still ships its own immutable /_next/static assets (the browser HTTP
-// cache handles those), and this worker STILL never serves modern HTML or
-// shell JS from a cache — that is exactly how the old layouts kept
-// resurrecting after deploys. The ONE thing it now caches is a single
-// self-contained fallback page (/offline.html, no external assets): when a
-// navigation fails with no signal, the worker serves it instead of the
-// browser's dead-dinosaur error (constitution P8 — degrade honestly, never
-// a blank screen). Caching last-loaded job/my-day/plans data is the
-// separate Layer 2; this layer carries no user data and no stale-API risk.
+// v11 (#135 Layer 2 — offline read cache): the worker is push-only PLUS a
+// NETWORK-FIRST offline read cache for the field worker's own pages. When
+// online, navigations always return the live network response (never stale —
+// network-first is what keeps the old layouts from resurrecting); a clone of
+// each successful /phil/* page and the immutable /_next/static assets it
+// pulls is stored per-device. When offline, the worker serves that worker's
+// last-seen copy of THE SAME page (styled + readable), or the self-contained
+// /offline.html fallback if the page was never opened. Non-navigation app/API
+// requests (and anything cross-origin, e.g. Blob photos) are never
+// intercepted, so no stale API data is served (constitution P8 — degrade
+// honestly from cache, never a blank screen).
 //
-// The activate handler deletes every OTHER cache (buhl-shell-v1..v8 and any
-// prior sw cache), keeping only the current version's fallback cache, so
-// stale shells still come clean on first fetch of this version.
+// Caches are version-scoped (a deploy bumps SW_VERSION → activate drops the
+// old ones) AND the page cache is purged on sign-out by the client (it deletes
+// any '-pages' cache) so a shared device never serves the previous worker's
+// pages. The activate handler also clears every legacy buhl-shell-v1..v8 cache.
 //
 // Push stays: the daily hour-reminder crons, office-inbox fan-out and
 // snag digests (api/notifications.js) deliver through this worker, and
@@ -29,8 +31,13 @@
 //
 // Bump SW_VERSION on any behavioural change so the byte-diff update
 // check rolls the fleet (scripts/check-sw-cache-version.js enforces).
-const SW_VERSION = 'buhl-sw-v10';
+const SW_VERSION = 'buhl-sw-v11';
 const OFFLINE_URL = '/offline.html';
+// Per-version runtime caches (#135 Layer 2). Version-scoped so a deploy drops
+// them; PAGE_CACHE is also purged on sign-out (client deletes any '-pages').
+const PAGE_CACHE = SW_VERSION + '-pages';
+const ASSET_CACHE = SW_VERSION + '-assets';
+const PAGE_CACHE_MAX = 40; // bound growth — FIFO-trim the oldest cached page
 
 self.addEventListener('install', (event) => {
   // Precache only the self-contained offline fallback, then take over.
@@ -40,26 +47,70 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    // Drop every cache except this version's (clears buhl-shell-v1..v8 and
-    // any prior sw cache); modern HTML/JS is still never served from cache.
+    // Keep this version's caches (fallback + pages + assets); drop everything
+    // else (buhl-shell-v1..v8 and any prior sw version), so stale shells and
+    // stale cached pages come clean on first fetch of this version.
+    const keep = new Set([SW_VERSION, PAGE_CACHE, ASSET_CACHE]);
     const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => k !== SW_VERSION).map((k) => caches.delete(k)));
+    await Promise.all(keys.filter((k) => !keep.has(k)).map((k) => caches.delete(k)));
     await self.clients.claim();
   })());
 });
 
-// Fetch: network-first for NAVIGATIONS only, with the offline page as the
-// sole cached fallback. Non-navigation requests (assets, API) are never
-// intercepted — they go straight to the network exactly as before, so no
-// stale HTML/JS/API data can be served. Online behaviour is unchanged.
+async function cachePage(request, response) {
+  const cache = await caches.open(PAGE_CACHE);
+  await cache.put(request, response);
+  const keys = await cache.keys();
+  // keys() is insertion-ordered → deleting the front is FIFO eviction.
+  for (let i = 0; i < keys.length - PAGE_CACHE_MAX; i += 1) await cache.delete(keys[i]);
+}
+
+// Fetch strategy (GET only):
+//   1. /phil/* navigations → NETWORK-FIRST: live page when online (+ cache a
+//      clone per-device); offline → that worker's last-seen copy of this page,
+//      else /offline.html.
+//   2. same-origin /_next/static/* (immutable hashed build assets) → CACHE-
+//      FIRST, so a cached page renders styled + interactive offline.
+//   Everything else (APIs, cross-origin Blob photos, other origins) is NOT
+//   intercepted — no stale API data is ever served.
 self.addEventListener('fetch', (event) => {
-  if (event.request.mode !== 'navigate') return;
-  event.respondWith(
-    fetch(event.request).catch(async () => {
-      const cache = await caches.open(SW_VERSION);
-      return (await cache.match(OFFLINE_URL)) || Response.error();
-    }),
-  );
+  const { request } = event;
+  if (request.method !== 'GET') return;
+  let url;
+  try { url = new URL(request.url); } catch (e) { return; }
+  const sameOrigin = url.origin === self.location.origin;
+
+  if (request.mode === 'navigate') {
+    const isPhil = sameOrigin && url.pathname.startsWith('/phil/');
+    event.respondWith((async () => {
+      try {
+        const response = await fetch(request);
+        if (isPhil && response && response.ok) {
+          event.waitUntil(cachePage(request, response.clone()));
+        }
+        return response;
+      } catch (e) {
+        if (isPhil) {
+          const cached = await caches.open(PAGE_CACHE).then((c) => c.match(request));
+          if (cached) return cached;
+        }
+        const fallback = await caches.open(SW_VERSION).then((c) => c.match(OFFLINE_URL));
+        return fallback || Response.error();
+      }
+    })());
+    return;
+  }
+
+  if (sameOrigin && url.pathname.startsWith('/_next/static/')) {
+    event.respondWith((async () => {
+      const cache = await caches.open(ASSET_CACHE);
+      const hit = await cache.match(request);
+      if (hit) return hit;
+      const response = await fetch(request);
+      if (response && response.ok) event.waitUntil(cache.put(request, response.clone()));
+      return response;
+    })());
+  }
 });
 
 // ── Push: show a notification ───────────────────────────────
