@@ -61,14 +61,14 @@ export function PhilJobAreaCard({
   if (counts.snags > 0) {
     countChips.push({
       icon: AlertOctagon,
-      label: counts.snags === 1 ? "1 snag" : `${counts.snags} snags`,
+      label: counts.snags === 1 ? "1 issue" : `${counts.snags} issues`,
       accent: "text-state-danger",
     });
   }
   if (counts.itps > 0) {
     countChips.push({
       icon: ClipboardCheck,
-      label: counts.itps === 1 ? "1 ITP" : `${counts.itps} ITPs`,
+      label: counts.itps === 1 ? "1 check" : `${counts.itps} checks`,
       accent: "text-state-info",
     });
   }
@@ -83,10 +83,10 @@ export function PhilJobAreaCard({
   const ariaSummary = [
     stageChips.length ? stageChips.join(" and ") : null,
     counts.snags > 0
-      ? `${counts.snags} ${counts.snags === 1 ? "snag" : "snags"}`
+      ? `${counts.snags} ${counts.snags === 1 ? "issue" : "issues"}`
       : null,
     counts.itps > 0
-      ? `${counts.itps} ${counts.itps === 1 ? "ITP" : "ITPs"}`
+      ? `${counts.itps} ${counts.itps === 1 ? "check" : "checks"}`
       : null,
     counts.photos > 0
       ? `${counts.photos} ${counts.photos === 1 ? "photo" : "photos"}`
