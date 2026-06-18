@@ -25,6 +25,7 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, isLeadingHandRole, isClientRole } = require('./_lib/auth');
 const { notify } = require('./_lib/notify');
+const { idempotencyKeyFrom, findIdempotent, recordIdempotent } = require('./_lib/idempotency');
 
 const VALID_PRIORITY = new Set(['High', 'Medium', 'Low']);
 const MAX_DESC = 1000;
@@ -72,6 +73,22 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: `desc too long (max ${MAX_DESC})` });
   }
   if (!VALID_PRIORITY.has(priority)) priority = 'Medium';
+
+  // Read the per-job document up front so the replay-safe (#497) check runs
+  // BEFORE any side effect (the snag append + the assignee push). A retry
+  // carrying the same idempotency key — a snag queued on a dead connection and
+  // replayed on reconnect, or retried after a lost-response timeout — returns
+  // the original snag instead of creating a duplicate. No key → behaviour
+  // unchanged. Mirrors api/evidence.js create (docs/architecture/phil-write-idempotency.md).
+  const KEY = `jobs/${jobId}/data.json`;
+  const data = await readBlob(KEY, { dwellings: {}, snags: [], notes: [] });
+  data.snags = Array.isArray(data.snags) ? data.snags : [];
+
+  const idemKey = idempotencyKeyFrom(req);
+  const replay = idemKey ? findIdempotent(data, idemKey) : null;
+  if (replay) {
+    return res.status(201).json({ ...replay, idempotentReplay: true });
+  }
 
   // Verify the dwelling exists on the job.
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });
@@ -134,11 +151,12 @@ module.exports = async (req, res) => {
     }
   }
 
-  // Read → append → write.
-  const KEY = `jobs/${jobId}/data.json`;
-  const data = await readBlob(KEY, { dwellings: {}, snags: [], notes: [] });
-  data.snags = Array.isArray(data.snags) ? data.snags : [];
+  // Append → write. `data`/`KEY` were read up front for the replay check above.
   data.snags.push(snag);
+  // Persist the idempotency key with the snag in the SAME write, so a later
+  // retry with this key resolves to this exact result instead of appending a
+  // second snag (#497). No-op when no key was supplied.
+  recordIdempotent(data, idemKey, { snag, autoAssigned });
   try {
     await writeBlob(KEY, data);
   } catch (e) {
