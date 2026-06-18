@@ -74,6 +74,15 @@ read intent can only over-protect. Error codes are stable and tested
 `INVALID_MODE`, `REF_URL_MISMATCH`, `PROD_REF_IN_NON_PROD_ENV`,
 `PROD_REF_IN_NON_PROD_RUNTIME`, `PROD_WRITES_NOT_ALLOWED`, `BROWSER_CONTEXT`.
 
+The guard is **per call, not per process**. `getDb()`
+([`api/_lib/supabase-db.js`](../api/_lib/supabase-db.js)) caches one pooled
+connection per warm serverless instance, but re-runs the guard with *this*
+caller's `mode` on every call — including cache hits. The check is pure and
+network-free, so a singleton first built by a read caller still forces a later
+write caller in the same instance to satisfy `SUPABASE_ALLOW_PRODUCTION_WRITES`;
+the per-mode protection never degrades to per-process
+(`src/domains/platform/supabase-db.test.ts`).
+
 ## Current status (2026-06-12)
 
 - Guard + tests exist; **nothing calls the guard yet** — no DB client
