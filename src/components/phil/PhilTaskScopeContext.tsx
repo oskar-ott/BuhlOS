@@ -12,7 +12,7 @@ import {
   type PhilTaskContext,
   type TaskContextEvidenceReq,
 } from "@/domains/job-control/task-context";
-import type { GoverningDocRef, WorkPackageMaterial } from "@/domains/job-control/types";
+import type { GoverningDocRef, TaskRef, WorkPackageMaterial } from "@/domains/job-control/types";
 import { proofStatusMessage, type ProofActionStatus } from "./jobControlEvidenceLinkClient";
 
 /**
@@ -55,7 +55,7 @@ export function PhilTaskScopeContext({
   context: PhilTaskContext;
   /** Capture proof for a specific unmet requirement. When omitted, no capture
    *  affordance renders (read-only context, today's behavior). */
-  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string }) => void;
+  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskRef?: TaskRef }) => void;
   /** Per-requirement (requiredEvidenceId → status) action feedback. */
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   /** Whether a capture+link can run now (a job-control revision is available).
@@ -168,7 +168,13 @@ export function PhilTaskScopeContext({
                       <ProofAction
                         status={proofActionState?.[e.id]}
                         onCapture={() =>
-                          onCaptureProof?.({ workPackageId: workPackageId as string, requiredEvidenceId: e.id })
+                          onCaptureProof?.({
+                            workPackageId: workPackageId as string,
+                            requiredEvidenceId: e.id,
+                            // scope the link to the requirement's own task when it is
+                            // task-authored (#502); package-level requirement → no taskRef
+                            ...(e.taskRef ? { taskRef: e.taskRef } : {}),
+                          })
                         }
                       />
                     ) : null}

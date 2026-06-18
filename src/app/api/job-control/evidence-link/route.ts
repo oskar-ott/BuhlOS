@@ -89,6 +89,8 @@ export async function POST(req: Request): Promise<NextResponse> {
       requiredEvidenceId: body.data.requiredEvidenceId,
       evidenceId: body.data.evidenceId ?? null,
       observationId: body.data.observationId ?? null,
+      // per-task scope (#502): the writer persists it + keys idempotency on it
+      taskRef: body.data.taskRef ?? null,
       role: body.data.role,
     },
     expectedRevision: body.data.expectedJobControlRevision,
