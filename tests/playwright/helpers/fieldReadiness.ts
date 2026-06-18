@@ -167,13 +167,17 @@ export async function prepareAttributedStandardDay(page: Page): Promise<void> {
   }
 
   const button = page.getByRole("button", { name: /Submit Standard day/i });
-  // The date picker now lives under the "More options" disclosure (collapsed by
-  // default to keep My Day calm). Open it so the input is visible/fillable.
-  const moreOptions = page.locator("details", { has: page.locator('input[type="date"]') });
+  // The date picker lives under the "More options" disclosure (collapsed by
+  // default; it auto-opens once a job is picked). The <details> is React-
+  // controlled, so open it with a real summary CLICK (which flows through
+  // onToggle into state) rather than setting .open imperatively — only when
+  // it's still closed, so we never accidentally toggle an already-open one.
+  const moreOptions = page.locator("details", { has: page.locator('input[type="date"]') }).first();
   if ((await moreOptions.count()) > 0) {
-    await moreOptions.first().evaluate((d) => {
-      (d as HTMLDetailsElement).open = true;
-    });
+    const isOpen = await moreOptions.evaluate((d) => (d as HTMLDetailsElement).open);
+    if (!isOpen) {
+      await page.locator("summary", { hasText: /More options/i }).first().click();
+    }
   }
   const dateInput = page.locator('input[type="date"]');
   for (let back = 0; back < 14; back++) {

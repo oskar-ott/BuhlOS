@@ -117,6 +117,12 @@ export function LogHoursSheet({
   const [customOpen, setCustomOpen] = useState(false);
   const [customHours, setCustomHours] = useState<number>(STANDARD_DAY_HOURS);
   const [splitOpen, setSplitOpen] = useState(false);
+  // "More options" (date / custom-overtime / split / note) is collapsed by
+  // default to keep the log area calm, but auto-expands the moment a job is
+  // picked from the multi-job picker — so custom/overtime is right there once
+  // the worker has chosen where the hours go. Controlled + onToggle so manual
+  // open/close still works.
+  const [moreOpen, setMoreOpen] = useState(false);
   const [state, setState] = useState<SubmitState>({ kind: "idle" });
   // Job attribution. Preselect when launched with a valid job context, else
   // auto-select the sole assigned job; multiple jobs require an explicit pick.
@@ -326,7 +332,10 @@ export function LogHoursSheet({
         <JobAttribution
           jobs={assignedJobs}
           selectedJobId={selectedJobId}
-          onSelect={setSelectedJobId}
+          onSelect={(id) => {
+            setSelectedJobId(id);
+            setMoreOpen(true); // reveal custom/overtime + the rest once a job is chosen
+          }}
           jobsError={jobsError}
           disabled={submitting}
         />
@@ -372,7 +381,11 @@ export function LogHoursSheet({
             input stays in the DOM (not display:none) so the ?fixDate= deep link
             still seeds it; the field-readiness smoke opens this disclosure
             before driving the day. */}
-        <details className={styles.moreOptions}>
+        <details
+          className={styles.moreOptions}
+          open={moreOpen}
+          onToggle={(e) => setMoreOpen(e.currentTarget.open)}
+        >
           <summary className={styles.moreOptionsSummary}>More options</summary>
           <div className="mt-3 space-y-3">
             <label className="flex flex-wrap items-center gap-2 text-xs">
