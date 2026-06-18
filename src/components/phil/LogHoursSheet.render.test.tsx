@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
+
+// LogHoursSheet calls useRouter() (router.refresh() after a successful submit).
+// Stub next/navigation for SSR — same pattern as PhilTabBar.render.test.tsx.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => {}, push: () => {}, replace: () => {} }),
+}));
+
 import { LogHoursSheet } from "./LogHoursSheet";
 
 /**

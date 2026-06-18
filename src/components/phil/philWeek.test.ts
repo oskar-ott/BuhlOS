@@ -58,9 +58,11 @@ describe("buildPhilWeek", () => {
     expect(w.counts.missed).toBe(5);
   });
 
-  it("reflects a logged today and counts it in the total", () => {
+  it("turns a logged today GREEN (logged), not the 'today' prompt, and counts it", () => {
     const w = buildPhilWeek([...WEEK, { date: TODAY, totalHours: 8 }], { todayISO: TODAY });
-    expect(w.days[4]).toMatchObject({ state: "today", hours: 8, statusWord: "today" });
+    // Once today is logged it reads as a green "logged" cell — not the yellow
+    // "today / log now" prompt.
+    expect(w.days[4]).toMatchObject({ state: "logged", hours: 8, statusWord: "logged" });
     expect(w.todayLogged).toBe(true);
     expect(w.totalHours).toBeCloseTo(39.0, 5);
   });
