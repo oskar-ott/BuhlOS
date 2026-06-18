@@ -35,8 +35,14 @@ import {
 } from "./philJobWorkTree";
 import { PhilTaskScopeContext } from "./PhilTaskScopeContext";
 import type { ProofActionStatus } from "./jobControlEvidenceLinkClient";
+import {
+  proofReviewStatusLabel,
+  proofSubmitMessage,
+  type ProofSubmitStatus,
+} from "./jobControlProofReviewClient";
 import { summarisePhilTaskProof, type PhilTaskContext } from "@/domains/job-control/task-context";
-import type { TaskRef } from "@/domains/job-control/types";
+import { taskRefKey } from "@/domains/job-control/spine";
+import type { ProofReview, TaskRef } from "@/domains/job-control/types";
 import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
 import { cn } from "@/lib/cn";
 
@@ -86,6 +92,17 @@ interface Props {
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   /** Whether a capture+link can run now (a job-control revision is available). */
   canCaptureProof?: boolean;
+  /** The area these tasks belong to — needed to build each task's coordinate for
+   *  per-task proof review (#503). Absent ⇒ no submit/review affordance. */
+  areaId?: string;
+  /** Task-instance proof reviews for this job (#503). */
+  proofReviews?: ReadonlyArray<ProofReview>;
+  /** Submit a task's captured proof for review (#503). */
+  onSubmitForReview?: (taskRef: TaskRef) => void;
+  /** Per-task (taskRefKey → status) submit feedback. */
+  proofSubmitStatus?: Readonly<Record<string, ProofSubmitStatus>>;
+  /** Whether a submit can run now (a job-control revision is available). */
+  canSubmitForReview?: boolean;
 }
 
 /**
@@ -136,6 +153,11 @@ export function PhilJobAreaDetail({
   onCaptureProof,
   proofActionState,
   canCaptureProof,
+  areaId,
+  proofReviews,
+  onSubmitForReview,
+  proofSubmitStatus,
+  canSubmitForReview,
 }: Props) {
   const links = areaQuickLinks(counts);
   const sole = soleStage(stages);
@@ -219,7 +241,16 @@ export function PhilJobAreaDetail({
         {hasAnyStage(stages) ? (
           tasks.length > 0 ? (
             <ul className="mt-2 divide-y divide-border overflow-hidden rounded-card border border-border bg-surface">
-              {tasks.map((t) => (
+              {tasks.map((t) => {
+                // Per-task proof-review (#503): the task coordinate, its current
+                // review (if any), and the submit handler — only when the parent
+                // supplied the areaId.
+                const tref: TaskRef | null = areaId ? { areaId, stage, taskId: t.id } : null;
+                const rk = tref ? taskRefKey(tref) : null;
+                const review = rk
+                  ? proofReviews?.find((r) => taskRefKey(r.taskRef) === rk) ?? null
+                  : null;
+                return (
                 <TaskRow
                   key={t.id}
                   task={t}
@@ -234,8 +265,15 @@ export function PhilJobAreaDetail({
                   onCaptureProof={onCaptureProof}
                   proofActionState={proofActionState}
                   canCaptureProof={canCaptureProof}
+                  review={review}
+                  onSubmitForReview={
+                    tref && onSubmitForReview ? () => onSubmitForReview(tref) : undefined
+                  }
+                  submitStatus={rk ? proofSubmitStatus?.[rk] : undefined}
+                  canSubmitForReview={canSubmitForReview}
                 />
-              ))}
+                );
+              })}
             </ul>
           ) : (
             <p className="mt-2 rounded-card border border-dashed border-border bg-surface-subtle p-4 text-sm text-text-muted">
@@ -334,6 +372,10 @@ function TaskRow({
   onCaptureProof,
   proofActionState,
   canCaptureProof,
+  review,
+  onSubmitForReview,
+  submitStatus,
+  canSubmitForReview,
 }: {
   task: WorkerTask;
   pending: boolean;
@@ -343,6 +385,10 @@ function TaskRow({
   onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string; taskRef?: TaskRef }) => void;
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   canCaptureProof?: boolean;
+  review?: ProofReview | null;
+  onSubmitForReview?: () => void;
+  submitStatus?: ProofSubmitStatus;
+  canSubmitForReview?: boolean;
 }) {
   const done = isComplete(task.state);
   const blocked = readiness?.readiness === "blocked";
@@ -424,6 +470,51 @@ function TaskRow({
             </span>
           </p>
         )
+      ) : null}
+      {/* Per-task proof review (#503): the current review status, then a submit /
+          resubmit affordance when proof is all captured and nothing is awaiting
+          review. */}
+      {review ? (
+        <p
+          className={cn(
+            "mt-1.5 flex items-start gap-1.5 text-xs",
+            review.status === "approved"
+              ? "text-state-success"
+              : review.status === "rejected"
+                ? "text-state-warning"
+                : "text-text-muted",
+          )}
+        >
+          <span>
+            <span className="font-display font-semibold">Review</span> — {proofReviewStatusLabel(review)}
+          </span>
+        </p>
+      ) : null}
+      {onSubmitForReview &&
+      canSubmitForReview &&
+      proof?.eligibleForReview &&
+      review?.status !== "submitted" &&
+      review?.status !== "approved" ? (
+        <div className="mt-1.5">
+          <button
+            type="button"
+            onClick={onSubmitForReview}
+            disabled={submitStatus === "submitting"}
+            className={cn(
+              "inline-flex min-h-[40px] items-center gap-1.5 rounded-pill border border-border bg-surface px-3 font-display text-xs font-semibold text-text",
+              "hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy disabled:cursor-not-allowed disabled:opacity-60",
+            )}
+          >
+            {submitStatus === "submitting"
+              ? "Submitting…"
+              : review?.status === "rejected"
+                ? "Resubmit for review"
+                : "Submit for review"}
+          </button>
+          {submitStatus && submitStatus !== "submitting" ? (
+            <span className="mt-1 block text-xs text-state-warning">{proofSubmitMessage(submitStatus)}</span>
+          ) : null}
+        </div>
       ) : null}
       {context ? (
         <PhilTaskScopeContext

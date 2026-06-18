@@ -26,11 +26,16 @@ import { confirmInduction, type InductionRecord } from "@/domains/jobs/induction
 import { JobTagsPanel } from "./JobTagsPanel";
 import { buildAreaTaskContext } from "./philTaskContext";
 import { linkAndApply, type ProofActionStatus } from "./jobControlEvidenceLinkClient";
+import {
+  submitProofForReview,
+  type ProofSubmitStatus,
+} from "./jobControlProofReviewClient";
 import { PhilJobContactsCard } from "./PhilJobContactsCard";
+import { taskRefKey } from "@/domains/job-control/spine";
 import type { JobContact } from "@/domains/contacts/schema";
 import type { TagItem } from "@/domains/tags/schema";
 import type { Job, JobStage } from "@/domains/jobs/types";
-import type { EvidenceLink, TaskRef, WorkPackage } from "@/domains/job-control/types";
+import type { EvidenceLink, ProofReview, TaskRef, WorkPackage } from "@/domains/job-control/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
 import type { ObservationItem } from "@/domains/observations/types";
@@ -106,6 +111,10 @@ interface Props {
    *  reads `met` ONLY when a real link names it — never a count. Seeds client
    *  state so a successful proof link flips it to met without a full reload. */
   evidenceLinks?: ReadonlyArray<EvidenceLink>;
+  /** Task-instance proof reviews for this job (#503). Drives the per-task review
+   *  status + the "Submit for review" affordance. Absent/empty ⇒ no task has been
+   *  submitted (the default). */
+  proofReviews?: ReadonlyArray<ProofReview>;
   /** Current job-control artifact revision (#469 stale-write precondition).
    *  Required to capture proof for a requirement; absent ⇒ the capture
    *  affordance is hidden. */
@@ -179,6 +188,7 @@ export function PhilJobDetail({
   viewer,
   workPackages,
   evidenceLinks: initialEvidenceLinks,
+  proofReviews: initialProofReviews,
   jobControlRevision,
   autoCaptureToken,
 }: Props) {
@@ -235,6 +245,13 @@ export function PhilJobDetail({
   const [evidenceLinks, setEvidenceLinks] = useState<ReadonlyArray<EvidenceLink>>(
     initialEvidenceLinks ?? []
   );
+  // Task-instance proof reviews as client state (#503), so a submit reflects
+  // immediately without a full reload. Seeded from the server read.
+  const [proofReviews, setProofReviews] = useState<ReadonlyArray<ProofReview>>(
+    initialProofReviews ?? []
+  );
+  // Transient per-task submit feedback, keyed by taskRefKey.
+  const [proofSubmitStatus, setProofSubmitStatus] = useState<Record<string, ProofSubmitStatus>>({});
   // Current artifact revision (advances on each successful link). The capture
   // affordance is hidden when this is absent.
   const [jcRevision, setJcRevision] = useState<string | undefined>(jobControlRevision);
@@ -600,6 +617,32 @@ export function PhilJobDetail({
     setPendingProofLink(null);
   }, []);
 
+  // Submit a task's captured proof for review (#503). Non-optimistic: the review
+  // is reflected ONLY after the route confirms. Keyed by taskRefKey.
+  const handleSubmitForReview = useCallback(
+    async (taskRef: TaskRef) => {
+      if (!jcRevision) return;
+      const key = taskRefKey(taskRef);
+      setProofSubmitStatus((prev) => ({ ...prev, [key]: "submitting" }));
+      const result = await submitProofForReview({ jobId: job.id, taskRef, expectedJobControlRevision: jcRevision });
+      if (result.kind === "ok") {
+        setProofReviews((prev) => [...prev.filter((r) => taskRefKey(r.taskRef) !== key), result.review]);
+        setJcRevision(result.revision);
+        setProofSubmitStatus((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      } else if (result.kind === "stale") {
+        if (result.currentRevision) setJcRevision(result.currentRevision);
+        setProofSubmitStatus((prev) => ({ ...prev, [key]: "stale" }));
+      } else {
+        setProofSubmitStatus((prev) => ({ ...prev, [key]: "error" }));
+      }
+    },
+    [jcRevision, job.id],
+  );
+
   return (
     <div className="space-y-4 pb-2">
       <div className="-mt-1">
@@ -718,6 +761,10 @@ export function PhilJobDetail({
                 onCaptureProof={handleCaptureProof}
                 proofActionState={proofStatus}
                 canCaptureProof={Boolean(jcRevision)}
+                proofReviews={proofReviews}
+                onSubmitForReview={handleSubmitForReview}
+                proofSubmitStatus={proofSubmitStatus}
+                canSubmitForReview={Boolean(jcRevision)}
               />
             </div>
           ) : null}
