@@ -310,6 +310,90 @@ describe("writeEvidenceLink", () => {
   });
 });
 
+// ── Trusted-proof guard (#513): verify the proof id exists before linking ─────
+
+describe("writeEvidenceLink — proof existence (#513)", () => {
+  /** fakeDeps + an injected proof-id loader (the production-wired check). */
+  function depsWithProofIds(
+    known: { evidenceIds?: string[]; observationIds?: string[] },
+    over: Partial<{ raw: unknown; idPrefix: string }> = {},
+  ) {
+    const base = fakeDeps(over);
+    return {
+      ...base,
+      loadKnownProofIds: vi.fn(async () => ({
+        evidenceIds: new Set(known.evidenceIds ?? []),
+        observationIds: new Set(known.observationIds ?? []),
+      })),
+    };
+  }
+
+  it("writes the link when the evidence id resolves to a real proof", async () => {
+    const deps = depsWithProofIds({ evidenceIds: ["ev_123"] });
+    const r = await writeEvidenceLink(deps, {
+      jobId: "job_1",
+      request: REQ, // evidenceId: ev_123
+      expectedRevision: deps.currentRevision!,
+      at: AT,
+    });
+    expect(r).toMatchObject({ ok: true, status: 200, created: true });
+    expect(deps.loadKnownProofIds).toHaveBeenCalledWith("job_1");
+    expect(deps.save).toHaveBeenCalledTimes(1);
+  });
+
+  it("REJECTS 404 non_existent_proof and writes nothing when the evidence id is fabricated", async () => {
+    const deps = depsWithProofIds({ evidenceIds: [] }); // ev_123 is NOT on the job
+    const r = await writeEvidenceLink(deps, {
+      jobId: "job_1",
+      request: REQ,
+      expectedRevision: deps.currentRevision!,
+      at: AT,
+    });
+    expect(r).toMatchObject({ ok: false, status: 404, reason: "non_existent_proof" });
+    expect(deps.save).not.toHaveBeenCalled();
+  });
+
+  it("REJECTS an observation id that does not exist on the job", async () => {
+    const deps = depsWithProofIds({ observationIds: ["ob_real"] });
+    const r = await writeEvidenceLink(deps, {
+      jobId: "job_1",
+      request: { workPackageId: "wp_1", requiredEvidenceId: "re1", observationId: "ob_ghost" },
+      expectedRevision: deps.currentRevision!,
+      at: AT,
+    });
+    expect(r).toMatchObject({ ok: false, status: 404, reason: "non_existent_proof" });
+    expect(deps.save).not.toHaveBeenCalled();
+  });
+
+  it("accepts a real observation id", async () => {
+    const deps = depsWithProofIds({ observationIds: ["ob_real"] });
+    const r = await writeEvidenceLink(deps, {
+      jobId: "job_1",
+      request: { workPackageId: "wp_1", requiredEvidenceId: "re1", observationId: "ob_real" },
+      expectedRevision: deps.currentRevision!,
+      at: AT,
+    });
+    expect(r.ok).toBe(true);
+    expect(deps.saved[0]!.evidenceLinks[0]!.observationId).toBe("ob_real");
+  });
+
+  it("without the loader (existing callers) existence is trusted — back-compatible", async () => {
+    const deps = fakeDeps(); // no loadKnownProofIds
+    const r = await writeEvidenceLink(deps, {
+      jobId: "job_1",
+      request: REQ,
+      expectedRevision: deps.currentRevision!,
+      at: AT,
+    });
+    expect(r).toMatchObject({ ok: true, status: 200, created: true });
+  });
+
+  it("blobEvidenceLinkDeps wires a real loadKnownProofIds", () => {
+    const deps = blobEvidenceLinkDeps();
+    expect(typeof deps.loadKnownProofIds).toBe("function");
+  });
+});
+
 // ── End-to-end: after a link is written, Phil marks the requirement met ───────
 
 describe("loop closes: written link → read → buildAreaTaskContext met", () => {

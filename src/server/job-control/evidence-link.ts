@@ -56,13 +56,17 @@ import { readJsonBlob, writeJsonBlob } from "./blob";
  * (its `put` has no conditional write) — a sub-second same-revision (TOCTOU)
  * race still remains. See docs/architecture/job-control-revision-guard.md.
  *
- * Known limitation (deferred to the per-requirement capture micro-slice):
- *   - PROOF EXISTENCE IS TRUSTED, NOT VERIFIED. The writer persists the
- *     caller-supplied `evidenceId`/`observationId` verbatim; it never invents one,
- *     but it also does NOT confirm the referenced proof exists in the job's
- *     evidence store. The intended flow saves the evidence first and passes back
- *     its id. Server-side existence verification (or invoking this writer only
- *     from the evidence-save path) is the next slice — NOT evidence-store I/O here.
+ * Proof existence (#513 — the trusted-proof loop):
+ *   - When the OPTIONAL `loadKnownProofIds` dep is wired (the production route
+ *     does), the writer VERIFIES the caller-supplied `evidenceId`/`observationId`
+ *     resolves to a real proof on the job BEFORE writing the link, and rejects
+ *     `404 non_existent_proof` otherwise. A fabricated id can no longer flip a
+ *     requirement to met. The writer still never invents a proof id.
+ *   - When the dep is omitted (pure unit callers), existence is trusted exactly
+ *     as before — the verification is purely additive and back-compatible.
+ *   - Dangling links that predate this guard (or arise if proof is later
+ *     deleted) are surfaced read-side by `findDanglingRefs` in the admin
+ *     proof-status read (src/server/job-control/status.ts).
  */
 
 // ── Request ────────────────────────────────────────────────────────────────--
@@ -169,6 +173,13 @@ export function applyEvidenceLink(
 
 // ── Orchestration (I/O via injected deps) ─────────────────────────────────────
 
+/** The real proof ids that exist on a job (evidence + observation), used to
+ *  verify a link references something real (#513). */
+export interface KnownProofIds {
+  evidenceIds: Set<string>;
+  observationIds: Set<string>;
+}
+
 export interface EvidenceLinkDeps {
   /** Load the raw compiled artifact, or null when it does not exist. */
   loadRaw(jobId: string): Promise<unknown | null>;
@@ -176,6 +187,14 @@ export interface EvidenceLinkDeps {
   save(jobId: string, artifact: PersistedJobControl): Promise<void>;
   /** Mint a fresh `el_…` link id. */
   mintId(): string;
+  /**
+   * OPTIONAL proof-existence check (#513). Returns the ids that actually exist
+   * on the job. When provided, `writeEvidenceLink` rejects a request whose
+   * `evidenceId`/`observationId` resolves to nothing (404 `non_existent_proof`)
+   * BEFORE writing — closing the trusted-proof loop. Omitted → existence is
+   * trusted as before (back-compatible; existing unit callers pass no loader).
+   */
+  loadKnownProofIds?(jobId: string): Promise<KnownProofIds>;
 }
 
 export type WriteEvidenceLinkResult =
@@ -189,7 +208,8 @@ export type WriteEvidenceLinkResult =
         | "stale_revision"
         | "invalid_work_package"
         | "invalid_requirement"
-        | "missing_proof";
+        | "missing_proof"
+        | "non_existent_proof";
       warning: string;
       /** Present on `stale_revision` — the caller should re-read and retry. */
       currentRevision?: string;
@@ -206,6 +226,8 @@ const WARNINGS: Record<Exclude<WriteEvidenceLinkResult, { ok: true }>["reason"],
   invalid_requirement:
     "That required-evidence item is not on the work package in the compiled artifact — no link written.",
   missing_proof: "A saved evidence or observation id is required to link proof — no link written.",
+  non_existent_proof:
+    "The referenced proof does not exist on this job — the link was rejected so a missing or fabricated id can never mark a requirement met.",
 };
 
 /**
@@ -239,6 +261,21 @@ export async function writeEvidenceLink(
     return { ok: false, status: 409, reason: "stale_revision", warning: WARNINGS.stale_revision, currentRevision };
   }
 
+  // Trusted-proof guard (#513): when a proof-id loader is wired, the referenced
+  // evidence/observation must actually exist on the job before we link it.
+  // Fail-closed — a fabricated or already-deleted id is rejected, never linked,
+  // so a requirement can only be marked met by a proof that provably exists.
+  if (deps.loadKnownProofIds) {
+    const known = await deps.loadKnownProofIds(input.jobId);
+    const evId = input.request.evidenceId ?? null;
+    const obsId = input.request.observationId ?? null;
+    const evOk = evId == null || known.evidenceIds.has(evId);
+    const obsOk = obsId == null || known.observationIds.has(obsId);
+    if (!evOk || !obsOk) {
+      return { ok: false, status: 404, reason: "non_existent_proof", warning: WARNINGS.non_existent_proof };
+    }
+  }
+
   const applied = applyEvidenceLink(parsed.data, input.request, {
     id: deps.mintId(),
     at: input.at,
@@ -266,5 +303,40 @@ export function blobEvidenceLinkDeps(): EvidenceLinkDeps {
     loadRaw: (jobId) => readJsonBlob<unknown>(jobControlKey(jobId), null),
     save: (jobId, artifact) => writeJsonBlob(jobControlKey(jobId), artifact),
     mintId: () => `${ID_PREFIXES.evidenceLink}${randomUUID()}`,
+    loadKnownProofIds: (jobId) => loadJobProofIds(jobId),
   };
+}
+
+/**
+ * Read the real proof ids on a job for the trusted-proof guard (#513).
+ * Evidence ids live in `jobs/<jobId>/data.json#evidence[].id` (saved by
+ * api/evidence.js); observation ids live in the top-level `observations.json`
+ * store and are scoped to this job by `observation.jobId`. Both reads are
+ * best-effort and total — a missing/unreadable store yields an empty set, so
+ * the guard never throws (and a genuinely empty job simply has no valid proof
+ * to link yet).
+ */
+export async function loadJobProofIds(jobId: string): Promise<KnownProofIds> {
+  const data = await readJsonBlob<{ evidence?: Array<{ id?: unknown }> }>(
+    `jobs/${jobId}/data.json`,
+    { evidence: [] },
+  );
+  const evidenceIds = new Set(
+    (data?.evidence ?? [])
+      .map((e) => e?.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  );
+
+  const store = await readJsonBlob<{ observations?: Array<{ id?: unknown; jobId?: unknown }> }>(
+    "observations.json",
+    { observations: [] },
+  );
+  const observationIds = new Set(
+    (store?.observations ?? [])
+      .filter((o) => o?.jobId === jobId)
+      .map((o) => o?.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  );
+
+  return { evidenceIds, observationIds };
 }
