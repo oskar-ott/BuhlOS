@@ -77,13 +77,44 @@ function createDbClient(options = {}) {
 
 /**
  * Process-wide singleton client. Builds one on first call (guarded), then
- * returns the same instance. Pass `env`/`factory` only in tests.
+ * returns the same instance — but RE-RUNS the env guard with THIS caller's
+ * mode on every call, including cache hits, so the per-mode gate (notably the
+ * production-write opt-in) is enforced per call, never just when the singleton
+ * was first built. Pass `env`/`factory` only in tests.
  *
  * @param {object} [options] same shape as createDbClient
  * @returns {any} the Postgres.js client (a tagged-template `sql` function)
+ * @throws {SupabaseEnvError} when this call's mode/env fails the guard, even
+ *   on a cache hit (e.g. a write caller arriving after a read-built singleton
+ *   without SUPABASE_ALLOW_PRODUCTION_WRITES)
  */
 function getDb(options = {}) {
-  if (singleton) return singleton.client;
+  if (singleton) {
+    // Cache hit. The singleton holds ONE connection for the whole warm
+    // instance, but the env guard is PER-MODE: a read caller cleared a weaker
+    // gate than a write caller must. So re-run the guard with this caller's
+    // mode every time and never trust that the mode which built the singleton
+    // is the mode now asking. The guard is pure and network-free, so this is
+    // effectively free. Without it a read-built singleton would be handed to a
+    // later write caller without the production-write opt-in
+    // (SUPABASE_ALLOW_PRODUCTION_WRITES) ever being re-checked — the per-mode
+    // gate would silently degrade to per-process.
+    const mode = options.mode === undefined ? "write" : options.mode;
+    const env = options.env || process.env;
+    const decision = evaluateSupabaseAccess(env, { mode });
+
+    // The re-evaluated env must still describe the project the cached client
+    // actually connected to. In a real serverless instance process.env is
+    // fixed, so this only diverges if the env changed under us — refuse rather
+    // than hand back a client pointed at a different project.
+    if (decision.projectRef !== singleton.decision.projectRef) {
+      throw new Error(
+        `[supabase-db] cached client connected to project ${singleton.decision.projectRef} ` +
+          `but this call resolves to ${decision.projectRef} — refusing to reuse it`
+      );
+    }
+    return singleton.client;
+  }
   singleton = createDbClient(options);
   return singleton.client;
 }

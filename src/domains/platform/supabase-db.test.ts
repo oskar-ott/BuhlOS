@@ -157,6 +157,43 @@ describe("supabase-db connection helper", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("re-checks the write gate on every call — a read-built singleton never lets a later write caller skip the production-write opt-in (#549)", () => {
+    const { factory, calls } = fakeFactory();
+    const prodEnv = {
+      SUPABASE_ENV: "production",
+      SUPABASE_PROJECT_REF: PROD_REF,
+      SUPABASE_DB_URL: poolerUrl(PROD_REF),
+      // deliberately no SUPABASE_ALLOW_PRODUCTION_WRITES
+    };
+    // First (and only) caller in this warm instance is a read — allowed on the
+    // production project without the write opt-in. This builds the singleton.
+    const readClient = db.getDb({ mode: "read", env: prodEnv, factory });
+    expect(readClient).toBeDefined();
+    expect(calls).toHaveLength(1);
+    // A later write caller in the SAME warm instance must still be refused: the
+    // per-mode gate must not degrade to per-process just because a client is
+    // cached. Pre-fix getDb() returned the cached read-built client silently.
+    expect(() => db.getDb({ mode: "write", env: prodEnv, factory })).toThrow(
+      /PROD_WRITES_NOT_ALLOWED/
+    );
+    // ...and the refusal must not have opened a second connection.
+    expect(calls).toHaveLength(1);
+  });
+
+  it("lets a write caller reuse the cached client once the production-write opt-in is present", () => {
+    const { factory, calls } = fakeFactory();
+    const prodWriteEnv = {
+      SUPABASE_ENV: "production",
+      SUPABASE_PROJECT_REF: PROD_REF,
+      SUPABASE_DB_URL: poolerUrl(PROD_REF),
+      SUPABASE_ALLOW_PRODUCTION_WRITES: "true",
+    };
+    const a = db.getDb({ mode: "read", env: prodWriteEnv, factory });
+    const b = db.getDb({ mode: "write", env: prodWriteEnv, factory });
+    expect(a).toBe(b); // one connection, reused across modes
+    expect(calls).toHaveLength(1);
+  });
+
   it("is inert under the test/CI process env (no SUPABASE_* set → throws, no connection)", () => {
     // The suite sets no SUPABASE_* vars, so a default-env call fails closed.
     const { factory, calls } = fakeFactory();
