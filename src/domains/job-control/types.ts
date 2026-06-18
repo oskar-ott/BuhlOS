@@ -12,6 +12,8 @@ import type {
   GoverningDocRefSchema,
   JobControlSpineSchema,
   JobControlStageSchema,
+  ProofReviewSchema,
+  ProofReviewStatusSchema,
   RequiredEvidenceSchema,
   RequiredEvidenceKindSchema,
   TaskRefSchema,
@@ -60,5 +62,7 @@ export type EvidenceLink = z.infer<typeof EvidenceLinkSchema>;
 export type CloseoutRequirementKind = z.infer<typeof CloseoutRequirementKindSchema>;
 export type CloseoutRequirementStatus = z.infer<typeof CloseoutRequirementStatusSchema>;
 export type CloseoutRequirement = z.infer<typeof CloseoutRequirementSchema>;
+export type ProofReviewStatus = z.infer<typeof ProofReviewStatusSchema>;
+export type ProofReview = z.infer<typeof ProofReviewSchema>;
 
 export type JobControlSpine = z.infer<typeof JobControlSpineSchema>;

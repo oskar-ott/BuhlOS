@@ -58,6 +58,7 @@ describe("buildJobControlReadResult", () => {
       reason: "missing",
       workPackages: [],
       evidenceLinks: [],
+      proofReviews: [],
     });
   });
 

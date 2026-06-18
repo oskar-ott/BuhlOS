@@ -121,7 +121,13 @@ export type PersistedJobControl = z.infer<typeof PersistedJobControlSchema>;
 export function computeJobControlRevision(
   a: Pick<
     PersistedJobControl,
-    "jobId" | "workPackages" | "evidenceLinks" | "claimLines" | "closeoutRequirements" | "compileMeta"
+    | "jobId"
+    | "workPackages"
+    | "evidenceLinks"
+    | "claimLines"
+    | "closeoutRequirements"
+    | "proofReviews"
+    | "compileMeta"
   >,
 ): string {
   return createHash("sha256")
@@ -132,6 +138,8 @@ export function computeJobControlRevision(
         evidenceLinks: a.evidenceLinks,
         claimLines: a.claimLines,
         closeoutRequirements: a.closeoutRequirements,
+        // a proof-review submit/approve/reject advances the revision (#503)
+        proofReviews: a.proofReviews ?? [],
         compileMeta: a.compileMeta ?? null,
       }),
     )
@@ -302,6 +310,7 @@ export function prepareCompileConfirm(input: {
     claimLines: input.previous?.claimLines ?? [],
     closeoutRequirements: input.previous?.closeoutRequirements ?? [],
     evidenceLinks: input.previous?.evidenceLinks ?? [],
+    proofReviews: input.previous?.proofReviews ?? [],
     updatedAt: input.at,
     compileMeta: {
       generatedAt: input.previous?.compileMeta?.generatedAt ?? input.at,

@@ -41,6 +41,7 @@ export const ID_PREFIXES = {
   claimLine: "cl_",
   closeoutRequirement: "cr_",
   evidenceLink: "el_",
+  proofReview: "pr_",
 } as const;
 
 // ── Stage (shared with the jobs domain) ──────────────────────────────────────
@@ -308,6 +309,33 @@ export const CloseoutRequirementSchema = z
 // and links. Scope clauses stay on jobs.json (#200); BOQ lines stay in the
 // quotes-v2 blob; tasks/evidence/observations/documents/ITP keep their stores.
 
+// ── New entity: ProofReview (#503 task-instance proof review/approval) ─────────
+// The submit → approve/reject lifecycle for a TASK INSTANCE's required proof.
+// Keyed by the task coordinate (canonical identity in tuple/bridge form, #480/#483)
+// — NOT by work package — so review granularity matches the per-task proof model
+// (#502). Submit is server-verified against captured proof (never a client gate);
+// submit never approves; approve/reject are a separate admin action.
+
+export const PROOF_REVIEW_STATUSES = ["submitted", "approved", "rejected"] as const;
+export const ProofReviewStatusSchema = z.enum(PROOF_REVIEW_STATUSES);
+
+export const ProofReviewSchema = z
+  .object({
+    id: z.string(), // pr_…
+    jobId: z.string(),
+    /** The task instance under review (areaId, stage, taskId). */
+    taskRef: TaskRefSchema,
+    status: ProofReviewStatusSchema,
+    submittedBy: z.string().nullable().optional(),
+    submittedAt: z.string().optional(),
+    /** Set when an admin approves/rejects (separate from submit). */
+    reviewedBy: z.string().nullable().optional(),
+    reviewedAt: z.string().nullable().optional(),
+    /** Required on reject — why it was sent back. Cleared on resubmit. */
+    reason: z.string().nullable().optional(),
+  })
+  .passthrough();
+
 export const JobControlSpineSchema = z
   .object({
     jobId: z.string(),
@@ -315,6 +343,8 @@ export const JobControlSpineSchema = z
     claimLines: z.array(ClaimLineSchema).default([]),
     closeoutRequirements: z.array(CloseoutRequirementSchema).default([]),
     evidenceLinks: z.array(EvidenceLinkSchema).default([]),
+    /** Per-task proof review/approval records (#503). */
+    proofReviews: z.array(ProofReviewSchema).default([]),
     updatedAt: z.string().optional(),
   })
   .passthrough();
