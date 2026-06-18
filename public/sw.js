@@ -6,18 +6,20 @@
 //   - Purge every legacy static-shell cache left behind by the
 //     pre-cutover service worker (v1–v8 cached the old /admin shell)
 //
-// v9 (legacy-interface cutover): the legacy static surfaces (the old
-// login/my-day pages, the old admin suite and its shared shell JS) were
-// REMOVED from the product — old URLs now 307-redirect to the modern
-// BuhlOS/Phil routes (see vercel.json + docs/route-ownership.md §6).
-// This worker therefore caches NOTHING:
-//   - the modern Next.js app ships its own immutable /_next/static
-//     assets, which the browser HTTP cache handles fine;
-//   - serving any HTML or shell JS from a SW cache is exactly how the
-//     old layouts kept resurrecting after deploys. Never again.
-// The activate handler deletes every cache this origin has ever made,
-// so devices still carrying a buhl-shell-v1..v8 cache come clean the
-// first time they fetch this version.
+// v10 (#135 Layer 1 — honest offline fallback): the modern Next.js app
+// still ships its own immutable /_next/static assets (the browser HTTP
+// cache handles those), and this worker STILL never serves modern HTML or
+// shell JS from a cache — that is exactly how the old layouts kept
+// resurrecting after deploys. The ONE thing it now caches is a single
+// self-contained fallback page (/offline.html, no external assets): when a
+// navigation fails with no signal, the worker serves it instead of the
+// browser's dead-dinosaur error (constitution P8 — degrade honestly, never
+// a blank screen). Caching last-loaded job/my-day/plans data is the
+// separate Layer 2; this layer carries no user data and no stale-API risk.
+//
+// The activate handler deletes every OTHER cache (buhl-shell-v1..v8 and any
+// prior sw cache), keeping only the current version's fallback cache, so
+// stale shells still come clean on first fetch of this version.
 //
 // Push stays: the daily hour-reminder crons, office-inbox fan-out and
 // snag digests (api/notifications.js) deliver through this worker, and
@@ -27,26 +29,38 @@
 //
 // Bump SW_VERSION on any behavioural change so the byte-diff update
 // check rolls the fleet (scripts/check-sw-cache-version.js enforces).
-const SW_VERSION = 'buhl-sw-v9';
+const SW_VERSION = 'buhl-sw-v10';
+const OFFLINE_URL = '/offline.html';
 
-self.addEventListener('install', () => {
-  // No precache. Take over from the legacy worker immediately.
+self.addEventListener('install', (event) => {
+  // Precache only the self-contained offline fallback, then take over.
+  event.waitUntil(caches.open(SW_VERSION).then((cache) => cache.add(OFFLINE_URL)));
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    // Purge EVERY cache (buhl-shell-v1..v8 and anything else) — the
-    // modern app must never be served from a SW cache.
+    // Drop every cache except this version's (clears buhl-shell-v1..v8 and
+    // any prior sw cache); modern HTML/JS is still never served from cache.
     const keys = await caches.keys();
-    await Promise.all(keys.map((k) => caches.delete(k)));
+    await Promise.all(keys.filter((k) => k !== SW_VERSION).map((k) => caches.delete(k)));
     await self.clients.claim();
   })());
 });
 
-// No fetch handler: every request — navigations, assets, API — goes
-// straight to the network. (A SW without a fetch listener never
-// intercepts requests; install/push capability is unaffected.)
+// Fetch: network-first for NAVIGATIONS only, with the offline page as the
+// sole cached fallback. Non-navigation requests (assets, API) are never
+// intercepted — they go straight to the network exactly as before, so no
+// stale HTML/JS/API data can be served. Online behaviour is unchanged.
+self.addEventListener('fetch', (event) => {
+  if (event.request.mode !== 'navigate') return;
+  event.respondWith(
+    fetch(event.request).catch(async () => {
+      const cache = await caches.open(SW_VERSION);
+      return (await cache.match(OFFLINE_URL)) || Response.error();
+    }),
+  );
+});
 
 // ── Push: show a notification ───────────────────────────────
 // Server (api/notifications.js) posts JSON like:
