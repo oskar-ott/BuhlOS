@@ -174,6 +174,21 @@ describe("round2 single-round-at-end parity (not per-line rounding)", () => {
     // No hand numbers: the legacy oracle is the source of truth here.
     expectParity(lines, DEFAULTS);
   });
+
+  it("margin parity holds when raw totals carry sub-cent fractions (round-once regression)", () => {
+    // Regression for the margin rounding-order bug: these lines produce raw
+    // cost 801.5625 and raw sell 876.375. Legacy differences the UNROUNDED
+    // totals → margin.amount = round2(876.375 - 801.5625) = 74.81. Computing it
+    // from the rounded totals would give round2(876.38 - 801.56) = 74.82 — a
+    // one-cent break. expectParity asserts ours.margin === the legacy oracle,
+    // so this fixture fails if the margin is ever derived from rounded totals.
+    const lines: LabourCalcLine[] = [
+      { estimatedHours: 1.5, crewSize: 1, hourlyRate: 95, riskFactor: 0.9 },
+      { estimatedHours: 2.5, crewSize: 3, hourlyRate: 85.5, riskFactor: 1.05 },
+    ];
+    const t = expectParity(lines, DEFAULTS);
+    expect(t.margin.amount).toBe(74.81);
+  });
 });
 
 describe("unpriced — additive honesty, never changes a number", () => {

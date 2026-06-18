@@ -237,8 +237,14 @@ export function computeLabourTotals(
 
   const roundedCost = round2(cost);
   const roundedSell = round2(sell);
-  const marginAmount = round2(roundedSell - roundedCost);
-  const marginPct = round1(roundedSell > 0 ? ((roundedSell - roundedCost) / roundedSell) * 100 : 0);
+  // Margin mirrors legacy EXACTLY (computeQuoteTotals): difference the UNROUNDED
+  // accumulators and round ONCE at output — round2(sell-cost) and round1 over the
+  // unrounded sell. Differencing the already-rounded totals drifts a cent on
+  // sub-cent multi-line quotes (round2(a-b) != round2(round2(a)-round2(b))),
+  // which is a real parity break in a margin number that drives quote profit.
+  // The returned cost/sell fields stay rounded (legacy returns round2(labCost/labSell)).
+  const marginAmount = round2(sell - cost);
+  const marginPct = round1(sell > 0 ? ((sell - cost) / sell) * 100 : 0);
 
   // sellRate mirrors legacy `labour.sellRate = Number(p.labourSellRate) || 0`.
   const sellRate = Number(settings.labourSellRate) || 0;
