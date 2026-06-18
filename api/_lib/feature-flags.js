@@ -36,6 +36,15 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-09-30',
   },
+  // The read-only Supabase connectivity proving slice (#533) — gates
+  // GET /api/supabase-health, the first real DB caller. Dark until a preview
+  // is wired; flip on per-environment to prove the guard→pooler→client path.
+  supabase_read_health: {
+    description: 'Enable GET /api/supabase-health, the read-only Supabase connectivity proving slice (#533).',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // The role-targeting exemplar + ops aid: a small "active flags" readout
   // on the command centre, visible only to the admin tier when enabled.
   admin_flags_readout: {
