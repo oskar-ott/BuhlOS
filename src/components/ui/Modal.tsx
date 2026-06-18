@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { useDialogFocus } from "./useDialogFocus";
 
 interface ModalProps {
   open: boolean;
@@ -13,11 +14,14 @@ interface ModalProps {
 }
 
 /**
- * Minimal modal primitive. Closes on Escape and on backdrop click.
- * Phase A only needs a basic shell — focus trapping, scroll lock, and
- * portal mounting are deferred to Phase B+ when real modals exist.
+ * Modal primitive. Closes on Escape and backdrop click; traps Tab within the
+ * dialog, locks body scroll, focuses the first control on open, and restores
+ * focus to the trigger on close (#521 — focus management for the 17 Modal
+ * consumers incl. destructive admin sign-off / evidence-reject).
  */
 export function Modal({ open, onClose, title, children, className }: ModalProps) {
+  const panelRef = useDialogFocus(open);
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -38,6 +42,7 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
       onClick={onClose}
     >
       <div
+        ref={panelRef}
         onClick={(e) => e.stopPropagation()}
         className={cn(
           "w-full max-w-lg rounded-card bg-surface-raised shadow-raised p-6",

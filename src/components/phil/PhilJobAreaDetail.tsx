@@ -457,7 +457,7 @@ function TaskRow({
           <p className="mt-1.5 flex items-start gap-1.5 text-xs text-state-success">
             <CheckCircle2 aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
-              <span className="font-display font-semibold">Proof</span> — all captured · ready for
+              <span className="font-display font-semibold">Area proof</span> — all captured · ready for
               review
             </span>
           </p>
@@ -465,7 +465,7 @@ function TaskRow({
           <p className="mt-1.5 flex items-start gap-1.5 text-xs text-state-warning">
             <Camera aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
-              <span className="font-display font-semibold">Proof</span>
+              <span className="font-display font-semibold">Area proof</span>
               {` — ${proof.metCount}/${proof.requiredCount} captured`}
             </span>
           </p>

@@ -82,7 +82,7 @@ export function JobItpPanel({ job, initialItps = [] }: Props) {
         <div className="min-w-0">
           <CardTitle>Checks</CardTitle>
           <CardDescription className="mt-1">
-            Inspection checks (ITPs) for this job. Tap one to record
+            Inspection checks for this job. Tap one to record
             points as you go.
           </CardDescription>
         </div>

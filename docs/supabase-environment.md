@@ -1,12 +1,17 @@
 # Supabase environment safety
 
 The production Supabase project is **`wetctlrhsycfwhuxlarv`** (ap-southeast-2).
-It currently holds the Phase 1 schema (31 tables, RLS on, zero policies, zero
-rows) and will eventually hold payroll-critical data. PR previews are this
+It currently holds the Phase 1 + Phase 2a schema (38 tables, RLS on, zero
+policies, zero rows) and will eventually hold payroll-critical data. PR previews are this
 repo's main verification surface, so the single most dangerous
 misconfiguration is a preview or local run pointed at the production
 database. The guard in [`api/_lib/supabase-env.js`](../api/_lib/supabase-env.js)
 makes that combination throw instead of write.
+
+> **Operator setup:** the ordered checklist to stand up connectivity (CLI link,
+> dev project, per-env Vercel wiring, Pro upgrade) lives in
+> [supabase-foundation-runbook.md](supabase-foundation-runbook.md). This doc is the
+> contract; that doc is the step-by-step with acceptance gates.
 
 ## Non-negotiables
 
@@ -74,20 +79,33 @@ read intent can only over-protect. Error codes are stable and tested
 `INVALID_MODE`, `REF_URL_MISMATCH`, `PROD_REF_IN_NON_PROD_ENV`,
 `PROD_REF_IN_NON_PROD_RUNTIME`, `PROD_WRITES_NOT_ALLOWED`, `BROWSER_CONTEXT`.
 
-## Current status (2026-06-12)
+The guard is **per call, not per process**. `getDb()`
+([`api/_lib/supabase-db.js`](../api/_lib/supabase-db.js)) caches one pooled
+connection per warm serverless instance, but re-runs the guard with *this*
+caller's `mode` on every call — including cache hits. The check is pure and
+network-free, so a singleton first built by a read caller still forces a later
+write caller in the same instance to satisfy `SUPABASE_ALLOW_PRODUCTION_WRITES`;
+the per-mode protection never degrades to per-process
+(`src/domains/platform/supabase-db.test.ts`).
 
-- Guard + tests exist; **nothing calls the guard yet** — no DB client
-  dependency, no `SUPABASE_*` variables are set in any environment, and no
-  production route touches Postgres.
-- The dev/staging Supabase project does not exist yet; create it before
-  wiring Preview variables.
-- The feature-flag registry already defines `supabase_dual_write`
-  (dark by default) for the eventual cutover
-  ([docs/feature-flags.md](feature-flags.md)).
-- Migration files are committed and version-aligned under
-  [`supabase/migrations/`](../supabase/migrations/); applied state and
-  roadmap context live in
-  [docs/supabase-migration-research-audit.md](supabase-migration-research-audit.md).
+## Current status (2026-06-18)
+
+- Guard + tests exist **and** a guarded DB client now exists
+  ([`api/_lib/supabase-db.js`](../api/_lib/supabase-db.js) — Postgres.js over the
+  Supavisor transaction pooler `:6543`). One dark caller: `GET /api/supabase-health`
+  (read-only, behind the `supabase_read_health` flag). No **domain** route
+  reads/writes Postgres yet — every domain is still blob-backed at runtime.
+- The dev project **`frovgpywsopbeuekijmo`** and prod **`wetctlrhsycfwhuxlarv`**
+  both hold Phase 1 + Phase 2a (**38 tables**, RLS-on / zero-policy, advisors clean,
+  0 rows). `SUPABASE_ENV` / `SUPABASE_PROJECT_REF` / `SUPABASE_DB_URL` are wired in
+  the Vercel **Development** scope (dev project); per-environment Preview/Production
+  wiring + Pro plan are pending [#532].
+- The feature-flag registry defines `supabase_dual_write` (dark by default) for the
+  eventual per-domain cutover ([docs/feature-flags.md](feature-flags.md)).
+- Migration files under [`supabase/migrations/`](../supabase/migrations/): Phase-1
+  core + hardening + Phase-2a registries. Decision record:
+  [architecture/supabase-storage-migration-adr.md](architecture/supabase-storage-migration-adr.md);
+  roadmap: [architecture/supabase-migration-roadmap.md](architecture/supabase-migration-roadmap.md).
 - Test/smoke awareness: vitest and Playwright runs set no `SUPABASE_*`
   variables, so any accidental guard call in tests fails closed
   (`MISSING_ENV`). Preview smoke runs will use the Preview-scoped dev-project
