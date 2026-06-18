@@ -71,7 +71,7 @@ The rules that apply to every line of code written in the rebuild. Product rules
 3. **The `jobId + areaId + stage + taskId` model is a compatibility bridge** over the older area/stage storage — load-bearing today (write paths, Phil display, job-control `TaskRef`, proof keying), but not the final architecture. The long-term target is a stable `taskInstanceId` (which exists **nowhere** in the code yet — it is a target, not a type).
 4. **Do not deepen area-owned task arrays** (`dwellings[areaId][stage].tasks[taskId]`) as the *owner* of a task unless the change **explicitly documents itself as a temporary compatibility bridge**. Adding new facets onto the area-owned shape without that label entrenches the wrong architecture.
 5. **Live area ids are unique within a job** — the invariant that lets a `(areaId, stage, taskId)` tuple resolve exactly one instance. Enforced server-side on every write path (`findDuplicateLiveAreaId`).
-6. **Proof is area/package-granular today** — surfaced per Phil task but not authored per canonical task instance. Do not claim per-task proof or admin proof approval as existing. See [proof-review-model.md](proof-review-model.md).
+6. **Proof is area/package-granular by default** — per-task authoring is now opt-in (#539/#542): a requirement scoped to a task carries a `taskRef`; one with no `taskRef` stays package-level (byte-identical). The per-task submit→review *engine* is keyed to the task instance (#544/#546), but the **admin approve/reject surface is NOT built** and `taskInstanceId` is still a target term, not a type. Do not claim an admin proof-approval surface as existing. See [proof-review-model.md](proof-review-model.md).
 
 ### API and persistence
 
@@ -152,7 +152,7 @@ Things to refuse even if asked. Each refusal points at the rule that bans it.
 | Adding a `/buhlos/*` mirror route                               | Discarded in salvage map.                                   |
 | Naming a file or folder `site-office`                            | Forbidden name.                                              |
 | Deepening area-owned task arrays without labelling it a bridge   | "Task-led architecture" rule 4.                             |
-| Claiming `taskInstanceId`, per-task proof, or admin proof approval as built | "Task-led architecture" rules 3/6.                |
+| Claiming a `taskInstanceId` type or an admin proof-approval surface as built (per-task proof authoring IS built, #539/#542; the office approve/reject UI is not) | "Task-led architecture" rules 3/6. |
 
 ---
 
