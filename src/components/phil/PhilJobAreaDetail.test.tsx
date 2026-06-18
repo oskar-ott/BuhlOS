@@ -7,6 +7,7 @@ import type { JobStage } from "@/domains/jobs/types";
 import type { TaskState, WorkerTask } from "@/domains/jobs/taskState";
 import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
 import type { PhilTaskContext } from "@/domains/job-control/task-context";
+import type { ProofReview } from "@/domains/job-control/types";
 
 /**
  * Render observation for the area drill-in. No JSX (matches
@@ -472,5 +473,83 @@ describe("PhilJobAreaDetail render — at-a-glance required-proof line", () => {
     expect(out).not.toContain("captured");
     expect(out).not.toContain("ready for review");
     expect(out).toContain("Pull power");
+  });
+});
+
+describe("PhilJobAreaDetail render — proof review / submit (#503)", () => {
+  const eligibleCtx: PhilTaskContext = {
+    workPackageId: "wp1",
+    scopeNote: null,
+    governingDocs: [],
+    materials: [],
+    requiredEvidence: [{ id: "re_a", label: "Final photo", kind: "photo", met: true }],
+    warnings: [],
+    isEmpty: false,
+  };
+  const tref = { areaId: "area1", stage: "roughIn", taskId: "t1" } as const;
+
+  function renderWithReview(opts: {
+    proofReviews?: ReadonlyArray<ProofReview>;
+    canSubmitForReview?: boolean;
+    withHandler?: boolean;
+  }): string {
+    return renderToString(
+      createElement(PhilJobAreaDetail, {
+        areaName: "Main Bar",
+        areaId: "area1",
+        stages: RI,
+        stage: "roughIn" as JobStage,
+        tasks: [task("t1", "Pull power")],
+        counts: NO_COUNTS,
+        onStageChange: noop,
+        taskContextById: new Map([["t1", eligibleCtx]]),
+        proofReviews: opts.proofReviews,
+        onSubmitForReview: opts.withHandler === false ? undefined : noop,
+        canSubmitForReview: opts.canSubmitForReview,
+      }),
+    );
+  }
+
+  it("offers 'Submit for review' when proof is all captured, submit is enabled, and there is no review", () => {
+    expect(text(renderWithReview({ canSubmitForReview: true }))).toContain("Submit for review");
+  });
+
+  it("hides the submit button when submit is not enabled", () => {
+    expect(text(renderWithReview({ canSubmitForReview: false }))).not.toContain("Submit for review");
+  });
+
+  it("shows 'Submitted for review' and hides the button once submitted", () => {
+    const out = text(
+      renderWithReview({
+        canSubmitForReview: true,
+        proofReviews: [{ id: "pr1", jobId: "j", taskRef: tref, status: "submitted" } as ProofReview],
+      }),
+    );
+    expect(out).toContain("Submitted for review");
+    expect(out).not.toContain("Submit for review");
+  });
+
+  it("shows the sent-back reason + a 'Resubmit for review' button when rejected", () => {
+    const out = text(
+      renderWithReview({
+        canSubmitForReview: true,
+        proofReviews: [
+          { id: "pr1", jobId: "j", taskRef: tref, status: "rejected", reason: "Blurry photo" } as ProofReview,
+        ],
+      }),
+    );
+    expect(out).toContain("Sent back — Blurry photo");
+    expect(out).toContain("Resubmit for review");
+  });
+
+  it("shows 'Approved' and no submit button once approved", () => {
+    const out = text(
+      renderWithReview({
+        canSubmitForReview: true,
+        proofReviews: [{ id: "pr1", jobId: "j", taskRef: tref, status: "approved" } as ProofReview],
+      }),
+    );
+    expect(out).toContain("Approved");
+    expect(out).not.toContain("Submit for review");
   });
 });
