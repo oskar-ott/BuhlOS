@@ -124,18 +124,36 @@ export function isRequiredEvidenceMetForTask(
 }
 
 /**
+ * The required-evidence items that apply to a specific task instance (#506
+ * per-task authoring consumer): the PACKAGE-LEVEL items (no `taskRef` — every
+ * item on `main` today) PLUS any items authored for THIS task instance, compared
+ * by the canonical tuple key (`taskRefKey`). A strict GENERALISATION — with no
+ * task-scoped requirement (the current state) it returns the package's whole
+ * list, byte-for-byte the old behaviour. Pure.
+ */
+export function requiredEvidenceForTask(
+  workPackage: Pick<WorkPackage, "requiredEvidence">,
+  task: TaskRef,
+): RequiredEvidence[] {
+  const taskKey = taskRefKey(task);
+  return (workPackage.requiredEvidence ?? []).filter(
+    (e) => e.taskRef == null || taskRefKey(e.taskRef) === taskKey,
+  );
+}
+
+/**
  * Build the task-context view-model. Pure, defensive, hidden-when-empty. A
  * required-evidence item is `met` only when a real EvidenceLink ties a proof
  * (evidence or observation) to that specific requirement.
  *
- * Met-ness is resolved per TASK INSTANCE via `isRequiredEvidenceMetForTask`
- * (#502 consumer): a package-level link (no `taskRef`) satisfies the requirement
- * for this task exactly as before, and a task-scoped link satisfies only its own
- * task. On `main` today every link is package-level, so this is byte-for-byte the
- * old package-level result (proven by parity tests) — it only diverges once a
- * producer writes task-scoped links. The required-evidence ITEMS are still the
- * package's (authoring stays package-level until a later slice); only their
- * fulfilment is now per-task.
+ * Both halves are now per TASK INSTANCE:
+ *   - the ITEMS shown come from `requiredEvidenceForTask` (#506) — package-level
+ *     items plus any authored for this task; and
+ *   - each item's `met` is resolved by `isRequiredEvidenceMetForTask` (#502) — a
+ *     package-level link satisfies the task, a task-scoped link only its own task.
+ * On `main` today every requirement and link is package-level, so this is
+ * byte-for-byte the old area/package result (proven by parity tests); it only
+ * diverges once per-task requirements are authored / task-scoped links written.
  */
 export function buildPhilTaskContext(input: {
   workPackages: ReadonlyArray<WorkPackage>;
@@ -146,7 +164,7 @@ export function buildPhilTaskContext(input: {
   if (!wp) return EMPTY_CONTEXT;
 
   const links = input.evidenceLinks ?? [];
-  const requiredEvidence: TaskContextEvidenceReq[] = (wp.requiredEvidence ?? []).map((e) => ({
+  const requiredEvidence: TaskContextEvidenceReq[] = requiredEvidenceForTask(wp, input.task).map((e) => ({
     ...e,
     met: isRequiredEvidenceMetForTask(links, wp.id, e.id, input.task),
   }));
@@ -199,17 +217,20 @@ export function unmetRequiredEvidenceCount(ctx: PhilTaskContext): number | null 
  * when there IS required proof and every item is met. It is a READ-MODEL only —
  * there is no task submit action or task review state yet (a later slice).
  *
- * Granularity (be honest — P7): required proof is authored on the AREA work
- * package today (the compiler emits one package per area holding the UNION of its
- * tasks' requirements), and `buildPhilTaskContext` resolves a task to that
- * package without per-task filtering. So this summary is AREA/PACKAGE-granular:
- * every task the package delivers — both stages — shares the same
- * `requiredEvidence` and therefore the SAME summary, and capturing one item flips
- * all of them. The isolation that DOES hold is cross-AREA: a different area is a
- * different package, never cross-satisfied. Per-task-instance proof (distinct
- * requirements keyed to `(areaId,stage,taskId)`) is future work — when compile/
- * keying becomes per-instance this same selector yields per-instance summaries
- * with no change here.
+ * Granularity (be honest — P7): the PER-TASK plumbing now exists —
+ * `buildPhilTaskContext` filters items via `requiredEvidenceForTask` (#506/#539)
+ * and resolves `met` via `isRequiredEvidenceMetForTask` (#502), so a requirement
+ * authored for a specific task, or a task-scoped capture, is honoured per task.
+ * BUT in prod today this summary is still AREA/PACKAGE-granular, because the
+ * source data is: the compiler authors requirements on the AREA work package
+ * (one package per area, the UNION of its tasks' requirements) with no `taskRef`,
+ * and captures are package-level — so every task the package delivers shares the
+ * same `requiredEvidence` and the SAME summary, and capturing one item flips all
+ * of them. The isolation that already holds is cross-AREA (a different area is a
+ * different package, never cross-satisfied). It becomes genuinely per-task-instance
+ * once the admin authoring UI writes per-task `RequiredEvidence.taskRef` and the
+ * capture producer writes task-scoped `EvidenceLink.taskRef` — this selector then
+ * yields per-instance summaries with no change here.
  */
 export interface PhilTaskProofSummary {
   /** Total required-evidence items the office compiled for this task. */
