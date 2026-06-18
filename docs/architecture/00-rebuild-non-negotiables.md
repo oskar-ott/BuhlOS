@@ -78,7 +78,7 @@ The rules that apply to every line of code written in the rebuild. Product rules
 1. **Every feature must have schema, UI, mutation/API path, and test path** before it leaves draft.
 2. **Every role-sensitive screen must enforce permissions** at three layers: middleware (route), page (UI gates), and API (server-side check). Server-side is authoritative.
 3. **Every mutation must validate input** — Zod parse with server-side rejection. No client-only validation.
-4. **No full-document writes for collections that grow.** Tasks/snags/notes/etc. get patch endpoints. The existing full-doc writes on `/api/data` are tolerated during transition but new code does not add more.
+4. **No full-document writes for collections that grow.** Tasks/snags/notes/etc. get patch endpoints. The existing full-doc writes on `/api/data` are tolerated during transition but new code does not add more. The sanctioned end-state transition is the Supabase Postgres strangler ([supabase-storage-migration-adr.md](supabase-storage-migration-adr.md)).
 5. **No mock-only endpoints.** If `src/app/api/<x>/route.ts` exists, it does real work or returns 501.
 
 ### UI
