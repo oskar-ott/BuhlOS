@@ -8,6 +8,11 @@ misconfiguration is a preview or local run pointed at the production
 database. The guard in [`api/_lib/supabase-env.js`](../api/_lib/supabase-env.js)
 makes that combination throw instead of write.
 
+> **Operator setup:** the ordered checklist to stand up connectivity (CLI link,
+> dev project, per-env Vercel wiring, Pro upgrade) lives in
+> [supabase-foundation-runbook.md](supabase-foundation-runbook.md). This doc is the
+> contract; that doc is the step-by-step with acceptance gates.
+
 ## Non-negotiables
 
 - **Production Vercel points at production Supabase only.**
