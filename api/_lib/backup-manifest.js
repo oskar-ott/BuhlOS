@@ -22,6 +22,7 @@ const EXACT_STORES = [
   'job-types.json',
   'quotes.json',
   'quotes-v2.json', // v2 quote registry (#183)
+  'quote-rate-presets.json', // quoting labour rate presets (#193)
   'suppliers.json',
   'wholesalers.json',
   'payroll-runs.json',
