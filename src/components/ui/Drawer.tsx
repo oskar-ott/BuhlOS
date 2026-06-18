@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useDialogFocus } from "./useDialogFocus";
 
 interface DrawerProps {
   open: boolean;
@@ -23,10 +24,13 @@ interface DrawerProps {
  * "everything lives under /employees in the existing BuhlOS frame", drawer
  * width 420–480px, never full-page). Closes on Escape and backdrop click.
  *
- * Mirrors the Modal primitive's minimalism (no focus trap / scroll lock yet —
- * deferred with the rest of the Phase A primitives).
+ * Traps Tab within the drawer, locks body scroll, focuses the first control on
+ * open, and restores focus to the trigger on close (#521 — shared focus
+ * management). Escape / backdrop close unchanged.
  */
 export function Drawer({ open, onClose, title, subtitle, children, footer, className }: DrawerProps) {
+  const panelRef = useDialogFocus(open);
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -46,6 +50,7 @@ export function Drawer({ open, onClose, title, subtitle, children, footer, class
       onClick={onClose}
     >
       <div
+        ref={panelRef}
         onClick={(e) => e.stopPropagation()}
         className={cn(
           "flex h-full w-full max-w-[460px] flex-col bg-surface shadow-raised",

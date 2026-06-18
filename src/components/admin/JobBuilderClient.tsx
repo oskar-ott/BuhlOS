@@ -559,7 +559,7 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
               onChange={(e) => set("ref", e.target.value)}
             />
           </Field>
-          <Field label="Job type" help="Type is managed on the legacy job admin.">
+          <Field label="Job type" help="The job's work type, set when the job is created.">
             <input
               className={cn(inputClass, "bg-surface-subtle text-text-muted")}
               value={savedJob.typeName ?? form.type ?? "—"}
@@ -681,7 +681,7 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
           <CardTitle>Default task lists</CardTitle>
           <CardDescription className="mt-1">
             The default rough-in and fit-off checklist every area inherits. Stages are fixed
-            (rough-in → fit-off). An area can override these with its own list in the legacy editor.
+            (rough-in → fit-off). An area can carry its own task list to override these.
           </CardDescription>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             {STAGES.map(({ stage, label }) => renderTaskList(stage, label))}

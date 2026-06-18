@@ -19,6 +19,8 @@ import {
   type EvidenceStatusTone,
 } from "@/domains/evidence/format";
 import type { EvidenceItem } from "@/domains/evidence/types";
+import { resolveEvidenceTargetLabel } from "@/domains/evidence/target-label";
+import type { Job } from "@/domains/jobs/types";
 import { listAuditForTarget } from "@/domains/audit-log/client";
 import type {
   AuditAction,
@@ -34,6 +36,8 @@ const PILL_TONE_MAP: Record<EvidenceStatusTone, "info" | "success" | "danger"> =
 
 interface Props {
   item: EvidenceItem | null;
+  /** The job the evidence belongs to — resolves area/task ids to names (#515). */
+  job: Job;
   open: boolean;
   isAdmin: boolean;
   /** True while a review or reject mutation is in flight for this item. */
@@ -68,6 +72,7 @@ type HistoryState =
  */
 export function EvidenceDrawer({
   item,
+  job,
   open,
   isAdmin,
   busy,
@@ -253,7 +258,7 @@ export function EvidenceDrawer({
               </div>
             ) : null}
 
-            <TargetSection item={item} />
+            <TargetSection item={item} job={job} />
 
             {isRejected && item.rejectionReason ? (
               <div className="rounded-card border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
@@ -319,11 +324,10 @@ export function EvidenceDrawer({
   );
 }
 
-function TargetSection({ item }: { item: EvidenceItem }) {
-  const parts: string[] = [];
-  if (item.stage) parts.push(item.stage === "roughIn" ? "Rough-in" : "Fit-off");
-  if (item.areaId) parts.push(`Area ${item.areaId}`);
-  if (item.taskId) parts.push(`Task ${item.taskId}`);
+function TargetSection({ item, job }: { item: EvidenceItem; job: Job }) {
+  // #515: room + task NAMES (not raw ids), falling back to the id when unknown.
+  const label = resolveEvidenceTargetLabel(job, item);
+  const parts = label ? [label] : [];
   return (
     <div>
       <p className="font-display text-xs uppercase tracking-wider text-text-muted">
