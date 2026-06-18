@@ -30,7 +30,7 @@ A single **Next.js (App Router)** application plus **Vercel serverless functions
 | **Field (Phil)** | `src/app/phil/**` | My Day, jobs + job home (capture, ITPs, plans, tags), hours, gear, leave, onboarding, invite. |
 | **Domain logic** | `src/domains/<entity>/**` | ~30 domains (jobs, quoting, timesheets, time-entries, evidence, snags, itp, gear, workforce, analytics, audit-log, platform, …) — pure logic + typed clients + tests. |
 | **Shared** | `src/components/**`, `src/lib/**`, `src/middleware.ts` | UI primitives, admin/phil shells, auth/session/roles, env (`src/lib/env.ts`), feature flags; middleware gates routes by role. |
-| **Backend API** | `api/**.js` | ~100 Vercel serverless functions (data in Vercel Blob; shared helpers in `api/_lib/`). |
+| **Backend API** | `api/**.js` | ~100 Vercel serverless functions (data in Vercel Blob today; Supabase Postgres strangler in progress, see `docs/architecture/supabase-storage-migration-adr.md`; shared helpers in `api/_lib/`). |
 | **Static** | `public/` | **`client.html` only** (the client portal) plus brand assets, icons, `manifest.json`, `sw.js` (push-only service worker), CSS. |
 | **Routing / redirects** | `vercel.json` | `framework: nextjs`; rewrites `/client`; a **redirect matrix maps every legacy URL** (`/login`, `/admin/*`, `/phil`, `/my-day`, …) to its modern route (307). |
 | **Docs** | `docs/` | Architecture, product scope, runbooks, per-feature docs, audit pack. |
