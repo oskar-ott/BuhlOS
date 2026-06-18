@@ -4,6 +4,7 @@ import { LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { cn } from "@/lib/cn";
+import { purgePhilPageCaches } from "@/domains/phil/page-cache";
 
 /**
  * Phil sign-out control.
@@ -36,6 +37,9 @@ export function PhilSignOutButton({ className }: { className?: string }) {
       // redirect a still-valid session back to login, so a network blip here
       // doesn't strand the worker.
     }
+    // Clear the offline page cache so a shared device never serves this
+    // worker's cached /phil pages to the next person (#135 Layer 2).
+    await purgePhilPageCaches();
     router.replace("/v2/login");
     router.refresh();
   }
