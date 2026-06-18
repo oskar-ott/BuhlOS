@@ -21,6 +21,7 @@ const FULL: AuthoringSelection = {
   proofLabel: "Photo of completed ZIP tap",
   proofKind: "photo",
   proofNote: "Capture after testing",
+  proofScope: "area",
 };
 
 /** Response-like fake with a JSON body. */
@@ -93,6 +94,20 @@ describe("buildClassificationPatch / buildReconciliationConfirmBody", () => {
     expect(body.jobId).toBe("job_1");
     expect(Object.keys(body.classifications)).toEqual(["sw_zip"]);
     expect(body.classifications.sw_zip).toEqual(buildClassificationPatch(FULL));
+  });
+
+  it("scopes the proof to the selected task when proofScope is 'task' (#502)", () => {
+    const patch = buildClassificationPatch({ ...FULL, proofScope: "task" });
+    expect(patch.requiredEvidence[0]!.taskRef).toEqual({
+      areaId: "ar_east_gym",
+      stage: "fitOff",
+      taskId: "ft_zip",
+    });
+  });
+
+  it("omits taskRef for the default 'area' scope (package-level, unchanged behaviour)", () => {
+    const patch = buildClassificationPatch(FULL); // proofScope: "area"
+    expect("taskRef" in patch.requiredEvidence[0]!).toBe(false);
   });
 });
 

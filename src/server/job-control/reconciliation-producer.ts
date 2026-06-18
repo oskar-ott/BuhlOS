@@ -3,11 +3,13 @@ import { z } from "zod";
 import { isAdminRole } from "@/lib/auth/roles";
 import type { ScopeOfWorkItem } from "@/domains/jobs/types";
 import type { Quote } from "@/domains/quoting/schema";
-import { boqLineRefKey } from "@/domains/job-control/spine";
+import { boqLineRefKey, taskRefKey } from "@/domains/job-control/spine";
 import {
   JobControlStageSchema,
   RequiredEvidenceKindSchema,
+  TaskRefSchema,
 } from "@/domains/job-control/schema";
+import type { TaskRef } from "@/domains/job-control/types";
 import {
   ScopeClassificationSchema,
   ScopeReconciliationSchema,
@@ -139,6 +141,9 @@ export const ClauseClassificationInputSchema = z.union([
             label: z.string().trim().min(1),
             kind: RequiredEvidenceKindSchema,
             note: z.string().nullable().optional(),
+            /** OPTIONAL per-task scope (#502 authoring): when set, this proof
+             *  applies to only this task instance; absent = package-level. */
+            taskRef: TaskRefSchema.optional(),
           }),
         )
         .optional(),
@@ -158,9 +163,15 @@ export type ClassificationsInput = z.infer<typeof ClassificationsInputSchema>;
  * the same id, so a previously-recorded `EvidenceLink.requiredEvidenceId` keeps
  * pointing at the same requirement across recompiles (see schema.ts). Distinct
  * labels get distinct ids; never random, never time-based.
+ *
+ * Per-task authoring (#502): when a `taskRef` is supplied, it is folded into the
+ * hash so the SAME label authored for two different task instances yields
+ * DISTINCT ids (otherwise compile, which keys `requiredEvidence` by id, would
+ * collapse them into one). A package-level item (no `taskRef`) keeps the
+ * label-only id unchanged — back-compatible, so existing links keep resolving.
  */
-export function deriveRequiredEvidenceId(label: string): string {
-  const input = label.trim();
+export function deriveRequiredEvidenceId(label: string, taskRef?: TaskRef | null): string {
+  const input = taskRef ? `${label.trim()}::${taskRefKey(taskRef)}` : label.trim();
   let h = 0x811c9dc5;
   for (let i = 0; i < input.length; i++) {
     h ^= input.charCodeAt(i);
@@ -191,10 +202,13 @@ function normalisePatch(input: ClauseClassificationInput): ClausePatch {
     // Preserve the authored proof; derive a stable id only when one is omitted.
     // We never fabricate proof — an absent `requiredEvidence` stays absent.
     patch.requiredEvidence = input.requiredEvidence.map((e) => ({
-      id: e.id ?? deriveRequiredEvidenceId(e.label),
+      id: e.id ?? deriveRequiredEvidenceId(e.label, e.taskRef),
       label: e.label.trim(),
       kind: e.kind,
       ...(e.note !== undefined ? { note: e.note } : {}),
+      // carry the per-task scope through verbatim (compile copies the item as-is,
+      // so it lands on WorkPackage.requiredEvidence and #506 filters by it).
+      ...(e.taskRef ? { taskRef: e.taskRef } : {}),
     }));
   }
   return patch;
