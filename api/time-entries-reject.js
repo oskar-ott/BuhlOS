@@ -5,6 +5,8 @@
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
 const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
+const { append: appendAuditLog } = require('./_lib/audit-log');
+const { buildHoursAuditEntry } = require('./_lib/hours-audit');
 const { sendPushToUserId } = require('./_lib/push');
 const { appendActivity } = require('./_lib/activity');
 
@@ -82,6 +84,10 @@ module.exports = async (req, res) => {
         totalHours: Number(entry.totalHours) || 0,
       },
     });
+    // #390: canonical audit-log entry (best-effort).
+    appendAuditLog(
+      buildHoursAuditEntry({ action: 'hours.reject_undone', actor: user, entry: reverted }),
+    ).catch(() => {});
     return res.status(200).json({ entry: reverted });
   }
 
@@ -123,6 +129,11 @@ module.exports = async (req, res) => {
       jobIds: (entry.allocations || []).map(a => a.jobId).filter(Boolean),
     },
   });
+
+  // #390: canonical audit-log entry (best-effort) — carries the reason.
+  appendAuditLog(
+    buildHoursAuditEntry({ action: 'hours.rejected', actor: user, entry: updated, reason: trimmedReason }),
+  ).catch(() => {});
 
   // Fire-and-forget push to the tradie with the rejection reason inline so
   // they don't have to open the app to find out why. ?fixDate=<iso> deep-links

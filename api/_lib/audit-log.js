@@ -127,6 +127,19 @@ const VALID_ACTIONS = new Set([
   'variation.created',
   'variation.transitioned',
   'observation.converted_to_variation',
+  // #390: hours / time-entry DECISIONS in the canonical audit journal so the
+  // cross-job activity feed (#220) and per-job history include the office
+  // approvals pass — half the office's day. Written best-effort (the payroll
+  // mutation never blocks on the audit). targetType 'time_entry'. Bulk actions
+  // write ONE summarising entry (metadata.entries carries the decided days), not
+  // N rows. Worker submit/resubmit land in a follow-on. Kept in sync with
+  // src/domains/audit-log/schema.ts AUDIT_ACTIONS + api/audit-log.js.
+  'hours.approved',
+  'hours.rejected',
+  'hours.reject_undone',
+  'hours.reopened',
+  'hours.bulk_approved',
+  'hours.bulk_rejected',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -158,6 +171,8 @@ const VALID_TARGET_TYPES = new Set([
   'leave',
   // #280: variation claim records (jobs/<id>/variations.json).
   'variation',
+  // #390: timesheet day records (users/<id>/time-entries/<date>.json).
+  'time_entry',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

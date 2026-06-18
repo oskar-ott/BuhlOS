@@ -135,6 +135,13 @@ describe("AuditLogEntrySchema", () => {
       "evidence.rejected",
       "evidence.reviewed",
       "evidence.unreviewed",
+      // #390: hours / time-entry decisions (the office approvals pass).
+      "hours.approved",
+      "hours.bulk_approved",
+      "hours.bulk_rejected",
+      "hours.reject_undone",
+      "hours.rejected",
+      "hours.reopened",
       // #332: induction register (backfilled sorts before confirmed).
       "induction.backfilled",
       "induction.confirmed",
@@ -194,6 +201,8 @@ describe("AuditLogEntrySchema", () => {
       "snag",
       // #151: platform-level events (backup runs).
       "system",
+      // #390: timesheet day records.
+      "time_entry",
       // #280: variation claim records.
       "variation",
     ]);

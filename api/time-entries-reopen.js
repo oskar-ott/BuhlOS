@@ -14,6 +14,8 @@
 const { setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
 const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
+const { append: appendAuditLog } = require('./_lib/audit-log');
+const { buildHoursAuditEntry } = require('./_lib/hours-audit');
 const { sendPushToUserId } = require('./_lib/push');
 
 module.exports = async (req, res) => {
@@ -88,6 +90,11 @@ module.exports = async (req, res) => {
     toStatus,
     forcedOverExport: !!(entry.exportId && force),
   });
+
+  // #390: canonical audit-log entry (best-effort) — never blocks the reopen.
+  appendAuditLog(
+    buildHoursAuditEntry({ action: 'hours.reopened', actor: user, entry: updated, reason: reason || null }),
+  ).catch(() => {});
 
   // Tell the worker their entry is back on their plate.
   sendPushToUserId(userId, {

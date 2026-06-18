@@ -59,6 +59,13 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   // #151: scheduled blob backup runs (targetType 'system' groups as Other).
   "backup.completed": "Ran data backup",
   "storage.write_rejected": "Blocked a bad data write",
+  // #390: hours / time-entry decisions (the office approvals pass).
+  "hours.approved": "Approved hours",
+  "hours.rejected": "Rejected hours",
+  "hours.reject_undone": "Undid an hours rejection",
+  "hours.reopened": "Re-opened hours",
+  "hours.bulk_approved": "Bulk-approved hours",
+  "hours.bulk_rejected": "Bulk-rejected hours",
 };
 
 export function actionLabel(action: AuditAction): string {
