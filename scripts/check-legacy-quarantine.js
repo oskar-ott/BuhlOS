@@ -87,7 +87,10 @@ for (const rel of DELETED_LEGACY_PATHS) {
 // Next.js serves everything in public/ verbatim at the site root, so any
 // .html file here is a live page. client.html is the ONE sanctioned
 // static page (read-only client portal; replacement tracked as #271).
-const ALLOWED_PUBLIC_HTML = new Set(['public/client.html']);
+const ALLOWED_PUBLIC_HTML = new Set([
+  'public/client.html', // read-only client portal (replacement tracked as #271)
+  'public/offline.html', // self-contained PWA offline fallback served by sw.js (#135)
+]);
 function walk(dirRel) {
   const out = [];
   if (!exists(dirRel)) return out;
@@ -269,16 +272,27 @@ if (exists('public/sw.js')) {
   const sw = read('public/sw.js');
   const swBans = [
     { re: /_shell/, why: 'references the deleted legacy admin shell' },
-    { re: /STATIC_SHELL|addAll\s*\(/, why: 'reintroduces a precache list — the SW must not cache app assets' },
-    { re: /['"`]\/[A-Za-z0-9_\-/]*\.(html|css)['"`]/, why: 'caches/serves an HTML or CSS path' },
+    { re: /STATIC_SHELL|addAll\s*\(/, why: 'reintroduces a precache list — the SW must not bulk-cache app assets' },
     { re: /['"`]\/(my-day|my-gear|overview|lh|admin)\b[^'"`]*['"`]/, why: 'deep-links a legacy URL' },
   ];
   for (const b of swBans) {
     if (b.re.test(sw)) {
       fail('public/sw.js ' + b.why + ' (' + b.re + ')',
-        'The v9+ worker is push-only: no precache, no fetch interception, ' +
-        'deep-link defaults under /phil/*. Serving cached shells is how old ' +
+        'The v9+ worker is push-only plus the #135 offline fallback: no app-shell ' +
+        'precache list, no legacy deep-links. Serving cached shells is how old ' +
         'layouts resurrected.');
+    }
+  }
+  // The worker may reference exactly ONE sanctioned static path — the
+  // self-contained offline fallback (#135). Any OTHER .html/.css path is a
+  // legacy-shell-cache risk and fails.
+  const SANCTIONED_SW_PATHS = new Set(['/offline.html']);
+  for (const lit of sw.match(/['"`]\/[A-Za-z0-9_\-/]*\.(?:html|css)['"`]/g) || []) {
+    const p = lit.slice(1, -1);
+    if (!SANCTIONED_SW_PATHS.has(p)) {
+      fail('public/sw.js caches/serves a non-sanctioned HTML/CSS path (' + p + ')',
+        'The worker may reference only /offline.html (the #135 fallback). ' +
+        'New UI belongs in src/app/; serving cached shells resurrects old layouts.');
     }
   }
   if (!/notificationclick/.test(sw) || !/addEventListener\(['"]push['"]/.test(sw)) {

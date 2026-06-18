@@ -59,7 +59,11 @@ describe("legacy static estate stays deleted", () => {
     expect(existsSync(resolve(REPO, rel))).toBe(false);
   });
 
-  it("public/ serves no HTML except the kept client portal", () => {
+  it("public/ serves only the kept client portal + the PWA offline fallback", () => {
+    // The legacy static estate is gone (see the cases above). The ONLY HTML
+    // allowed under public/ is the kept client portal and the self-contained
+    // PWA offline fallback (/offline.html, served by sw.js when a navigation
+    // fails offline — #135). Any other HTML here is a legacy regression.
     const html: string[] = [];
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -69,7 +73,7 @@ describe("legacy static estate stays deleted", () => {
       }
     };
     walk(resolve(REPO, "public"));
-    expect(html).toEqual(["public/client.html"]);
+    expect(html.sort()).toEqual(["public/client.html", "public/offline.html"]);
   });
 });
 
