@@ -7,12 +7,13 @@ import { addDays, weekStartOf } from "@/domains/timesheets/service";
  *
  * Honest by construction: every cell is derived from the worker's real time
  * entries + the calendar. Nothing is fabricated —
- *   - logged   : a real entry exists for that date (its hours are shown);
- *                the status word tells the truth about where it's up to
- *                (approved / waiting / draft)
+ *   - logged   : a real (approved/waiting) entry exists for that date — reads as
+ *                a green "done" cell with its hours, INCLUDING today's once it's
+ *                logged; the status word tells the truth (approved / waiting)
  *   - fix      : the entry was REJECTED — the one state that needs the
  *                worker's hand, so it reads red instead of a green "logged"
- *   - today    : the cell IS today (prompts "log now" when no entry yet)
+ *   - today    : today with nothing logged yet (prompts "log now"); once logged
+ *                it turns into a green "logged" cell
  *   - miss     : a PAST day with no entry — a soft "you haven't logged this"
  *                nudge, never a claim the worker did anything wrong. Weekends
  *                are loggable like weekdays (tap to log if you worked Sat/Sun),
@@ -141,16 +142,20 @@ export function buildPhilWeek(
       // calm green "logged", even when it's today's entry.
       state = "fix";
       statusWord = "fix";
-    } else if (date === todayISO) {
-      state = "today";
-      statusWord = logged ? (status ? loggedStatusWord(status) : "today") : "log now";
     } else if (logged && status === "draft") {
       // Logged but never submitted — amber attention, not a calm green tick.
       state = "miss";
       statusWord = "draft";
     } else if (logged) {
+      // A real submitted/approved entry reads as DONE → green, INCLUDING today's
+      // (so logging a day turns its cell green right away). The "today" cell is
+      // only the not-yet-logged prompt below.
       state = "logged";
       statusWord = loggedStatusWord(status);
+    } else if (date === todayISO) {
+      // Today with nothing logged yet — prompt the log.
+      state = "today";
+      statusWord = "log now";
     } else if (date > todayISO) {
       // Nothing to act on yet — true of a future weekday or weekend alike.
       state = "upcoming";

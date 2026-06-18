@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { Clock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -111,6 +112,7 @@ export function LogHoursSheet({
   initialDate = null,
   autoOpenFix = false,
 }: LogHoursSheetProps) {
+  const router = useRouter();
   const [todayEntry, setTodayEntry] = useState<TimeEntry | null>(initialTodayEntry);
   const [date, setDate] = useState<string>(() => initialDate ?? localDateString());
   const [notes, setNotes] = useState<string>("");
@@ -272,6 +274,11 @@ export function LogHoursSheet({
       setTodayEntry(result.data.entry);
       setState({ kind: "success", entry: result.data.entry, mode });
       setNotes("");
+      // Re-fetch the server data so the "This week" strip + hero reflect the new
+      // entry immediately — the logged day turns green without a manual reload.
+      // refresh() re-renders the server components but preserves this client
+      // component's state (the success banner), so the confirmation stays.
+      router.refresh();
       return;
     }
     if (result.error.status === 409) {
