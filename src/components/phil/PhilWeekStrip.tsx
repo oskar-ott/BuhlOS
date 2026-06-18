@@ -64,10 +64,10 @@ function dayTapLabel(d: WeekDayCell, todayISO: string): string {
  * The SHORT visible label inside a day cell. The full status words ("not logged",
  * "approved", "waiting", …) overflow the ~1-of-7 mobile cell at the 12px font
  * floor, so the cell leans on the hours number + the colour tint: a logged /
- * number-bearing day shows NO word, and a missed day uses the short "miss". The
- * action states stay as short words that fit. The FULL word is unchanged in the
- * tap aria-label (`dayTapLabel`) — this only trims what's painted in the chip, so
- * screen-reader meaning and the office distinction are preserved.
+ * number-bearing day AND a not-logged day show NO word (the "—" dash + the amber
+ * tint already say "nothing here"). Only the action states keep a short word.
+ * The FULL prompt is unchanged in the tap aria-label (`dayTapLabel`), so a
+ * screen reader still hears "not logged. Log hours for this day."
  *
  * Note: "approved" and "waiting" share the green logged tint already, so dropping
  * the word means they read the same at a glance here; the exact status stays on
@@ -75,14 +75,13 @@ function dayTapLabel(d: WeekDayCell, todayISO: string): string {
  */
 function cellStatusLabel(d: WeekDayCell): string {
   switch (d.statusWord) {
-    case "not logged":
-      return "miss"; // "NOT LOGGED" is far too wide for the cell (~25px overflow)
+    case "not logged": // no accusatory "miss" chip — the dash + amber tint suffice
     case "approved":
     case "waiting":
     case "logged":
     case "draft":
     case "today":
-      return ""; // number + tint conveys it; the word would overflow / be redundant
+      return ""; // number / dash + tint conveys it; the word would overflow / be redundant
     default:
       return d.statusWord; // "log now" | "fix" | "—" — already short enough
   }

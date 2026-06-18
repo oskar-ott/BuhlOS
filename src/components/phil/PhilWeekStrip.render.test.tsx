@@ -88,11 +88,13 @@ describe("PhilWeekStrip (render)", () => {
     expect(html).toContain("rejected. Fix and resubmit this day.");
   });
 
-  it("paints the SHORT 'miss' chip for a missed day (the full words overflow the cell), keeping the full word in the aria-label", () => {
-    // Thu 2024-05-23 is a past weekday with no entry → a missed day.
+  it("shows NO 'miss' word on a not-logged day (just the dash + tint), keeping the full prompt in the aria-label", () => {
+    // Thu 2024-05-23 is a past weekday with no entry → not logged.
     const html = render([entry("2024-05-20", 7.6)]);
-    expect(html).toContain("miss"); // the short visible chip (was the too-wide "not logged")
-    // the full semantic word is preserved for screen readers in the tap label
+    // No accusatory "miss" CHIP painted in the cell (the styles.miss class name
+    // is fine — we assert on the rendered text node, not the hashed class).
+    expect(html).not.toContain(">miss<");
+    // the full semantic prompt is preserved for screen readers in the tap label
     expect(html).toContain("not logged. Log hours for this day.");
   });
 
