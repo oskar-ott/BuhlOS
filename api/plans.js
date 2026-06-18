@@ -117,10 +117,33 @@ function emptyTakeoff() {
 async function readTakeoff(jobId) {
   return await readBlob('jobs/' + jobId + '/ai-takeoff.json', emptyTakeoff());
 }
-async function writeTakeoff(jobId, data) {
+async function writeTakeoff(jobId, data, opts) {
   data.updatedAt = new Date().toISOString();
   if (!data.createdAt) data.createdAt = data.updatedAt;
-  await writeBlob('jobs/' + jobId + '/ai-takeoff.json', data);
+  await writeBlob('jobs/' + jobId + '/ai-takeoff.json', data, opts);
+}
+
+// CAS-safe commit of a takeoff mutation (#510). Two concurrent analyse calls
+// used to read the same spend snapshot, each record their cost, and last-write-
+// wins would DROP one call's spend — silently defeating the per-job cost cap.
+// Here the mutation is RE-APPLIED onto a fresh read whenever the stored revision
+// has moved (every blob write stamps __rev), so each call's spend is recorded
+// exactly once and the cap accounting stays honest. The vision call already
+// happened and is never retried — only the local accounting write is.
+async function commitTakeoff(jobId, applyMutation) {
+  const MAX_ATTEMPTS = 6;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const takeoff = await readTakeoff(jobId);
+    const expectedRev = Number.isFinite(takeoff.__rev) ? takeoff.__rev : 0;
+    const payload = applyMutation(takeoff);
+    try {
+      await writeTakeoff(jobId, takeoff, { expectedRev });
+      return payload;
+    } catch (e) {
+      if (e && e.code === 'stale_write' && attempt < MAX_ATTEMPTS - 1) continue;
+      throw e;
+    }
+  }
 }
 
 // ─── Vision call helpers ──────────────────────────────────────────────────
@@ -334,16 +357,17 @@ async function handleAnalyseLegend(req, res, jobId, body) {
     return res.status(502).json({ error: 'vision call failed: ' + e.message });
   }
 
-  recordSpend(takeoff, usage, 'analyse-legend', { planId, pageIndex });
-  takeoff.sheetCache[cacheKey] = { stage: 'legend', result };
-
-  if (result && result.isLegend && Array.isArray(result.items) && result.items.length) {
-    takeoff.legendVersion = (takeoff.legendVersion || 0) + 1;
-    takeoff.legendItems = result.items;
-    takeoff.legendSource = { planId, pageIndex };
-  }
-  await writeTakeoff(jobId, takeoff);
-  return res.status(200).json({ legend: result, cached: false, spend: takeoff.spend });
+  const out = await commitTakeoff(jobId, (t) => {
+    recordSpend(t, usage, 'analyse-legend', { planId, pageIndex });
+    t.sheetCache[cacheKey] = { stage: 'legend', result };
+    if (result && result.isLegend && Array.isArray(result.items) && result.items.length) {
+      t.legendVersion = (t.legendVersion || 0) + 1;
+      t.legendItems = result.items;
+      t.legendSource = { planId, pageIndex };
+    }
+    return { legend: result, cached: false, spend: t.spend };
+  });
+  return res.status(200).json(out);
 }
 
 async function handleAnalyseSheet(req, res, jobId, body) {
@@ -371,9 +395,11 @@ async function handleAnalyseSheet(req, res, jobId, body) {
   const cacheKey = page.sha256 + ':sheet:lv' + takeoff.legendVersion;
   const cached = takeoff.sheetCache[cacheKey];
   if (cached) {
-    applyClassificationAndCounts(takeoff, planId, pageIndex, cached.result, true);
-    await writeTakeoff(jobId, takeoff);
-    return res.status(200).json({ result: cached.result, cached: true });
+    const out = await commitTakeoff(jobId, (t) => {
+      applyClassificationAndCounts(t, planId, pageIndex, cached.result, true);
+      return { result: cached.result, cached: true };
+    });
+    return res.status(200).json(out);
   }
 
   const { base64, mediaType } = await fetchPngAsBase64(page.pngUrl);
@@ -397,11 +423,13 @@ async function handleAnalyseSheet(req, res, jobId, body) {
     return res.status(502).json({ error: 'vision call failed: ' + e.message });
   }
 
-  recordSpend(takeoff, usage, 'analyse-sheet', { planId, pageIndex });
-  takeoff.sheetCache[cacheKey] = { stage: 'sheet', result };
-  applyClassificationAndCounts(takeoff, planId, pageIndex, result, false);
-  await writeTakeoff(jobId, takeoff);
-  return res.status(200).json({ result, cached: false, spend: takeoff.spend });
+  const out = await commitTakeoff(jobId, (t) => {
+    recordSpend(t, usage, 'analyse-sheet', { planId, pageIndex });
+    t.sheetCache[cacheKey] = { stage: 'sheet', result };
+    applyClassificationAndCounts(t, planId, pageIndex, result, false);
+    return { result, cached: false, spend: t.spend };
+  });
+  return res.status(200).json(out);
 }
 
 // Apply the classification + counts from a single sheet's vision result into
@@ -945,3 +973,8 @@ module.exports = async (req, res) => {
 
   return res.status(405).json({ error: 'method not allowed' });
 };
+
+// Test-only exports for the spend-cap CAS (#510). The default export above stays
+// the request handler; these expose the internal accounting helpers so the
+// concurrency contract can be unit-tested without the Anthropic SDK / PNG fetch.
+module.exports.__test = { commitTakeoff, readTakeoff, writeTakeoff, recordSpend };
