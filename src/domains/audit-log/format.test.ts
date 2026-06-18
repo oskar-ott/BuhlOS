@@ -59,7 +59,7 @@ describe("summariseJobActivity", () => {
       ent({ id: "4", targetType: "itp_instance", action: "itp.attached" }),
       ent({ id: "5", targetType: "observation", action: "observation.converted_to_snag" }),
     ]);
-    expect(s).toEqual({ total: 5, evidence: 2, snag: 1, itp: 1, observation: 1, material_request: 0, other: 0 });
+    expect(s).toEqual({ total: 5, evidence: 2, snag: 1, itp: 1, observation: 1, material_request: 0, variation: 0, other: 0 });
   });
 
   it("handles an empty list", () => {
@@ -70,6 +70,7 @@ describe("summariseJobActivity", () => {
       itp: 0,
       observation: 0,
       material_request: 0,
+      variation: 0,
       other: 0,
     });
   });

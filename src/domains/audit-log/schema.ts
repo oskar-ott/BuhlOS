@@ -111,6 +111,14 @@ export const AUDIT_ACTIONS = [
   "leave.recorded",
   "leave.decided",
   "leave.cancelled",
+  // #280: variation CLAIM module. variation.created emits on POST
+  // /api/variations; variation.transitioned emits on the status PATCH (one verb;
+  // metadata.from/to carry the direction, metadata.method on the approve move).
+  // observation.converted_to_variation mirrors observation.converted_to_snag —
+  // the observation→claim promotion. Kept in sync with api/_lib/audit-log.js.
+  "variation.created",
+  "variation.transitioned",
+  "observation.converted_to_variation",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -133,6 +141,8 @@ export const AUDIT_TARGET_TYPES = [
   "credential",
   "induction",
   "leave",
+  // #280: variation claim records (jobs/<id>/variations.json).
+  "variation",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

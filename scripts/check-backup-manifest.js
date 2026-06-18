@@ -18,6 +18,7 @@ const { isCoveredKey, BACKUP_PREFIX } = require('../api/_lib/backup-manifest');
 const KNOWN_DYNAMIC = {
   'api/_lib/audit-log.js': ['audit/'], // keyFor(): audit/<yyyy-mm>.json
   'api/leave.js': ['leave-requests.json'], // KEY imported from _lib/leave.js
+  'api/observations.js': ['jobs/'], // variations.storeKey(jobId): jobs/<id>/variations.json (cross-module call; covered by the jobs/ prefix)
 };
 
 // The backup system itself: blob.js DEFINES writeBlob, backup.js's restore

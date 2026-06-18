@@ -1189,6 +1189,206 @@ async function convertObservationToMaterialRequest(req, res, user) {
   return res.status(201).json({ observation: next, materialRequest: mrItem });
 }
 
+/**
+ * #280: Convert an eligible observation into a REAL Variation CLAIM.
+ *
+ * Mirrors convertObservationToSnag() / convertObservationToMaterialRequest():
+ * admin-tier only, default-eligible type is just `variation` (the natural
+ * field action — a `variation`-typed observation is extra work spotted on
+ * site), other types require {"force":true}, idempotent (returns 409 if
+ * already linkedVariationId / convertedTo === 'variation'), write-the-target-
+ * first then update the observation, dual audit (variation.created +
+ * observation.converted_to_variation).
+ *
+ * The new claim starts in `draft` with scope = observation.title, the
+ * observation's estimate note folded into the description, and a back-link
+ * (links.observationId). The office prices it up + works the pipeline from
+ * there. valueCents is left null (a draft being scoped) unless the office
+ * supplies one on conversion.
+ *
+ * Body:
+ *   { id: string, force?: boolean, valueCents?: integer-cents }
+ */
+async function convertObservationToVariation(req, res, user) {
+  const body = req.body || {};
+  const id = body.id ? String(body.id) : '';
+  if (!id) return res.status(400).json({ error: 'id required' });
+
+  const force = body.force === true;
+  const store = await readStore();
+  const arr = Array.isArray(store.observations) ? store.observations : [];
+  const idx = arr.findIndex((o) => o && o.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'observation not found' });
+  const observation = arr[idx];
+
+  // Office items (jobId null) can't become a variation claim — claims are
+  // job-scoped (per-job billing). Same guard as convert-to-snag.
+  if (!observation.jobId) {
+    return res.status(400).json({
+      error: "office item has no job — it can't be converted to a variation claim",
+    });
+  }
+
+  // Double-convert guard — to a variation OR to anything else.
+  if (observation.linkedVariationId || observation.convertedTo === 'variation') {
+    return res.status(409).json({
+      error: 'observation already converted to a variation claim',
+      linkedVariationId: observation.linkedVariationId || null,
+      convertedTargetId: observation.convertedTargetId || null,
+    });
+  }
+  if (observation.convertedTo && observation.convertedTo !== null) {
+    return res.status(409).json({
+      error: `observation already converted to ${observation.convertedTo}`,
+      convertedTo: observation.convertedTo,
+      convertedTargetId: observation.convertedTargetId || null,
+    });
+  }
+
+  if (observation.type !== 'variation' && !force) {
+    return res.status(400).json({
+      error: `observation type '${observation.type}' is not a default conversion target for a variation claim; pass {"force":true} to convert anyway`,
+    });
+  }
+
+  const job = await loadJobOrFail(res, observation.jobId);
+  if (!job) return;
+
+  // Optional valueCents on conversion — same integer-cents convention as the
+  // claims API. Reject a malformed value loudly rather than dropping it.
+  let valueCents = null;
+  if (body.valueCents != null) {
+    const n = body.valueCents;
+    if (typeof n !== 'number' || !Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+      return res.status(400).json({ error: 'valueCents must be a non-negative integer number of cents' });
+    }
+    valueCents = n;
+  }
+
+  const variations = require('./variations');
+  const nowIso = new Date().toISOString();
+  const actorName = user.name || user.username || 'Unknown';
+
+  // Build the claim FIRST (so a failure leaves the observation untouched).
+  // scope = observation.title; the field estimate note folds into description.
+  const claimStore = await variations.readStore(observation.jobId);
+  const claims = Array.isArray(claimStore.claims) ? claimStore.claims : [];
+  const ref = variations.nextClaimRef(claims);
+
+  const descriptionParts = [];
+  if (observation.description) descriptionParts.push(String(observation.description));
+  if (observation.variationAskedBy) descriptionParts.push(`Asked by: ${observation.variationAskedBy}`);
+  if (observation.variationLabourHours != null) {
+    descriptionParts.push(`Labour estimate: ${observation.variationLabourHours} h`);
+  }
+  if (observation.variationMaterialsNote) {
+    descriptionParts.push(`Materials: ${observation.variationMaterialsNote}`);
+  }
+  const description = descriptionParts.length ? descriptionParts.join('\n') : null;
+
+  const claim = {
+    id: nanoid('vc_'),
+    jobId: observation.jobId,
+    ref,
+    scope: String(observation.title || '').slice(0, 200),
+    description: description ? description.slice(0, 4000) : null,
+    status: 'draft',
+    valueCents,
+    links: {
+      observationId: observation.id,
+      evidenceIds: observation.linkedEvidenceId ? [observation.linkedEvidenceId] : [],
+      documentIds: [],
+    },
+    approval: null,
+    decisionNote: null,
+    invoiceRef: null,
+    invoicedAt: null,
+    createdAt: nowIso,
+    createdById: user.id,
+    createdByName: actorName,
+    updatedAt: nowIso,
+    auditLogIds: [],
+  };
+
+  // Audit: emit variation.created first (mirrors snag.created on the snag
+  // conversion) so the per-job timeline reads consistently.
+  const claimAudit = await appendAuditLog({
+    action: 'variation.created',
+    actorId: user.id,
+    actorName,
+    actorRole: user.role || null,
+    jobId: observation.jobId,
+    targetType: 'variation',
+    targetId: claim.id,
+    summary: `variation claim raised via observation conversion — ${claim.ref} "${String(claim.scope).slice(0, 60)}"`,
+    metadata: {
+      ref: claim.ref,
+      valueCents: claim.valueCents,
+      status: claim.status,
+      convertedFromObservationId: observation.id,
+      convertedFromObservationType: observation.type,
+    },
+  }).catch(() => null);
+  if (claimAudit && claimAudit.id) claim.auditLogIds.push(claimAudit.id);
+
+  // Write the claim FIRST. If it fails the observation is untouched and the
+  // caller sees a 502 + can retry safely.
+  claimStore.claims = claims;
+  claimStore.claims.push(claim);
+  try {
+    await writeBlob(variations.storeKey(observation.jobId), claimStore);
+  } catch (e) {
+    return res.status(502).json({ error: 'variation claim write failed: ' + (e.message || 'unknown') });
+  }
+
+  // Now update the observation with the back-link.
+  const next = {
+    ...observation,
+    linkedVariationId: claim.id,
+    convertedTo: 'variation',
+    convertedTargetId: claim.id,
+    convertedAt: nowIso,
+    convertedById: user.id,
+    convertedByName: actorName,
+    status: 'converted',
+    updatedAt: nowIso,
+  };
+
+  await appendAuditLog({
+    action: 'observation.converted_to_variation',
+    actorId: user.id,
+    actorName,
+    actorRole: user.role || null,
+    jobId: observation.jobId,
+    targetType: 'observation',
+    targetId: observation.id,
+    summary: `observation → variation claim — "${String(observation.title).slice(0, 80)}"`,
+    metadata: {
+      variationId: claim.id,
+      variationRef: claim.ref,
+      observationType: observation.type,
+      previousStatus: observation.status,
+      forced: force && observation.type !== 'variation',
+    },
+  }).catch(() => null);
+
+  arr[idx] = next;
+  store.observations = arr;
+  try {
+    await writeBlob(STORE_KEY, store);
+  } catch (e) {
+    // Claim already written; surface that so the operator knows it exists and
+    // the observation just needs a manual link. Same v1 trade-off as snag/MR.
+    return res.status(502).json({
+      error: 'observation write failed after variation claim created: ' + (e.message || 'unknown'),
+      variationId: claim.id,
+      observationId: observation.id,
+    });
+  }
+
+  return res.status(201).json({ observation: next, variation: claim });
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -1215,6 +1415,17 @@ module.exports = async (req, res) => {
     if (!user) return;
     try {
       return await convertObservationToMaterialRequest(req, res, user);
+    } catch (e) {
+      return res.status(500).json({ error: e.message || 'conversion failed' });
+    }
+  }
+
+  // --- POST ?action=convert-to-variation (#280) ---------------------------
+  if (req.method === 'POST' && action === 'convert-to-variation') {
+    const user = await requireAuth(req, res, { roles: ['admin'] });
+    if (!user) return;
+    try {
+      return await convertObservationToVariation(req, res, user);
     } catch (e) {
       return res.status(500).json({ error: e.message || 'conversion failed' });
     }
