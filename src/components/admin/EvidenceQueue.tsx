@@ -15,6 +15,7 @@ import {
 } from "@/domains/evidence/format";
 import { reviewEvidence } from "@/domains/evidence/client";
 import type { EvidenceItem } from "@/domains/evidence/types";
+import { resolveEvidenceTargetLabel } from "@/domains/evidence/target-label";
 import type { Job } from "@/domains/jobs/types";
 import {
   DEFAULT_FILTER,
@@ -412,6 +413,7 @@ export function EvidenceQueue({
                 <EvidenceRow
                   key={it.id}
                   item={it}
+                  job={job}
                   isAdmin={isAdmin}
                   isSelected={!!selected[it.id]}
                   busy={!!busyMap[it.id] || bulkBusy}
@@ -428,6 +430,7 @@ export function EvidenceQueue({
 
       <EvidenceDrawer
         item={drawerItem}
+        job={job}
         open={drawerItem !== null}
         isAdmin={isAdmin}
         busy={
@@ -478,6 +481,7 @@ export function EvidenceQueue({
 
 interface RowProps {
   item: EvidenceItem;
+  job: Job;
   isAdmin: boolean;
   isSelected: boolean;
   busy: boolean;
@@ -489,6 +493,7 @@ interface RowProps {
 
 function EvidenceRow({
   item,
+  job,
   isAdmin,
   isSelected,
   busy,
@@ -499,7 +504,7 @@ function EvidenceRow({
 }: RowProps) {
   const tone = PILL_TONE_MAP[statusTone(item.status)];
   const rowError = (item as unknown as { __rowError?: string }).__rowError;
-  const target = formatTarget(item);
+  const target = resolveEvidenceTargetLabel(job, item);
   const reviewed = item.status === "reviewed";
   const rejected = item.status === "rejected";
   const immutable = reviewed || rejected;
@@ -641,14 +646,6 @@ function ActionFeedback({ state }: { state: ActionState }) {
     );
   }
   return null;
-}
-
-function formatTarget(item: EvidenceItem): string {
-  const parts: string[] = [];
-  if (item.stage) parts.push(item.stage === "roughIn" ? "Rough-in" : "Fit-off");
-  if (item.areaId) parts.push(`Area ${item.areaId}`);
-  if (item.taskId) parts.push(`Task ${item.taskId}`);
-  return parts.join(" · ");
 }
 
 function formatWhen(iso: string): string {
