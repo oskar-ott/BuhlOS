@@ -115,6 +115,18 @@ const VALID_ACTIONS = new Set([
   'leave.recorded',
   'leave.decided',
   'leave.cancelled',
+  // #280: variation CLAIM module (api/variations.js). Mirrors the snag pattern —
+  // one created verb + one transitioned verb covering every status change; the
+  // row's metadata.from / metadata.to carry the direction. The approve
+  // transition additionally records metadata.method so a dispute review can see
+  // HOW it was approved without re-fetching. variation.converted_from_observation
+  // mirrors observation.converted_to_snag — emitted when a variation-typed
+  // observation is promoted to a real claim (the observation also gets its own
+  // observation.converted_to_variation row attributing the office decision).
+  // Kept in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'variation.created',
+  'variation.transitioned',
+  'observation.converted_to_variation',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -144,6 +156,8 @@ const VALID_TARGET_TYPES = new Set([
   'induction',
   // #127/#333: leave / not-worked records (leave-requests.json).
   'leave',
+  // #280: variation claim records (jobs/<id>/variations.json).
+  'variation',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

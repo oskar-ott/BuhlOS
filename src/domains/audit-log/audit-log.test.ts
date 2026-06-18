@@ -162,6 +162,9 @@ describe("AuditLogEntrySchema", () => {
       // PR 6: observation -> real snag conversion verb.
       // (sorts before observation.created because 'co' < 'cr')
       "observation.converted_to_snag",
+      // #280: observation -> real variation claim conversion verb
+      // ('_variation' sorts after '_snag').
+      "observation.converted_to_variation",
       // PR 10: observation lifecycle (create on POST, transitioned on PATCH
       // when status/priority/assignment change).
       "observation.created",
@@ -169,6 +172,9 @@ describe("AuditLogEntrySchema", () => {
       "snag.created",
       "snag.transitioned",
       "storage.write_rejected",
+      // #280: variation claim lifecycle.
+      "variation.created",
+      "variation.transitioned",
     ]);
     expect([...AUDIT_TARGET_TYPES].sort()).toEqual([
       "contact",
@@ -188,6 +194,8 @@ describe("AuditLogEntrySchema", () => {
       "snag",
       // #151: platform-level events (backup runs).
       "system",
+      // #280: variation claim records.
+      "variation",
     ]);
   });
 

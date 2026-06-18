@@ -52,6 +52,10 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "observation.converted_to_material_request": "Converted observation to material request",
   "material_request.created": "Raised material request",
   "material_request.transitioned": "Updated material request",
+  // #280: variation claim module.
+  "variation.created": "Raised variation claim",
+  "variation.transitioned": "Updated variation claim",
+  "observation.converted_to_variation": "Converted observation to variation",
   // #151: scheduled blob backup runs (targetType 'system' groups as Other).
   "backup.completed": "Ran data backup",
   "storage.write_rejected": "Blocked a bad data write",
@@ -73,6 +77,7 @@ export type AuditTargetGroup =
   | "itp"
   | "observation"
   | "material_request"
+  | "variation"
   | "other";
 
 export function targetGroup(targetType: AuditTargetType): AuditTargetGroup {
@@ -88,6 +93,8 @@ export function targetGroup(targetType: AuditTargetType): AuditTargetGroup {
       return "observation";
     case "material_request":
       return "material_request";
+    case "variation":
+      return "variation";
     default:
       return "other";
   }
@@ -99,6 +106,7 @@ const GROUP_LABELS: Record<AuditTargetGroup, string> = {
   itp: "ITPs",
   observation: "Observations",
   material_request: "Material requests",
+  variation: "Variations",
   other: "Other",
 };
 
@@ -116,6 +124,7 @@ export interface JobActivitySummary {
   itp: number;
   observation: number;
   material_request: number;
+  variation: number;
   other: number;
 }
 
@@ -129,6 +138,7 @@ export function summariseJobActivity(
     itp: 0,
     observation: 0,
     material_request: 0,
+    variation: 0,
     other: 0,
   };
   for (const e of entries) {
