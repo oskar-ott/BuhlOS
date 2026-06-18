@@ -12,6 +12,9 @@ export type HttpError = {
   status: number;
   body: unknown;
   message: string;
+  /** Failure class for network-layer errors (status 0). Absent for HTTP
+   *  status errors. Lets callers tell a timed-out write from a dropped one. */
+  kind?: "timeout" | "network";
 };
 
 export type HttpResult<T> = { ok: true; data: T } | { ok: false; error: HttpError };
@@ -21,6 +24,11 @@ export interface HttpOptions<T> {
    *  (#383's lenient list parse) — safeParse takes unknown either way. */
   schema: z.ZodType<T, z.ZodTypeDef, unknown>;
   init?: RequestInit;
+  /** Opt-in bounded timeout (ms). Omitted → no timeout (unchanged behaviour).
+   *  Field writes set this so a request on bad signal fails honestly instead
+   *  of hanging forever (#139). Pick a budget that fits the payload — small
+   *  JSON writes ~15s, large photo uploads more generous. */
+  timeoutMs?: number;
 }
 
 export async function httpGet<T>(url: string, opts: HttpOptions<T>): Promise<HttpResult<T>> {
@@ -94,19 +102,52 @@ export async function httpDelete<T>(url: string, opts: HttpOptions<T>): Promise<
 }
 
 async function request<T>(url: string, opts: HttpOptions<T>): Promise<HttpResult<T>> {
+  let init = opts.init;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+
+  if (opts.timeoutMs && opts.timeoutMs > 0) {
+    const controller = new AbortController();
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, opts.timeoutMs);
+    // Honour a caller-supplied signal too (e.g. unmount cancellation).
+    const callerSignal = init?.signal;
+    if (callerSignal) {
+      if (callerSignal.aborted) controller.abort();
+      else callerSignal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+    init = { ...init, signal: controller.signal };
+  }
+
   let res: Response;
   try {
-    res = await fetch(url, opts.init);
+    res = await fetch(url, init);
   } catch (err) {
+    if (timer) clearTimeout(timer);
+    if (timedOut) {
+      return {
+        ok: false,
+        error: {
+          status: 0,
+          kind: "timeout",
+          body: null,
+          message: "That took too long and may not have sent. Check your signal and try again.",
+        },
+      };
+    }
     return {
       ok: false,
       error: {
         status: 0,
+        kind: "network",
         body: null,
         message: err instanceof Error ? err.message : "network error",
       },
     };
   }
+  if (timer) clearTimeout(timer);
 
   let body: unknown = null;
   const text = await res.text();
