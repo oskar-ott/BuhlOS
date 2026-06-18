@@ -3,8 +3,16 @@ const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const {
   setSessionCookie, clearSessionCookie, getCurrentUser, isDisabledUser,
 } = require('./_lib/auth');
+const { createRateLimiter } = require('./_lib/rate-limit');
 
 const DISABLED_MESSAGE = 'Account disabled. Ask your supervisor.';
+
+// #514: per-USERNAME throttle on failed PIN logins. A four-digit field PIN is
+// online brute-forceable; this slows a wrong-PIN storm on one username without a
+// shared-site IP locking out the rest of the crew. In-memory, per-serverless-
+// instance (honest limitation — a slowdown, not a hard cluster-wide lockout;
+// see api/_lib/rate-limit.js). 5 failures / 15 min, cleared on a successful login.
+const loginThrottle = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5 });
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -20,12 +28,28 @@ module.exports = async (req, res) => {
   if (req.method === 'POST' && action === 'login') {
     const { username, secret } = req.body || {};
     if (!username || !secret) return res.status(400).json({ error: 'username and secret required' });
+    const throttleKey = String(username).toLowerCase();
+    // #514: refuse early when this username is already over the failed-attempt
+    // limit — BEFORE the password compare, so a throttled account can't be
+    // probed (and the correct PIN won't sneak through a lockout window).
+    if (loginThrottle.isLimited(throttleKey)) {
+      const retryAfterSec = loginThrottle.retryAfterSec(throttleKey);
+      res.setHeader('Retry-After', String(retryAfterSec));
+      return res.status(429).json({ error: 'Too many attempts. Wait a few minutes and try again.', retryAfterSec });
+    }
     const data = await readBlob('users.json', { users: [] });
-    const user = (data.users || []).find(u => u.username.toLowerCase() === String(username).toLowerCase());
-    if (!user) return res.status(401).json({ error: 'invalid credentials' });
+    const user = (data.users || []).find(u => u.username.toLowerCase() === throttleKey);
+    if (!user) {
+      loginThrottle.record(throttleKey); // throttle guessing of unknown usernames too
+      return res.status(401).json({ error: 'invalid credentials' });
+    }
     const ok = await bcrypt.compare(String(secret), user.passwordHash);
-    if (!ok) return res.status(401).json({ error: 'invalid credentials' });
+    if (!ok) {
+      loginThrottle.record(throttleKey);
+      return res.status(401).json({ error: 'invalid credentials' });
+    }
     if (isDisabledUser(user)) return res.status(403).json({ error: DISABLED_MESSAGE });
+    loginThrottle.clear(throttleKey); // a good login resets the counter
     setSessionCookie(res, { userId: user.id, role: user.role });
     const { passwordHash, ...safe } = user;
     return res.status(200).json({ user: safe });
