@@ -276,6 +276,20 @@ describe("deriveRequiredEvidenceId", () => {
       deriveRequiredEvidenceId("Test results"),
     );
   });
+
+  it("folds a taskRef into the id (#502) — same label, different task → distinct ids; label-only unchanged", () => {
+    const t1 = { areaId: "a1", stage: "roughIn", taskId: "t1" } as const;
+    const t2 = { areaId: "a1", stage: "roughIn", taskId: "t2" } as const;
+    const labelOnly = deriveRequiredEvidenceId("Circuit test");
+    // back-compat: omitting / null taskRef keeps the label-only id
+    expect(deriveRequiredEvidenceId("Circuit test", null)).toBe(labelOnly);
+    // task scope changes the id, and differs between tasks (no collapse in compile's id-keyed map)
+    expect(deriveRequiredEvidenceId("Circuit test", t1)).not.toBe(labelOnly);
+    expect(deriveRequiredEvidenceId("Circuit test", t1)).not.toBe(deriveRequiredEvidenceId("Circuit test", t2));
+    // still deterministic + well-formed
+    expect(deriveRequiredEvidenceId("Circuit test", t1)).toBe(deriveRequiredEvidenceId("Circuit test", t1));
+    expect(deriveRequiredEvidenceId("Circuit test", t1)).toMatch(/^re_[0-9a-f]{8}$/);
+  });
 });
 
 // ── Authoring deliveredBy + requiredEvidence through preview/confirm ───────────
@@ -327,6 +341,28 @@ describe("authoring deliveredBy + requiredEvidence onto a clause", () => {
     // omitted id → the deterministic derivation; explicit id wins unchanged
     expect(cc.requiredEvidence[0]!.id).toBe(deriveRequiredEvidenceId("Circuit test before energising"));
     expect(cc.requiredEvidence[1]!.id).toBe("re_custom");
+  });
+
+  it("carries a per-task taskRef through to the requirement with a task-distinct id (#502)", () => {
+    const taskRef = { areaId: "area_east_gym", stage: "fitOff", taskId: "task_zip" } as const;
+    const r = buildReconciliationPreview({
+      jobId: "j",
+      clauses: clauses(),
+      quote: null,
+      prior: null,
+      classifications: {
+        sw_zip: {
+          classification: "priced",
+          deliveredBy: [taskRef],
+          requiredEvidence: [{ label: "Board photo", kind: "photo", taskRef }],
+        },
+      },
+    });
+    const cc = r.reconciliation.clauseClassifications.find((c) => c.clauseId === "sw_zip")!;
+    expect(cc.requiredEvidence[0]!.taskRef).toEqual(taskRef);
+    // the id folds in the taskRef → distinct from the package-level (label-only) id
+    expect(cc.requiredEvidence[0]!.id).toBe(deriveRequiredEvidenceId("Board photo", taskRef));
+    expect(cc.requiredEvidence[0]!.id).not.toBe(deriveRequiredEvidenceId("Board photo"));
   });
 
   it("never fabricates proof: a field clause with no requiredEvidence stays empty", () => {

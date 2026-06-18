@@ -22,6 +22,7 @@ import {
   type CompilePreviewData,
   type EvidenceKind,
   type FieldClassification,
+  type ProofScope,
 } from "./jobControlAuthoringClient";
 
 /**
@@ -240,6 +241,21 @@ export function JobControlAuthoringPanel({ job }: { job: Job }) {
                 className="w-full rounded-card border border-border bg-surface px-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-navy"
               />
             </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <Field label="Applies to">
+              <Select
+                value={sel.proofScope}
+                onChange={(v) => update({ proofScope: v as ProofScope })}
+                options={[
+                  { value: "area", label: "Whole area — every task here needs it" },
+                  { value: "task", label: "Just this task" },
+                ]}
+              />
+            </Field>
+            <p className="mt-1 text-xs text-text-muted">
+              Default keeps proof at the area level. Choose “Just this task” to ask for it on only the selected task.
+            </p>
           </div>
         </div>
       </Card>

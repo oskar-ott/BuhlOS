@@ -41,6 +41,11 @@ export const STAGE_OPTIONS = [
 
 export type AuthoringStage = (typeof STAGE_OPTIONS)[number]["value"];
 
+/** Who the authored proof applies to: just the selected task instance, or the
+ *  whole area/package (every task the clause delivers). Default = area, which is
+ *  the long-standing behaviour. */
+export type ProofScope = "task" | "area";
+
 /** The admin's in-progress selection for one clause. */
 export interface AuthoringSelection {
   clauseId: string;
@@ -51,6 +56,9 @@ export interface AuthoringSelection {
   proofLabel: string;
   proofKind: EvidenceKind;
   proofNote: string;
+  /** #502 per-task authoring: scope the proof to just this task, or the whole
+   *  area (default). */
+  proofScope: ProofScope;
 }
 
 export const EMPTY_SELECTION: AuthoringSelection = {
@@ -62,6 +70,7 @@ export const EMPTY_SELECTION: AuthoringSelection = {
   proofLabel: "",
   proofKind: "photo",
   proofNote: "",
+  proofScope: "area",
 };
 
 /** Save is allowed only with a clause, a field classification, a COMPLETE task
@@ -82,19 +91,34 @@ export function canSave(sel: AuthoringSelection): boolean {
 export interface ClassificationPatch {
   classification: FieldClassification;
   deliveredBy: Array<{ areaId: string; stage: AuthoringStage; taskId: string }>;
-  requiredEvidence: Array<{ label: string; kind: EvidenceKind; note?: string }>;
+  requiredEvidence: Array<{
+    label: string;
+    kind: EvidenceKind;
+    note?: string;
+    /** Set only when the admin scoped the proof to just this task (#502). */
+    taskRef?: { areaId: string; stage: AuthoringStage; taskId: string };
+  }>;
 }
 
 /** Build the clause patch from a (validated) selection. The proof id is OMITTED
- *  on purpose — the L0 producer derives a stable `re_…` id from the label
- *  (#471 `deriveRequiredEvidenceId`). Note is included only when non-empty. */
+ *  on purpose — the L0 producer derives a stable `re_…` id from the label (and the
+ *  taskRef, when task-scoped) (#471 `deriveRequiredEvidenceId`). Note is included
+ *  only when non-empty. When `proofScope === "task"` the proof carries the task
+ *  coordinate so it applies to ONLY that task instance; otherwise (default) it is
+ *  package-level and applies to every task the clause delivers in that area. */
 export function buildClassificationPatch(sel: AuthoringSelection): ClassificationPatch {
   const note = sel.proofNote.trim();
+  const coord = { areaId: sel.areaId, stage: sel.stage as AuthoringStage, taskId: sel.taskId };
   return {
     classification: sel.classification as FieldClassification,
-    deliveredBy: [{ areaId: sel.areaId, stage: sel.stage as AuthoringStage, taskId: sel.taskId }],
+    deliveredBy: [coord],
     requiredEvidence: [
-      { label: sel.proofLabel.trim(), kind: sel.proofKind, ...(note ? { note } : {}) },
+      {
+        label: sel.proofLabel.trim(),
+        kind: sel.proofKind,
+        ...(note ? { note } : {}),
+        ...(sel.proofScope === "task" ? { taskRef: coord } : {}),
+      },
     ],
   };
 }
