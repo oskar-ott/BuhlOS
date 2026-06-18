@@ -24,8 +24,16 @@
 //     description?,
 //     areaId?,           link to an area (where the circuit serves)
 //     status,            planned | roughed-in | energised | commissioned
+//     device?,           protective device: mcb | rcbo | rcd | rcd-mcb | mccb | fuse | isolator | other
+//     rating?,           free text rating ("20A", "32A", "63A")
+//     cableSize?,        free text active conductor size ("2.5", "6mm²")
 //     archived?, order?
 //   }]
+//
+// The schedule-builder UI (src/components/circuit-schedule) writes the
+// circuit schedule for a distribution board through the PUT path below; the
+// device/rating/cableSize fields are what turn the circuit list into a
+// compliance-grade schedule rather than a bare circuit register.
 //
 // Routes:
 //
@@ -55,6 +63,7 @@ const { appendAudit } = require('./_lib/job-audit');
 
 const VALID_CIRCUIT_TYPES   = new Set(['power','light','emergency','data','fire','mech','other']);
 const VALID_CIRCUIT_STATUS  = new Set(['planned','roughed-in','energised','commissioned']);
+const VALID_CIRCUIT_DEVICE  = new Set(['mcb','rcbo','rcd','rcd-mcb','mccb','fuse','isolator','other']);
 const MAX_SB                = 200;
 const MAX_CIRCUITS          = 2000;
 
@@ -123,6 +132,12 @@ function validateCircuits(raw, existing, switchboards) {
       type, status,
       description: _str(c.description, 160),
       areaId:      _str(c.areaId, 40),
+      // Schedule fields — what makes this a compliance schedule, not just a
+      // circuit register. device is enum-constrained (blank allowed); rating
+      // + cableSize are free text (ratings/sizes vary by region/standard).
+      device:    VALID_CIRCUIT_DEVICE.has(c.device) ? c.device : '',
+      rating:    _str(c.rating, 16),
+      cableSize: _str(c.cableSize, 16),
     };
     if (c.archived) {
       row.archived = true;

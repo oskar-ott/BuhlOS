@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Camera, Map as MapIcon } from "lucide-react";
+import { Camera, Map as MapIcon, Zap } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilActionButton } from "./ui/PhilActionButton";
 import { PhilNotice } from "./ui/PhilNotice";
@@ -839,6 +839,29 @@ export function PhilJobDetail({
           </Card>
         </section>
       ) : null}
+
+      {/* Circuit schedule — the distribution-board schedule, built in front
+          of the board and printed for the handover pack. A link card (not a
+          full inline panel) keeps the dense schedule UI off the job home and
+          inside its own focused screen. */}
+      <section id="phil-job-circuits" aria-label="Circuit schedule" className="scroll-mt-16">
+        <Card>
+          <CardTitle>Circuit schedule</CardTitle>
+          <CardDescription className="mt-1">
+            Write the schedule for any distribution board you&rsquo;ve changed —
+            circuit, device, rating and cable, board by board.
+          </CardDescription>
+          <div className="mt-3">
+            <Link
+              href={`/phil/jobs/${encodeURIComponent(job.id)}/circuits`}
+              className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-card border border-border bg-surface px-4 text-sm font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-subtle"
+            >
+              <Zap aria-hidden="true" className="h-5 w-5" />
+              Open circuit schedule
+            </Link>
+          </div>
+        </Card>
+      </section>
 
       {/* Documents & specs — JobDocumentsPanel owns its own
           #phil-job-documents section and renders nothing when the job has no

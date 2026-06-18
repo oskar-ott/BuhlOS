@@ -11,6 +11,7 @@ import {
   ListChecks,
   Map as MapIcon,
   Package,
+  Zap,
 } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -111,6 +112,14 @@ export function JobInterfaceSectionNav({ job }: Props) {
         "Author required proof: tie a scope clause to a worker task, set the proof the field must capture, and compile it for Phil.",
       href: `/v2/jobs/${jobIdEnc}/job-control` as Route,
       icon: ListChecks,
+    },
+    {
+      kind: "live",
+      label: "Circuit schedule",
+      description:
+        "Distribution board circuit schedules — circuit, device, rating and cable per board. Built in the field, printed for the handover pack.",
+      href: `/v2/jobs/${jobIdEnc}/circuits` as Route,
+      icon: Zap,
     },
     {
       kind: "live",
