@@ -263,18 +263,25 @@ describe("quotes duplicate/revise carries commercial sections (#384)", () => {
   });
 });
 
-describe("legacy convert is disabled (#172 ruling §8 step 1, first commit of #183)", () => {
-  it("410s an admin convert attempt and never touches jobs.json", async () => {
+describe("convert is re-enabled and lands a DRAFT (#244)", () => {
+  // The 410 "disabled" gate from #172 §8 / #183 is lifted: convert now routes
+  // through the sanctioned creator (api/_lib/job-create.js) and lands a DRAFT.
+  // Full convert coverage lives in quotes-convert-api.test.ts; this is the
+  // guard that the gate was lifted, exercised on this file's won-quote fixture.
+  it("no longer 410s; creates a draft job and flips the quote to converted_to_job", async () => {
     const res = await callAction("convert", SRC_ID);
-    expect(res.statusCode).toBe(410);
-    expect((res.body as { error: string }).error).toContain("v2 conversion arrives with #244");
+    expect(res.statusCode).toBe(201);
+    const jobId = (res.body as { jobId: string }).jobId;
+    const job = (res.body as { job: { status: string } }).job;
+    expect(job.status).toBe("draft");
 
-    // The dead write-path stays dead: no job store was created or written.
-    expect(blob.has("jobs.json")).toBe(false);
-    expect([...blob.keys()].some((k) => k.startsWith("jobs/"))).toBe(false);
-    // The quote was not flipped to converted_to_job.
+    // The job store now exists and per-job seeds were written by createJob.
+    expect(blob.has("jobs.json")).toBe(true);
+    expect(blob.get(`jobs/${jobId}/data.json`)).toEqual({ dwellings: {}, snags: [], notes: [] });
+
+    // Two-way trace.
     const src = storedQuotes().quotes.find((s) => s.id === SRC_ID)!;
-    expect(src.status).toBe("won");
-    expect(src.convertedJobId).toBeNull();
+    expect(src.status).toBe("converted_to_job");
+    expect(src.convertedJobId).toBe(jobId);
   });
 });

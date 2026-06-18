@@ -33,110 +33,21 @@ function validateScopeOfWork(raw) {
   return { ok: true, items };
 }
 const { areaProgressPct, jobTaskCounts } = require('./_lib/job-tasks');
+const { createJob } = require('./_lib/job-create');
 const { appendAudit } = require('./_lib/job-audit');
 const { testJobDeleteEligibility } = require('./_lib/test-data');
 const { buildDuplicatePayload, copyName } = require('./_lib/job-duplicate');
 
-function slugify(s) {
-  return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-}
-
-// Per-job module flags (rigidity audit R1).
-//
-// The full set the system supports — admin can turn any of these off on
-// a job that doesn't need the concept ("rewire small pub" wouldn't track
-// switchboards or temps; an industrial job might hide hours-on-job from
-// the field UI). Defaults to everything on so existing jobs and callers
-// that don't pass `modules` get current behaviour unchanged.
-//
-// Coerces input to booleans, drops unknown keys, fills missing keys true.
-const MODULE_KEYS = [
-  'areas', 'snags', 'photos', 'hours', 'materials',
-  'tags',  'temps', 'plans', 'contacts',
-  // Modular concepts to come — opt-in by default false so they don't
-  // appear in the UI until the job actively enables them.
-  'switchboards', 'circuits', 'itps', 'levels',
-];
-const MODULE_DEFAULTS_TRUE = new Set([
-  'areas', 'snags', 'photos', 'hours', 'materials',
-  'tags',  'temps', 'plans', 'contacts',
-]);
-function sanitizeModules(input) {
-  const out = {};
-  const src = (input && typeof input === 'object') ? input : {};
-  for (const k of MODULE_KEYS) {
-    if (k in src) out[k] = !!src[k];
-    else          out[k] = MODULE_DEFAULTS_TRUE.has(k);
-  }
-  return out;
-}
-function effectiveModules(job) {
-  // Read helper that hydrates a job loaded from storage — old records
-  // without `modules` get the default set, so the rest of the code
-  // can rely on `effective.tags` being a real boolean.
-  return sanitizeModules((job && job.modules) || {});
-}
-
-// Job Basics field validators (audit C-1 / M-2 / M-3 / L-4). All optional;
-// validation only runs on the values that *were* provided. Caps lengths
-// so a malicious POST can't bloat storage; coerces types so callers
-// don't need to be perfect.
-//
-// Returns { ok: true, patch } where `patch` is a partial object the
-// caller can `Object.assign` into the job, or { ok: false, error }.
-const BASIC_TEXT = {
-  ref:               { max: 60 },
-  serviceM8JobId:    { max: 60 },
-  siteAddress:       { max: 240 },
-  accessNotes:       { max: 1000 },
-  parkingNotes:      { max: 240 },
-  siteContactName:   { max: 120 },
-  safetyNotes:       { max: 1000 },
-};
-function validateJobBasics(body) {
-  const patch = {};
-  for (const [k, spec] of Object.entries(BASIC_TEXT)) {
-    if (body[k] === undefined) continue;
-    if (body[k] === null) { patch[k] = ''; continue; }
-    if (typeof body[k] !== 'string') return { ok: false, error: `${k} must be a string` };
-    patch[k] = body[k].trim().slice(0, spec.max);
-  }
-  if (body.siteContactPhone !== undefined) {
-    if (body.siteContactPhone === null) patch.siteContactPhone = '';
-    else if (typeof body.siteContactPhone !== 'string') return { ok: false, error: 'siteContactPhone must be a string' };
-    else {
-      const v = body.siteContactPhone.trim().slice(0, 40);
-      if (v && !/^[+\d\s\-()/]{6,}$/.test(v)) return { ok: false, error: 'siteContactPhone format' };
-      patch.siteContactPhone = v;
-    }
-  }
-  if (body.inductionRequired !== undefined) {
-    patch.inductionRequired = !!body.inductionRequired;
-  }
-  if (body.startDate !== undefined) {
-    if (body.startDate === null || body.startDate === '') patch.startDate = '';
-    else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.startDate))) return { ok: false, error: 'startDate must be YYYY-MM-DD' };
-    else patch.startDate = String(body.startDate);
-  }
-  if (body.dueDate !== undefined) {
-    if (body.dueDate === null || body.dueDate === '') patch.dueDate = '';
-    else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate))) return { ok: false, error: 'dueDate must be YYYY-MM-DD' };
-    else patch.dueDate = String(body.dueDate);
-  }
-  if (body.programmedDurationDays !== undefined) {
-    if (body.programmedDurationDays === null || body.programmedDurationDays === '') patch.programmedDurationDays = null;
-    else {
-      const n = Number(body.programmedDurationDays);
-      if (!Number.isFinite(n) || n < 0) return { ok: false, error: 'programmedDurationDays must be a non-negative number' };
-      patch.programmedDurationDays = Math.round(n);
-    }
-  }
-  // Cross-check dates if both provided.
-  if (patch.startDate && patch.dueDate && patch.startDate > patch.dueDate) {
-    return { ok: false, error: 'dueDate must be on or after startDate' };
-  }
-  return { ok: true, patch };
-}
+// slugify / module-flag helpers / Job Basics validator are the canonical
+// copies in api/_lib/job-fields.js so the shared job creator (#244) and this
+// handler share ONE definition. Re-exposed under the same local names here so
+// the rest of this file (POST / PUT / duplicate / GET) is unchanged.
+const {
+  slugify,
+  sanitizeModules,
+  effectiveModules,
+  validateJobBasics,
+} = require('./_lib/job-fields');
 
 // Project a job for response — filter archived areaGroups/areas/tasks
 // (R2) and apply explicit `order` (R4). Returns a copy; never mutates.
@@ -502,105 +413,15 @@ module.exports = async (req, res) => {
   if (req.method === 'POST') {
     // role-literal-ok: job CREATE is deliberately literal-admin (documented in src/lib/auth/permissions.ts + /v2/jobs/new) — widening is a product decision
     if (me.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
-    const {
-      name, id, clientUserId, type, status,
-      areaGroups, roughInTasks, fitOffTasks,
-      modules, customFields,
-      // Job Basics (audit C-1, M-2, M-3, L-4) — all optional.
-      ref, serviceM8JobId,
-      siteAddress, accessNotes, parkingNotes,
-      siteContactName, siteContactPhone,
-      safetyNotes, inductionRequired,
-      startDate, dueDate, programmedDurationDays,
-    } = req.body || {};
-    if (!name) return res.status(400).json({ error: 'name required' });
-    const jobId = slugify(id || name);
-    if (!jobId) return res.status(400).json({ error: 'invalid id' });
-    if (data.jobs.find(j => j.id === jobId))
-      return res.status(400).json({ error: 'job id already exists' });
-
-    // Validate type if provided
-    if (type) {
-      const jtData = await readBlob('job-types.json', { jobTypes: [] });
-      const typeExists = (jtData.jobTypes || []).some(t => t.id === type);
-      if (!typeExists) return res.status(400).json({ error: 'type not found in job-types.json' });
-    }
-
-    // Validate areaGroups if provided
-    let parsedGroups = [];
-    if (areaGroups !== undefined) {
-      const parsed = validateAreaGroups(areaGroups, 'areaGroups');
-      if (!parsed.ok) return res.status(400).json({ error: parsed.error });
-      parsedGroups = parsed.groups;
-    }
-
-    // Validate task lists if provided
-    let parsedRoughIn = [];
-    if (roughInTasks !== undefined) {
-      const v = validateTasks(roughInTasks, 'rt');
-      if (!v.ok) return res.status(400).json({ error: v.error });
-      parsedRoughIn = v.tasks;
-    }
-    let parsedFitOff = [];
-    if (fitOffTasks !== undefined) {
-      const v = validateTasks(fitOffTasks, 'ft');
-      if (!v.ok) return res.status(400).json({ error: v.error });
-      parsedFitOff = v.tasks;
-    }
-
-    // Custom fields on the Job itself (rigidity audit R3). Optional.
-    let parsedCustomFields = [];
-    if (customFields !== undefined) {
-      const cf = validateCustomFields(customFields, 'customFields');
-      if (!cf.ok) return res.status(400).json({ error: cf.error });
-      parsedCustomFields = cf.fields;
-    }
-
-    // Job Basics (audit C-1 / M-2 / M-3 / L-4) — validate everything
-    // the caller provided.
-    const basicsResult = validateJobBasics(req.body || {});
-    if (!basicsResult.ok) return res.status(400).json({ error: basicsResult.error });
-
-    // Initial status. The Job Builder creates jobs as 'draft' so the office
-    // can fill them in before publishing to the field — a draft is invisible
-    // to non-admin callers in the GET handler above (publishJob() flips it to
-    // 'active'). Only draft/active are valid on create; omitting status keeps
-    // the legacy create-then-immediately-live behaviour for callers that
-    // don't know about drafts. See src/domains/jobs/client.ts publishJob().
-    let initialStatus = 'active';
-    if (status !== undefined) {
-      if (status !== 'draft' && status !== 'active') {
-        return res.status(400).json({ error: 'status must be draft or active on create' });
-      }
-      initialStatus = status;
-    }
-
-    // Per-job module flags (rigidity audit R1). Lets a "rewire pub"
-    // hide concepts it doesn't need (switchboards, temps, ITPs) and a
-    // 14-storey fitout keep them. Defaults to "everything on" so existing
-    // jobs and any caller that doesn't know about modules keeps current
-    // behaviour. Unknown keys are dropped; values coerced to boolean.
-    const job = {
-      id: jobId,
-      name,
-      clientUserId: clientUserId || null,
-      type: type || null,
-      areaGroups: parsedGroups,
-      roughInTasks: parsedRoughIn,
-      fitOffTasks: parsedFitOff,
-      status: initialStatus,
-      modules: sanitizeModules(modules),
-      customFields: parsedCustomFields,
-      ...basicsResult.patch,
-      createdAt: new Date().toISOString(),
-    };
-    data.jobs.push(job);
-    await writeBlob('jobs.json', data);
-    await writeBlob(`jobs/${jobId}/data.json`, { dwellings: {}, snags: [], notes: [] });
-    await writeBlob(`jobs/${jobId}/tags.json`, { tags: [] });
-    await writeBlob(`jobs/${jobId}/temps.json`, { temps: [] });
-    // Legacy jobs/<id>/hours.json no longer seeded — hours live in
-    // users/<userId>/time-entries/<date>.json (per-user, per-day).
+    // The validation + construction + seed writes live in the shared
+    // createJob lib (api/_lib/job-create.js) so won-quote conversion
+    // (api/quotes.js handleConvert, #244) writes jobs through THE SAME
+    // sanctioned path — there is no second raw writeBlob('jobs.json') job
+    // writer anywhere. slugify / sanitizeModules / validateJobBasics are the
+    // canonical copies in this module, passed in so they have one definition.
+    const result = await createJob(data, req.body || {});
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    const job = result.job;
     return res.status(200).json({ job: { ...projectJobStructure(job), modules: effectiveModules(job) } });
   }
 
