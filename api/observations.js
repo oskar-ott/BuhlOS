@@ -41,6 +41,7 @@ const { requireAuth, canWrite, isAdminRole, isClientRole } = require('./_lib/aut
 const { nanoid } = require('./_lib/validation');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { sendPushToUserId } = require('./_lib/push');
+const { idempotencyKeyFrom, findIdempotent, recordIdempotent } = require('./_lib/idempotency');
 
 // PR 6: which observation types are eligible for one-click conversion to a
 // real Snag. Others need explicit ?force=1 — keeps the inbox honest about
@@ -312,6 +313,19 @@ async function createObservation(req, res, user, jobId) {
   }
 
   const body = req.body || {};
+
+  // Replay-safe (#497): read the store up front and short-circuit a retry that
+  // carries an idempotency key it already created — BEFORE validateLinks, the
+  // build, the append, the audit and any push, so a replay never duplicates the
+  // observation or its side effects. No key → behaviour unchanged. Mirrors
+  // api/evidence.js (docs/architecture/phil-write-idempotency.md).
+  const idemKey = idempotencyKeyFrom(req);
+  const store = await readStore();
+  const replay = idemKey ? findIdempotent(store, idemKey) : null;
+  if (replay) {
+    return res.status(201).json({ observation: replay, idempotentReplay: true });
+  }
+
   if (!(await validateLinks(res, body, jobId))) return;
 
   const nowIso = new Date().toISOString();
@@ -384,9 +398,12 @@ async function createObservation(req, res, user, jobId) {
     item.assignedToName = await resolveUserName(item.assignedToId);
   }
 
-  const store = await readStore();
+  // `store` was read up front for the replay check. Append + persist the
+  // idempotency key in the SAME write so a retry resolves to this exact
+  // observation (#497) instead of creating a second one. No-op without a key.
   if (!Array.isArray(store.observations)) store.observations = [];
   store.observations.push(item);
+  recordIdempotent(store, idemKey, item);
   try {
     await writeBlob(STORE_KEY, store);
   } catch (e) {
@@ -503,6 +520,17 @@ async function createOfficeObservation(req, res, user) {
     return res.status(400).json({ error: v.errors[0], errors: v.errors });
   }
 
+  // Replay-safe (#497): a "send to office" capture queued offline and replayed
+  // on reconnect must not create a second office item OR re-fan-out the admin
+  // push. Read the store up front, return the original on an idempotency-key
+  // hit before any side effect. No key → behaviour unchanged.
+  const idemKey = idempotencyKeyFrom(req);
+  const store = await readStore();
+  const replay = idemKey ? findIdempotent(store, idemKey) : null;
+  if (replay) {
+    return res.status(201).json({ observation: replay, idempotentReplay: true });
+  }
+
   const nowIso = new Date().toISOString();
   const photoUrls = Array.isArray(body.photoUrls)
     ? body.photoUrls.map((u) => String(u)).slice(0, PHOTO_MAX)
@@ -552,9 +580,11 @@ async function createOfficeObservation(req, res, user) {
     updatedAt: nowIso,
   };
 
-  const store = await readStore();
+  // `store` was read up front for the replay check. Append + persist the key in
+  // the SAME write so a retry resolves to this exact office item (#497).
   if (!Array.isArray(store.observations)) store.observations = [];
   store.observations.push(item);
+  recordIdempotent(store, idemKey, item);
   try {
     await writeBlob(STORE_KEY, store);
   } catch (e) {
