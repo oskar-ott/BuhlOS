@@ -5,7 +5,7 @@
 --
 -- Models the deferred blob-only registries that Phase 1 left as free text:
 --   * job_types   ← job-types.json        (jobs.type / jobs.job_type_label)
---   * contacts    ← contacts.json          (project/supplier + legacy email-list)
+--   * contacts    ← jobs/<jobId>/contacts.json (PER-JOB; project/supplier + legacy email-list)
 --   * suppliers (+ branches + contacts + products)
 --                 ← suppliers.json + suppliers/<id>/products.json
 --   * wholesalers ← wholesalers.json       (lightweight pricing-email register)
@@ -51,6 +51,7 @@ create index job_types_live_idx on public.job_types (tenant_id) where deleted_at
 create table public.contacts (
   id             uuid primary key default gen_random_uuid(),
   tenant_id      uuid not null references public.tenants(id),
+  job_id         uuid not null,                   -- contacts are stored per-job (jobs/<jobId>/contacts.json)
   legacy_id      text,
   category       text check (category is null or category in ('project','supplier')),
   name           text not null,
@@ -65,14 +66,18 @@ create table public.contacts (
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
   created_by     uuid references public.user_profiles(id),
+  created_by_label text,                          -- legacy email-list `addedBy` username (pre-uuid provenance)
   updated_by     uuid references public.user_profiles(id),
   deleted_at     timestamptz,
   deleted_by     uuid references public.user_profiles(id),
-  unique (tenant_id, id)
+  unique (tenant_id, id),
+  foreign key (tenant_id, job_id) references public.jobs (tenant_id, id)
 );
 comment on table public.contacts is
-  'Customer/builder/supplier contacts (contacts.json). category null = a legacy email-list entry from the snag-email picker.';
-create unique index contacts_legacy_uq on public.contacts (tenant_id, legacy_id) where legacy_id is not null;
+  'Per-job customer/builder/supplier contacts (jobs/<jobId>/contacts.json). category null = a legacy email-list entry from the snag-email picker (its addedBy/addedAt map to created_by_label/created_at).';
+-- legacy ids (c_<date36><rand>) are unique only WITHIN a job file → scope by job
+create unique index contacts_legacy_uq on public.contacts (tenant_id, job_id, legacy_id) where legacy_id is not null;
+create index contacts_job_idx on public.contacts (tenant_id, job_id) where deleted_at is null;
 create index contacts_category_idx on public.contacts (tenant_id, category) where deleted_at is null;
 
 -- ─── suppliers (+ branches + contacts + products) ───────────────────────────
@@ -85,9 +90,11 @@ create table public.suppliers (
                   ('wholesaler','supplier','manufacturer','distributor','other')),
   website_url   text check (website_url is null or char_length(website_url) <= 500),
   preferred     boolean not null default false,
-  categories    text[] not null default '{}',    -- free-text tags (≤20, app-enforced)
-  notes         text,
-  revision      integer not null default 1,
+  categories     text[] not null default '{}',   -- free-text tags (≤20, app-enforced)
+  notes          text,
+  account_number text check (account_number is null or char_length(account_number) <= 60),
+  payment_terms  text check (payment_terms is null or char_length(payment_terms) <= 60),
+  revision       integer not null default 1,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
   created_by    uuid references public.user_profiles(id),
@@ -135,7 +142,7 @@ create table public.supplier_contacts (
   role         text check (role is null or char_length(role) <= 120),
   phone        text check (phone is null or char_length(phone) <= 60),
   email        text check (email is null or char_length(email) <= 200),
-  branch_label text,                             -- legacy free-text `branch` reference
+  branch_id    uuid,                              -- contact's branch; legacy branchId resolved to uuid at import. nullable — delete-branch unlinks.
   notes        text check (notes is null or char_length(notes) <= 1000),
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now(),
@@ -144,7 +151,8 @@ create table public.supplier_contacts (
   deleted_at   timestamptz,
   deleted_by   uuid references public.user_profiles(id),
   unique (tenant_id, id),
-  foreign key (tenant_id, supplier_id) references public.suppliers (tenant_id, id)
+  foreign key (tenant_id, supplier_id) references public.suppliers (tenant_id, id),
+  foreign key (tenant_id, branch_id)  references public.supplier_branches (tenant_id, id)
 );
 create unique index supplier_contacts_legacy_uq
   on public.supplier_contacts (tenant_id, supplier_id, legacy_id) where legacy_id is not null;
@@ -159,10 +167,11 @@ create table public.supplier_products (
   supplier_id     uuid not null,
   legacy_id       text,
   name            text not null,
+  brand           text check (brand is null or char_length(brand) <= 100),
+  part_number     text check (part_number is null or char_length(part_number) <= 100),
   description     text check (description is null or char_length(description) <= 2000),
   category        text check (category is null or char_length(category) <= 100),
-  unit            text check (unit is null or unit in
-                    ('ea','m','pkt','box','roll','pair','set','kg','l')),
+  unit            text check (unit is null or char_length(unit) <= 20),  -- free text: the app stores arbitrary units (VALID_UNITS is a UI hint, not enforced)
   price           numeric(12,2) check (price is null or price >= 0),
   price_note      text check (price_note is null or char_length(price_note) <= 200),
   public_url      text,
