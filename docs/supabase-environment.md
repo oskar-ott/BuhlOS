@@ -96,8 +96,7 @@ read intent can only over-protect. Error codes are stable and tested
 - Migration files under [`supabase/migrations/`](../supabase/migrations/): Phase-1
   core + hardening + Phase-2a registries. Decision record:
   [architecture/supabase-storage-migration-adr.md](architecture/supabase-storage-migration-adr.md);
-  roadmap: [architecture/supabase-migration-roadmap.md](architecture/supabase-migration-roadmap.md);
-  prior research: [supabase-migration-research-audit.md](supabase-migration-research-audit.md).
+  roadmap: [architecture/supabase-migration-roadmap.md](architecture/supabase-migration-roadmap.md).
 - Test/smoke awareness: vitest and Playwright runs set no `SUPABASE_*`
   variables, so any accidental guard call in tests fails closed
   (`MISSING_ENV`). Preview smoke runs will use the Preview-scoped dev-project

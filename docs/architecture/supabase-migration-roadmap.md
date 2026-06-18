@@ -85,8 +85,13 @@ pattern); auth/`users.json` = **BRIDGE** (mirror `user_profiles`, keep bcrypt); 
 
 ## Open decisions (owner)
 
-1. Confirm prod project is **Pro** before any data import.
-2. **Identity bridge** — mint a Postgres JWT from the cookie (unlocks RLS) or stay
-   server-only/service-role indefinitely?
-3. **Photo bytes** — Supabase Storage or keep Vercel Blob + Postgres metadata?
-4. Confirm **auth stays bcrypt+cookie** (recorded in the ADR).
+**Genuinely open — need an owner call:**
+1. Confirm the prod project is **Pro** (daily backups) before any data import.
+2. **Identity bridge** — mint a Postgres JWT from the `buhl_session` cookie (unlocks
+   RLS / Storage-RLS) **or** stay server-only/service-role indefinitely?
+
+**Already decided in the ADR — listed only so the trigger to revisit is explicit:**
+3. **Auth stays bcrypt + cookie** (ADR §4) — revisit only if a client-portal or
+   direct-client RLS requirement appears.
+4. **Photo/PDF bytes stay in Vercel Blob** (ADR §5) — revisit when resumable uploads
+   / image transforms become a field requirement (then evaluate Supabase Storage).

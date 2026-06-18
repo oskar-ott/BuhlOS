@@ -84,7 +84,7 @@ It **follows** the task-led ADR (the applied schema realises the task-first targ
 shape better than the current `dwellings[area][stage].tasks` Blob shape) and
 **fulfils** the "no full-document writes for grow-collections" engineering
 non-negotiable. This ADR is the decision record the task-led ADR's
-"a task-storage move needs its own ADR" clause requires; it clears the gate.
+"a task-storage move needs its own ADR" clause requires; merging it clears the gate.
 
 ## Alternatives considered
 

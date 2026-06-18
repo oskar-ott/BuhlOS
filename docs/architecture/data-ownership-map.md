@@ -12,7 +12,7 @@ nullable; facets reference `task_id`). The Blob shape is area-owned
 (`dwellings[areaId][stage].tasks[taskId]`). **The importer MUST NOT invent a third
 task-identity mapping.** The single source of truth for "one instance per
 (area, stage, template)" is the canonical task index (`ct_<hash>`,
-`src/domains/jobs/task-index.ts` + `task-ref-compat.ts`). The required pinning:
+`src/domains/jobs/task-index.ts` + `src/domains/job-control/task-ref-compat.ts`). The required pinning:
 
 ```
 tasks.id (uuid, the row PK)
