@@ -84,6 +84,11 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole, isLeadingHandRole, isFieldRole } = require('./_lib/auth');
+// #244: won-quote conversion writes the job through THE sanctioned creator,
+// not a second raw writeBlob('jobs.json'). quoteToJobShape mirrors the pure
+// spec in src/domains/quoting/quote-to-job.ts (the CJS server can't import the
+// TS module — parity is pinned by the convert harness test).
+const { createJob } = require('./_lib/job-create');
 
 const VALID_STATUSES = [
   'draft', 'reviewing', 'estimating', 'submitted',
@@ -1165,7 +1170,76 @@ async function handleUnaccept(req, res, user, id) {
   return res.status(200).json({ quote: data.quotes[qIdx] });
 }
 
-// ── Convert won quote → live job ─────────────────────────────────────────
+// Pure section→job mapping for conversion. CJS mirror of the unit-tested
+// spec src/domains/quoting/quote-to-job.ts (quoteToJobInput). The serverless
+// CJS bundle can't import the TS module, so this is duplicated by behaviour
+// and parity is pinned by the convert harness test (quotes-convert-api.test.ts)
+// against the same fixtures. If the mapping changes here, change it there in
+// the same commit.
+//   - area groups → job areaGroups (fresh g_/a_ ids). Per-area workPackages
+//     are NOT carried: validateAreaGroups (the sanctioned creator) defines the
+//     canonical area shape and drops unknown fields, so emitting workPackages
+//     would be dead data. The unioned task lists below carry the task data.
+//   - rough-in / fit-off tasks unioned (deduped) across every work package;
+//   - status: 'draft' so the job lands reviewable, not instantly field-visible;
+//   - fromQuoteId set for the two-way trace.
+function quoteToJobShape(quote, structure, materials) {
+  const structureGroups = (structure && structure.areaGroups) || [];
+  const stageOf = s => (s === 'fit-off' ? 'fit-off' : 'rough-in');
+
+  const areaGroups = structureGroups.map(g => ({
+    id:    'g_' + Math.random().toString(36).slice(2, 8),
+    name:  g.name || '',
+    areas: (g.areas || []).map(a => ({
+      id:   'a_' + Math.random().toString(36).slice(2, 8),
+      name: a.name || '',
+    })),
+  }));
+
+  const roughSet = new Set();
+  const fitSet   = new Set();
+  for (const g of structureGroups) {
+    for (const a of (g.areas || [])) {
+      for (const wp of (a.workPackages || [])) {
+        const target = stageOf(wp.stage) === 'fit-off' ? fitSet : roughSet;
+        for (const t of (wp.tasks || [])) target.add(t);
+      }
+    }
+  }
+  const roughInTasks = [...roughSet].map(name => ({ name }));
+  const fitOffTasks  = [...fitSet].map(name => ({ name }));
+
+  // Materials seed: strip quote-only source/confidence, keep pricing,
+  // normalise status. createJob does NOT write the materials-list — the
+  // handler seeds it after job creation from this array.
+  const materialsSeed = ((materials && materials.items) || []).map(m => {
+    const { source, confidence, ...rest } = m;
+    void source; void confidence;
+    return {
+      ...rest,
+      status: m.status === 'priced' ? 'priced' : (m.status === 'ordered' ? 'ordered' : 'draft'),
+    };
+  });
+
+  const jobInput = {
+    name:        quote.name || 'Job',
+    type:        quote.jobType || '',
+    status:      'draft',
+    areaGroups,
+    roughInTasks,
+    fitOffTasks,
+    siteAddress: quote.siteAddress || '',
+    fromQuoteId: quote.id,
+  };
+  return { jobInput, materialsSeed };
+}
+
+// ── Convert won quote → DRAFT job (#244) ─────────────────────────────────
+// Routes through the sanctioned creator (api/_lib/job-create.js createJob) —
+// the same validated path the Job Builder uses — and lands the job as a DRAFT
+// for admin review/publish, not instantly field-visible. Two-way trace:
+// quote.convertedJobId ↔ job.fromQuoteId; re-convert blocked by the
+// convertedJobId guard (cleared on revise — see handleDuplicate).
 async function handleConvert(req, res, user, id) {
   const data = await readQuotes();
   const qIdx = (data.quotes || []).findIndex(q => q.id === id);
@@ -1181,8 +1255,7 @@ async function handleConvert(req, res, user, id) {
     return res.status(409).json({ error: 'cannot convert from status ' + quote.status });
   }
 
-  // Read structure + labour for area/task derivation, and materials so we
-  // can hand them off to the materials-list seed.
+  // Read structure + materials for the mapping, labour + notes for the summary.
   const [structure, materials, labour, notes] = await Promise.all([
     readSection(id, 'structure'),
     readSection(id, 'materials'),
@@ -1190,98 +1263,39 @@ async function handleConvert(req, res, user, id) {
     readSection(id, 'notes'),
   ]);
 
+  const { jobInput, materialsSeed } = quoteToJobShape(quote, structure, materials);
+
+  // Create the job through the sanctioned, validated path. createJob reads
+  // jobs.json, validates, writes the job + per-job seeds (data.json / tags /
+  // temps), and returns the created job. The job lands as a DRAFT.
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });
   jobsBlob.jobs = jobsBlob.jobs || [];
-
-  // Derive a job id from the quote name. Mirrors the existing /admin
-  // create-job pattern: lowercase, hyphenated, with a short random suffix
-  // for collision resistance.
-  const slug = String(quote.name || 'job')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
-  let jobId = slug || 'job';
-  let suffix = '';
-  while (jobsBlob.jobs.find(j => j.id === (jobId + suffix))) {
-    suffix = '-' + Math.random().toString(36).slice(2, 5);
+  const created = await createJob(jobsBlob, jobInput);
+  if (!created.ok) {
+    return res.status(created.status === 400 ? 422 : created.status)
+      .json({ error: 'convert failed: ' + created.error });
   }
-  jobId = jobId + suffix;
-
-  // Map quote area groups into the live job shape. The tradie task UI
-  // still uses the unioned global rough-in/fit-off task lists below, but
-  // we also preserve the area-specific workPackages on each area so the
-  // future "custom checklists per area" feature has the data to work
-  // from without a re-convert. Existing live-job consumers ignore the
-  // extra field (it's lazy-tolerated everywhere).
-  const areaGroups = (structure.areaGroups || []).map(g => ({
-    id:    'g_' + Math.random().toString(36).slice(2, 8),
-    name:  g.name,
-    areas: (g.areas || []).map(a => ({
-      id:   'a_' + Math.random().toString(36).slice(2, 8),
-      name: a.name,
-      workPackages: Array.isArray(a.workPackages)
-        ? a.workPackages.map(wp => ({
-            name: wp.name || '',
-            stage: wp.stage === 'fit-off' ? 'fit-off' : 'rough-in',
-            tasks: Array.isArray(wp.tasks) ? wp.tasks.slice() : [],
-          }))
-        : [],
-    })),
-  }));
-
-  // Distill rough-in / fit-off tasks: union across every area's work
-  // packages. Admin can refine in Job Setup afterwards.
-  const roughSet = new Set();
-  const fitSet   = new Set();
-  for (const g of (structure.areaGroups || [])) {
-    for (const a of (g.areas || [])) {
-      for (const wp of (a.workPackages || [])) {
-        const target = wp.stage === 'fit-off' ? fitSet : roughSet;
-        for (const t of (wp.tasks || [])) target.add(t);
-      }
-    }
-  }
-  const roughInTasks = [...roughSet].map(name => ({ id: 't_' + Math.random().toString(36).slice(2, 8), name }));
-  const fitOffTasks  = [...fitSet].map(name => ({ id: 't_' + Math.random().toString(36).slice(2, 8), name }));
-
-  const now = new Date().toISOString();
-  const newJob = {
-    id:           jobId,
-    name:         quote.name,
-    type:         quote.jobType || '',
-    status:       'active',
-    address:      quote.siteAddress || '',
-    builder:      quote.builder || '',
-    areaGroups,
-    roughInTasks,
-    fitOffTasks,
-    fromQuoteId:  quote.id,
-    createdAt:    now,
-  };
-  jobsBlob.jobs.push(newJob);
-  await writeBlob('jobs.json', jobsBlob);
-
-  // Seed an empty job data.json so per-job APIs don't 404 on first read.
-  await writeBlob('jobs/' + jobId + '/data.json', { dwellings: {}, snags: [] });
+  const newJob = created.job;
+  const jobId = newJob.id;
 
   // Carry materials into the live job's materials-list (same shape as
-  // /api/materials-list). Pricing fields preserved if captured.
-  if ((materials.items || []).length) {
-    const liveMaterials = { items: (materials.items || []).map(m => ({
-      ...m,
-      id:       'mat_' + Math.random().toString(36).slice(2, 8),
-      jobId,
-      status:   m.status === 'priced' ? 'priced' : (m.status === 'ordered' ? 'ordered' : 'draft'),
-      // Drop quote-specific fields that don't belong in a live job context
-      source:    undefined,
-      confidence:undefined,
-    })), emailRequests: [] };
+  // /api/materials-list). Pricing preserved; quote-only fields already
+  // stripped + status normalised by the mapping. Seeded AFTER creation.
+  if (materialsSeed.length) {
+    const liveMaterials = {
+      items: materialsSeed.map(m => ({
+        ...m,
+        id:    'mat_' + Math.random().toString(36).slice(2, 8),
+        jobId,
+      })),
+      emailRequests: [],
+    };
     await writeBlob('jobs/' + jobId + '/materials-list.json', liveMaterials);
   }
 
   // Mark quote as converted; preserve the quote payload so historical
-  // estimates remain reviewable.
+  // estimates remain reviewable. Two-way trace: convertedJobId ↔ fromQuoteId.
+  const now = new Date().toISOString();
   data.quotes[qIdx].status         = 'converted_to_job';
   data.quotes[qIdx].convertedJobId = jobId;
   data.quotes[qIdx].updatedAt      = now;
@@ -1291,11 +1305,11 @@ async function handleConvert(req, res, user, id) {
     jobId,
     job: newJob,
     summary: {
-      areaGroups: areaGroups.length,
-      areas:      areaGroups.reduce((s, g) => s + (g.areas || []).length, 0),
-      roughInTasks: roughInTasks.length,
-      fitOffTasks:  fitOffTasks.length,
-      materials:    (materials.items || []).length,
+      areaGroups: jobInput.areaGroups.length,
+      areas:      jobInput.areaGroups.reduce((s, g) => s + (g.areas || []).length, 0),
+      roughInTasks: jobInput.roughInTasks.length,
+      fitOffTasks:  jobInput.fitOffTasks.length,
+      materials:    materialsSeed.length,
       labourLines:  (labour.lines || []).length,
       assumptions:  (notes.assumptions || []).length,
     },
@@ -1645,14 +1659,16 @@ module.exports = async (req, res) => {
     return handleUnaccept(req, res, user, id);
   }
   if (action === 'convert') {
-    // DISABLED (#172 ruling §8 step 1, first commit of #183): the legacy
-    // convert wrote jobs.json + jobs/<id>/* directly via writeBlob, bypassing
-    // api/jobs.js validation and the draft/publish lifecycle. It was never
-    // used in production (0 conversions ever — #172 §3). Killed ahead of the
-    // v2 quoting rebuild so a second write-path to jobs.json never coexists
-    // with the v2 builder. handleConvert stays as the mapping reference for
-    // #244, which rebuilds conversion THROUGH the jobs API.
-    return res.status(410).json({ error: 'legacy convert disabled — v2 conversion arrives with #244' });
+    // #244: re-enabled. The legacy convert wrote jobs.json + jobs/<id>/*
+    // directly via writeBlob, bypassing validation and the draft lifecycle,
+    // and landed the job 'active'. It was DISABLED ahead of the v2 quoting
+    // rebuild (#172 §8 / #183) precisely so a second raw write-path to
+    // jobs.json never coexisted with the builder. handleConvert now routes
+    // through the sanctioned creator (api/_lib/job-create.js) and lands a
+    // DRAFT — there is no second raw jobs.json job writer.
+    if (!id) return res.status(400).json({ error: 'id required' });
+    if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
+    return handleConvert(req, res, user, id);
   }
   if (action === 'duplicate') {
     if (!id) return res.status(400).json({ error: 'id required' });
