@@ -97,6 +97,18 @@ export const RequiredEvidenceSchema = z
     label: z.string(),
     kind: RequiredEvidenceKindSchema,
     note: z.string().nullable().optional(),
+    /**
+     * OPTIONAL per-task-instance authoring scope (#506 keystone / per-task proof
+     * authoring). When present, this requirement applies to ONLY that task
+     * instance `(areaId, stage, taskId)` — the canonical identity in tuple/bridge
+     * form (#480/#483). When ABSENT — every requirement today — it is
+     * PACKAGE-LEVEL and applies to every task the package delivers, preserving the
+     * current area/package-granular behaviour. Additive + back-compatible; the
+     * stored shape stays the tuple (no storage migration). The consumer
+     * (`requiredEvidenceForTask`) filters by it; the compile step does not author
+     * it yet (the admin authoring UI is the next slice).
+     */
+    taskRef: TaskRefSchema.nullable().optional(),
   })
   .passthrough();
 

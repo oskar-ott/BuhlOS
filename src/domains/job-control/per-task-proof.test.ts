@@ -5,6 +5,7 @@ import {
   buildPhilTaskContext,
   isRequiredEvidenceMet,
   isRequiredEvidenceMetForTask,
+  requiredEvidenceForTask,
 } from "./task-context";
 import type { WorkPackage } from "./types";
 import {
@@ -220,14 +221,64 @@ describe("buildPhilTaskContext — resolves met per task (#502 consumer)", () =>
     expect(metFor("t2", links)).toBe(false); // its sibling in the same package is NOT cross-satisfied
   });
 
-  it("the required-evidence ITEMS are still the package's (authoring stays package-level)", () => {
+  it("a package-level requirement is still shared by all tasks (a task-scoped LINK doesn't change which ITEMS show)", () => {
     const ctx = buildPhilTaskContext({
       workPackages: pkgTwoTasks,
       task: { areaId: "a1", stage: "roughIn", taskId: "t2" },
       evidenceLinks: [link({ taskRef: T1 })],
     });
-    // t2 still SEES the requirement (shared authoring) — it is just not met for t2
+    // re1 has no taskRef → package-level → t2 still SEES it (just not met for t2)
     expect(ctx.requiredEvidence.map((e) => e.id)).toEqual(["re1"]);
     expect(ctx.requiredEvidence[0]!.met).toBe(false);
+  });
+});
+
+// ── Per-task AUTHORING (the items themselves can be task-scoped) ───────────────
+
+const pkgMixed = [
+  {
+    id: "wp_1",
+    jobId: "job_1",
+    title: "East",
+    scopeClauseIds: [],
+    boqLineRefs: [],
+    taskRefs: [
+      { areaId: "a1", stage: "roughIn", taskId: "t1" },
+      { areaId: "a1", stage: "roughIn", taskId: "t2" },
+    ],
+    order: 0,
+    requiredEvidence: [
+      { id: "re1", label: "Board photo", kind: "photo" }, // package-level (no taskRef)
+      { id: "re_t2", label: "T2 test", kind: "test_result", taskRef: { areaId: "a1", stage: "roughIn", taskId: "t2" } }, // scoped to t2
+    ],
+  },
+] as unknown as WorkPackage[];
+
+describe("requiredEvidenceForTask — per-task authoring (#506 keystone consumer)", () => {
+  const itemsFor = (wp: WorkPackage, taskId: string, stage: "roughIn" | "fitOff" = "roughIn") =>
+    requiredEvidenceForTask(wp, { areaId: "a1", stage, taskId }).map((e) => e.id).sort();
+
+  it("PARITY: a package with no task-scoped requirement returns the whole list (today's behaviour)", () => {
+    expect(itemsFor(pkgTwoTasks[0]!, "t1")).toEqual(["re1"]);
+    expect(itemsFor(pkgTwoTasks[0]!, "t2")).toEqual(["re1"]);
+  });
+
+  it("a task-scoped requirement appears ONLY on its task; package-level appears on all", () => {
+    expect(itemsFor(pkgMixed[0]!, "t1")).toEqual(["re1"]); // package-level only
+    expect(itemsFor(pkgMixed[0]!, "t2")).toEqual(["re1", "re_t2"]); // package-level + its own
+  });
+
+  it("stage/area are part of the requirement scope (no bare-taskId collapse)", () => {
+    // re_t2 is scoped to a1/roughIn/t2 — the same taskId in another stage must not see it
+    expect(itemsFor(pkgMixed[0]!, "t2", "fitOff")).toEqual(["re1"]);
+  });
+});
+
+describe("buildPhilTaskContext — surfaces per-task authored items (#506)", () => {
+  it("t2 sees its extra requirement; t1 does not", () => {
+    const ctxT1 = buildPhilTaskContext({ workPackages: pkgMixed, task: { areaId: "a1", stage: "roughIn", taskId: "t1" } });
+    const ctxT2 = buildPhilTaskContext({ workPackages: pkgMixed, task: { areaId: "a1", stage: "roughIn", taskId: "t2" } });
+    expect(ctxT1.requiredEvidence.map((e) => e.id)).toEqual(["re1"]);
+    expect(ctxT2.requiredEvidence.map((e) => e.id).sort()).toEqual(["re1", "re_t2"]);
   });
 });
