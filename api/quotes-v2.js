@@ -222,14 +222,29 @@ function summaryRow(doc) {
 
 /** Registry read-modify-write AFTER the document write (doc is the truth;
  *  a row that's missing — e.g. a previously failed registry write — is
- *  re-appended, so the registry self-heals on the next save). */
+ *  re-appended, so the registry self-heals on the next save).
+ *
+ *  #511: guarded with expectedRev + a re-read retry (the api/users.js pattern).
+ *  Without it, two concurrent saves both read the same registry snapshot and
+ *  last-write-wins DROPS one quote's row from the office money-list (lost-update
+ *  class). On a stale-revision conflict we re-read the fresh registry and
+ *  re-apply THIS quote's single-row upsert, so no concurrent row is lost. */
 async function upsertRegistryRow(doc) {
-  const registry = await readRegistry();
-  const row = summaryRow(doc);
-  const idx = registry.quotes.findIndex((q) => q && q.id === doc.id);
-  if (idx >= 0) registry.quotes[idx] = { ...registry.quotes[idx], ...row };
-  else registry.quotes.push(row);
-  await writeBlob(REGISTRY_KEY, registry);
+  const MAX_ATTEMPTS = 6;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const registry = await readRegistry();
+    const row = summaryRow(doc);
+    const idx = registry.quotes.findIndex((q) => q && q.id === doc.id);
+    if (idx >= 0) registry.quotes[idx] = { ...registry.quotes[idx], ...row };
+    else registry.quotes.push(row);
+    try {
+      await writeBlob(REGISTRY_KEY, registry, { expectedRev: currentRevOf(registry) });
+      return;
+    } catch (e) {
+      if (e && e.code === 'stale_write' && attempt < MAX_ATTEMPTS - 1) continue;
+      throw e;
+    }
+  }
 }
 
 function currentRevOf(doc) {
@@ -373,3 +388,5 @@ module.exports = async (req, res) => {
 // Exposed for the harness mirror test (totals parity with totals.ts).
 module.exports.computeQuoteTotals = computeQuoteTotals;
 module.exports.QUOTE_LIMITS = LIMITS;
+// Exposed for the #511 registry-roll-up concurrency test.
+module.exports.__test = { upsertRegistryRow, readRegistry };
