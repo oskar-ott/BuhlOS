@@ -1,4 +1,4 @@
-import type { EvidenceLink, WorkPackage } from "@/domains/job-control/types";
+import type { EvidenceLink, ProofReview, WorkPackage } from "@/domains/job-control/types";
 import { PersistedJobControlSchema, jobControlKey, jobControlRevisionOf } from "./compile-producer";
 import { readJsonBlob } from "./blob";
 
@@ -39,6 +39,7 @@ export type JobControlReadResult =
       jobId: string;
       workPackages: WorkPackage[];
       evidenceLinks: EvidenceLink[];
+      proofReviews: ProofReview[];
       meta: JobControlReadMeta;
     }
   | {
@@ -48,6 +49,7 @@ export type JobControlReadResult =
       reason: "missing";
       workPackages: [];
       evidenceLinks: [];
+      proofReviews: [];
     }
   | {
       ok: false;
@@ -55,6 +57,7 @@ export type JobControlReadResult =
       reason: "unreadable" | "job_mismatch";
       workPackages: [];
       evidenceLinks: [];
+      proofReviews: [];
     };
 
 /**
@@ -64,14 +67,14 @@ export type JobControlReadResult =
  */
 export function buildJobControlReadResult(jobId: string, raw: unknown | null): JobControlReadResult {
   if (raw == null) {
-    return { ok: true, ready: false, jobId, reason: "missing", workPackages: [], evidenceLinks: [] };
+    return { ok: true, ready: false, jobId, reason: "missing", workPackages: [], evidenceLinks: [], proofReviews: [] };
   }
   const parsed = PersistedJobControlSchema.safeParse(raw);
   if (!parsed.success) {
-    return { ok: false, jobId, reason: "unreadable", workPackages: [], evidenceLinks: [] };
+    return { ok: false, jobId, reason: "unreadable", workPackages: [], evidenceLinks: [], proofReviews: [] };
   }
   if (parsed.data.jobId !== jobId) {
-    return { ok: false, jobId, reason: "job_mismatch", workPackages: [], evidenceLinks: [] };
+    return { ok: false, jobId, reason: "job_mismatch", workPackages: [], evidenceLinks: [], proofReviews: [] };
   }
   // Field-safe subset only — compileMeta.gaps + source fingerprints stay office-side.
   return {
@@ -80,6 +83,7 @@ export function buildJobControlReadResult(jobId: string, raw: unknown | null): J
     jobId,
     workPackages: parsed.data.workPackages,
     evidenceLinks: parsed.data.evidenceLinks,
+    proofReviews: parsed.data.proofReviews,
     meta: {
       generatedAt: parsed.data.compileMeta?.generatedAt,
       confirmedAt: parsed.data.compileMeta?.confirmedAt ?? undefined,
