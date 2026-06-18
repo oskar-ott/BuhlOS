@@ -40,12 +40,20 @@ and `recordIdempotent`s the key in the same write. Covered by
 item; different keys → distinct; no key → unchanged) and the unit tests in
 `src/domains/platform/idempotency.test.ts`.
 
+## Wired: snag quick-raise (`api/snag-quick-raise.js`)
+
+Same three-line pattern. The handler reads `jobs/<jobId>/data.json` up front and
+checks the key **before any side effect** — the snag append *and* the assignee
+push — so a replay returns `{ snag, autoAssigned, idempotentReplay: true }` with
+no duplicate snag and no second notification. The stored `result` is the exact
+`{ snag, autoAssigned }` payload, so the replay is byte-identical. Covered by
+`src/domains/snags/snag-quick-raise-idempotency-api.test.ts`.
+
 ## Adopt next (same three-line pattern)
 
 Each appends to `jobs/<jobId>/data.json` and should read → `findIdempotent` →
 return-or-apply → `recordIdempotent` → write:
 
-- `api/snag-quick-raise.js` — snag create (offline-queueable).
 - `api/snags.js` — snag create + transition.
 - `api/task-toggle.js` — already naturally idempotent for state-setting
   (re-applying the same state is a `changed:false` no-op), so a key is optional
