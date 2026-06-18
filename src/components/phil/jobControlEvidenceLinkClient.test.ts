@@ -40,6 +40,24 @@ describe("linkRequiredProof", () => {
     });
   });
 
+  it("sends taskRef in the body ONLY when the requirement is task-scoped (#502)", async () => {
+    const t = { areaId: "a1", stage: "roughIn", taskId: "t1" } as const;
+    const taggedFetch = fakeFetch(200, { ok: true, created: true, revision: "rev_B", link: { id: "el_x" } });
+    await linkRequiredProof({ ...INPUT, taskRef: t }, taggedFetch);
+    const taggedBody = JSON.parse(
+      ((taggedFetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit).body as string,
+    );
+    expect(taggedBody.taskRef).toEqual(t);
+
+    // package-level requirement (no taskRef) → no taskRef key in the body
+    const plainFetch = fakeFetch(200, { ok: true, created: true, revision: "rev_B", link: { id: "el_y" } });
+    await linkRequiredProof(INPUT, plainFetch);
+    const plainBody = JSON.parse(
+      ((plainFetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit).body as string,
+    );
+    expect("taskRef" in plainBody).toBe(false);
+  });
+
   it("maps 409 stale_revision to stale with the current revision", async () => {
     const r = await linkRequiredProof(INPUT, fakeFetch(409, { ok: false, reason: "stale_revision", currentRevision: "rev_C" }));
     expect(r).toEqual({ kind: "stale", currentRevision: "rev_C" });
@@ -83,6 +101,13 @@ describe("applyProofLinkResult", () => {
       role: "progress",
     });
     expect(applied.link!.evidenceId).toBe(ctx.evidenceId);
+    expect("taskRef" in applied.link!).toBe(false); // package-level ctx → no taskRef
+  });
+
+  it("linked with a task-scoped ctx → the local link carries taskRef (#502)", () => {
+    const t = { areaId: "a1", stage: "roughIn", taskId: "t1" } as const;
+    const applied = applyProofLinkResult({ kind: "linked", revision: "rev_B" }, { ...ctx, taskRef: t });
+    expect(applied.link!.taskRef).toEqual(t);
   });
 
   it("stale → stale status, carries the server's current revision, no link (not met)", () => {

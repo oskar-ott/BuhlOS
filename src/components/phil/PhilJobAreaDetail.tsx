@@ -36,6 +36,7 @@ import {
 import { PhilTaskScopeContext } from "./PhilTaskScopeContext";
 import type { ProofActionStatus } from "./jobControlEvidenceLinkClient";
 import { summarisePhilTaskProof, type PhilTaskContext } from "@/domains/job-control/task-context";
+import type { TaskRef } from "@/domains/job-control/types";
 import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
 import { cn } from "@/lib/cn";
 
@@ -80,7 +81,7 @@ interface Props {
   readinessByTaskId?: ReadonlyMap<string, PhilTaskReadiness>;
   /** Capture proof for a specific unmet requirement on a task. The parent fills
    *  the area/stage coordinate; the row adds `taskId`. Omitted ⇒ no affordance. */
-  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string }) => void;
+  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string; taskRef?: TaskRef }) => void;
   /** Per-requirement (requiredEvidenceId → status) capture/link feedback. */
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   /** Whether a capture+link can run now (a job-control revision is available). */
@@ -339,7 +340,7 @@ function TaskRow({
   onToggle?: () => void;
   context?: PhilTaskContext;
   readiness?: PhilTaskReadiness;
-  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string }) => void;
+  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string; taskRef?: TaskRef }) => void;
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   canCaptureProof?: boolean;
 }) {

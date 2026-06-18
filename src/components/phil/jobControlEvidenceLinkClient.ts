@@ -1,4 +1,4 @@
-import type { EvidenceLink } from "@/domains/job-control/types";
+import type { EvidenceLink, TaskRef } from "@/domains/job-control/types";
 
 /**
  * Phil client for the L4 evidence-link route — the worker-facing half of the
@@ -19,6 +19,11 @@ export interface LinkRequiredProofInput {
   evidenceId: string;
   /** The artifact revision the worker last read — the stale-write precondition (#469). */
   expectedJobControlRevision: string;
+  /** Per-task scope (#502 producer): present ONLY when the requirement being
+   *  captured is itself task-scoped (its `RequiredEvidence.taskRef` is set), so
+   *  the link satisfies only that task. Absent for a package-level requirement →
+   *  a package-level link, exactly as before. */
+  taskRef?: TaskRef;
 }
 
 export type LinkProofResult =
@@ -48,6 +53,7 @@ export async function linkRequiredProof(
         requiredEvidenceId: input.requiredEvidenceId,
         evidenceId: input.evidenceId,
         expectedJobControlRevision: input.expectedJobControlRevision,
+        ...(input.taskRef ? { taskRef: input.taskRef } : {}),
       }),
     });
   } catch {
@@ -105,7 +111,7 @@ export interface ProofLinkApplied {
  */
 export function applyProofLinkResult(
   result: LinkProofResult,
-  ctx: { jobId: string; workPackageId: string; requiredEvidenceId: string; evidenceId: string },
+  ctx: { jobId: string; workPackageId: string; requiredEvidenceId: string; evidenceId: string; taskRef?: TaskRef },
 ): ProofLinkApplied {
   switch (result.kind) {
     case "linked":
@@ -119,6 +125,9 @@ export function applyProofLinkResult(
           workPackageId: ctx.workPackageId,
           requiredEvidenceId: ctx.requiredEvidenceId,
           evidenceId: ctx.evidenceId,
+          // mirror the task scope so the optimistic "met" matches the persisted
+          // link (a task-scoped link satisfies only its task — #502 met rule).
+          ...(ctx.taskRef ? { taskRef: ctx.taskRef } : {}),
           role: "progress",
         },
       };
@@ -151,6 +160,7 @@ export async function linkAndApply(
     workPackageId: input.workPackageId,
     requiredEvidenceId: input.requiredEvidenceId,
     evidenceId: input.evidenceId,
+    ...(input.taskRef ? { taskRef: input.taskRef } : {}),
   });
 }
 

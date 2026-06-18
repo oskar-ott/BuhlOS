@@ -30,7 +30,7 @@ import { PhilJobContactsCard } from "./PhilJobContactsCard";
 import type { JobContact } from "@/domains/contacts/schema";
 import type { TagItem } from "@/domains/tags/schema";
 import type { Job, JobStage } from "@/domains/jobs/types";
-import type { EvidenceLink, WorkPackage } from "@/domains/job-control/types";
+import type { EvidenceLink, TaskRef, WorkPackage } from "@/domains/job-control/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
 import type { ObservationItem } from "@/domains/observations/types";
@@ -245,6 +245,8 @@ export function PhilJobDetail({
     workPackageId: string;
     requiredEvidenceId: string;
     taskId: string;
+    /** Set when the captured requirement is task-scoped (#502) — scopes the link. */
+    taskRef?: TaskRef;
   } | null>(null);
   // Per-requirement (requiredEvidenceId → status) capture/link feedback.
   const [proofStatus, setProofStatus] = useState<Record<string, ProofActionStatus>>({});
@@ -542,7 +544,7 @@ export function PhilJobDetail({
   // Open the existing capture sheet scoped to a specific required-proof item.
   // The captured evidence is then auto-linked in handleCaptured.
   const handleCaptureProof = useCallback(
-    (target: { workPackageId: string; requiredEvidenceId: string; taskId: string }) => {
+    (target: { workPackageId: string; requiredEvidenceId: string; taskId: string; taskRef?: TaskRef }) => {
       setPendingProofLink(target);
       setProofStatus((prev) => {
         const next = { ...prev };
@@ -573,6 +575,7 @@ export function PhilJobDetail({
         requiredEvidenceId: req,
         evidenceId: item.id, // the REAL saved id, never fabricated
         expectedJobControlRevision: jcRevision,
+        ...(pending.taskRef ? { taskRef: pending.taskRef } : {}),
       });
       if (applied.revision) setJcRevision(applied.revision);
       if (applied.link) {
