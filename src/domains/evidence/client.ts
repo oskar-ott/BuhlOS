@@ -74,6 +74,7 @@ export function createEvidence(
   return httpPost<EvidenceCreateResponse>(evidenceUrl(jobId), parsed.data, {
     schema: EvidenceCreateResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
+    timeoutMs: 15000, // small JSON metadata write — never hang (#139)
   });
 }
 
@@ -125,6 +126,9 @@ export function uploadEvidencePhoto(
     {
       schema: EvidencePhotoUploadResponseSchema,
       init: { cache: "no-store", credentials: "same-origin" },
+      // Generous: a multi-MB photo on weak signal needs room, but must still
+      // fail honestly rather than hang forever (#139).
+      timeoutMs: 60000,
     }
   );
 }
