@@ -56,6 +56,8 @@ async function loadBlobHours() {
   }
   const { list } = require('@vercel/blob'); // read-only enumeration; no put/del
 
+  // The 'users/' prefix also returns users/<id>/time-entries-audit/<yyyy-mm>.json;
+  // ENTRY_KEY_RE matches only the day-file shape, so audit logs are excluded.
   const dayBlobs = [];
   let cursor;
   do {
@@ -105,6 +107,12 @@ async function loadBlobHours() {
 // ── Postgres mirror loader — READ-ONLY (getDb mode:'read') ──────────────────
 async function loadPgHours() {
   const sql = getDb({ mode: 'read' });
+  // Single-tenant today (the structure importer mints exactly one tenant and
+  // Blob is inherently single-tenant), so no tenant_id predicate is needed; add
+  // one here if the project ever holds >1 tenant, else this would compare all
+  // tenants' Postgres rows against one tenant's Blob. A row whose
+  // legacy_user_id is NULL arrives with user_legacy_id=null and the drift
+  // engine routes it to its "unresolved" bucket — never counted as drift.
   // Resolve the minted uuid user_id back to the legacy user id
   // (user_profiles.legacy_user_id = the users.json id) so the business key
   // (userKey,date) lines up with the Blob side. to_char keeps work_date a
@@ -155,12 +163,19 @@ function printReport(report, meta) {
   if (s.duplicateBlobKeys || s.duplicatePgKeys) {
     console.log(`duplicate keys: Blob ${s.duplicateBlobKeys}, Postgres ${s.duplicatePgKeys}`);
   }
+  if (s.unresolvedBlobCount || s.unresolvedPgCount) {
+    console.log(
+      `unresolved (no legacy user id — not drift): Blob ${s.unresolvedBlobCount}, Postgres ${s.unresolvedPgCount}`
+    );
+  }
 
   printSection('Only in Blob (Postgres missing these)', report.onlyInBlob);
   printSection('Only in Postgres (no Blob source)', report.onlyInPg);
   printSection('Mismatched (values disagree)', report.mismatched);
   printSection('Duplicate Blob keys', report.duplicateBlobKeys);
   printSection('Duplicate Postgres keys', report.duplicatePgKeys);
+  printSection('Unresolved Postgres rows (NULL legacy_user_id — cannot match)', report.unresolvedPg);
+  printSection('Unresolved Blob rows (missing user/date)', report.unresolvedBlob);
 
   console.log(`\nresult: ${s.inSync ? 'IN SYNC' : 'DRIFT DETECTED'}`);
 }
