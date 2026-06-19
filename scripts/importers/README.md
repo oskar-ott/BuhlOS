@@ -136,6 +136,27 @@ user/time_entry/job ref, hours ≤ 0, allocation-sum ≠ entry total, or over-le
 notes **quarantines and aborts before any write**. Pure builder:
 `lib/allocation-rows.js`. Tests: `src/domains/importers/allocation-rows.test.ts`.
 
+## hours-sync-check.js
+
+The recorded migration **trust layer** — compares EVERY hours entry **and its
+per-job allocations** across Blob and Postgres, producing PASS/FAIL with counts,
+totals, content hashes (sha256 of the canonical dataset each side) and the
+specific drifts, and (with `--write`) records a row into `public.sync_checks`.
+
+```sh
+node scripts/importers/hours-sync-check.js            # dry-run (print only)
+node scripts/importers/hours-sync-check.js --write     # record into sync_checks
+node scripts/importers/hours-sync-check.js --json
+```
+
+Manual runner now; a Vercel cron can call this path later. The PG side is
+reconstructed by the SAME code the read-cutover serves (`api/_lib/hours-read`
+`loadAllHoursFromPg`), so it validates exactly what `listUserEntries` returns.
+Read-only against the data; `--write` only appends an audit row. Engine:
+`lib/hours-sync-report.js` (pure). Tests:
+`src/domains/importers/hours-sync-report.test.ts`. `hours-parity.js` (below) is
+the lightweight totals-only variant; this is the comprehensive, recorded one.
+
 ## hours-parity.js
 
 The **read-only hours proving slice** and the dual-write's future drift alarm
