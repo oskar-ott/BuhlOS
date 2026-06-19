@@ -16,9 +16,36 @@
 // Mapping + upsert come from api/_lib/hours-pg (shared with the importer), so the
 // mirror and the bulk import can never diverge.
 
+// ROLLOUT CAVEAT (inert today, flag dark + prod unwired): mirrorTimeEntry is
+// awaited inside writeEntry, so once the flag is flipped ON against a live
+// project each save pays the mirror's tenant+user SELECTs + upsert (≈3 round
+// trips; ≈3N for a sequential bulk-approve), and a slow/unreachable pooler can
+// delay the response by up to getDb's connect_timeout. Before enabling the flag
+// in any latency-sensitive env, add a short mirror timeout and/or move the
+// mirror off the request path (e.g. Vercel waitUntil / the #160 outbox).
+
 const { isFlagOn } = require('./feature-flags');
 const { getDb } = require('./supabase-db');
-const { timeEntryRowFromBlob, upsertTimeEntries } = require('./hours-pg');
+const {
+  timeEntryRowFromBlob,
+  upsertTimeEntries,
+  MAX_NOTES,
+  MAX_TOTAL_HOURS,
+  TOLERANCE,
+  VALID_TIME_ENTRY_STATUSES,
+} = require('./hours-pg');
+
+// Belt-and-braces: the API already validated via validateEntryShape, but never
+// hand the upsert a row that would trip a schema CHECK (it would throw and be
+// swallowed → a scary log + silent perpetual drift). Mirror the importer's
+// guards exactly. Returns a reason string when the row must be skipped, else ''.
+function malformedReason(row) {
+  if (!(row.total_hours > 0) || row.total_hours > MAX_TOTAL_HOURS) return 'invalid total';
+  if (Math.abs(row.ordinary_hours + row.overtime_hours - row.total_hours) >= TOLERANCE) return 'ordinary+overtime != total';
+  if (row.notes && row.notes.length > MAX_NOTES) return 'notes too long';
+  if (!VALID_TIME_ENTRY_STATUSES.includes(row.status)) return 'invalid status';
+  return '';
+}
 
 async function resolveTenantAndUser(sql, userId) {
   const t = await sql`select id from public.tenants where slug = 'buhl'`;
@@ -54,11 +81,11 @@ async function mirrorTimeEntry(userId, entry, deps = {}) {
       date: entry.date,
       nowIso: new Date().toISOString(),
     });
-    // Belt-and-braces: the API already validated via validateEntryShape; never
-    // mirror an invalid total that would trip the schema CHECK.
-    if (!(row.total_hours > 0) || row.total_hours > 16) return { mirrored: false, reason: 'invalid total' };
-    if (Math.abs(row.ordinary_hours + row.overtime_hours - row.total_hours) >= 0.011) {
-      return { mirrored: false, reason: 'ordinary+overtime != total' };
+    const bad = malformedReason(row);
+    if (bad) {
+      // Log so the skip is visible — the only other drift signal is the parity script.
+      console.warn(`[hours-mirror] skipping malformed entry (Blob authoritative, drift alarm will catch): ${bad}`);
+      return { mirrored: false, reason: bad };
     }
 
     await upsertTimeEntries(sql, resolved.tenantId, [row]);
@@ -96,4 +123,4 @@ async function mirrorTimeEntryDelete(userId, date, deps = {}) {
   }
 }
 
-module.exports = { mirrorTimeEntry, mirrorTimeEntryDelete };
+module.exports = { mirrorTimeEntry, mirrorTimeEntryDelete, malformedReason };

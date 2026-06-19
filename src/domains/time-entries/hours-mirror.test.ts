@@ -11,9 +11,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const requireFromHere = createRequire(import.meta.url);
 const mirrorPath = requireFromHere.resolve("../../../api/_lib/hours-mirror.js");
-const { mirrorTimeEntry, mirrorTimeEntryDelete } = requireFromHere(mirrorPath) as {
+const { mirrorTimeEntry, mirrorTimeEntryDelete, malformedReason } = requireFromHere(mirrorPath) as {
   mirrorTimeEntry: (userId: string, entry: unknown, deps?: object) => Promise<{ mirrored: boolean; reason?: string }>;
   mirrorTimeEntryDelete: (userId: string, date: string, deps?: object) => Promise<{ mirrored: boolean; reason?: string }>;
+  malformedReason: (row: Record<string, unknown>) => string;
 };
 
 const ENTRY = { id: "e1", date: "2026-06-01", totalHours: 8, ordinaryHours: 8, overtimeHours: 0, status: "approved" };
@@ -57,6 +58,15 @@ describe("mirrorTimeEntry — gating + best-effort", () => {
     expect(res.mirrored).toBe(false);
     expect(res.reason).toBe("error");
   });
+});
+
+describe("malformedReason — never hand the upsert a row that trips a schema CHECK", () => {
+  const ok = { total_hours: 8, ordinary_hours: 8, overtime_hours: 0, notes: null, status: "approved" };
+  it("passes a clean row", () => expect(malformedReason(ok)).toBe(""));
+  it("catches an out-of-range total", () => expect(malformedReason({ ...ok, total_hours: 20, ordinary_hours: 20 })).toBe("invalid total"));
+  it("catches an ordinary+overtime mismatch", () => expect(malformedReason({ ...ok, ordinary_hours: 5, overtime_hours: 1 })).toBe("ordinary+overtime != total"));
+  it("catches over-length notes (>500)", () => expect(malformedReason({ ...ok, notes: "x".repeat(501) })).toBe("notes too long"));
+  it("catches an unknown status", () => expect(malformedReason({ ...ok, status: "weird" })).toBe("invalid status"));
 });
 
 describe("mirrorTimeEntryDelete — gating + best-effort", () => {

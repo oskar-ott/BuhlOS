@@ -10,6 +10,10 @@
 // abs((ordinary+overtime)-total) tolerance — matches the schema CHECK.
 const TOLERANCE = 0.011;
 const MAX_NOTES = 500; // schema: notes char_length <= 500
+const MAX_TOTAL_HOURS = 16; // schema: total_hours CHECK (> 0 and <= 16)
+// schema: status CHECK in (...). Shared so the importer and the live mirror
+// validate against the same set.
+const VALID_TIME_ENTRY_STATUSES = ['draft', 'submitted', 'approved', 'rejected'];
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -120,6 +124,8 @@ async function upsertTimeEntries(sql, tenantId, rows) {
 module.exports = {
   TOLERANCE,
   MAX_NOTES,
+  MAX_TOTAL_HOURS,
+  VALID_TIME_ENTRY_STATUSES,
   round2,
   strOrNull,
   timeEntryRowFromBlob,
