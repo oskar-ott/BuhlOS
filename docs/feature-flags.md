@@ -18,6 +18,7 @@ date: delete it (and the dead branch it guarded) or consciously extend it.
 | `supabase_dual_write` | global | 2026-09-30 | Mirror blob writes into Supabase per migrated domain (#152) |
 | `admin_flags_readout` | admin-tier | 2026-09-30 | The active-flags readout card on /command-centre |
 | `supabase_read_health` | global | 2026-12-31 | `GET /api/supabase-health` — the read-only Supabase connectivity proving slice (#533) |
+| `supabase_read_hours` | global | 2026-12-31 | Serve the hours display read (`listUserEntries`) from Postgres with a Blob fallback (#152) |
 
 ## Flipping a flag
 

@@ -9,6 +9,7 @@
 const { put, list, del } = require('@vercel/blob');
 const { readBlob, writeBlob, deleteBlob } = require('./blob');
 const { mirrorTimeEntry, mirrorTimeEntryDelete } = require('./hours-mirror');
+const { listUserEntriesFromPgIfEnabled } = require('./hours-read');
 
 const ENTRY_PREFIX = (userId) => `users/${userId}/time-entries/`;
 const ENTRY_PATH   = (userId, date) => `users/${userId}/time-entries/${date}.json`;
@@ -115,6 +116,12 @@ async function deleteEntry(userId, date) {
 
 // List one user's entries (newest first), optionally filtered by date range / status.
 async function listUserEntries(userId, { fromDate, toDate, status } = {}) {
+  // #152 read-cutover (rung 3): serve from Postgres when supabase_read_hours is
+  // on (+ env). Best-effort — {pg:false} on disabled/error falls through to Blob
+  // (the source of truth). readEntry stays Blob (write path).
+  const pg = await listUserEntriesFromPgIfEnabled(userId, { fromDate, toDate, status });
+  if (pg.pg) return pg.entries;
+
   const prefix = ENTRY_PREFIX(userId);
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   let blobs;
