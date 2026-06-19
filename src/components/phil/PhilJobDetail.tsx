@@ -54,6 +54,7 @@ import { PhilJobCommandPanel } from "./PhilJobCommandPanel";
 import { PhilJobAttentionStrip } from "./PhilJobAttentionStrip";
 import { PhilJobAreaCard } from "./PhilJobAreaCard";
 import { PhilJobAreaDetail } from "./PhilJobAreaDetail";
+import { useCaptureLauncher } from "./captureLauncherContext";
 import { readJobResume, writeJobResume } from "./jobResume";
 import {
   areaStageAvailability,
@@ -193,6 +194,12 @@ export function PhilJobDetail({
   jobControlRevision,
   autoCaptureToken,
 }: Props) {
+  // Opens the global Capture launcher preset to one option (here, the
+  // "Variation / change" worker option) — the SAME flow My Day's quick tiles
+  // use. The launcher (mounted in PhilTabBar, inside PhilShell) resolves THIS
+  // job from the /phil/jobs/<id> path, so a flag from a task lands on the right
+  // job's variation capture. No new variation form, no fabricated #369 fields.
+  const { openQuickCapture } = useCaptureLauncher();
   // #332: induction completion is server truth — the tap is NON-optimistic
   // (state flips only after the API confirms; a failed save shows the error
   // inside the notice, never a phantom "done").
@@ -539,6 +546,20 @@ export function PhilJobDetail({
     [flatAreas, job],
   );
 
+  // Flag a variation from a task's "stop — flag a variation first" warning
+  // (#368). Reuses the EXISTING variation capture flow: open the global Capture
+  // launcher preset to the "variation" worker option (the same path My Day's
+  // quick tiles drive). The structured #369 estimate fields are gathered by that
+  // form — this handler authors none. The `trigger` (warningId / taskRef) is
+  // accepted for honesty/traceability; the launcher itself scopes the capture to
+  // this job via the route.
+  const handleFlagVariation = useCallback(
+    (_trigger: { warningId: string; taskRef?: TaskRef }) => {
+      openQuickCapture({ kind: "worker", optionKey: "variation" });
+    },
+    [openQuickCapture],
+  );
+
   // Open the existing capture sheet scoped to a specific required-proof item.
   // The captured evidence is then auto-linked in handleCaptured.
   const handleCaptureProof = useCallback(
@@ -728,6 +749,7 @@ export function PhilJobDetail({
                 </PhilNotice>
               ) : null}
               <PhilJobAreaDetail
+                jobId={job.id}
                 areaName={selectedArea.name}
                 spaceType={selectedArea.spaceType}
                 stages={selectedStages}
@@ -740,6 +762,7 @@ export function PhilJobDetail({
                 taskContextById={taskContextById}
                 readinessByTaskId={taskReadinessById}
                 onCaptureProof={handleCaptureProof}
+                onFlagVariation={handleFlagVariation}
                 proofActionState={proofStatus}
                 canCaptureProof={Boolean(jcRevision)}
                 proofReviews={proofReviews}

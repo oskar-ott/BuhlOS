@@ -53,6 +53,10 @@ const LINK_ICON = {
 } as const;
 
 interface Props {
+  /** The job these areas/tasks belong to — threaded down so a task's governing
+   *  drawing/spec can link into the Phil plans viewer (#368). Absent ⇒ governing
+   *  docs render as plain text (today's behavior). */
+  jobId?: string;
   areaName: string;
   spaceType?: string | null;
   /** Which stages have a task plan for this area. */
@@ -88,6 +92,10 @@ interface Props {
   /** Capture proof for a specific unmet requirement on a task. The parent fills
    *  the area/stage coordinate; the row adds `taskId`. Omitted ⇒ no affordance. */
   onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string; taskRef?: TaskRef }) => void;
+  /** Flag a variation from a task's "stop — flag a variation first" warning
+   *  (#368). The row supplies the task coordinate (`taskRef`) when `areaId` is
+   *  known. Omitted ⇒ the warning stays text-only (today's behavior). */
+  onFlagVariation?: (trigger: { warningId: string; taskRef?: TaskRef }) => void;
   /** Per-requirement (requiredEvidenceId → status) capture/link feedback. */
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   /** Whether a capture+link can run now (a job-control revision is available). */
@@ -139,6 +147,7 @@ interface Props {
  *   /tmp/phil-bible/buhlos-phil/project/Phil Job Interface Bible.html §09
  */
 export function PhilJobAreaDetail({
+  jobId,
   areaName,
   spaceType,
   stages,
@@ -151,6 +160,7 @@ export function PhilJobAreaDetail({
   taskContextById,
   readinessByTaskId,
   onCaptureProof,
+  onFlagVariation,
   proofActionState,
   canCaptureProof,
   areaId,
@@ -253,6 +263,7 @@ export function PhilJobAreaDetail({
                 return (
                 <TaskRow
                   key={t.id}
+                  jobId={jobId}
                   task={t}
                   pending={pendingTaskIds?.has(t.id) ?? false}
                   context={taskContextById?.get(t.id)}
@@ -263,6 +274,15 @@ export function PhilJobAreaDetail({
                       : undefined
                   }
                   onCaptureProof={onCaptureProof}
+                  onFlagVariation={
+                    onFlagVariation
+                      ? (trigger) =>
+                          onFlagVariation({
+                            ...trigger,
+                            ...(tref ? { taskRef: tref } : {}),
+                          })
+                      : undefined
+                  }
                   proofActionState={proofActionState}
                   canCaptureProof={canCaptureProof}
                   review={review}
@@ -364,12 +384,14 @@ function TaskStateIcon({ state }: { state: TaskState }) {
  * parent has a safe server-backed mutation to run.
  */
 function TaskRow({
+  jobId,
   task,
   pending,
   onToggle,
   context,
   readiness,
   onCaptureProof,
+  onFlagVariation,
   proofActionState,
   canCaptureProof,
   review,
@@ -377,12 +399,14 @@ function TaskRow({
   submitStatus,
   canSubmitForReview,
 }: {
+  jobId?: string;
   task: WorkerTask;
   pending: boolean;
   onToggle?: () => void;
   context?: PhilTaskContext;
   readiness?: PhilTaskReadiness;
   onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string; taskRef?: TaskRef }) => void;
+  onFlagVariation?: (trigger: { warningId: string; taskRef?: TaskRef }) => void;
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   canCaptureProof?: boolean;
   review?: ProofReview | null;
@@ -519,11 +543,13 @@ function TaskRow({
       {context ? (
         <PhilTaskScopeContext
           context={context}
+          jobId={jobId}
           onCaptureProof={
             onCaptureProof
               ? (t) => onCaptureProof({ ...t, taskId: task.id })
               : undefined
           }
+          onFlagVariation={onFlagVariation}
           proofActionState={proofActionState}
           canCaptureProof={canCaptureProof}
         />

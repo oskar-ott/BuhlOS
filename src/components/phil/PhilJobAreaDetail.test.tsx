@@ -553,3 +553,52 @@ describe("PhilJobAreaDetail render — proof review / submit (#503)", () => {
     expect(out).not.toContain("Submit for review");
   });
 });
+
+describe("PhilJobAreaDetail render — scope-on-task wire threads through the parent (#368)", () => {
+  const docCtx: PhilTaskContext = {
+    workPackageId: "wp1",
+    scopeNote: null,
+    governingDocs: [{ documentId: "doc1", label: "E-101 Power layout" }],
+    materials: [],
+    requiredEvidence: [],
+    warnings: [],
+    isEmpty: false,
+  };
+
+  it("renders the governing drawing as a link to the job's plans viewer when jobId is threaded", () => {
+    const html = renderToString(
+      createElement(PhilJobAreaDetail, {
+        jobId: "job-abc",
+        areaName: "Main Bar",
+        stages: RI,
+        stage: "roughIn" as JobStage,
+        tasks: [task("t1", "Pull power")],
+        counts: NO_COUNTS,
+        onStageChange: noop,
+        taskContextById: new Map([["t1", docCtx]]),
+      }),
+    );
+    // jobId reached the scope context and produced a real plans link.
+    expect(html).toContain('href="/phil/jobs/job-abc/plans"');
+    expect(text(html)).toContain("E-101 Power layout");
+    // honesty (P7): no fabricated deep-link param the viewer can't honor.
+    expect(html).not.toContain("?doc=");
+    expect(html).not.toContain("?page=");
+  });
+
+  it("falls back to plain text (no anchor) for the drawing when jobId is absent", () => {
+    const html = renderToString(
+      createElement(PhilJobAreaDetail, {
+        areaName: "Main Bar",
+        stages: RI,
+        stage: "roughIn" as JobStage,
+        tasks: [task("t1", "Pull power")],
+        counts: NO_COUNTS,
+        onStageChange: noop,
+        taskContextById: new Map([["t1", docCtx]]),
+      }),
+    );
+    expect(text(html)).toContain("E-101 Power layout");
+    expect(html).not.toContain("/plans");
+  });
+});
