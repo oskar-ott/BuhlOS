@@ -75,6 +75,9 @@ const VALID_TARGET_TYPES = new Set([
   'credential',
   'induction',
   'leave',
+  // #390: hours / time-entry decisions — the read endpoint must accept it so the
+  // per-job feed and history filters surface the office approvals pass.
+  'time_entry',
 ]);
 const MAX_MONTHS = 12;
 const DEFAULT_MONTHS = 2;

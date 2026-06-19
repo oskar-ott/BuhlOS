@@ -6,6 +6,8 @@
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
 const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
+const { append: appendAuditLog } = require('./_lib/audit-log');
+const { buildHoursAuditEntry } = require('./_lib/hours-audit');
 const { notify } = require('./_lib/notify');
 const { appendActivity } = require('./_lib/activity');
 
@@ -78,6 +80,12 @@ module.exports = async (req, res) => {
       jobIds: (entry.allocations || []).map(a => a.jobId).filter(Boolean),
     },
   });
+
+  // #390: canonical audit-log entry (the journal #220 reads + per-job history).
+  // Best-effort — never blocks the approval. `updated` carries the new status.
+  appendAuditLog(
+    buildHoursAuditEntry({ action: 'hours.approved', actor: user, entry: updated }),
+  ).catch(() => {});
 
   // Fire-and-forget push to the tradie, now routed through the platform
   // notify() engine (#162) so the recipient's `hoursApproved` pref is honoured

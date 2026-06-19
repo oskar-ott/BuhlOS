@@ -29,6 +29,8 @@
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
 const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
+const { append: appendAuditLog } = require('./_lib/audit-log');
+const { buildHoursBulkAuditEntry } = require('./_lib/hours-audit');
 const { notify } = require('./_lib/notify');
 
 const MAX_ENTRIES = 50;
@@ -145,6 +147,14 @@ module.exports = async (req, res) => {
         tag: 'buhl-hours-approved-' + date,
       },
     }).catch(() => {});
+  }
+
+  // #390: ONE summarising audit-log entry for the whole bulk decision (never N
+  // rows — the decided days live in metadata.entries). Best-effort.
+  if (approved.length) {
+    appendAuditLog(
+      buildHoursBulkAuditEntry({ action: 'hours.bulk_approved', actor: me, decided: approved }),
+    ).catch(() => {});
   }
 
   return res.status(200).json({

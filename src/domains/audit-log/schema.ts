@@ -119,6 +119,14 @@ export const AUDIT_ACTIONS = [
   "variation.created",
   "variation.transitioned",
   "observation.converted_to_variation",
+  // #390: hours / time-entry decisions (the office approvals pass). Bulk actions
+  // write one summarising entry. Kept in sync with api/_lib/audit-log.js.
+  "hours.approved",
+  "hours.rejected",
+  "hours.reject_undone",
+  "hours.reopened",
+  "hours.bulk_approved",
+  "hours.bulk_rejected",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -143,6 +151,8 @@ export const AUDIT_TARGET_TYPES = [
   "leave",
   // #280: variation claim records (jobs/<id>/variations.json).
   "variation",
+  // #390: timesheet day records (users/<id>/time-entries/<date>.json).
+  "time_entry",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 
