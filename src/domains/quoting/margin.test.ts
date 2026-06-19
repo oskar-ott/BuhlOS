@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   computeQuoteMargin,
+  computeQuoteMarginSections,
+  DEFAULT_LOW_MARGIN_THRESHOLD_PCT,
+  QUOTE_MARGIN_INTERNAL_ONLY_KEYS,
   type QuoteMarginInput,
   type QuoteMarginTotals,
 } from "./margin";
@@ -278,5 +281,285 @@ describe("computeQuoteMargin — full parity with legacy computeQuoteTotals", ()
       provisional: { items: [{ amountExGst: 33.337 }] },
     };
     expectParity(input);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// #214 commit 2 — per-section attribution + flags + override effective margin +
+// internal-only boundary.
+// ════════════════════════════════════════════════════════════════════════════
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+describe("computeQuoteMarginSections — sections sum to the rollup", () => {
+  /** The margin-scope invariant: Materials + Labour section costs/sells reduce
+   *  (round2 of the summed rounded section values) to the rollup totalCost /
+   *  totalSell. Provisional is excluded (legacy excludes it from the numerator). */
+  function expectSectionsSumToRollup(input: QuoteMarginInput) {
+    const { sections, rollup } = computeQuoteMarginSections(input);
+    const marginScope = sections.filter((s) => s.section === "materials" || s.section === "labour");
+    const costSum = round2(marginScope.reduce((acc, s) => acc + s.cost, 0));
+    const sellSum = round2(marginScope.reduce((acc, s) => acc + s.sell, 0));
+    expect(costSum).toBe(rollup.cost);
+    expect(sellSum).toBe(rollup.sell);
+    // Cross-check the rollup against the legacy oracle's totalCost/totalSell.
+    const oracle = computeQuoteMargin(input);
+    expect(rollup.cost).toBe(oracle.totalCost);
+    expect(rollup.sell).toBe(oracle.totalSell);
+    // Materials category sub-rows sum to the Materials parent row.
+    const mat = sections.find((s) => s.section === "materials")!;
+    if (mat.subRows.length) {
+      expect(round2(mat.subRows.reduce((a, s) => a + s.cost, 0))).toBe(mat.cost);
+      expect(round2(mat.subRows.reduce((a, s) => a + s.sell, 0))).toBe(mat.sell);
+    }
+  }
+
+  it("invariant holds on a mixed quote", () => {
+    expectSectionsSumToRollup({
+      pricing: { materialMarkupPct: { default: 25, Cable: 40, Switchgear: 10 } },
+      materials: {
+        items: [
+          { quantity: 10, unitCost: 5, category: "Cable" },
+          { quantity: 2, unitCost: 100, category: "Switchgear" },
+          { quantity: 4, unitCost: 25, category: "Conduit" },
+        ],
+      },
+      labour: { lines: [{ estimatedHours: 8, crewSize: 2, hourlyRate: 70, riskFactor: 1.1 }] },
+      provisional: { items: [{ amountExGst: 500 }] },
+    });
+  });
+
+  it("invariant holds on a sub-cent quote (rounding can't break the sum)", () => {
+    expectSectionsSumToRollup({
+      pricing: { materialMarkupPct: { default: 17.5 } },
+      materials: {
+        items: [
+          { quantity: 3, unitCost: 9.97, category: "A" },
+          { quantity: 7, unitCost: 1.015, category: "B" },
+        ],
+      },
+      labour: {
+        lines: [
+          { estimatedHours: 1.5, crewSize: 1, hourlyRate: 95, riskFactor: 0.9 },
+          { estimatedHours: 2.5, crewSize: 3, hourlyRate: 85.5, riskFactor: 1.05 },
+        ],
+      },
+      provisional: { items: [{ amountExGst: 33.337 }] },
+    });
+  });
+
+  it("invariant holds with only materials, only labour, and an empty quote", () => {
+    expectSectionsSumToRollup({ materials: { items: [{ quantity: 2, unitCost: 50 }] }, labour: { lines: [] } });
+    expectSectionsSumToRollup({ materials: { items: [] }, labour: { lines: [{ estimatedHours: 5, hourlyRate: 60 }] } });
+    expectSectionsSumToRollup({ materials: { items: [] }, labour: { lines: [] } });
+  });
+
+  it("section order is Materials, Labour, Provisional, then the quote rollup", () => {
+    const { sections } = computeQuoteMarginSections({
+      materials: { items: [{ quantity: 1, unitCost: 10 }] },
+      labour: { lines: [{ estimatedHours: 1, hourlyRate: 60 }] },
+      provisional: { items: [{ amountExGst: 5 }] },
+    });
+    expect(sections.map((s) => s.section)).toEqual(["materials", "labour", "provisional", "quote"]);
+  });
+
+  it("provisional row is sell == cost == psTotal with margin 0", () => {
+    const { sections } = computeQuoteMarginSections({
+      materials: { items: [] },
+      labour: { lines: [] },
+      provisional: { items: [{ amountExGst: 300 }, { amountExGst: 200 }] },
+    });
+    const ps = sections.find((s) => s.section === "provisional")!;
+    expect(ps).toMatchObject({ cost: 500, sell: 500, margin: { amount: 0, pct: 0 }, flag: "ok" });
+  });
+});
+
+describe("zero-sell honesty — null pct, loss still visible (NOT 0% / NaN / −100%)", () => {
+  it("a section with >0 cost and 0 sell → pct null, amount = −cost, flag negative", () => {
+    // Material sold at −100% markup → sell 0, cost > 0. Legacy rollup would call
+    // this margin 0% (totalSell 0 → pct 0); we DELIBERATELY diverge for the
+    // section: pct null (UI '—') with amount = −cost so the loss is unmissable.
+    const { sections } = computeQuoteMarginSections({
+      pricing: { materialMarkupPct: { default: -100 } },
+      materials: { items: [{ quantity: 1, unitCost: 250, category: "WriteOff" }] },
+      labour: { lines: [] },
+    });
+    const mat = sections.find((s) => s.section === "materials")!;
+    expect(mat.sell).toBe(0);
+    expect(mat.cost).toBe(250);
+    expect(mat.margin.pct).toBeNull(); // sentinel, NOT 0, NOT NaN
+    expect(mat.margin.amount).toBe(-250); // the loss is visible
+    expect(mat.flag).toBe("negative");
+    expect(Number.isNaN(mat.margin.pct as unknown as number)).toBe(false);
+  });
+
+  it("an empty section (0 cost, 0 sell) → pct null but flag ok (nothing at risk)", () => {
+    const { sections } = computeQuoteMarginSections({ materials: { items: [] }, labour: { lines: [] } });
+    const mat = sections.find((s) => s.section === "materials")!;
+    expect(mat).toMatchObject({ cost: 0, sell: 0, flag: "ok" });
+    expect(mat.margin.pct).toBeNull();
+    expect(mat.margin.amount).toBe(0);
+  });
+
+  it("legacy rollup margin stays 0% (the divergence is section-only)", () => {
+    // The full-port rollup margin keeps legacy's 0% on a 0-sell quote — only the
+    // per-SECTION attribution returns null. Both behaviours coexist by design.
+    const input: QuoteMarginInput = {
+      pricing: { materialMarkupPct: { default: -100 } },
+      materials: { items: [{ quantity: 1, unitCost: 250 }] },
+      labour: { lines: [] },
+    };
+    expect(computeQuoteMargin(input).margin.pct).toBe(0); // legacy contract intact
+  });
+});
+
+describe("override effective margin — computed AND effective-under-override both present", () => {
+  it("effectiveMargin recomputes margin against the override subtotal", () => {
+    // cost: materials 100 + labour 650 = 750. computed sell: mat 140 + lab 950 +
+    // provisional 200 = 1290 subtotal; margin scope sell = 1090.
+    // Override subtotal 1000 → effectiveSell = 1000 − 200 (ps) − 0 (contingency)
+    // = 800; effectiveAmount = 800 − 750 = 50; effectivePct = 50/800 = 6.25 → 6.3.
+    const input: QuoteMarginInput = {
+      pricing: { materialMarkupPct: { default: 40 }, overrideTotalExGst: 1000 },
+      materials: { items: [{ quantity: 1, unitCost: 100, category: "Cable" }] },
+      labour: { lines: [{ estimatedHours: 10, crewSize: 1, hourlyRate: 65, riskFactor: 1 }] },
+      provisional: { items: [{ amountExGst: 200 }] },
+    };
+    const { rollup, effectiveMargin } = computeQuoteMarginSections(input);
+    // computed margin (rollup) stays the REAL materials+labour margin
+    expect(rollup.cost).toBe(750);
+    expect(rollup.sell).toBe(1090);
+    expect(rollup.margin.amount).toBe(340);
+    // effective margin under the negotiated override
+    expect(effectiveMargin).not.toBeNull();
+    expect(effectiveMargin!.sell).toBe(800);
+    expect(effectiveMargin!.amount).toBe(50);
+    expect(effectiveMargin!.pct).toBe(6.3);
+    expect(effectiveMargin!.flag).toBe("low"); // 6.3% < 15% default
+  });
+
+  it("effectiveMargin strips contingency too (like-for-like vs cost)", () => {
+    // contingency 10% on subBeforeContingency. Override 2000.
+    // mat 100 @25 → 125 sell, cost 100. lab 10h @65 cost 650 / @95 sell 950.
+    // ps 0. subBefore = 125 + 950 = 1075; contingency = 107.5.
+    // effectiveSell = 2000 − 0 (ps) − 107.5 (contingency) = 1892.5;
+    // cost 750 → amount 1142.5; pct = 1142.5/1892.5*100 = 60.37… → 60.4
+    const input: QuoteMarginInput = {
+      pricing: { contingencyPct: 10, overrideTotalExGst: 2000 },
+      materials: { items: [{ quantity: 1, unitCost: 100 }] },
+      labour: { lines: [{ estimatedHours: 10, crewSize: 1, hourlyRate: 65, riskFactor: 1 }] },
+      provisional: { items: [] },
+    };
+    const { effectiveMargin } = computeQuoteMarginSections(input);
+    expect(effectiveMargin!.sell).toBe(1892.5);
+    expect(effectiveMargin!.amount).toBe(1142.5);
+    expect(effectiveMargin!.pct).toBe(60.4);
+  });
+
+  it("effectiveMargin is null when the quote is NOT overridden", () => {
+    const { effectiveMargin } = computeQuoteMarginSections({
+      materials: { items: [{ quantity: 1, unitCost: 100 }] },
+      labour: { lines: [] },
+    });
+    expect(effectiveMargin).toBeNull();
+  });
+});
+
+describe("low / negative flagging — negative is distinct from low", () => {
+  it("flags negative on a loss, low on a thin positive margin, ok above threshold", () => {
+    // Labour-only quotes give clean margin %s: sell 95/h, cost varies.
+    const negative = computeQuoteMarginSections({
+      // cost 100/h > sell 95/h → loss
+      materials: { items: [] },
+      labour: { lines: [{ estimatedHours: 1, hourlyRate: 100 }] },
+    }).rollup;
+    expect(negative.margin.amount).toBeLessThan(0);
+    expect(negative.flag).toBe("negative");
+
+    const low = computeQuoteMarginSections({
+      // cost 85/h, sell 95/h → margin = 10/95 = 10.5% < 15% default → low
+      materials: { items: [] },
+      labour: { lines: [{ estimatedHours: 1, hourlyRate: 85 }] },
+    }).rollup;
+    expect(low.flag).toBe("low");
+    expect(low.margin.amount).toBeGreaterThan(0);
+
+    const ok = computeQuoteMarginSections({
+      // cost 50/h, sell 95/h → margin = 45/95 = 47.4% → ok
+      materials: { items: [] },
+      labour: { lines: [{ estimatedHours: 1, hourlyRate: 50 }] },
+    }).rollup;
+    expect(ok.flag).toBe("ok");
+  });
+
+  it("a custom threshold moves the low boundary; negative is unaffected", () => {
+    const input: QuoteMarginInput = {
+      // cost 60/h, sell 95/h → margin 35/95 = 36.8%
+      materials: { items: [] },
+      labour: { lines: [{ estimatedHours: 1, hourlyRate: 60 }] },
+    };
+    // default 15% → ok
+    expect(computeQuoteMarginSections(input).rollup.flag).toBe("ok");
+    // raise the bar to 40% → now this 36.8% margin reads 'low'
+    expect(computeQuoteMarginSections(input, { lowMarginThresholdPct: 40 }).rollup.flag).toBe("low");
+
+    // a loss stays 'negative' regardless of how high the threshold is set
+    const loss: QuoteMarginInput = { materials: { items: [] }, labour: { lines: [{ estimatedHours: 1, hourlyRate: 200 }] } };
+    expect(computeQuoteMarginSections(loss, { lowMarginThresholdPct: 90 }).rollup.flag).toBe("negative");
+  });
+
+  it("the default threshold is the exported documented constant", () => {
+    expect(DEFAULT_LOW_MARGIN_THRESHOLD_PCT).toBe(15);
+    // a margin EXACTLY at the threshold is NOT low (boundary is `< threshold`).
+    // sell 100, cost 85 → margin 15% exactly → ok.
+    const atBoundary = computeQuoteMarginSections({
+      pricing: { materialMarkupPct: { default: (100 / 85 - 1) * 100 } }, // sell = cost/0.85
+      materials: { items: [{ quantity: 1, unitCost: 85 }] },
+      labour: { lines: [] },
+    }).sections.find((s) => s.section === "materials")!;
+    expect(atBoundary.margin.pct).toBe(15);
+    expect(atBoundary.flag).toBe("ok");
+  });
+});
+
+describe("#186 internal-only boundary — single source of truth", () => {
+  it("the key set is the documented, non-empty, frozen internal-only register", () => {
+    expect(QUOTE_MARGIN_INTERNAL_ONLY_KEYS.length).toBeGreaterThan(0);
+    expect(Object.isFrozen(QUOTE_MARGIN_INTERNAL_ONLY_KEYS)).toBe(true);
+    // The exact register — a change here is an intentional boundary change.
+    expect([...QUOTE_MARGIN_INTERNAL_ONLY_KEYS]).toEqual([
+      "cost",
+      "totalCost",
+      "margin",
+      "marginAmount",
+      "marginPct",
+      "effectiveMargin",
+      "flag",
+      "markupPct",
+    ]);
+  });
+
+  it("every internal-only key actually appears on the cost/margin-bearing output", () => {
+    // Guards against the set drifting away from the real field names: each key
+    // must be a genuine cost/margin field somewhere in the output, so the #186
+    // projection has a real target to strip.
+    const totals = computeQuoteMargin({
+      materials: { items: [{ quantity: 1, unitCost: 100, category: "Cable" }] },
+      labour: { lines: [{ estimatedHours: 1, hourlyRate: 60 }] },
+    });
+    const { sections, effectiveMargin: _em } = computeQuoteMarginSections(
+      { pricing: { overrideTotalExGst: 500 }, materials: { items: [{ quantity: 1, unitCost: 100 }] }, labour: { lines: [] } },
+    );
+    // sell-only fields are NOT in the set (clients legitimately see sell)
+    expect(QUOTE_MARGIN_INTERNAL_ONLY_KEYS).not.toContain("sell");
+    expect(QUOTE_MARGIN_INTERNAL_ONLY_KEYS).not.toContain("subtotalExGst");
+    expect(QUOTE_MARGIN_INTERNAL_ONLY_KEYS).not.toContain("totalSell");
+    // cost-bearing fields ARE present on the output objects
+    expect(totals.materials).toHaveProperty("cost");
+    expect(totals).toHaveProperty("totalCost");
+    expect(totals).toHaveProperty("margin");
+    expect(totals.materials.breakdown[0]).toHaveProperty("markupPct");
+    expect(sections[0]).toHaveProperty("flag");
+    expect(sections[0]).toHaveProperty("cost");
   });
 });

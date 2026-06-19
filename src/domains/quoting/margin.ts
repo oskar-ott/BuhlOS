@@ -376,3 +376,215 @@ export function computeQuoteMargin(input: QuoteMarginInput): QuoteMarginTotals {
     overridden: r.overridden,
   };
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// #214 commit 2 — per-section attribution + flags + override effective margin +
+// the #186 internal-only boundary. ADDITIVE: nothing below changes a legacy
+// number. `computeQuoteMargin` (the legacy port) is untouched; this layer reads
+// the SAME unrounded accumulators (`rawCompute`) so a section total can never
+// disagree with the rollup it sums into.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Health flag for a section / the rollup. `negative` (loss) is ALWAYS distinct
+ *  from `low` — a section selling below cost is never "low but positive". */
+export type MarginFlag = "ok" | "low" | "negative";
+
+/** Default low-margin threshold (%). The future org-level home is policy.json
+ *  (#214 notes); this module only CONSUMES the value via
+ *  `options.lowMarginThresholdPct`, never hardcoding it inside the math. */
+export const DEFAULT_LOW_MARGIN_THRESHOLD_PCT = 15;
+
+/** A section's stable identity. `quote` is the rollup row. */
+export type MarginSectionId = "materials" | "labour" | "provisional" | "quote";
+
+/** One row in the per-section attribution. `marginPct` is `null` (sentinel the
+ *  UI renders as "—") when sell is 0 — NEVER NaN or a misleading −100%. */
+export interface MarginSectionRow {
+  section: MarginSectionId;
+  /** Display label for the row (section name, or a category for sub-rows). */
+  label: string;
+  /** Category sub-rows of the Materials section (one per markup band). The
+   *  parent Materials row carries the section cost/sell; sub-rows break it down
+   *  and themselves sum to the parent. Empty for non-material sections. */
+  subRows: MarginSectionRow[];
+  cost: number;
+  sell: number;
+  margin: {
+    amount: number;
+    /** `null` when sell == 0 (zero-sell honesty). Otherwise round1 percent. */
+    pct: number | null;
+  };
+  flag: MarginFlag;
+}
+
+/** Full per-section attribution + the override-aware rollup. */
+export interface QuoteMarginSections {
+  /** Materials, Labour, Provisional, then the `quote` rollup — in that order. */
+  sections: MarginSectionRow[];
+  /** Convenience alias for the rollup row (sections[last]). */
+  rollup: MarginSectionRow;
+  /**
+   * Present ONLY when the quote total is overridden. The margin RECOMPUTED so
+   * the cost stays real but the sell becomes the override subtotal ex GST — i.e.
+   * "what margin did we actually strike at the negotiated price?". Formula:
+   *   effectiveSell  = overrideSubtotalExGst − provisional − contingency
+   *                    (strip the non-margin components so the override is
+   *                     compared like-for-like against materials+labour cost)
+   *   effectiveAmount = effectiveSell − totalCost
+   *   effectivePct    = effectiveSell > 0 ? amount/effectiveSell*100 : null
+   * The COMPUTED margin (margin{} on the rollup) and this effective-under-
+   * override margin are BOTH present, per the issue.
+   */
+  effectiveMargin: {
+    sell: number;
+    amount: number;
+    pct: number | null;
+    flag: MarginFlag;
+  } | null;
+}
+
+/** Options for the attribution layer. */
+export interface QuoteMarginOptions {
+  /** Below this %, a positive-margin section/rollup flags `low`. Default
+   *  DEFAULT_LOW_MARGIN_THRESHOLD_PCT. A loss always flags `negative` first. */
+  lowMarginThresholdPct?: number;
+}
+
+/**
+ * THE #186 BOUNDARY — single source of truth.
+ *
+ * These field names carry COST or MARGIN information and MUST NEVER reach a
+ * client-/Phil-facing quote view (the client sees sell prices only, never the
+ * markup behind them). The future client-split projection (#186) imports THIS
+ * set and asserts none of its output keys intersect it. Until that projection
+ * exists, the contract is: this set is the non-empty, documented register of
+ * internal-only keys, and any new cost/margin field added to this module's
+ * output is added HERE in the same change.
+ *
+ * Frozen so a consumer cannot mutate the contract at runtime.
+ */
+export const QUOTE_MARGIN_INTERNAL_ONLY_KEYS = Object.freeze([
+  "cost",
+  "totalCost",
+  "margin",
+  "marginAmount",
+  "marginPct",
+  "effectiveMargin",
+  "flag",
+  "markupPct",
+] as const);
+
+export type QuoteMarginInternalOnlyKey = (typeof QUOTE_MARGIN_INTERNAL_ONLY_KEYS)[number];
+
+/**
+ * Classify a section's health from its UNROUNDED amount + pct.
+ *   - amount < 0            → 'negative' (loss; distinct from low, checked FIRST)
+ *   - sell == 0 (pct null)  → 'negative' if cost > 0 (a real loss), else 'ok'
+ *   - 0 ≤ pct < threshold   → 'low'
+ *   - otherwise             → 'ok'
+ */
+function classifyFlag(amount: number, pct: number | null, threshold: number): MarginFlag {
+  if (amount < 0) return "negative";
+  // pct === null means sell == 0. With amount >= 0 here, cost is also 0 (no sell,
+  // no cost) → nothing at risk → 'ok'. A >0-cost/0-sell section already has
+  // amount = -cost < 0 and was caught above as 'negative'.
+  if (pct === null) return "ok";
+  if (pct < threshold) return "low";
+  return "ok";
+}
+
+/** Build a section row from UNROUNDED cost/sell. Applies zero-sell honesty
+ *  (sell 0 → pct null, amount = sell − cost so a loss stays visible) and rounds
+ *  the displayed figures once. */
+function makeSectionRow(
+  section: MarginSectionId,
+  label: string,
+  rawCost: number,
+  rawSell: number,
+  threshold: number,
+  subRows: MarginSectionRow[] = [],
+): MarginSectionRow {
+  const rawAmount = rawSell - rawCost;
+  // Zero-sell honesty: a 0-sell section is NOT "0% healthy". pct is null (UI: —),
+  // amount stays sell − cost (= −cost when there's cost) so the loss is visible.
+  const pct = rawSell > 0 ? round1((rawAmount / rawSell) * 100) : null;
+  const flag = classifyFlag(rawAmount, pct, threshold);
+  return {
+    section,
+    label,
+    subRows,
+    cost: round2(rawCost),
+    sell: round2(rawSell),
+    margin: { amount: round2(rawAmount), pct },
+    flag,
+  };
+}
+
+/**
+ * Per-section margin attribution + flags + override effective margin.
+ *
+ * INVARIANT (asserted in tests): the MARGIN-SCOPE section costs/sells
+ * (Materials + Labour) sum to the rollup `totalCost`/`totalSell` — round2 of the
+ * summed UNROUNDED accumulators, exactly as legacy composes the rollup.
+ * Provisional is represented honestly (sell == cost == psTotal, margin 0) but is
+ * EXCLUDED from that sum because legacy excludes it from the margin numerator.
+ *
+ * The Materials category sub-rows themselves sum to the Materials parent row.
+ */
+export function computeQuoteMarginSections(
+  input: QuoteMarginInput,
+  options: QuoteMarginOptions = {},
+): QuoteMarginSections {
+  const r = rawCompute(input);
+  const threshold = options.lowMarginThresholdPct ?? DEFAULT_LOW_MARGIN_THRESHOLD_PCT;
+
+  // Materials sub-rows (per markup band) — UNROUNDED accumulators from rawCompute.
+  const materialSubRows = r.matBreakdown.map((b) =>
+    makeSectionRow("materials", b.category, b.cost, b.sell, threshold),
+  );
+  const materials = makeSectionRow("materials", "Materials", r.matCost, r.matSell, threshold, materialSubRows);
+
+  const labour = makeSectionRow("labour", "Labour", r.labCost, r.labSell, threshold);
+
+  // Provisional billed at face value — sell == cost == psTotal, margin exactly 0.
+  // It is in the quote total but NOT in the margin numerator (legacy), so it is
+  // intentionally absent from the sum-to-rollup invariant. Its margin is 0 BY
+  // CONSTRUCTION (sold at cost), which is NOT a low-margin warning — it's the
+  // intended state — so the flag is FORCED to 'ok'. Letting classifyFlag run
+  // would mark every quote-with-a-provisional-sum 'low' (0% < threshold), a
+  // false alarm. pct is 0 when psTotal > 0 (genuine sell == cost), null when 0.
+  const provisional: MarginSectionRow = {
+    ...makeSectionRow("provisional", "Provisional sums", r.psTotal, r.psTotal, threshold),
+    flag: "ok",
+  };
+
+  // Rollup = materials + labour (the legacy margin scope). Built from the SAME
+  // unrounded accumulators so round2(Σ unrounded) === legacy totalCost/totalSell.
+  const rollup = makeSectionRow("quote", "Quote total", r.totalCost, r.totalSell, threshold);
+
+  // ── Override effective margin ──
+  let effectiveMargin: QuoteMarginSections["effectiveMargin"] = null;
+  if (r.overridden) {
+    // Strip the non-margin components (provisional + contingency) from the
+    // override so it compares like-for-like against materials+labour COST. The
+    // contingency stripped is the share that WOULD have applied at the computed
+    // subtotal; we use the computed contingency amount (its dollar value doesn't
+    // change with the override — it's a derived line, not re-solved). psTotal is
+    // billed at face value either way, so it is removed too.
+    const effectiveSell = r.subtotalExGst - r.psTotal - r.contingency;
+    const effectiveAmount = effectiveSell - r.totalCost;
+    const effectivePct = effectiveSell > 0 ? round1((effectiveAmount / effectiveSell) * 100) : null;
+    effectiveMargin = {
+      sell: round2(effectiveSell),
+      amount: round2(effectiveAmount),
+      pct: effectivePct,
+      flag: classifyFlag(effectiveAmount, effectivePct, threshold),
+    };
+  }
+
+  return {
+    sections: [materials, labour, provisional, rollup],
+    rollup,
+    effectiveMargin,
+  };
+}
