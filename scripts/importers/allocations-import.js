@@ -24,11 +24,7 @@
 //
 // Contract: docs/supabase-importer-plan.md · env: docs/supabase-environment.md
 
-const {
-  buildAllocationRows,
-  canonicaliseAllocations,
-  ALLOCATION_INSERT_COLS,
-} = require('./lib/allocation-rows');
+const { buildAllocationRows, reconcileAllocations } = require('./lib/allocation-rows');
 const { getDb, closeDb } = require('../../api/_lib/supabase-db');
 
 const FETCH_CONCURRENCY = 8;
@@ -97,44 +93,9 @@ async function resolveMaps(sql) {
 
 async function reconcile(sql, tenantId, byEntry) {
   return sql.begin(async (sql) => {
-    const ids = byEntry.map((b) => b.timeEntryId);
-    const existing = ids.length
-      ? await sql`
-          select time_entry_id, job_id, hours::text as hours, notes, sort_order
-          from public.time_entry_allocations
-          where tenant_id = ${tenantId} and time_entry_id in ${sql(ids)}
-        `
-      : [];
-    const exByEntry = new Map();
-    for (const r of existing) {
-      const arr = exByEntry.get(r.time_entry_id) || [];
-      arr.push(r);
-      exByEntry.set(r.time_entry_id, arr);
-    }
-    // Replace an entry's allocations only when the stored set differs.
-    const changed = byEntry.filter(
-      (b) => canonicaliseAllocations(exByEntry.get(b.timeEntryId) || []) !== b.canonical
-    );
-
-    let allocationsInserted = 0;
-    if (changed.length) {
-      const cids = changed.map((b) => b.timeEntryId);
-      await sql`delete from public.time_entry_allocations where tenant_id = ${tenantId} and time_entry_id in ${sql(cids)}`;
-      const insertRows = changed.flatMap((b) =>
-        b.rows.map((r) => ({ tenant_id: tenantId, time_entry_id: b.timeEntryId, ...r }))
-      );
-      if (insertRows.length) {
-        await sql`insert into public.time_entry_allocations ${sql(insertRows, ...ALLOCATION_INSERT_COLS)}`;
-        allocationsInserted = insertRows.length;
-      }
-    }
+    const res = await reconcileAllocations(sql, tenantId, byEntry);
     const [c] = await sql`select count(*)::int as n from public.time_entry_allocations where tenant_id = ${tenantId}`;
-    return {
-      entriesReplaced: changed.length,
-      entriesUnchanged: byEntry.length - changed.length,
-      allocationsInserted,
-      after: c.n,
-    };
+    return { ...res, after: c.n };
   });
 }
 

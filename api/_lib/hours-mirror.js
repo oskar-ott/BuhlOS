@@ -13,15 +13,18 @@
 //   3. getDb({mode:'write'}) runs the env guard → a non-prod env can only reach
 //      the dev project; the prod project needs the explicit write opt-in.
 //
-// Mapping + upsert come from api/_lib/hours-pg (shared with the importer), so the
-// mirror and the bulk import can never diverge.
+// Mirrors the time_entry AND its time_entry_allocations (per-job split), so a
+// read-cutover that serves PG sees a faithful entry. Mapping + upsert + the
+// allocation reconcile come from api/_lib/{hours-pg,alloc-pg} (shared with the
+// importer), so the mirror and the bulk import can never diverge.
 
 // LATENCY (mirrorTimeEntry is awaited inside writeEntry): the PG work is bounded
 // by MIRROR_TIMEOUT_MS via withTimeout, so a slow/unreachable pooler delays an
 // hours save by at most that (a timeout is swallowed like any error — Blob is
-// authoritative). The flag-on cost is still ~3 sequential round-trips per save
-// (~3N for a sequential bulk-approve); to remove ALL added latency, move the
-// mirror off the request path (Vercel waitUntil / the #160 outbox) — a later rung.
+// authoritative). The flag-on cost is a handful of sequential round-trips per
+// save (resolve + a txn upserting the entry and reconciling allocations); to
+// remove ALL added latency, move the mirror off the request path (Vercel
+// waitUntil / the #160 outbox) — a later rung.
 
 // Max wall-clock the mirror may add to an hours save. getDb's connect_timeout is
 // 10s; this bounds the user-facing delay well under that. A healthy warm pooler
@@ -38,6 +41,7 @@ const {
   TOLERANCE,
   VALID_TIME_ENTRY_STATUSES,
 } = require('./hours-pg');
+const { buildAllocationRows, reconcileAllocations } = require('./alloc-pg');
 
 // Race a promise against a timeout. On timeout the underlying query is left to
 // settle on its own (best-effort), but the caller is unblocked. The timer is
@@ -85,6 +89,16 @@ async function resolveUsers(sql, tenantId, legacyIds) {
   return new Map(rows.map((r) => [r.legacy_user_id, r.id]));
 }
 
+// Resolve a set of legacy job ids → uuids (for allocation job_id). One query.
+async function resolveJobs(sql, tenantId, legacyIds) {
+  if (!legacyIds.length) return new Map();
+  const rows = await sql`
+    select id, legacy_id from public.jobs
+    where tenant_id = ${tenantId} and legacy_id in ${sql(legacyIds)} and deleted_at is null
+  `;
+  return new Map(rows.map((r) => [r.legacy_id, r.id]));
+}
+
 /**
  * Mirror one time-entry create/edit/status-change into Postgres. Best-effort —
  * NEVER throws. `deps` lets tests inject isFlagOn/getDb.
@@ -128,7 +142,36 @@ async function mirrorEntryWrite(db, userId, entry) {
     return { mirrored: false, reason: bad };
   }
 
-  await upsertTimeEntries(sql, resolved.tenantId, [row]);
+  // Resolve the entry's allocation job ids (best-effort) for the allocation mirror.
+  const jobIds = [...new Set((Array.isArray(entry.allocations) ? entry.allocations : []).map((a) => a && a.jobId).filter(Boolean))];
+  const jobMap = await resolveJobs(sql, resolved.tenantId, jobIds);
+
+  // Mirror the time_entry AND its allocations atomically: a read-cutover that
+  // serves PG must see both, or a live-created entry shows an empty per-job split.
+  await sql.begin(async (tx) => {
+    await upsertTimeEntries(tx, resolved.tenantId, [row]);
+    // Fetch the entry id (even when the upsert was a no-op) to reconcile allocations.
+    const [te] = await tx`
+      select id from public.time_entries
+      where tenant_id = ${resolved.tenantId} and user_id = ${resolved.userUuid}
+        and work_date = ${entry.date} and deleted_at is null
+    `;
+    if (!te) return;
+    const { byEntry, quarantine } = buildAllocationRows({
+      records: [{ userId, date: entry.date, entry }],
+      userMap: new Map([[userId, resolved.userUuid]]),
+      jobMap,
+      timeEntryMap: new Map([[`${resolved.userUuid}|${entry.date}`, te.id]]),
+    });
+    if (quarantine.length) {
+      // The time_entry is mirrored; its allocation breakdown is malformed (bad
+      // sum / unresolved job) → skip just the allocations (best-effort; the drift
+      // alarm catches it) rather than failing the whole mirror.
+      console.warn(`[hours-mirror] allocations not mirrored (entry still mirrored): ${quarantine[0].reason}`);
+      return;
+    }
+    await reconcileAllocations(tx, resolved.tenantId, byEntry);
+  });
   return { mirrored: true };
 }
 
