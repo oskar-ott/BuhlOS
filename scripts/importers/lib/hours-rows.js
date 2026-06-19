@@ -41,6 +41,8 @@ function strOrNull(v) {
 function timeOrNull(v) {
   return typeof v === 'string' && /^\d{2}:\d{2}(:\d{2})?$/.test(v) ? v : null;
 }
+// break_minutes is an integer column; a fractional break is truncated (breaks
+// are integer minutes in practice and break isn't part of the parity totals).
 function nonNegIntOrNull(v) {
   return Number.isFinite(v) && v >= 0 ? Math.trunc(v) : null;
 }
@@ -63,6 +65,10 @@ function buildTimeEntryRows({ records = [], userMap = new Map(), nowIso = '1970-
   const quarantine = [];
   // (user_id, work_date) is the upsert key; guard against two blobs colliding.
   const seenKey = new Set();
+  // legacy_id has its OWN partial unique index (time_entries_legacy_uq) that the
+  // (user,date) ON CONFLICT does not arbitrate, so dedup it too — a repeated id
+  // quarantines cleanly instead of aborting the whole INSERT with a raw error.
+  const seenLegacyId = new Set();
 
   for (const rec of records) {
     const userId = rec && rec.userId;
@@ -80,12 +86,16 @@ function buildTimeEntryRows({ records = [], userMap = new Map(), nowIso = '1970-
     const dupKey = `${user_id}|${date}`;
     if (seenKey.has(dupKey)) { q('duplicate user+date'); continue; }
 
-    const total = Number(e.totalHours);
-    const ordinary = Number(e.ordinaryHours);
-    const overtime = Number(e.overtimeHours);
+    // Round to 2dp FIRST, then validate the rounded triple, so the values we
+    // check are byte-identical to the numeric(4,2) values we store — a passing
+    // validation then guarantees the schema CHECKs pass (independent rounding
+    // of total/ordinary/overtime can otherwise drift past the 0.011 bound).
+    const total = round2(e.totalHours);
+    const ordinary = round2(e.ordinaryHours);
+    const overtime = round2(e.overtimeHours);
     if (!(total > 0) || total > MAX_HOURS_PER_DAY) { q(`total hours ${e.totalHours} out of (0, ${MAX_HOURS_PER_DAY}]`); continue; }
     if (!(ordinary >= 0) || !(overtime >= 0)) { q('ordinary/overtime must be >= 0'); continue; }
-    if (Math.abs(ordinary + overtime - total) >= TOLERANCE) { q('ordinary + overtime != total'); continue; }
+    if (Math.abs(ordinary + overtime - total) >= TOLERANCE) { q('ordinary + overtime != total (at 2dp)'); continue; }
 
     const status = e.status || 'draft';
     if (!VALID_STATUSES.includes(status)) { q(`invalid status "${status}"`); continue; }
@@ -93,17 +103,21 @@ function buildTimeEntryRows({ records = [], userMap = new Map(), nowIso = '1970-
     const notes = strOrNull(e.notes);
     if (notes && notes.length > MAX_NOTES) { q(`notes exceeds ${MAX_NOTES} chars`); continue; }
 
+    const legacy_id = strOrNull(e.id);
+    if (legacy_id && seenLegacyId.has(legacy_id)) { q(`duplicate legacy_id "${legacy_id}"`); continue; }
+
     seenKey.add(dupKey);
+    if (legacy_id) seenLegacyId.add(legacy_id);
     rows.push({
       user_id,
-      legacy_id: strOrNull(e.id),
+      legacy_id,
       work_date: date,
       start_time: timeOrNull(e.startTime),
       end_time: timeOrNull(e.endTime),
       break_minutes: nonNegIntOrNull(e.breakMinutes),
-      total_hours: round2(total),
-      ordinary_hours: round2(ordinary),
-      overtime_hours: round2(overtime),
+      total_hours: total,
+      ordinary_hours: ordinary,
+      overtime_hours: overtime,
       ot_overridden: e.otOverridden === true,
       notes,
       status,

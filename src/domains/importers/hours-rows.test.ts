@@ -127,6 +127,31 @@ describe("buildTimeEntryRows", () => {
     expect(rows[0]!.break_minutes).toBeNull();
   });
 
+  it("quarantines a duplicate legacy_id across different (user,date) — guards time_entries_legacy_uq", () => {
+    const { rows, quarantine } = buildTimeEntryRows({
+      records: [
+        rec(goodEntry({ id: "dup" }), { date: "2026-06-01" }),
+        rec(goodEntry({ id: "dup" }), { date: "2026-06-02" }),
+      ],
+      userMap: MAP,
+      nowIso: NOW,
+    });
+    expect(rows).toHaveLength(1);
+    expect(quarantine).toEqual([expect.objectContaining({ reason: expect.stringContaining("duplicate legacy_id") })]);
+  });
+
+  it("validates the ROUNDED triple, so a non-2dp split that would drift past the CHECK is quarantined", () => {
+    // raw 5.8858 + 2.7459 = 8.6317 vs total 8.6243 → diff 0.0074 (< 0.011, raw-passes)
+    // rounded 5.89 + 2.75 = 8.64 vs 8.62 → diff 0.02 (>= 0.011) → must quarantine
+    const { rows, quarantine } = buildTimeEntryRows({
+      records: [rec(goodEntry({ totalHours: 8.6243, ordinaryHours: 5.8858, overtimeHours: 2.7459 }))],
+      userMap: MAP,
+      nowIso: NOW,
+    });
+    expect(rows).toHaveLength(0);
+    expect(quarantine[0]!.reason).toMatch(/!= total/);
+  });
+
   it("keeps the insert column lists in lock-step with the mapped keys", () => {
     const { rows } = buildTimeEntryRows({ records: [rec(goodEntry())], userMap: MAP, nowIso: NOW });
     expect(new Set(TIME_ENTRY_INSERT_COLS)).toEqual(new Set(["tenant_id", ...Object.keys(rows[0]!)]));

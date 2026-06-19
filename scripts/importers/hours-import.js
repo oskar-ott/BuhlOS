@@ -17,7 +17,9 @@
 //     SUPABASE_ALLOW_PRODUCTION_WRITES="true". Dry-run uses mode:'read'.
 //   * Idempotent: upsert on (tenant_id, user_id, work_date) WHERE deleted_at is
 //     null, DO UPDATE guarded by IS DISTINCT FROM → unchanged re-run writes
-//     nothing (no revision/updated_at churn).
+//     nothing (no revision/updated_at churn). Caveat: time_entries_legacy_uq has
+//     no deleted_at filter, so a re-import is NOT idempotent across a soft-delete
+//     of the same row — that case fails closed with a clear error (see below).
 //   * Transactional: all rows in ONE transaction; any failure rolls back.
 //   * Quarantine, never guess: missing user ref / bad date / bad totals /
 //     unknown status quarantine the record and abort before any write (exit 1).
@@ -120,20 +122,38 @@ async function resolveTenantAndUsers(sql) {
 }
 
 async function writeEntries(sql, tenantId, rows) {
-  return sql.begin(async (sql) => {
-    const rowsT = rows.map((r) => ({ ...r, tenant_id: tenantId }));
-    const ret = rowsT.length
-      ? await sql`
-          insert into public.time_entries ${sql(rowsT, ...TIME_ENTRY_INSERT_COLS)}
-          on conflict (tenant_id, user_id, work_date) where deleted_at is null
-          do update set ${setExcluded(sql, TIME_ENTRY_MUTABLE_COLS)}
-          where ${distinctFromExcluded(sql, 'time_entries', TIME_ENTRY_MUTABLE_COLS)}
-          returning (xmax = 0) as inserted
-        `
-      : [];
-    const [c] = await sql`select count(*)::int as n from public.time_entries where deleted_at is null`;
-    return { time_entries: tally(ret, rowsT.length), after: c.n };
-  });
+  try {
+    return await sql.begin(async (sql) => {
+      const rowsT = rows.map((r) => ({ ...r, tenant_id: tenantId }));
+      const ret = rowsT.length
+        ? await sql`
+            insert into public.time_entries ${sql(rowsT, ...TIME_ENTRY_INSERT_COLS)}
+            on conflict (tenant_id, user_id, work_date) where deleted_at is null
+            do update set ${setExcluded(sql, TIME_ENTRY_MUTABLE_COLS)}
+            where ${distinctFromExcluded(sql, 'time_entries', TIME_ENTRY_MUTABLE_COLS)}
+            returning (xmax = 0) as inserted
+          `
+        : [];
+      const [c] = await sql`select count(*)::int as n from public.time_entries where deleted_at is null`;
+      return { time_entries: tally(ret, rowsT.length), after: c.n };
+    });
+  } catch (err) {
+    // The (user,date) ON CONFLICT does not arbitrate the separate
+    // time_entries_legacy_uq (which has no deleted_at filter). A legacy_id
+    // collision the builder couldn't pre-dedup — most reachably a soft-deleted
+    // row still holding its legacy_id on re-import — surfaces here. Re-throw
+    // with context instead of a bare driver message; the whole tx rolled back,
+    // so no rows were written.
+    if (err && err.code === '23505') {
+      const where = err.constraint_name ? ` (constraint ${err.constraint_name})` : '';
+      throw new Error(
+        `[hours-import] unique violation${where}${err.detail ? ': ' + err.detail : ''} — ` +
+          'no rows written (transaction rolled back). A soft-deleted time_entries row may still hold ' +
+          'this legacy_id (time_entries_legacy_uq has no deleted_at filter); hard-purge it before re-import.'
+      );
+    }
+    throw err;
+  }
 }
 
 async function main() {
