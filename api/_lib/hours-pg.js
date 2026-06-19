@@ -41,11 +41,18 @@ function tsOrDefault(v, fallbackIso) {
  * upsert adds it). Hours are rounded to 2dp here so the value validated by the
  * importer is byte-identical to the value stored. Does NOT validate — the
  * caller (importer or mirror) is responsible for rejecting bad rows.
+ *
+ * Attribution (approved_by ← approvedBy, created_by ← enteredByUserId) are
+ * legacy user ids resolved to user_profiles uuids via ctx.resolveUser (legacy
+ * id → uuid | null). Best-effort: an unresolved attribution id maps to NULL
+ * (the entry itself is still valid). rejected_by / updated_by stay NULL — the
+ * blob carries no source for them.
  * @param {object} entry the parsed users/<id>/time-entries/<date>.json object
- * @param {{ userUuid: string, date: string, nowIso: string }} ctx
+ * @param {{ userUuid: string, date: string, nowIso: string, resolveUser?: (legacyId: string) => (string|null) }} ctx
  */
 function timeEntryRowFromBlob(entry, ctx) {
   const e = entry || {};
+  const resolveUser = ctx.resolveUser || (() => null);
   return {
     user_id: ctx.userUuid,
     legacy_id: strOrNull(e.id),
@@ -61,8 +68,10 @@ function timeEntryRowFromBlob(entry, ctx) {
     status: e.status || 'draft',
     submitted_at: tsOrNull(e.submittedAt),
     approved_at: tsOrNull(e.approvedAt),
+    approved_by: e.approvedBy ? resolveUser(e.approvedBy) : null,
     rejected_at: tsOrNull(e.rejectedAt),
     rejected_reason: strOrNull(e.rejectedReason),
+    created_by: e.enteredByUserId ? resolveUser(e.enteredByUserId) : null,
     source: strOrNull(e.source),
     created_at: tsOrDefault(e.createdAt, ctx.nowIso),
   };
@@ -71,11 +80,13 @@ function timeEntryRowFromBlob(entry, ctx) {
 // Mutable columns the upsert overwrites on conflict — everything except the
 // conflict key (tenant_id, user_id, work_date) and the insert-only columns
 // (legacy_id, created_at). The SET and the IS DISTINCT FROM idempotency guard
-// stay in lock-step by both deriving from this list.
+// stay in lock-step by both deriving from this list. approved_by/created_by are
+// mutable (not insert-only) so they BACKFILL onto rows imported before
+// attribution existed and stay in sync with the blob.
 const TIME_ENTRY_MUTABLE_COLS = [
   'start_time', 'end_time', 'break_minutes', 'total_hours', 'ordinary_hours',
   'overtime_hours', 'ot_overridden', 'notes', 'status', 'submitted_at',
-  'approved_at', 'rejected_at', 'rejected_reason', 'source',
+  'approved_at', 'approved_by', 'rejected_at', 'rejected_reason', 'created_by', 'source',
 ];
 const TIME_ENTRY_INSERT_COLS = [
   'tenant_id', 'user_id', 'legacy_id', 'work_date', ...TIME_ENTRY_MUTABLE_COLS, 'created_at',

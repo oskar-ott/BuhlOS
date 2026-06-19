@@ -72,8 +72,14 @@ function buildTimeEntryRows({ records = [], userMap = new Map(), nowIso = '1970-
 
     // Build the row via the shared mapper, then validate the ROW's stored
     // (2dp-rounded) values, so a passing validation is byte-identical to what
-    // is written and therefore guarantees the schema CHECKs pass.
-    const row = timeEntryRowFromBlob(e, { userUuid: user_id, date, nowIso });
+    // is written and therefore guarantees the schema CHECKs pass. resolveUser
+    // maps the attribution legacy ids (approvedBy/enteredByUserId) to uuids.
+    const row = timeEntryRowFromBlob(e, {
+      userUuid: user_id,
+      date,
+      nowIso,
+      resolveUser: (legacyId) => userMap.get(legacyId) || null,
+    });
     if (!(row.total_hours > 0) || row.total_hours > MAX_HOURS_PER_DAY) { q(`total hours ${e.totalHours} out of (0, ${MAX_HOURS_PER_DAY}]`); continue; }
     if (!(row.ordinary_hours >= 0) || !(row.overtime_hours >= 0)) { q('ordinary/overtime must be >= 0'); continue; }
     if (Math.abs(row.ordinary_hours + row.overtime_hours - row.total_hours) >= TOLERANCE) { q('ordinary + overtime != total (at 2dp)'); continue; }
