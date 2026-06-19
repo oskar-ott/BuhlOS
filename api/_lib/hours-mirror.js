@@ -16,13 +16,17 @@
 // Mapping + upsert come from api/_lib/hours-pg (shared with the importer), so the
 // mirror and the bulk import can never diverge.
 
-// ROLLOUT CAVEAT (inert today, flag dark + prod unwired): mirrorTimeEntry is
-// awaited inside writeEntry, so once the flag is flipped ON against a live
-// project each save pays the mirror's tenant+user SELECTs + upsert (≈3 round
-// trips; ≈3N for a sequential bulk-approve), and a slow/unreachable pooler can
-// delay the response by up to getDb's connect_timeout. Before enabling the flag
-// in any latency-sensitive env, add a short mirror timeout and/or move the
-// mirror off the request path (e.g. Vercel waitUntil / the #160 outbox).
+// LATENCY (mirrorTimeEntry is awaited inside writeEntry): the PG work is bounded
+// by MIRROR_TIMEOUT_MS via withTimeout, so a slow/unreachable pooler delays an
+// hours save by at most that (a timeout is swallowed like any error — Blob is
+// authoritative). The flag-on cost is still ~3 sequential round-trips per save
+// (~3N for a sequential bulk-approve); to remove ALL added latency, move the
+// mirror off the request path (Vercel waitUntil / the #160 outbox) — a later rung.
+
+// Max wall-clock the mirror may add to an hours save. getDb's connect_timeout is
+// 10s; this bounds the user-facing delay well under that. A healthy warm pooler
+// returns in well under a second.
+const MIRROR_TIMEOUT_MS = 5000;
 
 const { isFlagOn } = require('./feature-flags');
 const { getDb } = require('./supabase-db');
@@ -34,6 +38,18 @@ const {
   TOLERANCE,
   VALID_TIME_ENTRY_STATUSES,
 } = require('./hours-pg');
+
+// Race a promise against a timeout. On timeout the underlying query is left to
+// settle on its own (best-effort), but the caller is unblocked. The timer is
+// unref'd + cleared so it never keeps the process alive.
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    if (timer && typeof timer.unref === 'function') timer.unref();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 // Belt-and-braces: the API already validated via validateEntryShape, but never
 // hand the upsert a row that would trip a schema CHECK (it would throw and be
@@ -71,29 +87,32 @@ async function mirrorTimeEntry(userId, entry, deps = {}) {
     // Cheap prod short-circuit BEFORE the flag's blob read: prod has no SUPABASE_DB_URL.
     if (!process.env.SUPABASE_DB_URL) return { mirrored: false, reason: 'no supabase env' };
     if (!(await flagOn('supabase_dual_write'))) return { mirrored: false, reason: 'flag off' };
-
-    const sql = db({ mode: 'write' }); // env guard runs here; fail-closed
-    const resolved = await resolveTenantAndUser(sql, userId);
-    if (!resolved) return { mirrored: false, reason: 'tenant/user not mirrored' };
-
-    const row = timeEntryRowFromBlob(entry, {
-      userUuid: resolved.userUuid,
-      date: entry.date,
-      nowIso: new Date().toISOString(),
-    });
-    const bad = malformedReason(row);
-    if (bad) {
-      // Log so the skip is visible — the only other drift signal is the parity script.
-      console.warn(`[hours-mirror] skipping malformed entry (Blob authoritative, drift alarm will catch): ${bad}`);
-      return { mirrored: false, reason: bad };
-    }
-
-    await upsertTimeEntries(sql, resolved.tenantId, [row]);
-    return { mirrored: true };
+    return await withTimeout(mirrorEntryWrite(db, userId, entry), deps.timeoutMs || MIRROR_TIMEOUT_MS, 'mirrorTimeEntry');
   } catch (err) {
     console.error('[hours-mirror] best-effort PG mirror failed (Blob is authoritative):', err && err.message);
     return { mirrored: false, reason: 'error', error: err && err.message };
   }
+}
+
+async function mirrorEntryWrite(db, userId, entry) {
+  const sql = db({ mode: 'write' }); // env guard runs here; fail-closed
+  const resolved = await resolveTenantAndUser(sql, userId);
+  if (!resolved) return { mirrored: false, reason: 'tenant/user not mirrored' };
+
+  const row = timeEntryRowFromBlob(entry, {
+    userUuid: resolved.userUuid,
+    date: entry.date,
+    nowIso: new Date().toISOString(),
+  });
+  const bad = malformedReason(row);
+  if (bad) {
+    // Log so the skip is visible — the only other drift signal is the parity script.
+    console.warn(`[hours-mirror] skipping malformed entry (Blob authoritative, drift alarm will catch): ${bad}`);
+    return { mirrored: false, reason: bad };
+  }
+
+  await upsertTimeEntries(sql, resolved.tenantId, [row]);
+  return { mirrored: true };
 }
 
 /**
@@ -106,21 +125,24 @@ async function mirrorTimeEntryDelete(userId, date, deps = {}) {
     if (!date) return { mirrored: false, reason: 'no date' };
     if (!process.env.SUPABASE_DB_URL) return { mirrored: false, reason: 'no supabase env' };
     if (!(await flagOn('supabase_dual_write'))) return { mirrored: false, reason: 'flag off' };
-
-    const sql = db({ mode: 'write' });
-    const resolved = await resolveTenantAndUser(sql, userId);
-    if (!resolved) return { mirrored: false, reason: 'tenant/user not mirrored' };
-
-    await sql`
-      update public.time_entries set deleted_at = now()
-      where tenant_id = ${resolved.tenantId} and user_id = ${resolved.userUuid}
-        and work_date = ${date} and deleted_at is null
-    `;
-    return { mirrored: true };
+    return await withTimeout(mirrorDeleteWrite(db, userId, date), deps.timeoutMs || MIRROR_TIMEOUT_MS, 'mirrorTimeEntryDelete');
   } catch (err) {
     console.error('[hours-mirror] best-effort PG delete-mirror failed (Blob is authoritative):', err && err.message);
     return { mirrored: false, reason: 'error', error: err && err.message };
   }
 }
 
-module.exports = { mirrorTimeEntry, mirrorTimeEntryDelete, malformedReason };
+async function mirrorDeleteWrite(db, userId, date) {
+  const sql = db({ mode: 'write' });
+  const resolved = await resolveTenantAndUser(sql, userId);
+  if (!resolved) return { mirrored: false, reason: 'tenant/user not mirrored' };
+
+  await sql`
+    update public.time_entries set deleted_at = now()
+    where tenant_id = ${resolved.tenantId} and user_id = ${resolved.userUuid}
+      and work_date = ${date} and deleted_at is null
+  `;
+  return { mirrored: true };
+}
+
+module.exports = { mirrorTimeEntry, mirrorTimeEntryDelete, malformedReason, withTimeout };
