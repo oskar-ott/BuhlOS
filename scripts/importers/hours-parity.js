@@ -159,7 +159,13 @@ function printReport(report, meta) {
   console.log(
     `matched ${s.matchedCount} · only-in-Blob ${s.onlyInBlobCount} · only-in-Postgres ${s.onlyInPgCount} · mismatched ${s.mismatchedCount}`
   );
-  console.log(`drift: ${s.driftHours}h (positive = Postgres behind)`);
+  // inSync means no per-entry / missing / unresolved drift. A nonzero aggregate
+  // alongside inSync can only be sub-tolerance rounding summed across matched
+  // entries (it never happens with real 2dp data) — say so rather than print a
+  // bare contradiction.
+  const driftNote =
+    s.inSync && s.driftHours !== 0 ? ' — sub-tolerance rounding only, no per-entry drift' : '';
+  console.log(`drift: ${s.driftHours}h (positive = Postgres behind)${driftNote}`);
   if (s.duplicateBlobKeys || s.duplicatePgKeys) {
     console.log(`duplicate keys: Blob ${s.duplicateBlobKeys}, Postgres ${s.duplicatePgKeys}`);
   }
