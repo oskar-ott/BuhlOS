@@ -1,3 +1,4 @@
+import { evaluateAgainstCriteria } from "@/domains/test-records/criteria";
 import type {
   ITPInstance,
   ITPInstanceResult,
@@ -120,18 +121,10 @@ export function valuePassFail(
 ): ValuePassFail {
   if (point.type !== "value") return null;
   if (!result) return null;
-  if (
-    (point.min == null || point.min === undefined) &&
-    (point.max == null || point.max === undefined)
-  ) {
-    return null;
-  }
-  const raw = result.value;
-  const n = typeof raw === "number" ? raw : Number(raw);
-  if (!Number.isFinite(n)) return null;
-  if (point.min != null && n < point.min) return "fail";
-  if (point.max != null && n > point.max) return "fail";
-  return "pass";
+  // Delegate to the ONE shared numeric rule (#517) — same bounds/numeric logic
+  // ITP has always used, now unified with test records so there is no second
+  // pass/fail engine to drift.
+  return evaluateAgainstCriteria(result.value, point.min, point.max);
 }
 
 export function valuePassFailLabel(

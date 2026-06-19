@@ -25,6 +25,7 @@ const COMPILED: ProofStatusResult = {
   neededCount: 1,
   metCount: 1,
   evidenceLinkCount: 1,
+  danglingRefs: [],
   workPackages: [
     {
       id: "wp_1",
@@ -145,5 +146,21 @@ describe("CompiledProofStatus", () => {
   it("handles a compiled artifact with no required proof items", () => {
     const html = render({ ...COMPILED, requiredProofTotal: 0, neededCount: 0, metCount: 0, workPackages: [] });
     expect(html).toContain("no required proof items are present");
+  });
+
+  it("shows no dangling-proof warning when every reference resolves (#513)", () => {
+    const html = render(COMPILED);
+    expect(html).not.toContain("Proof that no longer resolves");
+  });
+
+  it("warns when a met link references proof that no longer exists (#513)", () => {
+    const html = render({
+      ...COMPILED,
+      danglingRefs: [
+        { entity: "evidenceLink", id: "el_1", field: "evidenceId", value: "ev_ghost" },
+      ],
+    });
+    expect(html).toContain("Proof that no longer resolves");
+    expect(html).toContain("ev_ghost");
   });
 });

@@ -227,11 +227,60 @@ describe("runProofStatus (deps orchestration)", () => {
 });
 
 describe("blobProofStatusDeps", () => {
-  it("exposes a read-only loader", () => {
+  it("exposes read-only loaders only (artifact + known proof ids)", () => {
     const deps = blobProofStatusDeps();
     expect(typeof deps.loadArtifact).toBe("function");
+    expect(typeof deps.loadKnownProofIds).toBe("function");
     // there is no writer on the deps surface — this reader never writes
-    expect(Object.keys(deps)).toEqual(["loadArtifact"]);
+    expect(Object.keys(deps).sort()).toEqual(["loadArtifact", "loadKnownProofIds"]);
     expect(vi.isMockFunction(deps.loadArtifact)).toBe(false);
+  });
+});
+
+describe("dangling-ref audit (#513)", () => {
+  const KNOWN_ALL = { evidenceIds: new Set(["ev_123", "ev_999"]), observationIds: new Set<string>() };
+  const KNOWN_MISSING_999 = { evidenceIds: new Set(["ev_123"]), observationIds: new Set<string>() };
+
+  it("compiled WITHOUT a known-id set → danglingRefs is empty (no check run)", () => {
+    const r = shapeProofStatus({ status: "ok", value: artifact() }, "job_1");
+    if (r.ok !== true || r.status !== "compiled") throw new Error("compiled");
+    expect(r.danglingRefs).toEqual([]);
+  });
+
+  it("every proof id resolves → danglingRefs empty", () => {
+    const r = shapeProofStatus({ status: "ok", value: artifact() }, "job_1", KNOWN_ALL);
+    if (r.ok !== true || r.status !== "compiled") throw new Error("compiled");
+    expect(r.danglingRefs).toEqual([]);
+  });
+
+  it("a link names an evidence id that no longer exists → surfaced as dangling", () => {
+    const r = shapeProofStatus({ status: "ok", value: artifact() }, "job_1", KNOWN_MISSING_999);
+    if (r.ok !== true || r.status !== "compiled") throw new Error("compiled");
+    expect(r.danglingRefs).toEqual([
+      { entity: "evidenceLink", id: "el_3", field: "evidenceId", value: "ev_999" },
+    ]);
+  });
+
+  it("runProofStatus wires loadKnownProofIds → dangling surfaced end-to-end", async () => {
+    const deps: ProofStatusDeps = {
+      loadArtifact: async () => ({ status: "ok", value: artifact() }),
+      loadKnownProofIds: async () => KNOWN_MISSING_999,
+    };
+    const r = await runProofStatus(deps, "job_1");
+    if (r.ok !== true || r.status !== "compiled") throw new Error("compiled");
+    expect(r.danglingRefs.map((d) => d.value)).toEqual(["ev_999"]);
+  });
+
+  it("a failing loadKnownProofIds never breaks the status read (best-effort, no check)", async () => {
+    const deps: ProofStatusDeps = {
+      loadArtifact: async () => ({ status: "ok", value: artifact() }),
+      loadKnownProofIds: async () => {
+        throw new Error("blob down");
+      },
+    };
+    const r = await runProofStatus(deps, "job_1");
+    expect(r.ok).toBe(true);
+    if (r.ok !== true || r.status !== "compiled") throw new Error("compiled");
+    expect(r.danglingRefs).toEqual([]);
   });
 });

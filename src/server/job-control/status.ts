@@ -1,10 +1,12 @@
 import { isRequiredEvidenceMet } from "@/domains/job-control/task-context";
+import { findDanglingRefs, type DanglingRef } from "@/domains/job-control/spine";
 import {
   PersistedJobControlSchema,
   jobControlKey,
   jobControlRevisionOf,
   type PersistedJobControl,
 } from "./compile-producer";
+import { loadJobProofIds, type KnownProofIds } from "./evidence-link";
 import { readJsonBlob } from "./blob";
 
 /**
@@ -76,6 +78,13 @@ export type ProofStatusResult =
       metCount: number;
       evidenceLinkCount: number;
       workPackages: ProofWorkPackageView[];
+      /**
+       * Trusted-proof audit (#513): references in the compiled artifact that
+       * point at nothing — most importantly an evidence/observation id a "met"
+       * link names that no longer exists on the job. Empty when every reference
+       * resolves, or when the caller supplied no known-id set to check against.
+       */
+      danglingRefs: DanglingRef[];
     }
   /** The read itself failed (Blob error) — distinct from a missing artifact. */
   | { ok: false; error: string };
@@ -87,14 +96,29 @@ export type LoadArtifactResult =
 
 export interface ProofStatusDeps {
   loadArtifact(jobId: string): Promise<LoadArtifactResult>;
+  /**
+   * OPTIONAL (#513): the real proof ids on the job, for dangling-ref detection.
+   * When provided, the compiled result lists any link whose evidence/observation
+   * id no longer resolves. Omitted → `danglingRefs` stays empty (no check).
+   */
+  loadKnownProofIds?(jobId: string): Promise<KnownProofIds>;
 }
 
 /**
  * Pure: shape a loaded artifact into the admin proof-status view. Derives
  * needed/met per requirement via the shared predicate and attaches the matching
  * evidence links. Explicit field allowlist — no raw artifact passthrough.
+ *
+ * When `known` (the job's real proof ids) is supplied, the compiled result also
+ * lists dangling references (#513) via the shared `findDanglingRefs` — a "met"
+ * link pointing at a non-existent evidence/observation id is surfaced, never
+ * silently trusted.
  */
-export function shapeProofStatus(load: LoadArtifactResult, jobId: string): ProofStatusResult {
+export function shapeProofStatus(
+  load: LoadArtifactResult,
+  jobId: string,
+  known?: KnownProofIds,
+): ProofStatusResult {
   if (load.status === "absent") return { ok: true, jobId, status: "missing" };
   if (load.status === "unreadable") return { ok: true, jobId, status: "unreadable" };
 
@@ -135,6 +159,13 @@ export function shapeProofStatus(load: LoadArtifactResult, jobId: string): Proof
   const metCount = allReqs.filter((r) => r.status === "met").length;
   const meta = a.compileMeta;
 
+  // Dangling-ref audit (#513): only when the caller supplied the job's real
+  // proof ids. PersistedJobControl is a JobControlSpine (compile-producer
+  // extends the spine schema), so it passes straight into findDanglingRefs.
+  const danglingRefs: DanglingRef[] = known
+    ? findDanglingRefs(a, { evidenceIds: known.evidenceIds, observationIds: known.observationIds })
+    : [];
+
   return {
     ok: true,
     jobId,
@@ -153,6 +184,7 @@ export function shapeProofStatus(load: LoadArtifactResult, jobId: string): Proof
     metCount,
     evidenceLinkCount: links.length,
     workPackages,
+    danglingRefs,
   };
 }
 
@@ -168,7 +200,17 @@ export async function runProofStatus(
   } catch {
     return { ok: false, error: "Could not read job-control status." };
   }
-  return shapeProofStatus(load, jobId);
+  // Best-effort: load the job's real proof ids for the dangling-ref audit (#513).
+  // A failure here must NOT fail the whole status read — fall back to no check.
+  let known: KnownProofIds | undefined;
+  if (deps.loadKnownProofIds) {
+    try {
+      known = await deps.loadKnownProofIds(jobId);
+    } catch {
+      known = undefined;
+    }
+  }
+  return shapeProofStatus(load, jobId, known);
 }
 
 /** Production deps: read `jobs/<jobId>/job-control.json` (read-only). Missing →
@@ -181,5 +223,8 @@ export function blobProofStatusDeps(): ProofStatusDeps {
       const parsed = PersistedJobControlSchema.safeParse(raw);
       return parsed.success ? { status: "ok", value: parsed.data } : { status: "unreadable" };
     },
+    // #513: the same evidence + observation id reader the writer uses, so the
+    // office audit checks dangling refs against the very stores Phil captures to.
+    loadKnownProofIds: (jobId) => loadJobProofIds(jobId),
   };
 }

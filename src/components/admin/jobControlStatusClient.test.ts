@@ -21,6 +21,7 @@ function compiled(over: Partial<Extract<ProofStatusResult, { status: "compiled" 
     metCount: 2,
     evidenceLinkCount: 2,
     workPackages: [],
+    danglingRefs: [],
     ...over,
   };
 }

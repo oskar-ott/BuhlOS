@@ -63,6 +63,27 @@ export function CompiledProofStatus({ status }: { status: ProofStatusResult }) {
         </ul>
       </Card>
 
+      {status.danglingRefs.length > 0 ? (
+        <Card role="alert">
+          <CardTitle className="text-base text-state-warning">
+            Proof that no longer resolves
+          </CardTitle>
+          <CardDescription className="mt-1">
+            {status.danglingRefs.length} compiled reference
+            {status.danglingRefs.length === 1 ? "" : "s"} point at a record that
+            isn&apos;t on this job. A requirement should only read Met when its proof
+            is real — re-check these before relying on them.
+          </CardDescription>
+          <ul className="mt-3 space-y-1 text-sm text-text-muted">
+            {status.danglingRefs.map((ref, i) => (
+              <li key={i}>
+                {ref.entity} {ref.id} · {ref.field} → {ref.value || "(empty)"}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
       {status.requiredProofTotal === 0 ? (
         <Card>
           <CardDescription>
