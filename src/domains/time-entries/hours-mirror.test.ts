@@ -11,10 +11,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const requireFromHere = createRequire(import.meta.url);
 const mirrorPath = requireFromHere.resolve("../../../api/_lib/hours-mirror.js");
-const { mirrorTimeEntry, mirrorTimeEntryDelete, malformedReason } = requireFromHere(mirrorPath) as {
+const { mirrorTimeEntry, mirrorTimeEntryDelete, malformedReason, withTimeout } = requireFromHere(mirrorPath) as {
   mirrorTimeEntry: (userId: string, entry: unknown, deps?: object) => Promise<{ mirrored: boolean; reason?: string }>;
   mirrorTimeEntryDelete: (userId: string, date: string, deps?: object) => Promise<{ mirrored: boolean; reason?: string }>;
   malformedReason: (row: Record<string, unknown>) => string;
+  withTimeout: <T>(promise: Promise<T>, ms: number, label: string) => Promise<T>;
 };
 
 const ENTRY = { id: "e1", date: "2026-06-01", totalHours: 8, ordinaryHours: 8, overtimeHours: 0, status: "approved" };
@@ -57,6 +58,15 @@ describe("mirrorTimeEntry — gating + best-effort", () => {
     const res = await mirrorTimeEntry("u1", ENTRY, { isFlagOn: async () => true, getDb: () => { throw new Error("boom"); } });
     expect(res.mirrored).toBe(false);
     expect(res.reason).toBe("error");
+  });
+});
+
+describe("withTimeout — bounds the mirror's PG work so it can't delay an hours save", () => {
+  it("rejects when the work exceeds the timeout", async () => {
+    await expect(withTimeout(new Promise(() => {}), 20, "mirror")).rejects.toThrow(/timed out/);
+  });
+  it("resolves with the value when the work finishes in time", async () => {
+    await expect(withTimeout(Promise.resolve("ok"), 1000, "mirror")).resolves.toBe("ok");
   });
 });
 
