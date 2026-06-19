@@ -1,14 +1,17 @@
-# Supabase importers (dry-run scaffolds)
+# Supabase importers
 
-Operator-run scripts that plan the Blob → Supabase Postgres import.
+Operator-run scripts for the Blob → Supabase Postgres import.
 Contract and domain order: [docs/supabase-importer-plan.md](../../docs/supabase-importer-plan.md).
 Environment rules: [docs/supabase-environment.md](../../docs/supabase-environment.md).
 
-**Current state: read-only.** Nothing here writes — not to Supabase and not to
-Vercel Blob. The dry-run planners are pure; `hours-parity.js` *reads* Postgres
-(via `getDb({ mode: 'read' })`, behind the env guard) to compare it against
-Blob. The `--write` importer path is still a scaffold: it must pass the env
-guard in write mode and even then throws `WRITE_NOT_IMPLEMENTED`.
+**State:** the dry-run planners are pure; `hours-parity.js` *reads* Postgres to
+compare against Blob; **`structure-import.js` is the first real writer** (the
+FK-root slice — tenant/users/jobs — guarded, idempotent, transactional). Every
+script is dev-targeted by default and never wired to a route/deploy/cron.
+Writes only ever happen behind `getDb({ mode: 'write' })` and the env guard, so
+the production project is only reachable with the explicit
+`SUPABASE_ALLOW_PRODUCTION_WRITES` opt-in. The old `*-dry-run.js --write` path
+remains a planner-only scaffold that throws `WRITE_NOT_IMPLEMENTED`.
 
 ## structure-dry-run.js
 
@@ -36,6 +39,34 @@ warnings, and a summary. **Exit 0 = clean; exit 1 = hard validation errors.**
 
 Never wired to API routes, deploys or cron. Tests:
 `src/domains/importers/structure-import-plan.test.ts`.
+
+## structure-import.js
+
+The first real **writer** — the FK-root slice the hours importer depends on:
+`tenants` (one, minted by `slug`) → `user_profiles` → `jobs`.
+
+```sh
+# dry-run (no writes): proposed vs current counts. needs the dev SUPABASE_* env
+node scripts/importers/structure-import.js
+# apply to the target (dev), in one transaction
+node scripts/importers/structure-import.js --write
+node scripts/importers/structure-import.js --write --json
+```
+
+Idempotent upserts on the legacy unique keys (`tenants.slug`,
+`user_profiles(tenant_id,legacy_user_id)`, `jobs(tenant_id,legacy_id)`), each
+`DO UPDATE` guarded by `IS DISTINCT FROM` so an unchanged re-run writes nothing
+(0 inserted, 0 updated — no `revision`/`updated_at` churn). tenant+users+jobs
+commit in **one transaction**. An unknown role/status or duplicate legacy id
+**quarantines the record and aborts before any write** (exit 1) — never guessed.
+Field mapping verified against the live blob (`type`→`job_type_label`,
+`serviceM8JobId`→`external_ref`, …). A transient Supavisor `CONNECTION_CLOSED`
+can occur on connect — the import is transactional (no partial writes) and
+idempotent, so just re-run. **Deferred to their own slices:**
+`site_area_groups`/`site_areas`/`job_members`; `tasks` (must bind to the
+canonical task index, never minted blind); `jobs.client_user_id`/`created_by`/
+`modules` (cross-table/jsonb). Pure row builder: `lib/structure-rows.js`. Tests:
+`src/domains/importers/structure-rows.test.ts`.
 
 ## hours-dry-run.js
 
