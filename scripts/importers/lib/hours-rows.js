@@ -16,9 +16,9 @@
 //     story of its own; and the parity check compares time_entries totals, not
 //     allocations, so this slice flips parity without it.
 //   * payroll_runs — sourced from payroll-runs.json, independent.
-//   * the user-FK attribution columns approved_by / rejected_by / created_by /
-//     updated_by — left NULL (nullable); they'd need the same legacy→uuid
-//     resolution and are not part of the parity comparison.
+// Attribution approved_by ← approvedBy and created_by ← enteredByUserId ARE now
+// populated (resolved legacy→uuid via the shared mapper). rejected_by /
+// updated_by stay NULL — the blob carries no source for them.
 //
 // Validation mirrors production (api/_lib/time-entries.js + the schema CHECKs),
 // reusing the dry-run planner's validators — unknown status, non-positive or
