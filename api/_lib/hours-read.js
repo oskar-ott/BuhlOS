@@ -12,12 +12,10 @@
 //
 // FLIP PREREQUISITES (do NOT enable supabase_read_hours in an env until ALL hold):
 //   1. parity IN SYNC for that env (scripts/importers/hours-parity.js) — note it
-//      compares time_entries TOTALS, not allocations.
-//   2. ALLOCATIONS ARE MIRRORED. The live dual-write (api/_lib/hours-mirror) writes
-//      time_entries but NOT time_entry_allocations — only the operator importer
-//      does. Until the mirror writes allocations, an entry created/edited after
-//      the dual-write flag went on has NO allocations in PG, so this read would
-//      show an empty per-job split. (Own follow-up slice.)
+//      compares time_entries TOTALS, not allocations, so spot-check allocations.
+//   2. Allocations are mirrored: the live dual-write (api/_lib/hours-mirror) now
+//      writes time_entry_allocations alongside the time_entry, so a live-created
+//      entry has its per-job split in PG. (Closed.)
 //   3. updatedAt here reflects the last PG sync, not the Blob's last edit
 //      (trigger-managed; best-effort metadata).
 //
