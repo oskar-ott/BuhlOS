@@ -153,6 +153,7 @@ function printSection(title, rows, cap = 25) {
 function printReport(report, meta) {
   const s = report.summary;
   console.log('\nHours Blob↔Postgres parity (read-only — nothing was written)');
+  console.log('(compares daily time_entries totals/status only — per-job allocations are not yet mirrored)');
   console.log(`Blob entries:     ${s.blobCount}  (total ${s.blobTotalHours}h)`);
   console.log(`Postgres entries: ${s.pgCount}  (total ${s.pgTotalHours}h)`);
   if (meta && meta.unreadable) console.log(`Unreadable Blob entries skipped: ${meta.unreadable}`);

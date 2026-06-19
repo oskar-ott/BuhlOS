@@ -93,6 +93,29 @@ allocation-sum≠total, non-Monday week-start, reopen/approval inconsistencies).
 `WRITE_NOT_IMPLEMENTED`. Tests: `src/domains/importers/hours-import-plan.test.ts`.
 Findings: [docs/supabase-hours-dry-run-report.md](../../docs/supabase-hours-dry-run-report.md).
 
+## hours-import.js
+
+Writes `public.time_entries` from the Blob day-files — the slice that flips
+`hours-parity.js` to **IN SYNC**. Run **after** `structure-import.js` (it
+resolves each blob user id to its minted `user_profiles` uuid).
+
+```sh
+node scripts/importers/hours-import.js            # dry-run (proposed vs current)
+node scripts/importers/hours-import.js --write     # apply to the target (dev)
+node scripts/importers/hours-import.js --json
+```
+
+Same posture as `structure-import.js`: guarded (`getDb({mode:'write'})` → env
+guard; prod needs the explicit opt-in), one transaction, idempotent upsert on
+`(tenant_id, user_id, work_date) WHERE deleted_at is null` with an
+`IS DISTINCT FROM` guard (unchanged re-run writes nothing). Validators reused
+from the dry-run planner — a missing user ref, bad date, non-positive/over-16h
+total, ordinary+overtime≠total, unknown status, or over-length notes
+**quarantines the entry and aborts before any write**. **Deferred to own
+slices:** `time_entry_allocations` (no per-row legacy key) and `payroll_runs`;
+the `approved_by`/`created_by` attribution columns (left NULL). Pure row
+builder: `lib/hours-rows.js`. Tests: `src/domains/importers/hours-rows.test.ts`.
+
 ## hours-parity.js
 
 The **read-only hours proving slice** and the dual-write's future drift alarm
