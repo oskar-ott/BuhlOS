@@ -50,6 +50,7 @@ export function PhilTaskScopeContext({
   context,
   jobId,
   onCaptureProof,
+  onFlagVariation,
   proofActionState,
   canCaptureProof = false,
 }: {
@@ -61,6 +62,12 @@ export function PhilTaskScopeContext({
   /** Capture proof for a specific unmet requirement. When omitted, no capture
    *  affordance renders (read-only context, today's behavior). */
   onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskRef?: TaskRef }) => void;
+  /** Start a variation flag for a "stop — flag a variation first" warning. When
+   *  omitted, the danger notice renders text-only (today's behavior — the notice
+   *  tells the worker to flag one, with no button). When wired, a "Flag a
+   *  variation" action appears under the notice and opens the EXISTING variation
+   *  capture flow (parent-wired) — additive, never a dead button. */
+  onFlagVariation?: (trigger: { warningId: string; taskRef?: TaskRef }) => void;
   /** Per-requirement (requiredEvidenceId → status) action feedback. */
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   /** Whether a capture+link can run now (a job-control revision is available).
@@ -97,6 +104,13 @@ export function PhilTaskScopeContext({
         {variationTriggers.map((w) => (
           <PhilNotice key={w.id} tone="danger" title="Stop — flag a variation first" role="alert">
             <p>{w.text}</p>
+            {/* The notice's own words tell the worker to flag a variation; when
+                the parent wires the action, give them the button that does it
+                (opens the existing variation capture flow). Absent ⇒ text only,
+                exactly as today — additive, never a dead button. */}
+            {onFlagVariation ? (
+              <FlagVariationAction onFlag={() => onFlagVariation({ warningId: w.id })} />
+            ) : null}
           </PhilNotice>
         ))}
         {byOthers.map((w) => (
@@ -224,6 +238,26 @@ function ProofAction({ status, onCapture }: { status?: ProofActionStatus; onCapt
       {status && status !== "saving" ? (
         <span className="mt-1 block text-xs text-state-warning">{proofStatusMessage(status)}</span>
       ) : null}
+    </span>
+  );
+}
+
+/** The "flag a variation" affordance under a variation-trigger warning. A pill
+ *  button (≥44px touch target) that hands off to the EXISTING variation capture
+ *  flow (parent-wired) — this component authors no variation form and invents no
+ *  estimate fields (P7). Mirrors ProofAction's styling so the two read as one
+ *  family. */
+function FlagVariationAction({ onFlag }: { onFlag: () => void }) {
+  return (
+    <span className="mt-2 block">
+      <button
+        type="button"
+        onClick={onFlag}
+        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-pill border border-state-danger/40 bg-surface px-3.5 py-1 font-display text-xs font-semibold text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+      >
+        <AlertTriangle aria-hidden="true" className="h-4 w-4 shrink-0 text-state-danger" />
+        Flag a variation
+      </button>
     </span>
   );
 }

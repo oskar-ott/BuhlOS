@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { PhilTaskScopeContext } from "./PhilTaskScopeContext";
 import type { PhilTaskContext } from "@/domains/job-control/task-context";
+import type { TaskRef } from "@/domains/job-control/types";
 
 /**
  * The component renders ONLY from a PhilTaskContext the model already built —
@@ -37,6 +38,15 @@ function renderWithProof(
 function renderWithJob(context: PhilTaskContext, jobId?: string): string {
   return renderToString(
     createElement(PhilTaskScopeContext, { context, jobId }),
+  ).replace(/<!-- -->/g, "");
+}
+
+function renderWithVariation(
+  context: PhilTaskContext,
+  onFlagVariation?: (t: { warningId: string; taskRef?: TaskRef }) => void,
+): string {
+  return renderToString(
+    createElement(PhilTaskScopeContext, { context, onFlagVariation }),
   ).replace(/<!-- -->/g, "");
 }
 
@@ -216,5 +226,39 @@ describe("PhilTaskScopeContext", () => {
     expect(html).toContain("Referenced drawing / spec");
     expect(html).not.toContain("doc_raw_id_123");
     expect(html).toContain('href="/phil/jobs/job-7/plans"');
+  });
+
+  it("renders NO 'Flag a variation' action without a handler (today's text-only notice)", () => {
+    // The danger notice still appears, but with no button.
+    const html = render(FULL);
+    expect(html).toContain("Stop — flag a variation first");
+    expect(html).not.toContain("Flag a variation");
+    expect(html).not.toContain("<button");
+  });
+
+  it("renders a 'Flag a variation' action under the danger notice when onFlagVariation is wired", () => {
+    const html = renderWithVariation(FULL, () => {});
+    // The stop notice's title is untouched; the action is the new, distinct text.
+    expect(html).toContain("Stop — flag a variation first");
+    expect(html).toContain("Flag a variation");
+    expect(html).toContain("<button");
+    // One variation trigger in FULL → exactly one flag action.
+    expect((html.match(/Flag a variation/g) ?? []).length).toBe(1);
+  });
+
+  it("renders one 'Flag a variation' action per variation-trigger warning only", () => {
+    // Two variation triggers + a by_others warning → exactly two flag actions
+    // (by_others never gets one).
+    const twoTriggers: PhilTaskContext = {
+      ...FULL,
+      warnings: [
+        { id: "w1", kind: "variation_trigger", text: "PL3 pendants — confirm", scopeClauseId: null },
+        { id: "w3", kind: "variation_trigger", text: "Extra GPO run — confirm", scopeClauseId: null },
+        { id: "w2", kind: "by_others", text: "A/V by others", scopeClauseId: null },
+      ],
+    };
+    const html = renderWithVariation(twoTriggers, () => {});
+    expect((html.match(/Flag a variation/g) ?? []).length).toBe(2);
+    expect(html).toContain("By others");
   });
 });

@@ -92,6 +92,10 @@ interface Props {
   /** Capture proof for a specific unmet requirement on a task. The parent fills
    *  the area/stage coordinate; the row adds `taskId`. Omitted ⇒ no affordance. */
   onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string; taskRef?: TaskRef }) => void;
+  /** Flag a variation from a task's "stop — flag a variation first" warning
+   *  (#368). The row supplies the task coordinate (`taskRef`) when `areaId` is
+   *  known. Omitted ⇒ the warning stays text-only (today's behavior). */
+  onFlagVariation?: (trigger: { warningId: string; taskRef?: TaskRef }) => void;
   /** Per-requirement (requiredEvidenceId → status) capture/link feedback. */
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   /** Whether a capture+link can run now (a job-control revision is available). */
@@ -156,6 +160,7 @@ export function PhilJobAreaDetail({
   taskContextById,
   readinessByTaskId,
   onCaptureProof,
+  onFlagVariation,
   proofActionState,
   canCaptureProof,
   areaId,
@@ -269,6 +274,15 @@ export function PhilJobAreaDetail({
                       : undefined
                   }
                   onCaptureProof={onCaptureProof}
+                  onFlagVariation={
+                    onFlagVariation
+                      ? (trigger) =>
+                          onFlagVariation({
+                            ...trigger,
+                            ...(tref ? { taskRef: tref } : {}),
+                          })
+                      : undefined
+                  }
                   proofActionState={proofActionState}
                   canCaptureProof={canCaptureProof}
                   review={review}
@@ -377,6 +391,7 @@ function TaskRow({
   context,
   readiness,
   onCaptureProof,
+  onFlagVariation,
   proofActionState,
   canCaptureProof,
   review,
@@ -391,6 +406,7 @@ function TaskRow({
   context?: PhilTaskContext;
   readiness?: PhilTaskReadiness;
   onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string; taskRef?: TaskRef }) => void;
+  onFlagVariation?: (trigger: { warningId: string; taskRef?: TaskRef }) => void;
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   canCaptureProof?: boolean;
   review?: ProofReview | null;
@@ -533,6 +549,7 @@ function TaskRow({
               ? (t) => onCaptureProof({ ...t, taskId: task.id })
               : undefined
           }
+          onFlagVariation={onFlagVariation}
           proofActionState={proofActionState}
           canCaptureProof={canCaptureProof}
         />
