@@ -39,6 +39,10 @@ describe("summariseHoursSync", () => {
     expect(summariseHoursSync({ wired: false, check: null })).toEqual({ state: "not_wired" });
   });
 
+  it("wired-but-query-failed → error (not 'not_wired')", () => {
+    expect(summariseHoursSync({ wired: false, check: null, error: "boom" })).toEqual({ state: "error", error: "boom" });
+  });
+
   it("wired but no recorded check → none", () => {
     expect(summariseHoursSync({ wired: true, check: null })).toEqual({ state: "none" });
   });

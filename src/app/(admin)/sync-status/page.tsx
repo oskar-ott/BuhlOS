@@ -42,6 +42,15 @@ export default async function SyncStatusPage() {
         </Card>
       )}
 
+      {summary.state === "error" && (
+        <Card className="border-amber-200 bg-amber-50" role="status" data-testid="hours-sync-status">
+          <CardTitle className="text-amber-900">Couldn&rsquo;t read sync status</CardTitle>
+          <CardDescription className="text-amber-900">
+            Supabase is wired but the read failed: <span className="font-mono text-xs">{summary.error}</span>
+          </CardDescription>
+        </Card>
+      )}
+
       {summary.state === "none" && (
         <Card className="border-slate-200 bg-slate-50" role="status" data-testid="hours-sync-status">
           <CardTitle className="text-slate-700">No sync check recorded yet</CardTitle>

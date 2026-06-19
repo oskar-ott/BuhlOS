@@ -42,6 +42,7 @@ export async function loadHoursSyncStatus(): Promise<HoursSyncStatus> {
              details, duration_ms
       from public.sync_checks
       where domain = 'hours'
+        and tenant_id = (select id from public.tenants where slug = 'buhl')
       order by checked_at desc
       limit 1
     `;
@@ -53,6 +54,7 @@ export async function loadHoursSyncStatus(): Promise<HoursSyncStatus> {
 
 export type HoursSyncSummary =
   | { state: "not_wired" }
+  | { state: "error"; error: string }
   | { state: "none" }
   | {
       state: "pass" | "fail";
@@ -71,7 +73,9 @@ export type HoursSyncSummary =
 
 /** Pure view model for the status card. */
 export function summariseHoursSync(status: HoursSyncStatus): HoursSyncSummary {
-  if (!status.wired) return { state: "not_wired" };
+  // A query error (Supabase IS wired but the read failed) is distinct from
+  // "not wired" — don't tell an operator it's unwired when it isn't.
+  if (!status.wired) return status.error ? { state: "error", error: status.error } : { state: "not_wired" };
   if (!status.check) return { state: "none" };
   const c = status.check;
   return {
