@@ -45,6 +45,16 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Hours read-cutover (#152 rung 3): when on, the hours DISPLAY read
+  // (listUserEntries) is served from Postgres with a Blob fallback. Dark until a
+  // domain's PG data is proven IN SYNC; flip per-environment. readEntry (the
+  // write path) deliberately stays on Blob.
+  supabase_read_hours: {
+    description: 'Serve the hours display read (listUserEntries) from Postgres with a Blob fallback (#152).',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // The role-targeting exemplar + ops aid: a small "active flags" readout
   // on the command centre, visible only to the admin tier when enabled.
   admin_flags_readout: {

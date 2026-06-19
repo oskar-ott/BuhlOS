@@ -70,6 +70,7 @@ function timeEntryRowFromBlob(entry, ctx) {
     approved_at: tsOrNull(e.approvedAt),
     approved_by: e.approvedBy ? resolveUser(e.approvedBy) : null,
     rejected_at: tsOrNull(e.rejectedAt),
+    rejected_by: e.rejectedBy ? resolveUser(e.rejectedBy) : null,
     rejected_reason: strOrNull(e.rejectedReason),
     created_by: e.enteredByUserId ? resolveUser(e.enteredByUserId) : null,
     source: strOrNull(e.source),
@@ -86,7 +87,7 @@ function timeEntryRowFromBlob(entry, ctx) {
 const TIME_ENTRY_MUTABLE_COLS = [
   'start_time', 'end_time', 'break_minutes', 'total_hours', 'ordinary_hours',
   'overtime_hours', 'ot_overridden', 'notes', 'status', 'submitted_at',
-  'approved_at', 'approved_by', 'rejected_at', 'rejected_reason', 'created_by', 'source',
+  'approved_at', 'approved_by', 'rejected_at', 'rejected_by', 'rejected_reason', 'created_by', 'source',
 ];
 const TIME_ENTRY_INSERT_COLS = [
   'tenant_id', 'user_id', 'legacy_id', 'work_date', ...TIME_ENTRY_MUTABLE_COLS, 'created_at',
