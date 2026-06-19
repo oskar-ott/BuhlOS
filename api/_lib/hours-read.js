@@ -110,7 +110,8 @@ async function queryUserEntries(sql, tenantId, userId, { fromDate, toDate, statu
     left join public.user_profiles ap on ap.tenant_id = te.tenant_id and ap.id = te.approved_by
     left join public.user_profiles rb on rb.tenant_id = te.tenant_id and rb.id = te.rejected_by
     left join public.user_profiles cb on cb.tenant_id = te.tenant_id and cb.id = te.created_by
-    where te.tenant_id = ${tenantId} and uu.legacy_user_id = ${userId} and te.deleted_at is null
+    where te.tenant_id = ${tenantId} and te.deleted_at is null
+      and (${userId}::text is null or uu.legacy_user_id = ${userId})
       and (${f}::date is null or te.work_date >= ${f}::date)
       and (${t}::date is null or te.work_date <= ${t}::date)
       and (${s}::text is null or te.status = ${s}::text)
@@ -143,4 +144,11 @@ async function listUserEntriesFromPgIfEnabled(userId, opts = {}, deps = {}) {
   }
 }
 
-module.exports = { blobEntryFromPgRow, listUserEntriesFromPgIfEnabled };
+// All non-deleted hours for the tenant, reconstructed to Blob shape via the
+// SAME query/reconstruction the read-cutover serves — so the drift-check
+// validates exactly what listUserEntries would return. Used by the sync-check.
+async function loadAllHoursFromPg(sql, tenantId) {
+  return queryUserEntries(sql, tenantId, null, {});
+}
+
+module.exports = { blobEntryFromPgRow, listUserEntriesFromPgIfEnabled, loadAllHoursFromPg };
