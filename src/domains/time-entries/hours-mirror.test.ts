@@ -59,6 +59,15 @@ describe("mirrorTimeEntry — gating + best-effort", () => {
     expect(res.mirrored).toBe(false);
     expect(res.reason).toBe("error");
   });
+
+  it("swallows a timeout when the inner DB work hangs (never delays the save past the bound)", async () => {
+    setEnv(true);
+    // getDb returns an sql tag whose first query never resolves → the race times out.
+    const getDb = () => () => new Promise(() => {});
+    const res = await mirrorTimeEntry("u1", ENTRY, { isFlagOn: async () => true, getDb, timeoutMs: 20 });
+    expect(res.mirrored).toBe(false);
+    expect(res.reason).toBe("error");
+  });
 });
 
 describe("withTimeout — bounds the mirror's PG work so it can't delay an hours save", () => {

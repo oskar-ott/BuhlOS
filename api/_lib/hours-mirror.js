@@ -87,7 +87,7 @@ async function mirrorTimeEntry(userId, entry, deps = {}) {
     // Cheap prod short-circuit BEFORE the flag's blob read: prod has no SUPABASE_DB_URL.
     if (!process.env.SUPABASE_DB_URL) return { mirrored: false, reason: 'no supabase env' };
     if (!(await flagOn('supabase_dual_write'))) return { mirrored: false, reason: 'flag off' };
-    return await withTimeout(mirrorEntryWrite(db, userId, entry), MIRROR_TIMEOUT_MS, 'mirrorTimeEntry');
+    return await withTimeout(mirrorEntryWrite(db, userId, entry), deps.timeoutMs || MIRROR_TIMEOUT_MS, 'mirrorTimeEntry');
   } catch (err) {
     console.error('[hours-mirror] best-effort PG mirror failed (Blob is authoritative):', err && err.message);
     return { mirrored: false, reason: 'error', error: err && err.message };
@@ -125,7 +125,7 @@ async function mirrorTimeEntryDelete(userId, date, deps = {}) {
     if (!date) return { mirrored: false, reason: 'no date' };
     if (!process.env.SUPABASE_DB_URL) return { mirrored: false, reason: 'no supabase env' };
     if (!(await flagOn('supabase_dual_write'))) return { mirrored: false, reason: 'flag off' };
-    return await withTimeout(mirrorDeleteWrite(db, userId, date), MIRROR_TIMEOUT_MS, 'mirrorTimeEntryDelete');
+    return await withTimeout(mirrorDeleteWrite(db, userId, date), deps.timeoutMs || MIRROR_TIMEOUT_MS, 'mirrorTimeEntryDelete');
   } catch (err) {
     console.error('[hours-mirror] best-effort PG delete-mirror failed (Blob is authoritative):', err && err.message);
     return { mirrored: false, reason: 'error', error: err && err.message };
