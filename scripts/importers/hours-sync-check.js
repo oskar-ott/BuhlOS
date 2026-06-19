@@ -7,19 +7,16 @@
 //
 // Compares EVERY hours entry AND its per-job allocations across Blob and
 // Postgres, producing PASS/FAIL with counts, totals, content hashes and the
-// specific drifts. Manual runner now; a Vercel cron can call this path later.
-// READ-ONLY against the data (Blob list/fetch + a PG read); --write only INSERTs
-// an append-only audit row into public.sync_checks. Operator-run, no route/cron.
+// specific drifts. This is the MANUAL operator runner; the SAME check runs on a
+// schedule via GET /api/internal/sync-checks/hours (Vercel cron). Both share the
+// core in api/_lib/hours-sync — READ-ONLY against the data; --write only INSERTs
+// an append-only audit row into public.sync_checks. Never repairs data.
 //
-// The PG side is reconstructed by the SAME code the read-cutover serves
-// (api/_lib/hours-read), so this validates exactly what listUserEntries returns.
+// Unlike the cron, this runner is NOT gated on the dual_write flag — an operator
+// may check at any time (e.g. straight after a manual import).
 
-const { buildHoursSyncReport, normaliseEntry } = require('./lib/hours-sync-report');
-const { loadAllHoursFromPg } = require('../../api/_lib/hours-read');
+const { runHoursSyncCheck } = require('../../api/_lib/hours-sync');
 const { getDb, closeDb } = require('../../api/_lib/supabase-db');
-
-const FETCH_CONCURRENCY = 8;
-const ENTRY_KEY_RE = /^users\/([^/]+)\/time-entries\/(\d{4}-\d{2}-\d{2})\.json$/;
 
 function parseArgs(argv) {
   const args = { write: false, json: false, help: false };
@@ -32,55 +29,6 @@ function parseArgs(argv) {
   return args;
 }
 
-async function loadBlob() {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) throw new Error('BLOB_READ_WRITE_TOKEN is not set');
-  const { list } = require('@vercel/blob');
-  const dayBlobs = [];
-  let cursor;
-  do {
-    const res = await list({ prefix: 'users/', token, limit: 1000, cursor });
-    for (const b of res.blobs || []) {
-      const m = ENTRY_KEY_RE.exec(b.pathname);
-      if (m) dayBlobs.push({ userId: m[1], date: m[2], url: b.url });
-    }
-    cursor = res.cursor;
-  } while (cursor);
-
-  const entries = [];
-  for (let i = 0; i < dayBlobs.length; i += FETCH_CONCURRENCY) {
-    const chunk = dayBlobs.slice(i, i + FETCH_CONCURRENCY);
-    const fetched = await Promise.all(
-      chunk.map(async (b) => {
-        try {
-          const r = await fetch(b.url + '?t=' + Date.now(), { cache: 'no-store' });
-          if (!r.ok) return null;
-          return await r.json();
-        } catch { return null; }
-      })
-    );
-    chunk.forEach((b, idx) => {
-      const e = fetched[idx];
-      if (e && typeof e === 'object') entries.push(normaliseEntry(b.userId, b.date, e));
-    });
-  }
-  return entries;
-}
-
-async function recordCheck(sql, tenantId, report, durationMs) {
-  await sql`
-    insert into public.sync_checks
-      (tenant_id, domain, status, blob_count, pg_count, blob_total, pg_total,
-       allocations_checked, matched, only_in_blob, only_in_pg, mismatched,
-       blob_hash, pg_hash, details, duration_ms)
-    values
-      (${tenantId}, 'hours', ${report.status}, ${report.blobCount}, ${report.pgCount},
-       ${report.blobTotal}, ${report.pgTotal}, ${report.allocationsChecked}, ${report.matched},
-       ${report.onlyInBlobCount}, ${report.onlyInPgCount}, ${report.mismatchedCount},
-       ${report.blobHash}, ${report.pgHash}, ${sql.json(report.details)}, ${durationMs})
-  `;
-}
-
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
@@ -88,22 +36,10 @@ async function main() {
     return;
   }
 
-  const startedAt = Date.now();
   let report;
   try {
     const sql = getDb({ mode: args.write ? 'write' : 'read' });
-    const tenant = await sql`select id from public.tenants where slug = 'buhl'`;
-    if (!tenant.length) throw new Error('no tenant (slug "buhl") — run structure-import.js --write first');
-    const tenantId = tenant[0].id;
-    const [blobEntries, pgRaw] = [await loadBlob(), await loadAllHoursFromPg(sql, tenantId)];
-    const pgEntries = pgRaw.map((e) => normaliseEntry(e.userId, e.date, e));
-    report = buildHoursSyncReport({ blobEntries, pgEntries });
-    const durationMs = Date.now() - startedAt;
-    report.durationMs = durationMs;
-    if (args.write) {
-      await recordCheck(sql, tenantId, report, durationMs);
-      report.recorded = true;
-    }
+    report = await runHoursSyncCheck(sql, { record: args.write });
   } finally {
     await closeDb();
   }
