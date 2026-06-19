@@ -246,7 +246,10 @@ async function restoreDocument({ date, pathname, apply = false, now = new Date()
   }
 
   const parsed = JSON.parse(backupText); // restores must be valid JSON — fail loudly otherwise
-  await writeBlob(pathname, parsed);
+  // A restore is a deliberate operator action and a pre-restore safety copy was
+  // just taken above — allowShrink so restoring an OLDER, smaller snapshot (fewer
+  // records) is not rejected by the shrink guard exactly when you need recovery (#512).
+  await writeBlob(pathname, parsed, { allowShrink: true });
   return { applied: true, diff };
 }
 

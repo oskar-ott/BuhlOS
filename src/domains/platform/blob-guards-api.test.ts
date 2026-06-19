@@ -211,6 +211,54 @@ describe("shrinkage guard", () => {
   });
 });
 
+describe("writeGuardErrorResponse — clean operator error, not a 500 (#512)", () => {
+  it("maps a real shrink_rejected error to a 409 carrying before/after", async () => {
+    const { writeGuardErrorResponse } = requireFromHere(guardsPath);
+    seed("users.json", { users: manyUsers(20), __rev: 1 });
+    let mapped: { status: number; body: Record<string, unknown> } | null = null;
+    try {
+      await blobLib.writeBlob("users.json", { users: manyUsers(10) });
+    } catch (e) {
+      mapped = writeGuardErrorResponse(e);
+    }
+    expect(mapped).toEqual({
+      status: 409,
+      body: { error: expect.stringContaining("suspicious shrink"), code: "shrink_rejected", before: 20, after: 10 },
+    });
+  });
+
+  it("maps a real invalid_write to a 400", async () => {
+    const { writeGuardErrorResponse } = requireFromHere(guardsPath);
+    let mapped: { status: number; body: Record<string, unknown> } | null = null;
+    try {
+      await blobLib.writeBlob("users.json", { users: [{ name: "no id" }] });
+    } catch (e) {
+      mapped = writeGuardErrorResponse(e);
+    }
+    expect(mapped?.status).toBe(400);
+    expect(mapped?.body.code).toBe("invalid_write");
+  });
+
+  it("maps a real stale_write to a 409", async () => {
+    const { writeGuardErrorResponse } = requireFromHere(guardsPath);
+    seed("users.json", { users: manyUsers(12), __rev: 5 });
+    let mapped: { status: number; body: Record<string, unknown> } | null = null;
+    try {
+      await blobLib.writeBlob("users.json", { users: manyUsers(12) }, { expectedRev: 4 });
+    } catch (e) {
+      mapped = writeGuardErrorResponse(e);
+    }
+    expect(mapped?.status).toBe(409);
+    expect(mapped?.body.code).toBe("stale_write");
+  });
+
+  it("returns null for a non-guard error so the caller rethrows", () => {
+    const { writeGuardErrorResponse } = requireFromHere(guardsPath);
+    expect(writeGuardErrorResponse(new Error("boom"))).toBeNull();
+    expect(writeGuardErrorResponse(null)).toBeNull();
+  });
+});
+
 describe("stale-write rejection", () => {
   it("rejects when expectedRev is behind the store, reporting currentRev", async () => {
     seed("users.json", { users: manyUsers(2), __rev: 6 });

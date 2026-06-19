@@ -208,6 +208,33 @@ function applyGuards(key, data, current, opts = {}) {
   return stamped;
 }
 
+/**
+ * Map a thrown write-guard error to a clean operator-facing HTTP shape (#512), so
+ * a tripped guard is a clear 4xx with the typed `code` and the relevant numbers —
+ * not a generic 500 the operator can't interpret. Returns null for anything that
+ * is NOT a guard rejection, so the caller rethrows (never swallows real errors).
+ *   - shrink_rejected → 409 (a suspicious bulk removal; surface before/after so
+ *     the operator can confirm it was intentional and retry with allowShrink)
+ *   - stale_write     → 409 (re-read and retry)
+ *   - invalid_write   → 400 (the document was shape-invalid)
+ */
+function writeGuardErrorResponse(err) {
+  if (!err || typeof err.code !== 'string') return null;
+  switch (err.code) {
+    case 'shrink_rejected':
+      return {
+        status: 409,
+        body: { error: err.message, code: err.code, before: err.before, after: err.after },
+      };
+    case 'stale_write':
+      return { status: 409, body: { error: 'conflict', code: err.code, currentRev: err.currentRev } };
+    case 'invalid_write':
+      return { status: 400, body: { error: err.message, code: err.code } };
+    default:
+      return null;
+  }
+}
+
 /** Best-effort audit of a rejection. Lazy require — see header. */
 function auditRejection(key, err, actor) {
   try {
@@ -238,6 +265,7 @@ function auditRejection(key, err, actor) {
 module.exports = {
   applyGuards,
   auditRejection,
+  writeGuardErrorResponse,
   guardFor,
   InvalidWriteError,
   ShrinkWriteError,
