@@ -3,6 +3,7 @@ import {
   ProofReviewRequestSchema,
   applyProofReview,
   writeProofReview,
+  writeProofReviewAuthorized,
   type ProofReviewDeps,
 } from "./proof-review";
 import {
@@ -234,5 +235,66 @@ describe("writeProofReview — revision guard + I/O", () => {
     if (res.ok) throw new Error("unreachable");
     expect(res.reason).toBe("incomplete");
     expect(deps.saved).toHaveLength(0);
+  });
+});
+
+describe("writeProofReviewAuthorized — authoritative admin gate (#544 auth-bypass fix)", () => {
+  const APPROVE_INPUT = {
+    jobId: "job_1",
+    request: { action: "approve" as const, taskRef: T1, reason: null },
+    expectedRevision: "rev_x",
+    at: AT,
+    actor: "u_admin",
+  };
+  function depsTracking() {
+    let loadCalled = false;
+    const deps: ProofReviewDeps = {
+      loadRaw: async () => {
+        loadCalled = true;
+        return null;
+      },
+      save: async () => {},
+      mintId: () => "pr_x",
+    };
+    return { deps, loadCalled: () => loadCalled };
+  }
+
+  it("rejects a forged/unsigned cookie (verify → null) with 401 and never reaches the writer", async () => {
+    const { deps, loadCalled } = depsTracking();
+    const res = await writeProofReviewAuthorized(
+      deps,
+      { cookieHeader: "buhl_session=forged.badsig", baseUrl: "https://x", verify: async () => null },
+      APPROVE_INPUT,
+    );
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.status).toBe(401);
+    expect(loadCalled()).toBe(false); // gate blocked before any I/O — the bug was reaching here on a forged cookie
+  });
+
+  it("rejects a verified NON-admin with 403", async () => {
+    const { deps, loadCalled } = depsTracking();
+    const res = await writeProofReviewAuthorized(
+      deps,
+      { cookieHeader: "c", baseUrl: "https://x", verify: async () => ({ role: "electrician" }) },
+      APPROVE_INPUT,
+    );
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.status).toBe(403);
+    expect(loadCalled()).toBe(false);
+  });
+
+  it("a VERIFIED admin passes the gate and delegates to writeProofReview", async () => {
+    const { deps, loadCalled } = depsTracking(); // loadRaw → null → writer returns 404 missing
+    const res = await writeProofReviewAuthorized(
+      deps,
+      { cookieHeader: "c", baseUrl: "https://x", verify: async () => ({ role: "admin" }) },
+      APPROVE_INPUT,
+    );
+    expect(loadCalled()).toBe(true); // reached the writer
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.status).toBe(404); // writer ran; artifact missing in this stub
   });
 });

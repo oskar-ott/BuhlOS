@@ -11,6 +11,7 @@ import {
   jobControlRevisionOf,
   type PersistedJobControl,
 } from "./compile-producer";
+import { authorizeAdminViaVerify, type VerifiedSession } from "./reconciliation-producer";
 import { readJsonBlob, writeJsonBlob } from "./blob";
 
 /**
@@ -203,6 +204,47 @@ export async function writeProofReview(
 
   await deps.save(input.jobId, applied.artifact);
   return { ok: true, status: 200, review: applied.review, revision: jobControlRevisionOf(applied.artifact) };
+}
+
+export type WriteProofReviewAuthorizedResult =
+  | WriteProofReviewResult
+  | { ok: false; status: 401 | 403; error: string };
+
+/**
+ * Approve/reject behind the AUTHORITATIVE admin gate. ADR: a real mutation must
+ * use the HMAC-verified check (`verify` = `verifyViaApi` → /api/auth?action=me),
+ * NEVER the unverified `decodeSessionCookie` — exactly like
+ * `confirmReconciliationAuthorized` and the compile/reconciliation confirm
+ * routes. A forged / unsigned / expired cookie makes `verify` return null → 401
+ * and NEVER reaches `writeProofReview`, so a fabricated `{role:"admin"}` cookie
+ * can no longer sign off a task's required proof (the independence control held
+ * inside `applyProofReview` was moot if the gate itself was forgeable).
+ *
+ * `submit` (a field write) does NOT pass through here — the route gates it via
+ * the Phil surface + the HMAC-verified job-assignment proxy (`/api/jobs`).
+ *
+ * `input.actor` (the acting admin's stable id, used for the independence rule)
+ * is supplied by the caller from the SAME cookie — trustworthy precisely because
+ * this gate has just HMAC-verified that cookie.
+ */
+export async function writeProofReviewAuthorized(
+  deps: ProofReviewDeps,
+  auth: {
+    cookieHeader: string;
+    baseUrl: string;
+    verify: (cookieHeader: string, baseUrl: string) => Promise<VerifiedSession | null>;
+  },
+  input: {
+    jobId: string;
+    request: ProofReviewRequest;
+    expectedRevision: string;
+    at: string;
+    actor: string | null;
+  },
+): Promise<WriteProofReviewAuthorizedResult> {
+  const gate = await authorizeAdminViaVerify(auth);
+  if (!gate.ok) return gate;
+  return writeProofReview(deps, input);
 }
 
 // ── Real deps (Vercel Blob) ─────────────────────────────────────────────────────
