@@ -116,6 +116,26 @@ slices:** `time_entry_allocations` (no per-row legacy key) and `payroll_runs`;
 the `approved_by`/`created_by` attribution columns (left NULL). Pure row
 builder: `lib/hours-rows.js`. Tests: `src/domains/importers/hours-rows.test.ts`.
 
+## allocations-import.js
+
+Writes `public.time_entry_allocations` — the per-job hours breakdown of each
+entry (`jobId null` = "Internal — no job"). Run **after** `hours-import.js`
+(allocations are children of `time_entries`, resolved from `(user, work_date)`).
+
+```sh
+node scripts/importers/allocations-import.js            # dry-run
+node scripts/importers/allocations-import.js --write     # apply to the target
+```
+
+Allocations have **no per-row legacy key**, so they can't be upserted row-by-row.
+Instead they're reconciled **per parent entry**: a stable `canonicaliseAllocations`
+string is compared between the proposed (blob) and stored (Postgres) sets, and an
+entry's allocations are replaced **only when they differ** — an unchanged re-run
+writes nothing. Guarded + one transaction like the other writers; a missing
+user/time_entry/job ref, hours ≤ 0, allocation-sum ≠ entry total, or over-length
+notes **quarantines and aborts before any write**. Pure builder:
+`lib/allocation-rows.js`. Tests: `src/domains/importers/allocation-rows.test.ts`.
+
 ## hours-parity.js
 
 The **read-only hours proving slice** and the dual-write's future drift alarm
