@@ -61,17 +61,25 @@ async function loadSources() {
 
 // SET fragment "col = excluded.col, …" for an ON CONFLICT DO UPDATE.
 function setExcluded(sql, cols) {
+  if (!cols.length) throw new Error('setExcluded: no mutable columns');
   return cols.map((c) => sql`${sql(c)} = excluded.${sql(c)}`).reduce((a, b) => sql`${a}, ${b}`);
 }
 // WHERE fragment "<table>.col IS DISTINCT FROM excluded.col OR …" — the update
-// fires only when something changed. The target column MUST be table-qualified:
-// unqualified it is ambiguous between the target row and EXCLUDED.
+// fires only when something changed. The target column MUST be table-qualified
+// (unqualified it is ambiguous between the target row and EXCLUDED), and
+// `table` MUST equal the table named in the enclosing `insert into public.<table>`.
 function distinctFromExcluded(sql, table, cols) {
+  if (!cols.length) throw new Error('distinctFromExcluded: no mutable columns');
   return cols
     .map((c) => sql`${sql(table)}.${sql(c)} is distinct from excluded.${sql(c)}`)
     .reduce((a, b) => sql`${a} or ${b}`);
 }
 
+// inserted/updated/unchanged from the RETURNING rows. (xmax = 0) marks an
+// insert; a DO UPDATE whose IS DISTINCT FROM is false returns no row → it falls
+// into `unchanged`. The xmax heuristic is reliable for THIS single-transaction,
+// single-writer operator import — do not lift it into a concurrent route/cron
+// path without revisiting.
 function tally(returned, total) {
   const inserted = returned.filter((r) => r.inserted).length;
   const updated = returned.length - inserted;

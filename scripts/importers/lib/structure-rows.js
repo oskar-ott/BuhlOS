@@ -17,6 +17,11 @@
 // per-job toggles, blob-authoritative until the jobs domain cutover —
 // data-ownership-map §3). Nothing reads these from Postgres yet.
 //
+// Soft-delete is also deferred: this slice maps users.json `disabled`→is_active
+// but does NOT map `archived`→deleted_at (a later slice). So every imported user
+// is live (deleted_at NULL) — a later importer must not assume archived users
+// were filtered here, and the username collision check above is over live rows.
+//
 // Validation rules are NOT reinvented — the role/status value-lists come from
 // scripts/importers/lib/structure-plan.js (the schema CHECKs). An unknown role
 // or status QUARANTINES the record (never guessed/coerced), exactly like the
@@ -33,14 +38,22 @@ function boolOrNull(v) {
 function intOrNull(v) {
   return Number.isFinite(v) ? Math.trunc(v) : null;
 }
-// A date column wants 'YYYY-MM-DD' or null — accept an ISO date/datetime prefix.
+// A date column wants 'YYYY-MM-DD' or null. Validate CALENDAR validity (not
+// just shape) via a UTC round-trip, so a malformed value like '2026-13-45'
+// becomes null instead of a date the INSERT would reject and abort on.
 function dateOrNull(v) {
-  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null;
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(v)) return null;
+  const ymd = v.slice(0, 10);
+  const d = new Date(ymd + 'T00:00:00Z');
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === ymd ? ymd : null;
 }
-// created_at is NOT NULL — preserve the blob timestamp when it is a real ISO
-// string, else stamp import time (passed in, so the builder stays pure).
+// created_at is NOT NULL — preserve the blob timestamp when it is a real,
+// parseable ISO string, else stamp import time (passed in, so the builder
+// stays pure). A malformed timestamp falls back rather than reaching the column.
 function tsOrDefault(v, fallbackIso) {
-  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v : fallbackIso;
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) && !Number.isNaN(Date.parse(v))
+    ? v
+    : fallbackIso;
 }
 
 /**
@@ -61,6 +74,13 @@ function buildStructureRows(sources, options = {}) {
 
   const userRows = [];
   const seenUser = new Set();
+  // user_profiles_username_uq is a partial unique index on
+  // (tenant_id, lower(username)) where deleted_at is null. Quarantine a
+  // case-insensitive username collision rather than let it abort the whole
+  // transaction with a raw DB error — keeps every uniqueness invariant on the
+  // clean pre-write quarantine path. (Scoped to imported/live rows; this slice
+  // never sets deleted_at — archived→deleted_at is deferred, see header.)
+  const seenUsername = new Set();
   for (const u of (sources && sources.users && sources.users.users) || []) {
     if (!u || !u.id || !(u.username || u.name)) {
       quarantine.push({ table: 'user_profiles', id: (u && u.id) || '(no id)', reason: 'requires id and username/name' });
@@ -74,7 +94,13 @@ function buildStructureRows(sources, options = {}) {
       quarantine.push({ table: 'user_profiles', id: u.id, reason: `role "${u.role}" fails the schema CHECK — needs an explicit normalisation mapping` });
       continue;
     }
+    const usernameKey = String(u.username || u.name).trim().toLowerCase();
+    if (seenUsername.has(usernameKey)) {
+      quarantine.push({ table: 'user_profiles', id: u.id, reason: `duplicate username "${u.username || u.name}" (case-insensitive) — violates user_profiles_username_uq` });
+      continue;
+    }
     seenUser.add(u.id);
+    seenUsername.add(usernameKey);
     userRows.push({
       legacy_user_id: u.id,
       username: u.username || u.name,

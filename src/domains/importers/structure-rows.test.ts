@@ -156,6 +156,33 @@ describe("buildStructureRows", () => {
     expect(quarantine).toHaveLength(2);
   });
 
+  it("quarantines a case-insensitive username collision (user_profiles_username_uq)", () => {
+    const { userRows, quarantine } = buildStructureRows(
+      sources(
+        [
+          { id: "u1", username: "Dev", role: "admin" },
+          { id: "u2", username: "dev", role: "tradie" },
+        ],
+        []
+      ),
+      { nowIso: NOW }
+    );
+    expect(userRows).toHaveLength(1);
+    expect(userRows[0]!.legacy_user_id).toBe("u1");
+    expect(quarantine).toEqual([
+      expect.objectContaining({ table: "user_profiles", id: "u2", reason: expect.stringContaining("username") }),
+    ]);
+  });
+
+  it("nulls a calendar-invalid date instead of passing it to the DATE column", () => {
+    const { jobRows } = buildStructureRows(
+      sources([], [{ id: "j1", name: "J", status: "draft", startDate: "2026-13-45", dueDate: "2026-06-30" }]),
+      { nowIso: NOW }
+    );
+    expect(jobRows[0]!.start_date).toBeNull();
+    expect(jobRows[0]!.due_date).toBe("2026-06-30");
+  });
+
   it("keeps the insert column lists in lock-step with the mapped keys", () => {
     const { userRows, jobRows } = buildStructureRows(
       sources([{ id: "u1", username: "X", role: "admin" }], [{ id: "j1", name: "J", status: "draft" }]),
