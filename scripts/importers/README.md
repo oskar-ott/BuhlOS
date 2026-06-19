@@ -4,10 +4,11 @@ Operator-run scripts that plan the Blob → Supabase Postgres import.
 Contract and domain order: [docs/supabase-importer-plan.md](../../docs/supabase-importer-plan.md).
 Environment rules: [docs/supabase-environment.md](../../docs/supabase-environment.md).
 
-**Current state: dry-run only.** No script here can write to Supabase (no
-client exists, planners are pure) or to Vercel Blob (only `readBlob` is
-imported). `--write` must pass the env guard in write mode and even then
-throws `WRITE_NOT_IMPLEMENTED`.
+**Current state: read-only.** Nothing here writes — not to Supabase and not to
+Vercel Blob. The dry-run planners are pure; `hours-parity.js` *reads* Postgres
+(via `getDb({ mode: 'read' })`, behind the env guard) to compare it against
+Blob. The `--write` importer path is still a scaffold: it must pass the env
+guard in write mode and even then throws `WRITE_NOT_IMPLEMENTED`.
 
 ## structure-dry-run.js
 
@@ -60,3 +61,29 @@ allocation-sum≠total, non-Monday week-start, reopen/approval inconsistencies).
 (only `list`/`fetch`/`readBlob`); `--write` passes the env guard then throws
 `WRITE_NOT_IMPLEMENTED`. Tests: `src/domains/importers/hours-import-plan.test.ts`.
 Findings: [docs/supabase-hours-dry-run-report.md](../../docs/supabase-hours-dry-run-report.md).
+
+## hours-parity.js
+
+The **read-only hours proving slice** and the dual-write's future drift alarm
+(roadmap [Phase 1 → Phase 2](../../docs/architecture/supabase-migration-roadmap.md),
+P7). Reads the live Blob source of truth **and** the Postgres mirror, then
+reports the drift between them.
+
+```sh
+# point at DEV; needs the dev SUPABASE_* env + BLOB_READ_WRITE_TOKEN
+node scripts/importers/hours-parity.js
+node scripts/importers/hours-parity.js --json
+```
+
+Matches the two stores on the business key `(legacy user id, work_date)` —
+Postgres rows are resolved back to the legacy user id via
+`user_profiles.legacy_user_id`, since Blob keys on the legacy id and Postgres on a
+minted uuid. Reports four drift classes: only-in-Blob (mirror behind),
+only-in-Postgres (orphan / deleted in Blob), value mismatches (hours/status
+disagree, within the schema's `0.011` tolerance), and duplicate keys. Output
+ends `IN SYNC` or `DRIFT DETECTED` with a signed `drift hours` total (positive =
+Postgres behind). **Read-only:** Postgres via `getDb({ mode: 'read' })` (env
+guard first), Blob via `list`/`fetch` only; never wired to a route/cron.
+Against today's empty dev Postgres it honestly reports the full backlog as
+drift. Engine: `lib/hours-drift.js` (pure). Tests:
+`src/domains/importers/hours-drift.test.ts`.
