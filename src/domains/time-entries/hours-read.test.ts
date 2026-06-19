@@ -83,6 +83,29 @@ describe("blobEntryFromPgRow", () => {
     });
   });
 
+  it("adds rejectedAt/rejectedBy ONLY for a rejected entry (matches Blob key presence)", () => {
+    const base = {
+      legacy_id: "e9", work_date: "2026-06-05", start_time: "07:00", end_time: "15:00", break_minutes: 30,
+      total_hours: "8.00", ordinary_hours: "8.00", overtime_hours: "0.00", ot_overridden: false,
+      notes: null, status: "approved", submitted_at: null, approved_at: null, rejected_reason: null,
+      source: "self", created_at: new Date("2026-06-05T10:00:00.000Z"), updated_at: null,
+      user_legacy_id: "u1", user_name: "Dev", user_role: "admin",
+      approved_by_legacy: null, rejected_by_legacy: null, created_by_legacy: null, created_by_name: null,
+      allocations: [],
+    };
+    // not rejected → no rejectedAt/rejectedBy keys at all
+    const ok = blobEntryFromPgRow({ ...base, rejected_at: null });
+    expect("rejectedAt" in ok).toBe(false);
+    expect("rejectedBy" in ok).toBe(false);
+    // rejected → both present
+    const rej = blobEntryFromPgRow({
+      ...base, status: "rejected", rejected_reason: "fix start time",
+      rejected_at: new Date("2026-06-06T09:00:00.000Z"), rejected_by_legacy: "u_admin",
+    });
+    expect(rej.rejectedAt).toBe("2026-06-06T09:00:00.000Z");
+    expect(rej.rejectedBy).toBe("u_admin");
+  });
+
   it("handles null timestamps, unresolved attribution, and a job-scoped allocation", () => {
     const row = {
       legacy_id: "e2", work_date: "2026-06-02", start_time: null, end_time: null, break_minutes: null,

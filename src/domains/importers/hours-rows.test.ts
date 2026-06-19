@@ -63,6 +63,7 @@ describe("buildTimeEntryRows", () => {
       approved_at: null,
       approved_by: null,
       rejected_at: null,
+      rejected_by: null,
       rejected_reason: null,
       created_by: null,
       source: "phil",

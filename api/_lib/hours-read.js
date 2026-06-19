@@ -7,9 +7,19 @@
 //
 // Triple-gated like the mirror: no SUPABASE_DB_URL → Blob; flag off → Blob;
 // getDb runs the env guard. Best-effort: ANY failure returns {pg:false} so the
-// caller falls back to Blob (Blob remains source of truth). Only flip the flag
-// in an env whose PG hours are proven IN SYNC (scripts/importers/hours-parity.js)
-// — when on, an empty PG result is trusted (returned as "no entries").
+// caller falls back to Blob (Blob remains source of truth). When on, an empty
+// PG result is trusted (returned as "no entries").
+//
+// FLIP PREREQUISITES (do NOT enable supabase_read_hours in an env until ALL hold):
+//   1. parity IN SYNC for that env (scripts/importers/hours-parity.js) — note it
+//      compares time_entries TOTALS, not allocations.
+//   2. ALLOCATIONS ARE MIRRORED. The live dual-write (api/_lib/hours-mirror) writes
+//      time_entries but NOT time_entry_allocations — only the operator importer
+//      does. Until the mirror writes allocations, an entry created/edited after
+//      the dual-write flag went on has NO allocations in PG, so this read would
+//      show an empty per-job split. (Own follow-up slice.)
+//   3. updatedAt here reflects the last PG sync, not the Blob's last edit
+//      (trigger-managed; best-effort metadata).
 //
 // Reconstructs the exact Blob entry shape, reversing the uuid→legacy mappings
 // (user / approver / enterer via user_profiles; allocation jobId via jobs).
@@ -27,7 +37,7 @@ function tsIso(v) {
  * Reconstruct a Blob-shaped time-entry from a joined Postgres row. Pure.
  */
 function blobEntryFromPgRow(r) {
-  return {
+  const e = {
     id: r.legacy_id,
     userId: r.user_legacy_id,
     userName: r.user_name,
@@ -61,6 +71,14 @@ function blobEntryFromPgRow(r) {
     enteredByName: r.created_by_name,
     source: r.source,
   };
+  // The Blob only carries rejectedAt/rejectedBy on a rejected entry (the reject
+  // action sets them; revert deletes them). Match that conditional presence so a
+  // never-rejected entry reconstructs WITHOUT those keys (exact-shape parity).
+  if (r.rejected_at) {
+    e.rejectedAt = tsIso(r.rejected_at);
+    e.rejectedBy = r.rejected_by_legacy;
+  }
+  return e;
 }
 
 async function queryUserEntries(sql, tenantId, userId, { fromDate, toDate, status } = {}) {
@@ -70,12 +88,16 @@ async function queryUserEntries(sql, tenantId, userId, { fromDate, toDate, statu
   const rows = await sql`
     select
       te.legacy_id, to_char(te.work_date, 'YYYY-MM-DD') as work_date,
-      te.start_time, te.end_time, te.break_minutes,
+      to_char(te.start_time, 'HH24:MI') as start_time,
+      to_char(te.end_time, 'HH24:MI') as end_time,
+      te.break_minutes,
       te.total_hours, te.ordinary_hours, te.overtime_hours, te.ot_overridden,
-      te.notes, te.status, te.submitted_at, te.approved_at, te.rejected_reason,
+      te.notes, te.status, te.submitted_at, te.approved_at,
+      te.rejected_at, te.rejected_reason,
       te.source, te.created_at, te.updated_at,
       uu.legacy_user_id as user_legacy_id, uu.username as user_name, uu.role as user_role,
       ap.legacy_user_id as approved_by_legacy,
+      rb.legacy_user_id as rejected_by_legacy,
       cb.legacy_user_id as created_by_legacy, cb.username as created_by_name,
       coalesce((
         select json_agg(json_build_object(
@@ -88,6 +110,7 @@ async function queryUserEntries(sql, tenantId, userId, { fromDate, toDate, statu
     from public.time_entries te
     join public.user_profiles uu on uu.tenant_id = te.tenant_id and uu.id = te.user_id
     left join public.user_profiles ap on ap.tenant_id = te.tenant_id and ap.id = te.approved_by
+    left join public.user_profiles rb on rb.tenant_id = te.tenant_id and rb.id = te.rejected_by
     left join public.user_profiles cb on cb.tenant_id = te.tenant_id and cb.id = te.created_by
     where te.tenant_id = ${tenantId} and uu.legacy_user_id = ${userId} and te.deleted_at is null
       and (${f}::date is null or te.work_date >= ${f}::date)
