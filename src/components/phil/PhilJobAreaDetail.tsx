@@ -53,6 +53,10 @@ const LINK_ICON = {
 } as const;
 
 interface Props {
+  /** The job these areas/tasks belong to — threaded down so a task's governing
+   *  drawing/spec can link into the Phil plans viewer (#368). Absent ⇒ governing
+   *  docs render as plain text (today's behavior). */
+  jobId?: string;
   areaName: string;
   spaceType?: string | null;
   /** Which stages have a task plan for this area. */
@@ -139,6 +143,7 @@ interface Props {
  *   /tmp/phil-bible/buhlos-phil/project/Phil Job Interface Bible.html §09
  */
 export function PhilJobAreaDetail({
+  jobId,
   areaName,
   spaceType,
   stages,
@@ -253,6 +258,7 @@ export function PhilJobAreaDetail({
                 return (
                 <TaskRow
                   key={t.id}
+                  jobId={jobId}
                   task={t}
                   pending={pendingTaskIds?.has(t.id) ?? false}
                   context={taskContextById?.get(t.id)}
@@ -364,6 +370,7 @@ function TaskStateIcon({ state }: { state: TaskState }) {
  * parent has a safe server-backed mutation to run.
  */
 function TaskRow({
+  jobId,
   task,
   pending,
   onToggle,
@@ -377,6 +384,7 @@ function TaskRow({
   submitStatus,
   canSubmitForReview,
 }: {
+  jobId?: string;
   task: WorkerTask;
   pending: boolean;
   onToggle?: () => void;
@@ -519,6 +527,7 @@ function TaskRow({
       {context ? (
         <PhilTaskScopeContext
           context={context}
+          jobId={jobId}
           onCaptureProof={
             onCaptureProof
               ? (t) => onCaptureProof({ ...t, taskId: task.id })

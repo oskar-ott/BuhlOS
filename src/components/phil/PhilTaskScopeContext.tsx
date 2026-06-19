@@ -48,11 +48,16 @@ const EVIDENCE_KIND_LABEL: Record<TaskContextEvidenceReq["kind"], string> = {
 
 export function PhilTaskScopeContext({
   context,
+  jobId,
   onCaptureProof,
   proofActionState,
   canCaptureProof = false,
 }: {
   context: PhilTaskContext;
+  /** This task's job — needed to build the link to the Phil plans viewer for a
+   *  governing drawing/spec. When omitted, each governing doc renders as plain
+   *  text (today's behavior — zero regression). */
+  jobId?: string;
   /** Capture proof for a specific unmet requirement. When omitted, no capture
    *  affordance renders (read-only context, today's behavior). */
   onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskRef?: TaskRef }) => void;
@@ -108,13 +113,25 @@ export function PhilTaskScopeContext({
         {/* Scope note — the plain-English "what this is". */}
         {context.scopeNote ? <p className="text-sm text-text">{context.scopeNote}</p> : null}
 
-        {/* Governing drawing / spec. */}
+        {/* Governing drawing / spec. With the job in hand, the named sheet is a
+            tappable link into the Phil plans viewer (where the worker opens the
+            drawing); without it, it stays plain text — never a dead link. */}
         {context.governingDocs.length > 0 ? (
           <Section icon={MapIcon} title="Drawing / spec">
             <ul className="space-y-1">
               {context.governingDocs.map((d) => (
                 <li key={d.documentId} className="text-sm text-text">
-                  {docLabel(d)}
+                  {jobId ? (
+                    <a
+                      href={plansHref(jobId)}
+                      className="inline-flex min-h-[44px] items-center gap-1.5 text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2 focus:outline-none focus:ring-2 focus:ring-brand-navy"
+                    >
+                      <MapIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
+                      <span>{docLabel(d)}</span>
+                    </a>
+                  ) : (
+                    docLabel(d)
+                  )}
                 </li>
               ))}
             </ul>
@@ -232,10 +249,19 @@ function Section({
 }
 
 /** A governing-doc reference shows its compiled label, or a plain fallback —
- *  never a raw id (worker language, P11). Opening the drawing is a later
- *  slice; this slice names what governs the task. */
+ *  never a raw id (worker language, P11). With a job in hand the label becomes
+ *  a tappable link into the Phil plans viewer (see plansHref). */
 function docLabel(d: GoverningDocRef): string {
   return d.label?.trim() || "Referenced drawing / spec";
+}
+
+/** Where a named drawing/spec opens for the worker: the Phil plans viewer for
+ *  this job. The viewer has no per-document/per-page deep link (it selects the
+ *  first current drawing and the worker pages to the named sheet), so we link
+ *  to the index honestly — never a fabricated `?doc=`/`?page=` the viewer can't
+ *  honour (P7). Mirrors PhilJobDetail's "Open plan viewer" target. */
+function plansHref(jobId: string): string {
+  return `/phil/jobs/${encodeURIComponent(jobId)}/plans`;
 }
 
 /** "12 × 20A DGPO" style line from the real compiled fields; quantity/unit are

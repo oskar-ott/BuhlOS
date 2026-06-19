@@ -34,6 +34,12 @@ function renderWithProof(
   ).replace(/<!-- -->/g, "");
 }
 
+function renderWithJob(context: PhilTaskContext, jobId?: string): string {
+  return renderToString(
+    createElement(PhilTaskScopeContext, { context, jobId }),
+  ).replace(/<!-- -->/g, "");
+}
+
 const FULL: PhilTaskContext = {
   workPackageId: "wp_1",
   scopeNote: "Run a dedicated 20A circuit to the ZIP tap.",
@@ -174,5 +180,41 @@ describe("PhilTaskScopeContext", () => {
       proofActionState: { re2: "saving" },
     });
     expect(html).toContain("Saving…");
+  });
+
+  it("links a governing drawing into the Phil plans viewer when jobId is provided (#368)", () => {
+    const html = renderWithJob(FULL, "job-7");
+    // The named sheet renders inside an anchor to THIS job's plans viewer.
+    expect(html).toContain('href="/phil/jobs/job-7/plans"');
+    expect(html).toContain("E-101 Power layout");
+    // It's a real anchor wrapping the label, not plain text.
+    expect(html).toMatch(/<a[^>]*href="\/phil\/jobs\/job-7\/plans"[^>]*>[\s\S]*E-101 Power layout/);
+    // No fabricated deep-link param the viewer can't honour (P7).
+    expect(html).not.toContain("?doc=");
+    expect(html).not.toContain("?page=");
+  });
+
+  it("renders a governing drawing as plain text (no anchor) without jobId — zero regression", () => {
+    const html = renderWithJob(FULL); // jobId omitted
+    expect(html).toContain("E-101 Power layout");
+    // No plans link, and the doc list carries no anchor at all.
+    expect(html).not.toContain("/plans");
+    expect(html).not.toContain("<a");
+  });
+
+  it("encodes the jobId in the plans link", () => {
+    const html = renderWithJob(FULL, "job/7 a");
+    expect(html).toContain('href="/phil/jobs/job%2F7%20a/plans"');
+  });
+
+  it("falls back to a worker-language label (never a raw id) for an unlabelled doc, still linked", () => {
+    const noLabel: PhilTaskContext = {
+      ...FULL,
+      governingDocs: [{ documentId: "doc_raw_id_123", label: null }],
+    };
+    const html = renderWithJob(noLabel, "job-7");
+    expect(html).toContain("Referenced drawing / spec");
+    expect(html).not.toContain("doc_raw_id_123");
+    expect(html).toContain('href="/phil/jobs/job-7/plans"');
   });
 });

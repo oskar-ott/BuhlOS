@@ -728,6 +728,7 @@ export function PhilJobDetail({
                 </PhilNotice>
               ) : null}
               <PhilJobAreaDetail
+                jobId={job.id}
                 areaName={selectedArea.name}
                 spaceType={selectedArea.spaceType}
                 stages={selectedStages}
