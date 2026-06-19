@@ -27,31 +27,15 @@
 // import-time stamp (passed in, so the builder stays pure).
 
 const { isValidISODate, VALID_STATUSES, MAX_HOURS_PER_DAY } = require('./hours-plan');
-
-// Matches the schema CHECK abs((ordinary+overtime)-total) < 0.011.
-const TOLERANCE = 0.011;
-const MAX_NOTES = 500; // schema: notes char_length <= 500
-
-function round2(n) {
-  return Math.round((Number(n) || 0) * 100) / 100;
-}
-function strOrNull(v) {
-  return typeof v === 'string' && v.trim() !== '' ? v : null;
-}
-function timeOrNull(v) {
-  return typeof v === 'string' && /^\d{2}:\d{2}(:\d{2})?$/.test(v) ? v : null;
-}
-// break_minutes is an integer column; a fractional break is truncated (breaks
-// are integer minutes in practice and break isn't part of the parity totals).
-function nonNegIntOrNull(v) {
-  return Number.isFinite(v) && v >= 0 ? Math.trunc(v) : null;
-}
-function tsOrNull(v) {
-  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) && !Number.isNaN(Date.parse(v)) ? v : null;
-}
-function tsOrDefault(v, fallbackIso) {
-  return tsOrNull(v) || fallbackIso;
-}
+// Field mapping + column lists live in the shared app-code module so the live
+// dual-write mirror (api/_lib/hours-mirror) maps identically — no drift.
+const {
+  TOLERANCE,
+  MAX_NOTES,
+  timeEntryRowFromBlob,
+  TIME_ENTRY_MUTABLE_COLS,
+  TIME_ENTRY_INSERT_COLS,
+} = require('../../../api/_lib/hours-pg');
 
 /**
  * @param {object} input
@@ -86,65 +70,24 @@ function buildTimeEntryRows({ records = [], userMap = new Map(), nowIso = '1970-
     const dupKey = `${user_id}|${date}`;
     if (seenKey.has(dupKey)) { q('duplicate user+date'); continue; }
 
-    // Round to 2dp FIRST, then validate the rounded triple, so the values we
-    // check are byte-identical to the numeric(4,2) values we store — a passing
-    // validation then guarantees the schema CHECKs pass (independent rounding
-    // of total/ordinary/overtime can otherwise drift past the 0.011 bound).
-    const total = round2(e.totalHours);
-    const ordinary = round2(e.ordinaryHours);
-    const overtime = round2(e.overtimeHours);
-    if (!(total > 0) || total > MAX_HOURS_PER_DAY) { q(`total hours ${e.totalHours} out of (0, ${MAX_HOURS_PER_DAY}]`); continue; }
-    if (!(ordinary >= 0) || !(overtime >= 0)) { q('ordinary/overtime must be >= 0'); continue; }
-    if (Math.abs(ordinary + overtime - total) >= TOLERANCE) { q('ordinary + overtime != total (at 2dp)'); continue; }
-
-    const status = e.status || 'draft';
-    if (!VALID_STATUSES.includes(status)) { q(`invalid status "${status}"`); continue; }
-
-    const notes = strOrNull(e.notes);
-    if (notes && notes.length > MAX_NOTES) { q(`notes exceeds ${MAX_NOTES} chars`); continue; }
-
-    const legacy_id = strOrNull(e.id);
-    if (legacy_id && seenLegacyId.has(legacy_id)) { q(`duplicate legacy_id "${legacy_id}"`); continue; }
+    // Build the row via the shared mapper, then validate the ROW's stored
+    // (2dp-rounded) values, so a passing validation is byte-identical to what
+    // is written and therefore guarantees the schema CHECKs pass.
+    const row = timeEntryRowFromBlob(e, { userUuid: user_id, date, nowIso });
+    if (!(row.total_hours > 0) || row.total_hours > MAX_HOURS_PER_DAY) { q(`total hours ${e.totalHours} out of (0, ${MAX_HOURS_PER_DAY}]`); continue; }
+    if (!(row.ordinary_hours >= 0) || !(row.overtime_hours >= 0)) { q('ordinary/overtime must be >= 0'); continue; }
+    if (Math.abs(row.ordinary_hours + row.overtime_hours - row.total_hours) >= TOLERANCE) { q('ordinary + overtime != total (at 2dp)'); continue; }
+    if (!VALID_STATUSES.includes(row.status)) { q(`invalid status "${row.status}"`); continue; }
+    if (row.notes && row.notes.length > MAX_NOTES) { q(`notes exceeds ${MAX_NOTES} chars`); continue; }
+    if (row.legacy_id && seenLegacyId.has(row.legacy_id)) { q(`duplicate legacy_id "${row.legacy_id}"`); continue; }
 
     seenKey.add(dupKey);
-    if (legacy_id) seenLegacyId.add(legacy_id);
-    rows.push({
-      user_id,
-      legacy_id,
-      work_date: date,
-      start_time: timeOrNull(e.startTime),
-      end_time: timeOrNull(e.endTime),
-      break_minutes: nonNegIntOrNull(e.breakMinutes),
-      total_hours: total,
-      ordinary_hours: ordinary,
-      overtime_hours: overtime,
-      ot_overridden: e.otOverridden === true,
-      notes,
-      status,
-      submitted_at: tsOrNull(e.submittedAt),
-      approved_at: tsOrNull(e.approvedAt),
-      rejected_at: tsOrNull(e.rejectedAt),
-      rejected_reason: strOrNull(e.rejectedReason),
-      source: strOrNull(e.source),
-      created_at: tsOrDefault(e.createdAt, nowIso),
-    });
+    if (row.legacy_id) seenLegacyId.add(row.legacy_id);
+    rows.push(row);
   }
 
   return { rows, quarantine };
 }
-
-// Mutable columns the upsert overwrites on conflict — everything except the
-// conflict key (tenant_id, user_id, work_date) and the insert-only columns
-// (legacy_id, created_at). Kept beside the builder so the SET and the
-// IS DISTINCT FROM idempotency guard stay in lock-step.
-const TIME_ENTRY_MUTABLE_COLS = [
-  'start_time', 'end_time', 'break_minutes', 'total_hours', 'ordinary_hours',
-  'overtime_hours', 'ot_overridden', 'notes', 'status', 'submitted_at',
-  'approved_at', 'rejected_at', 'rejected_reason', 'source',
-];
-const TIME_ENTRY_INSERT_COLS = [
-  'tenant_id', 'user_id', 'legacy_id', 'work_date', ...TIME_ENTRY_MUTABLE_COLS, 'created_at',
-];
 
 module.exports = {
   buildTimeEntryRows,

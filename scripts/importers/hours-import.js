@@ -28,11 +28,8 @@
 //
 // Contract: docs/supabase-importer-plan.md · env: docs/supabase-environment.md
 
-const {
-  buildTimeEntryRows,
-  TIME_ENTRY_MUTABLE_COLS,
-  TIME_ENTRY_INSERT_COLS,
-} = require('./lib/hours-rows');
+const { buildTimeEntryRows } = require('./lib/hours-rows');
+const { upsertTimeEntries } = require('../../api/_lib/hours-pg');
 const { getDb, closeDb } = require('../../api/_lib/supabase-db');
 
 const FETCH_CONCURRENCY = 8;
@@ -89,27 +86,6 @@ async function loadBlobEntries() {
   return records;
 }
 
-function setExcluded(sql, cols) {
-  if (!cols.length) throw new Error('setExcluded: no mutable columns');
-  return cols.map((c) => sql`${sql(c)} = excluded.${sql(c)}`).reduce((a, b) => sql`${a}, ${b}`);
-}
-// Target column MUST be table-qualified (unqualified is ambiguous vs EXCLUDED),
-// and `table` MUST equal the table named in the enclosing INSERT.
-function distinctFromExcluded(sql, table, cols) {
-  if (!cols.length) throw new Error('distinctFromExcluded: no mutable columns');
-  return cols
-    .map((c) => sql`${sql(table)}.${sql(c)} is distinct from excluded.${sql(c)}`)
-    .reduce((a, b) => sql`${a} or ${b}`);
-}
-
-// (xmax = 0) marks an insert; a DO UPDATE whose IS DISTINCT FROM is false
-// returns no row → unchanged. Reliable for this single-tx single-writer import;
-// do not lift into a concurrent route/cron path without revisiting.
-function tally(returned, total) {
-  const inserted = returned.filter((r) => r.inserted).length;
-  return { inserted, updated: returned.length - inserted, unchanged: total - returned.length, total };
-}
-
 async function resolveTenantAndUsers(sql) {
   const t = await sql`select id from public.tenants where slug = 'buhl'`;
   if (!t.length) throw new Error('no tenant (slug "buhl") — run structure-import.js --write first');
@@ -124,18 +100,9 @@ async function resolveTenantAndUsers(sql) {
 async function writeEntries(sql, tenantId, rows) {
   try {
     return await sql.begin(async (sql) => {
-      const rowsT = rows.map((r) => ({ ...r, tenant_id: tenantId }));
-      const ret = rowsT.length
-        ? await sql`
-            insert into public.time_entries ${sql(rowsT, ...TIME_ENTRY_INSERT_COLS)}
-            on conflict (tenant_id, user_id, work_date) where deleted_at is null
-            do update set ${setExcluded(sql, TIME_ENTRY_MUTABLE_COLS)}
-            where ${distinctFromExcluded(sql, 'time_entries', TIME_ENTRY_MUTABLE_COLS)}
-            returning (xmax = 0) as inserted
-          `
-        : [];
+      const time_entries = await upsertTimeEntries(sql, tenantId, rows);
       const [c] = await sql`select count(*)::int as n from public.time_entries where deleted_at is null`;
-      return { time_entries: tally(ret, rowsT.length), after: c.n };
+      return { time_entries, after: c.n };
     });
   } catch (err) {
     // The (user,date) ON CONFLICT does not arbitrate the separate
