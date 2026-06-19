@@ -14,7 +14,7 @@
 // The PG side is reconstructed by the SAME code the read-cutover serves
 // (api/_lib/hours-read), so this validates exactly what listUserEntries returns.
 
-const { buildHoursSyncReport } = require('./lib/hours-sync-report');
+const { buildHoursSyncReport, normaliseEntry } = require('./lib/hours-sync-report');
 const { loadAllHoursFromPg } = require('../../api/_lib/hours-read');
 const { getDb, closeDb } = require('../../api/_lib/supabase-db');
 
@@ -30,22 +30,6 @@ function parseArgs(argv) {
     else { console.error(`unknown argument: ${a}`); args.help = true; }
   }
   return args;
-}
-
-// Both sides normalise to the engine's shape (allocations: job_id/sort_order).
-function normAlloc(a) {
-  return { job_id: (a && a.jobId) ?? null, hours: a && a.hours, notes: (a && a.notes) ?? null, sort_order: a && a.sortOrder };
-}
-function normEntry(userKey, date, e) {
-  return {
-    userKey,
-    date,
-    totalHours: e.totalHours,
-    ordinaryHours: e.ordinaryHours,
-    overtimeHours: e.overtimeHours,
-    status: e.status || 'draft',
-    allocations: (Array.isArray(e.allocations) ? e.allocations : []).map(normAlloc),
-  };
 }
 
 async function loadBlob() {
@@ -77,7 +61,7 @@ async function loadBlob() {
     );
     chunk.forEach((b, idx) => {
       const e = fetched[idx];
-      if (e && typeof e === 'object') entries.push(normEntry(b.userId, b.date, e));
+      if (e && typeof e === 'object') entries.push(normaliseEntry(b.userId, b.date, e));
     });
   }
   return entries;
@@ -112,7 +96,7 @@ async function main() {
     if (!tenant.length) throw new Error('no tenant (slug "buhl") — run structure-import.js --write first');
     const tenantId = tenant[0].id;
     const [blobEntries, pgRaw] = [await loadBlob(), await loadAllHoursFromPg(sql, tenantId)];
-    const pgEntries = pgRaw.map((e) => normEntry(e.userId, e.date, e));
+    const pgEntries = pgRaw.map((e) => normaliseEntry(e.userId, e.date, e));
     report = buildHoursSyncReport({ blobEntries, pgEntries });
     const durationMs = Date.now() - startedAt;
     report.durationMs = durationMs;

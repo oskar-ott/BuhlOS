@@ -18,6 +18,36 @@ const TOLERANCE = 0.011; // matches the schema CHECK
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
+function strOrNull(v) {
+  return typeof v === 'string' && v.trim() !== '' ? v : null;
+}
+
+/**
+ * Normalise a Blob or reconstructed-PG entry to the comparison shape. CRITICAL:
+ * the allocation rules must match how alloc-pg.buildAllocationRows WROTE the PG
+ * rows, or the check cries drift on genuinely-synced data — notes via strOrNull
+ * (whitespace → null) and sort_order falling back to the array index when the
+ * blob allocation has no sortOrder. Used for BOTH sides (PG values are already
+ * clean, so this is a no-op there). Accepts blob (jobId/sortOrder) and the
+ * reconstructed-PG (also jobId/sortOrder) allocation shapes.
+ */
+function normaliseEntry(userKey, date, e) {
+  const src = e || {};
+  return {
+    userKey,
+    date,
+    totalHours: src.totalHours,
+    ordinaryHours: src.ordinaryHours,
+    overtimeHours: src.overtimeHours,
+    status: src.status || 'draft',
+    allocations: (Array.isArray(src.allocations) ? src.allocations : []).map((a, i) => ({
+      job_id: (a && a.jobId) ?? null,
+      hours: a && a.hours,
+      notes: strOrNull(a && a.notes),
+      sort_order: Number.isFinite(a && a.sortOrder) ? Math.trunc(a.sortOrder) : i,
+    })),
+  };
+}
 function hoursDiffer(a, b) {
   return Math.abs((Number(a) || 0) - (Number(b) || 0)) >= TOLERANCE;
 }
@@ -105,4 +135,4 @@ function buildHoursSyncReport({ blobEntries = [], pgEntries = [] } = {}) {
   };
 }
 
-module.exports = { buildHoursSyncReport };
+module.exports = { buildHoursSyncReport, normaliseEntry };
