@@ -300,17 +300,20 @@ describe("computeQuoteMarginSections — sections sum to the rollup", () => {
     const marginScope = sections.filter((s) => s.section === "materials" || s.section === "labour");
     const costSum = round2(marginScope.reduce((acc, s) => acc + s.cost, 0));
     const sellSum = round2(marginScope.reduce((acc, s) => acc + s.sell, 0));
-    expect(costSum).toBe(rollup.cost);
-    expect(sellSum).toBe(rollup.sell);
-    // Cross-check the rollup against the legacy oracle's totalCost/totalSell.
+    // Display reconciliation: Σ(round2 section) is within ONE rounding cent of the
+    // rollup (round-then-sum vs sum-then-round). round2 the diff to shed float
+    // epsilon (65.14 − 65.13 = 0.0100000…05). The rollup is the exact figure.
+    expect(round2(Math.abs(costSum - rollup.cost))).toBeLessThanOrEqual(0.01);
+    expect(round2(Math.abs(sellSum - rollup.sell))).toBeLessThanOrEqual(0.01);
+    // The rollup itself is oracle-EXACT (this is the real correctness property).
     const oracle = computeQuoteMargin(input);
     expect(rollup.cost).toBe(oracle.totalCost);
     expect(rollup.sell).toBe(oracle.totalSell);
-    // Materials category sub-rows sum to the Materials parent row.
+    // Materials category sub-rows reconcile to the Materials parent within a cent.
     const mat = sections.find((s) => s.section === "materials")!;
     if (mat.subRows.length) {
-      expect(round2(mat.subRows.reduce((a, s) => a + s.cost, 0))).toBe(mat.cost);
-      expect(round2(mat.subRows.reduce((a, s) => a + s.sell, 0))).toBe(mat.sell);
+      expect(round2(Math.abs(round2(mat.subRows.reduce((a, s) => a + s.cost, 0)) - mat.cost))).toBeLessThanOrEqual(0.01);
+      expect(round2(Math.abs(round2(mat.subRows.reduce((a, s) => a + s.sell, 0)) - mat.sell))).toBeLessThanOrEqual(0.01);
     }
   }
 
@@ -346,6 +349,33 @@ describe("computeQuoteMarginSections — sections sum to the rollup", () => {
       },
       provisional: { items: [{ amountExGst: 33.337 }] },
     });
+  });
+
+  it("reconciles within a cent when round-then-sum drifts (documented artifact, not exact)", () => {
+    // Two $1 categories at 17.5%: each sub-row sells round2(1.175)=1.18, Σ=2.36,
+    // but the parent is round2(2.35)=2.35 — a 1¢ round-then-sum artifact. And
+    // materials cost 2.00 + labour 63.135 gives Σ(section cost) 65.14 vs the
+    // oracle-exact rollup 65.13. Both reconcile within a cent; the rollup is exact.
+    const input: QuoteMarginInput = {
+      pricing: { materialMarkupPct: { default: 17.5 }, labourCostRate: 61 },
+      materials: { items: [
+        { quantity: 1, unitCost: 1, category: "A" },
+        { quantity: 1, unitCost: 1, category: "B" },
+      ] },
+      labour: { lines: [{ estimatedHours: 1, crewSize: 1, hourlyRate: 61, riskFactor: 1.035 }] },
+    };
+    expectSectionsSumToRollup(input); // passes via the ≤1¢ tolerance
+    const { sections, rollup } = computeQuoteMarginSections(input);
+    const oracle = computeQuoteMargin(input);
+    expect(rollup.cost).toBe(oracle.totalCost); // rollup is oracle-exact
+    expect(rollup.sell).toBe(oracle.totalSell);
+    // The displayed parts genuinely drift a cent — proves the tolerance isn't vacuous.
+    const mat = sections.find((s) => s.section === "materials")!;
+    expect(round2(mat.subRows.reduce((a, s) => a + s.sell, 0))).not.toBe(mat.sell); // 2.36 vs 2.35
+    const secCostSum = round2(
+      sections.filter((s) => s.section === "materials" || s.section === "labour").reduce((a, s) => a + s.cost, 0),
+    );
+    expect(secCostSum).not.toBe(rollup.cost); // 65.14 vs 65.13
   });
 
   it("invariant holds with only materials, only labour, and an empty quote", () => {
@@ -520,46 +550,77 @@ describe("low / negative flagging — negative is distinct from low", () => {
     expect(atBoundary.margin.pct).toBe(15);
     expect(atBoundary.flag).toBe("ok");
   });
+
+  it("classifies on the UNROUNDED margin, not the displayed pct (sub-threshold near the boundary)", () => {
+    // 17.58% markup on $1000 → true margin 14.9515% (< 15% → low), but round1
+    // lifts the DISPLAYED pct to 15.0. The flag must read the true margin, not the
+    // rounded display — otherwise [14.95%, 15.0%) margins are silently 'ok'.
+    const mat = computeQuoteMarginSections({
+      pricing: { materialMarkupPct: { default: 17.58 } },
+      materials: { items: [{ quantity: 1, unitCost: 1000 }] },
+      labour: { lines: [] },
+    }).sections.find((s) => s.section === "materials")!;
+    expect(mat.margin.pct).toBe(15); // displayed value rounds up
+    expect(mat.flag).toBe("low"); // but the flag honours the true 14.95%
+  });
 });
 
 describe("#186 internal-only boundary — single source of truth", () => {
   it("the key set is the documented, non-empty, frozen internal-only register", () => {
     expect(QUOTE_MARGIN_INTERNAL_ONLY_KEYS.length).toBeGreaterThan(0);
     expect(Object.isFrozen(QUOTE_MARGIN_INTERNAL_ONLY_KEYS)).toBe(true);
-    // The exact register — a change here is an intentional boundary change.
+    // The exact register — a change here is an intentional boundary change. Every
+    // entry is a REAL output field name (no phantoms); the nested margin.amount /
+    // margin.pct are covered wholesale by the parent `margin` key.
     expect([...QUOTE_MARGIN_INTERNAL_ONLY_KEYS]).toEqual([
       "cost",
       "totalCost",
       "margin",
-      "marginAmount",
-      "marginPct",
       "effectiveMargin",
       "flag",
       "markupPct",
     ]);
+    // sell-side fields are NOT in the set (clients legitimately see sell prices).
+    for (const safe of ["sell", "sellRate", "subtotalExGst", "totalSell"]) {
+      expect(QUOTE_MARGIN_INTERNAL_ONLY_KEYS as readonly string[]).not.toContain(safe);
+    }
   });
 
-  it("every internal-only key actually appears on the cost/margin-bearing output", () => {
-    // Guards against the set drifting away from the real field names: each key
-    // must be a genuine cost/margin field somewhere in the output, so the #186
-    // projection has a real target to strip.
-    const totals = computeQuoteMargin({
-      materials: { items: [{ quantity: 1, unitCost: 100, category: "Cable" }] },
-      labour: { lines: [{ estimatedHours: 1, hourlyRate: 60 }] },
-    });
-    const { sections, effectiveMargin: _em } = computeQuoteMarginSections(
-      { pricing: { overrideTotalExGst: 500 }, materials: { items: [{ quantity: 1, unitCost: 100 }] }, labour: { lines: [] } },
+  it("reverse drift-guard: every cost/margin/markup-named output key is registered", () => {
+    // The #186 boundary's whole point: a NEW cost/margin field on this module's
+    // output must be registered here in the same change. Walk BOTH outputs
+    // recursively (overridden input so effectiveMargin populates) and assert every
+    // key whose name signals cost/margin/markup is in the set — so adding an
+    // unregistered one turns this test red.
+    const seen = new Set<string>();
+    const walk = (v: unknown): void => {
+      if (Array.isArray(v)) return v.forEach(walk);
+      if (v && typeof v === "object") {
+        for (const [k, val] of Object.entries(v)) {
+          seen.add(k);
+          walk(val);
+        }
+      }
+    };
+    walk(
+      computeQuoteMargin({
+        materials: { items: [{ quantity: 1, unitCost: 100, category: "Cable" }] },
+        labour: { lines: [{ estimatedHours: 1, hourlyRate: 60 }] },
+      }),
     );
-    // sell-only fields are NOT in the set (clients legitimately see sell)
-    expect(QUOTE_MARGIN_INTERNAL_ONLY_KEYS).not.toContain("sell");
-    expect(QUOTE_MARGIN_INTERNAL_ONLY_KEYS).not.toContain("subtotalExGst");
-    expect(QUOTE_MARGIN_INTERNAL_ONLY_KEYS).not.toContain("totalSell");
-    // cost-bearing fields ARE present on the output objects
-    expect(totals.materials).toHaveProperty("cost");
-    expect(totals).toHaveProperty("totalCost");
-    expect(totals).toHaveProperty("margin");
-    expect(totals.materials.breakdown[0]).toHaveProperty("markupPct");
-    expect(sections[0]).toHaveProperty("flag");
-    expect(sections[0]).toHaveProperty("cost");
+    walk(
+      computeQuoteMarginSections({
+        pricing: { overrideTotalExGst: 500 },
+        materials: { items: [{ quantity: 1, unitCost: 100, category: "Cable" }] },
+        labour: { lines: [{ estimatedHours: 1, hourlyRate: 60 }] },
+      }),
+    );
+    const registered = new Set<string>(QUOTE_MARGIN_INTERNAL_ONLY_KEYS);
+    const costMarginNamed = [...seen].filter((k) => /cost|margin|markup/i.test(k));
+    const unregistered = costMarginNamed.filter((k) => !registered.has(k));
+    expect(unregistered).toEqual([]);
+    // Forward direction: every registered key really appears on the output.
+    const missing = [...QUOTE_MARGIN_INTERNAL_ONLY_KEYS].filter((k) => !seen.has(k));
+    expect(missing).toEqual([]);
   });
 });

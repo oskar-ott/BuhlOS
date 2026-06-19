@@ -204,11 +204,15 @@ function rawCompute(input: QuoteMarginInput): RawCompute {
   // ── Materials (UNROUNDED accumulation, per-category breakdown) ──
   let matCost = 0;
   let matSell = 0;
-  // Map preserves first-insertion order — mirrors legacy Object.keys ordering.
-  const breakdown = new Map<
+  // Plain object keyed by category — mirrors the ORACLE's data structure exactly
+  // (api/quotes.js builds a {} and emits Object.keys(matBreakdown).map(...)). This
+  // is parity-critical: JS objects iterate integer-like string keys in ASCENDING
+  // NUMERIC order, so categories like "10","2","1" must emit ["1","2","10"] to stay
+  // byte-identical to the oracle. A Map (insertion order) would diverge.
+  const breakdown: Record<
     string,
     { category: string; cost: number; sell: number; markupPct: number; count: number }
-  >();
+  > = {};
   for (const m of items) {
     const qty = Number(m.quantity) || 0;
     // PRESERVE legacy falsy precedence: totalCost === 0 is falsy → unitCost*qty.
@@ -221,15 +225,13 @@ function rawCompute(input: QuoteMarginInput): RawCompute {
     const lineSell = lineCost * (1 + markup / 100);
     matCost += lineCost;
     matSell += lineSell;
-    let row = breakdown.get(cat);
-    if (!row) {
+    if (!breakdown[cat]) {
       // First-seen markupPct is stamped and never overwritten (legacy).
-      row = { category: cat, cost: 0, sell: 0, markupPct: markup, count: 0 };
-      breakdown.set(cat, row);
+      breakdown[cat] = { category: cat, cost: 0, sell: 0, markupPct: markup, count: 0 };
     }
-    row.cost += lineCost;
-    row.sell += lineSell;
-    row.count += 1;
+    breakdown[cat].cost += lineCost;
+    breakdown[cat].sell += lineSell;
+    breakdown[cat].count += 1;
   }
 
   // ── Labour ──
@@ -304,7 +306,9 @@ function rawCompute(input: QuoteMarginInput): RawCompute {
   return {
     matCost,
     matSell,
-    matBreakdown: [...breakdown.values()],
+    // Object.values uses the same [[OwnPropertyKeys]] order as Object.keys —
+    // integer-like keys ascending — matching the oracle's Object.keys(...).map(...).
+    matBreakdown: Object.values(breakdown),
     labHours,
     labCost,
     labSell,
@@ -466,9 +470,7 @@ export interface QuoteMarginOptions {
 export const QUOTE_MARGIN_INTERNAL_ONLY_KEYS = Object.freeze([
   "cost",
   "totalCost",
-  "margin",
-  "marginAmount",
-  "marginPct",
+  "margin", // covers nested margin.amount / margin.pct wholesale
   "effectiveMargin",
   "flag",
   "markupPct",
@@ -507,8 +509,11 @@ function makeSectionRow(
   const rawAmount = rawSell - rawCost;
   // Zero-sell honesty: a 0-sell section is NOT "0% healthy". pct is null (UI: —),
   // amount stays sell − cost (= −cost when there's cost) so the loss is visible.
-  const pct = rawSell > 0 ? round1((rawAmount / rawSell) * 100) : null;
-  const flag = classifyFlag(rawAmount, pct, threshold);
+  // Classify on the UNROUNDED pct so a true sub-threshold margin (e.g. 14.95%) is
+  // not lifted over the line by round1 — display rounds, classification must not.
+  const rawPct = rawSell > 0 ? (rawAmount / rawSell) * 100 : null;
+  const pct = rawPct === null ? null : round1(rawPct);
+  const flag = classifyFlag(rawAmount, rawPct, threshold);
   return {
     section,
     label,
@@ -523,13 +528,18 @@ function makeSectionRow(
 /**
  * Per-section margin attribution + flags + override effective margin.
  *
- * INVARIANT (asserted in tests): the MARGIN-SCOPE section costs/sells
- * (Materials + Labour) sum to the rollup `totalCost`/`totalSell` — round2 of the
- * summed UNROUNDED accumulators, exactly as legacy composes the rollup.
- * Provisional is represented honestly (sell == cost == psTotal, margin 0) but is
- * EXCLUDED from that sum because legacy excludes it from the margin numerator.
+ * RECONCILIATION (asserted in tests): the MARGIN-SCOPE section costs/sells
+ * (Materials + Labour) reconcile to the rollup `totalCost`/`totalSell` within a
+ * single rounding cent. The rollup is round2 of the summed UNROUNDED accumulators
+ * (the oracle-EXACT figure); each displayed section is round2'd independently, so
+ * Σ(round2 section) can differ from round2(Σ unrounded) by ≤ 1¢ — an inherent
+ * round-then-sum vs sum-then-round artifact (see the module header). The rollup,
+ * not the sum of the parts, is the authoritative number. Provisional is
+ * represented honestly (sell == cost == psTotal, margin 0) but is EXCLUDED from
+ * this reconciliation because legacy excludes it from the margin numerator.
  *
- * The Materials category sub-rows themselves sum to the Materials parent row.
+ * The Materials category sub-rows reconcile to the Materials parent likewise
+ * (within a rounding cent), for the same reason.
  */
 export function computeQuoteMarginSections(
   input: QuoteMarginInput,
@@ -573,12 +583,15 @@ export function computeQuoteMarginSections(
     // billed at face value either way, so it is removed too.
     const effectiveSell = r.subtotalExGst - r.psTotal - r.contingency;
     const effectiveAmount = effectiveSell - r.totalCost;
-    const effectivePct = effectiveSell > 0 ? round1((effectiveAmount / effectiveSell) * 100) : null;
+    // Classify on the UNROUNDED pct (same rule as makeSectionRow) so the threshold
+    // comparison is not skewed by display rounding.
+    const effectiveRawPct = effectiveSell > 0 ? (effectiveAmount / effectiveSell) * 100 : null;
+    const effectivePct = effectiveRawPct === null ? null : round1(effectiveRawPct);
     effectiveMargin = {
       sell: round2(effectiveSell),
       amount: round2(effectiveAmount),
       pct: effectivePct,
-      flag: classifyFlag(effectiveAmount, effectivePct, threshold),
+      flag: classifyFlag(effectiveAmount, effectiveRawPct, threshold),
     };
   }
 
