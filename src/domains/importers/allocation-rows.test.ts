@@ -76,6 +76,12 @@ describe("buildAllocationRows", () => {
     expect(mismatch.quarantine[0]!.reason).toMatch(/!= total/);
   });
 
+  it("quarantines an entry with a positive total but no allocations (would otherwise delete to zero)", () => {
+    expect(build([rec([], 7.6)]).quarantine[0]!.reason).toMatch(/no valid allocations/);
+    expect(build([rec(undefined, 7.6)]).quarantine[0]!.reason).toMatch(/no valid allocations/);
+    expect(build([rec([], 7.6)]).byEntry).toHaveLength(0);
+  });
+
   it("ALLOCATION_INSERT_COLS covers the row keys plus tenant_id + time_entry_id", () => {
     const { byEntry } = build([rec([{ jobId: null, hours: 7.6, sortOrder: 0 }])]);
     expect(new Set(ALLOCATION_INSERT_COLS)).toEqual(
@@ -89,6 +95,31 @@ describe("canonicaliseAllocations", () => {
     const proposed = [{ job_id: "jj1", hours: 5, notes: null, sort_order: 0 }, { job_id: null, hours: 2.6, notes: null, sort_order: 1 }];
     const fromPg = [{ job_id: null, hours: "2.60", notes: null, sort_order: 1 }, { job_id: "jj1", hours: "5.00", notes: null, sort_order: 0 }];
     expect(canonicaliseAllocations(fromPg)).toBe(canonicaliseAllocations(proposed));
+  });
+
+  it("is delimiter-safe — a notes value with | or ; cannot forge a row boundary", () => {
+    const real = [
+      { job_id: null, hours: 5, notes: "Sat work", sort_order: 0 },
+      { job_id: null, hours: 3, notes: "extra", sort_order: 1 },
+    ];
+    const forged = [{ job_id: null, hours: 5, notes: "Sat work|3.00|extra|1", sort_order: 0 }];
+    expect(canonicaliseAllocations(real)).not.toBe(canonicaliseAllocations(forged));
+    // a real job uuid is never confused with a null job_id
+    expect(canonicaliseAllocations([{ job_id: "null", hours: 5, notes: null, sort_order: 0 }])).not.toBe(
+      canonicaliseAllocations([{ job_id: null, hours: 5, notes: null, sort_order: 0 }])
+    );
+  });
+
+  it("is a total order incl. notes — reordering rows that differ only by notes is stable", () => {
+    const a = [
+      { job_id: null, hours: 5, notes: "b", sort_order: 0 },
+      { job_id: null, hours: 5, notes: "a", sort_order: 0 },
+    ];
+    const b = [
+      { job_id: null, hours: 5, notes: "a", sort_order: 0 },
+      { job_id: null, hours: 5, notes: "b", sort_order: 0 },
+    ];
+    expect(canonicaliseAllocations(a)).toBe(canonicaliseAllocations(b));
   });
 
   it("differs when hours, job, notes, or count change", () => {

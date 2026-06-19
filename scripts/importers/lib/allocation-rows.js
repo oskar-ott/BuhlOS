@@ -34,23 +34,26 @@ function strOrNull(v) {
 }
 
 /**
- * Stable string for an allocation set — order-independent (sorted by
- * sort_order then job_id then hours) so two sets compare equal regardless of
- * input ordering. hours via Number(...).toFixed(2) so a JS number (proposed)
- * and a numeric(4,2) string (Postgres) canonicalise identically.
+ * Stable string for an allocation set — order-independent so two sets compare
+ * equal regardless of input ordering. Each row is a JSON tuple
+ * [job_id|null, hours-2dp-string, notes|null, sort_order]; JSON.stringify
+ * escapes embedded quotes/delimiters (so a notes value containing | or ; can't
+ * forge a row boundary) and keeps null distinct from the literal "null". hours
+ * via Number(...).toFixed(2) so a JS number (proposed) and a numeric(4,2)
+ * string (Postgres) canonicalise identically. The sort is a TOTAL order
+ * (sort_order, job_id, hours, notes) so equal sets always serialise identically.
  * @param {Array<{job_id:string|null,hours:number|string,notes:string|null,sort_order:number}>} rows
  */
 function canonicaliseAllocations(rows) {
-  return (rows || [])
-    .slice()
-    .sort(
-      (a, b) =>
-        a.sort_order - b.sort_order ||
-        String(a.job_id ?? '').localeCompare(String(b.job_id ?? '')) ||
-        Number(a.hours) - Number(b.hours)
-    )
-    .map((r) => `${r.job_id ?? 'null'}|${Number(r.hours).toFixed(2)}|${r.notes ?? ''}|${r.sort_order}`)
-    .join(';');
+  const tuples = (rows || []).map((r) => [r.job_id ?? null, Number(r.hours).toFixed(2), r.notes ?? null, r.sort_order]);
+  tuples.sort(
+    (a, b) =>
+      a[3] - b[3] ||
+      String(a[0]).localeCompare(String(b[0])) ||
+      a[1].localeCompare(b[1]) ||
+      String(a[2]).localeCompare(String(b[2]))
+  );
+  return JSON.stringify(tuples);
 }
 
 /**
@@ -101,9 +104,15 @@ function buildAllocationRows({ records = [], userMap = new Map(), jobMap = new M
     });
     if (quarantined) continue;
 
+    // Every time_entry has total_hours > 0 (schema CHECK), so an entry with no
+    // valid allocations is invalid (prod requires >=1 summing to total).
+    // Quarantine it — accepting canonical '' would otherwise make the reconcile
+    // DELETE any existing allocations for this entry down to zero.
+    if (rows.length === 0) { q('no valid allocations for an entry with positive total'); continue; }
+
     // allocation hours must reconcile with the (already-imported) entry total.
     const total = round2(e.totalHours);
-    if (rows.length && Math.abs(round2(sum) - total) >= TOLERANCE) {
+    if (Math.abs(round2(sum) - total) >= TOLERANCE) {
       q(`allocation hours ${round2(sum)} != total ${total}`);
       continue;
     }
