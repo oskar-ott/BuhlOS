@@ -11,7 +11,10 @@ import { describe, expect, it } from "vitest";
 const requireFromHere = createRequire(import.meta.url);
 const p = requireFromHere.resolve("../../../api/_lib/hours-pg.js");
 const { timeEntryRowFromBlob, TIME_ENTRY_INSERT_COLS, TIME_ENTRY_MUTABLE_COLS } = requireFromHere(p) as {
-  timeEntryRowFromBlob: (entry: unknown, ctx: { userUuid: string; date: string; nowIso: string }) => Record<string, unknown>;
+  timeEntryRowFromBlob: (
+    entry: unknown,
+    ctx: { userUuid: string; date: string; nowIso: string; resolveUser?: (id: string) => string | null }
+  ) => Record<string, unknown>;
   TIME_ENTRY_INSERT_COLS: string[];
   TIME_ENTRY_MUTABLE_COLS: string[];
 };
@@ -37,11 +40,30 @@ describe("timeEntryRowFromBlob", () => {
       status: "approved",
       submitted_at: null,
       approved_at: null,
+      approved_by: null,
       rejected_at: null,
       rejected_reason: null,
+      created_by: null,
       source: "phil",
       created_at: "2026-06-01T10:00:00.000Z",
     });
+  });
+
+  it("resolves attribution (approvedBy→approved_by, enteredByUserId→created_by) via resolveUser", () => {
+    const map = new Map([["u_admin", "uuid-admin"], ["u_office", "uuid-office"]]);
+    const row = timeEntryRowFromBlob(
+      { id: "e2", totalHours: 8, ordinaryHours: 8, overtimeHours: 0, status: "approved", approvedBy: "u_admin", enteredByUserId: "u_office" },
+      { userUuid: "uu1", date: "2026-06-03", nowIso: "NOW", resolveUser: (id: string) => map.get(id) || null }
+    );
+    expect(row.approved_by).toBe("uuid-admin");
+    expect(row.created_by).toBe("uuid-office");
+    // an unresolved attribution id → null (entry still valid)
+    const row2 = timeEntryRowFromBlob(
+      { id: "e3", totalHours: 8, ordinaryHours: 8, overtimeHours: 0, status: "approved", approvedBy: "ghost" },
+      { userUuid: "uu1", date: "2026-06-04", nowIso: "NOW", resolveUser: (id: string) => map.get(id) || null }
+    );
+    expect(row2.approved_by).toBeNull();
+    expect(row2.created_by).toBeNull();
   });
 
   it("defaults status→draft, legacy_id→null, created_at→nowIso", () => {

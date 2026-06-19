@@ -74,6 +74,17 @@ async function resolveTenantAndUser(sql, userId) {
   return { tenantId: t[0].id, userUuid: u[0].id };
 }
 
+// Resolve a set of legacy user ids → uuids (for attribution: approvedBy /
+// enteredByUserId). One query; missing ids simply don't appear in the map.
+async function resolveUsers(sql, tenantId, legacyIds) {
+  if (!legacyIds.length) return new Map();
+  const rows = await sql`
+    select id, legacy_user_id from public.user_profiles
+    where tenant_id = ${tenantId} and legacy_user_id in ${sql(legacyIds)} and deleted_at is null
+  `;
+  return new Map(rows.map((r) => [r.legacy_user_id, r.id]));
+}
+
 /**
  * Mirror one time-entry create/edit/status-change into Postgres. Best-effort —
  * NEVER throws. `deps` lets tests inject isFlagOn/getDb.
@@ -99,10 +110,16 @@ async function mirrorEntryWrite(db, userId, entry) {
   const resolved = await resolveTenantAndUser(sql, userId);
   if (!resolved) return { mirrored: false, reason: 'tenant/user not mirrored' };
 
+  // Resolve the attribution legacy ids (approvedBy/enteredByUserId) too, except
+  // the entry's own user which we already have. Best-effort: unresolved → NULL.
+  const attrIds = [entry.approvedBy, entry.enteredByUserId].filter((x) => x && x !== userId);
+  const attrMap = await resolveUsers(sql, resolved.tenantId, [...new Set(attrIds)]);
+
   const row = timeEntryRowFromBlob(entry, {
     userUuid: resolved.userUuid,
     date: entry.date,
     nowIso: new Date().toISOString(),
+    resolveUser: (legacyId) => (legacyId === userId ? resolved.userUuid : attrMap.get(legacyId) || null),
   });
   const bad = malformedReason(row);
   if (bad) {
