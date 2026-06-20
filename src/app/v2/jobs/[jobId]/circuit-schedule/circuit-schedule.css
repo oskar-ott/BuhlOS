@@ -1,0 +1,307 @@
+/* Circuit Schedule — scoped port of the BuhlOS Circuit Schedule design
+   (.design-cache/circuit-schedule/{ops/ops-base.css,circuit/cs.css}). Every rule
+   is namespaced under .cs-scope so the design tokens and component classes can be
+   pixel-faithful without leaking into the Tailwind app (the login-screen precedent).
+   Light theme only for v1. */
+
+.cs-scope {
+  --bg: #f4f5f7; --paper: #fff; --paper-2: #f8f9fb; --paper-3: #eef0f4;
+  --navy: #0d1b34; --ink: #0d1b34; --ink-2: #36446b; --ink-3: #6a7591; --ink-4: #9aa3bc;
+  --rule: #dde1ea; --rule-2: #c8cee0;
+  --yellow: #f5d020; --yellow-ink: #1d1700;
+  --red: #c0312f; --red-bg: #fbeceb; --amber: #d18b1c; --amber-bg: #faf2e1; --amber-bd: #ecd5a5;
+  --green: #1f8b5a; --green-bg: #e6f3ec;
+  --header-bg: var(--navy); --header-ink: #fff;
+  --cs-row: 36px; --cs-cell: 6px 10px; --cs-fz: 12px;
+  color: var(--ink);
+  font-family: "Inter", system-ui, sans-serif; font-size: 13px; line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  display: flex; flex-direction: column; gap: 16px; min-height: 0; flex: 1;
+}
+.cs-scope .mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+/* page header */
+.cs-scope .bos-pagehdr { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.cs-scope .bos-pagehdr h1 { font-family: "Inter Tight", sans-serif; font-weight: 700; font-size: 26px; color: var(--ink); letter-spacing: -.024em; line-height: 1.12; }
+.cs-scope .bos-pagehdr .sub { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: var(--ink-3); letter-spacing: .12em; text-transform: uppercase; margin-top: 8px; }
+.cs-scope .bos-pagehdr-actions { display: flex; gap: 6px; }
+
+/* buttons */
+.cs-scope .btn { height: 30px; padding: 0 12px; background: var(--paper); color: var(--ink); border: 1px solid var(--rule-2); border-radius: 6px; font-family: "Inter Tight", sans-serif; font-weight: 600; font-size: 12px; letter-spacing: -.01em; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.cs-scope .btn:disabled { opacity: .5; cursor: not-allowed; }
+.cs-scope .btn.primary { background: var(--yellow); color: var(--yellow-ink); border-color: var(--yellow); }
+.cs-scope .btn.dark { background: var(--header-bg); color: var(--header-ink); border-color: var(--header-bg); }
+.cs-scope .btn.ghost { background: transparent; }
+
+/* pills */
+.cs-scope .pill { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 2px; font-family: "JetBrains Mono", monospace; font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; white-space: nowrap; }
+.cs-scope .pill.green { background: var(--green-bg); color: var(--green); }
+.cs-scope .pill.amber { background: var(--amber-bg); color: var(--amber); }
+.cs-scope .pill.red { background: var(--red-bg); color: var(--red); }
+.cs-scope .pill.grey { background: var(--paper-3); color: var(--ink-2); }
+.cs-scope .pill.navy { background: var(--header-bg); color: var(--yellow); }
+.cs-scope .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; margin-right: 6px; vertical-align: 1px; }
+.cs-scope .pill .dot.amber { background: var(--amber); } .cs-scope .pill .dot.red { background: var(--red); } .cs-scope .pill .dot.grey { background: var(--ink-4); }
+
+/* KPI strip */
+.cs-scope .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.cs-scope .kpi { background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; }
+.cs-scope .kpi .lbl { font-family: "JetBrains Mono", monospace; font-size: 9.5px; font-weight: 600; color: var(--ink-3); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 6px; }
+.cs-scope .kpi .num { font-family: "Inter Tight", sans-serif; font-weight: 700; font-size: 26px; color: var(--ink); letter-spacing: -.024em; line-height: 1; font-variant-numeric: tabular-nums; }
+.cs-scope .kpi .num.warn { color: var(--red); } .cs-scope .kpi .num.amber { color: var(--amber); } .cs-scope .kpi .num.ok { color: var(--green); }
+.cs-scope .kpi .delta { font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--ink-3); margin-top: 4px; letter-spacing: .04em; }
+
+/* ─── BOARD OVERVIEW ─── */
+.cs-scope .cs-board-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+@media (max-width: 1100px) { .cs-scope .cs-board-grid { grid-template-columns: 1fr; } }
+.cs-scope .cs-bcard { background: var(--paper); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px 14px; display: flex; flex-direction: column; gap: 13px; cursor: pointer; transition: border-color .12s, box-shadow .12s; position: relative; overflow: hidden; text-align: left; }
+.cs-scope .cs-bcard:hover { border-color: var(--rule-2); box-shadow: 0 4px 16px rgba(13,27,52,.06); }
+.cs-scope .cs-bcard.issued { background: var(--paper-2); }
+.cs-scope .cs-bcard.draft { border-style: dashed; }
+.cs-scope .cs-bcard .bc-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.cs-scope .cs-bcard .bc-id { display: flex; align-items: center; gap: 11px; }
+.cs-scope .cs-bcard .bc-ico { width: 40px; height: 40px; border-radius: 9px; background: var(--navy); color: var(--yellow); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.cs-scope .cs-bcard .bc-ico svg { width: 22px; height: 22px; }
+.cs-scope .cs-bcard .bc-name { font-family: "Inter Tight", sans-serif; font-weight: 700; font-size: 17px; letter-spacing: -.02em; color: var(--ink); line-height: 1.1; }
+.cs-scope .cs-bcard .bc-name small { display: block; font-family: "JetBrains Mono", monospace; font-weight: 500; font-size: 9.5px; color: var(--ink-3); letter-spacing: .08em; margin-top: 3px; text-transform: uppercase; }
+.cs-scope .cs-bcard .bc-meta { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.cs-scope .cs-bcard .bc-meta > div { padding: 9px 12px; border-left: 1px solid var(--rule); }
+.cs-scope .cs-bcard .bc-meta > div:first-child { border-left: 0; padding-left: 0; }
+.cs-scope .cs-bcard .bc-meta dt { font-family: "JetBrains Mono", monospace; font-size: 8.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 5px; }
+.cs-scope .cs-bcard .bc-meta dd { margin: 0; font-family: "Inter Tight", sans-serif; font-weight: 700; font-size: 15px; letter-spacing: -.014em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.cs-scope .cs-bcard .bc-meta dd small { font-weight: 500; font-size: 11px; color: var(--ink-3); }
+.cs-scope .cs-bcard .bc-foot { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+.cs-scope .cs-bcard .bc-health { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cs-scope .cs-bcard .bc-edit { font-family: "JetBrains Mono", monospace; font-size: 9.5px; color: var(--ink-3); letter-spacing: .04em; white-space: nowrap; }
+.cs-scope .cs-ways { display: flex; align-items: center; gap: 7px; }
+.cs-scope .cs-ways-track { display: flex; gap: 2px; }
+.cs-scope .cs-ways-track i { width: 5px; height: 14px; border-radius: 1px; background: var(--navy); }
+.cs-scope .cs-ways-track i.spare { background: var(--rule-2); }
+.cs-scope .cs-ways-tx { font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--ink-2); letter-spacing: .04em; white-space: nowrap; }
+.cs-scope .cs-phasemini { display: flex; align-items: center; gap: 5px; }
+.cs-scope .cs-phasemini .pm-bar { width: 30px; height: 7px; border-radius: 2px; background: var(--paper-3); overflow: hidden; display: flex; align-items: flex-end; }
+.cs-scope .cs-phasemini .pm-bar i { width: 100%; background: var(--navy); }
+.cs-scope .cs-phasemini .pm-bar.over i { background: var(--red); }
+.cs-scope .cs-add-board { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1px dashed var(--rule-2); border-radius: 10px; background: transparent; min-height: 168px; color: var(--ink-3); cursor: pointer; transition: border-color .12s, color .12s; }
+.cs-scope .cs-add-board:hover { border-color: var(--navy); color: var(--ink); }
+.cs-scope .cs-add-board .ab-plus { width: 38px; height: 38px; border-radius: 50%; border: 1.5px solid currentColor; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 300; }
+.cs-scope .cs-add-board b { font-family: "Inter Tight", sans-serif; font-weight: 700; font-size: 14px; letter-spacing: -.014em; }
+.cs-scope .cs-add-board small { font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: .04em; }
+
+/* ─── BUILDER ─── */
+.cs-scope .cs-builder { display: flex; flex-direction: column; gap: 12px; min-height: 0; flex: 1; }
+.cs-scope .cs-hdr { background: var(--paper); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+.cs-scope .cs-hdr-top { display: flex; align-items: center; gap: 14px; padding: 13px 16px; }
+.cs-scope .cs-hdr-top .h-mark { width: 34px; height: 34px; border-radius: 8px; background: var(--navy); color: var(--yellow); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.cs-scope .cs-hdr-top .h-mark svg { width: 19px; height: 19px; }
+.cs-scope .cs-hdr-name { font-family: "Inter Tight", sans-serif; font-weight: 700; font-size: 18px; letter-spacing: -.02em; color: var(--ink); line-height: 1.1; }
+.cs-scope .cs-hdr-name small { font-family: "JetBrains Mono", monospace; font-weight: 500; font-size: 10px; color: var(--ink-3); letter-spacing: .08em; margin-left: 8px; text-transform: uppercase; }
+.cs-scope .cs-hdr-sub { font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--ink-3); letter-spacing: .04em; margin-top: 3px; }
+.cs-scope .cs-hdr-collapse { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-family: "JetBrains Mono", monospace; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); cursor: pointer; background: none; border: 0; }
+.cs-scope .cs-hdr-collapse:hover { color: var(--ink); }
+.cs-scope .cs-hdr-collapse .chev { transition: transform .15s; }
+.cs-scope .cs-hdr-collapse.open .chev { transform: rotate(180deg); }
+.cs-scope .cs-supply { display: grid; grid-template-columns: repeat(6, 1fr); border-top: 1px solid var(--rule); }
+@media (max-width: 1100px) { .cs-scope .cs-supply { grid-template-columns: repeat(3, 1fr); } }
+.cs-scope .cs-supply > div { padding: 10px 14px; border-left: 1px solid var(--rule); }
+.cs-scope .cs-supply > div:first-child, .cs-scope .cs-supply > div:nth-child(7) { border-left: 0; }
+.cs-scope .cs-supply dt { font-family: "JetBrains Mono", monospace; font-size: 8.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 5px; }
+.cs-scope .cs-supply dd { margin: 0; font-family: "Inter Tight", sans-serif; font-weight: 600; font-size: 14px; letter-spacing: -.01em; color: var(--ink); }
+.cs-scope .cs-supply dd.editable { cursor: text; border-bottom: 1px dashed transparent; display: inline-block; }
+.cs-scope .cs-supply dd.editable:hover { border-bottom-color: var(--rule-2); }
+.cs-scope .cs-summary { display: flex; align-items: center; gap: 0; border-top: 1px solid var(--rule); background: var(--paper-2); flex-wrap: wrap; }
+.cs-scope .cs-summary .sm { display: flex; align-items: center; gap: 9px; padding: 9px 16px; border-left: 1px solid var(--rule); }
+.cs-scope .cs-summary .sm:first-child { border-left: 0; }
+.cs-scope .cs-summary .sm-lbl { font-family: "JetBrains Mono", monospace; font-size: 8.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+.cs-scope .cs-summary .sm-val { font-family: "Inter Tight", sans-serif; font-weight: 700; font-size: 15px; letter-spacing: -.014em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.cs-scope .cs-summary .sm-val.warn { color: var(--red); } .cs-scope .cs-summary .sm-val.ok { color: var(--green); } .cs-scope .cs-summary .sm-val.amber { color: var(--amber); }
+.cs-scope .cs-summary .sm-spacer { flex: 1; }
+.cs-scope .cs-pchips { display: flex; gap: 5px; }
+.cs-scope .cs-pchip { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 3px 8px; border-radius: 5px; background: var(--paper); border: 1px solid var(--rule); min-width: 44px; }
+.cs-scope .cs-pchip .pp { font-family: "JetBrains Mono", monospace; font-size: 8px; font-weight: 600; letter-spacing: .1em; color: var(--ink-3); }
+.cs-scope .cs-pchip .pa { font-family: "Inter Tight", sans-serif; font-weight: 700; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1; }
+.cs-scope .cs-pchip.hi { border-color: var(--amber-bd); background: var(--amber-bg); }
+.cs-scope .cs-pchip.hi .pa { color: var(--amber); }
+.cs-scope .cs-body { display: grid; gap: 12px; min-height: 0; flex: 1; }
+.cs-scope .cs-body.rail-side { grid-template-columns: 1fr 268px; }
+@media (max-width: 1080px) { .cs-scope .cs-body.rail-side { grid-template-columns: 1fr; } }
+.cs-scope .cs-gridcard { background: var(--paper); border: 1px solid var(--rule); border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+.cs-scope .cs-presets { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+.cs-scope .cs-presets .pl { font-family: "JetBrains Mono", monospace; font-size: 8.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); margin-right: 2px; }
+.cs-scope .cs-preset { height: 28px; padding: 0 11px 0 9px; border: 1px solid var(--rule-2); border-radius: 999px; background: var(--paper); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-family: "Inter Tight", sans-serif; font-weight: 600; font-size: 12px; letter-spacing: -.01em; color: var(--ink); transition: background .1s, border-color .1s, transform .08s; }
+.cs-scope .cs-preset:hover { background: var(--navy); color: #fff; border-color: var(--navy); }
+.cs-scope .cs-preset:active { transform: translateY(1px); }
+.cs-scope .cs-preset .pk { font-family: "JetBrains Mono", monospace; font-size: 9px; font-weight: 700; background: var(--paper-3); color: var(--ink-2); padding: 1px 5px; border-radius: 3px; }
+.cs-scope .cs-preset:hover .pk { background: rgba(255,255,255,.18); color: #fff; }
+.cs-scope .cs-tablewrap { overflow: auto; min-height: 0; flex: 1; }
+.cs-scope table.cs-grid { border-collapse: collapse; width: 100%; font-size: var(--cs-fz); }
+.cs-scope table.cs-grid thead th { position: sticky; top: 0; z-index: 2; text-align: left; padding: 8px 10px; background: var(--paper-3); font-family: "JetBrains Mono", monospace; font-size: 8.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; border-bottom: 1px solid var(--rule-2); }
+.cs-scope table.cs-grid thead th.num { text-align: right; }
+.cs-scope table.cs-grid tbody td { padding: var(--cs-cell); border-bottom: 1px solid var(--rule); vertical-align: middle; white-space: nowrap; color: var(--ink-2); }
+.cs-scope table.cs-grid tbody tr { transition: background .08s; }
+.cs-scope table.cs-grid tbody tr:hover { background: var(--paper-2); }
+.cs-scope table.cs-grid tbody tr.sel { background: var(--amber-bg); }
+.cs-scope table.cs-grid tbody tr.warn-row td.c-way { box-shadow: inset 3px 0 0 var(--amber); }
+.cs-scope table.cs-grid tbody tr.err-row td.c-way { box-shadow: inset 3px 0 0 var(--red); }
+.cs-scope .c-way { font-family: "JetBrains Mono", monospace; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; text-align: center; width: 38px; }
+.cs-scope .c-desc { min-width: 180px; white-space: normal; }
+.cs-scope .c-desc .dtxt { font-family: "Inter Tight", sans-serif; font-weight: 600; font-size: calc(var(--cs-fz) + 1px); color: var(--ink); letter-spacing: -.01em; }
+.cs-scope .cs-mono { font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.cs-scope .num { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", monospace; }
+.cs-scope .c-edit { border-bottom: 1px dashed var(--rule-2); cursor: text; padding: 1px 3px; border-radius: 3px; margin: -1px -3px; transition: border-color .1s, background .1s; display: inline-block; min-width: 8px; }
+.cs-scope td:hover .c-edit { border-bottom-color: var(--ink-4); }
+.cs-scope .c-edit:hover { background: var(--paper-2); }
+.cs-scope .c-edit:focus { outline: none; background: var(--paper); border-bottom-color: var(--navy); box-shadow: 0 0 0 2px rgba(245,208,32,.35); }
+.cs-scope .c-sel { -webkit-appearance: none; appearance: none; font-family: "JetBrains Mono", monospace; font-size: 9.5px; font-weight: 600; letter-spacing: .03em; color: var(--ink-2); background-color: var(--paper-3); border: 1px solid var(--rule); border-radius: 4px; padding: 2px 16px 2px 6px; line-height: 1.3; cursor: pointer; max-width: 100%; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2390a' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 4px center; background-size: 9px; }
+.cs-scope .c-sel:hover { border-color: var(--rule-2); background-color: var(--paper); color: var(--ink); }
+.cs-scope .c-sel:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 2px rgba(245,208,32,.35); }
+.cs-scope .c-sel.wide { min-width: 64px; }
+.cs-scope .c-phase { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 20px; border-radius: 4px; font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 11px; cursor: pointer; border: 0; }
+.cs-scope .c-phase.A { background: #e7eefb; color: #2a4d8f; }
+.cs-scope .c-phase.B { background: #fdf0e0; color: #b06d1a; }
+.cs-scope .c-phase.C { background: #e9f3ec; color: #1f7a4d; }
+.cs-scope .c-tag { font-family: "JetBrains Mono", monospace; font-size: 9.5px; font-weight: 600; letter-spacing: .04em; padding: 2px 6px; border-radius: 3px; background: var(--paper-3); color: var(--ink-2); }
+.cs-scope .c-cable { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: var(--ink-2); }
+.cs-scope .c-vd { font-family: "JetBrains Mono", monospace; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cs-scope .c-vd.ok { color: var(--ink-2); } .cs-scope .c-vd.amber { color: var(--amber); } .cs-scope .c-vd.red { color: var(--red); }
+.cs-scope .c-rcd-miss { color: var(--red); font-weight: 700; }
+.cs-scope .c-actions { width: 64px; text-align: right; }
+.cs-scope .c-actbtns { display: inline-flex; gap: 2px; opacity: .55; transition: opacity .1s; }
+.cs-scope tr:hover .c-actbtns { opacity: 1; }
+.cs-scope .c-actbtn { width: 22px; height: 22px; border: 0; border-radius: 5px; background: transparent; color: var(--ink-3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background .1s, color .1s; }
+.cs-scope .c-actbtn:hover { background: var(--paper-3); color: var(--ink); }
+.cs-scope .c-actbtn.del { color: var(--red); }
+.cs-scope .c-actbtn.del:hover { background: var(--red-bg); color: var(--red); }
+.cs-scope .c-actbtn svg { width: 14px; height: 14px; }
+.cs-scope .c-grip-cell { width: 24px; padding-left: 6px !important; padding-right: 0 !important; text-align: center; }
+.cs-scope .c-grip { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 22px; border-radius: 4px; color: var(--ink-4); opacity: .4; cursor: grab; transition: opacity .1s, color .1s, background .1s; }
+.cs-scope tr:hover .c-grip { opacity: 1; }
+.cs-scope .c-grip:hover { background: var(--paper-3); color: var(--navy); }
+.cs-scope .c-grip svg { width: 15px; height: 15px; }
+.cs-scope table.cs-grid tbody tr.dragging { opacity: .45; }
+.cs-scope table.cs-grid tbody tr.dragging td { background: var(--amber-bg); }
+.cs-scope table.cs-grid tbody tr.drop-before > td { box-shadow: inset 0 2px 0 0 var(--navy); }
+.cs-scope table.cs-grid tbody tr.drop-after > td { box-shadow: inset 0 -2px 0 0 var(--navy); }
+.cs-scope tr.cs-spare td { color: var(--ink-4); background: repeating-linear-gradient(90deg, transparent 0 14px, var(--paper-2) 14px 15px); cursor: pointer; }
+.cs-scope tr.cs-spare .c-way { color: var(--ink-4); }
+.cs-scope tr.cs-spare .spare-lbl { font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-4); }
+.cs-scope tr.cs-spare .spare-add { font-family: "Inter Tight", sans-serif; font-weight: 600; font-size: 11.5px; color: var(--ink-3); }
+.cs-scope tr.cs-spare:hover .spare-add { color: var(--navy); }
+.cs-scope .cs-grid-foot { padding: 9px 14px; border-top: 1px solid var(--rule); display: flex; align-items: center; gap: 10px; }
+.cs-scope .cs-add-row { display: inline-flex; align-items: center; gap: 7px; font-family: "Inter Tight", sans-serif; font-weight: 600; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
+.cs-scope .cs-add-row:hover { color: var(--navy); }
+.cs-scope .cs-add-row .plus { width: 18px; height: 18px; border-radius: 5px; background: var(--navy); color: var(--yellow); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
+.cs-scope .cs-grid-hint { margin-left: auto; font-family: "JetBrains Mono", monospace; font-size: 9.5px; color: var(--ink-4); letter-spacing: .04em; }
+.cs-scope .cs-empty-board { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; flex: 1; padding: 48px; text-align: center; }
+.cs-scope .cs-empty-board .eb-ic { width: 56px; height: 56px; border-radius: 14px; background: var(--paper-3); color: var(--ink-3); display: flex; align-items: center; justify-content: center; }
+.cs-scope .cs-empty-board h3 { font-family: "Inter Tight", sans-serif; font-weight: 700; font-size: 18px; color: var(--ink); letter-spacing: -.018em; }
+.cs-scope .cs-empty-board p { color: var(--ink-3); max-width: 42ch; font-size: 13px; }
+.cs-scope .cs-locked { display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: var(--navy); color: #fff; border-radius: 8px; font-size: 12.5px; }
+.cs-scope .cs-locked .lk-ic { color: var(--yellow); display: flex; }
+.cs-scope .cs-locked b { font-weight: 700; }
+.cs-scope .cs-locked .lk-act { margin-left: auto; }
+
+/* ─── VALIDATION RAIL ─── */
+.cs-scope .cs-rail { background: var(--paper); border: 1px solid var(--rule); border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+.cs-scope .cs-rail-hd { padding: 11px 14px; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 8px; }
+.cs-scope .cs-rail-hd h3 { font-family: "JetBrains Mono", monospace; font-size: 10px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .14em; }
+.cs-scope .cs-rail-hd .rc { margin-left: auto; font-family: "JetBrains Mono", monospace; font-size: 9.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.cs-scope .cs-rail-hd .rc.clean { background: var(--green-bg); color: var(--green); }
+.cs-scope .cs-rail-hd .rc.has { background: var(--red-bg); color: var(--red); }
+.cs-scope .cs-balance { padding: 13px 14px; border-bottom: 1px solid var(--rule); }
+.cs-scope .cs-balance h4 { font-family: "JetBrains Mono", monospace; font-size: 8.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 10px; display: flex; align-items: center; }
+.cs-scope .cs-balance h4 .bs { margin-left: auto; }
+.cs-scope .cs-bars { display: flex; align-items: flex-end; gap: 8px; height: 84px; }
+.cs-scope .cs-bcol { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; justify-content: flex-end; }
+.cs-scope .cs-bcol .bv { font-family: "Inter Tight", sans-serif; font-weight: 700; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1; }
+.cs-scope .cs-bcol .bv small { font-size: 9px; color: var(--ink-3); font-weight: 600; }
+.cs-scope .cs-bcol .bbar { width: 100%; max-width: 36px; border-radius: 4px 4px 0 0; background: var(--navy); transition: height .3s cubic-bezier(.4,0,.2,1); min-height: 3px; }
+.cs-scope .cs-bcol.hi .bbar { background: var(--amber); }
+.cs-scope .cs-bcol .bl { font-family: "JetBrains Mono", monospace; font-size: 9px; font-weight: 600; color: var(--ink-3); letter-spacing: .08em; }
+.cs-scope .cs-bal-foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--ink-2); }
+.cs-scope .cs-bal-foot .imb { font-weight: 700; }
+.cs-scope .cs-rail-list { overflow: auto; min-height: 0; flex: 1; }
+.cs-scope .cs-warn { display: flex; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--rule); cursor: pointer; transition: background .1s; }
+.cs-scope .cs-warn:hover { background: var(--paper-2); }
+.cs-scope .cs-warn .w-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+.cs-scope .cs-warn .w-dot.red { background: var(--red); } .cs-scope .cs-warn .w-dot.amber { background: var(--amber); }
+.cs-scope .cs-warn .w-body { min-width: 0; }
+.cs-scope .cs-warn .w-top { display: flex; align-items: center; gap: 7px; margin-bottom: 2px; }
+.cs-scope .cs-warn .w-way { font-family: "JetBrains Mono", monospace; font-size: 9px; font-weight: 700; letter-spacing: .04em; color: var(--ink); background: var(--paper-3); padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
+.cs-scope .cs-warn .w-code { font-family: "JetBrains Mono", monospace; font-size: 8.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+.cs-scope .cs-warn .w-msg { font-family: "Inter", sans-serif; font-size: 12px; color: var(--ink-2); line-height: 1.35; white-space: normal; }
+.cs-scope .cs-rail-clean { padding: 28px 18px; text-align: center; color: var(--ink-3); }
+.cs-scope .cs-rail-clean .ok-ic { width: 40px; height: 40px; border-radius: 50%; background: var(--green-bg); color: var(--green); display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }
+.cs-scope .cs-rail-clean b { font-family: "Inter Tight", sans-serif; font-weight: 700; font-size: 14px; color: var(--ink); display: block; letter-spacing: -.01em; }
+.cs-scope .cs-rail-clean p { font-size: 12px; margin-top: 4px; }
+
+/* ─── PRINT / EXPORT PREVIEW ─── */
+.cs-scope .cs-preview-wrap { overflow: auto; flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 16px; padding-bottom: 8px; }
+.cs-scope .cs-paper { background: #fff; color: #111; width: 980px; max-width: 100%; border: 1px solid var(--rule); box-shadow: 0 6px 30px rgba(13,27,52,.10); padding: 40px 44px; font-family: "Inter", sans-serif; }
+.cs-scope .cs-paper * { color: inherit; }
+.cs-scope .cs-doc-hd { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; border-bottom: 2px solid #111; padding-bottom: 16px; }
+.cs-scope .cs-doc-hd .dh-left { min-width: 0; }
+.cs-scope .cs-doc-hd .dh-wordmark { font-family: "Inter Tight", sans-serif; font-weight: 800; font-size: 18px; letter-spacing: -.02em; color: #111; margin-bottom: 8px; }
+.cs-scope .cs-doc-hd .dh-eyebrow { font-family: "JetBrains Mono", monospace; font-size: 9px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: #888; margin-bottom: 4px; }
+.cs-scope .cs-doc-hd h1 { font-family: "Inter Tight", sans-serif; font-weight: 800; font-size: 20px; line-height: 1.15; letter-spacing: -.02em; color: #111; margin: 0 0 4px; }
+.cs-scope .cs-doc-hd .dh-sub { font-family: "JetBrains Mono", monospace; font-size: 10px; color: #555; letter-spacing: .08em; text-transform: uppercase; }
+.cs-scope .cs-doc-hd .dh-right { text-align: right; line-height: 1.7; }
+.cs-scope .cs-doc-hd .dh-co { font-family: "Inter Tight", sans-serif; font-weight: 700; font-size: 15px; color: #111; line-height: 1.7; }
+.cs-scope .cs-doc-hd .dh-co small { display: block; font-family: "JetBrains Mono", monospace; font-size: 9px; color: #555; font-weight: 400; letter-spacing: .04em; line-height: 1.6; }
+.cs-scope .cs-doc-meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border: 1px solid #bbb; border-bottom: 0; margin: 18px 0 0; }
+.cs-scope .cs-doc-meta > div { padding: 8px 12px; border-bottom: 1px solid #bbb; border-left: 1px solid #bbb; }
+.cs-scope .cs-doc-meta > div:nth-child(4n+1) { border-left: 0; }
+.cs-scope .cs-doc-meta dt { font-family: "JetBrains Mono", monospace; font-size: 8px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #777; margin-bottom: 3px; }
+.cs-scope .cs-doc-meta dd { margin: 0; font-family: "Inter Tight", sans-serif; font-weight: 700; font-size: 13px; color: #111; }
+.cs-scope table.cs-doc-table { border-collapse: collapse; width: 100%; margin-top: 18px; font-size: 10.5px; }
+.cs-scope table.cs-doc-table th { background: #111; color: #fff; font-family: "JetBrains Mono", monospace; font-size: 8px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding: 7px 6px; text-align: left; white-space: nowrap; }
+.cs-scope table.cs-doc-table th.num, .cs-scope table.cs-doc-table td.num { text-align: right; }
+.cs-scope table.cs-doc-table td { padding: 6px; border-bottom: 1px solid #ddd; border-right: 1px solid #eee; font-variant-numeric: tabular-nums; vertical-align: top; }
+.cs-scope table.cs-doc-table td.dn { font-family: "Inter Tight", sans-serif; font-weight: 600; white-space: normal; }
+.cs-scope table.cs-doc-table tbody tr:nth-child(even) { background: #f7f7f7; }
+.cs-scope table.cs-doc-table tr.spare td { color: #aaa; font-style: italic; }
+.cs-scope .cs-doc-sign { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 28px; }
+.cs-scope .cs-doc-sign .sg { border-top: 1px solid #111; padding-top: 6px; }
+.cs-scope .cs-doc-sign .sg dt { font-family: "JetBrains Mono", monospace; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; color: #777; }
+.cs-scope .cs-doc-sign .sg dd { margin: 4px 0 0; font-size: 12px; color: #111; min-height: 18px; }
+.cs-scope .cs-doc-foot { margin-top: 24px; border-top: 1px solid #ddd; padding-top: 10px; font-family: "JetBrains Mono", monospace; font-size: 8.5px; color: #888; letter-spacing: .04em; display: flex; justify-content: space-between; gap: 16px; }
+
+/* ─── utilities (replace the design's inline styles — JSX `style` is lint-banned) ─── */
+.cs-scope .btn svg { width: 14px; height: 14px; }
+.cs-scope .cs-hdr-collapse .chev { width: 14px; height: 14px; }
+.cs-scope .cs-empty-board .eb-ic svg { width: 26px; height: 26px; }
+.cs-scope .cs-rail-clean .ok-ic svg { width: 20px; height: 20px; }
+.cs-scope .cs-locked .lk-ic svg { width: 16px; height: 16px; }
+.cs-scope .ink3 { color: var(--ink-3); }
+.cs-scope .ink4 { color: var(--ink-4); }
+.cs-scope .upper1 { text-transform: uppercase; letter-spacing: .1em; }
+.cs-scope .titlerow { display: flex; align-items: center; gap: 12px; }
+.cs-scope .bos-pagehdr.center { align-items: center; }
+.cs-scope .cs-view { display: flex; flex-direction: column; gap: 16px; min-height: 0; flex: 1; }
+.cs-scope .btn.pl8 { padding-left: 8px; }
+.cs-scope .h1sm { font-size: 22px !important; }
+.cs-scope .kpi .num .frac { font-size: 14px; color: var(--ink-3); }
+.cs-scope .kpi .num.std { font-size: 19px; }
+.cs-scope .bc-foot.t2 { margin-top: -4px; }
+.cs-scope .tac { text-align: center; }
+.cs-scope .td-ph { text-align: center; width: 34px; }
+.cs-scope .u { color: var(--ink-4); }
+.cs-scope .fs9 { font-size: 9px; }
+.cs-scope .fs10 { font-size: 10px; }
+.cs-scope .rcd-cell { font-size: 10px; white-space: nowrap; }
+.cs-scope .method-cell { font-size: 10px; color: var(--ink-3); white-space: nowrap; }
+.cs-scope .c-note { font-size: 9.5px; color: var(--ink-4); margin-top: 1px; }
+.cs-scope .sm-frac { font-size: 12px; color: var(--ink-3); }
+.cs-scope .sm-of { font-size: 10px; color: var(--ink-3); }
+.cs-scope .cs-bal-foot .imb.green { color: var(--green); }
+.cs-scope .cs-bal-foot .imb.amber { color: var(--amber); }
+.cs-scope .cs-bal-foot .imb.red { color: var(--red); }
+.cs-scope .dh-fedfrom { font-size: 11px; }
+.cs-scope table.cs-doc-table td.dn .doc-note { font-size: 8.5px; color: #888; font-weight: 400; }
+.cs-scope table.cs-doc-table td.method { font-size: 9px; }
+
+@media print {
+  body * { visibility: hidden !important; }
+  .cs-scope .cs-paper, .cs-scope .cs-paper * { visibility: visible !important; }
+  .cs-scope .cs-paper { position: absolute; left: 0; top: 0; box-shadow: none; border: 0; width: 100%; padding: 0; }
+}
