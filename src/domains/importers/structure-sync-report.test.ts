@@ -117,3 +117,40 @@ describe("buildStructureSyncReport", () => {
     expect(r.pgDeleted).toBe(2);
   });
 });
+
+const tpl = (key: string, over: Record<string, unknown> = {}) => ({
+  key, job_legacy_id: "j1", site_area_legacy_id: null, stage: "roughIn",
+  legacy_id: "t1", name: "T", sort_order: 0, deleted: false, ...over,
+});
+function sideT(templates: unknown[]) {
+  return { jobs: [], groups: [], areas: [], templates, unmappable: [] };
+}
+
+describe("buildStructureSyncReport — templates section (J2)", () => {
+  it("PASS when templates match; templates count into totals + hash", () => {
+    const k = '["j1",null,"roughIn","t1"]';
+    const r = buildStructureSyncReport({ blob: sideT([tpl(k)]), pg: sideT([tpl(k)]) });
+    expect(r.status).toBe("pass");
+    expect(r.blobCount).toBe(1);
+    expect(r.details.sections.templates!.matched).toBe(1);
+    expect(r.blobHash).toBe(r.pgHash);
+  });
+
+  it("FAIL only_in_blob (a template never imported)", () => {
+    const r = buildStructureSyncReport({ blob: sideT([tpl("k1"), tpl("k2")]), pg: sideT([tpl("k1")]) });
+    expect(r.status).toBe("fail");
+    expect(r.details.sections.templates!.onlyInBlob).toContain("k2");
+  });
+
+  it("FAIL mismatched when a written field (name) diverges", () => {
+    const r = buildStructureSyncReport({ blob: sideT([tpl("k1", { name: "Rough" })]), pg: sideT([tpl("k1", { name: "Rough-in" })]) });
+    expect(r.status).toBe("fail");
+    expect(r.details.sections.templates!.mismatchedCount).toBe(1);
+  });
+
+  it("a differing archive STATE on a template is a mismatch", () => {
+    const r = buildStructureSyncReport({ blob: sideT([tpl("k1", { deleted: true })]), pg: sideT([tpl("k1", { deleted: false })]) });
+    expect(r.status).toBe("fail");
+    expect(r.details.sections.templates!.mismatchedCount).toBe(1);
+  });
+});

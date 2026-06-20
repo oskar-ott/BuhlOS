@@ -1,14 +1,17 @@
 #!/usr/bin/env node
-// Structure importer: tenant → user_profiles → jobs → site_area_groups → site_areas.
+// Structure importer: tenant → user_profiles → jobs → site_area_groups →
+//                      site_areas → job_task_templates.
 //
 //   node scripts/importers/structure-import.js            # dry-run (no writes)
 //   node scripts/importers/structure-import.js --write    # apply to the target
 //   node scripts/importers/structure-import.js --json
 //
-// FK-root slice (PR #585) populated tenant/users/jobs; J1 adds the place facets
-// site_area_groups + site_areas. Operator-run, NOT wired to any route/deploy/cron.
-// Does NOT import job_task_templates/tasks (J2/J3 — task identity must bind to the
-// canonical task index, never minted blind here).
+// FK-root slice (PR #585) populated tenant/users/jobs; J1 added the place facets
+// site_area_groups + site_areas; J2 adds job_task_templates (the task PLAN — the
+// job-level default + per-area override lists as raw DEFINITIONS). Operator-run,
+// NOT wired to any route/deploy/cron. Does NOT import concrete `tasks` or
+// task_status_events (J3 — task-INSTANCE identity must bind to the canonical task
+// index, never minted blind here).
 //
 // Safety / honesty:
 //   * Guarded: --write opens getDb({ mode: 'write' }); the env guard runs FIRST,
@@ -17,20 +20,26 @@
 //     uses mode:'read'.
 //   * Idempotent: upserts on the legacy unique keys (tenants.slug,
 //     user_profiles(tenant_id,legacy_user_id), jobs(tenant_id,legacy_id),
-//     site_area_groups/site_areas(tenant_id,legacy_id)). The DO UPDATE carries an
-//     IS DISTINCT FROM guard, so an unchanged re-run does ZERO row writes. For
-//     groups/areas the archive dimension is compared on deleted_at NULL-ness (not
-//     the proxy timestamp) and the CASE preserves an existing deleted_at, so an
-//     already-archived row never churns — re-run = 0 inserted, 0 updated.
+//     site_area_groups/site_areas(tenant_id,legacy_id), and the two PARTIAL
+//     job_task_templates indexes — job-level (tenant,job,stage,legacy_id) and
+//     area-override (tenant,site_area_id,stage,legacy_id)). The DO UPDATE carries
+//     an IS DISTINCT FROM guard, so an unchanged re-run does ZERO row writes. For
+//     groups/areas/templates the archive dimension is compared on deleted_at
+//     NULL-ness (not the proxy timestamp) and the CASE preserves an existing
+//     deleted_at, so an already-archived row never churns — re-run = 0/0.
+//   * Template legacy_id is the BARE blob taskId (the partial indexes scope it by
+//     job/area+stage); required_photo_count/requires_note/is_active/description are
+//     PG-owned (no blob source) — never written, so admin-authored evidence
+//     requirements survive a re-import.
 //   * Reuses the existing 'buhl' tenant + the 9 imported jobs (matched on
-//     legacy_id) — never duplicates them. Group/area FKs resolve job_id /
-//     group_id by legacy_id INSIDE the transaction.
-//   * Transactional: tenant + users + jobs + groups + areas commit in ONE
-//     transaction; any failure rolls the whole import back.
-//   * Quarantine, never guess: an unknown role/status, duplicate legacy id, or a
-//     group/area composite-legacy-id collision quarantines and aborts before any
-//     write (exit 1).
-//   * Deferred (own slices): job_members; job_task_templates/tasks;
+//     legacy_id) — never duplicates them. Group/area/template FKs resolve
+//     job_id / group_id / site_area_id by legacy_id INSIDE the transaction.
+//   * Transactional: tenant + users + jobs + groups + areas + templates commit in
+//     ONE transaction; any failure rolls the whole import back.
+//   * Quarantine, never guess: an unknown role/status, duplicate legacy id, a
+//     group/area composite-legacy-id collision, or a duplicate template within a
+//     (job|area, stage) quarantines and aborts before any write (exit 1).
+//   * Deferred (own slices): job_members; concrete tasks/task_status_events (J3);
 //     jobs.client_user_id/created_by/modules.
 //
 // Contract: docs/supabase-importer-plan.md · audit: docs/audits/jobs-tasks-supabase-j0-audit.md
@@ -45,6 +54,8 @@ const {
   AREA_MUTABLE_COLS,
   GROUP_INSERT_COLS,
   AREA_INSERT_COLS,
+  TEMPLATE_MUTABLE_COLS,
+  TEMPLATE_INSERT_COLS,
 } = require('./lib/structure-rows');
 const { getDb, closeDb } = require('../../api/_lib/supabase-db');
 
@@ -124,7 +135,7 @@ async function legacyIdMap(sql, table, tenantId) {
   return new Map(rows.map((r) => [r.legacy_id, r.id]));
 }
 
-async function writeAll(sql, { tenantRow, userRows, jobRows, groupRows, areaRows }) {
+async function writeAll(sql, { tenantRow, userRows, jobRows, groupRows, areaRows, templateRows }) {
   return sql.begin(async (sql) => {
     // Tenant: insert once, then read its id — fully idempotent (no re-touch).
     let rows = await sql`
@@ -208,6 +219,48 @@ async function writeAll(sql, { tenantRow, userRows, jobRows, groupRows, areaRows
         `
       : [];
 
+    // ── J2: job_task_templates ──────────────────────────────────────────────
+    // Resolve area uuids (after the area upsert) for per-area override templates.
+    // Split by level: job-level (site_area_id NULL) and area-level rows target
+    // DIFFERENT partial unique indexes, so they need separate ON CONFLICT upserts.
+    const areaMap = await legacyIdMap(sql, 'site_areas', tenantId);
+    const tplJobLevel = [];
+    const tplAreaLevel = [];
+    for (const r of templateRows || []) {
+      const job_id = jobMap.get(r.job_legacy_id);
+      if (!job_id) throw new Error(`template ${r.legacy_id}: job legacy_id ${r.job_legacy_id} not found in Postgres`);
+      let site_area_id = null;
+      if (r.site_area_legacy_id) {
+        site_area_id = areaMap.get(r.site_area_legacy_id);
+        if (!site_area_id) throw new Error(`template ${r.legacy_id}: site_area legacy_id ${r.site_area_legacy_id} not found in Postgres`);
+      }
+      const row = {
+        tenant_id: tenantId, job_id, site_area_id, stage: r.stage, legacy_id: r.legacy_id,
+        name: r.name, sort_order: r.sort_order, deleted_at: r.deleted_at, deleted_by: r.deleted_by, created_at: r.created_at,
+      };
+      (site_area_id === null ? tplJobLevel : tplAreaLevel).push(row);
+    }
+
+    const tplJobRet = tplJobLevel.length
+      ? await sql`
+          insert into public.job_task_templates ${sql(tplJobLevel, ...TEMPLATE_INSERT_COLS)}
+          on conflict (tenant_id, job_id, stage, legacy_id) where site_area_id is null and legacy_id is not null
+          do update set ${setExcludedArchiveAware(sql, 'job_task_templates', TEMPLATE_MUTABLE_COLS)}
+          where ${distinctArchiveAware(sql, 'job_task_templates', TEMPLATE_MUTABLE_COLS)}
+          returning (xmax = 0) as inserted
+        `
+      : [];
+
+    const tplAreaRet = tplAreaLevel.length
+      ? await sql`
+          insert into public.job_task_templates ${sql(tplAreaLevel, ...TEMPLATE_INSERT_COLS)}
+          on conflict (tenant_id, site_area_id, stage, legacy_id) where site_area_id is not null and legacy_id is not null
+          do update set ${setExcludedArchiveAware(sql, 'job_task_templates', TEMPLATE_MUTABLE_COLS)}
+          where ${distinctArchiveAware(sql, 'job_task_templates', TEMPLATE_MUTABLE_COLS)}
+          returning (xmax = 0) as inserted
+        `
+      : [];
+
     // Count INSIDE the transaction — on a max:1 pool a separate post-commit
     // query would wait forever for the single connection the transaction just
     // released, so the report counts ride along here.
@@ -219,6 +272,7 @@ async function writeAll(sql, { tenantRow, userRows, jobRows, groupRows, areaRows
       jobs: tally(jobRet, jobRowsT.length),
       site_area_groups: tally(groupRet, groupRowsT.length),
       site_areas: tally(areaRet, areaRowsT.length),
+      job_task_templates: tally([...tplJobRet, ...tplAreaRet], tplJobLevel.length + tplAreaLevel.length),
       after,
     };
   });
@@ -232,7 +286,7 @@ async function currentCounts(sql) {
            (select count(*)::int from public.jobs where deleted_at is null)              as jobs,
            (select count(*)::int from public.site_area_groups where deleted_at is null)  as site_area_groups,
            (select count(*)::int from public.site_areas where deleted_at is null)        as site_areas,
-           (select count(*)::int from public.job_task_templates)                         as job_task_templates,
+           (select count(*)::int from public.job_task_templates where deleted_at is null) as job_task_templates,
            (select count(*)::int from public.tasks)                                      as tasks
   `;
   return {
@@ -251,7 +305,7 @@ async function main() {
 
   const sources = await loadSources();
   const nowIso = new Date().toISOString();
-  const { tenantRow, userRows, jobRows, groupRows, areaRows, quarantine } = buildStructureRows(sources, { nowIso });
+  const { tenantRow, userRows, jobRows, groupRows, areaRows, templateRows, quarantine } = buildStructureRows(sources, { nowIso });
 
   // Quarantine aborts before any write — never import a partially-valid set.
   if (quarantine.length) {
@@ -268,13 +322,14 @@ async function main() {
   const proposed = {
     tenants: 1, user_profiles: userRows.length, jobs: jobRows.length,
     site_area_groups: groupRows.length, site_areas: areaRows.length,
+    job_task_templates: templateRows.length,
   };
 
   let report;
   try {
     if (args.write) {
       const sql = getDb({ mode: 'write' });
-      const result = await writeAll(sql, { tenantRow, userRows, jobRows, groupRows, areaRows });
+      const result = await writeAll(sql, { tenantRow, userRows, jobRows, groupRows, areaRows, templateRows });
       report = { mode: 'write', proposed, result, after: result.after };
     } else {
       const sql = getDb({ mode: 'read' });
@@ -290,7 +345,7 @@ async function main() {
   } else if (report.mode === 'write') {
     console.log('\nStructure import — APPLIED (one transaction)');
     console.log(`tenant: ${report.result.tenantId}`);
-    for (const k of ['users', 'jobs', 'site_area_groups', 'site_areas']) {
+    for (const k of ['users', 'jobs', 'site_area_groups', 'site_areas', 'job_task_templates']) {
       const t = report.result[k];
       console.log(`${k.padEnd(17)} ${t.inserted} inserted · ${t.updated} updated · ${t.unchanged} unchanged (of ${t.total})`);
     }

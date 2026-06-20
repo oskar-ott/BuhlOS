@@ -312,4 +312,5 @@ module.exports = {
   VALID_JOB_STATUSES,
   VALID_TASK_STATES,
   STAGES,
+  STAGE_KEYS,
 };
