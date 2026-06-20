@@ -69,12 +69,20 @@ function reconstructFromPg(rows = {}) {
     const ctx = byJob.get(a.job_legacy);
     if (!ctx) continue;
     const group = a.group_legacy ? ctx.groupsById.get(a.group_legacy) : null;
+    // Fail closed: the Blob model nests every area inside a group (the importer
+    // always sets group_id). An area with no group, or a group_legacy that doesn't
+    // resolve, can't be placed in areaGroups — rather than silently drop it from
+    // the reconstructed shape, throw. readJobsFromPgIfEnabled is best-effort, so
+    // this degrades to a clean Blob fallback rather than serving partial data.
+    if (!group) {
+      throw new Error(`area ${a.legacy_id}: no resolvable group (group_legacy=${a.group_legacy}) — cannot reconstruct the Blob shape`);
+    }
     const area = {
       id: localId(a.legacy_id), name: a.name, spaceType: a.space_type, order: a.sort_order,
       archived: a.archived === true, ...emptyStageLists(),
     };
     ctx.areasById.set(a.legacy_id, area);
-    if (group) group.areas.push(area);
+    group.areas.push(area);
   }
   for (const t of templates) {
     const ctx = byJob.get(t.job_legacy);

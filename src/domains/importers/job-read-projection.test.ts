@@ -69,6 +69,12 @@ describe("reconstructFromPg", () => {
     expect(data.evidence[0]!).toMatchObject({ id: "ev1", kind: "note", note: "hi", areaId: "a1", taskId: null, capturedById: "u1", capturedByName: "Tom", status: "submitted", source: "phil" });
   });
 
+  it("fails closed on an area with no resolvable group (no silent drop → Blob fallback)", () => {
+    const r = rows();
+    r.areas[0]!.group_legacy = null as unknown as string;
+    expect(() => reconstructFromPg(r)).toThrow(/no resolvable group/);
+  });
+
   it("maps archived (deleted_at) PG rows back to archived:true blob entries", () => {
     const r = rows();
     r.groups[0]!.archived = true;
