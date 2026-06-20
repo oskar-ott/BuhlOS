@@ -3,7 +3,12 @@
 // type-checked. Add new flag keys to FlagKey AND the JS REGISTRY together —
 // an unknown key is a type error here and a thrown error at runtime.
 
-export type FlagKey = "supabase_dual_write" | "admin_flags_readout" | "supabase_read_health";
+export type FlagKey =
+  | "supabase_dual_write"
+  | "supabase_read_health"
+  | "supabase_read_hours"
+  | "supabase_read_jobs"
+  | "admin_flags_readout";
 
 export interface FlagDefinition {
   description: string;

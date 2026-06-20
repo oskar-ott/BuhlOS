@@ -55,6 +55,17 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Jobs/tasks read projection (J5): when on, the jobs/tasks DISPLAY read can be
+  // reconstructed from Postgres (api/_lib/job-read-projection) with a Blob
+  // fallback. DARK — no consumer is wired yet (no route/UI cutover); flip
+  // per-environment only after the structure sync-check + read parity prove the
+  // PG graph reconstructs the Blob shape. Blob stays authoritative when off.
+  supabase_read_jobs: {
+    description: 'Reconstruct the jobs/tasks display read from Postgres with a Blob fallback (#152, J5). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // The role-targeting exemplar + ops aid: a small "active flags" readout
   // on the command centre, visible only to the admin tier when enabled.
   admin_flags_readout: {
