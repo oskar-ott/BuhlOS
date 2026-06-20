@@ -88,10 +88,12 @@ function printProjection(p) {
   console.log(`  task instances to create: ${t.instances}  (rough ${t.byStage.roughIn} · fitoff ${t.byStage.fitOff})`);
   console.log(`  status: not_started ${t.byStatus.not_started} · in_progress ${t.byStatus.in_progress} · complete ${t.byStatus.complete}`);
   console.log(`  overrides applied: ${p.overrides}`);
-  console.log(`  suppressed: ${p.suppressed.archivedAreas} archived areas · ${p.suppressed.archivedTemplates} archived templates · ${p.suppressed.unknownState} unknown-state→not_started`);
+  console.log(`  suppressed: ${p.suppressed.archivedAreas} archived areas · ${p.suppressed.archivedTemplates} archived templates`);
   console.log(`  orphaned recorded state: ${p.orphanedState.length}`);
   console.log(`  malformed templates (no id): ${p.malformed.length}`);
+  console.log(`  bad status (outside schema CHECK): ${p.badStatus.length}`);
   console.log(`  collisions (canonical identity): ${p.collisions.length}`);
+  if (p.badStatus.length) console.log(`    bad status e.g. ${JSON.stringify(p.badStatus.slice(0, 5))}`);
   if (p.collisions.length) console.log(`    e.g. ${JSON.stringify(p.collisions.slice(0, 5))}`);
   if (p.malformed.length) console.log(`    malformed e.g. ${JSON.stringify(p.malformed.slice(0, 5))}`);
   if (p.orphanedState.length) console.log(`    orphaned e.g. ${JSON.stringify(p.orphanedState.slice(0, 5))}`);

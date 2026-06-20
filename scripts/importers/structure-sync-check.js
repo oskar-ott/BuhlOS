@@ -18,8 +18,11 @@
 // is compared, never the proxy deleted_at timestamp.
 
 const { buildStructureRows } = require('./lib/structure-rows');
+const { buildTaskProjection } = require('./lib/task-projection');
 const { buildStructureSyncReport } = require('../../api/_lib/structure-sync-report');
 const { getDb, closeDb } = require('../../api/_lib/supabase-db');
+
+const DATA_CONCURRENCY = 8;
 
 function parseArgs(argv) {
   const args = { write: false, json: false, help: false };
@@ -42,6 +45,13 @@ const STRUCTURE_TABLES = new Set(['jobs', 'site_area_groups', 'site_areas', 'job
 // would manufacture false drift).
 function templateKey(jobLegacy, areaLegacy, stage, legacyId) {
   return JSON.stringify([jobLegacy, areaLegacy ?? null, stage, legacyId]);
+}
+// Task business key = the tasks_area_stage_template_uq bridge [area, stage,
+// legacy_template_id]. The importer writes name/status/sort_order (+ identity);
+// task_template_id is compared only as a presence boolean (templateLinked) — the
+// uuid itself is a resolved FK, not a blob-mirrored value (like deleted_by).
+function taskKey(areaLegacy, stage, legacyTemplateId) {
+  return JSON.stringify([areaLegacy, stage, legacyTemplateId]);
 }
 
 // Blob projection — derived from the importer's own row builder so the check can
@@ -75,12 +85,30 @@ function projectBlob(sources, nowIso) {
     stage: r.stage, legacy_id: r.legacy_id, name: r.name, sort_order: r.sort_order,
     deleted: r.deleted_at !== null,
   }));
+  // Tasks: from the SHARED projection engine (the same expansion the importer
+  // writes). Compare importer-written fields (name/status/sort_order) + identity;
+  // task_template_id as a presence boolean only.
+  const proj = buildTaskProjection(sources);
+  const tasks = proj.instances.map((i) => ({
+    key: taskKey(i.areaLegacy, i.stage, i.legacyTemplateId),
+    job_legacy_id: i.jobLegacy, site_area_legacy_id: i.areaLegacy,
+    stage: i.stage, legacy_template_id: i.legacyTemplateId, name: i.name,
+    status: i.status, sort_order: i.sortOrder, template_linked: true,
+  }));
   // Anything the importer would quarantine (and abort on) is, for the check, a
   // blob entity that cannot be mapped to a comparable PG key.
   const unmappable = built.quarantine
     .filter((q) => STRUCTURE_TABLES.has(q.table))
     .map((q) => `${q.table}:${q.id} (${q.reason})`);
-  return { jobs, groups, areas, templates, unmappable };
+  // A non-clean task projection (collision/malformed/bad-status/orphaned) is an
+  // unmappable condition too — it forces FAIL rather than silently dropping rows.
+  if (!proj.clean) {
+    for (const c of proj.collisions) unmappable.push(`tasks:collision ${c.areaLegacy}|${c.stage}|${c.templateId}`);
+    for (const m of proj.malformed) unmappable.push(`tasks:malformed ${m.jobLegacy}/${m.stage}/${m.name}`);
+    for (const b of proj.badStatus) unmappable.push(`tasks:badstatus ${b.areaId}/${b.stage}/${b.taskId}=${b.state}`);
+    for (const o of proj.orphanedState) unmappable.push(`tasks:orphaned ${o.kind} ${o.areaId}/${o.stage}/${o.taskId}`);
+  }
+  return { jobs, groups, areas, templates, tasks, unmappable };
 }
 
 async function readPg(sql, tenantId) {
@@ -125,8 +153,26 @@ async function readPg(sql, tenantId) {
     stage: r.stage, legacy_id: r.legacy_id, name: r.name, sort_order: r.sort_order,
     deleted: r.deleted,
   }));
+  // Tasks: resolve job/area legacy via joins; build the bridge key in JS. Select
+  // ONLY importer-written fields (name/status/sort_order) + identity + a
+  // template-linked presence boolean (task_template_id uuid itself is excluded).
+  const taskRaw = await sql`
+    select jb.legacy_id as job_legacy_id, ar.legacy_id as site_area_legacy_id,
+           t.stage, t.legacy_template_id, t.name, t.status, t.sort_order,
+           (t.task_template_id is not null) as template_linked
+    from public.tasks t
+    left join public.jobs jb on jb.id = t.job_id
+    left join public.site_areas ar on ar.id = t.site_area_id
+    where t.tenant_id = ${tenantId} and t.legacy_template_id is not null and t.deleted_at is null
+  `;
+  const tasks = [...taskRaw].map((r) => ({
+    key: taskKey(r.site_area_legacy_id, r.stage, r.legacy_template_id),
+    job_legacy_id: r.job_legacy_id, site_area_legacy_id: r.site_area_legacy_id,
+    stage: r.stage, legacy_template_id: r.legacy_template_id, name: r.name,
+    status: r.status, sort_order: r.sort_order, template_linked: r.template_linked,
+  }));
   // postgres.js returns query results as array-likes; normalise to plain arrays.
-  return { jobs: [...jobs], groups: [...groups], areas: [...areas], templates };
+  return { jobs: [...jobs], groups: [...groups], areas: [...areas], templates, tasks };
 }
 
 // Records ONE append-only row in public.sync_checks (domain 'structure'). The
@@ -153,7 +199,15 @@ async function recordCheck(sql, tenantId, report, durationMs) {
 async function loadBlob() {
   const { readBlob } = require('../../api/_lib/blob');
   const jobs = await readBlob('jobs.json', null);
-  return { jobs };
+  // Per-job data.json (task state) — needed for the tasks-section projection.
+  const jobData = {};
+  const ids = (jobs && Array.isArray(jobs.jobs) ? jobs.jobs : []).filter((j) => j && j.id).map((j) => j.id);
+  for (let i = 0; i < ids.length; i += DATA_CONCURRENCY) {
+    const chunk = ids.slice(i, i + DATA_CONCURRENCY);
+    const results = await Promise.all(chunk.map((id) => readBlob(`jobs/${id}/data.json`, null)));
+    chunk.forEach((id, idx) => { jobData[id] = results[idx]; });
+  }
+  return { jobs, jobData };
 }
 
 async function main() {

@@ -15,9 +15,11 @@ const { buildTaskProjection } = requireFromHere(p) as {
     clean: boolean;
     totals: { templates: number; instances: number; byStage: { roughIn: number; fitOff: number }; byStatus: { not_started: number; in_progress: number; complete: number } };
     overrides: number;
-    suppressed: { archivedAreas: number; archivedTemplates: number; unknownState: number };
+    suppressed: { archivedAreas: number; archivedTemplates: number };
+    instances: Array<{ jobLegacy: string; areaLegacy: string; stage: string; legacyTemplateId: string; name: string; status: string; sortOrder: number; templateScope: string }>;
     collisions: Array<{ jobLegacy: string; areaLegacy: string; stage: string; templateId: string }>;
     malformed: Array<{ jobLegacy: string; areaLegacy: string; stage: string; name: string }>;
+    badStatus: Array<{ jobLegacy: string; areaId: string; stage: string; taskId: string; state: string }>;
     orphanedState: Array<{ kind: string; jobLegacy: string; areaId: string; stage: string; taskId: string }>;
     jobs: Array<{ jobLegacy: string; name: string; instances: number; areas: Array<{ areaLegacy: string; areaName: string; roughIn: number; fitOff: number }> }>;
   };
@@ -97,15 +99,40 @@ describe("buildTaskProjection", () => {
     expect(r.totals.instances).toBe(1); // the collision is not double-counted
   });
 
-  it("maps recorded blob state to instance status; unknown state → not_started (counted)", () => {
+  it("maps recorded blob state to the schema-CHECK statuses; an out-of-set state FAILS closed (never coerced)", () => {
     const j = job("j1", {
       roughInTasks: [{ id: "r1", name: "R1" }, { id: "r2", name: "R2" }, { id: "r3", name: "R3" }],
       areaGroups: [{ id: "g1", name: "G", areas: [area("a1")] }],
     });
-    const data = { j1: { dwellings: { a1: { roughIn: { tasks: { r1: "complete", r2: "in_progress", r3: "weird" } } } } } };
+    const data = { j1: { dwellings: { a1: { roughIn: { tasks: { r1: "complete", r2: "in_progress", r3: "blocked" } } } } } };
     const r = buildTaskProjection(sources([j], data));
-    expect(r.totals.byStatus).toEqual({ not_started: 1, in_progress: 1, complete: 1 }); // r3 weird → not_started
-    expect(r.suppressed.unknownState).toBe(1);
+    // 'blocked' is NOT in the tasks.status CHECK → flagged, NOT coerced; run is not clean.
+    expect(r.badStatus).toHaveLength(1);
+    expect(r.badStatus[0]).toMatchObject({ taskId: "r3", state: "blocked" });
+    expect(r.clean).toBe(false);
+    // the instance still exists (so the count is honest) with a safe default; the
+    // importer aborts on !clean, so the bad status is never written.
+    expect(r.totals.instances).toBe(3);
+  });
+
+  it("exposes the expanded instance rows (the J3 importer + sync-check consume these)", () => {
+    const j = job("j1", {
+      roughInTasks: [{ id: "r1", name: "Rough 1" }],
+      areaGroups: [{ id: "g1", name: "G", areas: [
+        area("a1"),
+        area("a2", { roughInTasks: [{ id: "x1", name: "Override", order: 5 }] }),
+      ] }],
+    });
+    const data = { j1: { dwellings: { a1: { roughIn: { tasks: { r1: "complete" } } } } } };
+    const r = buildTaskProjection(sources([j], data));
+    expect(r.instances).toHaveLength(2);
+    const def = r.instances.find((i) => i.areaLegacy === compositeLegacyId("j1", "a1"))!;
+    expect(def).toMatchObject({
+      jobLegacy: "j1", areaLegacy: compositeLegacyId("j1", "a1"), stage: "roughIn",
+      legacyTemplateId: "r1", name: "Rough 1", status: "complete", sortOrder: 0, templateScope: "job",
+    });
+    const ovr = r.instances.find((i) => i.areaLegacy === compositeLegacyId("j1", "a2"))!;
+    expect(ovr).toMatchObject({ legacyTemplateId: "x1", templateScope: "area", sortOrder: 5, status: "not_started" });
   });
 
   it("flags orphaned recorded state (no matching template, or non-live area)", () => {
