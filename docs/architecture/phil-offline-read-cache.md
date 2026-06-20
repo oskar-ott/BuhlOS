@@ -9,14 +9,15 @@
 > `src/domains/phil/sw-cache-policy.ts` (pure, unit-tested) and are transcribed
 > into `public/sw.js` (a plain SW script can't import app modules).
 >
-> **Validation status (#575):** the pure cache-policy predicates
-> (`shouldCachePhilPage` / `overflowCount`) and the sw.js drift-guard tokens are
-> **unit-tested**, and `check`/`build`/`check:sw-cache-version` are green. The
-> **live service-worker runtime** — offline serving on an installed PWA,
-> auth-redirect non-caching on a real navigation `fetch`, and cross-session purge
-> on a shared device — is **not exercisable by `next dev` or the test suite** and
-> is **still owed a manual DevTools/airplane validation on a PR preview** before
-> it can be called field-proven. Do not read "shipped" above as "field-validated".
+> **Validation status (#575):** the pure logic (`shouldCachePhilPage`,
+> `overflowCount`, `decidePhilLinkNavigation`, `warmPhilPageCache`) and the sw.js
+> drift-guard tokens are **unit-tested**, and `check`/`build`/`check:sw-cache-version`
+> are green. Cache population, offline serving of a cached page, auth-redirect
+> non-caching, and cross-session purge were **verified live on a PR preview**
+> (DevTools cache inspection + a real network cut). The **offline in-app tap path**
+> (`PhilOfflineLink`) carries its own acceptance test (see "Offline in-app
+> navigation" below) and should be confirmed on a phone/preview before it's
+> called field-proven. Do not read "shipped" above as "field-validated".
 
 ## The model (network-first read cache)
 
@@ -35,10 +36,62 @@
 ## What is deliberately NOT cached
 
 - API responses / `/api/*` (always live or honestly unavailable).
+- **RSC / App-Router flight payloads** (the `?_rsc=` / `RSC: 1` fetches a Next
+  `<Link>` soft-nav issues) — caching these would grow the stale-data surface and
+  fight the no-API-data model. See "Offline in-app navigation" below for how we
+  reach cached *documents* without caching flight.
 - Cross-origin resources, including Blob-hosted photos.
 - Non-`GET` requests.
 - **Auth redirects** — see P1b below.
 - Non-2xx responses.
+
+## Offline in-app navigation (#575 follow-up — `PhilOfflineLink`)
+
+The SW only caches/serves pages for **real document navigations**
+(`request.mode === 'navigate'` — initial load, reload, `window.location.assign`).
+A Next.js `<Link>` tap does a **client-side App-Router/RSC navigation**, which is
+*not* a document request, so the SW neither populates nor serves the page cache
+for it. Two consequences, both fixed here (found while validating PR #597 — reload
+and history worked offline, but tapping My Day → Jobs → Job did not):
+
+- **Retrieval gap:** offline, a `<Link>` tap fires an RSC `fetch` the SW doesn't
+  intercept → a dead tap (no cached doc, no fallback).
+- **Population gap:** online, a page reached *only* by soft-nav is never written
+  to the page cache, so it isn't there to serve offline later.
+
+**`PhilOfflineLink`** (`src/components/phil/PhilOfflineLink.tsx`) is a drop-in
+`<Link>` replacement for Phil internal navigation that renders an identical
+anchor and decides at click time via the pure
+`decidePhilLinkNavigation` (`src/domains/phil/offline-link.ts`):
+
+- **offline →** `preventDefault()` + `window.location.assign(href)` — a real
+  document navigation the SW serves from `buhl-sw-vN-pages` (or `/offline.html`).
+- **online →** behave like a normal `<Link>` (snappy soft-nav) **and**
+  fire-and-forget `warmPhilPageCache(href)` (`src/domains/phil/page-cache.ts`),
+  which fetches the destination **HTML document** and stores it in the same
+  `'-pages'` cache the SW uses — reusing the exact `shouldCachePhilPage` guard so
+  an auth redirect is never warmed in, and **never** fetching RSC/flight or API.
+- Modified / middle / new-tab clicks, non-`_self` targets and object hrefs are
+  left entirely to the browser.
+
+Wired on the offline-critical path: the tab bar (`PhilTabBar`), the jobs list
+rows (`PhilJobsList`), every back link (`PhilBackLink`), the My Day hero
+(`PhilMyDayHero`), and the job-detail / ITP back + plans links. Other secondary
+Phil widgets can adopt it via the same one-line swap. **No SW change** — the SW's
+existing navigate handling already serves the forced document navigation; this is
+purely the client reaching it.
+
+**Manual acceptance test (the in-app tap path — must pass before merge):**
+
+1. Online: open `/phil/my-day`.
+2. Tap through to `/phil/jobs`, then tap into a job (normal UI taps).
+3. Go offline (DevTools → Network → Offline, or airplane mode).
+4. Navigate around inside the job via the in-app links.
+5. Tap **back** to My Day.
+6. Tap **forward** into the same job again **from the normal UI**.
+7. Expected: the cached job page opens — **not** a dead navigation, **not** the
+   login page. A page never opened online shows the `/offline.html` "No signal"
+   card.
 
 ## Cache scoping & cross-user privacy (#575 P1a)
 

@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
 import type { Route } from "next";
 import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { PhilOfflineLink } from "@/components/phil/PhilOfflineLink";
 
 interface PhilBackLinkProps {
   href: Route | string;
@@ -19,7 +19,7 @@ interface PhilBackLinkProps {
  */
 export function PhilBackLink({ href, children, className }: PhilBackLinkProps) {
   return (
-    <Link
+    <PhilOfflineLink
       href={href as Route}
       className={cn(
         "-ml-1 inline-flex min-h-[44px] items-center gap-1 text-sm font-medium text-brand-navy",
@@ -29,6 +29,6 @@ export function PhilBackLink({ href, children, className }: PhilBackLinkProps) {
     >
       <ChevronLeft aria-hidden="true" className="h-4 w-4 shrink-0" />
       {children}
-    </Link>
+    </PhilOfflineLink>
   );
 }
