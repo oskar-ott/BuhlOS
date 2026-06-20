@@ -14,8 +14,13 @@
 // (1:1 with the in-code ct_<hash>); Supabase mints tasks.id. No third identity.
 
 // The mutable cols the upsert overwrites on conflict (everything except the
-// identity key + created_at, which is insert-only / DB-defaulted). Kept in
-// lock-step with the importer's SET and the sync-check's compared fields.
+// identity key — legacy_template_id, stage, site_area_id — and created_at, which
+// is insert-only / DB-defaulted). Kept in lock-step with the importer's SET and
+// the sync-check's compared fields. task_template_id is here (not identity): the
+// identity is legacy_template_id, and task_template_id would only change if an
+// area override were added/removed — which the projection gate already flags
+// upstream — so at import time it is effectively immutable (the IS DISTINCT FROM
+// guard re-writes the identical resolved FK = no-op).
 const TASK_MUTABLE_COLS = ['name', 'status', 'sort_order', 'task_template_id'];
 // created_at omitted → DB default now() (blob has no per-instance timestamp);
 // deleted_at omitted → null (blob has no per-instance archival — archived

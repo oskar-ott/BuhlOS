@@ -93,6 +93,11 @@ function projectBlob(sources, nowIso) {
     key: taskKey(i.areaLegacy, i.stage, i.legacyTemplateId),
     job_legacy_id: i.jobLegacy, site_area_legacy_id: i.areaLegacy,
     stage: i.stage, legacy_template_id: i.legacyTemplateId, name: i.name,
+    // template_linked is an importer PROMISE, not blob data: every expansion
+    // instance resolves task_template_id at write-time (fail-closed), so the blob
+    // side is always true. The PG side reads (task_template_id is not null) — a
+    // mismatch catches a task whose template FK didn't resolve. The uuid itself is
+    // a resolved FK (excluded from the comparison, like deleted_by).
     status: i.status, sort_order: i.sortOrder, template_linked: true,
   }));
   // Anything the importer would quarantine (and abort on) is, for the check, a
