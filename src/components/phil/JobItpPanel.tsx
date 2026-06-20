@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import Link from "next/link";
+import { PhilOfflineLink } from "./PhilOfflineLink";
 import type { Route } from "next";
 import { ChevronRight, ClipboardCheck } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -122,7 +122,7 @@ function ItpRow({ job, instance }: { job: Job; instance: ITPInstance }) {
   const href =
     `/phil/jobs/${encodeURIComponent(job.id)}/itps/${encodeURIComponent(instance.id)}` as Route;
   return (
-    <Link
+    <PhilOfflineLink
       href={href}
       className={cn(
         "flex min-h-[64px] items-center gap-3 rounded-card border border-border bg-surface px-4 py-3",
@@ -155,6 +155,6 @@ function ItpRow({ job, instance }: { job: Job; instance: ITPInstance }) {
         aria-hidden="true"
         className="h-5 w-5 shrink-0 text-text-muted/60"
       />
-    </Link>
+    </PhilOfflineLink>
   );
 }

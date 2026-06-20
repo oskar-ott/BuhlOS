@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { PhilOfflineLink } from "./PhilOfflineLink";
 import { cn } from "@/lib/cn";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { buildPhilWeek, type WeekDayCell, type WeekDayState } from "./philWeek";
@@ -163,7 +163,7 @@ export function PhilWeekStrip({ entries, todayISO, selectedDate }: Props) {
               className={cn(styles.day, DAY_STATE[d.state], isSelected && styles.selected)}
             >
               {tappable ? (
-                <Link
+                <PhilOfflineLink
                   href={`/phil/my-day?fixDate=${d.date}`}
                   prefetch={false}
                   className={styles.dayLink}
@@ -171,7 +171,7 @@ export function PhilWeekStrip({ entries, todayISO, selectedDate }: Props) {
                   aria-current={isSelected ? "date" : undefined}
                 >
                   {cell}
-                </Link>
+                </PhilOfflineLink>
               ) : (
                 cell
               )}
@@ -181,9 +181,9 @@ export function PhilWeekStrip({ entries, todayISO, selectedDate }: Props) {
       </ul>
 
       <div className={styles.weekFoot}>
-        <Link href="/phil/hours" className={styles.seeHistory}>
+        <PhilOfflineLink href="/phil/hours" className={styles.seeHistory}>
           See history →
-        </Link>
+        </PhilOfflineLink>
       </div>
     </section>
   );

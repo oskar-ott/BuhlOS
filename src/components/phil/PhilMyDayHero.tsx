@@ -1,9 +1,9 @@
-import Link from "next/link";
 import type { Route } from "next";
 import { ArrowRight, CheckCircle2, Clock, TriangleAlert } from "lucide-react";
 import type { MyDayHero, MyDayHeroTone } from "@/domains/phil/my-day-hero";
 import styles from "./myDay.module.css";
 import { cn } from "@/lib/cn";
+import { PhilOfflineLink } from "./PhilOfflineLink";
 
 /**
  * My Day hero (#422) — the one "what now" answer, rendered from the pure
@@ -35,10 +35,10 @@ export function PhilMyDayHero({ hero }: { hero: MyDayHero }) {
         <p className={styles.heroTitle}>{hero.title}</p>
         <p className={styles.heroDetail}>{hero.detail}</p>
         {hero.actionLabel && hero.href ? (
-          <Link href={hero.href as Route} className={styles.heroAction} data-testid="my-day-hero-action">
+          <PhilOfflineLink href={hero.href as Route} className={styles.heroAction} data-testid="my-day-hero-action">
             {hero.actionLabel}
             <ArrowRight aria-hidden="true" className="h-4 w-4" />
-          </Link>
+          </PhilOfflineLink>
         ) : null}
       </div>
     </section>

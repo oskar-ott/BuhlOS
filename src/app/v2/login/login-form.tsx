@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { landingFor } from "@/lib/auth/landing";
 import { migrateLocalStorage } from "@/lib/storage/migrate-local-storage";
+import { purgePhilPageCaches } from "@/domains/phil/page-cache";
 import styles from "./login.module.css";
 
 interface LoginFormProps {
@@ -68,6 +69,12 @@ export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
           return;
         }
         const body = (await res.json()) as { user?: { role?: string } };
+        // Wipe any offline /phil page cache left by a PREVIOUS worker on this
+        // (possibly shared) device before the new session loads its own pages
+        // (#575 P1a). Sign-in is the boundary that holds even when no explicit
+        // sign-out ran — cookie expiry or app kill — because taking over the
+        // device requires logging in. Best-effort and never throws.
+        await purgePhilPageCaches();
         const target = next && next.startsWith("/") ? next : landingFor(body.user?.role);
         // Hard navigation so the new session cookie is read by the middleware.
         window.location.assign(target);

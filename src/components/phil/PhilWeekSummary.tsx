@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { PhilOfflineLink } from "./PhilOfflineLink";
 import type { Route } from "next";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
@@ -194,7 +194,7 @@ export function PhilWeekSummary({
               </span>
             </div>
             {row.action ? (
-              <Link
+              <PhilOfflineLink
                 href={row.action.href as Route}
                 className={cn(
                   "shrink-0 rounded-pill border px-4 py-2 text-sm font-medium",
@@ -204,7 +204,7 @@ export function PhilWeekSummary({
                 )}
               >
                 {row.action.label}
-              </Link>
+              </PhilOfflineLink>
             ) : null}
           </li>
         ))}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { PhilOfflineLink } from "./PhilOfflineLink";
 import { Camera, Map as MapIcon } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilActionButton } from "./ui/PhilActionButton";
@@ -648,12 +648,12 @@ export function PhilJobDetail({
   return (
     <div className="space-y-4 pb-2">
       <div className="-mt-1">
-        <Link
+        <PhilOfflineLink
           href="/phil/jobs"
           className="inline-flex items-center gap-1 text-sm text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
         >
           ← All jobs
-        </Link>
+        </PhilOfflineLink>
       </div>
 
       <PhilJobHero job={job} />
@@ -851,13 +851,13 @@ export function PhilJobDetail({
               rotate and page through. Read-only.
             </CardDescription>
             <div className="mt-3">
-              <Link
+              <PhilOfflineLink
                 href={`/phil/jobs/${encodeURIComponent(job.id)}/plans`}
                 className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-card border border-border bg-surface px-4 text-sm font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-subtle"
               >
                 <MapIcon aria-hidden="true" className="h-5 w-5" />
                 Open plan viewer
-              </Link>
+              </PhilOfflineLink>
             </div>
           </Card>
         </section>

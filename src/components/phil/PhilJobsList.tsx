@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import type { Route } from "next";
 import { AlertOctagon, ChevronRight, ClipboardCheck, MapPin } from "lucide-react";
+import { PhilOfflineLink } from "./PhilOfflineLink";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { lastActivityCaption, statusLabel, statusTone } from "@/domains/jobs/format";
@@ -84,7 +84,7 @@ function JobRow({ job }: { job: Job }) {
   const signals = jobOpenWork(job);
   const summary = jobOpenWorkSummary(signals);
   return (
-    <Link
+    <PhilOfflineLink
       href={`/phil/jobs/${encodeURIComponent(job.id)}` as Route}
       className="flex min-h-[88px] items-stretch gap-3 px-4 py-3 hover:bg-surface-subtle focus:bg-surface-subtle focus:outline-none"
       aria-label={summary ? `Open ${job.name} — ${summary}` : `Open ${job.name}`}
@@ -143,6 +143,6 @@ function JobRow({ job }: { job: Job }) {
           className="h-5 w-5 self-center text-text-muted/60"
         />
       </div>
-    </Link>
+    </PhilOfflineLink>
   );
 }

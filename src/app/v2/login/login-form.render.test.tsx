@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
@@ -45,5 +47,30 @@ describe("LoginForm — worker mode (#421)", () => {
     // ...and none of the office testids leak into worker mode.
     expect(html).not.toContain("login-username");
     expect(html).not.toContain("login-password");
+  });
+});
+
+/**
+ * #575 P1a — drift guard: a successful sign-in MUST purge the offline /phil page
+ * cache so a shared device never serves the previous worker's pages. The flow is
+ * a `useTransition` async handler ending in `window.location.assign` (not
+ * cleanly drivable in jsdom), so we assert the source wires the purge on the
+ * sign-in path. `purgePhilPageCaches` itself is behaviour-tested in
+ * src/domains/phil/page-cache.test.ts.
+ */
+describe("LoginForm — clears the offline page cache on sign-in (#575 P1a)", () => {
+  const src = readFileSync(
+    fileURLToPath(new URL("./login-form.tsx", import.meta.url)),
+    "utf8",
+  );
+
+  it("imports and calls purgePhilPageCaches before navigating", () => {
+    expect(src).toContain("purgePhilPageCaches");
+    expect(src).toContain("await purgePhilPageCaches()");
+    // purge must run before the hard navigation that loads the new session.
+    const purgeAt = src.indexOf("await purgePhilPageCaches()");
+    const assignAt = src.indexOf("window.location.assign(target)");
+    expect(purgeAt).toBeGreaterThan(-1);
+    expect(assignAt).toBeGreaterThan(purgeAt);
   });
 });

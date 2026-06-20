@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
 import { Calendar, Briefcase, Wrench, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { PhilOfflineLink } from "./PhilOfflineLink";
 import { PhilCaptureLauncher, type IncomingCapturePhoto } from "./PhilCaptureLauncher";
 import { philJobDetailId } from "./philCapture";
 import { useCaptureLauncher, type QuickCaptureRequest } from "./captureLauncherContext";
@@ -54,7 +54,7 @@ function TabLink({ tab, pathname }: { tab: Tab; pathname: string }) {
   const Icon = tab.icon;
   const isActive = isTabActive(tab, pathname);
   return (
-    <Link
+    <PhilOfflineLink
       href={tab.href}
       aria-current={isActive ? "page" : undefined}
       className="flex flex-1 flex-col items-center justify-center"
@@ -80,7 +80,7 @@ function TabLink({ tab, pathname }: { tab: Tab; pathname: string }) {
           )}
         />
       </span>
-    </Link>
+    </PhilOfflineLink>
   );
 }
 

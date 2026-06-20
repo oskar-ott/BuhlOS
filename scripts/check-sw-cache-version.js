@@ -5,13 +5,16 @@
 // History: the pre-cutover service worker precached the legacy admin
 // shell, and shipping shell changes without a CACHE_VERSION bump left
 // devices replaying stale layouts (the "blank /admin/operations" saga —
-// see git history). The legacy-interface cutover removed all caching from
-// the worker (v9 is push-only and purges every cache on activate), so the
-// stale-asset failure mode is gone. The bump rule stays for a simpler
-// reason: a visible version literal makes fleet rollout auditable — when
-// sw.js behaviour changes you can confirm from any device which worker
-// it runs, and the diff reviewer is forced to acknowledge they're
-// touching the push path every installed phone depends on.
+// see git history). The legacy-interface cutover made v9 push-only; v11
+// (#135 Layer 2) then re-introduced a NETWORK-FIRST offline read cache for
+// /phil/* pages + /_next/static assets (version-scoped, dropped on activate).
+// Because the cache is network-first, a normal page/app deploy is always
+// served live and does NOT need a bump; this check only fires when
+// public/sw.js ITSELF changes. The bump rule then does two jobs: a visible
+// version literal makes fleet rollout auditable (confirm from any device
+// which worker it runs), and the diff reviewer is forced to acknowledge
+// they're touching the push + offline-cache path every installed phone
+// depends on.
 //
 // Rule: public/sw.js differs from origin/main ⇒ the SW_VERSION line must
 // differ too.

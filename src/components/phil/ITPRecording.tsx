@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import Link from "next/link";
+import { PhilOfflineLink } from "./PhilOfflineLink";
 import type { Route } from "next";
 import { Pill } from "@/components/ui/Pill";
 import {
@@ -117,12 +117,12 @@ export function ITPRecording({ job, instance: initial, viewer }: Props) {
   return (
     <div className="space-y-4 pb-2">
       <div className="-mt-1">
-        <Link
+        <PhilOfflineLink
           href={`/phil/jobs/${encodeURIComponent(job.id)}` as Route}
           className="inline-flex items-center gap-1 text-sm text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
         >
           ← Back to job
-        </Link>
+        </PhilOfflineLink>
       </div>
 
       <section
