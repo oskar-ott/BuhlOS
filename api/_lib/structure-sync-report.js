@@ -11,12 +11,17 @@
 //   { jobs: [entity], groups: [entity], areas: [entity], templates: [entity], unmappable: [string] }
 // where each entity is { key, ...stableFields } — the key is the business key
 // (job legacy_id for jobs; the JOB-SCOPED composite legacy_id for groups/areas;
-// the [job, area|null, stage, legacy_id] partial-index tuple for templates). Only
-// fields the importer WRITES are compared. Volatile metadata (uuid id, revision,
-// created_at/updated_at, deleted_at timestamp) AND PG-owned template capabilities
-// the importer never writes (required_photo_count/requires_note/is_active/
-// description) are EXCLUDED before reaching here — only the archive STATE
-// (`deleted` boolean) is compared, never the proxy timestamp.
+// the [job, area|null, stage, legacy_id] partial-index tuple for templates). The
+// caller compares only the BLOB-MIRRORED SEMANTIC fields (identity + name +
+// sort_order + space_type/group_id + the archive STATE). DELIBERATELY EXCLUDED, so
+// they can never manufacture false drift:
+//   * write-once / metadata the importer sets but that carry no blob meaning —
+//     uuid id, tenant_id, revision, created_at/updated_at, the deleted_at TIMESTAMP
+//     (the `deleted` boolean is compared instead, so the proxy timestamp can't
+//     churn), and deleted_by (always NULL — there is no system actor);
+//   * PG-OWNED template capabilities the importer NEVER writes
+//     (required_photo_count/requires_note/is_active/description) — comparing these
+//     would FAIL the moment an admin authors an evidence requirement.
 
 const crypto = require('node:crypto');
 
