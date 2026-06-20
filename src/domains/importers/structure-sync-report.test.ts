@@ -154,3 +154,41 @@ describe("buildStructureSyncReport — templates section (J2)", () => {
     expect(r.details.sections.templates!.mismatchedCount).toBe(1);
   });
 });
+
+const tsk = (key: string, over: Record<string, unknown> = {}) => ({
+  key, job_legacy_id: "j1", site_area_legacy_id: '["j1","a1"]', stage: "roughIn",
+  legacy_template_id: "r1", name: "R1", status: "not_started", sort_order: 0, template_linked: true, ...over,
+});
+function sideTasks(tasks: unknown[]) {
+  return { jobs: [], groups: [], areas: [], templates: [], tasks, unmappable: [] };
+}
+
+describe("buildStructureSyncReport — tasks section (J3)", () => {
+  it("PASS when tasks match; tasks count into totals + hash", () => {
+    const k = '["[\\"j1\\",\\"a1\\"]","roughIn","r1"]';
+    const r = buildStructureSyncReport({ blob: sideTasks([tsk(k)]), pg: sideTasks([tsk(k)]) });
+    expect(r.status).toBe("pass");
+    expect(r.details.sections.tasks!.matched).toBe(1);
+    expect(r.blobHash).toBe(r.pgHash);
+  });
+
+  it("FAIL when a task status diverges (importer-owned field)", () => {
+    const r = buildStructureSyncReport({ blob: sideTasks([tsk("k1", { status: "complete" })]), pg: sideTasks([tsk("k1", { status: "not_started" })]) });
+    expect(r.status).toBe("fail");
+    expect(r.details.sections.tasks!.mismatchedCount).toBe(1);
+  });
+
+  it("FAIL when a task is only in the projection (not written) or only in PG (orphan)", () => {
+    const onlyBlob = buildStructureSyncReport({ blob: sideTasks([tsk("k1"), tsk("k2")]), pg: sideTasks([tsk("k1")]) });
+    expect(onlyBlob.status).toBe("fail");
+    expect(onlyBlob.details.sections.tasks!.onlyInBlob).toContain("k2");
+    const onlyPg = buildStructureSyncReport({ blob: sideTasks([tsk("k1")]), pg: sideTasks([tsk("k1"), tsk("ghost")]) });
+    expect(onlyPg.details.sections.tasks!.onlyInPg).toContain("ghost");
+  });
+
+  it("FAIL when template_linked diverges (a task missing its template FK)", () => {
+    const r = buildStructureSyncReport({ blob: sideTasks([tsk("k1", { template_linked: true })]), pg: sideTasks([tsk("k1", { template_linked: false })]) });
+    expect(r.status).toBe("fail");
+    expect(r.details.sections.tasks!.mismatchedCount).toBe(1);
+  });
+});

@@ -42,15 +42,16 @@ function buildTaskProjection(sources = {}) {
   const jobData = sources.jobData || {};
 
   const jobs = [];
+  const instances = []; // the EXPANDED task instance rows — the J3 importer + sync-check consume these
   const collisions = [];
   const malformed = []; // effective entry with no id → no valid legacy_template_id (J2 would quarantine)
+  const badStatus = []; // recorded state outside the schema CHECK — fail closed, NEVER coerce
   const orphanedState = [];
   let templates = 0; // distinct live template DEFINITIONS (job-level + live-area overrides) = the J2 count
-  let instances = 0;
   let overrides = 0; // (area, stage) lists sourced from a live area override
   const byStage = { roughIn: 0, fitOff: 0 };
   const byStatus = { not_started: 0, in_progress: 0, complete: 0 };
-  const suppressed = { archivedAreas: 0, archivedTemplates: 0, unknownState: 0 };
+  const suppressed = { archivedAreas: 0, archivedTemplates: 0 };
 
   const seenIdentity = new Set(); // `${areaLegacy}|${stage}|${taskId}` — the canonical bridge
 
@@ -87,6 +88,10 @@ function buildTaskProjection(sources = {}) {
       for (const stage of STAGES) {
         const overrideList = liveTemplateEntries(area[STAGE_KEYS[stage]]);
         if (overrideList.length) overrides += 1;
+        // templateScope tells J3 which job_task_templates row this instance links
+        // to: an area override → the area-level template; otherwise the job-level
+        // default. This is the override-WINS resolution effectiveEntries applied.
+        const templateScope = overrideList.length ? 'area' : 'job';
         for (const entry of effectiveEntries(job, area, stage)) {
           // effectiveEntries only requires a name; a template with no id has no
           // valid legacy_template_id, so J2 would quarantine it. Flag it here too
@@ -107,15 +112,31 @@ function buildTaskProjection(sources = {}) {
           const recorded = dwellings[area.id] && dwellings[area.id][stage] && dwellings[area.id][stage].tasks
             ? dwellings[area.id][stage].tasks[entry.id]
             : undefined;
+          // Status maps ONLY to the schema CHECK set (VALID_TASK_STATES =
+          // not_started/in_progress/complete). No recorded state → not_started
+          // (the normal unrecorded case). A recorded value OUTSIDE the set (incl.
+          // a hypothetical 'blocked', which the tasks.status CHECK forbids) is
+          // flagged badStatus → clean=false → the importer ABORTS. Never coerced.
           let status = 'not_started';
-          if (recorded === 'complete' || recorded === 'in_progress' || recorded === 'not_started') status = recorded;
-          else if (recorded !== undefined && recorded !== null) suppressed.unknownState += 1; // unknown → not_started
+          if (VALID_TASK_STATES.includes(recorded)) status = recorded;
+          else if (recorded !== undefined && recorded !== null) {
+            badStatus.push({ jobLegacy: job.id, areaId: area.id, stage, taskId: entry.id, state: String(recorded) });
+          }
 
+          instances.push({
+            jobLegacy: job.id,
+            areaLegacy,
+            stage,
+            legacyTemplateId: entry.id, // bare taskId → tasks.legacy_template_id
+            name: entry.name,
+            status,
+            sortOrder: Number.isFinite(entry.order) ? Math.trunc(entry.order) : 0,
+            templateScope, // 'job' (default) | 'area' (override) → locates task_template_id
+          });
           byStatus[status] += 1;
           byStage[stage] += 1;
           areaEntry[stage] += 1;
           jobEntry.instances += 1;
-          instances += 1;
         }
       }
       jobEntry.areas.push(areaEntry);
@@ -144,14 +165,17 @@ function buildTaskProjection(sources = {}) {
     jobs.push(jobEntry);
   }
 
-  const clean = collisions.length === 0 && orphanedState.length === 0 && malformed.length === 0;
+  const clean =
+    collisions.length === 0 && orphanedState.length === 0 && malformed.length === 0 && badStatus.length === 0;
   return {
     clean,
-    totals: { templates, instances, byStage, byStatus },
+    totals: { templates, instances: instances.length, byStage, byStatus },
     overrides,
     suppressed,
+    instances,
     collisions,
     malformed,
+    badStatus,
     orphanedState,
     jobs,
     validTaskStates: VALID_TASK_STATES,
