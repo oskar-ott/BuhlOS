@@ -192,3 +192,41 @@ describe("buildStructureSyncReport — tasks section (J3)", () => {
     expect(r.details.sections.tasks!.mismatchedCount).toBe(1);
   });
 });
+
+const evi = (key: string, over: Record<string, unknown> = {}) => ({
+  key, kind: "note", status: "submitted", source: "phil", note: "hi", blob_url: null,
+  photo_blob_id: null, thumbnail_url: null, stage: null, captured_by_label: "Tom",
+  reviewed_by_label: null, rejection_reason: null, has_area: false, has_task: false, granularity: "job", ...over,
+});
+const prf = (key: string, over: Record<string, unknown> = {}) => ({ key, evidence_legacy_id: "ev1", link_role: "proof", task_id: "task-uuid", ...over });
+function sideEvi(evidence: unknown[], proof: unknown[] = []) {
+  return { jobs: [], groups: [], areas: [], templates: [], tasks: [], evidence, proof, unmappable: [] };
+}
+
+describe("buildStructureSyncReport — evidence + proof sections (J4)", () => {
+  it("PASS when evidence + proof match", () => {
+    const r = buildStructureSyncReport({ blob: sideEvi([evi("ev1")], [prf("ev1|task|proof")]), pg: sideEvi([evi("ev1")], [prf("ev1|task|proof")]) });
+    expect(r.status).toBe("pass");
+    expect(r.details.sections.evidence!.matched).toBe(1);
+    expect(r.details.sections.proof!.matched).toBe(1);
+    expect(r.blobHash).toBe(r.pgHash);
+  });
+
+  it("FAIL when evidence review status diverges (importer-owned)", () => {
+    const r = buildStructureSyncReport({ blob: sideEvi([evi("ev1", { status: "reviewed" })]), pg: sideEvi([evi("ev1", { status: "submitted" })]) });
+    expect(r.status).toBe("fail");
+    expect(r.details.sections.evidence!.mismatchedCount).toBe(1);
+  });
+
+  it("FAIL when granularity / has_task diverges (no fabricated task certainty)", () => {
+    const r = buildStructureSyncReport({ blob: sideEvi([evi("ev1", { has_task: false, granularity: "job" })]), pg: sideEvi([evi("ev1", { has_task: true, granularity: "task" })]) });
+    expect(r.status).toBe("fail");
+    expect(r.details.sections.evidence!.mismatchedCount).toBe(1);
+  });
+
+  it("FAIL on an orphan proof link in PG (only_in_pg)", () => {
+    const r = buildStructureSyncReport({ blob: sideEvi([evi("ev1")], []), pg: sideEvi([evi("ev1")], [prf("ev1|task|proof")]) });
+    expect(r.status).toBe("fail");
+    expect(r.details.sections.proof!.onlyInPg).toContain("ev1|task|proof");
+  });
+});

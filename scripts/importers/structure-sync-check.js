@@ -19,6 +19,7 @@
 
 const { buildStructureRows } = require('./lib/structure-rows');
 const { buildTaskProjection } = require('./lib/task-projection');
+const { buildEvidenceRows } = require('./lib/evidence-rows');
 const { buildStructureSyncReport } = require('../../api/_lib/structure-sync-report');
 const { getDb, closeDb } = require('../../api/_lib/supabase-db');
 
@@ -215,6 +216,63 @@ async function loadBlob() {
   return { jobs, jobData };
 }
 
+// FK maps for the evidence blob projection (the coordinate→task resolution lives
+// in the shared proof-projection, used by buildEvidenceRows — no duplicate logic).
+async function evidenceMaps(sql, tenantId) {
+  const m = async (table, col) => {
+    const rows = await sql`select id, ${sql(col)} as legacy from ${sql(table)} where tenant_id = ${tenantId} and ${sql(col)} is not null`;
+    return new Map(rows.map((r) => [r.legacy, r.id]));
+  };
+  const jobMap = await m('jobs', 'legacy_id');
+  const areaMap = await m('site_areas', 'legacy_id');
+  const userMap = await m('user_profiles', 'legacy_user_id');
+  const taskRows = await sql`
+    select t.id, ar.legacy_id as area_legacy, t.stage, t.legacy_template_id
+    from public.tasks t join public.site_areas ar on ar.id = t.site_area_id
+    where t.tenant_id = ${tenantId} and t.site_area_id is not null and t.legacy_template_id is not null
+  `;
+  const taskMap = new Map(taskRows.map((r) => [`${r.area_legacy}|${r.stage}|${r.legacy_template_id}`, r.id]));
+  return { jobMap, areaMap, userMap, taskMap };
+}
+
+// Evidence + proof sections, projected from the SAME builder the importer writes.
+// Compares importer-written semantic fields + granularity + FK-presence booleans;
+// excludes the uuid FKs (site_area_id/task_id/captured_by) and the capture/review
+// TIMESTAMPS (metadata; cross-store precision) — same rule as the other sections.
+function projectEvidence(sources, ctx) {
+  const built = buildEvidenceRows(sources, ctx);
+  const evidence = built.evidenceRows.map((r) => ({
+    key: r.legacy_id, kind: r.kind, status: r.status, source: r.source, note: r.note,
+    blob_url: r.blob_url, photo_blob_id: r.photo_blob_id, thumbnail_url: r.thumbnail_url, stage: r.stage,
+    captured_by_label: r.captured_by_label, reviewed_by_label: r.reviewed_by_label, rejection_reason: r.rejection_reason,
+    has_area: r.site_area_id !== null, has_task: r.task_id !== null,
+    granularity: r.task_id ? 'task' : (r.site_area_id ? 'area' : 'job'),
+  }));
+  const proof = built.evidenceRows
+    .filter((r) => r.task_id)
+    .map((r) => ({ key: `${r.legacy_id}|task|proof`, evidence_legacy_id: r.legacy_id, link_role: 'proof', task_id: r.task_id }));
+  const unmappable = built.quarantine.map((q) => `evidence:${q.id} (${q.reason})`);
+  return { evidence, proof, unmappable };
+}
+
+async function readPgEvidence(sql, tenantId) {
+  const ef = await sql`
+    select legacy_id as key, kind, status, source, note, blob_url, photo_blob_id, thumbnail_url, stage,
+           captured_by_label, reviewed_by_label, rejection_reason,
+           (site_area_id is not null) as has_area, (task_id is not null) as has_task
+    from public.evidence_files
+    where tenant_id = ${tenantId} and legacy_id is not null and deleted_at is null
+  `;
+  const evidence = [...ef].map((r) => ({ ...r, granularity: r.has_task ? 'task' : (r.has_area ? 'area' : 'job') }));
+  const links = await sql`
+    select ef.legacy_id as evidence_legacy_id, el.linked_entity_id as task_id, el.link_role
+    from public.evidence_links el join public.evidence_files ef on ef.id = el.evidence_file_id
+    where el.tenant_id = ${tenantId} and el.linked_entity_type = 'task'
+  `;
+  const proof = [...links].map((r) => ({ key: `${r.evidence_legacy_id}|task|${r.link_role}`, evidence_legacy_id: r.evidence_legacy_id, link_role: r.link_role, task_id: r.task_id }));
+  return { evidence, proof };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
@@ -233,6 +291,15 @@ async function main() {
     const sources = await loadBlob();
     const blob = projectBlob(sources, new Date().toISOString());
     const pg = await readPg(sql, tenantId);
+    // J4: evidence + proof sections (need FK maps; reuse the shared builder).
+    const maps = await evidenceMaps(sql, tenantId);
+    const ev = projectEvidence(sources, { tenantId, ...maps });
+    blob.evidence = ev.evidence;
+    blob.proof = ev.proof;
+    blob.unmappable = [...blob.unmappable, ...ev.unmappable];
+    const pgEv = await readPgEvidence(sql, tenantId);
+    pg.evidence = pgEv.evidence;
+    pg.proof = pgEv.proof;
     report = buildStructureSyncReport({ blob, pg });
     const durationMs = Date.now() - startedAt;
     report.durationMs = durationMs;
