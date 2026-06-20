@@ -90,8 +90,10 @@ function printProjection(p) {
   console.log(`  overrides applied: ${p.overrides}`);
   console.log(`  suppressed: ${p.suppressed.archivedAreas} archived areas · ${p.suppressed.archivedTemplates} archived templates · ${p.suppressed.unknownState} unknown-state→not_started`);
   console.log(`  orphaned recorded state: ${p.orphanedState.length}`);
+  console.log(`  malformed templates (no id): ${p.malformed.length}`);
   console.log(`  collisions (canonical identity): ${p.collisions.length}`);
   if (p.collisions.length) console.log(`    e.g. ${JSON.stringify(p.collisions.slice(0, 5))}`);
+  if (p.malformed.length) console.log(`    malformed e.g. ${JSON.stringify(p.malformed.slice(0, 5))}`);
   if (p.orphanedState.length) console.log(`    orphaned e.g. ${JSON.stringify(p.orphanedState.slice(0, 5))}`);
   console.log(`\nresult: ${p.clean ? 'CLEAN — J3 expansion is safe to write' : 'NOT CLEAN — resolve collisions/orphaned state before writing J3'}`);
 }

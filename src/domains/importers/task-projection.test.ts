@@ -17,6 +17,7 @@ const { buildTaskProjection } = requireFromHere(p) as {
     overrides: number;
     suppressed: { archivedAreas: number; archivedTemplates: number; unknownState: number };
     collisions: Array<{ jobLegacy: string; areaLegacy: string; stage: string; templateId: string }>;
+    malformed: Array<{ jobLegacy: string; areaLegacy: string; stage: string; name: string }>;
     orphanedState: Array<{ kind: string; jobLegacy: string; areaId: string; stage: string; taskId: string }>;
     jobs: Array<{ jobLegacy: string; name: string; instances: number; areas: Array<{ areaLegacy: string; areaName: string; roughIn: number; fitOff: number }> }>;
   };
@@ -119,6 +120,18 @@ describe("buildTaskProjection", () => {
     const r = buildTaskProjection(sources([j], data));
     expect(r.orphanedState).toHaveLength(2);
     expect(r.orphanedState.map((o) => o.kind).sort()).toEqual(["state→no-template", "state→non-live-area"]);
+    expect(r.clean).toBe(false);
+  });
+
+  it("flags a malformed template (name but no id) instead of minting an undefined identity", () => {
+    const j = job("j1", {
+      roughInTasks: [{ id: "r1", name: "Good" }, { name: "No id" }],
+      areaGroups: [{ id: "g1", name: "G", areas: [area("a1")] }],
+    });
+    const r = buildTaskProjection(sources([j]));
+    expect(r.malformed).toHaveLength(1);
+    expect(r.malformed[0]).toMatchObject({ areaLegacy: compositeLegacyId("j1", "a1"), stage: "roughIn", name: "No id" });
+    expect(r.totals.instances).toBe(1); // only the good one becomes an instance
     expect(r.clean).toBe(false);
   });
 

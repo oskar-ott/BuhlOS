@@ -43,6 +43,7 @@ function buildTaskProjection(sources = {}) {
 
   const jobs = [];
   const collisions = [];
+  const malformed = []; // effective entry with no id → no valid legacy_template_id (J2 would quarantine)
   const orphanedState = [];
   let templates = 0; // distinct live template DEFINITIONS (job-level + live-area overrides) = the J2 count
   let instances = 0;
@@ -87,6 +88,15 @@ function buildTaskProjection(sources = {}) {
         const overrideList = liveTemplateEntries(area[STAGE_KEYS[stage]]);
         if (overrideList.length) overrides += 1;
         for (const entry of effectiveEntries(job, area, stage)) {
+          // effectiveEntries only requires a name; a template with no id has no
+          // valid legacy_template_id, so J2 would quarantine it. Flag it here too
+          // (the gate stays strictly conservative) rather than mint a …|undefined
+          // identity. Cannot occur on the current clean data, but the gate exists
+          // precisely to catch bad data before J3 writes.
+          if (!entry.id) {
+            malformed.push({ jobLegacy: job.id, areaLegacy, stage, name: entry.name });
+            continue;
+          }
           const idKey = `${areaLegacy}|${stage}|${entry.id}`;
           if (seenIdentity.has(idKey)) {
             collisions.push({ jobLegacy: job.id, areaLegacy, stage, templateId: entry.id });
@@ -134,13 +144,14 @@ function buildTaskProjection(sources = {}) {
     jobs.push(jobEntry);
   }
 
-  const clean = collisions.length === 0 && orphanedState.length === 0;
+  const clean = collisions.length === 0 && orphanedState.length === 0 && malformed.length === 0;
   return {
     clean,
     totals: { templates, instances, byStage, byStatus },
     overrides,
     suppressed,
     collisions,
+    malformed,
     orphanedState,
     jobs,
     validTaskStates: VALID_TASK_STATES,
