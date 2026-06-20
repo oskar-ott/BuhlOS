@@ -39,10 +39,15 @@ const STRUCTURE_TABLES = new Set(['jobs', 'site_area_groups', 'site_areas']);
 // (no uuid/revision/timestamps); the archive dimension is a `deleted` boolean.
 function projectBlob(sources, nowIso) {
   const built = buildStructureRows(sources, { nowIso });
+  // Compare EVERY mutable job column the importer writes (JOB_MUTABLE_COLS) so
+  // there is no blind spot — an omitted field would let PG diverge undetected.
   const jobs = built.jobRows.map((r) => ({
     key: r.legacy_id, name: r.name, status: r.status, ref: r.ref,
     job_type_label: r.job_type_label, external_ref: r.external_ref,
-    site_address: r.site_address, induction_required: r.induction_required,
+    site_address: r.site_address,
+    site_contact_name: r.site_contact_name, site_contact_phone: r.site_contact_phone,
+    access_notes: r.access_notes, parking_notes: r.parking_notes, safety_notes: r.safety_notes,
+    induction_required: r.induction_required,
     start_date: r.start_date, due_date: r.due_date,
     programmed_duration_days: r.programmed_duration_days, deleted: false,
   }));
@@ -65,7 +70,8 @@ function projectBlob(sources, nowIso) {
 async function readPg(sql, tenantId) {
   const jobs = await sql`
     select legacy_id as key, name, status, ref, job_type_label, external_ref,
-           site_address, induction_required,
+           site_address, site_contact_name, site_contact_phone,
+           access_notes, parking_notes, safety_notes, induction_required,
            start_date::text as start_date, due_date::text as due_date,
            programmed_duration_days, (deleted_at is not null) as deleted
     from public.jobs
@@ -90,6 +96,13 @@ async function readPg(sql, tenantId) {
   return { jobs: [...jobs], groups: [...groups], areas: [...areas] };
 }
 
+// Records ONE append-only row in public.sync_checks (domain 'structure'). The
+// scalar columns are hours-shaped, so for the structure domain we reuse them
+// honestly: blob_total/pg_total carry the archived/deleted entity counts, and
+// allocations_checked is false (structure has no allocation concept). The
+// authoritative per-section breakdown (jobs/groups/areas + drift lists) lives in
+// `details`. mismatched is the true field-mismatch count; unmappable lives in
+// details and still forces status='fail'.
 async function recordCheck(sql, tenantId, report, durationMs) {
   await sql`
     insert into public.sync_checks
@@ -98,7 +111,7 @@ async function recordCheck(sql, tenantId, report, durationMs) {
        blob_hash, pg_hash, details, duration_ms)
     values
       (${tenantId}, 'structure', ${report.status}, ${report.blobCount}, ${report.pgCount},
-       ${report.blobDeleted}, ${report.pgDeleted}, true, ${report.matched},
+       ${report.blobDeleted}, ${report.pgDeleted}, false, ${report.matched},
        ${report.onlyInBlobCount}, ${report.onlyInPgCount}, ${report.mismatchedCount},
        ${report.blobHash}, ${report.pgHash}, ${sql.json(report.details)}, ${durationMs})
   `;

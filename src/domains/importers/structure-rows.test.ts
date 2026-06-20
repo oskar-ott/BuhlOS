@@ -355,14 +355,18 @@ describe("buildStructureRows — J1 groups/areas", () => {
       sources([], [jobWith("j1", [{ id: "g1", name: "G", areas: [{ id: "a1", name: "A" }] }])]),
       { nowIso: NOW }
     );
-    // every mapped key (minus job_legacy_id/group_legacy_id, which the writer
-    // resolves to job_id/group_id, plus tenant_id) is an insert col
-    expect(GROUP_INSERT_COLS).toEqual(
-      expect.arrayContaining(["tenant_id", "job_id", "legacy_id", "name", "sort_order", "deleted_at", "deleted_by", "created_at"])
+    // The insert col lists are EXACTLY these (the writer resolves the row's
+    // job_legacy_id/group_legacy_id into the job_id/group_id FK columns). Strict
+    // equality so an added/removed column is caught.
+    expect(new Set(GROUP_INSERT_COLS)).toEqual(
+      new Set(["tenant_id", "job_id", "legacy_id", "name", "sort_order", "deleted_at", "deleted_by", "created_at"])
     );
-    expect(AREA_INSERT_COLS).toEqual(
-      expect.arrayContaining(["tenant_id", "job_id", "group_id", "legacy_id", "name", "space_type", "sort_order", "deleted_at", "deleted_by", "created_at"])
+    expect(new Set(AREA_INSERT_COLS)).toEqual(
+      new Set(["tenant_id", "job_id", "group_id", "legacy_id", "name", "space_type", "sort_order", "deleted_at", "deleted_by", "created_at"])
     );
+    // plain mutable cols are a subset of insert cols (deleted_at handled via CASE)
+    for (const c of GROUP_MUTABLE_COLS) expect(GROUP_INSERT_COLS).toContain(c);
+    for (const c of AREA_MUTABLE_COLS) expect(AREA_INSERT_COLS).toContain(c);
     // deleted_at is handled by a special CASE, so it must NOT be a plain mutable col
     expect(GROUP_MUTABLE_COLS).not.toContain("deleted_at");
     expect(AREA_MUTABLE_COLS).not.toContain("deleted_at");
