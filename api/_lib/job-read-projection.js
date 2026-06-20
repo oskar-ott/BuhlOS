@@ -170,7 +170,7 @@ async function loadJobStructureFromPg(sql, tenantId) {
     from public.tasks t join public.jobs jb on jb.id = t.job_id
     join public.site_areas ar on ar.id = t.site_area_id
     where t.tenant_id = ${tenantId} and t.legacy_template_id is not null and t.deleted_at is null
-    order by t.legacy_template_id`;
+    order by t.legacy_template_id, ar.legacy_id, jb.legacy_id`;
   const evidence = await sql`
     select ef.legacy_id, jb.legacy_id as job_legacy, ar.legacy_id as area_legacy,
            tk.legacy_template_id as task_legacy_template_id, ef.kind, ef.photo_blob_id, ef.blob_url,
@@ -325,6 +325,9 @@ function overlayAdminJobs(blobJobs = [], pgJobs = []) {
   let onlyInPgCount = 0;
   for (const p of pgJobs) if (!blobIds.has(p.id)) onlyInPgCount += 1;
 
+  // blobHash/pgHash are AGGREGATE summary hashes over the matched jobs (for the
+  // diagnostics readout only). The actual serve decision is the PER-JOB hash
+  // compare above (bh !== ph) — never these aggregates.
   const aggregate = (arr) =>
     crypto.createHash('sha256').update(arr.slice().sort().join('|')).digest('hex');
 
@@ -409,14 +412,15 @@ async function readAdminJobsWithPgOverlay(input = {}) {
  * serve or record). Never throws. Injectable deps.
  */
 async function probeAdminJobsRead(deps = {}) {
-  const { readBlob = realReadBlob } = deps;
+  const { readBlob = realReadBlob, now = Date.now } = deps;
+  const started = now();
   try {
     const blob = await readBlob('jobs.json', { jobs: [] });
     const { diag } = await readAdminJobsWithPgOverlay({ ...deps, blobJobs: (blob && blob.jobs) || [] });
     return diag;
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
-    return { ...EMPTY_DIAG_BLOB('probe error', 0, false), error: msg };
+    return { ...EMPTY_DIAG_BLOB('probe error', Math.max(0, now() - started), false), error: msg };
   }
 }
 

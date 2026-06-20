@@ -59,8 +59,10 @@ const REGISTRY = {
   // ADMIN jobs read (api/jobs.js) serves each job's migrated fields from the
   // Postgres reconstruction (api/_lib/job-read-projection) where PG is
   // byte-identical to Blob, else from Blob; any PG error → full Blob fallback.
-  // DARK by default and only the admin tier is affected — Phil/field/clients
-  // always read Blob. Flip per-environment only after the structure sync-check +
+  // DARK by default. The flag itself is global; the ADMIN-TIER restriction is
+  // enforced at the call site (api/jobs.js gates the overlay on isAdminRole), so
+  // Phil/field/clients always read Blob even when the flag is on. Flip
+  // per-environment only after the structure sync-check +
   // read parity prove the PG graph reconstructs the Blob shape. Blob stays
   // authoritative when off, and unset in production keeps prod on Blob. The
   // /jobs-read-status admin page shows the live read source + parity.

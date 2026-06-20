@@ -2,6 +2,7 @@
 import type { AdminJobsReadDiag } from "./job-read-projection";
 
 export interface JobsReadDiagnosticsSnapshot {
+  resetAt: string;
   totalReads: number;
   pgServedReads: number;
   blobServedReads: number;

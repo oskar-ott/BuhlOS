@@ -14,6 +14,7 @@
 
 function freshState() {
   return {
+    resetAt: new Date().toISOString(), // when these counters were (re)initialised — lets ops spot cold-start artefacts
     totalReads: 0,
     pgServedReads: 0, // reads where ≥1 job's structure was served from Postgres
     blobServedReads: 0, // reads served entirely from Blob

@@ -4,6 +4,7 @@ import { summariseJobsRead, type JobsReadStatus } from "./jobs-read-status";
 type Diag = NonNullable<JobsReadStatus["probe"]>;
 
 const counters = {
+  resetAt: "2026-06-21T00:00:00.000Z",
   totalReads: 3, pgServedReads: 2, blobServedReads: 1, fallbackReads: 1,
   driftObservations: 0, lastDiag: null, lastAt: "2026-06-21T00:00:00.000Z",
 };

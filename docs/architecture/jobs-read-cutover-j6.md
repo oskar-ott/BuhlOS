@@ -53,6 +53,17 @@ The single reconstruction engine is `api/_lib/job-read-projection.js`
 sort_order` so reconstruction is deterministic. The seam is one block in
 `api/jobs.js` after the Blob read.
 
+Notes / known limitations:
+
+- `startDate`/`dueDate` are PG `DATE` columns read as `::text` (`YYYY-MM-DD`),
+  matching the Blob string form (verified on the dev dataset — the only drift
+  observed was `areaGroups`/task-list ordering, never dates). If a legacy Blob
+  job ever stored an ISO timestamp there, it would simply hash-differ and that
+  job would fall back to Blob — never wrong, just not PG-served.
+- Tenant is the single `buhl` slug today (the only tenant). It is an injectable
+  dep defaulting to `'buhl'`; multi-tenant would thread the real slug through the
+  seam.
+
 ## Diagnostics
 
 - `GET`-time, no writes: each admin read records a process-local counter

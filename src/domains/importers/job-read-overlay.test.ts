@@ -197,6 +197,36 @@ describe("readAdminJobsWithPgOverlay — dark gating + automatic Blob fallback",
     expect(r.diag.reason).toBe("no tenant");
     expect(r.diag.fallbackUsed).toBe(true);
   });
+
+  it("queries succeed but RECONSTRUCTION throws (orphaned area) → Blob fallback, never throws", async () => {
+    // The "fallback on ANY PG error" contract for the case where getDb + the
+    // queries are fine but reconstructFromPg throws mid-load (an area whose
+    // group_legacy resolves to nothing). Distinct from getDb throwing.
+    process.env.SUPABASE_DB_URL = "postgres://fake";
+    const blob = [blobJob("j1")];
+    const rows = pgRows();
+    rows.areas[0]!.group_legacy = "group-that-does-not-exist"; // → reconstructFromPg throws
+    const r = await readAdminJobsWithPgOverlay({ blobJobs: blob, isFlagOn: async () => true, getDb: () => fakeSql(rows) });
+    expect(r.jobs).toBe(blob); // Blob served, untouched
+    expect(r.diag.readSource).toBe("blob");
+    expect(r.diag.reason).toBe("error");
+    expect(r.diag.fallbackUsed).toBe(true);
+    expect(r.diag.error).toMatch(/no resolvable group/);
+  });
+});
+
+describe("overlayAdminJobs — Blob jobs missing optional migrated fields (key-set preserved)", () => {
+  it("a faithful job that OMITS an optional field keeps it omitted (no key added from PG)", () => {
+    // Real legacy Blob jobs predate some optional fields. PG reconstructs them as
+    // null; the overlay must NOT add a key the Blob job didn't have.
+    const b = blobJob("j1");
+    delete (b as Record<string, unknown>).siteContactName; // Blob omits it
+    const p = pgJob("j1"); // PG has siteContactName: null
+    const r = overlayAdminJobs([b], [p]);
+    expect(r.pgFaithfulCount).toBe(1); // null ≡ absent → still faithful
+    expect(Object.prototype.hasOwnProperty.call(r.jobs[0]!, "siteContactName")).toBe(false);
+    expect(Object.keys(r.jobs[0]!).sort()).toEqual(Object.keys(b).sort()); // key-set == Blob
+  });
 });
 
 // ── helpers: a fake postgres.js tagged-template client over fixed row sets ──
