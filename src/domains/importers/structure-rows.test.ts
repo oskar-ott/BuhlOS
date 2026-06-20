@@ -19,14 +19,28 @@ const mod = requireFromHere(rowsPath) as {
     tenantRow: { slug: string; name: string };
     userRows: Array<Record<string, unknown>>;
     jobRows: Array<Record<string, unknown>>;
+    groupRows: Array<Record<string, unknown>>;
+    areaRows: Array<Record<string, unknown>>;
     quarantine: Array<{ table: string; id: string; reason: string }>;
   };
   USER_MUTABLE_COLS: string[];
   JOB_MUTABLE_COLS: string[];
   USER_INSERT_COLS: string[];
   JOB_INSERT_COLS: string[];
+  GROUP_MUTABLE_COLS: string[];
+  AREA_MUTABLE_COLS: string[];
+  GROUP_INSERT_COLS: string[];
+  AREA_INSERT_COLS: string[];
 };
-const { buildStructureRows, USER_INSERT_COLS, JOB_INSERT_COLS, USER_MUTABLE_COLS, JOB_MUTABLE_COLS } = mod;
+const {
+  buildStructureRows, USER_INSERT_COLS, JOB_INSERT_COLS, USER_MUTABLE_COLS, JOB_MUTABLE_COLS,
+  GROUP_INSERT_COLS, AREA_INSERT_COLS, GROUP_MUTABLE_COLS, AREA_MUTABLE_COLS,
+} = mod;
+
+const legacyIdPath = requireFromHere.resolve("../../../scripts/importers/lib/structure-legacy-id.js");
+const { compositeLegacyId } = requireFromHere(legacyIdPath) as {
+  compositeLegacyId: (jobLegacyId: string, localId: string) => string;
+};
 
 const NOW = "2026-06-19T00:00:00.000Z";
 
@@ -198,5 +212,167 @@ describe("buildStructureRows", () => {
     expect(USER_MUTABLE_COLS).not.toContain("created_at");
     expect(JOB_MUTABLE_COLS).not.toContain("legacy_id");
     expect(JOB_MUTABLE_COLS).not.toContain("created_at");
+  });
+});
+
+// ── J1: site_area_groups + site_areas ──────────────────────────────────────
+function jobWith(id: string, areaGroups: unknown[], extra: Record<string, unknown> = {}) {
+  return { id, name: `Job ${id}`, status: "active", areaGroups, ...extra };
+}
+
+describe("compositeLegacyId — minting", () => {
+  it("mints a deterministic job-scoped composite (not the raw blob id)", () => {
+    expect(compositeLegacyId("job1", "apt_001")).toBe('["job1","apt_001"]');
+    expect(compositeLegacyId("job1", "apt_001")).toBe(compositeLegacyId("job1", "apt_001"));
+  });
+
+  it("is delimiter-safe — a '::'-style scheme would collide, the JSON tuple does not", () => {
+    // job "a::b" + area "c"  vs  job "a" + area "b::c" would both be "a::b::c"
+    // under naive joining; the JSON tuple keeps them distinct.
+    expect(compositeLegacyId("a::b", "c")).not.toBe(compositeLegacyId("a", "b::c"));
+  });
+});
+
+describe("buildStructureRows — J1 groups/areas", () => {
+  it("maps a clean group + area faithfully with composite legacy_ids (jobs keep the raw id)", () => {
+    const { jobRows, groupRows, areaRows, quarantine } = buildStructureRows(
+      sources([], [jobWith("j1", [
+        { id: "g1", name: "Ground floor", order: 2, areas: [
+          { id: "apt_001", name: "Unit 1", spaceType: "apartment", order: 5 },
+        ] },
+      ])]),
+      { nowIso: NOW }
+    );
+    expect(quarantine).toHaveLength(0);
+    expect(jobRows[0]!.legacy_id).toBe("j1"); // jobs keep the raw id
+    expect(groupRows[0]).toEqual({
+      legacy_id: '["j1","g1"]', job_legacy_id: "j1", name: "Ground floor",
+      sort_order: 2, deleted_at: null, deleted_by: null, created_at: NOW,
+    });
+    expect(areaRows[0]).toEqual({
+      legacy_id: '["j1","apt_001"]', job_legacy_id: "j1", group_legacy_id: '["j1","g1"]',
+      name: "Unit 1", space_type: "apartment", sort_order: 5,
+      deleted_at: null, deleted_by: null, created_at: NOW,
+    });
+  });
+
+  it("defaults a missing order to sort_order 0 and a missing spaceType to null", () => {
+    const { areaRows } = buildStructureRows(
+      sources([], [jobWith("j1", [{ id: "g1", name: "G", areas: [{ id: "a1", name: "A" }] }])]),
+      { nowIso: NOW }
+    );
+    expect(areaRows[0]!.sort_order).toBe(0);
+    expect(areaRows[0]!.space_type).toBeNull();
+  });
+
+  it("does NOT collide on the same blob area id across DIFFERENT jobs (the whole point of job-scoping)", () => {
+    const { areaRows, quarantine } = buildStructureRows(
+      sources([], [
+        jobWith("j1", [{ id: "g1", name: "G", areas: [{ id: "apt_001", name: "U1" }] }]),
+        jobWith("j2", [{ id: "g1", name: "G", areas: [{ id: "apt_001", name: "U1" }] }]),
+      ]),
+      { nowIso: NOW }
+    );
+    expect(quarantine).toHaveLength(0);
+    expect(areaRows.map((r) => r.legacy_id).sort()).toEqual(['["j1","apt_001"]', '["j2","apt_001"]']);
+  });
+
+  it("QUARANTINES a duplicate area id WITHIN one job (composite collision — fail closed)", () => {
+    const { areaRows, quarantine } = buildStructureRows(
+      sources([], [jobWith("j1", [
+        { id: "g1", name: "G", areas: [
+          { id: "apt_001", name: "U1" },
+          { id: "apt_001", name: "U1 again" },
+        ] },
+      ])]),
+      { nowIso: NOW }
+    );
+    expect(areaRows).toHaveLength(1);
+    expect(quarantine).toEqual([
+      expect.objectContaining({ table: "site_areas", id: '["j1","apt_001"]', reason: expect.stringContaining("collision") }),
+    ]);
+  });
+
+  it("QUARANTINES a duplicate group id within one job", () => {
+    const { groupRows, quarantine } = buildStructureRows(
+      sources([], [jobWith("j1", [
+        { id: "g1", name: "G", areas: [] },
+        { id: "g1", name: "G dup", areas: [] },
+      ])]),
+      { nowIso: NOW }
+    );
+    expect(groupRows).toHaveLength(1);
+    expect(quarantine).toEqual([
+      expect.objectContaining({ table: "site_area_groups", id: '["j1","g1"]', reason: expect.stringContaining("collision") }),
+    ]);
+  });
+
+  it("maps archived → deleted_at (proxy = nowIso), deleted_by stays NULL (no fabricated actor)", () => {
+    const { groupRows, areaRows } = buildStructureRows(
+      sources([], [jobWith("j1", [
+        { id: "g1", name: "Archived wing", archived: true, areas: [
+          { id: "a1", name: "Archived area", archived: true },
+          { id: "a2", name: "Live area" },
+        ] },
+      ])]),
+      { nowIso: NOW }
+    );
+    expect(groupRows[0]!.deleted_at).toBe(NOW);
+    expect(groupRows[0]!.deleted_by).toBeNull();
+    const archived = areaRows.find((r) => r.legacy_id === '["j1","a1"]')!;
+    const live = areaRows.find((r) => r.legacy_id === '["j1","a2"]')!;
+    expect(archived.deleted_at).toBe(NOW);
+    expect(archived.deleted_by).toBeNull();
+    expect(live.deleted_at).toBeNull();
+  });
+
+  it("quarantines a group/area missing required identity fields", () => {
+    const { quarantine } = buildStructureRows(
+      sources([], [jobWith("j1", [
+        { name: "no id group", areas: [] },
+        { id: "g2", name: "G", areas: [{ name: "no id area" }] },
+      ])]),
+      { nowIso: NOW }
+    );
+    expect(quarantine).toEqual([
+      expect.objectContaining({ table: "site_area_groups" }),
+      expect.objectContaining({ table: "site_areas" }),
+    ]);
+  });
+
+  it("builds rows deterministically (idempotent row building — same input → identical rows)", () => {
+    const src = sources([], [jobWith("j1", [
+      { id: "g1", name: "G", areas: [{ id: "a1", name: "A", spaceType: "x", order: 1 }] },
+    ])]);
+    const a = buildStructureRows(src, { nowIso: NOW });
+    const b = buildStructureRows(src, { nowIso: NOW });
+    expect(a.groupRows).toEqual(b.groupRows);
+    expect(a.areaRows).toEqual(b.areaRows);
+  });
+
+  it("keeps the group/area insert + mutable column lists in lock-step with the mapped keys", () => {
+    const { groupRows, areaRows } = buildStructureRows(
+      sources([], [jobWith("j1", [{ id: "g1", name: "G", areas: [{ id: "a1", name: "A" }] }])]),
+      { nowIso: NOW }
+    );
+    // The insert col lists are EXACTLY these (the writer resolves the row's
+    // job_legacy_id/group_legacy_id into the job_id/group_id FK columns). Strict
+    // equality so an added/removed column is caught.
+    expect(new Set(GROUP_INSERT_COLS)).toEqual(
+      new Set(["tenant_id", "job_id", "legacy_id", "name", "sort_order", "deleted_at", "deleted_by", "created_at"])
+    );
+    expect(new Set(AREA_INSERT_COLS)).toEqual(
+      new Set(["tenant_id", "job_id", "group_id", "legacy_id", "name", "space_type", "sort_order", "deleted_at", "deleted_by", "created_at"])
+    );
+    // plain mutable cols are a subset of insert cols (deleted_at handled via CASE)
+    for (const c of GROUP_MUTABLE_COLS) expect(GROUP_INSERT_COLS).toContain(c);
+    for (const c of AREA_MUTABLE_COLS) expect(AREA_INSERT_COLS).toContain(c);
+    // deleted_at is handled by a special CASE, so it must NOT be a plain mutable col
+    expect(GROUP_MUTABLE_COLS).not.toContain("deleted_at");
+    expect(AREA_MUTABLE_COLS).not.toContain("deleted_at");
+    expect(GROUP_MUTABLE_COLS).not.toContain("legacy_id");
+    expect(AREA_MUTABLE_COLS).not.toContain("legacy_id");
+    expect(groupRows).toHaveLength(1);
+    expect(areaRows).toHaveLength(1);
   });
 });
