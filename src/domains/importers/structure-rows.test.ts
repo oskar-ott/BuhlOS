@@ -21,6 +21,7 @@ const mod = requireFromHere(rowsPath) as {
     jobRows: Array<Record<string, unknown>>;
     groupRows: Array<Record<string, unknown>>;
     areaRows: Array<Record<string, unknown>>;
+    templateRows: Array<Record<string, unknown>>;
     quarantine: Array<{ table: string; id: string; reason: string }>;
   };
   USER_MUTABLE_COLS: string[];
@@ -31,10 +32,13 @@ const mod = requireFromHere(rowsPath) as {
   AREA_MUTABLE_COLS: string[];
   GROUP_INSERT_COLS: string[];
   AREA_INSERT_COLS: string[];
+  TEMPLATE_MUTABLE_COLS: string[];
+  TEMPLATE_INSERT_COLS: string[];
 };
 const {
   buildStructureRows, USER_INSERT_COLS, JOB_INSERT_COLS, USER_MUTABLE_COLS, JOB_MUTABLE_COLS,
   GROUP_INSERT_COLS, AREA_INSERT_COLS, GROUP_MUTABLE_COLS, AREA_MUTABLE_COLS,
+  TEMPLATE_INSERT_COLS, TEMPLATE_MUTABLE_COLS,
 } = mod;
 
 const legacyIdPath = requireFromHere.resolve("../../../scripts/importers/lib/structure-legacy-id.js");
@@ -374,5 +378,137 @@ describe("buildStructureRows — J1 groups/areas", () => {
     expect(AREA_MUTABLE_COLS).not.toContain("legacy_id");
     expect(groupRows).toHaveLength(1);
     expect(areaRows).toHaveLength(1);
+  });
+});
+
+// ── J2: job_task_templates ─────────────────────────────────────────────────
+describe("buildStructureRows — J2 templates", () => {
+  it("emits job-level templates (site_area_legacy_id null, legacy_id = BARE taskId)", () => {
+    const { templateRows, quarantine } = buildStructureRows(
+      sources([], [jobWith("j1", [], {
+        roughInTasks: [{ id: "rough_power", name: "Rough power", order: 1 }],
+        fitOffTasks: [{ id: "fit_gpo", name: "Fit GPOs" }],
+      })]),
+      { nowIso: NOW }
+    );
+    expect(quarantine).toHaveLength(0);
+    expect(templateRows).toHaveLength(2);
+    const rough = templateRows.find((r) => r.legacy_id === "rough_power")!;
+    expect(rough).toEqual({
+      legacy_id: "rough_power", job_legacy_id: "j1", site_area_legacy_id: null,
+      stage: "roughIn", name: "Rough power", sort_order: 1, deleted_at: null, deleted_by: null, created_at: NOW,
+    });
+    const fit = templateRows.find((r) => r.legacy_id === "fit_gpo")!;
+    expect(fit.stage).toBe("fitOff");
+    expect(fit.sort_order).toBe(0); // missing order → 0
+  });
+
+  it("emits per-area override templates (site_area_legacy_id = composite area id)", () => {
+    const { templateRows } = buildStructureRows(
+      sources([], [jobWith("j1", [
+        { id: "g1", name: "G", areas: [{ id: "a1", name: "A", roughInTasks: [{ id: "rough_data", name: "Rough data" }] }] },
+      ])]),
+      { nowIso: NOW }
+    );
+    const t = templateRows.find((r) => r.legacy_id === "rough_data")!;
+    expect(t.site_area_legacy_id).toBe(compositeLegacyId("j1", "a1"));
+    expect(t.job_legacy_id).toBe("j1");
+    expect(t.stage).toBe("roughIn");
+  });
+
+  it("job-level default and per-area override of the SAME taskId coexist as distinct rows (no collision)", () => {
+    const { templateRows, quarantine } = buildStructureRows(
+      sources([], [jobWith("j1", [
+        { id: "g1", name: "G", areas: [{ id: "a1", name: "A", roughInTasks: [{ id: "rough_power", name: "Rough power (area)" }] }] },
+      ], { roughInTasks: [{ id: "rough_power", name: "Rough power (job)" }] })]),
+      { nowIso: NOW }
+    );
+    expect(quarantine).toHaveLength(0);
+    const rows = templateRows.filter((r) => r.legacy_id === "rough_power");
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((r) => r.site_area_legacy_id))).toEqual(new Set([null, compositeLegacyId("j1", "a1")]));
+  });
+
+  it("the same bare taskId in two different areas does NOT collide", () => {
+    const { templateRows, quarantine } = buildStructureRows(
+      sources([], [jobWith("j1", [
+        { id: "g1", name: "G", areas: [
+          { id: "a1", name: "A1", roughInTasks: [{ id: "rough_power", name: "RP" }] },
+          { id: "a2", name: "A2", roughInTasks: [{ id: "rough_power", name: "RP" }] },
+        ] },
+      ])]),
+      { nowIso: NOW }
+    );
+    expect(quarantine).toHaveLength(0);
+    expect(templateRows.filter((r) => r.legacy_id === "rough_power")).toHaveLength(2);
+  });
+
+  it("QUARANTINES a duplicate template id within the same job-level stage", () => {
+    const { templateRows, quarantine } = buildStructureRows(
+      sources([], [jobWith("j1", [], {
+        roughInTasks: [{ id: "dup", name: "First" }, { id: "dup", name: "Second" }],
+      })]),
+      { nowIso: NOW }
+    );
+    expect(templateRows).toHaveLength(1);
+    expect(quarantine).toEqual([
+      expect.objectContaining({ table: "job_task_templates", reason: expect.stringContaining("partial-unique collision") }),
+    ]);
+  });
+
+  it("QUARANTINES a duplicate template id within the same area stage", () => {
+    const { templateRows, quarantine } = buildStructureRows(
+      sources([], [jobWith("j1", [
+        { id: "g1", name: "G", areas: [{ id: "a1", name: "A", fitOffTasks: [{ id: "dup", name: "x" }, { id: "dup", name: "y" }] }] },
+      ])]),
+      { nowIso: NOW }
+    );
+    expect(templateRows).toHaveLength(1);
+    expect(quarantine.filter((q) => q.table === "job_task_templates")).toHaveLength(1);
+  });
+
+  it("maps archived template → deleted_at, deleted_by NULL", () => {
+    const { templateRows } = buildStructureRows(
+      sources([], [jobWith("j1", [], {
+        roughInTasks: [{ id: "live", name: "Live" }, { id: "old", name: "Old", archived: true }],
+      })]),
+      { nowIso: NOW }
+    );
+    expect(templateRows.find((r) => r.legacy_id === "live")!.deleted_at).toBeNull();
+    const old = templateRows.find((r) => r.legacy_id === "old")!;
+    expect(old.deleted_at).toBe(NOW);
+    expect(old.deleted_by).toBeNull();
+  });
+
+  it("NEVER writes PG-owned fields (required_photo_count/requires_note/is_active/description)", () => {
+    const { templateRows } = buildStructureRows(
+      sources([], [jobWith("j1", [], { roughInTasks: [{ id: "t1", name: "T", requiredPhotoCount: 3, requiresNote: true }] })]),
+      { nowIso: NOW }
+    );
+    const keys = Object.keys(templateRows[0]!);
+    for (const pgOwned of ["required_photo_count", "requires_note", "is_active", "description"]) {
+      expect(keys).not.toContain(pgOwned);
+    }
+  });
+
+  it("quarantines a template missing id/name", () => {
+    const { quarantine } = buildStructureRows(
+      sources([], [jobWith("j1", [], { roughInTasks: [{ name: "no id" }, { id: "no_name" }] })]),
+      { nowIso: NOW }
+    );
+    expect(quarantine.filter((q) => q.table === "job_task_templates")).toHaveLength(2);
+  });
+
+  it("keeps the template insert + mutable column lists in lock-step (PG-owned fields excluded)", () => {
+    expect(new Set(TEMPLATE_INSERT_COLS)).toEqual(
+      new Set(["tenant_id", "job_id", "site_area_id", "stage", "legacy_id", "name", "sort_order", "deleted_at", "deleted_by", "created_at"])
+    );
+    // mutable = only blob-sourced fields; deleted_at via CASE; PG-owned never present
+    expect(TEMPLATE_MUTABLE_COLS).toEqual(["name", "sort_order"]);
+    expect(TEMPLATE_MUTABLE_COLS).not.toContain("deleted_at");
+    for (const pgOwned of ["required_photo_count", "requires_note", "is_active", "description"]) {
+      expect(TEMPLATE_INSERT_COLS).not.toContain(pgOwned);
+      expect(TEMPLATE_MUTABLE_COLS).not.toContain(pgOwned);
+    }
   });
 });

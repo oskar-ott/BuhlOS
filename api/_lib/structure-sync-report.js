@@ -1,23 +1,26 @@
-// Structure sync-check engine — PURE. The jobs/tasks migration TRUST LAYER (J1):
+// Structure sync-check engine — PURE. The jobs/tasks migration TRUST LAYER (J1+J2):
 // does Blob still equal Postgres for the place structure (jobs + site_area_groups
-// + site_areas)? Produces a PASS/FAIL report with per-section counts, content
-// hashes and the specific drifts, shaped to record into public.sync_checks
-// (domain 'structure'). Modelled on api/_lib/hours-sync-report.js (#152) — same
-// per-side sha256 dataset hash + business-key matching + capped detail lists.
+// + site_areas) and the task PLAN (job_task_templates)? Produces a PASS/FAIL report
+// with per-section counts, content hashes and the specific drifts, shaped to record
+// into public.sync_checks (domain 'structure'). Modelled on
+// api/_lib/hours-sync-report.js (#152) — same per-side sha256 dataset hash +
+// business-key matching + capped detail lists.
 //
 // Both sides are normalised by the CALLER (scripts/importers/structure-sync-check.js)
 // to a section shape:
-//   { jobs: [entity], groups: [entity], areas: [entity], unmappable: [string] }
+//   { jobs: [entity], groups: [entity], areas: [entity], templates: [entity], unmappable: [string] }
 // where each entity is { key, ...stableFields } — the key is the business key
-// (job legacy_id for jobs; the JOB-SCOPED composite legacy_id for groups/areas,
-// minted by structure-legacy-id.compositeLegacyId so both sides agree). Volatile
-// metadata (uuid id, revision, created_at/updated_at, deleted_at timestamp) is
-// EXCLUDED from the entity before it reaches here — only the archive STATE
+// (job legacy_id for jobs; the JOB-SCOPED composite legacy_id for groups/areas;
+// the [job, area|null, stage, legacy_id] partial-index tuple for templates). Only
+// fields the importer WRITES are compared. Volatile metadata (uuid id, revision,
+// created_at/updated_at, deleted_at timestamp) AND PG-owned template capabilities
+// the importer never writes (required_photo_count/requires_note/is_active/
+// description) are EXCLUDED before reaching here — only the archive STATE
 // (`deleted` boolean) is compared, never the proxy timestamp.
 
 const crypto = require('node:crypto');
 
-const SECTIONS = ['jobs', 'groups', 'areas'];
+const SECTIONS = ['jobs', 'groups', 'areas', 'templates'];
 
 // Canonical, deterministic serialisation of one entity: keys sorted so field
 // order can't forge a diff; null-normalised (undefined would be dropped by

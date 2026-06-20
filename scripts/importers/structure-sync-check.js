@@ -32,7 +32,17 @@ function parseArgs(argv) {
   return args;
 }
 
-const STRUCTURE_TABLES = new Set(['jobs', 'site_area_groups', 'site_areas']);
+const STRUCTURE_TABLES = new Set(['jobs', 'site_area_groups', 'site_areas', 'job_task_templates']);
+
+// Template business key = the full partial-index tuple [job, area|null, stage,
+// legacy_id], so job-level and area-override rows that share a bare taskId stay
+// distinct and both sides agree. The importer writes only name/sort_order/deleted
+// — required_photo_count/requires_note/is_active/description are PG-owned and
+// DELIBERATELY excluded (else an admin's later evidence-requirement authoring
+// would manufacture false drift).
+function templateKey(jobLegacy, areaLegacy, stage, legacyId) {
+  return JSON.stringify([jobLegacy, areaLegacy ?? null, stage, legacyId]);
+}
 
 // Blob projection — derived from the importer's own row builder so the check can
 // never drift from what the importer writes. Entities carry only stable fields
@@ -59,12 +69,18 @@ function projectBlob(sources, nowIso) {
     key: r.legacy_id, job_legacy_id: r.job_legacy_id, group_legacy_id: r.group_legacy_id,
     name: r.name, space_type: r.space_type, sort_order: r.sort_order, deleted: r.deleted_at !== null,
   }));
+  const templates = built.templateRows.map((r) => ({
+    key: templateKey(r.job_legacy_id, r.site_area_legacy_id, r.stage, r.legacy_id),
+    job_legacy_id: r.job_legacy_id, site_area_legacy_id: r.site_area_legacy_id,
+    stage: r.stage, legacy_id: r.legacy_id, name: r.name, sort_order: r.sort_order,
+    deleted: r.deleted_at !== null,
+  }));
   // Anything the importer would quarantine (and abort on) is, for the check, a
   // blob entity that cannot be mapped to a comparable PG key.
   const unmappable = built.quarantine
     .filter((q) => STRUCTURE_TABLES.has(q.table))
     .map((q) => `${q.table}:${q.id} (${q.reason})`);
-  return { jobs, groups, areas, unmappable };
+  return { jobs, groups, areas, templates, unmappable };
 }
 
 async function readPg(sql, tenantId) {
@@ -92,8 +108,25 @@ async function readPg(sql, tenantId) {
     left join public.site_area_groups gp on gp.id = a.group_id
     where a.tenant_id = ${tenantId} and a.legacy_id is not null
   `;
+  // Templates: resolve job/area legacy via joins; build the composite key in JS.
+  // Select ONLY the importer-written fields (name/sort_order/deleted) + identity —
+  // never the PG-owned required_photo_count/requires_note/is_active/description.
+  const tplRaw = await sql`
+    select jb.legacy_id as job_legacy_id, ar.legacy_id as site_area_legacy_id,
+           t.stage, t.legacy_id, t.name, t.sort_order, (t.deleted_at is not null) as deleted
+    from public.job_task_templates t
+    left join public.jobs jb on jb.id = t.job_id
+    left join public.site_areas ar on ar.id = t.site_area_id
+    where t.tenant_id = ${tenantId} and t.legacy_id is not null
+  `;
+  const templates = [...tplRaw].map((r) => ({
+    key: templateKey(r.job_legacy_id, r.site_area_legacy_id, r.stage, r.legacy_id),
+    job_legacy_id: r.job_legacy_id, site_area_legacy_id: r.site_area_legacy_id,
+    stage: r.stage, legacy_id: r.legacy_id, name: r.name, sort_order: r.sort_order,
+    deleted: r.deleted,
+  }));
   // postgres.js returns query results as array-likes; normalise to plain arrays.
-  return { jobs: [...jobs], groups: [...groups], areas: [...areas] };
+  return { jobs: [...jobs], groups: [...groups], areas: [...areas], templates };
 }
 
 // Records ONE append-only row in public.sync_checks (domain 'structure'). The

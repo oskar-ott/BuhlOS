@@ -40,7 +40,7 @@
 // or status QUARANTINES the record (never guessed/coerced), exactly like the
 // dry-run planner.
 
-const { VALID_USER_ROLES, VALID_JOB_STATUSES } = require('./structure-plan');
+const { VALID_USER_ROLES, VALID_JOB_STATUSES, STAGES, STAGE_KEYS } = require('./structure-plan');
 const { compositeLegacyId } = require('./structure-legacy-id');
 
 function strOrNull(v) {
@@ -171,6 +171,51 @@ function buildStructureRows(sources, options = {}) {
     });
   }
 
+  // ── job_task_templates (J2) ─────────────────────────────────────────────
+  // Import the task PLAN as raw DEFINITIONS at both levels: job-level defaults
+  // (site_area_id NULL) and per-area overrides (site_area_id set) coexist as
+  // distinct rows — this mirrors the planner's countTemplateEntries (the source
+  // of the "17 templates" count), NOT effectiveEntries (override-WINS resolution,
+  // which is a J3 task-expansion concern). legacy_id is the BARE blob taskId; the
+  // two PARTIAL unique indexes scope it by (job,stage) / (area,stage), so no
+  // composite value is needed (unlike J1 areas, whose flat legacy_uq lacked
+  // scoping). This keeps legacy_id aligned with the J3 bridge
+  // tasks.legacy_template_id. Dedup key = the full partial-index tuple.
+  //
+  // Fields with NO blob source are NOT written and stay DB-default: the importer
+  // omits required_photo_count (0), requires_note (false), is_active (true),
+  // description (null) on INSERT and never touches them on UPDATE — so an admin's
+  // later evidence-requirement authoring survives a re-import. archived→deleted_at
+  // (the schema comments deleted_at as the legacy `archived` template).
+  const templateRows = [];
+  const seenTemplate = new Set();
+  function emitTemplates(entries, { jobLegacy, areaLegacy, stage }) {
+    const scope = areaLegacy ? `area ${areaLegacy}` : `job ${jobLegacy}`;
+    for (const t of Array.isArray(entries) ? entries : []) {
+      if (!t || !t.id || !t.name) {
+        quarantine.push({ table: 'job_task_templates', id: (t && t.id) || `(${scope} ${stage})`, reason: 'template requires id and name' });
+        continue;
+      }
+      const dedupKey = JSON.stringify([jobLegacy, areaLegacy, stage, t.id]);
+      if (seenTemplate.has(dedupKey)) {
+        quarantine.push({ table: 'job_task_templates', id: dedupKey, reason: `duplicate template id "${t.id}" within ${scope} ${stage} — partial-unique collision` });
+        continue;
+      }
+      seenTemplate.add(dedupKey);
+      templateRows.push({
+        legacy_id: t.id, // bare taskId — the partial index scopes it by job/area+stage
+        job_legacy_id: jobLegacy,
+        site_area_legacy_id: areaLegacy, // null = job-level default; composite = area override
+        stage,
+        name: t.name,
+        sort_order: intOrZero(t.order),
+        deleted_at: t.archived === true ? nowIso : null,
+        deleted_by: null,
+        created_at: nowIso,
+      });
+    }
+  }
+
   // ── site_area_groups → site_areas (J1) ──────────────────────────────────
   // Walk ONLY valid jobs (a quarantined job aborts the whole run before any
   // write, so its place-tree is never imported). Composite legacy_ids are
@@ -226,11 +271,20 @@ function buildStructureRows(sources, options = {}) {
           deleted_by: null,
           created_at: nowIso,
         });
+        // J2: per-area override templates (site_area_id = this area). An empty
+        // override list emits nothing (that area uses the job-level default).
+        for (const stage of STAGES) {
+          emitTemplates(area[STAGE_KEYS[stage]], { jobLegacy: job.id, areaLegacy, stage });
+        }
       }
+    }
+    // J2: job-level default templates (site_area_id NULL).
+    for (const stage of STAGES) {
+      emitTemplates(job[STAGE_KEYS[stage]], { jobLegacy: job.id, areaLegacy: null, stage });
     }
   }
 
-  return { tenantRow, userRows, jobRows, groupRows, areaRows, quarantine };
+  return { tenantRow, userRows, jobRows, groupRows, areaRows, templateRows, quarantine };
 }
 
 // The mutable columns the upsert overwrites on conflict (everything except the
@@ -254,6 +308,14 @@ const AREA_MUTABLE_COLS = ['name', 'space_type', 'sort_order', 'group_id'];
 const GROUP_INSERT_COLS = ['tenant_id', 'job_id', 'legacy_id', 'name', 'sort_order', 'deleted_at', 'deleted_by', 'created_at'];
 const AREA_INSERT_COLS = ['tenant_id', 'job_id', 'group_id', 'legacy_id', 'name', 'space_type', 'sort_order', 'deleted_at', 'deleted_by', 'created_at'];
 
+// J2 templates. The importer writes ONLY blob-sourced fields. deleted_at is
+// handled by the archive-aware CASE (not a plain mutable col). required_photo_count
+// / requires_note / is_active / description are PG-OWNED capabilities with no blob
+// source — DELIBERATELY absent from INSERT (DB defaults apply) and from MUTABLE
+// (never overwritten on re-run), so admin-authored evidence requirements survive.
+const TEMPLATE_MUTABLE_COLS = ['name', 'sort_order'];
+const TEMPLATE_INSERT_COLS = ['tenant_id', 'job_id', 'site_area_id', 'stage', 'legacy_id', 'name', 'sort_order', 'deleted_at', 'deleted_by', 'created_at'];
+
 module.exports = {
   buildStructureRows,
   USER_MUTABLE_COLS,
@@ -264,4 +326,6 @@ module.exports = {
   AREA_MUTABLE_COLS,
   GROUP_INSERT_COLS,
   AREA_INSERT_COLS,
+  TEMPLATE_MUTABLE_COLS,
+  TEMPLATE_INSERT_COLS,
 };
