@@ -1,12 +1,25 @@
 // Structure import row builder — PURE. No I/O, no Supabase, no Blob.
 //
 // Turns the legacy Blob sources (users.json, jobs.json) into the row payloads
-// the structure importer upserts, for the FK-root slice of the structure:
-//   tenant (one, minted) → user_profiles → jobs.
+// the structure importer upserts. Slices:
+//   * FK-root slice (PR #585): tenant → user_profiles → jobs.
+//   * J1 (this slice): site_area_groups → site_areas (the place facets).
+//
+// J1 group/area identity (docs/audits/jobs-tasks-supabase-j0-audit.md):
+//   * legacy_id is a JOB-SCOPED composite (compositeLegacyId) — blob group/area
+//     ids are per-job-local, but the PG uniqueness index is tenant-wide, so the
+//     raw id is unsafe. Composite collisions (the same blob id twice within one
+//     job, incl. a live + archived reuse the tenant-wide index can't hold) are
+//     QUARANTINED — fail closed, never remapped silently.
+//   * archived → deleted_at (proxy = import time; the blob carries no deletion
+//     timestamp). deleted_by stays NULL — there is no system-actor user, and the
+//     column is nullable, so a NULL honestly records "actor unknown" rather than
+//     fabricating a fake user. The writer's upsert preserves an already-set
+//     deleted_at so re-runs do not churn (the proxy timestamp is only stamped on
+//     first archival).
 //
 // Deliberately NOT in this slice (each is its own follow-up):
-//   * site_area_groups / site_areas / job_members — not needed for the hours
-//     FK roots; additive later.
+//   * job_members — additive later.
 //   * job_task_templates / tasks — task identity must bind to the canonical
 //     task index (roadmap risk: "importer forks task identity"); governed
 //     separately, never minted blind here.
@@ -28,6 +41,7 @@
 // dry-run planner.
 
 const { VALID_USER_ROLES, VALID_JOB_STATUSES } = require('./structure-plan');
+const { compositeLegacyId } = require('./structure-legacy-id');
 
 function strOrNull(v) {
   return typeof v === 'string' && v.trim() !== '' ? v : null;
@@ -37,6 +51,10 @@ function boolOrNull(v) {
 }
 function intOrNull(v) {
   return Number.isFinite(v) ? Math.trunc(v) : null;
+}
+// sort_order is NOT NULL default 0 — a missing/invalid blob `order` → 0.
+function intOrZero(v) {
+  return Number.isFinite(v) ? Math.trunc(v) : 0;
 }
 // A date column wants 'YYYY-MM-DD' or null. Validate CALENDAR validity (not
 // just shape) via a UTC round-trip, so a malformed value like '2026-13-45'
@@ -114,6 +132,7 @@ function buildStructureRows(sources, options = {}) {
   }
 
   const jobRows = [];
+  const validJobs = []; // blob job objects that passed — only these get groups/areas walked
   const seenJob = new Set();
   for (const j of (sources && sources.jobs && sources.jobs.jobs) || []) {
     if (!j || !j.id || !j.name) {
@@ -130,6 +149,7 @@ function buildStructureRows(sources, options = {}) {
       continue;
     }
     seenJob.add(j.id);
+    validJobs.push(j);
     jobRows.push({
       legacy_id: j.id,
       name: j.name,
@@ -151,7 +171,66 @@ function buildStructureRows(sources, options = {}) {
     });
   }
 
-  return { tenantRow, userRows, jobRows, quarantine };
+  // ── site_area_groups → site_areas (J1) ──────────────────────────────────
+  // Walk ONLY valid jobs (a quarantined job aborts the whole run before any
+  // write, so its place-tree is never imported). Composite legacy_ids are
+  // deduped tenant-wide via their own Sets; a collision is a TRUE data error
+  // (same blob id twice within a job, incl. a live+archived reuse) → quarantine.
+  const groupRows = [];
+  const areaRows = [];
+  const seenGroupLegacy = new Set();
+  const seenAreaLegacy = new Set();
+  for (const job of validJobs) {
+    for (const group of Array.isArray(job.areaGroups) ? job.areaGroups : []) {
+      if (!group || !group.id || !group.name) {
+        quarantine.push({ table: 'site_area_groups', id: (group && group.id) || `(job ${job.id})`, reason: 'group requires id and name' });
+        continue;
+      }
+      const groupLegacy = compositeLegacyId(job.id, group.id);
+      if (seenGroupLegacy.has(groupLegacy)) {
+        quarantine.push({ table: 'site_area_groups', id: groupLegacy, reason: `duplicate group id "${group.id}" within job ${job.id} — composite legacy_id collision (tenant-wide unique)` });
+        continue;
+      }
+      seenGroupLegacy.add(groupLegacy);
+      const groupArchived = group.archived === true;
+      groupRows.push({
+        legacy_id: groupLegacy,
+        job_legacy_id: job.id,
+        name: group.name,
+        sort_order: intOrZero(group.order),
+        deleted_at: groupArchived ? nowIso : null,
+        deleted_by: null,
+        created_at: nowIso,
+      });
+
+      for (const area of Array.isArray(group.areas) ? group.areas : []) {
+        if (!area || !area.id || !area.name) {
+          quarantine.push({ table: 'site_areas', id: (area && area.id) || `(group ${group.id})`, reason: 'area requires id and name' });
+          continue;
+        }
+        const areaLegacy = compositeLegacyId(job.id, area.id);
+        if (seenAreaLegacy.has(areaLegacy)) {
+          quarantine.push({ table: 'site_areas', id: areaLegacy, reason: `duplicate area id "${area.id}" within job ${job.id} — composite legacy_id collision (tenant-wide unique)` });
+          continue;
+        }
+        seenAreaLegacy.add(areaLegacy);
+        const areaArchived = area.archived === true;
+        areaRows.push({
+          legacy_id: areaLegacy,
+          job_legacy_id: job.id,
+          group_legacy_id: groupLegacy,
+          name: area.name,
+          space_type: strOrNull(area.spaceType),
+          sort_order: intOrZero(area.order),
+          deleted_at: areaArchived ? nowIso : null,
+          deleted_by: null,
+          created_at: nowIso,
+        });
+      }
+    }
+  }
+
+  return { tenantRow, userRows, jobRows, groupRows, areaRows, quarantine };
 }
 
 // The mutable columns the upsert overwrites on conflict (everything except the
@@ -167,10 +246,22 @@ const JOB_MUTABLE_COLS = [
 const USER_INSERT_COLS = ['tenant_id', 'legacy_user_id', ...USER_MUTABLE_COLS, 'created_at'];
 const JOB_INSERT_COLS = ['tenant_id', 'legacy_id', ...JOB_MUTABLE_COLS, 'created_at'];
 
+// J1 place facets. deleted_at is handled SPECIALLY by the upsert (a CASE that
+// preserves an already-set timestamp so re-runs of an archived row don't churn),
+// so it is NOT in the plain *_MUTABLE_COLS list — see structure-import.js.
+const GROUP_MUTABLE_COLS = ['name', 'sort_order'];
+const AREA_MUTABLE_COLS = ['name', 'space_type', 'sort_order', 'group_id'];
+const GROUP_INSERT_COLS = ['tenant_id', 'job_id', 'legacy_id', 'name', 'sort_order', 'deleted_at', 'deleted_by', 'created_at'];
+const AREA_INSERT_COLS = ['tenant_id', 'job_id', 'group_id', 'legacy_id', 'name', 'space_type', 'sort_order', 'deleted_at', 'deleted_by', 'created_at'];
+
 module.exports = {
   buildStructureRows,
   USER_MUTABLE_COLS,
   JOB_MUTABLE_COLS,
   USER_INSERT_COLS,
   JOB_INSERT_COLS,
+  GROUP_MUTABLE_COLS,
+  AREA_MUTABLE_COLS,
+  GROUP_INSERT_COLS,
+  AREA_INSERT_COLS,
 };
