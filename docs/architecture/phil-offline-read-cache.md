@@ -74,12 +74,20 @@ anchor and decides at click time via the pure
 - Modified / middle / new-tab clicks, non-`_self` targets and object hrefs are
   left entirely to the browser.
 
-Wired on the offline-critical path: the tab bar (`PhilTabBar`), the jobs list
-rows (`PhilJobsList`), every back link (`PhilBackLink`), the My Day hero
-(`PhilMyDayHero`), and the job-detail / ITP back + plans links. Other secondary
-Phil widgets can adopt it via the same one-line swap. **No SW change** — the SW's
-existing navigate handling already serves the forced document navigation; this is
-purely the client reaching it.
+Wired on **every** navigational Phil internal link: the tab bar (`PhilTabBar`),
+jobs list rows (`PhilJobsList`), all back links (`PhilBackLink`), the My Day hero
+(`PhilMyDayHero`) and Needs-you feed (`PhilNeedsYouFeed`), job detail + its
+in-body panels (`PhilJobDetail`, `PhilJobCommandPanel` route links,
+`JobItpPanel`, `JobTagsPanel`), the week strip/summary (`PhilWeekStrip`,
+`PhilWeekSummary`) and the ITP recording back link (`ITPRecording`). The only
+`next/link` left is inside `PhilOfflineLink` itself; in-page `#` anchors stay
+plain `<a>`. **No SW change** — the SW's existing navigate handling already serves
+the forced document navigation; this is purely the client reaching it.
+
+The "More" tab (`/v2/phil`, a non-`/phil` route) is wrapped too: offline it
+hard-navigates to the honest `/offline.html` card (the SW only caches `/phil/*`),
+which is better than a dead RSC soft-nav; online the warm is a no-op (it guards
+`/phil/*`).
 
 **Manual acceptance test (the in-app tap path — must pass before merge):**
 

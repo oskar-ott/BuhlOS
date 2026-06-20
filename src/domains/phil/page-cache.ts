@@ -54,6 +54,11 @@ export async function warmPhilPageCache(href: string, deps: WarmPhilPageDeps = {
   if (!cacheStorage || !doFetch || !origin) return;
   try {
     const url = new URL(href, origin);
+    // Strip the fragment: a navigation request never carries the hash (it's
+    // client-only), so the SW keys its page cache by the fragment-less URL. We
+    // must key the warm the same way or a "#section" link (e.g. the Needs-you
+    // feed's /phil/jobs/<id>#snags) would warm under a key the SW never matches.
+    url.hash = "";
     // Only ever warm same-origin /phil/* documents.
     if (url.origin !== origin || !url.pathname.startsWith("/phil/")) return;
     const keys = await cacheStorage.keys();

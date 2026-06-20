@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { PhilOfflineLink } from "./PhilOfflineLink";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { PhilNotice } from "./ui/PhilNotice";
@@ -55,13 +55,13 @@ export function JobTagsPanel({ jobId, initialTags, loadError = false }: Props) {
       )}
 
       {!loadError ? (
-        <Link
+        <PhilOfflineLink
           href={`/phil/jobs/${encodeURIComponent(jobId)}/tags`}
           className="mt-3 inline-block text-sm font-medium text-brand-navy underline underline-offset-2"
           data-testid="open-tag-register"
         >
           Open the register
-        </Link>
+        </PhilOfflineLink>
       ) : null}
     </Card>
   );

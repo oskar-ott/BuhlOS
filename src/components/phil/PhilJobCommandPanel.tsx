@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
+import { PhilOfflineLink } from "./PhilOfflineLink";
 import type { Route } from "next";
 import {
   AlertOctagon,
@@ -231,8 +231,8 @@ function CommandAction({
     );
   }
   return (
-    <Link href={target as Route} className={className}>
+    <PhilOfflineLink href={target as Route} className={className}>
       {body}
-    </Link>
+    </PhilOfflineLink>
   );
 }

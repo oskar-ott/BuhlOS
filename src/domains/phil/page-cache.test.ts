@@ -110,6 +110,28 @@ describe("warmPhilPageCache", () => {
     expect(putCalls).toEqual([]);
   });
 
+  it("keys the warm by the fragment-less URL so a '#section' link still matches", async () => {
+    const { cacheStorage, putCalls } = fakeCacheEnv(["buhl-sw-v12-pages"]);
+    // The Needs-you feed links to /phil/jobs/x#phil-job-snags; the SW serves the
+    // navigation keyed without the hash, so the warm must store it the same way.
+    const fetchImpl = fakeFetch({ ok: true, redirected: false, url: `${ORIGIN}/phil/jobs/x` });
+    await warmPhilPageCache("/phil/jobs/x#phil-job-snags", { cacheStorage, fetchImpl, origin: ORIGIN });
+    expect(putCalls).toEqual([{ cache: "buhl-sw-v12-pages", url: `${ORIGIN}/phil/jobs/x` }]);
+  });
+
+  it("preserves the query string in the warm key (matches the SW navigation key)", async () => {
+    const { cacheStorage, putCalls } = fakeCacheEnv(["buhl-sw-v12-pages"]);
+    const fetchImpl = fakeFetch({
+      ok: true,
+      redirected: false,
+      url: `${ORIGIN}/phil/my-day?fixDate=2026-06-20`,
+    });
+    await warmPhilPageCache("/phil/my-day?fixDate=2026-06-20", { cacheStorage, fetchImpl, origin: ORIGIN });
+    expect(putCalls).toEqual([
+      { cache: "buhl-sw-v12-pages", url: `${ORIGIN}/phil/my-day?fixDate=2026-06-20` },
+    ]);
+  });
+
   it("is a no-op for a non-/phil href (never warms admin/other surfaces)", async () => {
     const { cacheStorage, putCalls } = fakeCacheEnv(["buhl-sw-v12-pages"]);
     const fetchImpl = fakeFetch({ ok: true, redirected: false, url: `${ORIGIN}/v2/jobs/x` });

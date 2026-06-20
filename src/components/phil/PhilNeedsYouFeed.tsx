@@ -1,6 +1,6 @@
-import Link from "next/link";
 import type { Route } from "next";
 import { cn } from "@/lib/cn";
+import { PhilOfflineLink } from "./PhilOfflineLink";
 import styles from "./myDay.module.css";
 import type { PhilNeedsYouItem, PhilNeedsYouSeverity } from "@/domains/phil/needs-you";
 
@@ -35,7 +35,7 @@ export function PhilNeedsYouFeed({ items }: { items: ReadonlyArray<PhilNeedsYouI
       <ul>
         {items.map((it) => (
           <li key={it.id}>
-            <Link href={it.href as Route} className={styles.needsRow}>
+            <PhilOfflineLink href={it.href as Route} className={styles.needsRow}>
               <span
                 className={cn(styles.needsDot, DOT[it.severity])}
                 aria-hidden="true"
@@ -47,7 +47,7 @@ export function PhilNeedsYouFeed({ items }: { items: ReadonlyArray<PhilNeedsYouI
                 ) : null}
               </span>
               <span className={styles.needsAction}>{it.actionLabel}</span>
-            </Link>
+            </PhilOfflineLink>
           </li>
         ))}
       </ul>
