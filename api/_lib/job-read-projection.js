@@ -134,33 +134,43 @@ function reconstructFromPg(rows = {}) {
 // include archived (deleted_at not null) so the reconstruction round-trips
 // archived groups/areas/templates as `archived:true` blob entries.
 async function loadJobStructureFromPg(sql, tenantId) {
+  // ORDER BY makes the reconstruction DETERMINISTIC: arrays come back in
+  // sort_order (then legacy_id as a stable tiebreak), so the same PG state always
+  // reconstructs to byte-identical arrays. This is what lets the J6 admin overlay
+  // gate per job on an order-sensitive hash and still guarantee Blob-identical
+  // output. (The J5 parity proof hashes order-independently, so it is unaffected.)
   const jobs = await sql`
     select legacy_id, name, status, ref, job_type_label, external_ref, site_address,
            site_contact_name, site_contact_phone, access_notes, parking_notes, safety_notes,
            induction_required, start_date::text as start_date, due_date::text as due_date,
            programmed_duration_days, created_at::text as created_at
-    from public.jobs where tenant_id = ${tenantId} and legacy_id is not null and deleted_at is null`;
+    from public.jobs where tenant_id = ${tenantId} and legacy_id is not null and deleted_at is null
+    order by legacy_id`;
   const groups = await sql`
     select g.legacy_id, jb.legacy_id as job_legacy, g.name, g.sort_order, (g.deleted_at is not null) as archived
     from public.site_area_groups g join public.jobs jb on jb.id = g.job_id
-    where g.tenant_id = ${tenantId} and g.legacy_id is not null`;
+    where g.tenant_id = ${tenantId} and g.legacy_id is not null
+    order by g.sort_order, g.legacy_id`;
   const areas = await sql`
     select a.legacy_id, jb.legacy_id as job_legacy, gp.legacy_id as group_legacy, a.name, a.space_type,
            a.sort_order, (a.deleted_at is not null) as archived
     from public.site_areas a join public.jobs jb on jb.id = a.job_id
     left join public.site_area_groups gp on gp.id = a.group_id
-    where a.tenant_id = ${tenantId} and a.legacy_id is not null`;
+    where a.tenant_id = ${tenantId} and a.legacy_id is not null
+    order by a.sort_order, a.legacy_id`;
   const templates = await sql`
     select t.legacy_id, jb.legacy_id as job_legacy, ar.legacy_id as area_legacy, t.stage, t.name,
            t.sort_order, (t.deleted_at is not null) as archived
     from public.job_task_templates t join public.jobs jb on jb.id = t.job_id
     left join public.site_areas ar on ar.id = t.site_area_id
-    where t.tenant_id = ${tenantId} and t.legacy_id is not null`;
+    where t.tenant_id = ${tenantId} and t.legacy_id is not null
+    order by t.sort_order, t.legacy_id`;
   const tasks = await sql`
     select jb.legacy_id as job_legacy, ar.legacy_id as area_legacy, t.stage, t.legacy_template_id, t.status
     from public.tasks t join public.jobs jb on jb.id = t.job_id
     join public.site_areas ar on ar.id = t.site_area_id
-    where t.tenant_id = ${tenantId} and t.legacy_template_id is not null and t.deleted_at is null`;
+    where t.tenant_id = ${tenantId} and t.legacy_template_id is not null and t.deleted_at is null
+    order by t.legacy_template_id`;
   const evidence = await sql`
     select ef.legacy_id, jb.legacy_id as job_legacy, ar.legacy_id as area_legacy,
            tk.legacy_template_id as task_legacy_template_id, ef.kind, ef.photo_blob_id, ef.blob_url,
@@ -173,7 +183,8 @@ async function loadJobStructureFromPg(sql, tenantId) {
     left join public.tasks tk on tk.id = ef.task_id
     left join public.user_profiles cu on cu.id = ef.captured_by
     left join public.user_profiles ru on ru.id = ef.reviewed_by
-    where ef.tenant_id = ${tenantId} and ef.legacy_id is not null and ef.deleted_at is null`;
+    where ef.tenant_id = ${tenantId} and ef.legacy_id is not null and ef.deleted_at is null
+    order by ef.created_at, ef.legacy_id`;
 
   return reconstructFromPg({
     jobs: [...jobs], groups: [...groups], areas: [...areas],
@@ -208,5 +219,209 @@ function realGetDb(opts) {
 function realIsFlagOn(key) {
   return require('./feature-flags').isFlagOn(key);
 }
+function realReadBlob(key, fallback) {
+  return require('./blob').readBlob(key, fallback);
+}
 
-module.exports = { reconstructFromPg, loadJobStructureFromPg, readJobsFromPgIfEnabled };
+// ───────────────────────────────────────────────────────────────────────────
+// J6 — admin read cutover (DARK). The admin jobs read can be served from the PG
+// reconstruction, behind the `supabase_read_jobs` flag, WITHOUT changing what
+// admin sees. Two hard realities shape the design:
+//
+//   1. Jobs/tasks are NOT dual-written (only hours is) → Postgres is a FROZEN
+//      snapshot from the last importer run. Any job edited since has drifted, so
+//      the cutover cannot trust PG blindly: it is gated PER JOB.
+//   2. Admin consumes Blob-ONLY fields PG never stored (modules, customFields,
+//      scopeOfWork, clientUserId, and any structural extras), and existence is
+//      Blob-authoritative (new/draft jobs live only in Blob). So PG never
+//      REPLACES the Blob read — it OVERLAYS it.
+//
+// Serve policy: Blob is the spine. For each job present in both, if the PG
+// reconstruction's MIGRATED fields hash-equal the Blob's (order-sensitive,
+// key-order-normalised), that job's migrated fields are sourced from PG;
+// otherwise the Blob job is kept untouched. Because "faithful" means byte-equal,
+// the served output is PROVABLY identical to Blob — PG is genuinely exercised,
+// nothing admin sees changes, and drift/new/error all fall back to Blob.
+// ───────────────────────────────────────────────────────────────────────────
+
+// The job fields the PG reconstruction OWNS and may serve. createdAt is
+// deliberately excluded: PG stores it as a timestamp whose ::text form differs
+// from the Blob's string, which would mark every job drifted and is meaningless
+// to "cut over" anyway. Everything not in this list (modules, customFields,
+// scopeOfWork, clientUserId, …) stays Blob-authoritative via the spine.
+const MIGRATED_JOB_FIELDS = [
+  'name', 'status', 'ref', 'type', 'serviceM8JobId', 'siteAddress',
+  'siteContactName', 'siteContactPhone', 'accessNotes', 'parkingNotes', 'safetyNotes',
+  'inductionRequired', 'startDate', 'dueDate', 'programmedDurationDays',
+  'areaGroups', 'roughInTasks', 'fitOffTasks',
+];
+
+// Deterministic serialisation: object keys sorted at every depth (so key order
+// can't forge a diff), array ORDER preserved (so a genuine reordering still
+// counts as drift — which protects Blob-identical output). undefined→null.
+function deepCanonOrdered(v) {
+  if (Array.isArray(v)) return v.map(deepCanonOrdered);
+  if (v && typeof v === 'object') {
+    const out = {};
+    for (const k of Object.keys(v).sort()) out[k] = deepCanonOrdered(v[k]);
+    return out;
+  }
+  return v === undefined ? null : v;
+}
+
+const crypto = require('node:crypto');
+
+function migratedFieldsHash(job) {
+  const picked = {};
+  for (const f of MIGRATED_JOB_FIELDS) picked[f] = job ? (job[f] === undefined ? null : job[f]) : null;
+  return crypto.createHash('sha256').update(JSON.stringify(deepCanonOrdered(picked))).digest('hex');
+}
+
+/**
+ * PURE. Per-job parity-gated overlay of PG migrated fields onto the Blob spine.
+ * @returns {{ jobs: object[], pgFaithfulCount, driftedCount, onlyInBlobCount,
+ *             onlyInPgCount, matchedCount, parityMatch: boolean, blobHash, pgHash,
+ *             driftedIds: string[] }}
+ */
+function overlayAdminJobs(blobJobs = [], pgJobs = []) {
+  const pgById = new Map();
+  for (const p of pgJobs) pgById.set(p.id, p);
+  const blobIds = new Set();
+
+  let pgFaithfulCount = 0;
+  let matchedCount = 0;
+  const driftedIds = [];
+  const matchedBlobHashes = [];
+  const matchedPgHashes = [];
+
+  const jobs = blobJobs.map((b) => {
+    blobIds.add(b.id);
+    const p = pgById.get(b.id);
+    if (!p) return b; // only in Blob (new/draft) — existence is Blob-authoritative
+    matchedCount += 1;
+    const bh = migratedFieldsHash(b);
+    const ph = migratedFieldsHash(p);
+    matchedBlobHashes.push(bh);
+    matchedPgHashes.push(ph);
+    if (bh !== ph) {
+      driftedIds.push(b.id); // PG stale vs Blob — keep Blob untouched
+      return b;
+    }
+    pgFaithfulCount += 1;
+    // Faithful: source the migrated fields from PG. Only overlay keys the Blob
+    // job ALREADY has, so the served object's key SET is identical to Blob's (PG
+    // may store an optional field as null that Blob omits — adding it would be a
+    // subtle change). Keep all Blob-only fields (modules/customFields/scopeOfWork/
+    // clientUserId/…) intact. Because the job is faithful, the result is
+    // semantically identical to Blob (same data & order; only nested JSON key
+    // ordering may differ, which no consumer depends on).
+    const merged = { ...b };
+    for (const f of MIGRATED_JOB_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(b, f) && p[f] !== undefined) merged[f] = p[f];
+    }
+    return merged;
+  });
+
+  let onlyInPgCount = 0;
+  for (const p of pgJobs) if (!blobIds.has(p.id)) onlyInPgCount += 1;
+
+  const aggregate = (arr) =>
+    crypto.createHash('sha256').update(arr.slice().sort().join('|')).digest('hex');
+
+  return {
+    jobs,
+    pgFaithfulCount,
+    driftedCount: driftedIds.length,
+    onlyInBlobCount: jobs.length - matchedCount,
+    onlyInPgCount,
+    matchedCount,
+    parityMatch: driftedIds.length === 0,
+    blobHash: aggregate(matchedBlobHashes),
+    pgHash: aggregate(matchedPgHashes),
+    driftedIds,
+  };
+}
+
+const EMPTY_DIAG_BLOB = (reason, latencyMs, flagOn) => ({
+  readSource: 'blob', reason, flagOn: flagOn === true, reconstructed: false,
+  parityMatch: null, pgFaithfulCount: 0, driftedCount: 0, onlyInBlobCount: 0,
+  onlyInPgCount: 0, matchedCount: 0, blobHash: null, pgHash: null,
+  latencyMs, fallbackUsed: false, error: null,
+});
+
+/**
+ * DARK admin read. Returns { jobs, diag }. Blob stays authoritative: returns the
+ * Blob jobs untouched unless the flag is ON and PG reconstructs faithfully, in
+ * which case faithful jobs are served from PG (output provably == Blob). Any
+ * error → full Blob fallback (never throws into the caller). Injectable deps.
+ */
+async function readAdminJobsWithPgOverlay(input = {}) {
+  const { blobJobs = [], getDb = realGetDb, isFlagOn = realIsFlagOn, tenantSlug = 'buhl', now = Date.now } = input;
+  const started = now();
+  const elapsed = () => Math.max(0, now() - started);
+
+  if (!process.env.SUPABASE_DB_URL) {
+    return { jobs: blobJobs, diag: EMPTY_DIAG_BLOB('no supabase env', elapsed(), false) };
+  }
+  let flagOn = false;
+  try {
+    flagOn = (await isFlagOn('supabase_read_jobs')) === true;
+    if (!flagOn) return { jobs: blobJobs, diag: EMPTY_DIAG_BLOB('flag off', elapsed(), false) };
+
+    const sql = getDb({ mode: 'read' });
+    const tenant = await sql`select id from public.tenants where slug = ${tenantSlug}`;
+    if (!tenant.length) {
+      // PG was reached but the tenant is absent — Blob fallback (PG was attempted).
+      return { jobs: blobJobs, diag: { ...EMPTY_DIAG_BLOB('no tenant', elapsed(), true), fallbackUsed: true } };
+    }
+
+    const sources = await loadJobStructureFromPg(sql, tenant[0].id);
+    const pgJobs = (sources && sources.jobs && sources.jobs.jobs) || [];
+    const o = overlayAdminJobs(blobJobs, pgJobs);
+    const servedFromPg = o.pgFaithfulCount > 0;
+    return {
+      jobs: o.jobs,
+      diag: {
+        readSource: servedFromPg ? 'postgres' : 'blob',
+        reason: servedFromPg
+          ? (o.driftedCount > 0 ? 'served from postgres (some jobs drifted → blob)' : 'served from postgres')
+          : 'all in-both jobs drifted or absent → blob',
+        flagOn: true, reconstructed: true, parityMatch: o.parityMatch,
+        pgFaithfulCount: o.pgFaithfulCount, driftedCount: o.driftedCount,
+        onlyInBlobCount: o.onlyInBlobCount, onlyInPgCount: o.onlyInPgCount,
+        matchedCount: o.matchedCount, blobHash: o.blobHash, pgHash: o.pgHash,
+        latencyMs: elapsed(), fallbackUsed: false, error: null,
+      },
+    };
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    console.warn('[job-read-projection] admin PG overlay failed (Blob authoritative):', msg);
+    return {
+      jobs: blobJobs,
+      diag: { ...EMPTY_DIAG_BLOB('error', elapsed(), flagOn), fallbackUsed: flagOn === true, error: msg },
+    };
+  }
+}
+
+/**
+ * Read-only diagnostics probe for the admin /jobs-read-status page. Reads the
+ * Blob jobs + runs the same overlay logic, returning ONLY the diag (it does not
+ * serve or record). Never throws. Injectable deps.
+ */
+async function probeAdminJobsRead(deps = {}) {
+  const { readBlob = realReadBlob } = deps;
+  try {
+    const blob = await readBlob('jobs.json', { jobs: [] });
+    const { diag } = await readAdminJobsWithPgOverlay({ ...deps, blobJobs: (blob && blob.jobs) || [] });
+    return diag;
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    return { ...EMPTY_DIAG_BLOB('probe error', 0, false), error: msg };
+  }
+}
+
+module.exports = {
+  reconstructFromPg, loadJobStructureFromPg, readJobsFromPgIfEnabled,
+  MIGRATED_JOB_FIELDS, migratedFieldsHash, overlayAdminJobs,
+  readAdminJobsWithPgOverlay, probeAdminJobsRead,
+};

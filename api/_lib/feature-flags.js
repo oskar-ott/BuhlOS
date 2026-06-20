@@ -55,13 +55,17 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
-  // Jobs/tasks read projection (J5): when on, the jobs/tasks DISPLAY read can be
-  // reconstructed from Postgres (api/_lib/job-read-projection) with a Blob
-  // fallback. DARK — no consumer is wired yet (no route/UI cutover); flip
-  // per-environment only after the structure sync-check + read parity prove the
-  // PG graph reconstructs the Blob shape. Blob stays authoritative when off.
+  // Jobs/tasks read projection (J5) + admin read cutover (J6): when on, the
+  // ADMIN jobs read (api/jobs.js) serves each job's migrated fields from the
+  // Postgres reconstruction (api/_lib/job-read-projection) where PG is
+  // byte-identical to Blob, else from Blob; any PG error → full Blob fallback.
+  // DARK by default and only the admin tier is affected — Phil/field/clients
+  // always read Blob. Flip per-environment only after the structure sync-check +
+  // read parity prove the PG graph reconstructs the Blob shape. Blob stays
+  // authoritative when off, and unset in production keeps prod on Blob. The
+  // /jobs-read-status admin page shows the live read source + parity.
   supabase_read_jobs: {
-    description: 'Reconstruct the jobs/tasks display read from Postgres with a Blob fallback (#152, J5). Dark.',
+    description: 'Serve the ADMIN jobs read from Postgres (per-job parity-gated) with a Blob fallback (#152, J5/J6). Dark.',
     default: false,
     target: 'global',
     expires: '2026-12-31',

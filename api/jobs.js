@@ -1,6 +1,8 @@
 const { readBlob, writeBlob, deleteBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs, isFieldRole, isClientRole } = require('./_lib/auth');
+const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs, isFieldRole, isClientRole, isAdminRole } = require('./_lib/auth');
 const { redactJobForViewer } = require('./_lib/job-redaction');
+const { readAdminJobsWithPgOverlay } = require('./_lib/job-read-projection');
+const { recordJobsRead } = require('./_lib/job-read-diagnostics');
 
 // Canonical job statuses — keep in sync with src/domains/jobs/schema.ts JOB_STATUSES.
 const VALID_JOB_STATUS = new Set(['active', 'complete', 'archived', 'on_hold', 'draft']);
@@ -97,6 +99,19 @@ module.exports = async (req, res) => {
 
   const data = await readBlob('jobs.json', { jobs: [] });
   data.jobs = data.jobs || [];
+
+  // J6 — DARK admin read cutover. Blob (read above) stays authoritative. For the
+  // ADMIN TIER only, when `supabase_read_jobs` is ON, each job's migrated fields
+  // are served from the Postgres reconstruction where PG is byte-identical to
+  // Blob (else that job stays on Blob); any PG error → full Blob fallback. Output
+  // is provably == Blob, so this changes nothing admin sees while exercising the
+  // PG read path. Phil/field/clients are NEVER touched (they keep pure Blob), and
+  // the flag is OFF by default + unset in production, so prod is unchanged.
+  if (isAdminRole(me.role)) {
+    const overlay = await readAdminJobsWithPgOverlay({ blobJobs: data.jobs });
+    data.jobs = overlay.jobs;
+    recordJobsRead(overlay.diag);
+  }
 
   // GET — list or single
   if (req.method === 'GET') {
