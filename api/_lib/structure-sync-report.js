@@ -25,7 +25,7 @@
 
 const crypto = require('node:crypto');
 
-const SECTIONS = ['jobs', 'groups', 'areas', 'templates', 'tasks'];
+const SECTIONS = ['jobs', 'groups', 'areas', 'templates', 'tasks', 'evidence', 'proof'];
 
 // Canonical, deterministic serialisation of one entity: keys sorted so field
 // order can't forge a diff; null-normalised (undefined would be dropped by
