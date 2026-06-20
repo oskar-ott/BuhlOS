@@ -245,6 +245,7 @@ function projectEvidence(sources, ctx) {
     key: r.legacy_id, kind: r.kind, status: r.status, source: r.source, note: r.note,
     blob_url: r.blob_url, photo_blob_id: r.photo_blob_id, thumbnail_url: r.thumbnail_url, stage: r.stage,
     captured_by_label: r.captured_by_label, reviewed_by_label: r.reviewed_by_label, rejection_reason: r.rejection_reason,
+    exif_lat: r.exif_lat, exif_lng: r.exif_lng,
     has_area: r.site_area_id !== null, has_task: r.task_id !== null,
     granularity: r.task_id ? 'task' : (r.site_area_id ? 'area' : 'job'),
   }));
@@ -258,7 +259,7 @@ function projectEvidence(sources, ctx) {
 async function readPgEvidence(sql, tenantId) {
   const ef = await sql`
     select legacy_id as key, kind, status, source, note, blob_url, photo_blob_id, thumbnail_url, stage,
-           captured_by_label, reviewed_by_label, rejection_reason,
+           captured_by_label, reviewed_by_label, rejection_reason, exif_lat, exif_lng,
            (site_area_id is not null) as has_area, (task_id is not null) as has_task
     from public.evidence_files
     where tenant_id = ${tenantId} and legacy_id is not null and deleted_at is null

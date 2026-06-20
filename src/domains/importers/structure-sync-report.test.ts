@@ -196,7 +196,8 @@ describe("buildStructureSyncReport — tasks section (J3)", () => {
 const evi = (key: string, over: Record<string, unknown> = {}) => ({
   key, kind: "note", status: "submitted", source: "phil", note: "hi", blob_url: null,
   photo_blob_id: null, thumbnail_url: null, stage: null, captured_by_label: "Tom",
-  reviewed_by_label: null, rejection_reason: null, has_area: false, has_task: false, granularity: "job", ...over,
+  reviewed_by_label: null, rejection_reason: null, exif_lat: null, exif_lng: null,
+  has_area: false, has_task: false, granularity: "job", ...over,
 });
 const prf = (key: string, over: Record<string, unknown> = {}) => ({ key, evidence_legacy_id: "ev1", link_role: "proof", task_id: "task-uuid", ...over });
 function sideEvi(evidence: unknown[], proof: unknown[] = []) {
@@ -228,5 +229,11 @@ describe("buildStructureSyncReport — evidence + proof sections (J4)", () => {
     const r = buildStructureSyncReport({ blob: sideEvi([evi("ev1")], []), pg: sideEvi([evi("ev1")], [prf("ev1|task|proof")]) });
     expect(r.status).toBe("fail");
     expect(r.details.sections.proof!.onlyInPg).toContain("ev1|task|proof");
+  });
+
+  it("FAIL when exif coordinates diverge (importer-written, must be compared)", () => {
+    const r = buildStructureSyncReport({ blob: sideEvi([evi("ev1", { exif_lat: -33.8, exif_lng: 151.2 })]), pg: sideEvi([evi("ev1", { exif_lat: null, exif_lng: null })]) });
+    expect(r.status).toBe("fail");
+    expect(r.details.sections.evidence!.mismatchedCount).toBe(1);
   });
 });
