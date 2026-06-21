@@ -19,6 +19,8 @@ import { probeTaskReadParity } from "../../api/_lib/task-read.js";
 import type { TaskReadProbeResult } from "../../api/_lib/task-read";
 import { probeEvidenceReadParity } from "../../api/_lib/evidence-read.js";
 import type { EvidenceReadProbeResult } from "../../api/_lib/evidence-read";
+import { getAdminEvidenceReadDiagnostics } from "../../api/_lib/admin-evidence-read-diagnostics.js";
+import type { AdminEvidenceReadDiagnosticsSnapshot } from "../../api/_lib/admin-evidence-read-diagnostics";
 import { isFlagOn } from "../../api/_lib/feature-flags.js";
 
 export type JobsReadStatus = {
@@ -330,4 +332,44 @@ export function summariseEvidenceReadProbe(s: EvidenceReadProbeStatus): Evidence
   };
   if (p.jobsSampled === 0) return { state: "empty", ...metrics, readyForOverlay: false };
   return { state: p.readyForOverlay ? "all_faithful" : "drift", ...metrics, readyForOverlay: p.readyForOverlay };
+}
+
+// ── Admin evidence-metadata READ OVERLAY diagnostics (the first SERVED evidence
+//    overlay, behind supabase_read_admin_evidence). Process-local counters, same
+//    shape as the J11 admin task-status card; no live probe (the parity probe card
+//    above already measures readiness across jobs). Evidence metadata only.
+export type AdminEvidenceReadStatus = { flagOn: boolean; counters: AdminEvidenceReadDiagnosticsSnapshot };
+
+const readAdminEvidenceCounters = getAdminEvidenceReadDiagnostics as () => AdminEvidenceReadDiagnosticsSnapshot;
+
+export async function loadAdminEvidenceReadStatus(): Promise<AdminEvidenceReadStatus> {
+  return { flagOn: await flagOrFalse("supabase_read_admin_evidence"), counters: readAdminEvidenceCounters() };
+}
+
+export type AdminEvidenceReadSummary = {
+  flagOn: boolean;
+  totalReads: number;
+  pgServedReads: number;
+  blobServedReads: number;
+  fallbackReads: number;
+  parityMismatches: number;
+  lastAt: string | null;
+  lastSource: "blob" | "postgres" | null;
+  lastParityPass: boolean | null;
+};
+
+/** Pure view model for the admin evidence read-overlay card. */
+export function summariseAdminEvidenceRead(s: AdminEvidenceReadStatus): AdminEvidenceReadSummary {
+  const c = s.counters;
+  return {
+    flagOn: s.flagOn,
+    totalReads: c.totalReads,
+    pgServedReads: c.pgServedReads,
+    blobServedReads: c.blobServedReads,
+    fallbackReads: c.fallbackReads,
+    parityMismatches: c.parityMismatches,
+    lastAt: c.lastAt,
+    lastSource: c.lastDiag ? c.lastDiag.source : null,
+    lastParityPass: c.lastDiag ? c.lastDiag.parityPass : null,
+  };
 }

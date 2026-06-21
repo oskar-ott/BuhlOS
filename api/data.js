@@ -1,8 +1,10 @@
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isFieldRole, isLeadingHandRole, isAdminRole } = require('./_lib/auth');
 const { readPhilTaskStatus, readAdminTaskStatus } = require('./_lib/task-read');
+const { readAdminEvidence } = require('./_lib/evidence-read');
 const { recordTaskRead } = require('./_lib/task-read-diagnostics');
 const { recordAdminTaskRead } = require('./_lib/admin-task-read-diagnostics');
+const { recordAdminEvidenceRead } = require('./_lib/admin-evidence-read-diagnostics');
 
 // Per-job state document: GET returns the current { dwellings, snags, notes }
 // blob for a job — read by the Phil job screen (task state) and the read-only
@@ -63,9 +65,15 @@ module.exports = async (req, res) => {
     return res.status(200).json(overlay.data);
   }
   if (isAdminRole(user.role)) {
-    const overlay = await readAdminTaskStatus({ jobId, data });
-    recordAdminTaskRead(overlay.diag);
-    return res.status(200).json(overlay.data);
+    // ADMIN/office: task-status overlay (J11), then evidence-metadata overlay —
+    // each independently flag-gated + parity-gated, each falling back to Blob, so
+    // output stays byte-identical to Blob. Evidence overlay is admin-only and
+    // touches data.evidence[] only (proof-status and other sections untouched).
+    const taskOverlay = await readAdminTaskStatus({ jobId, data });
+    recordAdminTaskRead(taskOverlay.diag);
+    const evidenceOverlay = await readAdminEvidence({ jobId, data: taskOverlay.data });
+    recordAdminEvidenceRead(evidenceOverlay.diag);
+    return res.status(200).json(evidenceOverlay.data);
   }
   return res.status(200).json(data); // clients (and any other tier) — pure Blob
 };

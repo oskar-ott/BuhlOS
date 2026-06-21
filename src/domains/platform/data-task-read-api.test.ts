@@ -17,6 +17,8 @@ const dataPath = requireFromHere.resolve("../../../api/data.js");
 const trPath = requireFromHere.resolve("../../../api/_lib/task-read.js");
 const trdPath = requireFromHere.resolve("../../../api/_lib/task-read-diagnostics.js");
 const trdAdminPath = requireFromHere.resolve("../../../api/_lib/admin-task-read-diagnostics.js");
+const erPath = requireFromHere.resolve("../../../api/_lib/evidence-read.js");
+const erdPath = requireFromHere.resolve("../../../api/_lib/admin-evidence-read-diagnostics.js");
 
 type Data = Record<string, unknown>;
 let blob: Map<string, unknown>;
@@ -24,8 +26,10 @@ let auth: { signSession: (p: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: ReturnType<typeof createRes>) => Promise<unknown>;
 let philOverlayCalls: Array<{ jobId: string }>;
 let adminOverlayCalls: Array<{ jobId: string }>;
+let adminEvidenceCalls: Array<{ jobId: string; data: Data }>;
 let recordCalls: number;
 let adminRecordCalls: number;
+let adminEvidenceRecordCalls: number;
 let overlayReturn: (data: Data) => { data: Data; diag: unknown };
 
 function clone<T>(v: T): T { return v === undefined ? v : JSON.parse(JSON.stringify(v)); }
@@ -44,7 +48,7 @@ async function call(o: { userId: string; role: string; jobId?: string }) {
 beforeEach(() => {
   process.env.SESSION_SECRET = "test-session-secret-long-enough";
   delete process.env.SUPABASE_DB_URL;
-  philOverlayCalls = []; adminOverlayCalls = []; recordCalls = 0; adminRecordCalls = 0;
+  philOverlayCalls = []; adminOverlayCalls = []; adminEvidenceCalls = []; recordCalls = 0; adminRecordCalls = 0; adminEvidenceRecordCalls = 0;
   overlayReturn = (data) => ({ data, diag: { source: "blob", reason: "flag off" } });
 
   blob = new Map<string, unknown>([
@@ -82,6 +86,14 @@ beforeEach(() => {
     id: trdAdminPath, filename: trdAdminPath, loaded: true,
     exports: { recordAdminTaskRead: vi.fn(() => { adminRecordCalls += 1; }) },
   } as NodeJS.Module;
+  requireFromHere.cache[erPath] = {
+    id: erPath, filename: erPath, loaded: true,
+    exports: { readAdminEvidence: vi.fn(async (input: { jobId: string; data: Data }) => { adminEvidenceCalls.push(input); return { data: input.data, diag: { source: "blob", reason: "flag off" } }; }) },
+  } as NodeJS.Module;
+  requireFromHere.cache[erdPath] = {
+    id: erdPath, filename: erdPath, loaded: true,
+    exports: { recordAdminEvidenceRead: vi.fn(() => { adminEvidenceRecordCalls += 1; }) },
+  } as NodeJS.Module;
 
   auth = requireFromHere(authPath);
   handler = requireFromHere(dataPath);
@@ -97,16 +109,27 @@ describe("task-status read — /api/data seam wiring", () => {
       expect(recordCalls).toBe(1);
       expect(adminOverlayCalls).toHaveLength(0);
       expect(adminRecordCalls).toBe(0);
+      expect(adminEvidenceCalls).toHaveLength(0); // evidence overlay is admin-only
+      expect(adminEvidenceRecordCalls).toBe(0);
     },
   );
 
-  it("routes ADMIN through the ADMIN overlay (J11) + records the read; phil overlay untouched", async () => {
+  it("routes ADMIN through the ADMIN task overlay (J11) THEN the evidence overlay + records both; phil untouched", async () => {
     const res = await call({ userId: "u_admin", role: "admin" });
     expect(res.statusCode).toBe(200);
     expect(adminOverlayCalls).toEqual([{ jobId: "job-1", data: blob.get("jobs/job-1/data.json") }]);
     expect(adminRecordCalls).toBe(1);
+    // evidence overlay is chained AFTER the task overlay, on its output data.
+    expect(adminEvidenceCalls).toEqual([{ jobId: "job-1", data: blob.get("jobs/job-1/data.json") }]);
+    expect(adminEvidenceRecordCalls).toBe(1);
     expect(philOverlayCalls).toHaveLength(0);
     expect(recordCalls).toBe(0);
+  });
+
+  it("the admin evidence overlay receives the TASK overlay's output (chaining)", async () => {
+    overlayReturn = (data) => ({ data: { ...data, dwellings: { a1: { roughIn: { tasks: { t1: "TASK_OVERLAID" } } } } }, diag: { source: "postgres" } });
+    await call({ userId: "u_admin", role: "admin" });
+    expect((adminEvidenceCalls[0]!.data as { dwellings: { a1: { roughIn: { tasks: { t1: string } } } } }).dwellings.a1.roughIn.tasks.t1).toBe("TASK_OVERLAID");
   });
 
   it("the phil overlay's data flows into a field response", async () => {
@@ -121,13 +144,15 @@ describe("task-status read — /api/data seam wiring", () => {
     expect((res.body as { dwellings: { a1: { roughIn: { tasks: { t1: string } } } } }).dwellings.a1.roughIn.tasks.t1).toBe("OVERLAID");
   });
 
-  it("CLIENT reads pure Blob — neither overlay called (clients out of scope)", async () => {
+  it("CLIENT reads pure Blob — no overlay called (clients out of scope)", async () => {
     const res = await call({ userId: "u_client", role: "client" });
     expect(res.statusCode).toBe(200);
     expect(philOverlayCalls).toHaveLength(0);
     expect(adminOverlayCalls).toHaveLength(0);
+    expect(adminEvidenceCalls).toHaveLength(0);
     expect(recordCalls).toBe(0);
     expect(adminRecordCalls).toBe(0);
+    expect(adminEvidenceRecordCalls).toBe(0);
     expect((res.body as { dwellings: unknown }).dwellings).toBeTruthy();
   });
 

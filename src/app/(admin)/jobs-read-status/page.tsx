@@ -5,7 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardTitle, CardDescription } from "@/components/ui/Card";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead, loadAdminTaskReadStatus, summariseAdminTaskRead, loadTaskReadProbe, summariseTaskReadProbe, loadEvidenceReadProbe, summariseEvidenceReadProbe } from "@/server/jobs-read-status";
+import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead, loadAdminTaskReadStatus, summariseAdminTaskRead, loadTaskReadProbe, summariseTaskReadProbe, loadEvidenceReadProbe, summariseEvidenceReadProbe, loadAdminEvidenceReadStatus, summariseAdminEvidenceRead } from "@/server/jobs-read-status";
 
 // Runs a live, read-only probe at request time.
 export const dynamic = "force-dynamic";
@@ -39,6 +39,7 @@ export default async function JobsReadStatusPage() {
   const adminTaskRead = summariseAdminTaskRead(await loadAdminTaskReadStatus());
   const taskProbe = summariseTaskReadProbe(await loadTaskReadProbe());
   const evidenceProbe = summariseEvidenceReadProbe(await loadEvidenceReadProbe());
+  const adminEvidenceRead = summariseAdminEvidenceRead(await loadAdminEvidenceReadStatus());
 
   const sourceLabel = s.readSource === "postgres" ? "Postgres" : "Blob";
 
@@ -370,6 +371,31 @@ export default async function JobsReadStatusPage() {
             />
           </>
         )}
+      </Card>
+
+      <Card className="mt-4" data-testid="admin-evidence-read-status">
+        <CardTitle className="mb-2 text-slate-800">
+          Admin (office) evidence-metadata read overlay
+        </CardTitle>
+        <CardDescription className="mb-2">
+          Admin-tier evidence metadata (<code>/api/data</code> <code>evidence[]</code>)
+          behind <code>supabase_read_admin_evidence</code> (<strong>{adminEvidenceRead.flagOn ? "ON" : "OFF"}</strong>),
+          the same per-job parity gate as the task-status overlays — served from
+          Postgres only when the migrated evidence fields are byte-faithful to Blob,
+          else Blob fallback. Photo bytes, Blob URLs, note bodies, labels and
+          timestamps always stay Blob; <strong>evidence metadata only — proof-status
+          is untouched</strong>. Admin-tier only; field/leading-hand and clients keep
+          pure-Blob evidence. Process-local counters of admin evidence reads served
+          by this instance.
+        </CardDescription>
+        <Row label="Feature flag" value={adminEvidenceRead.flagOn ? "ON" : "OFF"} />
+        <Row label="Evidence reads served" value={adminEvidenceRead.totalReads} />
+        <Row label="… from Postgres (parity PASS)" value={adminEvidenceRead.pgServedReads} />
+        <Row label="… from Blob" value={adminEvidenceRead.blobServedReads} />
+        <Row label="Blob fallbacks (PG error)" value={adminEvidenceRead.fallbackReads} />
+        <Row label="Parity mismatches → Blob" value={adminEvidenceRead.parityMismatches} />
+        <Row label="Last read source" value={adminEvidenceRead.lastSource ?? "—"} />
+        <Row label="Last read at" value={fmtWhen(adminEvidenceRead.lastAt)} />
       </Card>
     </AdminShell>
   );
