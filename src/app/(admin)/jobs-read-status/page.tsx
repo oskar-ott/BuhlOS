@@ -5,7 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardTitle, CardDescription } from "@/components/ui/Card";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead, loadAdminTaskReadStatus, summariseAdminTaskRead, loadTaskReadProbe, summariseTaskReadProbe } from "@/server/jobs-read-status";
+import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead, loadAdminTaskReadStatus, summariseAdminTaskRead, loadTaskReadProbe, summariseTaskReadProbe, loadEvidenceReadProbe, summariseEvidenceReadProbe } from "@/server/jobs-read-status";
 
 // Runs a live, read-only probe at request time.
 export const dynamic = "force-dynamic";
@@ -38,6 +38,7 @@ export default async function JobsReadStatusPage() {
   const taskRead = summariseTaskRead(await loadTaskReadStatus());
   const adminTaskRead = summariseAdminTaskRead(await loadAdminTaskReadStatus());
   const taskProbe = summariseTaskReadProbe(await loadTaskReadProbe());
+  const evidenceProbe = summariseEvidenceReadProbe(await loadEvidenceReadProbe());
 
   const sourceLabel = s.readSource === "postgres" ? "Postgres" : "Blob";
 
@@ -289,6 +290,83 @@ export default async function JobsReadStatusPage() {
             <Row
               label="Ready for served-source promotion (this sample)"
               value={taskProbe.readyForPromotion ? "YES" : "no"}
+            />
+          </>
+        )}
+      </Card>
+
+      <Card
+        className={
+          "mt-4 " +
+          (evidenceProbe.state === "all_faithful"
+            ? "border-emerald-200 bg-emerald-50"
+            : evidenceProbe.state === "drift" || evidenceProbe.state === "error"
+              ? "border-amber-200 bg-amber-50"
+              : "")
+        }
+        data-testid="evidence-read-probe-status"
+        role="status"
+      >
+        <CardTitle className="mb-2 text-slate-800">
+          Evidence metadata parity — live readiness probe
+        </CardTitle>
+        <CardDescription className="mb-2">
+          A live, read-only sample (no serving, no writes, no flag) of how faithful
+          the Postgres <code>evidence_files</code> mirror is to the Blob{" "}
+          <code>data.json.evidence[]</code> across jobs — the evidence a future dark
+          evidence read overlay would be gated on.{" "}
+          <strong>Evidence metadata only — not proof-status.</strong> Parity is
+          normalised (identity/kind/area/stage/task/status/source); photo bytes,
+          Blob URLs, note bodies, labels and timestamps are deliberately excluded.{" "}
+          <strong>Blob stays authoritative.</strong>
+        </CardDescription>
+        <CardDescription className="mb-2 text-xs text-slate-500">
+          Proof-status (<code>job-control.json</code> required-evidence / links /
+          reviews) is Blob-only — it has no Postgres table, so its read cutover is
+          blocked behind a schema + dual-write + the admin approve/reject decision
+          (#503). It is not probed or served here.
+        </CardDescription>
+
+        {evidenceProbe.state === "not_wired" && (
+          <CardDescription>
+            Supabase is not wired here, so there is nothing to probe — evidence is
+            read entirely from Blob.
+          </CardDescription>
+        )}
+        {evidenceProbe.state === "error" && (
+          <CardDescription className="text-amber-900">
+            The read-only probe failed:{" "}
+            <span className="font-mono text-xs">{evidenceProbe.error}</span>. Reads
+            are unaffected (Blob authoritative) — this only affects diagnostics.
+          </CardDescription>
+        )}
+        {evidenceProbe.state === "empty" && (
+          <CardDescription>No jobs were available to sample.</CardDescription>
+        )}
+        {(evidenceProbe.state === "all_faithful" || evidenceProbe.state === "drift") && (
+          <>
+            <CardDescription
+              className={evidenceProbe.state === "all_faithful" ? "mb-2 text-emerald-900" : "mb-2 text-amber-900"}
+            >
+              {evidenceProbe.state === "all_faithful"
+                ? `All ${evidenceProbe.jobsSampled} sampled job(s) are evidence-faithful to Blob — a dark evidence overlay would be byte-safe for this sample.`
+                : `${evidenceProbe.faithful} of ${evidenceProbe.jobsSampled} sampled job(s) evidence-faithful; the rest have drift or aren't mirrored yet.`}
+            </CardDescription>
+            <Row
+              label="Jobs sampled"
+              value={`${evidenceProbe.jobsSampled} of ${evidenceProbe.jobsTotal}`}
+            />
+            <Row label="Evidence-faithful (PG == Blob)" value={evidenceProbe.faithful} />
+            <Row label="Drifted (real divergence)" value={evidenceProbe.drifted} />
+            <Row label="Unavailable (job not yet in PG)" value={evidenceProbe.unavailable} />
+            <Row label="Evidence items matched" value={evidenceProbe.matchedEvidence} />
+            <Row label="Evidence — field mismatch" value={evidenceProbe.mismatchedEvidence} />
+            <Row label="Evidence — missing in PG" value={evidenceProbe.missingInPg} />
+            <Row label="Evidence — orphan in PG (missing in Blob)" value={evidenceProbe.missingInBlob} />
+            <Row label="Probe latency" value={evidenceProbe.latencyMs == null ? "—" : `${evidenceProbe.latencyMs} ms`} />
+            <Row
+              label="Ready for a dark evidence overlay (this sample)"
+              value={evidenceProbe.readyForOverlay ? "YES" : "no"}
             />
           </>
         )}
