@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summariseJobsRead, summarisePhilRead, summariseTaskRead, summariseAdminTaskRead, summariseTaskReadProbe, type JobsReadStatus, type TaskReadStatus, type AdminTaskReadStatus, type TaskReadProbeStatus } from "./jobs-read-status";
+import { summariseJobsRead, summarisePhilRead, summariseTaskRead, summariseAdminTaskRead, summariseTaskReadProbe, summariseEvidenceReadProbe, type JobsReadStatus, type TaskReadStatus, type AdminTaskReadStatus, type TaskReadProbeStatus, type EvidenceReadProbeStatus } from "./jobs-read-status";
 
 type Diag = NonNullable<JobsReadStatus["probe"]>;
 
@@ -218,5 +218,53 @@ describe("summariseTaskReadProbe (J12 — live readiness probe)", () => {
     const s = summariseTaskReadProbe({ wired: true, probe: probe({ jobsTotal: 0, jobsSampled: 0 }) });
     expect(s.state).toBe("empty");
     expect(s.readyForPromotion).toBe(false);
+  });
+});
+
+describe("summariseEvidenceReadProbe (evidence metadata readiness)", () => {
+  const probe = (over: Partial<NonNullable<EvidenceReadProbeStatus["probe"]>> = {}): NonNullable<EvidenceReadProbeStatus["probe"]> => ({
+    available: true, jobsTotal: 0, jobsSampled: 0, faithful: 0, drifted: 0, unavailable: 0,
+    matchedEvidence: 0, mismatchedEvidence: 0, missingInPg: 0, missingInBlob: 0,
+    readyForOverlay: false, latencyMs: 5, fallbackReason: null, ...over,
+  });
+
+  it("not wired → not_wired, not ready", () => {
+    const s = summariseEvidenceReadProbe({ wired: false, probe: null });
+    expect(s.state).toBe("not_wired");
+    expect(s.readyForOverlay).toBe(false);
+  });
+
+  it("loader-reported error → error, not ready", () => {
+    const s = summariseEvidenceReadProbe({ wired: true, probe: null, error: "pooler down" });
+    expect(s.state).toBe("error");
+    expect(s.error).toBe("pooler down");
+  });
+
+  it("probe-captured error fallback → error state", () => {
+    const s = summariseEvidenceReadProbe({ wired: true, probe: probe({ available: true, fallbackReason: "error", error: "boom" }) });
+    expect(s.state).toBe("error");
+    expect(s.error).toBe("boom");
+  });
+
+  it("every sampled job evidence-faithful → all_faithful + readyForOverlay", () => {
+    const s = summariseEvidenceReadProbe({ wired: true, probe: probe({ jobsTotal: 9, jobsSampled: 9, faithful: 9, matchedEvidence: 4, readyForOverlay: true }) });
+    expect(s.state).toBe("all_faithful");
+    expect(s.readyForOverlay).toBe(true);
+    expect(s.matchedEvidence).toBe(4);
+  });
+
+  it("any drift → drift state, NOT ready, surfaces breakdown", () => {
+    const s = summariseEvidenceReadProbe({ wired: true, probe: probe({ jobsTotal: 9, jobsSampled: 9, faithful: 8, drifted: 1, mismatchedEvidence: 1, missingInPg: 1 }) });
+    expect(s.state).toBe("drift");
+    expect(s.readyForOverlay).toBe(false);
+    expect(s.drifted).toBe(1);
+    expect(s.mismatchedEvidence).toBe(1);
+    expect(s.missingInPg).toBe(1);
+  });
+
+  it("no jobs sampled → empty, not ready", () => {
+    const s = summariseEvidenceReadProbe({ wired: true, probe: probe({ jobsTotal: 0, jobsSampled: 0 }) });
+    expect(s.state).toBe("empty");
+    expect(s.readyForOverlay).toBe(false);
   });
 });
