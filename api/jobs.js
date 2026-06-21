@@ -1,4 +1,5 @@
 const { readBlob, writeBlob, deleteBlob, setNoCache } = require('./_lib/blob');
+const { tagsFromBlob } = require('./_lib/tags-store');
 const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs, isFieldRole, isClientRole, isAdminRole } = require('./_lib/auth');
 const { redactJobForViewer } = require('./_lib/job-redaction');
 const { readAdminJobsWithPgOverlay, readPhilJobsWithPgOverlay } = require('./_lib/job-read-projection');
@@ -258,7 +259,7 @@ module.exports = async (req, res) => {
           ]);
           const stats = computeJobStats(j, d);
           let expiredTags = 0, expiringTags = 0;
-          for (const t of (tagsBlob.tags || [])) {
+          for (const t of tagsFromBlob(tagsBlob)) {
             const ms = parseDDMM(t.expiryDate);
             if (!Number.isFinite(ms)) continue;
             if (ms < todayMs) expiredTags++;

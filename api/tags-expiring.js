@@ -31,6 +31,7 @@
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole, isClientRole } = require('./_lib/auth');
 const { expiringTagRows, expiringCalibrationRows } = require('./_lib/tag-compliance');
+const { tagsFromBlob } = require('./_lib/tags-store');
 const { listAllAssets } = require('./_lib/assets');
 
 module.exports = async (req, res) => {
@@ -58,7 +59,7 @@ module.exports = async (req, res) => {
   await Promise.all(visible.map(async job => {
     try {
       const blob = await readBlob('jobs/' + job.id + '/tags.json', { tags: [] });
-      tagsByJobId[job.id] = blob.tags || [];
+      tagsByJobId[job.id] = tagsFromBlob(blob); // tolerate legacy bare-array blobs
     } catch (e) { tagsByJobId[job.id] = []; }
   }));
 

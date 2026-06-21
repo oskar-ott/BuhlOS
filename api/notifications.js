@@ -35,6 +35,7 @@ const { notify } = require('./_lib/notify');
 const { requireCron } = require('./_lib/cron-auth');
 const { readLeave, approvedLeaveByUserDate } = require('./_lib/leave');
 const { expiringTagRows, expiringCalibrationRows, newCrossings } = require('./_lib/tag-compliance');
+const { tagsFromBlob } = require('./_lib/tags-store');
 const { licenceRows, newLicenceCrossings } = require('./_lib/licence-compliance');
 const { listAllAssets } = require('./_lib/assets');
 
@@ -172,7 +173,7 @@ module.exports = async (req, res) => {
     await Promise.all(allJobs.map(async job => {
       try {
         const blob = await readBlob('jobs/' + job.id + '/tags.json', { tags: [] });
-        tagsByJobId[job.id] = blob.tags || [];
+        tagsByJobId[job.id] = tagsFromBlob(blob); // tolerate legacy bare-array blobs
       } catch (e) { tagsByJobId[job.id] = []; }
     }));
     const tagRows = expiringTagRows(allJobs, tagsByJobId, { withinDays: WITHIN_DAYS });
