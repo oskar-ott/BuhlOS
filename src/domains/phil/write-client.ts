@@ -39,6 +39,9 @@ export type PhilWriteResult<T> =
   | { ok: false; error: PhilWriteError };
 
 export interface PhilWriteOptions {
+  /** HTTP method (default "POST"). PUT/PATCH for endpoints that replace or
+   *  patch a resource (e.g. the circuit-schedule boards PUT). */
+  method?: "POST" | "PUT" | "PATCH";
   /** Timeout budget in ms (default 15s). */
   timeoutMs?: number;
   /** Caller cancellation (e.g. AbortController on unmount). */
@@ -92,7 +95,7 @@ export async function philWrite<T>(
   let res: Response;
   try {
     res = await doFetch(url, {
-      method: "POST",
+      method: options.method ?? "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: controller.signal,

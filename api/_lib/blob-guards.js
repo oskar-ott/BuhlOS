@@ -107,6 +107,37 @@ function quoteV2Doc(doc) {
   return null;
 }
 
+/** Per-job field-state document (#576): jobs/<id>/data.json. Shape:
+ *  { dwellings: { <areaId>: {...task state} }, snags: [], snagsV2: [],
+ *    evidence: [], notes: [] }. `dwellings` is an OBJECT map (area → task
+ *  state), the rest are arrays; any field may be absent (partial skeletons are
+ *  legitimate). Shape-sanity only — items are NOT required to carry ids (legacy
+ *  snags/notes predate stable ids), matching quoteV2Doc's conservative style. */
+function jobDataDoc(doc) {
+  if (!isPlainObject(doc)) return 'data document must be an object';
+  if (doc.dwellings !== undefined && !isPlainObject(doc.dwellings)) {
+    return 'dwellings must be an object';
+  }
+  for (const f of ['snags', 'snagsV2', 'evidence', 'notes']) {
+    if (doc[f] !== undefined && !Array.isArray(doc[f])) return `${f} must be an array`;
+  }
+  return null;
+}
+
+/** Total record count across every collection in a data.json document — the
+ *  dwellings map's keys plus each array's length. Used as the shrink signal: a
+ *  populated job collapsing to a near-empty skeleton (the silent-wipe signature)
+ *  drops this count to ~0, far below the 80% ratio. Returns null for a non-object
+ *  so the guard simply doesn't fire (validation catches the bad shape). */
+function jobDataCount(doc) {
+  if (!isPlainObject(doc)) return null;
+  let n = isPlainObject(doc.dwellings) ? Object.keys(doc.dwellings).length : 0;
+  for (const f of ['snags', 'snagsV2', 'evidence', 'notes']) {
+    if (Array.isArray(doc[f])) n += doc[f].length;
+  }
+  return n;
+}
+
 /** Exact-key validators + the shrink-guard config (highest blast radius first). */
 const EXACT_GUARDS = {
   'users.json': { validate: arrayOfIdObjects('users'), shrinkField: 'users', shrinkFloor: 10 },
@@ -157,12 +188,28 @@ const PATTERN_GUARDS = [
     test: (key) => /^quotes-v2\/[^/]+\.json$/.test(key),
     validate: quoteV2Doc,
   },
+  {
+    // Per-job field-state document (#576): jobs/<id>/data.json — the most-
+    // written field blob (task toggles, snags, snagsV2, evidence links,
+    // materials, notes), previously the ONLY high-traffic store with no
+    // validator and no shrink guard. shrinkCount totals every collection so a
+    // populated job overwritten by an empty skeleton (the silent-wipe class) is
+    // rejected; allowShrink covers the rare intentional bulk clear.
+    test: (key) => /^jobs\/[^/]+\/data\.json$/.test(key),
+    validate: jobDataDoc,
+    shrinkCount: jobDataCount,
+    shrinkFloor: 8,
+  },
 ];
 
 function guardFor(key) {
   if (EXACT_GUARDS[key]) return EXACT_GUARDS[key];
   const p = PATTERN_GUARDS.find((g) => g.test(key));
-  return p ? { validate: p.validate } : null;
+  // Forward the FULL guard config for a matched pattern (validate +
+  // shrinkField/shrinkCount/shrinkFloor) — not just { validate } (#576). The
+  // `test` fn is inert to applyGuards. Patterns without a shrink config are
+  // unaffected (the extra keys are simply undefined).
+  return p ? p : null;
 }
 
 const SHRINK_RATIO = 0.8; // new count below 80% of old → rejected
@@ -188,6 +235,23 @@ function applyGuards(key, data, current, opts = {}) {
       if (before >= (guard.shrinkFloor || 10) && after < before * SHRINK_RATIO) {
         throw new ShrinkWriteError(key, guard.shrinkField, before, after);
       }
+    }
+  }
+
+  // Count-based shrink guard for object-shaped stores whose records span several
+  // collections (e.g. jobs/<id>/data.json: a dwellings map + snags/evidence/...
+  // arrays), where a single shrinkField can't express "the whole document
+  // collapsed" (#576). guard.shrinkCount(doc) returns the total record count.
+  if (guard && guard.shrinkCount && !opts.allowShrink && isPlainObject(current)) {
+    const before = guard.shrinkCount(current);
+    const after = guard.shrinkCount(data);
+    if (
+      Number.isFinite(before) &&
+      Number.isFinite(after) &&
+      before >= (guard.shrinkFloor || 10) &&
+      after < before * SHRINK_RATIO
+    ) {
+      throw new ShrinkWriteError(key, 'records', before, after);
     }
   }
 
@@ -267,6 +331,8 @@ module.exports = {
   auditRejection,
   writeGuardErrorResponse,
   guardFor,
+  jobDataDoc,
+  jobDataCount,
   InvalidWriteError,
   ShrinkWriteError,
   StaleWriteError,

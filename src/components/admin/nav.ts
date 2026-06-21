@@ -11,6 +11,7 @@ import {
   Clock,
   Wrench,
   Users,
+  Receipt,
 } from "lucide-react";
 import type { Route } from "next";
 
@@ -114,6 +115,14 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/qa" as Route,
         icon: ClipboardCheck,
         activeFor: ["/qa"],
+      },
+      {
+        // Cross-job daywork register (#370) — day-labour dockets + payment risk
+        // (unsigned-aging), drilling into each job's /v2/jobs/[jobId]/dayworks.
+        label: "Dayworks",
+        href: "/v2/dayworks" as Route,
+        icon: Receipt,
+        activeFor: ["/v2/dayworks"],
       },
     ],
   },

@@ -2,7 +2,11 @@ import type { z } from "zod";
 import type {
   CreateDayworkPayloadSchema,
   DayworkLabourLineSchema,
+  DayworkListResponseSchema,
   DayworkMaterialLineSchema,
+  DayworkRegisterSummarySchema,
+  DayworkRollupJobSchema,
+  DayworkRollupResponseSchema,
   DayworkSchema,
   DayworkSignatureSchema,
   DayworkStatusSchema,
@@ -22,3 +26,8 @@ export type Daywork = z.infer<typeof DayworkSchema>;
 export type CreateDayworkPayload = z.infer<typeof CreateDayworkPayloadSchema>;
 export type SignDayworkPayload = z.infer<typeof SignDayworkPayloadSchema>;
 export type UpdateDayworkStatusPayload = z.infer<typeof UpdateDayworkStatusPayloadSchema>;
+
+export type DayworkRegisterSummary = z.infer<typeof DayworkRegisterSummarySchema>;
+export type DayworkListResponse = z.infer<typeof DayworkListResponseSchema>;
+export type DayworkRollupJob = z.infer<typeof DayworkRollupJobSchema>;
+export type DayworkRollupResponse = z.infer<typeof DayworkRollupResponseSchema>;

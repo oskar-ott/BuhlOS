@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summariseJobsRead, summarisePhilRead, summariseTaskRead, summariseAdminTaskRead, type JobsReadStatus, type TaskReadStatus, type AdminTaskReadStatus } from "./jobs-read-status";
+import { summariseJobsRead, summarisePhilRead, summariseTaskRead, summariseAdminTaskRead, summariseTaskReadProbe, type JobsReadStatus, type TaskReadStatus, type AdminTaskReadStatus, type TaskReadProbeStatus } from "./jobs-read-status";
 
 type Diag = NonNullable<JobsReadStatus["probe"]>;
 
@@ -172,5 +172,51 @@ describe("summariseAdminTaskRead (J11 — admin task-status read)", () => {
     expect(s.totalReads).toBe(0);
     expect(s.lastSource).toBeNull();
     expect(s.lastParityPass).toBeNull();
+  });
+});
+
+describe("summariseTaskReadProbe (J12 — live readiness probe)", () => {
+  const probe = (over: Partial<NonNullable<TaskReadProbeStatus["probe"]>> = {}): NonNullable<TaskReadProbeStatus["probe"]> => ({
+    wired: true, jobsTotal: 0, jobsSampled: 0, pgFaithful: 0, drifted: 0, errored: 0, unavailable: 0,
+    totalMismatched: 0, totalUnresolved: 0, totalOrphans: 0, hashDriftJobs: 0, latencyMs: 5, error: null, ...over,
+  });
+
+  it("not wired → not_wired, not ready", () => {
+    const s = summariseTaskReadProbe({ wired: false, probe: null });
+    expect(s.state).toBe("not_wired");
+    expect(s.readyForPromotion).toBe(false);
+  });
+
+  it("probe errored → error, surfaces the message, not ready", () => {
+    const s = summariseTaskReadProbe({ wired: true, probe: null, error: "pooler down" });
+    expect(s.state).toBe("error");
+    expect(s.error).toBe("pooler down");
+    expect(s.readyForPromotion).toBe(false);
+  });
+
+  it("every sampled job faithful → all_faithful + readyForPromotion", () => {
+    const s = summariseTaskReadProbe({ wired: true, probe: probe({ jobsTotal: 9, jobsSampled: 9, pgFaithful: 9 }) });
+    expect(s.state).toBe("all_faithful");
+    expect(s.readyForPromotion).toBe(true);
+    expect(s.pgFaithful).toBe(9);
+  });
+
+  it("any drift → drift state, NOT ready", () => {
+    const s = summariseTaskReadProbe({ wired: true, probe: probe({ jobsTotal: 9, jobsSampled: 9, pgFaithful: 8, drifted: 1, totalMismatched: 2, hashDriftJobs: 1 }) });
+    expect(s.state).toBe("drift");
+    expect(s.readyForPromotion).toBe(false);
+    expect(s.drifted).toBe(1);
+    expect(s.totalMismatched).toBe(2);
+  });
+
+  it("errored/unavailable jobs also block readiness", () => {
+    const s = summariseTaskReadProbe({ wired: true, probe: probe({ jobsTotal: 5, jobsSampled: 5, pgFaithful: 4, unavailable: 1 }) });
+    expect(s.readyForPromotion).toBe(false);
+  });
+
+  it("no jobs sampled → empty, not ready", () => {
+    const s = summariseTaskReadProbe({ wired: true, probe: probe({ jobsTotal: 0, jobsSampled: 0 }) });
+    expect(s.state).toBe("empty");
+    expect(s.readyForPromotion).toBe(false);
   });
 });

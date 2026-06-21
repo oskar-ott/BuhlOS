@@ -1,9 +1,13 @@
 # Daywork register (#370)
 
-> Status: **domain foundation, real.** Schema + types + pure logic for per-job
-> daywork dockets. Code: [`src/domains/dayworks/`](../../src/domains/dayworks/).
-> The admin API + register page, the on-glass drawn signature and the Phil
-> docket-create UI are follow-ups (see §Deferred).
+> Status: **domain foundation + admin API + read-only register, real.** Schema +
+> types + pure logic ([`src/domains/dayworks/`](../../src/domains/dayworks/)), the
+> server endpoint [`api/dayworks.js`](../../api/dayworks.js) (job-scoped +
+> cross-job rollup, tier-gated on `assignedJobIds`), and the read-only admin
+> register pages (`/v2/jobs/[jobId]/dayworks` + the cross-job `/v2/dayworks`
+> rollup, loaded by [`src/server/dayworks/register.ts`](../../src/server/dayworks/register.ts))
+> are shipped. The **on-glass drawn signature** and the **Phil docket-create UI**
+> remain follow-ups (see §Deferred); a typed supervisor name signs today.
 
 ## Why
 
@@ -45,11 +49,16 @@ description, labour lines (worker × hours), material lines, photos, a sequentia
 
 ## Deferred (follow-ups)
 
-- **Admin API + register** — `api/dayworks.js` (job-scoped + cross-job rollup,
-  tier-gated on `assignedJobIds`) and `/v2/jobs/[jobId]/dayworks` + a cross-job
-  page, with audit emit on create/sign/status-change and the unsigned-aging
-  count on the job attention surface. Admin surface, not #132-gated;
-  `api/*.js` is preview-only-verifiable.
+- **Admin API + register** — ✅ SHIPPED. `api/dayworks.js` (job-scoped GET/POST +
+  sign/invoice/amend PATCH + cross-job rollup, tier-gated on `assignedJobIds`,
+  audit on create/sign/status-change/amend) and the read-only register pages
+  (`/v2/jobs/[jobId]/dayworks` + the cross-job `/v2/dayworks`, sidebar "Dayworks";
+  loader `src/server/dayworks/register.ts`). `api/*.js` is preview-only-verifiable
+  (render-tested presenters + API/loader unit tests cover the logic).
+- **Job attention surface count** — the unsigned-aging count is on the register
+  + rollup, but NOT yet wired into the job-hub attention surface
+  (`/v2/jobs/[jobId]`); deferred to avoid colliding with the in-flight job-hub
+  work (#366).
 - **On-glass drawn signature** — build ONCE, coordinated with the signature
   platform (#328) / ITP completion signatures (#295). The `DayworkSignature`
   shape and the sign transition are modelled here; the canvas capture is the

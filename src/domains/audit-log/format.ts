@@ -66,6 +66,11 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "hours.reopened": "Re-opened hours",
   "hours.bulk_approved": "Bulk-approved hours",
   "hours.bulk_rejected": "Bulk-rejected hours",
+  // #370: daywork register (targetType 'daywork' groups as Other, like time_entry).
+  "daywork.created": "Raised daywork docket",
+  "daywork.signed": "Signed daywork docket",
+  "daywork.transitioned": "Updated daywork docket",
+  "daywork.amended": "Amended daywork docket",
 };
 
 export function actionLabel(action: AuditAction): string {

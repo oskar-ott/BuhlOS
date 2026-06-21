@@ -15,6 +15,8 @@ import type { JobsReadDiagnosticsSnapshot } from "../../api/_lib/job-read-diagno
 import { getTaskReadDiagnostics } from "../../api/_lib/task-read-diagnostics.js";
 import type { TaskReadDiagnosticsSnapshot } from "../../api/_lib/task-read-diagnostics";
 import { getAdminTaskReadDiagnostics } from "../../api/_lib/admin-task-read-diagnostics.js";
+import { probeTaskReadParity } from "../../api/_lib/task-read.js";
+import type { TaskReadProbeResult } from "../../api/_lib/task-read";
 import { isFlagOn } from "../../api/_lib/feature-flags.js";
 
 export type JobsReadStatus = {
@@ -209,4 +211,61 @@ export function summariseAdminTaskRead(s: AdminTaskReadStatus): TaskReadSummary 
     lastSource: c.lastDiag ? c.lastDiag.source : null,
     lastParityPass: c.lastDiag ? c.lastDiag.parityPass : null,
   };
+}
+
+// ── J12: live, read-only task-status parity probe (cutover READINESS). Unlike the
+//    J10/J11 reactive counters this is an on-demand probe (mirrors the J6 admin
+//    jobs probe): it runs the SAME engine flag-forced-on across a bounded sample
+//    and reports how byte-faithful the PG mirror is to Blob. Nothing is served,
+//    nothing is written. This is audience-agnostic — parity is the same data for
+//    Phil and admin; only SERVING differs (and serving is unchanged in J12).
+export type TaskReadProbeStatus = { wired: boolean; probe: TaskReadProbeResult | null; error?: string };
+
+const runTaskReadProbe = probeTaskReadParity as (deps?: unknown) => Promise<TaskReadProbeResult>;
+
+export async function loadTaskReadProbe(): Promise<TaskReadProbeStatus> {
+  if (!process.env.SUPABASE_DB_URL) return { wired: false, probe: null };
+  try {
+    return { wired: true, probe: await runTaskReadProbe() };
+  } catch (err) {
+    return { wired: true, probe: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type TaskReadProbeSummary = {
+  state: "not_wired" | "error" | "all_faithful" | "drift" | "empty";
+  jobsTotal: number;
+  jobsSampled: number;
+  pgFaithful: number;
+  drifted: number;
+  errored: number;
+  unavailable: number;
+  totalMismatched: number;
+  totalUnresolved: number;
+  totalOrphans: number;
+  hashDriftJobs: number;
+  latencyMs: number | null;
+  readyForPromotion: boolean; // every sampled job PG-faithful → a served-source flip would be byte-safe for the sample
+  error?: string;
+};
+
+/** Pure view model for the J12 task-status parity (live probe) card. */
+export function summariseTaskReadProbe(s: TaskReadProbeStatus): TaskReadProbeSummary {
+  const empty = {
+    jobsTotal: 0, jobsSampled: 0, pgFaithful: 0, drifted: 0, errored: 0, unavailable: 0,
+    totalMismatched: 0, totalUnresolved: 0, totalOrphans: 0, hashDriftJobs: 0,
+    latencyMs: null as number | null, readyForPromotion: false,
+  };
+  if (!s.wired) return { state: "not_wired", ...empty };
+  if (s.error || !s.probe) return { state: "error", ...empty, error: s.error ?? "no probe result" };
+  const p = s.probe;
+  const metrics = {
+    jobsTotal: p.jobsTotal, jobsSampled: p.jobsSampled, pgFaithful: p.pgFaithful,
+    drifted: p.drifted, errored: p.errored, unavailable: p.unavailable,
+    totalMismatched: p.totalMismatched, totalUnresolved: p.totalUnresolved,
+    totalOrphans: p.totalOrphans, hashDriftJobs: p.hashDriftJobs, latencyMs: p.latencyMs,
+  };
+  if (p.jobsSampled === 0) return { state: "empty", ...metrics, readyForPromotion: false };
+  const readyForPromotion = p.drifted === 0 && p.errored === 0 && p.unavailable === 0 && p.pgFaithful === p.jobsSampled;
+  return { state: readyForPromotion ? "all_faithful" : "drift", ...metrics, readyForPromotion };
 }

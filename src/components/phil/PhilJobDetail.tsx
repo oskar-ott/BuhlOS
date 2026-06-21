@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PhilOfflineLink } from "./PhilOfflineLink";
-import { Camera, Map as MapIcon } from "lucide-react";
+import { Camera, Map as MapIcon, Zap } from "lucide-react";
+import { scheduleSummaryLine } from "@/domains/circuit-schedule/format";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilActionButton } from "./ui/PhilActionButton";
 import { PhilNotice } from "./ui/PhilNotice";
@@ -645,6 +646,15 @@ export function PhilJobDetail({
     [jcRevision, job.id],
   );
 
+  // Circuit schedule (field view). Read straight off the passthrough job
+  // projection — the office writes `job.circuitBoards`. Show the entry only when
+  // a schedule exists (P10: an existing reference slot, not new chrome; honest —
+  // no empty card on jobs without one).
+  const circuitBoards = (
+    job as { circuitBoards?: ReadonlyArray<{ circuits?: ReadonlyArray<{ install?: string }> }> }
+  ).circuitBoards;
+  const hasCircuitSchedule = (circuitBoards?.length ?? 0) > 0;
+
   return (
     <div className="space-y-4 pb-2">
       <div className="-mt-1">
@@ -857,6 +867,31 @@ export function PhilJobDetail({
               >
                 <MapIcon aria-hidden="true" className="h-5 w-5" />
                 Open plan viewer
+              </PhilOfflineLink>
+            </div>
+          </Card>
+        </section>
+      ) : null}
+
+      {/* Circuit schedule — the field view of the office's distribution-board
+          schedule. Only shown when the office has started one (honest empty);
+          opens the boards → ways surface where the worker marks each way to do →
+          installed → tested. Reference-zone slot beside Plans (P10). */}
+      {hasCircuitSchedule ? (
+        <section id="phil-job-circuit-schedule" aria-label="Circuit schedule" className="scroll-mt-16">
+          <Card>
+            <CardTitle>Circuit schedule</CardTitle>
+            <CardDescription className="mt-1">
+              Boards and ways for this job — mark each way as you go: to do, installed,
+              tested. {scheduleSummaryLine(circuitBoards)}.
+            </CardDescription>
+            <div className="mt-3">
+              <PhilOfflineLink
+                href={`/phil/jobs/${encodeURIComponent(job.id)}/circuit-schedule`}
+                className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-card border border-border bg-surface px-4 text-sm font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-subtle"
+              >
+                <Zap aria-hidden="true" className="h-5 w-5" />
+                Open circuit schedule
               </PhilOfflineLink>
             </div>
           </Card>

@@ -72,20 +72,46 @@ function _cacheInvalidate(key) {
   _cache.delete(key);
 }
 
+// A genuine transient read failure (Blob present but unfetchable, an HTTP
+// error, or a thrown list/fetch) is DISTINCT from a blob that is genuinely
+// absent. #576: returning the caller's fallback for BOTH made a transient blip
+// indistinguishable from "empty", so a read-modify-write writer could persist
+// the fallback over a populated document and silently wipe it. The raw read now
+// THROWS on transient failure and returns the fallback ONLY for genuine
+// absence; callers decide whether to degrade (readBlob) or fail closed
+// (readBlobStrict / writeBlob of a guarded store).
+class BlobReadError extends Error {
+  constructor(key, reason) {
+    super(`blob read failed for ${key}: ${reason}`);
+    this.code = 'blob_read_failed';
+    this.key = key;
+    this.reason = reason;
+  }
+}
+
 async function _doReadBlob(key, fallback) {
+  let blobs;
   try {
-    const { blobs } = await list({ prefix: key, token: token() });
-    const match = blobs.find(b => b.pathname === key);
-    if (!match) return fallback;
+    ({ blobs } = await list({ prefix: key, token: token() }));
+  } catch (e) {
+    throw new BlobReadError(key, `list: ${e && e.message}`);
+  }
+  const match = blobs.find(b => b.pathname === key);
+  if (!match) return fallback; // genuine absence — the ONLY fallback path
+  let r;
+  try {
     // Cache-busting query stays so any CDN in front of Blob returns
     // fresh data on a cache miss; the in-memory cache above is what
     // prevents repeated network calls in the common case.
-    const r = await fetch(match.url + '?t=' + Date.now(), { cache: 'no-store' });
-    if (!r.ok) return fallback;
+    r = await fetch(match.url + '?t=' + Date.now(), { cache: 'no-store' });
+  } catch (e) {
+    throw new BlobReadError(key, `fetch: ${e && e.message}`);
+  }
+  if (!r.ok) throw new BlobReadError(key, `http ${r.status}`);
+  try {
     return await r.json();
   } catch (e) {
-    console.error('readBlob error', key, e.message);
-    return fallback;
+    throw new BlobReadError(key, `json: ${e && e.message}`);
   }
 }
 
@@ -99,7 +125,21 @@ async function readBlob(key, fallback = null) {
   // 3. We're the first — issue the read, share the promise.
   const p = (async () => {
     try {
-      const value = await _doReadBlob(key, fallback);
+      let value;
+      try {
+        value = await _doReadBlob(key, fallback);
+      } catch (e) {
+        // Degrade gracefully for the ~100 read paths that pass a fallback:
+        // return it, but DON'T cache it — a transient blip must not poison the
+        // 5s cache, because writeBlob's current-document read would then see the
+        // fallback and the shrink guard would have nothing to compare against
+        // (#576). The next read simply retries the network.
+        if (e instanceof BlobReadError) {
+          console.error('readBlob degraded (transient)', key, e.reason);
+          return fallback;
+        }
+        throw e;
+      }
       _cacheSet(key, value);
       return value;
     } finally {
@@ -118,7 +158,31 @@ async function readBlob(key, fallback = null) {
 // the same property without globally disabling the cache.
 async function readBlobFresh(key, fallback = null) {
   _cacheInvalidate(key);
-  const value = await _doReadBlob(key, fallback);
+  let value;
+  try {
+    value = await _doReadBlob(key, fallback);
+  } catch (e) {
+    if (e instanceof BlobReadError) {
+      console.error('readBlobFresh degraded (transient)', key, e.reason);
+      return fallback; // degrade, don't cache (see readBlob)
+    }
+    throw e;
+  }
+  _cacheSet(key, value);
+  return value;
+}
+
+// Strict read: returns the fallback ONLY for genuine absence and PROPAGATES a
+// BlobReadError on transient failure. Use where "absent" must not be confused
+// with "couldn't read" — notably writeBlob's current-document read for a guarded
+// store, which then fails the write CLOSED rather than risk overwriting a
+// populated document with a shrunken/empty one (#576). Cache-aware: a cached
+// real value (or genuine-absence fallback) is reused; transient fallbacks are
+// never cached, so a cache hit is always trustworthy.
+async function readBlobStrict(key, fallback = null) {
+  const cached = _cacheGet(key);
+  if (cached !== undefined) return cached;
+  const value = await _doReadBlob(key, fallback); // throws BlobReadError on transient
   _cacheSet(key, value);
   return value;
 }
@@ -130,15 +194,33 @@ async function writeBlob(key, data, opts = {}) {
   // expectedRev we read FRESH so the conflict check is as tight as Vercel
   // Blob allows (no CAS — this narrows the race, it can't eliminate it).
   // A rejected write throws BEFORE the put and must never touch the cache.
-  const { applyGuards, auditRejection } = require('./blob-guards');
+  // #576: for a GUARDED store (shrink/count guard) or an expectedRev (CAS)
+  // write, read the current document STRICTLY and FAIL THE WRITE CLOSED if it
+  // can't be confirmed — a transient read failure must never let a
+  // read-modify-write persist a shrunken/empty body over a populated one.
+  // Unguarded stores keep the lenient behaviour (current → null on error), so
+  // there is no added blast radius for the long tail.
+  const { applyGuards, auditRejection, guardFor } = require('./blob-guards');
+  const guard = guardFor(key);
+  const shrinkGuarded = !!(guard && (guard.shrinkField || guard.shrinkCount));
+  const wantFresh = opts.expectedRev !== undefined && opts.expectedRev !== null;
+  const failClosed = shrinkGuarded || wantFresh;
   let current = null;
   try {
-    current =
-      opts.expectedRev !== undefined && opts.expectedRev !== null
-        ? await readBlobFresh(key, null)
-        : await readBlob(key, null);
-  } catch {
-    current = null; // unreadable current → guards run without shrink/rev context
+    if (wantFresh) {
+      _cacheInvalidate(key);
+      current = await _doReadBlob(key, null); // fresh + strict → tight CAS
+    } else if (shrinkGuarded) {
+      current = await readBlobStrict(key, null); // cache-ok + strict
+    } else {
+      current = await readBlob(key, null); // lenient: fallback on transient
+    }
+  } catch (err) {
+    if (err instanceof BlobReadError && failClosed) {
+      auditRejection(key, err, opts.actor); // record the fail-closed abort (best-effort)
+      throw err;
+    }
+    current = null; // unguarded store → guards run without shrink/rev context
   }
   let stamped;
   try {
@@ -189,4 +271,12 @@ function setNoCache(res) {
   res.setHeader('Vercel-CDN-Cache-Control', 'no-store');
 }
 
-module.exports = { readBlob, readBlobFresh, writeBlob, deleteBlob, setNoCache };
+module.exports = {
+  readBlob,
+  readBlobFresh,
+  readBlobStrict,
+  writeBlob,
+  deleteBlob,
+  setNoCache,
+  BlobReadError,
+};
