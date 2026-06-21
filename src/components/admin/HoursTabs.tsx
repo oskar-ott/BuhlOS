@@ -19,6 +19,7 @@ const TABS: ReadonlyArray<HoursTab> = [
   // `as Route` — typedRoutes' generated map is from the previous build
   // (same pattern as AdminSidebar's newer entries); validated by `next build`.
   { label: "Weekly closeout", href: "/hours/weekly" as Route },
+  { label: "Pay period", href: "/hours/period" as Route },
 ];
 
 function isActiveTab(pathname: string, tab: HoursTab): boolean {
