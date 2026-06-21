@@ -89,3 +89,53 @@ drift on the diagnostics page, not hidden.
 Phil/worker/mobile reads, offline/service-worker, dual-write, per-job
 `data.json`/stats reads (tags/itps/plans/snags have no PG home), production flag
 enable. Next rung: J7 (Phil read cutover) — only after this is observed healthy.
+
+---
+
+# J7 — Phil (field) jobs read cutover (dark flag)
+
+J7 extends the **same** parity-gated Blob-spine overlay to the **field/Phil**
+audience. Phil's job list (`/phil/jobs`), My Day assigned jobs (`/phil/my-day`)
+and job-detail **structure** (`/phil/jobs/[jobId]`) all funnel through the same
+`/api/jobs` endpoint J6 covers — so J7 is the same seam, gated for field/
+leading-hand roles behind a **separate** flag.
+
+- **Flag:** `supabase_read_phil_jobs` (default OFF, unset in prod). Admin keeps
+  `supabase_read_jobs`; the two cut over independently.
+- **Same engine, one core.** `runJobsOverlay(flagKey, input, opts)` is shared by
+  `readAdminJobsWithPgOverlay` (J6) and `readPhilJobsWithPgOverlay` (J7). Blob
+  authoritative, per-job parity gate, automatic Blob fallback on any error —
+  identical to J6.
+- **Visible-scoped (no cross-worker leakage).** The Phil overlay is scoped to the
+  worker's **visible** jobs (their assigned, non-draft/archived jobs — the exact
+  set the list filter grants). PG is never read for jobs they can't see; non-
+  visible jobs are returned untouched as Blob. The visibility filter that follows
+  the seam is unchanged, so it remains the control on which jobs a worker sees.
+- **Same safety contract:** flag off = exact current Blob behaviour; flag on =
+  output semantically identical to Blob; drift → Blob; PG failure → Blob.
+
+**Out of J7 (deferred):** task **STATUS** (the `dwellings` map: per-task
+to-do/in-progress/done) is a *separate* read — `/api/data` →
+`jobs/{id}/data.json` — which the jobs.json overlay does not touch. Cutting it
+over (a second seam in `api/data.js`, careful not to affect the task-toggle
+write-path read) is a later rung. Also out: clients (client portal), writes,
+dual-write, offline, production flag enable.
+
+## J7 diagnostics
+
+The process-local counters (`api/_lib/job-read-diagnostics.js`) are split by
+audience — `admin` (J6) and `phil` (J7). The `/jobs-read-status` page adds a
+**Phil (field) read cutover** card showing the `supabase_read_phil_jobs` flag and
+the phil-bucket counters (field reads served, from PG vs Blob, fallbacks, and the
+last field read's visible PG-served/matched). There is no live Phil probe — the
+overlay is per-worker-scoped and the admin page has no worker context.
+
+## J7 dev validation (against the dev project, read-only)
+
+Per real field/leading-hand worker: output semantically == Blob, no leakage of
+non-visible jobs, plus flag OFF → Blob (DB untouched), PG outage → Blob fallback,
+no-visible-jobs → Blob. On the dev dataset all 3 field workers' visible jobs are
+representationally drifted (the same legacy ordering / minimal-area records as
+J6), so 0 were PG-served — output Blob, safe, and the diagnostics report the 0/N
+honestly. The PG-served path itself is proven by the unit tests (a faithful
+visible job → served from Postgres).

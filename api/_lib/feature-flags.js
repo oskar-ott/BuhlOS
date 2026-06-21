@@ -72,6 +72,20 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Phil (field) read cutover (J7): when on, the FIELD/LEADING-HAND jobs read
+  // (api/jobs.js — the same /api/jobs Phil uses for the list, My Day and job
+  // detail) is served from the Postgres reconstruction using the SAME per-job
+  // parity-gated Blob-spine overlay as J6, scoped to the worker's assigned
+  // (visible) jobs so PG is never read for jobs they can't see (no cross-worker
+  // leakage). DARK; flag is global but the field-tier restriction is at the call
+  // site (api/jobs.js gates on isFieldRole/isLeadingHandRole). Default OFF, unset
+  // in prod. Task STATUS (data.json dwellings) is a separate read, NOT in scope.
+  supabase_read_phil_jobs: {
+    description: 'Serve the FIELD/Phil jobs read from Postgres (per-job parity-gated, visible-scoped) with a Blob fallback (#152, J7). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // The role-targeting exemplar + ops aid: a small "active flags" readout
   // on the command centre, visible only to the admin tier when enabled.
   admin_flags_readout: {

@@ -29,15 +29,18 @@ type Diag = {
 };
 type Job = Record<string, unknown> & { id: string };
 
-const mod = requireFromHere(p) as {
-  overlayAdminJobs: (blob: Job[], pg: Job[]) => {
-    jobs: Job[]; pgFaithfulCount: number; driftedCount: number;
-    onlyInBlobCount: number; onlyInPgCount: number; matchedCount: number;
-    parityMatch: boolean; blobHash: string; pgHash: string; driftedIds: string[];
-  };
-  readAdminJobsWithPgOverlay: (input?: Record<string, unknown>) => Promise<{ jobs: Job[]; diag: Diag }>;
+type OverlayResult = {
+  jobs: Job[]; pgFaithfulCount: number; driftedCount: number;
+  onlyInBlobCount: number; onlyInPgCount: number; matchedCount: number;
+  parityMatch: boolean; blobHash: string; pgHash: string; driftedIds: string[];
 };
-const { overlayAdminJobs, readAdminJobsWithPgOverlay } = mod;
+const mod = requireFromHere(p) as {
+  overlayAdminJobs: (blob: Job[], pg: Job[]) => OverlayResult;
+  overlayPhilJobs: (blob: Job[], pg: Job[], visibleJobIds: string[]) => OverlayResult;
+  readAdminJobsWithPgOverlay: (input?: Record<string, unknown>) => Promise<{ jobs: Job[]; diag: Diag }>;
+  readPhilJobsWithPgOverlay: (input?: Record<string, unknown>) => Promise<{ jobs: Job[]; diag: Diag }>;
+};
+const { overlayAdminJobs, overlayPhilJobs, readAdminJobsWithPgOverlay, readPhilJobsWithPgOverlay } = mod;
 
 // A migrated structural job as the PG reconstruction would produce it.
 function pgJob(id: string, over: Partial<Job> = {}): Job {
@@ -226,6 +229,76 @@ describe("overlayAdminJobs — Blob jobs missing optional migrated fields (key-s
     expect(r.pgFaithfulCount).toBe(1); // null ≡ absent → still faithful
     expect(Object.prototype.hasOwnProperty.call(r.jobs[0]!, "siteContactName")).toBe(false);
     expect(Object.keys(r.jobs[0]!).sort()).toEqual(Object.keys(b).sort()); // key-set == Blob
+  });
+});
+
+describe("overlayPhilJobs — visible-scoped overlay (J7, no cross-worker leakage)", () => {
+  it("only overlays/diagnoses the worker's VISIBLE jobs; others stay pure Blob", () => {
+    const visibleFaithful = blobJob("j1");
+    const nonVisibleFaithful = blobJob("j2"); // faithful in PG but NOT visible → must stay Blob
+    const visibleDrifted = blobJob("j3", { status: "complete" });
+    const blob = [visibleFaithful, nonVisibleFaithful, visibleDrifted];
+    const pg = [pgJob("j1"), pgJob("j2"), pgJob("j3", { status: "active" })]; // j3 drifted
+    const r = overlayPhilJobs(blob, pg, ["j1", "j3"]); // worker sees j1 + j3 only
+    expect(r.matchedCount).toBe(2); // only visible jobs counted
+    expect(r.pgFaithfulCount).toBe(1); // j1 faithful; j3 drifted
+    expect(r.driftedCount).toBe(1);
+    expect(r.onlyInPgCount).toBe(0); // scoped → not meaningful
+    // j2 (non-visible) is returned untouched as Blob — PG never served for it.
+    expect(r.jobs.find((j) => j.id === "j2")).toEqual(nonVisibleFaithful);
+    expect(r.jobs.map((j) => j.id)).toEqual(["j1", "j2", "j3"]); // full list, order preserved
+  });
+
+  it("no visible jobs → nothing overlaid", () => {
+    const blob = [blobJob("j1")];
+    const r = overlayPhilJobs(blob, [pgJob("j1")], []);
+    expect(r.matchedCount).toBe(0);
+    expect(r.pgFaithfulCount).toBe(0);
+    expect(r.jobs).toEqual(blob);
+  });
+});
+
+describe("readPhilJobsWithPgOverlay — dark, visible-scoped, Blob fallback (J7)", () => {
+  const OLD = process.env.SUPABASE_DB_URL;
+  afterEach(() => { if (OLD === undefined) delete process.env.SUPABASE_DB_URL; else process.env.SUPABASE_DB_URL = OLD; });
+  const throwDb = () => { throw new Error("getDb must not be called"); };
+
+  it("no visible jobs → Blob, db never touched", async () => {
+    process.env.SUPABASE_DB_URL = "postgres://fake";
+    const blob = [blobJob("j1")];
+    const r = await readPhilJobsWithPgOverlay({ blobJobs: blob, visibleJobIds: [], getDb: throwDb, isFlagOn: async () => true });
+    expect(r.jobs).toBe(blob);
+    expect(r.diag.reason).toBe("no visible jobs");
+  });
+
+  it("flag off → Blob, db never touched", async () => {
+    process.env.SUPABASE_DB_URL = "postgres://fake";
+    const blob = [blobJob("j1")];
+    const r = await readPhilJobsWithPgOverlay({ blobJobs: blob, visibleJobIds: ["j1"], getDb: throwDb, isFlagOn: async () => false });
+    expect(r.jobs).toBe(blob);
+    expect(r.diag.reason).toBe("flag off");
+  });
+
+  it("flag on + faithful visible job → served from Postgres (scoped), Blob-only fields kept", async () => {
+    process.env.SUPABASE_DB_URL = "postgres://fake";
+    const rows = pgRows();
+    const reconstructed = (requireFromHere(p) as { reconstructFromPg: (r: unknown) => { jobs: { jobs: Job[] } } }).reconstructFromPg(rows).jobs.jobs;
+    const blob = reconstructed.map((j) => ({ ...j, modules: { areas: true } }));
+    const r = await readPhilJobsWithPgOverlay({ blobJobs: blob, visibleJobIds: ["j1"], isFlagOn: async () => true, getDb: () => fakeSql(rows) });
+    expect(r.diag.readSource).toBe("postgres");
+    expect(r.diag.pgFaithfulCount).toBe(1);
+    expect(r.diag.matchedCount).toBe(1);
+    expect(r.jobs[0]!.modules).toEqual({ areas: true });
+  });
+
+  it("flag on but PG throws → Blob fallback (never throws into the caller)", async () => {
+    process.env.SUPABASE_DB_URL = "postgres://fake";
+    const blob = [blobJob("j1")];
+    const r = await readPhilJobsWithPgOverlay({ blobJobs: blob, visibleJobIds: ["j1"], isFlagOn: async () => true, getDb: () => { throw new Error("pooler down"); } });
+    expect(r.jobs).toBe(blob);
+    expect(r.diag.readSource).toBe("blob");
+    expect(r.diag.fallbackUsed).toBe(true);
+    expect(r.diag.error).toMatch(/pooler down/);
   });
 });
 

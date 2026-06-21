@@ -5,7 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardTitle, CardDescription } from "@/components/ui/Card";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { loadJobsReadStatus, summariseJobsRead } from "@/server/jobs-read-status";
+import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead } from "@/server/jobs-read-status";
 
 // Runs a live, read-only probe at request time.
 export const dynamic = "force-dynamic";
@@ -32,12 +32,14 @@ export default async function JobsReadStatusPage() {
   if (!session) redirect("/v2/login?next=/jobs-read-status");
   if (!canAccessSurface(session.role, "admin")) redirect("/v2/login");
 
-  const s = summariseJobsRead(await loadJobsReadStatus());
+  const status = await loadJobsReadStatus();
+  const s = summariseJobsRead(status);
+  const phil = summarisePhilRead(status);
 
   const sourceLabel = s.readSource === "postgres" ? "Postgres" : "Blob";
 
   return (
-    <AdminShell title="Jobs read cutover (J6)">
+    <AdminShell title="Jobs read cutover (J6/J7)">
       <p className="mb-4 max-w-prose text-sm text-slate-600">
         The admin jobs read can be served from the Supabase Postgres mirror behind
         the <code>supabase_read_jobs</code> flag (<strong>DARK by default</strong>).
@@ -150,6 +152,28 @@ export default async function JobsReadStatusPage() {
         <Row label="Admin reads served" value={s.totalReads} />
         <Row label="Blob fallbacks (PG errored)" value={s.fallbackReads} />
         <Row label="Last served read" value={fmtWhen(s.lastAt)} />
+      </Card>
+
+      <Card className="mt-4" data-testid="phil-read-status">
+        <CardTitle className="mb-2 text-slate-800">
+          Phil (field) read cutover (J7)
+        </CardTitle>
+        <CardDescription className="mb-2">
+          Field workers&rsquo; jobs read behind <code>supabase_read_phil_jobs</code>{" "}
+          (<strong>{phil.flagOn ? "ON" : "OFF"}</strong>), scoped per worker to
+          their assigned jobs. No live probe here (it needs a worker context) —
+          these are process-local counters of field reads served by this instance.
+        </CardDescription>
+        <Row label="Feature flag" value={phil.flagOn ? "ON" : "OFF"} />
+        <Row label="Field reads served" value={phil.totalReads} />
+        <Row label="… from Postgres" value={phil.pgServedReads} />
+        <Row label="… from Blob" value={phil.blobServedReads} />
+        <Row label="Blob fallbacks (PG errored)" value={phil.fallbackReads} />
+        <Row
+          label="Last field read (visible PG-served)"
+          value={phil.lastMatched == null ? "—" : `${phil.lastPgFaithful}/${phil.lastMatched}`}
+        />
+        <Row label="Last field read at" value={fmtWhen(phil.lastAt)} />
       </Card>
     </AdminShell>
   );

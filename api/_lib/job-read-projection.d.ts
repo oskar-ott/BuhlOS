@@ -48,8 +48,16 @@ export function overlayAdminJobs(
   pgHash: string;
   driftedIds: string[];
 };
+export function overlayPhilJobs(
+  blobJobs?: unknown[],
+  pgJobs?: unknown[],
+  visibleJobIds?: string[],
+): ReturnType<typeof overlayAdminJobs>;
 export function readAdminJobsWithPgOverlay(
   input?: AdminJobsOverlayDeps,
+): Promise<{ jobs: unknown[]; diag: AdminJobsReadDiag }>;
+export function readPhilJobsWithPgOverlay(
+  input?: AdminJobsOverlayDeps & { visibleJobIds?: string[] },
 ): Promise<{ jobs: unknown[]; diag: AdminJobsReadDiag }>;
 export function probeAdminJobsRead(deps?: ProbeAdminJobsDeps): Promise<AdminJobsReadDiag>;
 

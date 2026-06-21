@@ -1,8 +1,13 @@
-// Server-only read of the J6 admin jobs read-cutover state for the
-// /jobs-read-status diagnostics page. READ-ONLY and best-effort: it runs a live
-// probe of the PG overlay (no writes, no serving) plus the process-local
-// counters, and never throws to the page. Honest about the "not wired" state
-// (no Supabase in this environment — e.g. production today).
+// Server-only read of the J6/J7 jobs read-cutover state for the /jobs-read-status
+// diagnostics page. READ-ONLY and best-effort: it runs a live probe of the ADMIN
+// PG overlay (no writes, no serving) plus the process-local counters for both the
+// admin (J6) and Phil/field (J7) audiences, and never throws to the page. Honest
+// about the "not wired" state (no Supabase in this environment — e.g. production).
+//
+// There is no live PHIL probe: the Phil overlay is scoped to a specific worker's
+// visible jobs, and this admin page has no worker context. The Phil section shows
+// the flag state + the process-local counters of field reads served by this
+// instance.
 import { probeAdminJobsRead } from "../../api/_lib/job-read-projection.js";
 import type { AdminJobsReadDiag } from "../../api/_lib/job-read-projection";
 import { getJobsReadDiagnostics } from "../../api/_lib/job-read-diagnostics.js";
@@ -11,8 +16,9 @@ import { isFlagOn } from "../../api/_lib/feature-flags.js";
 
 export type JobsReadStatus = {
   wired: boolean; // SUPABASE_DB_URL present in this runtime
-  flagOn: boolean; // raw supabase_read_jobs value (no role targeting)
-  probe: AdminJobsReadDiag | null; // live read-only probe; null when not wired
+  flagOn: boolean; // raw supabase_read_jobs value (admin, J6)
+  philFlagOn: boolean; // raw supabase_read_phil_jobs value (field, J7)
+  probe: AdminJobsReadDiag | null; // live read-only ADMIN probe; null when not wired
   counters: JobsReadDiagnosticsSnapshot; // process-local, this instance only
   error?: string;
 };
@@ -21,24 +27,28 @@ const probe = probeAdminJobsRead as (deps?: unknown) => Promise<AdminJobsReadDia
 const flagFor = isFlagOn as (key: string) => Promise<boolean>;
 const readCounters = getJobsReadDiagnostics as () => JobsReadDiagnosticsSnapshot;
 
-/** Live, read-only snapshot of the admin jobs read cutover. Server-only. */
+async function flagOrFalse(key: string): Promise<boolean> {
+  try {
+    return (await flagFor(key)) === true;
+  } catch {
+    return false; // flags blob unavailable → behave as off
+  }
+}
+
+/** Live, read-only snapshot of the jobs read cutover. Server-only. */
 export async function loadJobsReadStatus(): Promise<JobsReadStatus> {
   const counters = readCounters();
-  let flagOn = false;
-  try {
-    flagOn = (await flagFor("supabase_read_jobs")) === true;
-  } catch {
-    flagOn = false; // flags blob unavailable → behave as off
-  }
+  const flagOn = await flagOrFalse("supabase_read_jobs");
+  const philFlagOn = await flagOrFalse("supabase_read_phil_jobs");
 
   if (!process.env.SUPABASE_DB_URL) {
-    return { wired: false, flagOn, probe: null, counters };
+    return { wired: false, flagOn, philFlagOn, probe: null, counters };
   }
   try {
     const result = await probe();
-    return { wired: true, flagOn, probe: result, counters };
+    return { wired: true, flagOn, philFlagOn, probe: result, counters };
   } catch (err) {
-    return { wired: true, flagOn, probe: null, counters, error: err instanceof Error ? err.message : String(err) };
+    return { wired: true, flagOn, philFlagOn, probe: null, counters, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -61,13 +71,14 @@ export type JobsReadSummary = {
   error?: string;
 };
 
-/** Pure view model for the diagnostics cards. */
+/** Pure view model for the ADMIN diagnostics cards (J6 — live probe). */
 export function summariseJobsRead(status: JobsReadStatus): JobsReadSummary {
+  const admin = status.counters.admin;
   const base = {
     flagOn: status.flagOn,
-    fallbackReads: status.counters.fallbackReads,
-    totalReads: status.counters.totalReads,
-    lastAt: status.counters.lastAt,
+    fallbackReads: admin.fallbackReads,
+    totalReads: admin.totalReads,
+    lastAt: admin.lastAt,
   };
   const emptyMetrics = {
     readSource: "blob" as const,
@@ -104,4 +115,31 @@ export function summariseJobsRead(status: JobsReadStatus): JobsReadSummary {
   // Flag on but the probe couldn't reconstruct (PG error/no tenant) → fallback.
   if (!p.reconstructed) return { state: "fallback", ...base, ...metrics, error: p.error ?? undefined };
   return { state: "active", ...base, ...metrics };
+}
+
+export type PhilReadSummary = {
+  flagOn: boolean;
+  totalReads: number;
+  pgServedReads: number;
+  blobServedReads: number;
+  fallbackReads: number;
+  lastAt: string | null;
+  lastPgFaithful: number | null; // PG-served visible jobs on the last field read
+  lastMatched: number | null; // matched visible jobs on the last field read
+};
+
+/** Pure view model for the PHIL (field) diagnostics card (J7 — counters only). */
+export function summarisePhilRead(status: JobsReadStatus): PhilReadSummary {
+  const phil = status.counters.phil;
+  const last = phil.lastDiag;
+  return {
+    flagOn: status.philFlagOn,
+    totalReads: phil.totalReads,
+    pgServedReads: phil.pgServedReads,
+    blobServedReads: phil.blobServedReads,
+    fallbackReads: phil.fallbackReads,
+    lastAt: phil.lastAt,
+    lastPgFaithful: last && typeof last.pgFaithfulCount === "number" ? last.pgFaithfulCount : null,
+    lastMatched: last && typeof last.matchedCount === "number" ? last.matchedCount : null,
+  };
 }
