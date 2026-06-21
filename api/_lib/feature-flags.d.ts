@@ -6,6 +6,7 @@
 export type FlagKey =
   | "supabase_dual_write"
   | "supabase_dual_write_jobs"
+  | "supabase_dual_write_tasks"
   | "supabase_read_health"
   | "supabase_read_hours"
   | "supabase_read_jobs"

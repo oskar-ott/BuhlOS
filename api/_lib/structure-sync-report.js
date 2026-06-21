@@ -84,6 +84,19 @@ function compareSection(blobArr = [], pgArr = []) {
   };
 }
 
+// J9: count task entities by status (the entities already carry `status`). Surfaced
+// on the tasks section for status-parity visibility — does NOT change PASS/FAIL
+// (status drift is already a per-key mismatch in the tasks section hash).
+function statusTotals(entities) {
+  const out = { not_started: 0, in_progress: 0, complete: 0, other: 0 };
+  for (const e of entities || []) {
+    const s = e && e.status;
+    if (s === 'not_started' || s === 'in_progress' || s === 'complete') out[s] += 1;
+    else out.other += 1;
+  }
+  return out;
+}
+
 /**
  * @param {{ blob: object, pg: object }} input section-shaped projections
  * @returns a record-shaped report (aggregate scalars + per-section detail).
@@ -127,6 +140,10 @@ function buildStructureSyncReport({ blob = {}, pg = {} } = {}) {
       onlyInPg: c._detail.onlyInPg.slice(0, 100),
       mismatched: c._detail.mismatched.slice(0, 100),
     };
+    // J9: surface task status totals (blob vs pg) for status-parity visibility.
+    if (s === 'tasks') {
+      sectionSummary[s].statusTotals = { blob: statusTotals(blob[s]), pg: statusTotals(pg[s]) };
+    }
   }
 
   return {
