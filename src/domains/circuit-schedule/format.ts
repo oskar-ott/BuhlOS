@@ -1,4 +1,4 @@
-import type { Board, Circuit, InstallState } from "./schema";
+import type { Board, InstallState } from "./schema";
 
 /**
  * Display helpers for the circuit schedule. PURE — no I/O, no React.
@@ -60,11 +60,17 @@ export interface BoardProgress {
   todo: number;
 }
 
+/** Loose board shapes — enough to read install progress without coupling to the
+ *  full Board type (a real Board satisfies these; so does a passthrough Job
+ *  projection). */
+type ProgressBoard = { circuits: ReadonlyArray<{ install?: string }> };
+type LooseBoard = { circuits?: ReadonlyArray<{ install?: string }> };
+
 /** Real install progress for a board — counts, never a fabricated percent. */
-export function boardProgress(board: Pick<Board, "circuits">): BoardProgress {
+export function boardProgress(board: ProgressBoard): BoardProgress {
   let installed = 0;
   let tested = 0;
-  for (const c of board.circuits as Circuit[]) {
+  for (const c of board.circuits) {
     const s = installState(c.install);
     if (s === "tested") { tested += 1; installed += 1; }
     else if (s === "installed") { installed += 1; }
@@ -74,16 +80,12 @@ export function boardProgress(board: Pick<Board, "circuits">): BoardProgress {
 }
 
 /** Compact honest progress caption, e.g. "8/12 installed · 3 tested". */
-export function boardProgressLine(board: Pick<Board, "circuits">): string {
+export function boardProgressLine(board: ProgressBoard): string {
   const p = boardProgress(board);
   if (p.total === 0) return "No ways yet";
   const tested = p.tested > 0 ? ` · ${p.tested} tested` : "";
   return `${p.installed}/${p.total} installed${tested}`;
 }
-
-/** Loose board shape — enough to summarise a job's schedule from a passthrough
- *  Job projection without coupling to the full Board type. */
-type LooseBoard = { circuits?: ReadonlyArray<{ install?: string }> };
 
 export interface ScheduleSummary {
   boards: number;
