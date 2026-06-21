@@ -14,6 +14,7 @@ import { getJobsReadDiagnostics } from "../../api/_lib/job-read-diagnostics.js";
 import type { JobsReadDiagnosticsSnapshot } from "../../api/_lib/job-read-diagnostics";
 import { getTaskReadDiagnostics } from "../../api/_lib/task-read-diagnostics.js";
 import type { TaskReadDiagnosticsSnapshot } from "../../api/_lib/task-read-diagnostics";
+import { getAdminTaskReadDiagnostics } from "../../api/_lib/admin-task-read-diagnostics.js";
 import { isFlagOn } from "../../api/_lib/feature-flags.js";
 
 export type JobsReadStatus = {
@@ -170,6 +171,32 @@ export type TaskReadSummary = {
 
 /** Pure view model for the Phil task-status read card (J10). */
 export function summariseTaskRead(s: TaskReadStatus): TaskReadSummary {
+  const c = s.counters;
+  return {
+    flagOn: s.flagOn,
+    totalReads: c.totalReads,
+    pgServedReads: c.pgServedReads,
+    blobServedReads: c.blobServedReads,
+    fallbackReads: c.fallbackReads,
+    parityMismatches: c.parityMismatches,
+    lastAt: c.lastAt,
+    lastSource: c.lastDiag ? c.lastDiag.source : null,
+    lastParityPass: c.lastDiag ? c.lastDiag.parityPass : null,
+  };
+}
+
+// ── J11: Admin task-status read diagnostics. Same shape as J10 (separate
+//    process-local counter, no live probe), behind supabase_read_admin_tasks.
+export type AdminTaskReadStatus = { flagOn: boolean; counters: TaskReadDiagnosticsSnapshot };
+
+const readAdminTaskCounters = getAdminTaskReadDiagnostics as () => TaskReadDiagnosticsSnapshot;
+
+export async function loadAdminTaskReadStatus(): Promise<AdminTaskReadStatus> {
+  return { flagOn: await flagOrFalse("supabase_read_admin_tasks"), counters: readAdminTaskCounters() };
+}
+
+/** Pure view model for the admin task-status read card (J11). Same shape as J10. */
+export function summariseAdminTaskRead(s: AdminTaskReadStatus): TaskReadSummary {
   const c = s.counters;
   return {
     flagOn: s.flagOn,

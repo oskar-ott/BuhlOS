@@ -1,7 +1,8 @@
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isFieldRole, isLeadingHandRole } = require('./_lib/auth');
-const { readPhilTaskStatus } = require('./_lib/task-read');
+const { requireAuth, isFieldRole, isLeadingHandRole, isAdminRole } = require('./_lib/auth');
+const { readPhilTaskStatus, readAdminTaskStatus } = require('./_lib/task-read');
 const { recordTaskRead } = require('./_lib/task-read-diagnostics');
+const { recordAdminTaskRead } = require('./_lib/admin-task-read-diagnostics');
 
 // Per-job state document: GET returns the current { dwellings, snags, notes }
 // blob for a job — read by the Phil job screen (task state) and the read-only
@@ -47,17 +48,24 @@ module.exports = async (req, res) => {
 
   const data = await readBlob(`jobs/${jobId}/data.json`, { dwellings: {}, snags: [], notes: [] });
 
-  // J10 — DARK Phil task-status read cutover. For the FIELD tier, when
-  // `supabase_read_phil_tasks` is ON, the job's task statuses are confirmed
-  // against the Postgres mirror and served from PG only when byte-faithful to
-  // Blob (else Blob fallback) — output is provably identical to Blob, so a worker
-  // can never lose visibility or see a stale status (a not-yet-mirrored toggle
-  // fails parity → Blob). Worker isolation is the requireAuth({ jobId }) gate
-  // above. Admin/client reads are untouched (admin task reads are J11).
+  // DARK task-status read cutover. The job's task statuses are confirmed against
+  // the Postgres mirror and served from PG only when byte-faithful to Blob (else
+  // Blob fallback) — output is provably identical to Blob, so a reader can never
+  // lose visibility or see a stale status (a not-yet-mirrored toggle fails parity
+  // → Blob). The same parity engine serves two audiences, each behind its own
+  // flag, so the field and office cut over independently; CLIENTS always read pure
+  // Blob (out of scope). Reader isolation is the requireAuth({ jobId }) gate above.
+  //   * J10 — FIELD/leading-hand, supabase_read_phil_tasks
+  //   * J11 — ADMIN/office,        supabase_read_admin_tasks
   if (isFieldRole(user.role) || isLeadingHandRole(user.role)) {
     const overlay = await readPhilTaskStatus({ jobId, data });
     recordTaskRead(overlay.diag);
     return res.status(200).json(overlay.data);
   }
-  return res.status(200).json(data);
+  if (isAdminRole(user.role)) {
+    const overlay = await readAdminTaskStatus({ jobId, data });
+    recordAdminTaskRead(overlay.diag);
+    return res.status(200).json(overlay.data);
+  }
+  return res.status(200).json(data); // clients (and any other tier) — pure Blob
 };
