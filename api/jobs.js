@@ -1,7 +1,7 @@
 const { readBlob, writeBlob, deleteBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs, isFieldRole, isClientRole, isAdminRole } = require('./_lib/auth');
 const { redactJobForViewer } = require('./_lib/job-redaction');
-const { readAdminJobsWithPgOverlay } = require('./_lib/job-read-projection');
+const { readAdminJobsWithPgOverlay, readPhilJobsWithPgOverlay } = require('./_lib/job-read-projection');
 const { recordJobsRead } = require('./_lib/job-read-diagnostics');
 
 // Canonical job statuses — keep in sync with src/domains/jobs/schema.ts JOB_STATUSES.
@@ -111,6 +111,20 @@ module.exports = async (req, res) => {
     const overlay = await readAdminJobsWithPgOverlay({ blobJobs: data.jobs });
     data.jobs = overlay.jobs;
     recordJobsRead(overlay.diag);
+  } else if (isFieldRole(me.role) || isLeadingHandRole(me.role)) {
+    // J7 — DARK Phil (field) read cutover. Same parity-gated Blob-spine overlay
+    // as J6, behind `supabase_read_phil_jobs` (default OFF, unset in prod), but
+    // SCOPED to this worker's VISIBLE jobs (their assigned, non-draft/archived
+    // jobs — the exact set the list filter below grants). PG is never read for
+    // jobs they can't see, so there is no cross-worker leakage; the visibility
+    // filter that follows is unchanged. Output is provably == Blob (faithful
+    // jobs) or pure Blob (drift/new/error). Clients are NOT touched.
+    const visibleJobIds = data.jobs
+      .filter(j => (me.assignedJobIds || []).includes(j.id) && j.status !== 'draft' && j.status !== 'archived')
+      .map(j => j.id);
+    const overlay = await readPhilJobsWithPgOverlay({ blobJobs: data.jobs, visibleJobIds });
+    data.jobs = overlay.jobs;
+    recordJobsRead(overlay.diag, 'phil');
   }
 
   // GET — list or single

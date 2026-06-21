@@ -2,10 +2,11 @@ import { createRequire } from "node:module";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * J6 seam wiring in api/jobs.js: the admin tier flows through the (real-in-prod,
- * mocked-here) PG overlay; Phil/field/clients NEVER do; the overlay's jobs flow
- * into the response; and every admin read is recorded. The overlay's own logic
- * is covered by job-read-overlay.test.ts — here we mock it to assert the wiring.
+ * J6/J7 seam wiring in api/jobs.js: the ADMIN tier flows through the admin PG
+ * overlay; FIELD/LEADING-HAND (Phil) flow through the Phil overlay scoped to their
+ * VISIBLE jobs; CLIENTS never touch either; the overlay's jobs flow into the
+ * response; and each read is recorded under the right audience. The overlays' own
+ * logic is covered by job-read-overlay.test.ts — here we mock them to assert wiring.
  */
 const requireFromHere = createRequire(import.meta.url);
 const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
@@ -20,9 +21,11 @@ let blob: Map<string, unknown>;
 let auth: { signSession: (payload: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: ReturnType<typeof createRes>) => Promise<unknown>;
 
-let overlayCalls: Array<{ blobJobs: Job[] }>;
-let recordCalls: unknown[];
-let overlayReturn: (blobJobs: Job[]) => { jobs: Job[]; diag: unknown };
+let adminCalls: Array<{ blobJobs: Job[] }>;
+let philCalls: Array<{ blobJobs: Job[]; visibleJobIds: string[] }>;
+let recordCalls: Array<{ audience: string | undefined }>;
+let adminReturn: (blobJobs: Job[]) => { jobs: Job[]; diag: unknown };
+let philReturn: (blobJobs: Job[]) => { jobs: Job[]; diag: unknown };
 
 function clone<T>(value: T): T {
   return value === undefined ? value : JSON.parse(JSON.stringify(value));
@@ -49,20 +52,24 @@ async function call(opts: { method: string; userId: string; role: string; query?
 beforeEach(() => {
   process.env.SESSION_SECRET = "test-session-secret-long-enough";
   delete process.env.SUPABASE_DB_URL;
-  overlayCalls = [];
+  adminCalls = [];
+  philCalls = [];
   recordCalls = [];
-  overlayReturn = (blobJobs) => ({ jobs: blobJobs, diag: { readSource: "blob", reason: "flag off", fallbackUsed: false } });
+  adminReturn = (blobJobs) => ({ jobs: blobJobs, diag: { readSource: "blob", reason: "flag off", fallbackUsed: false } });
+  philReturn = (blobJobs) => ({ jobs: blobJobs, diag: { readSource: "blob", reason: "flag off", fallbackUsed: false } });
 
   blob = new Map<string, unknown>([
     ["users.json", { users: [
       { id: "u_admin", username: "admin", role: "admin", assignedJobIds: [] },
-      { id: "u_field", username: "sparky", role: "electrician", assignedJobIds: ["job-active"] },
+      // assigned to an active job AND a draft job (the draft must NOT be visible)
+      { id: "u_field", username: "sparky", role: "electrician", assignedJobIds: ["job-active", "job-draft"] },
       { id: "u_lh", username: "lead", role: "lh", assignedJobIds: ["job-active"] },
       { id: "u_client", username: "builder", role: "client", assignedJobIds: [] },
     ] }],
     ["jobs.json", { jobs: [
       { id: "job-active", name: "Active", status: "active", clientUserId: "u_client", areaGroups: [] },
-      { id: "job-draft", name: "Draft", status: "draft", areaGroups: [] },
+      { id: "job-other", name: "Other", status: "active", areaGroups: [] }, // active but NOT assigned to field
+      { id: "job-draft", name: "Draft", status: "draft", areaGroups: [] }, // assigned to field but draft
     ] }],
   ]);
 
@@ -85,15 +92,19 @@ beforeEach(() => {
     id: projPath, filename: projPath, loaded: true,
     exports: {
       readAdminJobsWithPgOverlay: vi.fn(async (input: { blobJobs: Job[] }) => {
-        overlayCalls.push(input);
-        return overlayReturn(input.blobJobs);
+        adminCalls.push(input);
+        return adminReturn(input.blobJobs);
+      }),
+      readPhilJobsWithPgOverlay: vi.fn(async (input: { blobJobs: Job[]; visibleJobIds: string[] }) => {
+        philCalls.push(input);
+        return philReturn(input.blobJobs);
       }),
     },
   } as NodeJS.Module;
 
   requireFromHere.cache[diagPath] = {
     id: diagPath, filename: diagPath, loaded: true,
-    exports: { recordJobsRead: vi.fn((d: unknown) => { recordCalls.push(d); }) },
+    exports: { recordJobsRead: vi.fn((_d: unknown, audience?: string) => { recordCalls.push({ audience }); }) },
   } as NodeJS.Module;
 
   auth = requireFromHere(authPath);
@@ -101,16 +112,17 @@ beforeEach(() => {
 });
 
 describe("J6 admin read cutover — seam wiring", () => {
-  it("routes the ADMIN tier through the PG overlay with the Blob jobs", async () => {
+  it("routes the ADMIN tier through the ADMIN overlay (not Phil), records 'admin'", async () => {
     const res = await call({ method: "GET", userId: "u_admin", role: "admin" });
     expect(res.statusCode).toBe(200);
-    expect(overlayCalls).toHaveLength(1);
-    expect(overlayCalls[0]!.blobJobs.map((j) => j.id).sort()).toEqual(["job-active", "job-draft"]);
-    expect(recordCalls).toHaveLength(1);
+    expect(adminCalls).toHaveLength(1);
+    expect(philCalls).toHaveLength(0);
+    expect(adminCalls[0]!.blobJobs.map((j) => j.id).sort()).toEqual(["job-active", "job-draft", "job-other"]);
+    expect(recordCalls).toEqual([{ audience: undefined }]); // admin = default audience
   });
 
   it("the overlay's jobs flow into the response (admin sees overlaid data)", async () => {
-    overlayReturn = (blobJobs) => ({
+    adminReturn = (blobJobs) => ({
       jobs: blobJobs.map((j) => (j.id === "job-active" ? { ...j, name: "OVERLAID" } : j)),
       diag: { readSource: "postgres", reason: "served from postgres", fallbackUsed: false },
     });
@@ -118,23 +130,50 @@ describe("J6 admin read cutover — seam wiring", () => {
     expect(res.statusCode).toBe(200);
     expect((res.body as { job: { name: string } }).job.name).toBe("OVERLAID");
   });
+});
 
-  it("admin still loads when the overlay reports a Blob fallback (no outage)", async () => {
-    overlayReturn = (blobJobs) => ({ jobs: blobJobs, diag: { readSource: "blob", reason: "error", fallbackUsed: true } });
-    const res = await call({ method: "GET", userId: "u_admin", role: "admin" });
-    expect(res.statusCode).toBe(200);
-    expect((res.body as { jobs: unknown[] }).jobs.length).toBeGreaterThan(0);
-    expect(recordCalls).toHaveLength(1);
-  });
-
+describe("J7 Phil read cutover — seam wiring", () => {
   it.each([
     ["field", "u_field", "electrician"],
     ["leading hand", "u_lh", "lh"],
-    ["client", "u_client", "client"],
-  ])("never touches the PG overlay for %s (Phil/clients stay on Blob)", async (_label, userId, role) => {
+  ])("routes %s through the PHIL overlay scoped to visible jobs, records 'phil'", async (_label, userId, role) => {
     const res = await call({ method: "GET", userId, role });
     expect(res.statusCode).toBe(200);
-    expect(overlayCalls).toHaveLength(0);
+    expect(philCalls).toHaveLength(1);
+    expect(adminCalls).toHaveLength(0);
+    expect(recordCalls).toEqual([{ audience: "phil" }]);
+    // The whole Blob list is passed (the existing filter narrows downstream)…
+    expect(philCalls[0]!.blobJobs.map((j) => j.id).sort()).toEqual(["job-active", "job-draft", "job-other"]);
+  });
+
+  it("scopes visibleJobIds to assigned + non-draft/archived only (no leakage of unassigned or draft jobs)", async () => {
+    await call({ method: "GET", userId: "u_field", role: "electrician" });
+    // u_field is assigned job-active (active) + job-draft (draft). job-other is active but unassigned.
+    expect(philCalls[0]!.visibleJobIds).toEqual(["job-active"]);
+  });
+
+  it("the Phil overlay's jobs flow into the field response", async () => {
+    philReturn = (blobJobs) => ({
+      jobs: blobJobs.map((j) => (j.id === "job-active" ? { ...j, name: "PHIL-OVERLAID" } : j)),
+      diag: { readSource: "postgres", reason: "served from postgres", fallbackUsed: false },
+    });
+    const res = await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active" } });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { job: { name: string } }).job.name).toBe("PHIL-OVERLAID");
+  });
+
+  it("field worker still loads when the Phil overlay reports a Blob fallback (no outage)", async () => {
+    philReturn = (blobJobs) => ({ jobs: blobJobs, diag: { readSource: "blob", reason: "error", fallbackUsed: true } });
+    const res = await call({ method: "GET", userId: "u_field", role: "electrician" });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { jobs: unknown[] }).jobs.map((j) => (j as Job).id)).toEqual(["job-active"]); // only their visible job
+  });
+
+  it("CLIENTS never touch either overlay (untouched, pure Blob)", async () => {
+    const res = await call({ method: "GET", userId: "u_client", role: "client" });
+    expect(res.statusCode).toBe(200);
+    expect(adminCalls).toHaveLength(0);
+    expect(philCalls).toHaveLength(0);
     expect(recordCalls).toHaveLength(0);
   });
 });

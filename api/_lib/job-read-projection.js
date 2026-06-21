@@ -345,6 +345,22 @@ function overlayAdminJobs(blobJobs = [], pgJobs = []) {
   };
 }
 
+// J7 — Phil read overlay scoped to a worker's VISIBLE jobs. Reuses overlayAdminJobs
+// on just the visible subset, then merges the overlaid visible jobs back into the
+// full Blob list. Jobs the worker can't see are NEVER touched and PG is never even
+// compared for them (no cross-worker leakage); the counts are scoped to the
+// worker's visible jobs so diagnostics report exactly what they can see.
+function overlayPhilJobs(blobJobs = [], pgJobs = [], visibleJobIds = []) {
+  const visible = new Set(visibleJobIds);
+  const visibleBlob = blobJobs.filter((j) => visible.has(j.id));
+  const o = overlayAdminJobs(visibleBlob, pgJobs);
+  const overlaidById = new Map(o.jobs.map((j) => [j.id, j]));
+  const jobs = blobJobs.map((j) => overlaidById.get(j.id) || j);
+  // onlyInPgCount from the full-tenant pgJobs is meaningless when scoped to the
+  // Blob-derived visible ids (every visible id is by definition in Blob) → 0.
+  return { ...o, jobs, onlyInPgCount: 0 };
+}
+
 const EMPTY_DIAG_BLOB = (reason, latencyMs, flagOn) => ({
   readSource: 'blob', reason, flagOn: flagOn === true, reconstructed: false,
   parityMatch: null, pgFaithfulCount: 0, driftedCount: 0, onlyInBlobCount: 0,
@@ -353,13 +369,16 @@ const EMPTY_DIAG_BLOB = (reason, latencyMs, flagOn) => ({
 });
 
 /**
- * DARK admin read. Returns { jobs, diag }. Blob stays authoritative: returns the
- * Blob jobs untouched unless the flag is ON and PG reconstructs faithfully, in
- * which case faithful jobs are served from PG (output provably == Blob). Any
- * error → full Blob fallback (never throws into the caller). Injectable deps.
+ * Shared gate→reconstruct→overlay→diag core for the admin (J6) and Phil (J7) read
+ * cutovers. Blob stays authoritative: returns the Blob jobs untouched unless
+ * `flagKey` is ON and PG reconstructs; faithful jobs are served from PG (output
+ * provably == Blob); any error → full Blob fallback (never throws into the
+ * caller). opts.eligibleIds (Phil) scopes the overlay + diagnostics to the
+ * worker's visible jobs. Injectable deps.
  */
-async function readAdminJobsWithPgOverlay(input = {}) {
+async function runJobsOverlay(flagKey, input = {}, opts = {}) {
   const { blobJobs = [], getDb = realGetDb, isFlagOn = realIsFlagOn, tenantSlug = 'buhl', now = Date.now } = input;
+  const eligibleIds = opts.eligibleIds || null; // null → all jobs (admin); array → scoped (Phil)
   const started = now();
   const elapsed = () => Math.max(0, now() - started);
 
@@ -368,7 +387,7 @@ async function readAdminJobsWithPgOverlay(input = {}) {
   }
   let flagOn = false;
   try {
-    flagOn = (await isFlagOn('supabase_read_jobs')) === true;
+    flagOn = (await isFlagOn(flagKey)) === true;
     if (!flagOn) return { jobs: blobJobs, diag: EMPTY_DIAG_BLOB('flag off', elapsed(), false) };
 
     const sql = getDb({ mode: 'read' });
@@ -380,7 +399,7 @@ async function readAdminJobsWithPgOverlay(input = {}) {
 
     const sources = await loadJobStructureFromPg(sql, tenant[0].id);
     const pgJobs = (sources && sources.jobs && sources.jobs.jobs) || [];
-    const o = overlayAdminJobs(blobJobs, pgJobs);
+    const o = eligibleIds ? overlayPhilJobs(blobJobs, pgJobs, eligibleIds) : overlayAdminJobs(blobJobs, pgJobs);
     const servedFromPg = o.pgFaithfulCount > 0;
     return {
       jobs: o.jobs,
@@ -398,12 +417,34 @@ async function readAdminJobsWithPgOverlay(input = {}) {
     };
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
-    console.warn('[job-read-projection] admin PG overlay failed (Blob authoritative):', msg);
+    console.warn(`[job-read-projection] PG overlay failed (Blob authoritative) [${flagKey}]:`, msg);
     return {
       jobs: blobJobs,
       diag: { ...EMPTY_DIAG_BLOB('error', elapsed(), flagOn), fallbackUsed: flagOn === true, error: msg },
     };
   }
+}
+
+/**
+ * DARK admin read. Blob authoritative behind `supabase_read_jobs`. Returns
+ * { jobs, diag }; faithful jobs served from PG (output == Blob), any error → Blob.
+ */
+async function readAdminJobsWithPgOverlay(input = {}) {
+  return runJobsOverlay('supabase_read_jobs', input);
+}
+
+/**
+ * DARK Phil (field/leading-hand) read. Same overlay behind `supabase_read_phil_jobs`,
+ * scoped to the worker's VISIBLE (assigned, non-draft/archived) job ids so PG is
+ * never read for jobs they can't see and the diagnostics report their visible jobs.
+ */
+async function readPhilJobsWithPgOverlay(input = {}) {
+  const { visibleJobIds = [], ...rest } = input;
+  if (!Array.isArray(visibleJobIds) || visibleJobIds.length === 0) {
+    // Nothing this worker can see → no point reconstructing PG; serve Blob.
+    return { jobs: rest.blobJobs || [], diag: EMPTY_DIAG_BLOB('no visible jobs', 0, false) };
+  }
+  return runJobsOverlay('supabase_read_phil_jobs', rest, { eligibleIds: visibleJobIds });
 }
 
 /**
@@ -426,6 +467,6 @@ async function probeAdminJobsRead(deps = {}) {
 
 module.exports = {
   reconstructFromPg, loadJobStructureFromPg, readJobsFromPgIfEnabled,
-  MIGRATED_JOB_FIELDS, migratedFieldsHash, overlayAdminJobs,
-  readAdminJobsWithPgOverlay, probeAdminJobsRead,
+  MIGRATED_JOB_FIELDS, migratedFieldsHash, overlayAdminJobs, overlayPhilJobs,
+  readAdminJobsWithPgOverlay, readPhilJobsWithPgOverlay, probeAdminJobsRead,
 };
