@@ -57,9 +57,17 @@
 //          body: { switchboards?, circuits?, boards? }
 //          Replaces the relevant array(s) wholesale. Validated. Preserves
 //          ids for items the new payload still includes by id-match.
+//          AUTHORITY: switchboards/circuits (register) require canManageJob;
+//          boards (the rich schedule) are FIELD-OWNED — any assigned worker
+//          who is not a client may write them.
+//
+//   POST   /api/job-circuits?jobId=X&action=set-install
+//          body: { boardId, circuitId, install: todo|installed|tested }
+//          Field fast path — marks one way's install state without re-uploading
+//          the whole schedule. Same field-owned authority as the boards PUT.
 //
 //   POST   /api/job-circuits?jobId=X&action=bulk-edit
-//          body: { operations: [...] }
+//          body: { operations: [...] }   (register only — canManageJob)
 //          Ops:
 //            archive-switchboard / rename-switchboard / reorder-switchboard
 //            archive-circuit     / rename-circuit     / reorder-circuit
@@ -81,6 +89,7 @@ const MAX_CIRCUITS          = 2000;
 // Rich AS/NZS-3000 circuit schedule (job.circuitBoards). Distinct from the
 // register above; the office builder + Phil field view both read/write here.
 const VALID_BOARD_STATUS    = new Set(['draft','active','issued']);
+const VALID_INSTALL         = new Set(['todo','installed','tested']);
 const MAX_BOARDS            = 60;
 const MAX_BOARD_CIRCUITS    = 300;
 
@@ -200,6 +209,7 @@ function normCircuit(c) {
     load:     _num(c && c.load, 0, 0, 1000000),
     loadUnit: (c && c.loadUnit) === 'kW' ? 'kW' : 'A',
     notes:    _str(c && c.notes, 300),
+    install:  VALID_INSTALL.has(c && c.install) ? c.install : 'todo',
   };
 }
 
@@ -303,11 +313,23 @@ module.exports = async (req, res) => {
     });
   }
 
-  // All mutating paths require manage access.
-  if (!canManageJob(me, jobId)) return res.status(403).json({ error: 'forbidden' });
+  // Write authority differs by facet:
+  //   • the lightweight switchboards/circuits register stays admin/LH-only
+  //     (canManageJob) — it's office structure;
+  //   • the rich circuit SCHEDULE (boards) is field-owned: any worker assigned
+  //     to the job (not a client) edits it, because the on-site electrician
+  //     owns the schedule and its per-way install state (P3/P13).
+  const canManage = canManageJob(me, jobId);
+  const canEditBoards = !isClientRole(me.role)
+    && (canManage || (me.assignedJobIds || []).includes(jobId));
 
   if (req.method === 'PUT') {
     const body = req.body || {};
+    const wantsRegister = body.switchboards !== undefined || body.circuits !== undefined;
+    const wantsBoards = body.boards !== undefined;
+    if (!wantsRegister && !wantsBoards) return res.status(400).json({ error: 'nothing to update' });
+    if (wantsRegister && !canManage) return res.status(403).json({ error: 'forbidden' });
+    if (wantsBoards && !canEditBoards) return res.status(403).json({ error: 'forbidden' });
     let sbResult, ciResult, bdResult;
     if (body.switchboards !== undefined) {
       sbResult = validateSwitchboards(body.switchboards, job.switchboards);
@@ -344,7 +366,35 @@ module.exports = async (req, res) => {
 
   if (req.method === 'POST') {
     const action = (req.query && req.query.action) || '';
+
+    // Field-owned fast path: mark one way to-do → installed → tested. Tiny body
+    // (no whole-schedule re-upload), the common on-site action (P6). Same
+    // field-edit gate as the boards PUT.
+    if (action === 'set-install') {
+      if (!canEditBoards) return res.status(403).json({ error: 'forbidden' });
+      const { boardId, circuitId, install } = req.body || {};
+      if (!boardId || !circuitId) return res.status(400).json({ error: 'boardId and circuitId required' });
+      if (!VALID_INSTALL.has(install)) return res.status(400).json({ error: 'install must be todo|installed|tested' });
+      const boards = job.circuitBoards || [];
+      const board = boards.find(b => b.id === boardId);
+      if (!board) return res.status(404).json({ error: 'board not found' });
+      const circuit = (board.circuits || []).find(c => c.id === circuitId);
+      if (!circuit) return res.status(404).json({ error: 'circuit not found' });
+      circuit.install = install;
+      board.updated = new Date().toISOString();
+      board.updatedBy = me.username || '';
+      job.circuitBoards = boards;
+      await writeBlob('jobs.json', data);
+      appendAudit(jobId, {
+        byUserId: me.id, byUsername: me.username, kind: 'circuits',
+        summary: `Way ${circuit.way} on ${board.name || board.ref || 'board'} → ${install}`,
+      }).catch(() => {});
+      return res.status(200).json({ boardId, circuitId, install, board });
+    }
+
     if (action !== 'bulk-edit') return res.status(400).json({ error: 'unknown action' });
+    // The register bulk-edit stays manage-only.
+    if (!canManage) return res.status(403).json({ error: 'forbidden' });
 
     const ops = (req.body && Array.isArray(req.body.operations)) ? req.body.operations : null;
     if (!ops) return res.status(400).json({ error: 'operations array required' });
