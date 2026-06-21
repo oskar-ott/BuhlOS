@@ -50,6 +50,19 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Task STATE dual-write (J9): when on, the scheduled mirror cron
+  // (/api/internal/mirror-tasks) reconciles per-job task STATUS from the
+  // authoritative data.json into Postgres tasks.status (+ append-only
+  // task_status_events for real transitions), OFF the request path so the
+  // high-frequency task-toggle gains ZERO latency. Blob authoritative; a PG
+  // failure never affects field work. Separate flag so task state cuts over
+  // independently of structure. Default OFF, unset in prod. Task READ stays Blob.
+  supabase_dual_write_tasks: {
+    description: 'Reconcile task status from data.json into Postgres (cron, off request path), best-effort, Blob authoritative (#152, J9). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // The read-only Supabase connectivity proving slice (#533) — gates
   // GET /api/supabase-health, the first real DB caller. Dark until a preview
   // is wired; flip on per-environment to prove the guard→pooler→client path.
