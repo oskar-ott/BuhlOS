@@ -124,6 +124,7 @@ const REQUIRED_SOURCES = [
   'src/app/v2/jobs/[jobId]/page.tsx',
   'src/app/v2/jobs/[jobId]/builder/page.tsx',
   'src/app/v2/jobs/[jobId]/plans/page.tsx',
+  'src/app/v2/jobs/[jobId]/scope/page.tsx', // #366 — scope reconciliation review (read-only)
   'src/app/v2/quotes/page.tsx',
   'src/app/v2/quotes/[quoteId]/page.tsx',
   'src/app/(admin)/settings/notifications/page.tsx',

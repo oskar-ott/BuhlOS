@@ -11,6 +11,7 @@ import {
   ListChecks,
   Map as MapIcon,
   Package,
+  Scale,
 } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -103,6 +104,14 @@ export function JobInterfaceSectionNav({ job }: Props) {
       href: `/v2/jobs/${jobIdEnc}/itps` as Route,
       count: job.statsItpsActive,
       icon: ClipboardCheck,
+    },
+    {
+      kind: "live",
+      label: "Scope reconciliation",
+      description:
+        "Scope-vs-quote review: the confirmed classification of every clause and the open conflicts (excluded-but-owed, by-others, alternates) before work starts.",
+      href: `/v2/jobs/${jobIdEnc}/scope` as Route,
+      icon: Scale,
     },
     {
       kind: "live",
