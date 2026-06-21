@@ -127,6 +127,15 @@ export const AUDIT_ACTIONS = [
   "hours.reopened",
   "hours.bulk_approved",
   "hours.bulk_rejected",
+  // #370: daywork register (api/dayworks.js). daywork.created on POST;
+  // daywork.signed on the supervisor sign; daywork.transitioned on the
+  // signed → invoiced change (metadata.from/to); daywork.amended when a
+  // signed/invoiced docket spawns a linked amendment. Kept in sync with
+  // api/_lib/audit-log.js VALID_ACTIONS.
+  "daywork.created",
+  "daywork.signed",
+  "daywork.transitioned",
+  "daywork.amended",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -153,6 +162,8 @@ export const AUDIT_TARGET_TYPES = [
   "variation",
   // #390: timesheet day records (users/<id>/time-entries/<date>.json).
   "time_entry",
+  // #370: daywork docket records (jobs/<id>/dayworks.json).
+  "daywork",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 
