@@ -5,7 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardTitle, CardDescription } from "@/components/ui/Card";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead, loadAdminTaskReadStatus, summariseAdminTaskRead } from "@/server/jobs-read-status";
+import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead, loadAdminTaskReadStatus, summariseAdminTaskRead, loadTaskReadProbe, summariseTaskReadProbe } from "@/server/jobs-read-status";
 
 // Runs a live, read-only probe at request time.
 export const dynamic = "force-dynamic";
@@ -37,6 +37,7 @@ export default async function JobsReadStatusPage() {
   const phil = summarisePhilRead(status);
   const taskRead = summariseTaskRead(await loadTaskReadStatus());
   const adminTaskRead = summariseAdminTaskRead(await loadAdminTaskReadStatus());
+  const taskProbe = summariseTaskReadProbe(await loadTaskReadProbe());
 
   const sourceLabel = s.readSource === "postgres" ? "Postgres" : "Blob";
 
@@ -220,6 +221,77 @@ export default async function JobsReadStatusPage() {
         <Row label="Parity mismatches → Blob" value={adminTaskRead.parityMismatches} />
         <Row label="Last read source" value={adminTaskRead.lastSource ?? "—"} />
         <Row label="Last read at" value={fmtWhen(adminTaskRead.lastAt)} />
+      </Card>
+
+      <Card
+        className={
+          "mt-4 " +
+          (taskProbe.state === "all_faithful"
+            ? "border-emerald-200 bg-emerald-50"
+            : taskProbe.state === "drift" || taskProbe.state === "error"
+              ? "border-amber-200 bg-amber-50"
+              : "")
+        }
+        data-testid="task-read-probe-status"
+        role="status"
+      >
+        <CardTitle className="mb-2 text-slate-800">
+          Task-status parity — live readiness probe (J12)
+        </CardTitle>
+        <CardDescription className="mb-2">
+          A live, read-only sample (no serving, no writes) of how byte-faithful the
+          Postgres task mirror is to Blob across jobs — the evidence a served-source
+          promotion (J13) is gated on. <strong>Blob stays authoritative; Postgres is
+          not the source of truth yet.</strong> Parity is the same data for field and
+          office, so this one probe covers both tiers.
+        </CardDescription>
+
+        {taskProbe.state === "not_wired" && (
+          <CardDescription>
+            Supabase is not wired here, so there is nothing to probe — task reads are
+            served entirely from Blob.
+          </CardDescription>
+        )}
+        {taskProbe.state === "error" && (
+          <CardDescription className="text-amber-900">
+            The read-only probe failed:{" "}
+            <span className="font-mono text-xs">{taskProbe.error}</span>. Reads are
+            unaffected (Blob authoritative) — this only affects diagnostics.
+          </CardDescription>
+        )}
+        {taskProbe.state === "empty" && (
+          <CardDescription>
+            No jobs were available to sample.
+          </CardDescription>
+        )}
+        {(taskProbe.state === "all_faithful" || taskProbe.state === "drift") && (
+          <>
+            <CardDescription
+              className={taskProbe.state === "all_faithful" ? "mb-2 text-emerald-900" : "mb-2 text-amber-900"}
+            >
+              {taskProbe.state === "all_faithful"
+                ? `All ${taskProbe.jobsSampled} sampled job(s) are byte-faithful to Blob — a served-source flip would be byte-safe for this sample.`
+                : `${taskProbe.pgFaithful} of ${taskProbe.jobsSampled} sampled job(s) byte-faithful; the rest are not yet promotable.`}
+            </CardDescription>
+            <Row
+              label="Jobs sampled"
+              value={`${taskProbe.jobsSampled} of ${taskProbe.jobsTotal}`}
+            />
+            <Row label="Byte-faithful (PG == Blob)" value={taskProbe.pgFaithful} />
+            <Row label="Drifted (real divergence)" value={taskProbe.drifted} />
+            <Row label="Errored (PG unreachable)" value={taskProbe.errored} />
+            <Row label="Unavailable (not yet in PG)" value={taskProbe.unavailable} />
+            <Row label="Drifted tasks — status mismatch" value={taskProbe.totalMismatched} />
+            <Row label="Drifted tasks — unresolved" value={taskProbe.totalUnresolved} />
+            <Row label="Drifted tasks — orphan in PG" value={taskProbe.totalOrphans} />
+            <Row label="Jobs with status-hash drift" value={taskProbe.hashDriftJobs} />
+            <Row label="Probe latency" value={taskProbe.latencyMs == null ? "—" : `${taskProbe.latencyMs} ms`} />
+            <Row
+              label="Ready for served-source promotion (this sample)"
+              value={taskProbe.readyForPromotion ? "YES" : "no"}
+            />
+          </>
+        )}
       </Card>
     </AdminShell>
   );
