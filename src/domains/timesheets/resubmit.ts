@@ -36,13 +36,42 @@ export interface AssignableJob {
 /**
  * Can this entry be fixed-and-resubmitted from inside Phil?
  *
- * Only a `rejected` entry with a single allocation — the shape Phil itself
- * creates (one job per day). A multi-allocation entry (legacy / admin split)
- * is intentionally excluded so the single-job resubmit form can never silently
- * collapse a split day; those stay on the legacy surface.
+ * Any `rejected` entry with at least one allocation. Phil now creates split
+ * days itself (#128 `buildSplitDayPayload`), so a rejected split is no longer
+ * "legacy" — it must be fixable in Phil too. The single-job form is never
+ * allowed to collapse a split: `isSplitResubmit` routes a multi-allocation
+ * entry to the split editor (which preserves every allocation), while a
+ * single-allocation entry uses the single-job form. The attribution invariant
+ * is enforced at submit by both editors (every row needs a real assigned job),
+ * not by excluding splits here.
  */
 export function canResubmitInPhil(entry: Pick<TimeEntry, "status" | "allocations">): boolean {
-  return entry.status === "rejected" && Array.isArray(entry.allocations) && entry.allocations.length === 1;
+  return entry.status === "rejected" && Array.isArray(entry.allocations) && entry.allocations.length >= 1;
+}
+
+/**
+ * Is this a SPLIT day (2+ allocations) — i.e. resubmit it through the split
+ * editor rather than the single-job form, so the multiple allocations survive?
+ */
+export function isSplitResubmit(entry: Pick<TimeEntry, "allocations">): boolean {
+  return Array.isArray(entry.allocations) && entry.allocations.length > 1;
+}
+
+/**
+ * Seed the split editor from a rejected split entry: the day total plus one row
+ * per existing allocation. An allocation whose job is no longer one of the
+ * worker's active assigned jobs is seeded `null`, so the worker must re-pick it
+ * (never a silent attribution to a stale/unassigned job).
+ */
+export function splitResubmitInitialRows(
+  entry: Pick<TimeEntry, "totalHours" | "allocations">,
+  assignedJobs: ReadonlyArray<AssignableJob>,
+): { total: number; rows: Array<{ jobId: string | null; hours: number }> } {
+  const rows = (entry.allocations ?? []).map((a) => ({
+    jobId: a.jobId && assignedJobs.some((j) => j.id === a.jobId) ? a.jobId : null,
+    hours: a.hours,
+  }));
+  return { total: entry.totalHours, rows };
 }
 
 /**
@@ -108,6 +137,37 @@ export function buildResubmitPayload(
     ordinaryHours: ordinary,
     overtimeHours: overtime,
     allocations: [{ jobId: input.jobId, hours: input.totalHours, notes: null }],
+    status: "submitted",
+    notes: input.notes,
+  };
+}
+
+/**
+ * Build the PATCH payload that resubmits a corrected SPLIT day, PRESERVING every
+ * allocation (never collapsing to one job). Mirrors the create-path
+ * `buildSplitDayPayload`: ordinary/overtime split on the day TOTAL, each
+ * allocation's `jobId` typed `string` (non-null) — the split editor resolves a
+ * real assigned job per row before calling this, so a null job can't be encoded.
+ * Status → `submitted` drives the rejected→submitted transition. The schema
+ * (allocations sum = total ±0.01) and the server field-allocation gate
+ * (api/time-entries.js, which re-runs when a PATCH sends `allocations`) are the
+ * downstream backstops.
+ */
+export function buildSplitResubmitPayload(
+  entry: Pick<TimeEntry, "date">,
+  input: {
+    totalHours: number;
+    allocations: ReadonlyArray<{ jobId: string; hours: number }>;
+    notes: string | null;
+  },
+): PatchTimeEntryPayload {
+  const { ordinary, overtime } = autoSplitOT(input.totalHours);
+  return {
+    date: entry.date,
+    totalHours: input.totalHours,
+    ordinaryHours: ordinary,
+    overtimeHours: overtime,
+    allocations: input.allocations.map((a) => ({ jobId: a.jobId, hours: a.hours, notes: null })),
     status: "submitted",
     notes: input.notes,
   };

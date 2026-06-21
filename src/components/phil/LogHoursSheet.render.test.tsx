@@ -148,9 +148,12 @@ describe("LogHoursSheet — rejected entry fix flow", () => {
     expect(html).toContain("Fix &amp; resubmit");
   });
 
-  it("is honest about split-day entries the single-job form can't fix", () => {
+  it("offers the fix flow for a rejected SPLIT-day entry too (#128) — no dead-end copy", () => {
     const html = render({
-      assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
+      assignedJobs: [
+        { id: "j1", name: "Smith St Rewire" },
+        { id: "j2", name: "Warehouse" },
+      ],
       recentEntries: [],
       initialTodayEntry: rejectedEntry([
         { jobId: "j1", hours: 4, notes: null },
@@ -158,8 +161,11 @@ describe("LogHoursSheet — rejected entry fix flow", () => {
       ]),
     });
 
-    expect(html).toContain("splits hours across jobs");
-    expect(html).not.toContain("Fix rejected hours");
+    // Split days are now fixable in Phil (route to the split editor), so the
+    // same "Fix rejected hours" trigger appears and the old dead-end copy is gone.
+    expect(html).toContain("Fix rejected hours");
+    expect(html).not.toContain("splits hours across jobs");
+    expect(html).not.toContain("legacy My day");
   });
 });
 
