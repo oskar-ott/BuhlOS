@@ -381,3 +381,137 @@ describe("handler mapping (approve → 409 on conflict)", () => {
     expect(res.body).toEqual({ error: "conflict", currentRev: 6 });
   });
 });
+
+// #576 — the per-job field-state document jobs/<id>/data.json was the most-
+// written store with NO validator and NO shrink guard, and readBlob returned
+// the caller's fallback on a transient read failure (indistinguishable from
+// absence) AND cached it — so a read-modify-write during a blip could persist an
+// empty skeleton over a populated job and silently wipe it. The guard + the
+// fail-closed strict read close both halves at the storage chokepoint, with no
+// writer touched.
+describe("#576 — data.json guard + fail-closed reads", () => {
+  const dataKey = "jobs/J1/data.json";
+  const dwellingsOf = (n: number): Record<string, unknown> => {
+    const d: Record<string, unknown> = {};
+    for (let i = 0; i < n; i++) d[`area${i}`] = { tasks: {} };
+    return d;
+  };
+  const populated = (rev: number) => ({
+    dwellings: dwellingsOf(8),
+    snags: manyUsers(4),
+    evidence: manyUsers(3),
+    notes: [],
+    __rev: rev,
+  });
+  // A fetch that fails transiently (network throw) while list still finds the
+  // blob — the exact "present but unreadable" blip the wipe depended on.
+  const stubFetchThrowing = () =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("transient network failure");
+      })
+    );
+  // A toggleable fetch: fails while mode.fail is true, otherwise reads the store.
+  const stubFetchToggle = (mode: { fail: boolean }) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (mode.fail) throw new Error("transient network failure");
+        const pathname = decodeURIComponent(new URL(url).pathname.slice(1));
+        const value = store.get(pathname);
+        return { ok: value !== undefined, json: async () => JSON.parse(value!) };
+      })
+    );
+
+  describe("validation (shape-sanity by pattern)", () => {
+    it("rejects a non-array snags / non-object dwellings, never persists", async () => {
+      await expect(
+        blobLib.writeBlob(dataKey, { dwellings: {}, snags: "nope" })
+      ).rejects.toMatchObject({ code: "invalid_write" });
+      await expect(
+        blobLib.writeBlob(dataKey, { dwellings: [], snags: [] })
+      ).rejects.toMatchObject({ code: "invalid_write" });
+      expect(store.has(dataKey)).toBe(false);
+    });
+
+    it("accepts a partial skeleton (fields are optional) and items need no ids", async () => {
+      await blobLib.writeBlob(dataKey, { snags: [{ note: "no id is fine" }] });
+      expect(stored(dataKey).__rev).toBe(1);
+    });
+  });
+
+  describe("count-based shrink guard", () => {
+    it("rejects a populated job collapsing to an empty skeleton (the wipe signature)", async () => {
+      seed("jobs/J2/data.json", populated(3)); // total = 8 + 4 + 3 = 15
+      await expect(
+        blobLib.writeBlob("jobs/J2/data.json", { dwellings: {}, snags: [], notes: [] })
+      ).rejects.toMatchObject({ code: "shrink_rejected", before: 15, after: 0 });
+      // the stored doc is untouched
+      expect(Object.keys(stored("jobs/J2/data.json").dwellings as Record<string, unknown>).length).toBe(8);
+      expect(audits.at(-1)!.action).toBe("storage.write_rejected");
+    });
+
+    it("allowShrink is the explicit escape hatch for an intentional clear", async () => {
+      seed("jobs/J2/data.json", populated(3));
+      await blobLib.writeBlob(
+        "jobs/J2/data.json",
+        { dwellings: {}, snags: [], notes: [] },
+        { allowShrink: true }
+      );
+      expect(Object.keys(stored("jobs/J2/data.json").dwellings as Record<string, unknown>).length).toBe(0);
+    });
+
+    it("small/new jobs under the floor shrink freely (early churn isn't a disaster)", async () => {
+      seed("jobs/J3/data.json", { dwellings: dwellingsOf(3), snags: [], __rev: 1 }); // total = 3 < 8
+      await blobLib.writeBlob("jobs/J3/data.json", { dwellings: {}, snags: [] });
+      expect(Object.keys(stored("jobs/J3/data.json").dwellings as Record<string, unknown>).length).toBe(0);
+    });
+
+    it("guardFor forwards the full shrink config for the data.json pattern (regression)", () => {
+      const { guardFor } = requireFromHere(guardsPath) as {
+        guardFor: (k: string) => { validate?: unknown; shrinkCount?: unknown; shrinkFloor?: number } | null;
+      };
+      const g = guardFor("jobs/anyId/data.json");
+      expect(typeof g?.validate).toBe("function");
+      expect(typeof g?.shrinkCount).toBe("function");
+      expect(g?.shrinkFloor).toBe(8);
+    });
+  });
+
+  describe("fail-closed reads (the wipe vector)", () => {
+    it("ABORTS a guarded write when the current document can't be read (no wipe)", async () => {
+      seed("jobs/J4/data.json", populated(2));
+      stubFetchThrowing(); // present in list, but every fetch blips
+      await expect(
+        blobLib.writeBlob("jobs/J4/data.json", { dwellings: dwellingsOf(1), snags: [] })
+      ).rejects.toMatchObject({ code: "blob_read_failed" });
+      // the populated doc on disk is untouched — the write never reached `put`
+      expect(Object.keys(stored("jobs/J4/data.json").dwellings as Record<string, unknown>).length).toBe(8);
+    });
+
+    it("readBlob degrades to the fallback on a transient blip but NEVER caches it", async () => {
+      seed("jobs/J5/data.json", { dwellings: dwellingsOf(1), snags: [], __rev: 1 });
+      const mode = { fail: true };
+      stubFetchToggle(mode);
+      const degraded = (await blobLib.readBlob("jobs/J5/data.json", { dwellings: {}, snags: [] })) as {
+        dwellings: Record<string, unknown>;
+      };
+      expect(Object.keys(degraded.dwellings).length).toBe(0); // got the fallback
+      // recovery: because the fallback was not cached, the next read sees the real doc
+      mode.fail = false;
+      const real = (await blobLib.readBlob("jobs/J5/data.json", { dwellings: {}, snags: [] })) as {
+        dwellings: Record<string, unknown>;
+      };
+      expect(Object.keys(real.dwellings).length).toBe(1);
+    });
+
+    it("an UNGUARDED store keeps the lenient behaviour — a blip never aborts its write", async () => {
+      seed("itp-templates.json", { templates: manyUsers(3), __rev: 1 });
+      stubFetchThrowing();
+      // no guard for itp-templates.json → current degrades to null, write proceeds
+      await blobLib.writeBlob("itp-templates.json", { templates: manyUsers(2) });
+      expect((stored("itp-templates.json").templates as unknown[]).length).toBe(2);
+    });
+  });
+});
