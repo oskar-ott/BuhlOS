@@ -5,7 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isAdminRole } from "@/lib/auth/roles";
 import { CircuitScheduleApp } from "@/components/admin/circuit-schedule/CircuitScheduleApp";
-import { SAMPLE_BOARDS, SAMPLE_JOB } from "@/domains/circuit-schedule/sample-boards";
+import { loadCircuitSchedule } from "@/domains/circuit-schedule/server-load";
 import "./circuit-schedule.css";
 
 export const dynamic = "force-dynamic";
@@ -22,9 +22,9 @@ interface PageParams {
  * compute engine in src/domains/circuit-schedule. Admin-gated, mirroring the other
  * job sub-routes (job-control / documents / itps).
  *
- * SAMPLE DATA: renders the "100 Arthur" sample boards in memory (honestly labelled).
- * Persistence, wiring to this job's real circuits, and the Phil field view are
- * follow-up slices.
+ * Data: the rich `boards` facet of /api/job-circuits (job.circuitBoards) — the
+ * shared store the Phil field view also reads/writes. Loaded server-side here,
+ * edited live in CircuitScheduleApp which debounce-saves back.
  */
 export default async function CircuitSchedulePage({ params }: PageParams) {
   const { jobId } = await params;
@@ -39,6 +39,12 @@ export default async function CircuitSchedulePage({ params }: PageParams) {
     redirect("/v2/login");
   }
 
+  const { job, boards, error } = await loadCircuitSchedule(raw, jobId);
+  // This route is admin-gated, so the viewer can manage the schedule. The
+  // server PUT re-checks canManageJob and the client degrades to read-only on
+  // a 403, so this is a hint, not the authority.
+  const canManage = isAdminRole(session.role);
+
   return (
     <AdminShell
       title="Circuit schedules"
@@ -48,10 +54,14 @@ export default async function CircuitSchedulePage({ params }: PageParams) {
         </Link>
       }
     >
-      <p className="mb-3 text-xs text-text-muted">
-        Sample data ({SAMPLE_JOB.name}) — not yet wired to this job&rsquo;s circuits.
-      </p>
-      <CircuitScheduleApp job={SAMPLE_JOB} initialBoards={SAMPLE_BOARDS} storageKey={`cs-view:${jobId}`} />
+      <CircuitScheduleApp
+        job={job}
+        jobId={jobId}
+        initialBoards={boards}
+        canManage={canManage}
+        loadError={error}
+        storageKey={`cs-view:${jobId}`}
+      />
     </AdminShell>
   );
 }

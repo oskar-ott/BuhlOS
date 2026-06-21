@@ -32,6 +32,7 @@
 .cs-scope .btn.primary { background: var(--yellow); color: var(--yellow-ink); border-color: var(--yellow); }
 .cs-scope .btn.dark { background: var(--header-bg); color: var(--header-ink); border-color: var(--header-bg); }
 .cs-scope .btn.ghost { background: transparent; }
+.cs-scope .btn.danger-armed { background: var(--red); color: #fff; border-color: var(--red); }
 
 /* pills */
 .cs-scope .pill { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 2px; font-family: "JetBrains Mono", monospace; font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; white-space: nowrap; }
@@ -299,6 +300,16 @@
 .cs-scope .dh-fedfrom { font-size: 11px; }
 .cs-scope table.cs-doc-table td.dn .doc-note { font-size: 8.5px; color: #888; font-weight: 400; }
 .cs-scope table.cs-doc-table td.method { font-size: 9px; }
+
+/* Save / read-only status strip (autosave to /api/job-circuits). */
+.cs-scope .cs-statusbar { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; font-family: "JetBrains Mono", monospace; font-size: 10.5px; letter-spacing: .06em; color: var(--ink-3); }
+.cs-scope .cs-statusbar.err { color: var(--red); }
+.cs-scope .cs-statusbar.ro { color: var(--ink-2); }
+.cs-scope .cs-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); display: inline-block; }
+.cs-scope .cs-dot.ok { background: var(--green); }
+.cs-scope .cs-dot.err { background: var(--red); }
+.cs-scope .cs-dot.busy { background: var(--amber); animation: cs-pulse 1s ease-in-out infinite; }
+@keyframes cs-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 
 @media print {
   body * { visibility: hidden !important; }

@@ -2,6 +2,7 @@
 
 import { type Board } from "@/domains/circuit-schedule/schema";
 import { totals, balance, rowCurrent, rowVd, hasRcd } from "@/domains/circuit-schedule/compute";
+import { formatEditedAt } from "@/domains/circuit-schedule/format";
 import { Ic } from "./icons";
 
 interface Job { name: string; id: string; client: string; drawing: string; }
@@ -74,8 +75,8 @@ export function SchedulePreview({ board, job, onBack }: { board: Board; job: Job
           <dl className="cs-doc-meta">
             <div><dt>Project</dt><dd>{job.name}</dd></div>
             <div><dt>Job no.</dt><dd>{job.id}</dd></div>
-            <div><dt>Client</dt><dd>{job.client}</dd></div>
-            <div><dt>Drawing</dt><dd>{job.drawing}</dd></div>
+            <div><dt>Client</dt><dd>{job.client || "—"}</dd></div>
+            <div><dt>Drawing</dt><dd>{job.drawing || "—"}</dd></div>
             <div><dt>Supply</dt><dd>{board.supply === "3ph" ? "3-phase" : "Single-phase"} · {board.voltage} V</dd></div>
             <div><dt>Main switch</dt><dd>{board.mainRating} A {board.mainPoles}</dd></div>
             <div><dt>Fault level</dt><dd>{board.faultKA} kA</dd></div>
@@ -87,7 +88,7 @@ export function SchedulePreview({ board, job, onBack }: { board: Board; job: Job
             ) : (
               <div><dt>Surge (SPD)</dt><dd>{board.spd ? "Fitted" : "—"}</dd></div>
             )}
-            <div><dt>Issued</dt><dd>{board.status === "issued" ? (board.updated || "").replace(" · ", " ") : "Draft"}</dd></div>
+            <div><dt>Issued</dt><dd>{board.status === "issued" ? (formatEditedAt(board.updated) || "Issued") : "Draft"}</dd></div>
           </dl>
 
           <DocTable board={board} />

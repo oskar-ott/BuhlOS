@@ -1,11 +1,20 @@
 // Switchboards + circuits per job.
 //
-// The Job entity gains two optional arrays. They live on the job record
+// The Job entity gains optional arrays. They live on the job record
 // itself (alongside areaGroups, roughInTasks, etc) so a single GET
 // /api/jobs?id=X gives the mobile + admin everything they need. The
 // `modules.switchboards` + `modules.circuits` flags (rigidity audit R1)
 // gate whether the UI surfaces them; the data is always available to
 // API callers.
+//
+// TWO facets, deliberately distinct (do NOT conflate):
+//   switchboards[] + circuits[]  — the lightweight INSTALL REGISTER below.
+//   circuitBoards[]              — the rich AS/NZS-3000 CIRCUIT SCHEDULE: the
+//     engineering design (supply, main switch, per-way device/cable/load with
+//     live voltage-drop, phase-balance and capacity compute) that the office
+//     builder + the Phil field view share. One store, two surfaces. The pure
+//     compute + zod schema live in src/domains/circuit-schedule; this endpoint
+//     is the only writer. Added additively — register callers are untouched.
 //
 // Schema (validated here):
 //
@@ -27,14 +36,25 @@
 //     archived?, order?
 //   }]
 //
+//   circuitBoards: [{
+//     id, name, ref, location, suppliedFrom,
+//     supply (1ph|3ph), voltage, mainRating, mainPoles, faultKA,
+//     mainRcd, spd, ways, status (draft|active|issued),
+//     updated, updatedBy,            stamped server-side on content change
+//     circuits: [{
+//       id, way, desc, type, phase, device, rating, poles, curve, kA,
+//       rcd, rcdType, active, neut, cores, length, method, load, loadUnit, notes
+//     }]
+//   }]
+//
 // Routes:
 //
 //   GET    /api/job-circuits?jobId=X
-//          { switchboards, circuits } — admin/LH/tradie-assigned (read-only
-//          for tradies, write requires canManageJob).
+//          { switchboards, circuits, boards } — admin/LH/tradie-assigned
+//          (read-only for tradies, write requires canManageJob).
 //
 //   PUT    /api/job-circuits?jobId=X
-//          body: { switchboards?, circuits? }
+//          body: { switchboards?, circuits?, boards? }
 //          Replaces the relevant array(s) wholesale. Validated. Preserves
 //          ids for items the new payload still includes by id-match.
 //
@@ -58,8 +78,26 @@ const VALID_CIRCUIT_STATUS  = new Set(['planned','roughed-in','energised','commi
 const MAX_SB                = 200;
 const MAX_CIRCUITS          = 2000;
 
+// Rich AS/NZS-3000 circuit schedule (job.circuitBoards). Distinct from the
+// register above; the office builder + Phil field view both read/write here.
+const VALID_BOARD_STATUS    = new Set(['draft','active','issued']);
+const MAX_BOARDS            = 60;
+const MAX_BOARD_CIRCUITS    = 300;
+
 function _str(v, max = 80) {
   return v == null ? '' : String(v).trim().slice(0, max);
+}
+
+function _num(v, def, min, max) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return def;
+  if (min != null && n < min) return min;
+  if (max != null && n > max) return max;
+  return n;
+}
+
+function _bool(v) {
+  return v === true || v === 'true' || v === 1;
 }
 
 // ── Validators ────────────────────────────────────────────────────────
@@ -135,6 +173,107 @@ function validateCircuits(raw, existing, switchboards) {
   return { ok: true, circuits: out };
 }
 
+// ── Rich circuit-schedule (boards) validator ──────────────────────────
+// Mirrors src/domains/circuit-schedule/schema.ts (Board + Circuit). Lenient
+// on the enum-ish string fields (device/poles/curve/cores/type) the same way
+// the zod schema is — the UI constrains them; an unknown future value must not
+// drop the row. Numbers are clamped; ids are preserved (minted only if absent).
+function normCircuit(c) {
+  return {
+    id: c && c.id ? String(c.id) : nanoid('cc_'),
+    way:      _num(c && c.way, 0, 0, 9999),
+    desc:     _str(c && c.desc, 200),
+    type:     _str(c && c.type, 40),
+    phase:    _str(c && c.phase, 4),
+    device:   _str(c && c.device, 24),
+    rating:   _num(c && c.rating, 0, 0, 100000),
+    poles:    _str(c && c.poles, 8),
+    curve:    _str(c && c.curve, 8),
+    kA:       _num(c && c.kA, 0, 0, 1000),
+    rcd:      _str(c && c.rcd, 24) || 'none',
+    rcdType:  _str(c && c.rcdType, 8),
+    active:   _num(c && c.active, 0, 0, 100000),
+    neut:     _num(c && c.neut, 0, 0, 100000),
+    cores:    _str(c && c.cores, 16),
+    length:   _num(c && c.length, 0, 0, 100000),
+    method:   _str(c && c.method, 160),
+    load:     _num(c && c.load, 0, 0, 1000000),
+    loadUnit: (c && c.loadUnit) === 'kW' ? 'kW' : 'A',
+    notes:    _str(c && c.notes, 300),
+  };
+}
+
+// Content signature for change-detection — excludes the stamped metadata so a
+// no-op save doesn't keep rewriting `updated`/`updatedBy`. Relies on both sides
+// being produced by this normaliser (stable key order).
+function boardSig(b) {
+  const { updated, updatedBy, ...rest } = b; // eslint-disable-line no-unused-vars
+  return JSON.stringify(rest);
+}
+
+function validateBoards(raw, existing, username) {
+  if (!Array.isArray(raw)) return { ok: false, error: 'boards must be an array' };
+  if (raw.length > MAX_BOARDS) return { ok: false, error: `too many boards (max ${MAX_BOARDS})` };
+  const existingById = {};
+  for (const e of (existing || [])) existingById[e.id] = e;
+  const now = new Date().toISOString();
+  const out = [];
+  const seenIds = new Set();
+  for (let i = 0; i < raw.length; i++) {
+    const b = raw[i] || {};
+    const name = _str(b.name, 120);
+    if (!name) return { ok: false, error: `boards[${i}].name required` };
+    let id = b.id ? String(b.id) : nanoid('cb_');
+    if (seenIds.has(id)) return { ok: false, error: `boards[${i}].id duplicate` };
+    seenIds.add(id);
+
+    const circuitsRaw = Array.isArray(b.circuits) ? b.circuits : [];
+    if (circuitsRaw.length > MAX_BOARD_CIRCUITS) {
+      return { ok: false, error: `boards[${i}] too many circuits (max ${MAX_BOARD_CIRCUITS})` };
+    }
+    const seenCircuit = new Set();
+    const circuits = [];
+    for (let j = 0; j < circuitsRaw.length; j++) {
+      const c = normCircuit(circuitsRaw[j]);
+      if (seenCircuit.has(c.id)) return { ok: false, error: `boards[${i}].circuits[${j}].id duplicate` };
+      seenCircuit.add(c.id);
+      circuits.push(c);
+    }
+
+    const supply = b.supply === '3ph' ? '3ph' : '1ph';
+    const status = VALID_BOARD_STATUS.has(b.status) ? b.status : 'draft';
+    const row = {
+      id,
+      name,
+      ref:          _str(b.ref, 40),
+      location:     _str(b.location, 160),
+      suppliedFrom: _str(b.suppliedFrom, 160),
+      supply,
+      voltage:      _num(b.voltage, supply === '3ph' ? 415 : 230, 0, 100000),
+      mainRating:   _num(b.mainRating, 0, 0, 100000),
+      mainPoles:    _str(b.mainPoles, 8) || '1P',
+      faultKA:      _num(b.faultKA, 0, 0, 1000),
+      mainRcd:      _bool(b.mainRcd),
+      spd:          _bool(b.spd),
+      ways:         _num(b.ways, 0, 0, 1000),
+      status,
+      circuits,
+    };
+
+    // Stamp last-edited only when the board's content actually changed.
+    const prev = existingById[id];
+    if (!prev || boardSig(prev) !== boardSig(row)) {
+      row.updated = now;
+      row.updatedBy = username || '';
+    } else {
+      row.updated = prev.updated || '';
+      row.updatedBy = prev.updatedBy || '';
+    }
+    out.push(row);
+  }
+  return { ok: true, boards: out };
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -158,8 +297,9 @@ module.exports = async (req, res) => {
   if (req.method === 'GET') {
     return res.status(200).json({
       jobId,
-      switchboards: job.switchboards || [],
-      circuits:     job.circuits     || [],
+      switchboards: job.switchboards  || [],
+      circuits:     job.circuits      || [],
+      boards:       job.circuitBoards || [],
     });
   }
 
@@ -168,7 +308,7 @@ module.exports = async (req, res) => {
 
   if (req.method === 'PUT') {
     const body = req.body || {};
-    let sbResult, ciResult;
+    let sbResult, ciResult, bdResult;
     if (body.switchboards !== undefined) {
       sbResult = validateSwitchboards(body.switchboards, job.switchboards);
       if (!sbResult.ok) return res.status(400).json({ error: sbResult.error });
@@ -179,16 +319,26 @@ module.exports = async (req, res) => {
       if (!ciResult.ok) return res.status(400).json({ error: ciResult.error });
       job.circuits = ciResult.circuits;
     }
+    if (body.boards !== undefined) {
+      bdResult = validateBoards(body.boards, job.circuitBoards, me.username);
+      if (!bdResult.ok) return res.status(400).json({ error: bdResult.error });
+      job.circuitBoards = bdResult.boards;
+    }
     await writeBlob('jobs.json', data);
-    appendAudit(jobId, {
-      byUserId: me.id, byUsername: me.username, kind: 'circuits',
-      summary: `Updated ${sbResult ? (job.switchboards || []).length + ' switchboards' : ''}`
-              + (sbResult && ciResult ? ' + ' : '')
-              + (ciResult ? (job.circuits || []).length + ' circuits' : ''),
-    }).catch(() => {});
+    const auditParts = [];
+    if (sbResult) auditParts.push((job.switchboards || []).length + ' switchboards');
+    if (ciResult) auditParts.push((job.circuits || []).length + ' circuits');
+    if (bdResult) auditParts.push((job.circuitBoards || []).length + ' schedule board' + ((job.circuitBoards || []).length === 1 ? '' : 's'));
+    if (auditParts.length) {
+      appendAudit(jobId, {
+        byUserId: me.id, byUsername: me.username, kind: 'circuits',
+        summary: `Updated ${auditParts.join(' + ')}`,
+      }).catch(() => {});
+    }
     return res.status(200).json({
-      switchboards: job.switchboards || [],
-      circuits:     job.circuits     || [],
+      switchboards: job.switchboards  || [],
+      circuits:     job.circuits      || [],
+      boards:       job.circuitBoards || [],
     });
   }
 

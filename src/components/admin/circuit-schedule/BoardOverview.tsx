@@ -2,8 +2,11 @@
 
 import { type Board } from "@/domains/circuit-schedule/schema";
 import { totals, balance } from "@/domains/circuit-schedule/compute";
+import { boardEditedLine } from "@/domains/circuit-schedule/format";
 import { Ic } from "./icons";
 import { Pill } from "./shared";
+
+const joinMeta = (...parts: Array<string | undefined>) => parts.filter(Boolean).join(" · ");
 
 const BOARD_STATUS: Record<string, [string, string]> = {
   active: ["green", "Active"],
@@ -89,13 +92,13 @@ function BoardCard({ board, onOpen }: { board: Board; onOpen: (id: string) => vo
       </div>
 
       <div className="bc-foot t2">
-        <span className="bc-edit">{board.updated}{board.updatedBy && board.updatedBy !== "—" ? " · " + board.updatedBy : ""}</span>
+        <span className="bc-edit">{boardEditedLine(board) || "Not started"}</span>
       </div>
     </div>
   );
 }
 
-export function BoardOverview({ boards, job, onOpen, onPrint }: { boards: Board[]; job: Job; onOpen: (id: string) => void; onPrint: () => void }) {
+export function BoardOverview({ boards, job, canManage, onOpen, onAddBoard, onPrint }: { boards: Board[]; job: Job; canManage: boolean; onOpen: (id: string) => void; onAddBoard: () => void; onPrint: () => void }) {
   const totalWays = boards.reduce((s, b) => s + b.ways, 0);
   const usedWays = boards.reduce((s, b) => s + b.circuits.length, 0);
   const errs = boards.reduce((s, b) => s + totals(b).errCount, 0);
@@ -104,11 +107,11 @@ export function BoardOverview({ boards, job, onOpen, onPrint }: { boards: Board[
       <div className="bos-pagehdr">
         <div>
           <h1>Circuit schedules</h1>
-          <div className="sub">{job.name} · {job.id} · {job.drawing}</div>
+          <div className="sub">{joinMeta(job.name, job.id, job.drawing)}</div>
         </div>
         <div className="bos-pagehdr-actions">
-          <button className="btn ghost" onClick={onPrint}><Ic.printer /> Print all</button>
-          <button className="btn primary" title="Adding boards isn't wired yet (sample data)"><Ic.plus /> Add board</button>
+          <button className="btn ghost" onClick={onPrint} disabled={boards.length === 0}><Ic.printer /> Print all</button>
+          {canManage && <button className="btn primary" onClick={onAddBoard}><Ic.plus /> Add board</button>}
         </div>
       </div>
 
@@ -119,14 +122,24 @@ export function BoardOverview({ boards, job, onOpen, onPrint }: { boards: Board[
         <div className="kpi"><div className="lbl">Standard</div><div className="num std">AS/NZS 3000</div><div className="delta">wiring rules</div></div>
       </div>
 
-      <div className="cs-board-grid">
-        {boards.map((b) => <BoardCard key={b.id} board={b} onOpen={onOpen} />)}
-        <button className="cs-add-board" title="Adding boards isn't wired yet (sample data)">
-          <span className="ab-plus">+</span>
-          <b>Add a board</b>
-          <small>or start from a preset</small>
-        </button>
-      </div>
+      {boards.length === 0 && !canManage ? (
+        <div className="cs-empty-board">
+          <div className="eb-ic"><Ic.board /></div>
+          <h3>No circuit schedules yet</h3>
+          <p>The office hasn’t started a distribution-board schedule for this job.</p>
+        </div>
+      ) : (
+        <div className="cs-board-grid">
+          {boards.map((b) => <BoardCard key={b.id} board={b} onOpen={onOpen} />)}
+          {canManage && (
+            <button className="cs-add-board" onClick={onAddBoard}>
+              <span className="ab-plus">+</span>
+              <b>Add a board</b>
+              <small>blank distribution board</small>
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 }

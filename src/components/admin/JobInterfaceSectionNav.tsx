@@ -11,6 +11,7 @@ import {
   ListChecks,
   Map as MapIcon,
   Package,
+  Zap,
 } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -119,6 +120,14 @@ export function JobInterfaceSectionNav({ job }: Props) {
       href: `/v2/jobs/${jobIdEnc}/documents` as Route,
       count: job.statsDocumentsCurrent,
       icon: FileText,
+    },
+    {
+      kind: "live",
+      label: "Circuit schedules",
+      description:
+        "Distribution-board circuit schedules — device, cable, load and live voltage-drop / phase-balance / capacity checks (AS/NZS 3000), print to PDF.",
+      href: `/v2/jobs/${jobIdEnc}/circuit-schedule` as Route,
+      icon: Zap,
     },
     // Plans viewer — the in-app raster drawing viewer (read-only Phase 1),
     // distinct from the Documents register above. Gated on the job's

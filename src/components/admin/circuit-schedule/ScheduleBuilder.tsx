@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { type Board, type Circuit, DEVICES, POLES, CURVES, CORES, RCD_OPTIONS, PRESETS, VD_LIMIT } from "@/domains/circuit-schedule/schema";
 import { rowVd, rowWarnings, rcdRequired, hasRcd, totals, balance, fromPreset, newCircuitId, rowCurrent, autoBalance } from "@/domains/circuit-schedule/compute";
 import { Ic } from "./icons";
@@ -180,7 +180,7 @@ function ValidationRail({ board, warnings, onJump }: { board: Board; warnings: R
   );
 }
 
-export function ScheduleBuilder({ board, job, update, onBack, onPrint }: { board: Board; job: Job; update: Update; onBack: () => void; onPrint: (id: string) => void }) {
+export function ScheduleBuilder({ board, job, canManage, update, onDelete, onBack, onPrint }: { board: Board; job: Job; canManage: boolean; update: Update; onDelete: (id: string) => void; onBack: () => void; onPrint: (id: string) => void }) {
   const [open, setOpen] = useState(true);
   const [sel, setSel] = useState<string | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -189,7 +189,8 @@ export function ScheduleBuilder({ board, job, update, onBack, onPrint }: { board
     dragRef.current = typeof v === "function" ? v(dragRef.current) : v;
     setDrag(dragRef.current);
   };
-  const locked = board.status === "issued";
+  const issued = board.status === "issued";
+  const locked = !canManage || issued;
   const t = totals(board);
   const bal = balance(board);
   const is3 = board.supply === "3ph";
@@ -207,6 +208,17 @@ export function ScheduleBuilder({ board, job, update, onBack, onPrint }: { board
   const addPreset = (p: (typeof PRESETS)[number]) => update(board.id, (b) => { b.circuits.push(fromPreset(p, nextWay(b))); });
   const addBlank = () => addPreset(PRESETS[1]!);
   const autoBal = () => update(board.id, (b) => { b.circuits = autoBalance(b).circuits; });
+  const issue = () => { update(board.id, (b) => { b.status = "issued"; }); onPrint(board.id); };
+  const reopen = () => update(board.id, (b) => { b.status = "active"; });
+  // Two-step inline confirm (no window.confirm — house no-alert rule). Arm on
+  // first click, delete on the second; auto-disarms after a few seconds.
+  const [armDelete, setArmDelete] = useState(false);
+  useEffect(() => {
+    if (!armDelete) return;
+    const t = setTimeout(() => setArmDelete(false), 3500);
+    return () => clearTimeout(t);
+  }, [armDelete]);
+  const onDeleteClick = () => { if (armDelete) onDelete(board.id); else setArmDelete(true); };
 
   const dragHandlers: DragHandlers = {
     start: (id) => setDragBoth({ id, overId: id, pos: "before" }),
@@ -231,13 +243,23 @@ export function ScheduleBuilder({ board, job, update, onBack, onPrint }: { board
           <button className="btn ghost pl8" onClick={onBack}><Ic.back /> Boards</button>
           <div>
             <h1 className="h1sm">{board.name}</h1>
-            <div className="sub">{job.name} · {board.ref} · {job.drawing}</div>
+            <div className="sub">{[job.name, board.ref, job.drawing].filter(Boolean).join(" · ")}</div>
           </div>
         </div>
         <div className="bos-pagehdr-actions">
+          {canManage && (
+            <button className={"btn ghost" + (armDelete ? " danger-armed" : "")} onClick={onDeleteClick} title={armDelete ? "Click again to delete" : "Delete this board"}>
+              <Ic.trash /> {armDelete ? "Confirm delete" : "Delete"}
+            </button>
+          )}
           {is3 && !locked && <button className="btn" onClick={autoBal}><Ic.scale /> Auto-balance</button>}
+          {canManage && issued && <button className="btn" onClick={reopen}><Ic.lock /> Re-open to edit</button>}
           <button className="btn" onClick={() => onPrint(board.id)}><Ic.printer /> Preview</button>
-          <button className="btn dark" disabled={t.errCount > 0} title={t.errCount ? "Clear errors before issuing" : ""}><Ic.download /> {locked ? "Re-export" : "Issue & export"}</button>
+          {issued ? (
+            <button className="btn dark" onClick={() => onPrint(board.id)}><Ic.download /> Re-export</button>
+          ) : (
+            <button className="btn dark" disabled={!canManage || t.errCount > 0} title={t.errCount ? "Clear errors before issuing" : ""} onClick={issue}><Ic.download /> Issue &amp; export</button>
+          )}
         </div>
       </div>
 

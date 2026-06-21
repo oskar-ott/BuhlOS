@@ -165,3 +165,21 @@ export const PRESETS: CircuitPreset[] = [
 ];
 
 export const CIRCUIT_SCHEDULE_ID_PREFIX = "c";
+
+/* ── API payloads — the /api/job-circuits `boards` facet ────────────────── */
+/**
+ * GET / PUT /api/job-circuits return `{ switchboards, circuits, boards }`. The
+ * rich circuit schedule is the `boards` array; the office builder + Phil field
+ * view read and write only that. Parsed leniently (`.passthrough()`, array
+ * `.default([])`) so an extra server field or a missing array never blanks the
+ * schedule — matching the test-records / job-control convention.
+ */
+export const CircuitBoardsResponseSchema = z
+  .object({ boards: z.array(BoardSchema).default([]) })
+  .passthrough();
+export type CircuitBoardsResponse = z.infer<typeof CircuitBoardsResponseSchema>;
+
+/** The write payload the office builder PUTs back. */
+export interface CircuitBoardsPayload {
+  boards: Board[];
+}
