@@ -77,4 +77,35 @@ describe("RejectedHoursResubmitSheet", () => {
       expect(html).not.toContain(banned);
     }
   });
+
+  // #128 — a rejected SPLIT day opens the split editor (allocations preserved),
+  // never the single-job form.
+  const splitEntry = () =>
+    te({
+      totalHours: 7.6,
+      allocations: [
+        { jobId: "job-a", hours: 4, notes: null },
+        { jobId: "job-b", hours: 3.6, notes: null },
+      ],
+    });
+
+  it("a split day still collapses to the single 'Fix rejected hours' trigger", () => {
+    const html = render({ entry: splitEntry(), assignedJobs: TWO_JOBS });
+    expect(html).toContain("Fix rejected hours");
+    expect(html).not.toContain("split-day-sheet");
+  });
+
+  it("opens a split entry into the split editor, not the single-job form", () => {
+    const html = render({ entry: splitEntry(), assignedJobs: TWO_JOBS, defaultOpen: true });
+    expect(html).toContain("split-day-sheet"); // SplitDaySheet rendered
+    expect(html).toContain("Fix &amp; resubmit the split day");
+    expect(html).not.toContain("Hours for this job"); // NOT the single-job legend
+    expect(html).not.toContain("Submit correction"); // NOT the single-job action
+  });
+
+  it("blocks a split resubmit honestly when jobs failed to load", () => {
+    const html = render({ entry: splitEntry(), assignedJobs: [], jobsError: true, defaultOpen: true });
+    expect(html).toContain("load your jobs");
+    expect(html).not.toContain("split-day-sheet"); // editor not shown until jobs load
+  });
 });

@@ -62,4 +62,30 @@ describe("SplitDaySheet", () => {
     );
     expect(html).not.toContain("split-add-job");
   });
+
+  it("pre-fills total + rows and shows a custom title and error (resubmit mode, #128)", () => {
+    const html = renderToString(
+      createElement(SplitDaySheet, {
+        open: true,
+        onClose: () => {},
+        assignedJobs: jobs,
+        submitting: false,
+        onSubmit: () => {},
+        title: "Fix & resubmit the split day",
+        initialTotal: 7.6,
+        initialRows: [
+          { jobId: "j1", hours: 4 },
+          { jobId: "j2", hours: 3.6 },
+        ],
+        errorMessage: "You can't edit this entry — ask the office to reopen it.",
+      })
+    );
+    expect(html).toContain("Fix &amp; resubmit the split day");
+    expect(html).toContain('value="7.6"'); // seeded total
+    expect(html).toContain("split-error");
+    expect(html).toContain("ask the office to reopen it");
+    // seeded job selections render (selected option present)
+    expect(html).toContain("Smith St");
+    expect(html).toContain("Warehouse");
+  });
 });

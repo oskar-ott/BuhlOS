@@ -323,11 +323,11 @@ export function LogHoursSheet({
               defaultOpen={autoOpenFix}
             />
           ) : (
-            // Honest limit: a multi-allocation (split-day) entry can't be
-            // fixed by the single-job resubmit form. Same rule as /phil/hours.
+            // Single AND split days are now fixable in Phil (#128). This is the
+            // residual honest limit: a rejected entry with no usable allocation
+            // (legacy/degenerate) — the office must reopen it.
             <p className="text-xs text-text-muted">
-              This day splits hours across jobs, so it can&rsquo;t be fixed here — use
-              the legacy My day or ask the office.
+              These hours can&rsquo;t be fixed here — ask the office to reopen them.
             </p>
           )
         ) : null}

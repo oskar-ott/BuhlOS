@@ -28,6 +28,15 @@ interface SplitDaySheetProps {
   submitting: boolean;
   /** Parent runs the same submit/handleResult path the single-job flow uses. */
   onSubmit: (totalHours: number, allocations: Array<{ jobId: string; hours: number }>) => void;
+  /** Modal title. Defaults to the create-path wording. */
+  title?: string;
+  /** Pre-fill the day total — used by the fix-and-resubmit flow (#128). */
+  initialTotal?: number;
+  /** Pre-fill the rows (2+) — used when resubmitting a rejected split day. A
+   *  row whose job is no longer assigned should be passed `jobId: null`. */
+  initialRows?: ReadonlyArray<{ jobId: string | null; hours: number }>;
+  /** Server-side resubmit error to surface above the actions. */
+  errorMessage?: string | null;
 }
 
 const MAX_TOTAL = 24;
@@ -38,12 +47,20 @@ export function SplitDaySheet({
   assignedJobs,
   submitting,
   onSubmit,
+  title = "Split the day across jobs",
+  initialTotal,
+  initialRows,
+  errorMessage = null,
 }: SplitDaySheetProps) {
-  const [total, setTotal] = useState<number>(STANDARD_DAY_HOURS);
-  const [rows, setRows] = useState<SplitRow[]>([
-    { jobId: null, hours: Math.round(STANDARD_DAY_HOURS * 0.6 * 10) / 10 },
-    { jobId: null, hours: 0 },
-  ]);
+  const [total, setTotal] = useState<number>(initialTotal ?? STANDARD_DAY_HOURS);
+  const [rows, setRows] = useState<SplitRow[]>(() =>
+    initialRows && initialRows.length >= 2
+      ? initialRows.map((r) => ({ jobId: r.jobId, hours: r.hours }))
+      : [
+          { jobId: null, hours: Math.round(STANDARD_DAY_HOURS * 0.6 * 10) / 10 },
+          { jobId: null, hours: 0 },
+        ],
+  );
   const [showErrors, setShowErrors] = useState(false);
 
   // The last row is the remainder of all earlier rows — computed, never typed.
@@ -97,7 +114,7 @@ export function SplitDaySheet({
     "h-11 rounded-card border border-border bg-surface px-2 text-sm focus:border-brand-navy focus:outline-none";
 
   return (
-    <Modal open={open} onClose={onClose} title="Split the day across jobs">
+    <Modal open={open} onClose={onClose} title={title}>
       <div className="space-y-4" data-testid="split-day-sheet">
         <label className="block text-sm">
           <span className="mb-1 block font-medium text-text">Total hours for the day</span>
@@ -183,6 +200,12 @@ export function SplitDaySheet({
         {showErrors && !sumOk ? (
           <p className="text-xs text-state-danger" data-testid="split-sum-error">
             The rows add up to {formatHoursLabel(sum)}, not {formatHoursLabel(total)}. Adjust the hours.
+          </p>
+        ) : null}
+
+        {errorMessage ? (
+          <p className="text-sm text-state-danger" role="alert" data-testid="split-error">
+            {errorMessage}
           </p>
         ) : null}
 

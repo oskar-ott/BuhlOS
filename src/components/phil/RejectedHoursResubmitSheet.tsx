@@ -12,18 +12,23 @@ import { MAX_HOURS_PER_DAY } from "@/domains/timesheets/service";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import {
   buildResubmitPayload,
+  buildSplitResubmitPayload,
+  isSplitResubmit,
   resolveResubmitJob,
   resubmitFeedback,
   resubmitInitialJobId,
+  splitResubmitInitialRows,
   type AssignableJob,
   type ResubmitJobResolution,
 } from "@/domains/timesheets/resubmit";
+import { SplitDaySheet } from "./SplitDaySheet";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
 const HOURS_OPTIONS = [4, 5, 6, 7, 7.6, 8, 9, 10] as const;
 
 interface RejectedHoursResubmitSheetProps {
-  /** The rejected entry to fix. Assumed single-allocation (canResubmitInPhil). */
+  /** The rejected entry to fix (canResubmitInPhil). Single-allocation entries
+   *  use the inline form; split days (2+ allocations) open the split editor. */
   entry: TimeEntry;
   /** The worker's ACTIVE assigned jobs (server-loaded). Drives attribution. */
   assignedJobs: ReadonlyArray<AssignableJob>;
@@ -76,10 +81,35 @@ export function RejectedHoursResubmitSheet({
   const [notes, setNotes] = useState<string>(entry.notes ?? "");
   const [state, setState] = useState<State>({ kind: "idle" });
 
+  // A rejected SPLIT day (2+ allocations) is fixed through the split editor so
+  // every allocation survives; a single-allocation entry uses the form below.
+  const split = isSplitResubmit(entry);
   const resolution = resolveResubmitJob({ assignedJobs, selectedJobId, jobsError });
   const hoursValid = totalHours > 0 && totalHours <= MAX_HOURS_PER_DAY;
   const submitting = state.kind === "submitting";
   const canSubmit = resolution.ok && hoursValid && !submitting;
+
+  async function submitSplit(
+    nextTotal: number,
+    allocations: Array<{ jobId: string; hours: number }>,
+  ) {
+    setState({ kind: "submitting" });
+    const result = await timesheetsClient.editOwnEntry(
+      entry.date,
+      // Preserve the entry's existing note (the split editor has no note field).
+      buildSplitResubmitPayload(entry, {
+        totalHours: nextTotal,
+        allocations,
+        notes: entry.notes ?? null,
+      }),
+    );
+    const fb = resubmitFeedback(result);
+    setState(
+      fb.kind === "success"
+        ? { kind: "success", entry: fb.entry }
+        : { kind: "error", message: fb.message, status: fb.status },
+    );
+  }
 
   async function submit() {
     if (!resolution.ok) {
@@ -131,6 +161,49 @@ export function RejectedHoursResubmitSheet({
       <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
         Fix rejected hours
       </Button>
+    );
+  }
+
+  // Split day → the split editor, pre-filled from the rejected allocations, so
+  // the correction keeps every job (never collapses to one). Jobs must be loaded
+  // first (same honest block as the single path; no null-job fallback).
+  if (split) {
+    if (jobsError || assignedJobs.length === 0) {
+      return (
+        <div className="space-y-3 rounded-card border border-border bg-surface-subtle p-3">
+          <p className="font-display text-xs uppercase tracking-widest text-text-muted">
+            Fix &amp; resubmit
+          </p>
+          <PhilNotice
+            tone="warning"
+            role="status"
+            title={jobsError ? "Couldn’t load your jobs" : "No active assigned job"}
+          >
+            {jobsError
+              ? "Pull to refresh — a split day can’t be resubmitted until your jobs load."
+              : "Ask the office to assign you to a job before resubmitting."}
+          </PhilNotice>
+          <div className="flex justify-end">
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      );
+    }
+    const init = splitResubmitInitialRows(entry, assignedJobs);
+    return (
+      <SplitDaySheet
+        open
+        onClose={() => setOpen(false)}
+        assignedJobs={assignedJobs}
+        submitting={submitting}
+        title="Fix &amp; resubmit the split day"
+        initialTotal={init.total}
+        initialRows={init.rows}
+        errorMessage={state.kind === "error" ? state.message : null}
+        onSubmit={submitSplit}
+      />
     );
   }
 

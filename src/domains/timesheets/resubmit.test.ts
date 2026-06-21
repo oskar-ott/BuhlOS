@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   buildResubmitPayload,
+  buildSplitResubmitPayload,
   canResubmitInPhil,
+  isSplitResubmit,
   resolveResubmitJob,
   resubmitFeedback,
   resubmitInitialJobId,
+  splitResubmitInitialRows,
 } from "./resubmit";
 import type { TimeEntry } from "./types";
 
@@ -39,14 +42,89 @@ describe("canResubmitInPhil", () => {
     expect(canResubmitInPhil(te({ status: "submitted" }))).toBe(false);
     expect(canResubmitInPhil(te({ status: "draft" }))).toBe(false);
   });
-  it("excludes multi-allocation entries (never collapse a split day)", () => {
+  it("ALLOWS a rejected multi-allocation (split) entry — routed to the split editor", () => {
     const multi = te({
       allocations: [
         { jobId: "job-a", hours: 4, notes: null },
         { jobId: "job-b", hours: 3.6, notes: null },
       ],
     });
-    expect(canResubmitInPhil(multi)).toBe(false);
+    expect(canResubmitInPhil(multi)).toBe(true);
+  });
+  it("rejects an entry with no allocations", () => {
+    expect(canResubmitInPhil(te({ allocations: [] }))).toBe(false);
+  });
+});
+
+describe("isSplitResubmit", () => {
+  it("is true for 2+ allocations, false for a single allocation", () => {
+    expect(isSplitResubmit(te())).toBe(false);
+    expect(
+      isSplitResubmit(
+        te({
+          allocations: [
+            { jobId: "job-a", hours: 4, notes: null },
+            { jobId: "job-b", hours: 3.6, notes: null },
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("splitResubmitInitialRows", () => {
+  const split = te({
+    totalHours: 7.6,
+    allocations: [
+      { jobId: "job-a", hours: 4, notes: null },
+      { jobId: "job-b", hours: 3.6, notes: null },
+    ],
+  });
+  it("seeds the total and one row per allocation, preserving still-assigned jobs", () => {
+    expect(splitResubmitInitialRows(split, JOBS)).toEqual({
+      total: 7.6,
+      rows: [
+        { jobId: "job-a", hours: 4 },
+        { jobId: "job-b", hours: 3.6 },
+      ],
+    });
+  });
+  it("nulls a row whose job is no longer assigned (forces a re-pick, no stale attribution)", () => {
+    const stale = te({
+      totalHours: 7.6,
+      allocations: [
+        { jobId: "job-a", hours: 4, notes: null },
+        { jobId: "job-z", hours: 3.6, notes: null }, // job-z not in JOBS
+      ],
+    });
+    expect(splitResubmitInitialRows(stale, JOBS).rows).toEqual([
+      { jobId: "job-a", hours: 4 },
+      { jobId: null, hours: 3.6 },
+    ]);
+  });
+});
+
+describe("buildSplitResubmitPayload", () => {
+  it("PRESERVES every allocation, submits, and OT-splits on the day total", () => {
+    const payload = buildSplitResubmitPayload(te(), {
+      totalHours: 10,
+      allocations: [
+        { jobId: "job-a", hours: 6 },
+        { jobId: "job-b", hours: 4 },
+      ],
+      notes: "kept",
+    });
+    expect(payload.status).toBe("submitted");
+    expect(payload.date).toBe("2026-06-03");
+    expect(payload.notes).toBe("kept");
+    expect(payload.allocations).toEqual([
+      { jobId: "job-a", hours: 6, notes: null },
+      { jobId: "job-b", hours: 4, notes: null },
+    ]);
+    // OT split on the TOTAL (day property), allocations sum to total.
+    expect(payload.ordinaryHours).toBe(8);
+    expect(payload.overtimeHours).toBe(2);
+    expect(payload.allocations.reduce((s, a) => s + a.hours, 0)).toBeCloseTo(payload.totalHours, 5);
   });
 });
 
