@@ -44,9 +44,9 @@ eventual home. Deepening area-owned task arrays is forbidden (anti-creep law).
 | Observations | `observations` | `convertedTo` enum stubs rfi/variation (no modules yet) |
 | Materials (requests) | `material_requests`, `material_request_items` | |
 | ITP / QA | `itp_templates`, `itp_template_items`, `itp_instances`, `itp_items`, `itp_responses` | |
-| Timesheets | `time_entries`, `time_entry_allocations` | |
-| Timesheet approvals | `timesheet_approvals` | |
-| Payroll runs | `payroll_runs` | |
+| Timesheets | `time_entries`, `time_entry_allocations` | BuhlOS-owned operational time; feeds Xero Payroll timesheets (AU) — see [payroll-boundary-adr.md](payroll-boundary-adr.md) |
+| Timesheet approvals | `timesheet_approvals` | BuhlOS-owned; Xero is never asked to approve — see [payroll-boundary-adr.md](payroll-boundary-adr.md) |
+| Payroll runs | `payroll_runs` | export/push **batches + Xero sync-state**, **not** Xero pay runs (Xero-owned) — see [payroll-boundary-adr.md](payroll-boundary-adr.md) |
 | Plans/docs register | `documents` | register only — no revision chain yet |
 | Gear / vans / keys / tools | `assets`, `asset_assignments` | one polymorphic asset table |
 | Audit logs | `audit_logs` | |
