@@ -122,6 +122,11 @@ describe("AuditLogEntrySchema", () => {
       "credential.added",
       "credential.removed",
       "credential.updated",
+      // #370: daywork register lifecycle.
+      "daywork.amended",
+      "daywork.created",
+      "daywork.signed",
+      "daywork.transitioned",
       "document.acknowledged",
       "document.made_current",
       "document.superseded",
@@ -186,6 +191,8 @@ describe("AuditLogEntrySchema", () => {
     expect([...AUDIT_TARGET_TYPES].sort()).toEqual([
       "contact",
       "credential",
+      // #370: daywork docket records.
+      "daywork",
       "document",
       "employee",
       "evidence",

@@ -38,6 +38,7 @@ describe("AdminSidebar (#187)", () => {
       "Quotes",
       "Defects",
       "ITP templates",
+      "Dayworks",
       "Employees",
       "Gear",
       "Reports",

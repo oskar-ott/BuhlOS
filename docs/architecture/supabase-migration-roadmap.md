@@ -55,7 +55,12 @@ pattern); auth/`users.json` = **BRIDGE** (mirror `user_profiles`, keep bcrypt); 
 - **Phase 2b–5 — new clusters** (see data-ownership-map §4): Commercial (quotes/
   variations) → Field-ops (drawing revisions/markups/RFIs) → Workforce (licences/
   leave/temps) → Platform (push_subscriptions/access/invites) → Analytics.
-- **Storage (P1, parallelizable):** evidence/plan metadata → Postgres; then evaluate
+- **Storage (P1, parallelizable):** evidence/plan metadata → Postgres (evidence
+  metadata done in J4); then a parity-gated **evidence read cutover** (probe →
+  dark overlay, mirroring the task-status J10–J12 ladder) — scoped in
+  [proof-evidence-read-cutover-audit.md](proof-evidence-read-cutover-audit.md). The
+  **proof spine** (`job-control.json`) is Blob-only and its cutover is deferred
+  behind a schema + dual-write + the `#503` admin-approval decision. Then evaluate
   moving *bytes* to Supabase Storage.
 - **Last:** [#508] deprecate area-owned task arrays (`P3-horizon`).
 

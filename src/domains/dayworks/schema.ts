@@ -150,3 +150,35 @@ export const UpdateDayworkStatusPayloadSchema = z.object({
   status: DayworkStatusSchema,
   invoiceRef: z.string().nullable().optional(),
 });
+
+// ── API responses (the admin register reads these) ───────────────────────────
+
+/** Register summary — mirrors service.ts DayworkRegisterSummary. The
+ *  `unsignedAging` count is the payment-risk number surfaced on the register. */
+export const DayworkRegisterSummarySchema = z.object({
+  total: z.number(),
+  unsigned: z.number(),
+  signed: z.number(),
+  invoiced: z.number(),
+  unsignedAging: z.number(),
+});
+
+/** GET /api/dayworks?jobId — one job's dockets (exception-first) + summary. */
+export const DayworkListResponseSchema = z.object({
+  dockets: z.array(DayworkSchema),
+  summary: DayworkRegisterSummarySchema,
+});
+
+/** A per-job line in the cross-job rollup: the job + its summary. */
+export const DayworkRollupJobSchema = DayworkRegisterSummarySchema.extend({
+  jobId: z.string(),
+  jobName: z.string().nullable(),
+});
+
+/** GET /api/dayworks (no jobId) — cross-job rollup: every job's dockets,
+ *  an aggregate summary, and a per-job breakdown (payment-risk first). */
+export const DayworkRollupResponseSchema = z.object({
+  dockets: z.array(DayworkSchema),
+  summary: DayworkRegisterSummarySchema,
+  byJob: z.array(DayworkRollupJobSchema),
+});
