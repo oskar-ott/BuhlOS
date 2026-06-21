@@ -1,17 +1,23 @@
-// J10 — Phil task-status READ cutover (#152). DARK, parity-gated, Blob-authoritative.
+// J10/J11 — task-status READ cutover (#152). DARK, parity-gated, Blob-authoritative.
 //
-// At the /api/data read seam, for the FIELD/Phil audience, when
-// supabase_read_phil_tasks is ON, the per-job task STATUSES are confirmed against
-// the Postgres mirror and served from PG ONLY when PG is byte-faithful to Blob for
-// the whole job; otherwise the read falls back to Blob. Output is therefore
-// provably identical to Blob — a worker can never lose task visibility or see a
-// stale status because PG is behind (a not-yet-mirrored toggle simply fails parity
-// → Blob fallback). This mirrors the J6/J7 read overlay, applied to task status.
+// At the /api/data read seam, the per-job task STATUSES are confirmed against the
+// Postgres mirror and served from PG ONLY when PG is byte-faithful to Blob for the
+// whole job; otherwise the read falls back to Blob. Output is therefore provably
+// identical to Blob — a reader can never lose task visibility or see a stale status
+// because PG is behind (a not-yet-mirrored toggle simply fails parity → Blob
+// fallback). This mirrors the J6/J7 read overlay, applied to task status.
+//
+// ONE parity engine (readTaskStatusOverlay), two audience wrappers that differ
+// ONLY by feature flag:
+//   * readPhilTaskStatus  — FIELD/Phil read (supabase_read_phil_tasks, J10)
+//   * readAdminTaskStatus — ADMIN/office read (supabase_read_admin_tasks, J11)
+// The audience gate (which tier hits which wrapper, and clients always reading
+// pure Blob) lives at the call site (api/data.js); this module is audience-blind.
 //
 // Reuses the ONE expansion engine (buildTaskProjection) and the existing
 // (jobId,areaId,stage,taskId)→tasks.id bridge — NO new task identity. Read-only:
 // getDb({mode:'read'}); never writes Blob or Postgres; never throws (best-effort →
-// Blob). Worker isolation is the caller's requireAuth({jobId}) gate (unchanged) —
+// Blob). Reader isolation is the caller's requireAuth({jobId}) gate (unchanged) —
 // this overlay only ever touches the single requested job.
 
 const crypto = require('node:crypto');
@@ -38,19 +44,21 @@ const BLOB_DIAG = (reason, latencyMs, flagOn) => ({
 });
 
 /**
- * Parity-gated PG task-status read for ONE job. Returns { data, diag }. The data
- * is byte-identical to Blob; on a clean parity PASS the existing dwelling task
- * statuses are sourced from PG (== Blob). Best-effort — never throws. Injectable deps.
+ * Parity-gated PG task-status read for ONE job, behind `flagKey`. Returns
+ * { data, diag }. The data is byte-identical to Blob; on a clean parity PASS the
+ * existing dwelling task statuses are sourced from PG (== Blob). Best-effort —
+ * never throws. Injectable deps. Audience-blind: the two wrappers below pin the
+ * flag; the caller (api/data.js) owns which tier reaches which wrapper.
  */
-async function readPhilTaskStatus(input = {}) {
-  const { jobId, data, getDb: db = getDb, isFlagOn: flagOn = isFlagOn, readBlob = realReadBlob, tenantSlug = 'buhl', now = Date.now } = input;
+async function readTaskStatusOverlay(input = {}) {
+  const { jobId, data, flagKey = 'supabase_read_phil_tasks', getDb: db = getDb, isFlagOn: flagOn = isFlagOn, readBlob = realReadBlob, tenantSlug = 'buhl', now = Date.now } = input;
   const started = now();
   const elapsed = () => Math.max(0, now() - started);
 
   if (!process.env.SUPABASE_DB_URL) return { data, diag: BLOB_DIAG('no supabase env', elapsed(), false) };
   let flagIsOn = false;
   try {
-    flagIsOn = (await flagOn('supabase_read_phil_tasks')) === true;
+    flagIsOn = (await flagOn(flagKey)) === true;
     if (!flagIsOn) return { data, diag: BLOB_DIAG('flag off', elapsed(), false) };
 
     const jobsBlob = await readBlob('jobs.json', { jobs: [] });
@@ -123,4 +131,15 @@ async function readPhilTaskStatus(input = {}) {
   }
 }
 
-module.exports = { readPhilTaskStatus };
+// Audience wrappers — identical parity engine, different flag. They keep the
+// existing { jobId, data, ...injectable deps } signature; passing `flagKey` in
+// `input` is ignored (the wrapper pins it), so the audience can never be spoofed
+// by the caller.
+function readPhilTaskStatus(input = {}) {
+  return readTaskStatusOverlay({ ...input, flagKey: 'supabase_read_phil_tasks' });
+}
+function readAdminTaskStatus(input = {}) {
+  return readTaskStatusOverlay({ ...input, flagKey: 'supabase_read_admin_tasks' });
+}
+
+module.exports = { readPhilTaskStatus, readAdminTaskStatus, readTaskStatusOverlay };

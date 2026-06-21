@@ -12,6 +12,7 @@ export type FlagKey =
   | "supabase_read_jobs"
   | "supabase_read_phil_jobs"
   | "supabase_read_phil_tasks"
+  | "supabase_read_admin_tasks"
   | "admin_flags_readout";
 
 export interface FlagDefinition {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summariseJobsRead, summarisePhilRead, summariseTaskRead, type JobsReadStatus, type TaskReadStatus } from "./jobs-read-status";
+import { summariseJobsRead, summarisePhilRead, summariseTaskRead, summariseAdminTaskRead, type JobsReadStatus, type TaskReadStatus, type AdminTaskReadStatus } from "./jobs-read-status";
 
 type Diag = NonNullable<JobsReadStatus["probe"]>;
 
@@ -136,6 +136,38 @@ describe("summariseTaskRead (J10 — Phil task-status read)", () => {
 
   it("honest nulls before any read", () => {
     const s = summariseTaskRead({ flagOn: false, counters: counters() });
+    expect(s.flagOn).toBe(false);
+    expect(s.totalReads).toBe(0);
+    expect(s.lastSource).toBeNull();
+    expect(s.lastParityPass).toBeNull();
+  });
+});
+
+describe("summariseAdminTaskRead (J11 — admin task-status read)", () => {
+  const counters = (over: Partial<AdminTaskReadStatus["counters"]> = {}): AdminTaskReadStatus["counters"] => ({
+    resetAt: "2026-06-21T00:00:00.000Z",
+    totalReads: 0, pgServedReads: 0, blobServedReads: 0, fallbackReads: 0, parityMismatches: 0,
+    lastDiag: null, lastAt: null, ...over,
+  });
+
+  it("reports flag + counters + last source/parity (same shape as J10)", () => {
+    const s = summariseAdminTaskRead({
+      flagOn: true,
+      counters: counters({
+        totalReads: 7, pgServedReads: 6, blobServedReads: 1, fallbackReads: 0, parityMismatches: 0,
+        lastAt: "2026-06-21T02:00:00.000Z",
+        lastDiag: { source: "postgres", reason: "served from postgres", flagOn: true, parityPass: true, matched: 20, mismatched: 0, orphans: 0, unresolved: 0, hashMatch: true, latencyMs: 9, fallbackUsed: false },
+      }),
+    });
+    expect(s.flagOn).toBe(true);
+    expect(s.totalReads).toBe(7);
+    expect(s.pgServedReads).toBe(6);
+    expect(s.lastSource).toBe("postgres");
+    expect(s.lastParityPass).toBe(true);
+  });
+
+  it("honest nulls before any read", () => {
+    const s = summariseAdminTaskRead({ flagOn: false, counters: counters() });
     expect(s.flagOn).toBe(false);
     expect(s.totalReads).toBe(0);
     expect(s.lastSource).toBeNull();

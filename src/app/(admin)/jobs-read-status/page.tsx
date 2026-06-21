@@ -5,7 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardTitle, CardDescription } from "@/components/ui/Card";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead } from "@/server/jobs-read-status";
+import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead, loadAdminTaskReadStatus, summariseAdminTaskRead } from "@/server/jobs-read-status";
 
 // Runs a live, read-only probe at request time.
 export const dynamic = "force-dynamic";
@@ -36,6 +36,7 @@ export default async function JobsReadStatusPage() {
   const s = summariseJobsRead(status);
   const phil = summarisePhilRead(status);
   const taskRead = summariseTaskRead(await loadTaskReadStatus());
+  const adminTaskRead = summariseAdminTaskRead(await loadAdminTaskReadStatus());
 
   const sourceLabel = s.readSource === "postgres" ? "Postgres" : "Blob";
 
@@ -197,6 +198,28 @@ export default async function JobsReadStatusPage() {
         <Row label="Parity mismatches → Blob" value={taskRead.parityMismatches} />
         <Row label="Last read source" value={taskRead.lastSource ?? "—"} />
         <Row label="Last read at" value={fmtWhen(taskRead.lastAt)} />
+      </Card>
+
+      <Card className="mt-4" data-testid="admin-task-read-status">
+        <CardTitle className="mb-2 text-slate-800">
+          Admin (office) task-status read cutover (J11)
+        </CardTitle>
+        <CardDescription className="mb-2">
+          Admin-tier task statuses (<code>/api/data</code>) behind{" "}
+          <code>supabase_read_admin_tasks</code> (<strong>{adminTaskRead.flagOn ? "ON" : "OFF"}</strong>),
+          the same per-job parity gate as the field read (served from Postgres only
+          when byte-faithful to Blob, else Blob fallback). Independent of the field
+          flag; clients always read pure Blob. Process-local counters of admin task
+          reads served by this instance.
+        </CardDescription>
+        <Row label="Feature flag" value={adminTaskRead.flagOn ? "ON" : "OFF"} />
+        <Row label="Task reads served" value={adminTaskRead.totalReads} />
+        <Row label="… from Postgres (parity PASS)" value={adminTaskRead.pgServedReads} />
+        <Row label="… from Blob" value={adminTaskRead.blobServedReads} />
+        <Row label="Blob fallbacks (PG error)" value={adminTaskRead.fallbackReads} />
+        <Row label="Parity mismatches → Blob" value={adminTaskRead.parityMismatches} />
+        <Row label="Last read source" value={adminTaskRead.lastSource ?? "—"} />
+        <Row label="Last read at" value={fmtWhen(adminTaskRead.lastAt)} />
       </Card>
     </AdminShell>
   );

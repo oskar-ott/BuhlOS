@@ -75,6 +75,21 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Admin task-status READ cutover (J11): when on, the ADMIN tier's task-status
+  // read (/api/data) is served from the Postgres mirror using the SAME per-job
+  // parity-gated overlay as J10 (byte-faithful or Blob fallback), so the office
+  // can never see a stale status. Output is identical to Blob. The flag is global
+  // but the admin-tier restriction is at the call site (api/data.js gates the
+  // admin overlay on isAdminRole), so field/leading-hand keep the J10 path and
+  // CLIENTS always read pure Blob. Separate from supabase_read_phil_tasks so the
+  // office cuts over independently of the field, AFTER the field path is proven.
+  // Default OFF, unset in prod. Pairs with supabase_dual_write_tasks (the feed).
+  supabase_read_admin_tasks: {
+    description: 'Serve the ADMIN task-status read (/api/data) from Postgres, per-job parity-gated, with a Blob fallback (#152, J11). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // The read-only Supabase connectivity proving slice (#533) — gates
   // GET /api/supabase-health, the first real DB caller. Dark until a preview
   // is wired; flip on per-environment to prove the guard→pooler→client path.
