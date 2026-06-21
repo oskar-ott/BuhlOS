@@ -67,6 +67,7 @@ const APPROVED_ADMIN_HREFS = new Set([
   '/v2/quotes', // #183 — v2 quote builder foundation; same /admin/* future as /v2/jobs
   '/itp-templates', // #284 template library; nav entry added by #187 // transitional — live admin Jobs index; -> /admin/jobs later
   '/qa', // #290 — cross-job ITP/QA status dashboard (read-only); Jobs group
+  '/v2/dayworks', // #370 — cross-job daywork register (payment-risk rollup); Jobs group
   '/settings/notifications', // #218 — notification prefs; sidebar FOOTER link (not a nav group), #222 grows /settings into a hub
 ]);
 const APPROVED_PHIL_HREFS = new Set([
@@ -126,6 +127,8 @@ const REQUIRED_SOURCES = [
   'src/app/v2/jobs/[jobId]/plans/page.tsx',
   'src/app/v2/quotes/page.tsx',
   'src/app/v2/quotes/[quoteId]/page.tsx',
+  'src/app/v2/dayworks/page.tsx', // #370 — cross-job daywork rollup
+  'src/app/v2/jobs/[jobId]/dayworks/page.tsx', // #370 — per-job daywork register
   'src/app/(admin)/settings/notifications/page.tsx',
   'src/app/phil/my-day/page.tsx',
   'src/app/phil/jobs/page.tsx',

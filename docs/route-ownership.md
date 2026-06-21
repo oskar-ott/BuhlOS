@@ -214,6 +214,8 @@ The legacy estate must stay dead. `scripts/check-legacy-quarantine.js`
 | `/v2/jobs/[jobId]/builder` | BuhlOS | `v2/jobs/[jobId]/builder` | AdminShell | transitional | **admin** | jobs "Build" chip, hub "Open builder", new-job redirect | Job Builder/Editor; non-admin → `/v2/jobs/[jobId]` |
 | `/v2/jobs/[jobId]/{evidence,snags,itps,documents}` | BuhlOS | `v2/jobs/[jobId]/**` | AdminShell | transitional | admin/LH | jobs list rows, hub section nav | per-section review surfaces |
 | `/v2/jobs/[jobId]/plans` | BuhlOS | `v2/jobs/[jobId]/plans` | AdminShell | transitional | admin/LH | hub section nav (gated on `plans` module) | read-only Plan Viewer; current + superseded; unauth → 307 `/v2/login` |
+| `/v2/jobs/[jobId]/dayworks` | BuhlOS | `v2/jobs/[jobId]/dayworks` | AdminShell | transitional | admin/LH | dayworks rollup row drill-in | read-only per-job daywork register (#370); unsigned-aging payment-risk; data via `api/dayworks.js`; unauth → 307 `/v2/login` |
+| `/v2/dayworks` | BuhlOS | `v2/dayworks` | AdminShell | transitional | **admin** | sidebar "Dayworks" | cross-job daywork rollup (#370, read-only); per-job rows drill into `/v2/jobs/[jobId]/dayworks`; unauth → 307 `/v2/login` |
 | `/v2/quotes` | BuhlOS | `v2/quotes` | AdminShell | transitional | **admin** | sidebar "Quotes" | v2 quotes list (#183); unauth → 307 `/v2/login`; → `/admin/quotes` later |
 | `/v2/quotes/[quoteId]` | BuhlOS | `v2/quotes/[quoteId]` | AdminShell | transitional | **admin** | quotes list rows, create flow | quote builder — sections/lines/live totals; stale save → 409 + reload banner |
 | `/phil/my-day` | Phil | `phil/my-day` | PhilShell | canonical | field/LH | tab "Today", `landingFor(field)` | Phil home; unauth → 307 `/v2/login` |
