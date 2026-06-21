@@ -67,6 +67,12 @@ export const RCD_REQUIRED_TYPES: Record<string, boolean> = {
   water: false, submain: false, motor: false,
 };
 
+/* ── field install lifecycle (Phil owns this per way) ───────────────────── */
+/** What the on-site electrician marks for each way: to-do → installed → tested. */
+export const CIRCUIT_INSTALL_STATES = ["todo", "installed", "tested"] as const;
+export const InstallStateSchema = z.enum(CIRCUIT_INSTALL_STATES);
+export type InstallState = z.infer<typeof InstallStateSchema>;
+
 /* ── Circuit (one way) ──────────────────────────────────────────────────── */
 export const CircuitSchema = z
   .object({
@@ -98,6 +104,11 @@ export const CircuitSchema = z
     load: z.number(),
     loadUnit: z.string(), // "A" | "kW"
     notes: z.string().optional().default(""),
+    /** Field install state — Phil owns it (todo|installed|tested). Optional;
+     *  absent means "todo" (the server normaliser + format.ts default it), so
+     *  existing circuit literals don't have to carry it. Kept open (string) for
+     *  forward-compat; narrowed for display in format.ts. */
+    install: z.string().optional(),
   })
   .passthrough();
 export type Circuit = z.infer<typeof CircuitSchema>;

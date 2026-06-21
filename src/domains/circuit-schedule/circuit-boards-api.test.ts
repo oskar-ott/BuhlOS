@@ -65,6 +65,7 @@ function call(
 const ADMIN = ["u_admin", "office"] as const;
 const FIELD = ["u_field", "electrician"] as const;
 const LH_OTHER = ["u_lh_other", "leadingHand"] as const;
+const CLIENT = ["u_client", "client"] as const;
 
 beforeEach(() => {
   process.env.SESSION_SECRET = "test-session-secret-long-enough";
@@ -74,11 +75,12 @@ beforeEach(() => {
       { id: "u_admin", username: "boss", role: "office", passwordHash: "$2a$10$x" },
       { id: "u_field", username: "sparky", role: "electrician", assignedJobIds: ["j1"], passwordHash: "$2a$10$x" },
       { id: "u_lh_other", username: "lead2", role: "leadingHand", assignedJobIds: ["j2"], passwordHash: "$2a$10$x" },
+      { id: "u_client", username: "owner", role: "client", passwordHash: "$2a$10$x" },
     ],
   });
   blob.set("jobs.json", {
     jobs: [
-      { id: "j1", name: "Riverside" },
+      { id: "j1", name: "Riverside", clientUserId: "u_client" },
       { id: "j2", name: "Depot" },
     ],
   });
@@ -172,13 +174,76 @@ describe("PUT /api/job-circuits boards facet", () => {
   });
 });
 
-describe("auth on the boards facet", () => {
-  it("a field worker on the job can read but not write", async () => {
+describe("install normalisation", () => {
+  it("normalises each way's install state (unknown → todo, valid kept)", async () => {
+    const res = await call("PUT", ...ADMIN, {
+      boards: [{ name: "DB-1", circuits: [{ desc: "a", install: "installed" }, { desc: "b", install: "bogus" }, { desc: "c" }] }],
+    });
+    expect(res.statusCode).toBe(200);
+    const circuits = (res.body as { boards: Array<{ circuits: Array<{ install: string }> }> }).boards[0]!.circuits;
+    expect(circuits.map((c) => c.install)).toEqual(["installed", "todo", "todo"]);
+  });
+});
+
+describe("auth on the boards facet — the schedule is field-owned", () => {
+  it("an assigned field worker can read AND write the boards (owns the schedule)", async () => {
     expect((await call("GET", ...FIELD, undefined)).statusCode).toBe(200);
-    expect((await call("PUT", ...FIELD, { boards: [{ name: "DB-1" }] })).statusCode).toBe(403);
+    const put = await call("PUT", ...FIELD, { boards: [{ name: "DB-1" }] });
+    expect(put.statusCode).toBe(200);
+    // …and the server stamps the field worker as the editor.
+    expect((put.body as { boards: Board[] }).boards[0]!.updatedBy).toBe("sparky");
+  });
+
+  it("but an assigned field worker still cannot touch the legacy register", async () => {
+    const res = await call("PUT", ...FIELD, { switchboards: [{ code: "MSB" }] });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("a client who can see the job is read-only (never writes boards)", async () => {
+    expect((await call("GET", ...CLIENT, undefined)).statusCode).toBe(200);
+    expect((await call("PUT", ...CLIENT, { boards: [{ name: "DB-1" }] })).statusCode).toBe(403);
   });
 
   it("a leading hand not assigned to the job cannot even read it", async () => {
     expect((await call("GET", ...LH_OTHER, undefined)).statusCode).toBe(403);
+  });
+});
+
+describe("POST ?action=set-install — the one-tap field path", () => {
+  async function seedBoard(): Promise<{ boardId: string; circuitId: string }> {
+    const res = await call("PUT", ...ADMIN, {
+      boards: [{ id: "cb_1", name: "DB-1", circuits: [{ id: "cc_1", desc: "GPOs" }] }],
+    });
+    expect(res.statusCode).toBe(200);
+    return { boardId: "cb_1", circuitId: "cc_1" };
+  }
+
+  it("an assigned field worker marks a way installed; it persists + stamps them", async () => {
+    const { boardId, circuitId } = await seedBoard();
+    const res = await call("POST", ...FIELD, { boardId, circuitId, install: "installed" }, "j1", { action: "set-install" });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ boardId, circuitId, install: "installed" });
+    const job = jobsStore().jobs.find((j) => j.id === "j1")!;
+    const board = (job.circuitBoards as Array<{ id: string; updatedBy: string; circuits: Array<{ id: string; install: string }> }>)[0]!;
+    expect(board.circuits[0]!.install).toBe("installed");
+    expect(board.updatedBy).toBe("sparky");
+  });
+
+  it("rejects an unknown install value", async () => {
+    const { boardId, circuitId } = await seedBoard();
+    const res = await call("POST", ...FIELD, { boardId, circuitId, install: "done" }, "j1", { action: "set-install" });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("404s an unknown circuit", async () => {
+    await seedBoard();
+    const res = await call("POST", ...FIELD, { boardId: "cb_1", circuitId: "nope", install: "tested" }, "j1", { action: "set-install" });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("a client cannot set install state", async () => {
+    const { boardId, circuitId } = await seedBoard();
+    const res = await call("POST", ...CLIENT, { boardId, circuitId, install: "installed" }, "j1", { action: "set-install" });
+    expect(res.statusCode).toBe(403);
   });
 });
