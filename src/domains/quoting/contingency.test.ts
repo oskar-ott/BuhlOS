@@ -38,6 +38,22 @@ function quote(over: Partial<QuoteMarginInput["pricing"]> = {}): QuoteMarginInpu
 }
 
 describe("computeQuoteContingency — percent (legacy-native, parity)", () => {
+  it("SUB-CENT quote: subtotal === legacy AND foots (no round-then-sum drift)", () => {
+    // matSell = 10 × 0.95 = 9.50, contingency 7% = 0.665 → legacy sums-then-rounds
+    // (10.165 → 10.16 via float). round2(base + amount) would drift to 10.17.
+    const input: QuoteMarginInput = {
+      pricing: { ...PRICING, contingencyPct: 7 },
+      materials: { items: [{ quantity: 10, unitCost: 0.95, category: "Cable" }] },
+      labour: { lines: [] },
+      provisional: { items: [] },
+    };
+    const c = computeQuoteContingency(input);
+    const oracle = legacy.computeQuoteTotals(input);
+    expect(c.amount).toBe(oracle.contingency.amount);
+    expect(c.subtotalWithContingency).toBe(oracle.subtotalExGst); // parity (was 10.17 vs 10.16)
+    expect(c.base + c.amount).toBe(c.subtotalWithContingency); // foots exactly
+  });
+
   it("base is sell incl. provisional, before contingency", () => {
     const c = computeQuoteContingency(quote({ contingencyPct: 0 }));
     expect(c.base).toBe(730);
