@@ -20,6 +20,7 @@
 
 const { put } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
+const { tagsFromBlob } = require('./_lib/tags-store');
 const { requireAuth, canWrite } = require('./_lib/auth');
 
 // OCR vision model (#378). Bare alias via env — the PLANS_AI_MODEL pattern.
@@ -179,9 +180,7 @@ async function runOcr(req, res, user) {
  */
 async function readRegister(KEY) {
   const data = await readBlob(KEY, { tags: [] });
-  if (Array.isArray(data)) return { tags: data };
-  if (data && Array.isArray(data.tags)) return data;
-  return { tags: [] };
+  return { tags: tagsFromBlob(data) };
 }
 
 module.exports = async (req, res) => {

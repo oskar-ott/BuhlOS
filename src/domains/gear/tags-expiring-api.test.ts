@@ -254,6 +254,17 @@ describe("GET /api/tags-expiring — tags (legacy contract)", () => {
     const res = await call({ userId: "u_client", role: "client" });
     expect(res.statusCode).toBe(403);
   });
+
+  it("counts a LEGACY bare-array job's expired tag — invisible before the expiry-path fix", async () => {
+    // jobs/<id>/tags.json as a BARE ARRAY (pre-#397 shape) with an expired tag.
+    blob.set("jobs.json", { jobs: [{ id: "j_legacy", name: "Legacy Site" }] });
+    blob.set("jobs/j_legacy/tags.json", [
+      { id: "t_legacy", tagNumber: "L-1", name: "Temp Board", expiryDate: ddmm(-3) },
+    ]);
+    const res = await call({ userId: "u_admin", role: "admin" });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as Body).tags.map((t) => t.id)).toContain("t_legacy");
+  });
 });
 
 describe("GET /api/tags-expiring — calibrations (#305 additive)", () => {
