@@ -59,15 +59,16 @@ describe("normalizeJobStructure", () => {
       areaGroups: [{ id: "g1", name: "G1", areas: [{ id: "a1", name: "A1", roughInTasks: [{ id: "at1", name: "Area tpl" }] }] }],
       roughInTasks: [{ id: "rt_b", name: "Bee" }, { id: "rt_a", name: "Ay" }], // reverse of canonical (rt_a, rt_b)
       fitOffTasks: [],
-      modules: { areas: true }, customFields: [{ k: "v" }], // blob-only, must survive
+      modules: { areas: true }, customFields: [{ k: "v" }], createdAt: "2026-01-01T00:00:00.000Z", // blob-only, must survive
     } as unknown as Job;
     const r = normalizeJobStructure(blob, pg);
     expect(r.normalized).toBe(true);
     // Byte-faithful → the read overlay will serve it from PG.
     expect(proj.migratedFieldsHash(r.job)).toBe(proj.migratedFieldsHash(pg));
-    // Blob-only fields preserved.
+    // Blob-only fields (incl. createdAt, which is NOT a migrated field) preserved.
     expect(r.job.modules).toEqual({ areas: true });
     expect(r.job.customFields).toEqual([{ k: "v" }]);
+    expect(r.job.createdAt).toBe("2026-01-01T00:00:00.000Z");
     // "" headers became null.
     expect(r.job.ref).toBeNull();
     // Canonical structure adopted (order + defaults).
@@ -85,6 +86,19 @@ describe("normalizeJobStructure", () => {
     expect(r.normalized).toBe(false);
     expect(r.reason).toMatch(/would drop blob-only fields.*area\.customFields/);
     expect(r.job).toBe(blob); // untouched
+  });
+
+  it("skips a job carrying archived metadata (archivedAt/archivedBy) — would be dropped", () => {
+    const pg = reconJob();
+    const blob = {
+      id: "j1", name: "Job 1", status: "active",
+      areaGroups: [{ id: "g1", name: "G1", areas: [{ id: "a1", name: "A1", archived: true, archivedAt: "2026-01-02T00:00:00.000Z", archivedBy: "boss" }] }],
+      roughInTasks: [{ id: "rt_a", name: "Ay" }, { id: "rt_b", name: "Bee" }], fitOffTasks: [],
+    } as unknown as Job;
+    const r = normalizeJobStructure(blob, pg);
+    expect(r.normalized).toBe(false);
+    expect(r.reason).toMatch(/would drop blob-only fields.*area\.archived(At|By)/);
+    expect(r.job).toBe(blob);
   });
 
   it("skips a job whose migrated DATA genuinely differs from PG (not representational)", () => {
