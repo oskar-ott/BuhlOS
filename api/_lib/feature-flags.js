@@ -63,6 +63,18 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Phil task-status READ cutover (J10): when on, the FIELD/Phil task-status read
+  // (/api/data) is served from the Postgres mirror, parity-gated per job
+  // (byte-faithful or Blob fallback) so a not-yet-mirrored toggle can never show a
+  // stale status. Output is identical to Blob; worker isolation is unchanged
+  // (requireAuth({jobId})). Admin task reads stay on Blob (J11). Default OFF,
+  // unset in prod. Pairs with supabase_dual_write_tasks (the mirror that feeds it).
+  supabase_read_phil_tasks: {
+    description: 'Serve the FIELD task-status read (/api/data) from Postgres, per-job parity-gated, with a Blob fallback (#152, J10). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // The read-only Supabase connectivity proving slice (#533) — gates
   // GET /api/supabase-health, the first real DB caller. Dark until a preview
   // is wired; flip on per-environment to prove the guard→pooler→client path.

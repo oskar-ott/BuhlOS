@@ -5,7 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardTitle, CardDescription } from "@/components/ui/Card";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead } from "@/server/jobs-read-status";
+import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead } from "@/server/jobs-read-status";
 
 // Runs a live, read-only probe at request time.
 export const dynamic = "force-dynamic";
@@ -35,6 +35,7 @@ export default async function JobsReadStatusPage() {
   const status = await loadJobsReadStatus();
   const s = summariseJobsRead(status);
   const phil = summarisePhilRead(status);
+  const taskRead = summariseTaskRead(await loadTaskReadStatus());
 
   const sourceLabel = s.readSource === "postgres" ? "Postgres" : "Blob";
 
@@ -174,6 +175,28 @@ export default async function JobsReadStatusPage() {
           value={phil.lastMatched == null ? "—" : `${phil.lastPgFaithful}/${phil.lastMatched}`}
         />
         <Row label="Last field read at" value={fmtWhen(phil.lastAt)} />
+      </Card>
+
+      <Card className="mt-4" data-testid="phil-task-read-status">
+        <CardTitle className="mb-2 text-slate-800">
+          Phil (field) task-status read cutover (J10)
+        </CardTitle>
+        <CardDescription className="mb-2">
+          Field task statuses (<code>/api/data</code>) behind{" "}
+          <code>supabase_read_phil_tasks</code> (<strong>{taskRead.flagOn ? "ON" : "OFF"}</strong>),
+          parity-gated per job (served from Postgres only when byte-faithful to
+          Blob, else Blob fallback — a not-yet-mirrored toggle can never show
+          stale). Process-local counters of field task reads served by this
+          instance.
+        </CardDescription>
+        <Row label="Feature flag" value={taskRead.flagOn ? "ON" : "OFF"} />
+        <Row label="Task reads served" value={taskRead.totalReads} />
+        <Row label="… from Postgres (parity PASS)" value={taskRead.pgServedReads} />
+        <Row label="… from Blob" value={taskRead.blobServedReads} />
+        <Row label="Blob fallbacks (PG error)" value={taskRead.fallbackReads} />
+        <Row label="Parity mismatches → Blob" value={taskRead.parityMismatches} />
+        <Row label="Last read source" value={taskRead.lastSource ?? "—"} />
+        <Row label="Last read at" value={fmtWhen(taskRead.lastAt)} />
       </Card>
     </AdminShell>
   );

@@ -12,6 +12,8 @@ import { probeAdminJobsRead } from "../../api/_lib/job-read-projection.js";
 import type { AdminJobsReadDiag } from "../../api/_lib/job-read-projection";
 import { getJobsReadDiagnostics } from "../../api/_lib/job-read-diagnostics.js";
 import type { JobsReadDiagnosticsSnapshot } from "../../api/_lib/job-read-diagnostics";
+import { getTaskReadDiagnostics } from "../../api/_lib/task-read-diagnostics.js";
+import type { TaskReadDiagnosticsSnapshot } from "../../api/_lib/task-read-diagnostics";
 import { isFlagOn } from "../../api/_lib/feature-flags.js";
 
 export type JobsReadStatus = {
@@ -141,5 +143,43 @@ export function summarisePhilRead(status: JobsReadStatus): PhilReadSummary {
     lastAt: phil.lastAt,
     lastPgFaithful: last && typeof last.pgFaithfulCount === "number" ? last.pgFaithfulCount : null,
     lastMatched: last && typeof last.matchedCount === "number" ? last.matchedCount : null,
+  };
+}
+
+// ── J10: Phil task-status read diagnostics (process-local counters; no live probe,
+//    the overlay is per-job/worker-scoped and this admin page has no such context).
+export type TaskReadStatus = { flagOn: boolean; counters: TaskReadDiagnosticsSnapshot };
+
+const readTaskCounters = getTaskReadDiagnostics as () => TaskReadDiagnosticsSnapshot;
+
+export async function loadTaskReadStatus(): Promise<TaskReadStatus> {
+  return { flagOn: await flagOrFalse("supabase_read_phil_tasks"), counters: readTaskCounters() };
+}
+
+export type TaskReadSummary = {
+  flagOn: boolean;
+  totalReads: number;
+  pgServedReads: number;
+  blobServedReads: number;
+  fallbackReads: number;
+  parityMismatches: number;
+  lastAt: string | null;
+  lastSource: "blob" | "postgres" | null;
+  lastParityPass: boolean | null;
+};
+
+/** Pure view model for the Phil task-status read card (J10). */
+export function summariseTaskRead(s: TaskReadStatus): TaskReadSummary {
+  const c = s.counters;
+  return {
+    flagOn: s.flagOn,
+    totalReads: c.totalReads,
+    pgServedReads: c.pgServedReads,
+    blobServedReads: c.blobServedReads,
+    fallbackReads: c.fallbackReads,
+    parityMismatches: c.parityMismatches,
+    lastAt: c.lastAt,
+    lastSource: c.lastDiag ? c.lastDiag.source : null,
+    lastParityPass: c.lastDiag ? c.lastDiag.parityPass : null,
   };
 }

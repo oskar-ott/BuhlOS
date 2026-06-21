@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summariseJobsRead, summarisePhilRead, type JobsReadStatus } from "./jobs-read-status";
+import { summariseJobsRead, summarisePhilRead, summariseTaskRead, type JobsReadStatus, type TaskReadStatus } from "./jobs-read-status";
 
 type Diag = NonNullable<JobsReadStatus["probe"]>;
 
@@ -107,5 +107,38 @@ describe("summarisePhilRead (field)", () => {
     expect(p.lastPgFaithful).toBeNull();
     expect(p.lastMatched).toBeNull();
     expect(p.lastAt).toBeNull();
+  });
+});
+
+describe("summariseTaskRead (J10 — Phil task-status read)", () => {
+  const counters = (over: Partial<TaskReadStatus["counters"]> = {}): TaskReadStatus["counters"] => ({
+    resetAt: "2026-06-21T00:00:00.000Z",
+    totalReads: 0, pgServedReads: 0, blobServedReads: 0, fallbackReads: 0, parityMismatches: 0,
+    lastDiag: null, lastAt: null, ...over,
+  });
+
+  it("reports flag + counters + last source/parity", () => {
+    const s = summariseTaskRead({
+      flagOn: true,
+      counters: counters({
+        totalReads: 5, pgServedReads: 3, blobServedReads: 2, fallbackReads: 1, parityMismatches: 1,
+        lastAt: "2026-06-21T01:00:00.000Z",
+        lastDiag: { source: "postgres", reason: "served from postgres", flagOn: true, parityPass: true, matched: 10, mismatched: 0, orphans: 0, unresolved: 0, hashMatch: true, latencyMs: 12, fallbackUsed: false },
+      }),
+    });
+    expect(s.flagOn).toBe(true);
+    expect(s.totalReads).toBe(5);
+    expect(s.pgServedReads).toBe(3);
+    expect(s.parityMismatches).toBe(1);
+    expect(s.lastSource).toBe("postgres");
+    expect(s.lastParityPass).toBe(true);
+  });
+
+  it("honest nulls before any read", () => {
+    const s = summariseTaskRead({ flagOn: false, counters: counters() });
+    expect(s.flagOn).toBe(false);
+    expect(s.totalReads).toBe(0);
+    expect(s.lastSource).toBeNull();
+    expect(s.lastParityPass).toBeNull();
   });
 });
