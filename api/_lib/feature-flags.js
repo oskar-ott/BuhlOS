@@ -36,6 +36,20 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-09-30',
   },
+  // Jobs/tasks STRUCTURE dual-write (J8): when on, a jobs.json structure write
+  // (create / edit / bulk-edit / publish) ALSO mirrors that ONE job's
+  // tenant/job/groups/areas/templates into Postgres, best-effort, AFTER the Blob
+  // write (Blob stays authoritative; a PG failure never fails the save). This is
+  // what makes the J6/J7 read overlays load-bearing instead of serving a frozen
+  // import snapshot. Separate from supabase_dual_write so jobs + hours cut over
+  // independently. Default OFF, unset in prod. Task INSTANCES/status (the `tasks`
+  // table, via data.json) are a SEPARATE rung, not mirrored here.
+  supabase_dual_write_jobs: {
+    description: 'Mirror jobs.json structure writes (one job) into Postgres best-effort, Blob authoritative (#152, J8). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // The read-only Supabase connectivity proving slice (#533) — gates
   // GET /api/supabase-health, the first real DB caller. Dark until a preview
   // is wired; flip on per-environment to prove the guard→pooler→client path.

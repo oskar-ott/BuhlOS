@@ -47,6 +47,7 @@
 const { readBlob, writeBlob, deleteBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob } = require('./_lib/auth');
 const { appendAudit } = require('./_lib/job-audit');
+const { mirrorJobToPg } = require('./_lib/jobs-mirror');
 
 const KEY = (jobId) => `jobs/${jobId}/draft.json`;
 
@@ -198,6 +199,8 @@ module.exports = async (req, res) => {
         job.fitOffTasks = v.tasks;
       }
       await writeBlob('jobs.json', jobsData);
+      // J8 — best-effort structure dual-write on publish (Blob authoritative).
+      await mirrorJobToPg(jobId);
       try { await deleteBlob(KEY(jobId)); } catch { /* tolerate */ }
 
       // Single rolled-up audit entry for the publish. Sub-changes are
