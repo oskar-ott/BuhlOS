@@ -7,18 +7,29 @@
 // because PG is behind (a not-yet-mirrored toggle simply fails parity → Blob
 // fallback). This mirrors the J6/J7 read overlay, applied to task status.
 //
-// ONE parity engine (readTaskStatusOverlay), two audience wrappers that differ
-// ONLY by feature flag:
+// ONE parity engine (readTaskStatusOverlay — INTERNAL, not exported), two
+// audience wrappers that differ ONLY by feature flag:
 //   * readPhilTaskStatus  — FIELD/Phil read (supabase_read_phil_tasks, J10)
 //   * readAdminTaskStatus — ADMIN/office read (supabase_read_admin_tasks, J11)
 // The audience gate (which tier hits which wrapper, and clients always reading
 // pure Blob) lives at the call site (api/data.js); this module is audience-blind.
+//
+// J12 — cutover READINESS (no behaviour change, no new flag): probeTaskReadParity
+// runs the SAME engine read-only across a bounded sample of jobs (flag forced on,
+// nothing served) to measure how byte-faithful the PG mirror is to Blob across the
+// job population — the evidence a later served-source promotion (J13) is gated on.
+// Blob stays authoritative; PG is not the source of truth yet.
 //
 // Reuses the ONE expansion engine (buildTaskProjection) and the existing
 // (jobId,areaId,stage,taskId)→tasks.id bridge — NO new task identity. Read-only:
 // getDb({mode:'read'}); never writes Blob or Postgres; never throws (best-effort →
 // Blob). Reader isolation is the caller's requireAuth({jobId}) gate (unchanged) —
 // this overlay only ever touches the single requested job.
+//
+// SINGLE-TENANT: tenantSlug defaults to 'buhl' (the only tenant; a documented
+// rebuild non-negotiable). It is injectable for tests but never overridden in
+// production; a second tenant would simply miss the PG lookup and fall back to
+// Blob (safe, never a cross-tenant leak).
 
 const crypto = require('node:crypto');
 const { isFlagOn } = require('./feature-flags');
@@ -44,11 +55,16 @@ const BLOB_DIAG = (reason, latencyMs, flagOn) => ({
 });
 
 /**
+ * @internal — NOT exported. Direct callers MUST use `readPhilTaskStatus` or
+ * `readAdminTaskStatus` (or `probeTaskReadParity`), which pin the audience flag
+ * so the tier can never be spoofed via a caller-supplied `flagKey`. Exposing the
+ * raw engine would let a caller serve PG under an unapproved flag.
+ *
  * Parity-gated PG task-status read for ONE job, behind `flagKey`. Returns
  * { data, diag }. The data is byte-identical to Blob; on a clean parity PASS the
  * existing dwelling task statuses are sourced from PG (== Blob). Best-effort —
- * never throws. Injectable deps. Audience-blind: the two wrappers below pin the
- * flag; the caller (api/data.js) owns which tier reaches which wrapper.
+ * never throws. Injectable deps. Audience-blind: the wrappers pin the flag; the
+ * caller (api/data.js) owns which tier reaches which wrapper.
  */
 async function readTaskStatusOverlay(input = {}) {
   const { jobId, data, flagKey = 'supabase_read_phil_tasks', getDb: db = getDb, isFlagOn: flagOn = isFlagOn, readBlob = realReadBlob, tenantSlug = 'buhl', now = Date.now } = input;
@@ -142,4 +158,69 @@ function readAdminTaskStatus(input = {}) {
   return readTaskStatusOverlay({ ...input, flagKey: 'supabase_read_admin_tasks' });
 }
 
-module.exports = { readPhilTaskStatus, readAdminTaskStatus, readTaskStatusOverlay };
+// J12 — how many jobs the live readiness probe samples per call. Bounded so the
+// probe stays cheap on the admin page (it reads one data.json + a few PG queries
+// per job). The probe reports jobsTotal vs jobsSampled so any truncation is
+// visible (no silent cap).
+const PROBE_SAMPLE_LIMIT = 25;
+
+/**
+ * J12 cutover-READINESS probe. Read-only, best-effort, never throws. Runs the
+ * SAME parity engine (flag forced ON, so it measures even while serving is dark)
+ * across a bounded, deterministic sample of jobs and aggregates how byte-faithful
+ * the PG mirror is to Blob. Nothing is served and nothing is written; this only
+ * produces the evidence a served-source promotion (J13) would be gated on.
+ *
+ * Per sampled job it classifies the engine's own diag:
+ *   - source==='postgres'      → pgFaithful (clean parity PASS, output == Blob)
+ *   - parityPass===false       → drifted     (real divergence: mismatch/orphan/unresolved/hash)
+ *   - reason==='error'         → errored     (PG unreachable for that job)
+ *   - otherwise                → unavailable (not yet mirrored / job not in PG / projection unclean)
+ *
+ * Returns counts + booleans only — NO job ids, NO statuses, NO worker/user data.
+ */
+async function probeTaskReadParity(input = {}) {
+  const { getDb: db = getDb, readBlob = realReadBlob, tenantSlug = 'buhl', now = Date.now, sampleLimit = PROBE_SAMPLE_LIMIT } = input;
+  const started = now();
+  const elapsed = () => Math.max(0, now() - started);
+  const empty = (over = {}) => ({
+    wired: true, jobsTotal: 0, jobsSampled: 0,
+    pgFaithful: 0, drifted: 0, errored: 0, unavailable: 0,
+    totalMismatched: 0, totalUnresolved: 0, totalOrphans: 0, hashDriftJobs: 0,
+    latencyMs: elapsed(), error: null, ...over,
+  });
+
+  if (!process.env.SUPABASE_DB_URL) return empty({ wired: false });
+  try {
+    const jobsBlob = await readBlob('jobs.json', { jobs: [] });
+    const allJobs = (jobsBlob.jobs || []).filter((j) => j && j.id);
+    const sample = allJobs.slice(0, Math.max(0, sampleLimit));
+    const agg = { pgFaithful: 0, drifted: 0, errored: 0, unavailable: 0, totalMismatched: 0, totalUnresolved: 0, totalOrphans: 0, hashDriftJobs: 0 };
+    for (const job of sample) {
+      const data = await readBlob(`jobs/${job.id}/data.json`, { dwellings: {}, snags: [], notes: [] });
+      // Reuse the EXACT serving engine, flag forced ON → measure parity without
+      // depending on (or changing) the real flag. Read-only; result is discarded.
+      const { diag } = await readTaskStatusOverlay({
+        jobId: job.id, data, flagKey: 'supabase_read_admin_tasks',
+        isFlagOn: async () => true, getDb: db, readBlob, tenantSlug, now,
+      });
+      if (diag.source === 'postgres') { agg.pgFaithful += 1; }
+      else if (diag.parityPass === false) {
+        agg.drifted += 1;
+        agg.totalMismatched += diag.mismatched || 0;
+        agg.totalUnresolved += diag.unresolved || 0;
+        agg.totalOrphans += diag.orphans || 0;
+        if (diag.hashMatch === false) agg.hashDriftJobs += 1;
+      } else if (diag.reason === 'error') { agg.errored += 1; }
+      else { agg.unavailable += 1; }
+    }
+    return empty({ jobsTotal: allJobs.length, jobsSampled: sample.length, ...agg });
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    console.warn('[task-read] readiness probe failed (best-effort):', msg);
+    return empty({ error: msg });
+  }
+}
+
+// readTaskStatusOverlay is INTENTIONALLY not exported — see its @internal note.
+module.exports = { readPhilTaskStatus, readAdminTaskStatus, probeTaskReadParity };
