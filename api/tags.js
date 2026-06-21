@@ -166,6 +166,24 @@ async function runOcr(req, res, user) {
   });
 }
 
+/**
+ * Read the per-job register, ALWAYS as { tags: [...] }.
+ *
+ * Legacy `jobs/<id>/tags.json` blobs (written before the #397 rebuild) are a
+ * BARE ARRAY `[ ... ]`, not `{ tags: [...] }`. The rebuilt page parses
+ * TagListResponseSchema ({ tags }) and the write handlers read `data.tags`, so a
+ * bare-array job broke every path: GET → "couldn't load register", PUT/DELETE →
+ * tag-not-found, POST → corrupt shape. Normalising on read fixes all consumers
+ * at the single source with no data migration; writes then persist the
+ * normalised shape (heal-on-write).
+ */
+async function readRegister(KEY) {
+  const data = await readBlob(KEY, { tags: [] });
+  if (Array.isArray(data)) return { tags: data };
+  if (data && Array.isArray(data.tags)) return data;
+  return { tags: [] };
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -195,15 +213,14 @@ module.exports = async (req, res) => {
 
   // ── Register CRUD
   if (req.method === 'GET') {
-    const data = await readBlob(KEY, { tags: [] });
-    return res.status(200).json(data);
+    const data = await readRegister(KEY);
+    return res.status(200).json({ tags: data.tags });
   }
 
   if (req.method === 'POST') {
     if (!canWrite(user, jobId)) return res.status(403).json({ error: 'read-only' });
     const body = req.body || {};
-    const data = await readBlob(KEY, { tags: [] });
-    data.tags = data.tags || [];
+    const data = await readRegister(KEY); // always { tags: [...] }
     const now = new Date().toISOString();
     const tag = {
       id: newId(),
@@ -237,7 +254,7 @@ module.exports = async (req, res) => {
     if (!canWrite(user, jobId)) return res.status(403).json({ error: 'read-only' });
     const { id } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id required' });
-    const data = await readBlob(KEY, { tags: [] });
+    const data = await readRegister(KEY);
     const t = (data.tags || []).find(x => x.id === id);
     if (!t) return res.status(404).json({ error: 'tag not found' });
     const b = req.body || {};
@@ -270,7 +287,7 @@ module.exports = async (req, res) => {
     if (!canWrite(user, jobId)) return res.status(403).json({ error: 'read-only' });
     const id = (req.body && req.body.id) || (req.query && req.query.id) || '';
     if (!id) return res.status(400).json({ error: 'id required' });
-    const data = await readBlob(KEY, { tags: [] });
+    const data = await readRegister(KEY);
     data.tags = (data.tags || []).filter(t => t.id !== id);
     try { await writeBlob(KEY, data); }
     catch (e) { return res.status(500).json({ error: e.message }); }
