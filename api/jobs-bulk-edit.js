@@ -42,6 +42,7 @@ const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob } = require('./_lib/auth');
 const { appendAudit } = require('./_lib/job-audit');
 const { findDuplicateLiveAreaId } = require('./_lib/validation');
+const { mirrorJobToPg } = require('./_lib/jobs-mirror');
 
 const MAX_OPS = 200;
 const VALID_STAGES = new Set(['roughIn', 'fitOff']);
@@ -267,6 +268,9 @@ module.exports = async (req, res) => {
 
   // Single blob write at the end. Atomic from the caller's perspective.
   await writeBlob('jobs.json', jobsData);
+
+  // J8 — best-effort structure dual-write of the edited job (Blob authoritative).
+  await mirrorJobToPg(jobId);
 
   // Rolled-up audit entry. Single entry for the whole batch keeps the
   // audit log readable when admin runs a 50-op rename pass.

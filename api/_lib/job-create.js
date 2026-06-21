@@ -13,6 +13,7 @@
 // (jobs-api.test.ts) exercise this unchanged.
 
 const { readBlob, writeBlob } = require('./blob');
+const { mirrorJobToPg } = require('./jobs-mirror');
 const {
   validateAreaGroups,
   validateTasks,
@@ -136,6 +137,10 @@ async function createJob(data, input) {
   await writeBlob(`jobs/${jobId}/temps.json`, { temps: [] });
   // Legacy jobs/<id>/hours.json no longer seeded — hours live in
   // users/<userId>/time-entries/<date>.json (per-user, per-day).
+
+  // J8 — best-effort dual-write of the new job's structure to Postgres (Blob is
+  // authoritative; dark behind supabase_dual_write_jobs; never throws).
+  await mirrorJobToPg(jobId);
 
   return { ok: true, job };
 }

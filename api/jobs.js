@@ -3,6 +3,7 @@ const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDra
 const { redactJobForViewer } = require('./_lib/job-redaction');
 const { readAdminJobsWithPgOverlay, readPhilJobsWithPgOverlay } = require('./_lib/job-read-projection');
 const { recordJobsRead } = require('./_lib/job-read-diagnostics');
+const { mirrorJobToPg } = require('./_lib/jobs-mirror');
 
 // Canonical job statuses — keep in sync with src/domains/jobs/schema.ts JOB_STATUSES.
 const VALID_JOB_STATUS = new Set(['active', 'complete', 'archived', 'on_hold', 'draft']);
@@ -429,6 +430,8 @@ module.exports = async (req, res) => {
     await writeBlob(`jobs/${jobId}/data.json`, { dwellings: {}, snags: [], notes: [] });
     await writeBlob(`jobs/${jobId}/tags.json`, { tags: [] });
     await writeBlob(`jobs/${jobId}/temps.json`, { temps: [] });
+    // J8 — best-effort structure dual-write of the duplicated job (Blob authoritative).
+    await mirrorJobToPg(jobId);
     await appendAudit(jobId, {
       byUserId: me.id,
       byUsername: me.username || me.id,
@@ -681,6 +684,10 @@ module.exports = async (req, res) => {
     }
 
     await writeBlob('jobs.json', data);
+
+    // J8 — best-effort structure dual-write of the edited job (Blob authoritative;
+    // dark behind supabase_dual_write_jobs; never throws into this handler).
+    await mirrorJobToPg(job.id);
 
     // Audit log (rigidity audit R5). One entry per meaningful field
     // change. Fire-and-forget — a logging failure must never block the
