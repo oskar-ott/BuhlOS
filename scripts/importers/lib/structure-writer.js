@@ -2,6 +2,13 @@
 // AND the J8 dual-write mirror (api/_lib/jobs-mirror.js), so a live mirror and a
 // bulk import can never diverge (same rows in, same ON CONFLICT upserts out).
 //
+// Imported by:
+//   * scripts/importers/structure-import.js  (writeAll + currentCounts; --write)
+//   * api/_lib/jobs-mirror.js                 (writeAll with { counts:false })
+// Keep this the ONLY copy of the upsert SQL — if you change a fragment here it
+// changes both paths at once (that is the point). Drift is caught by the
+// structure sync-check (scripts/importers/structure-sync-check.js).
+//
 // PURE w.r.t. the DB: takes a postgres.js `sql` client + the row payloads from
 // buildStructureRows (lib/structure-rows.js), runs the idempotent upserts in ONE
 // transaction, and returns per-table tallies. The IS DISTINCT FROM guards mean an
