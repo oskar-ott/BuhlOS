@@ -17,6 +17,8 @@ import type { TaskReadDiagnosticsSnapshot } from "../../api/_lib/task-read-diagn
 import { getAdminTaskReadDiagnostics } from "../../api/_lib/admin-task-read-diagnostics.js";
 import { probeTaskReadParity } from "../../api/_lib/task-read.js";
 import type { TaskReadProbeResult } from "../../api/_lib/task-read";
+import { probeEvidenceReadParity } from "../../api/_lib/evidence-read.js";
+import type { EvidenceReadProbeResult } from "../../api/_lib/evidence-read";
 import { isFlagOn } from "../../api/_lib/feature-flags.js";
 
 export type JobsReadStatus = {
@@ -268,4 +270,64 @@ export function summariseTaskReadProbe(s: TaskReadProbeStatus): TaskReadProbeSum
   if (p.jobsSampled === 0) return { state: "empty", ...metrics, readyForPromotion: false };
   const readyForPromotion = p.drifted === 0 && p.errored === 0 && p.unavailable === 0 && p.pgFaithful === p.jobsSampled;
   return { state: readyForPromotion ? "all_faithful" : "drift", ...metrics, readyForPromotion };
+}
+
+// ── Evidence-metadata read-cutover READINESS probe (the next domain after
+//    task-status; see docs/architecture/proof-evidence-read-cutover-audit.md).
+//    Diagnostics-only, live, read-only — there is NO served evidence overlay and
+//    NO flag yet. Measures normalised parity of data.json.evidence[] vs the PG
+//    evidence_files mirror across a bounded sample. Evidence METADATA only —
+//    proof-status (job-control.json) is Blob-only and not touched here.
+export type EvidenceReadProbeStatus = { wired: boolean; probe: EvidenceReadProbeResult | null; error?: string };
+
+const runEvidenceReadProbe = probeEvidenceReadParity as (deps?: unknown) => Promise<EvidenceReadProbeResult>;
+
+export async function loadEvidenceReadProbe(): Promise<EvidenceReadProbeStatus> {
+  if (!process.env.SUPABASE_DB_URL) return { wired: false, probe: null };
+  try {
+    return { wired: true, probe: await runEvidenceReadProbe() };
+  } catch (err) {
+    return { wired: true, probe: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type EvidenceReadProbeSummary = {
+  state: "not_wired" | "error" | "all_faithful" | "drift" | "empty";
+  jobsTotal: number;
+  jobsSampled: number;
+  faithful: number;
+  drifted: number;
+  unavailable: number;
+  matchedEvidence: number;
+  mismatchedEvidence: number;
+  missingInPg: number;
+  missingInBlob: number;
+  latencyMs: number | null;
+  readyForOverlay: boolean; // every sampled job evidence-faithful → a dark evidence overlay would be byte-safe for the sample
+  error?: string;
+};
+
+/** Pure view model for the evidence-metadata parity (live probe) card. */
+export function summariseEvidenceReadProbe(s: EvidenceReadProbeStatus): EvidenceReadProbeSummary {
+  const empty = {
+    jobsTotal: 0, jobsSampled: 0, faithful: 0, drifted: 0, unavailable: 0,
+    matchedEvidence: 0, mismatchedEvidence: 0, missingInPg: 0, missingInBlob: 0,
+    latencyMs: null as number | null, readyForOverlay: false,
+  };
+  if (!s.wired) return { state: "not_wired", ...empty };
+  if (s.error || !s.probe) return { state: "error", ...empty, error: s.error ?? "no probe result" };
+  const p = s.probe;
+  // probeEvidenceReadParity never throws; a captured fallbackReason of 'error' /
+  // 'no tenant' is surfaced as the error state so the card reads honestly.
+  if (!p.available || p.fallbackReason === "error" || p.fallbackReason === "no tenant") {
+    return { state: "error", ...empty, error: p.error ?? p.fallbackReason ?? "unavailable" };
+  }
+  const metrics = {
+    jobsTotal: p.jobsTotal, jobsSampled: p.jobsSampled, faithful: p.faithful,
+    drifted: p.drifted, unavailable: p.unavailable, matchedEvidence: p.matchedEvidence,
+    mismatchedEvidence: p.mismatchedEvidence, missingInPg: p.missingInPg,
+    missingInBlob: p.missingInBlob, latencyMs: p.latencyMs,
+  };
+  if (p.jobsSampled === 0) return { state: "empty", ...metrics, readyForOverlay: false };
+  return { state: p.readyForOverlay ? "all_faithful" : "drift", ...metrics, readyForOverlay: p.readyForOverlay };
 }

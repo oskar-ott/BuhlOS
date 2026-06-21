@@ -1,10 +1,20 @@
 # Scope-vs-quote reconciliation (#366)
 
-> Status: **engine, real.** Pure classification/conflict engine on the
-> job-control spine ([job-control-spine.md](./job-control-spine.md)). No UI, no
-> API — the admin surface (`/v2/jobs/[jobId]/scope`) and its persistence are a
-> follow-up gated on a live quote↔job link (#244). Code:
-> [`src/domains/job-control/reconciliation.ts`](../../src/domains/job-control/reconciliation.ts).
+> Status: **engine + producer + authoring + read review, real.** The pure
+> classification/conflict engine
+> ([`src/domains/job-control/reconciliation.ts`](../../src/domains/job-control/reconciliation.ts)),
+> the L0 producer that persists a confirmed reconciliation to
+> `jobs/<jobId>/scope-reconciliation.json`
+> ([`reconciliation-producer.ts`](../../src/server/job-control/reconciliation-producer.ts)
+> + the preview/confirm routes), the narrow admin authoring on
+> `/v2/jobs/[jobId]/job-control`, and the **read-only boss-facing review** at
+> `/v2/jobs/[jobId]/scope` (#366 —
+> [`reconciliation-read.ts`](../../src/server/job-control/reconciliation-read.ts)
+> + `ScopeReconciliationStatus`, hub section nav "Scope reconciliation") are
+> shipped. **Remaining follow-up:** wiring the live quote into the producer's
+> `loadScope` so BOQ-line findings populate (the job carries `fromQuoteId` from
+> #244, but the producer still passes `quote: null`), and a resolve/accept-in-UI
+> action on the review surface.
 
 ## Why
 

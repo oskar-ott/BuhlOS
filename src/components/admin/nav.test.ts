@@ -32,6 +32,7 @@ describe("NAV_GROUPS / ALL_ITEMS (#215 shared source)", () => {
       "/defects",
       "/itp-templates",
       "/qa",
+      "/v2/dayworks",
       "/hours",
       "/employees",
       "/gear",

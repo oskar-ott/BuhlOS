@@ -140,6 +140,15 @@ const VALID_ACTIONS = new Set([
   'hours.reopened',
   'hours.bulk_approved',
   'hours.bulk_rejected',
+  // #370: daywork register (api/dayworks.js). daywork.created on POST;
+  // daywork.signed on the supervisor sign; daywork.transitioned on the
+  // signed → invoiced change (metadata.from/to carry the direction);
+  // daywork.amended when a signed/invoiced docket spawns a linked amendment.
+  // targetType 'daywork'. Kept in sync with src/domains/audit-log/schema.ts.
+  'daywork.created',
+  'daywork.signed',
+  'daywork.transitioned',
+  'daywork.amended',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -173,6 +182,8 @@ const VALID_TARGET_TYPES = new Set([
   'variation',
   // #390: timesheet day records (users/<id>/time-entries/<date>.json).
   'time_entry',
+  // #370: daywork docket records (jobs/<id>/dayworks.json).
+  'daywork',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

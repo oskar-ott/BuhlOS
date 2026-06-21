@@ -11,6 +11,8 @@ import {
   ListChecks,
   Map as MapIcon,
   Package,
+  Scale,
+  Zap,
 } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -106,6 +108,14 @@ export function JobInterfaceSectionNav({ job }: Props) {
     },
     {
       kind: "live",
+      label: "Scope reconciliation",
+      description:
+        "Scope-vs-quote review: the confirmed classification of every clause and the open conflicts (excluded-but-owed, by-others, alternates) before work starts.",
+      href: `/v2/jobs/${jobIdEnc}/scope` as Route,
+      icon: Scale,
+    },
+    {
+      kind: "live",
       label: "Job control",
       description:
         "Author required proof: tie a scope clause to a worker task, set the proof the field must capture, and compile it for Phil.",
@@ -119,6 +129,14 @@ export function JobInterfaceSectionNav({ job }: Props) {
       href: `/v2/jobs/${jobIdEnc}/documents` as Route,
       count: job.statsDocumentsCurrent,
       icon: FileText,
+    },
+    {
+      kind: "live",
+      label: "Circuit schedules",
+      description:
+        "Distribution-board circuit schedules — device, cable, load and live voltage-drop / phase-balance / capacity checks (AS/NZS 3000), print to PDF.",
+      href: `/v2/jobs/${jobIdEnc}/circuit-schedule` as Route,
+      icon: Zap,
     },
     // Plans viewer — the in-app raster drawing viewer (read-only Phase 1),
     // distinct from the Documents register above. Gated on the job's
