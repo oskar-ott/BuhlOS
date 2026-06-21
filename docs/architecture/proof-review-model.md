@@ -83,6 +83,17 @@ loop. Until that surface ships, **do not document admin proof approval as
 available to office users.** **#495 stays parked** (its package-granular approach
 is superseded by #544); close or repurpose it rather than merging its semantics.
 
+## Supabase read-cutover status (where this fits the migration)
+
+Evidence **metadata** (`data.json.evidence[]`) has a Postgres home —
+`evidence_files` + `evidence_links`, populated by J4 — so an evidence read overlay
+is feasible on the proven strangler ladder. The **proof spine** in this doc
+(`requiredEvidence` / `evidenceLinks` / `proofReviews` / `workPackages` in
+`job-control.json`) is **Blob-only — there is no PG table for it**, so a proof-status
+read cutover is **blocked** behind a schema + dual-write + the `#503` admin
+approve/reject decision. See
+[proof-evidence-read-cutover-audit.md](proof-evidence-read-cutover-audit.md).
+
 ## What this is NOT
 
 - **Not** a new proof model or a second `requiredEvidence` system — everything
