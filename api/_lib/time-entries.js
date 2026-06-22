@@ -155,7 +155,10 @@ async function listUserEntries(userId, { fromDate, toDate, status } = {}) {
 // Walk every user's time-entries — used by /approvals queue.
 // Filtered to a status (default 'submitted'). Heavier than per-user lookups
 // but acceptable for the approver queue volumes.
-async function listAllEntriesForApprovers({ status = 'submitted' } = {}) {
+// `status` (single) keeps the legacy default; `statuses` (array) lets a caller
+// pull several states in ONE scan (e.g. per-job costing needs submitted+approved).
+async function listAllEntriesForApprovers({ status = 'submitted', statuses } = {}) {
+  const wanted = Array.isArray(statuses) && statuses.length ? statuses : [status];
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   let blobs;
   try {
@@ -179,7 +182,7 @@ async function listAllEntriesForApprovers({ status = 'submitted' } = {}) {
   }));
   return entries
     .filter(Boolean)
-    .filter(e => e.status === status)
+    .filter(e => wanted.includes(e.status))
     .sort((a, b) => (a.submittedAt || '').localeCompare(b.submittedAt || ''));
 }
 
