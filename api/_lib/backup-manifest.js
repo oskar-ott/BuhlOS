@@ -18,6 +18,7 @@ const EXACT_STORES = [
   'employees.json',
   'invites.json',
   'material-requests.json',
+  'expenses.json', // reimbursement expenses register (#536)
   'itp-templates.json',
   'job-types.json',
   'quotes.json',

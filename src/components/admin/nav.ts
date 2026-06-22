@@ -12,6 +12,7 @@ import {
   Wrench,
   Users,
   Receipt,
+  Wallet,
 } from "lucide-react";
 import type { Route } from "next";
 
@@ -75,6 +76,15 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/material-requests" as Route,
         icon: Package,
         activeFor: ["/material-requests"],
+      },
+      {
+        // Reimbursements (#536) — field-submitted receipts the office reviews,
+        // approves and marks reimbursed. A field→office queue, so it sits with
+        // the other "Today" inboxes.
+        label: "Expenses",
+        href: "/expenses" as Route,
+        icon: Wallet,
+        activeFor: ["/expenses"],
       },
     ],
   },
