@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summariseJobsRead, summarisePhilRead, summariseTaskRead, summariseAdminTaskRead, summariseTaskReadProbe, summariseEvidenceReadProbe, type JobsReadStatus, type TaskReadStatus, type AdminTaskReadStatus, type TaskReadProbeStatus, type EvidenceReadProbeStatus } from "./jobs-read-status";
+import { summariseJobsRead, summarisePhilRead, summariseTaskRead, summariseAdminTaskRead, summariseTaskReadProbe, summariseEvidenceReadProbe, summariseAdminEvidenceRead, type JobsReadStatus, type TaskReadStatus, type AdminTaskReadStatus, type TaskReadProbeStatus, type EvidenceReadProbeStatus, type AdminEvidenceReadStatus } from "./jobs-read-status";
 
 type Diag = NonNullable<JobsReadStatus["probe"]>;
 
@@ -266,5 +266,38 @@ describe("summariseEvidenceReadProbe (evidence metadata readiness)", () => {
     const s = summariseEvidenceReadProbe({ wired: true, probe: probe({ jobsTotal: 0, jobsSampled: 0 }) });
     expect(s.state).toBe("empty");
     expect(s.readyForOverlay).toBe(false);
+  });
+});
+
+describe("summariseAdminEvidenceRead (admin evidence overlay counters)", () => {
+  const counters = (over: Partial<AdminEvidenceReadStatus["counters"]> = {}): AdminEvidenceReadStatus["counters"] => ({
+    resetAt: "2026-06-22T00:00:00.000Z",
+    totalReads: 0, pgServedReads: 0, blobServedReads: 0, fallbackReads: 0, parityMismatches: 0,
+    lastDiag: null, lastAt: null, ...over,
+  });
+
+  it("reports flag + counters + last source/parity", () => {
+    const s = summariseAdminEvidenceRead({
+      flagOn: true,
+      counters: counters({
+        totalReads: 5, pgServedReads: 3, blobServedReads: 2, fallbackReads: 1, parityMismatches: 1,
+        lastAt: "2026-06-22T01:00:00.000Z",
+        lastDiag: { source: "postgres", reason: "served from postgres", flagOn: true, parityPass: true, matched: 4, mismatched: 0, missingInPg: 0, missingInBlob: 0, latencyMs: 9, fallbackUsed: false },
+      }),
+    });
+    expect(s.flagOn).toBe(true);
+    expect(s.totalReads).toBe(5);
+    expect(s.pgServedReads).toBe(3);
+    expect(s.parityMismatches).toBe(1);
+    expect(s.lastSource).toBe("postgres");
+    expect(s.lastParityPass).toBe(true);
+  });
+
+  it("honest nulls before any read", () => {
+    const s = summariseAdminEvidenceRead({ flagOn: false, counters: counters() });
+    expect(s.flagOn).toBe(false);
+    expect(s.totalReads).toBe(0);
+    expect(s.lastSource).toBeNull();
+    expect(s.lastParityPass).toBeNull();
   });
 });

@@ -24,8 +24,9 @@
 // and BOOLEANS only — never an evidence URL, note body, or any field value.
 
 const crypto = require('node:crypto');
+const { isFlagOn } = require('./feature-flags');
 const { getDb } = require('./supabase-db');
-const { loadJobStructureFromPg } = require('./job-read-projection');
+const { loadJobStructureFromPg, reconstructFromPg } = require('./job-read-projection');
 
 function realReadBlob(key, fallback) {
   return require('./blob').readBlob(key, fallback);
@@ -134,4 +135,108 @@ async function probeEvidenceReadParity(input = {}) {
   }
 }
 
-module.exports = { probeEvidenceReadParity, compareEvidence };
+// ── Admin evidence-metadata READ OVERLAY (dark, parity-gated, Blob fallback) ──
+//
+// The first SERVED read overlay for evidence, ADMIN-tier only, behind
+// supabase_read_admin_evidence (default OFF). Mirrors the J11 admin task-status
+// overlay: at the /api/data admin seam, the job's evidence[] is confirmed against
+// the PG evidence_files mirror and, ONLY on a clean per-job parity PASS, the
+// migrated fields are sourced from PG onto the EXISTING Blob evidence items in
+// place. Because PASS means those fields are already byte-equal to Blob, the
+// overlay is a no-op on the served bytes — output is byte-identical to Blob. It
+// NEVER adds/removes an evidence item, never touches non-evidence sections
+// (dwellings/snags/notes), never serves the EXCLUDED fields from PG (note body,
+// URLs, labels, timestamps stay Blob), and never writes. Best-effort → Blob.
+//
+// Scope: evidence METADATA only. Proof-status (job-control.json) is untouched.
+// Photo bytes stay in Vercel Blob. Phil/client reads are unchanged (admin-first).
+
+const EV_BLOB_DIAG = (reason, latencyMs, flagOn) => ({
+  source: 'blob', reason, flagOn: flagOn === true, parityPass: null,
+  matched: 0, mismatched: 0, missingInPg: 0, missingInBlob: 0,
+  latencyMs, fallbackUsed: false, error: null,
+});
+
+// One job's evidence rows, reconstructed into the Blob shape via the ONE inverse
+// projection (reconstructFromPg) — same column list as the tenant-wide query in
+// job-read-projection.js loadJobStructureFromPg, scoped to a single job.
+async function reconstructJobEvidence(sql, tenantId, jobId, jobUuid) {
+  const rows = await sql`
+    select ef.legacy_id, jb.legacy_id as job_legacy, ar.legacy_id as area_legacy,
+           tk.legacy_template_id as task_legacy_template_id, ef.kind, ef.photo_blob_id, ef.blob_url,
+           ef.thumbnail_url, ef.note, ef.stage, cu.legacy_user_id as captured_by_legacy, ef.captured_by_label,
+           ef.captured_at::text as captured_at, ef.client_captured_at::text as client_captured_at,
+           ef.exif_lat, ef.exif_lng, ef.status, ef.source, ru.legacy_user_id as reviewed_by_legacy,
+           ef.reviewed_by_label, ef.reviewed_at::text as reviewed_at, ef.rejection_reason, ef.created_at::text as created_at
+    from public.evidence_files ef join public.jobs jb on jb.id = ef.job_id
+    left join public.site_areas ar on ar.id = ef.site_area_id
+    left join public.tasks tk on tk.id = ef.task_id
+    left join public.user_profiles cu on cu.id = ef.captured_by
+    left join public.user_profiles ru on ru.id = ef.reviewed_by
+    where ef.tenant_id = ${tenantId} and ef.job_id = ${jobUuid} and ef.legacy_id is not null and ef.deleted_at is null
+    order by ef.created_at, ef.legacy_id`;
+  const recon = reconstructFromPg({ jobs: [{ legacy_id: jobId }], evidence: rows });
+  return (recon.jobData[jobId] && recon.jobData[jobId].evidence) || [];
+}
+
+/**
+ * Parity-gated PG evidence-metadata read for ONE job. Returns { data, diag }. The
+ * data is byte-identical to Blob; on a clean PASS the migrated evidence fields are
+ * sourced from PG onto the EXISTING items (a no-op, since PASS ⇒ equal). Best-effort
+ * — never throws. flagKey is pinned by the audience wrapper (caller can't spoof it).
+ */
+async function readEvidenceOverlay(input = {}) {
+  const { jobId, data, getDb: db = getDb, isFlagOn: flagOn = isFlagOn, tenantSlug = 'buhl', now = Date.now, flagKey } = input;
+  const started = now();
+  const elapsed = () => Math.max(0, now() - started);
+
+  if (!process.env.SUPABASE_DB_URL) return { data, diag: EV_BLOB_DIAG('no supabase env', elapsed(), false) };
+  let flagIsOn = false;
+  try {
+    flagIsOn = (await flagOn(flagKey)) === true;
+    if (!flagIsOn) return { data, diag: EV_BLOB_DIAG('flag off', elapsed(), false) };
+
+    const sql = db({ mode: 'read' }); // read cutover — never a write
+    const tenant = await sql`select id from public.tenants where slug = ${tenantSlug}`;
+    if (!tenant.length) return { data, diag: { ...EV_BLOB_DIAG('no tenant', elapsed(), true), fallbackUsed: true } };
+    const tenantId = tenant[0].id;
+    const jobUuid = (await sql`select id from public.jobs where tenant_id = ${tenantId} and legacy_id = ${jobId} and deleted_at is null`)[0];
+    if (!jobUuid) return { data, diag: { ...EV_BLOB_DIAG('job not in pg', elapsed(), true), fallbackUsed: true } };
+
+    const pgEvidence = await reconstructJobEvidence(sql, tenantId, jobId, jobUuid.id);
+    const blobEvidence = Array.isArray(data.evidence) ? data.evidence : [];
+    const c = compareEvidence(blobEvidence, pgEvidence);
+    const pass = c.mismatched === 0 && c.missingInPg === 0 && c.missingInBlob === 0;
+
+    if (!pass) {
+      return { data, diag: { ...EV_BLOB_DIAG('parity mismatch → blob', elapsed(), true), parityPass: false, ...c, fallbackUsed: true } };
+    }
+
+    // PASS: source the migrated fields from PG onto the EXISTING evidence items in
+    // place (never add/remove an item; never touch excluded fields or other
+    // sections). PASS ⇒ those fields already equal Blob, so output == Blob.
+    const out = JSON.parse(JSON.stringify(data));
+    const pgById = new Map();
+    for (const e of pgEvidence) if (e && e.id != null) pgById.set(e.id, e);
+    for (const item of Array.isArray(out.evidence) ? out.evidence : []) {
+      const pg = item && item.id != null ? pgById.get(item.id) : null;
+      if (!pg) continue;
+      for (const f of COMPARE_FIELDS) if (Object.prototype.hasOwnProperty.call(item, f)) item[f] = pg[f];
+    }
+    return { data: out, diag: { source: 'postgres', reason: 'served from postgres', flagOn: true, parityPass: true, ...c, latencyMs: elapsed(), fallbackUsed: false, error: null } };
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    console.warn('[evidence-read] PG evidence read failed (Blob authoritative):', msg);
+    return { data, diag: { ...EV_BLOB_DIAG('error', elapsed(), flagIsOn), fallbackUsed: flagIsOn === true, error: msg } };
+  }
+}
+
+// Admin-tier wrapper — pins the admin evidence flag. Passing `flagKey` in `input`
+// is ignored (the wrapper overrides it), so the audience can never be spoofed.
+function readAdminEvidence(input = {}) {
+  return readEvidenceOverlay({ ...input, flagKey: 'supabase_read_admin_evidence' });
+}
+
+// readEvidenceOverlay is INTENTIONALLY not exported — callers use readAdminEvidence
+// (the audience wrapper that pins the flag). Same guardrail as task-read.js.
+module.exports = { probeEvidenceReadParity, compareEvidence, readAdminEvidence };

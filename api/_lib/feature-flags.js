@@ -90,6 +90,22 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Admin evidence-metadata READ OVERLAY (the evidence domain, after the J10–J12
+  // task-status cutover + the evidence parity probe): when on, the ADMIN-tier
+  // evidence read (/api/data evidence[]) is served from the Postgres evidence_files
+  // mirror using the SAME per-job parity gate (byte-faithful migrated fields or
+  // Blob fallback). Output is identical to Blob; photo bytes + excluded fields
+  // (URLs, note bodies, labels, timestamps) stay Blob. The flag is global but the
+  // admin-tier restriction is at the call site (api/data.js gates on isAdminRole),
+  // so field/leading-hand keep pure-Blob evidence and CLIENTS are untouched.
+  // Evidence METADATA only — proof-status (job-control.json) is Blob-only and not
+  // touched. Default OFF, unset in prod. Pairs with the evidence parity probe.
+  supabase_read_admin_evidence: {
+    description: 'Serve the ADMIN evidence-metadata read (/api/data) from Postgres, per-job parity-gated, with a Blob fallback (#152). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // The read-only Supabase connectivity proving slice (#533) — gates
   // GET /api/supabase-health, the first real DB caller. Dark until a preview
   // is wired; flip on per-environment to prove the guard→pooler→client path.

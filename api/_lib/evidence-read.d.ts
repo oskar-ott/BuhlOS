@@ -34,6 +34,29 @@ export function compareEvidence(
   pgEv?: EvidenceItemLike[],
 ): { matched: number; mismatched: number; missingInPg: number; missingInBlob: number };
 
+export interface EvidenceOverlayDiag {
+  source: "blob" | "postgres";
+  reason: string;
+  flagOn: boolean;
+  parityPass: boolean | null;
+  matched: number;
+  mismatched: number;
+  missingInPg: number;
+  missingInBlob: number;
+  latencyMs: number | null;
+  fallbackUsed: boolean;
+  error?: string | null;
+}
+
+export function readAdminEvidence(input?: {
+  jobId: string;
+  data: { evidence?: EvidenceItemLike[]; [key: string]: unknown };
+  getDb?: unknown;
+  isFlagOn?: (key: string) => Promise<boolean>;
+  tenantSlug?: string;
+  now?: () => number;
+}): Promise<{ data: unknown; diag: EvidenceOverlayDiag }>;
+
 export function probeEvidenceReadParity(input?: {
   getDb?: unknown;
   readBlob?: (key: string, fallback: unknown) => Promise<unknown>;
