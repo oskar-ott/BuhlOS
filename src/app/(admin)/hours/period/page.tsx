@@ -118,6 +118,11 @@ export default async function HoursPeriodPage({
   const actions = workerActionMap(closeouts);
 
   const rangeLabel = `${formatDateLabel(range.fromDate)} – ${formatDateLabel(range.toDate)}`;
+  // #131 CSV downloads hit the EXISTING admin export endpoint (the browser
+  // carries the admin cookie). Preview shapes pass dryRun=1 (no stamping); the
+  // committed action omits it. Plain <a> (not <Link>) so the committed GET is
+  // never prefetched on hover.
+  const exportBase = `/api/time-entries-export?status=approved&fromDate=${range.fromDate}&toDate=${range.toDate}`;
 
   return (
     <AdminShell
@@ -278,6 +283,59 @@ export default async function HoursPeriodPage({
                 )}
                 . &ldquo;Not yet exported&rdquo; = approved hours not in a committed payroll run.
               </CardDescription>
+            </Card>
+
+            <Card>
+              <CardTitle>Download for payroll</CardTitle>
+              <CardDescription className="mt-1">
+                <strong>Xero-ready CSV — no direct Xero connection yet.</strong> Preview
+                downloads do not mark hours as exported; &ldquo;Download &amp; mark
+                exported&rdquo; records this run in BuhlOS.
+              </CardDescription>
+
+              {!readiness.fullyClosed || rollup.summary.unmappedWorkerCount > 0 ? (
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-amber-900">
+                  {!readiness.fullyClosed ? (
+                    <li>
+                      This period isn&rsquo;t closed — totals will change once the undecided
+                      days are decided on the weekly board.
+                    </li>
+                  ) : null}
+                  {rollup.summary.unmappedWorkerCount > 0 ? (
+                    <li>
+                      {rollup.summary.unmappedWorkerCount} worker(s) have no Xero employee id —
+                      their rows export with a <strong>blank</strong> id until mapping exists.
+                    </li>
+                  ) : null}
+                </ul>
+              ) : null}
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a
+                  href={`${exportBase}&shape=review&dryRun=1`}
+                  className="rounded-card border border-border px-3 py-2 text-sm font-medium text-text hover:border-brand-navy"
+                >
+                  Download review CSV
+                </a>
+                <a
+                  href={`${exportBase}&shape=xero&dryRun=1`}
+                  className="rounded-card border border-border px-3 py-2 text-sm font-medium text-text hover:border-brand-navy"
+                >
+                  Download Xero-ready CSV
+                </a>
+                <a
+                  href={`${exportBase}&shape=xero`}
+                  className="rounded-card border-2 border-brand-navy px-3 py-2 text-sm font-semibold text-brand-navy hover:bg-surface-subtle"
+                >
+                  Download &amp; mark exported
+                </a>
+              </div>
+              <p className="mt-2 text-xs text-text-muted">
+                The two previews are dry runs. &ldquo;Download &amp; mark exported&rdquo;
+                stamps these approved hours with an export id and records a payroll run —
+                use it once the period is final. Hours already in a run still appear in
+                &ldquo;Not yet exported&rdquo; as 0.
+              </p>
             </Card>
 
             <Card className="overflow-x-auto">

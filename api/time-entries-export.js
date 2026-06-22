@@ -35,6 +35,12 @@ module.exports = async (req, res) => {
   const jobId    = q.jobId  || '';
   const dryRun   = q.dryRun === '1' || q.dryRun === 'true';
   const format   = q.format || 'csv'; // 'csv' | 'json' for debugging
+  // #131 CSV shape: 'payroll' (default, the full Karen/Daniel columns incl. rate
+  // /cost — unchanged), 'review' (human/admin, rich context, no rate/cost), or
+  // 'xero' (lean payroll BRIDGE — ordinary/overtime only; NOT a Xero API push or
+  // a guaranteed Xero-AU import file). Shape changes only the column set +
+  // filename; the rows, dry-run/committed semantics and run log are identical.
+  const shape    = q.shape || 'payroll';
 
   // Default range = current ISO week (Mon..Sun)
   let fromDate = q.fromDate || '';
@@ -152,20 +158,46 @@ module.exports = async (req, res) => {
     });
   }
 
-  // ── CSV ───────────────────────────────────────────────────────────────
-  const cols = [
-    'Week Start', 'Week End', 'Date',
-    'Worker', 'Worker ID', 'Xero Employee ID',
-    'Job', 'Job ID',
-    'Hours', 'Ordinary Hours', 'Overtime Hours',
-    'Rate ex-GST', 'Line cost ex-GST',
-    'Notes', 'Status',
-    'Approved By', 'Approved At',
-    'Exported At', 'Export ID',
-  ];
-  const lines = [cols.map(csvCell).join(',')];
-  for (const r of rows) {
-    lines.push([
+  // ── CSV (shape-selectable: payroll default | review | xero) — #131 ────────
+  // Period Start/End on the review + xero shapes = the REQUESTED range (the pay
+  // period the admin picked), not the per-row ISO week. area/stage/task are NOT
+  // on the export row (allocations are jobId-only), so they are not invented.
+  let cols, toCells, csvFilename;
+  if (shape === 'review') {
+    cols = [
+      'Pay Period Start', 'Pay Period End', 'Worker Name', 'Date', 'Day', 'Job',
+      'Ordinary Hours', 'Overtime Hours', 'Total Hours',
+      'Approval Status', 'Exported', 'Export ID', 'Notes',
+    ];
+    toCells = r => [
+      fromDate, toDate, r.workerName, r.date, dayName(r.date), r.jobName,
+      r.ordinaryHours, r.overtimeHours, r.hours,
+      r.status, r.exportedAt, r.exportId, r.notes,
+    ];
+    csvFilename = 'buhlos-review-hours-' + fromDate + '-to-' + toDate + '.csv';
+  } else if (shape === 'xero') {
+    cols = [
+      'Pay Period Start', 'Pay Period End', 'Worker Name', 'Xero Employee ID',
+      'Date', 'Ordinary Hours', 'Overtime Hours', 'Total Hours',
+    ];
+    toCells = r => [
+      fromDate, toDate, r.workerName, r.xeroEmployeeId,
+      r.date, r.ordinaryHours, r.overtimeHours, r.hours,
+    ];
+    csvFilename = 'buhlos-xero-ready-hours-' + fromDate + '-to-' + toDate + '.csv';
+  } else {
+    // Default 'payroll' — the existing full Karen/Daniel shape (unchanged).
+    cols = [
+      'Week Start', 'Week End', 'Date',
+      'Worker', 'Worker ID', 'Xero Employee ID',
+      'Job', 'Job ID',
+      'Hours', 'Ordinary Hours', 'Overtime Hours',
+      'Rate ex-GST', 'Line cost ex-GST',
+      'Notes', 'Status',
+      'Approved By', 'Approved At',
+      'Exported At', 'Export ID',
+    ];
+    toCells = r => [
       r.weekStart, r.weekEnd, r.date,
       r.workerName, r.workerId, r.xeroEmployeeId,
       r.jobName, r.jobId,
@@ -174,8 +206,11 @@ module.exports = async (req, res) => {
       r.notes, r.status,
       r.approvedBy, r.approvedAt,
       r.exportedAt, r.exportId,
-    ].map(csvCell).join(','));
+    ];
+    csvFilename = 'buhl-payroll_' + fromDate + '_to_' + toDate + (status === 'approved' ? '' : '_' + status) + '.csv';
   }
+  const lines = [cols.map(csvCell).join(',')];
+  for (const r of rows) lines.push(toCells(r).map(csvCell).join(','));
   const csv = lines.join('\n') + '\n';
 
   // Brief §08 (payroll export): write a SHA-256 hash of the CSV
@@ -250,9 +285,8 @@ module.exports = async (req, res) => {
     });
   }
 
-  const filename = 'buhl-payroll_' + fromDate + '_to_' + toDate + (status === 'approved' ? '' : '_' + status) + '.csv';
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
+  res.setHeader('Content-Disposition', 'attachment; filename="' + csvFilename + '"');
   res.setHeader('X-Row-Count', String(rows.length));
   res.status(200).send(csv);
 };
@@ -262,6 +296,11 @@ function csvCell(v) {
   const s = String(v);
   if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
   return s;
+}
+
+// Short day-of-week label for the review CSV (Mon..Sun), local to the date.
+function dayName(dateStr) {
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(dateStr + 'T00:00:00').getDay()];
 }
 
 function weekMondayOf(dateStr) {

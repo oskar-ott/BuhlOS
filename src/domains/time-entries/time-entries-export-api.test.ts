@@ -292,3 +292,87 @@ describe("GET /api/time-entries-export (#126)", () => {
     expect(blob.has("payroll-runs.json")).toBe(false);
   });
 });
+
+// #131 — CSV shape selection (review / xero) over the SAME rows + dry-run/
+// committed machinery. Shape changes only columns + filename.
+describe("GET /api/time-entries-export — CSV shapes (#131)", () => {
+  const headerOf = (res: Res) => String(res.sent).split("\n")[0];
+  const dataRows = (res: Res) => String(res.sent).trim().split("\n").slice(1).map((l) => l.split(","));
+  const FAKE_COLS = ["Earnings Rate", "Travel", "Allowance", "Leave", "Pay run", "Payslip", "STP", "Super", "Tax", "TimesheetID"];
+
+  it("default (no shape) is byte-compatible with the existing payroll columns", async () => {
+    const res = await call("u_admin", "office", { ...WEEK, dryRun: "1" });
+    const h = headerOf(res);
+    expect(h).toContain("Week Start");
+    expect(h).toContain("Rate ex-GST"); // admin payroll shape keeps rate/cost
+    expect(res.headers["Content-Disposition"]).toContain("buhl-payroll_");
+  });
+
+  it("shape=review — rich human columns, period range, no rate/cost, no fake cols", async () => {
+    const res = await call("u_admin", "office", { ...WEEK, shape: "review", dryRun: "1" });
+    expect(headerOf(res)).toBe(
+      "Pay Period Start,Pay Period End,Worker Name,Date,Day,Job,Ordinary Hours,Overtime Hours,Total Hours,Approval Status,Exported,Export ID,Notes",
+    );
+    expect(headerOf(res)).not.toContain("Rate ex-GST");
+    expect(headerOf(res)).not.toContain("Line cost");
+    for (const c of FAKE_COLS) expect(headerOf(res)).not.toContain(c);
+    const first = dataRows(res)[0]!;
+    expect(first[0]).toBe("2026-06-08"); // Pay Period Start = requested range
+    expect(first[1]).toBe("2026-06-14");
+    expect(res.headers["Content-Disposition"]).toContain("buhlos-review-hours-2026-06-08-to-2026-06-14.csv");
+  });
+
+  it("shape=xero — lean payroll-bridge columns only, no fake cols", async () => {
+    const res = await call("u_admin", "office", { ...WEEK, shape: "xero", dryRun: "1" });
+    expect(headerOf(res)).toBe(
+      "Pay Period Start,Pay Period End,Worker Name,Xero Employee ID,Date,Ordinary Hours,Overtime Hours,Total Hours",
+    );
+    for (const c of [...FAKE_COLS, "Rate", "Line cost", "Job", "Notes"]) expect(headerOf(res)).not.toContain(c);
+    expect(res.headers["Content-Disposition"]).toContain("buhlos-xero-ready-hours-2026-06-08-to-2026-06-14.csv");
+  });
+
+  it("xero shape: missing xeroEmployeeId is a BLANK id column (not faked)", async () => {
+    const res = await call("u_admin", "office", { ...WEEK, shape: "xero", dryRun: "1" });
+    const row = dataRows(res)[0]!; // w1/w2 have no xeroEmployeeId in the fixture
+    expect(row[3]).toBe(""); // Xero Employee ID column blank
+  });
+
+  it("xero shape: a mapped worker shows the real Xero Employee ID", async () => {
+    (blob.get("users.json") as { users: Array<{ id: string; xeroEmployeeId?: string }> }).users.find((u) => u.id === "w1")!.xeroEmployeeId = "XE-001";
+    const res = await call("u_admin", "office", { ...WEEK, shape: "xero", dryRun: "1" });
+    const w1row = dataRows(res).find((r) => r[2] === "w1")!;
+    expect(w1row[3]).toBe("XE-001");
+  });
+
+  it("split day stays one row per allocation with OT prorated; totals match (shape=review)", async () => {
+    blob.set("jobs.json", { jobs: [{ id: "j1", name: "Riverside" }, { id: "j2", name: "Depot" }] });
+    blob.set("users/w1/time-entries/2026-06-11.json", entry("w1", "2026-06-11", {
+      totalHours: 10, ordinaryHours: 8, overtimeHours: 2,
+      allocations: [
+        { jobId: "j1", jobName: "Riverside", hours: 6 },
+        { jobId: "j2", jobName: "Depot", hours: 4 },
+      ],
+    }));
+    const res = await call("u_admin", "office", { fromDate: "2026-06-11", toDate: "2026-06-11", shape: "review", dryRun: "1" });
+    const rows = dataRows(res); // Job=col5, Ordinary=6, Overtime=7, Total=8
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r[5]).sort()).toEqual(["Depot", "Riverside"]);
+    expect(rows.reduce((s, r) => s + Number(r[8]), 0)).toBe(10); // total hours
+    expect(rows.reduce((s, r) => s + Number(r[7]), 0)).toBeCloseTo(2, 5); // OT prorated, not re-attributed
+    expect(rows.reduce((s, r) => s + Number(r[6]), 0)).toBeCloseTo(8, 5); // ordinary
+  });
+
+  it("dryRun=1 with a shape still NEVER stamps or logs", async () => {
+    await call("u_admin", "office", { ...WEEK, shape: "xero", dryRun: "1" });
+    expect((blob.get("users/w1/time-entries/2026-06-09.json") as { exportId?: string }).exportId).toBeUndefined();
+    expect(blob.has("payroll-runs.json")).toBe(false);
+  });
+
+  it("committed export with a shape stamps the entries once and logs the run", async () => {
+    const res = await call("u_admin", "office", { ...WEEK, shape: "xero" });
+    const exportId = res.headers["X-Export-Id"];
+    expect(exportId).toMatch(/^exp_/);
+    expect((blob.get("users/w1/time-entries/2026-06-09.json") as { exportId: string }).exportId).toBe(exportId);
+    expect((blob.get("payroll-runs.json") as { runs: unknown[] }).runs).toHaveLength(1);
+  });
+});
