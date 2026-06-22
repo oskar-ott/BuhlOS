@@ -4,7 +4,7 @@
 //     → { jobId, entries: [...], asOf }
 //
 // Returns THIS job's time entries in {submitted, approved} (never draft/rejected),
-// across all workers, with their allocations — the lean input the pure
+// across all workers, with their allocations — the input the pure
 // summariseJobHours (src/domains/jobs/job-hours.ts) buckets into approved vs
 // pending hours by status. There is NO summation here: ONE engine, run on the
 // consumer side, so the page totals can never diverge from the approver queue.
@@ -19,22 +19,6 @@
 const { setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole } = require('./_lib/auth');
 const { listAllEntriesForApprovers } = require('./_lib/time-entries');
-
-// Lean per-entry shape the Labour card + summariseJobHours consume.
-function project(e) {
-  return {
-    id: e.id,
-    userId: e.userId,
-    userName: e.userName || null,
-    date: e.date,
-    status: e.status,
-    submittedAt: e.submittedAt || null,
-    approvedAt: e.approvedAt || null,
-    allocations: Array.isArray(e.allocations)
-      ? e.allocations.map(a => ({ jobId: (a && a.jobId) || null, hours: Number(a && a.hours) || 0 }))
-      : [],
-  };
-}
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -58,9 +42,10 @@ module.exports = async (req, res) => {
 
   // An entry belongs to this job if ANY allocation targets it. Null-job
   // (overhead / "send to office") allocations never match a real jobId.
+  // Full entries (same shape as the scope=approver queue → drop-in for the
+  // existing hours parser + summariseJobHours); the consumer buckets by status.
   const entries = all
-    .filter(e => Array.isArray(e.allocations) && e.allocations.some(a => a && a.jobId === jobId))
-    .map(project);
+    .filter(e => Array.isArray(e.allocations) && e.allocations.some(a => a && a.jobId === jobId));
 
   return res.status(200).json({ jobId, entries, asOf: new Date().toISOString() });
 };

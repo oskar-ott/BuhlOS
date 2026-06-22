@@ -3,7 +3,6 @@ import { ArrowRight, CheckCircle2, Clock } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { formatDateLabel, formatHoursLabel } from "@/domains/timesheets/format";
 import {
-  deriveJobHoursAttention,
   groupJobHoursByWorker,
   summariseJobHours,
 } from "@/domains/jobs/job-hours";
@@ -12,21 +11,20 @@ import type { TimeEntry } from "@/domains/timesheets/types";
 /**
  * Admin Job hub — Labour / Hours summary.
  *
- * A read-only "what labour is waiting for me to approve on this job?" card.
- * It is fed the approver SUBMITTED queue (the same data the /hours/approvals
- * surface loads) and sums the allocations pointing at THIS job, so every
- * number is real, blob-derived time-entry data — never a fabricated total.
+ * A read-only "how much labour is on this job?" card. It is fed this job's
+ * SUBMITTED + APPROVED entries from /api/job-hours (#134, recompute-on-read) and
+ * sums the allocations pointing at THIS job, so every number is real,
+ * blob-derived time-entry data — never a fabricated total. The pure
+ * summariseJobHours buckets them by status into approved vs awaiting-approval.
  *
- * Deliberately scoped to PENDING approval, not a full ledger: time entries are
- * stored per-user-per-day with no per-job index, so a full approved/rejected/
- * weekly rollup would mean scanning every user's blobs once per status on
- * every hub view. That heavier rollup (and the time-entry approval actions)
- * stays on the existing /hours/approvals surface, which this card deep-links
- * to. The card never mutates: no approve/reject, no edit, no payroll push.
+ * Scope: approved + pending only (rejected/draft excluded). There is no per-job
+ * index, so this recomputes from a full users/ scan on read — the heavier
+ * weekly/rejected ledger and the approval actions stay on /hours/approvals,
+ * which this card deep-links to. The card never mutates: no approve/reject, no
+ * edit, no payroll push.
  *
- * Empty state is honest and precise — "no hours awaiting approval", never "no
- * hours logged" — so a job whose hours are all already approved doesn't read
- * as having had no labour.
+ * Empty state is honest and precise — "no labour recorded yet" — so the card
+ * never fabricates activity.
  *
  * Cross-ref:
  *   src/domains/jobs/job-hours.ts — the pure derivation (unit-tested)
@@ -58,14 +56,11 @@ export function JobLabourSummary({
   jobId: string;
   fetchError: string | null;
 }) {
-  // This card is exclusively about hours AWAITING APPROVAL, so scope every
-  // figure (headline hours, count, latest date, and the per-worker breakdown)
-  // to submitted entries. Today the loader feeds submitted only, so this is a
-  // no-op; it keeps the card honest if it's ever handed a mixed-status list.
-  const pendingEntries = entries.filter((e) => e.status === "submitted");
-  const summary = summariseJobHours(pendingEntries, jobId);
-  const attention = deriveJobHoursAttention(summary);
-  const workers = groupJobHoursByWorker(pendingEntries, jobId).slice(0, WORKER_LIMIT);
+  // /api/job-hours feeds submitted + approved; summariseJobHours buckets by
+  // status (it ignores any other status defensively). Numbers are real, never
+  // fabricated; the per-worker breakdown is over the same set.
+  const summary = summariseJobHours(entries, jobId);
+  const workers = groupJobHoursByWorker(entries, jobId).slice(0, WORKER_LIMIT);
 
   return (
     <Card>
@@ -74,9 +69,8 @@ export function JobLabourSummary({
         <CardTitle>Labour</CardTitle>
       </div>
       <CardDescription className="mt-1">
-        Hours submitted against this job and awaiting office approval. The full
-        ledger — approved, rejected and weekly totals — lives in Hours
-        approvals.
+        Approved and submitted hours on this job, recomputed on read. Rejected
+        and weekly totals live in Hours approvals.
       </CardDescription>
 
       {fetchError ? (
@@ -87,21 +81,18 @@ export function JobLabourSummary({
           Couldn&rsquo;t load hours for this job ({fetchError}). Open Hours
           approvals for the live queue.
         </p>
-      ) : !attention.pending ? (
+      ) : !summary.hasAny ? (
         <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-emerald-700">
           <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
-          No hours are awaiting approval on this job.
+          No labour recorded on this job yet.
         </p>
       ) : (
         <>
           <dl className="mt-3 flex flex-wrap gap-2">
+            <LabourStat label="Approved" value={formatHoursLabel(summary.approvedHours)} />
             <LabourStat
               label="Awaiting approval"
               value={formatHoursLabel(summary.pendingHours)}
-            />
-            <LabourStat
-              label={summary.pendingCount === 1 ? "Entry" : "Entries"}
-              value={String(summary.pendingCount)}
             />
             {summary.latestDate ? (
               <LabourStat label="Latest" value={formatDateLabel(summary.latestDate)} />
