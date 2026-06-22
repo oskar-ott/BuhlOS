@@ -388,6 +388,90 @@ describe("scope-of-work visibility + writes (#200)", () => {
     expect(stored.areaGroups[0]!.areas.map((a) => a.name)).toContain("New room");
   });
 
+  // #578 — the PUT remap must not lose server-owned structural metadata or
+  // delete archived entries the payload can't carry. Server is the retention
+  // authority (the client structureFrozen guard is not relied on).
+  const areasOf = (gi = 0) =>
+    (
+      blob.get("jobs.json") as {
+        jobs: Array<{
+          id: string;
+          areaGroups: Array<{
+            areas: Array<{ id: string; name: string; archived?: boolean; order?: number; customFields?: unknown }>;
+          }>;
+        }>;
+      }
+    ).jobs.find((j) => j.id === "job-active")!.areaGroups[gi]!.areas;
+
+  it("#578: retains an archived area the payload omits (not deleted)", async () => {
+    const put = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: {
+        id: "job-active",
+        // omits area-archived entirely (what the builder/direct PUT does)
+        areaGroups: [{ id: "group-a", name: "Group A", areas: [{ id: "area-current", name: "Current area" }] }],
+      },
+    });
+    expect(put.statusCode).toBe(200);
+    const archived = areasOf().find((a) => a.id === "area-archived");
+    expect(archived).toBeTruthy();
+    expect(archived!.archived).toBe(true);
+    expect(archived!.name).toBe("Archived area");
+  });
+
+  it("#578: preserves order + customFields on a matched active area when the payload omits them", async () => {
+    // seed metadata
+    await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: {
+        id: "job-active",
+        areaGroups: [
+          {
+            id: "group-a",
+            name: "Group A",
+            areas: [
+              { id: "area-current", name: "Current area", order: 5, customFields: [{ key: "floor", label: "Floor", value: "L3" }] },
+              { id: "area-archived", name: "Archived area", archived: true },
+            ],
+          },
+        ],
+      },
+    });
+    // edit again WITHOUT order/customFields (a builder round-trip drops them)
+    await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "job-active", areaGroups: [{ id: "group-a", name: "Group A", areas: [{ id: "area-current", name: "Current area" }] }] },
+    });
+    const cur = areasOf().find((a) => a.name === "Current area")!;
+    expect(cur.order).toBe(5);
+    expect(cur.customFields).toEqual([{ key: "floor", label: "Floor", value: "L3", type: "text" }]);
+    expect(areasOf().some((a) => a.name === "Archived area" && a.archived)).toBe(true);
+  });
+
+  it("#578: still deletes an ACTIVE area the payload omits (only archived is retained)", async () => {
+    const put = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: {
+        id: "job-active",
+        // omits BOTH area-current (active) and area-archived (archived)
+        areaGroups: [{ id: "group-a", name: "Group A", areas: [{ id: "ar_new", name: "Brand new" }] }],
+      },
+    });
+    expect(put.statusCode).toBe(200);
+    const names = areasOf().map((a) => a.name);
+    expect(names).not.toContain("Current area"); // active omitted → deleted (legit edit)
+    expect(names).toContain("Archived area"); // archived omitted → retained
+    expect(names).toContain("Brand new");
+  });
+
   it("validation: missing title and oversized detail are hard 400s", async () => {
     const noTitle = await call({
       method: "PUT",
