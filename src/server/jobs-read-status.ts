@@ -21,6 +21,8 @@ import { probeEvidenceReadParity } from "../../api/_lib/evidence-read.js";
 import type { EvidenceReadProbeResult } from "../../api/_lib/evidence-read";
 import { getAdminEvidenceReadDiagnostics } from "../../api/_lib/admin-evidence-read-diagnostics.js";
 import type { AdminEvidenceReadDiagnosticsSnapshot } from "../../api/_lib/admin-evidence-read-diagnostics";
+import { getPhilEvidenceReadDiagnostics } from "../../api/_lib/phil-evidence-read-diagnostics.js";
+import type { PhilEvidenceReadDiagnosticsSnapshot } from "../../api/_lib/phil-evidence-read-diagnostics";
 import { isFlagOn } from "../../api/_lib/feature-flags.js";
 
 export type JobsReadStatus = {
@@ -360,6 +362,35 @@ export type AdminEvidenceReadSummary = {
 
 /** Pure view model for the admin evidence read-overlay card. */
 export function summariseAdminEvidenceRead(s: AdminEvidenceReadStatus): AdminEvidenceReadSummary {
+  const c = s.counters;
+  return {
+    flagOn: s.flagOn,
+    totalReads: c.totalReads,
+    pgServedReads: c.pgServedReads,
+    blobServedReads: c.blobServedReads,
+    fallbackReads: c.fallbackReads,
+    parityMismatches: c.parityMismatches,
+    lastAt: c.lastAt,
+    lastSource: c.lastDiag ? c.lastDiag.source : null,
+    lastParityPass: c.lastDiag ? c.lastDiag.parityPass : null,
+  };
+}
+
+// ── FIELD/Phil evidence read-overlay diagnostics. Same shape as the admin
+//    evidence overlay (separate process-local counter, no live probe — the shared
+//    evidence parity probe covers readiness), behind supabase_read_phil_evidence.
+export type PhilEvidenceReadStatus = { flagOn: boolean; counters: PhilEvidenceReadDiagnosticsSnapshot };
+
+const readPhilEvidenceCounters = getPhilEvidenceReadDiagnostics as () => PhilEvidenceReadDiagnosticsSnapshot;
+
+export async function loadPhilEvidenceReadStatus(): Promise<PhilEvidenceReadStatus> {
+  return { flagOn: await flagOrFalse("supabase_read_phil_evidence"), counters: readPhilEvidenceCounters() };
+}
+
+export type PhilEvidenceReadSummary = AdminEvidenceReadSummary;
+
+/** Pure view model for the field evidence read-overlay card. Same shape as admin. */
+export function summarisePhilEvidenceRead(s: PhilEvidenceReadStatus): PhilEvidenceReadSummary {
   const c = s.counters;
   return {
     flagOn: s.flagOn,
