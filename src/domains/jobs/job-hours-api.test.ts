@@ -110,10 +110,11 @@ describe("GET /api/job-hours", () => {
   it("preserves allocations so the split day's job-1 slice can be summed", async () => {
     const res = await call({ query: { jobId: "job-1" } });
     const split = (res.body as JobHours).entries.find((e) => e.id === "e2")!;
-    expect(split.allocations).toEqual([
-      { jobId: "job-1", hours: 4 },
-      { jobId: "job-2", hours: 3.6 },
-    ]);
+    // Full entries pass through (drop-in for the approver-queue parser), so the
+    // job-1 slice is present alongside the job-2 one for summariseJobHours.
+    expect(split.allocations).toHaveLength(2);
+    expect(split.allocations.find((a) => a.jobId === "job-1")!.hours).toBe(4);
+    expect(split.allocations.find((a) => a.jobId === "job-2")!.hours).toBe(3.6);
     expect(split.status).toBe("approved");
   });
 

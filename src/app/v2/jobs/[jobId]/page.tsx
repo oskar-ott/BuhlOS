@@ -394,10 +394,10 @@ async function loadJobInterface(
     // withStats=1 so the section nav + Status/Field cards can show evidence +
     // snag + ITP + document counts on the loaded Job.
     fetch(`${base}/api/jobs?id=${enc}&withStats=1`, init),
-    // scope=approver&status=submitted is exactly the /hours/approvals queue —
-    // the hours awaiting office approval. The Labour card filters its
-    // allocations down to this job.
-    fetch(`${base}/api/time-entries?scope=approver&status=submitted`, init),
+    // Per-job hours (#134): this job's submitted + approved entries (recompute-
+    // on-read). The Labour card buckets them into approved vs pending. Same
+    // entry shape as the approver queue, so the hours parser is unchanged.
+    fetch(`${base}/api/job-hours?jobId=${enc}`, init),
     fetch(`${base}/api/evidence?jobId=${enc}`, init),
     // months=4 mirrors the history tab's window (history/page.tsx) so the
     // Activity card's "+N more · View all" count and the full feed it links to

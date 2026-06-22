@@ -31,7 +31,7 @@ function render(props: {
 describe("JobLabourSummary", () => {
   it("is honest when nothing is awaiting approval (never 'no hours logged')", () => {
     const html = render({ entries: [], jobId: "job-1", fetchError: null });
-    expect(html).toContain("No hours are awaiting approval on this job");
+    expect(html).toContain("No labour recorded on this job yet");
     expect(html).not.toContain("Awaiting approval"); // no stat tiles
     // Always deep-links to the full approvals ledger.
     expect(html).toContain("/hours/approvals");
@@ -56,19 +56,23 @@ describe("JobLabourSummary", () => {
     expect(html).toContain("4h");
   });
 
-  it("scopes everything to pending — approved/rejected hours never show", () => {
+  it("shows approved AND pending hours by status (#134), both workers in the breakdown", () => {
     const html = render({
       entries: [
         entry({ id: "a", userId: "u1", userName: "Jack", status: "submitted", allocations: [{ jobId: "job-1", hours: 8 }] } as Partial<TimeEntry>),
-        entry({ id: "b", userId: "u2", userName: "Sam", status: "approved", allocations: [{ jobId: "job-1", hours: 99 }] } as Partial<TimeEntry>),
+        entry({ id: "b", userId: "u2", userName: "Sam", status: "approved", allocations: [{ jobId: "job-1", hours: 12 }] } as Partial<TimeEntry>),
       ],
       jobId: "job-1",
       fetchError: null,
     });
+    expect(html).toContain("Approved");
+    expect(html).toContain("12h"); // approved now surfaces
+    expect(html).toContain("Awaiting approval");
+    expect(html).toContain("8h"); // pending
     expect(html).toContain("Jack");
-    expect(html).toContain("8h"); // pending only
-    expect(html).not.toContain("Sam"); // approved worker excluded from breakdown
-    expect(html).not.toContain("99h"); // approved hours never surface
+    expect(html).toContain("Sam"); // both workers in the breakdown
+    // (rejected/draft are excluded at the /api/job-hours endpoint, tested in
+    // job-hours-api.test.ts — the card buckets whatever statuses it's handed.)
   });
 
   it("filters to this job — other jobs' hours never leak in", () => {
@@ -77,7 +81,7 @@ describe("JobLabourSummary", () => {
       jobId: "job-1",
       fetchError: null,
     });
-    expect(html).toContain("No hours are awaiting approval on this job");
+    expect(html).toContain("No labour recorded on this job yet");
     expect(html).not.toContain("8h");
   });
 
