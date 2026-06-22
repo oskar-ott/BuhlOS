@@ -319,9 +319,18 @@ async function createObservation(req, res, user, jobId) {
   // build, the append, the audit and any push, so a replay never duplicates the
   // observation or its side effects. No key → behaviour unchanged. Mirrors
   // api/evidence.js (docs/architecture/phil-write-idempotency.md).
+  //
+  // SCOPE the key to op + job (#577): observations.json is the one ORG-WIDE
+  // store sharing a single __idempotency ring across createObservation (per job)
+  // and createOfficeObservation. With a non-globally-unique client key (a
+  // per-session counter under the #143 offline queue), a bare key could collide
+  // across ops — or across two jobs — and the replay would return the wrong
+  // record, silently dropping the second write. Prefixing namespaces the ring
+  // the way evidence/snag get for free on their per-job data.json.
   const idemKey = idempotencyKeyFrom(req);
+  const idemScopeKey = idemKey ? `job:${jobId}:${idemKey}` : null;
   const store = await readStore();
-  const replay = idemKey ? findIdempotent(store, idemKey) : null;
+  const replay = idemScopeKey ? findIdempotent(store, idemScopeKey) : null;
   if (replay) {
     return res.status(201).json({ observation: replay, idempotentReplay: true });
   }
@@ -403,7 +412,7 @@ async function createObservation(req, res, user, jobId) {
   // observation (#497) instead of creating a second one. No-op without a key.
   if (!Array.isArray(store.observations)) store.observations = [];
   store.observations.push(item);
-  recordIdempotent(store, idemKey, item);
+  recordIdempotent(store, idemScopeKey, item);
   try {
     await writeBlob(STORE_KEY, store);
   } catch (e) {
@@ -524,9 +533,14 @@ async function createOfficeObservation(req, res, user) {
   // on reconnect must not create a second office item OR re-fan-out the admin
   // push. Read the store up front, return the original on an idempotency-key
   // hit before any side effect. No key → behaviour unchanged.
+  //
+  // SCOPE to the office op (#577) — see createObservation. Office items aren't
+  // job-scoped, so the prefix is op-only; an `office:` key can never collide
+  // with a `job:` key on the shared observations.json ring.
   const idemKey = idempotencyKeyFrom(req);
+  const idemScopeKey = idemKey ? `office:${idemKey}` : null;
   const store = await readStore();
-  const replay = idemKey ? findIdempotent(store, idemKey) : null;
+  const replay = idemScopeKey ? findIdempotent(store, idemScopeKey) : null;
   if (replay) {
     return res.status(201).json({ observation: replay, idempotentReplay: true });
   }
@@ -584,7 +598,7 @@ async function createOfficeObservation(req, res, user) {
   // the SAME write so a retry resolves to this exact office item (#497).
   if (!Array.isArray(store.observations)) store.observations = [];
   store.observations.push(item);
-  recordIdempotent(store, idemKey, item);
+  recordIdempotent(store, idemScopeKey, item);
   try {
     await writeBlob(STORE_KEY, store);
   } catch (e) {

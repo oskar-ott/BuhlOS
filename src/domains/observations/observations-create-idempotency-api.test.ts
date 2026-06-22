@@ -193,4 +193,49 @@ describe("POST /api/observations create — replay safety (#497)", () => {
     expect(storedObservations()).toHaveLength(1); // NO second office item
     expect(pushes.filter((p) => p.userId === "u_boss")).toHaveLength(1); // NOT re-notified
   });
+
+  // #577 — observations.json shares ONE ring across the job + office create
+  // paths (and is org-wide across jobs). The key must be scoped per op (+ job)
+  // so a shared client key can't return the wrong record and silently drop a write.
+  type Created = { observation: { id: string; title: string }; idempotentReplay?: boolean };
+
+  it("#577: a job observation and an office item sharing ONE client key do not collide", async () => {
+    const job = await call({
+      role: "electrician", userId: "u_field", query: { jobId: "job-1" },
+      body: { type: "note", title: "job obs" }, idempotencyKey: "shared-k",
+    });
+    expect(job.statusCode).toBe(201);
+    const jobObsId = (job.body as Created).observation.id;
+
+    const office = await call({
+      role: "electrician", userId: "u_field", query: { scope: "office" },
+      body: { type: "note", title: "office item" }, idempotencyKey: "shared-k",
+    });
+    expect(office.statusCode).toBe(201);
+    const off = office.body as Created;
+    expect(off.idempotentReplay).toBeFalsy(); // NOT a wrong replay of the job obs
+    expect(off.observation.id).not.toBe(jobObsId); // distinct new item
+    expect(off.observation.title).toBe("office item"); // office payload, not the job's
+    expect(storedObservations()).toHaveLength(2); // both persisted — no silent loss
+  });
+
+  it("#577: two job observations on DIFFERENT jobs sharing one key do not collide", async () => {
+    // org-wide store + a per-session client key that repeats across jobs (#143)
+    blob.set("users.json", {
+      users: [
+        { id: "u_field", username: "sparky", role: "electrician", assignedJobIds: ["job-1", "job-2"] },
+        { id: "u_boss", username: "boss", role: "boss", assignedJobIds: [] },
+      ],
+    });
+    blob.set("jobs.json", { jobs: [{ id: "job-1", name: "A", areaGroups: [] }, { id: "job-2", name: "B", areaGroups: [] }] });
+
+    const a = await call({ role: "electrician", userId: "u_field", query: { jobId: "job-1" }, body: { type: "note", title: "on A" }, idempotencyKey: "session-1" });
+    const b = await call({ role: "electrician", userId: "u_field", query: { jobId: "job-2" }, body: { type: "note", title: "on B" }, idempotencyKey: "session-1" });
+    expect(a.statusCode).toBe(201);
+    expect(b.statusCode).toBe(201);
+    expect((b.body as Created).idempotentReplay).toBeFalsy();
+    expect((b.body as Created).observation.id).not.toBe((a.body as Created).observation.id);
+    expect((b.body as Created).observation.title).toBe("on B");
+    expect(storedObservations()).toHaveLength(2);
+  });
 });
