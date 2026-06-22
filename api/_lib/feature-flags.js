@@ -106,6 +106,23 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Phil/FIELD evidence-metadata READ OVERLAY: the field-tier counterpart of
+  // supabase_read_admin_evidence (admin-first; this is the next rung). When on, the
+  // FIELD/leading-hand evidence read (/api/data evidence[]) is served from the PG
+  // evidence_files mirror using the SAME per-job parity gate (byte-faithful migrated
+  // fields or Blob fallback), chained AFTER the field task-status overlay. Output is
+  // identical to Blob; photo bytes + excluded fields (URLs, note bodies, labels,
+  // timestamps) stay Blob. Global flag, field-tier restriction at the call site
+  // (api/data.js gates on isFieldRole/isLeadingHandRole); independent of the admin
+  // evidence flag so the field cuts over separately; CLIENTS untouched. Evidence
+  // METADATA only — proof-status (job-control.json) is Blob-only and not touched.
+  // Default OFF, unset in prod.
+  supabase_read_phil_evidence: {
+    description: 'Serve the FIELD/Phil evidence-metadata read (/api/data) from Postgres, per-job parity-gated, with a Blob fallback (#152). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // The read-only Supabase connectivity proving slice (#533) — gates
   // GET /api/supabase-health, the first real DB caller. Dark until a preview
   // is wired; flip on per-environment to prove the guard→pooler→client path.

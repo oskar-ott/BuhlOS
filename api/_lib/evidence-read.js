@@ -231,12 +231,16 @@ async function readEvidenceOverlay(input = {}) {
   }
 }
 
-// Admin-tier wrapper — pins the admin evidence flag. Passing `flagKey` in `input`
+// Audience wrappers — each pins its evidence flag. Passing `flagKey` in `input`
 // is ignored (the wrapper overrides it), so the audience can never be spoofed.
+// Same parity engine for both; only the flag (and the call-site role gate) differ.
 function readAdminEvidence(input = {}) {
   return readEvidenceOverlay({ ...input, flagKey: 'supabase_read_admin_evidence' });
 }
+function readPhilEvidence(input = {}) {
+  return readEvidenceOverlay({ ...input, flagKey: 'supabase_read_phil_evidence' });
+}
 
-// readEvidenceOverlay is INTENTIONALLY not exported — callers use readAdminEvidence
-// (the audience wrapper that pins the flag). Same guardrail as task-read.js.
-module.exports = { probeEvidenceReadParity, compareEvidence, readAdminEvidence };
+// readEvidenceOverlay is INTENTIONALLY not exported — callers use the audience
+// wrappers (which pin the flag). Same guardrail as task-read.js.
+module.exports = { probeEvidenceReadParity, compareEvidence, readAdminEvidence, readPhilEvidence };

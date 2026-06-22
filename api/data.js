@@ -1,10 +1,11 @@
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isFieldRole, isLeadingHandRole, isAdminRole } = require('./_lib/auth');
 const { readPhilTaskStatus, readAdminTaskStatus } = require('./_lib/task-read');
-const { readAdminEvidence } = require('./_lib/evidence-read');
+const { readAdminEvidence, readPhilEvidence } = require('./_lib/evidence-read');
 const { recordTaskRead } = require('./_lib/task-read-diagnostics');
 const { recordAdminTaskRead } = require('./_lib/admin-task-read-diagnostics');
 const { recordAdminEvidenceRead } = require('./_lib/admin-evidence-read-diagnostics');
+const { recordPhilEvidenceRead } = require('./_lib/phil-evidence-read-diagnostics');
 
 // Per-job state document: GET returns the current { dwellings, snags, notes }
 // blob for a job — read by the Phil job screen (task state) and the read-only
@@ -57,12 +58,22 @@ module.exports = async (req, res) => {
   // → Blob). The same parity engine serves two audiences, each behind its own
   // flag, so the field and office cut over independently; CLIENTS always read pure
   // Blob (out of scope). Reader isolation is the requireAuth({ jobId }) gate above.
-  //   * J10 — FIELD/leading-hand, supabase_read_phil_tasks
-  //   * J11 — ADMIN/office,        supabase_read_admin_tasks
+  // Each tier then runs an evidence-metadata overlay (data.evidence[] only, same
+  // per-job parity gate, Blob fallback) chained after its task overlay — admin and
+  // field each behind their own flag. Proof-status (job-control.json) is untouched.
+  //   * FIELD/leading-hand — supabase_read_phil_tasks, supabase_read_phil_evidence
+  //   * ADMIN/office       — supabase_read_admin_tasks, supabase_read_admin_evidence
   if (isFieldRole(user.role) || isLeadingHandRole(user.role)) {
-    const overlay = await readPhilTaskStatus({ jobId, data });
-    recordTaskRead(overlay.diag);
-    return res.status(200).json(overlay.data);
+    // FIELD/leading-hand: task-status overlay (J10), then evidence-metadata overlay
+    // — each independently flag-gated + parity-gated, each falling back to Blob, so
+    // output stays byte-identical to Blob. The evidence overlay is field-tier here
+    // (supabase_read_phil_evidence, separate from the admin evidence flag) and
+    // touches data.evidence[] only (proof-status and other sections untouched).
+    const taskOverlay = await readPhilTaskStatus({ jobId, data });
+    recordTaskRead(taskOverlay.diag);
+    const evidenceOverlay = await readPhilEvidence({ jobId, data: taskOverlay.data });
+    recordPhilEvidenceRead(evidenceOverlay.diag);
+    return res.status(200).json(evidenceOverlay.data);
   }
   if (isAdminRole(user.role)) {
     // ADMIN/office: task-status overlay (J11), then evidence-metadata overlay —

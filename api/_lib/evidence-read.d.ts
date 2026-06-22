@@ -48,14 +48,17 @@ export interface EvidenceOverlayDiag {
   error?: string | null;
 }
 
-export function readAdminEvidence(input?: {
+export interface EvidenceOverlayInput {
   jobId: string;
   data: { evidence?: EvidenceItemLike[]; [key: string]: unknown };
   getDb?: unknown;
   isFlagOn?: (key: string) => Promise<boolean>;
   tenantSlug?: string;
   now?: () => number;
-}): Promise<{ data: unknown; diag: EvidenceOverlayDiag }>;
+}
+
+export function readAdminEvidence(input?: EvidenceOverlayInput): Promise<{ data: unknown; diag: EvidenceOverlayDiag }>;
+export function readPhilEvidence(input?: EvidenceOverlayInput): Promise<{ data: unknown; diag: EvidenceOverlayDiag }>;
 
 export function probeEvidenceReadParity(input?: {
   getDb?: unknown;

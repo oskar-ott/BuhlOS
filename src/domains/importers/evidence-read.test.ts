@@ -9,12 +9,13 @@ import { afterEach, describe, expect, it } from "vitest";
  * never bytes, URLs, note bodies, labels or timestamps. Output is counts only.
  */
 const requireFromHere = createRequire(import.meta.url);
-const { probeEvidenceReadParity, compareEvidence, readAdminEvidence } = requireFromHere(
+const { probeEvidenceReadParity, compareEvidence, readAdminEvidence, readPhilEvidence } = requireFromHere(
   requireFromHere.resolve("../../../api/_lib/evidence-read.js"),
 ) as {
   probeEvidenceReadParity: (input: Record<string, unknown>) => Promise<Probe>;
   compareEvidence: (b: EvItem[], p: EvItem[]) => { matched: number; mismatched: number; missingInPg: number; missingInBlob: number };
   readAdminEvidence: (input: Record<string, unknown>) => Promise<{ data: OverlayData; diag: OverlayDiag }>;
+  readPhilEvidence: (input: Record<string, unknown>) => Promise<{ data: OverlayData; diag: OverlayDiag }>;
 };
 type OverlayDiag = { source: "blob" | "postgres"; reason: string; parityPass: boolean | null; matched: number; mismatched: number; missingInPg: number; missingInBlob: number; fallbackUsed: boolean; error?: string | null };
 type OverlayData = { dwellings: unknown; snags: unknown[]; notes: unknown[]; evidence: EvItem[] };
@@ -295,5 +296,29 @@ describe("readAdminEvidence (dark admin evidence overlay)", () => {
     expect(d).not.toContain("SECRET");
     expect(d).not.toContain("https://");
     expect(d).not.toContain("e1");
+  });
+
+  it("wrapper pins the phil flag — caller cannot spoof the audience", async () => {
+    process.env.SUPABASE_DB_URL = "postgres://fake";
+    const seen: string[] = [];
+    const r = await readPhilEvidence({
+      jobId: "j1", data: blobData(),
+      flagKey: "supabase_read_admin_evidence", // attempt to spoof — must be ignored
+      isFlagOn: async (k: string) => { seen.push(k); return false; },
+      getDb: throwDb,
+    });
+    expect(seen).toEqual(["supabase_read_phil_evidence"]); // pinned, not the spoofed key
+    expect(r.diag.source).toBe("blob");
+    expect(r.diag.reason).toBe("flag off");
+  });
+
+  it("readPhilEvidence reuses the same engine — parity PASS serves PG, FAIL → Blob", async () => {
+    process.env.SUPABASE_DB_URL = "postgres://fake";
+    const pass = await readPhilEvidence({ jobId: "j1", data: blobData(), isFlagOn: async () => true, getDb: evSql([pgRow()]) });
+    expect(pass.diag.source).toBe("postgres");
+    expect(pass.diag.parityPass).toBe(true);
+    const fail = await readPhilEvidence({ jobId: "j1", data: blobData(), isFlagOn: async () => true, getDb: evSql([pgRow({ status: "rejected" })]) });
+    expect(fail.diag.source).toBe("blob");
+    expect(fail.diag.fallbackUsed).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summariseJobsRead, summarisePhilRead, summariseTaskRead, summariseAdminTaskRead, summariseTaskReadProbe, summariseEvidenceReadProbe, summariseAdminEvidenceRead, type JobsReadStatus, type TaskReadStatus, type AdminTaskReadStatus, type TaskReadProbeStatus, type EvidenceReadProbeStatus, type AdminEvidenceReadStatus } from "./jobs-read-status";
+import { summariseJobsRead, summarisePhilRead, summariseTaskRead, summariseAdminTaskRead, summariseTaskReadProbe, summariseEvidenceReadProbe, summariseAdminEvidenceRead, summarisePhilEvidenceRead, type JobsReadStatus, type TaskReadStatus, type AdminTaskReadStatus, type TaskReadProbeStatus, type EvidenceReadProbeStatus, type AdminEvidenceReadStatus, type PhilEvidenceReadStatus } from "./jobs-read-status";
 
 type Diag = NonNullable<JobsReadStatus["probe"]>;
 
@@ -295,6 +295,38 @@ describe("summariseAdminEvidenceRead (admin evidence overlay counters)", () => {
 
   it("honest nulls before any read", () => {
     const s = summariseAdminEvidenceRead({ flagOn: false, counters: counters() });
+    expect(s.flagOn).toBe(false);
+    expect(s.totalReads).toBe(0);
+    expect(s.lastSource).toBeNull();
+    expect(s.lastParityPass).toBeNull();
+  });
+});
+
+describe("summarisePhilEvidenceRead (field evidence overlay counters)", () => {
+  const counters = (over: Partial<PhilEvidenceReadStatus["counters"]> = {}): PhilEvidenceReadStatus["counters"] => ({
+    resetAt: "2026-06-22T00:00:00.000Z",
+    totalReads: 0, pgServedReads: 0, blobServedReads: 0, fallbackReads: 0, parityMismatches: 0,
+    lastDiag: null, lastAt: null, ...over,
+  });
+
+  it("reports flag + counters + last source/parity", () => {
+    const s = summarisePhilEvidenceRead({
+      flagOn: true,
+      counters: counters({
+        totalReads: 7, pgServedReads: 6, blobServedReads: 1, fallbackReads: 1, parityMismatches: 0,
+        lastAt: "2026-06-22T02:00:00.000Z",
+        lastDiag: { source: "postgres", reason: "served from postgres", flagOn: true, parityPass: true, matched: 3, mismatched: 0, missingInPg: 0, missingInBlob: 0, latencyMs: 7, fallbackUsed: false },
+      }),
+    });
+    expect(s.flagOn).toBe(true);
+    expect(s.totalReads).toBe(7);
+    expect(s.pgServedReads).toBe(6);
+    expect(s.lastSource).toBe("postgres");
+    expect(s.lastParityPass).toBe(true);
+  });
+
+  it("honest nulls before any read", () => {
+    const s = summarisePhilEvidenceRead({ flagOn: false, counters: counters() });
     expect(s.flagOn).toBe(false);
     expect(s.totalReads).toBe(0);
     expect(s.lastSource).toBeNull();

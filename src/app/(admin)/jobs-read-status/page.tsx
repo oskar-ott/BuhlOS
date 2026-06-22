@@ -5,7 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardTitle, CardDescription } from "@/components/ui/Card";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead, loadAdminTaskReadStatus, summariseAdminTaskRead, loadTaskReadProbe, summariseTaskReadProbe, loadEvidenceReadProbe, summariseEvidenceReadProbe, loadAdminEvidenceReadStatus, summariseAdminEvidenceRead } from "@/server/jobs-read-status";
+import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead, loadAdminTaskReadStatus, summariseAdminTaskRead, loadTaskReadProbe, summariseTaskReadProbe, loadEvidenceReadProbe, summariseEvidenceReadProbe, loadAdminEvidenceReadStatus, summariseAdminEvidenceRead, loadPhilEvidenceReadStatus, summarisePhilEvidenceRead } from "@/server/jobs-read-status";
 
 // Runs a live, read-only probe at request time.
 export const dynamic = "force-dynamic";
@@ -40,6 +40,7 @@ export default async function JobsReadStatusPage() {
   const taskProbe = summariseTaskReadProbe(await loadTaskReadProbe());
   const evidenceProbe = summariseEvidenceReadProbe(await loadEvidenceReadProbe());
   const adminEvidenceRead = summariseAdminEvidenceRead(await loadAdminEvidenceReadStatus());
+  const philEvidenceRead = summarisePhilEvidenceRead(await loadPhilEvidenceReadStatus());
 
   const sourceLabel = s.readSource === "postgres" ? "Postgres" : "Blob";
 
@@ -396,6 +397,31 @@ export default async function JobsReadStatusPage() {
         <Row label="Parity mismatches → Blob" value={adminEvidenceRead.parityMismatches} />
         <Row label="Last read source" value={adminEvidenceRead.lastSource ?? "—"} />
         <Row label="Last read at" value={fmtWhen(adminEvidenceRead.lastAt)} />
+      </Card>
+
+      <Card className="mt-4" data-testid="phil-evidence-read-status">
+        <CardTitle className="mb-2 text-slate-800">
+          Phil (field) evidence-metadata read overlay
+        </CardTitle>
+        <CardDescription className="mb-2">
+          Field-tier evidence metadata (<code>/api/data</code> <code>evidence[]</code>)
+          behind <code>supabase_read_phil_evidence</code> (<strong>{philEvidenceRead.flagOn ? "ON" : "OFF"}</strong>),
+          the same per-job parity gate as the admin evidence overlay — served from
+          Postgres only when the migrated evidence fields are byte-faithful to Blob,
+          else Blob fallback. Photo bytes, Blob URLs, note bodies, labels and
+          timestamps always stay Blob; <strong>evidence metadata only — proof-status
+          is untouched</strong>. Independent of the admin evidence flag; clients keep
+          pure-Blob evidence. Process-local counters of field evidence reads served
+          by this instance.
+        </CardDescription>
+        <Row label="Feature flag" value={philEvidenceRead.flagOn ? "ON" : "OFF"} />
+        <Row label="Evidence reads served" value={philEvidenceRead.totalReads} />
+        <Row label="… from Postgres (parity PASS)" value={philEvidenceRead.pgServedReads} />
+        <Row label="… from Blob" value={philEvidenceRead.blobServedReads} />
+        <Row label="Blob fallbacks (PG error)" value={philEvidenceRead.fallbackReads} />
+        <Row label="Parity mismatches → Blob" value={philEvidenceRead.parityMismatches} />
+        <Row label="Last read source" value={philEvidenceRead.lastSource ?? "—"} />
+        <Row label="Last read at" value={fmtWhen(philEvidenceRead.lastAt)} />
       </Card>
     </AdminShell>
   );
