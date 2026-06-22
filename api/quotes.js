@@ -418,11 +418,36 @@ async function handleMaterialsDelete(req, res, user, id) {
 }
 
 // ── Section: labour ──────────────────────────────────────────────────────
+
+// #580: validate the numeric labour-line money inputs. Pre-fix, handleLabourAdd
+// Number()-coerced without checking and handleLabourUpdate blind-copied from the
+// body, so a negative hourlyRate/estimatedHours, an uncapped riskFactor, or an
+// "abc"→NaN garbage value persisted on the line (masked by the calc's isFinite
+// total gate). Mirrors the 0–1000 pricing-settings convention (handlePricingSet).
+// hourlyRate may be explicitly null (= use the shared cost rate). Returns the
+// COERCED numbers for the fields PRESENT in body, or { ok:false, error }.
+const LABOUR_NUMERIC_CAPS = { estimatedHours: 1000, crewSize: 1000, hourlyRate: 1000, riskFactor: 1000 };
+function validateLabourNumerics(body) {
+  const values = {};
+  for (const field of Object.keys(LABOUR_NUMERIC_CAPS)) {
+    if (!body || body[field] === undefined) continue;
+    if (field === 'hourlyRate' && body[field] === null) { values.hourlyRate = null; continue; }
+    const n = Number(body[field]);
+    if (!Number.isFinite(n) || n < 0 || n > LABOUR_NUMERIC_CAPS[field]) {
+      return { ok: false, error: `${field} must be a number between 0 and ${LABOUR_NUMERIC_CAPS[field]}` };
+    }
+    values[field] = n;
+  }
+  return { ok: true, values };
+}
+
 async function handleLabourAdd(req, res, user, id) {
   const body = req.body || {};
   if (!body.task || !String(body.task).trim()) {
     return res.status(400).json({ error: 'task required' });
   }
+  const nums = validateLabourNumerics(body);
+  if (!nums.ok) return res.status(400).json({ error: nums.error });
   const data = await readSection(id, 'labour');
   data.lines = data.lines || [];
   const now = new Date().toISOString();
@@ -434,12 +459,12 @@ async function handleLabourAdd(req, res, user, id) {
     system:           body.system ? String(body.system).trim() : '',
     stage:            body.stage === 'fit-off' ? 'fit-off' : 'rough-in',
     task:             String(body.task).trim(),
-    estimatedHours:   body.estimatedHours != null ? Number(body.estimatedHours) : 0,
-    crewSize:         body.crewSize != null ? Number(body.crewSize) : 1,
+    estimatedHours:   nums.values.estimatedHours != null ? nums.values.estimatedHours : 0,
+    crewSize:         nums.values.crewSize != null ? nums.values.crewSize : 1,
     rateType:         body.rateType ? String(body.rateType).trim() : 'standard',
-    hourlyRate:       body.hourlyRate != null ? Number(body.hourlyRate) : null,
+    hourlyRate:       'hourlyRate' in nums.values ? nums.values.hourlyRate : null,
     difficulty:       body.difficulty ? String(body.difficulty).trim() : 'normal',
-    riskFactor:       body.riskFactor != null ? Number(body.riskFactor) : 1.0,
+    riskFactor:       nums.values.riskFactor != null ? nums.values.riskFactor : 1.0,
     notes:            body.notes ? String(body.notes).trim() : '',
     source:           ['manual', 'ai_suggested', 'imported'].includes(body.source) ? body.source : 'manual',
     createdAt:        now,
@@ -458,10 +483,15 @@ async function handleLabourUpdate(req, res, user, id) {
   const data = await readSection(id, 'labour');
   const idx = (data.lines || []).findIndex(l => l.id === lineId);
   if (idx < 0) return res.status(404).json({ error: 'not found' });
+  const nums = validateLabourNumerics(body);
+  if (!nums.ok) return res.status(400).json({ error: nums.error });
   const editable = ['areaGroup', 'area', 'system', 'stage', 'task', 'estimatedHours',
                     'crewSize', 'rateType', 'hourlyRate', 'difficulty', 'riskFactor', 'notes'];
   for (const k of editable) {
-    if (body[k] !== undefined) data.lines[idx][k] = body[k];
+    if (body[k] === undefined) continue;
+    // Numeric money fields: store the validated/coerced number, never the raw
+    // body value (which could be a string or out-of-range) — #580.
+    data.lines[idx][k] = (k in LABOUR_NUMERIC_CAPS) ? nums.values[k] : body[k];
   }
   data.lines[idx].updatedAt = new Date().toISOString();
   await writeSection(id, 'labour', data);
@@ -1698,3 +1728,4 @@ module.exports = async (req, res) => {
 // Exposed for the #384 totals-parity regression test. Vercel invokes only the
 // default function export; an attached helper property is inert in production.
 module.exports.computeQuoteTotals = computeQuoteTotals;
+module.exports.validateLabourNumerics = validateLabourNumerics;
