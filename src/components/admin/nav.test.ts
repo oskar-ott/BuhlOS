@@ -27,6 +27,7 @@ describe("NAV_GROUPS / ALL_ITEMS (#215 shared source)", () => {
       "/command-centre",
       "/observations",
       "/material-requests",
+      "/expenses",
       "/v2/jobs",
       "/v2/quotes",
       "/defects",

@@ -61,6 +61,7 @@ const APPROVED_ADMIN_HREFS = new Set([
   '/employees',
   '/observations', // PR 3 — cross-job field-to-office observations inbox
   '/material-requests', // PR 11 — cross-job procurement inbox
+  '/expenses', // #536 — cross-worker reimbursement review queue
   '/defects', // #414 — cross-job defects register (both snag stores)
   '/reports', // #316 — owner numbers dashboard (the six daily numbers)
   '/v2/jobs',
@@ -118,6 +119,7 @@ const REQUIRED_SOURCES = [
   'src/app/(admin)/employees/[id]/page.tsx',
   'src/app/(admin)/observations/page.tsx',
   'src/app/(admin)/material-requests/page.tsx',
+  'src/app/(admin)/expenses/page.tsx',
   'src/app/(admin)/defects/page.tsx',
   'src/app/(admin)/reports/page.tsx',
   'src/app/(admin)/qa/page.tsx',
