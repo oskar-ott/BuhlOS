@@ -624,6 +624,30 @@ module.exports = async (req, res) => {
           name: t.name,
         }));
       };
+      // Carry server-owned structural metadata (#578). archived state, sort
+      // `order` and `customFields` are NOT part of the editable structure the
+      // builder round-trips, so the remap (which rebuilds each entry) must
+      // preserve them or the PUT silently drops them. Prefer the (validated)
+      // payload value, else the stored entry. Note: a structure PUT can never
+      // silently UN-archive — un/re-archive is the bulk-edit path's job — so a
+      // matched entry that is archived on disk stays archived.
+      const carryMeta = (out, payloadEntry, existingEntry) => {
+        const arch = (payloadEntry && payloadEntry.archived) ? payloadEntry
+          : (existingEntry && existingEntry.archived) ? existingEntry : null;
+        if (arch) {
+          out.archived = true;
+          if (arch.archivedAt) out.archivedAt = arch.archivedAt;
+          if (arch.archivedBy) out.archivedBy = arch.archivedBy;
+        }
+        const order = (payloadEntry && typeof payloadEntry.order === 'number') ? payloadEntry.order
+          : (existingEntry && typeof existingEntry.order === 'number') ? existingEntry.order : undefined;
+        if (typeof order === 'number' && Number.isFinite(order)) out.order = order;
+        const cf = (payloadEntry && payloadEntry.customFields !== undefined) ? payloadEntry.customFields
+          : (existingEntry ? existingEntry.customFields : undefined);
+        if (cf !== undefined) out.customFields = cf;
+        return out;
+      };
+
       job.areaGroups = parsed.groups.map(g => {
         const existing = existingGroupsByName[g.name];
         const groupId = (existing && existing.id) ? existing.id : g.id;
@@ -631,6 +655,7 @@ module.exports = async (req, res) => {
         for (const ea of (existing ? existing.areas : [])) {
           existingAreasByName[ea.name] = ea;
         }
+        const payloadAreaNames = new Set(g.areas.map(a => a.name));
         const areas = g.areas.map(a => {
           const ea = existingAreasByName[a.name];
           const out = { id: (ea && ea.id) ? ea.id : a.id, name: a.name };
@@ -640,10 +665,28 @@ module.exports = async (req, res) => {
           if (newRough && newRough.length) out.roughInTasks = newRough;
           const newFit = preserveTaskIds(ea && ea.fitOffTasks, a.fitOffTasks);
           if (newFit && newFit.length) out.fitOffTasks = newFit;
-          return out;
+          return carryMeta(out, a, ea);
         });
-        return { id: groupId, name: g.name, areas };
+        // Retention (#578): an ARCHIVED area the payload omits is NOT a delete —
+        // the builder freezes + strips areaGroups for jobs with archived
+        // structure, so it can't send them; a direct PUT must not destroy them.
+        // Re-append archived stored areas the payload didn't carry, intact.
+        if (existing) {
+          for (const ea of (existing.areas || [])) {
+            if (ea && ea.archived && !payloadAreaNames.has(ea.name)) areas.push(ea);
+          }
+        }
+        return carryMeta({ id: groupId, name: g.name, areas }, g, existing);
       });
+
+      // Retention (#578): re-append ARCHIVED stored groups the payload omitted,
+      // intact — same reasoning as archived areas above.
+      {
+        const payloadGroupNames = new Set(parsed.groups.map(g => g.name));
+        for (const eg of Object.values(existingGroupsByName)) {
+          if (eg && eg.archived && !payloadGroupNames.has(eg.name)) job.areaGroups.push(eg);
+        }
+      }
 
       // Invariant guard at the PERSISTED-OUTPUT boundary, not just the incoming
       // payload. The name-based id remap above reuses an existing area's id for
