@@ -80,3 +80,41 @@ describe("Phil legibility floor (#423)", () => {
     expect(page).not.toContain("font-jetbrains");
   });
 });
+
+/**
+ * The 12px floor also has to hold on field-rendered surfaces that DON'T live
+ * under src/components/phil — the original guard only walked this directory, so
+ * sub-12px text leaked in through them (audit fix). These are:
+ *   - shared UI primitives Phil renders (StatusChip, Drawer, …);
+ *   - the onboarding funnel — the first screens a new field worker sees;
+ *   - the login screen, whose worker name+PIN mode is a field surface.
+ */
+describe("Legibility floor — shared field surfaces (#423, audit extension)", () => {
+  const UI_DIR = join(__dirname, "..", "ui");
+  const ONBOARDING_DIR = join(__dirname, "..", "onboarding");
+  const LOGIN_CSS = join(__dirname, "..", "..", "app", "v2", "login", "login.module.css");
+
+  it("no text-[<12px] bracket sizes in shared UI primitives or the onboarding funnel", () => {
+    const offenders: Array<{ file: string; size: string }> = [];
+    for (const file of [...walk(UI_DIR), ...walk(ONBOARDING_DIR)]) {
+      if (file.endsWith(".css")) continue;
+      const src = readFileSync(file, "utf8");
+      for (const m of src.matchAll(/text-\[([0-9.]+)px\]/g)) {
+        if (parseFloat(m[1]!) < MIN_PX) offenders.push({ file, size: `${m[1]}px` });
+      }
+    }
+    expect(
+      offenders,
+      `sub-${MIN_PX}px bracket sizes:\n${offenders.map((o) => `  ${o.file}: text-[${o.size}]`).join("\n")}`
+    ).toEqual([]);
+  });
+
+  it("login screen has no font-size below 12px (its worker name+PIN mode is a field surface)", () => {
+    const css = readFileSync(LOGIN_CSS, "utf8");
+    const offenders: string[] = [];
+    for (const m of css.matchAll(/font-size:\s*([0-9.]+)px/g)) {
+      if (parseFloat(m[1]!) < MIN_PX) offenders.push(`${m[1]}px`);
+    }
+    expect(offenders, `sub-${MIN_PX}px font sizes: ${offenders.join(", ")}`).toEqual([]);
+  });
+});

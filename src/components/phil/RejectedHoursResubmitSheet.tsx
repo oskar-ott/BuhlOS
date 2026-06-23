@@ -158,7 +158,7 @@ export function RejectedHoursResubmitSheet({
 
   if (!open) {
     return (
-      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
+      <Button variant="secondary" size="lg" onClick={() => setOpen(true)}>
         Fix rejected hours
       </Button>
     );
@@ -240,7 +240,7 @@ export function RejectedHoursResubmitSheet({
               onClick={() => setTotalHours(h)}
               aria-pressed={totalHours === h}
               className={cn(
-                "rounded-card border px-2 py-2 text-sm font-medium",
+                "min-h-[44px] rounded-card border px-2 py-2 text-sm font-medium",
                 totalHours === h
                   ? "border-brand-navy bg-brand-navy text-text-inverse"
                   : "border-border bg-surface text-text hover:border-border-strong",

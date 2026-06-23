@@ -58,7 +58,7 @@ export default async function PhilGearPage() {
 
         {fetchError ? (
           <PhilNotice tone="warning" title="Couldn’t load gear" role="alert">
-            {fetchError}. Try again shortly, or open the legacy My gear page below.
+            {fetchError}. Pull to refresh, or ask the office if it keeps happening.
           </PhilNotice>
         ) : null}
 

@@ -454,9 +454,8 @@ export default async function CommandCentrePage() {
               <div>
                 <CardTitle>Still being built</CardTitle>
                 <CardDescription className="mt-1">
-                  The cross-job snags inbox, reports / payroll exports and
-                  full settings live behind the UC pills in the sidebar.
-                  This is the only admin interface — the old{" "}
+                  A cross-job snags inbox and a full settings hub aren&rsquo;t
+                  built yet. This is the only admin interface — the old{" "}
                   <code className="text-xs">/admin/*</code> tool suite was
                   retired in the legacy cutover and its URLs redirect here.
                 </CardDescription>

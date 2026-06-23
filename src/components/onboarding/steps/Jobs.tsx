@@ -27,7 +27,7 @@ export function JobsStep({ onContinue, onSkip }: JobsStepProps) {
       />
 
       <div className="px-5 pt-2">
-        <p className="mb-2 font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+        <p className="mb-2 font-mono text-[12px] font-semibold uppercase tracking-[0.14em] text-text-muted">
           ↓ this is roughly what your list looks like
         </p>
 
@@ -43,10 +43,10 @@ export function JobsStep({ onContinue, onSkip }: JobsStepProps) {
           </div>
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex items-center gap-1.5">
-              <span className="rounded-[3px] bg-accent-yellow px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-brand-navy">
+              <span className="rounded-[3px] bg-accent-yellow px-1.5 py-0.5 font-mono text-[12px] font-bold uppercase tracking-[0.1em] text-brand-navy">
                 Today
               </span>
-              <span className="font-mono text-[9.5px] tracking-wide text-text-muted">
+              <span className="font-mono text-[12px] tracking-wide text-text-muted">
                 L4 ROUGH-IN
               </span>
             </div>
@@ -85,11 +85,11 @@ export function JobsStep({ onContinue, onSkip }: JobsStepProps) {
               <p className="font-display text-[14.5px] font-semibold tracking-tight text-text">
                 {j.name}
               </p>
-              <p className="mt-0.5 font-mono text-[10px] tracking-wide text-text-muted">
+              <p className="mt-0.5 font-mono text-[12px] tracking-wide text-text-muted">
                 {j.stage}
               </p>
             </div>
-            <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-text-muted">
+            <span className="font-mono text-[12px] font-bold uppercase tracking-[0.1em] text-text-muted">
               {j.when}
             </span>
           </article>

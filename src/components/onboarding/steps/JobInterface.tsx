@@ -55,7 +55,7 @@ export function JobInterfaceStep({ onContinue, onSkip }: JobInterfaceStepProps) 
                 {t.name}
               </p>
               <p
-                className={`font-mono text-[9px] font-bold uppercase tracking-[0.1em] ${
+                className={`font-mono text-[12px] font-bold uppercase tracking-[0.1em] ${
                   t.status === "soon" ? "text-amber-700" : "text-emerald-700"
                 }`}
               >

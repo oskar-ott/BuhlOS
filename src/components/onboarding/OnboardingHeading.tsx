@@ -15,7 +15,7 @@ export function OnboardingHeading({ eyebrow, title, sub }: OnboardingHeadingProp
   return (
     <header className="px-5 pb-2 pt-5">
       {eyebrow ? (
-        <p className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+        <p className="mb-2 font-mono text-[12px] font-semibold uppercase tracking-[0.14em] text-text-muted">
           {eyebrow}
         </p>
       ) : null}

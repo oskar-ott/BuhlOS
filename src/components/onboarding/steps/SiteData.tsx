@@ -22,7 +22,7 @@ const ITEMS: ReadonlyArray<{ name: string; detail: string }> = [
  * Step 07 · What you'll send back.
  *
  * Quick list of the data types Phil expects from site, with a callout
- * explaining that everything's auto-tagged with job + time + GPS, so
+ * explaining that everything's auto-tagged with job + time, so
  * paperwork doesn't pile up.
  */
 export function SiteDataStep({ onContinue, onSkip }: SiteDataStepProps) {
@@ -63,10 +63,10 @@ export function SiteDataStep({ onContinue, onSkip }: SiteDataStepProps) {
           ))}
         </ul>
 
-        <p className="mt-3 rounded-[10px] bg-surface-subtle px-3.5 py-3 font-mono text-[10.5px] leading-relaxed tracking-wide text-text-muted">
+        <p className="mt-3 rounded-[10px] bg-surface-subtle px-3.5 py-3 font-mono text-[12px] leading-relaxed tracking-wide text-text-muted">
           Everything you submit is{" "}
           <strong className="font-bold text-text">auto-tagged</strong> with the
-          job, time and your GPS location. No paperwork.
+          job and time. No paperwork.
         </p>
       </div>
 

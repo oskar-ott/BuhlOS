@@ -42,7 +42,7 @@ export function WelcomeStep({ onContinue, onSkipToApp }: WelcomeStepProps) {
             <p className="font-display text-[32px] font-extrabold leading-none tracking-tight text-text">
               Phil
             </p>
-            <p className="mt-1 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+            <p className="mt-1 font-mono text-[12px] font-semibold uppercase tracking-[0.14em] text-text-muted">
               BuhlOS · field app
             </p>
           </div>

@@ -39,7 +39,7 @@ export function PermissionsStep({ onContinue, onSkip }: PermissionsStepProps) {
       <OnboardingProgress step={8} total={TOTAL_STEPS} onSkip={onSkip} />
 
       <div className="px-5 pt-5">
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+        <p className="font-mono text-[12px] font-semibold uppercase tracking-[0.14em] text-text-muted">
           Permissions
         </p>
         <h1 className="mt-2 font-display text-[26px] font-bold leading-[1.1] tracking-tight text-text [text-wrap:balance]">
@@ -63,7 +63,7 @@ export function PermissionsStep({ onContinue, onSkip }: PermissionsStepProps) {
             ◉
           </span>
           <div>
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+            <p className="font-mono text-[12px] font-semibold uppercase tracking-[0.14em] text-text-muted">
               1 of 2
             </p>
             <p className="mt-0.5 font-display text-lg font-bold tracking-tight text-text">
@@ -90,7 +90,7 @@ export function PermissionsStep({ onContinue, onSkip }: PermissionsStepProps) {
             ♪
           </span>
           <div>
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+            <p className="font-mono text-[12px] font-semibold uppercase tracking-[0.14em] text-text-muted">
               2 of 2
             </p>
             <p className="mt-0.5 font-display text-lg font-bold tracking-tight text-text">
@@ -106,7 +106,7 @@ export function PermissionsStep({ onContinue, onSkip }: PermissionsStepProps) {
             <PermItem key={u.title} index={i} title={u.title} detail={u.detail} />
           ))}
         </ul>
-        <p className="mt-3 font-mono text-[10px] leading-relaxed tracking-wide text-text-muted">
+        <p className="mt-3 font-mono text-[12px] leading-relaxed tracking-wide text-text-muted">
           Phil will ask for these when it needs them — never up front. You can
           change them later from your phone&rsquo;s settings.
         </p>

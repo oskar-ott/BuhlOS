@@ -70,7 +70,7 @@ export function IdentityStep({ name, email, role, onContinue }: IdentityStepProp
               <p className="truncate font-display text-[19px] font-bold tracking-tight text-text">
                 {name || "Your name"}
               </p>
-              <p className="mt-1 truncate font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+              <p className="mt-1 truncate font-mono text-[12px] font-semibold uppercase tracking-[0.08em] text-text-muted">
                 {displayRole} · BuhlOS
               </p>
             </div>
@@ -116,7 +116,7 @@ function IdentityRow({ label, value }: { label: string; value: string | null }) 
   const needsAdmin = !value;
   return (
     <div className="flex items-center gap-3 border-t border-border px-4 py-3 min-h-[56px]">
-      <span className="w-20 shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">
+      <span className="w-20 shrink-0 font-mono text-[12px] font-semibold uppercase tracking-[0.12em] text-text-muted">
         {label}
       </span>
       <span
@@ -127,7 +127,7 @@ function IdentityRow({ label, value }: { label: string; value: string | null }) 
         {value ?? "—"}
       </span>
       {needsAdmin ? (
-        <span className="shrink-0 whitespace-nowrap rounded-[3px] bg-amber-100 px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-amber-800">
+        <span className="shrink-0 whitespace-nowrap rounded-[3px] bg-amber-100 px-1.5 py-0.5 font-mono text-[12px] font-bold uppercase tracking-[0.1em] text-amber-800">
           Admin update
         </span>
       ) : (

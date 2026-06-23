@@ -65,8 +65,8 @@ export default async function HoursApprovalsPage() {
         <HoursApprovalsQueue initialEntries={entries} fetchError={fetchError} canUndo={isAdminRole(session.role)} />
 
         <UnderConstructionPanel
-          feature="Bulk approve week · re-open approved entry · LH-scoped admin view"
-          description="Approving a worker's whole week in one tap, re-opening an approved entry that needs correction, and the dedicated leading-hand view of crew entries aren't wired here yet. The legacy hours tool that covered these was retired in the legacy cutover — they're on the backlog."
+          feature="Leading-hand crew view"
+          description="A dedicated leading-hand view of just their crew's entries isn't wired yet — it's on the backlog. Bulk approve ('Approve all') is on this page; re-opening an approved entry is on the Weekly closeout tab."
         />
       </div>
     </AdminShell>

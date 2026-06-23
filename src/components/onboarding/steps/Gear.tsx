@@ -56,11 +56,11 @@ export function GearStep({ onContinue, onSkip }: GearStepProps) {
                 <p className="font-display text-[14.5px] font-semibold tracking-tight text-text">
                   {g.name}
                 </p>
-                <p className="mt-0.5 truncate font-mono text-[10px] tracking-wide text-text-muted">
+                <p className="mt-0.5 truncate font-mono text-[12px] tracking-wide text-text-muted">
                   {g.meta}
                 </p>
               </div>
-              <span className="shrink-0 whitespace-nowrap rounded-[3px] bg-emerald-50 px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-emerald-800">
+              <span className="shrink-0 whitespace-nowrap rounded-[3px] bg-emerald-50 px-1.5 py-0.5 font-mono text-[12px] font-bold uppercase tracking-[0.1em] text-emerald-800">
                 OK
               </span>
             </li>
@@ -72,7 +72,7 @@ export function GearStep({ onContinue, onSkip }: GearStepProps) {
             <p className="font-display text-sm font-bold tracking-tight text-text">
               Report missing
             </p>
-            <p className="mt-0.5 font-mono text-[9.5px] tracking-wide text-text-muted">
+            <p className="mt-0.5 font-mono text-[12px] tracking-wide text-text-muted">
               can&rsquo;t find it
             </p>
           </div>
@@ -80,7 +80,7 @@ export function GearStep({ onContinue, onSkip }: GearStepProps) {
             <p className="font-display text-sm font-bold tracking-tight text-text">
               Report damaged
             </p>
-            <p className="mt-0.5 font-mono text-[9.5px] tracking-wide text-text-muted">
+            <p className="mt-0.5 font-mono text-[12px] tracking-wide text-text-muted">
               broken / needs T&amp;T
             </p>
           </div>
