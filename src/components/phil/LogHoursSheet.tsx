@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Calendar, ChevronRight, Clock, MapPin, Split, Timer } from "lucide-react";
+import { Calendar, ChevronRight, ChevronsUpDown, Clock, MapPin, Split, Timer } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -641,30 +641,44 @@ function JobAttribution({
   // the real entry date) so the pre-selection explains itself.
   const selected = jobs.find((j) => j.id === selectedJobId) ?? null;
   if (selected && !pickerOpen) {
+    // The chosen job sits as a quiet info line, with a full-width "Select a
+    // different job" banner UNDER it (not an inline link) — so the job display
+    // and the change action are distinct: tapping the job does nothing, tapping
+    // the banner opens the picker. Reuses the same bar style as the other
+    // secondary log actions for one consistent affordance (owner request).
     return (
-      <div className={styles.jobLine}>
-        <span className={styles.jobLinePin} aria-hidden="true">
-          <MapPin className="h-[17px] w-[17px]" />
-        </span>
-        <span className={styles.jobLineText}>
-          <span className={styles.jobLineName}>{selected.name}</span>
-          {/* The caption explains the pre-selection: when this IS the
-              last-logged default, name it (with the real date); otherwise the
-              plain "Job" label. */}
-          <span className={styles.jobLineCaption}>
-            {selected.id === lastLoggedJobId && lastLoggedDate
-              ? `Your last job · logged ${formatShortDateLabel(lastLoggedDate)}`
-              : "Job"}
+      <div className="space-y-2">
+        <div className={styles.jobLine}>
+          <span className={styles.jobLinePin} aria-hidden="true">
+            <MapPin className="h-[17px] w-[17px]" />
           </span>
-        </span>
+          <span className={styles.jobLineText}>
+            <span className={styles.jobLineName}>{selected.name}</span>
+            {/* The caption explains the pre-selection: when this IS the
+                last-logged default, name it (with the real date); otherwise the
+                plain "Job" label. */}
+            <span className={styles.jobLineCaption}>
+              {selected.id === lastLoggedJobId && lastLoggedDate
+                ? `Your last job · logged ${formatShortDateLabel(lastLoggedDate)}`
+                : "Job"}
+            </span>
+          </span>
+        </div>
         <button
           type="button"
           onClick={() => setPickerOpen(true)}
           disabled={disabled}
           aria-expanded={false}
-          className={styles.jobLineChange}
+          className={styles.subAction}
         >
-          Pick a different job
+          <span className={styles.subActionIcon} aria-hidden="true">
+            <ChevronsUpDown className="h-[17px] w-[17px]" />
+          </span>
+          <span className={styles.subActionLabel}>Select a different job</span>
+          <ChevronRight
+            className={cn(styles.subActionChev, "h-[17px] w-[17px]")}
+            aria-hidden="true"
+          />
         </button>
       </div>
     );
@@ -765,6 +779,12 @@ function StatusLine({
   // so a second empty card would be redundant clutter against the design. Real
   // submitted/approved/rejected states still surface below.
   if (!entry) return null;
+  // Only the actionable (rejected) state earns a card on My Day — it carries the
+  // rejection reason and hosts the inline fix-and-resubmit. Submitted / approved
+  // / draft days are already shown by the week strip above and the post-submit
+  // confirmation banner below, so the informational "X logged · <status>" card
+  // was just clutter (owner request — removed).
+  if (entry.status !== "rejected") return null;
   return (
     <Card className="space-y-2">
       <div className="flex items-center justify-between gap-3">
