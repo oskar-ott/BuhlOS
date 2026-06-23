@@ -169,17 +169,42 @@ describe("LogHoursSheet — rejected entry fix flow", () => {
   });
 });
 
-describe("LogHoursSheet — secondary log controls under 'More options'", () => {
-  it("tucks custom/overtime, split and the note under one 'More options' expander (calm log area)", () => {
-    const html = render({ ...base, assignedJobs: [{ id: "j1", name: "Smith St Rewire" }] });
-    // One expander now holds the secondary controls — the lead is just the
-    // job + the yellow Standard-day action.
-    expect(html).toContain("More options");
-    // Custom / overtime is still reachable (inside the expander, in the DOM)…
+describe("LogHoursSheet — log control layout (owner reposition)", () => {
+  it("puts the day picker up under the calendar, above the standard-day action", () => {
+    const html = render({
+      ...base,
+      assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
+      initialDate: "2026-06-01",
+    });
+    const dateAt = html.indexOf('value="2026-06-01"');
+    expect(dateAt).toBeGreaterThanOrEqual(0);
+    // the day picker now renders before the yellow Standard-day action
+    expect(dateAt).toBeLessThan(html.indexOf("Standard day"));
+  });
+
+  it("places custom/overtime + split DIRECTLY under the action, not behind 'More options'", () => {
+    const html = render({
+      ...base,
+      assignedJobs: [
+        { id: "j1", name: "Smith St Rewire" },
+        { id: "j2", name: "Depot Switchboard" },
+      ],
+      initialJobId: "j1",
+    });
     expect(html).toContain("Custom / overtime hours");
-    // …and the old standalone "Add a note" disclosure is gone (folded in).
+    expect(html).toContain("Split across jobs");
+    const moreAt = html.indexOf("More options");
+    expect(html.indexOf("Custom / overtime hours")).toBeLessThan(moreAt);
+    expect(html.indexOf("Split across jobs")).toBeLessThan(moreAt);
+  });
+
+  it("keeps only the optional note tucked under 'More options' (still calm)", () => {
+    const html = render({ ...base, assignedJobs: [{ id: "j1", name: "Smith St Rewire" }] });
+    expect(html).toContain("More options");
+    expect(html).toContain("Notes (optional)");
+    // the note follows the expander; the old standalone disclosures stay gone
+    expect(html.indexOf("Notes (optional)")).toBeGreaterThan(html.indexOf("More options"));
     expect(html).not.toContain("Add a note");
-    expect(html).not.toContain("Custom hours or a note");
   });
 });
 
