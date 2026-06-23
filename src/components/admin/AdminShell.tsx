@@ -26,11 +26,16 @@ interface AdminShellProps {
  */
 export function AdminShell({ children, title, breadcrumb }: AdminShellProps) {
   return (
-    <div data-testid="buhlos-admin-shell" className="flex min-h-screen bg-surface-subtle">
+    <div data-testid="buhlos-admin-shell" className="flex h-screen overflow-hidden bg-surface-subtle">
       <AdminSidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <AdminTopbar title={title} breadcrumb={breadcrumb} />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        {/* The scroll region — the sidebar (h-screen) + topbar stay fixed while
+            only the content scrolls. The shell is bounded to the viewport
+            (h-screen + overflow-hidden) so the body never scrolls the chrome
+            away; min-h-0 lets this flex child shrink below content so its own
+            overflow-y engages. */}
+        <main className="min-h-0 flex-1 overflow-y-auto p-6">{children}</main>
       </div>
       <CommandPalette />
       <PwaRegistrar />
