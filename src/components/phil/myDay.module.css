@@ -641,3 +641,170 @@ details[open] > .moreOptionsSummary::before {
   font-weight: 700;
   font-size: 14px;
 }
+
+/* ── Day picker row (design .md-daypick) — a carded row under the calendar,
+   not a bare native input. The real <input type=date> stays (seeds ?fixDate=,
+   opens the OS picker); we just dress its container to the My Day language. */
+.dayPick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 9px 12px;
+}
+.dayPickCal {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  flex-shrink: 0;
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dayPickLabel {
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.dayPickInput {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: -0.012em;
+  color: var(--text);
+  text-align: right;
+  padding: 0;
+}
+.dayPickInput:focus {
+  outline: none;
+}
+.dayPickInput:disabled {
+  color: var(--text-muted);
+}
+.dayPickWarn {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--state-danger);
+}
+
+/* ── Job line (design .md-jobline) — a carded row with a navy pin chip,
+   replacing the quiet inline text line for the sole / collapsed-job states. */
+.jobLine {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 7px 12px;
+  text-align: left;
+}
+.jobLinePin {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  background: var(--brand-navy);
+  color: var(--accent-yellow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.jobLineText {
+  flex: 1;
+  min-width: 0;
+}
+.jobLineName {
+  display: block;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.012em;
+  color: var(--text);
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jobLineCaption {
+  display: block;
+  margin-top: 1px;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.jobLineChange {
+  flex-shrink: 0;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--brand-navy);
+}
+.jobLineChange:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Secondary log action rows (design .md-sub) — carded icon-chip rows,
+   replacing the flat secondary <Button>s under the standard-day action. */
+.subAction {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.subAction:hover {
+  border-color: var(--border-strong);
+}
+.subAction:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.subActionIcon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.subActionLabel {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-inter-tight), "Inter", sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.012em;
+  color: var(--text);
+}
+.subActionChev {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
