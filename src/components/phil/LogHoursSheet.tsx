@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Clock } from "lucide-react";
+import { Calendar, ChevronRight, Clock, MapPin, Split, Timer } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -340,21 +340,27 @@ export function LogHoursSheet({
             reposition): the day you're logging sits WITH the calendar above it,
             not buried in More options. Always in the DOM so the ?fixDate= deep
             link still seeds it. */}
-        <label className="flex flex-wrap items-center gap-2 text-xs">
-          <span className={styles.mono}>Day</span>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            disabled={submitting}
-            className="rounded-pill border border-border bg-surface px-3 py-1.5 text-xs text-text focus:border-brand-navy focus:outline-none"
-          />
-          {!dateInWindow ? (
-            <span className="text-state-danger">
-              Pick a date in the last {MAX_BACKDATE_DAYS} days.
+        <div>
+          <label className={styles.dayPick}>
+            <span className={styles.dayPickCal} aria-hidden="true">
+              <Calendar className="h-[15px] w-[15px]" />
             </span>
+            <span className={styles.dayPickLabel}>Day</span>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              disabled={submitting}
+              aria-label="Day to log"
+              className={styles.dayPickInput}
+            />
+          </label>
+          {!dateInWindow ? (
+            <p className={styles.dayPickWarn}>
+              Pick a date in the last {MAX_BACKDATE_DAYS} days.
+            </p>
           ) : null}
-        </label>
+        </div>
 
         <JobAttribution
           jobs={assignedJobs}
@@ -405,27 +411,33 @@ export function LogHoursSheet({
             action (owner reposition): custom/overtime + split are no longer
             behind the "More options" expander. Only the optional note stays
             tucked below, so the lead is still the job + the two yellow actions. */}
-        <Button
-          variant="secondary"
-          size="lg"
+        <button
+          type="button"
           onClick={() => setCustomOpen(true)}
           disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
-          className="w-full"
+          className={styles.subAction}
         >
-          Custom / overtime hours
-        </Button>
+          <span className={styles.subActionIcon} aria-hidden="true">
+            <Timer className="h-[17px] w-[17px]" />
+          </span>
+          <span className={styles.subActionLabel}>Custom / overtime hours</span>
+          <ChevronRight className={cn(styles.subActionChev, "h-[17px] w-[17px]")} aria-hidden="true" />
+        </button>
 
         {assignedJobs.length > 1 ? (
-          <Button
-            variant="secondary"
-            size="lg"
+          <button
+            type="button"
             onClick={() => setSplitOpen(true)}
             disabled={submitting || lockedByStatus || !dateInWindow || !hasJobs}
-            className="w-full"
+            className={styles.subAction}
             data-testid="split-across-jobs"
           >
-            Split across jobs
-          </Button>
+            <span className={styles.subActionIcon} aria-hidden="true">
+              <Split className="h-[17px] w-[17px]" />
+            </span>
+            <span className={styles.subActionLabel}>Split across jobs</span>
+            <ChevronRight className={cn(styles.subActionChev, "h-[17px] w-[17px]")} aria-hidden="true" />
+          </button>
         ) : null}
 
         {/* Only the optional note is tucked under "More options" now. */}
@@ -576,11 +588,14 @@ function JobAttribution({
     // the greeting ("on {job}"). The "Assigned job" pill is kept verbatim (the
     // field-readiness smoke asserts it for the single-job attribution path).
     return (
-      <div className="flex items-center gap-2 px-0.5">
-        <span className="min-w-0 truncate font-display text-sm font-semibold text-text">
-          {jobs[0]!.name}
+      <div className={styles.jobLine}>
+        <span className={styles.jobLinePin} aria-hidden="true">
+          <MapPin className="h-[17px] w-[17px]" />
         </span>
-        <Pill tone="neutral">Assigned job</Pill>
+        <span className={styles.jobLineText}>
+          <span className={styles.jobLineName}>{jobs[0]!.name}</span>
+          <span className={styles.jobLineCaption}>Assigned job</span>
+        </span>
       </div>
     );
   }
@@ -590,19 +605,20 @@ function JobAttribution({
   const selected = jobs.find((j) => j.id === selectedJobId) ?? null;
   if (selected && !pickerOpen) {
     return (
-      <div className="flex items-center justify-between gap-2 px-0.5">
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate font-display text-sm font-semibold text-text">
-            {selected.name}
-          </span>
-          <Pill tone="neutral">Job</Pill>
+      <div className={styles.jobLine}>
+        <span className={styles.jobLinePin} aria-hidden="true">
+          <MapPin className="h-[17px] w-[17px]" />
+        </span>
+        <span className={styles.jobLineText}>
+          <span className={styles.jobLineName}>{selected.name}</span>
+          <span className={styles.jobLineCaption}>Job</span>
         </span>
         <button
           type="button"
           onClick={() => setPickerOpen(true)}
           disabled={disabled}
           aria-expanded={false}
-          className="shrink-0 text-xs font-semibold text-brand-navy underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+          className={styles.jobLineChange}
         >
           Change
         </button>
