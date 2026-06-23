@@ -41,7 +41,7 @@ export function OnboardingProgress({
     total === 8 ? FILL_WIDTHS[clamped] : pickGenericFill(clamped, total);
   return (
     <div className="flex items-center gap-3 px-5 pt-12">
-      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+      <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.14em] text-text-muted">
         Step {String(step).padStart(2, "0")} · {String(total).padStart(2, "0")}
       </span>
       <div

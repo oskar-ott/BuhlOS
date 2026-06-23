@@ -189,6 +189,54 @@ describe("GET /api/jobs field visibility", () => {
   });
 });
 
+describe("GET /api/jobs?id=…&withStats=1 — single-job hub stats truthfulness", () => {
+  it("omits stats* on a plain single-job GET (unchanged behaviour)", async () => {
+    const res = await call({
+      method: "GET",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "job-active" },
+    });
+    expect(res.statusCode).toBe(200);
+    const job = (res.body as { job: Record<string, unknown> }).job;
+    expect(job.id).toBe("job-active");
+    expect(job.statsCrewCount).toBeUndefined();
+    expect(job.statsAreaCount).toBeUndefined();
+    expect(job.statsItpsActive).toBeUndefined();
+  });
+
+  it("enriches the single-job GET with real stats* when ?withStats=1 (no fabricated 'all clear')", async () => {
+    // Real per-job data so the counts are non-trivial (and would all read as
+    // undefined under the pre-fix single-job path that returned before stats).
+    blob.set("jobs/job-active/data.json", {
+      dwellings: {},
+      snags: [],
+      evidence: [{ id: "e1", status: "submitted" }],
+      snagsV2: [{ id: "s1", status: "open" }],
+    });
+    blob.set("jobs/job-active/itps.json", {
+      instances: [{ id: "i1", status: "witnessed" }],
+    });
+
+    const res = await call({
+      method: "GET",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "job-active", withStats: "1" },
+    });
+    expect(res.statusCode).toBe(200);
+    const job = (res.body as { job: Record<string, number> }).job;
+    // stats* are now PRESENT on the single-job GET (they used to be undefined,
+    // collapsing the hub Status/attention card into a fabricated "all clear").
+    expect(job.statsCrewCount).toBe(2); // u_field + u_lh assigned to job-active
+    expect(job.statsAreaCount).toBe(1); // the archived area is stripped from the projection
+    expect(job.statsEvidenceV2Pending).toBe(1);
+    expect(job.statsSnagsV2Active).toBe(1);
+    expect(job.statsItpsActive).toBe(1);
+    expect(job.statsItpsNeedsReview).toBe(1);
+  });
+});
+
 describe("money-field redaction (#382)", () => {
   const MONEY = [
     "contractValue",

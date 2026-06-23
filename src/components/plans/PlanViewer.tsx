@@ -272,6 +272,7 @@ export function PlanViewer({ plan, renderOverlay, onPageChange }: PlanViewerProp
           <Button
             variant="ghost"
             size="sm"
+            className="min-h-[44px] min-w-[44px]"
             onClick={() => setZoom((z) => clampZoom(z / ZOOM_STEP))}
             aria-label="Zoom out"
           >
@@ -283,19 +284,26 @@ export function PlanViewer({ plan, renderOverlay, onPageChange }: PlanViewerProp
           <Button
             variant="ghost"
             size="sm"
+            className="min-h-[44px] min-w-[44px]"
             onClick={() => setZoom((z) => clampZoom(z * ZOOM_STEP))}
             aria-label="Zoom in"
           >
             <ZoomIn className="h-4 w-4" aria-hidden />
           </Button>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => applyFit("width")}>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="min-h-[44px]"
+          onClick={() => applyFit("width")}
+        >
           <Maximize2 className="h-4 w-4" aria-hidden />
           Fit width
         </Button>
         <Button
           variant="secondary"
           size="sm"
+          className="min-h-[44px]"
           onClick={() => setRotation((r) => (((r + 90) % 360) as Rotation))}
           aria-label="Rotate 90 degrees"
         >

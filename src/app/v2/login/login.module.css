@@ -71,7 +71,7 @@
 .brandTop { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .brandLogo { width: 150px; height: auto; margin: -8px 0 -14px -6px; }
 .brandCo {
-  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 500;
   letter-spacing: .14em; text-transform: uppercase; color: rgba(255, 255, 255, .5);
 }
 
@@ -94,7 +94,7 @@
 
 .brandFoot {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 500;
   letter-spacing: .1em; text-transform: uppercase; color: rgba(255, 255, 255, .4);
   border-top: 1px solid rgba(255, 255, 255, .1); padding-top: 18px;
 }
@@ -110,7 +110,7 @@
 .topmarkLogo { width: 138px; height: auto; }
 
 .eyebrow {
-  font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
   letter-spacing: .16em; text-transform: uppercase; color: var(--ink-3);
 }
 .h {
@@ -124,7 +124,7 @@
 .field { display: flex; flex-direction: column; gap: 6px; }
 .label {
   display: flex; align-items: baseline; justify-content: space-between; gap: 10px; white-space: nowrap;
-  font-family: var(--font-mono); font-size: 9px; font-weight: 600;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
   letter-spacing: .13em; text-transform: uppercase; color: var(--ink-3);
 }
 
@@ -142,12 +142,12 @@
 .input.err:focus { box-shadow: 0 0 0 3px rgba(192, 49, 47, .12); }
 .eye {
   position: absolute; right: 6px; height: 34px; padding: 0 11px; border: 0; background: transparent;
-  font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: .1em;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: .1em;
   text-transform: uppercase; color: var(--ink-3); cursor: pointer; border-radius: 7px;
 }
 .eye:hover { background: var(--paper-3); color: var(--ink); }
 .msg {
-  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .03em;
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: .03em;
   color: var(--red); display: flex; align-items: center; gap: 6px;
 }
 
@@ -160,10 +160,10 @@
 .banner .ic {
   width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; margin-top: 1px;
   background: var(--red); color: #fff; display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 800; font-family: var(--font-display);
+  font-size: 12px; font-weight: 800; font-family: var(--font-display);
 }
 .banner b { font-family: var(--font-display); font-weight: 700; font-size: 12.5px; letter-spacing: -.01em; color: var(--ink); display: block; }
-.banner p { margin: 2px 0 0; font-size: 11.5px; color: var(--ink-2); line-height: 1.4; }
+.banner p { margin: 2px 0 0; font-size: 12px; color: var(--ink-2); line-height: 1.4; }
 
 /* submit */
 .submit {
@@ -186,7 +186,7 @@
 
 .or {
   display: flex; align-items: center; gap: 12px; margin: 4px 0;
-  font-family: var(--font-mono); font-size: 9px; font-weight: 600;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
   letter-spacing: .14em; text-transform: uppercase; color: var(--ink-4);
 }
 .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
@@ -201,17 +201,17 @@
 .sso .key {
   width: 16px; height: 16px; border-radius: 4px; background: var(--rule-2);
   display: inline-flex; align-items: center; justify-content: center; color: var(--paper);
-  font-size: 10px; font-weight: 800;
+  font-size: 12px; font-weight: 800;
 }
 .ssoNote {
   margin: 8px 0 0; text-align: center;
-  font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: .08em;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: .08em;
   text-transform: uppercase; color: var(--ink-4);
 }
 
 .foot {
   margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--rule);
-  font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: .04em;
   color: var(--ink-3); line-height: 1.6; text-align: center;
 }
 .foot b { color: var(--ink-2); font-weight: 600; }

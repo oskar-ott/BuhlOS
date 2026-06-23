@@ -92,6 +92,141 @@ function computeJobStats(job, data) {
   return { pct, openSnags, areaCount, tasksTotal: counts.total, tasksComplete: counts.complete };
 }
 
+// Crew tally for the stats* fields — counts field + leading-hand users assigned
+// to each job. One users.json read; shared by the list and single-job GETs so
+// they can never disagree.
+async function loadCrewCountByJob() {
+  const crewCountByJob = {};
+  try {
+    const usersBlob = await readBlob('users.json', { users: [] });
+    (usersBlob.users || []).forEach(u => {
+      if (isFieldRole(u.role) || isLeadingHandRole(u.role)) {
+        (u.assignedJobIds || []).forEach(jid => {
+          crewCountByJob[jid] = (crewCountByJob[jid] || 0) + 1;
+        });
+      }
+    });
+  } catch (e) { /* tolerate missing */ }
+  return crewCountByJob;
+}
+
+// Per-job stats enrichment used by BOTH the /jobs list (?withStats=1) and the
+// single-job hub GET (?id=…&withStats=1) — extracted so the two surfaces can't
+// drift (a single-job request used to skip this and read every stats* field as
+// undefined, which collapsed the hub's Status/attention card, section count
+// chips and Test&tag card into a fabricated "all clear"). One blob read per
+// job; fine at both the list and single-job scale. Fails soft per job — the
+// caller still gets the core job with stats absent rather than a 500.
+async function enrichJobsWithStats(jobs, crewCountByJob) {
+  // Tag-expiry totals come from per-job tags.json. Parse dd/mm/yyyy and
+  // count expired (already past) + soon (≤14 days).
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const todayMs = today.getTime();
+  const cutoffMs = todayMs + 14 * 24 * 60 * 60 * 1000;
+  const parseDDMM = s => {
+    if (!s) return NaN;
+    const m = String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) return new Date(+m[3], +m[2] - 1, +m[1]).getTime();
+    const m2 = String(s).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m2) return new Date(+m2[1], +m2[2] - 1, +m2[3]).getTime();
+    return NaN;
+  };
+
+  return Promise.all(jobs.map(async j => {
+    try {
+      const [d, tagsBlob, itpsBlob, plansBlob] = await Promise.all([
+        readBlob(`jobs/${j.id}/data.json`, { dwellings: {}, snags: [] }),
+        readBlob(`jobs/${j.id}/tags.json`, { tags: [] }).catch(() => ({ tags: [] })),
+        // E1a: per-job ITP instances live on a separate blob, not on
+        // data.json — see api/job-itps.js. Missing blob (no ITPs ever
+        // attached) falls back to { instances: [] }.
+        readBlob(`jobs/${j.id}/itps.json`, { instances: [] }).catch(() => ({ instances: [] })),
+        // E2: per-job plan/spec index lives on its own blob — see
+        // api/plans.js. Missing blob (no plans uploaded yet) falls back to
+        // { plans: [] } so statsDocumentsCurrent reads as 0 not a reject.
+        readBlob(`jobs/${j.id}/plans-index.json`, { plans: [] }).catch(() => ({ plans: [] })),
+      ]);
+      const stats = computeJobStats(j, d);
+      let expiredTags = 0, expiringTags = 0;
+      for (const t of tagsFromBlob(tagsBlob)) {
+        const ms = parseDDMM(t.expiryDate);
+        if (!Number.isFinite(ms)) continue;
+        if (ms < todayMs) expiredTags++;
+        else if (ms <= cutoffMs) expiringTags++;
+      }
+      // V2 namespace counts for the rebuild admin jobs index. computeJobStats
+      // counts the legacy snags[] array; the rebuild surfaces consume the
+      // parallel evidence[] + snagsV2[] arrays on the same data.json. Both
+      // reads share the single data.json fetch above — zero extra blob hits.
+      const evidenceArr = Array.isArray(d.evidence) ? d.evidence : [];
+      const snagsV2Arr  = Array.isArray(d.snagsV2)  ? d.snagsV2  : [];
+      let evidencePendingV2 = 0;
+      for (const e of evidenceArr) {
+        const s = e && e.status;
+        if (s === 'submitted' || s === 'pending_upload') evidencePendingV2++;
+      }
+      // Match needsWorkerAttention semantics from src/domains/snags/format.ts —
+      // open|in_progress|resolved PLUS rejected. Verified and closed are the
+      // only fully-handled states.
+      let snagsActiveV2 = 0;
+      for (const s of snagsV2Arr) {
+        const st = s && s.status;
+        if (st === 'open' || st === 'in_progress' || st === 'resolved' || st === 'rejected') {
+          snagsActiveV2++;
+        }
+      }
+      // E1a: active ITP instances (pending|in-progress|witnessed and
+      // !archived) for the chip; statsItpsNeedsReview = the witnessed subset
+      // for the Command Centre "ITPs needing sign-off" queue. Single pass.
+      const itpsArr = Array.isArray(itpsBlob && itpsBlob.instances) ? itpsBlob.instances : [];
+      let itpsActive = 0;
+      let itpsNeedsReview = 0;
+      for (const inst of itpsArr) {
+        if (!inst || inst.archived) continue;
+        const st = inst.status;
+        if (st === 'pending' || st === 'in-progress' || st === 'witnessed') itpsActive++;
+        if (st === 'witnessed') itpsNeedsReview++;
+      }
+      // E2: current (non-superseded, non-archived) plan/spec rows. Legacy rows
+      // without a `status` default to 'current' (matches api/plans.js).
+      const plansArr = Array.isArray(plansBlob && plansBlob.plans) ? plansBlob.plans : [];
+      let documentsCurrent = 0;
+      for (const p of plansArr) {
+        if (!p) continue;
+        const st = p.status;
+        if (!st || st === 'current') documentsCurrent++;
+      }
+      return Object.assign({}, j, {
+        statsPct:               stats.pct,
+        statsTasksTotal:        stats.tasksTotal,
+        statsTasksComplete:     stats.tasksComplete,
+        statsOpenSnags:         stats.openSnags,
+        statsCrewCount:         crewCountByJob[j.id] || 0,
+        statsAreaCount:         stats.areaCount,
+        statsExpiredTags:       expiredTags,
+        statsExpiringTags:      expiringTags,
+        statsEvidenceV2Pending: evidencePendingV2,
+        statsSnagsV2Active:     snagsActiveV2,
+        statsItpsActive:        itpsActive,
+        statsItpsNeedsReview:   itpsNeedsReview,
+        statsDocumentsCurrent:  documentsCurrent,
+      });
+    } catch (e) {
+      // Fail soft — caller still gets the core job, stats just absent.
+      return Object.assign({}, j, {
+        statsPct: null, statsTasksTotal: 0, statsTasksComplete: 0, statsOpenSnags: 0,
+        statsCrewCount: crewCountByJob[j.id] || 0,
+        statsAreaCount: 0,
+        statsExpiredTags: 0, statsExpiringTags: 0,
+        statsEvidenceV2Pending: 0, statsSnagsV2Active: 0,
+        statsItpsActive: 0,
+        statsItpsNeedsReview: 0,
+        statsDocumentsCurrent: 0,
+      });
+    }
+  }));
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -166,9 +301,18 @@ module.exports = async (req, res) => {
         req.query.includeArchived === '1' &&
         canViewArchivedJobs(me.role);
       const cleaned = projectJobStructure(job, { includeArchived });
-      return res.status(200).json({
-        job: redactJobForViewer({ ...cleaned, modules: effectiveModules(job) }, me.role),
-      });
+      const projected = { ...cleaned, modules: effectiveModules(job) };
+      // ?withStats=1 on the single-job hub GET — run the SAME per-job stats
+      // enrichment the list uses, so the hub's Status/attention card, section
+      // count chips and Test&tag card read real numbers instead of undefined
+      // (which used to collapse them into a fabricated "all clear"). Shared
+      // helper → list + single can't drift.
+      if (req.query && req.query.withStats === '1') {
+        const crewCountByJob = await loadCrewCountByJob();
+        const [enrichedSingle] = await enrichJobsWithStats([projected], crewCountByJob);
+        return res.status(200).json({ job: redactJobForViewer(enrichedSingle, me.role) });
+      }
+      return res.status(200).json({ job: redactJobForViewer(projected, me.role) });
     }
     // Non-admin roles never see draft or archived jobs (office-only).
     // Admin sees every status so the Builder can list + open its own drafts.
@@ -211,158 +355,8 @@ module.exports = async (req, res) => {
     // progress + open-snag count without drilling in. Opt-in via ?withStats=1
     // (one blob read per job; fine for the list-view scale).
     if (req.query && req.query.withStats === '1') {
-      // Cheap: load users.json once for crew-count tally.
-      let crewCountByJob = {};
-      try {
-        const usersBlob = await readBlob('users.json', { users: [] });
-        (usersBlob.users || []).forEach(u => {
-          if (isFieldRole(u.role) || isLeadingHandRole(u.role)) {
-            (u.assignedJobIds || []).forEach(jid => {
-              crewCountByJob[jid] = (crewCountByJob[jid] || 0) + 1;
-            });
-          }
-        });
-      } catch (e) { /* tolerate missing */ }
-
-      // Tag-expiry totals come from per-job tags.json. Parse dd/mm/yyyy and
-      // count expired (already past) + soon (≤14 days). One extra blob read
-      // per job; acceptable for the list-view scale.
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const todayMs = today.getTime();
-      const cutoffMs = todayMs + 14 * 24 * 60 * 60 * 1000;
-      const parseDDMM = s => {
-        if (!s) return NaN;
-        const m = String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-        if (m) return new Date(+m[3], +m[2] - 1, +m[1]).getTime();
-        const m2 = String(s).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-        if (m2) return new Date(+m2[1], +m2[2] - 1, +m2[3]).getTime();
-        return NaN;
-      };
-
-      enriched = await Promise.all(enriched.map(async j => {
-        try {
-          const [d, tagsBlob, itpsBlob, plansBlob] = await Promise.all([
-            readBlob(`jobs/${j.id}/data.json`, { dwellings: {}, snags: [] }),
-            readBlob(`jobs/${j.id}/tags.json`, { tags: [] }).catch(() => ({ tags: [] })),
-            // E1a: per-job ITP instances live on a separate blob, not on
-            // data.json — see api/job-itps.js. One extra read per job;
-            // tolerated for the list-view scale and parity with the
-            // tags.json fan-out above. Missing blob (no ITPs ever
-            // attached) falls back to { instances: [] }.
-            readBlob(`jobs/${j.id}/itps.json`, { instances: [] }).catch(() => ({ instances: [] })),
-            // E2: per-job plan/spec index lives on its own blob — see
-            // api/plans.js. One extra read per job; same fan-out shape
-            // as the ITP read above. Missing blob (no plans uploaded
-            // yet) falls back to { plans: [] } so statsDocumentsCurrent
-            // reads as 0 rather than rejecting the row.
-            readBlob(`jobs/${j.id}/plans-index.json`, { plans: [] }).catch(() => ({ plans: [] })),
-          ]);
-          const stats = computeJobStats(j, d);
-          let expiredTags = 0, expiringTags = 0;
-          for (const t of tagsFromBlob(tagsBlob)) {
-            const ms = parseDDMM(t.expiryDate);
-            if (!Number.isFinite(ms)) continue;
-            if (ms < todayMs) expiredTags++;
-            else if (ms <= cutoffMs) expiringTags++;
-          }
-          // Phase D6: V2 namespace counts for the rebuild admin jobs index.
-          // computeJobStats counts the legacy snags[] array; the rebuild
-          // surfaces (D4 evidence + D.5 snags) consume the parallel
-          // evidence[] + snagsV2[] arrays on the same data.json. Both reads
-          // share the single data.json fetch above — zero extra blob hits.
-          const evidenceArr = Array.isArray(d.evidence) ? d.evidence : [];
-          const snagsV2Arr  = Array.isArray(d.snagsV2)  ? d.snagsV2  : [];
-          let evidencePendingV2 = 0;
-          for (const e of evidenceArr) {
-            const s = e && e.status;
-            if (s === 'submitted' || s === 'pending_upload') evidencePendingV2++;
-          }
-          // Match needsWorkerAttention semantics from
-          // src/domains/snags/format.ts — open|in_progress|resolved
-          // PLUS rejected. Rejected snags carry an admin pushback the
-          // worker still has to handle (re-raise or accept) so they
-          // count toward "Snags N" on the admin jobs index. Verified
-          // and closed are the only fully-handled states.
-          let snagsActiveV2 = 0;
-          for (const s of snagsV2Arr) {
-            const st = s && s.status;
-            if (
-              st === 'open' ||
-              st === 'in_progress' ||
-              st === 'resolved' ||
-              st === 'rejected'
-            ) {
-              snagsActiveV2++;
-            }
-          }
-          // E1a: count active ITP instances for the /v2/jobs chip. Matches
-          // src/domains/itp/format.ts isActive — pending|in-progress|witnessed
-          // and !archived. Signed-off is the only terminal state; archived
-          // is excluded so a graveyard of soft-deleted ITPs doesn't inflate
-          // the chip count.
-          //
-          // Post-E1 hardening: also expose statsItpsNeedsReview (witnessed
-          // subset only) so the Command Centre "ITPs needing sign-off"
-          // queue card can show an accurate count. Same single-pass scan;
-          // zero extra blob reads.
-          const itpsArr = Array.isArray(itpsBlob && itpsBlob.instances)
-            ? itpsBlob.instances
-            : [];
-          let itpsActive = 0;
-          let itpsNeedsReview = 0;
-          for (const inst of itpsArr) {
-            if (!inst || inst.archived) continue;
-            const st = inst.status;
-            if (st === 'pending' || st === 'in-progress' || st === 'witnessed') {
-              itpsActive++;
-            }
-            if (st === 'witnessed') {
-              itpsNeedsReview++;
-            }
-          }
-          // E2: count current (non-superseded, non-archived) plan/spec
-          // rows. Drives the "Documents N" chip on /v2/jobs and the
-          // section nav on /v2/jobs/[jobId]. Legacy rows without a
-          // `status` field default to 'current' (matches the upload
-          // writer behaviour in api/plans.js).
-          const plansArr = Array.isArray(plansBlob && plansBlob.plans)
-            ? plansBlob.plans
-            : [];
-          let documentsCurrent = 0;
-          for (const p of plansArr) {
-            if (!p) continue;
-            const st = p.status;
-            if (!st || st === 'current') documentsCurrent++;
-          }
-          return Object.assign({}, j, {
-            statsPct:               stats.pct,
-            statsTasksTotal:        stats.tasksTotal,
-            statsTasksComplete:     stats.tasksComplete,
-            statsOpenSnags:         stats.openSnags,
-            statsCrewCount:         crewCountByJob[j.id] || 0,
-            statsAreaCount:         stats.areaCount,
-            statsExpiredTags:       expiredTags,
-            statsExpiringTags:      expiringTags,
-            statsEvidenceV2Pending: evidencePendingV2,
-            statsSnagsV2Active:     snagsActiveV2,
-            statsItpsActive:        itpsActive,
-            statsItpsNeedsReview:   itpsNeedsReview,
-            statsDocumentsCurrent:  documentsCurrent,
-          });
-        } catch (e) {
-          // Fail soft — caller still gets the core job, stats just absent.
-          return Object.assign({}, j, {
-            statsPct: null, statsTasksTotal: 0, statsTasksComplete: 0, statsOpenSnags: 0,
-            statsCrewCount: crewCountByJob[j.id] || 0,
-            statsAreaCount: 0,
-            statsExpiredTags: 0, statsExpiringTags: 0,
-            statsEvidenceV2Pending: 0, statsSnagsV2Active: 0,
-            statsItpsActive: 0,
-            statsItpsNeedsReview: 0,
-            statsDocumentsCurrent: 0,
-          });
-        }
-      }));
+      const crewCountByJob = await loadCrewCountByJob();
+      enriched = await enrichJobsWithStats(enriched, crewCountByJob);
     }
 
     // #382: strip admin-only money fields for non-admin viewers (admin rows

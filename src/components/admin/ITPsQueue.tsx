@@ -319,7 +319,7 @@ export function ITPsQueue({
           }
           description={
             items.length === 0
-              ? "Attach an ITP template from the legacy /admin/itp page to get started."
+              ? "Attach a check from the ITP templates library to get started."
               : "Switch filters to see what's there."
           }
         />

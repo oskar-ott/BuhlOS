@@ -61,7 +61,7 @@ export function Drawer({ open, onClose, title, subtitle, children, footer, class
           <div className="min-w-0">
             <h2 className="font-display text-lg leading-tight text-text">{title}</h2>
             {subtitle ? (
-              <p className="mt-1 font-mono text-[10.5px] uppercase tracking-wider text-text-muted">
+              <p className="mt-1 font-mono text-[12px] uppercase tracking-wider text-text-muted">
                 {subtitle}
               </p>
             ) : null}

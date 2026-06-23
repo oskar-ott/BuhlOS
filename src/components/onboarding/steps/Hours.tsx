@@ -33,14 +33,14 @@ export function HoursStep({ onContinue, onSkip }: HoursStepProps) {
         >
           <header className="mb-3 flex items-baseline justify-between">
             <div>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+              <p className="font-mono text-[12px] font-semibold uppercase tracking-[0.14em] text-text-muted">
                 Today
               </p>
               <p className="mt-0.5 font-display text-[19px] font-bold tracking-tight text-text">
                 Sample day
               </p>
             </div>
-            <p className="font-mono text-[10px] tracking-wide text-text-muted">
+            <p className="font-mono text-[12px] tracking-wide text-text-muted">
               0.0 / 38h wk
             </p>
           </header>
@@ -52,7 +52,7 @@ export function HoursStep({ onContinue, onSkip }: HoursStepProps) {
             aria-hidden="true"
           >
             <div className="text-left">
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70">
+              <p className="font-mono text-[12px] font-semibold uppercase tracking-[0.12em] opacity-70">
                 Tap once
               </p>
               <p className="mt-0.5 font-display text-[18px] font-bold tracking-tight">
@@ -75,7 +75,7 @@ export function HoursStep({ onContinue, onSkip }: HoursStepProps) {
 
           <div className="mt-3 flex items-center gap-2.5 rounded-[10px] border border-border bg-surface-subtle px-3 py-2.5">
             <span
-              className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-accent-yellow font-display text-[11px] font-extrabold text-brand-navy"
+              className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-accent-yellow font-display text-[12px] font-extrabold text-brand-navy"
               aria-hidden="true"
             >
               JOB
@@ -84,7 +84,7 @@ export function HoursStep({ onContinue, onSkip }: HoursStepProps) {
               <p className="font-display text-sm font-bold tracking-tight text-text">
                 Auto-selected job
               </p>
-              <p className="mt-0.5 font-mono text-[10px] tracking-wide text-text-muted">
+              <p className="mt-0.5 font-mono text-[12px] tracking-wide text-text-muted">
                 Whatever you&rsquo;re on today
               </p>
             </div>
@@ -94,7 +94,7 @@ export function HoursStep({ onContinue, onSkip }: HoursStepProps) {
           </div>
 
           <footer className="mt-3 flex items-center justify-between border-t border-border pt-2.5">
-            <p className="font-mono text-[10px] tracking-wide text-text-muted">
+            <p className="font-mono text-[12px] tracking-wide text-text-muted">
               auto-saved to your sheet
             </p>
             <p className="font-display text-[13px] font-bold text-text">

@@ -61,6 +61,10 @@ interface SectionForm {
 interface BuilderForm {
   name: string;
   clientName: string;
+  /** Pipeline state. Draft → Submitted → Won/Lost is set here and persisted on
+   *  save (the server already accepts input.status); Archived is reached via the
+   *  separate archive/DELETE flow, not this control. */
+  status: Quote["status"];
   sections: SectionForm[];
 }
 
@@ -72,6 +76,7 @@ function quoteToForm(quote: Quote): BuilderForm {
   return {
     name: quote.name,
     clientName: quote.clientName ?? "",
+    status: quote.status,
     sections: quote.sections.map((s) => ({
       key: s.id,
       id: s.id,
@@ -103,6 +108,7 @@ function comparable(form: BuilderForm) {
   return {
     name: form.name.trim(),
     clientName: form.clientName.trim(),
+    status: form.status,
     sections: form.sections.map((s) => ({
       id: s.id,
       title: s.title.trim(),
@@ -152,6 +158,7 @@ function toSaveInput(form: BuilderForm, updatedAt: string): QuoteSaveInput {
   return {
     name: form.name.trim(),
     clientName: form.clientName.trim() || undefined,
+    status: form.status,
     sections: form.sections.map((s) => ({
       id: s.id,
       title: s.title.trim(),
@@ -378,9 +385,32 @@ export function QuoteBuilderClient({ initialQuote }: QuoteBuilderClientProps) {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-64 flex-1 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <Pill tone={quoteStatusTone(savedQuote.status)}>
-                {quoteStatusLabel(savedQuote.status)}
+              <Pill tone={quoteStatusTone(form.status)}>
+                {quoteStatusLabel(form.status)}
               </Pill>
+              {/* Move the quote through the pipeline (#244/#172): Draft →
+                  Submitted → Won/Lost. The change is staged like any edit and
+                  persisted on Save (server applies input.status). Archived is a
+                  separate flow, so it's not an option here. Converting a Won
+                  quote into a job is NOT wired yet — no fake button is shown. */}
+              {form.status !== "archived" ? (
+                <label className="flex items-center gap-1.5 text-sm">
+                  <span className="sr-only">Quote status</span>
+                  <select
+                    data-testid="quote-builder-status"
+                    value={form.status}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, status: e.target.value as Quote["status"] }))
+                    }
+                    className="rounded-card border border-border bg-surface px-2 py-1 text-sm focus:border-brand-navy focus:outline-none"
+                  >
+                    <option value="draft">Draft</option>
+                    <option value="submitted">Submitted</option>
+                    <option value="won">Won</option>
+                    <option value="lost">Lost</option>
+                  </select>
+                </label>
+              ) : null}
               {chip}
             </div>
             <label className="flex flex-col gap-1 text-sm">

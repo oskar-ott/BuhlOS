@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { AdminSearchBox } from "./AdminSearchBox";
+import { AdminMobileNav } from "./AdminMobileNav";
 
 interface AdminTopbarProps {
   title: string;
@@ -19,6 +20,9 @@ interface AdminTopbarProps {
 export function AdminTopbar({ title, breadcrumb }: AdminTopbarProps) {
   return (
     <header className="flex h-16 items-center gap-4 border-b border-border bg-surface px-6">
+      {/* Mobile/tablet nav trigger — hidden at md+ where the sidebar shows.
+          Without it a phone visit to an admin URL had no way to navigate. */}
+      <AdminMobileNav />
       <div className="min-w-0 flex-1">
         <h1 className="truncate font-display text-lg text-text">{title}</h1>
         {breadcrumb ? (
