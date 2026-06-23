@@ -76,6 +76,22 @@ export function formatDateLabel(date: string): string {
 }
 
 /**
+ * Compact friendly date label WITHOUT the year — "Fri 19 Jun". Used where the
+ * year is obvious from context, e.g. the "logged …" sub-line on the My Day job
+ * picker, which only ever names a recent date. Same en-AU shape as
+ * formatDateLabel minus the year; malformed input is returned unchanged.
+ */
+export function formatShortDateLabel(date: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  const d = new Date(date + "T00:00:00");
+  return d.toLocaleDateString("en-AU", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
+/**
  * Title for the My Day quick-log action, naming the day being logged so the
  * button is never generic. Today → "Log today's hours"; any other date →
  * "Log Tuesday's hours" (the weekday of that date) — so tapping a past day in

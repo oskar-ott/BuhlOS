@@ -146,6 +146,17 @@ export async function prepareAttributedStandardDay(page: Page): Promise<void> {
   const radiogroup = page.getByRole("radiogroup", { name: /Choose the job for these hours/i });
   const assignedPill = page.getByText("Assigned job", { exact: true });
 
+  // A worker with several active jobs now lands with their last-logged job
+  // preselected and the list COLLAPSED to one line. If neither the open list
+  // nor the single-job "Assigned job" pill is showing, reopen the list via
+  // "Pick a different job" so we can pick the fixture explicitly (the
+  // last-logged default may be a different job). No-op in the strict
+  // single-job fixture path (the pill is present, so this is skipped).
+  if ((await radiogroup.count()) === 0 && (await assignedPill.count()) === 0) {
+    const reopen = page.getByRole("button", { name: /Pick a different job/i });
+    if ((await reopen.count()) > 0) await reopen.first().click();
+  }
+
   if ((await radiogroup.count()) > 0) {
     const radio = page.getByRole("radio", { name: FIXTURE_JOB_NAME, exact: true });
     if (isStrict()) {

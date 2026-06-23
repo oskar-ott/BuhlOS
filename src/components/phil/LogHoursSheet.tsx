@@ -26,6 +26,7 @@ import {
 import {
   formatDateLabel,
   formatHoursLabel,
+  formatShortDateLabel,
   logActionTitle,
   statusLabel,
   statusTone,
@@ -71,6 +72,20 @@ interface LogHoursSheetProps {
    */
   initialJobId?: string | null;
   /**
+   * The worker's most-recently-logged job id (derived server-side from their
+   * recent entries, and only set when that job is still assignable). When the
+   * worker has several jobs and no explicit initialJobId, the picker defaults
+   * to this — logging "the same job as last time" is then one tap, with the
+   * full list one tap behind "Pick a different job".
+   */
+  lastLoggedJobId?: string | null;
+  /**
+   * The date (YYYY-MM-DD) the lastLoggedJobId was last logged — a REAL entry
+   * date, used only for the "Your last job · logged …" sub-line so the default
+   * explains itself. Null when unknown (then no date is shown — never faked).
+   */
+  lastLoggedDate?: string | null;
+  /**
    * Optional preselected date (validated YYYY-MM-DD — callers go through
    * parseFixDate). Set by the ?fixDate= deep link on /phil/my-day so the
    * "Hours rejected" push notification lands the worker on the exact day
@@ -109,6 +124,8 @@ export function LogHoursSheet({
   assignedJobs,
   jobsError = false,
   initialJobId = null,
+  lastLoggedJobId = null,
+  lastLoggedDate = null,
   initialDate = null,
   autoOpenFix = false,
 }: LogHoursSheetProps) {
@@ -126,10 +143,16 @@ export function LogHoursSheet({
   // manual open/close still works.
   const [moreOpen, setMoreOpen] = useState(false);
   const [state, setState] = useState<SubmitState>({ kind: "idle" });
-  // Job attribution. Preselect when launched with a valid job context, else
-  // auto-select the sole assigned job; multiple jobs require an explicit pick.
+  // Job attribution. Preselect, in order of authority: an explicit launch
+  // context (initialJobId) → the worker's last-logged job (the usual "same job
+  // as yesterday" default) → the sole assigned job. Only a worker with several
+  // jobs AND no usable default is left to pick explicitly. Every candidate is
+  // validated against the active assigned jobs so a stale id never sticks.
   const [selectedJobId, setSelectedJobId] = useState<string | null>(() => {
     if (initialJobId && assignedJobs.some((j) => j.id === initialJobId)) return initialJobId;
+    if (lastLoggedJobId && assignedJobs.some((j) => j.id === lastLoggedJobId)) {
+      return lastLoggedJobId;
+    }
     return assignedJobs.length === 1 ? assignedJobs[0]!.id : null;
   });
 
@@ -369,6 +392,8 @@ export function LogHoursSheet({
             setSelectedJobId(id);
             setMoreOpen(true); // open the note disclosure once a job is chosen
           }}
+          lastLoggedJobId={lastLoggedJobId}
+          lastLoggedDate={lastLoggedDate}
           jobsError={jobsError}
           disabled={submitting}
         />
@@ -528,27 +553,37 @@ export function LogHoursSheet({
  *   - jobs failed to load   → warning, submit blocked
  *   - zero active jobs       → honest "ask the office" message, submit blocked
  *   - exactly one job        → preselected, shown read-only (no friction)
- *   - multiple jobs          → a required radio list (mobile-friendly taps)
+ *   - multiple jobs          → ONE job preselected (the last-logged default, or
+ *                              an explicit launch context), collapsed to a
+ *                              single line; "Pick a different job" reopens a
+ *                              searchable list. With no usable default the list
+ *                              stays open as a required choice ("Pick one").
  * It never lets the worker proceed with no job when active jobs exist.
  */
 function JobAttribution({
   jobs,
   selectedJobId,
   onSelect,
+  lastLoggedJobId,
+  lastLoggedDate,
   jobsError,
   disabled,
 }: {
   jobs: ReadonlyArray<{ id: string; name: string }>;
   selectedJobId: string | null;
   onSelect: (id: string) => void;
+  lastLoggedJobId: string | null;
+  lastLoggedDate: string | null;
   jobsError: boolean;
   disabled: boolean;
 }): ReactNode {
-  // Multi-job: collapse to the chosen job once one is picked ("Change" reopens
-  // the list); stay expanded while nothing is picked so the required choice is
-  // never hidden. Declared at the top (before the single-job / empty / error
-  // early returns) to satisfy the rules of hooks.
+  // Multi-job: collapse to the chosen job once one is picked ("Pick a different
+  // job" reopens the list); stay expanded while nothing is picked so the
+  // required choice is never hidden. `query` filters the reopened list. Both
+  // declared before the single-job / empty / error early returns to satisfy the
+  // rules of hooks.
   const [pickerOpen, setPickerOpen] = useState<boolean>(!selectedJobId);
+  const [query, setQuery] = useState<string>("");
   const label = (
     <p className="font-display text-xs uppercase tracking-widest text-text-muted">Job</p>
   );
@@ -601,7 +636,9 @@ function JobAttribution({
   }
 
   // Once a job is chosen, collapse to a one-line summary so the picker stops
-  // taking up the screen — tap "Change" to reopen the list.
+  // taking up the screen — tap "Pick a different job" to reopen the list. When
+  // the chosen job IS the last-logged default, a quiet sub-line says so (with
+  // the real entry date) so the pre-selection explains itself.
   const selected = jobs.find((j) => j.id === selectedJobId) ?? null;
   if (selected && !pickerOpen) {
     return (
@@ -611,7 +648,14 @@ function JobAttribution({
         </span>
         <span className={styles.jobLineText}>
           <span className={styles.jobLineName}>{selected.name}</span>
-          <span className={styles.jobLineCaption}>Job</span>
+          {/* The caption explains the pre-selection: when this IS the
+              last-logged default, name it (with the real date); otherwise the
+              plain "Job" label. */}
+          <span className={styles.jobLineCaption}>
+            {selected.id === lastLoggedJobId && lastLoggedDate
+              ? `Your last job · logged ${formatShortDateLabel(lastLoggedDate)}`
+              : "Job"}
+          </span>
         </span>
         <button
           type="button"
@@ -620,12 +664,16 @@ function JobAttribution({
           aria-expanded={false}
           className={styles.jobLineChange}
         >
-          Change
+          Pick a different job
         </button>
       </div>
     );
   }
 
+  // Reopened (or never-picked) list. The search field narrows it — useful as a
+  // worker's assigned-job count grows — and the radios stay the tap target.
+  const q = query.trim().toLowerCase();
+  const filtered = q ? jobs.filter((j) => j.name.toLowerCase().includes(q)) : jobs;
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
@@ -633,8 +681,8 @@ function JobAttribution({
         {!selectedJobId ? (
           <span className="text-xs font-medium text-state-warning">Pick one</span>
         ) : (
-          // Reopened via "Change" with a job already chosen — let the worker
-          // collapse back without having to re-pick.
+          // Reopened via "Pick a different job" with a job already chosen — let
+          // the worker collapse back without having to re-pick.
           <button
             type="button"
             onClick={() => setPickerOpen(false)}
@@ -646,8 +694,17 @@ function JobAttribution({
           </button>
         )}
       </div>
-      <ul className="mt-1 space-y-2" role="radiogroup" aria-label="Choose the job for these hours">
-        {jobs.map((j) => {
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        disabled={disabled}
+        placeholder="Find a job by name or address…"
+        aria-label="Search your jobs"
+        className="mt-2 block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+      />
+      <ul className="mt-2 space-y-2" role="radiogroup" aria-label="Choose the job for these hours">
+        {filtered.map((j) => {
           const active = j.id === selectedJobId;
           return (
             <li key={j.id}>
@@ -658,6 +715,7 @@ function JobAttribution({
                 disabled={disabled}
                 onClick={() => {
                   onSelect(j.id);
+                  setQuery("");
                   setPickerOpen(false);
                 }}
                 className={cn(
@@ -678,6 +736,11 @@ function JobAttribution({
             </li>
           );
         })}
+        {filtered.length === 0 ? (
+          <li className="px-1 py-2 text-xs text-text-muted">
+            No assigned job matches “{query.trim()}”.
+          </li>
+        ) : null}
       </ul>
       {/* #424: the one-allocation rule lives here in the picker (only with
           >1 job), not as a permanent apology on My Day. */}

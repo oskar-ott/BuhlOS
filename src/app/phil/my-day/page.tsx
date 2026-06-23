@@ -19,6 +19,7 @@ import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import {
   BUSINESS_TIMEZONE,
+  lastLoggedJobFor,
   localDateString,
   parseFixDate,
 } from "@/domains/timesheets/service";
@@ -133,6 +134,15 @@ export default async function MyDayPage({
   });
   const jobs = assignedJobs.jobs;
   const soleJob = jobs.length === 1 ? jobs[0]! : null;
+  // The worker's most-recently-logged job (only if it's still assignable), so
+  // the hours picker defaults to "same job as last time" — derived from the
+  // already-loaded recent entries, with a REAL entry date for the sub-line
+  // (never fabricated). Null when they haven't logged recently → the sheet
+  // falls back to the sole job or an explicit pick.
+  const lastLogged = lastLoggedJobFor(
+    recentEntries,
+    jobs.map((j) => j.id)
+  );
   const { heading, subtitle, initials } = buildPhilGreeting({
     displayName,
     hour: hourInTimeZone(new Date(), BUSINESS_TIMEZONE),
@@ -189,6 +199,8 @@ export default async function MyDayPage({
           assignedJobs={jobs}
           jobsError={assignedJobs.error}
           initialJobId={soleJobId}
+          lastLoggedJobId={lastLogged?.jobId ?? null}
+          lastLoggedDate={lastLogged?.date ?? null}
           initialDate={fixDate}
           autoOpenFix={fixDate !== null}
         />
