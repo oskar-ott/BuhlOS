@@ -119,11 +119,11 @@ export function LogHoursSheet({
   const [customOpen, setCustomOpen] = useState(false);
   const [customHours, setCustomHours] = useState<number>(STANDARD_DAY_HOURS);
   const [splitOpen, setSplitOpen] = useState(false);
-  // "More options" (date / custom-overtime / split / note) is collapsed by
-  // default to keep the log area calm, but auto-expands the moment a job is
-  // picked from the multi-job picker — so custom/overtime is right there once
-  // the worker has chosen where the hours go. Controlled + onToggle so manual
-  // open/close still works.
+  // "More options" now holds only the optional note (the day picker moved up
+  // under the calendar; custom-overtime + split sit directly under the
+  // standard-day action — owner reposition). Collapsed by default to keep the
+  // log area calm, auto-expands once a job is picked. Controlled + onToggle so
+  // manual open/close still works.
   const [moreOpen, setMoreOpen] = useState(false);
   const [state, setState] = useState<SubmitState>({ kind: "idle" });
   // Job attribution. Preselect when launched with a valid job context, else
@@ -336,12 +336,32 @@ export function LogHoursSheet({
       {/* No card wrapper — the design's actions sit as standalone bars on the
           page surface, not inside a bordered form box. */}
       <div className="space-y-3">
+        {/* Day picker — moved directly under the week-strip calendar (owner
+            reposition): the day you're logging sits WITH the calendar above it,
+            not buried in More options. Always in the DOM so the ?fixDate= deep
+            link still seeds it. */}
+        <label className="flex flex-wrap items-center gap-2 text-xs">
+          <span className={styles.mono}>Day</span>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            disabled={submitting}
+            className="rounded-pill border border-border bg-surface px-3 py-1.5 text-xs text-text focus:border-brand-navy focus:outline-none"
+          />
+          {!dateInWindow ? (
+            <span className="text-state-danger">
+              Pick a date in the last {MAX_BACKDATE_DAYS} days.
+            </span>
+          ) : null}
+        </label>
+
         <JobAttribution
           jobs={assignedJobs}
           selectedJobId={selectedJobId}
           onSelect={(id) => {
             setSelectedJobId(id);
-            setMoreOpen(true); // reveal custom/overtime + the rest once a job is chosen
+            setMoreOpen(true); // open the note disclosure once a job is chosen
           }}
           jobsError={jobsError}
           disabled={submitting}
@@ -381,13 +401,34 @@ export function LogHoursSheet({
           </span>
         </button>
 
-        {/* Everything past the one-tap standard day is tucked under a single
-            "More options" expander so the log area stays calm (P10): the lead
-            is just the job + the yellow action. Expand to pick a different day,
-            log custom / overtime, split across jobs, or add a note. The date
-            input stays in the DOM (not display:none) so the ?fixDate= deep link
-            still seeds it; the field-readiness smoke opens this disclosure
-            before driving the day. */}
+        {/* The two secondary log actions now sit DIRECTLY under the standard-day
+            action (owner reposition): custom/overtime + split are no longer
+            behind the "More options" expander. Only the optional note stays
+            tucked below, so the lead is still the job + the two yellow actions. */}
+        <Button
+          variant="secondary"
+          size="lg"
+          onClick={() => setCustomOpen(true)}
+          disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
+          className="w-full"
+        >
+          Custom / overtime hours
+        </Button>
+
+        {assignedJobs.length > 1 ? (
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={() => setSplitOpen(true)}
+            disabled={submitting || lockedByStatus || !dateInWindow || !hasJobs}
+            className="w-full"
+            data-testid="split-across-jobs"
+          >
+            Split across jobs
+          </Button>
+        ) : null}
+
+        {/* Only the optional note is tucked under "More options" now. */}
         <details
           className={styles.moreOptions}
           open={moreOpen}
@@ -395,45 +436,6 @@ export function LogHoursSheet({
         >
           <summary className={styles.moreOptionsSummary}>More options</summary>
           <div className="mt-3 space-y-3">
-            <label className="flex flex-wrap items-center gap-2 text-xs">
-              <span className={styles.mono}>Day</span>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                disabled={submitting}
-                className="rounded-pill border border-border bg-surface px-3 py-1.5 text-xs text-text focus:border-brand-navy focus:outline-none"
-              />
-              {!dateInWindow ? (
-                <span className="text-state-danger">
-                  Pick a date in the last {MAX_BACKDATE_DAYS} days.
-                </span>
-              ) : null}
-            </label>
-
-            <Button
-              variant="secondary"
-              size="lg"
-              onClick={() => setCustomOpen(true)}
-              disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
-              className="w-full"
-            >
-              Custom / overtime hours
-            </Button>
-
-            {assignedJobs.length > 1 ? (
-              <Button
-                variant="secondary"
-                size="lg"
-                onClick={() => setSplitOpen(true)}
-                disabled={submitting || lockedByStatus || !dateInWindow || !hasJobs}
-                className="w-full"
-                data-testid="split-across-jobs"
-              >
-                Split across jobs
-              </Button>
-            ) : null}
-
             <label className="block text-sm">
               <span className="mb-1 block font-medium text-text">Notes (optional)</span>
               <textarea
