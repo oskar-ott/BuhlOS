@@ -61,7 +61,7 @@ describe("LogHoursSheet — job attribution", () => {
     expect(html).not.toContain("Pick one");
   });
 
-  it("collapses the multi-job picker to the chosen job (less clutter), with a Change affordance", () => {
+  it("collapses the multi-job picker to the chosen job (less clutter), with a 'Pick a different job' affordance", () => {
     const html = render({
       ...base,
       assignedJobs: [
@@ -72,10 +72,48 @@ describe("LogHoursSheet — job attribution", () => {
     });
     // Collapsed: only the chosen job shows, plus a way to switch…
     expect(html).toContain("Depot Switchboard");
-    expect(html).toContain("Change");
-    // …the full radiogroup and the other job are tucked away until "Change".
+    expect(html).toContain("Pick a different job");
+    // …the full radiogroup, the search field and the other job are tucked away
+    // until the picker is reopened.
     expect(html).not.toContain('role="radiogroup"');
+    expect(html).not.toContain("Search your jobs");
     expect(html).not.toContain("Smith St Rewire");
+  });
+
+  it("defaults the multi-job picker to the last-logged job, collapsed, and explains it with the real date", () => {
+    const html = render({
+      ...base,
+      assignedJobs: [
+        { id: "j1", name: "Smith St Rewire" },
+        { id: "j2", name: "Depot Switchboard" },
+      ],
+      lastLoggedJobId: "j2",
+      lastLoggedDate: "2026-06-19",
+    });
+    // The last-logged job is preselected → no outstanding "Pick one"…
+    expect(html).not.toContain("Pick one");
+    expect(html).toContain("Depot Switchboard");
+    // …shown collapsed (list hidden) with a self-explaining, real-dated sub-line.
+    expect(html).not.toContain('role="radiogroup"');
+    expect(html).toContain("Your last job");
+    expect(html).toContain("19 Jun"); // the real entry date, year-less short form…
+    expect(html).not.toContain("19 Jun 2026"); // …not the full ISO/yearful label
+    expect(html).toContain("Pick a different job");
+  });
+
+  it("offers a search field over the jobs in the (re)opened multi-job picker", () => {
+    // No default → the picker is open as a required choice, and now carries a
+    // search field above the radio list so a worker can find a job by name.
+    const html = render({
+      ...base,
+      assignedJobs: [
+        { id: "j1", name: "Smith St Rewire" },
+        { id: "j2", name: "Depot Switchboard" },
+      ],
+    });
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain("Search your jobs");
+    expect(html).toContain("Find a job by name or address");
   });
 
   it("keeps the picker expanded while no job is chosen (a required choice is never hidden)", () => {

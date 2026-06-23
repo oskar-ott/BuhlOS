@@ -34,6 +34,7 @@ import {
   isWithinBackdateWindow,
   parseFixDate,
   primaryJobId,
+  lastLoggedJobFor,
   summariseMissing,
 } from "./service";
 import {
@@ -41,6 +42,7 @@ import {
   statusLabel,
   statusTone,
   formatDateLabel,
+  formatShortDateLabel,
   logActionTitle,
 } from "./format";
 
@@ -359,6 +361,15 @@ describe("formatting helpers", () => {
     expect(label).toMatch(/2026/);
   });
 
+  it("formatShortDateLabel drops the year (used on the 'logged …' sub-line)", () => {
+    const label = formatShortDateLabel("2026-05-04");
+    expect(label).toMatch(/Mon/);
+    expect(label).toMatch(/May/);
+    expect(label).not.toMatch(/2026/);
+    // Malformed input is returned unchanged, never throws.
+    expect(formatShortDateLabel("not-a-date")).toBe("not-a-date");
+  });
+
   it("logActionTitle says 'today' for today and names the weekday otherwise", () => {
     const today = "2026-06-11"; // a Thursday
     expect(logActionTitle(today, today)).toBe("Log today's hours");
@@ -391,6 +402,45 @@ describe("primaryJobId()", () => {
         ],
       })
     ).toBe("j-2");
+  });
+});
+
+describe("lastLoggedJobFor()", () => {
+  const entry = (date: string, jobId: string | null) => ({
+    date,
+    allocations: jobId === null ? [] : [{ jobId, hours: 7.6 }],
+  });
+
+  it("returns the newest-dated entry's job + its real date", () => {
+    const result = lastLoggedJobFor(
+      [entry("2026-06-17", "j-1"), entry("2026-06-19", "j-2"), entry("2026-06-12", "j-3")],
+      ["j-1", "j-2", "j-3"]
+    );
+    expect(result).toEqual({ jobId: "j-2", date: "2026-06-19" });
+  });
+
+  it("ignores order — the latest date wins regardless of array position", () => {
+    const result = lastLoggedJobFor(
+      [entry("2026-06-19", "j-2"), entry("2026-06-20", "j-1")],
+      ["j-1", "j-2"]
+    );
+    expect(result).toEqual({ jobId: "j-1", date: "2026-06-20" });
+  });
+
+  it("skips a last job that is no longer assignable (archived / unassigned)", () => {
+    // Most recent is j-gone (not assignable) → falls back to the newest entry
+    // whose job IS still assignable, never defaulting to a stale job.
+    const result = lastLoggedJobFor(
+      [entry("2026-06-20", "j-gone"), entry("2026-06-18", "j-1")],
+      ["j-1"]
+    );
+    expect(result).toEqual({ jobId: "j-1", date: "2026-06-18" });
+  });
+
+  it("returns null when nothing matches (no recent log, or all unassignable)", () => {
+    expect(lastLoggedJobFor([], ["j-1"])).toBeNull();
+    expect(lastLoggedJobFor([entry("2026-06-20", "j-gone")], ["j-1"])).toBeNull();
+    expect(lastLoggedJobFor([entry("2026-06-20", null)], ["j-1"])).toBeNull();
   });
 });
 

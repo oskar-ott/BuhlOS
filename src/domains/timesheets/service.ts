@@ -327,6 +327,34 @@ export function primaryJobId(entry: Pick<TimeEntry, "allocations">): string | nu
 }
 
 /**
+ * Pick the worker's most-recently-logged job, for pre-selecting the My Day
+ * hours picker so the common case ("same job as last time") is one tap. Scans
+ * `entries` for the newest-dated one whose primary job is STILL one of
+ * `assignableJobIds` — so an archived/unassigned old job never becomes the
+ * default, and the returned date is real (it's that entry's own date, never
+ * fabricated). Status-agnostic: any logged day counts as "your last job".
+ *
+ * Returns `{ jobId, date }` or null when nothing matches (the worker hasn't
+ * logged within the loaded window, or their last job is no longer assignable);
+ * the caller then falls back to the sole job or an explicit pick. Order of
+ * `entries` is irrelevant — the newest date wins by comparison. Pure.
+ */
+export function lastLoggedJobFor(
+  entries: ReadonlyArray<Pick<TimeEntry, "date" | "allocations">>,
+  assignableJobIds: ReadonlyArray<string>
+): { jobId: string; date: string } | null {
+  const assignable = new Set(assignableJobIds);
+  let best: { jobId: string; date: string } | null = null;
+  for (const entry of entries) {
+    const jobId = primaryJobId(entry);
+    if (!jobId || !assignable.has(jobId)) continue;
+    // YYYY-MM-DD compares lexicographically as chronologically.
+    if (!best || entry.date > best.date) best = { jobId, date: entry.date };
+  }
+  return best;
+}
+
+/**
  * Roll the server's flat `missing` array (one row per worker×weekday with no
  * entry) into the groupings the UI needs, without re-deriving any detection
  * logic — the server already decided *who* is missing *when* (assigned crew,
