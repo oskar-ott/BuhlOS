@@ -61,7 +61,7 @@ describe("LogHoursSheet — job attribution", () => {
     expect(html).not.toContain("Pick one");
   });
 
-  it("collapses the multi-job picker to the chosen job (less clutter), with a 'Pick a different job' affordance", () => {
+  it("collapses the multi-job picker to the chosen job (less clutter), with a 'Select a different job' banner", () => {
     const html = render({
       ...base,
       assignedJobs: [
@@ -72,7 +72,7 @@ describe("LogHoursSheet — job attribution", () => {
     });
     // Collapsed: only the chosen job shows, plus a way to switch…
     expect(html).toContain("Depot Switchboard");
-    expect(html).toContain("Pick a different job");
+    expect(html).toContain("Select a different job");
     // …the full radiogroup, the search field and the other job are tucked away
     // until the picker is reopened.
     expect(html).not.toContain('role="radiogroup"');
@@ -98,7 +98,7 @@ describe("LogHoursSheet — job attribution", () => {
     expect(html).toContain("Your last job");
     expect(html).toContain("19 Jun"); // the real entry date, year-less short form…
     expect(html).not.toContain("19 Jun 2026"); // …not the full ISO/yearful label
-    expect(html).toContain("Pick a different job");
+    expect(html).toContain("Select a different job");
   });
 
   it("offers a search field over the jobs in the (re)opened multi-job picker", () => {
@@ -204,6 +204,47 @@ describe("LogHoursSheet — rejected entry fix flow", () => {
     expect(html).toContain("Fix rejected hours");
     expect(html).not.toContain("splits hours across jobs");
     expect(html).not.toContain("legacy My day");
+  });
+});
+
+describe("LogHoursSheet — status card only for actionable (rejected) days", () => {
+  function entryWithStatus(status: "approved" | "submitted") {
+    return {
+      id: "te-2",
+      userId: "u1",
+      date: "2026-06-11",
+      totalHours: 7.6,
+      ordinaryHours: 7.6,
+      overtimeHours: 0,
+      status,
+      allocations: [{ jobId: "j1", hours: 7.6, notes: null }],
+      createdAt: "2026-06-11T06:00:00Z",
+      updatedAt: "2026-06-11T06:00:00Z",
+    };
+  }
+
+  it("hides the informational 'X logged · status' card for an approved entry", () => {
+    const html = render({
+      assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
+      recentEntries: [],
+      initialTodayEntry: entryWithStatus("approved"),
+    });
+    // The crossed-out card ("7h 36m logged … Approved") is gone…
+    expect(html).not.toContain("logged");
+    expect(html).not.toContain("Approved");
+    // …but the worker can still log (the action stays in view).
+    expect(html).toContain("Standard day");
+  });
+
+  it("still shows the card (reason + inline fix) for a rejected entry", () => {
+    const html = render({
+      assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
+      recentEntries: [],
+      initialTodayEntry: rejectedEntry([{ jobId: "j1", hours: 7.6, notes: null }]),
+    });
+    expect(html).toContain("logged"); // the card title renders only for rejected
+    expect(html).toContain("Wrong job");
+    expect(html).toContain("Fix rejected hours");
   });
 });
 
