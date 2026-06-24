@@ -84,6 +84,20 @@ describe("buildCompliancePack — honesty rules", () => {
     expect(pack.summary).toEqual([]);
     expect(pack.jobName).toBe("Riverside");
   });
+
+  it("carries job id + site address for the letterhead (site null when not captured)", () => {
+    const pack = build([]);
+    expect(pack.jobId).toBe("j1");
+    expect(pack.siteAddress).toBeNull();
+    const withSite = buildCompliancePack({
+      job: { ...job, siteAddress: "27 Kooba Ave, Lane Cove NSW 2066" } as unknown as Job,
+      instances: [],
+      overrides: {},
+      overridesWindowMonths: 12,
+      generatedAt: NOW,
+    });
+    expect(withSite.siteAddress).toBe("27 Kooba Ave, Lane Cove NSW 2066");
+  });
 });
 
 describe("buildCompliancePack — point rows", () => {
