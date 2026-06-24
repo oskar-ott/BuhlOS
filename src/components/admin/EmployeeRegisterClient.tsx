@@ -102,10 +102,10 @@ export function EmployeeRegisterClient({
       ) : null}
       {/* Header row */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 rounded-card border border-border bg-surface px-2">
-          <Search aria-hidden="true" className="h-4 w-4 text-text-muted" />
+        <div className="flex w-full items-center gap-2 rounded-card border border-border bg-surface px-2 sm:w-auto">
+          <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
           <input
-            className="h-9 w-56 bg-transparent text-sm outline-none"
+            className="h-9 w-full bg-transparent text-sm outline-none sm:w-56"
             placeholder="Search name or email…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -178,9 +178,11 @@ export function EmployeeRegisterClient({
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-card border border-border bg-surface">
-          {/* Column header */}
-          <div className="grid grid-cols-[1.6fr_1fr_0.9fr_0.5fr_0.5fr_0.8fr] gap-3 border-b border-border bg-surface-subtle px-4 py-2 font-mono text-[9.5px] uppercase tracking-wider text-text-muted">
+        <div className="overflow-x-auto rounded-card border border-border bg-surface">
+          {/* Column header — min-w keeps the 6 columns legible; the wrapper
+              scrolls horizontally on phones rather than crushing/overflowing
+              the page (same contained-scroll pattern as the gear register). */}
+          <div className="grid min-w-[640px] grid-cols-[1.6fr_1fr_0.9fr_0.5fr_0.5fr_0.8fr] gap-3 border-b border-border bg-surface-subtle px-4 py-2 font-mono text-[9.5px] uppercase tracking-wider text-text-muted">
             <span>Employee</span>
             <span>Role</span>
             <span>Status</span>
@@ -203,7 +205,7 @@ export function EmployeeRegisterClient({
                     <button
                       type="button"
                       onClick={() => setSelectedId(e.id)}
-                      className="grid w-full grid-cols-[1.6fr_1fr_0.9fr_0.5fr_0.5fr_0.8fr] items-center gap-3 border-b border-border px-4 py-3 text-left text-sm last:border-b-0 hover:bg-surface-subtle"
+                      className="grid w-full min-w-[640px] grid-cols-[1.6fr_1fr_0.9fr_0.5fr_0.5fr_0.8fr] items-center gap-3 border-b border-border px-4 py-3 text-left text-sm last:border-b-0 hover:bg-surface-subtle"
                     >
                       <span className="flex min-w-0 items-center gap-2.5">
                         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-subtle font-mono text-[10px] font-bold text-brand-navy">

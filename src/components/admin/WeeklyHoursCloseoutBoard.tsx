@@ -871,7 +871,7 @@ function DayRow({
       </div>
 
       {day.status === "submitted" ? (
-        <div className="flex gap-2 sm:justify-end">
+        <div className="flex flex-wrap gap-2 sm:justify-end">
           <Button size="sm" onClick={() => onApprove(worker, day)} disabled={busy}>
             {approving ? "Approving…" : "Approve"}
           </Button>

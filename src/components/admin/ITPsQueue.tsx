@@ -269,7 +269,7 @@ export function ITPsQueue({
               instances or reopen ones that need rework.
             </CardDescription>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {!isAdmin ? (
               <Pill tone="neutral">Sign-off &amp; archive are office-only</Pill>
             ) : null}
@@ -324,7 +324,7 @@ export function ITPsQueue({
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-card border border-border bg-surface-raised">
+        <div className="overflow-x-auto rounded-card border border-border bg-surface-raised">
           <table className="min-w-full divide-y divide-border">
             <thead className="bg-surface-subtle text-left">
               <tr>
