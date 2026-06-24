@@ -76,44 +76,40 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
     redirect("/v2/login");
   }
 
-  const result = await loadJob(raw, jobId);
-  // Initial evidence + snags + ITPs + documents load happens
-  // server-side so the panels render with content already present on
-  // first paint — no client-side spinner for the empty case. Failure
-  // is non-blocking: an empty list just shows the empty state, the
-  // worker can still create new items, and the server will return
-  // real data on the next refresh.
-  const [initialEvidence, initialSnags, initialObservations, initialItps, documentsResult, taskStateResult, tagsResult, initialContacts, initialMyInduction, jobControlResult] =
-    result.kind === "ok"
-      ? await Promise.all([
-          loadInitialEvidence(raw, jobId),
-          loadInitialSnags(raw, jobId),
-          loadInitialObservations(raw, jobId),
-          loadInitialItps(raw, jobId),
-          loadInitialDocuments(raw, jobId),
-          loadInitialTaskState(raw, jobId),
-          loadInitialTags(raw, jobId),
-          loadInitialContacts(raw, jobId),
-          loadInitialMyInduction(raw, jobId),
-          loadInitialJobControl(jobId),
-        ])
-      : [
-          [],
-          [],
-          [],
-          [],
-          { documents: [] as Document[], error: null as string | null },
-          { state: {} as JobTaskState, error: null as string | null },
-          { tags: [] as TagItem[], error: false },
-          [] as JobContact[],
-          null as InductionRecord | null,
-          {
-            workPackages: [] as WorkPackage[],
-            evidenceLinks: [] as EvidenceLink[],
-            proofReviews: [] as ProofReview[],
-            revision: undefined as string | undefined,
-          },
-        ];
+  // Perf: fire the job fetch AND all its sub-resource loads concurrently.
+  // This used to be a 2-stage waterfall — `await loadJob`, THEN a gated
+  // `Promise.all` of ten more internal /api/* round-trips — which added one
+  // full serial API hop (≈1s+ of Blob-read latency) to every job open. Each
+  // sub-loader independently gates job access and fails soft to empty, and
+  // their results are only read below when the job itself loaded
+  // (`result.kind === "ok"`); for a forbidden/not-found open they are simply
+  // discarded (the loads have no side effects). So collapsing the waterfall is
+  // safe and removes that serial hop from the worker's time-to-first-byte.
+  const [
+    result,
+    initialEvidence,
+    initialSnags,
+    initialObservations,
+    initialItps,
+    documentsResult,
+    taskStateResult,
+    tagsResult,
+    initialContacts,
+    initialMyInduction,
+    jobControlResult,
+  ] = await Promise.all([
+    loadJob(raw, jobId),
+    loadInitialEvidence(raw, jobId),
+    loadInitialSnags(raw, jobId),
+    loadInitialObservations(raw, jobId),
+    loadInitialItps(raw, jobId),
+    loadInitialDocuments(raw, jobId),
+    loadInitialTaskState(raw, jobId),
+    loadInitialTags(raw, jobId),
+    loadInitialContacts(raw, jobId),
+    loadInitialMyInduction(raw, jobId),
+    loadInitialJobControl(jobId),
+  ]);
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
     return (
