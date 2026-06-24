@@ -136,7 +136,7 @@ export function AdminSearchBox() {
   let flatCursor = -1;
 
   return (
-    <div className="relative w-full max-w-xs">
+    <div className="relative w-full max-w-[10rem] sm:max-w-xs">
       <div className="flex items-center gap-2 rounded-card border border-border bg-surface px-2.5 focus-within:border-brand-navy">
         <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
         <input

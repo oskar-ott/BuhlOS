@@ -92,7 +92,7 @@ export function EvidenceFilterBar({ items, value, onChange, visibleCount }: Prop
               })
             }
             disabled={captureBy.length === 0}
-            className="block h-10 min-w-[10rem] rounded-card border border-border bg-surface px-3 text-sm focus:border-brand-navy focus:outline-none disabled:opacity-60"
+            className="block h-10 min-w-0 max-w-[11rem] rounded-card border border-border bg-surface px-3 text-sm focus:border-brand-navy focus:outline-none disabled:opacity-60 sm:min-w-[10rem]"
           >
             <option value="">Anyone</option>
             {captureBy.map((c) => (
