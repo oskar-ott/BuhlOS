@@ -13,7 +13,9 @@ import type { CompliancePack } from "@/domains/itp/compliance-pack";
 
 const base: CompliancePack = {
   jobName: "Riverside",
+  jobId: "j1",
   jobRef: "BW-12",
+  siteAddress: "12 River Rd, Lane Cove NSW 2066",
   generatedAt: "2026-06-12T10:00:00.000Z",
   overridesNote: "Independence override justifications are sourced from the job audit log (last 12 months). Older overrides remain in the audit record.",
   summary: [
@@ -80,7 +82,11 @@ const base: CompliancePack = {
 describe("CompliancePackView", () => {
   it("cover, summary, evidence coverage, points, photos, sign-off + override all render", () => {
     const html = renderToString(createElement(CompliancePackView, { pack: base }));
-    expect(html).toContain("ITP compliance pack");
+    // Professional letterhead: doc title + the real bühl electrical identity.
+    expect(html).toContain("Compliance Pack");
+    expect(html).toContain("bühl electrical");
+    expect(html).toContain("ABN 61 204 887 113");
+    expect(html).toContain("Inspection register");
     expect(html).toContain("Riverside");
     expect(html).toContain("Ref BW-12");
     expect(html).toContain("2 archived");

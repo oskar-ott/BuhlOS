@@ -67,7 +67,10 @@ export interface PackInstanceSection {
 
 export interface CompliancePack {
   jobName: string;
+  jobId: string;
   jobRef: string | null;
+  /** Site address for the document letterhead; null when not captured. */
+  siteAddress: string | null;
   generatedAt: string;
   /** Where override justifications were sourced + the window's honesty note. */
   overridesNote: string;
@@ -113,7 +116,9 @@ export function buildCompliancePack(input: {
 
   return {
     jobName: job.name,
+    jobId: job.id,
     jobRef: job.ref ?? null,
+    siteAddress: job.siteAddress ? String(job.siteAddress).trim() || null : null,
     generatedAt: input.generatedAt,
     overridesNote: `Independence override justifications are sourced from the job audit log (last ${input.overridesWindowMonths} months). Older overrides remain in the audit record.`,
     summary: sections.map((s) => ({
