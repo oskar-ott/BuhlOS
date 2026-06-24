@@ -178,10 +178,72 @@ export function EmployeeRegisterClient({
           }
         />
       ) : (
-        <div className="overflow-x-auto rounded-card border border-border bg-surface">
+        <>
+        {/* Mobile (<sm): stacked card list — every field is visible without
+            the horizontal scroll the desktop column grid needs. A boss checks
+            workers on a phone; sideways-scrolling a 6-column grid is exactly
+            the "should be a mobile card list" case. */}
+        <ul className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface sm:hidden">
+          {visible.length === 0 ? (
+            <li className="px-4 py-6 text-center text-sm text-text-muted">No employees match this filter.</li>
+          ) : (
+            visible.map((row) => {
+              const e = row.employee;
+              // eslint-disable-next-line no-restricted-syntax -- apprenticeYear belongs to the literal apprentice role, not a tier
+              const apprentice = e.role === "apprentice" && e.apprenticeYear ? ` · Y${e.apprenticeYear}` : "";
+              const access = e.appAccess === "phil" ? "Field · Phil" : e.appAccess === "both" ? "Field · Phil +" : "Office · BuhlOS";
+              const flag = licenceFlagFor(row);
+              return (
+                <li key={e.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(e.id)}
+                    className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-surface-subtle"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-subtle font-mono text-[11px] font-bold text-brand-navy">
+                      {initialsFor(e)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-start justify-between gap-2">
+                        <span className="min-w-0">
+                          <span className="block truncate font-display text-sm text-text">{displayNameFor(e)}</span>
+                          <span className="block truncate font-mono text-[11px] text-text-muted">{e.email || "—"}</span>
+                        </span>
+                        <span className="flex shrink-0 flex-col items-end gap-1">
+                          <EmployeeStatusChip employee={e} invite={row.invite} />
+                          {flag ? (
+                            <span
+                              className={cn(
+                                "rounded-pill px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider",
+                                flag === "expired" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-900"
+                              )}
+                            >
+                              {flag === "expired" ? "Ticket expired" : "Ticket expiring"}
+                            </span>
+                          ) : null}
+                        </span>
+                      </span>
+                      <span className="mt-1 block text-xs text-text-muted">
+                        {displayRoleLabel(e.role)}{apprentice} · {access}
+                      </span>
+                      <span className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-text-muted">
+                        <span>{row.jobsCount || 0} jobs</span>
+                        <span>{row.gearCount || 0} gear</span>
+                        <span>{lastActiveLabel(e.lastActiveAt)}</span>
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })
+          )}
+        </ul>
+
+        {/* Desktop / tablet (sm+): the dense column grid (contained horizontal
+            scroll on tablet). */}
+        <div className="hidden overflow-x-auto rounded-card border border-border bg-surface sm:block">
           {/* Column header — min-w keeps the 6 columns legible; the wrapper
-              scrolls horizontally on phones rather than crushing/overflowing
-              the page (same contained-scroll pattern as the gear register). */}
+              scrolls horizontally rather than crushing/overflowing the page. */}
           <div className="grid min-w-[640px] grid-cols-[1.6fr_1fr_0.9fr_0.5fr_0.5fr_0.8fr] gap-3 border-b border-border bg-surface-subtle px-4 py-2 font-mono text-[9.5px] uppercase tracking-wider text-text-muted">
             <span>Employee</span>
             <span>Role</span>
@@ -247,6 +309,7 @@ export function EmployeeRegisterClient({
             </ul>
           )}
         </div>
+        </>
       )}
 
       <AddEmployeeDrawer

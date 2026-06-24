@@ -82,6 +82,17 @@ describe("admin data tables stay horizontally scrollable on mobile", () => {
     expect(src).toContain("min-w-[640px]");
   });
 
+  it("the dense registers ship a mobile card list (sm:hidden) beside the desktop table/grid", () => {
+    // Employees and Gear are the registers a boss checks on a phone: each
+    // renders a stacked card list below sm and the dense column table/grid at
+    // sm+ (no sideways-scrolling a 6-column grid on a phone). Freeze both.
+    for (const file of ["EmployeeRegisterClient.tsx", "GearRegisterClient.tsx"]) {
+      const src = read(file);
+      expect(src, `${file} mobile card list`).toContain("sm:hidden");
+      expect(src, `${file} desktop table/grid`).toMatch(/sm:block|sm:grid/);
+    }
+  });
+
   it("every admin component that renders a <table> wraps it in overflow-x-auto (or is exempt)", () => {
     const offenders: string[] = [];
     for (const full of walkTsx(ADMIN_DIR)) {

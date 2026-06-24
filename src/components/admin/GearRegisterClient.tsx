@@ -139,7 +139,43 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
       </Card>
 
       <Card className="p-0 overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* Mobile (<sm): card list — no horizontal scroll, Manage stays reachable. */}
+        <ul className="divide-y divide-border sm:hidden">
+          {visible.length === 0 ? (
+            <li className="px-4 py-6 text-center text-text-muted">No assets match the current filter.</li>
+          ) : (
+            visible.map((asset) => {
+              const status = deriveStatus(asset);
+              const overdue = isOverdue(asset, today);
+              return (
+                <li key={asset.id} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-text" title={asset.name}>{asset.name}</div>
+                      {asset.identifier ? (
+                        <div className="truncate text-xs text-text-muted">{asset.identifier}</div>
+                      ) : null}
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <Pill tone={statusTone(status)}>{statusLabel(status)}</Pill>
+                      {overdue ? <Pill tone="danger">Overdue</Pill> : null}
+                    </div>
+                  </div>
+                  <div className="mt-1 text-xs text-text-muted">
+                    {typeLabel(asset.type)} · {asset.currentHolderName ?? "— depot —"} · {formatTimestamp(asset.assignedAt) ?? "—"}
+                  </div>
+                  <div className="mt-2">
+                    <Button size="sm" variant="secondary" className="w-full" onClick={() => setDrawerAssetId(asset.id)}>
+                      Manage
+                    </Button>
+                  </div>
+                </li>
+              );
+            })
+          )}
+        </ul>
+        {/* Desktop / tablet (sm+): the full column table (contained scroll). */}
+        <div className="hidden overflow-x-auto sm:block">
           <table className="w-full text-sm">
             <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wider text-text-muted">
               <tr>
