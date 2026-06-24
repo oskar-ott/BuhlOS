@@ -308,14 +308,17 @@ function FilterSelect({
   options: ReadonlyArray<{ value: string; label: string }>;
 }) {
   return (
-    <label className="inline-flex items-center gap-2 text-xs text-text-muted">
+    <label className="inline-flex min-w-0 max-w-full items-center gap-2 text-xs text-text-muted">
       <span className="sr-only">{label}</span>
       <select
         data-testid={testid}
         aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text"
+        // max-w cap + min-w-0: a long data option (e.g. a verbose job name)
+        // must truncate, never widen the native <select> past the viewport
+        // and scroll the whole page sideways (mobile-overflow regression).
+        className="min-w-0 max-w-[11rem] rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>

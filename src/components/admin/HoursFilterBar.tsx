@@ -141,7 +141,7 @@ export function HoursFilterBar({ personOptions }: Props) {
             }
             disabled={personOptions.length === 0 && personKnown}
             aria-label="Filter hours by person"
-            className="block h-9 min-w-[10rem] rounded-card border border-border bg-surface px-3 text-sm focus:border-brand-navy focus:outline-none disabled:opacity-60"
+            className="block h-9 min-w-0 max-w-[11rem] rounded-card border border-border bg-surface px-3 text-sm focus:border-brand-navy focus:outline-none disabled:opacity-60 sm:min-w-[10rem]"
           >
             <option value="">Everyone</option>
             {personOptions.map((o) => (
