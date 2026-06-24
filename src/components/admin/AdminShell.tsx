@@ -35,7 +35,7 @@ export function AdminShell({ children, title, breadcrumb }: AdminShellProps) {
             (h-screen + overflow-hidden) so the body never scrolls the chrome
             away; min-h-0 lets this flex child shrink below content so its own
             overflow-y engages. */}
-        <main className="min-h-0 flex-1 overflow-y-auto p-6">{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
       </div>
       <CommandPalette />
       <PwaRegistrar />

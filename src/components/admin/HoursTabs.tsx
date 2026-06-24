@@ -56,11 +56,14 @@ export function HoursTabs() {
       data-testid="hours-tabs"
       className="mx-auto mb-4 max-w-4xl border-b border-border"
     >
-      <ul className="-mb-px flex items-end gap-1">
+      {/* Scrollable on phones: the 4 labels (incl. "Weekly closeout",
+          "Pay period") overflow ≤375px, so the strip scrolls horizontally
+          rather than clipping tabs off-screen. Desktop shows no scrollbar. */}
+      <ul className="-mb-px flex items-end gap-1 overflow-x-auto">
         {TABS.map((tab) => {
           const active = isActiveTab(pathname, tab);
           return (
-            <li key={tab.href}>
+            <li key={tab.href} className="shrink-0">
               <Link
                 href={tab.href}
                 aria-current={active ? "page" : undefined}
@@ -69,7 +72,7 @@ export function HoursTabs() {
                   // active convention (doc 27 §7.2) turned on its side:
                   // yellow bottom border instead of left border. py-3 +
                   // text-sm ≈ a 44px hit area.
-                  "inline-flex items-center border-b-2 px-4 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy",
+                  "inline-flex items-center whitespace-nowrap border-b-2 px-4 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy",
                   active
                     ? "border-accent-yellow font-semibold text-text"
                     : "border-transparent text-text-muted hover:border-border hover:text-text",
