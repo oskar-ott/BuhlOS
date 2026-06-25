@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
 let mockPath = "/command-centre";
 vi.mock("next/navigation", () => ({
@@ -35,5 +38,18 @@ describe("AdminMobileNav (audit — mobile admin navigation)", () => {
     const html = render("/command-centre");
     // Drawer returns null until opened, so no dialog on first paint.
     expect(html).not.toContain('role="dialog"');
+  });
+
+  it("renders a sign-out control in the drawer — the only sign-out path on mobile", () => {
+    // The desktop sidebar carries SignOutButton but is hidden md:flex, so the
+    // mobile drawer MUST render its own (a distinct testId avoids colliding with
+    // the sidebar's data-testid="logout" the Playwright logout helper targets).
+    // The drawer body only renders once opened, which SSR can't drive, so this
+    // pins the wiring statically rather than asserting the rendered button.
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "AdminMobileNav.tsx"),
+      "utf8",
+    );
+    expect(src).toMatch(/<SignOutButton/);
   });
 });
