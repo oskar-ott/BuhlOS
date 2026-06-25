@@ -180,6 +180,36 @@ describe("supabase-env guard — non-production projects", () => {
     expect(decision.allowed).toBe(true);
     expect(decision.urlProjectRef).toBeNull();
   });
+
+  it("throws URL_REF_UNRECOGNISED for an unrecognised host on a hosted env (blocks the prod-via-proxy fail-open)", () => {
+    // A prod-fronting host the patterns can't parse would otherwise yield
+    // urlProjectRef=null → isProductionProject=false → every production gate
+    // skipped. With a dev ref + preview env + write, the pre-fix guard returned
+    // ALLOWED. It must now fail closed.
+    expectCode(
+      () =>
+        guard.evaluateSupabaseAccess(
+          {
+            SUPABASE_ENV: "preview",
+            SUPABASE_PROJECT_REF: DEV_REF,
+            SUPABASE_DB_URL: "postgresql://postgres:pw@some-custom-proxy.internal:6543/postgres",
+            VERCEL_ENV: "preview",
+          },
+          { mode: "write" }
+        ),
+      "URL_REF_UNRECOGNISED"
+    );
+  });
+
+  it("still allows an unrecognised host for SUPABASE_ENV=development (a local stack)", () => {
+    const decision = guard.evaluateSupabaseAccess({
+      SUPABASE_ENV: "development",
+      SUPABASE_PROJECT_REF: "local-stack",
+      SUPABASE_DB_URL: "postgresql://postgres:postgres@db.local:54322/postgres",
+    });
+    expect(decision.allowed).toBe(true);
+    expect(decision.urlProjectRef).toBeNull();
+  });
 });
 
 describe("supabase-env guard — fail closed", () => {

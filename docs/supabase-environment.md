@@ -76,8 +76,16 @@ const decision = assertSupabaseAccess({ mode: "read" }); // or { mode: "write" }
 `mode` defaults to `"write"` — the strictest gate — so forgetting to declare
 read intent can only over-protect. Error codes are stable and tested
 (`src/domains/platform/supabase-env.test.ts`): `MISSING_ENV`, `INVALID_ENV`,
-`INVALID_MODE`, `REF_URL_MISMATCH`, `PROD_REF_IN_NON_PROD_ENV`,
-`PROD_REF_IN_NON_PROD_RUNTIME`, `PROD_WRITES_NOT_ALLOWED`, `BROWSER_CONTEXT`.
+`INVALID_MODE`, `REF_URL_MISMATCH`, `URL_REF_UNRECOGNISED`,
+`PROD_REF_IN_NON_PROD_ENV`, `PROD_REF_IN_NON_PROD_RUNTIME`,
+`PROD_WRITES_NOT_ALLOWED`, `BROWSER_CONTEXT`.
+
+`URL_REF_UNRECOGNISED` is the fail-closed backstop for an unparseable host: if
+the project ref can't be read from `SUPABASE_DB_URL` (an IPv4, a custom
+proxy/PgBouncer host), the guard cannot prove the host isn't production, so it
+refuses unless `SUPABASE_ENV` is `local` or `development` (a local stack). Every
+hosted env (`production`/`staging`/`preview`) must use a recognised Supabase
+pooler/direct/api host.
 
 The guard is **per call, not per process**. `getDb()`
 ([`api/_lib/supabase-db.js`](../api/_lib/supabase-db.js)) caches one pooled

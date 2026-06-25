@@ -128,6 +128,25 @@ function evaluateSupabaseAccess(env, options = {}) {
     );
   }
 
+  // Fail CLOSED on an unrecognisable connection-string host. If extractProjectRef
+  // can't read a ref from the URL, we cannot prove the host isn't production — and
+  // the production checks below are keyed off the ref, so a null ref would let an
+  // unrecognised prod-fronting host (an IPv4, a custom proxy / PgBouncer) slip
+  // EVERY production gate (isProductionProject would be false). That is a fail-OPEN
+  // in a guard whose whole job is to fail closed. A null ref is only legitimate for
+  // a local/dev stack (localhost / a custom local host the patterns don't match),
+  // so we allow it ONLY for SUPABASE_ENV=local|development and refuse it everywhere
+  // else (production/staging/preview must use a recognised Supabase host).
+  if (!urlProjectRef && supabaseEnv !== "local" && supabaseEnv !== "development") {
+    throw new SupabaseEnvError(
+      "URL_REF_UNRECOGNISED",
+      `could not identify the Supabase project from SUPABASE_DB_URL (its host is not a ` +
+        `recognised Supabase pooler/direct/api shape) while SUPABASE_ENV=${supabaseEnv} — ` +
+        `refusing to connect because an unrecognised host cannot be proven non-production ` +
+        `(use SUPABASE_ENV=local or development for a local stack)`
+    );
+  }
+
   // Either signal naming production counts as production — a dev-claiming
   // SUPABASE_PROJECT_REF cannot launder a production connection string
   // (the mismatch check above already threw), and vice versa.
