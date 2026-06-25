@@ -12,7 +12,22 @@ import { useState } from "react";
  * Falls back to a full navigation if router.push doesn't trip the middleware
  * — without that, the user could land on a stale client-side cached page.
  */
-export function SignOutButton() {
+/**
+ * Default styling targets the dark navy sidebar (slate-300 on navy). The mobile
+ * nav drawer has a light background, so it passes a light-theme `className` and
+ * a distinct `testId` (the Playwright logout helper targets the sidebar's
+ * `data-testid="logout"`; a second identical id would break its strict match).
+ */
+const SIDEBAR_CLASS =
+  "flex w-full items-center gap-3 rounded-card px-3 py-2 text-sm text-slate-300 hover:bg-accent-ink hover:text-text-inverse disabled:opacity-60";
+
+export function SignOutButton({
+  className,
+  testId = "logout",
+}: {
+  className?: string;
+  testId?: string;
+} = {}) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
 
@@ -35,11 +50,11 @@ export function SignOutButton() {
 
   return (
     <button
-      data-testid="logout"
+      data-testid={testId}
       type="button"
       onClick={signOut}
       disabled={pending}
-      className="flex w-full items-center gap-3 rounded-card px-3 py-2 text-sm text-slate-300 hover:bg-accent-ink hover:text-text-inverse disabled:opacity-60"
+      className={className ?? SIDEBAR_CLASS}
     >
       <LogOut aria-hidden="true" className="h-4 w-4" />
       {pending ? "Signing out…" : "Sign out"}

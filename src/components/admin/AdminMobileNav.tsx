@@ -7,6 +7,7 @@ import type { Route } from "next";
 import { Menu, Bell } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Drawer } from "@/components/ui/Drawer";
+import { SignOutButton } from "./SignOutButton";
 // One nav source (./nav.ts) — the sidebar, the ⌘K palette AND this mobile
 // drawer render the same destinations, so they can never drift.
 import { NAV_GROUPS, activeHref } from "./nav";
@@ -73,9 +74,12 @@ export function AdminMobileNav() {
             </div>
           ))}
 
-          {/* Footer link parity with the sidebar — settings isn't a daily
-              destination but must still be reachable on a phone (#218). */}
-          <div className="mt-2 border-t border-border pt-2">
+          {/* Footer parity with the sidebar — settings isn't a daily
+              destination but must still be reachable on a phone (#218), and
+              sign-out MUST be: the sidebar (which carries it) is desktop-only
+              (hidden md:flex), so without this the mobile admin had no way to
+              sign out at all. Light-theme styling for the drawer background. */}
+          <div className="mt-2 space-y-1 border-t border-border pt-2">
             <Link
               href={"/settings/notifications" as Route}
               onClick={() => setOpen(false)}
@@ -90,6 +94,10 @@ export function AdminMobileNav() {
               <Bell aria-hidden="true" className="h-4 w-4" />
               <span className="flex-1 truncate">Notification settings</span>
             </Link>
+            <SignOutButton
+              testId="logout-mobile"
+              className="flex min-h-[44px] w-full items-center gap-3 rounded-card px-3 py-2 text-sm text-text-muted hover:bg-surface-subtle hover:text-text disabled:opacity-60"
+            />
           </div>
         </nav>
       </Drawer>
