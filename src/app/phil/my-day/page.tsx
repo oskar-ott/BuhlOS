@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
@@ -5,7 +6,10 @@ import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
 import { PhilWeekStrip } from "@/components/phil/PhilWeekStrip";
 import { PhilMyDayTiles } from "@/components/phil/PhilMyDayTiles";
 import { PhilExpenseEntry } from "@/components/phil/PhilExpenseEntry";
-import { PhilNeedsYouFeed } from "@/components/phil/PhilNeedsYouFeed";
+import {
+  PhilNeedsYouSection,
+  PhilNeedsYouSectionFallback,
+} from "@/components/phil/PhilNeedsYouSection";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import {
@@ -25,10 +29,7 @@ import {
 } from "@/domains/timesheets/service";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isVisibleToField } from "@/domains/jobs/builder";
-import { SnagListResponseSchema } from "@/domains/snags/schema";
-import { TagsExpiringCalibrationsResponseSchema } from "@/domains/gear/schema";
-import type { ExpiringCalibration } from "@/domains/gear/types";
-import { buildPhilNeedsYou, type JobSnags } from "@/domains/phil/needs-you";
+import { buildPhilNeedsYou } from "@/domains/phil/needs-you";
 import { buildMyDayHero } from "@/domains/phil/my-day-hero";
 import { PhilMyDayHero } from "@/components/phil/PhilMyDayHero";
 import { buildPhilGreeting, hourInTimeZone } from "@/domains/phil/greeting";
@@ -95,21 +96,18 @@ export default async function MyDayPage({
     [loadEntries(raw, fixDate), loadAssignedJobs(raw), loadWorkerProfile(raw)]
   );
 
-  // "Needs you" feed — the worker's real, actionable attention across their
-  // assigned jobs. Snags are job-scoped (GET /api/snags?jobId=), so we fetch
-  // them per assigned job once the jobs are known; the build is a pure
-  // selector. All inputs are real (rejected hours + snags assigned to ME +
-  // calibration lapses on gear I hold, #305) — see buildPhilNeedsYou;
-  // nothing here is fabricated.
-  const [jobSnags, calibrations] = await Promise.all([
-    loadAssignedSnags(assignedJobs.jobs, raw),
-    loadHeldCalibrations(raw),
-  ]);
-  const needsYouItems = buildPhilNeedsYou({
+  // Hero priority state ("a day was sent back") is driven by REJECTED HOURS,
+  // which buildPhilNeedsYou derives purely from the time entries already loaded
+  // above (selector section A). Snags + calibrations only feed the "Needs you"
+  // FEED below the fold, which now streams in its own <Suspense> boundary
+  // (PhilNeedsYouSection) — so the actionable shell paints after ONE data wave
+  // instead of two (each /api/* read is a ~1.3–2.1s Blob round-trip; #670).
+  // Passing empty jobSnags here yields a byte-identical hero because the hero
+  // reads only the rejected-hours items.
+  const heroNeedsYou = buildPhilNeedsYou({
     viewerId: session.userId ?? null,
     entries: recentEntries,
-    jobSnags,
-    calibrations,
+    jobSnags: [],
   });
 
   // #422: the ONE "what now" answer, from a pure state model. soleJob is set
@@ -178,7 +176,7 @@ export default async function MyDayPage({
               | "approved"
               | "rejected"
               | undefined) ?? null,
-            needsYouItems,
+            needsYouItems: heroNeedsYou,
             soleJob: soleJob ? { id: soleJob.id, name: soleJob.name } : null,
           })}
         />
@@ -221,7 +219,14 @@ export default async function MyDayPage({
 
         <PhilExpenseEntry />
 
-        <PhilNeedsYouFeed items={needsYouItems} />
+        <Suspense fallback={<PhilNeedsYouSectionFallback />}>
+          <PhilNeedsYouSection
+            cookieValue={raw}
+            viewerId={session.userId ?? null}
+            entries={recentEntries}
+            jobs={jobs}
+          />
+        </Suspense>
       </div>
     </PhilShell>
   );
@@ -349,71 +354,5 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
     return { jobs, error: false };
   } catch {
     return { jobs: [], error: true };
-  }
-}
-
-/**
- * Load snagsV2 for each assigned job and aggregate into the "Needs you" feed
- * input. snagsV2 is job-scoped (GET /api/snags?jobId=), so this fetches per
- * assigned job in parallel and FAILS SOFT per job — a job whose snags can't be
- * read is skipped (its snags don't appear), never an error that blanks the
- * page. The pure selector (buildPhilNeedsYou) then keeps only snags assigned to
- * THIS worker that are still open / in progress. Workers have a handful of
- * assigned jobs, so this is a small, bounded fan-out.
- */
-async function loadAssignedSnags(
-  jobs: ReadonlyArray<{ id: string; name: string }>,
-  cookieValue: string | undefined,
-): Promise<JobSnags[]> {
-  if (jobs.length === 0) return [];
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-
-  const results = await Promise.all(
-    jobs.map(async (job): Promise<JobSnags | null> => {
-      try {
-        const res = await fetch(`${base}/api/snags?jobId=${encodeURIComponent(job.id)}`, {
-          cache: "no-store",
-          headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
-        });
-        if (!res.ok) return null;
-        const parsed = SnagListResponseSchema.safeParse(await res.json());
-        if (!parsed.success) return null;
-        return { jobId: job.id, jobName: job.name, snags: parsed.data.snags };
-      } catch {
-        return null;
-      }
-    }),
-  );
-  return results.filter((r): r is JobSnags => r !== null);
-}
-
-/**
- * Expiring/expired calibrations on gear THIS worker holds (#305), from
- * GET /api/tags-expiring (the shared compliance computation). The endpoint
- * already filters calibrations to the caller's held gear for non-admin
- * viewers. FAILS SOFT: any error → empty list, never a blanked page.
- */
-async function loadHeldCalibrations(
-  cookieValue: string | undefined,
-): Promise<ExpiringCalibration[]> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-
-  try {
-    const res = await fetch(`${base}/api/tags-expiring`, {
-      cache: "no-store",
-      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
-    });
-    if (!res.ok) return [];
-    const parsed = TagsExpiringCalibrationsResponseSchema.safeParse(await res.json());
-    if (!parsed.success) return [];
-    return parsed.data.calibrations ?? [];
-  } catch {
-    return [];
   }
 }
