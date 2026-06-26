@@ -207,3 +207,30 @@ describe("buildPhilNeedsYou — calibration items (#305)", () => {
     expect(items.map((i) => i.kind)).toEqual(["rejected-hours", "calibration", "snag"]);
   });
 });
+
+// Guards the My Day streaming split (PhilNeedsYouSection): the page computes the
+// hero from entries ALONE (jobSnags:[], no calibrations) while the feed streams
+// snags + calibrations separately. That is only safe if the rejected-hours items
+// — the only kind the hero reads — are independent of snags/calibrations.
+describe("buildPhilNeedsYou — rejected-hours are independent of snags/calibrations", () => {
+  const entries = [
+    entry({ id: "r1", status: "rejected", rejectedReason: "Wrong job", date: "2024-05-21" }),
+    entry({ id: "ok", status: "submitted", date: "2024-05-22" }),
+    entry({ id: "r2", status: "rejected", rejectedReason: null, date: "2024-05-20" }),
+  ];
+
+  it("yields the SAME rejected-hours items with empty vs populated snags/calibrations", () => {
+    const heroInput = buildPhilNeedsYou({ viewerId: ME, entries, jobSnags: [] });
+    const fullInput = buildPhilNeedsYou({
+      viewerId: ME,
+      entries,
+      jobSnags: [{ jobId: "j1", jobName: "100 Arthur", snags: [snag({ assignedToId: ME })] }],
+      calibrations: [calibration({ status: "expired" })],
+    });
+    const rejectedOnly = (items: ReturnType<typeof buildPhilNeedsYou>) =>
+      items.filter((i) => i.kind === "rejected-hours");
+
+    expect(rejectedOnly(heroInput)).toEqual(rejectedOnly(fullInput));
+    expect(rejectedOnly(heroInput).length).toBe(2);
+  });
+});
