@@ -1,9 +1,10 @@
 # Phil write idempotency — replay-safe field writes (#497)
 
-> **Status:** the shared mechanism ships and is wired into the evidence-create
-> path (the one the offline capture queue #143 most needs). The other Phil write
-> endpoints are listed below as straightforward follow-on adoptions. Foundation
-> for [#143](https://github.com/oskar-ott/BuhlOS/issues/143).
+> **Status:** the shared mechanism ships and is wired into the evidence,
+> snag-quick-raise, observation, and **hours (time-entry create + edit)** write
+> paths — the ones the offline capture queue #143 most needs. The remaining Phil
+> write endpoints are listed below as straightforward follow-on adoptions.
+> Foundation for [#143](https://github.com/oskar-ott/BuhlOS/issues/143).
 
 ## The problem
 
@@ -59,6 +60,30 @@ ledger lives on the cross-job `observations.json` store doc itself (not a per-jo
 `data.json`), which the bounded ring handles unchanged. This is the path the
 offline capture queue (#143) replays when a worker sends evidence/notes from a
 dead zone. Covered by `src/domains/observations/observations-create-idempotency-api.test.ts`.
+
+## Wired: hours — time-entry create + edit (`api/time-entries.js`)
+
+Both write paths carry a key. `handleCreate` checks it **before** the
+duplicate-date `409`, so a retry of a create whose response was lost returns the
+original entry (`{ entry, idempotentReplay: true }`) instead of a confusing
+"already exists". `handlePatch` checks it **before** the status-transition,
+approved-lock and `expectedRev` gates, so a retry of an edit/resubmit returns the
+original with no second audit row and never re-applies — and a replay of an edit
+on an entry that was approved in the meantime is safe (it returns the original
+result; it does **not** unlock the entry).
+
+Unlike the other paths, the document **is** the entry
+(`users/<id>/time-entries/<date>.json`), not a per-job store, so the recorded
+`result` is a **ring-free snapshot** of the entry (`entryView`). Without that, the
+ring would reference the document it lives on and `JSON.stringify` would throw on
+the cycle. The same `entryView` strips the internal ring from every response
+(create, edit, and the GET lists), so the bookkeeping never reaches a client.
+Scope key `entry:<userId>:<date>:<key>`, so a key reused across days can never
+false-replay. The client mints and **holds a stable key per submission**
+(`src/domains/timesheets/useSubmissionKey.ts`) so a retry reuses it but a changed
+submission gets a fresh one. Covered by
+`src/domains/time-entries/time-entries-idempotency-api.test.ts` and
+`src/domains/timesheets/useSubmissionKey.test.ts`.
 
 ## Adopt next (same three-line pattern)
 

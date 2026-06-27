@@ -63,6 +63,23 @@ interface ListEntriesOptions {
   status?: "draft" | "submitted" | "approved" | "rejected";
 }
 
+/** Options shared by the write verbs. */
+interface MutationOptions {
+  /**
+   * Stable replay-safety key for ONE logical submission (#497). The same key
+   * across a retry (a tap again after a timeout, or an offline replay) makes
+   * the server return the original result instead of a duplicate / 409. Omit it
+   * and behaviour is unchanged. Mint + hold it with `useSubmissionKey` so a
+   * retry reuses it but a genuinely new submission gets a fresh one.
+   */
+  idempotencyKey?: string;
+}
+
+/** Build the Idempotency-Key header init, or nothing when no key is supplied. */
+function idempotencyHeader(key?: string): { headers?: Record<string, string> } {
+  return key ? { headers: { "Idempotency-Key": key } } : {};
+}
+
 function buildQuery(params: Record<string, string | undefined>): string {
   const usp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -162,7 +179,8 @@ export function todayPulse(date?: string): Promise<HttpResult<TodayPulseResponse
  * should switch to `editOwnEntry` in that case.
  */
 export function submitNewEntry(
-  payload: CreateTimeEntryPayload
+  payload: CreateTimeEntryPayload,
+  opts: MutationOptions = {}
 ): Promise<HttpResult<TimeEntryMutationResponse>> {
   const parsed = CreateTimeEntryPayloadSchema.safeParse(payload);
   if (!parsed.success) {
@@ -177,7 +195,7 @@ export function submitNewEntry(
   }
   return httpPost<TimeEntryMutationResponse>("/api/time-entries", parsed.data, {
     schema: TimeEntryMutationResponseSchema,
-    init: { cache: "no-store", credentials: "same-origin" },
+    init: { cache: "no-store", credentials: "same-origin", ...idempotencyHeader(opts.idempotencyKey) },
     timeoutMs: 15000, // honest field write — never hang on bad signal (#139)
   });
 }
@@ -189,7 +207,8 @@ export function submitNewEntry(
  */
 export function editOwnEntry(
   date: string,
-  payload: PatchTimeEntryPayload
+  payload: PatchTimeEntryPayload,
+  opts: MutationOptions = {}
 ): Promise<HttpResult<TimeEntryMutationResponse>> {
   const parsed = PatchTimeEntryPayloadSchema.safeParse(payload);
   if (!parsed.success) {
@@ -207,7 +226,7 @@ export function editOwnEntry(
     parsed.data,
     {
       schema: TimeEntryMutationResponseSchema,
-      init: { cache: "no-store", credentials: "same-origin" },
+      init: { cache: "no-store", credentials: "same-origin", ...idempotencyHeader(opts.idempotencyKey) },
       timeoutMs: 15000, // honest field write — never hang on bad signal (#139)
     }
   );

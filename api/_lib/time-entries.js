@@ -226,6 +226,17 @@ function diffOf(before, after) {
   return Object.keys(diff).length ? diff : null;
 }
 
+// Strip the internal idempotency ring (#497) before an entry leaves the server —
+// it's replay bookkeeping (doc.__idempotency), never part of the client
+// contract. Returns a shallow copy; never strips __rev (the CAS revision is
+// existing behaviour). Used by every handler that returns a time entry
+// (create/edit/list + approve/reject) so the ring is stored but never sent.
+function entryView(entry) {
+  if (!entry || typeof entry !== 'object') return entry;
+  const { __idempotency, ...rest } = entry;
+  return rest;
+}
+
 module.exports = {
   ENTRY_PATH,
   ENTRY_PREFIX,
@@ -243,4 +254,5 @@ module.exports = {
   listAllEntriesForApprovers,
   appendAudit,
   diffOf,
+  entryView,
 };

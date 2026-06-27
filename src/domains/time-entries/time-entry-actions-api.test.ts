@@ -411,3 +411,41 @@ describe("payroll export eligibility", () => {
     ]);
   });
 });
+
+// #497: a time entry created/edited with an idempotency key carries a
+// __idempotency ring. Approve/reject must PRESERVE the ring in storage (so an
+// in-flight create/edit replay still resolves) but never LEAK it to the client.
+describe("approve/reject and the idempotency ring (#497)", () => {
+  function setRingEntry(userId: string, jobId: string) {
+    blob.set(ENTRY_PATH(userId), {
+      ...entry(userId, "tradie", jobId),
+      __idempotency: [
+        { key: `entry:${userId}:${TODAY}:k1`, result: { id: `entry_${userId}` }, at: `${TODAY}T08:00:00.000Z` },
+      ],
+    });
+  }
+  const ring = (userId: string) =>
+    (blob.get(ENTRY_PATH(userId)) as { __idempotency?: unknown[] }).__idempotency;
+
+  it("approve: response is ring-free, but the stored entry keeps the ring", async () => {
+    setRingEntry("u_field", "job-x");
+    const res = await call(approve, "u_admin", "admin", { userId: "u_field", date: TODAY });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { entry: Record<string, unknown> }).entry.__idempotency).toBeUndefined();
+    expect(stored("u_field").status).toBe("approved");
+    expect(ring("u_field")).toHaveLength(1); // survives for replay safety
+  });
+
+  it("reject: response is ring-free, but the stored entry keeps the ring", async () => {
+    setRingEntry("u_field", "job-x");
+    const res = await call(reject, "u_admin", "admin", {
+      userId: "u_field",
+      date: TODAY,
+      reason: "fix the hours",
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { entry: Record<string, unknown> }).entry.__idempotency).toBeUndefined();
+    expect(stored("u_field").status).toBe("rejected");
+    expect(ring("u_field")).toHaveLength(1);
+  });
+});

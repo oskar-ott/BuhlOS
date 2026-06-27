@@ -22,7 +22,9 @@ const {
   listAllEntriesForApprovers,
   appendAudit,
   diffOf,
+  entryView,
 } = require('./_lib/time-entries');
+const { idempotencyKeyFrom, findIdempotent, recordIdempotent } = require('./_lib/idempotency');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -57,7 +59,7 @@ async function handleGet(req, res, user) {
           !isLeadingHandRole(e.userRole) &&
           e.allocations.some(a => a._jobLedByMe)
         );
-    return res.status(200).json({ entries: visible });
+    return res.status(200).json({ entries: visible.map(entryView) });
   }
 
   // ── Otherwise: my entries (or another user's, with admin/LH override) ──
@@ -74,7 +76,7 @@ async function handleGet(req, res, user) {
     toDate:   q.toDate,
     status:   q.status,
   });
-  return res.status(200).json({ entries });
+  return res.status(200).json({ entries: entries.map(entryView) });
 }
 
 async function handleCreate(req, res, user) {
@@ -131,9 +133,23 @@ async function handleCreate(req, res, user) {
     if (gateError) return res.status(403).json({ error: gateError });
   }
 
-  // Refuse if entry for that user+date already exists — caller should PATCH instead
+  // Idempotency (#497): a retry carrying the same client key returns the
+  // ORIGINAL entry instead of a duplicate or a confusing 409. Scoped to
+  // user+date so a key reused across days can never false-replay. Without a
+  // key, behaviour is unchanged (every write applies). Foundation for the
+  // offline outbox (#143).
+  const idemKey = idempotencyKeyFrom(req);
+  const idemScopeKey = idemKey ? `entry:${targetUserId}:${body.date}:${idemKey}` : null;
+
+  // Refuse if entry for that user+date already exists — caller should PATCH
+  // instead — UNLESS this is a replay of the create that made it, in which
+  // case we return that original entry (checked before the 409).
   const existing = await readEntry(targetUserId, body.date);
-  if (existing) return res.status(409).json({ error: 'entry already exists for that date — edit it instead' });
+  if (existing) {
+    const replay = idemScopeKey ? findIdempotent(existing, idemScopeKey) : null;
+    if (replay) return res.status(201).json({ entry: replay, idempotentReplay: true });
+    return res.status(409).json({ error: 'entry already exists for that date — edit it instead' });
+  }
 
   const now = new Date().toISOString();
   const entry = {
@@ -174,12 +190,17 @@ async function handleCreate(req, res, user) {
     source:          onBehalf ? user.role : 'self',
   };
 
+  // Record the key on the entry IN THE SAME write so a retry resolves to this
+  // exact result. recordIdempotent runs BEFORE writeEntry (the entry IS the
+  // persisted document); the stored snapshot is ring-free, so there is no
+  // self-reference for JSON.stringify to choke on.
+  if (idemScopeKey) recordIdempotent(entry, idemScopeKey, entryView(entry));
   await writeEntry(targetUserId, entry);
   const auditAction = entry.status === 'submitted' ? 'submitted' : 'created';
   const auditNote = onBehalf ? `${auditAction} on behalf by ${user.username}` : null;
   await appendAudit(targetUserId, entry.id, auditAction, user.id, auditNote);
 
-  return res.status(201).json({ entry });
+  return res.status(201).json({ entry: entryView(entry) });
 }
 
 async function handlePatch(req, res, user) {
@@ -213,6 +234,17 @@ async function handlePatch(req, res, user) {
 
   const existing = await readEntry(targetUserId, date);
   if (!existing) return res.status(404).json({ error: 'not found' });
+
+  // Idempotency replay (#497): a retry of an already-applied edit (lost
+  // response, offline replay) returns the original result instead of
+  // re-writing and re-auditing. Checked BEFORE the status-transition and
+  // write gates so an entry that has since moved on (e.g. been approved) does
+  // not 403 a legitimate retry. The basic permission gates above already ran;
+  // the key is a client-minted secret, so this cannot leak across actors.
+  const idemKey = idempotencyKeyFrom(req);
+  const idemScopeKey = idemKey ? `entry:${targetUserId}:${date}:${idemKey}` : null;
+  const patchReplay = idemScopeKey ? findIdempotent(existing, idemScopeKey) : null;
+  if (patchReplay) return res.status(200).json({ entry: patchReplay, idempotentReplay: true });
 
   const requestedStatus = body.status;
   const transitioningToSubmitted =
@@ -327,6 +359,10 @@ async function handlePatch(req, res, user) {
     })),
   };
 
+  // Record the key on the entry IN THE SAME write (before writeEntry) so a
+  // retry resolves to this exact result. The snapshot is ring-free, so the
+  // ring never nests inside itself.
+  if (idemScopeKey) recordIdempotent(updated, idemScopeKey, entryView(updated));
   try {
     await writeEntry(targetUserId, updated);
   } catch (e) {
@@ -346,7 +382,7 @@ async function handlePatch(req, res, user) {
     diffOf(existing, updated)
   );
 
-  return res.status(200).json({ entry: updated });
+  return res.status(200).json({ entry: entryView(updated) });
 }
 
 /**

@@ -4,7 +4,7 @@
 
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
-const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
+const { readEntry, writeEntry, appendAudit, entryView } = require('./_lib/time-entries');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { buildHoursAuditEntry } = require('./_lib/hours-audit');
 const { sendPushToUserId } = require('./_lib/push');
@@ -86,9 +86,9 @@ module.exports = async (req, res) => {
     });
     // #390: canonical audit-log entry (best-effort).
     appendAuditLog(
-      buildHoursAuditEntry({ action: 'hours.reject_undone', actor: user, entry: reverted }),
+      buildHoursAuditEntry({ action: 'hours.reject_undone', actor: user, entry: entryView(reverted) }),
     ).catch(() => {});
-    return res.status(200).json({ entry: reverted });
+    return res.status(200).json({ entry: entryView(reverted) });
   }
 
   if (entry.status !== 'submitted') return res.status(400).json({ error: 'entry is not submitted' });
@@ -132,7 +132,7 @@ module.exports = async (req, res) => {
 
   // #390: canonical audit-log entry (best-effort) — carries the reason.
   appendAuditLog(
-    buildHoursAuditEntry({ action: 'hours.rejected', actor: user, entry: updated, reason: trimmedReason }),
+    buildHoursAuditEntry({ action: 'hours.rejected', actor: user, entry: entryView(updated), reason: trimmedReason }),
   ).catch(() => {});
 
   // Fire-and-forget push to the tradie with the rejection reason inline so
@@ -147,7 +147,7 @@ module.exports = async (req, res) => {
     tag: 'buhl-hours-rejected-' + entry.date,
   }).catch(() => {});
 
-  return res.status(200).json({ entry: updated });
+  return res.status(200).json({ entry: entryView(updated) });
 };
 
 async function readUser(userId) {
