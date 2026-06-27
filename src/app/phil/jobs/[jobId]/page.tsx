@@ -96,7 +96,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
     // Flag off → prior behaviour: block on the full load, render directly.
     return (
       <PhilShell title="Job">
-        {await PhilJobDetailFull({ raw, jobId, captureToken, viewerId, viewerRole })}
+        {await PhilJobDetailFull({ raw, jobId, captureToken, viewerId, viewerRole, streamTaskState: false })}
       </PhilShell>
     );
   }
@@ -120,6 +120,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           captureToken={captureToken}
           viewerId={viewerId}
           viewerRole={viewerRole}
+          streamTaskState
         />
       </Suspense>
     </PhilShell>
@@ -141,13 +142,24 @@ async function PhilJobDetailFull({
   captureToken,
   viewerId,
   viewerRole,
+  streamTaskState,
 }: {
   raw: string | undefined;
   jobId: string;
   captureToken: string | null;
   viewerId: string;
   viewerRole: string;
+  /** When true (flag-on), the slow taskState read (/api/data, ~3-5s — its
+   *  task+evidence status overlays are the new long pole after the job-detail
+   *  projection) is LIFTED out of the blocking Promise.all and streamed into
+   *  PhilJobDetail as a promise, so the job structure (the LCP element) paints
+   *  ~3s sooner. Flag-off keeps the original 11-read blocking load verbatim. */
+  streamTaskState: boolean;
 }) {
+  // Start the streamed taskState read in parallel with the wave-one reads, but
+  // DON'T await it here — it resolves into PhilJobDetail behind a nested Suspense.
+  const taskStatePromise = streamTaskState ? loadInitialTaskState(raw, jobId) : null;
+
   const [
     result,
     initialEvidence,
@@ -167,7 +179,9 @@ async function PhilJobDetailFull({
     loadInitialObservations(raw, jobId),
     loadInitialItps(raw, jobId),
     loadInitialDocuments(raw, jobId),
-    loadInitialTaskState(raw, jobId),
+    // Streamed → keep the slot a cheap no-op (taskState arrives via the promise);
+    // otherwise the original blocking read (byte-identical to pre-change).
+    streamTaskState ? Promise.resolve(null) : loadInitialTaskState(raw, jobId),
     loadInitialTags(raw, jobId),
     loadInitialContacts(raw, jobId),
     loadInitialMyInduction(raw, jobId),
@@ -217,8 +231,9 @@ async function PhilJobDetailFull({
       tagsError={tagsResult.error}
       initialContacts={initialContacts}
       initialMyInduction={initialMyInduction}
-      initialTaskState={taskStateResult.state}
-      taskStateError={taskStateResult.error}
+      initialTaskState={taskStateResult ? taskStateResult.state : undefined}
+      taskStateError={taskStateResult ? taskStateResult.error : null}
+      taskStatePromise={taskStatePromise ?? undefined}
       viewer={{ id: viewerId, role: viewerRole }}
       workPackages={jobControlResult.workPackages}
       evidenceLinks={jobControlResult.evidenceLinks}
