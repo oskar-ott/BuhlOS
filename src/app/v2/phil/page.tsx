@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilMyLicencesCard } from "@/components/phil/PhilMyLicencesCard";
 import { PhilMyInductionsCard } from "@/components/phil/PhilMyInductionsCard";
+import { PhilMyRecordCard } from "@/components/phil/PhilMyRecordCard";
 import {
   MyInductionHistoryResponseSchema,
   type InductionRecord,
@@ -11,6 +12,10 @@ import {
 import { SESSION_COOKIE } from "@/lib/auth/session";
 import { CredentialListResponseSchema } from "@/domains/workforce/schema";
 import type { Credential } from "@/domains/workforce/types";
+import {
+  MyStatsRecordResponseSchema,
+  type MyRecordWindow,
+} from "@/domains/workforce/my-record";
 import { PhilSignOutButton } from "@/components/phil/PhilSignOutButton";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
@@ -28,9 +33,10 @@ import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
 export const dynamic = "force-dynamic";
 
 export default async function PhilV2HomePage() {
-  const [{ credentials, fetchError }, inductions] = await Promise.all([
+  const [{ credentials, fetchError }, inductions, myRecord] = await Promise.all([
     loadMyLicences(),
     loadMyInductions(),
+    loadMyRecord(),
   ]);
   return (
     <PhilShell title="Phil">
@@ -103,11 +109,19 @@ export default async function PhilV2HomePage() {
           fetchError={inductions.fetchError}
         />
 
+        {/* #340: the worker's own recent work — trailing-weeks hours + the
+            jobs they've been on. Self-only, read-only, built from their own
+            logged hours (P7). */}
+        <PhilMyRecordCard
+          record={myRecord.record}
+          fetchError={myRecord.fetchError}
+        />
+
         <PushNotificationsCard audience="phil" />
 
         <UnderConstructionPanel
           feature="Profile · settings"
-          description="Your worker profile and the rest of your settings live here once the loops above are field-stable."
+          description="The rest of your worker profile and settings live here once the loops above are field-stable. Your hours, licences, inductions and recent work record are already here."
         />
       </div>
     </PhilShell>
@@ -172,6 +186,40 @@ async function loadMyInductions(): Promise<{
   } catch (err) {
     return {
       records: [],
+      fetchError: err instanceof Error ? err.message : "network error",
+    };
+  }
+}
+
+/**
+ * #340: own work record — the self-only `window` block off GET /api/my-stats.
+ * That endpoint is identity-by-cookie with NO userId parameter, so a worker
+ * can only ever read their own hours. Fail-soft: signed-out / API-down just
+ * renders the card's honest error or empty state.
+ */
+async function loadMyRecord(): Promise<{
+  record: MyRecordWindow | null;
+  fetchError: string | null;
+}> {
+  try {
+    const store = await cookies();
+    const raw = store.get(SESSION_COOKIE)?.value;
+    if (!raw) return { record: null, fetchError: "not signed in" };
+    const h = await headers();
+    const host = h.get("x-forwarded-host") ?? h.get("host");
+    const proto = h.get("x-forwarded-proto") ?? "http";
+    const base = host ? `${proto}://${host}` : "http://localhost:3000";
+    const res = await fetch(`${base}/api/my-stats`, {
+      cache: "no-store",
+      headers: { cookie: `${SESSION_COOKIE}=${raw}` },
+    });
+    if (!res.ok) return { record: null, fetchError: `API ${res.status}` };
+    const parsed = MyStatsRecordResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { record: null, fetchError: "bad shape" };
+    return { record: parsed.data.window, fetchError: null };
+  } catch (err) {
+    return {
+      record: null,
       fetchError: err instanceof Error ? err.message : "network error",
     };
   }
