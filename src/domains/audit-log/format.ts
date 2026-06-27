@@ -36,6 +36,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "itp.signed_off": "Signed off ITP",
   "itp.reopened": "Re-opened ITP",
   "itp.archived": "Archived ITP",
+  "proof.approved": "Approved proof",
+  "proof.sent_back": "Sent proof back",
   "employee.created": "Added employee",
   "employee.updated": "Updated employee",
   "employee.role_changed": "Changed employee role",

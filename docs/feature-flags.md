@@ -17,6 +17,8 @@ date: delete it (and the dead branch it guarded) or consciously extend it.
 |---|---|---|---|
 | `supabase_dual_write` | global | 2026-09-30 | Mirror blob writes into Supabase per migrated domain (#152) |
 | `admin_flags_readout` | admin-tier | 2026-09-30 | The active-flags readout card on /command-centre |
+| `admin_job_field_view` | admin-tier | 2026-09-25 | The Office/Field view toggle + read-only Phil job render on `/v2/jobs/[jobId]` (mobile-admin redesign) |
+| `admin_proof_review` | admin-tier | 2026-09-25 | The office Proof-to-sign-off approve/send-back surface + Command Centre queue (#503) |
 | `supabase_read_health` | global | 2026-12-31 | `GET /api/supabase-health` — the read-only Supabase connectivity proving slice (#533) |
 | `supabase_read_hours` | global | 2026-12-31 | Serve the hours display read (`listUserEntries`) from Postgres with a Blob fallback (#152) |
 | `supabase_dual_write_jobs` | global | 2026-12-31 | Mirror one job's `jobs.json` structure write into Postgres, best-effort, Blob authoritative (#152, J8) |

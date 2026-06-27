@@ -146,6 +146,9 @@ const REQUIRED_SOURCES = [
   // The admin nav is the single source of truth for office IA (#215 extracted
   // it from AdminSidebar so the sidebar and the ⌘K palette render one list).
   'src/components/admin/nav.ts',
+  // The mobile-admin bottom tab bar — its TAB_ITEMS hrefs are validated by the
+  // nav scan above (mobile-admin redesign).
+  'src/components/admin/AdminMobileTabBar.tsx',
   'src/components/phil/PhilShell.tsx',
   'src/components/phil/PhilTabBar.tsx',
   'src/lib/auth/landing.ts',
@@ -249,6 +252,11 @@ function checkNav(file, arrayNames, approved, label) {
 }
 
 checkNav('src/components/admin/nav.ts', ['NAV_GROUPS'], APPROVED_ADMIN_HREFS, 'AdminSidebar');
+// The mobile-admin bottom tab bar is nav (the calm `< md` office navigation,
+// mobile-admin redesign). Its TAB_ITEMS array carries the four real route tabs
+// (the "More" tab is a <button> opening the IA sheet, so it has no href and is
+// not matched). Every tab href must be an approved admin route.
+checkNav('src/components/admin/AdminMobileTabBar.tsx', ['TAB_ITEMS'], APPROVED_ADMIN_HREFS, 'AdminMobileTabBar');
 checkNav('src/components/phil/PhilTabBar.tsx', ['LEFT_TABS', 'RIGHT_TABS'], APPROVED_PHIL_HREFS, 'PhilTabBar');
 
 // ── 6. landingFor() role -> landing map ──────────────────────────────

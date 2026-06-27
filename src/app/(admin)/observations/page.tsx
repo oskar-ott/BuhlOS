@@ -39,10 +39,10 @@ export default async function ObservationsPage() {
   const { observations, fetchError } = await loadObservations(raw);
 
   return (
-    <AdminShell title="Observations">
+    <AdminShell title="From site">
       <div className="mx-auto max-w-5xl space-y-5">
         <Card>
-          <CardTitle>Observations</CardTitle>
+          <CardTitle>From site</CardTitle>
           <CardDescription>
             Field notes, blockers, plan mismatches, material needs, questions (RFIs),
             variations, defects and site instructions from Phil — turned into decisions.

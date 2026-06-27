@@ -15,7 +15,9 @@ export type FlagKey =
   | "supabase_read_admin_tasks"
   | "supabase_read_admin_evidence"
   | "supabase_read_phil_evidence"
-  | "admin_flags_readout";
+  | "admin_flags_readout"
+  | "admin_job_field_view"
+  | "admin_proof_review";
 
 export interface FlagDefinition {
   description: string;
