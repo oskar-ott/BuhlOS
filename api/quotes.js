@@ -85,6 +85,7 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { buildJobCreatedEntry, buildQuoteConvertedEntry } = require('./_lib/job-create-audit');
+const { deriveDeliveryState, validateSent, appendSent, appendViewed } = require('./_lib/quote-delivery');
 const { requireAuth, isAdminRole, isLeadingHandRole, isFieldRole } = require('./_lib/auth');
 // #244: won-quote conversion writes the job through THE sanctioned creator,
 // not a second raw writeBlob('jobs.json'). quoteToJobShape mirrors the pure
@@ -249,6 +250,8 @@ async function handleGetQuote(req, res, user) {
   return res.status(200).json({
     quote, structure, materials, labour, notes, ai, documents,
     pricing, provisional, pricingRequests, totals,
+    // #240: the client-facing lifecycle (sent → viewed → accepted/declined).
+    deliveryState: deriveDeliveryState(quote),
   });
 }
 
@@ -1202,6 +1205,44 @@ async function handleUnaccept(req, res, user, id) {
   return res.status(200).json({ quote: data.quotes[qIdx] });
 }
 
+// #240: record that the quote was SENT to the client (date, recipient, method).
+// Distinct from the internal `submitted` status; repeatable per revision. Manual
+// (an automatic channel — portal/tracked link — is Epic 16).
+async function handleMarkSent(req, res, user, id) {
+  const data = await readQuotes();
+  const idx = (data.quotes || []).findIndex(q => q.id === id);
+  if (idx < 0) return res.status(404).json({ error: 'quote not found' });
+  const parsed = validateSent(req.body || {});
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+  const quote = data.quotes[idx];
+  quote.delivery = appendSent(quote, parsed.value, user);
+  quote.updatedAt = new Date().toISOString();
+  await writeQuotes(data);
+  return res.status(200).json({ quote, deliveryState: deriveDeliveryState(quote) });
+}
+
+// #240: record that the client VIEWED the quote — manual today (never inferred;
+// an untracked quote reads "not tracked").
+async function handleMarkViewed(req, res, user, id) {
+  const data = await readQuotes();
+  const idx = (data.quotes || []).findIndex(q => q.id === id);
+  if (idx < 0) return res.status(404).json({ error: 'quote not found' });
+  const quote = data.quotes[idx];
+  quote.delivery = appendViewed(quote, req.body || {}, user);
+  quote.updatedAt = new Date().toISOString();
+  await writeQuotes(data);
+  return res.status(200).json({ quote, deliveryState: deriveDeliveryState(quote) });
+}
+
+// #240: lightweight read of just the client-delivery lifecycle (for the
+// quote-detail Client-status card — avoids re-fetching the full bundle).
+async function handleGetDelivery(req, res, id) {
+  const data = await readQuotes();
+  const quote = (data.quotes || []).find(q => q.id === id);
+  if (!quote) return res.status(404).json({ error: 'quote not found' });
+  return res.status(200).json({ deliveryState: deriveDeliveryState(quote) });
+}
+
 // Pure section→job mapping for conversion. CJS mirror of the unit-tested
 // spec src/domains/quoting/quote-to-job.ts (quoteToJobInput). The serverless
 // CJS bundle can't import the TS module, so this is duplicated by behaviour
@@ -1700,6 +1741,21 @@ module.exports = async (req, res) => {
     if (!id) return res.status(400).json({ error: 'id required' });
     if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
     return handleUnaccept(req, res, user, id);
+  }
+  if (action === 'delivery') {
+    if (!id) return res.status(400).json({ error: 'id required' });
+    if (req.method !== 'GET') return res.status(405).json({ error: 'GET required' });
+    return handleGetDelivery(req, res, id);
+  }
+  if (action === 'mark-sent') {
+    if (!id) return res.status(400).json({ error: 'id required' });
+    if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
+    return handleMarkSent(req, res, user, id);
+  }
+  if (action === 'mark-viewed') {
+    if (!id) return res.status(400).json({ error: 'id required' });
+    if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
+    return handleMarkViewed(req, res, user, id);
   }
   if (action === 'convert') {
     // #244: re-enabled. The legacy convert wrote jobs.json + jobs/<id>/*

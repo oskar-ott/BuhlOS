@@ -32,6 +32,7 @@
 
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
+const { deriveDeliveryState } = require('./_lib/quote-delivery');
 
 const ALL_STATUSES = [
   'draft', 'reviewing', 'estimating', 'submitted',
@@ -67,12 +68,17 @@ module.exports = async (req, res) => {
   const now = Date.now();
   let active = 0;
   let terminal = 0;
+  // #240: client-facing delivery lifecycle — distinguishes never-sent /
+  // sent-awaiting-client / viewed-awaiting / accepted / declined so follow-ups
+  // aren't guesswork.
+  const delivery = { never_sent: 0, sent: 0, viewed: 0, accepted: 0, declined: 0 };
 
   for (const q of quotes) {
     const status = ALL_STATUSES.includes(q.status) ? q.status : 'draft';
     byStatus[status] = (byStatus[status] || 0) + 1;
     if (ACTIVE_STATUSES.has(status))   active++;
     if (TERMINAL_STATUSES.has(status)) terminal++;
+    delivery[deriveDeliveryState(q).state] += 1;
 
     if (STALE_DAYS[status] !== undefined) {
       const ref = q.updatedAt || q.createdAt;
@@ -100,6 +106,9 @@ module.exports = async (req, res) => {
     active,
     terminal,
     stale,
+    // #240: delivery-state tally + the "waiting on the client" headline.
+    delivery,
+    awaitingClient: delivery.sent + delivery.viewed,
     conversionRate: conversionRate === null
       ? null
       : Math.round(conversionRate * 1000) / 1000,
