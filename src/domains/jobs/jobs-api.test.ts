@@ -948,3 +948,31 @@ describe("POST /api/jobs?action=duplicate (#190)", () => {
     expect(missing.statusCode).toBe(404);
   });
 });
+
+// Guards the Phil-LCP read-path perf change: the GET prelude now fires the three
+// INDEPENDENT cold blob reads (users.json via getCurrentUser, jobs.json, and —
+// on the list GET — job-types.json) concurrently instead of serially, and the
+// list enrichment consumes that PREFETCHED job-types data. These prove the
+// parallelization is output-preserving and still auth-gated.
+describe("GET /api/jobs read-path parallelization (perf) — output parity", () => {
+  it("field list still resolves typeName from the (now prefetched, parallel) job-types.json", async () => {
+    const jobsBlob = blob.get("jobs.json") as { jobs: Array<Record<string, unknown>> };
+    jobsBlob.jobs.find((j) => j.id === "job-active")!.type = "jt_resi";
+    blob.set("job-types.json", { jobTypes: [{ id: "jt_resi", name: "Residential" }] });
+
+    const res = await call({ method: "GET", userId: "u_field", role: "electrician" });
+    expect(res.statusCode).toBe(200);
+    const jobs = (res.body as { jobs: Array<Record<string, unknown>> }).jobs;
+    // Visibility is unchanged by the parallelization: active only, no draft/archived.
+    expect(jobs.map((j) => j.id)).toEqual(["job-active"]);
+    // typeName resolved from the prefetched lookup (proves jobTypesData is consumed).
+    expect(jobs[0]!.typeName).toBe("Residential");
+  });
+
+  it("does not leak job data on an unauthenticated GET (parallel reads discarded before the 401 gate)", async () => {
+    const res = createRes();
+    await handler({ method: "GET", query: {}, headers: {} }, res);
+    expect(res.statusCode).toBe(401);
+    expect(res.body).not.toHaveProperty("jobs");
+  });
+});
