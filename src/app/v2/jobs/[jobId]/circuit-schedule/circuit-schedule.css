@@ -311,6 +311,24 @@
 .cs-scope .cs-dot.busy { background: var(--amber); animation: cs-pulse 1s ease-in-out infinite; }
 @keyframes cs-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 
+/* #666 — calm mobile fallback. The grid + preview tables already scroll inside
+   their own overflow-x-auto wrappers; the only page-wide overflow culprits are
+   the header button row (wrap it) and the fixed 4-col doc meta + roomy paper
+   padding (ease them). Authoring stays a desktop job — see .cs-mobile-hint. */
+.cs-scope .cs-mobile-hint {
+  margin: 0 0 12px; padding: 8px 11px; border: 1px solid var(--rule);
+  border-radius: 8px; background: var(--paper);
+  font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--ink-3);
+  letter-spacing: .02em;
+}
+@media (max-width: 560px) {
+  .cs-scope .bos-pagehdr { flex-wrap: wrap; }
+  .cs-scope .bos-pagehdr-actions { flex-wrap: wrap; width: 100%; }
+  .cs-scope .cs-doc-meta { grid-template-columns: repeat(2, 1fr); }
+  .cs-scope .cs-doc-meta > div:nth-child(2n+1) { border-left: 0; }
+  .cs-scope .cs-paper { padding: 20px 16px; }
+}
+
 @media print {
   body * { visibility: hidden !important; }
   .cs-scope .cs-paper, .cs-scope .cs-paper * { visibility: visible !important; }

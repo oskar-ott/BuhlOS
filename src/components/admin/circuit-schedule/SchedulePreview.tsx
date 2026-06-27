@@ -91,7 +91,12 @@ export function SchedulePreview({ board, job, onBack }: { board: Board; job: Job
             <div><dt>Issued</dt><dd>{board.status === "issued" ? (formatEditedAt(board.updated) || "Issued") : "Draft"}</dd></div>
           </dl>
 
-          <DocTable board={board} />
+          {/* #666 — contain the wide schedule table so it scrolls inside the
+              paper on a phone instead of forcing page-wide overflow. The print
+              rule targets .cs-paper, so this wrapper doesn't affect export. */}
+          <div className="overflow-x-auto">
+            <DocTable board={board} />
+          </div>
 
           <div className="cs-doc-sign">
             <div className="sg"><dt>Designed by</dt><dd>Oskar Bühl</dd></div>

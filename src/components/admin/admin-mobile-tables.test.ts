@@ -45,13 +45,13 @@ const BANNED_WRAPPER = "overflow-hidden rounded-card border border-border bg-sur
 // Raw <table>s intentionally OUTSIDE the mobile-scroll contract:
 //  - CompliancePackView: a print/PDF deliverable (the ITP compliance pack),
 //    laid out for paper, not a phone viewport.
-//  - circuit-schedule/*: the AS/NZS-3000 schedule builder — a complex,
-//    desktop-only authoring tool. Mobile treatment is a tracked follow-up.
+// circuit-schedule/{ScheduleBuilder,SchedulePreview} were exempt as the
+// desktop-only authoring tool; #666 wrapped both tables in overflow-x-auto
+// (+ a header-wrap mobile fallback), so they now meet the contract and are
+// scanned like any other admin table below.
 // If you add a table here, say why; don't use it to dodge a real fix.
 const TABLE_EXEMPT = new Set([
   "CompliancePackView.tsx",
-  "circuit-schedule/ScheduleBuilder.tsx",
-  "circuit-schedule/SchedulePreview.tsx",
 ]);
 
 function walkTsx(dir: string): string[] {
