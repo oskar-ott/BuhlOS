@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PhilOfflineLink } from "./PhilOfflineLink";
+import { PhilSkeleton } from "./ui/PhilSkeleton";
 import { Camera, Map as MapIcon, Zap } from "lucide-react";
 import { scheduleSummaryLine } from "@/domains/circuit-schedule/format";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -102,6 +103,12 @@ interface Props {
   /** Non-blocking error from the task-state fetch. When set, the task rows
    *  still render from the plan, but the worker is told progress may be stale. */
   taskStateError?: string | null;
+  /** Perf (Phil mobile job-detail LCP): when present, the (slow) task state is
+   *  STREAMED rather than passed as a resolved value — the job structure paints
+   *  first and this resolves into `taskState` behind a nested <Suspense>, with the
+   *  selected area's task list showing a skeleton until it lands (never a false
+   *  "to do"). Flag-on path only; flag-off passes `initialTaskState` as today. */
+  taskStatePromise?: Promise<{ state: JobTaskState; error: string | null }>;
   /** Current viewer — id + role drive snag transition button gating
    *  and attention-strip filters (e.g. "snags assigned to me"). */
   viewer?: { id: string; role: string };
@@ -188,6 +195,7 @@ export function PhilJobDetail({
   initialMyInduction,
   initialTaskState,
   taskStateError,
+  taskStatePromise,
   viewer,
   workPackages,
   evidenceLinks: initialEvidenceLinks,
@@ -282,10 +290,33 @@ export function PhilJobDetail({
   // /api/task-toggle response (never optimistically), so a failed write never
   // shows a task as done.
   const [taskState, setTaskState] = useState<JobTaskState>(initialTaskState ?? {});
+  // When the task state is STREAMED (perf — flag-on), it starts PENDING. This is
+  // distinct from an empty {} (a brand-new job with no recorded progress): while
+  // pending, the selected area's task list shows a skeleton rather than a false
+  // "to do", so a DONE task is never briefly mis-shown. The promise resolves into
+  // this state via a nested <Suspense> + use() (TaskStateHydrator) below.
+  const [taskStatePending, setTaskStatePending] = useState<boolean>(
+    Boolean(taskStatePromise),
+  );
+  // Task-state load error as state (not just a prop) so the streamed resolve can
+  // set it. Seeded from the (flag-off) prop; flag-on starts null + pending.
+  const [taskStateErr, setTaskStateErr] = useState<string | null>(
+    taskStateError ?? null,
+  );
   const [pendingTaskIds, setPendingTaskIds] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   );
   const [taskError, setTaskError] = useState<string | null>(null);
+  // Seed (does not own) taskState from the streamed read. Toggles still mutate
+  // taskState afterwards (non-optimistic), so this only fills the initial value.
+  const handleTaskStateResolved = useCallback(
+    (resolved: { state: JobTaskState; error: string | null }) => {
+      setTaskState(resolved.state ?? {});
+      setTaskStateErr(resolved.error ?? null);
+      setTaskStatePending(false);
+    },
+    [],
+  );
 
   // Deep-linked capture: the global Capture button (PhilTabBar) routes
   // here with a fresh ?capture=<token>. Keyed on the token (not a bare
@@ -472,7 +503,9 @@ export function PhilJobDetail({
           itps: initialItps ? [...initialItps] : undefined,
           documents: initialDocuments ? [...initialDocuments] : undefined,
           tags: initialTags ? [...initialTags] : undefined,
-          taskState: taskStateError ? undefined : taskState,
+          // Pending (still streaming) OR errored → omit task state so the panel
+          // shows "View your tasks" (list_only), never a false "N tasks left".
+          taskState: taskStateErr || taskStatePending ? undefined : taskState,
           loadErrors: { documents: documentsError != null, tags: tagsError === true },
           myInduction: myInduction ? { completedAt: myInduction.completedAt } : null,
         }),
@@ -486,7 +519,8 @@ export function PhilJobDetail({
       tagsError,
       documentsError,
       taskState,
-      taskStateError,
+      taskStateErr,
+      taskStatePending,
       myInduction,
     ],
   );
@@ -666,6 +700,18 @@ export function PhilJobDetail({
         </PhilOfflineLink>
       </div>
 
+      {/* Streamed task-state resolver (perf): renders nothing; when the lifted
+          /api/data read resolves it seeds taskState + clears the pending skeleton.
+          Behind its own <Suspense> so it never blocks the structure paint. */}
+      {taskStatePromise ? (
+        <Suspense fallback={null}>
+          <TaskStateHydrator
+            promise={taskStatePromise}
+            onResolved={handleTaskStateResolved}
+          />
+        </Suspense>
+      ) : null}
+
       <PhilJobHero job={job} />
 
       <PhilJobCommandPanel model={commandModel} />
@@ -748,7 +794,7 @@ export function PhilJobDetail({
                   {taskError}
                 </PhilNotice>
               ) : null}
-              {taskStateError ? (
+              {taskStateErr ? (
                 <PhilNotice
                   tone="warning"
                   title="Couldn’t load task progress"
@@ -758,28 +804,49 @@ export function PhilJobDetail({
                   will still update after the server confirms them.
                 </PhilNotice>
               ) : null}
-              <PhilJobAreaDetail
-                jobId={job.id}
-                areaName={selectedArea.name}
-                spaceType={selectedArea.spaceType}
-                stages={selectedStages}
-                stage={viewedStage}
-                tasks={workerTasks}
-                counts={countsForArea(areaCountMaps, selectedArea.id)}
-                onStageChange={setStage}
-                onToggleTask={handleToggleTask}
-                pendingTaskIds={pendingTaskIds}
-                taskContextById={taskContextById}
-                readinessByTaskId={taskReadinessById}
-                onCaptureProof={handleCaptureProof}
-                onFlagVariation={handleFlagVariation}
-                proofActionState={proofStatus}
-                canCaptureProof={Boolean(jcRevision)}
-                proofReviews={proofReviews}
-                onSubmitForReview={handleSubmitForReview}
-                proofSubmitStatus={proofSubmitStatus}
-                canSubmitForReview={Boolean(jcRevision)}
-              />
+              {taskStatePending ? (
+                // Task state is still streaming (perf): show a skeleton of the
+                // drill-in rather than the task rows, so a DONE task is never
+                // briefly shown as "to do". Replaced by the real rows the instant
+                // the streamed state lands. Heights mirror the real drill-in to
+                // keep layout shift minimal.
+                <div
+                  className="space-y-3 rounded-card border border-border bg-surface-raised p-4"
+                  aria-busy="true"
+                  aria-label="Loading task progress"
+                >
+                  <PhilSkeleton className="h-9 w-full" />
+                  <PhilSkeleton className="h-4 w-24" />
+                  <div className="space-y-2">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <PhilSkeleton key={i} className="h-[52px] w-full" />
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <PhilJobAreaDetail
+                  jobId={job.id}
+                  areaName={selectedArea.name}
+                  spaceType={selectedArea.spaceType}
+                  stages={selectedStages}
+                  stage={viewedStage}
+                  tasks={workerTasks}
+                  counts={countsForArea(areaCountMaps, selectedArea.id)}
+                  onStageChange={setStage}
+                  onToggleTask={handleToggleTask}
+                  pendingTaskIds={pendingTaskIds}
+                  taskContextById={taskContextById}
+                  readinessByTaskId={taskReadinessById}
+                  onCaptureProof={handleCaptureProof}
+                  onFlagVariation={handleFlagVariation}
+                  proofActionState={proofStatus}
+                  canCaptureProof={Boolean(jcRevision)}
+                  proofReviews={proofReviews}
+                  onSubmitForReview={handleSubmitForReview}
+                  proofSubmitStatus={proofSubmitStatus}
+                  canSubmitForReview={Boolean(jcRevision)}
+                />
+              )}
             </div>
           ) : null}
         </section>
@@ -960,4 +1027,28 @@ export function PhilJobDetail({
       />
     </div>
   );
+}
+
+/**
+ * Tiny leaf that resolves the STREAMED task-state promise (perf — flag-on) and
+ * seeds it into PhilJobDetail's state exactly once. `use()` suspends this leaf
+ * until the lifted /api/data read resolves (handled by the parent
+ * <Suspense fallback={null}>), so the structure paints without waiting and this
+ * fires on the client once the value lands. Renders nothing.
+ */
+function TaskStateHydrator({
+  promise,
+  onResolved,
+}: {
+  promise: Promise<{ state: JobTaskState; error: string | null }>;
+  onResolved: (resolved: { state: JobTaskState; error: string | null }) => void;
+}) {
+  const resolved = use(promise);
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current) return;
+    seededRef.current = true;
+    onResolved(resolved);
+  }, [resolved, onResolved]);
+  return null;
 }
