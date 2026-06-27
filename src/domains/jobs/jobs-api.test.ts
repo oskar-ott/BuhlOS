@@ -1403,3 +1403,69 @@ describe("GET /api/jobs?id=… job-detail projection (perf, flag-gated)", () => 
     expect(res.body).not.toHaveProperty("job");
   });
 });
+
+// Admin Command-Centre fast stats: ?withStats=1&statsOnly=1 serves the per-job
+// COUNT stats (crew/evidence/snags/itps-needs-review) from the jobs-summary base +
+// the same per-job enrichment, SKIPPING the jobs.json monolith. The areaGroups-
+// derived task stats are stripped (no structure on summary records → never a
+// fabricated 0). Counts are parity-identical to the full withStats read.
+describe("GET /api/jobs?withStats=1&statsOnly=1 — admin Command Centre fast stats", () => {
+  const rows = (r: { body: unknown }) => (r.body as { jobs: Record<string, unknown>[] }).jobs;
+  beforeEach(() => {
+    blob.set("jobs/job-active/data.json", {
+      snagsV2: [{ status: "open" }, { status: "closed" }], // 1 active
+      evidence: [{ status: "submitted" }, { status: "approved" }], // 1 pending
+    });
+    blob.set("jobs/job-active/itps.json", {
+      instances: [{ status: "witnessed" }, { status: "completed" }], // 1 needs-review
+    });
+  });
+  afterEach(() => {
+    delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
+  });
+
+  it("PARITY: statsOnly counts == full withStats for the Command-Centre stats (admin)", async () => {
+    delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
+    const full = rows(await call({ method: "GET", userId: "u_admin", role: "admin", query: { withStats: "1" } }))
+      .find((j) => j.id === "job-active")!;
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const lite = rows(await call({ method: "GET", userId: "u_admin", role: "admin", query: { withStats: "1", statsOnly: "1" } }))
+      .find((j) => j.id === "job-active")!;
+    const pick = (j: Record<string, unknown>) => ({
+      crew: j.statsCrewCount,
+      evidence: j.statsEvidenceV2Pending,
+      snags: j.statsSnagsV2Active,
+      itpsReview: j.statsItpsNeedsReview,
+    });
+    expect(pick(lite)).toEqual(pick(full)); // same per-job counts, no monolith
+    expect(lite.statsSnagsV2Active).toBe(1);
+    expect(lite.statsEvidenceV2Pending).toBe(1);
+    expect(lite.statsItpsNeedsReview).toBe(1);
+  });
+
+  it("STRIPS the areaGroups-derived task stats (never a fabricated task count)", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const lite = rows(await call({ method: "GET", userId: "u_admin", role: "admin", query: { withStats: "1", statsOnly: "1" } }))
+      .find((j) => j.id === "job-active")!;
+    for (const k of ["statsTasksTotal", "statsTasksComplete", "statsPct", "statsAreaCount", "areaGroups"]) {
+      expect(lite).not.toHaveProperty(k);
+    }
+  });
+
+  it("ADMIN-tier path: an admin statsOnly list returns the count stats (200, no 500)", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const res = await call({ method: "GET", userId: "u_admin", role: "admin", query: { withStats: "1", statsOnly: "1" } });
+    expect(res.statusCode).toBe(200);
+    const active = rows(res).find((j) => j.id === "job-active");
+    expect(active).toBeDefined();
+    expect(active).toHaveProperty("statsItpsNeedsReview");
+  });
+
+  it("401: statsOnly leaks nothing when unauthenticated", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const res = createRes();
+    await handler({ method: "GET", query: { withStats: "1", statsOnly: "1" }, headers: {} }, res);
+    expect(res.statusCode).toBe(401);
+    expect(res.body).not.toHaveProperty("jobs");
+  });
+});
