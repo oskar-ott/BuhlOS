@@ -71,8 +71,34 @@ describe("buildHoursAuditEntry (#390)", () => {
     expect(p.targetId).toBe("u_field:2026-06-17");
   });
 
+  it("shapes a worker submission payload (submit/resubmit) attributed to the actor", () => {
+    // A self-submit: the worker is both actor and target. On-behalf submits pass
+    // the LH/admin as actor while entry.userId stays the worker — same builder.
+    const submittedEntry = { ...ENTRY, status: "submitted" };
+    const worker = { id: "u_field", username: "Sparky", role: "electrician" };
+    const submit = buildHoursAuditEntry({ action: "hours.submitted", actor: worker, entry: submittedEntry });
+    expect(submit).toMatchObject({
+      action: "hours.submitted",
+      actorId: "u_field",
+      targetType: "time_entry",
+      targetId: "te_1",
+    });
+    expect((submit.metadata as { status: string; userId: string }).status).toBe("submitted");
+    expect((submit.metadata as { userId: string }).userId).toBe("u_field");
+
+    const resubmit = buildHoursAuditEntry({ action: "hours.resubmitted", actor: worker, entry: submittedEntry });
+    expect(resubmit.action).toBe("hours.resubmitted");
+  });
+
   it("emits only synced action + target enum values", () => {
-    for (const action of ["hours.approved", "hours.rejected", "hours.reject_undone", "hours.reopened"]) {
+    for (const action of [
+      "hours.approved",
+      "hours.rejected",
+      "hours.reject_undone",
+      "hours.reopened",
+      "hours.submitted",
+      "hours.resubmitted",
+    ]) {
       const p = buildHoursAuditEntry({ action, actor: ACTOR, entry: ENTRY });
       expect(AUDIT_ACTIONS).toContain(p.action);
       expect(AUDIT_TARGET_TYPES).toContain(p.targetType);

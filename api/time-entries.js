@@ -25,6 +25,8 @@ const {
   entryView,
 } = require('./_lib/time-entries');
 const { idempotencyKeyFrom, findIdempotent, recordIdempotent } = require('./_lib/idempotency');
+const { append: appendAuditLog } = require('./_lib/audit-log');
+const { buildHoursAuditEntry } = require('./_lib/hours-audit');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -199,6 +201,16 @@ async function handleCreate(req, res, user) {
   const auditAction = entry.status === 'submitted' ? 'submitted' : 'created';
   const auditNote = onBehalf ? `${auditAction} on behalf by ${user.username}` : null;
   await appendAudit(targetUserId, entry.id, auditAction, user.id, auditNote);
+
+  // #390: a create-as-submitted is a worker submission — write it to the
+  // canonical audit journal (the feed #220 reads + per-job history), best-effort
+  // after the write so a journal failure never affects the saved entry. A plain
+  // draft is not a submission and writes nothing here.
+  if (entry.status === 'submitted') {
+    await appendAuditLog(
+      buildHoursAuditEntry({ action: 'hours.submitted', actor: user, entry: entryView(entry) }),
+    ).catch(() => {});
+  }
 
   return res.status(201).json({ entry: entryView(entry) });
 }
@@ -381,6 +393,21 @@ async function handlePatch(req, res, user) {
     null,
     diffOf(existing, updated)
   );
+
+  // #390: a draft/rejected → submitted transition is a worker submission — write
+  // it to the canonical audit journal (the feed #220 reads + per-job history).
+  // rejected→submitted is a RESUBMIT (the worker fixed a rejected day);
+  // draft→submitted is a first submit. Best-effort after the write so a journal
+  // failure never affects the saved entry. A notes-only edit writes nothing here.
+  if (transitioningToSubmitted) {
+    await appendAuditLog(
+      buildHoursAuditEntry({
+        action: wasRejected ? 'hours.resubmitted' : 'hours.submitted',
+        actor: user,
+        entry: entryView(updated),
+      }),
+    ).catch(() => {});
+  }
 
   return res.status(200).json({ entry: entryView(updated) });
 }

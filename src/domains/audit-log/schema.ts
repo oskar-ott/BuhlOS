@@ -119,14 +119,18 @@ export const AUDIT_ACTIONS = [
   "variation.created",
   "variation.transitioned",
   "observation.converted_to_variation",
-  // #390: hours / time-entry decisions (the office approvals pass). Bulk actions
-  // write one summarising entry. Kept in sync with api/_lib/audit-log.js.
+  // #390: hours / time-entry events. The office approvals pass (bulk actions
+  // write one summarising entry) plus the worker submissions that feed it —
+  // submitted (first submission) + resubmitted (rejected→submitted correction).
+  // Kept in sync with api/_lib/audit-log.js.
   "hours.approved",
   "hours.rejected",
   "hours.reject_undone",
   "hours.reopened",
   "hours.bulk_approved",
   "hours.bulk_rejected",
+  "hours.submitted",
+  "hours.resubmitted",
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to); daywork.amended when a

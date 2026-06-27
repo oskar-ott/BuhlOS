@@ -59,13 +59,15 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   // #151: scheduled blob backup runs (targetType 'system' groups as Other).
   "backup.completed": "Ran data backup",
   "storage.write_rejected": "Blocked a bad data write",
-  // #390: hours / time-entry decisions (the office approvals pass).
+  // #390: hours / time-entry events (the office approvals pass + worker submits).
   "hours.approved": "Approved hours",
   "hours.rejected": "Rejected hours",
   "hours.reject_undone": "Undid an hours rejection",
   "hours.reopened": "Re-opened hours",
   "hours.bulk_approved": "Bulk-approved hours",
   "hours.bulk_rejected": "Bulk-rejected hours",
+  "hours.submitted": "Submitted hours",
+  "hours.resubmitted": "Resubmitted hours",
   // #370: daywork register (targetType 'daywork' groups as Other, like time_entry).
   "daywork.created": "Raised daywork docket",
   "daywork.signed": "Signed daywork docket",

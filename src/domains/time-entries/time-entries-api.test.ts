@@ -21,6 +21,10 @@ const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const teLibPath = requireFromHere.resolve("../../../api/_lib/time-entries.js");
 const handlerPath = requireFromHere.resolve("../../../api/time-entries.js");
+// #390: the handler now appends to the canonical audit journal. audit-log.js
+// binds readBlob/writeBlob at module load, so it must re-require against the
+// fresh blob mock each test or its writes land in a stale Map.
+const auditLogPath = requireFromHere.resolve("../../../api/_lib/audit-log.js");
 
 let blob: Map<string, unknown>;
 let auth: { signSession: (payload: Record<string, unknown>) => string };
@@ -140,6 +144,7 @@ beforeEach(() => {
   delete requireFromHere.cache[authPath];
   delete requireFromHere.cache[teLibPath];
   delete requireFromHere.cache[handlerPath];
+  delete requireFromHere.cache[auditLogPath];
   requireFromHere.cache[blobPath] = {
     id: blobPath,
     filename: blobPath,
@@ -353,5 +358,121 @@ describe("on-behalf hours — gated on the staff tier, not literal admin/LH", ()
       expect((res.body as { entry: { userId: string } }).entry.userId).toBe(userId);
       blob.delete(`users/${userId}/time-entries/${TODAY}.json`);
     }
+  });
+});
+
+// #390: worker submit / resubmit must land in the canonical audit journal
+// (api/_lib/audit-log.js → audit/<yyyy-mm>.json) so the cross-job activity feed
+// (#220) + per-job history show the submissions, not just the approvals pass
+// (which shipped in PR #556). These assert the FULL chain end-to-end — handler →
+// builder → append → blob — which also guards the silent-drop gap where a verb
+// missing from audit-log.js's VALID_ACTIONS set would write nothing.
+describe("#390 — worker submit/resubmit writes the canonical audit journal", () => {
+  // Scan every audit month bucket and flatten its entries. The per-user hours
+  // audit lives under users/<id>/time-entries-audit/ and is deliberately excluded.
+  function auditEntries(): Array<Record<string, unknown>> {
+    const out: Array<Record<string, unknown>> = [];
+    for (const [key, val] of blob.entries()) {
+      if (
+        key.startsWith("audit/") &&
+        val &&
+        Array.isArray((val as { entries?: unknown[] }).entries)
+      ) {
+        out.push(...(val as { entries: Array<Record<string, unknown>> }).entries);
+      }
+    }
+    return out;
+  }
+
+  const hoursActions = () =>
+    auditEntries()
+      .filter((e) => String(e.action).startsWith("hours."))
+      .map((e) => e.action);
+
+  it("a create-as-submitted writes one hours.submitted (best-effort, after the save)", async () => {
+    // u_field2 has no entry for TODAY (only u_field is seeded), so this creates.
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      body: validEntry({ status: "submitted" }),
+    });
+    expect(res.statusCode).toBe(201);
+    const submits = auditEntries().filter((e) => e.action === "hours.submitted");
+    expect(submits).toHaveLength(1);
+    const submit = submits[0] as Record<string, unknown>;
+    expect(submit).toMatchObject({ action: "hours.submitted", actorId: "u_field2", targetType: "time_entry" });
+    expect((submit.metadata as { status: string; userId: string }).status).toBe("submitted");
+    expect((submit.metadata as { userId: string }).userId).toBe("u_field2");
+    // privacy line: never a dollar amount / rate.
+    expect(JSON.stringify(submit)).not.toMatch(/amount|payRate|rate|dollar|\$/i);
+  });
+
+  it("a plain draft create writes NO hours.* audit entry", async () => {
+    const res = await call({ method: "POST", userId: "u_field2", role: "tradie", body: validEntry() });
+    expect(res.statusCode).toBe(201);
+    expect(hoursActions()).toEqual([]);
+  });
+
+  it("a draft → submitted PATCH writes hours.submitted (first submit)", async () => {
+    blob.set(`users/u_field2/time-entries/${TODAY}.json`, {
+      id: "e_draft",
+      userId: "u_field2",
+      userName: "mate",
+      userRole: "tradie",
+      date: TODAY,
+      totalHours: 8,
+      ordinaryHours: 8,
+      overtimeHours: 0,
+      status: "draft",
+      submittedAt: null,
+      approvedBy: null,
+      approvedAt: null,
+      rejectedReason: null,
+      allocations: [{ jobId: "job-x", hours: 8, notes: null, sortOrder: 0 }],
+      createdAt: `${TODAY}T07:00:00.000Z`,
+      updatedAt: `${TODAY}T07:00:00.000Z`,
+    });
+    const res = await call({
+      method: "PATCH",
+      userId: "u_field2",
+      role: "tradie",
+      query: { date: TODAY },
+      body: validEntry({ status: "submitted" }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(hoursActions()).toEqual(["hours.submitted"]);
+  });
+
+  it("a rejected → submitted PATCH writes hours.resubmitted (correction)", async () => {
+    const key = `users/u_field/time-entries/${TODAY}.json`;
+    blob.set(key, {
+      ...(blob.get(key) as Record<string, unknown>),
+      status: "rejected",
+      rejectedReason: "missing site",
+    });
+    const res = await call({
+      method: "PATCH",
+      userId: "u_field",
+      role: "electrician",
+      query: { date: TODAY },
+      body: validEntry({ status: "submitted", notes: "Corrected" }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(hoursActions()).toEqual(["hours.resubmitted"]);
+  });
+
+  it("a notes-only edit that does not transition to submitted writes NO hours.* entry", async () => {
+    // The seeded u_field entry is already 'submitted'; a self notes edit keeps it
+    // submitted (no transition) so it must not re-log a submission.
+    const res = await call({
+      method: "PATCH",
+      userId: "u_field",
+      role: "electrician",
+      query: { date: TODAY },
+      body: { notes: "tweak" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(hoursActions()).toEqual([]);
   });
 });
