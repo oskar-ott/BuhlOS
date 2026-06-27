@@ -270,6 +270,16 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Per-job RFI register (#276): gates /api/rfis + the /v2/jobs/[jobId]/rfis admin
+  // register (raise / send / answer / close). GLOBAL flag; admin/managing-LH only
+  // is enforced in the handler (RFIs are office-side — the field raises questions
+  // via the Phil observation chip). Default OFF.
+  rfi_register: {
+    description: 'Enable the per-job RFI register — /api/rfis + /v2/jobs/[jobId]/rfis (#276). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
 };
 
 const FLAGS_KEY = 'flags.json';

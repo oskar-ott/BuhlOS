@@ -27,6 +27,8 @@ interface Props {
   safetyEnabled?: boolean;
   /** #231: show the Certificates register row. Flag-gated (certificates_register) by the hub. */
   certificatesEnabled?: boolean;
+  /** #276: show the RFIs register row. Flag-gated (rfi_register) by the hub. */
+  rfiEnabled?: boolean;
 }
 
 type SectionRow =
@@ -78,6 +80,7 @@ export function JobInterfaceSectionNav({
   job,
   safetyEnabled = false,
   certificatesEnabled = false,
+  rfiEnabled = false,
 }: Props) {
   const jobIdEnc = encodeURIComponent(job.id);
 
@@ -188,6 +191,20 @@ export function JobInterfaceSectionNav({
               "Certificates of compliance, test sheets and commissioning records — typed, with reference + issue date.",
             href: `/v2/jobs/${jobIdEnc}/certificates` as Route,
             icon: FileText,
+          } satisfies SectionRow,
+        ]
+      : []),
+    // #276: RFI register — questions to the builder (raise / send / chase / close).
+    // Flag-gated by the hub (rfi_register); dark until on.
+    ...(rfiEnabled
+      ? [
+          {
+            kind: "live",
+            label: "RFIs",
+            description:
+              "Questions to the builder — raised, sent, chased (overdue surfaces) and answered, on the record.",
+            href: `/v2/jobs/${jobIdEnc}/rfis` as Route,
+            icon: Inbox,
           } satisfies SectionRow,
         ]
       : []),

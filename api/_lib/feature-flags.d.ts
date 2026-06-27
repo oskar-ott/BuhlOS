@@ -21,7 +21,8 @@ export type FlagKey =
   | "admin_proof_review"
   | "job_doc_import"
   | "safety_docs"
-  | "certificates_register";
+  | "certificates_register"
+  | "rfi_register";
 
 export interface FlagDefinition {
   description: string;
