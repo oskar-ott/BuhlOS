@@ -5,6 +5,7 @@ import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { OwnerNumbersBoard } from "@/components/admin/OwnerNumbersBoard";
+import { UtilisationPanel } from "@/components/admin/UtilisationPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import {
@@ -90,6 +91,12 @@ export default async function ReportsPage() {
 
         <section aria-label="Owner numbers">
           <OwnerNumbersBoard tiles={tiles} />
+        </section>
+
+        {/* #342: crew utilisation — multi-week vs real expected hours + crew
+            capacity. Client-fetched (admin-only endpoint); degrades on its own. */}
+        <section aria-label="Crew utilisation">
+          <UtilisationPanel />
         </section>
       </div>
     </AdminShell>
