@@ -62,4 +62,18 @@ describe("HoursTabs (#415)", () => {
     expect(active).toContain("border-accent-yellow");
     expect(active).toContain("font-semibold");
   });
+
+  it("exposes the scroll strip as a test target and keeps overflow-x-auto (#669)", () => {
+    const html = render("/hours");
+    expect(html).toContain('data-testid="hours-tabs-scroll"');
+    expect(html).toContain("overflow-x-auto");
+  });
+
+  it("renders NO edge fade at SSR — honest, only shown once client-measured (#669, P7)", () => {
+    // canScrollLeft/Right default false (not yet measured), so the server must
+    // not paint a fade implying hidden tabs that may not exist.
+    const html = render("/hours");
+    expect(html).not.toContain("bg-gradient-to-r");
+    expect(html).not.toContain("bg-gradient-to-l");
+  });
 });
