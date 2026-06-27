@@ -51,6 +51,7 @@ import { JobItpPanel } from "./JobItpPanel";
 import { JobDocumentsPanel } from "./JobDocumentsPanel";
 import { PhilJobDeferredNote } from "./PhilJobDeferredNote";
 import { PhilJobSiteCard } from "./PhilJobSiteCard";
+import { PhilJobCrewCard } from "./PhilJobCrewCard";
 import { PhilJobHero } from "./PhilJobHero";
 import { PhilSafetyHomeSection } from "./PhilSafetyHomeSection";
 import { PhilCertificatesHomeSection } from "./PhilCertificatesHomeSection";
@@ -1019,6 +1020,13 @@ export function PhilJobDetail({
           <PhilJobContactsCard contacts={initialContacts} />
         </section>
       ) : null}
+
+      {/* On site today (#426) — who else has logged time on this job today, so
+          the worker knows who's around. Client-fetched (reuses the existing
+          /api/time-entries-on-site endpoint); degrades on its own. */}
+      <section id="phil-job-crew" aria-label="On site today" className="scroll-mt-16">
+        <PhilJobCrewCard jobId={job.id} viewerId={viewer?.id ?? null} />
+      </section>
 
       {/* Secondary — deferred surfaces. The Materials + History UC stubs used
           to be two full cards here; consolidated into one honest, low-emphasis
