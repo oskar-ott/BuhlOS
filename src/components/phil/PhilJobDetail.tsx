@@ -52,6 +52,7 @@ import { JobDocumentsPanel } from "./JobDocumentsPanel";
 import { PhilJobDeferredNote } from "./PhilJobDeferredNote";
 import { PhilJobSiteCard } from "./PhilJobSiteCard";
 import { PhilJobHero } from "./PhilJobHero";
+import { PhilSafetyHomeSection } from "./PhilSafetyHomeSection";
 import { PhilJobCommandPanel } from "./PhilJobCommandPanel";
 import { PhilJobAttentionStrip } from "./PhilJobAttentionStrip";
 import { PhilJobAreaCard } from "./PhilJobAreaCard";
@@ -134,6 +135,8 @@ interface Props {
    *  (PhilTabBar FAB) pushes, so a worker can start a capture from
    *  anywhere in Phil in one tap. A fresh token re-opens on repeat taps. */
   autoCaptureToken?: string | null;
+  /** #219: mount the hidden-until-real Safety home section (flag-gated by the page). */
+  safetyEnabled?: boolean;
 }
 
 /**
@@ -202,6 +205,7 @@ export function PhilJobDetail({
   proofReviews: initialProofReviews,
   jobControlRevision,
   autoCaptureToken,
+  safetyEnabled = false,
 }: Props) {
   // Opens the global Capture launcher preset to one option (here, the
   // "Variation / change" worker option) — the SAME flow My Day's quick tiles
@@ -964,6 +968,11 @@ export function PhilJobDetail({
           </Card>
         </section>
       ) : null}
+
+      {/* #219: Safety — SWMS/SDS the worker acknowledges. Hidden-until-real
+          (renders nothing until docs load); mounted only when the safety_docs
+          flag is on. Reference-zone slot beside Plans/Circuit (P10). */}
+      {safetyEnabled ? <PhilSafetyHomeSection jobId={job.id} /> : null}
 
       {/* Documents & specs — JobDocumentsPanel owns its own
           #phil-job-documents section and renders nothing when the job has no

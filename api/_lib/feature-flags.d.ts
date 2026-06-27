@@ -18,7 +18,8 @@ export type FlagKey =
   | "admin_flags_readout"
   | "admin_job_field_view"
   | "admin_proof_review"
-  | "job_doc_import";
+  | "job_doc_import"
+  | "safety_docs";
 
 export interface FlagDefinition {
   description: string;

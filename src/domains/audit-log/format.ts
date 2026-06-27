@@ -87,6 +87,9 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "job.reopened": "Re-opened job",
   // #224: rule-based task generation.
   "job.tasks_generated": "Generated tasks",
+  // #219: safety documents.
+  "safety_doc.uploaded": "Uploaded a safety document",
+  "safety_doc.acknowledged": "Acknowledged a safety document",
 };
 
 export function actionLabel(action: AuditAction): string {
