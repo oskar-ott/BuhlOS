@@ -36,8 +36,10 @@ const REGISTRY = {
   // serve stale data, and any miss/error falls back to the full jobs.json read.
   // Checked ENV-ONLY on the hot path (isFlagOnSync) so DARK adds ZERO cost — no
   // flags.json read on the field path. Default OFF, unset in prod. Field LIST
-  // only; admin/client/single-job/withStats keep the full read. Pairs nothing;
-  // no-ops when supabase_read_phil_jobs is on (the two field overlays never stack).
+  // only; admin/client/single-job/withStats keep the full read. TAKES PRECEDENCE
+  // over the supabase_read_phil_jobs PG overlay for the field list (the overlay
+  // rides on the full jobs.json read and doesn't fix LCP; the summary does, from
+  // the same dual-written Blob spine — see docs/architecture/phil-jobs-summary-projection.md).
   phil_jobs_summary_read: {
     description: 'Serve the FIELD job LIST read (/api/jobs) from a derived jobs-summary.json projection, freshness-gated with full jobs.json fallback (Phil LCP perf). Dark.',
     default: false,

@@ -5,7 +5,7 @@ const { redactJobForViewer } = require('./_lib/job-redaction');
 const { readAdminJobsWithPgOverlay, readPhilJobsWithPgOverlay } = require('./_lib/job-read-projection');
 const { recordJobsRead } = require('./_lib/job-read-diagnostics');
 const { mirrorJobToPg } = require('./_lib/jobs-mirror');
-const { isFlagOn, isFlagOnSync } = require('./_lib/feature-flags');
+const { isFlagOnSync } = require('./_lib/feature-flags');
 const { readJobsSummary } = require('./_lib/jobs-summary');
 
 // Canonical job statuses — keep in sync with src/domains/jobs/schema.ts JOB_STATUSES.
@@ -248,10 +248,17 @@ module.exports = async (req, res) => {
   ) {
     const me = await getCurrentUser(req);
     if (!me) return res.status(401).json({ error: 'not authenticated' });
-    // Field/LH only, and never while the J7 PG overlay is on (the two field-path
-    // overlays must not stack). Clients use a different visibility filter (kept on
-    // the full read). Any failure → fall through to the authoritative full read.
-    if ((isFieldRole(me.role) || isLeadingHandRole(me.role)) && !(await isFlagOn('supabase_read_phil_jobs'))) {
+    // Field/LH only. This TAKES PRECEDENCE over the J7 supabase_read_phil_jobs PG
+    // overlay for the field plain LIST: the overlay rides on top of the full
+    // jobs.json read (it does not remove the ~3.5s monolith fetch), so it does
+    // not fix LCP; the summary does. Output stays parity-correct because the
+    // summary is built from the SAME Blob spine (jobs.json) the overlay falls
+    // back to, and jobs.json is kept current by supabase_dual_write_jobs (PG
+    // remains the truth for admin reads + dual-write; the field LIST reads the
+    // dual-written, drift-alarmed Blob spine via the summary). Clients use a
+    // different visibility filter (kept on the full read). Any failure → fall
+    // through to the authoritative full read.
+    if (isFieldRole(me.role) || isLeadingHandRole(me.role)) {
       try {
         const { records } = await readJobsSummary();
         // Same per-viewer visibility filter as the full list branch: the worker's
@@ -270,7 +277,7 @@ module.exports = async (req, res) => {
         // fall through to the full read below
       }
     }
-    // Not eligible (admin/client/PG-overlay on) or summary errored → fall through.
+    // Not eligible (admin/client) or summary errored → fall through.
     // getCurrentUser below is a cheap cache hit (users.json, 5s TTL).
   }
 
