@@ -158,7 +158,17 @@ async function PhilJobDetailFull({
 }) {
   // Start the streamed taskState read in parallel with the wave-one reads, but
   // DON'T await it here — it resolves into PhilJobDetail behind a nested Suspense.
-  const taskStatePromise = streamTaskState ? loadInitialTaskState(raw, jobId) : null;
+  // The `.catch` is belt-and-braces: loadInitialTaskState already never rejects
+  // (it try/catches into {state,error}), but the consumer reads this with use()
+  // and has no error boundary — so we guarantee a resolved value even if that
+  // invariant ever changes; a failure surfaces as the honest "couldn't load
+  // progress" notice, never an uncaught throw.
+  const taskStatePromise = streamTaskState
+    ? loadInitialTaskState(raw, jobId).catch(() => ({
+        state: {} as JobTaskState,
+        error: "Couldn't load task progress",
+      }))
+    : null;
 
   const [
     result,
