@@ -21,6 +21,7 @@ import {
 import { computeReadiness, type ReadinessResult } from "@/domains/jobs/readiness";
 import { ReadinessSignalsResponseSchema, signalsFrom } from "@/domains/jobs/readiness-client";
 import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
+import { JobProfitabilitySummary } from "@/components/admin/JobProfitabilitySummary";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
 import { JobRecentActivity } from "@/components/admin/JobRecentActivity";
@@ -213,6 +214,10 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
         {/* Operational loop — what's actually happening on the job, derived
             from real time-entry / evidence / audit-log data (read-only). */}
         <JobLabourSummary entries={data.hours.entries} jobId={job.id} fetchError={data.hours.error} />
+        {/* #327: per-job profitability (cost-rate based). Client-fetched so the
+            expensive approved-hours walk never blocks the hub render; admin-tier
+            only (hidden for an LH/non-admin viewer). */}
+        <JobProfitabilitySummary jobId={job.id} />
         <JobEvidenceSummary
           evidence={data.evidence.evidence}
           jobId={job.id}
