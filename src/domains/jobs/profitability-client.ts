@@ -7,6 +7,15 @@ import { httpGet, type HttpResult } from "@/lib/http";
  * Money is integer cents — display divides by 100.
  */
 
+/** One budget line (#341): actual vs budget → variance $ and %. */
+export const BudgetLineSchema = z.object({
+  actualCents: z.number(),
+  budgetCents: z.number().nullable(),
+  varianceCents: z.number().nullable(),
+  variancePct: z.number().nullable(),
+});
+export type BudgetLine = z.infer<typeof BudgetLineSchema>;
+
 export const JobProfitabilityResponseSchema = z.object({
   jobId: z.string(),
   contractValueCents: z.number().nullable(),
@@ -20,6 +29,12 @@ export const JobProfitabilityResponseSchema = z.object({
     unratedWorkers: z.array(z.string()),
   }),
   badges: z.array(z.string()),
+  // #341: budget variance — actual vs estimate, the same money module as margin.
+  budget: z.object({
+    labourEstimateCents: z.number().nullable(),
+    materialEstimateCents: z.number().nullable(),
+  }),
+  variance: z.object({ labour: BudgetLineSchema, material: BudgetLineSchema, total: BudgetLineSchema }),
   hoursTotal: z.number(),
   asOf: z.string(),
 });

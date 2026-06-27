@@ -8,7 +8,8 @@ import { describe, expect, it } from "vitest";
  * serverless handler can require it.
  */
 const requireFromHere = createRequire(import.meta.url);
-const { computeJobProfitability } = requireFromHere(
+type Line = { actualCents: number; budgetCents: number | null; varianceCents: number | null; variancePct: number | null };
+const { computeJobProfitability, computeBudgetVariance, buildBudgetLines } = requireFromHere(
   "../../../api/_lib/job-profitability.js",
 ) as {
   computeJobProfitability: (input: Record<string, unknown>) => {
@@ -18,6 +19,8 @@ const { computeJobProfitability } = requireFromHere(
     completeness: { labour: string; material: string; unratedWorkers: string[] };
     badges: string[];
   };
+  computeBudgetVariance: (actualCents: number, budgetCents: number | null) => Line;
+  buildBudgetLines: (input: Record<string, unknown>) => { labour: Line; material: Line; total: Line };
 };
 
 describe("computeJobProfitability — margin + honest completeness", () => {
@@ -95,5 +98,33 @@ describe("computeJobProfitability — margin + honest completeness", () => {
     });
     expect(p.marginCents).toBe(-30_000);
     expect(p.marginPct).toBe(-30);
+  });
+});
+
+describe("computeBudgetVariance / buildBudgetLines — actual vs budget (#341)", () => {
+  it("computes variance $ and % (positive = over budget)", () => {
+    expect(computeBudgetVariance(5_500_000, 5_000_000)).toEqual({
+      actualCents: 5_500_000, budgetCents: 5_000_000, varianceCents: 500_000, variancePct: 10,
+    });
+    expect(computeBudgetVariance(4_000_000, 5_000_000)).toEqual({
+      actualCents: 4_000_000, budgetCents: 5_000_000, varianceCents: -1_000_000, variancePct: -20,
+    });
+  });
+
+  it("returns a null variance (never a fabricated 0) when no budget is set", () => {
+    expect(computeBudgetVariance(100_000, null)).toEqual({
+      actualCents: 100_000, budgetCents: null, varianceCents: null, variancePct: null,
+    });
+  });
+
+  it("builds the three lines: labour, materials, total-vs-contract", () => {
+    const lines = buildBudgetLines({
+      labourCostCents: 4_000_000, materialCostCents: 3_000_000,
+      labourEstimateCents: 3_500_000, materialEstimateCents: null, contractValueCents: 12_000_000,
+    });
+    expect(lines.labour.varianceCents).toBe(500_000); // over by $5k
+    expect(lines.material.budgetCents).toBeNull(); // no material estimate → null
+    expect(lines.total.actualCents).toBe(7_000_000); // labour + material
+    expect(lines.total.varianceCents).toBe(7_000_000 - 12_000_000); // under contract value
   });
 });

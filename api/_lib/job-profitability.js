@@ -63,4 +63,34 @@ function computeJobProfitability(input) {
   };
 }
 
-module.exports = { computeJobProfitability };
+// ── Budget variance (#341) — actual vs budget, the same money module as #327.
+// "Margin and variance are two views of it." A line with no budget set yields a
+// null variance ("no estimate set"), never a fabricated 0.
+
+/** One budget line: actual vs budget → variance $ and %. Pure. */
+function computeBudgetVariance(actualCents, budgetCents) {
+  const actual = Math.max(0, Math.round(actualCents || 0));
+  if (budgetCents == null) {
+    return { actualCents: actual, budgetCents: null, varianceCents: null, variancePct: null };
+  }
+  const budget = Math.round(budgetCents);
+  const varianceCents = actual - budget; // positive = over budget
+  const variancePct = budget === 0 ? null : Math.round((varianceCents / budget) * 100);
+  return { actualCents: actual, budgetCents: budget, varianceCents, variancePct };
+}
+
+/**
+ * The three budget lines for a job: labour (vs labourEstimate), materials (vs
+ * materialEstimate) and total spend (vs contractValue). Pure.
+ */
+function buildBudgetLines(input) {
+  const labourCostCents = Math.max(0, Math.round((input && input.labourCostCents) || 0));
+  const materialCostCents = Math.max(0, Math.round((input && input.materialCostCents) || 0));
+  return {
+    labour: computeBudgetVariance(labourCostCents, input && input.labourEstimateCents),
+    material: computeBudgetVariance(materialCostCents, input && input.materialEstimateCents),
+    total: computeBudgetVariance(labourCostCents + materialCostCents, input && input.contractValueCents),
+  };
+}
+
+module.exports = { computeJobProfitability, computeBudgetVariance, buildBudgetLines };
