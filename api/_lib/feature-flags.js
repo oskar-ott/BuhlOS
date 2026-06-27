@@ -199,6 +199,19 @@ const REGISTRY = {
     target: 'admin-tier',
     expires: '2026-09-30',
   },
+  // Read-only pricing/BOQ workbook import PREVIEW (#365 first increment): gates
+  // POST /api/job-doc-import + the /v2/tools/job-doc-import admin page. Parses an
+  // uploaded .xlsx pricing sheet into a structured, reviewable BOQ (lines +
+  // commercial reconciliation + ambiguity flags) and RETURNS it. It writes NO
+  // job/quote/material/blob — turning a reviewed preview into job data is a later
+  // slice (gated on #479). Admin-tier; dark by default so the surface is invisible
+  // until proven on a preview deploy.
+  job_doc_import: {
+    description: 'Enable the read-only pricing/BOQ workbook import preview — POST /api/job-doc-import + /v2/tools/job-doc-import (#365). Writes nothing. Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
 };
 
 const FLAGS_KEY = 'flags.json';
