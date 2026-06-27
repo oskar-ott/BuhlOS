@@ -157,6 +157,8 @@ export const AUDIT_ACTIONS = [
   // #349: job closeout lifecycle (closed freezes the snapshot; reopened reverses).
   "job.closed",
   "job.reopened",
+  // #224: rule-based task generation ("Generate tasks" in the builder).
+  "job.tasks_generated",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 

@@ -176,6 +176,10 @@ const VALID_ACTIONS = new Set([
   // the numbers can be corrected and closed out again. Prior snapshots are kept.
   'job.closed',
   'job.reopened',
+  // #224: rule-based task generation — the builder's "Generate tasks" filled
+  // matching areas from the task-rules set. targetType 'job'. Kept in sync with
+  // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'job.tasks_generated',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
