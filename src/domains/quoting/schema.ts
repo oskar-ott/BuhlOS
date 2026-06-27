@@ -51,6 +51,7 @@ export const QUOTE_LIMITS = {
   maxSectionTitle: 80,
   maxLineDescription: 200,
   maxUnit: 20,
+  maxCategory: 60,
   maxQty: 1_000_000,
   maxRate: 1_000_000,
   maxId: 40,
@@ -69,6 +70,17 @@ export const QuoteLineSchema = z
     unit: z.string(),
     /** Sell rate per unit, ex GST. */
     rate: z.number(),
+    /** #214/#193 — INTERNAL cost per unit, ex GST (office-only; the client
+     *  projection never carries it). Absent → the line is "uncosted" (margin
+     *  honesty: never treated as $0 cost). For a labour line a rate preset
+     *  fills this with the loaded cost rate. */
+    unitCost: z.number().optional(),
+    /** Optional grouping label for the margin view (materials esp.). Internal. */
+    category: z.string().optional(),
+    /** Snapshot stamp when a labour rate preset was applied (independence:
+     *  the rates were COPIED onto the line, editing the preset never changes it). */
+    ratePresetId: z.string().optional(),
+    ratePresetName: z.string().optional(),
   })
   .passthrough();
 export type QuoteLine = z.infer<typeof QuoteLineSchema>;
@@ -160,6 +172,13 @@ const QuoteLineInputSchema = z.object({
   qty: z.number().finite().min(0).max(QUOTE_LIMITS.maxQty),
   unit: z.string().trim().max(QUOTE_LIMITS.maxUnit),
   rate: z.number().finite().min(-QUOTE_LIMITS.maxRate).max(QUOTE_LIMITS.maxRate),
+  /** #214/#193 internal cost fields (optional; the server persists them and the
+   *  client projection strips them). Cost may be negative within range only as a
+   *  symmetric guard; the builder enters it as ≥ 0. */
+  unitCost: z.number().finite().min(-QUOTE_LIMITS.maxRate).max(QUOTE_LIMITS.maxRate).optional(),
+  category: z.string().trim().max(QUOTE_LIMITS.maxCategory).optional(),
+  ratePresetId: z.string().trim().max(QUOTE_LIMITS.maxId).optional(),
+  ratePresetName: z.string().trim().max(QUOTE_LIMITS.maxName).optional(),
 });
 export type QuoteLineInput = z.infer<typeof QuoteLineInputSchema>;
 

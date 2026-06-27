@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
@@ -22,6 +22,10 @@ import {
   type QuoteLineKind,
   type QuoteSaveInput,
 } from "@/domains/quoting/schema";
+import { computeV2QuoteMargin, type V2MarginRow } from "@/domains/quoting/quote-margin-v2";
+import { listRatePresets, type RatePreset } from "@/domains/quoting/rate-presets-client";
+import { QuoteRatePresetsModal } from "./QuoteRatePresetsModal";
+import type { MarginFlag } from "@/domains/quoting/margin";
 
 /**
  * /v2/quotes/[quoteId] builder body (#183) — sections of line items with
@@ -49,6 +53,14 @@ interface LineForm {
   qty: string;
   unit: string;
   rate: string;
+  /** #214/#193 — INTERNAL cost per unit, ex GST. Empty string → uncosted
+   *  (margin honesty: never treated as $0). For labour a preset fills it. */
+  unitCost: string;
+  /** Optional grouping label (materials), internal. */
+  category: string;
+  /** Applied-preset snapshot stamps (labour). */
+  ratePresetId?: string;
+  ratePresetName?: string;
 }
 
 interface SectionForm {
@@ -89,6 +101,10 @@ function quoteToForm(quote: Quote): BuilderForm {
         qty: String(l.qty),
         unit: l.unit,
         rate: String(l.rate),
+        unitCost: l.unitCost != null ? String(l.unitCost) : "",
+        category: l.category ?? "",
+        ratePresetId: l.ratePresetId,
+        ratePresetName: l.ratePresetName,
       })),
     })),
   };
@@ -101,6 +117,16 @@ function parseAmount(raw: string): number | null {
   if (trimmed === "") return 0;
   const n = Number(trimmed);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Cost is OPTIONAL: "" → undefined (the line stays UNCOSTED — never $0, so
+ *  margin honesty holds); unparseable → undefined too (the field-level guard in
+ *  validationIssues blocks save). Distinct from parseAmount, whose "" → 0. */
+function parseOptionalAmount(raw: string): number | undefined {
+  const trimmed = raw.trim();
+  if (trimmed === "") return undefined;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : undefined;
 }
 
 /** Comparable shape for dirty-detection — parsed numbers so "1.0" == 1. */
@@ -119,6 +145,9 @@ function comparable(form: BuilderForm) {
         qty: parseAmount(l.qty),
         unit: l.unit.trim(),
         rate: parseAmount(l.rate),
+        unitCost: parseOptionalAmount(l.unitCost) ?? null,
+        category: l.category.trim(),
+        ratePresetId: l.ratePresetId ?? null,
       })),
     })),
   };
@@ -137,6 +166,13 @@ function validationIssues(form: BuilderForm): string[] {
       }
       if (rate === null || Math.abs(rate) > QUOTE_LIMITS.maxRate) {
         issues.push(`Section ${i + 1}, line ${j + 1}: rate must be a number.`);
+      }
+      const ucRaw = l.unitCost.trim();
+      if (ucRaw !== "") {
+        const uc = Number(ucRaw);
+        if (!Number.isFinite(uc) || Math.abs(uc) > QUOTE_LIMITS.maxRate) {
+          issues.push(`Section ${i + 1}, line ${j + 1}: unit cost must be a number.`);
+        }
       }
     });
   });
@@ -169,9 +205,31 @@ function toSaveInput(form: BuilderForm, updatedAt: string): QuoteSaveInput {
         qty: parseAmount(l.qty) ?? 0,
         unit: l.unit.trim(),
         rate: parseAmount(l.rate) ?? 0,
+        // Optional internal cost fields — omitted when empty so the line stays
+        // uncosted (the server + projection both treat absence as "no cost").
+        unitCost: parseOptionalAmount(l.unitCost),
+        category: l.category.trim() || undefined,
+        ratePresetId: l.ratePresetId || undefined,
+        ratePresetName: l.ratePresetName || undefined,
       })),
     })),
     updatedAt,
+  };
+}
+
+/** Margin-engine input from the live form: cost is OPTIONAL (empty → undefined
+ *  so the line is uncosted, never $0). Sell stays qty × rate (totals.ts). */
+function marginInput(form: BuilderForm) {
+  return {
+    sections: form.sections.map((s) => ({
+      id: s.id ?? s.key,
+      title: s.title.trim() || "Untitled section",
+      lines: s.lines.map((l) => ({
+        qty: parseAmount(l.qty) ?? 0,
+        rate: parseAmount(l.rate) ?? 0,
+        unitCost: parseOptionalAmount(l.unitCost),
+      })),
+    })),
   };
 }
 
@@ -228,6 +286,38 @@ export function QuoteBuilderClient({ initialQuote }: QuoteBuilderClientProps) {
   const dirty = JSON.stringify(comparable(form)) !== savedComparable;
   const issues = useMemo(() => validationIssues(form), [form]);
   const totals = useMemo(() => computeQuoteTotals(totalsSections(form)), [form]);
+  // #214 — internal cost-vs-sell margin (office-only; never in the client doc).
+  const margin = useMemo(() => computeV2QuoteMargin(marginInput(form)), [form]);
+
+  // #193 — labour rate presets, loaded once; the line picker + manager modal use them.
+  const [presets, setPresets] = useState<RatePreset[]>([]);
+  const [presetsOpen, setPresetsOpen] = useState(false);
+  const livePresets = useMemo(() => presets.filter((p) => !p.archived), [presets]);
+
+  async function refreshPresets() {
+    const res = await listRatePresets();
+    if (res.ok) setPresets(res.data.presets);
+  }
+  useEffect(() => {
+    void refreshPresets();
+  }, []);
+
+  /** Apply a preset's snapshot to a labour line (cost + sell), or clear the
+   *  stamp when "—" is chosen (keeping any manually-entered cost). */
+  function applyPreset(sectionKey: string, lineKey: string, presetId: string) {
+    if (!presetId) {
+      patchLine(sectionKey, lineKey, { ratePresetId: undefined, ratePresetName: undefined });
+      return;
+    }
+    const preset = livePresets.find((p) => p.id === presetId);
+    if (!preset) return;
+    patchLine(sectionKey, lineKey, {
+      unitCost: String(preset.loadedCostRate),
+      rate: String(preset.sellRate),
+      ratePresetId: preset.id,
+      ratePresetName: preset.name,
+    });
+  }
 
   function patchSection(key: string, patch: Partial<SectionForm>) {
     setForm((f) => ({
@@ -279,7 +369,16 @@ export function QuoteBuilderClient({ initialQuote }: QuoteBuilderClientProps) {
               ...s,
               lines: [
                 ...s.lines,
-                { key: newKey(), kind: "material", description: "", qty: "1", unit: "", rate: "" },
+                {
+                  key: newKey(),
+                  kind: "material",
+                  description: "",
+                  qty: "1",
+                  unit: "",
+                  rate: "",
+                  unitCost: "",
+                  category: "",
+                },
               ],
             }
           : s
@@ -557,8 +656,9 @@ export function QuoteBuilderClient({ initialQuote }: QuoteBuilderClientProps) {
                     return (
                       <li
                         key={line.key}
-                        className="grid grid-cols-2 items-center gap-2 rounded-card border border-border p-2 md:grid-cols-[7.5rem_1fr_5rem_4.5rem_6.5rem_6rem_2rem] md:border-0 md:p-0 md:px-1"
+                        className="rounded-card border border-border p-2 md:border-0 md:p-0 md:px-1"
                       >
+                       <div className="grid grid-cols-2 items-center gap-2 md:grid-cols-[7.5rem_1fr_5rem_4.5rem_6.5rem_6rem_2rem]">
                         <select
                           aria-label="Line kind"
                           value={line.kind}
@@ -624,6 +724,14 @@ export function QuoteBuilderClient({ initialQuote }: QuoteBuilderClientProps) {
                         >
                           <Trash2 aria-hidden="true" className="h-4 w-4" />
                         </Button>
+                       </div>
+                        <LineCostRow
+                          line={line}
+                          presets={livePresets}
+                          onPatch={(patch) => patchLine(section.key, line.key, patch)}
+                          onApplyPreset={(presetId) => applyPreset(section.key, line.key, presetId)}
+                          onManagePresets={() => setPresetsOpen(true)}
+                        />
                       </li>
                     );
                   })}
@@ -650,6 +758,173 @@ export function QuoteBuilderClient({ initialQuote }: QuoteBuilderClientProps) {
       <Button variant="secondary" data-testid="quote-builder-add-section" onClick={addSection}>
         <Plus aria-hidden="true" className="h-4 w-4" /> Add section
       </Button>
+
+      <MarginPanel margin={margin} onManagePresets={() => setPresetsOpen(true)} />
+
+      <QuoteRatePresetsModal
+        open={presetsOpen}
+        onClose={() => setPresetsOpen(false)}
+        presets={presets}
+        onChanged={() => void refreshPresets()}
+      />
     </div>
+  );
+}
+
+const flagTone: Record<MarginFlag, "success" | "warning" | "danger"> = {
+  ok: "success",
+  low: "warning",
+  negative: "danger",
+};
+
+const costInputClass =
+  "h-7 w-24 rounded-card border border-border bg-surface px-2 text-xs text-text " +
+  "focus:border-border-strong focus:outline-none focus:ring-1 focus:ring-brand-navy";
+
+/** The internal cost row under each line: unit cost (+ category for materials,
+ *  + a rate-preset picker for labour) and a live cost/margin readout. Office-only. */
+function LineCostRow({
+  line,
+  presets,
+  onPatch,
+  onApplyPreset,
+  onManagePresets,
+}: {
+  line: LineForm;
+  presets: RatePreset[];
+  onPatch: (patch: Partial<LineForm>) => void;
+  onApplyPreset: (presetId: string) => void;
+  onManagePresets: () => void;
+}) {
+  const qty = parseAmount(line.qty) ?? 0;
+  const rate = parseAmount(line.rate) ?? 0;
+  const uc = parseOptionalAmount(line.unitCost);
+  const sell = lineTotal({ qty, rate });
+  const costed = uc !== undefined;
+  const cost = costed ? lineTotal({ qty, rate: uc }) : 0;
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-dashed border-border pt-2 text-xs text-text-muted md:mt-1 md:pl-1">
+      <label className="flex items-center gap-1">
+        <span>Unit cost ex GST</span>
+        <input
+          aria-label="Unit cost ex GST"
+          type="number"
+          inputMode="decimal"
+          step="any"
+          min={0}
+          placeholder="cost"
+          value={line.unitCost}
+          onChange={(e) => onPatch({ unitCost: e.target.value })}
+          className={costInputClass}
+        />
+      </label>
+
+      {line.kind === "material" ? (
+        <label className="flex items-center gap-1">
+          <span>Category</span>
+          <input
+            aria-label="Cost category"
+            placeholder="e.g. Cable"
+            value={line.category}
+            maxLength={QUOTE_LIMITS.maxCategory}
+            onChange={(e) => onPatch({ category: e.target.value })}
+            className={`${costInputClass} w-28`}
+          />
+        </label>
+      ) : null}
+
+      {line.kind === "labour" ? (
+        <span className="flex items-center gap-1">
+          <span>Preset</span>
+          <select
+            aria-label="Apply rate preset"
+            value={line.ratePresetId ?? ""}
+            onChange={(e) => onApplyPreset(e.target.value)}
+            className="h-7 rounded-card border border-border bg-surface px-1.5 text-xs"
+          >
+            <option value="">—</option>
+            {presets.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onManagePresets}>
+            Manage
+          </Button>
+        </span>
+      ) : null}
+
+      <span className="ml-auto tabular-nums">
+        {costed ? (
+          <>
+            cost {formatMoney(cost)} · margin {formatMoney(sell - cost)}
+          </>
+        ) : (
+          <span className="italic">no cost yet — uncosted</span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/** Office-only cost-vs-sell margin per section + the quote rollup (#214).
+ *  Honest about uncosted lines (never a fake 100%); never shown to a client. */
+function MarginPanel({
+  margin,
+  onManagePresets,
+}: {
+  margin: { sections: V2MarginRow[]; rollup: V2MarginRow };
+  onManagePresets: () => void;
+}) {
+  function MarginRow({ row, isRollup }: { row: V2MarginRow; isRollup?: boolean }) {
+    return (
+      <div
+        className={`flex flex-wrap items-center justify-between gap-2 py-1.5 ${isRollup ? "border-t border-border font-medium text-text" : ""}`}
+        data-testid={`quote-margin-row-${row.id}`}
+      >
+        <span className="min-w-32 flex-1 truncate">{row.title}</span>
+        <span className="tabular-nums text-text-muted">sell {formatMoney(row.sell)}</span>
+        {row.complete ? (
+          <>
+            <span className="tabular-nums text-text-muted">cost {formatMoney(row.cost)}</span>
+            <span className="tabular-nums">
+              margin {formatMoney(row.margin.amount)}
+              {row.margin.pct !== null ? ` · ${row.margin.pct}%` : ""}
+            </span>
+            <Pill tone={flagTone[row.flag]}>
+              {row.flag === "negative" ? "Loss" : row.flag === "low" ? "Low" : "OK"}
+            </Pill>
+          </>
+        ) : (
+          <span className="text-text-muted">
+            {row.costedLineCount}/{row.lineCount} lines costed — add unit costs to see margin
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <Card data-testid="quote-builder-margin">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <CardTitle>Margin — office only</CardTitle>
+          <CardDescription className="mt-0.5">
+            Cost vs sell from your internal unit costs. Never shown to the client.
+          </CardDescription>
+        </div>
+        <Button variant="secondary" size="sm" onClick={onManagePresets} data-testid="quote-builder-manage-presets">
+          Rate presets
+        </Button>
+      </div>
+      <div className="mt-3 text-sm">
+        {margin.sections.map((row) => (
+          <MarginRow key={row.id} row={row} />
+        ))}
+        <MarginRow row={margin.rollup} isRollup />
+      </div>
+    </Card>
   );
 }
