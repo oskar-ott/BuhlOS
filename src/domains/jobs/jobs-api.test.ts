@@ -1015,6 +1015,22 @@ describe("GET /api/jobs jobs-summary read path (perf, flag-gated)", () => {
   });
   afterEach(() => {
     delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
+    delete process.env.FLAG_SUPABASE_READ_PHIL_JOBS;
+  });
+
+  it("PRECEDENCE: summary path supersedes the supabase_read_phil_jobs PG overlay for the field list", async () => {
+    // Both field-path overlays on. The summary must WIN (it removes the monolith
+    // read; the PG overlay only rides on top of it). Proven by the response
+    // omitting structure (areaGroups) — the summary record drops it, the full/
+    // overlay read keeps it — so structure-absent == summary path ran.
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    process.env.FLAG_SUPABASE_READ_PHIL_JOBS = "1";
+    const res = await call({ method: "GET", userId: "u_field", role: "electrician" });
+    expect(res.statusCode).toBe(200);
+    const active = rows(res).find((j) => j.id === "job-active")!;
+    expect(active).toBeDefined();
+    expect(active).not.toHaveProperty("areaGroups"); // summary path (not the overlay/full read)
+    expect(active.typeName).toBe("Residential");
   });
 
   it("PARITY: summary path === full read on the used fields + visibility (field tier)", async () => {

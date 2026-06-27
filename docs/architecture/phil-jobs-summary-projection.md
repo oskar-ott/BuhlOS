@@ -55,8 +55,24 @@ replaces both this and the monolith read, and this projection is deleted.
   summary + per-job reads.
 - Single-job `?id=` GET (job detail) — needs full structure.
 - Admin and client tiers — different visibility; kept on the full read.
-- When `supabase_read_phil_jobs` is ON — the two field overlays must not stack;
-  the summary path no-ops.
+
+## Coexistence with the Supabase PG read (`supabase_read_phil_jobs`)
+
+The summary path **takes precedence** over the J7 `supabase_read_phil_jobs` PG
+overlay for the field plain LIST. Rationale: the overlay rides *on top of* the
+full `jobs.json` read (it does not remove the ~3.5s monolith fetch), so it does
+not fix LCP; the summary does. This is safe because the summary is built from the
+**same Blob spine (`jobs.json`)** the overlay falls back to, and `jobs.json` is
+kept current by `supabase_dual_write_jobs` — so the field list reads the
+dual-written, drift-alarmed Blob spine via the summary, while **PG remains the
+truth for admin reads + dual-write**. The only divergence is the rare
+dual-write-failure window (PG truth, Blob stale, drift-alarmed), where the field
+list would briefly reflect the Blob spine — the accepted trade for the LCP win.
+
+> Note: `modules` is passed through **un-hydrated** on the summary path (no
+> `effectiveModules`/`projectJobStructure` applied), unlike the full-read list
+> branch. Inert today — no field-list consumer reads `modules` — but a future
+> list consumer that does would need it added to `buildJobsSummary`.
 
 ## Read contract (extend the summary if this changes)
 
