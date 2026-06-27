@@ -1,22 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertOctagon, ArrowRightLeft, Camera, ClipboardCheck, Inbox, Package } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pill } from "@/components/ui/Pill";
 import { RefreshButton } from "@/components/ui/RefreshButton";
-import { relativeWhen } from "@/domains/jobs/format";
 import {
-  actionLabel,
   groupLabel,
   summariseJobActivity,
   targetGroup,
   type AuditTargetGroup,
 } from "@/domains/audit-log/format";
 import { sortNewestFirst } from "@/domains/audit-log/client";
-import type { AuditLogEntry, AuditTargetType } from "@/domains/audit-log/types";
+import type { AuditLogEntry } from "@/domains/audit-log/types";
+import { ActivityRow } from "./ActivityRow";
 
 interface Props {
   initialEntries: ReadonlyArray<AuditLogEntry>;
@@ -137,50 +135,4 @@ export function JobActivityFeed({ initialEntries, fetchError, jobName }: Props) 
       )}
     </div>
   );
-}
-
-function ActivityRow({ entry: e }: { entry: AuditLogEntry }) {
-  const Icon = iconForTargetType(e.targetType);
-  return (
-    <div className="flex gap-3 rounded-card border border-border bg-surface p-3">
-      <div className="mt-0.5 shrink-0 rounded-card border border-border bg-surface-subtle p-1.5">
-        <Icon aria-hidden="true" className="h-4 w-4 text-text-muted" />
-      </div>
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
-          <span className="font-display font-semibold text-text">
-            {actionLabel(e.action)}
-          </span>
-          <span className="text-xs text-text-muted">
-            by {e.actorName}
-            {e.actorRole ? ` · ${e.actorRole}` : ""}
-          </span>
-          <span className="text-xs text-text-muted">· {relativeWhen(e.ts)}</span>
-        </p>
-        {e.summary ? (
-          <p className="line-clamp-2 whitespace-pre-wrap text-sm text-text-muted">
-            {e.summary}
-          </p>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function iconForTargetType(t: AuditTargetType) {
-  switch (t) {
-    case "evidence":
-      return Camera;
-    case "snag":
-      return AlertOctagon;
-    case "itp_template":
-    case "itp_instance":
-      return ClipboardCheck;
-    case "observation":
-      return ArrowRightLeft;
-    case "material_request":
-      return Package;
-    default:
-      return Inbox;
-  }
 }
