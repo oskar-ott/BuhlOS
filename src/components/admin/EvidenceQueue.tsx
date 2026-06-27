@@ -15,7 +15,7 @@ import {
 } from "@/domains/evidence/format";
 import { reviewEvidence } from "@/domains/evidence/client";
 import type { EvidenceItem } from "@/domains/evidence/types";
-import { resolveEvidenceTargetLabel } from "@/domains/evidence/target-label";
+import { resolveEvidenceTargetParts } from "@/domains/evidence/target-label";
 import type { Job } from "@/domains/jobs/types";
 import {
   DEFAULT_FILTER,
@@ -23,6 +23,7 @@ import {
   matchesFilter,
   type FilterState,
 } from "./EvidenceFilterBar";
+import { EvidenceContextChips } from "./EvidenceContextChips";
 import { EvidenceDrawer } from "./EvidenceDrawer";
 import { EvidenceRejectModal } from "./EvidenceRejectModal";
 import { EvidenceUnreviewModal } from "./EvidenceUnreviewModal";
@@ -329,6 +330,7 @@ export function EvidenceQueue({
       <ActionFeedback state={action} />
 
       <EvidenceFilterBar
+        job={job}
         items={items}
         value={filter}
         onChange={(next) => {
@@ -504,7 +506,8 @@ function EvidenceRow({
 }: RowProps) {
   const tone = PILL_TONE_MAP[statusTone(item.status)];
   const rowError = (item as unknown as { __rowError?: string }).__rowError;
-  const target = resolveEvidenceTargetLabel(job, item);
+  const targetParts = resolveEvidenceTargetParts(job, item);
+  const hasContext = Boolean(targetParts.stage || targetParts.area || targetParts.task);
   const reviewed = item.status === "reviewed";
   const rejected = item.status === "rejected";
   const immutable = reviewed || rejected;
@@ -553,10 +556,10 @@ function EvidenceRow({
         </button>
       </td>
       <td className="px-3 py-3 align-top text-sm">
-        {target.length === 0 ? (
-          <Pill tone="neutral">Unattached</Pill>
+        {hasContext ? (
+          <EvidenceContextChips parts={targetParts} />
         ) : (
-          <span className="text-text">{target}</span>
+          <Pill tone="neutral">Unattached</Pill>
         )}
       </td>
       <td className="px-3 py-3 align-top text-sm text-text">

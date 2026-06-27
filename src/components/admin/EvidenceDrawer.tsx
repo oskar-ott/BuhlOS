@@ -19,8 +19,9 @@ import {
   type EvidenceStatusTone,
 } from "@/domains/evidence/format";
 import type { EvidenceItem } from "@/domains/evidence/types";
-import { resolveEvidenceTargetLabel } from "@/domains/evidence/target-label";
+import { resolveEvidenceTargetParts } from "@/domains/evidence/target-label";
 import type { Job } from "@/domains/jobs/types";
+import { EvidenceContextChips } from "./EvidenceContextChips";
 import { listAuditForTarget } from "@/domains/audit-log/client";
 import type {
   AuditAction,
@@ -325,16 +326,19 @@ export function EvidenceDrawer({
 }
 
 function TargetSection({ item, job }: { item: EvidenceItem; job: Job }) {
-  // #515: room + task NAMES (not raw ids), falling back to the id when unknown.
-  const label = resolveEvidenceTargetLabel(job, item);
-  const parts = label ? [label] : [];
+  // #515 + #260: stage / area / task as compact chips (room + task NAMES, not
+  // raw ids), falling back to the raw id with an honest "(unknown)" hint.
+  const parts = resolveEvidenceTargetParts(job, item);
+  const hasContext = Boolean(parts.stage || parts.area || parts.task);
   return (
     <div>
       <p className="font-display text-xs uppercase tracking-wider text-text-muted">
         Target
       </p>
-      {parts.length > 0 ? (
-        <p className="mt-1 text-sm text-text">{parts.join(" · ")}</p>
+      {hasContext ? (
+        <div className="mt-1">
+          <EvidenceContextChips parts={parts} />
+        </div>
       ) : (
         <div className="mt-1 inline-flex flex-col gap-1">
           <Pill tone="neutral">Unattached</Pill>

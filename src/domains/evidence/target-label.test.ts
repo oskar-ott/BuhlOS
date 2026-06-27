@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolveEvidenceTargetLabel } from "./target-label";
+import {
+  resolveEvidenceTargetLabel,
+  resolveEvidenceTargetParts,
+} from "./target-label";
 import type { Job } from "@/domains/jobs/types";
 
 const job = {
@@ -49,5 +52,33 @@ describe("resolveEvidenceTargetLabel (#515)", () => {
 
   it("returns an empty string for an unattached capture (parent renders 'Unattached')", () => {
     expect(resolveEvidenceTargetLabel(job, {})).toBe("");
+  });
+});
+
+describe("resolveEvidenceTargetParts (#260)", () => {
+  it("splits the target into stage / area / task facets, each resolved", () => {
+    const parts = resolveEvidenceTargetParts(job, { stage: "roughIn", areaId: "a1", taskId: "t1" });
+    expect(parts.stage).toEqual({ label: "Rough-in", resolved: true });
+    expect(parts.area).toEqual({ label: "Kitchen", resolved: true });
+    expect(parts.task).toEqual({ label: "Pull power", resolved: true });
+  });
+
+  it("flags an unknown area as unresolved with the raw id as label", () => {
+    const parts = resolveEvidenceTargetParts(job, { stage: "roughIn", areaId: "ghost", taskId: "t1" });
+    expect(parts.area).toEqual({ label: "ghost", resolved: false });
+    // The task still resolves against the job-level checklist.
+    expect(parts.task).toEqual({ label: "Pull power", resolved: true });
+  });
+
+  it("flags an unknown task as unresolved with the raw id as label", () => {
+    const parts = resolveEvidenceTargetParts(job, { stage: "roughIn", areaId: "a1", taskId: "nope" });
+    expect(parts.task).toEqual({ label: "nope", resolved: false });
+  });
+
+  it("omits facets entirely for an unattached capture", () => {
+    const parts = resolveEvidenceTargetParts(job, {});
+    expect(parts.stage).toBeUndefined();
+    expect(parts.area).toBeUndefined();
+    expect(parts.task).toBeUndefined();
   });
 });
