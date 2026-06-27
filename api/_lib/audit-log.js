@@ -163,6 +163,14 @@ const VALID_ACTIONS = new Set([
   'readiness.item_ticked',
   'readiness.overridden',
   'readiness.override_cleared',
+  // #581: job-creating actions in the canonical journal — a money-relevant gap
+  // (job creation left no trail). job.created fires on EVERY sanctioned job
+  // write (Job Builder POST + won-quote convert); quote.converted fires on the
+  // quote→job conversion (its own lifecycle event; its jobId is the NEW job so
+  // it also surfaces in that job's feed). Best-effort after the write. Kept in
+  // sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'job.created',
+  'quote.converted',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -202,6 +210,9 @@ const VALID_TARGET_TYPES = new Set([
   'prestart',
   // #503: per-task proof review records (jobs/<id>/job-control.json proofReviews).
   'proof_review',
+  // #581: a created job (job.created) and a converted quote (quote.converted).
+  'job',
+  'quote',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

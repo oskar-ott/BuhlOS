@@ -152,6 +152,9 @@ beforeEach(() => {
   delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/feature-flags.js")];
   delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/jobs-summary.js")];
   delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/job-detail-projection.js")];
+  // #581: POST create now appends to the canonical audit journal; audit-log.js
+  // binds readBlob/writeBlob at load, so re-require it against the fresh mock.
+  delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/audit-log.js")];
   requireFromHere.cache[blobPath] = {
     id: blobPath,
     filename: blobPath,
@@ -550,6 +553,32 @@ describe("scope-of-work visibility + writes (#200)", () => {
 });
 
 describe("POST and PUT /api/jobs", () => {
+  it("writes a job.created (source builder) audit entry on create (#581)", async () => {
+    const created = await call({
+      method: "POST",
+      userId: "u_admin",
+      role: "admin",
+      body: { name: "SMOKE_TEST_audit_job", status: "draft" },
+    });
+    expect(created.statusCode).toBe(200);
+
+    const auditRows: Array<Record<string, unknown>> = [];
+    for (const [key, val] of blob.entries()) {
+      if (key.startsWith("audit/") && val && Array.isArray((val as { entries?: unknown[] }).entries)) {
+        auditRows.push(...(val as { entries: Array<Record<string, unknown>> }).entries);
+      }
+    }
+    const createdRows = auditRows.filter((e) => e.action === "job.created");
+    expect(createdRows).toHaveLength(1);
+    expect(createdRows[0]).toMatchObject({
+      action: "job.created",
+      actorId: "u_admin",
+      targetType: "job",
+      targetId: "smoke-test-audit-job",
+    });
+    expect((createdRows[0]!.metadata as { source: string }).source).toBe("builder");
+  });
+
   it("creates an office-only draft, updates it, publishes it, and parks it as draft", async () => {
     const created = await call({
       method: "POST",

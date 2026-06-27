@@ -79,6 +79,9 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "readiness.item_ticked": "Updated pre-start checklist",
   "readiness.overridden": "Overrode pre-start readiness",
   "readiness.override_cleared": "Cleared pre-start override",
+  // #581: job-creating actions (targetType 'job'/'quote' group as Other).
+  "job.created": "Created job",
+  "quote.converted": "Converted quote to job",
 };
 
 export function actionLabel(action: AuditAction): string {

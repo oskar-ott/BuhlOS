@@ -41,6 +41,8 @@ function validateScopeOfWork(raw) {
 }
 const { areaProgressPct, jobTaskCounts } = require('./_lib/job-tasks');
 const { createJob } = require('./_lib/job-create');
+const { append: appendAuditLog } = require('./_lib/audit-log');
+const { buildJobCreatedEntry } = require('./_lib/job-create-audit');
 const { appendAudit } = require('./_lib/job-audit');
 const { testJobDeleteEligibility } = require('./_lib/test-data');
 const { buildDuplicatePayload, copyName } = require('./_lib/job-duplicate');
@@ -561,6 +563,11 @@ module.exports = async (req, res) => {
     const result = await createJob(data, req.body || {});
     if (!result.ok) return res.status(result.status).json({ error: result.error });
     const job = result.job;
+    // #581: record Job Builder job creation in the canonical audit journal —
+    // best-effort after the write, so a journal failure never affects the create.
+    await appendAuditLog(
+      buildJobCreatedEntry({ actor: me, job, source: 'builder' }),
+    ).catch(() => {});
     return res.status(200).json({ job: { ...projectJobStructure(job), modules: effectiveModules(job) } });
   }
 
