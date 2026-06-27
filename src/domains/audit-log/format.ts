@@ -92,6 +92,9 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "safety_doc.acknowledged": "Acknowledged a safety document",
   // #231: certificates register.
   "certificate.uploaded": "Uploaded a certificate",
+  // #276: RFI register.
+  "rfi.created": "Raised RFI",
+  "rfi.transitioned": "Updated RFI",
 };
 
 export function actionLabel(action: AuditAction): string {

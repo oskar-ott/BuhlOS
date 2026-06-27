@@ -167,6 +167,10 @@ export const AUDIT_ACTIONS = [
   "safety_doc.acknowledged",
   // #231: commissioning documents + certificates register (api/certificates.js).
   "certificate.uploaded",
+  // #276: per-job RFI register (api/rfis.js). rfi.created on raise; rfi.transitioned
+  // on send/answer/close (metadata.from/to carry the direction).
+  "rfi.created",
+  "rfi.transitioned",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -206,6 +210,8 @@ export const AUDIT_TARGET_TYPES = [
   "safety_doc",
   // #231: per-job certificates.
   "certificate",
+  // #276: per-job RFI records.
+  "rfi",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

@@ -119,6 +119,8 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
   const safetyEnabled = await isFlagEnabled("safety_docs", session);
   // #231: surface the Certificates register section when the flag is on.
   const certificatesEnabled = await isFlagEnabled("certificates_register", session);
+  // #276: surface the RFI register section when the flag is on.
+  const rfiEnabled = await isFlagEnabled("rfi_register", session);
 
   const [data, inductions, readiness] = await Promise.all([
     loadJobInterface(raw, jobId),
@@ -275,6 +277,7 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
           job={job}
           safetyEnabled={safetyEnabled}
           certificatesEnabled={certificatesEnabled}
+          rfiEnabled={rfiEnabled}
         />
         </>
         )}

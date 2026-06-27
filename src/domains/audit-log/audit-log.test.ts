@@ -55,7 +55,7 @@ describe("AuditLogEntrySchema", () => {
 
   it("rejects unknown targetType values", () => {
     expect(
-      AuditLogEntrySchema.safeParse({ ...validEntry, targetType: "rfi" }).success
+      AuditLogEntrySchema.safeParse({ ...validEntry, targetType: "not_a_real_target" }).success
     ).toBe(false);
   });
 
@@ -199,6 +199,9 @@ describe("AuditLogEntrySchema", () => {
       "readiness.item_ticked",
       "readiness.overridden",
       "readiness.override_cleared",
+      // #276: RFI register lifecycle.
+      "rfi.created",
+      "rfi.transitioned",
       // #219: safety document lifecycle (upload + acknowledge).
       "safety_doc.acknowledged",
       "safety_doc.uploaded",
@@ -236,6 +239,8 @@ describe("AuditLogEntrySchema", () => {
       "proof_review",
       // #581: a converted quote.
       "quote",
+      // #276: per-job RFI records.
+      "rfi",
       // #219: per-job safety docs.
       "safety_doc",
       "snag",
@@ -256,7 +261,8 @@ describe("AuditLogEntrySchema", () => {
     expect(AuditActionSchema.safeParse("snag.created").success).toBe(true);
     expect(AuditActionSchema.safeParse("snag.transitioned").success).toBe(true);
     expect(AuditActionSchema.safeParse("snag.deleted").success).toBe(false);
-    expect(AuditTargetTypeSchema.safeParse("rfi").success).toBe(false);
+    expect(AuditTargetTypeSchema.safeParse("rfi").success).toBe(true); // #276 added the rfi target
+    expect(AuditTargetTypeSchema.safeParse("not_a_real_target").success).toBe(false);
     // ITP verbs + target types accepted; nonsense rejected.
     expect(AuditActionSchema.safeParse("itp.attached").success).toBe(true);
     expect(AuditActionSchema.safeParse("itp.point.recorded").success).toBe(true);

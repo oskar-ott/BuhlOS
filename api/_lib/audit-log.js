@@ -186,6 +186,10 @@ const VALID_ACTIONS = new Set([
   'safety_doc.acknowledged',
   // #231: commissioning documents + certificates register (api/certificates.js).
   'certificate.uploaded',
+  // #276: per-job RFI register (api/rfis.js). rfi.created on raise; rfi.transitioned
+  // on send/answer/close (one verb; metadata.from/to carry the direction).
+  'rfi.created',
+  'rfi.transitioned',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -232,6 +236,8 @@ const VALID_TARGET_TYPES = new Set([
   'safety_doc',
   // #231: per-job certificates (jobs/<id>/certificates.json).
   'certificate',
+  // #276: per-job RFI records (jobs/<id>/rfis.json).
+  'rfi',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;
