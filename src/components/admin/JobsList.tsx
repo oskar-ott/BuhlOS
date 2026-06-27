@@ -29,6 +29,14 @@ import {
   parseJobStatusParam,
 } from "@/domains/jobs/list-filter";
 import { isQaTestJobName } from "@/domains/jobs/test-data";
+import { deriveJobHealth, type JobHealth, type JobHealthLevel } from "@/domains/jobs/job-health";
+import {
+  HEALTH_LEVELS,
+  healthCounts,
+  healthLabel,
+  parseHealthParam,
+  sortByHealth,
+} from "@/domains/jobs/job-health-list";
 import type { Job, JobStatus } from "@/domains/jobs/types";
 import {
   clearRememberedFilters,
@@ -101,6 +109,8 @@ export function JobsList({ jobs, canBuild = false }: Props) {
   // values degrade to "all").
   const status = parseJobStatusParam(searchParams.get("status"));
   const urlQuery = searchParams.get("q") ?? "";
+  // #227: health filter is URL-driven too (validated; garbage → no filter).
+  const health = parseHealthParam(searchParams.get("health"));
 
   // Local echo for the search box; the URL mirror is debounced. The ref
   // tracks the last value THIS component intends/wrote so the sync effect
@@ -174,6 +184,7 @@ export function JobsList({ jobs, canBuild = false }: Props) {
     const params = new URLSearchParams(window.location.search);
     params.delete("status");
     params.delete("q");
+    params.delete("health");
     const qs = params.toString();
     try {
       window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
@@ -183,12 +194,38 @@ export function JobsList({ jobs, canBuild = false }: Props) {
     clearRememberedFilters(JOBS_FILTERS_STORAGE_KEY);
   };
 
+  // #227: jump straight to a health level (e.g. from a "3 at risk" summary).
+  const handleHealthClick = (next: JobHealthLevel | null) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const params = new URLSearchParams(window.location.search);
+    if (next) params.set("health", next);
+    else params.delete("health");
+    const qs = params.toString();
+    try {
+      window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
+    } catch {
+      // History API throttled — filtering still works from local state.
+    }
+  };
+
   // Filter on the LIVE keystroke value (not the debounced URL mirror) so
   // the list narrows instantly while typing.
   const filtered = useMemo(
     () => filterJobs(jobs, { status, query }),
     [jobs, status, query]
   );
+
+  // #227: derive each row's health from its already-loaded stats (no I/O, no
+  // recompute of the counts), then triage the portfolio "needs me first".
+  const withHealth = useMemo(
+    () => filtered.map((job) => ({ job, health: deriveJobHealth(job) })),
+    [filtered]
+  );
+  const healthTally = useMemo(() => healthCounts(withHealth), [withHealth]);
+  const visible = useMemo(() => {
+    const byHealth = health ? withHealth.filter((x) => x.health.level === health) : withHealth;
+    return sortByHealth(byHealth);
+  }, [withHealth, health]);
 
   const counts = useMemo(() => jobStatusCounts(jobs), [jobs]);
   // Statuses with zero jobs stay hidden (this page excludes archived rows
@@ -199,7 +236,7 @@ export function JobsList({ jobs, canBuild = false }: Props) {
     (s) => (counts.get(s) ?? 0) > 0 || status === s
   );
 
-  const filtersActive = status !== null || query.trim() !== "";
+  const filtersActive = status !== null || query.trim() !== "" || health !== null;
 
   if (jobs.length === 0) {
     return (
@@ -256,9 +293,23 @@ export function JobsList({ jobs, canBuild = false }: Props) {
             </button>
           ) : null}
         </div>
+
+        {/* #227: health filter — triage the portfolio by risk. Only levels with
+            jobs in the current status/search view render a pill. */}
+        <div role="group" aria-label="Filter jobs by health" className="flex flex-wrap items-center gap-1.5">
+          {HEALTH_LEVELS.filter((lvl) => healthTally[lvl] > 0 || health === lvl).map((lvl) => (
+            <FilterPill
+              key={lvl}
+              label={healthLabel(lvl)}
+              count={healthTally[lvl]}
+              selected={health === lvl}
+              onClick={() => handleHealthClick(health === lvl ? null : lvl)}
+            />
+          ))}
+        </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {visible.length === 0 ? (
         <Card>
           <div className="py-6 text-center text-sm text-text-muted">
             {jobsEmptyStateMessage({ status, query })}
@@ -266,9 +317,9 @@ export function JobsList({ jobs, canBuild = false }: Props) {
         </Card>
       ) : (
         <ul className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised">
-          {filtered.map((job) => (
+          {visible.map(({ job, health: jobHealth }) => (
             <li key={job.id}>
-              <JobRow job={job} canBuild={canBuild} />
+              <JobRow job={job} health={jobHealth} canBuild={canBuild} />
             </li>
           ))}
         </ul>
@@ -318,7 +369,15 @@ function FilterPill({
   );
 }
 
-function JobRow({ job, canBuild }: { job: Job; canBuild: boolean }) {
+const HEALTH_TONE: Record<JobHealthLevel, "danger" | "warning" | "success" | "neutral"> = {
+  "at-risk": "danger",
+  watch: "warning",
+  good: "success",
+  unknown: "neutral",
+};
+
+function JobRow({ job, health, canBuild }: { job: Job; health: JobHealth; canBuild: boolean }) {
+  const topReason = health.reasons[0] ?? null;
   const caption = lastActivityCaption(job);
   const address = (job.siteAddress ?? "").trim();
   const evidencePending = job.statsEvidenceV2Pending ?? 0;
@@ -342,6 +401,17 @@ function JobRow({ job, canBuild }: { job: Job; canBuild: boolean }) {
       >
         <div className="flex shrink-0 flex-col items-start gap-1 pt-1">
           <Pill tone={statusTone(job.status)}>{statusLabel(job.status)}</Pill>
+          {/* #227: rolled-up health (deriveJobHealth) + the top contributing
+              reason, so the portfolio triages at list altitude. `unknown` is the
+              honest "not enough data" state, never a fake "On track". */}
+          {health.level !== "good" ? (
+            <Pill tone={HEALTH_TONE[health.level]}>
+              {healthLabel(health.level)}
+              {topReason ? ` · ${topReason.count} ${topReason.label.toLowerCase()}` : ""}
+            </Pill>
+          ) : (
+            <Pill tone="success">On track</Pill>
+          )}
           {/* QA smoke runs leave SMOKE_TEST_/QA_SEED_ rows here — label them
               so nobody mistakes the seeded fixture for a real site. */}
           {isQaTestJobName(job.name) ? <Pill tone="neutral">Test data</Pill> : null}
