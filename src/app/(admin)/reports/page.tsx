@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import type { z } from "zod";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
@@ -85,7 +86,15 @@ export default async function ReportsPage() {
             >
               Command centre
             </Link>
-            ; this page is the numbers.
+            ; this page is the numbers. For an end-of-day, what-happened-across-every-job
+            review, see the{" "}
+            <Link
+              href={"/activity" as Route}
+              className="font-medium text-brand-navy underline underline-offset-2"
+            >
+              activity feed
+            </Link>
+            .
           </CardDescription>
         </Card>
 

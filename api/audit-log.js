@@ -155,6 +155,39 @@ module.exports = async (req, res) => {
     }
   }
 
+  // #220: company-wide cross-job activity feed. Admin-tier only (the office
+  // end-of-day review tool); LH → 403. Bounded by the same monthly-blob cap as
+  // every other mode — no unbounded scan. Optional job / type / actor filters.
+  if (scope === 'all') {
+    const user = await requireAuth(req, res);
+    if (!user) return;
+    if (!isAdminRole(user.role)) {
+      return res.status(403).json({ error: 'cross-job activity is admin only' });
+    }
+    const typeFilter = typesCsv
+      ? typesCsv.split(',').map((t) => t.trim()).filter((t) => VALID_TARGET_TYPES.has(t))
+      : null;
+    const actorFilter = String(q.actorId || '') || null;
+    const jobFilter = jobId || null;
+    try {
+      const yyyymms = recentMonths(Date.now(), months);
+      const lists = await Promise.all(yyyymms.map((m) => readMonth(m)));
+      const all = lists.flat().filter(
+        (e) =>
+          e &&
+          (jobFilter ? e.jobId === jobFilter : true) &&
+          (typeFilter ? typeFilter.includes(e.targetType) : true) &&
+          (actorFilter ? e.actorId === actorFilter : true)
+      );
+      const sorted = all
+        .slice()
+        .sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
+      return res.status(200).json({ entries: sorted });
+    } catch (e) {
+      return res.status(500).json({ error: e.message || 'activity feed read failed' });
+    }
+  }
+
   if (!targetType) return res.status(400).json({ error: 'targetType required' });
   if (!VALID_TARGET_TYPES.has(targetType)) {
     return res.status(400).json({ error: 'unsupported targetType' });
