@@ -136,6 +136,12 @@ export const AUDIT_ACTIONS = [
   "daywork.signed",
   "daywork.transitioned",
   "daywork.amended",
+  // #371: pre-start readiness gate (api/job-readiness.js) — manual-checklist
+  // tick, override-with-reason, and clearing it. targetType 'prestart'. Kept in
+  // sync with api/_lib/audit-log.js VALID_ACTIONS.
+  "readiness.item_ticked",
+  "readiness.overridden",
+  "readiness.override_cleared",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -164,6 +170,8 @@ export const AUDIT_TARGET_TYPES = [
   "time_entry",
   // #370: daywork docket records (jobs/<id>/dayworks.json).
   "daywork",
+  // #371: per-job pre-start readiness (jobs/<id>/prestart.json).
+  "prestart",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

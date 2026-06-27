@@ -12,11 +12,14 @@ import { JobInterfaceSectionNav } from "@/components/admin/JobInterfaceSectionNa
 import { JobOverviewSummary } from "@/components/admin/JobOverviewSummary";
 import { JobFieldViewCard } from "@/components/admin/JobFieldViewCard";
 import { JobInductionCard } from "@/components/admin/JobInductionCard";
+import { JobReadinessPanel } from "@/components/admin/JobReadinessPanel";
 import { JobScopeCard } from "@/components/admin/JobScopeCard";
 import {
   JobInductionsResponseSchema,
   type CrewInductionStatus,
 } from "@/domains/jobs/induction";
+import { computeReadiness, type ReadinessResult } from "@/domains/jobs/readiness";
+import { ReadinessSignalsResponseSchema, signalsFrom } from "@/domains/jobs/readiness-client";
 import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
@@ -90,9 +93,10 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
   }
   const canBuild = canAccessSurface(session.role, "admin");
 
-  const [data, inductions] = await Promise.all([
+  const [data, inductions, readiness] = await Promise.all([
     loadJobInterface(raw, jobId),
     loadJobInductions(raw, jobId),
+    loadJobReadiness(raw, jobId),
   ]);
   const result = data.job;
 
@@ -187,6 +191,17 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
           jobId={job.id}
           fetchError={data.activity.error}
         />
+        {/* #371: pre-start readiness — the aggregate "can we start?" gate over
+            induction + licences + safety docs + the manual checklist. Admin-tier
+            data; an LH viewer's 403 resolves to null (card hidden). Sits above
+            the induction card, which is the per-worker drill-down. */}
+        {readiness ? (
+          <JobReadinessPanel
+            jobId={job.id}
+            initial={readiness.result}
+            fetchError={readiness.error}
+          />
+        ) : null}
         {/* #332: crew induction register — current crew ∩ records. Shown when
             the job requires induction, or when past records exist after the
             flag was turned off (history is never hidden). Admin-tier data;
@@ -457,5 +472,43 @@ async function loadJobInductions(
       inductionRequired: false,
       error: err instanceof Error ? err.message : "network error",
     };
+  }
+}
+
+/**
+ * #371: pre-start readiness. Admin-tier endpoint — an LH viewer's 403 resolves
+ * to null (panel hidden); any other failure resolves to an empty-but-flagged
+ * result so the panel can say so. The API serves SIGNALS; we run the pure
+ * computeReadiness() engine here so the hub holds the single computed result.
+ */
+async function loadJobReadiness(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<{ result: ReadinessResult; error: string | null } | null> {
+  const empty = (): ReadinessResult =>
+    computeReadiness({
+      crew: [],
+      inductions: null,
+      licences: null,
+      safetyDocs: null,
+      manualItems: [],
+      override: null,
+    });
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(`${base}/api/job-readiness?jobId=${encodeURIComponent(jobId)}`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (res.status === 403) return null; // LH / non-admin viewer — admin-only, v1
+    if (!res.ok) return { result: empty(), error: `Readiness: API ${res.status}` };
+    const parsed = ReadinessSignalsResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { result: empty(), error: "Readiness: bad shape" };
+    return { result: computeReadiness(signalsFrom(parsed.data)), error: null };
+  } catch (err) {
+    return { result: empty(), error: err instanceof Error ? err.message : "network error" };
   }
 }
