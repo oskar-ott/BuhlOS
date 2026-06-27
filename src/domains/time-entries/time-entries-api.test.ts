@@ -361,6 +361,82 @@ describe("on-behalf hours — gated on the staff tier, not literal admin/LH", ()
   });
 });
 
+// #130: the office + Phil screens render the entry's STORED ordinaryHours /
+// overtimeHours split. These document the CURRENT write-time policy that
+// produces those stored fields: the server ACCEPTS the split AS SENT (the
+// client computes it via autoSplitOT before POST), and only VALIDATES that
+// ordinary + overtime == total (validateEntryShape). It does NOT recompute
+// the split from totalHours on write. Server-side recompute-on-write is a
+// separate hardening issue — these tests pin today's behaviour so the
+// presentation-only #130 work rests on a documented contract.
+describe("#130 — server stores the ordinary/overtime split as sent (accept-as-sent)", () => {
+  it("persists the client-sent split verbatim on a long day", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      body: validEntry({
+        totalHours: 10,
+        ordinaryHours: 8,
+        overtimeHours: 2,
+        allocations: [{ jobId: "job-x", hours: 10 }],
+        status: "submitted",
+      }),
+    });
+    expect(res.statusCode).toBe(201);
+    const entry = (res.body as { entry: { ordinaryHours: number; overtimeHours: number; totalHours: number } }).entry;
+    expect(entry.totalHours).toBe(10);
+    expect(entry.ordinaryHours).toBe(8);
+    expect(entry.overtimeHours).toBe(2);
+    // The stored blob carries the same split the read endpoints will serve.
+    const stored = blob.get(`users/u_field2/time-entries/${TODAY}.json`) as {
+      ordinaryHours: number;
+      overtimeHours: number;
+    };
+    expect(stored.ordinaryHours).toBe(8);
+    expect(stored.overtimeHours).toBe(2);
+    blob.delete(`users/u_field2/time-entries/${TODAY}.json`);
+  });
+
+  it("validates ordinary + overtime == total — rejects an inconsistent split (400)", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      body: validEntry({
+        totalHours: 10,
+        ordinaryHours: 8,
+        overtimeHours: 1, // 8 + 1 != 10
+        allocations: [{ jobId: "job-x", hours: 10 }],
+        status: "submitted",
+      }),
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("does NOT recompute the split: an unusual-but-consistent split is stored as sent", async () => {
+    // A 10h day sent as 10 ordinary / 0 OT (consistent) is accepted unchanged —
+    // the server does not impose autoSplitOT's 8h boundary on write.
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      body: validEntry({
+        totalHours: 10,
+        ordinaryHours: 10,
+        overtimeHours: 0,
+        allocations: [{ jobId: "job-x", hours: 10 }],
+        status: "submitted",
+      }),
+    });
+    expect(res.statusCode).toBe(201);
+    const entry = (res.body as { entry: { ordinaryHours: number; overtimeHours: number } }).entry;
+    expect(entry.ordinaryHours).toBe(10);
+    expect(entry.overtimeHours).toBe(0);
+    blob.delete(`users/u_field2/time-entries/${TODAY}.json`);
+  });
+});
+
 // #390: worker submit / resubmit must land in the canonical audit journal
 // (api/_lib/audit-log.js → audit/<yyyy-mm>.json) so the cross-job activity feed
 // (#220) + per-job history show the submissions, not just the approvals pass

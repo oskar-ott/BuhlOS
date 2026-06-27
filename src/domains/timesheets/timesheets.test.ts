@@ -44,6 +44,7 @@ import {
   formatDateLabel,
   formatShortDateLabel,
   logActionTitle,
+  otSplitLabel,
 } from "./format";
 
 describe("timesheets service constants", () => {
@@ -92,6 +93,43 @@ describe("autoSplitOT()", () => {
     expect(autoSplitOT(8)).toEqual({ ordinary: 8, overtime: 0 });
     expect(autoSplitOT(10)).toEqual({ ordinary: 8, overtime: 2 });
     expect(autoSplitOT(8.25)).toEqual({ ordinary: 8, overtime: 0.25 });
+  });
+});
+
+describe("otSplitLabel() — the single split-display source (#130)", () => {
+  it("returns null at/under the threshold — zero added noise on a normal day", () => {
+    // 7.6h standard day and exactly 8.0h both have no overtime → no label.
+    expect(otSplitLabel({ ordinaryHours: 7.6, overtimeHours: 0, totalHours: 7.6 })).toBeNull();
+    expect(otSplitLabel({ ordinaryHours: 8, overtimeHours: 0, totalHours: 8 })).toBeNull();
+  });
+
+  it("renders the office split above the threshold (8.01h / 10h / 16h)", () => {
+    expect(otSplitLabel({ ordinaryHours: 8, overtimeHours: 0.01, totalHours: 8.01 })).toBe(
+      "8h + 1m OT",
+    );
+    expect(otSplitLabel({ ordinaryHours: 8, overtimeHours: 2, totalHours: 10 })).toBe("8h + 2h OT");
+    expect(otSplitLabel({ ordinaryHours: 8, overtimeHours: 8, totalHours: 16 })).toBe("8h + 8h OT");
+  });
+
+  it("uses worker words for the Phil audience — 'overtime', never 'OT' (P11)", () => {
+    expect(
+      otSplitLabel({ ordinaryHours: 8, overtimeHours: 2, totalHours: 10 }, { audience: "worker" }),
+    ).toBe("8h + 2h overtime");
+  });
+
+  it("HONESTY GUARD (P7): a stored split that doesn't reconcile returns null", () => {
+    // ordinary + overtime (8 + 2 = 10) != total (12) → never invent a split.
+    expect(otSplitLabel({ ordinaryHours: 8, overtimeHours: 2, totalHours: 12 })).toBeNull();
+    // Tiny rounding drift (≤ 0.01) is tolerated, not treated as garbage.
+    expect(otSplitLabel({ ordinaryHours: 8, overtimeHours: 2.005, totalHours: 10 })).toBe(
+      "8h + 2h OT",
+    );
+  });
+
+  it("returns null for non-finite stored fields rather than throwing", () => {
+    expect(
+      otSplitLabel({ ordinaryHours: NaN, overtimeHours: 2, totalHours: 10 }),
+    ).toBeNull();
   });
 });
 

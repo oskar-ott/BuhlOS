@@ -4,7 +4,7 @@ import { Card, CardTitle } from "@/components/ui/Card";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { cn } from "@/lib/cn";
 import type { TimeEntry } from "@/domains/timesheets/types";
-import { formatHoursLabel } from "@/domains/timesheets/format";
+import { formatHoursLabel, otSplitLabel } from "@/domains/timesheets/format";
 import { buildPhilWeek, type WeekDayCell } from "./philWeek";
 
 /**
@@ -66,14 +66,31 @@ interface DayRowView {
   label: string;
   hours: string | null;
   status: string;
+  /** #130: quiet worker-words overtime line, e.g. "8h + 2h overtime", or null
+   *  for a ≤8h day (zero noise — the line simply isn't there). */
+  overtime: string | null;
   muted: boolean;
   danger: boolean;
   action: { label: string; href: string } | null;
 }
 
+/** Worker-words OT split for a logged cell, from the STORED portions only. */
+function overtimeFor(day: WeekDayCell): string | null {
+  if (day.hours == null || day.overtimeHours == null || day.ordinaryHours == null) return null;
+  return otSplitLabel(
+    {
+      ordinaryHours: day.ordinaryHours,
+      overtimeHours: day.overtimeHours,
+      totalHours: day.hours,
+    },
+    { audience: "worker" },
+  );
+}
+
 function rowFor(day: WeekDayCell, todayISO: string): DayRowView | null {
   const label = `${day.weekday} ${dayNum(day.date)}`;
   const hours = day.hours != null ? formatHoursLabel(day.hours) : null;
+  const overtime = overtimeFor(day);
   const logHref = `/phil/my-day?fixDate=${encodeURIComponent(day.date)}`;
 
   switch (day.state) {
@@ -81,6 +98,7 @@ function rowFor(day: WeekDayCell, todayISO: string): DayRowView | null {
       return {
         label,
         hours,
+        overtime,
         status: "Rejected — fix needed",
         muted: false,
         danger: true,
@@ -91,6 +109,7 @@ function rowFor(day: WeekDayCell, todayISO: string): DayRowView | null {
         return {
           label,
           hours: null,
+          overtime: null,
           status: "Not logged yet",
           muted: false,
           danger: false,
@@ -100,13 +119,14 @@ function rowFor(day: WeekDayCell, todayISO: string): DayRowView | null {
       return {
         label,
         hours,
+        overtime,
         status: statusText(day.statusWord),
         muted: false,
         danger: false,
         action: null,
       };
     case "logged":
-      return { label, hours, status: statusText(day.statusWord), muted: false, danger: false, action: null };
+      return { label, hours, overtime, status: statusText(day.statusWord), muted: false, danger: false, action: null };
     case "miss":
       // Draft entries borrow the amber "miss" styling on the strip but carry
       // hours — show them truthfully, with no dead-end action.
@@ -114,6 +134,7 @@ function rowFor(day: WeekDayCell, todayISO: string): DayRowView | null {
         return {
           label,
           hours,
+          overtime,
           status: "Draft — not submitted",
           muted: false,
           danger: false,
@@ -123,13 +144,14 @@ function rowFor(day: WeekDayCell, todayISO: string): DayRowView | null {
       return {
         label,
         hours: null,
+        overtime: null,
         status: "Not logged",
         muted: false,
         danger: false,
         action: { label: "Log", href: logHref },
       };
     case "upcoming":
-      return { label, hours: null, status: "—", muted: true, danger: false, action: null };
+      return { label, hours: null, overtime: null, status: "—", muted: true, danger: false, action: null };
   }
 }
 
@@ -192,6 +214,12 @@ export function PhilWeekSummary({
                     would split the copy (same trick as PhilWeekStrip). */}
                 {row.hours ? `${row.status} · ${row.hours}` : row.status}
               </span>
+              {/* #130: one quiet line showing the overtime the worker worked.
+                  Only present on a day that has overtime — zero noise on a
+                  normal ≤8h day (cognitive budget, P10). */}
+              {row.overtime ? (
+                <span className="mt-0.5 block text-xs text-text-muted">{row.overtime}</span>
+              ) : null}
             </div>
             {row.action ? (
               <PhilOfflineLink

@@ -16,7 +16,12 @@ import type { TimeEntry } from "@/domains/timesheets/types";
  * are flagged "No job assigned" so an approver can spot them. Display-only —
  * approve/reject behaviour is unchanged and untested here.
  */
-function entry(id: string, userName: string, allocations: TimeEntry["allocations"]): TimeEntry {
+function entry(
+  id: string,
+  userName: string,
+  allocations: TimeEntry["allocations"],
+  extra: Partial<TimeEntry> = {},
+): TimeEntry {
   return {
     id,
     userId: `u-${id}`,
@@ -31,6 +36,7 @@ function entry(id: string, userName: string, allocations: TimeEntry["allocations
     createdAt: "2026-06-05T07:00:00.000Z",
     updatedAt: "2026-06-05T08:00:00.000Z",
     allocations,
+    ...extra,
   } as unknown as TimeEntry;
 }
 
@@ -58,6 +64,46 @@ describe("HoursApprovalsQueue — job attribution display", () => {
       fetchError: null,
     });
     expect(html).toContain("No job assigned");
+  });
+});
+
+describe("Overtime split display (#130)", () => {
+  it("shows the base/OT split on an entry that stored overtime", () => {
+    const html = render({
+      initialEntries: [
+        entry("ot", "Sparky", [{ jobId: "j1", jobName: "100 Arthur", hours: 10 }], {
+          totalHours: 10,
+          ordinaryHours: 8,
+          overtimeHours: 2,
+        }),
+      ],
+      fetchError: null,
+    });
+    expect(html).toContain("8h + 2h OT");
+  });
+
+  it("adds no split for a standard ≤8h day (byte-identical to before)", () => {
+    const html = render({
+      initialEntries: [
+        entry("std", "Sparky", [{ jobId: "j1", jobName: "100 Arthur", hours: 8 }]),
+      ],
+      fetchError: null,
+    });
+    expect(html).not.toContain(" OT");
+  });
+
+  it("HONESTY GUARD: an inconsistent stored split shows total only, no invented split", () => {
+    const html = render({
+      initialEntries: [
+        entry("bad", "Sparky", [{ jobId: "j1", jobName: "100 Arthur", hours: 12 }], {
+          totalHours: 12,
+          ordinaryHours: 8,
+          overtimeHours: 2, // 8 + 2 != 12 → garbage
+        }),
+      ],
+      fetchError: null,
+    });
+    expect(html).not.toContain(" OT");
   });
 });
 

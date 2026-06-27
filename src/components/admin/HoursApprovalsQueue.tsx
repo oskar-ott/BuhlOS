@@ -14,6 +14,7 @@ import {
   formatDateLabel,
   formatHoursLabel,
   formatTimestamp,
+  otSplitLabel,
   statusLabel,
   statusTone,
 } from "@/domains/timesheets/format";
@@ -465,6 +466,11 @@ function EntryRow({
           <span className="font-medium text-text">{formatDateLabel(entry.date)}</span>
           <Pill tone={statusTone(entry.status)}>{statusLabel(entry.status)}</Pill>
           <span className="text-text-muted">{formatHoursLabel(entry.totalHours)}</span>
+          {/* #130: base/OT split, only when the stored entry has overtime —
+              ≤8h days render byte-identical (presenter returns null). */}
+          {otSplitLabel(entry) ? (
+            <span className="text-xs text-text-muted">({otSplitLabel(entry)})</span>
+          ) : null}
         </div>
         {entry.notes ? (
           <p className="text-sm text-text-muted">

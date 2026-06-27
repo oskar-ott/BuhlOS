@@ -10,7 +10,7 @@ import { Pill } from "@/components/ui/Pill";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import { requestLeave, clearLeave } from "@/domains/timesheets/client";
-import { formatHoursLabel } from "@/domains/timesheets/format";
+import { formatHoursLabel, otSplitLabel } from "@/domains/timesheets/format";
 import {
   readinessLabel,
   submittedWeekSelection,
@@ -846,6 +846,20 @@ function DayRow({
           {day.hours != null ? (
             <span className="text-text-muted">{formatHoursLabel(day.hours)}</span>
           ) : null}
+          {/* #130: base/OT split, only when the stored day has overtime —
+              ≤8h days render byte-identical (presenter returns null). */}
+          {day.overtimeHours != null && day.overtimeHours > 0 && day.hours != null
+            ? (() => {
+                const split = otSplitLabel({
+                  ordinaryHours: day.ordinaryHours ?? day.hours - day.overtimeHours!,
+                  overtimeHours: day.overtimeHours,
+                  totalHours: day.hours,
+                });
+                return split ? (
+                  <span className="text-xs text-text-muted">({split})</span>
+                ) : null;
+              })()
+            : null}
           {day.jobLabel ? <span className="text-text-muted">· {day.jobLabel}</span> : null}
           {day.status === "leave" && day.leaveType ? (
             <span className="text-text-muted">({day.leaveType})</span>

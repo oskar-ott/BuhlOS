@@ -77,4 +77,16 @@ describe("prorateAllocations (#380)", () => {
     const rows = prorateAllocations({ ordinaryHours: 0 }, [{ hours: 4 }, { hours: 2 }]);
     expect(sums(rows)).toEqual({ ord: 0, ot: 6 });
   });
+
+  it("#130 (AC4): export rows conserve the SAME stored split the screens show", () => {
+    // The on-screen presenter (otSplitLabel) reads the entry's stored
+    // ordinaryHours/overtimeHours; the export rows prorate against the same
+    // stored ordinary budget. For the canonical 10h day (8 ord + 2 OT) the
+    // export row sums equal the stored split exactly — the number a worker /
+    // approver sees on the queue, weekly board and Phil week is the same
+    // number that lands in payroll. No re-derivation, one source.
+    const entry = { ordinaryHours: 8, overtimeHours: 2 };
+    const rows = prorateAllocations(entry, [{ hours: 10 }]);
+    expect(sums(rows)).toEqual({ ord: entry.ordinaryHours, ot: entry.overtimeHours });
+  });
 });

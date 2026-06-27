@@ -11,6 +11,17 @@ function entry(date: string, status: TimeEntry["status"], totalHours = 7.6): Tim
   return { date, totalHours, status } as unknown as TimeEntry;
 }
 
+/** An entry carrying a stored ordinary/overtime split (#130). */
+function otEntry(
+  date: string,
+  status: TimeEntry["status"],
+  totalHours: number,
+  ordinaryHours: number,
+  overtimeHours: number,
+): TimeEntry {
+  return { date, status, totalHours, ordinaryHours, overtimeHours } as unknown as TimeEntry;
+}
+
 function render(entries: TimeEntry[], todayISO = TODAY) {
   return renderToString(createElement(PhilWeekSummary, { entries, todayISO }));
 }
@@ -80,6 +91,25 @@ describe("PhilWeekSummary (render)", () => {
     expect(html).toContain("Draft — not submitted");
     // No Fix/Log action for drafts — modern Phil has no draft-edit flow.
     expect(html).not.toContain("/phil/my-day?fixDate=2024-05-20");
+  });
+
+  it("shows the overtime a worker worked, in worker words — never 'OT' jargon (#130)", () => {
+    // A 10h Monday: 8h ordinary + 2h overtime. Today = Friday so Monday is logged.
+    const html = render([otEntry("2024-05-20", "approved", 10, 8, 2)]);
+    expect(html).toContain("8h + 2h overtime");
+    // Worker words only — never the admin "OT" abbreviation.
+    expect(html).not.toContain(" OT");
+  });
+
+  it("adds no overtime line on a standard ≤8h day (zero noise, P10)", () => {
+    const html = render([otEntry("2024-05-20", "approved", 8, 8, 0)]);
+    expect(html).not.toContain("overtime");
+  });
+
+  it("HONESTY GUARD: an inconsistent stored split shows no invented overtime line (P7)", () => {
+    // 8 + 2 != 12 → the presenter refuses to render a split.
+    const html = render([otEntry("2024-05-20", "approved", 12, 8, 2)]);
+    expect(html).not.toContain("overtime");
   });
 
   it("treats a past weekend like a weekday — it's loggable — and never uses admin/payroll words", () => {

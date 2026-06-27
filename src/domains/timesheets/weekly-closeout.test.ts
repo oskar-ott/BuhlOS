@@ -271,6 +271,37 @@ describe("buildWeeklyHoursCloseout — day statuses are honest", () => {
     expect(c.workers[0]!.days[0]!.jobLabel).toBe("2 jobs");
     expect(c.workers[0]!.days[1]!.jobLabel).toBe("No job");
   });
+
+  it("carries the STORED ordinary/overtime split through to the day cell (#130)", () => {
+    const c = build([
+      entry({
+        userId: "u1",
+        date: "2024-05-20",
+        totalHours: 10,
+        ordinaryHours: 8,
+        overtimeHours: 2,
+        allocations: [{ jobId: "j1", jobName: "100 Arthur", hours: 10 }],
+      } as Partial<TimeEntry> & { userId: string; date: string }),
+    ]);
+    const day = c.workers[0]!.days[0]!;
+    expect(day.hours).toBe(10);
+    expect(day.ordinaryHours).toBe(8);
+    expect(day.overtimeHours).toBe(2);
+    // Roll-up stays totalHours-based — the split is display-only, not double-counted.
+    expect(c.workers[0]!.approvedHours).toBe(10);
+  });
+
+  it("a standard day has no overtime on its cell, and empty cells stay null (#130)", () => {
+    const c = build(
+      [entry({ userId: "u1", date: "2024-05-20", totalHours: 7.6, ordinaryHours: 7.6, overtimeHours: 0 })],
+    );
+    const days = c.workers[0]!.days;
+    expect(days[0]!.overtimeHours).toBe(0);
+    // Tue (no entry) — both split fields null, exactly like before.
+    expect(days[1]!.hours).toBeNull();
+    expect(days[1]!.ordinaryHours).toBeNull();
+    expect(days[1]!.overtimeHours).toBeNull();
+  });
 });
 
 describe("buildWeeklyHoursCloseout — approved leave (#333)", () => {
@@ -418,6 +449,8 @@ describe("submittedWeekSelection (#124 — the Approve-week payload)", () => {
       weekday: "Mon",
       status: "submitted" as const,
       hours: 7.6,
+      ordinaryHours: 7.6,
+      overtimeHours: 0,
       entryId: `e${i}`,
       jobLabel: null,
       note: null,
