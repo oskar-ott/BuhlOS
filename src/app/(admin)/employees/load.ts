@@ -51,7 +51,9 @@ export async function loadEmployeesView(cookieValue: string | undefined): Promis
   try {
     const [empRes, jobsRes, licRes] = await Promise.all([
       fetch(`${base}/api/employees`, { cache: "no-store", headers: cookieHeader }),
-      fetch(`${base}/api/jobs`, { cache: "no-store", headers: cookieHeader }),
+      // Active-jobs picker needs only id/name/ref — read the small jobs-summary
+      // base (?summary=1) instead of the ~3.5-8s jobs.json monolith.
+      fetch(`${base}/api/jobs?summary=1`, { cache: "no-store", headers: cookieHeader }),
       fetch(`${base}/api/licences`, { cache: "no-store", headers: cookieHeader }).catch(() => null),
     ]);
 
