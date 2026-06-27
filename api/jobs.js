@@ -231,10 +231,22 @@ module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const me = await getCurrentUser(req);
+  // Perf (Phil mobile LCP): the field/Phil GET path was gated on a chain of
+  // INDEPENDENT cold blob reads run serially — users.json (auth, via
+  // getCurrentUser), jobs.json (the dominant ~2.5s read), and, on the list GET,
+  // job-types.json (the type-name lookup). None depends on another's CONTENT,
+  // so firing them together collapses the serial wall-clock (~sum) to ~max(read).
+  // The 401 gate still runs BEFORE any data is used; an unauthenticated request
+  // just discards the side-effect-free reads (same pattern as #670). job-types is
+  // only needed by the list GET, so it is only prefetched there. Output is
+  // byte-identical to the serial version (proven by jobs-api parity tests).
+  const wantsJobTypes = req.method === 'GET' && !(req.query && req.query.id);
+  const [me, data, jobTypesData] = await Promise.all([
+    getCurrentUser(req),
+    readBlob('jobs.json', { jobs: [] }),
+    wantsJobTypes ? readBlob('job-types.json', { jobTypes: [] }) : Promise.resolve(null),
+  ]);
   if (!me) return res.status(401).json({ error: 'not authenticated' });
-
-  const data = await readBlob('jobs.json', { jobs: [] });
   data.jobs = data.jobs || [];
 
   // J6 — DARK admin read cutover. Blob (read above) stays authoritative. For the
@@ -333,9 +345,8 @@ module.exports = async (req, res) => {
     // Enrich with human-readable type name (cheap lookup; small list).
     // Clients/tradies can't read /api/job-types, so resolve server-side.
     let typeMap = {};
-    if (visible.some(j => j.type)) {
-      const jt = await readBlob('job-types.json', { jobTypes: [] });
-      (jt.jobTypes || []).forEach(t => { typeMap[t.id] = t.name; });
+    if (jobTypesData && visible.some(j => j.type)) {
+      (jobTypesData.jobTypes || []).forEach(t => { typeMap[t.id] = t.name; });
     }
     // Listing surface filters archived structural items by default.
     // The admin job-list page doesn't need them; if a future surface
