@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { purgePhilPageCaches } from "@/domains/phil/page-cache";
+import { purgeJobListPrefs } from "./jobListPrefs";
 
 /**
  * Phil sign-out control.
@@ -19,8 +20,18 @@ import { purgePhilPageCaches } from "@/domains/phil/page-cache";
  * Styled as a neutral full-width control rather than the yellow
  * PhilActionButton — accent-yellow is reserved for the single primary field
  * action per screen, and signing out is a deliberate secondary action.
+ *
+ * `userId` (optional) keys the client-only recent + pinned jobs prefs (#145);
+ * we purge them on sign-out so a shared device never leaks the previous
+ * worker's list to the next person. Absent userId → nothing to purge.
  */
-export function PhilSignOutButton({ className }: { className?: string }) {
+export function PhilSignOutButton({
+  className,
+  userId,
+}: {
+  className?: string;
+  userId?: string;
+}) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
 
@@ -40,6 +51,9 @@ export function PhilSignOutButton({ className }: { className?: string }) {
     // Clear the offline page cache so a shared device never serves this
     // worker's cached /phil pages to the next person (#135 Layer 2).
     await purgePhilPageCaches();
+    // Drop this worker's recent + pinned jobs (#145) for the same shared-device
+    // reason — best-effort, client-only, keyed by userId.
+    if (userId) purgeJobListPrefs(userId);
     router.replace("/v2/login");
     router.refresh();
   }

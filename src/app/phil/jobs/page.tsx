@@ -41,6 +41,11 @@ export default async function PhilJobsPage() {
     redirect("/v2/login");
   }
 
+  // The signed-in worker's id — keys the per-worker recent + pinned jobs (#145).
+  // Falls back to "" so the list degrades to the plain name-first list if a
+  // session ever lacks an id (no prefs read, no Recent group).
+  const viewerId = session.userId ?? session.sub ?? "";
+
   const { jobs, fetchError } = await loadJobs(raw);
 
   // Hide archived + draft rows on the Phil surface even if a future admin
@@ -75,7 +80,7 @@ export default async function PhilJobsPage() {
           </PhilNotice>
         ) : null}
 
-        <PhilJobsList initialJobs={visible} />
+        <PhilJobsList initialJobs={visible} userId={viewerId} />
       </div>
     </PhilShell>
   );
