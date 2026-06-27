@@ -20,7 +20,7 @@ const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole } = require('./_lib/auth');
 const { readCostRates, historyFor, effectiveCostRate } = require('./_lib/cost-rates');
-const { computeJobProfitability } = require('./_lib/job-profitability');
+const { computeJobProfitability, buildBudgetLines } = require('./_lib/job-profitability');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -123,9 +123,25 @@ module.exports = async (req, res) => {
     materialSource,
   });
 
+  // #341: budget variance — actual vs estimate, the same money module.
+  const le = Number(job.labourEstimate);
+  const me_ = Number(job.materialEstimate);
+  const labourEstimateCents = job.labourEstimate != null && Number.isFinite(le) && le > 0 ? Math.round(le * 100) : null;
+  const materialEstimateCents = job.materialEstimate != null && Number.isFinite(me_) && me_ > 0 ? Math.round(me_ * 100) : null;
+  const budget = { labourEstimateCents, materialEstimateCents };
+  const variance = buildBudgetLines({
+    labourCostCents,
+    materialCostCents,
+    labourEstimateCents,
+    materialEstimateCents,
+    contractValueCents,
+  });
+
   return res.status(200).json({
     jobId,
     ...result,
+    budget,
+    variance,
     hoursTotal: Math.round(hoursTotal * 100) / 100,
     asOf: new Date().toISOString(),
   });

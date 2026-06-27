@@ -146,4 +146,22 @@ describe("GET /api/job-profitability — honest margin (#327)", () => {
     expect(b.marginCents).toBeNull();
     expect(b.badges).toContain("no contract value set");
   });
+
+  it("returns budget-variance lines (#341): actual vs estimate, null when no estimate", async () => {
+    // Give job-a a labour estimate; leave the material estimate unset.
+    (blob.get("jobs.json") as { jobs: Array<{ id: string; labourEstimate?: number }> }).jobs
+      .find((j) => j.id === "job-a")!.labourEstimate = 500; // $500 = 50,000c
+    const res = await call({ role: "admin", query: { jobId: "job-a" } });
+    expect(res.statusCode).toBe(200);
+    const b = res.body as {
+      budget: { labourEstimateCents: number | null; materialEstimateCents: number | null };
+      variance: { labour: { actualCents: number; budgetCents: number | null; varianceCents: number | null }; material: { budgetCents: number | null }; total: { actualCents: number; budgetCents: number | null } };
+    };
+    expect(b.budget.labourEstimateCents).toBe(50000);
+    expect(b.budget.materialEstimateCents).toBeNull();
+    expect(b.variance.labour).toMatchObject({ actualCents: 42000, budgetCents: 50000, varianceCents: -8000 });
+    expect(b.variance.material.budgetCents).toBeNull(); // no material estimate → null, not a fake 0
+    expect(b.variance.total.actualCents).toBe(42000 + 3_000_000);
+    expect(b.variance.total.budgetCents).toBe(12_000_000); // vs contractValue
+  });
 });
