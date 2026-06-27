@@ -7,6 +7,7 @@ const { recordJobsRead } = require('./_lib/job-read-diagnostics');
 const { mirrorJobToPg } = require('./_lib/jobs-mirror');
 const { isFlagOnSync } = require('./_lib/feature-flags');
 const { readJobsSummary, readFieldJobStats, countActiveSnagsV2, countActiveItps } = require('./_lib/jobs-summary');
+const { readJobDetailProjection } = require('./_lib/job-detail-projection');
 
 // Canonical job statuses — keep in sync with src/domains/jobs/schema.ts JOB_STATUSES.
 const VALID_JOB_STATUS = new Set(['active', 'complete', 'archived', 'on_hold', 'draft']);
@@ -281,6 +282,54 @@ module.exports = async (req, res) => {
     }
     // Not eligible (admin/client) or summary errored → fall through.
     // getCurrentUser below is a cheap cache hit (users.json, 5s TTL).
+  }
+
+  // Perf (Phil mobile job-detail LCP): serve the FIELD/leading-hand SINGLE-JOB
+  // detail GET (?id=, the read behind /phil/jobs/[jobId]) from the small per-job
+  // jobs/<id>/field-detail.json projection instead of reading+parsing the whole
+  // jobs.json monolith (~3.5s) to return one job. The structure-bearing sibling of
+  // the LIST summary above — same ENV-gate, same freshness/fallback contract, and
+  // the SAME precedence over the J7 supabase_read_phil_jobs PG overlay for the
+  // field read (the projection rides the dual-written Blob spine jobs.json; PG
+  // stays truth for admin reads + dual-write — see the list block above). Scope:
+  // field/LH, an ASSIGNED job, and NO ?withStats / ?includeArchived (admin-only
+  // knobs → full read). The read path runs the SAME projectJobStructure +
+  // effectiveModules + redactJobForViewer pipeline on the small record that the
+  // full read runs on the monolith, so the response is byte-identical (modulo
+  // money, which field/LH never see). ANY miss / stale / draft / archived / error
+  // → fall through to the authoritative full read (the one place that enforces
+  // 404/403 + every visibility rule).
+  if (
+    req.method === 'GET' &&
+    req.query &&
+    req.query.id &&
+    req.query.withStats !== '1' &&
+    req.query.includeArchived !== '1' &&
+    isFlagOnSync('phil_jobs_summary_read')
+  ) {
+    const me = await getCurrentUser(req);
+    if (!me) return res.status(401).json({ error: 'not authenticated' });
+    if (
+      (isFieldRole(me.role) || isLeadingHandRole(me.role)) &&
+      (me.assignedJobIds || []).includes(req.query.id)
+    ) {
+      try {
+        const { record } = await readJobDetailProjection(req.query.id);
+        // Only short-circuit the happy path: the job exists and is live. Draft and
+        // archived are office-only (field/LH 404) — defer to the full read so the
+        // exact 404/403 semantics live in exactly one place.
+        if (record && record.status !== 'draft' && record.status !== 'archived') {
+          const cleaned = projectJobStructure(record, { includeArchived: false });
+          const projected = { ...cleaned, modules: effectiveModules(record) };
+          return res.status(200).json({ job: redactJobForViewer(projected, me.role) });
+        }
+        // null (not in monolith) / draft / archived → fall through to the full read.
+      } catch (e) {
+        console.error('job-detail projection read failed; falling back to full jobs.json', e && e.message);
+        // fall through to the authoritative full read below
+      }
+    }
+    // Not eligible (admin/client/unassigned) or projection errored → fall through.
   }
 
   // Perf (Phil mobile LCP): the field/Phil GET path was gated on a chain of

@@ -151,6 +151,7 @@ beforeEach(() => {
   // up the mock (jobs-summary lazy-requires blob, so it needs no busting).
   delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/feature-flags.js")];
   delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/jobs-summary.js")];
+  delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/job-detail-projection.js")];
   requireFromHere.cache[blobPath] = {
     id: blobPath,
     filename: blobPath,
@@ -1136,5 +1137,130 @@ describe("GET /api/jobs jobs-summary read path (perf, flag-gated)", () => {
     await handler({ method: "GET", query: {}, headers: {} }, res);
     expect(res.statusCode).toBe(401);
     expect(res.body).not.toHaveProperty("jobs");
+  });
+});
+
+// Guards the Phil SINGLE-JOB structure projection (same FLAG_PHIL_JOBS_SUMMARY_READ):
+// /api/jobs?id=… for field/LH is served from the per-job jobs/<id>/field-detail.json
+// projection instead of the jobs.json monolith. These prove byte parity with the
+// full single-job read, that the projection (not the monolith) is served on a fresh
+// hit, never-stale rebuild, per-role redaction, money omission, admin scope-guard,
+// draft/archived 404, fallback on error, and 401.
+describe("GET /api/jobs?id=… job-detail projection (perf, flag-gated)", () => {
+  const single = (r: { body: unknown }) => (r.body as { job: Record<string, unknown> }).job;
+  const DETAIL_KEY = "jobs/job-active/field-detail.json";
+
+  afterEach(() => {
+    delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
+    delete process.env.FLAG_SUPABASE_READ_PHIL_JOBS;
+  });
+
+  it("PARITY (field): projection === full read for the single-job GET (structure, archived-filter, redaction)", async () => {
+    delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
+    const full = single(await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active" } }));
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const proj = single(await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active" } }));
+    expect(proj).toEqual(full);
+    // structure kept + archived area filtered (projectJobStructure ran)
+    const areas = (proj.areaGroups as Array<{ areas: Array<{ id: string }> }>)[0]!.areas.map((a) => a.id);
+    expect(areas).toEqual(["area-current"]); // area-archived filtered out
+    // money never present on the field path
+    expect(proj).not.toHaveProperty("contractValue");
+  });
+
+  it("PARITY (LH): projection === full read, scopeOfWork retained for the leading hand", async () => {
+    delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
+    const full = single(await call({ method: "GET", userId: "u_lh", role: "lh", query: { id: "job-active" } }));
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const proj = single(await call({ method: "GET", userId: "u_lh", role: "lh", query: { id: "job-active" } }));
+    expect(proj).toEqual(full);
+    expect(proj.scopeOfWork).toBeDefined();
+    expect(proj).not.toHaveProperty("contractValue"); // LH still never sees money
+  });
+
+  it("PROJECTION SERVED (fresh hit): a fresh per-job blob is served, not the monolith", async () => {
+    blob.set(DETAIL_KEY, {
+      builtFromUploadedAt: "T1", // matches the fixed uploadedAt mock → fresh
+      record: { id: "job-active", name: "FROM-PROJECTION", status: "active", areaGroups: [] },
+    });
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const job = single(await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active" } }));
+    expect(job.name).toBe("FROM-PROJECTION"); // proves the projection blob (not jobs.json) was the source
+  });
+
+  it("PRECEDENCE: the projection supersedes the supabase_read_phil_jobs PG overlay for the field single-job read", async () => {
+    blob.set(DETAIL_KEY, {
+      builtFromUploadedAt: "T1",
+      record: { id: "job-active", name: "FROM-PROJECTION", status: "active", areaGroups: [] },
+    });
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    process.env.FLAG_SUPABASE_READ_PHIL_JOBS = "1"; // overlay on — projection must still win
+    const job = single(await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active" } }));
+    expect(job.name).toBe("FROM-PROJECTION"); // short-circuits before the monolith read + PG overlay
+  });
+
+  it("NEVER STALE (rebuild): a stale per-job blob is ignored; fresh monolith data is served + re-stamped", async () => {
+    blob.set(DETAIL_KEY, {
+      builtFromUploadedAt: "OLD", // mismatch vs "T1" → stale
+      record: { id: "job-active", name: "STALE-NAME", status: "active", areaGroups: [] },
+    });
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const job = single(await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active" } }));
+    expect(job.name).toBe("Active"); // rebuilt from the monolith, not the stale blob
+    // re-stamped with the current uploadedAt for the next read
+    expect((blob.get(DETAIL_KEY) as { builtFromUploadedAt: string }).builtFromUploadedAt).toBe("T1");
+  });
+
+  it("ROLE REDACTION: a plain field worker's single-job projection carries no scopeOfWork", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const job = single(await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active" } }));
+    expect(job.scopeOfWork).toBeUndefined();
+  });
+
+  it("SCOPE GUARD: admin single-job is NOT projection-served (keeps money via the full read)", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const job = single(await call({ method: "GET", userId: "u_admin", role: "admin", query: { id: "job-active" } }));
+    expect(job.contractValue).toBe(120000); // full read for admin → money intact ⇒ projection did not run
+  });
+
+  it("DRAFT/ARCHIVED: field 404s through the projection path (falls through to the authoritative read)", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    for (const id of ["job-draft", "job-archived"]) {
+      const res = await call({ method: "GET", userId: "u_field", role: "electrician", query: { id } });
+      expect(res.statusCode, id).toBe(404);
+    }
+  });
+
+  it("WITHSTATS: ?id=…&withStats=1 stays on the full read (admin-hub knob, not projection-served)", async () => {
+    blob.set("jobs/job-active/data.json", { snagsV2: [{ status: "open" }] });
+    blob.set("jobs/job-active/itps.json", { instances: [{ status: "witnessed" }] });
+    blob.set(DETAIL_KEY, {
+      builtFromUploadedAt: "T1",
+      record: { id: "job-active", name: "FROM-PROJECTION", status: "active", areaGroups: [] },
+    });
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const job = single(await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active", withStats: "1" } }));
+    expect(job.name).toBe("Active"); // full read ran (the projection marker did NOT win)
+    expect(job).toHaveProperty("statsSnagsV2Active");
+  });
+
+  it("FALLBACK: a projection read error falls back to the full monolith read (no 500)", async () => {
+    blob.set(DETAIL_KEY, {
+      builtFromUploadedAt: "T1",
+      record: { id: "job-active", name: "FROM-PROJECTION", status: "active", areaGroups: [] },
+    });
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    uploadedAtMock.mockRejectedValueOnce(new Error("blob list down")); // makes readJobDetailProjection throw
+    const res = await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active" } });
+    expect(res.statusCode).toBe(200);
+    expect(single({ body: res.body }).name).toBe("Active"); // monolith served, not the seeded projection
+  });
+
+  it("401: projection path leaks no job when unauthenticated (flag on)", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const res = createRes();
+    await handler({ method: "GET", query: { id: "job-active" }, headers: {} }, res);
+    expect(res.statusCode).toBe(401);
+    expect(res.body).not.toHaveProperty("job");
   });
 });

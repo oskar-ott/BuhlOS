@@ -71,14 +71,41 @@ existing full read + `PhilJobDetail` render move into a streamed
 `PhilJobDetailFull` (authoritative for visibility + full task/stage/proof
 structure — **unchanged**). Gated by the **same** `FLAG_PHIL_JOBS_SUMMARY_READ`
 env flag: flag-off reverts to the prior single-read behaviour (no shell), so the
-flag is a clean rollback for this too. The single-job `?id=` read itself is still
-the full monolith read (see below) — a per-job structure projection is the
-future slice that would make the *streamed* detail fast, not just the shell.
+flag is a clean rollback for this too. The single-job `?id=` read itself is made
+fast by the **job-detail structure projection** below — the slice that makes the
+*streamed* detail fast, not just the shell.
 
-## Scope (what is NOT summary-served)
+## Job-detail structure projection (a third consumer)
 
-- Single-job `?id=` GET (job detail) — needs full structure (the *shell* uses the
-  summary; the streamed full detail still uses the `?id=` full read).
+The single-job `?id=` GET behind `/phil/jobs/[jobId]` had to read+parse the whole
+`jobs.json` monolith (~3.5s) to return ONE job's structure. The structure-bearing
+sibling of the list summary — [`api/_lib/job-detail-projection.js`](../../api/_lib/job-detail-projection.js)
+— derives a small **per-job** blob `jobs/<id>/field-detail.json` and serves the
+field/leading-hand single-job read from it.
+
+- **Same safety contract** as the list summary: lazily rebuilt on read,
+  freshness-gated (`builtFromUploadedAt` vs `jobs.json`'s `uploadedAt` via the
+  metadata-only `blobUploadedAt`), best-effort persist, full-monolith fallback on
+  any miss/stale/error, no write-path change.
+- **Stored record = the job MINUS money** (the `adminTier` audience derived from
+  `job-redaction.js`'s `FIELD_AUDIENCE`, so it can't drift). All structure +
+  `scopeOfWork` are kept; the call site then runs the **same**
+  `projectJobStructure` + `effectiveModules` + `redactJobForViewer` pipeline the
+  full read runs, on this small record — so the response is **byte-identical** to
+  the full path (modulo money, which field/LH never see).
+- **Scope:** field/LH, an **assigned** job, and **no** `?withStats` / no
+  `?includeArchived` (admin-only knobs → full read). Admin/client, draft/archived,
+  unassigned, and any error all **fall through to the authoritative full read**
+  (the one place that enforces 404/403 + every visibility rule).
+- Gated by the **same** `FLAG_PHIL_JOBS_SUMMARY_READ` env flag (one rollback
+  switch for the whole Phil-jobs-read perf family; activated in prod already).
+- The key lives under the existing `jobs/` per-job namespace, already covered by
+  the backup-manifest `PREFIX_STORES` — no manifest change.
+
+## Scope (what is NOT projection-served)
+
+- Single-job `?id=` GET **with `?withStats=1` or `?includeArchived=1`** — admin/hub
+  knobs; kept on the full read.
 - Admin and client tiers — different visibility; kept on the full read.
 
 ## Coexistence with the Supabase PG read (`supabase_read_phil_jobs`)
@@ -93,6 +120,11 @@ dual-written, drift-alarmed Blob spine via the summary, while **PG remains the
 truth for admin reads + dual-write**. The only divergence is the rare
 dual-write-failure window (PG truth, Blob stale, drift-alarmed), where the field
 list would briefly reflect the Blob spine — the accepted trade for the LCP win.
+The **job-detail structure projection** takes the same precedence for the field
+single-job read, for the same reason (it rides the dual-written Blob spine; PG
+stays truth for admin). Unlike the list summary, the detail path **does** run
+`projectJobStructure` + `effectiveModules` on the record (the full structure is
+kept), so `modules` is hydrated there exactly as on the full read.
 
 > Note: `modules` is passed through **un-hydrated** on the summary path (no
 > `effectiveModules`/`projectJobStructure` applied), unlike the full-read list
