@@ -584,6 +584,9 @@ module.exports = async (req, res) => {
       // gate runs below alongside name/type/status).
       contractValue, labourEstimate, materialEstimate,
       claimedToDate, paidToDate, oldestClaimDays,
+      // #228: client + contract context — admin-only, never field-visible
+      // (stripped by job-redaction.js for non-admin reads).
+      clientReference, contractNotes,
       // Per-job module flags (rigidity audit R1). Admin-only.
       modules,
       // Custom fields on the Job (rigidity audit R3). Admin or LH writable.
@@ -644,6 +647,7 @@ module.exports = async (req, res) => {
           contractValue !== undefined || labourEstimate !== undefined ||
           materialEstimate !== undefined || claimedToDate !== undefined ||
           paidToDate !== undefined || oldestClaimDays !== undefined ||
+          clientReference !== undefined || contractNotes !== undefined ||
           modules !== undefined || scopeOfWork !== undefined) {
         return res.status(403).json({ error: 'leadingHand cannot change job money, module or scope fields' });
       }
@@ -692,6 +696,19 @@ module.exports = async (req, res) => {
         return res.status(400).json({ error: `${k} must be a non-negative number or null` });
       }
       job[k] = n;
+    }
+
+    // #228: client + contract text — admin-only (LH blocked above). Trimmed
+    // (trim keeps internal newlines); empty/null clears the field.
+    if (clientReference !== undefined) {
+      const v = clientReference === null ? '' : String(clientReference).trim();
+      if (v === '') delete job.clientReference;
+      else job.clientReference = v.slice(0, 200);
+    }
+    if (contractNotes !== undefined) {
+      const v = contractNotes === null ? '' : String(contractNotes).trim();
+      if (v === '') delete job.contractNotes;
+      else job.contractNotes = v.slice(0, 4000);
     }
 
     if (name !== undefined) {

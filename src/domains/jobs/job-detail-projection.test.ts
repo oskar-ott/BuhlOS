@@ -34,6 +34,10 @@ describe("MONEY_FIELDS — derived from redaction's adminTier audience", () => {
     expect([...MONEY_FIELDS].sort()).toEqual(
       [
         "claimedToDate",
+        // #228: client + contract commercial text — also adminTier, so the
+        // drift-protected set sweeps them out of the field projection too.
+        "clientReference",
+        "contractNotes",
         "contractValue",
         "labourEstimate",
         "materialEstimate",

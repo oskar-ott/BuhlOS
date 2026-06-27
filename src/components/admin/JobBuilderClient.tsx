@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
+import { ClientContractSection } from "./ClientContractSection";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import {
@@ -382,6 +383,11 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
               v1; a dedicated tab is a later call if it earns one). */}
           <div className="mt-4">
             <ScopeOfWorkSection job={savedJob} />
+          </div>
+          {/* #228: client + contract commercial context — admin-only, its
+              own PUT (the scopeOfWork precedent). */}
+          <div className="mt-4">
+            <ClientContractSection job={savedJob} />
           </div>
         </>
       ) : null}

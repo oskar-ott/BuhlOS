@@ -14,6 +14,7 @@ import { JobFieldViewCard } from "@/components/admin/JobFieldViewCard";
 import { JobInductionCard } from "@/components/admin/JobInductionCard";
 import { JobReadinessPanel } from "@/components/admin/JobReadinessPanel";
 import { JobScopeCard } from "@/components/admin/JobScopeCard";
+import { ClientContractCard } from "@/components/admin/ClientContractCard";
 import {
   JobInductionsResponseSchema,
   type CrewInductionStatus,
@@ -211,6 +212,10 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
             carry the field (server redaction), so this renders for the
             admin/LH viewers who can see this page with data present. */}
         <JobScopeCard job={job} />
+        {/* #228: client + contract commercial summary — admin-tier ONLY (the
+            fields are adminTier in job-redaction.js, so an LH viewer's payload
+            has no data; gate the card too so we don't show an empty shell). */}
+        {canBuild ? <ClientContractCard job={job} /> : null}
         <JobBuildCard job={job} canBuild={canBuild} />
         <JobFieldViewCard job={job} />
         {/* Operational loop — what's actually happening on the job, derived

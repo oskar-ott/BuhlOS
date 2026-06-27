@@ -121,6 +121,9 @@ beforeEach(() => {
             claimedToDate: 50000,
             paidToDate: 45000,
             oldestClaimDays: 12,
+            // #228: client + contract commercial context (admin-tier only).
+            clientReference: "PO-7788",
+            contractNotes: "Net 30. Excludes after-hours work.",
             scopeOfWork: [
               { id: "sw_1", title: "Supply and install DB-1", detail: "Incl. testing", order: 0 },
             ],
@@ -323,6 +326,85 @@ describe("money-field redaction (#382)", () => {
         oldestClaimDays: 12,
       });
     }
+  });
+});
+
+describe("client + contract fields (#228)", () => {
+  const COMMERCIAL = ["clientReference", "contractNotes"] as const;
+
+  it.each([
+    ["electrician (field)", "u_field", "electrician"],
+    ["leading hand", "u_lh", "lh"],
+    ["client (own job)", "u_client", "client"],
+  ])("%s sees NO client/contract fields on single, list or withStats", async (_label, userId, role) => {
+    const single = await call({ method: "GET", userId, role, query: { id: "job-active" } });
+    expect(single.statusCode).toBe(200);
+    const job = (single.body as { job: Record<string, unknown> }).job;
+    for (const f of COMMERCIAL) expect(job, f).not.toHaveProperty(f);
+
+    const list = await call({ method: "GET", userId, role });
+    for (const row of (list.body as { jobs: Record<string, unknown>[] }).jobs) {
+      for (const f of COMMERCIAL) expect(row, f).not.toHaveProperty(f);
+    }
+    const stats = await call({ method: "GET", userId, role, query: { withStats: "1" } });
+    for (const row of (stats.body as { jobs: Record<string, unknown>[] }).jobs) {
+      for (const f of COMMERCIAL) expect(row, f).not.toHaveProperty(f);
+    }
+  });
+
+  it("admin tier sees the client/contract values untouched", async () => {
+    const single = await call({ method: "GET", userId: "u_admin", role: "admin", query: { id: "job-active" } });
+    expect((single.body as { job: Record<string, unknown> }).job).toMatchObject({
+      clientReference: "PO-7788",
+      contractNotes: "Net 30. Excludes after-hours work.",
+    });
+  });
+
+  it("a leading hand cannot WRITE client/contract fields (403, no change)", async () => {
+    const put = await call({
+      method: "PUT",
+      userId: "u_lh",
+      role: "lh",
+      body: { id: "job-active", clientReference: "SNEAKY" },
+    });
+    expect(put.statusCode).toBe(403);
+    const stored = (blob.get("jobs.json") as { jobs: Array<{ id: string; clientReference?: string }> })
+      .jobs.find((j) => j.id === "job-active")!;
+    expect(stored.clientReference).toBe("PO-7788"); // unchanged
+  });
+
+  it("admin PUT updates the fields; blank/null clears them", async () => {
+    const put = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: {
+        id: "job-active",
+        clientReference: "  CON-99  ",
+        contractValue: 250000,
+        contractNotes: "Line one\nLine two",
+      },
+    });
+    expect(put.statusCode).toBe(200);
+    let stored = (blob.get("jobs.json") as {
+      jobs: Array<{ id: string; clientReference?: string; contractValue?: number; contractNotes?: string }>;
+    }).jobs.find((j) => j.id === "job-active")!;
+    expect(stored.clientReference).toBe("CON-99"); // trimmed
+    expect(stored.contractValue).toBe(250000);
+    expect(stored.contractNotes).toBe("Line one\nLine two"); // newlines preserved
+
+    const clear = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "job-active", clientReference: null, contractNotes: "" },
+    });
+    expect(clear.statusCode).toBe(200);
+    stored = (blob.get("jobs.json") as {
+      jobs: Array<{ id: string; clientReference?: string; contractNotes?: string }>;
+    }).jobs.find((j) => j.id === "job-active")!;
+    expect(stored).not.toHaveProperty("clientReference"); // cleared
+    expect(stored).not.toHaveProperty("contractNotes"); // cleared
   });
 });
 
