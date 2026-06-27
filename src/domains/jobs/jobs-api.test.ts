@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Integration tests for api/jobs.js. These exercise the real serverless
@@ -145,6 +145,11 @@ beforeEach(() => {
   delete requireFromHere.cache[jobsPath];
   delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/job-redaction.js")];
   delete requireFromHere.cache[auditPath];
+  // The jobs-summary fast path reads flags + the summary through the injected
+  // blob mock; re-require feature-flags so its top-level readBlob binding picks
+  // up the mock (jobs-summary lazy-requires blob, so it needs no busting).
+  delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/feature-flags.js")];
+  delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/jobs-summary.js")];
   requireFromHere.cache[blobPath] = {
     id: blobPath,
     filename: blobPath,
@@ -160,6 +165,9 @@ beforeEach(() => {
         blob.delete(key);
       }),
       setNoCache: vi.fn(),
+      // Freshness probe for the jobs-summary path: a fixed source uploadedAt so a
+      // rebuilt summary stamps + validates deterministically in tests.
+      blobUploadedAt: vi.fn(async () => "T1"),
     },
   } as NodeJS.Module;
 
@@ -970,6 +978,95 @@ describe("GET /api/jobs read-path parallelization (perf) — output parity", () 
   });
 
   it("does not leak job data on an unauthenticated GET (parallel reads discarded before the 401 gate)", async () => {
+    const res = createRes();
+    await handler({ method: "GET", query: {}, headers: {} }, res);
+    expect(res.statusCode).toBe(401);
+    expect(res.body).not.toHaveProperty("jobs");
+  });
+});
+
+// Guards the Phil jobs-summary read path (FLAG_PHIL_JOBS_SUMMARY_READ): the
+// field/LH plain LIST is served from the derived jobs-summary.json (rebuilt here
+// from the in-memory jobs.json on first read). These prove parity with the full
+// read on the fields field consumers use, per-role redaction, visibility, and
+// that admin/unauth are never summary-served.
+describe("GET /api/jobs jobs-summary read path (perf, flag-gated)", () => {
+  type JobRow = Record<string, unknown>;
+  const rows = (r: { body: unknown }) => (r.body as { jobs: JobRow[] }).jobs;
+  const used = (r: { body: unknown }) =>
+    rows(r).map((j) => ({
+      id: j.id,
+      name: j.name,
+      status: j.status,
+      ref: j.ref,
+      siteAddress: j.siteAddress,
+      typeName: j.typeName,
+    }));
+
+  beforeEach(() => {
+    // Give the active job the fields the field list shows + a resolvable type.
+    const jobsBlob = blob.get("jobs.json") as { jobs: JobRow[] };
+    const active = jobsBlob.jobs.find((j) => j.id === "job-active")!;
+    active.type = "jt_resi";
+    active.ref = "JOB-001";
+    active.siteAddress = "1 Smith St";
+    active.scopeOfWork = [{ id: "sw_1", title: "Supply and install DB-1" }];
+    blob.set("job-types.json", { jobTypes: [{ id: "jt_resi", name: "Residential" }] });
+  });
+  afterEach(() => {
+    delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
+  });
+
+  it("PARITY: summary path === full read on the used fields + visibility (field tier)", async () => {
+    delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
+    const full = await call({ method: "GET", userId: "u_field", role: "electrician" });
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const summary = await call({ method: "GET", userId: "u_field", role: "electrician" });
+
+    expect(summary.statusCode).toBe(200);
+    expect(used(summary)).toEqual(used(full));
+    // visibility unchanged: only the assigned active job (no draft/archived)
+    expect(rows(summary).map((j) => j.id)).toEqual(["job-active"]);
+    // typeName resolved from the pre-built summary
+    expect(rows(summary)[0]!.typeName).toBe("Residential");
+    // money never present on the cheap path
+    expect(rows(summary)[0]).not.toHaveProperty("contractValue");
+  });
+
+  it("ROLE REDACTION: LH sees scopeOfWork via the summary, a plain field worker does not", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const lh = await call({ method: "GET", userId: "u_lh", role: "lh" });
+    const field = await call({ method: "GET", userId: "u_field", role: "electrician" });
+    const lhActive = rows(lh).find((j) => j.id === "job-active")!;
+    const fieldActive = rows(field).find((j) => j.id === "job-active")!;
+    expect(lhActive.scopeOfWork).toBeDefined();
+    expect(fieldActive.scopeOfWork).toBeUndefined();
+  });
+
+  it("SCOPE GUARD: admin list is NOT summary-served even with the flag on (keeps full structure)", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const res = await call({ method: "GET", userId: "u_admin", role: "admin" });
+    const active = rows(res).find((j) => j.id === "job-active")!;
+    expect(active).toBeDefined();
+    // the full read carries areaGroups; the summary omits it → proves the full path ran
+    expect(active.areaGroups).toBeDefined();
+  });
+
+  it("WITHSTATS GUARD: ?withStats=1 keeps the full read even with the flag on", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const res = await call({
+      method: "GET",
+      userId: "u_field",
+      role: "electrician",
+      query: { withStats: "1" },
+    });
+    const active = rows(res).find((j) => j.id === "job-active")!;
+    // withStats path computes stats* (summary path does not) → proves full read ran
+    expect(active).toHaveProperty("statsSnagsV2Active");
+  });
+
+  it("401: summary path leaks no job data when unauthenticated (flag on)", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
     const res = createRes();
     await handler({ method: "GET", query: {}, headers: {} }, res);
     expect(res.statusCode).toBe(401);
