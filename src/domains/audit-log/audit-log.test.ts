@@ -116,6 +116,8 @@ describe("AuditLogEntrySchema", () => {
     // itp_instance target types.
     expect([...AUDIT_ACTIONS].sort()).toEqual([
       "backup.completed",
+      // #231: certificates register.
+      "certificate.uploaded",
       "contact.removed",
       "contact.saved",
       // #331: worker licence register lifecycle.
@@ -208,6 +210,8 @@ describe("AuditLogEntrySchema", () => {
       "variation.transitioned",
     ]);
     expect([...AUDIT_TARGET_TYPES].sort()).toEqual([
+      // #231: per-job certificates.
+      "certificate",
       "contact",
       "credential",
       // #370: daywork docket records.

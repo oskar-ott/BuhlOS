@@ -234,6 +234,8 @@ async function PhilJobDetailFull({
   const safetyDocsRaw = (process.env.FLAG_SAFETY_DOCS ?? "").toLowerCase();
   const safetyEnabled =
     safetyDocsRaw === "1" || safetyDocsRaw === "true" || safetyDocsRaw === "on";
+  const certsRaw = (process.env.FLAG_CERTIFICATES_REGISTER ?? "").toLowerCase();
+  const certificatesEnabled = certsRaw === "1" || certsRaw === "true" || certsRaw === "on";
 
   return (
     <PhilJobDetail
@@ -258,6 +260,7 @@ async function PhilJobDetailFull({
       jobControlRevision={jobControlResult.revision}
       autoCaptureToken={captureToken}
       safetyEnabled={safetyEnabled}
+      certificatesEnabled={certificatesEnabled}
     />
   );
 }

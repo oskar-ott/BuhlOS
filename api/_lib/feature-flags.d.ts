@@ -19,7 +19,8 @@ export type FlagKey =
   | "admin_job_field_view"
   | "admin_proof_review"
   | "job_doc_import"
-  | "safety_docs";
+  | "safety_docs"
+  | "certificates_register";
 
 export interface FlagDefinition {
   description: string;

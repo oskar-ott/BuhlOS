@@ -90,6 +90,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   // #219: safety documents.
   "safety_doc.uploaded": "Uploaded a safety document",
   "safety_doc.acknowledged": "Acknowledged a safety document",
+  // #231: certificates register.
+  "certificate.uploaded": "Uploaded a certificate",
 };
 
 export function actionLabel(action: AuditAction): string {

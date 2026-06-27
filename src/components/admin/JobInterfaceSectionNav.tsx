@@ -25,6 +25,8 @@ interface Props {
   job: Job;
   /** #219: show the Safety documents row. Flag-gated (safety_docs) by the hub. */
   safetyEnabled?: boolean;
+  /** #231: show the Certificates register row. Flag-gated (certificates_register) by the hub. */
+  certificatesEnabled?: boolean;
 }
 
 type SectionRow =
@@ -72,7 +74,11 @@ type SectionRow =
  *       of index-level)
  *   docs/rebuild-audit/35-current-product-state-audit.md §7.2 Admin
  */
-export function JobInterfaceSectionNav({ job, safetyEnabled = false }: Props) {
+export function JobInterfaceSectionNav({
+  job,
+  safetyEnabled = false,
+  certificatesEnabled = false,
+}: Props) {
   const jobIdEnc = encodeURIComponent(job.id);
 
   const rows: ReadonlyArray<SectionRow> = [
@@ -168,6 +174,20 @@ export function JobInterfaceSectionNav({ job, safetyEnabled = false }: Props) {
               "SWMS, SDS and site-safety docs. Workers acknowledge they've read each in Phil; see who has and hasn't.",
             href: `/v2/jobs/${jobIdEnc}/safety` as Route,
             icon: ShieldCheck,
+          } satisfies SectionRow,
+        ]
+      : []),
+    // #231: Certificates + commissioning register. Flag-gated by the hub
+    // (certificates_register); dark until on.
+    ...(certificatesEnabled
+      ? [
+          {
+            kind: "live",
+            label: "Certificates",
+            description:
+              "Certificates of compliance, test sheets and commissioning records — typed, with reference + issue date.",
+            href: `/v2/jobs/${jobIdEnc}/certificates` as Route,
+            icon: FileText,
           } satisfies SectionRow,
         ]
       : []),
