@@ -38,6 +38,7 @@ const EXACT_STORES = [
   'tag-reminder-state.json', // tag/calibration alert dedupe state (#305)
   'leave-requests.json', // workforce leave request/approval store (#333)
   'workforce/credentials.json', // worker licence/ticket register (#331)
+  'workforce/cost-rates.json', // confidential worker cost-rate store (#304)
   'licence-reminder-state.json', // licence alert dedupe state (#331)
   'temps/assets.json',
   'temps/movements.json',

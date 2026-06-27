@@ -293,6 +293,24 @@ describe("GET ?action=listTradies — assignable-worker directory (Gear + jobs)"
     expect(JSON.stringify(res.body)).not.toContain("passwordHash");
   });
 
+  it("NEVER leaks the legacy hourlyRate — even to a leading hand or field worker (#304)", async () => {
+    // Stamp a rate on every seeded user, the way the legacy create/update path
+    // does (listTradies only ever returns field-tier + LH, so this is enough to
+    // prove the rate is stripped). Set unconditionally — no literal role checks.
+    for (const u of (blob.get("users.json") as { users: Array<Record<string, unknown>> }).users) {
+      u.hourlyRate = 5000;
+    }
+    // The pay rate must be invisible to a leading hand AND a field worker (the
+    // two non-admin callers of this endpoint) — the whole point of #304's store.
+    for (const [userId, role] of [["u_lh", "lh"], ["u_field", "electrician"], ["u_admin", "admin"]] as const) {
+      const res = await listTradies(userId, role);
+      expect(res.statusCode).toBe(200);
+      const users = (res.body as { users: Array<Record<string, unknown>> }).users;
+      for (const u of users) expect(u).not.toHaveProperty("hourlyRate");
+      expect(JSON.stringify(res.body)).not.toContain("hourlyRate");
+    }
+  });
+
   it("excludes a disabled field worker (not assignable)", async () => {
     (blob.get("users.json") as { users: Array<Record<string, unknown>> }).users.push({
       id: "u_exfield",
