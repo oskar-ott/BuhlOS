@@ -34,6 +34,16 @@ describe("MobileApprovalsHub", () => {
     expect(html).toContain("Review expenses");
   });
 
+  it("exposes the active chip to assistive tech (aria-pressed) and meets the 44px tap floor", () => {
+    const html = render({ expenses: 3, itps: 2, materials: 1 });
+    // The selected state is announced, not colour-only (WCAG 4.1.2).
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('aria-pressed="false"');
+    // Chips are 44px tall (h-11), not the 36px h-9 they shipped with.
+    expect(html).toContain("h-11");
+    expect(html).not.toMatch(/rounded-pill border px-3\.5[^"]*h-9/);
+  });
+
   it("renders 'All clear' and no fabricated counts when everything is empty", () => {
     const html = render({ expenses: 0, itps: 0, materials: 0 });
     expect(html).toContain("All clear");

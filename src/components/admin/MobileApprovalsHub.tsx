@@ -73,9 +73,10 @@ export function MobileApprovalsHub({ counts }: { counts: MobileApprovalsCounts }
             <button
               key={c.key}
               type="button"
+              aria-pressed={isActive}
               onClick={() => setActive(c.key)}
               className={cn(
-                "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-pill border px-3.5 text-sm",
+                "inline-flex h-11 shrink-0 items-center gap-1.5 rounded-pill border px-3.5 text-sm",
                 isActive
                   ? "border-brand-navy bg-brand-navy text-text-inverse"
                   : "border-border bg-surface text-text",

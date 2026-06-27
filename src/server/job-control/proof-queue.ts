@@ -167,6 +167,12 @@ export async function runProofQueue(deps: ProofQueueDeps): Promise<ProofQueueRes
         try {
           const artifact = await deps.loadArtifact(job.id);
           if (!artifact) return { ok: true, items: [] };
+          // Short-circuit the evidence read for jobs with no submitted proof —
+          // shapeJobProofItems only joins evidence for submitted reviews, so the
+          // data.json read is wasted on every other job.
+          if (!artifact.proofReviews.some((r) => r.status === "submitted")) {
+            return { ok: true, items: [] };
+          }
           const evidence = await deps.loadEvidence(job.id);
           return { ok: true, items: shapeJobProofItems(job, artifact, evidence) };
         } catch {

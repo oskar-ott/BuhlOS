@@ -41,8 +41,10 @@ interface MobileTodayProps {
   dateLabel: string;
   todayStrip: TodayStripModel | null;
   todayPulseError: string | null;
-  /** Active jobs (from today-pulse) — null when the pulse failed. */
-  jobsActive: number | null;
+  /** Distinct jobs with logged activity today (from today-pulse) — null when the
+   *  pulse failed. NOT the business-wide active-job count (P7: it must relate to
+   *  the same "on the clock today" signal as crewCount). */
+  jobsWithActivityToday: number | null;
   /** Hours submitted and awaiting approval (the weekly payroll closeout). */
   pendingHours: number;
   approvals: MobileTodayApprovals;
@@ -76,7 +78,7 @@ export function MobileToday(props: MobileTodayProps) {
     dateLabel,
     todayStrip,
     todayPulseError,
-    jobsActive,
+    jobsWithActivityToday,
     pendingHours,
     approvals,
     exceptions,
@@ -244,8 +246,8 @@ export function MobileToday(props: MobileTodayProps) {
                   {todayStrip.crewCount} {todayStrip.crewLabel}
                 </span>
                 <span className="block text-xs text-text-muted">
-                  {jobsActive != null
-                    ? `across ${jobsActive} active job${jobsActive === 1 ? "" : "s"}`
+                  {jobsWithActivityToday != null && jobsWithActivityToday > 0
+                    ? `across ${jobsWithActivityToday} job${jobsWithActivityToday === 1 ? "" : "s"} today`
                     : "hours logged today"}
                 </span>
               </span>

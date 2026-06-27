@@ -122,4 +122,27 @@ describe("runProofQueue (orchestrator)", () => {
     );
     expect(res.ok).toBe(false);
   });
+
+  it("short-circuits the evidence read for a job with no SUBMITTED proof", async () => {
+    let evidenceReads = 0;
+    const onlyApproved = artifact({
+      proofReviews: [
+        { id: "pr_a", jobId: "job-1", taskRef: TASK, status: "approved" },
+      ],
+    } as unknown as Partial<PersistedJobControl>);
+    const res = await runProofQueue(
+      deps({
+        listActiveJobs: async () => [{ id: "job-1", name: "J" }],
+        loadArtifact: async () => onlyApproved,
+        loadEvidence: async () => {
+          evidenceReads += 1;
+          return evidence;
+        },
+      }),
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.items).toHaveLength(0);
+    // The wasted data.json read is skipped when nothing is submitted.
+    expect(evidenceReads).toBe(0);
+  });
 });
