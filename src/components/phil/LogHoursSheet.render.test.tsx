@@ -48,6 +48,23 @@ describe("LogHoursSheet — job attribution", () => {
     expect(html).toContain("Pick one");
   });
 
+  it("the single-job picker note points to 'Split across jobs', not the old contradictory 'bigger block' copy (#424)", () => {
+    const html = render({
+      ...base,
+      assignedJobs: [
+        { id: "j1", name: "Smith St Rewire" },
+        { id: "j2", name: "Depot Switchboard" },
+      ],
+    });
+    // The open multi-job picker carries the single-job note, now pointing at the
+    // split action that genuinely exists rather than telling the worker to log
+    // the bigger block (which contradicted the "Split across jobs" button).
+    expect(html).toContain("This logs one job");
+    expect(html).toContain("Split across jobs");
+    expect(html).not.toContain("bigger block");
+    expect(html).not.toContain("One job per submission");
+  });
+
   it("preselects a valid initialJobId so a launched job context needs no choice", () => {
     const html = render({
       ...base,

@@ -771,11 +771,12 @@ function JobAttribution({
           </li>
         ) : null}
       </ul>
-      {/* #424: the one-allocation rule lives here in the picker (only with
-          >1 job), not as a permanent apology on My Day. */}
+      {/* #424: this picker logs a single job. With >1 assigned job the worker
+          also has the "Split across jobs" action above, so point them at it
+          rather than telling them to log the bigger block (which contradicted
+          the split feature). */}
       <p className="mt-2 text-xs text-text-muted">
-        One job per submission. Working two today? Log the bigger block and tell
-        the office.
+        This logs one job. On more than one today? Use “Split across jobs” above.
       </p>
     </div>
   );
