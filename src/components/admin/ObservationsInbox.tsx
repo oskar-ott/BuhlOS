@@ -414,7 +414,7 @@ function FilterSelect({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="min-w-0 max-w-[11rem] rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text sm:min-w-[8rem]"
+        className="w-full min-w-0 rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text sm:w-auto sm:min-w-[8rem] sm:max-w-[11rem]"
       >
         <option value="">All</option>
         {options.map((o) => (
