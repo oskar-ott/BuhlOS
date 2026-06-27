@@ -169,7 +169,9 @@ async function loadOtherApprovalCounts(
       (d) => d.requests.filter((r) => isOpenRequest(r.status)).length
     ),
     count(
-      "/api/jobs?withStats=1",
+      // Only needs the ITP-needs-review count (statsItpsNeedsReview) — served by
+      // the fast statsOnly read, skipping the ~8s jobs.json monolith.
+      "/api/jobs?withStats=1&statsOnly=1",
       (b) => {
         const p = JobListResponseSchema.safeParse(b);
         return p.success ? p.data : null;
