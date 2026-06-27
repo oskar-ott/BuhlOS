@@ -3,6 +3,7 @@
   "functions": {
     "api/backup-snapshot.js": { "maxDuration": 60 },
     "api/internal/sync-checks/hours.js": { "maxDuration": 60 },
+    "api/internal/sync-checks/structure.js": { "maxDuration": 60 },
     "api/internal/mirror-tasks.js": { "maxDuration": 60 }
   },
   "rewrites": [
@@ -101,6 +102,7 @@
     { "path": "/api/users?action=sweep",                        "schedule": "0 19 * * *"   },
     { "path": "/api/backup-snapshot?action=run",                "schedule": "0 16 * * *"   },
     { "path": "/api/internal/sync-checks/hours",                "schedule": "0 17 * * *"   },
+    { "path": "/api/internal/sync-checks/structure",            "schedule": "0 18 * * *"   },
     { "path": "/api/internal/mirror-tasks",                     "schedule": "*/10 * * * *" }
   ]
 }
