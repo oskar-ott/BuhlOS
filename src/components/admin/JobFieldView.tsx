@@ -163,20 +163,25 @@ export function JobFieldView({ data, leadFirstName }: JobFieldViewProps) {
       ) : null}
 
       {/* Capture shutter — the worker's primary action, rendered DISABLED
-          (the admin is looking at the crew view, not acting as the worker). */}
-      <div
-        aria-disabled="true"
-        title="Read-only — this is the crew's capture button"
-        className="flex w-full cursor-not-allowed items-center gap-3 rounded-card bg-accent-yellow/60 px-4 py-3 text-brand-navy"
-      >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-navy/80 text-accent-yellow">
-          <Camera aria-hidden="true" className="h-5 w-5" />
-        </span>
-        <span className="min-w-0 flex-1 text-left">
-          <span className="block font-display text-sm font-bold">Capture</span>
-          <span className="block text-xs opacity-70">The crew captures proof here · read-only</span>
-        </span>
-      </div>
+          (the admin is looking at the crew view, not acting as the worker).
+          Only shown when the job is actually visible to the field — an
+          unpublished job has no crew screen, so showing a capture button would
+          imply a capability that does not exist (P7). */}
+      {preview.isVisibleToField ? (
+        <div
+          aria-disabled="true"
+          title="Read-only — this is the crew's capture button"
+          className="flex w-full cursor-not-allowed items-center gap-3 rounded-card bg-accent-yellow/60 px-4 py-3 text-brand-navy"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-navy/80 text-accent-yellow">
+            <Camera aria-hidden="true" className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1 text-left">
+            <span className="block font-display text-sm font-bold">Capture</span>
+            <span className="block text-xs opacity-70">The crew captures proof here · read-only</span>
+          </span>
+        </div>
+      ) : null}
 
       <p className="rounded-card bg-surface-subtle p-3 text-xs text-text-muted">
         This is the crew&rsquo;s screen. They do the work, capture proof and complete the ITP here —

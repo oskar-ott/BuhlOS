@@ -1,9 +1,9 @@
 import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { SESSION_COOKIE, decodeSessionCookie, verifyViaApi } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { authorizeAdmin } from "@/server/job-control/reconciliation-producer";
+import { authorizeAdminViaVerify } from "@/server/job-control/reconciliation-producer";
 import {
   ProofReviewRequestSchema,
   blobProofReviewDeps,
@@ -81,8 +81,16 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ ok: false, error: "Could not verify job access" }, { status: 502 });
     }
   } else {
-    // approve / reject — admin sign-off.
-    const auth = authorizeAdmin(session.role ?? null);
+    // approve / reject — admin sign-off, HMAC-VERIFIED (parity with the
+    // reconciliation/compile confirm routes). The unverified cookie decode is
+    // not sufficient to authorize a write: verifyViaApi re-checks the cookie
+    // server-side (/api/auth?action=me) so a forged/unsigned cookie can't pass.
+    // The decoded session.userId stays the actor for the independence rule — it
+    // is trustworthy once the same cookie has verified.
+    const h2 = await headers();
+    const cookieHeader = h2.get("cookie") ?? "";
+    const baseUrl = new URL(req.url).origin;
+    const auth = await authorizeAdminViaVerify({ cookieHeader, baseUrl, verify: verifyViaApi });
     if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   }
 

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { postProofReview } from "@/components/phil/jobControlProofReviewClient";
+import { proofActionMessage, proofActionShouldRefresh } from "./proofReviewQueueModel";
 import type { ProofQueueItem } from "@/server/job-control/proof-queue";
 
 /**
@@ -68,16 +69,9 @@ export function ProofReviewQueue({ initialItems }: { initialItems: ProofQueueIte
       setItems((prev) => prev.filter((i) => i.reviewId !== item.reviewId));
       return;
     }
-    const msg =
-      r.kind === "stale"
-        ? "This job changed since you loaded it — refreshing."
-        : r.kind === "unauthorized"
-          ? "You can’t sign off proof you captured — another reviewer must."
-          : r.kind === "invalid"
-            ? "Couldn’t do that — it may have been actioned already."
-            : `Couldn’t ${verb} — try again.`;
-    setErrors((m) => ({ ...m, [item.reviewId]: msg }));
-    if (r.kind === "stale") router.refresh();
+    const msg = proofActionMessage(r.kind, verb);
+    if (msg) setErrors((m) => ({ ...m, [item.reviewId]: msg }));
+    if (proofActionShouldRefresh(r.kind)) router.refresh();
   }
 
   if (items.length === 0) {
@@ -149,7 +143,7 @@ export function ProofReviewQueue({ initialItems }: { initialItems: ProofQueueIte
                 variant="secondary"
                 size="sm"
                 disabled={busy}
-                className="flex-1"
+                className="min-h-[44px] flex-1"
                 onClick={() => setSendBack(item)}
               >
                 Send back…
@@ -158,7 +152,7 @@ export function ProofReviewQueue({ initialItems }: { initialItems: ProofQueueIte
                 variant="primary"
                 size="sm"
                 disabled={busy}
-                className="flex-1"
+                className="min-h-[44px] flex-1"
                 onClick={() => void approve(item)}
               >
                 {busy ? "Saving…" : (

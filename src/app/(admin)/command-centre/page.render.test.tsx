@@ -42,11 +42,26 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: () => undefined, push: () => undefined }),
 }));
 
-// The page imports the CJS flags lib directly; keep the readout dark.
+// Configurable flag + proof-queue mocks (hoisted so the vi.mock factories can
+// reference them). Default: all flags dark, proof queue empty.
+const h = vi.hoisted(() => ({
+  proofFlagOn: false,
+  proofResult: { ok: true, items: [] as unknown[], scannedJobs: 0, failedJobs: [] as string[] } as
+    | { ok: true; items: unknown[]; scannedJobs: number; failedJobs: string[] }
+    | { ok: false; error: string },
+}));
+
 vi.mock("../../../../api/_lib/feature-flags.js", () => ({
-  isFlagEnabled: async () => false,
+  isFlagEnabled: async (key: string) => (key === "admin_proof_review" ? h.proofFlagOn : false),
   listFlags: () => [],
   isFlagOn: async () => false,
+}));
+
+// The cross-job proof scan reads blobs directly — mock it so the flagged
+// surface can be driven without a blob backend.
+vi.mock("@/server/job-control/proof-queue", () => ({
+  runProofQueue: async () => h.proofResult,
+  blobProofQueueDeps: () => ({}),
 }));
 
 import CommandCentrePage from "./page";
@@ -116,6 +131,8 @@ interface FetchFixtures {
   pulseStatus?: number;
   /** Submitted expense claims (the mobile "to approve" pulse + Approvals strip). */
   expenses?: JsonBody[];
+  /** Non-200 makes the expenses fetch fail (mobile honest-degradation path). */
+  expensesStatus?: number;
   /** Display name for the mobile greeting (resolved via /api/auth?action=me). */
   meName?: string | null;
 }
@@ -125,6 +142,7 @@ function stubFetch({
   pulse,
   pulseStatus = 200,
   expenses = [],
+  expensesStatus = 200,
   meName = null,
 }: FetchFixtures) {
   vi.stubGlobal(
@@ -147,7 +165,10 @@ function stubFetch({
       if (url.includes("/api/auth")) {
         return jsonResponse({ user: meName ? { name: meName, role: "boss" } : null });
       }
-      if (url.includes("/api/expenses")) return jsonResponse({ expenses });
+      if (url.includes("/api/expenses")) {
+        if (expensesStatus !== 200) return jsonResponse({ error: "boom" }, expensesStatus);
+        return jsonResponse({ expenses });
+      }
       if (url.includes("/api/jobs")) return jsonResponse({ jobs: [] });
       if (url.includes("/api/observations")) return jsonResponse({ observations: [] });
       if (url.includes("/api/material-requests")) return jsonResponse({ requests: [] });
@@ -163,6 +184,8 @@ async function renderPage(): Promise<string> {
 
 beforeEach(() => {
   vi.unstubAllGlobals();
+  h.proofFlagOn = false;
+  h.proofResult = { ok: true, items: [], scannedJobs: 0, failedJobs: [] };
 });
 
 afterEach(() => {
@@ -249,6 +272,34 @@ describe("/command-centre with the Today strip (#185)", () => {
     expect(html).toContain("Today’s pulse couldn’t load");
     // Queue cards still render their empty states.
     expect(html).toContain("No timesheets waiting for you.");
+  });
+
+  it("surfaces a TOTAL proof-scan failure as an error card, never a false 'queue clear' (#503 P7)", async () => {
+    h.proofFlagOn = true;
+    h.proofResult = { ok: false, error: "Could not load jobs for the proof queue" };
+    stubFetch({ submittedEntries: [], pulse: pulseBody() });
+    const html = await renderPage();
+    // The degraded read is an explicit error card, never a silent "Queue clear".
+    expect(html).toContain("Couldn’t load proof to sign off");
+    expect(html).toContain("Could not load jobs for the proof queue");
+    expect(html).not.toContain("waiting on you"); // no false "N tasks ... waiting" line
+  });
+
+  it("flags a PARTIAL proof scan (failedJobs) instead of presenting an undercount as the total", async () => {
+    h.proofFlagOn = true;
+    h.proofResult = { ok: true, items: [], scannedJobs: 3, failedJobs: ["job-2", "job-3"] };
+    stubFetch({ submittedEntries: [], pulse: pulseBody() });
+    const html = await renderPage();
+    expect(html).toContain("Proof to sign off");
+    expect(html).toContain("couldn’t be read");
+  });
+
+  it("degrades honestly when the expenses fetch fails — mobile 'couldn't load every queue', no fabricated 0", async () => {
+    stubFetch({ submittedEntries: [], pulse: pulseBody(), expensesStatus: 500 });
+    const html = await renderPage();
+    // The mobile home folds the expenses error into its source-error card.
+    expect(html).toContain("Couldn’t load every queue");
+    expect(html).toContain("Expenses API returned 500");
   });
 
   it("renders the mobile home (md:hidden) with greeting + pulse from the same data", async () => {
