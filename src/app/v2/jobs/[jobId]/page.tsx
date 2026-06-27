@@ -22,6 +22,7 @@ import { computeReadiness, type ReadinessResult } from "@/domains/jobs/readiness
 import { ReadinessSignalsResponseSchema, signalsFrom } from "@/domains/jobs/readiness-client";
 import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
 import { JobProfitabilitySummary } from "@/components/admin/JobProfitabilitySummary";
+import { JobCloseoutCard } from "@/components/admin/JobCloseoutCard";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
 import { JobRecentActivity } from "@/components/admin/JobRecentActivity";
@@ -218,6 +219,9 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
             expensive approved-hours walk never blocks the hub render; admin-tier
             only (hidden for an LH/non-admin viewer). */}
         <JobProfitabilitySummary jobId={job.id} />
+        {/* #349: closeout / "Final numbers" report card — freeze the job's final
+            numbers at end-of-life; admin-tier only (hidden for an LH viewer). */}
+        <JobCloseoutCard jobId={job.id} />
         <JobEvidenceSummary
           evidence={data.evidence.evidence}
           jobId={job.id}
