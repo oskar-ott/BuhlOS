@@ -1106,3 +1106,5 @@ module.exports = async (req, res) => {
 
   res.status(405).end();
 };
+
+// perf: admin ?summary=1 base path (rebuild marker)
