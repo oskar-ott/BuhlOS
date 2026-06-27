@@ -991,7 +991,11 @@ async function loadJobsWithStats(
   headersInit: { cookie: string } | undefined
 ): Promise<{ jobs: ReadonlyArray<Job>; error: string | null }> {
   try {
-    const res = await fetch(`${base}/api/jobs?withStats=1`, {
+    // Perf: the Command Centre aggregates only per-job COUNT stats (crew /
+    // evidence-pending / snags-active / ITPs-needs-review) — never task counts —
+    // so `statsOnly=1` serves them from the small jobs-summary + per-job stat
+    // reads, skipping the ~8s jobs.json monolith. Same counts, no staleness.
+    const res = await fetch(`${base}/api/jobs?withStats=1&statsOnly=1`, {
       cache: "no-store",
       headers: headersInit,
     });
