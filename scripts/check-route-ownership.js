@@ -127,6 +127,7 @@ const REQUIRED_SOURCES = [
   'src/app/v2/jobs/[jobId]/page.tsx',
   'src/app/v2/jobs/[jobId]/builder/page.tsx',
   'src/app/v2/jobs/[jobId]/plans/page.tsx',
+  'src/app/v2/jobs/[jobId]/photos/page.tsx', // #242 — read-only "Job Bible" photo gallery
   'src/app/v2/jobs/[jobId]/scope/page.tsx', // #366 — scope reconciliation review (read-only)
   'src/app/v2/quotes/page.tsx',
   'src/app/v2/quotes/[quoteId]/page.tsx',
@@ -137,6 +138,7 @@ const REQUIRED_SOURCES = [
   'src/app/phil/jobs/page.tsx',
   'src/app/phil/jobs/[jobId]/page.tsx',
   'src/app/phil/jobs/[jobId]/plans/page.tsx',
+  'src/app/phil/jobs/[jobId]/photos/page.tsx', // #242 — read-only field photo gallery
   'src/app/phil/hours/page.tsx',
   'src/app/phil/gear/page.tsx',
   'src/app/v2/phil/page.tsx',
