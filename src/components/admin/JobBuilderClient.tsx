@@ -31,11 +31,13 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import {
   captureStructurePreset,
+  getJobForEdit,
   listStructurePresets,
   publishJob,
   unpublishJob,
   updateJob,
 } from "@/domains/jobs/client";
+import type { GenerationSummary } from "@/domains/jobs/task-rules";
 import {
   autoNumberedNames,
   instantiatePreset,
@@ -208,6 +210,13 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
   const [presetBusy, setPresetBusy] = useState(false);
   const [presetError, setPresetError] = useState<string | null>(null);
 
+  // #224 — rule-based task generation. The apply happens server-side (reads the
+  // last-saved structure + the rules), so we gate it on a clean (saved) form and
+  // re-fetch the job afterwards.
+  const [genBusy, setGenBusy] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [genResult, setGenResult] = useState<GenerationSummary | null>(null);
+
   const structureFrozen = useMemo(() => hasArchivedStructure(savedJob), [savedJob]);
 
   const savedForm = useMemo(() => jobToForm(savedJob), [savedJob]);
@@ -258,6 +267,41 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
     setSavedTick(true);
     setTimeout(() => setSavedTick(false), 2000);
     router.refresh();
+  }
+
+  // #224 — apply the task-generation rules to this job's areas. mode 'fill-empty'
+  // only fills empty areas; 'merge' is the explicit overwrite of non-empty lists
+  // (id-preserving). Runs server-side over the SAVED structure, then re-fetches.
+  async function generateTasks(mode: "fill-empty" | "merge") {
+    setGenBusy(true);
+    setGenError(null);
+    try {
+      const res = await fetch("/api/generate-tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: savedJob.id, mode }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { ok?: boolean; changed?: boolean; summary?: GenerationSummary; error?: string }
+        | null;
+      if (!res.ok || !body?.ok) {
+        setGenError((body && body.error) || `Generation failed (${res.status})`);
+        return;
+      }
+      setGenResult(body.summary ?? null);
+      if (body.changed) {
+        const fresh = await getJobForEdit(savedJob.id);
+        if (fresh.ok) {
+          setSavedJob(fresh.data.job);
+          setForm(jobToForm(fresh.data.job));
+        }
+        router.refresh();
+      }
+    } catch (e) {
+      setGenError(e instanceof Error ? e.message : "Generation failed");
+    } finally {
+      setGenBusy(false);
+    }
   }
 
   async function runStatus(action: "publish" | "unpublish") {
@@ -683,6 +727,82 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
 
     return (
       <div className="space-y-4">
+        {/* #224 — rule-based task generation */}
+        <Card>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>Generate tasks from rules</CardTitle>
+              <CardDescription className="mt-1">
+                Fill every empty area that matches a rule with its task lists — a
+                reviewed starting point, never auto-published. Non-empty areas are
+                left alone unless you choose to merge.{" "}
+                <a
+                  href="/settings/task-rules"
+                  className="font-medium text-brand-navy underline underline-offset-2"
+                >
+                  Manage rules
+                </a>
+                .
+              </CardDescription>
+            </div>
+            <Button
+              size="sm"
+              data-testid="generate-tasks"
+              disabled={genBusy || dirty}
+              onClick={() => void generateTasks("fill-empty")}
+            >
+              {genBusy ? "Generating…" : "Generate tasks"}
+            </Button>
+          </div>
+          {dirty ? (
+            <p className="mt-2 text-xs text-text-muted">
+              Save your changes first — generation runs over the saved structure.
+            </p>
+          ) : null}
+          {genError ? (
+            <p role="alert" className="mt-2 rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+              {genError}
+            </p>
+          ) : null}
+          {genResult ? (
+            <div className="mt-2 rounded-card border border-border bg-surface-raised px-3 py-2 text-sm">
+              {genResult.areasFilled > 0 ? (
+                <p className="text-text">
+                  Filled {genResult.areasFilled} area{genResult.areasFilled === 1 ? "" : "s"}
+                  {genResult.roughInAdded > 0 ? ` · ${genResult.roughInAdded} rough-in` : ""}
+                  {genResult.fitOffAdded > 0 ? ` · ${genResult.fitOffAdded} fit-off` : ""}. Review
+                  and edit below, then save.
+                </p>
+              ) : (
+                <p className="text-text-muted">
+                  No empty areas matched a rule.
+                  {genResult.areasMatched === 0
+                    ? " No rule matched this job's type or area names."
+                    : ""}
+                </p>
+              )}
+              {genResult.areasSkippedNonEmpty > 0 ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-text-muted">
+                    {genResult.areasSkippedNonEmpty} matching area
+                    {genResult.areasSkippedNonEmpty === 1 ? "" : "s"} already had tasks and{" "}
+                    {genResult.areasSkippedNonEmpty === 1 ? "was" : "were"} left alone.
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    data-testid="generate-tasks-merge"
+                    disabled={genBusy || dirty}
+                    onClick={() => void generateTasks("merge")}
+                  >
+                    Merge into those too
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </Card>
+
         <Card>
           <CardTitle>Default task lists</CardTitle>
           <CardDescription className="mt-1">

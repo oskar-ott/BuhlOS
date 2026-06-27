@@ -167,6 +167,7 @@ describe("AuditLogEntrySchema", () => {
       "job.closed",
       "job.created",
       "job.reopened",
+      "job.tasks_generated",
       // #127/#333 leave lifecycle.
       "leave.cancelled",
       "leave.decided",

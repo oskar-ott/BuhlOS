@@ -85,6 +85,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   // #349: job closeout lifecycle.
   "job.closed": "Closed out job",
   "job.reopened": "Re-opened job",
+  // #224: rule-based task generation.
+  "job.tasks_generated": "Generated tasks",
 };
 
 export function actionLabel(action: AuditAction): string {
