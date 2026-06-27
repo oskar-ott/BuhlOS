@@ -96,13 +96,13 @@ describe("route: gating — skip cleanly, stay green", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it("both structure/task dual-writes off → 200 skipped, no db/run touch", async () => {
+  it("all structure/task/evidence dual-writes off → 200 skipped, no db/run touch", async () => {
     const run = vi.fn();
     const db = vi.fn();
     const res = mkRes();
     await handleStructureSyncCheck(req(), res, okDeps({ flagOn: async () => false, run, db }));
     expect(res.statusCode).toBe(200);
-    expect(res.body).toMatchObject({ ok: true, skipped: true, reason: "structure/task dual-write disabled" });
+    expect(res.body).toMatchObject({ ok: true, skipped: true, reason: "structure/task/evidence dual-write disabled" });
     expect(db).not.toHaveBeenCalled();
     expect(run).not.toHaveBeenCalled();
   });
@@ -111,6 +111,14 @@ describe("route: gating — skip cleanly, stay green", () => {
     const run = vi.fn(async () => PASS);
     const res = mkRes();
     await handleStructureSyncCheck(req(), res, okDeps({ flagOn: async (k: string) => k === "supabase_dual_write_tasks", run }));
+    expect(res.statusCode).toBe(200);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("runs when ONLY evidence dual-write is on (jobs+tasks off)", async () => {
+    const run = vi.fn(async () => PASS);
+    const res = mkRes();
+    await handleStructureSyncCheck(req(), res, okDeps({ flagOn: async (k: string) => k === "supabase_dual_write_evidence", run }));
     expect(res.statusCode).toBe(200);
     expect(run).toHaveBeenCalledOnce();
   });

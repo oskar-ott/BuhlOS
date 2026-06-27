@@ -81,6 +81,20 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Evidence-metadata dual-write: when on, the scheduled mirror cron
+  // (/api/internal/mirror-evidence) reconciles per-job blob evidence
+  // (data.json.evidence[]) into Postgres evidence_files + evidence_links, OFF the
+  // request path so the field CAPTURE write (api/evidence.js) is unchanged (zero
+  // added latency). Closes the gap the evidence read overlay had (captured evidence
+  // never reached PG without this). Reuses the J4 importer's writer; metadata only
+  // (binaries stay in Blob). Blob authoritative; a PG failure never affects capture.
+  // Separate flag so evidence cuts over independently. Default OFF, unset in prod.
+  supabase_dual_write_evidence: {
+    description: 'Reconcile evidence metadata from data.json into Postgres evidence_files/links (cron, off request path), best-effort, Blob authoritative (#152). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // Phil task-status READ cutover (J10): when on, the FIELD/Phil task-status read
   // (/api/data) is served from the Postgres mirror, parity-gated per job
   // (byte-faithful or Blob fallback) so a not-yet-mirrored toggle can never show a
