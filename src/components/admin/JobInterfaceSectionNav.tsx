@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   FileText,
   History,
+  Images,
   Inbox,
   ListChecks,
   Map as MapIcon,
@@ -92,6 +93,19 @@ export function JobInterfaceSectionNav({
       href: `/v2/jobs/${jobIdEnc}/evidence` as Route,
       count: job.statsEvidenceV2Pending,
       icon: Camera,
+    },
+    {
+      // #242: read-only photo gallery (the "Job Bible") — browse every photo on
+      // the job (field captures + snag + ITP / dwelling) date-grouped and
+      // filterable. Distinct from Evidence above, which is the review queue.
+      // No count: a total would need an extra fetch the hub doesn't do, so we
+      // omit the chip rather than fabricate one (P7 / the count convention).
+      kind: "live",
+      label: "Photos",
+      description:
+        "Browse every photo on this job — field captures, snag photos and ITP / dwelling photos, date-grouped and filterable. Read-only.",
+      href: `/v2/jobs/${jobIdEnc}/photos` as Route,
+      icon: Images,
     },
     {
       kind: "live",

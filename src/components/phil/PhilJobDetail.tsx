@@ -3,7 +3,7 @@
 import { Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import { PhilSkeleton } from "./ui/PhilSkeleton";
-import { Camera, Map as MapIcon, Zap } from "lucide-react";
+import { Camera, Images, Map as MapIcon, Zap } from "lucide-react";
 import { scheduleSummaryLine } from "@/domains/circuit-schedule/format";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilActionButton } from "./ui/PhilActionButton";
@@ -943,6 +943,32 @@ export function PhilJobDetail({
               >
                 <MapIcon aria-hidden="true" className="h-5 w-5" />
                 Open plan viewer
+              </PhilOfflineLink>
+            </div>
+          </Card>
+        </section>
+      ) : null}
+
+      {/* Photos (#242) — the read-only "Job Bible" gallery: browse every photo
+          on the job. Hidden-until-real — linked only when there's at least one
+          capture the worker can already see (the page's own evidence list), so
+          the field never lands on an empty gallery. Reference-zone slot beside
+          Plans (P10); capture stays on the job home above (browse ≠ capture). */}
+      {evidenceItems.length > 0 ? (
+        <section id="phil-job-photos" aria-label="Photos" className="scroll-mt-16">
+          <Card>
+            <CardTitle>Photos</CardTitle>
+            <CardDescription className="mt-1">
+              Browse every photo on this job in one place — date-grouped and
+              filterable. Read-only.
+            </CardDescription>
+            <div className="mt-3">
+              <PhilOfflineLink
+                href={`/phil/jobs/${encodeURIComponent(job.id)}/photos`}
+                className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-card border border-border bg-surface px-4 text-sm font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-subtle"
+              >
+                <Images aria-hidden="true" className="h-5 w-5" />
+                Open photo gallery
               </PhilOfflineLink>
             </div>
           </Card>
