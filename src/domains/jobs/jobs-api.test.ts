@@ -1469,3 +1469,51 @@ describe("GET /api/jobs?withStats=1&statsOnly=1 — admin Command Centre fast st
     expect(res.body).not.toHaveProperty("jobs");
   });
 });
+
+// Admin opt-in base list: ?summary=1 (no withStats) serves the small jobs-summary
+// base for admin surfaces needing only base fields (the /employees active-jobs
+// picker). Opt-in — admin plain /api/jobs (no ?summary) keeps the full read + money.
+describe("GET /api/jobs?summary=1 — admin base list from the summary", () => {
+  const rows = (r: { body: unknown }) => (r.body as { jobs: Record<string, unknown>[] }).jobs;
+  afterEach(() => {
+    delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
+  });
+
+  it("serves base fields (id/name/status/ref) for admin, with NO money or structure", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const res = await call({ method: "GET", userId: "u_admin", role: "admin", query: { summary: "1" } });
+    expect(res.statusCode).toBe(200);
+    const active = rows(res).find((j) => j.id === "job-active")!;
+    expect(active).toBeDefined();
+    expect(active.name).toBe("Active");
+    expect(active.status).toBe("active");
+    // base read — never the heavy structure or money
+    for (const k of ["areaGroups", "contractValue", "labourEstimate", "statsTasksTotal"]) {
+      expect(active).not.toHaveProperty(k);
+    }
+  });
+
+  it("ADMIN sees all statuses via ?summary=1 (parity with the admin plain list)", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const ids = rows(await call({ method: "GET", userId: "u_admin", role: "admin", query: { summary: "1" } })).map((j) => j.id);
+    expect(ids).toContain("job-active");
+    expect(ids).toContain("job-draft"); // admin sees draft/archived (not filtered)
+    expect(ids).toContain("job-archived");
+  });
+
+  it("NON-admin ?summary=1 does not get the admin base path (field served by its own summary block)", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const res = await call({ method: "GET", userId: "u_field", role: "electrician", query: { summary: "1" } });
+    // field is served by the field-summary block above → only its assigned active job
+    expect(res.statusCode).toBe(200);
+    expect(rows(res).map((j) => j.id)).toEqual(["job-active"]);
+  });
+
+  it("flag OFF: ?summary=1 falls through to the full read (admin still gets jobs)", async () => {
+    delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
+    const res = await call({ method: "GET", userId: "u_admin", role: "admin", query: { summary: "1" } });
+    expect(res.statusCode).toBe(200);
+    const active = rows(res).find((j) => j.id === "job-active")!;
+    expect(active).toHaveProperty("areaGroups"); // full read ran (flag off)
+  });
+});

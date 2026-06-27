@@ -283,6 +283,24 @@ module.exports = async (req, res) => {
         // fall through to the full read below
       }
     }
+    // Admin opt-in base list from the summary (?summary=1, no ?withStats): serve
+    // the small jobs-summary base (id/name/status/ref/site/type + kept non-money
+    // fields such as cashWatch) instead of the ~3.5-8s jobs.json monolith — for
+    // admin surfaces that need ONLY base fields: the /employees active-jobs picker
+    // (id/name/ref) and the /reports cash-watch tile (job.cashWatch). OPT-IN so
+    // existing admin plain /api/jobs consumers (no ?summary) keep the full read +
+    // money + structure. Admin sees all statuses (parity with the admin plain
+    // list); redactJobForViewer is a no-op for admin and the summary already omits
+    // money. Any error → full read fallback.
+    if (isAdminRole(me.role) && req.query && req.query.summary === '1') {
+      try {
+        const { records } = await readJobsSummary();
+        return res.status(200).json({ jobs: records.map((j) => redactJobForViewer(j, me.role)) });
+      } catch (e) {
+        console.error('admin summary base read failed; falling back to full jobs.json', e && e.message);
+        // fall through to the full read below
+      }
+    }
     // Not eligible (admin/client) or summary errored → fall through.
     // getCurrentUser below is a cheap cache hit (users.json, 5s TTL).
   }
