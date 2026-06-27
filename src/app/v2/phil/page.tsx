@@ -9,7 +9,7 @@ import {
   MyInductionHistoryResponseSchema,
   type InductionRecord,
 } from "@/domains/jobs/induction";
-import { SESSION_COOKIE } from "@/lib/auth/session";
+import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { CredentialListResponseSchema } from "@/domains/workforce/schema";
 import type { Credential } from "@/domains/workforce/types";
 import {
@@ -38,6 +38,11 @@ export default async function PhilV2HomePage() {
     loadMyInductions(),
     loadMyRecord(),
   ]);
+  // The signed-in worker's id — so sign-out can purge their client-only recent +
+  // pinned jobs prefs (#145) on a shared device. Best-effort: absent → no purge.
+  const store = await cookies();
+  const session = decodeSessionCookie(store.get(SESSION_COOKIE)?.value);
+  const viewerId = session?.userId ?? session?.sub ?? "";
   return (
     <PhilShell title="Phil">
       <div className="space-y-4">
@@ -75,7 +80,7 @@ export default async function PhilV2HomePage() {
               your username and PIN to get back in.
             </CardDescription>
           </div>
-          <PhilSignOutButton />
+          <PhilSignOutButton userId={viewerId} />
         </Card>
 
         {/* #422: leave lives here on the More tab now, not on My Day —

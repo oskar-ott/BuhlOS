@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilJobDetail } from "@/components/phil/PhilJobDetail";
+import { PhilJobViewRecorder } from "@/components/phil/PhilJobViewRecorder";
 import { PhilJobDetailShell, type JobShellHeader } from "@/components/phil/PhilJobDetailShell";
 import {
   MyInductionResponseSchema,
@@ -96,6 +97,8 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
     // Flag off → prior behaviour: block on the full load, render directly.
     return (
       <PhilShell title="Job">
+        {/* #145: remember this open so the jobs list can surface it in Recent. */}
+        <PhilJobViewRecorder userId={viewerId} jobId={jobId} />
         {await PhilJobDetailFull({ raw, jobId, captureToken, viewerId, viewerRole, streamTaskState: false })}
       </PhilShell>
     );
@@ -113,6 +116,8 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
 
   return (
     <PhilShell title={shellHeader?.name ?? "Job"}>
+      {/* #145: remember this open so the jobs list can surface it in Recent. */}
+      <PhilJobViewRecorder userId={viewerId} jobId={jobId} />
       <Suspense fallback={<PhilJobDetailShell header={shellHeader} />}>
         <PhilJobDetailFull
           raw={raw}
