@@ -12,6 +12,7 @@ import {
   Map as MapIcon,
   Package,
   Scale,
+  ShieldCheck,
   Zap,
 } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -22,6 +23,8 @@ import { cn } from "@/lib/cn";
 
 interface Props {
   job: Job;
+  /** #219: show the Safety documents row. Flag-gated (safety_docs) by the hub. */
+  safetyEnabled?: boolean;
 }
 
 type SectionRow =
@@ -69,7 +72,7 @@ type SectionRow =
  *       of index-level)
  *   docs/rebuild-audit/35-current-product-state-audit.md §7.2 Admin
  */
-export function JobInterfaceSectionNav({ job }: Props) {
+export function JobInterfaceSectionNav({ job, safetyEnabled = false }: Props) {
   const jobIdEnc = encodeURIComponent(job.id);
 
   const rows: ReadonlyArray<SectionRow> = [
@@ -151,6 +154,20 @@ export function JobInterfaceSectionNav({ job }: Props) {
               "Open drawings in the in-app viewer — zoom, rotate and page through current (and superseded) revisions.",
             href: `/v2/jobs/${jobIdEnc}/plans` as Route,
             icon: MapIcon,
+          } satisfies SectionRow,
+        ]
+      : []),
+    // #219: Safety documents (SWMS/SDS) + acknowledge-read in Phil. Flag-gated
+    // by the hub (safety_docs); dark until on.
+    ...(safetyEnabled
+      ? [
+          {
+            kind: "live",
+            label: "Safety",
+            description:
+              "SWMS, SDS and site-safety docs. Workers acknowledge they've read each in Phil; see who has and hasn't.",
+            href: `/v2/jobs/${jobIdEnc}/safety` as Route,
+            icon: ShieldCheck,
           } satisfies SectionRow,
         ]
       : []),

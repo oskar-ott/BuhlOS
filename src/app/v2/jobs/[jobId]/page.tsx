@@ -111,6 +111,8 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
   // job command model.
   const showFieldView = await isFlagEnabled("admin_job_field_view", session);
   const activeView: "office" | "field" = showFieldView && view === "field" ? "field" : "office";
+  // #219: surface the Safety documents section when the flag is on.
+  const safetyEnabled = await isFlagEnabled("safety_docs", session);
 
   const [data, inductions, readiness] = await Promise.all([
     loadJobInterface(raw, jobId),
@@ -249,7 +251,7 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
         ) : null}
         <JobTagsSummary job={job} />
         {hasSiteContext(job) ? <SiteContextCard job={job} /> : null}
-        <JobInterfaceSectionNav job={job} />
+        <JobInterfaceSectionNav job={job} safetyEnabled={safetyEnabled} />
         </>
         )}
       </div>

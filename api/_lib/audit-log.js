@@ -171,6 +171,10 @@ const VALID_ACTIONS = new Set([
   // sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'job.created',
   'quote.converted',
+  // #219: safety documents (api/safety-docs.js). Kept in sync with
+  // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'safety_doc.uploaded',
+  'safety_doc.acknowledged',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -213,6 +217,8 @@ const VALID_TARGET_TYPES = new Set([
   // #581: a created job (job.created) and a converted quote (quote.converted).
   'job',
   'quote',
+  // #219: per-job safety docs (jobs/<id>/safety-docs.json).
+  'safety_doc',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

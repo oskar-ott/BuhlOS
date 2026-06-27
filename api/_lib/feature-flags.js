@@ -234,6 +234,18 @@ const REGISTRY = {
     target: 'admin-tier',
     expires: '2026-12-31',
   },
+  // Safety documents on the job + acknowledge-read in Phil (#219): gates
+  // /api/safety-docs, the /v2/jobs/[jobId]/safety admin sub-route, and the Phil
+  // Safety section/route. GLOBAL (not admin-tier) so assigned field crew can see
+  // and acknowledge their SWMS/SDS once it's on — admin-only upload is enforced
+  // in the handler, not by the flag. Default OFF; the Phil home hides the section
+  // until real (presence-gated, no flag read on the LCP path).
+  safety_docs: {
+    description: 'Enable safety documents (SWMS/SDS) on the job with acknowledge-read in Phil — /api/safety-docs + /v2/jobs/[jobId]/safety + Phil Safety section (#219). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
 };
 
 const FLAGS_KEY = 'flags.json';

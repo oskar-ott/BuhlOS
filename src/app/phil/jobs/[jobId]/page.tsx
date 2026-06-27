@@ -204,6 +204,13 @@ async function PhilJobDetailFull({
     );
   }
 
+  // #219: env-only flag read (no blob, off the LCP path) — mount the Safety
+  // home section only when the flag is on; otherwise it isn't even mounted, so
+  // a dark prod fires zero extra requests on the field home.
+  const safetyDocsRaw = (process.env.FLAG_SAFETY_DOCS ?? "").toLowerCase();
+  const safetyEnabled =
+    safetyDocsRaw === "1" || safetyDocsRaw === "true" || safetyDocsRaw === "on";
+
   return (
     <PhilJobDetail
       job={result.job}
@@ -225,6 +232,7 @@ async function PhilJobDetailFull({
       proofReviews={jobControlResult.proofReviews}
       jobControlRevision={jobControlResult.revision}
       autoCaptureToken={captureToken}
+      safetyEnabled={safetyEnabled}
     />
   );
 }

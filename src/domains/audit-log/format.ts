@@ -82,6 +82,9 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   // #581: job-creating actions (targetType 'job'/'quote' group as Other).
   "job.created": "Created job",
   "quote.converted": "Converted quote to job",
+  // #219: safety documents.
+  "safety_doc.uploaded": "Uploaded a safety document",
+  "safety_doc.acknowledged": "Acknowledged a safety document",
 };
 
 export function actionLabel(action: AuditAction): string {

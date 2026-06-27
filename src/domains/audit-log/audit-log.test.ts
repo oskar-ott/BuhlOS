@@ -194,6 +194,9 @@ describe("AuditLogEntrySchema", () => {
       "readiness.item_ticked",
       "readiness.overridden",
       "readiness.override_cleared",
+      // #219: safety document lifecycle (upload + acknowledge).
+      "safety_doc.acknowledged",
+      "safety_doc.uploaded",
       "snag.created",
       "snag.transitioned",
       "storage.write_rejected",
@@ -226,6 +229,8 @@ describe("AuditLogEntrySchema", () => {
       "proof_review",
       // #581: a converted quote.
       "quote",
+      // #219: per-job safety docs.
+      "safety_doc",
       "snag",
       // #151: platform-level events (backup runs).
       "system",

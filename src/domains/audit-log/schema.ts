@@ -154,6 +154,12 @@ export const AUDIT_ACTIONS = [
   // conversion. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
   "job.created",
   "quote.converted",
+  // #219: safety documents (api/safety-docs.js). safety_doc.uploaded on an admin
+  // upload (incl. a new version); safety_doc.acknowledged when a worker taps
+  // "I've read this". targetType 'safety_doc'. Kept in sync with
+  // api/_lib/audit-log.js VALID_ACTIONS.
+  "safety_doc.uploaded",
+  "safety_doc.acknowledged",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -189,6 +195,8 @@ export const AUDIT_TARGET_TYPES = [
   // #581: a created job (job.created) and a converted quote (quote.converted).
   "job",
   "quote",
+  // #219: per-job safety docs (jobs/<id>/safety-docs.json).
+  "safety_doc",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 
