@@ -140,13 +140,15 @@ describe("AuditLogEntrySchema", () => {
       "evidence.rejected",
       "evidence.reviewed",
       "evidence.unreviewed",
-      // #390: hours / time-entry decisions (the office approvals pass).
+      // #390: hours / time-entry events (approvals pass + worker submits).
       "hours.approved",
       "hours.bulk_approved",
       "hours.bulk_rejected",
       "hours.reject_undone",
       "hours.rejected",
       "hours.reopened",
+      "hours.resubmitted",
+      "hours.submitted",
       // #332: induction register (backfilled sorts before confirmed).
       "induction.backfilled",
       "induction.confirmed",

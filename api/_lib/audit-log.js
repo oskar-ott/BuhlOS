@@ -127,12 +127,14 @@ const VALID_ACTIONS = new Set([
   'variation.created',
   'variation.transitioned',
   'observation.converted_to_variation',
-  // #390: hours / time-entry DECISIONS in the canonical audit journal so the
-  // cross-job activity feed (#220) and per-job history include the office
-  // approvals pass — half the office's day. Written best-effort (the payroll
-  // mutation never blocks on the audit). targetType 'time_entry'. Bulk actions
-  // write ONE summarising entry (metadata.entries carries the decided days), not
-  // N rows. Worker submit/resubmit land in a follow-on. Kept in sync with
+  // #390: hours / time-entry events in the canonical audit journal so the
+  // cross-job activity feed (#220) and per-job history include both the office
+  // approvals pass — half the office's day — and the worker submissions that
+  // feed it. Written best-effort (the payroll mutation never blocks on the
+  // audit). targetType 'time_entry'. Bulk actions write ONE summarising entry
+  // (metadata.entries carries the decided days), not N rows. submitted covers a
+  // first submission (draft→submitted or create-as-submitted); resubmitted is a
+  // rejected→submitted correction. Kept in sync with
   // src/domains/audit-log/schema.ts AUDIT_ACTIONS + api/audit-log.js.
   'hours.approved',
   'hours.rejected',
@@ -140,6 +142,8 @@ const VALID_ACTIONS = new Set([
   'hours.reopened',
   'hours.bulk_approved',
   'hours.bulk_rejected',
+  'hours.submitted',
+  'hours.resubmitted',
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to carry the direction);
