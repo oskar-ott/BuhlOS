@@ -478,8 +478,12 @@ async function handleDelete(req, res, user) {
 // Enrich an entry list with user names + per-allocation job info + LH-leadership flag.
 // Done in a single users.json + jobs.json read regardless of N entries.
 async function enrichEntries(entries, viewer) {
-  const users = await readBlob('users.json', { users: [] });
-  const jobs  = await readBlob('jobs.json',  { jobs: [] });
+  // users.json + jobs.json are independent — read them together so the two
+  // (large) monolith reads overlap instead of summing (~max not ~sum).
+  const [users, jobs] = await Promise.all([
+    readBlob('users.json', { users: [] }),
+    readBlob('jobs.json',  { jobs: [] }),
+  ]);
   const userById = {};
   (users.users || []).forEach(u => { userById[u.id] = u; });
   const jobById = {};
