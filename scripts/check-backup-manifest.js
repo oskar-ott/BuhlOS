@@ -19,6 +19,7 @@ const KNOWN_DYNAMIC = {
   'api/_lib/audit-log.js': ['audit/'], // keyFor(): audit/<yyyy-mm>.json
   'api/leave.js': ['leave-requests.json'], // KEY imported from _lib/leave.js
   'api/observations.js': ['jobs/'], // variations.storeKey(jobId): jobs/<id>/variations.json (cross-module call; covered by the jobs/ prefix)
+  'api/safety-docs.js': ['jobs/'], // docsKey/acksKey(jobId): jobs/<id>/safety-docs.json + safety-acks.json (concat helpers; covered by the jobs/ prefix) (#219)
 };
 
 // The backup system itself: blob.js DEFINES writeBlob, backup.js's restore
