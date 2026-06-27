@@ -8,12 +8,15 @@ import {
   ArrowRightLeft,
   CheckCircle2,
   Inbox,
+  Layers,
+  ListChecks,
   MapPin,
   Package,
   Paperclip,
   UserCheck,
 } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { Pill } from "@/components/ui/Pill";
 import { StatusChip } from "@/components/ui/StatusChip";
 import { Button } from "@/components/ui/Button";
 import { Drawer } from "@/components/ui/Drawer";
@@ -48,6 +51,11 @@ import type {
   ObservationType,
   UpdateObservationPayload,
 } from "@/domains/observations/types";
+import {
+  EMPTY_OBSERVATION_FILTERS,
+  matchesObservationFilter,
+  type ObservationFilters,
+} from "./observation-filter";
 
 interface Props {
   initialObservations: ReadonlyArray<ObservationItem>;
@@ -62,16 +70,6 @@ interface Props {
    *  appears so the dropdown adds nothing). Default true. */
   showJobFilter?: boolean;
 }
-
-interface Filters {
-  status: ObservationStatus | "";
-  type: ObservationType | "";
-  priority: ObservationPriority | "";
-  jobId: string;
-  source: string;
-}
-
-const EMPTY_FILTERS: Filters = { status: "", type: "", priority: "", jobId: "", source: "" };
 
 /** Intent-only conversion targets — the downstream modules (RFI / Variation /
  *  Material Request) aren't built yet, so these buttons record the office
@@ -114,7 +112,7 @@ export function ObservationsInbox({
   const [observations, setObservations] = useState<ReadonlyArray<ObservationItem>>(
     initialObservations
   );
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<ObservationFilters>(EMPTY_OBSERVATION_FILTERS);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState<{ tone: "success" | "danger"; message: string } | null>(
@@ -133,15 +131,21 @@ export function ObservationsInbox({
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
   }, [observations]);
 
+  // Raised-by option list (#260) — mirrors jobOptions but keyed on the
+  // denormalised createdById/createdByName already on every row.
+  const createdByOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const o of observations) {
+      if (!o.createdById) continue;
+      if (!map.has(o.createdById)) map.set(o.createdById, o.createdByName || o.createdById);
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [observations]);
+
   const visible = useMemo(() => {
-    const matched = observations.filter((o) => {
-      if (filters.status && o.status !== filters.status) return false;
-      if (filters.type && o.type !== filters.type) return false;
-      if (filters.priority && o.priority !== filters.priority) return false;
-      if (filters.jobId && o.jobId !== filters.jobId) return false;
-      if (filters.source && o.source !== filters.source) return false;
-      return true;
-    });
+    const matched = observations.filter((o) => matchesObservationFilter(o, filters));
     return matched.slice().sort(compareForInbox);
   }, [observations, filters]);
 
@@ -312,8 +316,24 @@ export function ObservationsInbox({
             { value: "system", label: "System" },
           ]}
         />
+        <FilterSelect
+          label="Raised by"
+          value={filters.createdById}
+          onChange={(v) => setFilters((f) => ({ ...f, createdById: v }))}
+          options={createdByOptions.map((c) => ({ value: c.id, label: c.name }))}
+        />
+        <FilterDate
+          label="From"
+          value={filters.fromDate}
+          onChange={(v) => setFilters((f) => ({ ...f, fromDate: v }))}
+        />
+        <FilterDate
+          label="To"
+          value={filters.toDate}
+          onChange={(v) => setFilters((f) => ({ ...f, toDate: v }))}
+        />
         {filtersActive ? (
-          <Button type="button" variant="ghost" size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setFilters(EMPTY_OBSERVATION_FILTERS)}>
             Clear
           </Button>
         ) : null}
@@ -333,7 +353,7 @@ export function ObservationsInbox({
           title="Nothing matches these filters"
           description="Try clearing a filter to see more."
           action={
-            <Button type="button" variant="secondary" size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => setFilters(EMPTY_OBSERVATION_FILTERS)}>
               Clear filters
             </Button>
           }
@@ -427,6 +447,70 @@ function FilterSelect({
   );
 }
 
+function FilterDate({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1 text-xs text-text-muted">
+      <span className="uppercase tracking-wider">{label}</span>
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full min-w-0 rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text sm:w-auto"
+      />
+    </label>
+  );
+}
+
+/**
+ * Context chips for an observation row (#260) — stage / area / task from the
+ * row's OWN denormalised fields (no job structure needed). Mirrors the evidence
+ * queue's chip treatment. Renders an honest "Untagged" pill only when a
+ * job-attached observation carries no context; office items (no job) carry none
+ * by design so they render nothing here.
+ */
+function ObservationContextChips({ observation: o }: { observation: ObservationItem }) {
+  const stageLabelText = o.stage ? (o.stage === "roughIn" ? "Rough-in" : "Fit-off") : null;
+  const hasContext = Boolean(stageLabelText || o.areaName || o.taskName);
+  if (!hasContext) {
+    if (!o.jobId) return null; // office item — no context expected
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1">
+        <Pill tone="neutral">Untagged</Pill>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {stageLabelText ? (
+        <Pill tone="neutral">
+          <Layers aria-hidden="true" className="h-3 w-3" />
+          {stageLabelText}
+        </Pill>
+      ) : null}
+      {o.areaName ? (
+        <Pill tone="neutral">
+          <MapPin aria-hidden="true" className="h-3 w-3" />
+          {o.areaName}
+        </Pill>
+      ) : null}
+      {o.taskName ? (
+        <Pill tone="neutral">
+          <ListChecks aria-hidden="true" className="h-3 w-3" />
+          {o.taskName}
+        </Pill>
+      ) : null}
+    </span>
+  );
+}
+
 function ObservationRow({
   observation: o,
   onOpen,
@@ -462,16 +546,15 @@ function ObservationRow({
       {o.description ? (
         <p className="line-clamp-1 text-sm text-text-muted">{o.description}</p>
       ) : null}
+      {/* Context chips (#260) — stage / area / task from the row's OWN
+          denormalised fields (stamped at create), same chip treatment as the
+          evidence queue. Honest "Untagged" only for job-attached rows with no
+          context — office items legitimately carry none. */}
+      <ObservationContextChips observation={o} />
       <p className="flex flex-wrap items-center gap-1.5 text-xs text-text-muted">
         <span className="font-medium text-text">
           {o.jobId ? o.jobName || o.jobId : "Office — no job"}
         </span>
-        {o.areaName ? (
-          <span className="inline-flex items-center gap-0.5">
-            <MapPin aria-hidden="true" className="h-3 w-3" />
-            {o.areaName}
-          </span>
-        ) : null}
         <span aria-hidden="true">·</span>
         <span>{o.createdByName}</span>
         <span aria-hidden="true">·</span>

@@ -3,10 +3,27 @@
 import { useMemo } from "react";
 import { X } from "lucide-react";
 import { Pill } from "@/components/ui/Pill";
-import type { EvidenceItem, ServerEvidenceStatus } from "@/domains/evidence/types";
+import { EVIDENCE_STAGES } from "@/domains/evidence/schema";
+import { stageLabel } from "@/domains/evidence/format";
+import type {
+  EvidenceItem,
+  EvidenceStage,
+  ServerEvidenceStatus,
+} from "@/domains/evidence/types";
+import { visibleAreaGroups } from "@/domains/jobs/format";
+import type { Job } from "@/domains/jobs/types";
 import { cn } from "@/lib/cn";
 
 export type StatusFilter = "all" | ServerEvidenceStatus;
+
+/**
+ * Sentinel for the "captured with no area" axis (#260). Distinct from
+ * `unattachedOnly` (which means no stage AND no area AND no task) — this one
+ * means specifically "areaId is null", regardless of stage/task. The two
+ * untagged axes are labelled distinctly in the UI so they don't read as
+ * duplicates (AC5).
+ */
+export const NO_AREA = "__none__";
 
 export interface FilterState {
   status: StatusFilter;
@@ -14,6 +31,13 @@ export interface FilterState {
   unattachedOnly: boolean;
   fromDate: string | null; // YYYY-MM-DD
   toDate: string | null;   // YYYY-MM-DD
+  /** Area context filter (#260). null = any area; NO_AREA = no area at all;
+   *  otherwise an areaId. AND-combines with the other filters. */
+  areaId: string | null;
+  /** Stage context filter (#260). null = any stage. */
+  stage: EvidenceStage | null;
+  /** Task context filter (#260). null = any task; an exact taskId otherwise. */
+  taskId: string | null;
 }
 
 export const DEFAULT_FILTER: FilterState = {
@@ -22,9 +46,64 @@ export const DEFAULT_FILTER: FilterState = {
   unattachedOnly: false,
   fromDate: null,
   toDate: null,
+  areaId: null,
+  stage: null,
+  taskId: null,
 };
 
+/** A selectable area in the context filter. `archived` flags areas referenced
+ *  by loaded rows but no longer visible in the job structure — so every
+ *  visible row stays reachable and "showing N of M" reconciles (#260). */
+export interface AreaOption {
+  id: string;
+  name: string;
+  archived: boolean;
+}
+
+/**
+ * Build the area-filter option list (#260): the union of the job's VISIBLE
+ * areas plus any areaId referenced by a loaded row that isn't visible (labelled
+ * "(archived)"). Pure + exported so the predicate matrix and the option list
+ * are both unit-testable. Names resolve via the areaGroups walk; an unknown id
+ * falls back to the raw id.
+ */
+export function buildAreaOptions(
+  job: Pick<Job, "areaGroups">,
+  items: ReadonlyArray<Pick<EvidenceItem, "areaId">>
+): AreaOption[] {
+  const out: AreaOption[] = [];
+  const seen = new Set<string>();
+
+  for (const group of visibleAreaGroups(job.areaGroups)) {
+    for (const area of group.areas ?? []) {
+      if (!area || seen.has(area.id)) continue;
+      seen.add(area.id);
+      out.push({ id: area.id, name: area.name?.trim() || area.id, archived: false });
+    }
+  }
+
+  // Resolve names for any area still present in the raw structure (archived).
+  const rawNames = new Map<string, string>();
+  for (const group of job.areaGroups ?? []) {
+    for (const area of group.areas ?? []) {
+      if (area && !rawNames.has(area.id)) rawNames.set(area.id, area.name?.trim() || area.id);
+    }
+  }
+
+  for (const it of items) {
+    const id = it.areaId;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, name: rawNames.get(id) || id, archived: true });
+  }
+
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
 interface Props {
+  /** The job — resolves area ids to the names the boss authored (#260). */
+  job: Pick<Job, "areaGroups">;
   items: ReadonlyArray<EvidenceItem>;
   value: FilterState;
   onChange: (next: FilterState) => void;
@@ -44,7 +123,7 @@ interface Props {
  * The status dropdown defaults to `submitted` so the queue surfaces
  * pending review first — admin's primary attention target.
  */
-export function EvidenceFilterBar({ items, value, onChange, visibleCount }: Props) {
+export function EvidenceFilterBar({ job, items, value, onChange, visibleCount }: Props) {
   const captureBy = useMemo(() => {
     const map = new Map<string, string>();
     for (const it of items) {
@@ -57,12 +136,17 @@ export function EvidenceFilterBar({ items, value, onChange, visibleCount }: Prop
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [items]);
 
+  const areaOptions = useMemo(() => buildAreaOptions(job, items), [job, items]);
+
   const isDefault =
     value.status === DEFAULT_FILTER.status &&
     value.capturedById === DEFAULT_FILTER.capturedById &&
     value.unattachedOnly === DEFAULT_FILTER.unattachedOnly &&
     value.fromDate === DEFAULT_FILTER.fromDate &&
-    value.toDate === DEFAULT_FILTER.toDate;
+    value.toDate === DEFAULT_FILTER.toDate &&
+    value.areaId === DEFAULT_FILTER.areaId &&
+    value.stage === DEFAULT_FILTER.stage &&
+    value.taskId === DEFAULT_FILTER.taskId;
 
   return (
     <div className="rounded-card border border-border bg-surface-raised p-3 shadow-card">
@@ -103,6 +187,48 @@ export function EvidenceFilterBar({ items, value, onChange, visibleCount }: Prop
           </select>
         </FilterField>
 
+        <FilterField label="Area">
+          <select
+            value={value.areaId ?? ""}
+            onChange={(e) =>
+              onChange({
+                ...value,
+                areaId: e.target.value === "" ? null : e.target.value,
+              })
+            }
+            className="block h-10 w-full min-w-0 rounded-card border border-border bg-surface px-3 text-sm focus:border-brand-navy focus:outline-none sm:w-auto sm:min-w-[10rem] sm:max-w-[11rem]"
+          >
+            <option value="">Any area</option>
+            <option value={NO_AREA}>No area (untagged)</option>
+            {areaOptions.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+                {a.archived ? " (archived)" : ""}
+              </option>
+            ))}
+          </select>
+        </FilterField>
+
+        <FilterField label="Stage">
+          <select
+            value={value.stage ?? ""}
+            onChange={(e) =>
+              onChange({
+                ...value,
+                stage: e.target.value === "" ? null : (e.target.value as EvidenceStage),
+              })
+            }
+            className="block h-10 rounded-card border border-border bg-surface px-3 text-sm focus:border-brand-navy focus:outline-none"
+          >
+            <option value="">Any stage</option>
+            {EVIDENCE_STAGES.map((s) => (
+              <option key={s} value={s}>
+                {stageLabel(s)}
+              </option>
+            ))}
+          </select>
+        </FilterField>
+
         <FilterField label="From">
           <input
             type="date"
@@ -132,7 +258,9 @@ export function EvidenceFilterBar({ items, value, onChange, visibleCount }: Prop
             onChange={(e) => onChange({ ...value, unattachedOnly: e.target.checked })}
             className="h-4 w-4 accent-brand-navy"
           />
-          <span>Unattached only</span>
+          {/* Distinct from the "No area (untagged)" axis above: this means NO
+              stage AND NO area AND NO task — a fully context-free capture. */}
+          <span>No context at all</span>
         </label>
 
         {!isDefault ? (
@@ -188,6 +316,17 @@ export function matchesFilter(item: EvidenceItem, filter: FilterState): boolean 
     const attached = item.stage || item.areaId || item.taskId;
     if (attached) return false;
   }
+  // Area context (#260). NO_AREA matches captures with no areaId; an explicit
+  // areaId matches exactly. AND-combines with everything else.
+  if (filter.areaId === NO_AREA) {
+    if (item.areaId) return false;
+  } else if (filter.areaId && item.areaId !== filter.areaId) {
+    return false;
+  }
+  // Stage context (#260).
+  if (filter.stage && item.stage !== filter.stage) return false;
+  // Task context (#260) — exact taskId match when set.
+  if (filter.taskId && item.taskId !== filter.taskId) return false;
   if (filter.fromDate || filter.toDate) {
     const day = typeof item.capturedAt === "string" ? item.capturedAt.slice(0, 10) : "";
     if (filter.fromDate && day < filter.fromDate) return false;
