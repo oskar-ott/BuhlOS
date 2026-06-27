@@ -165,6 +165,8 @@ export const AUDIT_ACTIONS = [
   // api/_lib/audit-log.js VALID_ACTIONS.
   "safety_doc.uploaded",
   "safety_doc.acknowledged",
+  // #231: commissioning documents + certificates register (api/certificates.js).
+  "certificate.uploaded",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -202,6 +204,8 @@ export const AUDIT_TARGET_TYPES = [
   "quote",
   // #219: per-job safety docs (jobs/<id>/safety-docs.json).
   "safety_doc",
+  // #231: per-job certificates.
+  "certificate",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

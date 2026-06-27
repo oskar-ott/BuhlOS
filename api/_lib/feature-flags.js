@@ -260,6 +260,16 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Commissioning documents + certificates register (#231): gates /api/certificates,
+  // the /v2/jobs/[jobId]/certificates admin register, and the Phil read-only certs
+  // section. GLOBAL so assigned crew see the read-only list once on; admin-only
+  // upload is enforced in the handler. Default OFF.
+  certificates_register: {
+    description: 'Enable the commissioning documents + certificates register — /api/certificates + /v2/jobs/[jobId]/certificates + Phil read-only certs (#231). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
 };
 
 const FLAGS_KEY = 'flags.json';

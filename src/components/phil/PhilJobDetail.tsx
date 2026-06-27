@@ -53,6 +53,7 @@ import { PhilJobDeferredNote } from "./PhilJobDeferredNote";
 import { PhilJobSiteCard } from "./PhilJobSiteCard";
 import { PhilJobHero } from "./PhilJobHero";
 import { PhilSafetyHomeSection } from "./PhilSafetyHomeSection";
+import { PhilCertificatesHomeSection } from "./PhilCertificatesHomeSection";
 import { PhilJobCommandPanel } from "./PhilJobCommandPanel";
 import { PhilJobAttentionStrip } from "./PhilJobAttentionStrip";
 import { PhilJobAreaCard } from "./PhilJobAreaCard";
@@ -137,6 +138,8 @@ interface Props {
   autoCaptureToken?: string | null;
   /** #219: mount the hidden-until-real Safety home section (flag-gated by the page). */
   safetyEnabled?: boolean;
+  /** #231: mount the hidden-until-real Certificates home section (flag-gated by the page). */
+  certificatesEnabled?: boolean;
 }
 
 /**
@@ -206,6 +209,7 @@ export function PhilJobDetail({
   jobControlRevision,
   autoCaptureToken,
   safetyEnabled = false,
+  certificatesEnabled = false,
 }: Props) {
   // Opens the global Capture launcher preset to one option (here, the
   // "Variation / change" worker option) — the SAME flow My Day's quick tiles
@@ -973,6 +977,10 @@ export function PhilJobDetail({
           (renders nothing until docs load); mounted only when the safety_docs
           flag is on. Reference-zone slot beside Plans/Circuit (P10). */}
       {safetyEnabled ? <PhilSafetyHomeSection jobId={job.id} /> : null}
+
+      {/* #231: Certificates — read-only compliance/commissioning records.
+          Hidden-until-real; mounted only when certificates_register is on. */}
+      {certificatesEnabled ? <PhilCertificatesHomeSection jobId={job.id} /> : null}
 
       {/* Documents & specs — JobDocumentsPanel owns its own
           #phil-job-documents section and renders nothing when the job has no

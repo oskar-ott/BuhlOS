@@ -184,6 +184,8 @@ const VALID_ACTIONS = new Set([
   // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'safety_doc.uploaded',
   'safety_doc.acknowledged',
+  // #231: commissioning documents + certificates register (api/certificates.js).
+  'certificate.uploaded',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -228,6 +230,8 @@ const VALID_TARGET_TYPES = new Set([
   'quote',
   // #219: per-job safety docs (jobs/<id>/safety-docs.json).
   'safety_doc',
+  // #231: per-job certificates (jobs/<id>/certificates.json).
+  'certificate',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;
