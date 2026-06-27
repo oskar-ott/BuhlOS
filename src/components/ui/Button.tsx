@@ -19,7 +19,10 @@ const VARIANT_CLASSES: Record<Variant, string> = {
 };
 
 const SIZE_CLASSES: Record<Size, string> = {
-  sm: "h-8 px-3 text-sm",
+  // #662: a ≥44px touch floor on phones (h-11 = 44px) so the hours
+  // approve/reject/approve-all actions aren't mis-tapped, collapsing to the
+  // compact 32px (h-8) density at the `sm` breakpoint (640px) and up.
+  sm: "h-11 px-3 text-sm sm:h-8",
   md: "h-10 px-4 text-sm",
   lg: "h-12 px-5 text-base",
 };
