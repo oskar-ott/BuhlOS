@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { CrewWeekPanel } from "@/components/admin/CrewWeekPanel";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
@@ -65,6 +66,9 @@ export async function EmployeesScreen({ selectedId }: { selectedId?: string | nu
             licenceStatusByUserId={view.licenceStatusByUserId}
           />
         )}
+
+        {/* #337: weekly crew availability — who's on leave / assigned / free. */}
+        <CrewWeekPanel />
 
         <UnderConstructionPanel
           feature="Bulk re-invite · vehicles · inductions · payroll"

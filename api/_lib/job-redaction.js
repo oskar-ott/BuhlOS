@@ -20,6 +20,10 @@ const FIELD_AUDIENCE = {
   claimedToDate:    'adminTier',
   paidToDate:       'adminTier',
   oldestClaimDays:  'adminTier',
+  // #228: client + contract context — admin-tier only; never reaches the
+  // field/LH/client payload (commercial-sensitive).
+  clientReference:  'adminTier',
+  contractNotes:    'adminTier',
   // #200: scope of work is commercial text — the office writes it, a
   // leading hand may READ it on site, a tradie's phone / client's browser
   // console never receives it.

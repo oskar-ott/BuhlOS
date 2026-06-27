@@ -5,6 +5,7 @@ import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { QuoteBuilderClient } from "@/components/admin/QuoteBuilderClient";
+import { QuoteDeliveryCard } from "@/components/admin/QuoteDeliveryCard";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { QuoteDetailResponseSchema, type Quote } from "@/domains/quoting/schema";
@@ -76,7 +77,11 @@ export default async function QuoteBuilderPage({ params }: PageParams) {
 
   return (
     <AdminShell title="Quote builder">
-      <QuoteBuilderClient initialQuote={result.quote} />
+      <div className="space-y-4">
+        {/* #240: client-facing lifecycle (sent → viewed → accepted/declined). */}
+        <QuoteDeliveryCard quoteId={result.quote.id} />
+        <QuoteBuilderClient initialQuote={result.quote} />
+      </div>
     </AdminShell>
   );
 }

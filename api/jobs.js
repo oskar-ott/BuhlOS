@@ -260,7 +260,8 @@ module.exports = async (req, res) => {
           (j) =>
             (me.assignedJobIds || []).includes(j.id) &&
             j.status !== 'draft' &&
-            j.status !== 'archived'
+            j.status !== 'archived' &&
+            j.status !== 'complete' // #349: closed-out jobs are field-invisible
         );
         // ?withStats=1: attach ONLY the two stats /phil/jobs renders
         // (statsSnagsV2Active, statsItpsActive), computed from the per-job
@@ -334,6 +335,50 @@ module.exports = async (req, res) => {
     // Not eligible (admin/client/unassigned) or projection errored → fall through.
   }
 
+  // Perf (admin Command Centre LCP): /api/jobs?withStats=1&statsOnly=1 serves the
+  // ADMIN jobs list with ONLY the per-job COUNT stats the Command Centre aggregates
+  // (crew / evidence-pending / snags-active / ITPs-needs-review) — it never reads
+  // the areaGroups-derived task counts (statsTasksTotal/Pct/areaCount). So it builds
+  // from the small jobs-summary base + the SAME enrichJobsWithStats per-job reads,
+  // SKIPPING the ~8s jobs.json monolith (measured prod: jobs?withStats=1 ~8s vs the
+  // other snapshot reads ~3s — the monolith was the sole gate of the landing). The
+  // areaGroups-derived stats come out 0/null on summary records (no structure) and
+  // are STRIPPED here — omitted, never served as a fabricated task count (P7). Same
+  // ENV flag + freshness/fallback contract as the field summary; any error → full
+  // read below. Output for the kept count stats is parity-identical (same
+  // enrichJobsWithStats, same per-job blobs). Admin tier only (the Command Centre).
+  if (
+    req.method === 'GET' &&
+    !(req.query && req.query.id) &&
+    req.query &&
+    req.query.statsOnly === '1' &&
+    req.query.withStats === '1' &&
+    isFlagOnSync('phil_jobs_summary_read')
+  ) {
+    const me = await getCurrentUser(req);
+    if (!me) return res.status(401).json({ error: 'not authenticated' });
+    if (isAdminRole(me.role)) {
+      try {
+        const { records } = await readJobsSummary();
+        const crewCountByJob = await loadCrewCountByJob();
+        const enriched = await enrichJobsWithStats(records, crewCountByJob);
+        // areaGroups-derived stats are meaningless on structure-less summary
+        // records — drop them so no consumer reads a fabricated task count.
+        const TASK_STATS = ['statsPct', 'statsTasksTotal', 'statsTasksComplete', 'statsAreaCount'];
+        const out = enriched.map((j) => {
+          const c = Object.assign({}, j);
+          for (const k of TASK_STATS) delete c[k];
+          return c;
+        });
+        return res.status(200).json({ jobs: out.map((j) => redactJobForViewer(j, me.role)) });
+      } catch (e) {
+        console.error('admin statsOnly read failed; falling back to full jobs.json', e && e.message);
+        // fall through to the authoritative full read below
+      }
+    }
+    // Not admin or statsOnly errored → fall through to the full read.
+  }
+
   // Perf (Phil mobile LCP): the field/Phil GET path was gated on a chain of
   // INDEPENDENT cold blob reads run serially — users.json (auth, via
   // getCurrentUser), jobs.json (the dominant ~2.5s read), and, on the list GET,
@@ -372,7 +417,7 @@ module.exports = async (req, res) => {
     // filter that follows is unchanged. Output is provably == Blob (faithful
     // jobs) or pure Blob (drift/new/error). Clients are NOT touched.
     const visibleJobIds = data.jobs
-      .filter(j => (me.assignedJobIds || []).includes(j.id) && j.status !== 'draft' && j.status !== 'archived')
+      .filter(j => (me.assignedJobIds || []).includes(j.id) && j.status !== 'draft' && j.status !== 'archived' && j.status !== 'complete')
       .map(j => j.id);
     const overlay = await readPhilJobsWithPgOverlay({ blobJobs: data.jobs, visibleJobIds });
     data.jobs = overlay.jobs;
@@ -397,7 +442,9 @@ module.exports = async (req, res) => {
       // never see draft or archived work.
       if (
         (job.status === 'draft' && !canViewDraftJobs(me.role)) ||
-        (job.status === 'archived' && !canViewArchivedJobs(me.role))
+        (job.status === 'archived' && !canViewArchivedJobs(me.role)) ||
+        // #349: a closed-out job is office-only, gated like archived.
+        (job.status === 'complete' && !canViewArchivedJobs(me.role))
       ) {
         return res.status(404).json({ error: 'job not found' });
       }
@@ -436,13 +483,14 @@ module.exports = async (req, res) => {
       visible = data.jobs;
     } else if (isClientRole(me.role)) {
       visible = data.jobs.filter(j =>
-        j.clientUserId === me.id && j.status !== 'draft' && j.status !== 'archived'
+        j.clientUserId === me.id && j.status !== 'draft' && j.status !== 'archived' && j.status !== 'complete'
       );
     } else {
       visible = data.jobs.filter(j =>
         (me.assignedJobIds || []).includes(j.id) &&
         j.status !== 'draft' &&
-        j.status !== 'archived'
+        j.status !== 'archived' &&
+        j.status !== 'complete' // #349: a closed-out job is field-invisible, like archived
       );
     }
     // Enrich with human-readable type name (cheap lookup; small list).
@@ -580,6 +628,9 @@ module.exports = async (req, res) => {
       // gate runs below alongside name/type/status).
       contractValue, labourEstimate, materialEstimate,
       claimedToDate, paidToDate, oldestClaimDays,
+      // #228: client + contract context — admin-only, never field-visible
+      // (stripped by job-redaction.js for non-admin reads).
+      clientReference, contractNotes,
       // Per-job module flags (rigidity audit R1). Admin-only.
       modules,
       // Custom fields on the Job (rigidity audit R3). Admin or LH writable.
@@ -640,6 +691,7 @@ module.exports = async (req, res) => {
           contractValue !== undefined || labourEstimate !== undefined ||
           materialEstimate !== undefined || claimedToDate !== undefined ||
           paidToDate !== undefined || oldestClaimDays !== undefined ||
+          clientReference !== undefined || contractNotes !== undefined ||
           modules !== undefined || scopeOfWork !== undefined) {
         return res.status(403).json({ error: 'leadingHand cannot change job money, module or scope fields' });
       }
@@ -688,6 +740,19 @@ module.exports = async (req, res) => {
         return res.status(400).json({ error: `${k} must be a non-negative number or null` });
       }
       job[k] = n;
+    }
+
+    // #228: client + contract text — admin-only (LH blocked above). Trimmed
+    // (trim keeps internal newlines); empty/null clears the field.
+    if (clientReference !== undefined) {
+      const v = clientReference === null ? '' : String(clientReference).trim();
+      if (v === '') delete job.clientReference;
+      else job.clientReference = v.slice(0, 200);
+    }
+    if (contractNotes !== undefined) {
+      const v = contractNotes === null ? '' : String(contractNotes).trim();
+      if (v === '') delete job.contractNotes;
+      else job.contractNotes = v.slice(0, 4000);
     }
 
     if (name !== undefined) {

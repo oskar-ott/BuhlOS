@@ -139,39 +139,46 @@ async function loadJobStructureFromPg(sql, tenantId) {
   // reconstructs to byte-identical arrays. This is what lets the J6 admin overlay
   // gate per job on an order-sensitive hash and still guarantee Blob-identical
   // output. (The J5 parity proof hashes order-independently, so it is unaffected.)
-  const jobs = await sql`
+  // The six structure queries are INDEPENDENT (each selects a different table by
+  // tenant_id; no JS-level dependency between them). Run them concurrently —
+  // postgres.js pipelines them over the single pooled connection, collapsing six
+  // stacked Vercel→Supabase round-trips (the dominant cost of this dark overlay)
+  // into ~one. Same queries, same ORDER BY ⇒ byte-identical reconstruction — a
+  // pure latency cut, no change to what the overlay produces.
+  const [jobs, groups, areas, templates, tasks, evidence] = await Promise.all([
+    sql`
     select legacy_id, name, status, ref, job_type_label, external_ref, site_address,
            site_contact_name, site_contact_phone, access_notes, parking_notes, safety_notes,
            induction_required, start_date::text as start_date, due_date::text as due_date,
            programmed_duration_days, created_at::text as created_at
     from public.jobs where tenant_id = ${tenantId} and legacy_id is not null and deleted_at is null
-    order by legacy_id`;
-  const groups = await sql`
+    order by legacy_id`,
+    sql`
     select g.legacy_id, jb.legacy_id as job_legacy, g.name, g.sort_order, (g.deleted_at is not null) as archived
     from public.site_area_groups g join public.jobs jb on jb.id = g.job_id
     where g.tenant_id = ${tenantId} and g.legacy_id is not null
-    order by g.sort_order, g.legacy_id`;
-  const areas = await sql`
+    order by g.sort_order, g.legacy_id`,
+    sql`
     select a.legacy_id, jb.legacy_id as job_legacy, gp.legacy_id as group_legacy, a.name, a.space_type,
            a.sort_order, (a.deleted_at is not null) as archived
     from public.site_areas a join public.jobs jb on jb.id = a.job_id
     left join public.site_area_groups gp on gp.id = a.group_id
     where a.tenant_id = ${tenantId} and a.legacy_id is not null
-    order by a.sort_order, a.legacy_id`;
-  const templates = await sql`
+    order by a.sort_order, a.legacy_id`,
+    sql`
     select t.legacy_id, jb.legacy_id as job_legacy, ar.legacy_id as area_legacy, t.stage, t.name,
            t.sort_order, (t.deleted_at is not null) as archived
     from public.job_task_templates t join public.jobs jb on jb.id = t.job_id
     left join public.site_areas ar on ar.id = t.site_area_id
     where t.tenant_id = ${tenantId} and t.legacy_id is not null
-    order by t.sort_order, t.legacy_id`;
-  const tasks = await sql`
+    order by t.sort_order, t.legacy_id`,
+    sql`
     select jb.legacy_id as job_legacy, ar.legacy_id as area_legacy, t.stage, t.legacy_template_id, t.status
     from public.tasks t join public.jobs jb on jb.id = t.job_id
     join public.site_areas ar on ar.id = t.site_area_id
     where t.tenant_id = ${tenantId} and t.legacy_template_id is not null and t.deleted_at is null
-    order by t.legacy_template_id, ar.legacy_id, jb.legacy_id`;
-  const evidence = await sql`
+    order by t.legacy_template_id, ar.legacy_id, jb.legacy_id`,
+    sql`
     select ef.legacy_id, jb.legacy_id as job_legacy, ar.legacy_id as area_legacy,
            tk.legacy_template_id as task_legacy_template_id, ef.kind, ef.photo_blob_id, ef.blob_url,
            ef.thumbnail_url, ef.note, ef.stage, cu.legacy_user_id as captured_by_legacy, ef.captured_by_label,
@@ -184,7 +191,8 @@ async function loadJobStructureFromPg(sql, tenantId) {
     left join public.user_profiles cu on cu.id = ef.captured_by
     left join public.user_profiles ru on ru.id = ef.reviewed_by
     where ef.tenant_id = ${tenantId} and ef.legacy_id is not null and ef.deleted_at is null
-    order by ef.created_at, ef.legacy_id`;
+    order by ef.created_at, ef.legacy_id`,
+  ]);
 
   return reconstructFromPg({
     jobs: [...jobs], groups: [...groups], areas: [...areas],

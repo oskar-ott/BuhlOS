@@ -189,3 +189,30 @@ describe("GET /api/audit-log?scope=job (PR 9 per-job feed)", () => {
     ).toEqual(["a3"]);
   });
 });
+
+describe("GET /api/audit-log?scope=all (#220 cross-job feed)", () => {
+  it("admin tier sees every job's entries, newest-first", async () => {
+    const res = await call({ role: "boss", userId: "u_boss", query: { scope: "all", months: "12" } });
+    expect(res.statusCode).toBe(200);
+    const ids = (res.body as { entries: { id: string }[] }).entries.map((e) => e.id);
+    expect(ids).toEqual(["a3", "a2", "a1", "a4"]); // a4 (job-2) included; newest-first
+  });
+
+  it("403s a leading hand and a field worker (admin-only cross-job tool)", async () => {
+    expect((await call({ role: "leadingHand", userId: "u_lh", query: { scope: "all" } })).statusCode).toBe(403);
+    expect((await call({ role: "electrician", userId: "u_field", query: { scope: "all" } })).statusCode).toBe(403);
+  });
+
+  it("401s an unauthenticated request", async () => {
+    expect((await call({ role: "boss", anon: true, query: { scope: "all" } })).statusCode).toBe(401);
+  });
+
+  it("filters by job, type, and actor", async () => {
+    const byJob = await call({ role: "boss", userId: "u_boss", query: { scope: "all", months: "12", jobId: "job-2" } });
+    expect((byJob.body as { entries: { id: string }[] }).entries.map((e) => e.id)).toEqual(["a4"]);
+    const byType = await call({ role: "boss", userId: "u_boss", query: { scope: "all", months: "12", types: "snag" } });
+    expect((byType.body as { entries: { id: string }[] }).entries.map((e) => e.id)).toEqual(["a2"]);
+    const byActor = await call({ role: "boss", userId: "u_boss", query: { scope: "all", months: "12", actorId: "u_boss" } });
+    expect((byActor.body as { entries: { id: string }[] }).entries.map((e) => e.id)).toEqual(["a3"]);
+  });
+});

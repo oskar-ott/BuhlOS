@@ -380,4 +380,25 @@ describe("buildPhilPreview", () => {
     expect(JSON.stringify(preview)).not.toContain("Commercial scope text");
     expect(preview).not.toHaveProperty("scopeOfWork");
   });
+
+  it("never carries client/contract commercial fields into the field preview (#228)", () => {
+    const job = makeJob({
+      id: "j",
+      name: "J",
+      status: "active",
+      clientReference: "PO-SECRET-123",
+      contractValue: 250000,
+      contractNotes: "Confidential payment terms",
+    });
+    const preview = buildPhilPreview(job);
+    // buildPhilPreview picks fields explicitly, so commercial context is
+    // structurally absent — assert both the keys and the values are gone.
+    const serialised = JSON.stringify(preview);
+    expect(serialised).not.toContain("PO-SECRET-123");
+    expect(serialised).not.toContain("Confidential payment terms");
+    expect(serialised).not.toContain("250000");
+    expect(preview).not.toHaveProperty("clientReference");
+    expect(preview).not.toHaveProperty("contractValue");
+    expect(preview).not.toHaveProperty("contractNotes");
+  });
 });

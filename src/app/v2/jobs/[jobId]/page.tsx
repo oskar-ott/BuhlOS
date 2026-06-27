@@ -14,6 +14,7 @@ import { JobFieldViewCard } from "@/components/admin/JobFieldViewCard";
 import { JobInductionCard } from "@/components/admin/JobInductionCard";
 import { JobReadinessPanel } from "@/components/admin/JobReadinessPanel";
 import { JobScopeCard } from "@/components/admin/JobScopeCard";
+import { ClientContractCard } from "@/components/admin/ClientContractCard";
 import {
   JobInductionsResponseSchema,
   type CrewInductionStatus,
@@ -21,6 +22,9 @@ import {
 import { computeReadiness, type ReadinessResult } from "@/domains/jobs/readiness";
 import { ReadinessSignalsResponseSchema, signalsFrom } from "@/domains/jobs/readiness-client";
 import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
+import { JobProfitabilitySummary } from "@/components/admin/JobProfitabilitySummary";
+import { JobBudgetVarianceCard } from "@/components/admin/JobBudgetVarianceCard";
+import { JobCloseoutCard } from "@/components/admin/JobCloseoutCard";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
 import { JobRecentActivity } from "@/components/admin/JobRecentActivity";
@@ -210,11 +214,25 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
             carry the field (server redaction), so this renders for the
             admin/LH viewers who can see this page with data present. */}
         <JobScopeCard job={job} />
+        {/* #228: client + contract commercial summary — admin-tier ONLY (the
+            fields are adminTier in job-redaction.js, so an LH viewer's payload
+            has no data; gate the card too so we don't show an empty shell). */}
+        {canBuild ? <ClientContractCard job={job} /> : null}
         <JobBuildCard job={job} canBuild={canBuild} />
         <JobFieldViewCard job={job} />
         {/* Operational loop — what's actually happening on the job, derived
             from real time-entry / evidence / audit-log data (read-only). */}
         <JobLabourSummary entries={data.hours.entries} jobId={job.id} fetchError={data.hours.error} />
+        {/* #327: per-job profitability (cost-rate based). Client-fetched so the
+            expensive approved-hours walk never blocks the hub render; admin-tier
+            only (hidden for an LH/non-admin viewer). */}
+        <JobProfitabilitySummary jobId={job.id} />
+        {/* #341: budget vs actual (labour/materials/total) — $-vs-budget view,
+            complements the Labour card's pending-approval framing. */}
+        <JobBudgetVarianceCard jobId={job.id} />
+        {/* #349: closeout / "Final numbers" report card — freeze the job's final
+            numbers at end-of-life; admin-tier only (hidden for an LH viewer). */}
+        <JobCloseoutCard jobId={job.id} />
         <JobEvidenceSummary
           evidence={data.evidence.evidence}
           jobId={job.id}

@@ -99,7 +99,12 @@ module.exports = async (req, res) => {
     const data = await readBlob('users.json', { users: [] });
     const users = (data.users || [])
       .filter(u => (isFieldRole(u.role) || isLeadingHandRole(u.role)) && !isDisabledUser(u))
-      .map(({ passwordHash, ...u }) => u);
+      // #304: this is the ONLY non-admin-accessible user fetch (leading hands AND
+      // field workers call it for the gear/assignment picker). It must NOT leak
+      // pay: strip the legacy users.json `hourlyRate` alongside passwordHash. The
+      // confidential loaded-cost rate lives in workforce/cost-rates.json (admin
+      // only, api/cost-rates.js) and is never returned here.
+      .map(({ passwordHash, hourlyRate, ...u }) => u);
     return res.status(200).json({ users });
   }
 

@@ -100,7 +100,7 @@ function ReconBadge({ recon }: { recon: BoqRecon }) {
   );
 }
 
-function PreviewBody({
+export function PreviewBody({
   preview,
   fileName,
 }: {

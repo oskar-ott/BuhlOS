@@ -163,8 +163,11 @@ describe("AuditLogEntrySchema", () => {
       "itp.reopened",
       "itp.signed_off",
       "itp.submitted",
-      // #581: Job Builder + won-quote job creation.
+      // #349 closeout lifecycle + #581 Job Builder/won-quote creation.
+      "job.closed",
       "job.created",
+      "job.reopened",
+      "job.tasks_generated",
       // #127/#333 leave lifecycle.
       "leave.cancelled",
       "leave.decided",

@@ -110,6 +110,15 @@ export default async function CommandCentrePage() {
     redirect("/v2/login");
   }
 
+  // #503 — Proof to sign off (mobile-admin redesign, flagged admin-tier). When
+  // on, the cross-job submitted-proof queue is scanned server-side and shown as
+  // a Command Centre surface; dark (zero render, zero scan) when off. Kicked off
+  // BEFORE the snapshot await so the scan overlaps the other fetches.
+  const showProofReview = await isFlagEnabled("admin_proof_review", session);
+  const proofPromise = showProofReview
+    ? runProofQueue(blobProofQueueDeps())
+    : Promise.resolve(null);
+
   const {
     hoursPending,
     hoursRejected,
@@ -119,6 +128,7 @@ export default async function CommandCentrePage() {
     materialRequests,
     todayPulse,
     expensesSubmitted,
+    expensesError,
     displayName,
     hoursError,
     hoursRejectedError,
@@ -157,15 +167,14 @@ export default async function CommandCentrePage() {
   // the flags.json override turns it on, and never rendered to non-admin
   // tiers even then. The first consumer of the flag system is the flag
   // system's own ops surface.
-  // #503 — Proof to sign off (mobile-admin redesign, flagged admin-tier). When
-  // on, the cross-job submitted-proof queue is scanned server-side and shown as
-  // a Command Centre surface; dark (zero render, zero scan) when off.
-  const showProofReview = await isFlagEnabled("admin_proof_review", session);
-  let proofItems: ProofQueueItem[] = [];
-  if (showProofReview) {
-    const res = await runProofQueue(blobProofQueueDeps());
-    proofItems = res.ok ? res.items : [];
-  }
+  // Resolve the proof scan kicked off above. Surface BOTH failure signals
+  // honestly (P7): a total failure (ok:false) → an error card; a partial
+  // failure (failedJobs) → a "couldn't read N jobs" notice — never a false
+  // all-clear or an undercount presented as the total.
+  const proofRes = await proofPromise;
+  const proofItems: ProofQueueItem[] = proofRes && proofRes.ok ? proofRes.items : [];
+  const proofError: string | null = proofRes && !proofRes.ok ? proofRes.error : null;
+  const proofFailedJobs: number = proofRes && proofRes.ok ? proofRes.failedJobs.length : 0;
 
   const showFlagsReadout = await isFlagEnabled("admin_flags_readout", session);
   const flagStates = showFlagsReadout
@@ -268,6 +277,11 @@ export default async function CommandCentrePage() {
       jobsError ||
       observationsError ||
       materialRequestsError);
+  // The mobile home also reads expenses (the "to approve" count) — fold its
+  // error in so a failed expenses fetch shows the mobile "couldn't load every
+  // queue" card and blocks all-clear (no fabricated 0). Desktop is unchanged
+  // (it has no expenses queue card, so its anySourceError stays as-is).
+  const mobileAnySourceError = anySourceError || !!expensesError;
 
   // Mobile "Today" — a simpler projection of the SAME data for the < md home.
   // Greeting: the cookie carries no name, so it's resolved from /api/auth?action=me
@@ -297,8 +311,10 @@ export default async function CommandCentrePage() {
     itpReview.count === 0 &&
     materialRequestCount === 0 &&
     proofItems.length === 0 &&
+    !proofError &&
+    proofFailedJobs === 0 &&
     hoursPending.length === 0 &&
-    !anySourceError &&
+    !mobileAnySourceError &&
     !todayPulseError;
 
   return (
@@ -311,12 +327,34 @@ export default async function CommandCentrePage() {
           <h2 className="font-display text-sm uppercase tracking-wider text-text-muted">
             Proof to sign off
           </h2>
-          <p className="mb-3 mt-1 text-sm text-text-muted">
-            {proofItems.length > 0
-              ? `${proofItems.length} task${proofItems.length === 1 ? "" : "s"} with site photos waiting on you.`
-              : "Site photos a worker captured against required evidence land here for sign-off."}
-          </p>
-          <ProofReviewQueue initialItems={proofItems} />
+          {proofError ? (
+            // Total scan failure — never render a degraded read as "Queue clear".
+            <Card className="mt-2 border-amber-200 bg-amber-50" role="alert">
+              <CardTitle>Couldn&rsquo;t load proof to sign off</CardTitle>
+              <CardDescription className="text-amber-900">{proofError}.</CardDescription>
+              <div className="mt-3">
+                <RefreshButton />
+              </div>
+            </Card>
+          ) : (
+            <>
+              <p className="mb-3 mt-1 text-sm text-text-muted">
+                {proofItems.length > 0
+                  ? `${proofItems.length} task${proofItems.length === 1 ? "" : "s"} with site photos waiting on you.`
+                  : "Site photos a worker captured against required evidence land here for sign-off."}
+                {proofFailedJobs > 0
+                  ? ` ${proofFailedJobs} job${proofFailedJobs === 1 ? "" : "s"}’ proof couldn’t be read and ${proofFailedJobs === 1 ? "isn’t" : "aren’t"} counted.`
+                  : ""}
+              </p>
+              {/* Key on the review ids + revisions so a router.refresh() after a
+                  stale-revision conflict remounts the client with the fresh list
+                  + revisions (the client list is seeded from initialItems). */}
+              <ProofReviewQueue
+                key={proofItems.map((i) => `${i.reviewId}:${i.jobControlRevision}`).join(",") || "empty"}
+                initialItems={proofItems}
+              />
+            </>
+          )}
         </section>
       ) : null}
       {/* Mobile home — the calm single-screen "what needs me first?". Desktop
@@ -327,17 +365,18 @@ export default async function CommandCentrePage() {
           dateLabel={dateLabel}
           todayStrip={todayStrip}
           todayPulseError={todayPulseError}
-          jobsActive={todayPulse ? todayPulse.jobs.activeJobs : null}
+          jobsWithActivityToday={todayPulse ? todayPulse.jobs.jobsWithActivityToday : null}
           pendingHours={hoursPending.length}
           approvals={mobileApprovals}
           exceptions={exceptions}
-          anySourceError={anySourceError}
+          anySourceError={mobileAnySourceError}
           errorMessage={
             hoursError ??
             hoursRejectedError ??
             jobsError ??
             observationsError ??
-            materialRequestsError
+            materialRequestsError ??
+            expensesError
           }
           allClear={mobileAllClear}
         />
@@ -696,6 +735,8 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
   todayPulse: TodayPulseResponse | null;
   /** Submitted expense claims awaiting review — the count for the mobile pulse. */
   expensesSubmitted: number;
+  /** Non-null when the expenses fetch failed (so the mobile home degrades honestly). */
+  expensesError: string | null;
   /** The admin's display name (cookie has none) — for the mobile greeting. */
   displayName: string | null;
   hoursError: string | null;
@@ -759,6 +800,7 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     materialRequests: mrResult.requests,
     todayPulse: todayPulseResult.pulse,
     expensesSubmitted: expensesResult.count,
+    expensesError: expensesResult.error,
     displayName,
     hoursError: hoursResult.error,
     hoursRejectedError: hoursRejectedResult.error,
@@ -949,7 +991,11 @@ async function loadJobsWithStats(
   headersInit: { cookie: string } | undefined
 ): Promise<{ jobs: ReadonlyArray<Job>; error: string | null }> {
   try {
-    const res = await fetch(`${base}/api/jobs?withStats=1`, {
+    // Perf: the Command Centre aggregates only per-job COUNT stats (crew /
+    // evidence-pending / snags-active / ITPs-needs-review) — never task counts —
+    // so `statsOnly=1` serves them from the small jobs-summary + per-job stat
+    // reads, skipping the ~8s jobs.json monolith. Same counts, no staleness.
+    const res = await fetch(`${base}/api/jobs?withStats=1&statsOnly=1`, {
       cache: "no-store",
       headers: headersInit,
     });

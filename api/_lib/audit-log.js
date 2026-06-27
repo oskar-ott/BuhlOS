@@ -171,6 +171,15 @@ const VALID_ACTIONS = new Set([
   // sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'job.created',
   'quote.converted',
+  // #349: job closeout lifecycle — job.closed freezes the final-numbers snapshot
+  // (active/archived → complete); job.reopened reverses it (complete → active) so
+  // the numbers can be corrected and closed out again. Prior snapshots are kept.
+  'job.closed',
+  'job.reopened',
+  // #224: rule-based task generation — the builder's "Generate tasks" filled
+  // matching areas from the task-rules set. targetType 'job'. Kept in sync with
+  // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'job.tasks_generated',
   // #219: safety documents (api/safety-docs.js). Kept in sync with
   // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'safety_doc.uploaded',

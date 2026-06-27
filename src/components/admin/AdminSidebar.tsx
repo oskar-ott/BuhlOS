@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
-import { Bell } from "lucide-react";
+import { Bell, ListChecks } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { SignOutButton } from "./SignOutButton";
 // #215 — NAV is extracted so the sidebar and the ⌘K palette render the same
@@ -63,16 +63,30 @@ export function AdminSidebar() {
             notification-prefs page only; #222 grows /settings into a hub. */}
         <Link
           href={"/settings/notifications" as Route}
-          aria-current={pathname.startsWith("/settings") ? "page" : undefined}
+          aria-current={pathname.startsWith("/settings/notifications") ? "page" : undefined}
           className={cn(
             "flex w-full items-center gap-3 rounded-card px-3 py-2 text-sm transition-colors",
-            pathname.startsWith("/settings")
+            pathname.startsWith("/settings/notifications")
               ? "bg-accent-ink font-semibold text-text-inverse"
               : "text-slate-300 hover:bg-accent-ink hover:text-text-inverse",
           )}
         >
           <Bell aria-hidden="true" className="h-4 w-4" />
           <span className="flex-1 truncate">Notification settings</span>
+        </Link>
+        {/* #224: rule-based task generation lives under settings too. */}
+        <Link
+          href={"/settings/task-rules" as Route}
+          aria-current={pathname.startsWith("/settings/task-rules") ? "page" : undefined}
+          className={cn(
+            "flex w-full items-center gap-3 rounded-card px-3 py-2 text-sm transition-colors",
+            pathname.startsWith("/settings/task-rules")
+              ? "bg-accent-ink font-semibold text-text-inverse"
+              : "text-slate-300 hover:bg-accent-ink hover:text-text-inverse",
+          )}
+        >
+          <ListChecks aria-hidden="true" className="h-4 w-4" />
+          <span className="flex-1 truncate">Task generation rules</span>
         </Link>
         <SignOutButton />
       </div>

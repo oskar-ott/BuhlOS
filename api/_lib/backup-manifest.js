@@ -35,9 +35,11 @@ const EXACT_STORES = [
   'flags.json', // feature-flag runtime overrides (#155)
   'structure-presets.json', // reusable area-group presets (#192)
   'job-blueprints.json', // reusable whole-job shapes (#191)
+  'task-rules.json', // rule-based task-generation rules (#224)
   'tag-reminder-state.json', // tag/calibration alert dedupe state (#305)
   'leave-requests.json', // workforce leave request/approval store (#333)
   'workforce/credentials.json', // worker licence/ticket register (#331)
+  'workforce/cost-rates.json', // confidential worker cost-rate store (#304)
   'licence-reminder-state.json', // licence alert dedupe state (#331)
   'temps/assets.json',
   'temps/movements.json',

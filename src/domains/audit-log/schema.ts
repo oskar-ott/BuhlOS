@@ -154,6 +154,11 @@ export const AUDIT_ACTIONS = [
   // conversion. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
   "job.created",
   "quote.converted",
+  // #349: job closeout lifecycle (closed freezes the snapshot; reopened reverses).
+  "job.closed",
+  "job.reopened",
+  // #224: rule-based task generation ("Generate tasks" in the builder).
+  "job.tasks_generated",
   // #219: safety documents (api/safety-docs.js). safety_doc.uploaded on an admin
   // upload (incl. a new version); safety_doc.acknowledged when a worker taps
   // "I've read this". targetType 'safety_doc'. Kept in sync with

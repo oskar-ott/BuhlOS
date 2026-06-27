@@ -82,6 +82,11 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   // #581: job-creating actions (targetType 'job'/'quote' group as Other).
   "job.created": "Created job",
   "quote.converted": "Converted quote to job",
+  // #349: job closeout lifecycle.
+  "job.closed": "Closed out job",
+  "job.reopened": "Re-opened job",
+  // #224: rule-based task generation.
+  "job.tasks_generated": "Generated tasks",
   // #219: safety documents.
   "safety_doc.uploaded": "Uploaded a safety document",
   "safety_doc.acknowledged": "Acknowledged a safety document",

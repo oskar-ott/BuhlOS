@@ -174,3 +174,31 @@ describe("JobsList — remembered default (storage mocked)", () => {
     );
   });
 });
+
+describe("JobsList — health indicators + filter/sort (#227)", () => {
+  const HEALTH_JOBS: ReadonlyArray<Job> = [
+    job({ id: "h_good", name: "Healthy Job", status: "active", statsSnagsV2Active: 0, statsEvidenceV2Pending: 0, statsItpsNeedsReview: 0, statsExpiredTags: 0 }),
+    job({ id: "h_risk", name: "Risky Job", status: "active", statsExpiredTags: 2 }),
+    job({ id: "h_watch", name: "Watchful Job", status: "active", statsSnagsV2Active: 1 }),
+  ];
+
+  it("renders a per-row health badge incl. an At-risk pill and an On-track pill", () => {
+    const html = render("", HEALTH_JOBS);
+    expect(html).toContain("At risk");
+    expect(html).toContain("On track");
+    expect(html).toContain("Watch");
+  });
+
+  it("sorts trouble first — needs-me-first triage", () => {
+    const html = render("", HEALTH_JOBS);
+    expect(html.indexOf("Risky Job")).toBeLessThan(html.indexOf("Watchful Job"));
+    expect(html.indexOf("Watchful Job")).toBeLessThan(html.indexOf("Healthy Job"));
+  });
+
+  it("?health=at-risk narrows to at-risk jobs", () => {
+    const html = render("?health=at-risk", HEALTH_JOBS);
+    expect(html).toContain("Risky Job");
+    expect(html).not.toContain("Healthy Job");
+    expect(html).not.toContain("Watchful Job");
+  });
+});

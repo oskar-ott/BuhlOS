@@ -121,6 +121,9 @@ beforeEach(() => {
             claimedToDate: 50000,
             paidToDate: 45000,
             oldestClaimDays: 12,
+            // #228: client + contract commercial context (admin-tier only).
+            clientReference: "PO-7788",
+            contractNotes: "Net 30. Excludes after-hours work.",
             scopeOfWork: [
               { id: "sw_1", title: "Supply and install DB-1", detail: "Incl. testing", order: 0 },
             ],
@@ -199,6 +202,25 @@ describe("GET /api/jobs field visibility", () => {
       });
       expect(res.statusCode).toBe(404);
     }
+  });
+
+  it("a closed-out (complete) job is field-invisible but admin-visible (#349)", async () => {
+    // Close out the assigned active job.
+    (blob.get("jobs.json") as { jobs: Array<{ id: string; status: string }> }).jobs
+      .find((j) => j.id === "job-active")!.status = "complete";
+
+    // Field worker: not in their list, and a direct GET 404s (office-only, like archived).
+    const list = await call({ method: "GET", userId: "u_field", role: "electrician" });
+    expect((list.body as { jobs: Array<{ id: string }> }).jobs.map((j) => j.id)).not.toContain("job-active");
+    const fieldGet = await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active" } });
+    expect(fieldGet.statusCode).toBe(404);
+
+    // Admin: still sees it (with the Complete status) so it stays on admin lists.
+    const adminGet = await call({ method: "GET", userId: "u_admin", role: "admin", query: { id: "job-active" } });
+    expect(adminGet.statusCode).toBe(200);
+    expect((adminGet.body as { job: { status: string } }).job.status).toBe("complete");
+    const adminList = await call({ method: "GET", userId: "u_admin", role: "admin" });
+    expect((adminList.body as { jobs: Array<{ id: string }> }).jobs.map((j) => j.id)).toContain("job-active");
   });
 });
 
@@ -304,6 +326,85 @@ describe("money-field redaction (#382)", () => {
         oldestClaimDays: 12,
       });
     }
+  });
+});
+
+describe("client + contract fields (#228)", () => {
+  const COMMERCIAL = ["clientReference", "contractNotes"] as const;
+
+  it.each([
+    ["electrician (field)", "u_field", "electrician"],
+    ["leading hand", "u_lh", "lh"],
+    ["client (own job)", "u_client", "client"],
+  ])("%s sees NO client/contract fields on single, list or withStats", async (_label, userId, role) => {
+    const single = await call({ method: "GET", userId, role, query: { id: "job-active" } });
+    expect(single.statusCode).toBe(200);
+    const job = (single.body as { job: Record<string, unknown> }).job;
+    for (const f of COMMERCIAL) expect(job, f).not.toHaveProperty(f);
+
+    const list = await call({ method: "GET", userId, role });
+    for (const row of (list.body as { jobs: Record<string, unknown>[] }).jobs) {
+      for (const f of COMMERCIAL) expect(row, f).not.toHaveProperty(f);
+    }
+    const stats = await call({ method: "GET", userId, role, query: { withStats: "1" } });
+    for (const row of (stats.body as { jobs: Record<string, unknown>[] }).jobs) {
+      for (const f of COMMERCIAL) expect(row, f).not.toHaveProperty(f);
+    }
+  });
+
+  it("admin tier sees the client/contract values untouched", async () => {
+    const single = await call({ method: "GET", userId: "u_admin", role: "admin", query: { id: "job-active" } });
+    expect((single.body as { job: Record<string, unknown> }).job).toMatchObject({
+      clientReference: "PO-7788",
+      contractNotes: "Net 30. Excludes after-hours work.",
+    });
+  });
+
+  it("a leading hand cannot WRITE client/contract fields (403, no change)", async () => {
+    const put = await call({
+      method: "PUT",
+      userId: "u_lh",
+      role: "lh",
+      body: { id: "job-active", clientReference: "SNEAKY" },
+    });
+    expect(put.statusCode).toBe(403);
+    const stored = (blob.get("jobs.json") as { jobs: Array<{ id: string; clientReference?: string }> })
+      .jobs.find((j) => j.id === "job-active")!;
+    expect(stored.clientReference).toBe("PO-7788"); // unchanged
+  });
+
+  it("admin PUT updates the fields; blank/null clears them", async () => {
+    const put = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: {
+        id: "job-active",
+        clientReference: "  CON-99  ",
+        contractValue: 250000,
+        contractNotes: "Line one\nLine two",
+      },
+    });
+    expect(put.statusCode).toBe(200);
+    let stored = (blob.get("jobs.json") as {
+      jobs: Array<{ id: string; clientReference?: string; contractValue?: number; contractNotes?: string }>;
+    }).jobs.find((j) => j.id === "job-active")!;
+    expect(stored.clientReference).toBe("CON-99"); // trimmed
+    expect(stored.contractValue).toBe(250000);
+    expect(stored.contractNotes).toBe("Line one\nLine two"); // newlines preserved
+
+    const clear = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "job-active", clientReference: null, contractNotes: "" },
+    });
+    expect(clear.statusCode).toBe(200);
+    stored = (blob.get("jobs.json") as {
+      jobs: Array<{ id: string; clientReference?: string; contractNotes?: string }>;
+    }).jobs.find((j) => j.id === "job-active")!;
+    expect(stored).not.toHaveProperty("clientReference"); // cleared
+    expect(stored).not.toHaveProperty("contractNotes"); // cleared
   });
 });
 
@@ -1300,5 +1401,71 @@ describe("GET /api/jobs?id=… job-detail projection (perf, flag-gated)", () => 
     await handler({ method: "GET", query: { id: "job-active" }, headers: {} }, res);
     expect(res.statusCode).toBe(401);
     expect(res.body).not.toHaveProperty("job");
+  });
+});
+
+// Admin Command-Centre fast stats: ?withStats=1&statsOnly=1 serves the per-job
+// COUNT stats (crew/evidence/snags/itps-needs-review) from the jobs-summary base +
+// the same per-job enrichment, SKIPPING the jobs.json monolith. The areaGroups-
+// derived task stats are stripped (no structure on summary records → never a
+// fabricated 0). Counts are parity-identical to the full withStats read.
+describe("GET /api/jobs?withStats=1&statsOnly=1 — admin Command Centre fast stats", () => {
+  const rows = (r: { body: unknown }) => (r.body as { jobs: Record<string, unknown>[] }).jobs;
+  beforeEach(() => {
+    blob.set("jobs/job-active/data.json", {
+      snagsV2: [{ status: "open" }, { status: "closed" }], // 1 active
+      evidence: [{ status: "submitted" }, { status: "approved" }], // 1 pending
+    });
+    blob.set("jobs/job-active/itps.json", {
+      instances: [{ status: "witnessed" }, { status: "completed" }], // 1 needs-review
+    });
+  });
+  afterEach(() => {
+    delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
+  });
+
+  it("PARITY: statsOnly counts == full withStats for the Command-Centre stats (admin)", async () => {
+    delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
+    const full = rows(await call({ method: "GET", userId: "u_admin", role: "admin", query: { withStats: "1" } }))
+      .find((j) => j.id === "job-active")!;
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const lite = rows(await call({ method: "GET", userId: "u_admin", role: "admin", query: { withStats: "1", statsOnly: "1" } }))
+      .find((j) => j.id === "job-active")!;
+    const pick = (j: Record<string, unknown>) => ({
+      crew: j.statsCrewCount,
+      evidence: j.statsEvidenceV2Pending,
+      snags: j.statsSnagsV2Active,
+      itpsReview: j.statsItpsNeedsReview,
+    });
+    expect(pick(lite)).toEqual(pick(full)); // same per-job counts, no monolith
+    expect(lite.statsSnagsV2Active).toBe(1);
+    expect(lite.statsEvidenceV2Pending).toBe(1);
+    expect(lite.statsItpsNeedsReview).toBe(1);
+  });
+
+  it("STRIPS the areaGroups-derived task stats (never a fabricated task count)", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const lite = rows(await call({ method: "GET", userId: "u_admin", role: "admin", query: { withStats: "1", statsOnly: "1" } }))
+      .find((j) => j.id === "job-active")!;
+    for (const k of ["statsTasksTotal", "statsTasksComplete", "statsPct", "statsAreaCount", "areaGroups"]) {
+      expect(lite).not.toHaveProperty(k);
+    }
+  });
+
+  it("ADMIN-tier path: an admin statsOnly list returns the count stats (200, no 500)", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const res = await call({ method: "GET", userId: "u_admin", role: "admin", query: { withStats: "1", statsOnly: "1" } });
+    expect(res.statusCode).toBe(200);
+    const active = rows(res).find((j) => j.id === "job-active");
+    expect(active).toBeDefined();
+    expect(active).toHaveProperty("statsItpsNeedsReview");
+  });
+
+  it("401: statsOnly leaks nothing when unauthenticated", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const res = createRes();
+    await handler({ method: "GET", query: { withStats: "1", statsOnly: "1" }, headers: {} }, res);
+    expect(res.statusCode).toBe(401);
+    expect(res.body).not.toHaveProperty("jobs");
   });
 });

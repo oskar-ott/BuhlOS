@@ -280,7 +280,7 @@ export function DefectsRegister({ snags, jobs }: Props) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 text-sm text-text-muted">
+          <label className="flex w-full items-center gap-2 text-sm text-text-muted sm:w-auto">
             <span className="sr-only sm:not-sr-only">Job</span>
             <select
               aria-label="Filter defects by job"
@@ -288,7 +288,7 @@ export function DefectsRegister({ snags, jobs }: Props) {
               onChange={(e) =>
                 writeFilters({ ...filters, jobId: e.target.value === "" ? null : e.target.value })
               }
-              className="max-w-[220px] rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-navy"
+              className="w-full min-w-0 rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-navy sm:w-auto sm:max-w-[220px]"
             >
               <option value="">All jobs</option>
               {[...jobs]
@@ -300,7 +300,7 @@ export function DefectsRegister({ snags, jobs }: Props) {
                 ))}
             </select>
           </label>
-          <label className="flex items-center gap-2 text-sm text-text-muted">
+          <label className="flex w-full items-center gap-2 text-sm text-text-muted sm:w-auto">
             <span className="sr-only sm:not-sr-only">Priority</span>
             <select
               aria-label="Filter defects by priority"
@@ -311,7 +311,7 @@ export function DefectsRegister({ snags, jobs }: Props) {
                   priority: e.target.value === "" ? null : (e.target.value as SnagPriority),
                 })
               }
-              className="rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-navy"
+              className="w-full min-w-0 rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-navy sm:w-auto"
             >
               <option value="">All priorities</option>
               {SNAG_PRIORITIES.map((p) => (
