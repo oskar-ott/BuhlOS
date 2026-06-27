@@ -52,6 +52,7 @@ const LIMITS = {
   maxSectionTitle: 80,
   maxLineDescription: 200,
   maxUnit: 20,
+  maxCategory: 60,
   maxQty: 1_000_000,
   maxRate: 1_000_000,
   maxId: 40,
@@ -178,14 +179,38 @@ function validateSave(body) {
       // Negative rate within range is a discount line — allowed.
       const rate = validNumber(l.rate, `${at}.rate`, { min: -LIMITS.maxRate, max: LIMITS.maxRate });
       if (rate.error) return { ok: false, error: rate.error };
-      lines.push({
+      const line = {
         id: normaliseId(l.id, 'qline'),
         kind: l.kind,
         description: description.value,
         qty: qty.value,
         unit: unit.value,
         rate: rate.value,
-      });
+      };
+      // #214/#193 — optional INTERNAL cost fields. Persisted on the document but
+      // stripped from the client by the sell-side projection (#186). Present →
+      // validated (hard 400, never silent); absent → omitted (line stays uncosted).
+      if (l.unitCost !== undefined && l.unitCost !== null) {
+        const unitCost = validNumber(l.unitCost, `${at}.unitCost`, { min: -LIMITS.maxRate, max: LIMITS.maxRate });
+        if (unitCost.error) return { ok: false, error: unitCost.error };
+        line.unitCost = unitCost.value;
+      }
+      if (l.category !== undefined && l.category !== null) {
+        const category = validString(l.category, `${at}.category`, { max: LIMITS.maxCategory });
+        if (category.error) return { ok: false, error: category.error };
+        if (category.value) line.category = category.value;
+      }
+      if (l.ratePresetId !== undefined && l.ratePresetId !== null) {
+        const rp = validString(l.ratePresetId, `${at}.ratePresetId`, { max: LIMITS.maxId });
+        if (rp.error) return { ok: false, error: rp.error };
+        if (rp.value) line.ratePresetId = rp.value;
+      }
+      if (l.ratePresetName !== undefined && l.ratePresetName !== null) {
+        const rpn = validString(l.ratePresetName, `${at}.ratePresetName`, { max: LIMITS.maxName });
+        if (rpn.error) return { ok: false, error: rpn.error };
+        if (rpn.value) line.ratePresetName = rpn.value;
+      }
+      lines.push(line);
     }
 
     sections.push({ id: normaliseId(raw.id, 'qsec'), title: title.value, sortOrder: i, lines });

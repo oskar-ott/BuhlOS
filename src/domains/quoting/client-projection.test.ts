@@ -88,6 +88,11 @@ describe("projectQuoteToClientView", () => {
               markupPct: 108,
               effectiveMargin: 52,
               flag: "low",
+              // #214/#193 internal cost fields riding along via passthrough.
+              unitCost: 12,
+              category: "Cable",
+              ratePresetId: "qrp_x",
+              ratePresetName: "Spark",
             },
           ],
         },
@@ -97,6 +102,11 @@ describe("projectQuoteToClientView", () => {
     const keys = keysDeep(view);
     const leaked = QUOTE_MARGIN_INTERNAL_ONLY_KEYS.filter((k) => keys.has(k));
     expect(leaked).toEqual([]);
+    // #214/#193 cost fields ride along via passthrough — they must NOT leak either
+    // (the projection is a sell-side allowlist, so cost/category/preset are dropped).
+    for (const internalCostKey of ["unitCost", "category", "ratePresetId", "ratePresetName"]) {
+      expect(keys.has(internalCostKey)).toBe(false);
+    }
     // and the benign internal `kind`/`id` are dropped from the client line too.
     expect(keys.has("kind")).toBe(false);
     expect(keys.has("id")).toBe(false);

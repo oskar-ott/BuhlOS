@@ -110,23 +110,36 @@ describe("QuoteBuilderClient (#183) — render contract", () => {
     expect(html).toContain("$0.00");
   });
 
-  it("keeps out-of-scope capabilities dark — no stubs for the sibling issues", () => {
+  it("keeps still-out-of-scope capabilities dark — no stubs for the sibling issues", () => {
     const html = render();
+    // #214/#193 (margin + cost + presets) now SHIP, so they're no longer absent.
+    // The remaining siblings (markup table, contingency, versions, approval, PDF,
+    // acceptance, convert, templates) stay dark — no stubs.
     for (const absent of [
       "Version",
       "Approval",
       "PDF",
       "Acceptance",
-      "Accept",
       "Convert",
       "Template",
       "Markup",
       "Contingency",
-      "Margin",
       "coming soon",
       "Under construction",
     ]) {
       expect(html).not.toContain(absent);
     }
+  });
+
+  it("renders the office-only margin view (#214) — honest about uncosted lines", () => {
+    const html = render();
+    expect(html).toContain('data-testid="quote-builder-margin"');
+    expect(html).toContain("Margin — office only");
+    expect(html).toContain("Never shown to the client");
+    // The golden quote carries no unit costs yet → honest uncosted state, no fake %.
+    expect(html).toContain("lines costed");
+    expect(html).toContain("Rate presets");
+    // Per-line internal cost entry is present.
+    expect(html).toContain("Unit cost ex GST");
   });
 });
