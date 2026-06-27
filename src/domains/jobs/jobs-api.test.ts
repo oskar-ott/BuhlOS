@@ -13,6 +13,7 @@ const auditPath = requireFromHere.resolve("../../../api/_lib/job-audit.js");
 
 let blob: Map<string, unknown>;
 let writeBlobMock: ReturnType<typeof vi.fn>;
+let uploadedAtMock: ReturnType<typeof vi.fn>;
 let auth: { signSession: (payload: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: ReturnType<typeof createRes>) => Promise<unknown>;
 
@@ -167,7 +168,7 @@ beforeEach(() => {
       setNoCache: vi.fn(),
       // Freshness probe for the jobs-summary path: a fixed source uploadedAt so a
       // rebuilt summary stamps + validates deterministically in tests.
-      blobUploadedAt: vi.fn(async () => "T1"),
+      blobUploadedAt: (uploadedAtMock = vi.fn(async () => "T1")),
     },
   } as NodeJS.Module;
 
@@ -1068,7 +1069,20 @@ describe("GET /api/jobs jobs-summary read path (perf, flag-gated)", () => {
     expect(active.areaGroups).toBeDefined();
   });
 
-  it("WITHSTATS GUARD: ?withStats=1 keeps the full read even with the flag on", async () => {
+  it("WITHSTATS: ?withStats=1 uses the SUMMARY path (no areaGroups) with correct snag/ITP stats", async () => {
+    // 2 active snags (open + in_progress; closed excluded), 2 active ITPs
+    // (witnessed + pending; completed excluded; archived excluded).
+    blob.set("jobs/job-active/data.json", {
+      snagsV2: [{ status: "open" }, { status: "in_progress" }, { status: "closed" }],
+    });
+    blob.set("jobs/job-active/itps.json", {
+      instances: [
+        { status: "witnessed" },
+        { status: "pending" },
+        { status: "completed" },
+        { status: "in-progress", archived: true },
+      ],
+    });
     process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
     const res = await call({
       method: "GET",
@@ -1077,7 +1091,42 @@ describe("GET /api/jobs jobs-summary read path (perf, flag-gated)", () => {
       query: { withStats: "1" },
     });
     const active = rows(res).find((j) => j.id === "job-active")!;
-    // withStats path computes stats* (summary path does not) → proves full read ran
+    expect(active).not.toHaveProperty("areaGroups"); // summary path, not the full read
+    expect(active.statsSnagsV2Active).toBe(2);
+    expect(active.statsItpsActive).toBe(2);
+    // task/area stats (need areaGroups) are NOT served on this path
+    expect(active).not.toHaveProperty("statsTasksTotal");
+    // and still no money on the cheap path
+    expect(active).not.toHaveProperty("contractValue");
+  });
+
+  it("WITHSTATS PARITY: summary stats == full-read stats for the two field stats", async () => {
+    blob.set("jobs/job-active/data.json", {
+      snagsV2: [{ status: "open" }, { status: "rejected" }, { status: "verified" }],
+    });
+    blob.set("jobs/job-active/itps.json", { instances: [{ status: "witnessed" }] });
+    delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
+    const full = await call({ method: "GET", userId: "u_field", role: "electrician", query: { withStats: "1" } });
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    const summary = await call({ method: "GET", userId: "u_field", role: "electrician", query: { withStats: "1" } });
+    const f = rows(full).find((j) => j.id === "job-active")!;
+    const s = rows(summary).find((j) => j.id === "job-active")!;
+    expect({ snags: s.statsSnagsV2Active, itps: s.statsItpsActive }).toEqual({
+      snags: f.statsSnagsV2Active,
+      itps: f.statsItpsActive,
+    });
+    expect(s.statsSnagsV2Active).toBe(2); // open + rejected (verified excluded)
+    expect(s.statsItpsActive).toBe(1);
+  });
+
+  it("WITHSTATS FALLBACK: a summary read failure falls back to the full read (no 500, areaGroups present)", async () => {
+    process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
+    uploadedAtMock.mockRejectedValueOnce(new Error("blob list down")); // makes readJobsSummary throw
+    const res = await call({ method: "GET", userId: "u_field", role: "electrician", query: { withStats: "1" } });
+    expect(res.statusCode).toBe(200);
+    const active = rows(res).find((j) => j.id === "job-active")!;
+    expect(active).toBeDefined();
+    expect(active).toHaveProperty("areaGroups"); // full read ran (fallback)
     expect(active).toHaveProperty("statsSnagsV2Active");
   });
 

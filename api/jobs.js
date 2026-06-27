@@ -6,7 +6,7 @@ const { readAdminJobsWithPgOverlay, readPhilJobsWithPgOverlay } = require('./_li
 const { recordJobsRead } = require('./_lib/job-read-diagnostics');
 const { mirrorJobToPg } = require('./_lib/jobs-mirror');
 const { isFlagOnSync } = require('./_lib/feature-flags');
-const { readJobsSummary } = require('./_lib/jobs-summary');
+const { readJobsSummary, readFieldJobStats, countActiveSnagsV2, countActiveItps } = require('./_lib/jobs-summary');
 
 // Canonical job statuses — keep in sync with src/domains/jobs/schema.ts JOB_STATUSES.
 const VALID_JOB_STATUS = new Set(['active', 'complete', 'archived', 'on_hold', 'draft']);
@@ -161,33 +161,22 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
       // parallel evidence[] + snagsV2[] arrays on the same data.json. Both
       // reads share the single data.json fetch above — zero extra blob hits.
       const evidenceArr = Array.isArray(d.evidence) ? d.evidence : [];
-      const snagsV2Arr  = Array.isArray(d.snagsV2)  ? d.snagsV2  : [];
       let evidencePendingV2 = 0;
       for (const e of evidenceArr) {
         const s = e && e.status;
         if (s === 'submitted' || s === 'pending_upload') evidencePendingV2++;
       }
-      // Match needsWorkerAttention semantics from src/domains/snags/format.ts —
-      // open|in_progress|resolved PLUS rejected. Verified and closed are the
-      // only fully-handled states.
-      let snagsActiveV2 = 0;
-      for (const s of snagsV2Arr) {
-        const st = s && s.status;
-        if (st === 'open' || st === 'in_progress' || st === 'resolved' || st === 'rejected') {
-          snagsActiveV2++;
-        }
-      }
-      // E1a: active ITP instances (pending|in-progress|witnessed and
-      // !archived) for the chip; statsItpsNeedsReview = the witnessed subset
-      // for the Command Centre "ITPs needing sign-off" queue. Single pass.
+      // statsSnagsV2Active / statsItpsActive via the SHARED counters (single
+      // source of truth with the summary withStats path — api/_lib/jobs-summary.js
+      // countActiveSnagsV2 / countActiveItps) so the two read paths can't diverge.
+      const snagsActiveV2 = countActiveSnagsV2(d);
+      const itpsActive = countActiveItps(itpsBlob);
+      // statsItpsNeedsReview = the witnessed subset (Command Centre "ITPs needing
+      // sign-off" queue) — admin-only, not a field stat, so it stays here.
       const itpsArr = Array.isArray(itpsBlob && itpsBlob.instances) ? itpsBlob.instances : [];
-      let itpsActive = 0;
       let itpsNeedsReview = 0;
       for (const inst of itpsArr) {
-        if (!inst || inst.archived) continue;
-        const st = inst.status;
-        if (st === 'pending' || st === 'in-progress' || st === 'witnessed') itpsActive++;
-        if (st === 'witnessed') itpsNeedsReview++;
+        if (inst && !inst.archived && inst.status === 'witnessed') itpsNeedsReview++;
       }
       // E2: current (non-superseded, non-archived) plan/spec rows. Legacy rows
       // without a `status` default to 'current' (matches api/plans.js).
@@ -237,13 +226,14 @@ module.exports = async (req, res) => {
   // small derived jobs-summary.json instead of reading+parsing the full jobs.json
   // monolith (~3.5s). ENV-gated (isFlagOnSync = no flags.json read) so when DARK
   // this block is a cheap boolean and the #674 path below stays byte-identical.
-  // Scope: plain list only (no ?id, no ?withStats — /phil/jobs withStats keeps the
-  // full read; single-job needs full structure). Admin/client fall through. The
+  // Scope: the field LIST (no ?id; single-job needs full structure → full read).
+  // ?withStats=1 is supported via lightweight per-job stat reads (snags + ITPs
+  // only — the two chips /phil/jobs renders); task/area stats (which need
+  // areaGroups) are NOT served on this path. Admin/client fall through. The
   // summary is freshness-validated and falls back to the full read on ANY miss/error.
   if (
     req.method === 'GET' &&
     !(req.query && req.query.id) &&
-    !(req.query && req.query.withStats === '1') &&
     isFlagOnSync('phil_jobs_summary_read')
   ) {
     const me = await getCurrentUser(req);
@@ -263,12 +253,24 @@ module.exports = async (req, res) => {
         const { records } = await readJobsSummary();
         // Same per-viewer visibility filter as the full list branch: the worker's
         // assigned, non-draft, non-archived jobs.
-        const visible = records.filter(
+        let visible = records.filter(
           (j) =>
             (me.assignedJobIds || []).includes(j.id) &&
             j.status !== 'draft' &&
             j.status !== 'archived'
         );
+        // ?withStats=1: attach ONLY the two stats /phil/jobs renders
+        // (statsSnagsV2Active, statsItpsActive), computed from the per-job
+        // data.json + itps.json (the SAME shared counters the full path uses) —
+        // no areaGroups, no monolith. Task/area stats are deliberately omitted
+        // (the field list never reads them; see philJobsListSignals).
+        if (req.query && req.query.withStats === '1') {
+          const statsByJob = await readFieldJobStats(visible.map((j) => j.id));
+          visible = visible.map((j) => Object.assign({}, j, statsByJob[j.id] || {
+            statsSnagsV2Active: 0,
+            statsItpsActive: 0,
+          }));
+        }
         // Same redaction boundary as the full path (typeName already resolved in
         // the record; money omitted from the record entirely).
         return res.status(200).json({ jobs: visible.map((j) => redactJobForViewer(j, me.role)) });
