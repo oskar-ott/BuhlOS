@@ -60,9 +60,25 @@ the full-read `enrichJobsWithStats` also uses, so the two paths can't diverge.
 **Task/area stats (`statsTasksTotal`, `statsPct`, …) are deliberately NOT served**
 on this path — they need `areaGroups`, and the field list never reads them.
 
+## Job-detail fast shell (a second consumer)
+
+`/phil/jobs/[jobId]` (`src/app/phil/jobs/[jobId]/page.tsx`) renders a
+summary-backed **shell** above the fold while the full job structure streams in
+below. It reads the worker's `/api/jobs` list (this summary), finds the job by
+id for the header (name/status/ref/site/type — visibility-scoped + redacted by
+construction), and renders `PhilJobDetailShell` as the `<Suspense>` fallback; the
+existing full read + `PhilJobDetail` render move into a streamed
+`PhilJobDetailFull` (authoritative for visibility + full task/stage/proof
+structure — **unchanged**). Gated by the **same** `FLAG_PHIL_JOBS_SUMMARY_READ`
+env flag: flag-off reverts to the prior single-read behaviour (no shell), so the
+flag is a clean rollback for this too. The single-job `?id=` read itself is still
+the full monolith read (see below) — a per-job structure projection is the
+future slice that would make the *streamed* detail fast, not just the shell.
+
 ## Scope (what is NOT summary-served)
 
-- Single-job `?id=` GET (job detail) — needs full structure.
+- Single-job `?id=` GET (job detail) — needs full structure (the *shell* uses the
+  summary; the streamed full detail still uses the `?id=` full read).
 - Admin and client tiers — different visibility; kept on the full read.
 
 ## Coexistence with the Supabase PG read (`supabase_read_phil_jobs`)

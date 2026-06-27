@@ -1,8 +1,10 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilJobDetail } from "@/components/phil/PhilJobDetail";
+import { PhilJobDetailShell, type JobShellHeader } from "@/components/phil/PhilJobDetailShell";
 import {
   MyInductionResponseSchema,
   type InductionRecord,
@@ -12,7 +14,7 @@ import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { JobDetailResponseSchema } from "@/domains/jobs/schema";
+import { JobDetailResponseSchema, JobListResponseSchema } from "@/domains/jobs/schema";
 import { TagListResponseSchema, type TagItem } from "@/domains/tags/schema";
 import { JobContactsResponseSchema, type JobContact } from "@/domains/contacts/schema";
 import { parseJobTaskState, type JobTaskState } from "@/domains/jobs/taskState";
@@ -76,15 +78,76 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
     redirect("/v2/login");
   }
 
-  // Perf: fire the job fetch AND all its sub-resource loads concurrently.
-  // This used to be a 2-stage waterfall — `await loadJob`, THEN a gated
-  // `Promise.all` of ten more internal /api/* round-trips — which added one
-  // full serial API hop (≈1s+ of Blob-read latency) to every job open. Each
-  // sub-loader independently gates job access and fails soft to empty, and
-  // their results are only read below when the job itself loaded
-  // (`result.kind === "ok"`); for a forbidden/not-found open they are simply
-  // discarded (the loads have no side effects). So collapsing the waterfall is
-  // safe and removes that serial hop from the worker's time-to-first-byte.
+  const viewerId = session.userId ?? session.sub ?? "";
+  const viewerRole = String(session.role ?? "");
+
+  // Gate the fast shell behind the SAME flag as the jobs-summary read path
+  // (FLAG_PHIL_JOBS_SUMMARY_READ). The shell sources its header from /api/jobs,
+  // which is summary-fast ONLY when that flag is on; with the flag OFF the list
+  // is a full read, so shell-then-stream would be TWO full reads (a regression).
+  // So flag-off = the prior single-read behaviour exactly (no shell, no stream);
+  // flag-on (prod) = summary-backed shell + streamed detail. This also makes the
+  // flag a clean rollback for the whole job-detail change. Env-only check (no
+  // blob read), matching api/_lib/feature-flags isFlagOnSync / parseEnv.
+  const flagRaw = (process.env.FLAG_PHIL_JOBS_SUMMARY_READ ?? "").toLowerCase();
+  const summaryShellOn = flagRaw === "1" || flagRaw === "true" || flagRaw === "on";
+
+  if (!summaryShellOn) {
+    // Flag off → prior behaviour: block on the full load, render directly.
+    return (
+      <PhilShell title="Job">
+        {await PhilJobDetailFull({ raw, jobId, captureToken, viewerId, viewerRole })}
+      </PhilShell>
+    );
+  }
+
+  // Fast shell (Phil mobile LCP): the job's full structure read (/api/jobs?id=)
+  // still reads the whole jobs.json monolith (~3.5s). Rather than block first
+  // paint on that + its ten sub-loads, render a USEFUL header NOW from the cheap
+  // jobs-summary list (name/status/ref/site/type — the same data /phil/jobs
+  // shows, already visibility-scoped + redacted), then stream the heavy full
+  // detail below behind <Suspense>. Mirrors the My Day streaming pattern (#673).
+  // The full read in <PhilJobDetailFull> stays authoritative for visibility +
+  // the complete task/stage/proof structure; PhilJobDetail itself is unchanged.
+  const shellHeader = await loadJobShell(raw, jobId);
+
+  return (
+    <PhilShell title={shellHeader?.name ?? "Job"}>
+      <Suspense fallback={<PhilJobDetailShell header={shellHeader} />}>
+        <PhilJobDetailFull
+          raw={raw}
+          jobId={jobId}
+          captureToken={captureToken}
+          viewerId={viewerId}
+          viewerRole={viewerRole}
+        />
+      </Suspense>
+    </PhilShell>
+  );
+}
+
+/**
+ * Streamed full job detail — the existing data path (the job read + its ten
+ * parallel sub-resource loads, #670/#674) and the UNCHANGED <PhilJobDetail>
+ * render, moved into an async server component so the summary-backed shell paints
+ * first. This is the AUTHORITATIVE read for visibility (not_found/forbidden) and
+ * the full task/stage/proof structure. Sub-loaders fail soft to empty and their
+ * results are only read when the job itself loaded; a forbidden/not-found open
+ * discards them (no side effects).
+ */
+async function PhilJobDetailFull({
+  raw,
+  jobId,
+  captureToken,
+  viewerId,
+  viewerRole,
+}: {
+  raw: string | undefined;
+  jobId: string;
+  captureToken: string | null;
+  viewerId: string;
+  viewerRole: string;
+}) {
   const [
     result,
     initialEvidence,
@@ -113,66 +176,95 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
     return (
-      <PhilShell title="Job">
-        <div className="space-y-4">
-          <PhilBackLink href="/phil/jobs">All jobs</PhilBackLink>
-          <Card>
-            <CardTitle>This job isn&rsquo;t assigned to you</CardTitle>
-            <CardDescription className="mt-2">
-              {result.kind === "forbidden"
-                ? "You don't have access to this job. If you should, ask your PM to add you."
-                : "We couldn't find that job. It may have been archived or the link is out of date."}
-            </CardDescription>
-          </Card>
-        </div>
-      </PhilShell>
+      <div className="space-y-4">
+        <PhilBackLink href="/phil/jobs">All jobs</PhilBackLink>
+        <Card>
+          <CardTitle>This job isn&rsquo;t assigned to you</CardTitle>
+          <CardDescription className="mt-2">
+            {result.kind === "forbidden"
+              ? "You don't have access to this job. If you should, ask your PM to add you."
+              : "We couldn't find that job. It may have been archived or the link is out of date."}
+          </CardDescription>
+        </Card>
+      </div>
     );
   }
 
   if (result.kind === "error") {
     return (
-      <PhilShell title="Job">
-        <div className="space-y-4">
-          <PhilBackLink href="/phil/jobs">All jobs</PhilBackLink>
-          <PhilNotice tone="warning" title="Couldn’t load this job" role="alert">
-            <p>{result.message}.</p>
-            <div className="mt-3">
-              <RefreshButton />
-            </div>
-          </PhilNotice>
-        </div>
-      </PhilShell>
+      <div className="space-y-4">
+        <PhilBackLink href="/phil/jobs">All jobs</PhilBackLink>
+        <PhilNotice tone="warning" title="Couldn’t load this job" role="alert">
+          <p>{result.message}.</p>
+          <div className="mt-3">
+            <RefreshButton />
+          </div>
+        </PhilNotice>
+      </div>
     );
   }
 
   return (
-    <PhilShell title={result.job.name}>
-      <PhilJobDetail
-        job={result.job}
-        initialEvidence={initialEvidence}
-        initialSnags={initialSnags}
-        initialObservations={initialObservations}
-        initialItps={initialItps}
-        initialDocuments={documentsResult.documents}
-        documentsError={documentsResult.error}
-        initialTags={tagsResult.tags}
-        tagsError={tagsResult.error}
-        initialContacts={initialContacts}
-        initialMyInduction={initialMyInduction}
-        initialTaskState={taskStateResult.state}
-        taskStateError={taskStateResult.error}
-        viewer={{
-          id: session.userId ?? session.sub ?? "",
-          role: String(session.role ?? ""),
-        }}
-        workPackages={jobControlResult.workPackages}
-        evidenceLinks={jobControlResult.evidenceLinks}
-        proofReviews={jobControlResult.proofReviews}
-        jobControlRevision={jobControlResult.revision}
-        autoCaptureToken={captureToken}
-      />
-    </PhilShell>
+    <PhilJobDetail
+      job={result.job}
+      initialEvidence={initialEvidence}
+      initialSnags={initialSnags}
+      initialObservations={initialObservations}
+      initialItps={initialItps}
+      initialDocuments={documentsResult.documents}
+      documentsError={documentsResult.error}
+      initialTags={tagsResult.tags}
+      tagsError={tagsResult.error}
+      initialContacts={initialContacts}
+      initialMyInduction={initialMyInduction}
+      initialTaskState={taskStateResult.state}
+      taskStateError={taskStateResult.error}
+      viewer={{ id: viewerId, role: viewerRole }}
+      workPackages={jobControlResult.workPackages}
+      evidenceLinks={jobControlResult.evidenceLinks}
+      proofReviews={jobControlResult.proofReviews}
+      jobControlRevision={jobControlResult.revision}
+      autoCaptureToken={captureToken}
+    />
   );
+}
+
+/**
+ * Lightweight job header for the fast shell, sourced from the field jobs list
+ * (the jobs-summary projection): visibility-scoped (only this worker's assigned,
+ * non-draft/archived jobs) and money-redacted by construction. A job not in the
+ * list → null → the shell shows a header-less skeleton and the streamed full
+ * read returns the authoritative not-found/forbidden view. Fails soft to null.
+ */
+async function loadJobShell(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<JobShellHeader | null> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(`${base}/api/jobs`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (!res.ok) return null;
+    const parsed = JobListResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return null;
+    const job = parsed.data.jobs.find((j) => j.id === jobId);
+    if (!job) return null;
+    return {
+      id: job.id,
+      name: job.name,
+      status: job.status as JobShellHeader["status"],
+      ref: job.ref ?? null,
+      siteAddress: job.siteAddress ?? null,
+      typeName: (job as { typeName?: string | null }).typeName ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 type LoadResult =
