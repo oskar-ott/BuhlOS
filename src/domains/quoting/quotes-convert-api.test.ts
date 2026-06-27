@@ -182,6 +182,9 @@ beforeEach(() => {
   }
   delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/job-create.js")];
   delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/job-fields.js")];
+  // #581: quotes.js now appends to the canonical audit journal; audit-log.js
+  // binds readBlob/writeBlob at load, so re-require it against the fresh blob mock.
+  delete requireFromHere.cache[requireFromHere.resolve("../../../api/_lib/audit-log.js")];
   requireFromHere.cache[blobPath] = {
     id: blobPath,
     filename: blobPath,
@@ -361,5 +364,63 @@ describe("convert handler ↔ pure mapping parity (#244)", () => {
         return rest;
       });
     expect(stripMatIds(list.items)).toEqual(stripMatIds(expected.materialsSeed));
+  });
+});
+
+// #581: a won-quote conversion is a money-relevant, job-creating action that
+// previously left no audit trail. Prove the full chain (handler → builder →
+// append → blob) writes both job.created and quote.converted.
+describe("convert writes the canonical audit trail (#581)", () => {
+  function auditEntries(): Array<Record<string, unknown>> {
+    const out: Array<Record<string, unknown>> = [];
+    for (const [key, val] of blob.entries()) {
+      if (
+        key.startsWith("audit/") &&
+        val &&
+        Array.isArray((val as { entries?: unknown[] }).entries)
+      ) {
+        out.push(...(val as { entries: Array<Record<string, unknown>> }).entries);
+      }
+    }
+    return out;
+  }
+
+  it("writes job.created (source quote_convert) + quote.converted, both on the new job", async () => {
+    const res = await convert(WON_ID);
+    expect(res.statusCode).toBe(201);
+    const jobId = (res.body as { jobId: string }).jobId;
+
+    const created = auditEntries().filter((e) => e.action === "job.created");
+    const converted = auditEntries().filter((e) => e.action === "quote.converted");
+    expect(created).toHaveLength(1);
+    expect(converted).toHaveLength(1);
+
+    expect(created[0]).toMatchObject({
+      action: "job.created",
+      actorId: "u_admin",
+      targetType: "job",
+      targetId: jobId,
+      jobId,
+    });
+    expect((created[0]!.metadata as { source: string; fromQuoteId: string })).toMatchObject({
+      source: "quote_convert",
+      fromQuoteId: WON_ID,
+    });
+
+    expect(converted[0]).toMatchObject({
+      action: "quote.converted",
+      targetType: "quote",
+      targetId: WON_ID,
+      jobId, // surfaces in the new job's feed
+    });
+    // privacy line: no dollar amount leaks into the journal.
+    expect(JSON.stringify([created[0], converted[0]])).not.toMatch(/amount|contractValue|price|dollar|\$/i);
+  });
+
+  it("does not write a job.created when the convert is refused (no trail for a no-op)", async () => {
+    seed({ status: "lost" });
+    const res = await convert(WON_ID);
+    expect(res.statusCode).toBe(409);
+    expect(auditEntries().filter((e) => String(e.action).startsWith("job.") || String(e.action).startsWith("quote."))).toHaveLength(0);
   });
 });

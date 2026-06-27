@@ -149,6 +149,11 @@ export const AUDIT_ACTIONS = [
   "readiness.item_ticked",
   "readiness.overridden",
   "readiness.override_cleared",
+  // #581: job-creating actions. job.created on every sanctioned job write (Job
+  // Builder POST + won-quote convert); quote.converted on the quote→job
+  // conversion. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
+  "job.created",
+  "quote.converted",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -181,6 +186,9 @@ export const AUDIT_TARGET_TYPES = [
   "prestart",
   // #503: per-task proof review records (jobs/<id>/job-control.json proofReviews).
   "proof_review",
+  // #581: a created job (job.created) and a converted quote (quote.converted).
+  "job",
+  "quote",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

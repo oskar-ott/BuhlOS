@@ -163,6 +163,8 @@ describe("AuditLogEntrySchema", () => {
       "itp.reopened",
       "itp.signed_off",
       "itp.submitted",
+      // #581: Job Builder + won-quote job creation.
+      "job.created",
       // #127/#333 leave lifecycle.
       "leave.cancelled",
       "leave.decided",
@@ -186,6 +188,8 @@ describe("AuditLogEntrySchema", () => {
       // #503: office proof sign-off (admin approve/send-back surface).
       "proof.approved",
       "proof.sent_back",
+      // #581: quote→job conversion lifecycle.
+      "quote.converted",
       // #371: pre-start readiness gate lifecycle (item tick / override / clear).
       "readiness.item_ticked",
       "readiness.overridden",
@@ -209,6 +213,8 @@ describe("AuditLogEntrySchema", () => {
       "invite",
       "itp_instance",
       "itp_template",
+      // #581: a created job.
+      "job",
       "leave",
       // PR 11: material requests as audit targets.
       "material_request",
@@ -218,6 +224,8 @@ describe("AuditLogEntrySchema", () => {
       "prestart",
       // #503: per-task proof review records.
       "proof_review",
+      // #581: a converted quote.
+      "quote",
       "snag",
       // #151: platform-level events (backup runs).
       "system",
