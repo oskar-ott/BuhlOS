@@ -8,6 +8,7 @@ import { RefreshButton } from "@/components/ui/RefreshButton";
 import { PhilNotice } from "./ui/PhilNotice";
 import { cn } from "@/lib/cn";
 import { timesheetsClient } from "@/domains/timesheets/client";
+import { useSubmissionKey } from "@/domains/timesheets/useSubmissionKey";
 import { MAX_HOURS_PER_DAY } from "@/domains/timesheets/service";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import {
@@ -80,6 +81,9 @@ export function RejectedHoursResubmitSheet({
   );
   const [notes, setNotes] = useState<string>(entry.notes ?? "");
   const [state, setState] = useState<State>({ kind: "idle" });
+  // Replay-safe key per fix attempt — a retry after a timeout reuses it; a
+  // changed correction mints a fresh one; success clears it. (#497)
+  const resubmitKey = useSubmissionKey();
 
   // A rejected SPLIT day (2+ allocations) is fixed through the split editor so
   // every allocation survives; a single-allocation entry uses the form below.
@@ -94,16 +98,17 @@ export function RejectedHoursResubmitSheet({
     allocations: Array<{ jobId: string; hours: number }>,
   ) {
     setState({ kind: "submitting" });
-    const result = await timesheetsClient.editOwnEntry(
-      entry.date,
-      // Preserve the entry's existing note (the split editor has no note field).
-      buildSplitResubmitPayload(entry, {
-        totalHours: nextTotal,
-        allocations,
-        notes: entry.notes ?? null,
-      }),
-    );
+    // Preserve the entry's existing note (the split editor has no note field).
+    const payload = buildSplitResubmitPayload(entry, {
+      totalHours: nextTotal,
+      allocations,
+      notes: entry.notes ?? null,
+    });
+    const result = await timesheetsClient.editOwnEntry(entry.date, payload, {
+      idempotencyKey: resubmitKey.keyFor(JSON.stringify(payload)),
+    });
     const fb = resubmitFeedback(result);
+    if (fb.kind === "success") resubmitKey.clear();
     setState(
       fb.kind === "success"
         ? { kind: "success", entry: fb.entry }
@@ -125,15 +130,16 @@ export function RejectedHoursResubmitSheet({
       return;
     }
     setState({ kind: "submitting" });
-    const result = await timesheetsClient.editOwnEntry(
-      entry.date,
-      buildResubmitPayload(entry, {
-        totalHours,
-        jobId: resolution.jobId,
-        notes: notes.trim() || null,
-      }),
-    );
+    const payload = buildResubmitPayload(entry, {
+      totalHours,
+      jobId: resolution.jobId,
+      notes: notes.trim() || null,
+    });
+    const result = await timesheetsClient.editOwnEntry(entry.date, payload, {
+      idempotencyKey: resubmitKey.keyFor(JSON.stringify(payload)),
+    });
     const fb = resubmitFeedback(result);
+    if (fb.kind === "success") resubmitKey.clear();
     setState(
       fb.kind === "success"
         ? { kind: "success", entry: fb.entry }

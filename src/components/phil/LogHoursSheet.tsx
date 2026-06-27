@@ -13,6 +13,7 @@ import { cn } from "@/lib/cn";
 import { SplitDaySheet } from "./SplitDaySheet";
 import styles from "./myDay.module.css";
 import { timesheetsClient } from "@/domains/timesheets/client";
+import { useSubmissionKey } from "@/domains/timesheets/useSubmissionKey";
 import {
   STANDARD_DAY_HOURS,
   buildCustomHoursPayload,
@@ -130,6 +131,11 @@ export function LogHoursSheet({
   autoOpenFix = false,
 }: LogHoursSheetProps) {
   const router = useRouter();
+  // One replay-safe key per logical submission: a retry after a timeout reuses
+  // it (the server returns the original entry instead of a duplicate / 409),
+  // changing the hours or job mints a fresh one, and a confirmed success clears
+  // it. (#497 — the foundation the offline outbox #143 builds on.)
+  const submissionKey = useSubmissionKey();
   const [todayEntry, setTodayEntry] = useState<TimeEntry | null>(initialTodayEntry);
   const [date, setDate] = useState<string>(() => initialDate ?? localDateString());
   const [notes, setNotes] = useState<string>("");
@@ -223,7 +229,9 @@ export function LogHoursSheet({
       jobId: selectedJobId,
       notes: notes || null,
     });
-    const result = await timesheetsClient.submitNewEntry(payload);
+    const result = await timesheetsClient.submitNewEntry(payload, {
+      idempotencyKey: submissionKey.keyFor(JSON.stringify(payload)),
+    });
     handleResult(result, "standard");
   }
 
@@ -258,7 +266,9 @@ export function LogHoursSheet({
       jobId: selectedJobId,
       notes: notes || null,
     });
-    const result = await timesheetsClient.submitNewEntry(payload);
+    const result = await timesheetsClient.submitNewEntry(payload, {
+      idempotencyKey: submissionKey.keyFor(JSON.stringify(payload)),
+    });
     handleResult(result, "custom");
   }
 
@@ -285,7 +295,9 @@ export function LogHoursSheet({
       allocations,
       notes: notes || null,
     });
-    const result = await timesheetsClient.submitNewEntry(payload);
+    const result = await timesheetsClient.submitNewEntry(payload, {
+      idempotencyKey: submissionKey.keyFor(JSON.stringify(payload)),
+    });
     handleResult(result, "custom");
   }
 
@@ -294,6 +306,9 @@ export function LogHoursSheet({
     mode: Mode
   ) {
     if (result.ok) {
+      // Confirmed write — drop the held key so the NEXT distinct submission
+      // starts a fresh one (a later identical-looking submit is genuinely new).
+      submissionKey.clear();
       setTodayEntry(result.data.entry);
       setState({ kind: "success", entry: result.data.entry, mode });
       setNotes("");
