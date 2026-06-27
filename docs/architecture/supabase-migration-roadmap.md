@@ -51,7 +51,12 @@ pattern); auth/`users.json` = **BRIDGE** (mirror `user_profiles`, keep bcrypt); 
 - **Phase 2 — Hours dual-write ([#152] pilot).** Single seam `api/_lib/time-entries.js`:
   dual-write → drift-check → read-cutover. First real "app uses Supabase."
 - **Phase 3 — Per-domain strangler.** jobs/tasks (`data.json` — *the* integrity win),
-  then snags/observations/materials/ITP, each behind the flag.
+  then snags/observations/materials/ITP, each behind the flag. The jobs/tasks +
+  evidence **read overlays are all merged and dark** (jobs J6/J7, task-status
+  J10/J11, evidence admin/Phil); turning them on in production — backfill → enable
+  dual-write → flip read flags tier-by-tier under the readiness probes, with instant
+  rollback — is the operator
+  [supabase-read-enablement-runbook.md](supabase-read-enablement-runbook.md).
 - **Phase 2b–5 — new clusters** (see data-ownership-map §4): Commercial (quotes/
   variations) → Field-ops (drawing revisions/markups/RFIs) → Workforce (licences/
   leave/temps) → Platform (push_subscriptions/access/invites) → Analytics.
