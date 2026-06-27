@@ -30,8 +30,8 @@ replaces both this and the monolith read, and this projection is deleted.
 
 ## How it stays correct (never silently stale)
 
-- **Lazy, read-side rebuild.** On a field/LH **plain list** GET (no `?id`, no
-  `?withStats`) with the flag on, the handler reads the summary and validates its
+- **Lazy, read-side rebuild.** On a field/LH **list** GET (no `?id`; with or
+  without `?withStats`) with the flag on, the handler reads the summary and validates its
   `builtFromUploadedAt` against `jobs.json`'s **current** blob `uploadedAt` (a
   metadata-only `list()`, no content fetch — `blobUploadedAt`). Match → serve it.
   Mismatch / missing / unreadable → read the full `jobs.json` (the fallback),
@@ -48,11 +48,20 @@ replaces both this and the monolith read, and this projection is deleted.
   plain field worker doesn't, and money (already omitted from the record) can
   never leak.
 
+## `?withStats=1` (the `/phil/jobs` chips)
+
+Served on the summary path too. The field list renders exactly two stats
+(`statsSnagsV2Active`, `statsItpsActive` — see `philJobsListSignals`), which
+derive from the per-job `data.json` (`snagsV2[]`) and `itps.json` (`instances[]`)
+— **not** `areaGroups`. So `readFieldJobStats` reads just those two blobs per
+visible job (in parallel, fail-soft → `{0,0}`) and attaches the counts; the
+counts come from the SHARED `countActiveSnagsV2` / `countActiveItps` helpers that
+the full-read `enrichJobsWithStats` also uses, so the two paths can't diverge.
+**Task/area stats (`statsTasksTotal`, `statsPct`, …) are deliberately NOT served**
+on this path — they need `areaGroups`, and the field list never reads them.
+
 ## Scope (what is NOT summary-served)
 
-- `?withStats=1` (`/phil/jobs`) — task stats need `areaGroups`; kept on the full
-  read. A follow-up can compute the two live field stats (snags/ITPs) from the
-  summary + per-job reads.
 - Single-job `?id=` GET (job detail) — needs full structure.
 - Admin and client tiers — different visibility; kept on the full read.
 

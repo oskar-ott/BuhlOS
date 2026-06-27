@@ -112,4 +112,73 @@ async function readJobsSummary(deps = realDeps()) {
   return { records, source: 'rebuilt' };
 }
 
-module.exports = { SUMMARY_KEY, SUMMARY_SOURCE_KEY, buildJobsSummary, readJobsSummary };
+// ---- Field LIST stats (the two the Phil jobs list actually renders) ----
+// These are the SHARED source of truth for statsSnagsV2Active / statsItpsActive,
+// used by BOTH the full-read enrichJobsWithStats (api/jobs.js) and the summary
+// withStats path below, so the two can never diverge. They derive purely from
+// the per-job blobs (data.json snagsV2[] + itps.json instances[]) — NOT from
+// areaGroups — so they're computable on the summary path without the monolith.
+
+/** Active snagsV2 = open | in_progress | resolved | rejected (mirrors
+ *  needsWorkerAttention in src/domains/snags/format.ts; verified/closed excluded). */
+function countActiveSnagsV2(dataDoc) {
+  const arr = Array.isArray(dataDoc && dataDoc.snagsV2) ? dataDoc.snagsV2 : [];
+  let n = 0;
+  for (const s of arr) {
+    const st = s && s.status;
+    if (st === 'open' || st === 'in_progress' || st === 'resolved' || st === 'rejected') n++;
+  }
+  return n;
+}
+
+/** Active ITP instances = pending | in-progress | witnessed, and not archived. */
+function countActiveItps(itpsDoc) {
+  const arr = Array.isArray(itpsDoc && itpsDoc.instances) ? itpsDoc.instances : [];
+  let n = 0;
+  for (const inst of arr) {
+    if (!inst || inst.archived) continue;
+    const st = inst.status;
+    if (st === 'pending' || st === 'in-progress' || st === 'witnessed') n++;
+  }
+  return n;
+}
+
+/**
+ * Compute the two field-list stats for the given job ids by reading ONLY the two
+ * per-job blobs they derive from (data.json + itps.json), in parallel, fail-soft
+ * per job (a read error → {0,0}, matching enrichJobsWithStats's catch). Returns a
+ * map jobId → { statsSnagsV2Active, statsItpsActive }. No areaGroups, no monolith,
+ * no money — just the snag/ITP counts the /phil/jobs chips need. Deps injectable.
+ */
+async function readFieldJobStats(jobIds, deps = realDeps()) {
+  const { readBlob } = deps;
+  const ids = Array.isArray(jobIds) ? jobIds : [];
+  const out = {};
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const [dataDoc, itpsDoc] = await Promise.all([
+          readBlob(`jobs/${id}/data.json`, { snagsV2: [] }),
+          readBlob(`jobs/${id}/itps.json`, { instances: [] }),
+        ]);
+        out[id] = {
+          statsSnagsV2Active: countActiveSnagsV2(dataDoc),
+          statsItpsActive: countActiveItps(itpsDoc),
+        };
+      } catch {
+        out[id] = { statsSnagsV2Active: 0, statsItpsActive: 0 };
+      }
+    }),
+  );
+  return out;
+}
+
+module.exports = {
+  SUMMARY_KEY,
+  SUMMARY_SOURCE_KEY,
+  buildJobsSummary,
+  readJobsSummary,
+  countActiveSnagsV2,
+  countActiveItps,
+  readFieldJobStats,
+};
