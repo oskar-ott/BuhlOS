@@ -611,3 +611,5 @@ function TaskCountsHydrator({
   }, [resolved, onResolved]);
   return null;
 }
+
+// perf: v2/jobs statsOnly list + streamed task-progress (rebuild marker)
