@@ -310,6 +310,12 @@ export function ScheduleBuilder({ board, job, canManage, update, onDelete, onBac
 
       <div className="cs-body rail-side">
         <div className="cs-gridcard">
+          {/* #666 — honest mobile note: the grid is a desktop authoring tool;
+              on a phone it scrolls sideways inside its wrapper rather than
+              breaking the page. sm:hidden so desktop never sees this. */}
+          <p className="cs-mobile-hint sm:hidden">
+            Best edited on a desktop — scroll the grid sideways to review.
+          </p>
           {!locked && (
             <div className="cs-presets">
               <span className="pl">Quick add</span>
@@ -321,7 +327,7 @@ export function ScheduleBuilder({ board, job, canManage, update, onDelete, onBac
             </div>
           )}
 
-          <div className="cs-tablewrap">
+          <div className="cs-tablewrap overflow-x-auto">
             {board.circuits.length === 0 ? (
               <div className="cs-empty-board">
                 <div className="eb-ic"><Ic.zap /></div>
