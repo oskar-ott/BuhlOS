@@ -34,6 +34,13 @@ export interface WeekDayCell {
   weekday: string;
   /** Logged hours for the day, or null when nothing is logged. */
   hours: number | null;
+  /** #130: STORED overtime portion of `hours`, or null when the day has none
+   *  / nothing logged. Read from the entry — never re-derived. Lets the week
+   *  view show a worker the overtime they worked, in worker words. */
+  overtimeHours: number | null;
+  /** #130: STORED ordinary portion of `hours` (carried alongside overtime so
+   *  the split presenter's honesty guard stays meaningful). */
+  ordinaryHours: number | null;
   state: WeekDayState;
   /** Short status word shown under the hours, e.g. "logged" / "log now". */
   statusWord: string;
@@ -99,7 +106,11 @@ function loggedStatusWord(status: TimeEntry["status"] | undefined): string {
 
 export function buildPhilWeek(
   entries: ReadonlyArray<
-    Pick<TimeEntry, "date" | "totalHours"> & { status?: TimeEntry["status"] }
+    Pick<TimeEntry, "date" | "totalHours"> & {
+      status?: TimeEntry["status"];
+      ordinaryHours?: number;
+      overtimeHours?: number;
+    }
   >,
   opts: { todayISO: string },
 ): PhilWeek {
@@ -108,12 +119,18 @@ export function buildPhilWeek(
 
   // Sum hours per date (defensive against more than one entry on a date) and
   // remember the entry status — one entry per date is API-enforced, so the
-  // last status seen for a date is the status.
+  // last status seen for a date is the status. #130: sum the STORED ordinary
+  // and overtime portions alongside the total so the week view can show the
+  // worker the overtime they worked — never re-derived client-side.
   const hoursByDate = new Map<string, number>();
+  const overtimeByDate = new Map<string, number>();
+  const ordinaryByDate = new Map<string, number>();
   const statusByDate = new Map<string, TimeEntry["status"] | undefined>();
   for (const e of entries) {
     if (!e.date) continue;
     hoursByDate.set(e.date, (hoursByDate.get(e.date) ?? 0) + (e.totalHours ?? 0));
+    overtimeByDate.set(e.date, (overtimeByDate.get(e.date) ?? 0) + (e.overtimeHours ?? 0));
+    ordinaryByDate.set(e.date, (ordinaryByDate.get(e.date) ?? 0) + (e.ordinaryHours ?? 0));
     statusByDate.set(e.date, e.status);
   }
 
@@ -170,7 +187,15 @@ export function buildPhilWeek(
       if (!isWeekend) counts.missed += 1;
     }
 
-    days.push({ date, weekday, hours, state, statusWord });
+    days.push({
+      date,
+      weekday,
+      hours,
+      overtimeHours: logged ? (overtimeByDate.get(date) ?? 0) : null,
+      ordinaryHours: logged ? (ordinaryByDate.get(date) ?? 0) : null,
+      state,
+      statusWord,
+    });
   }
 
   return {

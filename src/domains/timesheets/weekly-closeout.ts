@@ -55,6 +55,13 @@ export interface WeeklyHoursDay {
    *  allocation, or null when there is no entry. */
   jobLabel: string | null;
   hours: number | null;
+  /** #130: STORED ordinary/overtime portions of `hours`, or null when the day
+   *  has no entry. Read straight from the entry — never re-derived. Carried as
+   *  a pair so the split presenter's honesty guard (ordinary + overtime ≈
+   *  total) stays meaningful. The approvedHours roll-up stays totalHours-based;
+   *  this is display only. */
+  ordinaryHours: number | null;
+  overtimeHours: number | null;
   note: string | null;
   rejectedReason: string | null;
   /** Committed payroll run that included this day, when stamped (#126). */
@@ -251,6 +258,11 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
         entryId: entry?.id ?? null,
         jobLabel: entry ? jobLabelFor(entry) : null,
         hours: entry ? (entry.totalHours ?? null) : null,
+        // #130: carry the STORED ordinary/OT portions through the projection
+        // (they were dropped before). Roll-up math below is unchanged
+        // (totalHours-based).
+        ordinaryHours: entry ? (entry.ordinaryHours ?? null) : null,
+        overtimeHours: entry ? (entry.overtimeHours ?? null) : null,
         note: entry?.notes ?? null,
         rejectedReason: entry?.rejectedReason ?? null,
         exportId: entry?.exportId ?? null,

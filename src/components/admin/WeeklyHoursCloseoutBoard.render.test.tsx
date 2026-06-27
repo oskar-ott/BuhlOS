@@ -144,6 +144,57 @@ describe("WeeklyHoursCloseoutBoard (render)", () => {
   });
 });
 
+describe("Overtime split display (#130)", () => {
+  it("shows the base/OT split on a day with stored overtime (expanded day row)", () => {
+    // A submitted day lands the worker in the expanded "Needs action" band,
+    // where the per-day rows (and the split) render.
+    const html = render([
+      entry({
+        userId: "u1",
+        date: "2024-05-20",
+        userName: "Tom Brown",
+        status: "submitted",
+        totalHours: 10,
+        ordinaryHours: 8,
+        overtimeHours: 2,
+        allocations: [{ jobId: "j1", jobName: "100 Arthur", hours: 10 }],
+      }),
+    ]);
+    expect(html).toContain("8h + 2h OT");
+  });
+
+  it("adds no split for a standard day (byte-identical, zero noise)", () => {
+    const html = render([
+      entry({
+        userId: "u1",
+        date: "2024-05-20",
+        userName: "Tom Brown",
+        status: "submitted",
+        totalHours: 7.6,
+        ordinaryHours: 7.6,
+        overtimeHours: 0,
+      }),
+    ]);
+    expect(html).not.toContain(" OT");
+  });
+
+  it("HONESTY GUARD: an inconsistent stored split shows total only, no invented split", () => {
+    const html = render([
+      entry({
+        userId: "u1",
+        date: "2024-05-20",
+        userName: "Tom Brown",
+        status: "submitted",
+        totalHours: 12,
+        ordinaryHours: 8,
+        overtimeHours: 2, // 8 + 2 != 12 → garbage
+        allocations: [{ jobId: "j1", jobName: "100 Arthur", hours: 12 }],
+      }),
+    ]);
+    expect(html).not.toContain(" OT");
+  });
+});
+
 describe("Approve week (#124)", () => {
   it("offers Approve week on a worker with submitted days, naming the count", () => {
     const html = render([

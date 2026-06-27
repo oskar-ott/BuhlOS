@@ -7,6 +7,51 @@ import type { TimeEntryStatus } from "./types";
  */
 
 /**
+ * The base/overtime split label for a single day's entry (#130).
+ *
+ * The server (api/_lib/time-entries.js `autoSplitOT`) already splits a long
+ * day into ordinary + overtime and STORES both on every entry. This presenter
+ * is the SINGLE source of the split's display numbers across every screen
+ * (admin approvals queue, weekly board, Phil week) — it only ever reads the
+ * STORED fields, never re-derives the split client-side.
+ *
+ * Returns `null` (so the caller renders byte-identical to before) when:
+ *   - there is no overtime (`overtimeHours <= 0`) — a 7.6h or exactly 8.0h day
+ *     looks exactly as it does today, zero added visual noise (P10); OR
+ *   - the stored split is internally inconsistent — HONESTY GUARD (P7): if
+ *     `|ordinary + overtime - total| > 0.01` (legacy / garbage data) we refuse
+ *     to render an invented split and show the total only.
+ *
+ * Two audiences read the SAME numbers, differing only in wording:
+ *   - "office" (default): `8h + 2h OT` — compact, admin-side.
+ *   - "worker" (Phil): `8h + 2h overtime` — worker words, no "OT" jargon (P11).
+ */
+export interface OtSplitParts {
+  ordinaryHours: number;
+  overtimeHours: number;
+  totalHours: number;
+}
+
+export function otSplitLabel(
+  entry: OtSplitParts,
+  opts?: { audience?: "office" | "worker" },
+): string | null {
+  const ordinary = Number(entry.ordinaryHours);
+  const overtime = Number(entry.overtimeHours);
+  const total = Number(entry.totalHours);
+  if (!Number.isFinite(ordinary) || !Number.isFinite(overtime) || !Number.isFinite(total)) {
+    return null;
+  }
+  // No overtime → no split. A standard day reads exactly as today.
+  if (overtime <= 0) return null;
+  // HONESTY GUARD (P7): a stored split that doesn't reconcile to the total is
+  // legacy/garbage — never show an invented split, just fall back to the total.
+  if (Math.abs(ordinary + overtime - total) > 0.01) return null;
+  const suffix = opts?.audience === "worker" ? "overtime" : "OT";
+  return `${formatHoursLabel(ordinary)} + ${formatHoursLabel(overtime)} ${suffix}`;
+}
+
+/**
  * Render decimal hours as `Xh Ym`. Examples:
  *   7.6   → "7h 36m"
  *   8     → "8h"
