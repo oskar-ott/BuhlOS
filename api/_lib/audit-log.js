@@ -149,6 +149,13 @@ const VALID_ACTIONS = new Set([
   'daywork.signed',
   'daywork.transitioned',
   'daywork.amended',
+  // #371: pre-start readiness gate (api/job-readiness.js). One verb each for a
+  // manual-checklist tick/un-tick, recording an override-with-reason, and
+  // clearing it. targetType 'prestart'. Kept in sync with
+  // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'readiness.item_ticked',
+  'readiness.overridden',
+  'readiness.override_cleared',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -184,6 +191,8 @@ const VALID_TARGET_TYPES = new Set([
   'time_entry',
   // #370: daywork docket records (jobs/<id>/dayworks.json).
   'daywork',
+  // #371: per-job pre-start readiness (jobs/<id>/prestart.json).
+  'prestart',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

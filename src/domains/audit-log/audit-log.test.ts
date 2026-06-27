@@ -181,6 +181,10 @@ describe("AuditLogEntrySchema", () => {
       // when status/priority/assignment change).
       "observation.created",
       "observation.transitioned",
+      // #371: pre-start readiness gate lifecycle (item tick / override / clear).
+      "readiness.item_ticked",
+      "readiness.overridden",
+      "readiness.override_cleared",
       "snag.created",
       "snag.transitioned",
       "storage.write_rejected",
@@ -205,6 +209,8 @@ describe("AuditLogEntrySchema", () => {
       "material_request",
       // PR 6: observation as audit target (for observation.converted_to_snag).
       "observation",
+      // #371: per-job pre-start readiness records.
+      "prestart",
       "snag",
       // #151: platform-level events (backup runs).
       "system",

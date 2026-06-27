@@ -71,6 +71,10 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "daywork.signed": "Signed daywork docket",
   "daywork.transitioned": "Updated daywork docket",
   "daywork.amended": "Amended daywork docket",
+  // #371: pre-start readiness gate (targetType 'prestart' groups as Other).
+  "readiness.item_ticked": "Updated pre-start checklist",
+  "readiness.overridden": "Overrode pre-start readiness",
+  "readiness.override_cleared": "Cleared pre-start override",
 };
 
 export function actionLabel(action: AuditAction): string {
