@@ -154,6 +154,9 @@ export const AUDIT_ACTIONS = [
   // conversion. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
   "job.created",
   "quote.converted",
+  // #349: job closeout lifecycle (closed freezes the snapshot; reopened reverses).
+  "job.closed",
+  "job.reopened",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 

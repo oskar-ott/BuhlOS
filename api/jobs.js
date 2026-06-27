@@ -260,7 +260,8 @@ module.exports = async (req, res) => {
           (j) =>
             (me.assignedJobIds || []).includes(j.id) &&
             j.status !== 'draft' &&
-            j.status !== 'archived'
+            j.status !== 'archived' &&
+            j.status !== 'complete' // #349: closed-out jobs are field-invisible
         );
         // ?withStats=1: attach ONLY the two stats /phil/jobs renders
         // (statsSnagsV2Active, statsItpsActive), computed from the per-job
@@ -372,7 +373,7 @@ module.exports = async (req, res) => {
     // filter that follows is unchanged. Output is provably == Blob (faithful
     // jobs) or pure Blob (drift/new/error). Clients are NOT touched.
     const visibleJobIds = data.jobs
-      .filter(j => (me.assignedJobIds || []).includes(j.id) && j.status !== 'draft' && j.status !== 'archived')
+      .filter(j => (me.assignedJobIds || []).includes(j.id) && j.status !== 'draft' && j.status !== 'archived' && j.status !== 'complete')
       .map(j => j.id);
     const overlay = await readPhilJobsWithPgOverlay({ blobJobs: data.jobs, visibleJobIds });
     data.jobs = overlay.jobs;
@@ -397,7 +398,9 @@ module.exports = async (req, res) => {
       // never see draft or archived work.
       if (
         (job.status === 'draft' && !canViewDraftJobs(me.role)) ||
-        (job.status === 'archived' && !canViewArchivedJobs(me.role))
+        (job.status === 'archived' && !canViewArchivedJobs(me.role)) ||
+        // #349: a closed-out job is office-only, gated like archived.
+        (job.status === 'complete' && !canViewArchivedJobs(me.role))
       ) {
         return res.status(404).json({ error: 'job not found' });
       }
@@ -436,13 +439,14 @@ module.exports = async (req, res) => {
       visible = data.jobs;
     } else if (isClientRole(me.role)) {
       visible = data.jobs.filter(j =>
-        j.clientUserId === me.id && j.status !== 'draft' && j.status !== 'archived'
+        j.clientUserId === me.id && j.status !== 'draft' && j.status !== 'archived' && j.status !== 'complete'
       );
     } else {
       visible = data.jobs.filter(j =>
         (me.assignedJobIds || []).includes(j.id) &&
         j.status !== 'draft' &&
-        j.status !== 'archived'
+        j.status !== 'archived' &&
+        j.status !== 'complete' // #349: a closed-out job is field-invisible, like archived
       );
     }
     // Enrich with human-readable type name (cheap lookup; small list).

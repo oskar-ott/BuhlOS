@@ -200,6 +200,25 @@ describe("GET /api/jobs field visibility", () => {
       expect(res.statusCode).toBe(404);
     }
   });
+
+  it("a closed-out (complete) job is field-invisible but admin-visible (#349)", async () => {
+    // Close out the assigned active job.
+    (blob.get("jobs.json") as { jobs: Array<{ id: string; status: string }> }).jobs
+      .find((j) => j.id === "job-active")!.status = "complete";
+
+    // Field worker: not in their list, and a direct GET 404s (office-only, like archived).
+    const list = await call({ method: "GET", userId: "u_field", role: "electrician" });
+    expect((list.body as { jobs: Array<{ id: string }> }).jobs.map((j) => j.id)).not.toContain("job-active");
+    const fieldGet = await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active" } });
+    expect(fieldGet.statusCode).toBe(404);
+
+    // Admin: still sees it (with the Complete status) so it stays on admin lists.
+    const adminGet = await call({ method: "GET", userId: "u_admin", role: "admin", query: { id: "job-active" } });
+    expect(adminGet.statusCode).toBe(200);
+    expect((adminGet.body as { job: { status: string } }).job.status).toBe("complete");
+    const adminList = await call({ method: "GET", userId: "u_admin", role: "admin" });
+    expect((adminList.body as { jobs: Array<{ id: string }> }).jobs.map((j) => j.id)).toContain("job-active");
+  });
 });
 
 describe("GET /api/jobs?id=…&withStats=1 — single-job hub stats truthfulness", () => {

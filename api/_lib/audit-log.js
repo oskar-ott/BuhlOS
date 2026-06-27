@@ -171,6 +171,11 @@ const VALID_ACTIONS = new Set([
   // sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'job.created',
   'quote.converted',
+  // #349: job closeout lifecycle — job.closed freezes the final-numbers snapshot
+  // (active/archived → complete); job.reopened reverses it (complete → active) so
+  // the numbers can be corrected and closed out again. Prior snapshots are kept.
+  'job.closed',
+  'job.reopened',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
