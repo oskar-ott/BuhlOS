@@ -18,7 +18,9 @@
 //                "not tracked", which would read as a false warning)
 //   licences   = byWorkerId worstStatusByUser === 'ok' (workforce/credentials.json);
 //                a worker with none on file is absent → false → soft warning
-//   safetyDocs = null (#219 not built → engine renders "not tracked", never green)
+//   safetyDocs = byWorkerId acknowledged EVERY current safety doc (jobs/<id>/
+//                safety-docs.json + safety-acks.json, #219); no current docs →
+//                satisfied (nothing to acknowledge), like induction-not-required
 //   manualItems / override from jobs/<id>/prestart.json (defaults seeded in-memory)
 //
 // Admin-tier only (v1): LH/field/client get no panel (the hub hides the card on
@@ -45,6 +47,12 @@ function prestartKey(jobId) {
 }
 function inductionsKey(jobId) {
   return 'jobs/' + jobId + '/inductions.json';
+}
+function safetyDocsKey(jobId) {
+  return 'jobs/' + jobId + '/safety-docs.json';
+}
+function safetyAcksKey(jobId) {
+  return 'jobs/' + jobId + '/safety-acks.json';
 }
 
 /** Stored items if present, else the honest defaults (all un-ticked). */
@@ -96,13 +104,27 @@ async function buildSignals(jobId, job) {
   const licences = { byWorkerId: {} };
   for (const c of crew) licences.byWorkerId[c.id] = worst[c.id] === 'ok';
 
+  // Safety docs (#219): a worker is satisfied when they've acknowledged EVERY
+  // current safety doc. No current docs → nothing to acknowledge → satisfied (NOT
+  // null/"not tracked"), like induction-not-required. Inlines the pure
+  // src/domains/safety-docs allAcknowledgedByWorker (this handler is JS).
+  const safetyBlob = await readBlob(safetyDocsKey(jobId), { documents: [] });
+  const safetyAcks = await readBlob(safetyAcksKey(jobId), { acks: [] });
+  const currentSafety = (safetyBlob.documents || []).filter((d) => d.status === 'current');
+  const safetyDocs = { byWorkerId: {} };
+  for (const c of crew) {
+    safetyDocs.byWorkerId[c.id] = currentSafety.every((d) =>
+      (safetyAcks.acks || []).some((a) => a.docId === d.id && a.userId === c.id)
+    );
+  }
+
   const prestart = await readPrestart(jobId);
 
   return {
     crew,
     inductions,
     licences,
-    safetyDocs: null, // #219 not built — honest "not tracked", never faked
+    safetyDocs,
     manualItems: seededItems(prestart.items),
     override: prestart.override,
     inductionRequired: Boolean(job.inductionRequired),

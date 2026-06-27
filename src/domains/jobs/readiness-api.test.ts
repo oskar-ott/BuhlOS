@@ -8,7 +8,7 @@ import { DEFAULT_PRESTART_ITEMS } from "./readiness";
  *
  * Pinned promises:
  *   - GET (admin) returns crew, per-worker induction + licence signals,
- *     safetyDocs:null (#219 not built → "not tracked"), the manual checklist
+ *     safetyDocs byWorkerId (acked all current docs; satisfied when none), the manual checklist
  *     (defaults seeded un-ticked) and inductionRequired;
  *   - induction maps hasRecord; a worker with no licence on file reads NOT ok;
  *   - admin-tier only — field/LH callers 403 (the hub hides the card);
@@ -86,7 +86,7 @@ type Signals = {
   crew: Array<{ id: string; name: string }>;
   inductions: { byWorkerId: Record<string, boolean> } | null;
   licences: { byWorkerId: Record<string, boolean> } | null;
-  safetyDocs: unknown;
+  safetyDocs: { byWorkerId: Record<string, boolean> } | null;
   manualItems: Array<{ id: string; ticked: boolean; tickedBy: string | null }>;
   override: { reason: string; by: string } | null;
   inductionRequired: boolean;
@@ -118,13 +118,22 @@ beforeEach(() => {
       { jobs: [{ id: "j1", name: "Riverside", status: "active", inductionRequired: true }] },
     ],
     // u_elec is inducted; u_tradie is not.
-    ["jobs/j1/inductions.json", { records: [{ workerId: "u_elec", completedAt: "2026-06-01T00:00:00Z" }] }],
+    [
+      "jobs/j1/inductions.json",
+      { records: [{ workerId: "u_elec", completedAt: "2026-06-01T00:00:00Z" }] },
+    ],
     // u_elec holds a current electrical licence; u_tradie has none on file.
     [
       "workforce/credentials.json",
       {
         credentials: [
-          { id: "c1", userId: "u_elec", typeId: "electrical", label: "Electrical licence", expiryDate: "2099-12-31" },
+          {
+            id: "c1",
+            userId: "u_elec",
+            typeId: "electrical",
+            label: "Electrical licence",
+            expiryDate: "2099-12-31",
+          },
         ],
       },
     ],
@@ -163,7 +172,7 @@ afterEach(() => {
 });
 
 describe("GET — signal resolution", () => {
-  it("admin gets crew, per-worker induction + licence signals, null safetyDocs, defaults", async () => {
+  it("admin gets crew, per-worker induction + licence + safetyDocs signals, defaults", async () => {
     const res = await call(ADMIN, { query: { jobId: "j1" } });
     expect(res.statusCode).toBe(200);
     const s = signalsOf(res);
@@ -171,14 +180,35 @@ describe("GET — signal resolution", () => {
     expect(s.crew.map((c) => c.id).sort()).toEqual(["u_elec", "u_tradie"]);
     expect(s.inductions?.byWorkerId).toEqual({ u_elec: true, u_tradie: false });
     expect(s.licences?.byWorkerId).toEqual({ u_elec: true, u_tradie: false });
-    expect(s.safetyDocs).toBeNull(); // #219 not built — never faked
+    // #219: no safety docs on this job → nothing to acknowledge → satisfied.
+    expect(s.safetyDocs?.byWorkerId).toEqual({ u_elec: true, u_tradie: true });
     expect(s.inductionRequired).toBe(true);
     expect(s.manualItems.map((i) => i.id)).toEqual(DEFAULT_PRESTART_ITEMS.map((d) => d.id));
     expect(s.manualItems.every((i) => i.ticked === false)).toBe(true);
   });
 
+  it("safetyDocs reflects per-worker acknowledgement of CURRENT docs (#219)", async () => {
+    blob.set("jobs/j1/safety-docs.json", {
+      documents: [
+        { id: "sd_1", status: "current" },
+        { id: "sd_old", status: "superseded" },
+      ],
+    });
+    blob.set("jobs/j1/safety-acks.json", {
+      acks: [
+        { docId: "sd_1", userId: "u_elec" }, // acked the current doc → satisfied
+        { docId: "sd_old", userId: "u_tradie" }, // only acked a superseded version → outstanding
+      ],
+    });
+    const res = await call(ADMIN, { query: { jobId: "j1" } });
+    const s = signalsOf(res);
+    expect(s.safetyDocs?.byWorkerId).toEqual({ u_elec: true, u_tradie: false });
+  });
+
   it("induction reads satisfied for all crew when the job doesn't require it", async () => {
-    (blob.get("jobs.json") as { jobs: Array<{ id: string; inductionRequired: boolean }> }).jobs[0]!.inductionRequired = false;
+    (
+      blob.get("jobs.json") as { jobs: Array<{ id: string; inductionRequired: boolean }> }
+    ).jobs[0]!.inductionRequired = false;
     const s = signalsOf(await call(ADMIN, { query: { jobId: "j1" } }));
     expect(s.inductions?.byWorkerId).toEqual({ u_elec: true, u_tradie: true });
     expect(s.inductionRequired).toBe(false);
@@ -205,13 +235,19 @@ describe("POST — manual checklist + override persistence", () => {
     const item = signalsOf(res).manualItems.find((i) => i.id === "insurances")!;
     expect(item.ticked).toBe(true);
     expect(item.tickedBy).toBe("boss");
-    const stored = blob.get("jobs/j1/prestart.json") as { items: Array<{ id: string; ticked: boolean }> };
+    const stored = blob.get("jobs/j1/prestart.json") as {
+      items: Array<{ id: string; ticked: boolean }>;
+    };
     expect(stored.items.find((i) => i.id === "insurances")!.ticked).toBe(true);
     expect(auditEntries().some((e) => e.action === "readiness.item_ticked")).toBe(true);
   });
 
   it("un-tick clears the attribution", async () => {
-    await call(ADMIN, { method: "POST", query: { jobId: "j1" }, body: { action: "tick", itemId: "swms", ticked: true } });
+    await call(ADMIN, {
+      method: "POST",
+      query: { jobId: "j1" },
+      body: { action: "tick", itemId: "swms", ticked: true },
+    });
     const res = await call(ADMIN, {
       method: "POST",
       query: { jobId: "j1" },
@@ -233,8 +269,13 @@ describe("POST — manual checklist + override persistence", () => {
 
   it("override REQUIRES a reason; with one it persists + audits, and clears", async () => {
     expect(
-      (await call(ADMIN, { method: "POST", query: { jobId: "j1" }, body: { action: "override", reason: "   " } }))
-        .statusCode
+      (
+        await call(ADMIN, {
+          method: "POST",
+          query: { jobId: "j1" },
+          body: { action: "override", reason: "   " },
+        })
+      ).statusCode
     ).toBe(400);
 
     const set = await call(ADMIN, {
@@ -246,7 +287,11 @@ describe("POST — manual checklist + override persistence", () => {
     expect(signalsOf(set).override).toMatchObject({ reason: "client signed a waiver", by: "boss" });
     expect(auditEntries().some((e) => e.action === "readiness.overridden")).toBe(true);
 
-    const cleared = await call(ADMIN, { method: "POST", query: { jobId: "j1" }, body: { action: "clear-override" } });
+    const cleared = await call(ADMIN, {
+      method: "POST",
+      query: { jobId: "j1" },
+      body: { action: "clear-override" },
+    });
     expect(signalsOf(cleared).override).toBeNull();
     expect(auditEntries().some((e) => e.action === "readiness.override_cleared")).toBe(true);
   });

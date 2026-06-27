@@ -59,7 +59,13 @@ export const DEFAULT_PRESTART_ITEMS: ReadonlyArray<{ id: string; label: string }
 
 /** Seed a fresh prestart from the defaults (used by the API on first read). */
 export function defaultPrestartItems(): PrestartManualItem[] {
-  return DEFAULT_PRESTART_ITEMS.map((d) => ({ id: d.id, label: d.label, ticked: false, tickedBy: null, tickedAt: null }));
+  return DEFAULT_PRESTART_ITEMS.map((d) => ({
+    id: d.id,
+    label: d.label,
+    ticked: false,
+    tickedBy: null,
+    tickedAt: null,
+  }));
 }
 
 // ── Signals (resolved by the caller; an absent register is null) ──────────────
@@ -83,7 +89,7 @@ export interface ReadinessSignals {
   inductions: CrewRegisterSignal | null;
   /** #331 licence currency — null when absent. Optional signal → soft warning. */
   licences: CrewRegisterSignal | null;
-  /** #219 safety-doc acknowledgements — null until built → "not tracked". */
+  /** #219 safety-doc acknowledgements — byWorkerId acked all CURRENT docs; satisfied when none. */
   safetyDocs: CrewRegisterSignal | null;
   /** Manual checklist (prestart.json items). An unticked obligation is a blocker. */
   manualItems: ReadonlyArray<PrestartManualItem>;
@@ -128,7 +134,7 @@ function registerItem(
   label: string,
   signal: CrewRegisterSignal | null,
   crew: ReadonlyArray<CrewMember>,
-  gapStatus: "missing" | "warning",
+  gapStatus: "missing" | "warning"
 ): ReadinessItem {
   if (!signal) {
     return { key, label, status: "not_tracked", detail: `${label} — not tracked` };
@@ -169,13 +175,21 @@ function manualItem(item: PrestartManualItem): ReadinessItem {
 export function computeReadiness(signals: ReadinessSignals): ReadinessResult {
   const items: ReadinessItem[] = [
     registerItem("induction", "Site induction", signals.inductions, signals.crew, "missing"),
-    registerItem("safety_docs", "Safety docs acknowledged", signals.safetyDocs, signals.crew, "missing"),
+    registerItem(
+      "safety_docs",
+      "Safety docs acknowledged",
+      signals.safetyDocs,
+      signals.crew,
+      "missing"
+    ),
     registerItem("licences", "Licences current", signals.licences, signals.crew, "warning"),
     ...signals.manualItems.map(manualItem),
   ];
 
   const blockingCount = items.filter((i) => i.status === "missing").length;
-  const warningCount = items.filter((i) => i.status === "warning" || i.status === "not_tracked").length;
+  const warningCount = items.filter(
+    (i) => i.status === "warning" || i.status === "not_tracked"
+  ).length;
   const state: ReadinessState = blockingCount > 0 ? "no" : warningCount > 0 ? "warnings" : "yes";
 
   const override = signals.override && signals.override.reason ? signals.override : null;
