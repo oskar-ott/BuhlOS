@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, use, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   AlertOctagon,
@@ -46,10 +46,17 @@ import {
 import { useApplyRememberedFiltersOnce } from "@/lib/storage/use-remembered-filters";
 import { cn } from "@/lib/cn";
 
+type TaskCountMap = Record<string, { tasksTotal: number; tasksComplete: number }>;
+
 interface Props {
   jobs: ReadonlyArray<Job>;
   /** Admin-only: show the per-row "Build" action that opens the Job Builder. */
   canBuild?: boolean;
+  /** Perf: when the list is served from the fast statsOnly read (no areaGroups-
+   *  derived task counts), the "X/Y tasks" progress is STREAMED in via this promise
+   *  and hydrated behind the already-painted rows. Absent (flag-off / no stream) ⇒
+   *  the rows use the task counts already on the job objects. */
+  taskCountsPromise?: Promise<TaskCountMap>;
 }
 
 /** Per-device remembered default for this list (issue #216). Exported for
@@ -101,9 +108,15 @@ const SEARCH_URL_DEBOUNCE_MS = 250;
  *   src/app/v2/jobs/page.tsx — server component that hydrates this list
  *   src/domains/jobs/list-filter.ts — the pure filter matrix
  */
-export function JobsList({ jobs, canBuild = false }: Props) {
+export function JobsList({ jobs, canBuild = false, taskCountsPromise }: Props) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+
+  // Streamed task-progress (statsOnly list): starts empty, hydrated when the
+  // ?withStats read resolves (TaskCountsHydrator below). Additive — rows render
+  // immediately from statsOnly; the "X/Y tasks" line appears when this lands, so
+  // there is no flicker (health/chips come from statsOnly and never change).
+  const [streamedTaskCounts, setStreamedTaskCounts] = useState<TaskCountMap>({});
 
   // URL is the source of truth for the status filter (validated; unknown
   // values degrade to "all").
@@ -249,6 +262,11 @@ export function JobsList({ jobs, canBuild = false }: Props) {
 
   return (
     <div className="space-y-3">
+      {taskCountsPromise ? (
+        <Suspense fallback={null}>
+          <TaskCountsHydrator promise={taskCountsPromise} onResolved={setStreamedTaskCounts} />
+        </Suspense>
+      ) : null}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <label className="flex w-full max-w-md items-center gap-2 rounded-card border border-border bg-surface px-3 py-2 text-sm">
           <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
@@ -319,7 +337,12 @@ export function JobsList({ jobs, canBuild = false }: Props) {
         <ul className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised">
           {visible.map(({ job, health: jobHealth }) => (
             <li key={job.id}>
-              <JobRow job={job} health={jobHealth} canBuild={canBuild} />
+              <JobRow
+                job={job}
+                health={jobHealth}
+                canBuild={canBuild}
+                streamedCount={streamedTaskCounts[job.id]}
+              />
             </li>
           ))}
         </ul>
@@ -376,8 +399,26 @@ const HEALTH_TONE: Record<JobHealthLevel, "danger" | "warning" | "success" | "ne
   unknown: "neutral",
 };
 
-function JobRow({ job, health, canBuild }: { job: Job; health: JobHealth; canBuild: boolean }) {
+function JobRow({
+  job,
+  health,
+  canBuild,
+  streamedCount,
+}: {
+  job: Job;
+  health: JobHealth;
+  canBuild: boolean;
+  /** Streamed task progress (statsOnly list). Falls back to the counts on the
+   *  job object (full read / flag-off). */
+  streamedCount?: { tasksTotal: number; tasksComplete: number };
+}) {
   const topReason = health.reasons[0] ?? null;
+  // Task progress: prefer the job object's own counts (full read), else the
+  // streamed map. When neither is present yet the progress line simply omits.
+  const tasksTotal =
+    typeof job.statsTasksTotal === "number" ? job.statsTasksTotal : streamedCount?.tasksTotal;
+  const tasksComplete =
+    typeof job.statsTasksComplete === "number" ? job.statsTasksComplete : streamedCount?.tasksComplete;
   const caption = lastActivityCaption(job);
   const address = (job.siteAddress ?? "").trim();
   const evidencePending = job.statsEvidenceV2Pending ?? 0;
@@ -426,13 +467,13 @@ function JobRow({ job, health, canBuild }: { job: Job; health: JobHealth; canBui
               <span className="truncate">{address}</span>
             </p>
           ) : null}
-          {/* #198 canonical progress — counts first, % only with a total. */}
-          {typeof job.statsTasksTotal === "number" &&
-          typeof job.statsTasksComplete === "number" ? (
+          {/* #198 canonical progress — counts first, % only with a total. From the
+              job object (full read) or the streamed map (statsOnly list). */}
+          {typeof tasksTotal === "number" && typeof tasksComplete === "number" ? (
             <p className="mt-0.5 text-xs text-text-muted">
-              {job.statsTasksTotal === 0
+              {tasksTotal === 0
                 ? "No tasks yet"
-                : `${job.statsTasksComplete}/${job.statsTasksTotal} tasks · ${Math.round((job.statsTasksComplete / job.statsTasksTotal) * 100)}%`}
+                : `${tasksComplete}/${tasksTotal} tasks · ${Math.round((tasksComplete / tasksTotal) * 100)}%`}
             </p>
           ) : null}
           {job.ref ? (
@@ -548,4 +589,25 @@ function Card({ children }: { children: React.ReactNode }) {
   return (
     <div className="rounded-card border border-border bg-surface-raised">{children}</div>
   );
+}
+
+/** Resolves the streamed task-count map and lifts it into JobsList state exactly
+ *  once. `use()` suspends this leaf until the ?withStats read resolves (parent
+ *  <Suspense fallback={null}>), so the rows paint immediately from statsOnly and
+ *  the per-row "X/Y tasks" progress fills in after. Renders nothing. */
+function TaskCountsHydrator({
+  promise,
+  onResolved,
+}: {
+  promise: Promise<TaskCountMap>;
+  onResolved: (m: TaskCountMap) => void;
+}) {
+  const resolved = use(promise);
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current) return;
+    done.current = true;
+    onResolved(resolved);
+  }, [resolved, onResolved]);
+  return null;
 }

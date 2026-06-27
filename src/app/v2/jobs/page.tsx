@@ -59,7 +59,14 @@ export default async function AdminJobsPage() {
   const canBuild = canAccessSurface(session.role, "admin");
   const canCreate = canCreateJob(session.role);
 
+  // Perf: render the list from the fast statsOnly read (base + snag/evidence/ITP
+  // chips + health — all correct; only the areaGroups-derived "X/Y tasks" progress
+  // is absent) and STREAM the task-progress in behind it. When the flag is off the
+  // statsOnly URL falls through to the full withStats read, so the jobs already
+  // carry task counts and no stream is needed (byte-identical to before).
+  const summaryOn = /^(1|true|on)$/.test((process.env.FLAG_PHIL_JOBS_SUMMARY_READ ?? "").toLowerCase());
   const { jobs, fetchError } = await loadJobs(raw);
+  const taskCountsPromise = summaryOn ? loadTaskCounts(raw) : null;
 
   // Hide archived rows from the admin index — admins can still reach
   // archived jobs through legacy /admin/jobs.html when they need to.
@@ -115,7 +122,7 @@ export default async function AdminJobsPage() {
 
         <TestJobsCleanup jobs={deletableTestJobs} />
 
-        <JobsList jobs={visible} canBuild={canBuild} />
+        <JobsList jobs={visible} canBuild={canBuild} taskCountsPromise={taskCountsPromise ?? undefined} />
       </div>
     </AdminShell>
   );
@@ -131,7 +138,10 @@ async function loadJobs(cookieValue: string | undefined): Promise<{
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
 
   try {
-    const res = await fetch(`${base}/api/jobs?withStats=1`, {
+    // statsOnly: base + snag/evidence/ITP counts + health inputs, skipping the
+    // ~8s jobs.json monolith. The "X/Y tasks" progress (areaGroups-derived) is
+    // absent here and streamed in via loadTaskCounts. Flag-off → full read.
+    const res = await fetch(`${base}/api/jobs?withStats=1&statsOnly=1`, {
       cache: "no-store",
       headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
     });
@@ -149,5 +159,39 @@ async function loadJobs(cookieValue: string | undefined): Promise<{
       jobs: [],
       fetchError: err instanceof Error ? err.message : "Network error",
     };
+  }
+}
+
+/**
+ * Streamed task-progress for the list rows: the full ?withStats=1 read carries the
+ * areaGroups-derived statsTasksTotal/Complete that statsOnly omits. Resolves to a
+ * { [jobId]: { tasksTotal, tasksComplete } } map (only jobs with numeric counts);
+ * JobsList hydrates it in behind the already-painted rows. Fails soft to {} → the
+ * progress line just doesn't show (no fabricated count).
+ */
+async function loadTaskCounts(
+  cookieValue: string | undefined
+): Promise<Record<string, { tasksTotal: number; tasksComplete: number }>> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(`${base}/api/jobs?withStats=1`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (!res.ok) return {};
+    const parsed = JobListResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return {};
+    const out: Record<string, { tasksTotal: number; tasksComplete: number }> = {};
+    for (const j of parsed.data.jobs) {
+      if (typeof j.statsTasksTotal === "number" && typeof j.statsTasksComplete === "number") {
+        out[j.id] = { tasksTotal: j.statsTasksTotal, tasksComplete: j.statsTasksComplete };
+      }
+    }
+    return out;
+  } catch {
+    return {};
   }
 }
