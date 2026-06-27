@@ -14,11 +14,16 @@
 //     today:     { totalHours, status }            // null if no entry today
 //     thisWeek:  { totalHours, approvedHours, pendingHours,
 //                  daysWithEntries, topJobs: [...] },
-//     thisMonth: { totalHours, approvedHours }
+//     thisMonth: { totalHours, approvedHours },
+//     window:    { weeks: [{ weekStart, weekEnd, totalHours }],
+//                  jobs: [{ jobId, jobName, hours }],
+//                  totalHours, weekCount, windowStart, windowEnd }
 //   }
 //
 // All hours rounded to one decimal. Week = Mon→Sun in Sydney. Month =
-// calendar month of today's Sydney date.
+// calendar month of today's Sydney date. `window` is the self-only
+// trailing-weeks summary (#340) that powers the Phil "your work record"
+// card — same caller's-own entries, no userId param, read-only.
 //
 // Permissions:
 //   - Any authenticated user can read their own stats.
@@ -29,6 +34,10 @@
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { getCurrentUser } = require('./_lib/auth');
+const { buildMyRecord } = require('./_lib/my-record');
+
+// Trailing-weeks window for the Phil "your work record" card (#340).
+const RECORD_WEEKS = 6;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -124,10 +133,18 @@ module.exports = async (req, res) => {
     }
   }
 
-  // Resolve job names for top jobs.
+  // Trailing-weeks window (#340) — built from the SAME caller's-own entries.
+  // Built id-only first to learn which jobs to name, then once more with the
+  // resolved names; the maths is pure + cheap so the double pass is free.
+  const recordIds = buildMyRecord(entries, { todayIso: today, weeks: RECORD_WEEKS });
+
+  // Resolve job names for top jobs + the window's worked jobs in one read.
   let jobNameById = {};
-  const usedJobIds = Object.keys(weekByJob);
-  if (usedJobIds.length) {
+  const usedJobIds = new Set([
+    ...Object.keys(weekByJob),
+    ...recordIds.jobs.map((j) => j.jobId),
+  ]);
+  if (usedJobIds.size) {
     try {
       const jobsBlob = await readBlob('jobs.json', { jobs: [] });
       for (const j of (jobsBlob.jobs || [])) jobNameById[j.id] = j.name;
@@ -141,6 +158,12 @@ module.exports = async (req, res) => {
     }))
     .sort((a, b) => b.hours - a.hours)
     .slice(0, 5);
+
+  const record = buildMyRecord(entries, {
+    todayIso: today,
+    weeks: RECORD_WEEKS,
+    jobNameById,
+  });
 
   // This month.
   const inMonth = entries.filter(e =>
@@ -169,5 +192,6 @@ module.exports = async (req, res) => {
       totalHours:    Math.round(monthTotal * 10) / 10,
       approvedHours: Math.round(monthApproved * 10) / 10,
     },
+    window: record,
   });
 };
