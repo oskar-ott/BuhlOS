@@ -28,6 +28,22 @@ const { isAdminRole } = require('./auth');
 
 /** @type {Record<string, {description: string, default: boolean, target: 'global'|'admin-tier', expires: string}>} */
 const REGISTRY = {
+  // Phil FIELD jobs-summary READ path (perf, not Supabase): when on, the
+  // field/leading-hand job LIST GET (/api/jobs, no ?id, no ?withStats) is served
+  // from a small derived jobs-summary.json projection instead of reading+parsing
+  // the full jobs.json monolith (~3.5s). The summary is rebuilt lazily on read
+  // when stale (validated against jobs.json's blob uploadedAt) so it can never
+  // serve stale data, and any miss/error falls back to the full jobs.json read.
+  // Checked ENV-ONLY on the hot path (isFlagOnSync) so DARK adds ZERO cost — no
+  // flags.json read on the field path. Default OFF, unset in prod. Field LIST
+  // only; admin/client/single-job/withStats keep the full read. Pairs nothing;
+  // no-ops when supabase_read_phil_jobs is on (the two field overlays never stack).
+  phil_jobs_summary_read: {
+    description: 'Serve the FIELD job LIST read (/api/jobs) from a derived jobs-summary.json projection, freshness-gated with full jobs.json fallback (Phil LCP perf). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // Supabase per-domain dual-write (issue #152's rollout switch — the
   // importers land dark behind this).
   supabase_dual_write: {
@@ -219,6 +235,18 @@ async function isFlagOn(key) {
 }
 
 /**
+ * Cheap ENV-ONLY enablement check (no blob read), for hot paths that must add
+ * ZERO cost when the flag is dark. Returns true only when FLAG_<KEY> is set to a
+ * truthy value in the environment; an unset/blob-only override reads as false
+ * here. Use for perf gates where paying a flags.json read on every request just
+ * to discover "off" would defeat the optimisation. The async isFlagOn (env >
+ * blob > default) remains the general path.
+ */
+function isFlagOnSync(key) {
+  return parseEnv(process.env[envName(key)]) === true;
+}
+
+/**
  * Enablement + targeting for a viewer ({ role } or null for anonymous /
  * system callers — who only ever see 'global' flags).
  */
@@ -254,6 +282,7 @@ module.exports = {
   REGISTRY,
   FLAGS_KEY,
   isFlagOn,
+  isFlagOnSync,
   isFlagEnabled,
   flagsForViewer,
   listFlags,

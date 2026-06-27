@@ -5,6 +5,8 @@ const { redactJobForViewer } = require('./_lib/job-redaction');
 const { readAdminJobsWithPgOverlay, readPhilJobsWithPgOverlay } = require('./_lib/job-read-projection');
 const { recordJobsRead } = require('./_lib/job-read-diagnostics');
 const { mirrorJobToPg } = require('./_lib/jobs-mirror');
+const { isFlagOn, isFlagOnSync } = require('./_lib/feature-flags');
+const { readJobsSummary } = require('./_lib/jobs-summary');
 
 // Canonical job statuses — keep in sync with src/domains/jobs/schema.ts JOB_STATUSES.
 const VALID_JOB_STATUS = new Set(['active', 'complete', 'archived', 'on_hold', 'draft']);
@@ -230,6 +232,47 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
+
+  // Perf (Phil mobile LCP): serve the FIELD/leading-hand plain job LIST from the
+  // small derived jobs-summary.json instead of reading+parsing the full jobs.json
+  // monolith (~3.5s). ENV-gated (isFlagOnSync = no flags.json read) so when DARK
+  // this block is a cheap boolean and the #674 path below stays byte-identical.
+  // Scope: plain list only (no ?id, no ?withStats — /phil/jobs withStats keeps the
+  // full read; single-job needs full structure). Admin/client fall through. The
+  // summary is freshness-validated and falls back to the full read on ANY miss/error.
+  if (
+    req.method === 'GET' &&
+    !(req.query && req.query.id) &&
+    !(req.query && req.query.withStats === '1') &&
+    isFlagOnSync('phil_jobs_summary_read')
+  ) {
+    const me = await getCurrentUser(req);
+    if (!me) return res.status(401).json({ error: 'not authenticated' });
+    // Field/LH only, and never while the J7 PG overlay is on (the two field-path
+    // overlays must not stack). Clients use a different visibility filter (kept on
+    // the full read). Any failure → fall through to the authoritative full read.
+    if ((isFieldRole(me.role) || isLeadingHandRole(me.role)) && !(await isFlagOn('supabase_read_phil_jobs'))) {
+      try {
+        const { records } = await readJobsSummary();
+        // Same per-viewer visibility filter as the full list branch: the worker's
+        // assigned, non-draft, non-archived jobs.
+        const visible = records.filter(
+          (j) =>
+            (me.assignedJobIds || []).includes(j.id) &&
+            j.status !== 'draft' &&
+            j.status !== 'archived'
+        );
+        // Same redaction boundary as the full path (typeName already resolved in
+        // the record; money omitted from the record entirely).
+        return res.status(200).json({ jobs: visible.map((j) => redactJobForViewer(j, me.role)) });
+      } catch (e) {
+        console.error('jobs-summary read failed; falling back to full jobs.json', e && e.message);
+        // fall through to the full read below
+      }
+    }
+    // Not eligible (admin/client/PG-overlay on) or summary errored → fall through.
+    // getCurrentUser below is a cheap cache hit (users.json, 5s TTL).
+  }
 
   // Perf (Phil mobile LCP): the field/Phil GET path was gated on a chain of
   // INDEPENDENT cold blob reads run serially — users.json (auth, via

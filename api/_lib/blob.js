@@ -271,6 +271,28 @@ function setNoCache(res) {
   res.setHeader('Vercel-CDN-Cache-Control', 'no-store');
 }
 
+// Cheap freshness probe: the blob's `uploadedAt` (an ISO string) WITHOUT
+// fetching its content. Uses list({prefix}) — metadata only — and deliberately
+// does NOT go through readBlob's 5s content cache (which would mask a fresh
+// write). Returns null when the key is absent or list fails (caller treats null
+// as "can't confirm" → rebuild/fallback). Used by the jobs-summary read path to
+// validate a derived projection against its source jobs.json without paying the
+// multi-MB monolith fetch on the hot path.
+async function blobUploadedAt(key) {
+  try {
+    const { blobs } = await list({ prefix: key, token: token() });
+    const match = blobs.find(b => b.pathname === key);
+    if (!match || match.uploadedAt == null) return null;
+    // Normalise to an ISO string so callers compare like-for-like regardless of
+    // whether the SDK hands back a Date or a string.
+    return typeof match.uploadedAt === 'string'
+      ? match.uploadedAt
+      : new Date(match.uploadedAt).toISOString();
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   readBlob,
   readBlobFresh,
@@ -278,5 +300,6 @@ module.exports = {
   writeBlob,
   deleteBlob,
   setNoCache,
+  blobUploadedAt,
   BlobReadError,
 };

@@ -14,6 +14,7 @@
 const EXACT_STORES = [
   'users.json',
   'jobs.json',
+  'jobs-summary.json', // DERIVED field jobs-summary projection (Phil LCP perf); rebuilt from jobs.json on read, freshness-gated — disposable, but written by api/, so listed here for the guard
   'observations.json',
   'employees.json',
   'invites.json',
