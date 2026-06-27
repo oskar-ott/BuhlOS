@@ -162,6 +162,16 @@ export const JobSchema = z
     /** #200: scope of work (admin/LH read; redacted for field/client). */
     scopeOfWork: z.array(ScopeOfWorkItemSchema).optional(),
 
+    /** #228: client + contract context — admin-tier ONLY. Stripped by
+     *  job-redaction.js for non-admin reads and never reaches the Phil
+     *  preview (buildPhilPreview picks fields explicitly). contractValue
+     *  is the agreed figure in DOLLARS (also adminTier; the server ×100s it
+     *  for the cents-based profitability/closeout views); the other two are
+     *  the free-text reference + terms/notes that sit alongside it. */
+    clientReference: z.string().nullable().optional(),
+    contractValue: z.number().nullable().optional(),
+    contractNotes: z.string().nullable().optional(),
+
     // Feature flags.
     modules: JobModulesSchema.optional(),
 
@@ -360,6 +370,16 @@ const JobWritableFieldsSchema = z.object({
     )
     .max(50)
     .optional(),
+
+  /** #228: client + contract commercial context — admin-tier ONLY (the
+   *  server 403s a leadingHand PUT and job-redaction.js strips these from
+   *  every non-admin read). Unlike the other money fields these ARE
+   *  writable, but only via the dedicated ClientContractSection's own PUT;
+   *  buildUpdatePayload still omits them, so the wholesale builder save
+   *  never touches them. contractValue is DOLLARS (server ×100 → cents). */
+  clientReference: z.string().max(200).nullable().optional(),
+  contractValue: z.number().nonnegative().nullable().optional(),
+  contractNotes: z.string().max(4000).nullable().optional(),
 });
 
 /** POST /api/jobs body. `name` required; `id` optional (server slugifies
