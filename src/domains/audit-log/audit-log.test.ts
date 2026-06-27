@@ -140,13 +140,15 @@ describe("AuditLogEntrySchema", () => {
       "evidence.rejected",
       "evidence.reviewed",
       "evidence.unreviewed",
-      // #390: hours / time-entry decisions (the office approvals pass).
+      // #390: hours / time-entry events (approvals pass + worker submits).
       "hours.approved",
       "hours.bulk_approved",
       "hours.bulk_rejected",
       "hours.reject_undone",
       "hours.rejected",
       "hours.reopened",
+      "hours.resubmitted",
+      "hours.submitted",
       // #332: induction register (backfilled sorts before confirmed).
       "induction.backfilled",
       "induction.confirmed",
@@ -161,6 +163,8 @@ describe("AuditLogEntrySchema", () => {
       "itp.reopened",
       "itp.signed_off",
       "itp.submitted",
+      // #581: Job Builder + won-quote job creation.
+      "job.created",
       // #127/#333 leave lifecycle.
       "leave.cancelled",
       "leave.decided",
@@ -181,6 +185,11 @@ describe("AuditLogEntrySchema", () => {
       // when status/priority/assignment change).
       "observation.created",
       "observation.transitioned",
+      // #503: office proof sign-off (admin approve/send-back surface).
+      "proof.approved",
+      "proof.sent_back",
+      // #581: quote→job conversion lifecycle.
+      "quote.converted",
       // #371: pre-start readiness gate lifecycle (item tick / override / clear).
       "readiness.item_ticked",
       "readiness.overridden",
@@ -204,6 +213,8 @@ describe("AuditLogEntrySchema", () => {
       "invite",
       "itp_instance",
       "itp_template",
+      // #581: a created job.
+      "job",
       "leave",
       // PR 11: material requests as audit targets.
       "material_request",
@@ -211,6 +222,10 @@ describe("AuditLogEntrySchema", () => {
       "observation",
       // #371: per-job pre-start readiness records.
       "prestart",
+      // #503: per-task proof review records.
+      "proof_review",
+      // #581: a converted quote.
+      "quote",
       "snag",
       // #151: platform-level events (backup runs).
       "system",

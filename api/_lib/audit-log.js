@@ -44,6 +44,9 @@ const VALID_ACTIONS = new Set([
   'itp.signed_off',
   'itp.reopened',
   'itp.archived',
+  // #503 — office proof sign-off (the admin approve/send-back surface).
+  'proof.approved',
+  'proof.sent_back',
   // Onboarding (O1). One verb per admin action the bible §10 S11 requires
   // auditing: create / update / role-change / disable / invite-issue /
   // invite-revoke. `invite.issued` covers both first send and resend; the
@@ -127,12 +130,14 @@ const VALID_ACTIONS = new Set([
   'variation.created',
   'variation.transitioned',
   'observation.converted_to_variation',
-  // #390: hours / time-entry DECISIONS in the canonical audit journal so the
-  // cross-job activity feed (#220) and per-job history include the office
-  // approvals pass — half the office's day. Written best-effort (the payroll
-  // mutation never blocks on the audit). targetType 'time_entry'. Bulk actions
-  // write ONE summarising entry (metadata.entries carries the decided days), not
-  // N rows. Worker submit/resubmit land in a follow-on. Kept in sync with
+  // #390: hours / time-entry events in the canonical audit journal so the
+  // cross-job activity feed (#220) and per-job history include both the office
+  // approvals pass — half the office's day — and the worker submissions that
+  // feed it. Written best-effort (the payroll mutation never blocks on the
+  // audit). targetType 'time_entry'. Bulk actions write ONE summarising entry
+  // (metadata.entries carries the decided days), not N rows. submitted covers a
+  // first submission (draft→submitted or create-as-submitted); resubmitted is a
+  // rejected→submitted correction. Kept in sync with
   // src/domains/audit-log/schema.ts AUDIT_ACTIONS + api/audit-log.js.
   'hours.approved',
   'hours.rejected',
@@ -140,6 +145,8 @@ const VALID_ACTIONS = new Set([
   'hours.reopened',
   'hours.bulk_approved',
   'hours.bulk_rejected',
+  'hours.submitted',
+  'hours.resubmitted',
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to carry the direction);
@@ -156,6 +163,14 @@ const VALID_ACTIONS = new Set([
   'readiness.item_ticked',
   'readiness.overridden',
   'readiness.override_cleared',
+  // #581: job-creating actions in the canonical journal — a money-relevant gap
+  // (job creation left no trail). job.created fires on EVERY sanctioned job
+  // write (Job Builder POST + won-quote convert); quote.converted fires on the
+  // quote→job conversion (its own lifecycle event; its jobId is the NEW job so
+  // it also surfaces in that job's feed). Best-effort after the write. Kept in
+  // sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'job.created',
+  'quote.converted',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -193,6 +208,11 @@ const VALID_TARGET_TYPES = new Set([
   'daywork',
   // #371: per-job pre-start readiness (jobs/<id>/prestart.json).
   'prestart',
+  // #503: per-task proof review records (jobs/<id>/job-control.json proofReviews).
+  'proof_review',
+  // #581: a created job (job.created) and a converted quote (quote.converted).
+  'job',
+  'quote',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

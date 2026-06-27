@@ -83,6 +83,8 @@
 // for v1 — quoting is admin-facing). Tradies + clients always 403.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
+const { append: appendAuditLog } = require('./_lib/audit-log');
+const { buildJobCreatedEntry, buildQuoteConvertedEntry } = require('./_lib/job-create-audit');
 const { requireAuth, isAdminRole, isLeadingHandRole, isFieldRole } = require('./_lib/auth');
 // #244: won-quote conversion writes the job through THE sanctioned creator,
 // not a second raw writeBlob('jobs.json'). quoteToJobShape mirrors the pure
@@ -1330,6 +1332,17 @@ async function handleConvert(req, res, user, id) {
   data.quotes[qIdx].convertedJobId = jobId;
   data.quotes[qIdx].updatedAt      = now;
   await writeQuotes(data);
+
+  // #581: write the creation + conversion to the canonical audit journal — a
+  // money-relevant, job-creating action that previously left no trail. Best-effort
+  // after the writes so a journal failure never affects the conversion. job.created
+  // surfaces in the new job's feed; quote.converted records the quote's lifecycle.
+  await appendAuditLog(
+    buildJobCreatedEntry({ actor: user, job: newJob, source: 'quote_convert', fromQuoteId: quote.id }),
+  ).catch(() => {});
+  await appendAuditLog(
+    buildQuoteConvertedEntry({ actor: user, quote, jobId }),
+  ).catch(() => {});
 
   return res.status(201).json({
     jobId,

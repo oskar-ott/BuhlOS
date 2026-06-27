@@ -319,6 +319,16 @@ lists in the guard **and** §8 / §8.1 here in the same PR.
   **Defects** → `/defects`, the #414 cross-job register; per-job triage stays
   on the Jobs surface. The doc-13 `Reports` slot is now LIVE as **Reports** →
   `/reports`, the #316 owner numbers dashboard, in a bottom `Company` group.)
+- **BuhlOS mobile bottom tab bar** (`src/components/admin/AdminMobileTabBar.tsx`)
+  — the calm office navigation below `md` (the mobile-admin redesign; the
+  `AdminSidebar` is desktop-only `hidden md:flex`). Its `TAB_ITEMS` array carries
+  four real route tabs — **Today** `/command-centre`, **Jobs** `/v2/jobs`,
+  **Approvals** `/hours/approvals`, **People** `/employees` (all already in the
+  approved set above) — plus a **More** tab that is a `<button>` opening the
+  full-IA sheet (`AdminMoreSheet`: every `NAV_GROUPS` destination + Notification
+  settings + the mobile sign-out), so More carries no route. It **replaced** the
+  old AdminTopbar hamburger as the mobile nav. The route-ownership guard parses
+  `TAB_ITEMS` and treats every tab as live (mirrors the Phil tab-bar scan below).
 - **Phil bottom tab bar** (`src/components/phil/PhilTabBar.tsx`) — a 4-tab +
   centre Capture FAB layout. The `live` tabs (`LEFT_TABS` Today/Jobs, `RIGHT_TABS`
   Gear/More) may only link to approved Phil routes: `/phil/my-day`, `/phil/jobs`,

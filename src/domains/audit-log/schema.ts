@@ -58,6 +58,9 @@ export const AUDIT_ACTIONS = [
   "itp.signed_off",
   "itp.reopened",
   "itp.archived",
+  // #503 — office proof sign-off (the admin approve/send-back surface).
+  "proof.approved",
+  "proof.sent_back",
   // Onboarding (O1) — kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
   // One verb per admin action the bible §10 S11 requires auditing.
   // `invite.issued` covers first send + resend (metadata.resentCount).
@@ -119,14 +122,18 @@ export const AUDIT_ACTIONS = [
   "variation.created",
   "variation.transitioned",
   "observation.converted_to_variation",
-  // #390: hours / time-entry decisions (the office approvals pass). Bulk actions
-  // write one summarising entry. Kept in sync with api/_lib/audit-log.js.
+  // #390: hours / time-entry events. The office approvals pass (bulk actions
+  // write one summarising entry) plus the worker submissions that feed it —
+  // submitted (first submission) + resubmitted (rejected→submitted correction).
+  // Kept in sync with api/_lib/audit-log.js.
   "hours.approved",
   "hours.rejected",
   "hours.reject_undone",
   "hours.reopened",
   "hours.bulk_approved",
   "hours.bulk_rejected",
+  "hours.submitted",
+  "hours.resubmitted",
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to); daywork.amended when a
@@ -142,6 +149,11 @@ export const AUDIT_ACTIONS = [
   "readiness.item_ticked",
   "readiness.overridden",
   "readiness.override_cleared",
+  // #581: job-creating actions. job.created on every sanctioned job write (Job
+  // Builder POST + won-quote convert); quote.converted on the quote→job
+  // conversion. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
+  "job.created",
+  "quote.converted",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -172,6 +184,11 @@ export const AUDIT_TARGET_TYPES = [
   "daywork",
   // #371: per-job pre-start readiness (jobs/<id>/prestart.json).
   "prestart",
+  // #503: per-task proof review records (jobs/<id>/job-control.json proofReviews).
+  "proof_review",
+  // #581: a created job (job.created) and a converted quote (quote.converted).
+  "job",
+  "quote",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

@@ -66,7 +66,9 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         activeFor: ["/command-centre"],
       },
       {
-        label: "Observations",
+        // "From site" — the field-to-office inbox (the route + API keep the
+        // /observations name; only the user-facing label reads "From site").
+        label: "From site",
         href: "/observations" as Route,
         icon: Inbox,
         activeFor: ["/observations"],

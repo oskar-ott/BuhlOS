@@ -65,23 +65,28 @@ authored at.
 | Per-task proof summary + `eligibleForReview` read-model | **Merged** (#494) |
 | **Submit → approve/reject engine, keyed to the TASK INSTANCE** | **Merged** (#544). `ProofReview` / `applyProofReview` / `writeProofReview` (`src/server/job-control/proof-review.ts`) — keyed by `taskRefKey` (cross-task isolation), revision-guarded, submit ≠ approve, approve/reject admin-only, resubmit clears stamps. |
 | **Phil submit-for-review surface** | **Merged** (#546). Worker submits a task's captured proof; sees captured · ready · submitted · approved · rejected (`PhilJobAreaDetail.tsx`). |
-| **Admin approve/reject SURFACE** | **NOT built.** No office UI to approve/reject a submitted task's proof — `ProofReview` approve/reject is reachable only via the server engine/API. |
+| **Admin approve/reject SURFACE** | **Built behind a flag** (#503, mobile-admin redesign). A cross-job "Proof to sign off" read-model (`src/server/job-control/proof-queue.ts`) + the office `ProofReviewQueue` UI (`src/components/admin/ProofReviewQueue.tsx`) surface submitted proof on the Command Centre, wired to the EXISTING `applyProofReview`/`writeProofReview` engine (no new write path) — approve / send-back(reason), submitter ≠ approver, revision-guarded, audit-logged (`proof.approved` / `proof.sent_back`). Gated by the admin-tier `admin_proof_review` flag (default off); the field submit path is unaffected. Renders at whatever granularity each requirement was authored — **package-level by default in prod** (it does NOT claim universal per-task proof). |
 | The original package-granular review PR | **#495 — OPEN, PARKED, superseded.** It keyed review by `workPackageId` at package granularity; #544 re-keyed the same loop to the task instance instead. Do not merge #495 for its approval semantics. |
 
-## Recommendation — #503: the identity moved; the admin surface is the open call
+## #503 — the admin approve/reject surface (shipped behind a flag)
 
 The earlier recommendation was to pause admin review/approval until proof keying
 moved to canonical task identity. **That move has happened:** #544's `ProofReview`
 is keyed to the task instance (`taskRefKey`), not the work package, and the Phil
-submit surface (#546) drives it. So the concern that approval would entrench
-*package* granularity is resolved — the engine is per-task.
+submit surface (#546) drives it.
 
-**What remains for #503** is a product decision, not an identity one: whether to
-build the **admin approve/reject surface** now (the engine + independence rule
-already exist) or keep approval server-side until the field validates the submit
-loop. Until that surface ships, **do not document admin proof approval as
-available to office users.** **#495 stays parked** (its package-granular approach
-is superseded by #544); close or repurpose it rather than merging its semantics.
+**#503 now ships that office surface, dark behind `admin_proof_review`** (admin
+tier, default off): a cross-job submitted-proof read-model
+(`src/server/job-control/proof-queue.ts`) feeds a "Proof to sign off" queue on the
+Command Centre (`src/components/admin/ProofReviewQueue.tsx`), with approve /
+send-back(reason) wired to the existing `writeProofReview` engine — no new write
+path, the independence rule + revision guard enforced server-side, and an audit
+entry (`proof.approved` / `proof.sent_back`) on each sign-off. It renders at
+**package-level granularity by default in prod** (most jobs author proof at the
+package, so task instances in an area share requirements + captures); it does NOT
+claim universal per-task proof. **#495 stays parked** (its package-granular review
+approach is superseded by #544); close or repurpose it rather than merging its
+semantics.
 
 ## Supabase read-cutover status (where this fits the migration)
 
@@ -102,6 +107,10 @@ approve/reject decision. See
   not a parallel model.
 - **Not** a claim that every job's proof is per-task — it is **package-level by
   default**; per-task is opt-in per authored requirement.
-- **Not** a claim that an **admin approve/reject UI** exists — it does **not** on
-  `main`. The per-task review *engine* (#544) and the *worker* submit surface
-  (#546) do; the office approval surface does not.
+- The **admin approve/reject UI** now exists (#503) but is **flag-gated**
+  (`admin_proof_review`, admin-tier, default off): the per-task review *engine*
+  (#544), the *worker* submit surface (#546) and the *office* approve/send-back
+  surface (the Command Centre "Proof to sign off" queue) are all present. The
+  office surface reuses the engine — it adds no second approval mechanism — and
+  renders proof at **package-level granularity by default in prod**, never
+  claiming universal per-task proof.

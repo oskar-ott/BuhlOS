@@ -78,6 +78,10 @@ const VALID_TARGET_TYPES = new Set([
   // #390: hours / time-entry decisions — the read endpoint must accept it so the
   // per-job feed and history filters surface the office approvals pass.
   'time_entry',
+  // #581: a created job + a converted quote — so the per-job feed and the quote's
+  // / job's row-history can filter and surface the creation trail.
+  'job',
+  'quote',
 ]);
 const MAX_MONTHS = 12;
 const DEFAULT_MONTHS = 2;

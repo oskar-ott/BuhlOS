@@ -42,15 +42,19 @@ describe("submitProofForReview / postProofReview", () => {
   });
 
   it("maps not-actionable reasons to invalid", async () => {
-    for (const reason of ["missing", "no_review", "not_submitted", "already_submitted", "self_review", "reason_required"]) {
+    for (const reason of ["missing", "no_review", "not_submitted", "already_submitted", "reason_required"]) {
       expect((await submitProofForReview(INPUT, fakeFetch(409, { ok: false, reason }))).kind).toBe("invalid");
     }
     expect((await submitProofForReview(INPUT, fakeFetch(404, { ok: false, reason: "missing" }))).kind).toBe("invalid");
   });
 
-  it("maps 401/403 to unauthorized and other failures to error", async () => {
+  it("maps 401/403 and the self-review independence block to unauthorized; other failures to error", async () => {
     expect((await submitProofForReview(INPUT, fakeFetch(401, {}))).kind).toBe("unauthorized");
     expect((await submitProofForReview(INPUT, fakeFetch(403, {}))).kind).toBe("unauthorized");
+    // #503 independence rule — a reviewer can't sign off proof they captured.
+    expect(
+      (await submitProofForReview(INPUT, fakeFetch(409, { ok: false, reason: "self_review" }))).kind,
+    ).toBe("unauthorized");
     expect((await submitProofForReview(INPUT, fakeFetch(500, { ok: false }))).kind).toBe("error");
   });
 

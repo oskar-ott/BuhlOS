@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AdminSidebar } from "./AdminSidebar";
 import { AdminTopbar } from "./AdminTopbar";
+import { AdminMobileTabBar } from "./AdminMobileTabBar";
 import { CommandPalette } from "./CommandPalette";
 import { PwaRegistrar } from "@/components/pwa/PwaRegistrar";
 
@@ -36,6 +37,11 @@ export function AdminShell({ children, title, breadcrumb }: AdminShellProps) {
             away; min-h-0 lets this flex child shrink below content so its own
             overflow-y engages. */}
         <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
+        {/* Mobile-only bottom tab bar (md:hidden) — the calm office nav below
+            md, where AdminSidebar is hidden. A flex sibling of <main> (mirrors
+            PhilShell) so it reserves its own space rather than overlaying the
+            scroll region; gone entirely on desktop. */}
+        <AdminMobileTabBar />
       </div>
       <CommandPalette />
       <PwaRegistrar />

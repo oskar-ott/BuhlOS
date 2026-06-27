@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Phone } from "lucide-react";
 import { Drawer } from "@/components/ui/Drawer";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -98,7 +99,23 @@ export function EmployeeDetailDrawer({
             <DetailField label="Role" value={`${displayRoleLabel(employee.role)}${apprentice}`} />
             <DetailField label="Surface" value={appAccessLabel(employee.appAccess)} />
             <DetailField label="Email" value={employee.email || "—"} />
-            <DetailField label="Mobile" value={employee.phone || "none"} muted={!employee.phone} />
+            {/* Mobile — a one-tap call when a number is on file (the field
+                "call button"; the on-site roster the redesign mock shows has no
+                company-wide source, so presence/hours-today are not faked). */}
+            <div className="rounded-card border border-border bg-surface px-3 py-2">
+              <div className="font-mono text-[10px] uppercase tracking-wider text-text-muted">Mobile</div>
+              {employee.phone ? (
+                <a
+                  href={`tel:${employee.phone.replace(/\s+/g, "")}`}
+                  className="mt-0.5 inline-flex items-center gap-1.5 break-words text-sm font-medium text-state-info underline decoration-accent-yellow decoration-2 underline-offset-2"
+                >
+                  <Phone aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                  {employee.phone}
+                </a>
+              ) : (
+                <div className="mt-0.5 text-sm text-text-muted">none</div>
+              )}
+            </div>
             <DetailField label="Jobs assigned" value={String(row.jobsCount)} muted={row.jobsCount === 0} />
             <DetailField label="Gear assigned" value={row.gearCount > 0 ? String(row.gearCount) : "none"} muted={row.gearCount === 0} />
           </section>

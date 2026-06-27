@@ -36,11 +36,21 @@ import {
 import { hasSiteContext, statusLabel, statusTone } from "@/domains/jobs/format";
 import { isVisibleToField, summariseStructure } from "@/domains/jobs/builder";
 import type { Job } from "@/domains/jobs/types";
+import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
+import { JobViewToggle } from "@/components/admin/JobViewToggle";
+import { JobFieldView } from "@/components/admin/JobFieldView";
+import type { PhilJobDataForCommand } from "@/domains/phil/job-command-input";
+import { SnagListResponseSchema } from "@/domains/snags/schema";
+import { ITPListResponseSchema } from "@/domains/itp/schema";
+import { DocumentListResponseSchema } from "@/domains/documents/schema";
+import { TagListResponseSchema } from "@/domains/tags/schema";
+import { parseJobTaskState } from "@/domains/jobs/taskState";
 
 export const dynamic = "force-dynamic";
 
 interface PageParams {
   params: Promise<{ jobId: string }>;
+  searchParams: Promise<{ view?: string }>;
 }
 
 /**
@@ -77,8 +87,9 @@ interface PageParams {
  *       same sections (with UC stubs)
  *   docs/rebuild-audit/35-current-product-state-audit.md §7.2 + §13
  */
-export default async function AdminJobInterfacePage({ params }: PageParams) {
+export default async function AdminJobInterfacePage({ params, searchParams }: PageParams) {
   const { jobId } = await params;
+  const { view } = await searchParams;
 
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -92,6 +103,14 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
     redirect("/v2/login");
   }
   const canBuild = canAccessSurface(session.role, "admin");
+
+  // Office / Field view toggle (mobile-admin redesign, flagged). Resolve the
+  // flag server-side and pass a boolean down; the client never reads it. The
+  // selected view is URL-driven (?view=field) so the server render is
+  // authoritative. Field view = an admin-side, read-only render of the Phil
+  // job command model.
+  const showFieldView = await isFlagEnabled("admin_job_field_view", session);
+  const activeView: "office" | "field" = showFieldView && view === "field" ? "field" : "office";
 
   const [data, inductions, readiness] = await Promise.all([
     loadJobInterface(raw, jobId),
@@ -154,6 +173,12 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
 
   const job = result.job;
 
+  // Load the Phil sub-resources ONLY when the Field view is selected (and the
+  // flag is on) — Office view keeps its existing cost. Each read degrades to an
+  // honest loadError flag (the command model then says "unknown", never a
+  // false 0).
+  const fieldData = activeView === "field" ? await loadFieldViewData(raw, job) : null;
+
   return (
     <AdminShell
       title={job.name}
@@ -171,6 +196,13 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
             so ⌘K can offer a one-keystroke jump back. Renders nothing. */}
         <RecentItemTracker path={`/v2/jobs/${job.id}`} title={job.name} type="job" />
         <JobHeaderCard job={job} />
+        {/* Office / Field view toggle (flagged). Field view = read-only admin
+            render of the Phil job command model (what the crew sees). */}
+        {showFieldView ? <JobViewToggle jobId={job.id} current={activeView} /> : null}
+        {activeView === "field" && fieldData ? (
+          <JobFieldView data={fieldData} />
+        ) : (
+        <>
         <JobOverviewSummary job={job} />
         {/* #200: the agreed scope, read-only. Field/client payloads never
             carry the field (server redaction), so this renders for the
@@ -218,6 +250,8 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
         <JobTagsSummary job={job} />
         {hasSiteContext(job) ? <SiteContextCard job={job} /> : null}
         <JobInterfaceSectionNav job={job} />
+        </>
+        )}
       </div>
     </AdminShell>
   );
@@ -511,4 +545,89 @@ async function loadJobReadiness(
   } catch (err) {
     return { result: empty(), error: err instanceof Error ? err.message : "network error" };
   }
+}
+
+/**
+ * Load the Phil sub-resources the Field view's command model reads (the same
+ * GETs the /phil/jobs/[jobId] page uses). Each is best-effort: a failed list
+ * sets the matching loadError flag so the command model reports "unknown"
+ * rather than a misleading 0 (P7). Only called when the Field view is selected.
+ */
+async function loadFieldViewData(
+  cookieValue: string | undefined,
+  job: Job
+): Promise<PhilJobDataForCommand> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  const enc = encodeURIComponent(job.id);
+  const init = {
+    cache: "no-store" as const,
+    headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+  };
+
+  const [snagsRes, itpsRes, plansRes, tagsRes, dataRes] = await Promise.allSettled([
+    fetch(`${base}/api/snags?jobId=${enc}`, init),
+    fetch(`${base}/api/job-itps?jobId=${enc}`, init),
+    fetch(`${base}/api/plans?jobId=${enc}`, init),
+    fetch(`${base}/api/tags?jobId=${enc}`, init),
+    fetch(`${base}/api/data?jobId=${enc}`, init),
+  ]);
+
+  async function parseList<T>(
+    settled: PromiseSettledResult<Response>,
+    extract: (body: unknown) => T[] | null
+  ): Promise<{ items: T[]; error: boolean }> {
+    if (settled.status !== "fulfilled" || !settled.value.ok) return { items: [], error: true };
+    try {
+      const items = extract(await settled.value.json());
+      return items ? { items, error: false } : { items: [], error: true };
+    } catch {
+      return { items: [], error: true };
+    }
+  }
+
+  const snags = await parseList(snagsRes, (b) => {
+    const p = SnagListResponseSchema.safeParse(b);
+    return p.success ? [...p.data.snags] : null;
+  });
+  const itps = await parseList(itpsRes, (b) => {
+    const p = ITPListResponseSchema.safeParse(b);
+    return p.success ? [...p.data.instances] : null;
+  });
+  const documents = await parseList(plansRes, (b) => {
+    const p = DocumentListResponseSchema.safeParse(b);
+    return p.success ? [...p.data.plans] : null;
+  });
+  const tags = await parseList(tagsRes, (b) => {
+    const p = TagListResponseSchema.safeParse(b);
+    return p.success ? [...p.data.tags] : null;
+  });
+
+  // Task state is best-effort; on failure omit it so the model reports tasks as
+  // list-only (no fabricated completion), not "tracked: 0 done".
+  let taskState: PhilJobDataForCommand["taskState"];
+  try {
+    if (dataRes.status === "fulfilled" && dataRes.value.ok) {
+      taskState = parseJobTaskState(await dataRes.value.json());
+    }
+  } catch {
+    taskState = undefined;
+  }
+
+  return {
+    job,
+    snags: snags.items,
+    itps: itps.items,
+    documents: documents.items,
+    tags: tags.items,
+    taskState,
+    loadErrors: {
+      snags: snags.error,
+      itps: itps.error,
+      documents: documents.error,
+      tags: tags.error,
+    },
+  };
 }

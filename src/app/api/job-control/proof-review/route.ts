@@ -9,6 +9,7 @@ import {
   blobProofReviewDeps,
   writeProofReview,
 } from "@/server/job-control/proof-review";
+import { append as appendAuditLog } from "../../../../../api/_lib/audit-log.js";
 
 /**
  * POST /api/job-control/proof-review — task-instance proof review/approval (#503).
@@ -96,5 +97,33 @@ export async function POST(req: Request): Promise<NextResponse> {
     at: new Date().toISOString(),
     actor: session.userId ?? session.sub ?? null,
   });
+
+  // Best-effort audit of the office sign-off (#503). The field `submit` path has
+  // no office actor and is not audited here. A journal failure never blocks the
+  // sign-off (the parent write already succeeded).
+  if (result.ok && body.data.action !== "submit" && result.review) {
+    try {
+      await appendAuditLog({
+        action: body.data.action === "approve" ? "proof.approved" : "proof.sent_back",
+        actorId: session.userId ?? session.sub ?? "",
+        actorName: session.name ?? "",
+        actorRole: session.role ?? null,
+        jobId: body.data.jobId,
+        targetType: "proof_review",
+        targetId: result.review.id,
+        summary:
+          body.data.action === "approve"
+            ? "Approved task proof"
+            : "Sent task proof back for re-capture",
+        metadata: {
+          taskRef: body.data.taskRef,
+          ...(body.data.reason ? { reason: body.data.reason } : {}),
+        },
+      });
+    } catch {
+      /* best-effort — never block the sign-off */
+    }
+  }
+
   return NextResponse.json(result, { status: result.status });
 }
