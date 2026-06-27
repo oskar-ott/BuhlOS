@@ -75,6 +75,10 @@ export async function postProofReview(
     return { kind: "stale", currentRevision: b.currentRevision };
   }
   if (b.reason === "incomplete") return { kind: "incomplete" };
+  // The independence rule (a reviewer can't sign off proof they captured) is an
+  // authorization failure, not a "not actionable" one — surface it as such so
+  // the office UI can show the dedicated independence message (#503).
+  if (b.reason === "self_review") return { kind: "unauthorized" };
   if (
     res.status === 404 ||
     b.reason === "missing" ||
@@ -83,7 +87,6 @@ export async function postProofReview(
     b.reason === "not_submitted" ||
     b.reason === "already_submitted" ||
     b.reason === "invalid_task" ||
-    b.reason === "self_review" ||
     b.reason === "reason_required" ||
     b.reason === "unreadable"
   ) {

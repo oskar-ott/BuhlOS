@@ -58,6 +58,9 @@ export const AUDIT_ACTIONS = [
   "itp.signed_off",
   "itp.reopened",
   "itp.archived",
+  // #503 — office proof sign-off (the admin approve/send-back surface).
+  "proof.approved",
+  "proof.sent_back",
   // Onboarding (O1) — kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
   // One verb per admin action the bible §10 S11 requires auditing.
   // `invite.issued` covers first send + resend (metadata.resentCount).
@@ -176,6 +179,8 @@ export const AUDIT_TARGET_TYPES = [
   "daywork",
   // #371: per-job pre-start readiness (jobs/<id>/prestart.json).
   "prestart",
+  // #503: per-task proof review records (jobs/<id>/job-control.json proofReviews).
+  "proof_review",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

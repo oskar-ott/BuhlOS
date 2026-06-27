@@ -6,11 +6,17 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { HoursApprovalsQueue } from "@/components/admin/HoursApprovalsQueue";
 import { HoursTabs } from "@/components/admin/HoursTabs";
+import { MobileApprovalsHub } from "@/components/admin/MobileApprovalsHub";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isAdminRole } from "@/lib/auth/roles";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
 import type { TimeEntry } from "@/domains/timesheets/types";
+import { ExpenseListResponseSchema } from "@/domains/expenses/schema";
+import { MaterialRequestListResponseSchema } from "@/domains/material-requests/schema";
+import { isOpenRequest } from "@/domains/material-requests/service";
+import { JobListResponseSchema } from "@/domains/jobs/schema";
+import { summariseItpReviewQueue } from "../../command-centre/itp-queue-card";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +43,10 @@ export default async function HoursApprovalsPage() {
     redirect("/v2/login");
   }
 
-  const { entries, fetchError } = await loadPendingQueue(raw);
+  const [{ entries, fetchError }, approvalsCounts] = await Promise.all([
+    loadPendingQueue(raw),
+    loadOtherApprovalCounts(raw),
+  ]);
 
   return (
     <AdminShell
@@ -51,6 +60,12 @@ export default async function HoursApprovalsPage() {
         </Link>
       }
     >
+      {/* Mobile-only consolidated triage of the OTHER day-to-day approvals
+          (expenses / ITPs / materials / dayworks / proof). Hours stay below as
+          the page's main, already-responsive content. */}
+      <div className="mx-auto mb-4 max-w-4xl">
+        <MobileApprovalsHub counts={approvalsCounts} />
+      </div>
       {/* Section tabs (#415) — navigation chrome only, above all content. */}
       <HoursTabs />
       <div className="mx-auto max-w-4xl space-y-4">
@@ -102,4 +117,66 @@ async function loadPendingQueue(cookieValue: string | undefined): Promise<{
       fetchError: err instanceof Error ? err.message : "Network error",
     };
   }
+}
+
+/**
+ * Counts for the mobile approvals triage — the OTHER day-to-day approval types
+ * (hours are this page's own queue). Each fetch is best-effort and degrades to
+ * 0 so a slow/failed source never blocks the hours queue. Real counts only (P7).
+ */
+async function loadOtherApprovalCounts(
+  cookieValue: string | undefined
+): Promise<{ expenses: number; itps: number; materials: number }> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  const init = {
+    cache: "no-store" as const,
+    headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+  };
+
+  async function count<T>(
+    url: string,
+    parse: (body: unknown) => T | null,
+    tally: (data: T) => number
+  ): Promise<number> {
+    try {
+      const res = await fetch(`${base}${url}`, init);
+      if (!res.ok) return 0;
+      const data = parse(await res.json());
+      return data ? tally(data) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  const [expenses, materials, itps] = await Promise.all([
+    count(
+      "/api/expenses?status=submitted",
+      (b) => {
+        const p = ExpenseListResponseSchema.safeParse(b);
+        return p.success ? p.data : null;
+      },
+      (d) => d.expenses.length
+    ),
+    count(
+      "/api/material-requests",
+      (b) => {
+        const p = MaterialRequestListResponseSchema.safeParse(b);
+        return p.success ? p.data : null;
+      },
+      (d) => d.requests.filter((r) => isOpenRequest(r.status)).length
+    ),
+    count(
+      "/api/jobs?withStats=1",
+      (b) => {
+        const p = JobListResponseSchema.safeParse(b);
+        return p.success ? p.data : null;
+      },
+      (d) => summariseItpReviewQueue(d.jobs.filter((j) => j.status !== "archived")).count
+    ),
+  ]);
+
+  return { expenses, itps, materials };
 }

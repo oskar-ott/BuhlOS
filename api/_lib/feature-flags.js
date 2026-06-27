@@ -199,6 +199,28 @@ const REGISTRY = {
     target: 'admin-tier',
     expires: '2026-09-30',
   },
+  // Office "Field view" of a job (mobile-admin redesign): when on, the admin
+  // job hub (/v2/jobs/[jobId]) offers an Office/Field segmented toggle whose
+  // Field view is a READ-ONLY admin render of the Phil job command model (what
+  // the crew sees on site). Admin-tier; resolved server-side and passed down as
+  // a boolean (the client never reads the flag). Default OFF, unset in prod.
+  admin_job_field_view: {
+    description: 'Show the Office/Field view toggle + read-only Phil job render on /v2/jobs/[jobId] (mobile-admin redesign).',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-09-25',
+  },
+  // Office "Proof to sign off" (#503): when on, the cross-job submitted-proof
+  // queue (a Command Centre card + an Approvals view) and the approve /
+  // send-back surface are shown to the admin tier, wired to the EXISTING
+  // proof-review engine. Admin-tier; resolved server-side. Default OFF, unset
+  // in prod. Gates only the OFFICE surface — the Phil submit path stays live.
+  admin_proof_review: {
+    description: 'Show the office Proof-to-sign-off approve/send-back surface + Command Centre queue (#503).',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-09-25',
+  },
 };
 
 const FLAGS_KEY = 'flags.json';

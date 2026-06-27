@@ -44,6 +44,9 @@ const VALID_ACTIONS = new Set([
   'itp.signed_off',
   'itp.reopened',
   'itp.archived',
+  // #503 — office proof sign-off (the admin approve/send-back surface).
+  'proof.approved',
+  'proof.sent_back',
   // Onboarding (O1). One verb per admin action the bible §10 S11 requires
   // auditing: create / update / role-change / disable / invite-issue /
   // invite-revoke. `invite.issued` covers both first send and resend; the
@@ -197,6 +200,8 @@ const VALID_TARGET_TYPES = new Set([
   'daywork',
   // #371: per-job pre-start readiness (jobs/<id>/prestart.json).
   'prestart',
+  // #503: per-task proof review records (jobs/<id>/job-control.json proofReviews).
+  'proof_review',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

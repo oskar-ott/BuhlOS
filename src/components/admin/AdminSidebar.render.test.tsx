@@ -33,7 +33,7 @@ describe("AdminSidebar (#187)", () => {
     }
     for (const label of [
       "Command centre",
-      "Observations",
+      "From site",
       "Material requests",
       "Quotes",
       "Defects",

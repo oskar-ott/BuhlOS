@@ -40,7 +40,7 @@
 > section originally bridged was deleted by the cutover (#376). Source of
 > truth for the groups:
 >
-> - **Today** — Command centre · Observations · Material requests
+> - **Today** — Command centre · From site (the field inbox; route stays `/observations`) · Material requests
 > - **Jobs** — Jobs (/v2/jobs) · Defects (/defects, #414) · ITP templates (/itp-templates)
 > - **Hours** — Hours (/hours) — ONE item per #415; Approvals + Weekly closeout are in-page tabs
 > - **People & gear** — Employees (/employees) · Gear (/gear)

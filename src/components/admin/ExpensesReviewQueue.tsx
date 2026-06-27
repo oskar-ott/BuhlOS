@@ -1,9 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Paperclip } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { Button } from "@/components/ui/Button";
+import { ExpenseDetailDrawer } from "./ExpenseDetailDrawer";
+import { ExpenseDeclineModal } from "./ExpenseDeclineModal";
 import { transitionExpense } from "@/domains/expenses/client";
 import {
   EXPENSE_CATEGORY_LABELS,
@@ -55,17 +58,25 @@ export function ExpensesReviewQueue({ initialExpenses, fetchError }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  // The receipt+summary detail drawer + the required-reason decline modal.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [declineTarget, setDeclineTarget] = useState<ExpenseItem | null>(null);
 
   const summary = useMemo(() => summariseExpenses(expenses), [expenses]);
   const rows = useMemo(() => {
     const filtered = filter === "all" ? expenses : expenses.filter((e) => e.status === filter);
     return sortForReview(filtered);
   }, [expenses, filter]);
+  // The drawer reads the LIVE item so a transition (from the row or the drawer)
+  // is reflected without a refetch.
+  const selected = selectedId ? (expenses.find((e) => e.id === selectedId) ?? null) : null;
 
-  async function act(item: ExpenseItem, to: ExpenseStatus) {
+  // One transition path for the row AND the drawer. Decline carries a required
+  // reason (from the modal); other moves take the optional inline note.
+  async function act(item: ExpenseItem, to: ExpenseStatus, reviewNoteOverride?: string) {
     setBusyId(item.id);
     setRowError((m) => ({ ...m, [item.id]: "" }));
-    const reviewNote = notes[item.id]?.trim() || undefined;
+    const reviewNote = reviewNoteOverride ?? (notes[item.id]?.trim() || undefined);
     const r = await transitionExpense({ id: item.id, status: to, reviewNote });
     setBusyId(null);
     if (r.ok) {
@@ -74,6 +85,23 @@ export function ExpensesReviewQueue({ initialExpenses, fetchError }: Props) {
     } else {
       setRowError((m) => ({ ...m, [item.id]: r.error.message || "Couldn't update — try again." }));
     }
+  }
+
+  // Decline always opens the required-reason modal (row + drawer both route
+  // 'rejected' here); every other transition goes straight through act().
+  function onAction(item: ExpenseItem, to: ExpenseStatus) {
+    if (to === "rejected") {
+      setDeclineTarget(item);
+    } else {
+      void act(item, to);
+    }
+  }
+
+  async function submitDecline(reason: string) {
+    const target = declineTarget;
+    if (!target) return;
+    await act(target, "rejected", reason);
+    setDeclineTarget(null);
   }
 
   return (
@@ -148,13 +176,20 @@ export function ExpensesReviewQueue({ initialExpenses, fetchError }: Props) {
                           {e.reviewNote ? (
                             <p className="mt-1 text-xs text-text-muted">Review note: {e.reviewNote}</p>
                           ) : null}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedId(e.id)}
+                            className="mt-1.5 inline-flex items-center gap-1.5 text-sm font-semibold text-state-info"
+                          >
+                            <Paperclip aria-hidden="true" className="h-3.5 w-3.5" />
+                            View receipt &amp; summary
+                          </button>
                         </div>
-                        <a
-                          href={e.receiptPhotoUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => setSelectedId(e.id)}
                           className="shrink-0"
-                          aria-label="Open receipt photo"
+                          aria-label="View receipt & summary"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
@@ -163,7 +198,7 @@ export function ExpensesReviewQueue({ initialExpenses, fetchError }: Props) {
                             className="h-16 w-16 rounded-card border border-border object-cover"
                             loading="lazy"
                           />
-                        </a>
+                        </button>
                       </div>
 
                       {actions.length > 0 ? (
@@ -182,7 +217,7 @@ export function ExpensesReviewQueue({ initialExpenses, fetchError }: Props) {
                                 size="sm"
                                 variant={to === "rejected" ? "secondary" : "primary"}
                                 disabled={busy}
-                                onClick={() => void act(e, to)}
+                                onClick={() => onAction(e, to)}
                               >
                                 {busy ? "Saving…" : ACTION_LABEL[to]}
                               </Button>
@@ -203,6 +238,24 @@ export function ExpensesReviewQueue({ initialExpenses, fetchError }: Props) {
           )}
         </>
       )}
+
+      {/* Receipt + summary detail (opens from a row); approve/decline route
+          through the same act() as the row, so list, roll-up and drawer stay in
+          sync. Decline always goes through the required-reason modal. */}
+      <ExpenseDetailDrawer
+        item={selected}
+        open={selected !== null}
+        busy={selected ? busyId === selected.id : false}
+        onClose={() => setSelectedId(null)}
+        onAction={onAction}
+      />
+      <ExpenseDeclineModal
+        open={declineTarget !== null}
+        item={declineTarget}
+        busy={declineTarget ? busyId === declineTarget.id : false}
+        onClose={() => setDeclineTarget(null)}
+        onSubmit={(reason) => void submitDecline(reason)}
+      />
     </div>
   );
 }

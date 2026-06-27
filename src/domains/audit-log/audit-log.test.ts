@@ -183,6 +183,9 @@ describe("AuditLogEntrySchema", () => {
       // when status/priority/assignment change).
       "observation.created",
       "observation.transitioned",
+      // #503: office proof sign-off (admin approve/send-back surface).
+      "proof.approved",
+      "proof.sent_back",
       // #371: pre-start readiness gate lifecycle (item tick / override / clear).
       "readiness.item_ticked",
       "readiness.overridden",
@@ -213,6 +216,8 @@ describe("AuditLogEntrySchema", () => {
       "observation",
       // #371: per-job pre-start readiness records.
       "prestart",
+      // #503: per-task proof review records.
+      "proof_review",
       "snag",
       // #151: platform-level events (backup runs).
       "system",

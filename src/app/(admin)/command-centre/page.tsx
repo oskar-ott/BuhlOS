@@ -22,8 +22,17 @@ import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { RefreshButton } from "@/components/ui/RefreshButton";
-import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { SESSION_COOKIE, decodeSessionCookie, verifyViaApi } from "@/lib/auth/session";
 import { isFlagEnabled, listFlags, isFlagOn } from "../../../../api/_lib/feature-flags.js";
+import { partOfDayForHour, firstNameFrom, hourInTimeZone } from "@/domains/phil/greeting";
+import { ExpenseListResponseSchema } from "@/domains/expenses/schema";
+import { MobileToday } from "./MobileToday";
+import { ProofReviewQueue } from "@/components/admin/ProofReviewQueue";
+import {
+  runProofQueue,
+  blobProofQueueDeps,
+  type ProofQueueItem,
+} from "@/server/job-control/proof-queue";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import {
   TimeEntryListResponseSchema,
@@ -109,6 +118,8 @@ export default async function CommandCentrePage() {
     observations,
     materialRequests,
     todayPulse,
+    expensesSubmitted,
+    displayName,
     hoursError,
     hoursRejectedError,
     hoursMissingError,
@@ -146,6 +157,16 @@ export default async function CommandCentrePage() {
   // the flags.json override turns it on, and never rendered to non-admin
   // tiers even then. The first consumer of the flag system is the flag
   // system's own ops surface.
+  // #503 — Proof to sign off (mobile-admin redesign, flagged admin-tier). When
+  // on, the cross-job submitted-proof queue is scanned server-side and shown as
+  // a Command Centre surface; dark (zero render, zero scan) when off.
+  const showProofReview = await isFlagEnabled("admin_proof_review", session);
+  let proofItems: ProofQueueItem[] = [];
+  if (showProofReview) {
+    const res = await runProofQueue(blobProofQueueDeps());
+    proofItems = res.ok ? res.items : [];
+  }
+
   const showFlagsReadout = await isFlagEnabled("admin_flags_readout", session);
   const flagStates = showFlagsReadout
     ? await Promise.all(
@@ -248,9 +269,81 @@ export default async function CommandCentrePage() {
       observationsError ||
       materialRequestsError);
 
+  // Mobile "Today" — a simpler projection of the SAME data for the < md home.
+  // Greeting: the cookie carries no name, so it's resolved from /api/auth?action=me
+  // (mirrors Phil My Day); fails soft to the impersonal part-of-day form.
+  const partOfDay = partOfDayForHour(hourInTimeZone(new Date(), BUSINESS_TIMEZONE));
+  const firstName = firstNameFrom(displayName);
+  const greeting = firstName ? `${partOfDay}, ${firstName}` : partOfDay;
+  const dateLabel = new Date().toLocaleDateString("en-AU", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: BUSINESS_TIMEZONE,
+  });
+  // Day-to-day approvals (hours excluded — they're a weekly closeout): the
+  // office queues that have a real approve action today.
+  // The "to approve" pulse routes to /hours/approvals — expenses + ITPs +
+  // materials. Proof-to-sign-off has its OWN section on Today (above), so it is
+  // not folded into this hub-bound count (it would mislead the deep-link).
+  const mobileApprovals = {
+    expenses: expensesSubmitted,
+    itps: itpReview.count,
+    materials: materialRequestCount,
+  };
+  const mobileAllClear =
+    exceptions.length === 0 &&
+    expensesSubmitted === 0 &&
+    itpReview.count === 0 &&
+    materialRequestCount === 0 &&
+    proofItems.length === 0 &&
+    hoursPending.length === 0 &&
+    !anySourceError &&
+    !todayPulseError;
+
   return (
     <AdminShell title="Command Centre">
-      <div className="mx-auto max-w-5xl space-y-6">
+      {/* #503 Proof to sign off — the highest-trust office action, so it leads
+          at all breakpoints. Flag-gated + admin-tier; dark (nothing here) when
+          off. Wired to the existing proof-review engine. */}
+      {showProofReview ? (
+        <section aria-label="Proof to sign off" className="mx-auto mb-6 max-w-5xl">
+          <h2 className="font-display text-sm uppercase tracking-wider text-text-muted">
+            Proof to sign off
+          </h2>
+          <p className="mb-3 mt-1 text-sm text-text-muted">
+            {proofItems.length > 0
+              ? `${proofItems.length} task${proofItems.length === 1 ? "" : "s"} with site photos waiting on you.`
+              : "Site photos a worker captured against required evidence land here for sign-off."}
+          </p>
+          <ProofReviewQueue initialItems={proofItems} />
+        </section>
+      ) : null}
+      {/* Mobile home — the calm single-screen "what needs me first?". Desktop
+          (the strip + 9-card grid + inbox below) is untouched, hidden < md. */}
+      <div className="md:hidden">
+        <MobileToday
+          greeting={greeting}
+          dateLabel={dateLabel}
+          todayStrip={todayStrip}
+          todayPulseError={todayPulseError}
+          jobsActive={todayPulse ? todayPulse.jobs.activeJobs : null}
+          pendingHours={hoursPending.length}
+          approvals={mobileApprovals}
+          exceptions={exceptions}
+          anySourceError={anySourceError}
+          errorMessage={
+            hoursError ??
+            hoursRejectedError ??
+            jobsError ??
+            observationsError ??
+            materialRequestsError
+          }
+          allClear={mobileAllClear}
+        />
+      </div>
+      {/* Desktop home — unchanged, hidden on phones (the mobile view above). */}
+      <div className="mx-auto hidden max-w-5xl space-y-6 md:block">
         {showFlagsReadout ? (
           <section
             aria-label="Active feature flags"
@@ -601,6 +694,10 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
   observations: ReadonlyArray<ObservationItem>;
   materialRequests: ReadonlyArray<MaterialRequestItem>;
   todayPulse: TodayPulseResponse | null;
+  /** Submitted expense claims awaiting review — the count for the mobile pulse. */
+  expensesSubmitted: number;
+  /** The admin's display name (cookie has none) — for the mobile greeting. */
+  displayName: string | null;
   hoursError: string | null;
   hoursRejectedError: string | null;
   hoursMissingError: string | null;
@@ -634,6 +731,8 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     obsResult,
     mrResult,
     todayPulseResult,
+    expensesResult,
+    profile,
   ] = await Promise.all([
     loadHoursByStatus(base, headersInit, "submitted"),
     loadHoursByStatus(base, headersInit, "rejected"),
@@ -642,7 +741,14 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     loadObservations(base, headersInit),
     loadMaterialRequests(base, headersInit),
     loadTodayPulse(base, headersInit),
+    loadExpensesSubmitted(base, headersInit),
+    // The greeting name — resolved from the authoritative /api/auth?action=me
+    // (the cookie carries no name). Fails soft to null → impersonal greeting.
+    cookieValue ? verifyViaApi(`${SESSION_COOKIE}=${cookieValue}`, base) : Promise.resolve(null),
   ]);
+
+  const displayName =
+    profile?.name?.trim() || profile?.username?.trim() || null;
 
   return {
     hoursPending: hoursResult.entries,
@@ -652,6 +758,8 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     observations: obsResult.observations,
     materialRequests: mrResult.requests,
     todayPulse: todayPulseResult.pulse,
+    expensesSubmitted: expensesResult.count,
+    displayName,
     hoursError: hoursResult.error,
     hoursRejectedError: hoursRejectedResult.error,
     hoursMissingError: hoursMissingResult.error,
@@ -721,6 +829,29 @@ async function loadHoursOverview(
       missing: [],
       error: err instanceof Error ? err.message : "Hours overview network error",
     };
+  }
+}
+
+/**
+ * Submitted expense claims awaiting review — the count for the mobile "to
+ * approve" pulse + the Approvals strip. Best-effort: a failure degrades to 0
+ * (the strip just shows fewer items) rather than blocking the page.
+ */
+async function loadExpensesSubmitted(
+  base: string,
+  headersInit: { cookie: string } | undefined
+): Promise<{ count: number; error: string | null }> {
+  try {
+    const res = await fetch(`${base}/api/expenses?status=submitted`, {
+      cache: "no-store",
+      headers: headersInit,
+    });
+    if (!res.ok) return { count: 0, error: `Expenses API returned ${res.status}` };
+    const parsed = ExpenseListResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { count: 0, error: "Unexpected expenses response shape" };
+    return { count: parsed.data.expenses.length, error: null };
+  } catch (err) {
+    return { count: 0, error: err instanceof Error ? err.message : "Expenses network error" };
   }
 }
 

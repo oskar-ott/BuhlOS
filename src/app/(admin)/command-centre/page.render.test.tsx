@@ -114,9 +114,19 @@ interface FetchFixtures {
   submittedEntries?: JsonBody[];
   pulse?: JsonBody;
   pulseStatus?: number;
+  /** Submitted expense claims (the mobile "to approve" pulse + Approvals strip). */
+  expenses?: JsonBody[];
+  /** Display name for the mobile greeting (resolved via /api/auth?action=me). */
+  meName?: string | null;
 }
 
-function stubFetch({ submittedEntries = [], pulse, pulseStatus = 200 }: FetchFixtures) {
+function stubFetch({
+  submittedEntries = [],
+  pulse,
+  pulseStatus = 200,
+  expenses = [],
+  meName = null,
+}: FetchFixtures) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: unknown) => {
@@ -132,6 +142,12 @@ function stubFetch({ submittedEntries = [], pulse, pulseStatus = 200 }: FetchFix
         const isSubmitted = url.includes("status=submitted");
         return jsonResponse({ entries: isSubmitted ? submittedEntries : [] });
       }
+      // /api/auth?action=me — the mobile greeting name. Must precede /api/jobs
+      // (neither contains the other, but keep the auth check explicit).
+      if (url.includes("/api/auth")) {
+        return jsonResponse({ user: meName ? { name: meName, role: "boss" } : null });
+      }
+      if (url.includes("/api/expenses")) return jsonResponse({ expenses });
       if (url.includes("/api/jobs")) return jsonResponse({ jobs: [] });
       if (url.includes("/api/observations")) return jsonResponse({ observations: [] });
       if (url.includes("/api/material-requests")) return jsonResponse({ requests: [] });
@@ -233,5 +249,26 @@ describe("/command-centre with the Today strip (#185)", () => {
     expect(html).toContain("Today’s pulse couldn’t load");
     // Queue cards still render their empty states.
     expect(html).toContain("No timesheets waiting for you.");
+  });
+
+  it("renders the mobile home (md:hidden) with greeting + pulse from the same data", async () => {
+    stubFetch({
+      submittedEntries: [timeEntry("t1")],
+      pulse: pulseBody({ submittedTotal: 8, crewOnSite: 2 }),
+      meName: "Dana Boss",
+    });
+    const html = await renderPage();
+
+    // The mobile column exists, hidden on desktop (CSS gate, still in the SSR).
+    expect(html).toContain("md:hidden");
+    // Greeting uses the resolved display name (part-of-day varies by clock).
+    expect(html).toContain("Dana");
+    expect(html).toContain("here’s what needs you");
+    // The navy pulse row's three honest segments.
+    expect(html).toContain("on the clock");
+    expect(html).toContain("logged today");
+    expect(html).toContain("to approve");
+    // The desktop tree is still present (wrapped hidden md:block).
+    expect(html).toContain("Needs your attention");
   });
 });
