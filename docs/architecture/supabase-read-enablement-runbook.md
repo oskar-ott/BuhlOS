@@ -94,9 +94,12 @@ evidence-import.js    → structure-sync-check.js   # evidence_files + evidence_
 hours-import.js + allocations-import.js → hours-sync-check.js
 ```
 
-- Run each first as its **dry-run** twin where one exists
-  (`structure-dry-run.js`, `hours-dry-run.js`, `task-projection-dry-run.js`) and
-  read the report before the real import.
+- **Dry-run before every real import** and read the report first:
+  `structure-dry-run.js` and `hours-dry-run.js` are dry-run twins of their imports;
+  `tasks-import.js` / `evidence-import.js` dry-run by **omitting `--write`** (they
+  apply only with `--write`). `task-projection-dry-run.js` is a separate, earlier
+  task-expansion validation (it checks the template→instance projection is clean),
+  not the dry-run of `tasks-import.js`.
 - **Gate 2a:** every sync-check reports **IN SYNC** (zero `only_in_blob` /
   `only_in_pg` / `mismatched`); advisors clean; row counts match the dry-run.
 
