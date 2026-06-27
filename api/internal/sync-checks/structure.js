@@ -79,14 +79,16 @@ async function handleStructureSyncCheck(req, res, deps = {}) {
   if (!env.SUPABASE_DB_URL) {
     return res.status(200).json({ ok: true, skipped: true, reason: 'supabase not configured' });
   }
-  // Structure drift is only actionable once PG is being mirrored. Run if EITHER
-  // the jobs/structure or the task dual-write is on.
-  const [jobsOn, tasksOn] = await Promise.all([
+  // Structure drift is only actionable once PG is being mirrored. The structure
+  // sync-check covers jobs/groups/areas/templates + tasks + evidence, so run if
+  // ANY of those dual-writes is on.
+  const [jobsOn, tasksOn, evidenceOn] = await Promise.all([
     flagOn('supabase_dual_write_jobs'),
     flagOn('supabase_dual_write_tasks'),
+    flagOn('supabase_dual_write_evidence'),
   ]);
-  if (!jobsOn && !tasksOn) {
-    return res.status(200).json({ ok: true, skipped: true, reason: 'structure/task dual-write disabled' });
+  if (!jobsOn && !tasksOn && !evidenceOn) {
+    return res.status(200).json({ ok: true, skipped: true, reason: 'structure/task/evidence dual-write disabled' });
   }
 
   try {

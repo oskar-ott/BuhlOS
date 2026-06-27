@@ -28,7 +28,7 @@ source of truth (that is a separate, later ADR — see "Out of scope").
 |---|---|---|---|
 | Jobs structure | `supabase_dual_write_jobs` (J8) | `supabase_read_jobs` (J6, admin) · `supabase_read_phil_jobs` (J7, field) | admin jobs probe (parity / faithful counts) |
 | Task status | `supabase_dual_write_tasks` (J9, cron every 10 min) | `supabase_read_admin_tasks` (J11) · `supabase_read_phil_tasks` (J10) | task-status probe (`readyForPromotion`) |
-| Evidence metadata | **import-only — no PG mirror yet** (see caveat) | `supabase_read_admin_evidence` · `supabase_read_phil_evidence` | evidence probe (`readyForOverlay`) |
+| Evidence metadata | `supabase_dual_write_evidence` (cron `/api/internal/mirror-evidence`, every 15 min, off the capture path) | `supabase_read_admin_evidence` · `supabase_read_phil_evidence` | evidence probe (`readyForOverlay`) |
 | Hours | `supabase_dual_write` (hours pilot) | `supabase_read_hours` | hours parity (`scripts/importers/hours-parity.js`) |
 | Connectivity | — | `supabase_read_health` (gates `GET /api/supabase-health`) | the health endpoint itself |
 
@@ -106,17 +106,21 @@ hours-import.js + allocations-import.js → hours-sync-check.js
 ### 2b. Turn on the dual-writers (so PG stays fresh as Blob is written)
 
 Enable, in Production: `supabase_dual_write_jobs`, `supabase_dual_write_tasks`
-(its reconcile cron drains every 10 min, off the request path), and the hours
-`supabase_dual_write`. These are best-effort and **never fail a Blob save**; a PG
-write error just leaves that record to the next sync/drift pass.
+(its reconcile cron drains every 10 min, off the request path),
+`supabase_dual_write_evidence` (its reconcile cron `/api/internal/mirror-evidence`
+drains every 15 min, off the field capture path), and the hours
+`supabase_dual_write`. These are best-effort and **never fail a Blob save / a field
+capture**; a PG write error just leaves that record to the next sync/drift pass.
 
-> **Evidence has no PG dual-write yet.** `api/evidence.js` writes evidence only to
-> Blob; nothing mirrors a new capture into `evidence_files`. So after the 2a
-> backfill, **evidence PG coverage decays** as the field captures more — those jobs
-> simply parity-fail and Blob-serve (safe, never stale). The evidence read overlay
-> is therefore "PG-served for un-changed jobs, Blob for the rest" until either an
-> evidence dual-write is built or `evidence-import.js` is re-run periodically. Treat
-> evidence's `readyForOverlay` as a point-in-time snapshot, not a standing guarantee.
+> **Evidence dual-write is cron-reconcile, batch-atomic.** `api/evidence.js`
+> (capture) is unchanged — it writes only to Blob; the `mirror-evidence` cron
+> reconciles evidence metadata into `evidence_files`/`evidence_links` off that path.
+> It reuses the importer's fail-closed writer, so an **unresolvable** evidence
+> coordinate (its area/task not yet mirrored) quarantines the **whole batch** for
+> that run (nothing written, reported in the cron summary) — rare, and safe (Blob
+> authoritative; the overlay just Blob-serves those jobs). Fix by ensuring structure
+> is mirrored first (`supabase_dual_write_jobs`/`_tasks` on), then the evidence
+> batch goes through. Binaries always stay in Blob (metadata only).
 
 - **Gate 2b:** make a small real edit in the office (e.g. rename a job / toggle a
   task / log an hour), wait for the mirror, re-run the relevant sync-check → still
