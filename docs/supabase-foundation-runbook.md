@@ -110,3 +110,9 @@ Foundation complete → the next slice is **`supabase_dual_write` behind the fla
 one domain at a time (hours first, per the dry-run parity), still dark by default.
 That is tracked separately (#152/#533) and is **not** part of standing up
 connectivity.
+
+Once the dual-write + read overlays are merged (they now are, all dark), the
+**operator** sequence to actually turn them on in production — backfill, enable
+dual-write, then flip the read flags tier-by-tier under the readiness probes, with
+instant rollback — lives in
+[architecture/supabase-read-enablement-runbook.md](architecture/supabase-read-enablement-runbook.md).
