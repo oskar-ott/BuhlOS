@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import Link from "next/link";
@@ -254,6 +254,14 @@ export function JobBuilderClient({
     const t = tabFromHash(typeof window !== "undefined" ? window.location.hash : null);
     if (t) setTab(t);
   }, []);
+  // Keep savedJob in sync with the server-provided job. A sibling section (e.g.
+  // ScopeOfWorkSection) can save + router.refresh(), handing down a fresh `job`
+  // prop; without this, its scopeOfWork edits wouldn't reach the review queue /
+  // chips until a hard reload. jobToForm ignores scopeOfWork, so a scope-only
+  // change leaves the basics/structure form and its dirty state untouched.
+  useEffect(() => {
+    setSavedJob(initialJob);
+  }, [initialJob]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedTick, setSavedTick] = useState(false);
@@ -446,6 +454,10 @@ export function JobBuilderClient({
   const [reviewIndex, setReviewIndex] = useState(0);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const reviewCleared = reviewSession.filter((c) => classifiedOverrides.has(c.id)).length;
+  // Each classify is a read-modify-write of the one reconciliation blob (no CAS).
+  // Serialise the confirms through a tail promise so a fast reviewer's writes
+  // can't interleave and clobber each other (last-write-wins lost update).
+  const confirmTail = useRef<Promise<unknown>>(Promise.resolve());
 
   function openReview() {
     setReviewSession(untriagedClauses);
@@ -455,21 +467,29 @@ export function JobBuilderClient({
   }
   function classifyInReview(clauseId: string, classification: ScopeClassification) {
     // Optimistic: record + advance so chips/counts update now; persist to the
-    // real reconciliation in the background. On failure revert the override —
-    // we never leave a green chip for a classification that didn't save.
+    // real reconciliation in the background, strictly serialised. On failure
+    // revert the override AND rewind to re-present the clause — we never leave a
+    // green chip, nor silently drop a clause, for a classification that didn't save.
     setClassifiedOverrides((m) => new Map(m).set(clauseId, classification));
     setReviewIndex((i) => i + 1);
     setReviewError(null);
-    void classifyScopeClause(savedJob.id, clauseId, classification).then((res) => {
-      if (!res.ok) {
-        setClassifiedOverrides((m) => {
-          const next = new Map(m);
-          next.delete(clauseId);
-          return next;
-        });
-        setReviewError(res.message);
-      }
-    });
+    const session = reviewSession;
+    confirmTail.current = confirmTail.current
+      .catch(() => {}) // a prior failure must not stall the chain
+      .then(() => classifyScopeClause(savedJob.id, clauseId, classification))
+      .then((res) => {
+        if (res && !res.ok) {
+          setClassifiedOverrides((m) => {
+            const next = new Map(m);
+            next.delete(clauseId);
+            return next;
+          });
+          const pos = session.findIndex((c) => c.id === clauseId);
+          if (pos >= 0) setReviewIndex((i) => Math.min(i, pos)); // re-present, never skip an unsaved line
+          const title = session.find((c) => c.id === clauseId)?.title ?? "that scope line";
+          setReviewError(`Couldn't save "${title}" — try again.`);
+        }
+      });
   }
 
   async function save() {

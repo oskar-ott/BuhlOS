@@ -91,8 +91,12 @@ export function ReviewQueue({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.repeat) return; // a held key acts once — never spam confirms / skip clauses
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) {
+        return;
+      }
       const k = e.key.toLowerCase();
       if (k === "escape") {
         e.preventDefault();
@@ -100,11 +104,16 @@ export function ReviewQueue({
         return;
       }
       if (!current) return;
-      if (k === " " || k === "n") {
+      // Never hijack Space while a control is focused — let the browser activate
+      // it (Space/Enter on a button). The letter shortcuts stay global so the
+      // keyboard-fast flow works from the card / rail.
+      const onControl = Boolean(target?.closest("button, a, [role='button']"));
+      if (k === "n" || (k === " " && !onControl)) {
         e.preventDefault();
         onSkip();
         return;
       }
+      if (k === " ") return;
       const opt = REVIEW_OPTIONS.find((o) => o.key === k);
       if (opt) {
         e.preventDefault();
@@ -130,7 +139,7 @@ export function ReviewQueue({
           role="progressbar"
           aria-valuenow={cleared}
           aria-valuemin={0}
-          aria-valuemax={total}
+          aria-valuemax={Math.max(total, 1)}
         >
           <div className={cn("h-full rounded-pill bg-brand-navy transition-all", barWidthClass(cleared, total))} />
         </div>
