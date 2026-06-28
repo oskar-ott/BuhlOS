@@ -126,7 +126,13 @@ module.exports = async (req, res) => {
       await writeEntry(userId, updated);
       await appendAudit(userId, entry.id, 'approved', me.id);
     } catch (e) {
-      failed.push({ userId, date, error: 'write failed: ' + (e.message || 'unknown') });
+      if (e && e.code === 'stale_write') {
+        // #157: edited concurrently between read and write — report it as a
+        // typed, retryable conflict (not a generic failure) so the caller knows.
+        failed.push({ userId, date, error: 'conflict — edited while approving; retry', code: 'conflict', currentRev: e.currentRev });
+      } else {
+        failed.push({ userId, date, error: 'write failed: ' + (e.message || 'unknown') });
+      }
       continue;
     }
     approved.push({ userId, date, totalHours: Number(entry.totalHours) || 0 });

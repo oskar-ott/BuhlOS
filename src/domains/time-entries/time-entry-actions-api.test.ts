@@ -353,6 +353,41 @@ describe("bulk approve/reject actions", () => {
     });
     expect(rejected.body).toMatchObject({ rejectedCount: 2, failedCount: 0 });
   });
+
+  it("bulk reject stamps rejectedBy + rejectedAt so the undo window + audit chain work (H3)", async () => {
+    const res = await call(bulkReject, "u_office", "office", {
+      defaultReason: "Fix the allocation",
+      entries: [{ userId: "u_field", date: TODAY }],
+    });
+    expect(res.body).toMatchObject({ rejectedCount: 1, failedCount: 0 });
+    const e = blob.get(ENTRY_PATH("u_field")) as {
+      status: string;
+      rejectedBy?: string;
+      rejectedAt?: string;
+    };
+    expect(e.status).toBe("rejected");
+    expect(e.rejectedBy).toBe("u_office"); // actor — was missing on the bulk path
+    expect(typeof e.rejectedAt).toBe("string"); // powers the 30s undo window
+  });
+
+  it("bulk approve/reject report a concurrent stale-write as a typed conflict, not a generic failure (H4)", async () => {
+    const blobExports = (requireFromHere.cache[blobPath] as NodeJS.Module).exports as {
+      writeBlob: { mockImplementationOnce: (fn: () => Promise<never>) => void };
+    };
+    // The next writeEntry hits a stale-write (concurrent edit between read+write).
+    blobExports.writeBlob.mockImplementationOnce(async () => {
+      throw Object.assign(new Error("stale"), { code: "stale_write", currentRev: "r9" });
+    });
+    const res = await call(bulkReject, "u_office", "office", {
+      defaultReason: "Fix it",
+      entries: [{ userId: "u_field", date: TODAY }],
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ rejectedCount: 0, failedCount: 1 });
+    const failed = (res.body as { failed: Array<{ code?: string; currentRev?: string }> }).failed[0]!;
+    expect(failed.code).toBe("conflict");
+    expect(failed.currentRev).toBe("r9");
+  });
 });
 
 describe("worker push deep links land on the live Phil surface", () => {
