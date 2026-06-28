@@ -32,7 +32,13 @@ import { z } from "zod";
  *   src/domains/timesheets/schema.ts — precedent (.passthrough + superRefine)
  */
 
-export const EVIDENCE_KINDS = ["photo", "note"] as const;
+// `test_result` (#517) is the companion proof minted for a structured electrical
+// TestRecord — a summary-only evidence row pointing at the numbers in
+// jobs/<jobId>/test-records.json via `testRecordId`. It rides the existing
+// evidence create path so the proof loop's single source of truth is unchanged
+// (extend, never fork): a real EvidenceItem flips a `test_result` required-evidence
+// item to met through the UNCHANGED evidence-link writer + isRequiredEvidenceMet.
+export const EVIDENCE_KINDS = ["photo", "note", "test_result"] as const;
 export const EvidenceKindSchema = z.enum(EVIDENCE_KINDS);
 
 export const EVIDENCE_STAGES = ["roughIn", "fitOff"] as const;
@@ -99,6 +105,12 @@ export const EvidenceItemSchema = z
     photoUrl: z.string().nullable().optional(),
     thumbnailUrl: z.string().nullable().optional(),
     note: z.string().nullable().optional(),
+
+    // #517 — for kind=test_result, the id of the structured TestRecord this proof
+    // summarises (jobs/<jobId>/test-records.json#records[].id). Null for
+    // photo/note. Optional so .passthrough() keeps every pre-#517 row valid with
+    // no migration.
+    testRecordId: z.string().nullable().optional(),
 
     // Capture metadata — server-set from session. clientCapturedAt is
     // optional client-supplied; used for idempotency / offline sync

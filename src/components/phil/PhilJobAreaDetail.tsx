@@ -47,7 +47,11 @@ import {
   proofSubmitMessage,
   type ProofSubmitStatus,
 } from "./jobControlProofReviewClient";
-import { summarisePhilTaskProof, type PhilTaskContext } from "@/domains/job-control/task-context";
+import {
+  summarisePhilTaskProof,
+  type PhilTaskContext,
+  type TaskContextEvidenceReq,
+} from "@/domains/job-control/task-context";
 import { taskRefKey } from "@/domains/job-control/spine";
 import type { ProofReview, TaskRef } from "@/domains/job-control/types";
 import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
@@ -103,7 +107,7 @@ interface Props {
   readinessByTaskId?: ReadonlyMap<string, PhilTaskReadiness>;
   /** Capture proof for a specific unmet requirement on a task. The parent fills
    *  the area/stage coordinate; the row adds `taskId`. Omitted ⇒ no affordance. */
-  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string; taskRef?: TaskRef }) => void;
+  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; kind: TaskContextEvidenceReq["kind"]; taskId: string; taskRef?: TaskRef }) => void;
   /** Flag a variation from a task's "stop — flag a variation first" warning
    *  (#368). The row supplies the task coordinate (`taskRef`) when `areaId` is
    *  known. Omitted ⇒ the warning stays text-only (today's behavior). */
@@ -484,7 +488,7 @@ function TaskRow({
   onToggle?: () => void;
   context?: PhilTaskContext;
   readiness?: PhilTaskReadiness;
-  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskId: string; taskRef?: TaskRef }) => void;
+  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; kind: TaskContextEvidenceReq["kind"]; taskId: string; taskRef?: TaskRef }) => void;
   onFlagVariation?: (trigger: { warningId: string; taskRef?: TaskRef }) => void;
   proofActionState?: Readonly<Record<string, ProofActionStatus>>;
   canCaptureProof?: boolean;

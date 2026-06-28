@@ -47,6 +47,8 @@ import type { ITPInstance } from "@/domains/itp/types";
 import type { Document } from "@/domains/documents/types";
 import { filterSpecsByArea, isCurrent } from "@/domains/documents/format";
 import { CaptureSheet } from "./CaptureSheet";
+import { PhilTestRecordCard, type TestRecordDraft } from "./PhilTestRecordCard";
+import { submitTestRecord } from "./testRecordClient";
 import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
 import { JobSnagsPanel } from "./JobSnagsPanel";
 import { JobItpPanel } from "./JobItpPanel";
@@ -295,6 +297,20 @@ export function PhilJobDetail({
   } | null>(null);
   // Per-requirement (requiredEvidenceId → status) capture/link feedback.
   const [proofStatus, setProofStatus] = useState<Record<string, ProofActionStatus>>({});
+
+  // #517 — the structured test-record sheet. Opened (instead of the photo/note
+  // CaptureSheet) when the tapped required-proof item is a `test_result`. Carries
+  // the same pending target so the minted evidence is linked through the EXISTING
+  // linkAndApply pathway. `saving` covers the whole save→mint→link round-trip.
+  const [testRecordOpen, setTestRecordOpen] = useState(false);
+  const [testRecordTarget, setTestRecordTarget] = useState<{
+    workPackageId: string;
+    requiredEvidenceId: string;
+    label?: string;
+    taskRef?: TaskRef;
+  } | null>(null);
+  const [testRecordSaving, setTestRecordSaving] = useState(false);
+  const [testRecordError, setTestRecordError] = useState<string | null>(null);
 
   // Worker-visible task state (areaId → stage → taskId → state). Seeded from
   // the server-loaded data blob; only ever advanced by a CONFIRMED
@@ -634,19 +650,110 @@ export function PhilJobDetail({
     [openQuickCapture],
   );
 
-  // Open the existing capture sheet scoped to a specific required-proof item.
-  // The captured evidence is then auto-linked in handleCaptured.
+  // Open the capture flow scoped to a specific required-proof item, routing on
+  // the requirement kind: a `test_result` opens the structured test-record sheet
+  // (#517); everything else opens the existing photo/note CaptureSheet. Both end
+  // by linking the saved proof through the SAME linkAndApply pathway.
   const handleCaptureProof = useCallback(
-    (target: { workPackageId: string; requiredEvidenceId: string; taskId: string; taskRef?: TaskRef }) => {
-      setPendingProofLink(target);
+    (target: {
+      workPackageId: string;
+      requiredEvidenceId: string;
+      kind: "photo" | "test_result" | "as_built" | "certificate";
+      taskId: string;
+      taskRef?: TaskRef;
+    }) => {
       setProofStatus((prev) => {
         const next = { ...prev };
         delete next[target.requiredEvidenceId];
         return next;
       });
+      if (target.kind === "test_result") {
+        setTestRecordError(null);
+        setTestRecordTarget({
+          workPackageId: target.workPackageId,
+          requiredEvidenceId: target.requiredEvidenceId,
+          ...(target.taskRef ? { taskRef: target.taskRef } : {}),
+        });
+        setTestRecordOpen(true);
+        return;
+      }
+      setPendingProofLink(target);
       setCaptureOpen(true);
     },
     [],
+  );
+
+  // Submit a structured test record: POST it (server re-derives pass/fail and
+  // mints the companion `test_result` evidence), then link the returned evidence
+  // id through the EXISTING linkAndApply — the requirement flips to met ONLY after
+  // that link route confirms (non-optimistic, the same rule photo proof uses).
+  const handleSubmitTestRecord = useCallback(
+    async (draft: TestRecordDraft) => {
+      const target = testRecordTarget;
+      if (!target || !jcRevision) return;
+      setTestRecordSaving(true);
+      setTestRecordError(null);
+
+      const result = await submitTestRecord({
+        jobId: job.id,
+        reportType: draft.reportType,
+        tester: draft.tester,
+        testedAt: draft.testedAt,
+        rows: draft.rows,
+        ...(target.taskRef
+          ? {
+              areaId: target.taskRef.areaId,
+              stage: target.taskRef.stage,
+              taskId: target.taskRef.taskId,
+            }
+          : {}),
+      });
+
+      if (result.kind !== "ok") {
+        setTestRecordSaving(false);
+        setTestRecordError(
+          result.kind === "unauthorized"
+            ? "You're not allowed to save a test on this job."
+            : "message" in result
+              ? result.message
+              : "Couldn't save the test. Try again.",
+        );
+        return;
+      }
+
+      // Link the minted evidence to the requirement — same pathway as photo proof.
+      const req = target.requiredEvidenceId;
+      setProofStatus((prev) => ({ ...prev, [req]: "saving" }));
+      const applied = await linkAndApply({
+        jobId: job.id,
+        workPackageId: target.workPackageId,
+        requiredEvidenceId: req,
+        evidenceId: result.evidenceId, // the REAL minted companion evidence id
+        expectedJobControlRevision: jcRevision,
+        ...(target.taskRef ? { taskRef: target.taskRef } : {}),
+      });
+      setTestRecordSaving(false);
+      if (applied.revision) setJcRevision(applied.revision);
+      if (applied.link) {
+        const link = applied.link;
+        setEvidenceLinks((prev) => [...prev, link]);
+        setProofStatus((prev) => {
+          const next = { ...prev };
+          delete next[req];
+          return next;
+        });
+        setTestRecordOpen(false);
+        setTestRecordTarget(null);
+        setCaptureBanner({ tone: "success", message: "Test recorded." });
+        window.setTimeout(() => setCaptureBanner(null), 1500);
+      } else if (applied.status) {
+        setProofStatus((prev) => ({ ...prev, [req]: applied.status! }));
+        // The numbers are saved; the link failed — keep the sheet open so the
+        // worker can retry without re-entering readings.
+        setTestRecordError("Test saved, but couldn't attach as proof. Try again.");
+      }
+    },
+    [testRecordTarget, jcRevision, job.id],
   );
 
   const handleCaptured = useCallback(
@@ -1123,6 +1230,20 @@ export function PhilJobDetail({
         }}
         onCaptured={handleCaptured}
         onFailed={handleCaptureFailed}
+      />
+
+      <PhilTestRecordCard
+        open={testRecordOpen}
+        jobName={job.name}
+        requirementLabel={testRecordTarget?.label}
+        saving={testRecordSaving}
+        errorMessage={testRecordError}
+        onClose={() => {
+          setTestRecordOpen(false);
+          setTestRecordTarget(null);
+          setTestRecordError(null);
+        }}
+        onSubmit={handleSubmitTestRecord}
       />
     </div>
   );
