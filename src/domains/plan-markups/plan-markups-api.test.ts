@@ -138,6 +138,23 @@ describe("create (POST) — management roles only", () => {
     expect(area.statusCode).toBe(200);
   });
 
+  it("#651 — accepts an arrow (2 points) and a text markup ({x,y} anchor)", async () => {
+    const arrow = await call({ method: "POST", userId: "u_admin", role: "admin", query: { jobId: "job-1" }, body: { planId: "plan-current", pageIndex: 0, type: "arrow", points: [{ x: 0.2, y: 0.2 }, { x: 0.8, y: 0.7 }] } });
+    expect(arrow.statusCode).toBe(200);
+    const am = (arrow.body as { markup: { type: string; points: unknown[] } }).markup;
+    expect(am.type).toBe("arrow");
+    expect(am.points).toHaveLength(2);
+
+    const text = await call({ method: "POST", userId: "u_admin", role: "admin", query: { jobId: "job-1" }, body: { planId: "plan-current", pageIndex: 0, type: "text", x: 0.5, y: 0.5, label: "GPO" } });
+    expect(text.statusCode).toBe(200);
+    expect((text.body as { markup: Record<string, unknown> }).markup).toMatchObject({ type: "text", x: 0.5, y: 0.5, label: "GPO" });
+  });
+
+  it("#651 — rejects a malformed arrow (wrong point count) and a text with no anchor", async () => {
+    expect((await call({ method: "POST", userId: "u_admin", role: "admin", query: { jobId: "job-1" }, body: { planId: "plan-current", pageIndex: 0, type: "arrow", points: [{ x: 0.2, y: 0.2 }] } })).statusCode).toBe(400);
+    expect((await call({ method: "POST", userId: "u_admin", role: "admin", query: { jobId: "job-1" }, body: { planId: "plan-current", pageIndex: 0, type: "text" } })).statusCode).toBe(400);
+  });
+
   it("rejects invalid type, out-of-range coords, bad line point count, and over-long text", async () => {
     expect((await call({ method: "POST", userId: "u_admin", role: "admin", query: { jobId: "job-1" }, body: PIN({ type: "blob" }) })).statusCode).toBe(400);
     expect((await call({ method: "POST", userId: "u_admin", role: "admin", query: { jobId: "job-1" }, body: PIN({ x: 1.5 }) })).statusCode).toBe(400);
@@ -198,6 +215,43 @@ describe("update (PATCH) + archive (DELETE)", () => {
     expect(res.statusCode).toBe(200);
     expect((res.body as { markup: { archived: boolean } }).markup.archived).toBe(true);
     expect(markupsBlob().find((m) => m.id === id)?.archived).toBe(true);
+  });
+});
+
+describe("#651 — geometry edit (PATCH) for the new + existing shapes", () => {
+  async function seed(body: Record<string, unknown>) {
+    const res = await call({ method: "POST", userId: "u_admin", role: "admin", query: { jobId: "job-1" }, body });
+    return (res.body as { markup: { id: string } }).markup.id;
+  }
+
+  it("moves a text anchor via {x,y}", async () => {
+    const id = await seed({ planId: "plan-current", pageIndex: 0, type: "text", x: 0.2, y: 0.2, label: "GPO" });
+    const res = await call({ method: "PATCH", userId: "u_admin", role: "admin", query: { jobId: "job-1", id }, body: { x: 0.7, y: 0.8 } });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { markup: Record<string, unknown> }).markup).toMatchObject({ x: 0.7, y: 0.8 });
+  });
+
+  it("re-points an arrow via {points} (still exactly 2)", async () => {
+    const id = await seed({ planId: "plan-current", pageIndex: 0, type: "arrow", points: [{ x: 0.1, y: 0.1 }, { x: 0.2, y: 0.2 }] });
+    const ok = await call({ method: "PATCH", userId: "u_admin", role: "admin", query: { jobId: "job-1", id }, body: { points: [{ x: 0.4, y: 0.4 }, { x: 0.9, y: 0.9 }] } });
+    expect(ok.statusCode).toBe(200);
+    expect((ok.body as { markup: { points: unknown[] } }).markup.points).toEqual([{ x: 0.4, y: 0.4 }, { x: 0.9, y: 0.9 }]);
+    // a 3-point patch on an arrow is rejected (arrow shares line's 2-point rule)
+    const bad = await call({ method: "PATCH", userId: "u_admin", role: "admin", query: { jobId: "job-1", id }, body: { points: [{ x: 0, y: 0 }, { x: 0.5, y: 0.5 }, { x: 1, y: 1 }] } });
+    expect(bad.statusCode).toBe(400);
+  });
+
+  it("moves an area vertex via {points}", async () => {
+    const id = await seed({ planId: "plan-current", pageIndex: 0, type: "area", points: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }] });
+    const res = await call({ method: "PATCH", userId: "u_admin", role: "admin", query: { jobId: "job-1", id }, body: { points: [{ x: 0.1, y: 0.1 }, { x: 1, y: 0 }, { x: 1, y: 1 }] } });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { markup: { points: unknown[] } }).markup.points).toHaveLength(3);
+  });
+
+  it("rejects {x,y} on a points-based shape", async () => {
+    const id = await seed({ planId: "plan-current", pageIndex: 0, type: "arrow", points: [{ x: 0.1, y: 0.1 }, { x: 0.2, y: 0.2 }] });
+    const res = await call({ method: "PATCH", userId: "u_admin", role: "admin", query: { jobId: "job-1", id }, body: { x: 0.5, y: 0.5 } });
+    expect(res.statusCode).toBe(400);
   });
 });
 

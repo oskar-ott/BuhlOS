@@ -55,12 +55,12 @@ export function toNormPoint(p: MarkupPoint): NormPoint {
 
 /**
  * The ordered normalised points for any markup, in render order:
- *   pin/note → the single {x,y} anchor (if present)
- *   line/area → the `points` list
+ *   pin/note/text → the single {x,y} anchor (if present)
+ *   line/arrow/area → the `points` list
  * Always clamped into 0..1. Empty when the shape has no usable coordinates.
  */
 export function markupNormPoints(m: Pick<DrawingMarkup, "type" | "x" | "y" | "points">): NormPoint[] {
-  if (m.type === "pin" || m.type === "note") {
+  if (m.type === "pin" || m.type === "note" || m.type === "text") {
     if (typeof m.x === "number" && typeof m.y === "number") {
       return [toNormPoint({ x: m.x, y: m.y })];
     }
@@ -75,7 +75,8 @@ export function markupAnchor(
 ): NormPoint | null {
   const pts = markupNormPoints(m);
   if (pts.length === 0) return null;
-  if (m.type === "pin" || m.type === "note" || m.type === "line") return pts[0]!;
+  // {x,y} shapes + the first endpoint of a line/arrow anchor at pts[0].
+  if (m.type === "pin" || m.type === "note" || m.type === "text" || m.type === "line" || m.type === "arrow") return pts[0]!;
   // area → centroid of its points (good enough for label placement)
   const sum = pts.reduce((acc, p) => ({ nx: acc.nx + p.nx, ny: acc.ny + p.ny }), { nx: 0, ny: 0 });
   return { nx: sum.nx / pts.length, ny: sum.ny / pts.length };

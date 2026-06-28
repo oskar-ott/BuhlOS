@@ -19,7 +19,12 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob, canViewPhilPlanMarkups, isClientRole } = require('./_lib/auth');
 
-const MARKUP_TYPES = ['pin', 'note', 'line', 'area'];
+// LOCKSTEP with src/domains/plan-markups/schema.ts MARKUP_TYPES — adding a type
+// here without the schema (or vice-versa) makes the client safeParse and this
+// server validator disagree. `arrow` + `text` are the #651 annotation-slice
+// additions: arrow validates like line (exactly 2 points); text like pin/note
+// (an {x,y} anchor).
+const MARKUP_TYPES = ['pin', 'note', 'line', 'area', 'arrow', 'text'];
 const MARKUP_TONES = ['navy', 'yellow', 'red', 'green', 'grey'];
 const TEXT_MAX = 2000;
 const LABEL_MAX = 120;
@@ -43,9 +48,10 @@ function isCoord(v) {
 }
 function validatePoints(type, points) {
   if (!Array.isArray(points)) return false;
-  if (type === 'line' && points.length !== 2) return false;
+  // arrow shares line's "exactly 2 points" rule (a directed segment).
+  if ((type === 'line' || type === 'arrow') && points.length !== 2) return false;
   if (type === 'area' && (points.length < 3 || points.length > AREA_POINTS_MAX)) return false;
-  if (type !== 'line' && type !== 'area') return false;
+  if (type !== 'line' && type !== 'arrow' && type !== 'area') return false;
   return points.every((p) => p && isCoord(p.x) && isCoord(p.y));
 }
 /** Normalise a points array to plain {x,y} (drop any extra keys). */
@@ -127,7 +133,7 @@ module.exports = async (req, res) => {
     }
     if (!MARKUP_TYPES.includes(type)) return res.status(400).json({ error: 'invalid type' });
 
-    if (type === 'pin' || type === 'note') {
+    if (type === 'pin' || type === 'note' || type === 'text') {
       if (!isCoord(body.x) || !isCoord(body.y)) {
         return res.status(400).json({ error: type + ' requires normalised x,y in 0..1' });
       }
@@ -176,7 +182,7 @@ module.exports = async (req, res) => {
       updatedBy: user.username,
       updatedAt: now,
     };
-    if (type === 'pin' || type === 'note') {
+    if (type === 'pin' || type === 'note' || type === 'text') {
       markup.x = body.x;
       markup.y = body.y;
     } else {
@@ -205,8 +211,9 @@ module.exports = async (req, res) => {
 
     // Apply only known, validated fields (no body spreading).
     if (body.x != null || body.y != null) {
-      if (markup.type !== 'pin' && markup.type !== 'note') {
-        return res.status(400).json({ error: 'x,y only apply to pin/note' });
+      // x,y anchor moves apply to the {x,y} shapes: pin, note, and text (#651).
+      if (markup.type !== 'pin' && markup.type !== 'note' && markup.type !== 'text') {
+        return res.status(400).json({ error: 'x,y only apply to pin/note/text' });
       }
       if (!isCoord(body.x) || !isCoord(body.y)) {
         return res.status(400).json({ error: 'x,y must be normalised 0..1' });

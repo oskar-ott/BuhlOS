@@ -80,10 +80,22 @@ describe("coordinate conversion + clamping", () => {
     expect(markupNormPoints({ type: "pin" })).toEqual([]);
   });
 
+  it("#651 — text uses the {x,y} anchor; arrow uses its 2 points", () => {
+    expect(markupNormPoints(mk({ id: "t", type: "text", x: 0.6, y: 0.1 }))).toEqual([{ nx: 0.6, ny: 0.1 }]);
+    const arrow = mk({ id: "a", type: "arrow", x: undefined, y: undefined, points: [{ x: 0.1, y: 0.2 }, { x: 0.9, y: 0.8 }] });
+    expect(markupNormPoints(arrow)).toEqual([{ nx: 0.1, ny: 0.2 }, { nx: 0.9, ny: 0.8 }]);
+  });
+
   it("markupAnchor returns the first point for line, centroid for area", () => {
     const line = mk({ id: "l", type: "line", x: undefined, y: undefined, points: [{ x: 0.2, y: 0.2 }, { x: 0.8, y: 0.8 }] });
     expect(markupAnchor(line)).toEqual({ nx: 0.2, ny: 0.2 });
     const area = mk({ id: "ar", type: "area", x: undefined, y: undefined, points: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0.5, y: 1 }] });
     expect(markupAnchor(area)).toEqual({ nx: 0.5, ny: 1 / 3 });
+  });
+
+  it("#651 — markupAnchor: text at its anchor, arrow at its first endpoint", () => {
+    expect(markupAnchor(mk({ id: "t", type: "text", x: 0.3, y: 0.7 }))).toEqual({ nx: 0.3, ny: 0.7 });
+    const arrow = mk({ id: "a", type: "arrow", x: undefined, y: undefined, points: [{ x: 0.25, y: 0.25 }, { x: 0.75, y: 0.75 }] });
+    expect(markupAnchor(arrow)).toEqual({ nx: 0.25, ny: 0.25 });
   });
 });

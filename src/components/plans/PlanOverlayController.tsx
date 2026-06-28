@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MapPin, StickyNote, Minus, MousePointer2, Eye, EyeOff, Trash2, Loader2, Stamp } from "lucide-react";
+import { MapPin, StickyNote, Minus, MousePointer2, Eye, EyeOff, Trash2, Loader2, Stamp, ArrowUpRight, Hexagon, Type, Move, Check } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -10,6 +10,7 @@ import type { NormPoint } from "@/domains/plans/coords";
 import type { Plan } from "@/domains/plans/types";
 import { PlanViewer, type PlanOverlayGeom } from "./PlanViewer";
 import { PlanOverlayLayer } from "./PlanOverlayLayer";
+import { PlanMarkupManagePanel } from "./PlanMarkupManagePanel";
 import {
   listMarkups,
   createMarkup,
@@ -22,20 +23,23 @@ import {
   philMarkupsForPage,
   summariseMarkups,
 } from "@/domains/plan-markups/service";
+import { MARKUP_AREA_POINTS_MAX } from "@/domains/plan-markups/schema";
 import type { DrawingMarkup, MarkupType } from "@/domains/plan-markups/types";
 
 /**
- * Plan Viewer + overlay controller (Plans Phase 2).
+ * Plan Viewer + overlay controller (Plans Phase 2 + Phase 3 annotation slice).
  *
  * Owns the markup state for the selected plan and renders the SVG overlay
- * (PlanOverlayLayer) inside PlanViewer. Admin/office get a small toolbar
- * (add pin/note/line, toggle visibleToPhil, archive); Phil is strictly
- * read-only — markers are tappable to read, with no edit controls and no
- * create/toggle/archive paths. Field workers never receive office-only
- * overlays (the API scopes the list; the client re-filters defensively).
+ * (PlanOverlayLayer) inside PlanViewer. Admin/office get a toolbar
+ * (add pin/note/line/area/arrow/text, a Move edit-mode, toggle visibleToPhil,
+ * archive, manage panel); Phil is strictly read-only — markers are tappable to
+ * read, with no add/edit/move/manage controls and no drag handles. Field
+ * workers never receive office-only overlays (the API scopes the list; the
+ * client re-filters defensively).
  *
- * Original drawings are untouched: every write goes to /api/plan-markups
- * (jobs/<jobId>/drawing-markups.json), never the plan blob.
+ * Plans stay immutable — every write goes to the overlay store
+ * (/api/plan-markups → jobs/<jobId>/drawing-markups.json), never the plan blob.
+ * Geometry edits PATCH {x,y} (pin/note/text) or {points} (line/arrow/area).
  */
 
 type Props = { jobId: string; plan: Plan; mode: "admin" | "phil" };
@@ -45,6 +49,9 @@ const ADD_TOOLS: ReadonlyArray<{ type: MarkupType; label: string; icon: typeof M
   { type: "pin", label: "Add pin", icon: MapPin },
   { type: "note", label: "Add note", icon: StickyNote },
   { type: "line", label: "Add line", icon: Minus },
+  { type: "arrow", label: "Add arrow", icon: ArrowUpRight },
+  { type: "area", label: "Add area", icon: Hexagon },
+  { type: "text", label: "Add text", icon: Type },
 ];
 
 export function PlanOverlayController({ jobId, plan, mode }: Props) {
@@ -55,6 +62,9 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addMode, setAddMode] = useState<MarkupType | null>(null);
   const [pending, setPending] = useState<NormPoint[]>([]);
+  /** Geometry edit-mode: select a markup, drag its handles (admin only). */
+  const [editMode, setEditMode] = useState(false);
+  const [showManage, setShowManage] = useState(false);
   const [save, setSave] = useState<SaveState>({ kind: "idle" });
   const [labelDraft, setLabelDraft] = useState("");
   const [textDraft, setTextDraft] = useState("");
@@ -65,6 +75,7 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
     setLoadError(null);
     setSelectedId(null);
     setAddMode(null);
+    setEditMode(false);
     setPending([]);
     listMarkups(jobId, plan.id).then((res) => {
       if (cancelled) return;
@@ -120,21 +131,32 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
   const onAddPoint = useCallback(
     (p: NormPoint) => {
       if (!isAdmin || !addMode) return;
-      if (addMode === "line") {
+
+      // line / arrow — two-tap: first tap stores the start, second creates it.
+      if (addMode === "line" || addMode === "arrow") {
         if (pending.length === 0) {
           setPending([p]);
           return;
         }
         const points = [{ x: pending[0]!.nx, y: pending[0]!.ny }, { x: p.nx, y: p.ny }];
+        const type = addMode;
         setPending([]);
         setAddMode(null);
         void applyMutation(async () => {
-          const res = await createMarkup({ jobId, planId: plan.id, pageIndex, type: "line", points });
+          const res = await createMarkup({ jobId, planId: plan.id, pageIndex, type, points });
           return res.ok ? { ok: true, markup: res.data.markup as DrawingMarkup } : { ok: false, message: errorText(res.error) };
         }).then((m) => m && setSelectedId(m.id));
         return;
       }
-      // pin / note — create at the clicked point, then select for labelling.
+
+      // area — multi-tap loop: accumulate vertices; the "Finish area" button
+      // (or a guard cap) commits. Up to MARKUP_AREA_POINTS_MAX vertices.
+      if (addMode === "area") {
+        setPending((prev) => (prev.length >= MARKUP_AREA_POINTS_MAX ? prev : [...prev, p]));
+        return;
+      }
+
+      // pin / note / text — single tap; create, then select for labelling.
       setAddMode(null);
       void applyMutation(async () => {
         const res = await createMarkup({ jobId, planId: plan.id, pageIndex, type: addMode, x: p.nx, y: p.ny });
@@ -142,6 +164,42 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
       }).then((m) => m && setSelectedId(m.id));
     },
     [isAdmin, addMode, pending, applyMutation, jobId, plan.id, pageIndex],
+  );
+
+  /** Commit the in-progress area polygon (needs 3..MAX vertices). */
+  const finishArea = useCallback(() => {
+    if (!isAdmin || addMode !== "area") return;
+    if (pending.length < 3 || pending.length > MARKUP_AREA_POINTS_MAX) return;
+    const points = pending.map((pt) => ({ x: pt.nx, y: pt.ny }));
+    setPending([]);
+    setAddMode(null);
+    void applyMutation(async () => {
+      const res = await createMarkup({ jobId, planId: plan.id, pageIndex, type: "area", points });
+      return res.ok ? { ok: true, markup: res.data.markup as DrawingMarkup } : { ok: false, message: errorText(res.error) };
+    }).then((m) => m && setSelectedId(m.id));
+  }, [isAdmin, addMode, pending, applyMutation, jobId, plan.id, pageIndex]);
+
+  /**
+   * Geometry edit (admin only): a handle on the selected markup was dropped at
+   * a new normalised point. PATCH {x,y} for the {x,y} shapes; for the
+   * points-based shapes, splice the moved vertex and PATCH the whole {points}.
+   * The original plan is never touched — this writes only the overlay store.
+   */
+  const onMovePoint = useCallback(
+    (id: string, pointIndex: number, p: NormPoint) => {
+      if (!isAdmin) return;
+      const m = markups.find((mk) => mk.id === id);
+      if (!m) return;
+      void applyMutation(async () => {
+        const isAnchor = m.type === "pin" || m.type === "note" || m.type === "text";
+        const patch = isAnchor
+          ? { x: p.nx, y: p.ny }
+          : { points: (m.points ?? []).map((pt, i) => (i === pointIndex ? { x: p.nx, y: p.ny } : { x: pt.x, y: pt.y })) };
+        const res = await updateMarkup(jobId, id, patch);
+        return res.ok ? { ok: true, markup: res.data.markup as DrawingMarkup } : { ok: false, message: errorText(res.error) };
+      });
+    },
+    [isAdmin, markups, applyMutation, jobId],
   );
 
   const saveNote = useCallback(async () => {
@@ -186,16 +244,57 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
     }
   }, [selected, jobId]);
 
+  // ── Manage-panel bulk actions (admin only) — loop the existing per-record
+  // client; no new store, no new endpoint. Each call updates local state via
+  // the same optimistic path as a single edit.
+  const bulkSetVisible = useCallback(
+    async (ids: ReadonlyArray<string>, visibleToPhil: boolean) => {
+      if (!isAdmin || ids.length === 0) return;
+      setSave({ kind: "saving" });
+      let failed = 0;
+      for (const id of ids) {
+        const res = await updateMarkup(jobId, id, { visibleToPhil });
+        if (res.ok) {
+          const updated = res.data.markup as DrawingMarkup;
+          setMarkups((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+        } else {
+          failed += 1;
+        }
+      }
+      setSave(failed === 0 ? { kind: "saved" } : { kind: "error", message: `${failed} couldn’t update` });
+    },
+    [isAdmin, jobId],
+  );
+
+  const bulkArchive = useCallback(
+    async (ids: ReadonlyArray<string>) => {
+      if (!isAdmin || ids.length === 0) return;
+      setSave({ kind: "saving" });
+      let failed = 0;
+      for (const id of ids) {
+        const res = await archiveMarkup(jobId, id);
+        if (res.ok) {
+          setMarkups((prev) => prev.filter((m) => m.id !== id));
+        } else {
+          failed += 1;
+        }
+      }
+      setSelectedId((cur) => (cur && ids.includes(cur) ? null : cur));
+      setSave(failed === 0 ? { kind: "saved" } : { kind: "error", message: `${failed} couldn’t archive` });
+    },
+    [isAdmin, jobId],
+  );
+
   return (
     <div className="space-y-3">
       {isAdmin ? (
         <div className="flex flex-wrap items-center gap-2" data-testid="overlay-toolbar">
-          <div className="inline-flex items-center gap-1 rounded-card border border-border bg-surface p-1">
+          <div className="inline-flex flex-wrap items-center gap-1 rounded-card border border-border bg-surface p-1">
             <Button
-              variant={addMode === null ? "primary" : "ghost"}
+              variant={addMode === null && !editMode ? "primary" : "ghost"}
               size="sm"
-              onClick={() => { setAddMode(null); setPending([]); }}
-              aria-pressed={addMode === null}
+              onClick={() => { setAddMode(null); setPending([]); setEditMode(false); }}
+              aria-pressed={addMode === null && !editMode}
             >
               <MousePointer2 className="h-4 w-4" aria-hidden /> Select
             </Button>
@@ -204,19 +303,61 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
                 key={type}
                 variant={addMode === type ? "primary" : "ghost"}
                 size="sm"
-                onClick={() => { setAddMode(type); setPending([]); }}
+                onClick={() => { setAddMode(type); setPending([]); setEditMode(false); }}
                 aria-pressed={addMode === type}
               >
                 <Icon className="h-4 w-4" aria-hidden /> {label}
               </Button>
             ))}
+            {/* Geometry edit-mode — drag a selected markup's handles. Admin-only;
+                Phil never renders this button or the handles it switches on. */}
+            <Button
+              variant={editMode ? "primary" : "ghost"}
+              size="sm"
+              onClick={() => { setEditMode((v) => !v); setAddMode(null); setPending([]); }}
+              aria-pressed={editMode}
+              data-testid="overlay-move-toggle"
+            >
+              <Move className="h-4 w-4" aria-hidden /> Move
+            </Button>
           </div>
+          <Button
+            variant={showManage ? "primary" : "secondary"}
+            size="sm"
+            onClick={() => setShowManage((v) => !v)}
+            aria-pressed={showManage}
+            data-testid="overlay-manage-toggle"
+          >
+            Manage
+          </Button>
           <span className="text-xs text-text-muted" data-testid="overlay-summary">
             {`${counts.total} overlay${counts.total === 1 ? "" : "s"} · ${counts.visibleToPhil} visible to Phil`}
           </span>
           <SaveStatus save={save} />
-          {addMode === "line" && pending.length === 1 ? (
-            <span className="text-xs text-brand-navy">Tap the line’s end point…</span>
+          {(addMode === "line" || addMode === "arrow") && pending.length === 1 ? (
+            <span className="text-xs text-brand-navy">{`Tap the ${addMode}’s end point…`}</span>
+          ) : null}
+          {addMode === "area" ? (
+            <span className="inline-flex items-center gap-2">
+              <span className="text-xs text-brand-navy">
+                {pending.length < 3
+                  ? `Tap to add area points (${pending.length}/3 min)…`
+                  : `Tap to add more, or finish (${pending.length} pts).`}
+              </span>
+              <Button
+                size="sm"
+                onClick={finishArea}
+                disabled={pending.length < 3 || pending.length > MARKUP_AREA_POINTS_MAX}
+                data-testid="overlay-finish-area"
+              >
+                <Check className="h-4 w-4" aria-hidden /> {`Finish area (${pending.length} pts)`}
+              </Button>
+            </span>
+          ) : null}
+          {editMode ? (
+            <span className="text-xs text-brand-navy" data-testid="overlay-move-hint">
+              Select a markup, then drag a handle to move it.
+            </span>
           ) : null}
         </div>
       ) : (
@@ -249,9 +390,23 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
             addMode={isAdmin ? addMode : null}
             onAddPoint={onAddPoint}
             pendingPoints={pending}
+            // ADMIN-ONLY: handles + move are withheld in Phil mode entirely.
+            editMode={isAdmin && editMode}
+            onMovePoint={isAdmin ? onMovePoint : undefined}
           />
         )}
       />
+
+      {isAdmin && showManage ? (
+        <PlanMarkupManagePanel
+          markups={pageMarkups}
+          selectedId={selectedId}
+          onSelect={(id) => { setSelectedId(id); setEditMode(false); setAddMode(null); }}
+          onBulkSetVisible={bulkSetVisible}
+          onBulkArchive={bulkArchive}
+          busy={save.kind === "saving"}
+        />
+      ) : null}
 
       {selected ? (
         <Card className="space-y-3" data-testid="overlay-detail">
