@@ -35,6 +35,7 @@ export type WeeklyDayStatus =
   | "draft"
   | "missing"
   | "leave"
+  | "holiday"
   | "future"
   | "not-required";
 
@@ -69,6 +70,9 @@ export interface WeeklyHoursDay {
   /** Approved leave type covering this day (#333) — set on status "leave",
    *  AND on a logged day that overlaps approved leave (the office flag). */
   leaveType: string | null;
+  /** Public-holiday name (#137) — set when this date is a public holiday,
+   *  whether or not the worker logged it. e.g. "Good Friday". */
+  holidayName: string | null;
 }
 
 export interface WeeklyWorkerHours {
@@ -123,6 +127,9 @@ export interface WeeklyCloseoutInput {
   missing: ReadonlyArray<MissingLog>;
   /** Approved leave days from the same overview response (#333). */
   leave?: ReadonlyArray<{ date: string; userId: string; type: string }>;
+  /** Public-holiday days from the same overview response (#137) — per-date
+   *  (whole crew), not per-user. */
+  holidays?: ReadonlyArray<{ date: string; name: string }>;
   /** Monday of the week (callers use weekStartOf()). */
   weekStart: string;
   /** Today in the business timezone — future-day classification. */
@@ -175,6 +182,9 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
   const missingSet = new Set<string>();
   const leaveByKey = new Map<string, string>();
   for (const l of input.leave ?? []) leaveByKey.set(`${l.userId}|${l.date}`, l.type);
+  // #137: public holidays are per-date (whole crew), not per-user.
+  const holidayNameByDate = new Map<string, string>();
+  for (const h of input.holidays ?? []) holidayNameByDate.set(h.date, h.name);
   for (const m of missing) {
     missingSet.add(`${m.userId}|${m.date}`);
     if (!names.has(m.userId)) {
@@ -208,6 +218,11 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
           entry.status === "draft"
             ? entry.status
             : "draft";
+      } else if (holidayNameByDate.has(date)) {
+        // #137: a public holiday is nobody's required day — show it as such,
+        // never "missing" or "leave". (A worked holiday keeps its entry above;
+        // a public holiday inside a leave span is paid as a holiday, not leave.)
+        status = "holiday";
       } else if (leaveByKey.has(`${workerId}|${date}`)) {
         // #333: approved leave — not an expectation, never "missing".
         status = "leave";
@@ -267,6 +282,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
         rejectedReason: entry?.rejectedReason ?? null,
         exportId: entry?.exportId ?? null,
         leaveType,
+        holidayName: holidayNameByDate.get(date) ?? null,
       });
     }
 
@@ -371,6 +387,8 @@ export function weeklyDayStatusLabel(status: WeeklyDayStatus): string {
       return "Missing";
     case "leave":
       return "On leave";
+    case "holiday":
+      return "Public holiday";
     case "future":
       return "—";
     case "not-required":

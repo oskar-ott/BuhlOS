@@ -37,6 +37,7 @@ function build(
     weekStart?: string;
     todayISO?: string;
     leave?: Array<{ date: string; userId: string; type: string }>;
+    holidays?: Array<{ date: string; name: string }>;
   } = {},
 ) {
   return buildWeeklyHoursCloseout({
@@ -45,6 +46,7 @@ function build(
     weekStart: opts.weekStart ?? WEEK_START,
     todayISO: opts.todayISO ?? TODAY,
     leave: opts.leave,
+    holidays: opts.holidays,
   });
 }
 
@@ -457,6 +459,7 @@ describe("submittedWeekSelection (#124 — the Approve-week payload)", () => {
       rejectedReason: null,
       exportId: null,
       leaveType: null,
+      holidayName: null,
     }));
     const worker = {
       workerId: "u1", workerName: "U", workerRole: null,
@@ -466,5 +469,90 @@ describe("submittedWeekSelection (#124 — the Approve-week payload)", () => {
       blockers: [], days,
     };
     expect(submittedWeekSelection(worker).length).toBeLessThanOrEqual(BULK_APPROVE_MAX);
+  });
+});
+
+describe("buildWeeklyHoursCloseout — public holidays (#137)", () => {
+  // Easter 2026. Good Friday = Fri 2026-04-03 (week Mon 2026-03-30 … Sun 04-05);
+  // Easter Monday = Mon 2026-04-06 (week Mon 04-06 … Sun 04-12).
+  const GF_WEEK = "2026-03-30";
+  const GOOD_FRIDAY = "2026-04-03";
+  const EM_WEEK = "2026-04-06";
+  const EASTER_MONDAY = "2026-04-06";
+
+  const dayFor = (c: ReturnType<typeof build>, date: string) =>
+    c.workers[0]!.days.find((d) => d.date === date)!;
+
+  it("labels the status 'Public holiday'", () => {
+    expect(weeklyDayStatusLabel("holiday")).toBe("Public holiday");
+  });
+
+  it("renders an empty public-holiday weekday as 'holiday' with its name, never 'missing'", () => {
+    // Worker exists via a normal approved Monday; Good Friday has no entry.
+    const c = build([entry({ userId: "u1", date: GF_WEEK, status: "approved" })], [], {
+      weekStart: GF_WEEK,
+      todayISO: GOOD_FRIDAY,
+      holidays: [{ date: GOOD_FRIDAY, name: "Good Friday" }],
+    });
+    const fri = dayFor(c, GOOD_FRIDAY);
+    expect(fri.status).toBe("holiday");
+    expect(fri.holidayName).toBe("Good Friday");
+    expect(c.workers[0]!.missingCount).toBe(0);
+    expect(c.workers[0]!.blockers).not.toContain("Fri missing");
+  });
+
+  it("a public holiday overrides even a stale server 'missing' flag (defensive)", () => {
+    // If an out-of-date server still flags the holiday as missing, the client
+    // must not show red — holiday classification wins in the projection.
+    const c = build([], [missing("u1", GOOD_FRIDAY)], {
+      weekStart: GF_WEEK,
+      todayISO: GOOD_FRIDAY,
+      holidays: [{ date: GOOD_FRIDAY, name: "Good Friday" }],
+    });
+    const fri = dayFor(c, GOOD_FRIDAY);
+    expect(fri.status).toBe("holiday");
+    expect(c.workers[0]!.missingCount).toBe(0);
+  });
+
+  it("a worker who logged a public holiday still shows the entry, not the holiday state", () => {
+    const c = build([entry({ userId: "u1", date: GOOD_FRIDAY, status: "approved", totalHours: 8 })], [], {
+      weekStart: GF_WEEK,
+      todayISO: GOOD_FRIDAY,
+      holidays: [{ date: GOOD_FRIDAY, name: "Good Friday" }],
+    });
+    const fri = dayFor(c, GOOD_FRIDAY);
+    expect(fri.status).toBe("approved");
+    expect(fri.hours).toBe(8);
+    // The name is still carried for context, but the cell is the worked entry.
+    expect(fri.holidayName).toBe("Good Friday");
+  });
+
+  it("stays payroll-ready when the only unlogged weekday is a public holiday", () => {
+    // Mon–Thu approved, Good Friday is a holiday with no entry → no red, ready.
+    const c = build(
+      [
+        entry({ userId: "u1", date: "2026-03-30", status: "approved" }),
+        entry({ userId: "u1", date: "2026-03-31", status: "approved" }),
+        entry({ userId: "u1", date: "2026-04-01", status: "approved" }),
+        entry({ userId: "u1", date: "2026-04-02", status: "approved" }),
+      ],
+      [],
+      { weekStart: GF_WEEK, todayISO: GOOD_FRIDAY, holidays: [{ date: GOOD_FRIDAY, name: "Good Friday" }] },
+    );
+    expect(c.workers[0]!.missingCount).toBe(0);
+    expect(c.workers[0]!.readiness).toBe("payroll-ready");
+    expect(dayFor(c, GOOD_FRIDAY).status).toBe("holiday");
+  });
+
+  it("classifies Easter Monday the same way (the other half of the long weekend)", () => {
+    const c = build([], [missing("u1", EASTER_MONDAY)], {
+      weekStart: EM_WEEK,
+      todayISO: "2026-04-09",
+      holidays: [{ date: EASTER_MONDAY, name: "Easter Monday" }],
+    });
+    const mon = dayFor(c, EASTER_MONDAY);
+    expect(mon.status).toBe("holiday");
+    expect(mon.holidayName).toBe("Easter Monday");
+    expect(c.workers[0]!.missingCount).toBe(0);
   });
 });

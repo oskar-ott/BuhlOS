@@ -38,6 +38,7 @@
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireCron } = require('./_lib/cron-auth');
+const { isPublicHoliday } = require('./_lib/public-holidays');
 const { isAdminRole } = require('./_lib/auth');
 const { getWebPush, sendPushToUserId } = require('./_lib/push');
 
@@ -83,6 +84,11 @@ module.exports = async (req, res) => {
   if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
 
   const today    = sydneyToday();
+  // #137: don't nag on a public holiday — nobody's logging hours, so the
+  // reminder is just noise the office learns to swipe away.
+  if (isPublicHoliday(today)) {
+    return res.status(200).json({ ok: true, sent: 0, skipped: 'public holiday', date: today });
+  }
   const weekStart = sydneyMondayOf(today);
   const inWindow = (d) => d >= weekStart && d <= today;
 
