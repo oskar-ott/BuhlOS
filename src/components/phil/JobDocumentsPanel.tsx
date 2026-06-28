@@ -10,6 +10,7 @@ import {
   displayTitle,
   drawingContextLine,
   isCurrent,
+  isSpec,
   mimeTypeLabel,
 } from "@/domains/documents/format";
 import type { Document } from "@/domains/documents/types";
@@ -59,6 +60,12 @@ export function JobDocumentsPanel({
     () => initialDocuments.filter(isCurrent),
     [initialDocuments],
   );
+  // #196: split current docs into specs vs the rest so the panel can show
+  // a Specifications sub-group. Preserves the current-only filter; the
+  // sub-group is hidden when empty (only rendered when a current spec
+  // exists), so jobs without specs look exactly as before.
+  const specs = useMemo(() => current.filter(isSpec), [current]);
+  const nonSpecs = useMemo(() => current.filter((d) => !isSpec(d)), [current]);
 
   // Quiet the whole section when there's genuinely nothing to show: no
   // documents at all AND no fetch error. Workers don't need an empty
@@ -105,13 +112,31 @@ export function JobDocumentsPanel({
               : "No current revisions — everything on this job has been superseded. Ask your PM which one to use."}
           </p>
         ) : (
-          <ul className="mt-3 space-y-2">
-            {current.map((doc) => (
-              <li key={doc.id}>
-                <DocumentRow doc={doc} />
-              </li>
-            ))}
-          </ul>
+          <div className="mt-3 space-y-4">
+            {nonSpecs.length > 0 ? (
+              <ul className="space-y-2">
+                {nonSpecs.map((doc) => (
+                  <li key={doc.id}>
+                    <DocumentRow doc={doc} />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {specs.length > 0 ? (
+              <div>
+                <p className="font-display text-[12px] uppercase tracking-wider text-text-muted">
+                  Specifications
+                </p>
+                <ul className="mt-2 space-y-2">
+                  {specs.map((doc) => (
+                    <li key={doc.id}>
+                      <DocumentRow doc={doc} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
         )}
       </Card>
     </section>

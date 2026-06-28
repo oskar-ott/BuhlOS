@@ -123,12 +123,33 @@ beforeEach(() => {
       { id: "u_out", username: "out", role: "tradie", assignedJobIds: [] },
     ],
   });
-  blob.set("jobs.json", { jobs: [{ id: "j1", name: "Riverside" }] });
+  // #196: the job carries a work tree so spec→area link validation has
+  // real area ids to resolve against (findArea pattern).
+  blob.set("jobs.json", {
+    jobs: [
+      {
+        id: "j1",
+        name: "Riverside",
+        areaGroups: [
+          {
+            id: "g1",
+            name: "Ground floor",
+            areas: [
+              { id: "area-kitchen", name: "Kitchen" },
+              { id: "area-pantry", name: "Pantry" },
+            ],
+          },
+        ],
+      },
+    ],
+  });
   blob.set("jobs/j1/plans-index.json", {
     plans: [
       plan("pl_a", { drawingNumber: "E-101", title: "Power L1 rev A" }),
       plan("pl_b", { drawingNumber: "E-102", title: "Lighting L1" }),
       plan("pl_old", { drawingNumber: "E-101", status: "superseded", supersededBy: "pl_a", title: "Power L1 prelim" }),
+      // #196: a spec row (no drawingNumber) to link to areas.
+      plan("pl_spec", { drawingNumber: "", category: "spec", title: "Joinery spec" }),
     ],
   });
 
@@ -380,5 +401,102 @@ describe("revision acknowledgements (#299)", () => {
     const mine = await callAs(ELEC, "GET", { jobId: "j1", action: "my-acks" });
     expect(mine.statusCode).toBe(200);
     expect((mine.body as { planIds: string[] }).planIds).toEqual(["pl_a"]);
+  });
+});
+
+// ── #196: spec → work-tree area/stage linkage on the PATCH path ────────────
+
+describe("spec area/stage linkage (#196)", () => {
+  function specRow() {
+    return plansInStore().find((p) => p.id === "pl_spec")!;
+  }
+
+  it("PATCH accepts valid areaIds + stage, denormalises the area names", async () => {
+    const res = await call(
+      "PATCH",
+      { jobId: "j1", id: "pl_spec" },
+      { areaIds: ["area-kitchen", "area-pantry"], stage: "fitOff" },
+    );
+    expect(res.statusCode).toBe(200);
+    const spec = specRow();
+    expect(spec.areaIds).toEqual(["area-kitchen", "area-pantry"]);
+    expect(spec.stage).toBe("fitOff");
+    // denormalised names captured at link time
+    expect(spec.areaLinks).toEqual([
+      { areaId: "area-kitchen", areaName: "Kitchen" },
+      { areaId: "area-pantry", areaName: "Pantry" },
+    ]);
+  });
+
+  it("rejects an unknown areaId with 400 (no dangling link ever persisted)", async () => {
+    const res = await call(
+      "PATCH",
+      { jobId: "j1", id: "pl_spec" },
+      { areaIds: ["area-kitchen", "area-ghost"] },
+    );
+    expect(res.statusCode).toBe(400);
+    // nothing was written — the spec stays unlinked
+    expect(specRow().areaIds).toBeUndefined();
+  });
+
+  it("rejects a bad stage with 400", async () => {
+    const res = await call(
+      "PATCH",
+      { jobId: "j1", id: "pl_spec" },
+      { areaIds: ["area-kitchen"], stage: "commissioning" },
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("areaIds: [] clears the link; stage '' clears the stage", async () => {
+    await call(
+      "PATCH",
+      { jobId: "j1", id: "pl_spec" },
+      { areaIds: ["area-kitchen"], stage: "roughIn" },
+    );
+    expect(specRow().areaIds).toEqual(["area-kitchen"]);
+    const res = await call(
+      "PATCH",
+      { jobId: "j1", id: "pl_spec" },
+      { areaIds: [], stage: "" },
+    );
+    expect(res.statusCode).toBe(200);
+    expect(specRow().areaIds).toEqual([]);
+    expect(specRow().areaLinks).toEqual([]);
+    expect(specRow().stage).toBe("");
+  });
+
+  it("retires linkedAreaGroups — the field is ignored, not written", async () => {
+    const res = await call(
+      "PATCH",
+      { jobId: "j1", id: "pl_spec" },
+      { linkedAreaGroups: ["g1"], areaIds: ["area-kitchen"] },
+    );
+    expect(res.statusCode).toBe(200);
+    // the new vocabulary is written…
+    expect(specRow().areaIds).toEqual(["area-kitchen"]);
+    // …and the retired one is NOT (no two vocabularies for "what this governs")
+    expect(specRow().linkedAreaGroups).toBeUndefined();
+  });
+
+  it("a superseding upload does NOT inherit the predecessor's areaIds", async () => {
+    // Link the spec, then upload a new revision via revisesPlanId.
+    await call(
+      "PATCH",
+      { jobId: "j1", id: "pl_spec" },
+      { areaIds: ["area-kitchen"], stage: "fitOff" },
+    );
+    const res = await call("POST", { jobId: "j1" }, {
+      dataUrl: PNG_DATA_URL,
+      fileName: "joinery-rev-b.pdf",
+      revisesPlanId: "pl_spec",
+    });
+    expect(res.statusCode).toBe(201);
+    const created = (res.body as { plan: Record<string, unknown> }).plan;
+    // identity fields inherit (category), but the area link does NOT —
+    // re-linking is a deliberate admin act on the new revision.
+    expect(created.category).toBe("spec");
+    expect(created.areaIds).toBeUndefined();
+    expect(created.stage).toBeUndefined();
   });
 });

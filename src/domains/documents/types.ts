@@ -3,7 +3,10 @@ import type {
   DocumentCategorySchema,
   DocumentListResponseSchema,
   DocumentSchema,
+  DocumentStageSchema,
   DocumentStatusSchema,
+  LinkDocumentAreasPayloadSchema,
+  LinkDocumentAreasResponseSchema,
   UploadDocumentPayloadSchema,
   UploadDocumentResponseSchema,
   SetPagesResponseSchema,
@@ -20,8 +23,15 @@ import type {
 
 export type DocumentStatus = z.infer<typeof DocumentStatusSchema>;
 export type DocumentCategory = z.infer<typeof DocumentCategorySchema>;
+export type DocumentStage = z.infer<typeof DocumentStageSchema>;
 export type Document = z.infer<typeof DocumentSchema>;
 export type DocumentListResponse = z.infer<typeof DocumentListResponseSchema>;
 export type UploadDocumentPayload = z.infer<typeof UploadDocumentPayloadSchema>;
 export type UploadDocumentResponse = z.infer<typeof UploadDocumentResponseSchema>;
 export type SetPagesResponse = z.infer<typeof SetPagesResponseSchema>;
+export type LinkDocumentAreasPayload = z.infer<
+  typeof LinkDocumentAreasPayloadSchema
+>;
+export type LinkDocumentAreasResponse = z.infer<
+  typeof LinkDocumentAreasResponseSchema
+>;

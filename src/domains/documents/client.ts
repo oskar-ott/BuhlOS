@@ -1,6 +1,7 @@
-import { httpGet, httpPost, type HttpResult } from "@/lib/http";
+import { httpGet, httpPatch, httpPost, type HttpResult } from "@/lib/http";
 import {
   DocumentListResponseSchema,
+  LinkDocumentAreasResponseSchema,
   SetPagesResponseSchema,
   UploadDocumentResponseSchema,
   AckMutationResponseSchema,
@@ -9,6 +10,8 @@ import {
 } from "./schema";
 import type {
   DocumentListResponse,
+  LinkDocumentAreasPayload,
+  LinkDocumentAreasResponse,
   SetPagesResponse,
   UploadDocumentPayload,
   UploadDocumentResponse,
@@ -104,6 +107,28 @@ export function myPlanAcks(jobId: string): Promise<HttpResult<{ planIds: string[
   });
 }
 
+/**
+ * #196: link a spec to the work-tree areas (and optional stage) it
+ * governs. PUT-replace semantics — `areaIds` is the full set on each
+ * call; `[]` clears the link. The server validates every areaId against
+ * the job's work tree (400 on any unknown id) and denormalises area names
+ * before persisting, so the read surfaces don't re-join the job tree.
+ */
+export function linkDocumentAreas(
+  jobId: string,
+  planId: string,
+  payload: LinkDocumentAreasPayload,
+): Promise<HttpResult<LinkDocumentAreasResponse>> {
+  return httpPatch<LinkDocumentAreasResponse>(
+    `/api/plans?jobId=${encodeURIComponent(jobId)}&id=${encodeURIComponent(planId)}`,
+    payload,
+    {
+      schema: LinkDocumentAreasResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    },
+  );
+}
+
 /** #299: admin rollup — acked / outstanding for one revision. */
 export function planAcks(
   jobId: string,
@@ -119,4 +144,5 @@ export const documentsClient = {
   listDocuments,
   uploadDocument,
   setPlanPages,
+  linkDocumentAreas,
 } as const;

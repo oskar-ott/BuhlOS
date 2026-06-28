@@ -8,6 +8,7 @@ import type { TaskState, WorkerTask } from "@/domains/jobs/taskState";
 import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
 import type { PhilTaskContext } from "@/domains/job-control/task-context";
 import type { ProofReview } from "@/domains/job-control/types";
+import type { Document } from "@/domains/documents/types";
 
 /**
  * Render observation for the area drill-in. No JSX (matches
@@ -29,6 +30,7 @@ function render(props: {
   counts: AreaCounts;
   onToggleTask?: (taskId: string, next: TaskState) => void;
   pendingTaskIds?: ReadonlySet<string>;
+  areaSpecs?: ReadonlyArray<Document>;
 }) {
   return renderToString(
     createElement(PhilJobAreaDetail, { ...props, onStageChange: noop }),
@@ -631,5 +633,71 @@ describe("PhilJobAreaDetail render — scope-on-task wire threads through the pa
     );
     expect(text(html)).toContain("E-101 Power layout");
     expect(html).not.toContain("/plans");
+  });
+});
+
+describe("PhilJobAreaDetail render — #196 area specs (read-only)", () => {
+  const spec = (over: Partial<Document> = {}): Document =>
+    ({
+      id: "sp_1",
+      title: "Joinery spec",
+      url: "https://blob.example/joinery.pdf",
+      category: "spec",
+      status: "current",
+      level: "Section 7.2",
+      ...over,
+    }) as unknown as Document;
+
+  it("renders the specs block only when areaSpecs is non-empty (hidden-when-empty)", () => {
+    const empty = render({
+      areaName: "Kitchen",
+      stages: FO,
+      stage: "fitOff",
+      tasks: [task("t1", "Hang doors")],
+      counts: NO_COUNTS,
+    });
+    expect(empty).not.toContain("Specs for this area");
+
+    const withSpecs = render({
+      areaName: "Kitchen",
+      stages: FO,
+      stage: "fitOff",
+      tasks: [task("t1", "Hang doors")],
+      counts: NO_COUNTS,
+      areaSpecs: [spec()],
+    });
+    expect(withSpecs).toContain("Specs for this area");
+    expect(withSpecs).toContain("Joinery spec");
+    expect(withSpecs).toContain("https://blob.example/joinery.pdf");
+    // clause label surfaces, read-only (opens the file in a new tab)
+    expect(withSpecs).toContain("Section 7.2");
+    expect(withSpecs).toContain('target="_blank"');
+  });
+
+  it("renders the specs block even when the area has no task plan", () => {
+    const html = render({
+      areaName: "Kitchen",
+      stages: NONE,
+      stage: "roughIn",
+      tasks: [],
+      counts: NO_COUNTS,
+      areaSpecs: [spec()],
+    });
+    expect(html).toContain("Specs for this area");
+    expect(html).toContain("Joinery spec");
+  });
+
+  it("uses plain field language in the specs block — no admin jargon", () => {
+    const html = render({
+      areaName: "Kitchen",
+      stages: FO,
+      stage: "fitOff",
+      tasks: [task("t1", "Hang doors")],
+      counts: NO_COUNTS,
+      areaSpecs: [spec()],
+    }).toLowerCase();
+    for (const banned of ["payroll", "xero", "dashboard", "registry"]) {
+      expect(html).not.toContain(banned);
+    }
   });
 });

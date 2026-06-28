@@ -45,6 +45,7 @@ import type { SnagItem } from "@/domains/snags/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { ITPInstance } from "@/domains/itp/types";
 import type { Document } from "@/domains/documents/types";
+import { filterSpecsByArea, isCurrent } from "@/domains/documents/format";
 import { CaptureSheet } from "./CaptureSheet";
 import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
 import { JobSnagsPanel } from "./JobSnagsPanel";
@@ -358,6 +359,18 @@ export function PhilJobDetail({
     [job, selectedArea],
   );
   const viewedStage: JobStage = soleStage(selectedStages) ?? stage;
+
+  // #196: the specs that govern the selected area (read-only). A spec
+  // appears when its admin-set `areaIds` includes this area's id and its
+  // stage matches the viewed stage (an unstaged spec governs both). Workers
+  // see CURRENT revisions only — same field-safety filter as the documents
+  // panel — so a superseded spec never shows on the area. Empty until an
+  // admin links one, which keeps the Phil block hidden-when-empty (P10).
+  const areaSpecs = useMemo(() => {
+    if (!selectedArea) return [] as ReadonlyArray<Document>;
+    const current = (initialDocuments ?? []).filter(isCurrent);
+    return filterSpecsByArea(current, selectedArea.id, viewedStage);
+  }, [initialDocuments, selectedArea, viewedStage]);
 
   // Resume where you left off (#425 · P8 interruption recovery, P14 memory). On
   // mount, if this job has a remembered area that STILL EXISTS, jump back to it,
@@ -866,6 +879,7 @@ export function PhilJobDetail({
                   spaceType={selectedArea.spaceType}
                   stages={selectedStages}
                   stage={viewedStage}
+                  areaSpecs={areaSpecs}
                   tasks={workerTasks}
                   counts={countsForArea(areaCountMaps, selectedArea.id)}
                   onStageChange={setStage}
