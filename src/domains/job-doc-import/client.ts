@@ -1,4 +1,9 @@
-import { BoqImportPreviewSchema, type BoqImportPreview } from "./schema";
+import {
+  BoqImportPreviewSchema,
+  CostImportResponseSchema,
+  type BoqImportPreview,
+  type CostImportSummary,
+} from "./schema";
 
 /**
  * Browser client for the read-only BOQ import preview (#365). Reads the chosen
@@ -48,6 +53,24 @@ export async function createJobFromBoqImport(
     throw new Error(body.error || `Create job failed (${res.status})`);
   }
   return (await res.json()) as BoqJobCreated;
+}
+
+/**
+ * Read back a job's BOQ cost basis for the hub card (#365). Resolves to
+ * { ok:false } on any non-200 (incl. the dark-flag 404) or a malformed payload
+ * so the card simply stays hidden; otherwise { ok:true, costImport } where
+ * costImport is null for a job that wasn't created from a BOQ import.
+ */
+export async function fetchJobCostImport(
+  jobId: string
+): Promise<{ ok: boolean; costImport: CostImportSummary | null }> {
+  const res = await fetch(`/api/job-doc-import?jobId=${encodeURIComponent(jobId)}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) return { ok: false, costImport: null };
+  const parsed = CostImportResponseSchema.safeParse(await res.json().catch(() => null));
+  if (!parsed.success) return { ok: false, costImport: null };
+  return { ok: true, costImport: parsed.data.costImport };
 }
 
 function fileToDataUrl(file: File): Promise<string> {

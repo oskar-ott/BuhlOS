@@ -99,6 +99,27 @@ async function createJobFromBoq(req, res, user, preview) {
   });
 }
 
+// Project a stored cost-import.json into the headline summary the hub card reads
+// (totals + counts + provenance, not the full priced lines). Returns null for an
+// absent/malformed record so the card renders nothing.
+function summariseCostImport(raw) {
+  if (!raw || !raw.preview || !raw.preview.totals) return null;
+  const t = raw.preview.totals;
+  const c = raw.preview.counts || {};
+  return {
+    source: raw.source || 'boq-import',
+    importedAt: raw.importedAt || null,
+    importedByName: raw.importedByName || null,
+    fileName: raw.fileName || null,
+    total: typeof t.computed === 'number' ? t.computed : 0,
+    stated: typeof t.stated === 'number' ? t.stated : null,
+    delta: typeof t.delta === 'number' ? t.delta : null,
+    reconciles: typeof t.reconciles === 'boolean' ? t.reconciles : null,
+    lines: typeof c.lines === 'number' ? c.lines : 0,
+    sections: Array.isArray(raw.preview.sections) ? raw.preview.sections.length : 0,
+  };
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -110,6 +131,16 @@ module.exports = async (req, res) => {
   // DARK by default: 404 (not 403) when off, so the surface is invisible.
   if (!(await isFlagEnabled('job_doc_import', user))) {
     return res.status(404).json({ error: 'not found' });
+  }
+
+  // READ: the job hub's cost-basis card reads back what a BOQ import attached
+  // (#365). Returns { costImport: null } for a job that wasn't BOQ-imported, so
+  // the card stays hidden-until-real.
+  if (req.method === 'GET') {
+    const jobId = (req.query && req.query.jobId) || '';
+    if (!jobId) return res.status(400).json({ error: 'jobId required' });
+    const raw = await readBlob(`jobs/${jobId}/cost-import.json`, null);
+    return res.status(200).json({ costImport: summariseCostImport(raw) });
   }
 
   if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
