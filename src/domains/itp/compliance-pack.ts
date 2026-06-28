@@ -76,6 +76,30 @@ export interface PackInstanceSection {
   createdAt: string | null;
 }
 
+/**
+ * #374 — one closeout obligation as it appears in the handover checklist
+ * section. Statuses + linked refs only (no live re-derivation here; the caller
+ * passes the already-derived matrix view). The pack renders the honest status,
+ * never a fabricated "done".
+ */
+export interface HandoverChecklistRow {
+  id: string;
+  title: string;
+  /** "Closed out" / "Waived" / "In progress" / "Outstanding". */
+  statusLabel: string;
+  /** True for satisfied OR waived (the discharged set). */
+  discharged: boolean;
+  /** The records cited as discharging it — `type:id`, only the ones that resolve. */
+  linkedRefs: string[];
+}
+
+export interface HandoverChecklistSection {
+  /** Discharged of total — the N of "N of M". */
+  discharged: number;
+  total: number;
+  rows: HandoverChecklistRow[];
+}
+
 export interface CompliancePack {
   jobName: string;
   jobId: string;
@@ -85,6 +109,13 @@ export interface CompliancePack {
   generatedAt: string;
   /** Where override justifications were sourced + the window's honesty note. */
   overridesNote: string;
+  /**
+   * #374 — the closeout/handover checklist, PREPENDED to the pack when the
+   * caller supplies the matrix. Composable: a new section, no second export
+   * pipeline. `null` when no closeout requirements exist (honest absence —
+   * never an empty "0 of 0" section).
+   */
+  handoverChecklist: HandoverChecklistSection | null;
   summary: Array<{
     id: string;
     templateName: string;
@@ -98,6 +129,52 @@ export interface CompliancePack {
   archivedCount: number;
 }
 
+/**
+ * #374 — the matrix shape the pack consumes. A structural subset of the
+ * closeout read-shaper's `CloseoutRequirementView[]` so the pack domain doesn't
+ * depend on the server module; the caller maps the view in.
+ */
+export interface HandoverChecklistInputRow {
+  id: string;
+  title: string;
+  status: string;
+  links?: ReadonlyArray<{ type: string; id: string; resolved: boolean }>;
+}
+
+const CLOSEOUT_STATUS_LABEL: Record<string, string> = {
+  satisfied: "Closed out",
+  waived: "Waived",
+  in_progress: "In progress",
+  outstanding: "Outstanding",
+};
+
+/**
+ * Build the composable handover-checklist section from the closeout matrix
+ * requirements. PURE: same input → same section. Returns `null` for an empty
+ * matrix (honest absence). Only RESOLVING links are listed (a dangling link is
+ * not evidence of handover). Discharged = satisfied or waived.
+ */
+export function buildHandoverChecklistSection(
+  requirements: ReadonlyArray<HandoverChecklistInputRow>,
+): HandoverChecklistSection | null {
+  if (requirements.length === 0) return null;
+  const rows: HandoverChecklistRow[] = requirements.map((r) => {
+    const discharged = r.status === "satisfied" || r.status === "waived";
+    return {
+      id: r.id,
+      title: r.title,
+      statusLabel: CLOSEOUT_STATUS_LABEL[r.status] ?? r.status,
+      discharged,
+      linkedRefs: (r.links ?? []).filter((l) => l.resolved).map((l) => `${l.type}:${l.id}`),
+    };
+  });
+  return {
+    discharged: rows.filter((r) => r.discharged).length,
+    total: rows.length,
+    rows,
+  };
+}
+
 /** Overrides harvested from the audit log (itp.signed_off metadata), keyed
  *  by instance id. The instance itself does not persist the justification. */
 export type OverrideByInstanceId = Readonly<Record<string, string>>;
@@ -108,6 +185,9 @@ export function buildCompliancePack(input: {
   overrides: OverrideByInstanceId;
   overridesWindowMonths: number;
   generatedAt: string;
+  /** #374 — OPTIONAL closeout matrix requirements. When supplied (and non-empty)
+   *  the pack carries a prepended handover checklist section; omitted → null. */
+  closeoutRequirements?: ReadonlyArray<HandoverChecklistInputRow>;
 }): CompliancePack {
   const { job, overrides } = input;
   const live = input.instances.filter((i) => !i.archived);
@@ -132,6 +212,7 @@ export function buildCompliancePack(input: {
     siteAddress: job.siteAddress ? String(job.siteAddress).trim() || null : null,
     generatedAt: input.generatedAt,
     overridesNote: `Independence override justifications are sourced from the job audit log (last ${input.overridesWindowMonths} months). Older overrides remain in the audit record.`,
+    handoverChecklist: buildHandoverChecklistSection(input.closeoutRequirements ?? []),
     summary: sections.map((s) => ({
       id: s.id,
       templateName: s.templateName,

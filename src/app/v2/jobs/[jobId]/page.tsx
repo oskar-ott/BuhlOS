@@ -26,6 +26,10 @@ import { JobProfitabilitySummary } from "@/components/admin/JobProfitabilitySumm
 import { JobBudgetVarianceCard } from "@/components/admin/JobBudgetVarianceCard";
 import { JobCostImportCard } from "@/components/admin/JobCostImportCard";
 import { JobCloseoutCard } from "@/components/admin/JobCloseoutCard";
+import {
+  JobCloseoutMatrixCard,
+  shouldSurfaceCloseoutMatrix,
+} from "@/components/admin/JobCloseoutMatrixCard";
 import { JobDlpCard } from "@/components/admin/JobDlpCard";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
@@ -51,8 +55,18 @@ import { ITPListResponseSchema } from "@/domains/itp/schema";
 import { DocumentListResponseSchema } from "@/domains/documents/schema";
 import { TagListResponseSchema } from "@/domains/tags/schema";
 import { parseJobTaskState } from "@/domains/jobs/taskState";
+import {
+  blobCloseoutReadDeps,
+  runCloseoutMatrixView,
+  type CloseoutMatrixView,
+} from "@/server/job-control/closeout-read";
 
 export const dynamic = "force-dynamic";
+
+/** #374: job statuses where closeout readiness is worth a spine read + the card.
+ *  Mirrors `shouldSurfaceCloseoutMatrix` in the card; kept here so a draft job
+ *  never pays the blob read. */
+const NEAR_COMPLETION_JOB_STATUSES = new Set(["active", "complete", "archived"]);
 
 interface PageParams {
   params: Promise<{ jobId: string }>;
@@ -190,6 +204,16 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
 
   const job = result.job;
 
+  // #374: closeout matrix readiness. Read the spine ONLY when the job is near
+  // completion (active/complete/archived) — a draft/on-hold job has nothing to
+  // hand over, so we skip the blob read entirely (no day-one cost). The card is
+  // surfaced only when the read is ready AND has ≥1 requirement (positive() gate).
+  const closeoutView: CloseoutMatrixView | null = NEAR_COMPLETION_JOB_STATUSES.has(
+    job.status ?? "",
+  )
+    ? await runCloseoutMatrixView(blobCloseoutReadDeps(), job.id)
+    : null;
+
   // Load the Phil sub-resources ONLY when the Field view is selected (and the
   // flag is on) — Office view keeps its existing cost. Each read degrades to an
   // honest loadError flag (the command model then says "unknown", never a
@@ -248,6 +272,14 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
         {/* #349: closeout / "Final numbers" report card — freeze the job's final
             numbers at end-of-life; admin-tier only (hidden for an LH viewer). */}
         <JobCloseoutCard jobId={job.id} />
+        {/* #374: closeout OBLIGATIONS matrix — "N of M closed out" + what's
+            outstanding (test results, CES, as-builts, the job's closeout clauses).
+            Distinct from the #349 numbers freeze above. Surfaced only as the job
+            nears completion (the page gates the read; the helper gates the card)
+            so it isn't day-one noise. Read-only — never gates completion. */}
+        {closeoutView && shouldSurfaceCloseoutMatrix(job.status, closeoutView) ? (
+          <JobCloseoutMatrixCard jobId={job.id} view={closeoutView} />
+        ) : null}
         {/* #235: defect liability period — handover date + defect window, with
             in-DLP status / days remaining. Admin-tier dates (the PUT 403s an LH),
             so gate the whole card on canBuild like the contract card above. */}

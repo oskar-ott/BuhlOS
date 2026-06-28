@@ -284,6 +284,47 @@ export const CLOSEOUT_REQUIREMENT_STATUSES = [
 ] as const;
 export const CloseoutRequirementStatusSchema = z.enum(CLOSEOUT_REQUIREMENT_STATUSES);
 
+// ── Closeout fulfilment link (#374) ──────────────────────────────────────────
+// A TYPED reference from a closeout requirement to the real record that
+// discharges it. The legacy single-id fields below (`documentId` / `itpInstanceId`
+// / `evidenceLinkId`) are kept for back-compat; #374's matrix uses this richer
+// link array so one requirement can resolve against multiple records and so the
+// read-shaper can re-check each against the live id sets (a deleted record
+// reverts the requirement — never trust a stored "satisfied" flag alone).
+
+export const CLOSEOUT_FULFILMENT_TYPES = [
+  "certificate",
+  "document",
+  "evidence",
+  "itp-instance",
+  "as-built",
+] as const;
+export const CloseoutFulfilmentTypeSchema = z.enum(CLOSEOUT_FULFILMENT_TYPES);
+
+export const CloseoutFulfilmentLinkSchema = z
+  .object({
+    type: CloseoutFulfilmentTypeSchema,
+    /** The real record id this link points at (Certificate.id, Document.id,
+     *  EvidenceItem.id, ITPInstance.id; an as-built is a Document). The
+     *  read-shaper re-checks it against the live id set so a deleted record
+     *  shows the requirement reverted, never orphaned-green. */
+    id: z.string(),
+  })
+  .passthrough();
+
+/** Where in the job a closeout requirement applies. `job_wide` is the default
+ *  (a job-level obligation like the certificate of electrical safety); an
+ *  `{ areaId }` scope narrows it to one area (e.g. per-board as-builts). */
+export const CloseoutAreaScopeSchema = z.union([
+  z.literal("job_wide"),
+  z.object({ areaId: z.string() }).passthrough(),
+]);
+
+/** Where a requirement came from: `clause` = seeded from a recon closeout
+ *  clause; `manual` = a default electrical obligation (or an admin add). */
+export const CLOSEOUT_REQUIREMENT_SOURCES = ["clause", "manual"] as const;
+export const CloseoutRequirementSourceSchema = z.enum(CLOSEOUT_REQUIREMENT_SOURCES);
+
 export const CloseoutRequirementSchema = z
   .object({
     id: z.string(),
@@ -297,6 +338,19 @@ export const CloseoutRequirementSchema = z
     documentId: z.string().nullable().optional(), // → Document.id
     itpInstanceId: z.string().nullable().optional(), // → ITPInstance.id
     evidenceLinkId: z.string().nullable().optional(), // → el_…
+    /** #374: typed fulfilment links — the real records cited as discharging this
+     *  requirement. A requirement is `satisfied` ONLY when ≥1 link RESOLVES and
+     *  an admin has CONFIRMED (see confirmedAt/By); a dangling link reverts it. */
+    fulfilmentLinks: z.array(CloseoutFulfilmentLinkSchema).default([]),
+    /** #374: where the requirement applies (job-wide default, or one area). */
+    areaScope: CloseoutAreaScopeSchema.default("job_wide"),
+    /** #374: provenance — seeded from a recon clause or a manual/default add. */
+    source: CloseoutRequirementSourceSchema.default("manual"),
+    /** #374: admin confirmation — the second half of "satisfied". Set on confirm,
+     *  cleared on un-confirm / a reverting change. A resolving link without a
+     *  confirmation is `in_progress`, never `satisfied`. */
+    confirmedAt: z.string().nullable().optional(),
+    confirmedBy: z.string().nullable().optional(),
     status: CloseoutRequirementStatusSchema,
     order: z.number().default(0),
     createdAt: z.string().optional(),

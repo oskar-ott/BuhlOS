@@ -18,6 +18,7 @@ const base: CompliancePack = {
   siteAddress: "12 River Rd, Lane Cove NSW 2066",
   generatedAt: "2026-06-12T10:00:00.000Z",
   overridesNote: "Independence override justifications are sourced from the job audit log (last 12 months). Older overrides remain in the audit record.",
+  handoverChecklist: null,
   summary: [
     {
       id: "i1",

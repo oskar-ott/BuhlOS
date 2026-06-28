@@ -13,6 +13,7 @@ import {
   Map as MapIcon,
   NotebookPen,
   Package,
+  PackageCheck,
   Scale,
   ScrollText,
   ShieldCheck,
@@ -152,6 +153,18 @@ export function JobInterfaceSectionNav({
         "Author required proof: tie a scope clause to a worker task, set the proof the field must capture, and compile it for Phil.",
       href: `/v2/jobs/${jobIdEnc}/job-control` as Route,
       icon: ListChecks,
+    },
+    {
+      // #374: closeout matrix — handover obligations (test results, certificate
+      // of electrical safety, as-builts, the job's closeout clauses), each
+      // discharged by links to real records + an admin confirm, with honest
+      // N-of-M readiness. Read-only on completion (doesn't gate close-out).
+      kind: "live",
+      label: "Closeout",
+      description:
+        "Handover obligations — test results, certificate of electrical safety, as-builts and the job's closeout clauses. Closed out only when a real record resolves and an admin confirms.",
+      href: `/v2/jobs/${jobIdEnc}/closeout` as Route,
+      icon: PackageCheck,
     },
     {
       kind: "live",
