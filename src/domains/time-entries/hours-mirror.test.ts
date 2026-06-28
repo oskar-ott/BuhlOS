@@ -51,17 +51,20 @@ describe("mirrorTimeEntry — gating + best-effort", () => {
     expect(res).toEqual({ mirrored: false, reason: "no supabase env" });
   });
 
-  it("does nothing when the flag is off (no db touch)", async () => {
+  it("does nothing when the flag is off (no db touch), source:false", async () => {
     setEnv(true);
     const res = await mirrorTimeEntry("u1", ENTRY, { getDb: throwDb, isFlagOn: async () => false });
-    expect(res).toEqual({ mirrored: false, reason: "flag off" });
+    expect(res).toEqual({ mirrored: false, reason: "flag off", source: false });
   });
 
-  it("swallows any error — never throws (Blob stays authoritative)", async () => {
+  it("swallows any error — never throws (Blob stays authoritative); source survives the fallback path", async () => {
     setEnv(true);
+    // source-mode on, but the write throws → error swallowed AND source:true reported
+    // (a source-mode write that falls back is exactly what the bake watches for).
     const res = await mirrorTimeEntry("u1", ENTRY, { isFlagOn: async () => true, getDb: () => { throw new Error("boom"); } });
     expect(res.mirrored).toBe(false);
     expect(res.reason).toBe("error");
+    expect(res.source).toBe(true);
   });
 
   it("swallows a timeout when the inner DB work hangs (never delays the save past the bound)", async () => {

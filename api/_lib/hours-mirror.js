@@ -128,16 +128,21 @@ async function resolveHoursWriteGate(flagOn) {
 async function mirrorTimeEntry(userId, entry, deps = {}) {
   const flagOn = deps.isFlagOn || isFlagOn;
   const db = deps.getDb || getDb;
+  // Hoisted so the catch can report whether we were in source mode when the write
+  // threw: a source-mode write that falls back to Blob is exactly what the bake
+  // watches for, so `source` must survive the error path, not just the happy one.
+  let source = false;
   try {
     if (!entry || !entry.date) return { mirrored: false, reason: 'no entry/date' };
     // Cheap prod short-circuit BEFORE the flag's blob read: prod has no SUPABASE_DB_URL.
     if (!process.env.SUPABASE_DB_URL) return { mirrored: false, reason: 'no supabase env' };
-    const { write, source } = await resolveHoursWriteGate(flagOn);
-    if (!write) return { mirrored: false, reason: 'flag off' };
+    const gate = await resolveHoursWriteGate(flagOn);
+    source = gate.source;
+    if (!gate.write) return { mirrored: false, reason: 'flag off', source };
     return await withTimeout(mirrorEntryWrite(db, userId, entry, source), deps.timeoutMs || MIRROR_TIMEOUT_MS, 'mirrorTimeEntry');
   } catch (err) {
     console.error('[hours-mirror] best-effort PG mirror failed (Blob is authoritative):', err && err.message);
-    return { mirrored: false, reason: 'error', error: err && err.message };
+    return { mirrored: false, reason: 'error', error: err && err.message, source };
   }
 }
 
@@ -203,15 +208,17 @@ async function mirrorEntryWrite(db, userId, entry, source = false) {
 async function mirrorTimeEntryDelete(userId, date, deps = {}) {
   const flagOn = deps.isFlagOn || isFlagOn;
   const db = deps.getDb || getDb;
+  let source = false; // hoisted so the catch reports source mode on the fallback path
   try {
     if (!date) return { mirrored: false, reason: 'no date' };
     if (!process.env.SUPABASE_DB_URL) return { mirrored: false, reason: 'no supabase env' };
-    const { write, source } = await resolveHoursWriteGate(flagOn);
-    if (!write) return { mirrored: false, reason: 'flag off' };
+    const gate = await resolveHoursWriteGate(flagOn);
+    source = gate.source;
+    if (!gate.write) return { mirrored: false, reason: 'flag off', source };
     return await withTimeout(mirrorDeleteWrite(db, userId, date, source), deps.timeoutMs || MIRROR_TIMEOUT_MS, 'mirrorTimeEntryDelete');
   } catch (err) {
     console.error('[hours-mirror] best-effort PG delete-mirror failed (Blob is authoritative):', err && err.message);
-    return { mirrored: false, reason: 'error', error: err && err.message };
+    return { mirrored: false, reason: 'error', error: err && err.message, source };
   }
 }
 
