@@ -8,6 +8,13 @@ import { PwaRegistrar } from "@/components/pwa/PwaRegistrar";
 interface PhilShellProps {
   children: ReactNode;
   title: string;
+  /**
+   * The signed-in worker's id, threaded to the tab bar so the FAB long-press
+   * recents (#146) key to #145's per-worker prefs. Optional: pages that don't
+   * pass it (e.g. loading skeletons) simply get a FAB with no recents — the
+   * plain camera tap is unaffected.
+   */
+  userId?: string;
 }
 
 /**
@@ -21,7 +28,7 @@ interface PhilShellProps {
  * push subscription so crews migrating from the legacy pages keep their
  * hour reminders without re-opting-in.
  */
-export function PhilShell({ children, title }: PhilShellProps) {
+export function PhilShell({ children, title, userId }: PhilShellProps) {
   return (
     <div
       data-testid="phil-shell"
@@ -39,7 +46,7 @@ export function PhilShell({ children, title }: PhilShellProps) {
           <PhilOfflineBanner />
           {children}
         </main>
-        <PhilTabBar />
+        <PhilTabBar userId={userId} />
       </CaptureLauncherProvider>
       <PwaRegistrar />
     </div>

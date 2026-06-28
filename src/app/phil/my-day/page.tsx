@@ -154,7 +154,7 @@ export default async function MyDayPage({
   const soleJobId = soleJob?.id ?? null;
 
   return (
-    <PhilShell title="My day">
+    <PhilShell title="My day" userId={session.userId ?? ""}>
       <div className={styles.surface}>
         <header className={styles.greetBar}>
           <div className="min-w-0">

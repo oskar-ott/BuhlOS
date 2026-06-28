@@ -2,7 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
-import { AlertOctagon, ChevronRight, ClipboardCheck, MapPin, Star } from "lucide-react";
+import {
+  AlertOctagon,
+  AlertTriangle,
+  Camera,
+  ChevronRight,
+  ClipboardCheck,
+  Clock,
+  ListChecks,
+  Map as MapIcon,
+  MapPin,
+  ShieldCheck,
+  Star,
+} from "lucide-react";
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -20,6 +32,17 @@ import {
   type JobListPrefs,
 } from "./jobListPrefs";
 import { orderJobList } from "./jobListOrder";
+import { useLongPress } from "./useLongPress";
+import { PhilShortcutSheet } from "./PhilShortcutSheet";
+import {
+  buildPhilJobCommandModel,
+  type PhilJobActionId,
+  type PhilJobCommandAction,
+} from "@/domains/phil/job-command-model";
+import {
+  philJobActionHref,
+  philJobCommandInputFromListSignals,
+} from "@/domains/phil/job-command-list-input";
 
 // Bridge the jobs-domain tone vocabulary onto the shared StatusChip
 // palette. JobStatusTone is neutral/success/warning today; the explicit
@@ -37,7 +60,40 @@ const OPEN_WORK_ICON: Record<JobOpenWorkKey, typeof AlertOctagon> = {
   itps: ClipboardCheck,
 };
 
+// Icons for the long-press row-actions sheet (#146) — same vocabulary as the
+// on-page PhilJobCommandPanel so a shortcut and the job page agree.
+const ACTION_ICON: Record<PhilJobActionId, typeof Camera> = {
+  fix_rejected_hours: AlertTriangle,
+  complete_checks: ClipboardCheck,
+  continue_tasks: ListChecks,
+  capture: Camera,
+  log_hours: Clock,
+  view_plans: MapIcon,
+  view_tags: ShieldCheck,
+  report_issue: AlertOctagon,
+};
+
 const EMPTY_PREFS: JobListPrefs = { recents: [], pinned: [] };
+
+/**
+ * The top ≤3 launchable actions for a job, from the SAME command model the job
+ * page uses — built from the thin list-row signals (#146). Primary first, then
+ * the ranked rest; only actions a worker can actually launch (the builder routes
+ * unknown capabilities to limitations, so unsupported actions never appear).
+ */
+function topJobActions(
+  job: Pick<
+    Job,
+    "id" | "name" | "status" | "inductionRequired" | "statsSnagsV2Active" | "statsItpsActive"
+  >,
+  max = 3,
+): PhilJobCommandAction[] {
+  const model = buildPhilJobCommandModel(philJobCommandInputFromListSignals(job));
+  const ranked = model.primaryAction
+    ? [model.primaryAction, ...model.actions]
+    : model.actions;
+  return ranked.slice(0, max);
+}
 
 interface Props {
   initialJobs: ReadonlyArray<Job>;
@@ -184,12 +240,33 @@ function JobRow({
   // when stats are absent, so the row degrades to exactly its prior look.
   const signals = jobOpenWork(job);
   const summary = jobOpenWorkSummary(signals);
+
+  // Long-press the row → a small sheet of this job's top actions (#146). The
+  // top actions come from the SAME ranked command model the job page uses, built
+  // from the thin list signals. Computed lazily on hold so the list render is
+  // unchanged. Purely ADDITIVE: a plain TAP still opens the job (P10) — the hook
+  // only suppresses the synthetic click after a completed hold.
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [rowActions, setRowActions] = useState<PhilJobCommandAction[]>([]);
+  const onRowLongPress = useCallback(() => {
+    const actions = topJobActions(job, 3);
+    if (actions.length === 0) return; // nothing launchable → no sheet, tap stands
+    setRowActions(actions);
+    setActionsOpen(true);
+  }, [job]);
+  const rowLongPress = useLongPress({
+    onLongPress: onRowLongPress,
+    disabled: actionsOpen,
+  });
+
   return (
+    <>
     <div className="flex items-stretch">
       <PhilOfflineLink
         href={`/phil/jobs/${encodeURIComponent(job.id)}` as Route}
-        className="flex min-h-[88px] flex-1 items-stretch gap-3 px-4 py-3 hover:bg-surface-subtle focus:bg-surface-subtle focus:outline-none"
+        className="flex min-h-[88px] flex-1 select-none items-stretch gap-3 px-4 py-3 hover:bg-surface-subtle focus:bg-surface-subtle focus:outline-none [-webkit-touch-callout:none]"
         aria-label={summary ? `Open ${job.name} — ${summary}` : `Open ${job.name}`}
+        {...rowLongPress}
       >
         <div className="flex shrink-0 items-start pt-1">
           <StatusChip tone={JOBS_CHIP_TONE[statusTone(job.status)]}>
@@ -273,5 +350,45 @@ function JobRow({
         </button>
       ) : null}
     </div>
+
+      {/* Long-press row actions (#146): the job's top shortcuts. Every item here
+          also has a visible normal path on the job page (P10) — this is a
+          faster route, not a new destination. */}
+      <PhilShortcutSheet
+        open={actionsOpen}
+        onClose={() => setActionsOpen(false)}
+        title={job.name}
+        subtitle="Quick actions for this job"
+        testId={`phil-job-actions-${job.id}`}
+      >
+        <ul className="space-y-2">
+          {rowActions.map((action) => {
+            const Icon = ACTION_ICON[action.id];
+            return (
+              <li key={action.id}>
+                <PhilOfflineLink
+                  href={philJobActionHref(job.id, action) as Route}
+                  onClick={() => setActionsOpen(false)}
+                  className="flex min-h-[56px] w-full items-center gap-3 rounded-card border border-border bg-surface p-3 text-left hover:bg-surface-subtle active:scale-[0.99]"
+                >
+                  <Icon aria-hidden="true" className="h-5 w-5 shrink-0 text-brand-navy" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-display text-sm font-semibold text-text">
+                      {action.label}
+                    </span>
+                    {action.reason ? (
+                      <span className="mt-0.5 block truncate text-xs text-text-muted">
+                        {action.reason}
+                      </span>
+                    ) : null}
+                  </span>
+                  <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />
+                </PhilOfflineLink>
+              </li>
+            );
+          })}
+        </ul>
+      </PhilShortcutSheet>
+    </>
   );
 }

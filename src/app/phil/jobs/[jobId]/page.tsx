@@ -96,7 +96,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   if (!summaryShellOn) {
     // Flag off → prior behaviour: block on the full load, render directly.
     return (
-      <PhilShell title="Job">
+      <PhilShell title="Job" userId={viewerId}>
         {/* #145: remember this open so the jobs list can surface it in Recent. */}
         <PhilJobViewRecorder userId={viewerId} jobId={jobId} />
         {await PhilJobDetailFull({ raw, jobId, captureToken, viewerId, viewerRole, streamTaskState: false })}
@@ -115,7 +115,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   const shellHeader = await loadJobShell(raw, jobId);
 
   return (
-    <PhilShell title={shellHeader?.name ?? "Job"}>
+    <PhilShell title={shellHeader?.name ?? "Job"} userId={viewerId}>
       {/* #145: remember this open so the jobs list can surface it in Recent. */}
       <PhilJobViewRecorder userId={viewerId} jobId={jobId} />
       <Suspense fallback={<PhilJobDetailShell header={shellHeader} />}>

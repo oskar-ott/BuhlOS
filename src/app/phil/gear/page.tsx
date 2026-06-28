@@ -40,7 +40,7 @@ export default async function PhilGearPage() {
   const { assets, fetchError } = await loadMyGear(raw);
 
   return (
-    <PhilShell title="My gear">
+    <PhilShell title="My gear" userId={session.userId ?? ""}>
       <div className="space-y-4">
         <PhilBackLink href="/phil/my-day">My day</PhilBackLink>
 

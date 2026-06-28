@@ -26,7 +26,7 @@ export default async function PhilLeavePage() {
   const { requests, error } = await loadMine(raw);
 
   return (
-    <PhilShell title="Leave">
+    <PhilShell title="Leave" userId={session.userId ?? ""}>
       <div className="space-y-4">
         <PhilBackLink href="/phil/my-day">My day</PhilBackLink>
         <PhilPageIntro

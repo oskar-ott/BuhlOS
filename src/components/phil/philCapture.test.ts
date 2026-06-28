@@ -7,6 +7,7 @@ import {
   launcherDecision,
   philJobDetailId,
   preselectCaptureJob,
+  recentShortcutJobs,
   resolveQuickCapture,
   type LaunchableJob,
 } from "./philCapture";
@@ -262,3 +263,66 @@ describe("resolveQuickCapture", () => {
     expect(resolveQuickCapture({ kind: "office", optionKey: "nope" }, ONE, null).mode).toBe("none");
   });
 });
+
+describe("recentShortcutJobs (#146 — FAB long-press recents)", () => {
+  const lj = (id: string, name = id, siteAddress: string | null = null): LaunchableJob => ({
+    id,
+    name,
+    siteAddress,
+  });
+  const launchable = [lj("a", "Alpha"), lj("b", "Bravo"), lj("c", "Charlie"), lj("d", "Delta")];
+
+  it("keeps recency order and projects the launchable job", () => {
+    const r = recentShortcutJobs(["c", "a"], launchable);
+    expect(r.map((j) => j.id)).toEqual(["c", "a"]);
+    expect(r[0]).toEqual({ id: "c", name: "Charlie", siteAddress: null });
+  });
+
+  it("drops a stale recent that is no longer assigned (prevents the job-page 403)", () => {
+    // "x" was opened once but the worker is no longer on it → not in launchable.
+    const r = recentShortcutJobs(["x", "b"], launchable);
+    expect(r.map((j) => j.id)).toEqual(["b"]);
+  });
+
+  it("drops a recent that has since been archived (archived jobs aren't launchable)", () => {
+    // launchableJobs() already strips archived, so an archived id simply isn't
+    // present in the launchable list passed in — modelled here by omission.
+    const withoutArchived = [lj("a"), lj("c")]; // "b" archived → absent
+    const r = recentShortcutJobs(["a", "b", "c"], withoutArchived);
+    expect(r.map((j) => j.id)).toEqual(["a", "c"]);
+  });
+
+  it("caps to the max (default 3), preserving order", () => {
+    const r = recentShortcutJobs(["d", "c", "b", "a"], launchable);
+    expect(r.map((j) => j.id)).toEqual(["d", "c", "b"]);
+  });
+
+  it("honours a custom cap", () => {
+    expect(recentShortcutJobs(["a", "b", "c"], launchable, 2).map((j) => j.id)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  it("de-duplicates a repeated recent id", () => {
+    expect(recentShortcutJobs(["a", "a", "b"], launchable).map((j) => j.id)).toEqual(["a", "b"]);
+  });
+
+  it("returns [] when every recent is stale → the FAB shows NO sheet (falls through)", () => {
+    expect(recentShortcutJobs(["x", "y"], launchable)).toEqual([]);
+    expect(recentShortcutJobs([], launchable)).toEqual([]);
+  });
+
+  it("integrates with launchableJobs: an archived recent is dropped end-to-end", () => {
+    const all = [
+      jobFix("a", "Alpha"),
+      jobFix("z", "Zed", "archived"),
+    ];
+    const r = recentShortcutJobs(["z", "a"], launchableJobs(all));
+    expect(r.map((j) => j.id)).toEqual(["a"]);
+  });
+});
+
+function jobFix(id: string, name: string, status = "active"): Job {
+  return { id, name, status, siteAddress: null, areaGroups: [] } as unknown as Job;
+}
