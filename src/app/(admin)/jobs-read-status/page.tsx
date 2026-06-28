@@ -5,7 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardTitle, CardDescription } from "@/components/ui/Card";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead, loadAdminTaskReadStatus, summariseAdminTaskRead, loadTaskReadProbe, summariseTaskReadProbe, loadEvidenceReadProbe, summariseEvidenceReadProbe, loadAdminEvidenceReadStatus, summariseAdminEvidenceRead, loadPhilEvidenceReadStatus, summarisePhilEvidenceRead } from "@/server/jobs-read-status";
+import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead, loadAdminTaskReadStatus, summariseAdminTaskRead, loadTaskReadProbe, summariseTaskReadProbe, loadEvidenceReadProbe, summariseEvidenceReadProbe, loadAdminEvidenceReadStatus, summariseAdminEvidenceRead, loadPhilEvidenceReadStatus, summarisePhilEvidenceRead, loadSourceMode } from "@/server/jobs-read-status";
 
 // Runs a live, read-only probe at request time.
 export const dynamic = "force-dynamic";
@@ -41,6 +41,7 @@ export default async function JobsReadStatusPage() {
   const evidenceProbe = summariseEvidenceReadProbe(await loadEvidenceReadProbe());
   const adminEvidenceRead = summariseAdminEvidenceRead(await loadAdminEvidenceReadStatus());
   const philEvidenceRead = summarisePhilEvidenceRead(await loadPhilEvidenceReadStatus());
+  const sourceMode = await loadSourceMode();
 
   const sourceLabel = s.readSource === "postgres" ? "Postgres" : "Blob";
 
@@ -53,6 +54,29 @@ export default async function JobsReadStatusPage() {
         from Postgres only when it is byte-identical to Blob, so what the office
         sees never changes. This page runs a live, read-only probe.
       </p>
+
+      <Card
+        className={sourceMode.anyPgSource ? "mb-4 border-emerald-200 bg-emerald-50" : "mb-4"}
+        data-testid="source-mode-status"
+        role="status"
+      >
+        <CardTitle className={sourceMode.anyPgSource ? "mb-2 text-emerald-900" : "mb-2 text-slate-800"}>
+          Write source mode (PG-as-source)
+        </CardTitle>
+        <CardDescription className={sourceMode.anyPgSource ? "mb-2 text-emerald-900" : "mb-2"}>
+          Whether each domain&rsquo;s <strong>writes</strong> go straight to Postgres
+          (synchronous per-row CAS write at request time, the lost-update fix) or stay
+          Blob-authoritative. Blob is still written through in PG-source mode (rollback
+          is flag-OFF). See the served-source roadmap.
+        </CardDescription>
+        {sourceMode.rows.map((r) => (
+          <Row
+            key={r.flag}
+            label={`${r.domain} (${r.flag})`}
+            value={r.pgSource ? "PG-as-source ✓" : "Blob"}
+          />
+        ))}
+      </Card>
 
       {s.state === "not_wired" && (
         <Card className="border-slate-200 bg-slate-50" role="status" data-testid="jobs-read-status">
