@@ -5,6 +5,8 @@ import {
   CheckCircle2,
   FileText,
   Image as ImageIcon,
+  Link2,
+  Link2Off,
   Lock,
   PenSquare,
   X,
@@ -19,6 +21,7 @@ import {
   type EvidenceStatusTone,
 } from "@/domains/evidence/format";
 import type { EvidenceItem } from "@/domains/evidence/types";
+import { resolvePair } from "@/domains/evidence/pairing";
 import { resolveEvidenceTargetParts } from "@/domains/evidence/target-label";
 import type { Job } from "@/domains/jobs/types";
 import { EvidenceContextChips } from "./EvidenceContextChips";
@@ -39,6 +42,10 @@ interface Props {
   item: EvidenceItem | null;
   /** The job the evidence belongs to — resolves area/task ids to names (#515). */
   job: Job;
+  /** The full evidence array for the job (#263). Used to resolve the
+   *  before/after partner for the side-by-side pair view. A dangling
+   *  pairedWithId (partner missing here) renders single — never crashes. */
+  allEvidence?: ReadonlyArray<EvidenceItem>;
   open: boolean;
   isAdmin: boolean;
   /** True while a review or reject mutation is in flight for this item. */
@@ -51,6 +58,10 @@ interface Props {
    *  regardless of value (the parent component is responsible for
    *  passing this only when isAdmin). */
   onOpenUnreview?: () => void;
+  /** #263 — unlink the before/after pair. Optional; rendered in the
+   *  footer only when the item resolves to a real pair AND a handler is
+   *  passed (admin path). */
+  onUnlink?: () => void;
 }
 
 type HistoryState =
@@ -74,6 +85,7 @@ type HistoryState =
 export function EvidenceDrawer({
   item,
   job,
+  allEvidence,
   open,
   isAdmin,
   busy,
@@ -81,6 +93,7 @@ export function EvidenceDrawer({
   onMarkReviewed,
   onOpenReject,
   onOpenUnreview,
+  onUnlink,
 }: Props) {
   const [history, setHistory] = useState<HistoryState>({ kind: "idle" });
 
@@ -170,6 +183,12 @@ export function EvidenceDrawer({
   const isRejected = item.status === "rejected";
   const isImmutable = isReviewed || isRejected;
 
+  // #263 — resolve the before/after partner from the full job evidence.
+  // A dangling pairedWithId (partner missing) resolves to paired:false, so
+  // the single-photo path renders and the unlink affordance hides.
+  const pair = resolvePair(allEvidence ?? [], item);
+  const showPair = pair.paired && !!pair.before && !!pair.after;
+
   return (
     <div
       role="dialog"
@@ -237,7 +256,9 @@ export function EvidenceDrawer({
               </p>
             ) : null}
 
-            {item.kind === "photo" && item.photoUrl ? (
+            {showPair && pair.before && pair.after ? (
+              <PairView before={pair.before} after={pair.after} />
+            ) : item.kind === "photo" && item.photoUrl ? (
               <div className="overflow-hidden rounded-card border border-border bg-surface-subtle">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -273,6 +294,24 @@ export function EvidenceDrawer({
             <HistorySection state={history} />
           </div>
         </div>
+
+        {showPair && onUnlink ? (
+          <div className="flex items-center justify-between gap-3 border-t border-border bg-surface-subtle px-4 py-2.5">
+            <p className="flex items-center gap-1.5 text-xs text-text-muted">
+              <Link2 aria-hidden="true" className="h-3.5 w-3.5" />
+              Paired before/after.
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onUnlink}
+              disabled={busy}
+            >
+              <Link2Off aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
+              Unlink
+            </Button>
+          </div>
+        ) : null}
 
         {isAdmin && !isImmutable ? (
           <footer className="flex flex-col-reverse gap-2 border-t border-border bg-surface-raised px-4 py-3 sm:flex-row sm:justify-end">
@@ -322,6 +361,67 @@ export function EvidenceDrawer({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * #263 — side-by-side before/after pair. Renders BOTH photos with BOTH
+ * timestamps and BOTH status pills. Mixed-status honesty: a rejected
+ * before next to a reviewed after shows both — the rejected half is never
+ * hidden. The link is stored on the after; the before half is read-only.
+ */
+function PairView({
+  before,
+  after,
+}: {
+  before: EvidenceItem;
+  after: EvidenceItem;
+}) {
+  return (
+    <div>
+      <p className="font-display text-xs uppercase tracking-wider text-text-muted">
+        Before / after
+      </p>
+      <div className="mt-2 grid grid-cols-2 gap-3">
+        <PairHalf label="Before" item={before} />
+        <PairHalf label="After" item={after} />
+      </div>
+    </div>
+  );
+}
+
+function PairHalf({ label, item }: { label: string; item: EvidenceItem }) {
+  const tone = PILL_TONE_MAP[statusTone(item.status)];
+  return (
+    <figure className="min-w-0 space-y-1.5">
+      <figcaption className="flex items-center justify-between gap-1">
+        <span className="font-display text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+          {label}
+        </span>
+        <Pill tone={tone}>{statusLabel(item.status)}</Pill>
+      </figcaption>
+      {item.kind === "photo" && item.photoUrl ? (
+        <div className="overflow-hidden rounded-card border border-border bg-surface-subtle">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={item.photoUrl}
+            alt={item.note ?? `${label} photo`}
+            className="block max-h-[40vh] w-full object-contain"
+          />
+        </div>
+      ) : (
+        <div className="flex aspect-square items-center justify-center rounded-card border border-border bg-surface-subtle text-text-muted">
+          <ImageIcon aria-hidden="true" className="h-6 w-6" />
+        </div>
+      )}
+      <time
+        dateTime={item.capturedAt}
+        title={item.capturedAt}
+        className="block text-[11px] text-text-muted"
+      >
+        {formatCapturedAt(item.capturedAt)}
+      </time>
+    </figure>
   );
 }
 
@@ -425,6 +525,24 @@ function ActionIcon({ action }: { action: AuditAction }) {
           className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-pill bg-rose-100 text-rose-700"
         >
           <XCircle className="h-3.5 w-3.5" />
+        </span>
+      );
+    case "evidence.linked":
+      return (
+        <span
+          aria-hidden="true"
+          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-pill bg-indigo-100 text-indigo-700"
+        >
+          <Link2 className="h-3.5 w-3.5" />
+        </span>
+      );
+    case "evidence.unlinked":
+      return (
+        <span
+          aria-hidden="true"
+          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-pill bg-slate-100 text-slate-700"
+        >
+          <Link2Off className="h-3.5 w-3.5" />
         </span>
       );
   }

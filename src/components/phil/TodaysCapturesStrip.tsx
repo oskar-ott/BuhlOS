@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { FileText, Image as ImageIcon, X } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { FileText, Image as ImageIcon, Link2, Link2Off, X } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { PhilNotice } from "./ui/PhilNotice";
+import { PhilActionButton } from "./ui/PhilActionButton";
 import {
   kindLabel,
   statusLabel,
@@ -12,6 +13,8 @@ import {
   type EvidenceStatusTone,
 } from "@/domains/evidence/format";
 import type { EvidenceItem } from "@/domains/evidence/types";
+import { candidateBeforePhotos, resolvePair } from "@/domains/evidence/pairing";
+import { linkEvidence, unlinkEvidence } from "@/domains/evidence/client";
 import { cn } from "@/lib/cn";
 
 type ToneClass = "info" | "success" | "danger";
@@ -33,6 +36,17 @@ interface Props {
    *  area NAME instead of leaking the raw area id. Ids without a name fall
    *  back to the stage only. */
   areaNames?: Record<string, string>;
+  /** #263 — the job these captures belong to. Required for the link/unlink
+   *  affordance. When absent, the strip degrades to read-only (no pairing). */
+  jobId?: string;
+  /** #263 — the current viewer's id. The "Link a before photo" affordance
+   *  and the worker-owned unlink show only on the viewer's OWN captures.
+   *  (The server is the authority; this keeps the UI honest pre-flight.) */
+  viewerId?: string;
+  /** #263 — called with the canonical AFTER item the link/unlink route
+   *  returns, so the parent can merge it into its evidence state (the
+   *  strip is otherwise a controlled, read-only view of `items`). */
+  onItemUpdated?: (item: EvidenceItem) => void;
 }
 
 /**
@@ -46,8 +60,18 @@ interface Props {
  *   docs/rebuild-audit/29-phase-d3-phil-capture-spec.md §7.8 + §9
  *   src/domains/evidence/format.ts — status palette
  */
-export function TodaysCapturesStrip({ items, banner, areaNames }: Props) {
+export function TodaysCapturesStrip({
+  items,
+  banner,
+  areaNames,
+  jobId,
+  viewerId,
+  onItemUpdated,
+}: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // #263 — local pairing UI state (independent of the parent's items).
+  const [pairBusy, setPairBusy] = useState(false);
+  const [pairError, setPairError] = useState<string | null>(null);
 
   const sorted = useMemo(
     () =>
@@ -60,6 +84,51 @@ export function TodaysCapturesStrip({ items, banner, areaNames }: Props) {
   const selected = useMemo(
     () => sorted.find((it) => it.id === selectedId) ?? null,
     [sorted, selectedId]
+  );
+
+  // The link affordance is available only when we have a jobId AND the
+  // selected capture is the viewer's OWN photo (server is still the
+  // authority — this just keeps the UI from offering a doomed action).
+  const canPairSelected =
+    !!jobId &&
+    !!selected &&
+    selected.kind === "photo" &&
+    (!viewerId || selected.capturedById === viewerId);
+
+  const handleLink = useCallback(
+    async (afterId: string, beforeId: string) => {
+      if (!jobId) return;
+      setPairBusy(true);
+      setPairError(null);
+      const r = await linkEvidence(jobId, { afterId, beforeId });
+      setPairBusy(false);
+      if (r.ok) {
+        onItemUpdated?.(r.data.evidenceItem);
+      } else {
+        setPairError(
+          r.error.status === 403
+            ? "You can only link your own photos."
+            : "Couldn't link the photos. Try again."
+        );
+      }
+    },
+    [jobId, onItemUpdated]
+  );
+
+  const handleUnlink = useCallback(
+    async (afterId: string) => {
+      if (!jobId) return;
+      setPairBusy(true);
+      setPairError(null);
+      const r = await unlinkEvidence(jobId, { afterId });
+      setPairBusy(false);
+      if (r.ok) {
+        onItemUpdated?.(r.data.evidenceItem);
+      } else {
+        setPairError("Couldn't unlink. Try again.");
+      }
+    },
+    [jobId, onItemUpdated]
   );
 
   return (
@@ -130,8 +199,17 @@ export function TodaysCapturesStrip({ items, banner, areaNames }: Props) {
       {selected ? (
         <EvidenceDrawer
           item={selected}
+          items={sorted}
           areaNames={areaNames}
-          onClose={() => setSelectedId(null)}
+          canPair={canPairSelected}
+          pairBusy={pairBusy}
+          pairError={pairError}
+          onLink={(beforeId) => handleLink(selected.id, beforeId)}
+          onUnlink={(afterId) => handleUnlink(afterId)}
+          onClose={() => {
+            setSelectedId(null);
+            setPairError(null);
+          }}
         />
       ) : null}
     </Card>
@@ -161,14 +239,39 @@ function CaptureThumb({ item }: { item: EvidenceItem }) {
 
 function EvidenceDrawer({
   item,
+  items,
   areaNames,
+  canPair = false,
+  pairBusy = false,
+  pairError = null,
+  onLink,
+  onUnlink,
   onClose,
 }: {
   item: EvidenceItem;
+  /** Full strip list — resolves the pair partner + the candidate picker. */
+  items: ReadonlyArray<EvidenceItem>;
   areaNames?: Record<string, string>;
+  /** #263 — true when the viewer may pair this (own photo + jobId known). */
+  canPair?: boolean;
+  pairBusy?: boolean;
+  pairError?: string | null;
+  /** #263 — link this AFTER to the chosen BEFORE id. */
+  onLink?: (beforeId: string) => void;
+  /** #263 — unlink the live pair (pass the AFTER id). */
+  onUnlink?: (afterId: string) => void;
   onClose: () => void;
 }) {
   const target = formatTarget(item, areaNames);
+  // #263 — resolve the before/after pair for this capture. Dangling →
+  // unpaired (no crash). Candidates exclude self / notes / cross-job.
+  const pair = resolvePair(items, item);
+  const showPair = pair.paired && !!pair.before && !!pair.after;
+  const candidates = useMemo(
+    () => (showPair ? [] : candidateBeforePhotos(items, item, { cap: 12 })),
+    [showPair, items, item]
+  );
+  const [picking, setPicking] = useState(false);
   return (
     <div
       role="dialog"
@@ -211,7 +314,9 @@ function EvidenceDrawer({
             )}
           </div>
 
-          {item.kind === "photo" && item.photoUrl ? (
+          {showPair && pair.before && pair.after ? (
+            <PhilPairView before={pair.before} after={pair.after} />
+          ) : item.kind === "photo" && item.photoUrl ? (
             <div className="overflow-hidden rounded-card border border-border bg-surface-subtle">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -245,7 +350,144 @@ function EvidenceDrawer({
               <p className="whitespace-pre-wrap">{item.rejectionReason}</p>
             </PhilNotice>
           ) : null}
+
+          {/* #263 — before/after pairing affordance. Additive, lives only
+              here (never in the frozen capture sheet). Photo-kind only. */}
+          {item.kind === "photo" ? (
+            <div className="border-t border-border pt-4">
+              {pairError ? (
+                <PhilNotice tone="danger" role="alert" className="mb-3">
+                  {pairError}
+                </PhilNotice>
+              ) : null}
+
+              {showPair && pair.after ? (
+                canPair && onUnlink ? (
+                  <button
+                    type="button"
+                    onClick={() => onUnlink(pair.after!.id)}
+                    disabled={pairBusy}
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-card border border-border px-3 py-2 text-sm text-text-muted",
+                      "hover:bg-surface-subtle disabled:opacity-60"
+                    )}
+                  >
+                    <Link2Off aria-hidden="true" className="h-4 w-4" />
+                    {pairBusy ? "Unlinking…" : "Unlink before photo"}
+                  </button>
+                ) : (
+                  <p className="inline-flex items-center gap-2 text-sm text-text-muted">
+                    <Link2 aria-hidden="true" className="h-4 w-4" />
+                    Paired with a before photo.
+                  </p>
+                )
+              ) : canPair && onLink ? (
+                picking ? (
+                  candidates.length > 0 ? (
+                    <div>
+                      <p className="mb-2 font-display text-xs uppercase tracking-wider text-text-muted">
+                        Pick the before photo
+                      </p>
+                      <ul className="flex gap-3 overflow-x-auto pb-2" role="list">
+                        {candidates.map((c) => (
+                          <li key={c.id} className="shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => onLink(c.id)}
+                              disabled={pairBusy}
+                              aria-label={`Link before photo captured ${formatTime(c.capturedAt)}`}
+                              className={cn(
+                                "flex w-28 flex-col gap-1 rounded-card border border-border bg-surface p-1.5 text-left",
+                                "hover:border-brand-navy focus:outline-none focus:ring-2 focus:ring-brand-navy disabled:opacity-60"
+                              )}
+                            >
+                              <CaptureThumb item={c} />
+                              <span className="text-[12px] text-text-muted">
+                                {formatTime(c.capturedAt)}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                      <button
+                        type="button"
+                        onClick={() => setPicking(false)}
+                        className="mt-2 text-xs text-text-muted underline"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-text-muted">
+                      No earlier photos on this job.
+                    </p>
+                  )
+                ) : (
+                  <PhilActionButton
+                    size="md"
+                    fullWidth={false}
+                    onClick={() => setPicking(true)}
+                    disabled={pairBusy}
+                  >
+                    <Link2 aria-hidden="true" className="h-4 w-4" />
+                    Link a before photo
+                  </PhilActionButton>
+                )
+              ) : null}
+            </div>
+          ) : null}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * #263 — Phil-side before/after pair render. Both photos with both
+ * timestamps and both status pills (mixed-status honesty). The before half
+ * is read-only here — the worker manages the link via the after.
+ */
+function PhilPairView({
+  before,
+  after,
+}: {
+  before: EvidenceItem;
+  after: EvidenceItem;
+}) {
+  return (
+    <div>
+      <p className="mb-2 font-display text-xs uppercase tracking-wider text-text-muted">
+        Before / after
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        {[
+          { label: "Before", it: before },
+          { label: "After", it: after },
+        ].map(({ label, it }) => (
+          <figure key={label} className="min-w-0 space-y-1.5">
+            <figcaption className="flex items-center justify-between gap-1">
+              <span className="font-display text-[12px] font-semibold uppercase tracking-wider text-text-muted">
+                {label}
+              </span>
+              <Pill tone={PILL_TONE_MAP[statusTone(it.status)]}>{statusLabel(it.status)}</Pill>
+            </figcaption>
+            {it.kind === "photo" && it.photoUrl ? (
+              <div className="overflow-hidden rounded-card border border-border bg-surface-subtle">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={it.photoUrl}
+                  alt={it.note ?? `${label} photo`}
+                  className="block max-h-[40vh] w-full object-contain"
+                />
+              </div>
+            ) : (
+              <div className="flex aspect-square items-center justify-center rounded-card border border-border bg-surface-subtle text-text-muted">
+                <ImageIcon aria-hidden="true" className="h-6 w-6" />
+              </div>
+            )}
+            <span className="block text-[12px] text-text-muted">{formatTime(it.capturedAt)}</span>
+          </figure>
+        ))}
       </div>
     </div>
   );

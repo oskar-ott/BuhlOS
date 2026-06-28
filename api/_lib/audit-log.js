@@ -26,6 +26,11 @@ const VALID_ACTIONS = new Set([
   'evidence.reviewed',
   'evidence.rejected',
   'evidence.unreviewed',
+  // #263: before/after pairing. linked/unlinked fire on the AFTER row only
+  // (the BEFORE row is never mutated). Kept in sync with
+  // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'evidence.linked',
+  'evidence.unlinked',
   // Phase D.5 (snags). One verb covers every status change; the
   // metadata.from / metadata.to fields carry the direction.
   'snag.created',

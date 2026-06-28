@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Image as ImageIcon } from "lucide-react";
+import { FileText, Image as ImageIcon, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -13,8 +13,9 @@ import {
   statusTone,
   type EvidenceStatusTone,
 } from "@/domains/evidence/format";
-import { reviewEvidence } from "@/domains/evidence/client";
+import { reviewEvidence, unlinkEvidence } from "@/domains/evidence/client";
 import type { EvidenceItem } from "@/domains/evidence/types";
+import { pairedIdSet } from "@/domains/evidence/pairing";
 import { resolveEvidenceTargetParts } from "@/domains/evidence/target-label";
 import type { Job } from "@/domains/jobs/types";
 import {
@@ -96,6 +97,14 @@ export function EvidenceQueue({
   const visible = useMemo(
     () => items.filter((it) => matchesFilter(it, filter)),
     [items, filter]
+  );
+
+  // #263 — paired ids from the UNFILTERED initial list, computed once. The
+  // badge then shows on a paired row even when its partner is filtered out
+  // (AC). Recomputed only when the source identity changes.
+  const pairedIds = useMemo(
+    () => pairedIdSet(initialEvidence),
+    [initialEvidence]
   );
 
   const selectedSubmittedIds = useMemo(
@@ -215,6 +224,42 @@ export function EvidenceQueue({
     },
     [job.id, applyServerItem, router]
   );
+
+  // #263 — admin unlink of a before/after pair. The link lives on the
+  // AFTER row; pass that id. The server returns the canonical (now
+  // unpaired) after item, which we merge in and refresh.
+  const unlinkPair = useCallback(
+    async (afterId: string) => {
+      setAction({ kind: "in_flight", evidenceId: afterId });
+      const r = await unlinkEvidence(job.id, { afterId });
+      if (r.ok) {
+        applyServerItem(r.data.evidenceItem);
+        setAction({ kind: "success", message: "Unlinked the before/after pair." });
+        startTransition(() => router.refresh());
+      } else {
+        setAction({
+          kind: "error",
+          message:
+            r.error.status === 403
+              ? "You can't unlink this pair."
+              : r.error.message || "Couldn't unlink. Try again.",
+        });
+      }
+    },
+    [job.id, applyServerItem, router]
+  );
+
+  // Resolve the AFTER id for the drawer's unlink button: if the drawer item
+  // IS the after it carries pairedWithId; if it's the before, find the row
+  // pointing at it. Returns null when the item isn't part of a live pair.
+  const drawerAfterId = useMemo(() => {
+    if (!drawerItem) return null;
+    if (drawerItem.pairedWithId && items.some((it) => it.id === drawerItem.pairedWithId)) {
+      return drawerItem.id;
+    }
+    const after = items.find((it) => it.pairedWithId === drawerItem.id);
+    return after ? after.id : null;
+  }, [drawerItem, items]);
 
   const bulkMarkReviewed = useCallback(async () => {
     if (selectedSubmittedIds.length === 0 || bulkBusy) return;
@@ -417,6 +462,7 @@ export function EvidenceQueue({
                   item={it}
                   job={job}
                   isAdmin={isAdmin}
+                  isPaired={pairedIds.has(it.id)}
                   isSelected={!!selected[it.id]}
                   busy={!!busyMap[it.id] || bulkBusy}
                   onToggleSelect={() => toggleSelect(it.id)}
@@ -433,6 +479,7 @@ export function EvidenceQueue({
       <EvidenceDrawer
         item={drawerItem}
         job={job}
+        allEvidence={items}
         open={drawerItem !== null}
         isAdmin={isAdmin}
         busy={
@@ -454,6 +501,11 @@ export function EvidenceQueue({
             ? () => {
                 if (drawerItem) setUnreviewId(drawerItem.id);
               }
+            : undefined
+        }
+        onUnlink={
+          isAdmin && drawerAfterId
+            ? () => unlinkPair(drawerAfterId)
             : undefined
         }
       />
@@ -485,6 +537,10 @@ interface RowProps {
   item: EvidenceItem;
   job: Job;
   isAdmin: boolean;
+  /** #263 — true when this row participates in a before/after pair (set
+   *  computed from the UNFILTERED list, so the badge shows even when the
+   *  partner is filtered out). */
+  isPaired: boolean;
   isSelected: boolean;
   busy: boolean;
   onToggleSelect: () => void;
@@ -497,6 +553,7 @@ function EvidenceRow({
   item,
   job,
   isAdmin,
+  isPaired,
   isSelected,
   busy,
   onToggleSelect,
@@ -541,8 +598,17 @@ function EvidenceRow({
         >
           <Thumb item={item} />
           <span className="min-w-0">
-            <span className="block text-xs font-medium text-text-muted">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-text-muted">
               {kindLabel(item.kind)}
+              {isPaired ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded-pill bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700"
+                  title="Linked before/after pair"
+                >
+                  <Link2 aria-hidden="true" className="h-3 w-3" />
+                  Paired
+                </span>
+              ) : null}
             </span>
             <span className="block max-w-xs truncate text-sm text-text">
               {item.note ? item.note : "—"}
