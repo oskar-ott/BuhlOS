@@ -171,6 +171,11 @@ export const AUDIT_ACTIONS = [
   // on send/answer/close (metadata.from/to carry the direction).
   "rfi.created",
   "rfi.transitioned",
+  // #210: site diary (api/diary.js). diary.created on the day's entry POST;
+  // diary.amended on an append-only amendment (the original is never mutated).
+  // targetType 'diary'. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
+  "diary.created",
+  "diary.amended",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -212,6 +217,8 @@ export const AUDIT_TARGET_TYPES = [
   "certificate",
   // #276: per-job RFI records.
   "rfi",
+  // #210: per-job site diary entries (jobs/<id>/diary.json).
+  "diary",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

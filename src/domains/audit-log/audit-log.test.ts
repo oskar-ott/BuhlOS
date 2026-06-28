@@ -129,6 +129,9 @@ describe("AuditLogEntrySchema", () => {
       "daywork.created",
       "daywork.signed",
       "daywork.transitioned",
+      // #210: site diary lifecycle (created + append-only amend).
+      "diary.amended",
+      "diary.created",
       "document.acknowledged",
       "document.made_current",
       "document.superseded",
@@ -219,6 +222,8 @@ describe("AuditLogEntrySchema", () => {
       "credential",
       // #370: daywork docket records.
       "daywork",
+      // #210: per-job site diary entries.
+      "diary",
       "document",
       "employee",
       "evidence",
