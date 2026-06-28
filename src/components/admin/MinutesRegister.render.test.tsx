@@ -54,6 +54,7 @@ describe("MinutesRegister — render", () => {
           }),
         ],
         fetchError: null,
+        canWrite: true,
       })
     )
   );
@@ -74,6 +75,22 @@ describe("MinutesRegister — render", () => {
     expect(html).toContain("Discussed the riser route.");
   });
 
+  it("audit fix: a read-only viewer (canWrite=false / leading hand) sees the list but NO write controls", () => {
+    const ro = strip(
+      renderToString(
+        createElement(MinutesRegister, {
+          jobId: "job-1",
+          initialMinutes: [minute({ id: "m1", date: "2026-05-10", title: "Kickoff meeting", body: "Agreed the program." })],
+          fetchError: null,
+          canWrite: false,
+        })
+      )
+    );
+    expect(ro).toContain("Kickoff meeting"); // list still reads
+    expect(ro).not.toContain("Record minutes"); // no record form
+    expect(ro).not.toContain("Add amendment"); // no amend control
+  });
+
   it("renders a stamped amendment beneath the unchanged original", () => {
     expect(html).toContain("Amendments");
     expect(html).toContain("Action 3 reassigned.");
@@ -88,7 +105,7 @@ describe("MinutesRegister — honest empty states", () => {
   it("states 'no minutes yet' plainly when the list is empty", () => {
     const html = strip(
       renderToString(
-        createElement(MinutesRegister, { jobId: "job-1", initialMinutes: [], fetchError: null })
+        createElement(MinutesRegister, { jobId: "job-1", initialMinutes: [], fetchError: null, canWrite: true })
       )
     );
     expect(html).toContain("No minutes recorded on this job yet");
@@ -115,6 +132,7 @@ describe("MinutesRegister — honest empty states", () => {
             }),
           ],
           fetchError: null,
+          canWrite: true,
         })
       )
     );

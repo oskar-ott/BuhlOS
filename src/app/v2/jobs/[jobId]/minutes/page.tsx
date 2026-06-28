@@ -72,6 +72,7 @@ export default async function AdminMinutesPage({ params }: PageParams) {
           jobId={jobId}
           initialMinutes={minutesResult.kind === "ok" ? minutesResult.minutes : []}
           fetchError={minutesResult.kind === "error" ? minutesResult.message : null}
+          canWrite={canAccessSurface(session.role, "admin")}
         />
       </div>
     </AdminShell>

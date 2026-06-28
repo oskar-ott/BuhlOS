@@ -16,10 +16,15 @@ export function MinutesRegister({
   jobId,
   initialMinutes,
   fetchError,
+  canWrite,
 }: {
   jobId: string;
   initialMinutes: MinuteEntry[];
   fetchError: string | null;
+  /** Admin-tier only: api/job-minutes.js 403s a leading hand's record/amend,
+   *  so an LH reads the register but never sees a write control that can't
+   *  submit (audit: "no dead controls"). */
+  canWrite: boolean;
 }) {
   const [minutes, setMinutes] = useState<MinuteEntry[]>(initialMinutes);
   const [error, setError] = useState<string | null>(fetchError);
@@ -161,7 +166,9 @@ export function MinutesRegister({
         </div>
       )}
 
-      {/* Record */}
+      {/* Record — admin-tier only (a managing leading hand reads the register
+          but the server 403s their write, so we never render a dead form). */}
+      {canWrite && (
       <form onSubmit={onRecord} className="space-y-3 rounded-lg border border-slate-200 p-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block text-sm">
@@ -242,6 +249,7 @@ export function MinutesRegister({
           </button>
         </div>
       </form>
+      )}
 
       {/* List */}
       {sorted.length === 0 ? (
@@ -294,7 +302,8 @@ export function MinutesRegister({
                 </div>
               )}
 
-              {/* Add amendment */}
+              {/* Add amendment — admin-tier only (append-only; server 403s LH). */}
+              {canWrite && (
               <div className="mt-3">
                 {amendId === m.id ? (
                   <div className="space-y-2">
@@ -345,6 +354,7 @@ export function MinutesRegister({
                   </button>
                 )}
               </div>
+              )}
             </li>
           ))}
         </ul>
