@@ -121,6 +121,27 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Hours PG-AS-SOURCE (Stage A): promotes the EXISTING synchronous hours mirror
+  // (api/_lib/hours-mirror.js, called in-request from the writeEntry seam) to the
+  // domain's source-authoritative write. Unlike tasks — whose mirror was an async
+  // cron, so #738 added a NEW synchronous CAS write — the hours mirror is ALREADY a
+  // synchronous, in-request, per-row upsert (`on conflict (tenant,user,work_date) do
+  // update ... where <distinct from>`, revision bumped by trigger) with the entry's
+  // allocations reconciled in the same txn. So no new write file is needed: this flag
+  // simply designates that upsert as the source write (it runs when EITHER this flag
+  // OR the generic supabase_dual_write is on). The integrity character also differs
+  // from tasks: the hours Blob write already has optimistic-lock CAS (writeBlob
+  // expectedRev: entry.__rev), so hours has no lost-update flaw — the PG win is
+  // REFERENTIAL (real job FKs + per-allocation rows + schema CHECKs) and it unlocks a
+  // PG-authoritative payroll read (Stage B). Read stays parity-gated in Stage A.
+  // Best-effort + Blob write-through always (field work never stops). Default OFF,
+  // unset in prod. See supabase-served-source-roadmap.md.
+  supabase_source_hours: {
+    description: 'Designate the synchronous hours mirror as the source-authoritative PG write (in addition to supabase_dual_write), Blob write-through, parity-gated read (#152, PG-as-source Stage A). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // Admin task-status READ cutover (J11): when on, the ADMIN tier's task-status
   // read (/api/data) is served from the Postgres mirror using the SAME per-job
   // parity-gated overlay as J10 (byte-faithful or Blob fallback), so the office
