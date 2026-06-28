@@ -3,8 +3,10 @@ import {
   FIELD_CLASSIFICATION_OPTIONS,
   EMPTY_SELECTION,
   buildClassificationPatch,
+  buildClassifyBody,
   buildReconciliationConfirmBody,
   canSave,
+  classifyScopeClause,
   compileConfirm,
   compilePreview,
   saveReconciliation,
@@ -108,6 +110,42 @@ describe("buildClassificationPatch / buildReconciliationConfirmBody", () => {
   it("omits taskRef for the default 'area' scope (package-level, unchanged behaviour)", () => {
     const patch = buildClassificationPatch(FULL); // proofScope: "area"
     expect("taskRef" in patch.requiredEvidence[0]!).toBe(false);
+  });
+});
+
+describe("classifyScopeClause — review-queue fast-classify (bare disposition)", () => {
+  it("builds a one-clause confirm body with a BARE classification (no proof/task wiring)", () => {
+    expect(buildClassifyBody("job_1", "sw_2", "excluded")).toEqual({
+      jobId: "job_1",
+      classifications: { sw_2: "excluded" },
+    });
+  });
+
+  it("POSTs the bare classification to the confirm endpoint and maps 200 to ok", async () => {
+    const fetchImpl = fakeFetch(200, { ok: true, saved: { status: "amber", sourceHash: "h" } });
+    const r = await classifyScopeClause("job_1", "sw_2", "priced", fetchImpl);
+    expect(r.ok).toBe(true);
+    const call = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(call[0]).toBe("/api/job-control/reconciliation/confirm");
+    expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({
+      jobId: "job_1",
+      classifications: { sw_2: "priced" },
+    });
+  });
+
+  it("maps 401/403 to a plain admin-login message", async () => {
+    const r = await classifyScopeClause("j", "sw_1", "priced", fakeFetch(403, { ok: false }));
+    expect(r.ok).toBe(false);
+  });
+
+  it("maps a thrown fetch to a network message", async () => {
+    const throwing = vi.fn(async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    expect(await classifyScopeClause("j", "sw_1", "priced", throwing)).toEqual({
+      ok: false,
+      message: "Network error. Try again.",
+    });
   });
 });
 

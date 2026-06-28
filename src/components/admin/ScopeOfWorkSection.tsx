@@ -35,15 +35,14 @@ const nextKey = () => `sw-draft-${++keyCounter}`;
 export function ScopeOfWorkSection({
   job,
   certaintyByClauseId,
-  reconciled = false,
   selectedClauseId = null,
   onInspectClause,
 }: {
   job: Job;
-  /** Per-clause certainty derived from the confirmed reconciliation (clauseId → state). */
+  /** Per-clause certainty (clauseId → state) — from the confirmed reconciliation
+   *  and/or live review-queue classifications. A clause's chip shows iff it has
+   *  an entry here; un-triaged scope carries none (never a faked green). */
   certaintyByClauseId?: ReadonlyMap<string, CertaintyState>;
-  /** True when this job has a confirmed reconciliation — gates the certainty chips. */
-  reconciled?: boolean;
   /** The clause currently open in the cockpit Inspector, for highlight. */
   selectedClauseId?: string | null;
   /** Open a saved clause in the cockpit Inspector. */
@@ -141,7 +140,7 @@ export function ScopeOfWorkSection({
         <ul className="mt-3 space-y-2">
           {items.map((item, idx) => {
             const cert = item.id ? certaintyByClauseId?.get(item.id) : undefined;
-            const showCert = Boolean(item.id && reconciled && cert);
+            const showCert = Boolean(item.id && cert);
             const selected = Boolean(item.id && selectedClauseId && item.id === selectedClauseId);
             return (
             <li

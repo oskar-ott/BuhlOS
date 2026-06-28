@@ -43,11 +43,10 @@ describe("ScopeOfWorkSection (builder)", () => {
     expect(html).toContain("No scope captured yet");
   });
 
-  it("shows a live CertaintyChip + inspect affordance on a reconciled clause", () => {
+  it("shows a live CertaintyChip + inspect affordance for a clause with known certainty", () => {
     const html = renderToString(
       createElement(ScopeOfWorkSection, {
         job: job([{ id: "sw_1", title: "Install DB-1", detail: "", order: 0 }]),
-        reconciled: true,
         certaintyByClauseId: new Map<string, CertaintyState>([["sw_1", "confirmed"]]),
         onInspectClause: () => undefined,
         selectedClauseId: null,
@@ -57,12 +56,11 @@ describe("ScopeOfWorkSection (builder)", () => {
     expect(html).toContain("scope-inspect-0"); // the inspect affordance
   });
 
-  it("shows no certainty chip when the job has no confirmed reconciliation (never faked)", () => {
+  it("shows no certainty chip for an un-triaged clause (empty map — never faked)", () => {
     const html = renderToString(
       createElement(ScopeOfWorkSection, {
         job: job([{ id: "sw_1", title: "Install DB-1", detail: "", order: 0 }]),
-        reconciled: false,
-        certaintyByClauseId: new Map<string, CertaintyState>([["sw_1", "confirmed"]]),
+        certaintyByClauseId: new Map<string, CertaintyState>(),
         onInspectClause: () => undefined,
       })
     );

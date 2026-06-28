@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import Link from "next/link";
@@ -64,6 +64,8 @@ import {
 } from "@/domains/jobs/builder";
 import { JobBuilderCockpit, type CockpitNavGroup, type CockpitSectionStatus } from "./JobBuilderCockpit";
 import { Inspector, type InspectorRow } from "./Inspector";
+import { ReviewQueue, type ReviewClause } from "./ReviewQueue";
+import { classifyScopeClause } from "./jobControlAuthoringClient";
 import { certaintyForClassification, type CertaintyState } from "@/domains/jobs/certainty";
 import type { ScopeClassification } from "@/domains/job-control/reconciliation";
 import type {
@@ -343,10 +345,10 @@ export function JobBuilderClient({
   }
 
   // §4 certainty: per-clause certainty derived from the CONFIRMED reconciliation
-  // — the only real source (the saved job carries no classification). A clause
-  // the office hasn't classified reads `needs_review`; one it has reads
-  // `confirmed`. Without a confirmed reconciliation no certainty is tracked, so
-  // no chips are shown (we never fake a green on un-triaged scope).
+  // — the only real source (the saved job carries no classification). The review
+  // queue's optimistic overrides layer on top so chips + counts update the
+  // instant a clause is classified (the write persists in the background). We
+  // never fake a green: an un-triaged clause has no certainty entry → no chip.
   const reconciledView =
     reconciliation && reconciliation.status === "reconciled" ? reconciliation : null;
   const clauseInfo = useMemo(() => {
@@ -358,11 +360,33 @@ export function JobBuilderClient({
     }
     return m;
   }, [reconciledView]);
+
+  // Optimistic classifications applied via the review queue this session.
+  const [classifiedOverrides, setClassifiedOverrides] = useState<Map<string, ScopeClassification>>(
+    () => new Map()
+  );
+
+  /** Effective certainty for a clause: a fresh override wins, else the confirmed
+   *  reconciliation, else none (un-triaged). */
+  const clauseState = useCallback(
+    (
+      clauseId: string
+    ): { certainty: CertaintyState; classification: ScopeClassification } | null => {
+      const ov = classifiedOverrides.get(clauseId);
+      if (ov) return { certainty: certaintyForClassification(ov), classification: ov };
+      const info = clauseInfo.get(clauseId);
+      if (info) return { certainty: info.certainty, classification: info.view.classification };
+      return null;
+    },
+    [classifiedOverrides, clauseInfo]
+  );
+
   const certaintyByClauseId = useMemo(() => {
     const m = new Map<string, CertaintyState>();
     for (const [id, info] of clauseInfo) m.set(id, info.certainty);
+    for (const [id, cls] of classifiedOverrides) m.set(id, certaintyForClassification(cls));
     return m;
-  }, [clauseInfo]);
+  }, [clauseInfo, classifiedOverrides]);
 
   // The cockpit Inspector's selected row (a scope line or an area), or null →
   // the Inspector falls back to the build-readiness view.
@@ -380,18 +404,71 @@ export function JobBuilderClient({
   }
 
   function selectClause(clauseId: string, title: string, detail: string) {
-    const info = clauseInfo.get(clauseId);
+    const st = clauseState(clauseId);
+    const view = clauseInfo.get(clauseId)?.view ?? null;
     setSelectedRow({
       entity: "clause",
       id: clauseId,
       title: title.trim() || "Untitled scope line",
       detail: detail.trim() || null,
-      certainty: info?.certainty ?? null,
-      classificationLabel: info ? CLAUSE_CLASSIFICATION_LABEL[info.view.classification] : null,
-      boqLineCount: info?.view.boqLineCount ?? 0,
-      deliveredByCount: info?.view.deliveredByCount ?? 0,
-      requiredEvidenceCount: info?.view.requiredEvidenceCount ?? 0,
-      warningText: info?.view.warningText ?? null,
+      certainty: st?.certainty ?? null,
+      classificationLabel: st ? CLAUSE_CLASSIFICATION_LABEL[st.classification] : null,
+      boqLineCount: view?.boqLineCount ?? 0,
+      deliveredByCount: view?.deliveredByCount ?? 0,
+      requiredEvidenceCount: view?.requiredEvidenceCount ?? 0,
+      warningText: view?.warningText ?? null,
+    });
+  }
+
+  // ── §4 review queue: keyboard-fast classify of the un-triaged scope lines ──
+  const scopeClauses = useMemo<ReviewClause[]>(
+    () =>
+      (savedJob.scopeOfWork ?? [])
+        .slice()
+        .sort((a, b) => a.order - b.order)
+        .map((c) => ({ id: c.id, title: c.title, detail: c.detail || null })),
+    [savedJob.scopeOfWork]
+  );
+  /** Needs triage = no certainty yet (untracked) OR still `needs_review` (an
+   *  `unclear` reconciliation clause). A real classification → `confirmed` drops
+   *  it from the queue. */
+  const untriagedClauses = useMemo(
+    () =>
+      scopeClauses.filter((c) => {
+        const st = clauseState(c.id);
+        return st === null || st.certainty === "needs_review";
+      }),
+    [scopeClauses, clauseState]
+  );
+
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewSession, setReviewSession] = useState<ReviewClause[]>([]);
+  const [reviewIndex, setReviewIndex] = useState(0);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const reviewCleared = reviewSession.filter((c) => classifiedOverrides.has(c.id)).length;
+
+  function openReview() {
+    setReviewSession(untriagedClauses);
+    setReviewIndex(0);
+    setReviewError(null);
+    setReviewOpen(true);
+  }
+  function classifyInReview(clauseId: string, classification: ScopeClassification) {
+    // Optimistic: record + advance so chips/counts update now; persist to the
+    // real reconciliation in the background. On failure revert the override —
+    // we never leave a green chip for a classification that didn't save.
+    setClassifiedOverrides((m) => new Map(m).set(clauseId, classification));
+    setReviewIndex((i) => i + 1);
+    setReviewError(null);
+    void classifyScopeClause(savedJob.id, clauseId, classification).then((res) => {
+      if (!res.ok) {
+        setClassifiedOverrides((m) => {
+          const next = new Map(m);
+          next.delete(clauseId);
+          return next;
+        });
+        setReviewError(res.message);
+      }
     });
   }
 
@@ -546,9 +623,32 @@ export function JobBuilderClient({
         readiness={readiness}
         nav={cockpitNav}
         activeKey={tab}
-        onSelect={(k) => setTab(k as TabKey)}
-        onMeterClick={() => setTab("publish")}
-        canvas={renderActiveSection()}
+        onSelect={(k) => {
+          setReviewOpen(false);
+          setTab(k as TabKey);
+        }}
+        onMeterClick={() => {
+          setReviewOpen(false);
+          setTab("publish");
+        }}
+        reviewCount={untriagedClauses.length}
+        reviewActive={reviewOpen}
+        onOpenReview={openReview}
+        canvas={
+          reviewOpen ? (
+            <ReviewQueue
+              session={reviewSession}
+              index={reviewIndex}
+              cleared={reviewCleared}
+              error={reviewError}
+              onClassify={classifyInReview}
+              onSkip={() => setReviewIndex((i) => i + 1)}
+              onClose={() => setReviewOpen(false)}
+            />
+          ) : (
+            renderActiveSection()
+          )
+        }
         inspector={
           <Inspector
             target={selectedRow ? { kind: "row", row: selectedRow } : { kind: "readiness" }}
@@ -716,7 +816,6 @@ export function JobBuilderClient({
               <ScopeOfWorkSection
                 job={savedJob}
                 certaintyByClauseId={certaintyByClauseId}
-                reconciled={Boolean(reconciledView)}
                 selectedClauseId={selectedRow?.entity === "clause" ? selectedRow.id : null}
                 onInspectClause={selectClause}
               />

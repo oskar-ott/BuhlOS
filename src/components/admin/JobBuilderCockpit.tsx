@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardList } from "lucide-react";
 import type { BuilderReadiness } from "@/domains/jobs/builder";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { cn } from "@/lib/cn";
@@ -60,6 +60,12 @@ interface JobBuilderCockpitProps {
   onSelect: (key: string) => void;
   /** Open the publish section from the meter (counts are clickable). */
   onMeterClick?: () => void;
+  /** Count of scope lines still to triage — shows a pinned Review queue rail
+   *  entry when set. Omit (undefined) to hide the entry entirely. */
+  reviewCount?: number;
+  /** Whether the review queue is the active canvas. */
+  reviewActive?: boolean;
+  onOpenReview?: () => void;
   canvas: ReactNode;
   inspector: ReactNode;
 }
@@ -70,6 +76,9 @@ export function JobBuilderCockpit({
   activeKey,
   onSelect,
   onMeterClick,
+  reviewCount,
+  reviewActive,
+  onOpenReview,
   canvas,
   inspector,
 }: JobBuilderCockpitProps) {
@@ -114,6 +123,31 @@ export function JobBuilderCockpit({
             </button>
           </div>
         </div>
+
+        {reviewCount !== undefined && onOpenReview ? (
+          <button
+            type="button"
+            data-testid="cockpit-open-review"
+            aria-current={reviewActive ? "page" : undefined}
+            onClick={onOpenReview}
+            className={cn(
+              "flex items-center gap-2 rounded-card border px-3 py-2 text-left text-sm font-medium transition-colors",
+              reviewActive
+                ? "border-brand-navy bg-brand-navy text-text-inverse"
+                : "border-border bg-surface text-text hover:bg-surface-subtle"
+            )}
+          >
+            <ClipboardList className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">Review queue</span>
+            {reviewCount > 0 ? (
+              <span className="shrink-0 rounded-pill bg-accent-yellow px-1.5 font-mono text-[11px] font-semibold text-brand-navy">
+                {reviewCount}
+              </span>
+            ) : (
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-state-success" aria-label="All triaged" />
+            )}
+          </button>
+        ) : null}
 
         <nav
           aria-label="Job builder sections"

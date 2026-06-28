@@ -74,4 +74,28 @@ describe("JobBuilderCockpit", () => {
     expect(html).toContain("CANVAS BODY");
     expect(html).toContain("INSPECTOR BODY");
   });
+
+  it("renders a pinned Review queue rail entry with the untriaged count", () => {
+    const html = renderToString(
+      createElement(JobBuilderCockpit, {
+        readiness,
+        nav,
+        activeKey: "basics",
+        onSelect: () => {},
+        reviewCount: 4,
+        reviewActive: false,
+        onOpenReview: () => {},
+        canvas: createElement("div", {}, "C"),
+        inspector: createElement("div", {}, "I"),
+      })
+    );
+    expect(html).toContain('data-testid="cockpit-open-review"');
+    expect(html).toContain("Review queue");
+    expect(html).toContain(">4<"); // the count badge
+  });
+
+  it("omits the Review queue entry when reviewCount is undefined", () => {
+    const html = render("basics"); // base render passes no review props
+    expect(html).not.toContain('data-testid="cockpit-open-review"');
+  });
 });
