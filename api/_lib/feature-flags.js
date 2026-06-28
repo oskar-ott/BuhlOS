@@ -107,6 +107,20 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Task-status PG-AS-SOURCE (Stage A): when on, /api/task-toggle writes the task
+  // status to Postgres with a per-row CAS update (revision bump + status_event) AT
+  // REQUEST TIME — fixing Blob's whole-document "last writer wins" lost-update flaw —
+  // in addition to the Blob write-through (Blob stays current for rollback + the
+  // snags/notes envelope). Reads stay parity-gated in Stage A (a PG lag falls back to
+  // current Blob — never stale); the PG-authoritative read is a later sub-step.
+  // Best-effort: a PG write failure falls back to the Blob-only write so field work
+  // never stops. Default OFF, unset in prod. See task-status-pg-source-promotion-adr.md.
+  supabase_source_tasks: {
+    description: 'Write task status to Postgres with CAS at request time (/api/task-toggle), Blob write-through, parity-gated read (#152, PG-as-source Stage A). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // Admin task-status READ cutover (J11): when on, the ADMIN tier's task-status
   // read (/api/data) is served from the Postgres mirror using the SAME per-job
   // parity-gated overlay as J10 (byte-faithful or Blob fallback), so the office
