@@ -180,18 +180,20 @@ export default async function HoursPeriodPage({
           {/* Custom range — a plain GET form, no client JS. */}
           <form method="get" action="/hours/period" className="mt-3 flex flex-wrap items-end gap-2">
             <input type="hidden" name="period" value="custom" />
-            <label className="text-xs text-text-muted">
+            <label htmlFor="period-from" className="text-xs text-text-muted">
               From
               <input
+                id="period-from"
                 type="date"
                 name="from"
                 defaultValue={range.fromDate}
                 className="mt-1 block rounded-card border border-border px-2 py-1.5 text-sm text-text"
               />
             </label>
-            <label className="text-xs text-text-muted">
+            <label htmlFor="period-to" className="text-xs text-text-muted">
               To
               <input
+                id="period-to"
                 type="date"
                 name="to"
                 defaultValue={range.toDate}
