@@ -21,7 +21,12 @@ import {
   buildPhilTaskContext,
   summarisePhilTaskProof,
 } from "../job-control/task-context";
-import type { EvidenceLink, WorkPackage } from "../job-control/types";
+import type {
+  EvidenceLink,
+  GoverningDocRef,
+  WorkPackage,
+  WorkPackageMaterial,
+} from "../job-control/types";
 import type { Job } from "./types";
 
 /**
@@ -272,11 +277,90 @@ describe("proof facet — injected, never invented", () => {
     expect(findInstance(views, "west", "fitOff", "t_zip").facets.proof).toBeNull();
   });
 
-  it("deferred facets (worker/material/rfi) are always null — never faked", () => {
+});
+
+describe("#506 grain-tagged facets — honest-empty by default, never omitted, never faked", () => {
+  it("(a) with NO input every facet is present with its honest grain tag", () => {
+    const views = projectTaskInstances(index());
+    for (const v of views) {
+      const f = v.facets;
+      // assignee — structurally un-fakeable honest-empty
+      expect(f.assignee).toEqual({ grain: "none", reason: "no per-task assignee source" });
+      // labour — always job-grained honest-empty (no per-task split, P7)
+      expect(f.labour).toEqual({ grain: "job", reason: "hours are jobId-only" });
+      // material / drawing — honest-empty grain "none" with no resolver
+      expect(f.material).toEqual({ grain: "none", reason: "no task-grained material source" });
+      expect(f.drawing).toEqual({ grain: "none", reason: "no task-grained drawing source" });
+      // rfi — honest-empty grain "none" with no open rfi blocker
+      expect(f.rfi).toEqual({ grain: "none", reason: "no open task RFI" });
+      // none are undefined — present, not omitted
+      expect(Object.keys(f)).toEqual(
+        expect.arrayContaining(["assignee", "labour", "material", "drawing", "rfi"]),
+      );
+    }
+  });
+
+  it("toTaskInstanceView (no input) yields the same honest-empty facet defaults", () => {
     const v = toTaskInstanceView(findInstance(index(), "east", "fitOff", "t_zip"));
-    expect(v.facets.worker).toBeNull();
-    expect(v.facets.material).toBeNull();
-    expect(v.facets.rfi).toBeNull();
+    expect(v.facets.assignee.grain).toBe("none");
+    expect(v.facets.labour.grain).toBe("job");
+    expect(v.facets.material.grain).toBe("none");
+    expect(v.facets.drawing.grain).toBe("none");
+    expect(v.facets.rfi.grain).toBe("none");
+  });
+
+  it("(d) labour & assignee NEVER carry a per-task value, regardless of input", () => {
+    // even with a full ctx (blockers incl. an rfi, proof, materials, drawings),
+    // assignee/labour stay their honest grain-tagged default — there is no input
+    // path that could populate them.
+    const tasks = index();
+    const target = findInstance(tasks, "east", "fitOff", "t_zip");
+    const views = projectTaskInstances(tasks, {
+      blockers: [
+        { id: "rfi_1", taskId: target.id, type: "rfi", title: "Which RCD?", status: "open" },
+      ],
+      proofFor: () => ({
+        requiredCount: 1, metCount: 0, missingCount: 1,
+        eligibleForReview: false, granularity: "area-package",
+      }),
+      materialsFor: () => [{ label: "20A breaker" }],
+      drawingsFor: () => [{ documentId: "doc_1" }],
+    });
+    for (const v of views) {
+      expect(v.facets.assignee).toEqual({ grain: "none", reason: "no per-task assignee source" });
+      expect(v.facets.labour).toEqual({ grain: "job", reason: "hours are jobId-only" });
+      // no "items"/"split"/per-task numbers ever appear on these two facets
+      expect(v.facets.assignee).not.toHaveProperty("items");
+      expect(v.facets.labour).not.toHaveProperty("hours");
+    }
+  });
+
+  it("(c) an OPEN rfi-typed blocker on the canonical id → rfi grain 'task' with that id", () => {
+    const tasks = index();
+    const target = findInstance(tasks, "east", "fitOff", "t_zip");
+    const blockers: TaskBlocker[] = [
+      { id: "rfi_42", taskId: target.id, type: "rfi", title: "Confirm circuit rating", status: "open" },
+    ];
+    const views = projectTaskInstances(tasks, { blockers });
+    const rfi = findInstance(views, "east", "fitOff", "t_zip").facets.rfi;
+    expect(rfi).toEqual({ grain: "task", openRfiIds: ["rfi_42"], titles: ["Confirm circuit rating"] });
+    // the SAME templateId elsewhere is unaffected — task-grained, canonical isolation
+    expect(findInstance(views, "west", "fitOff", "t_zip").facets.rfi.grain).toBe("none");
+  });
+
+  it("(c) a RESOLVED rfi blocker or a NON-rfi blocker does NOT populate the rfi facet", () => {
+    const tasks = index();
+    const target = findInstance(tasks, "east", "fitOff", "t_zip");
+    const blockers: TaskBlocker[] = [
+      { id: "rfi_done", taskId: target.id, type: "rfi", title: "Answered", status: "resolved" },
+      { id: "mat_1", taskId: target.id, type: "material", title: "Awaiting breaker", status: "open" },
+    ];
+    const views = projectTaskInstances(tasks, { blockers });
+    // resolved rfi + open non-rfi → rfi facet stays honest-empty
+    expect(findInstance(views, "east", "fitOff", "t_zip").facets.rfi).toEqual({
+      grain: "none",
+      reason: "no open task RFI",
+    });
   });
 });
 
@@ -347,6 +431,114 @@ describe("integration — composes with the REAL job-control proof model (area/p
       missingCount: 1,
       eligibleForReview: false,
       granularity: "area-package",
+    });
+  });
+});
+
+describe("#506 integration — materials/drawings injected from the REAL #368 scope-context", () => {
+  // Same area-package shape the #368 compiler emits: materials + governingDocRefs
+  // on the work package that delivers each area's tasks. The caller maps a
+  // buildPhilTaskContext(...) result into materialsFor/drawingsFor — mirroring the
+  // proof integration via summarisePhilTaskProof → proofFor.
+  const eastMaterials: WorkPackageMaterial[] = [
+    { label: "20A breaker", qty: 1, unit: "ea" },
+    { label: "2.5mm² TPS", qty: 30, unit: "m" },
+  ];
+  const eastDocs: GoverningDocRef[] = [
+    { documentId: "doc_sld", label: "Single-line diagram" },
+    { documentId: "doc_spec" },
+  ];
+  const wpEast = {
+    id: "wp_east",
+    taskRefs: [
+      { areaId: "east", stage: "roughIn", taskId: "t_zip" },
+      { areaId: "east", stage: "roughIn", taskId: "t_light" },
+      { areaId: "east", stage: "fitOff", taskId: "t_zip" },
+    ],
+    materials: eastMaterials,
+    governingDocRefs: eastDocs,
+  } as unknown as WorkPackage;
+  // West package carries NO materials/docs → honest-empty grain "area-package" zero items
+  const wpWest = {
+    id: "wp_west",
+    taskRefs: [{ areaId: "west", stage: "fitOff", taskId: "t_zip" }],
+  } as unknown as WorkPackage;
+  const workPackages = [wpEast, wpWest];
+
+  const ctxFor = (task: CanonicalTask) =>
+    buildPhilTaskContext({
+      workPackages,
+      task: { areaId: task.source.areaId, stage: task.source.stage, taskId: task.source.taskId },
+    });
+  const materialsFor = (task: CanonicalTask) =>
+    workPackageHas(task) ? ctxFor(task).materials : null;
+  const drawingsFor = (task: CanonicalTask) =>
+    workPackageHas(task) ? ctxFor(task).governingDocs : null;
+  // a task with no package → resolver returns null → honest-empty grain "none"
+  function workPackageHas(task: CanonicalTask): boolean {
+    return ctxFor(task).workPackageId !== null;
+  }
+
+  it("(b) injected materials/drawings land byte-for-byte vs the package, grain 'area-package'", () => {
+    const views = projectTaskInstances(index(), { materialsFor, drawingsFor });
+    const eastFit = findInstance(views, "east", "fitOff", "t_zip").facets;
+
+    expect(eastFit.material).toEqual({ grain: "area-package", items: eastMaterials });
+    expect(eastFit.drawing).toEqual({ grain: "area-package", docs: eastDocs });
+    // byte-for-byte (the #368-reuse AC): the items ARE the package's array contents
+    expect(eastFit.material.grain === "area-package" && eastFit.material.items).toEqual(eastMaterials);
+    expect(eastFit.drawing.grain === "area-package" && eastFit.drawing.docs).toEqual(eastDocs);
+
+    // every task the East package delivers shares its materials/docs (area-package granularity)
+    const eastRoughLight = findInstance(views, "east", "roughIn", "t_light").facets;
+    expect(eastRoughLight.material).toEqual(eastFit.material);
+    expect(eastRoughLight.drawing).toEqual(eastFit.drawing);
+  });
+
+  it("(b) a package with no materials/docs → honest-empty grain 'area-package' (zero items), #367 dormant is on-spec", () => {
+    const views = projectTaskInstances(index(), { materialsFor, drawingsFor });
+    const westFit = findInstance(views, "west", "fitOff", "t_zip").facets;
+    // West package exists but carries no scope context → empty arrays, NOT grain "none"
+    expect(westFit.material).toEqual({ grain: "area-package", items: [] });
+    expect(westFit.drawing).toEqual({ grain: "area-package", docs: [] });
+  });
+
+  it("a task belonging to NO package → resolver null → honest-empty grain 'none'", () => {
+    const views = projectTaskInstances(index(), { materialsFor, drawingsFor });
+    // East roughIn t_zip IS in wpEast; t_light fitOff is in NO package (no taskRef) → none
+    const orphan = findInstance(views, "east", "fitOff", "t_zip"); // in package → area-package
+    expect(orphan.facets.material.grain).toBe("area-package");
+    // west roughIn t_zip is NOT a taskRef of wpWest → no package → grain none
+    const noPkg = findInstance(views, "west", "roughIn", "t_zip");
+    expect(noPkg.facets.material).toEqual({ grain: "none", reason: "no task-grained material source" });
+    expect(noPkg.facets.drawing).toEqual({ grain: "none", reason: "no task-grained drawing source" });
+  });
+});
+
+describe("#506 projection mutates nothing + preserves identity with facets injected", () => {
+  it("(e) does not mutate the input index even with all resolvers wired", () => {
+    const tasks = index();
+    const before = JSON.stringify(tasks);
+    const target = tasks[0]!;
+    projectTaskInstances(tasks, {
+      blockers: [{ id: "rfi_x", taskId: target.id, type: "rfi", title: "Q", status: "open" }],
+      materialsFor: () => [{ label: "x" }],
+      drawingsFor: () => [{ documentId: "d" }],
+      proofFor: () => null,
+    });
+    expect(JSON.stringify(tasks)).toBe(before);
+  });
+
+  it("(e) preserves the ct_ id and the source coordinate on every view", () => {
+    const tasks = index();
+    const views = projectTaskInstances(tasks, {
+      materialsFor: () => [{ label: "x" }],
+      drawingsFor: () => [{ documentId: "d" }],
+    });
+    views.forEach((v, i) => {
+      expect(v.id).toBe(tasks[i]!.id);
+      expect(v.id).toMatch(/^ct_[0-9a-f]{8}$/);
+      expect(v.source).toEqual(tasks[i]!.source);
     });
   });
 });
