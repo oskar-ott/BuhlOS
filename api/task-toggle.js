@@ -34,6 +34,7 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, canViewDraftJobs, canViewArchivedJobs, isClientRole } = require('./_lib/auth');
+const { writeTaskStatusToPg } = require('./_lib/task-write');
 
 const VALID_STATES = new Set(['not_started', 'in_progress', 'complete']);
 const VALID_STAGES = new Set(['roughIn', 'fitOff']);
@@ -131,6 +132,18 @@ module.exports = async (req, res) => {
   dw.lastTouchedBy = me.username;
   dw.lastTouchedAt = new Date().toISOString();
 
+  // PG-as-source (Stage A): synchronous per-row CAS write to Postgres when
+  // `supabase_source_tasks` is on. BEST-EFFORT + gated internally (no env / flag
+  // off → instant no-op); a PG failure falls through to the Blob write-through
+  // below, so field work never stops. The Blob write-through keeps Blob current, so
+  // the still-parity-gated read can never serve stale PG. The integrity win: this
+  // is a per-row UPDATE (CAS), not the whole-document rewrite, so concurrent toggles
+  // of different tasks no longer stomp each other. See
+  // docs/architecture/task-status-pg-source-promotion-adr.md.
+  const pgWrite = await writeTaskStatusToPg({ jobId, areaId, stage, taskId, state, actorLabel: me.username });
+
+  // Blob write-through — ALWAYS runs: the flag-off path, the resilience floor, and
+  // it keeps the snags/notes/evidence envelope + offline cache current.
   try {
     await writeBlob(KEY, data);
   } catch (e) {
@@ -143,5 +156,6 @@ module.exports = async (req, res) => {
     changed: true,
     by: me.username,
     at: dw.lastTouchedAt,
+    pg: pgWrite.pg === true,
   });
 };
