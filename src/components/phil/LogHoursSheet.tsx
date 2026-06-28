@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Calendar, ChevronRight, ChevronsUpDown, Clock, MapPin, Split, Timer } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { Modal } from "@/components/ui/Modal";
@@ -344,6 +345,8 @@ export function LogHoursSheet({
 
   const submitting = state.kind === "submitting";
   const statusEntry = entryForSelectedDate ?? todayEntry;
+  // Custom-hours validity, surfaced inline in the sheet (not only on submit).
+  const customHoursInvalid = customHours <= 0 || customHours > MAX_HOURS_PER_DAY;
 
   return (
     <div className="space-y-3">
@@ -538,14 +541,30 @@ export function LogHoursSheet({
               step="0.25"
               value={customHours}
               onChange={(e) => setCustomHours(Number(e.target.value))}
-              className="h-12 w-full rounded-card border border-border bg-surface px-3 text-base focus:border-brand-navy focus:outline-none"
+              aria-invalid={customHoursInvalid}
+              aria-describedby={customHoursInvalid ? "custom-hours-error" : undefined}
+              className={cn(
+                "h-12 w-full rounded-card border bg-surface px-3 text-base focus:outline-none",
+                customHoursInvalid
+                  ? "border-state-danger focus:border-state-danger"
+                  : "border-border focus:border-brand-navy"
+              )}
             />
+            {customHoursInvalid ? (
+              <span
+                id="custom-hours-error"
+                role="alert"
+                className="mt-1 block text-xs font-medium text-state-danger"
+              >
+                Hours must be between 0 and {MAX_HOURS_PER_DAY}.
+              </span>
+            ) : null}
           </label>
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             <Button variant="ghost" onClick={() => setCustomOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={submitCustom} disabled={submitting}>
+            <Button onClick={submitCustom} disabled={submitting || customHoursInvalid}>
               {submitting ? "Submitting…" : `Submit ${formatHoursLabel(customHours)}`}
             </Button>
           </div>
@@ -616,8 +635,11 @@ function JobAttribution({
         {label}
         <p className="mt-1 text-sm font-medium text-text">Couldn&rsquo;t load your jobs</p>
         <p className="mt-0.5 text-xs text-text-muted">
-          Pull to refresh and try again — hours can&rsquo;t be logged until your jobs load.
+          Hours can&rsquo;t be logged until your jobs load.
         </p>
+        <div className="mt-2">
+          <RefreshButton label="Try again" />
+        </div>
       </div>
     );
   }

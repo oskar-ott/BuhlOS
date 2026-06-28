@@ -97,7 +97,14 @@ export function SplitDaySheet({
   const canAddMore = rows.length < assignedJobs.length;
 
   function rowError(idx: number): string | null {
-    if (!rows[idx]!.jobId) return "Pick a job for these hours.";
+    const jobId = rows[idx]!.jobId;
+    if (!jobId) return "Pick a job for these hours.";
+    // Defence-in-depth (the server gates too): the row's job must still be one of
+    // the worker's active assigned jobs — catches a stale assignment that changed
+    // since the sheet opened, before it round-trips. Mirrors the single-job guard.
+    if (!assignedJobs.some((j) => j.id === jobId)) {
+      return "That job isn’t assigned to you anymore — pick another.";
+    }
     if (effectiveHours(idx) <= 0) return "Hours must be more than zero.";
     return null;
   }

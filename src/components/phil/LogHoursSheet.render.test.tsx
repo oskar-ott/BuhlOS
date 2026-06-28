@@ -151,9 +151,11 @@ describe("LogHoursSheet — job attribution", () => {
     expect(html).toContain("Ask the office");
   });
 
-  it("blocks when assigned jobs failed to load", () => {
+  it("blocks when assigned jobs failed to load, and offers an in-place retry (H17)", () => {
     const html = render({ ...base, assignedJobs: [], jobsError: true });
     expect(html).toContain("load your jobs");
+    // A visible retry — not just the 'pull to refresh' gesture (RefreshButton).
+    expect(html).toContain("Try again");
   });
 });
 
