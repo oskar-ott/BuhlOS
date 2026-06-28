@@ -222,7 +222,13 @@ function CaptureThumb({ item }: { item: EvidenceItem }) {
       <div className="aspect-square overflow-hidden rounded-card bg-surface-subtle">
         {/* eslint-disable-next-line @next/next/no-img-element -- Blob URL, not optimised */}
         <img
-          src={item.photoUrl}
+          // #138 — the grid is a list: prefer the small thumbnail and fall
+          // back to full-res only when the thumb is missing (mirrors the
+          // PhilPhotosGallery tile). The full-res photoUrl stays on the
+          // EvidenceDrawer below, where full resolution is correct.
+          // `loading="lazy"` keeps off-screen captures off the cold-start
+          // byte budget.
+          src={item.thumbnailUrl ?? item.photoUrl}
           alt={item.note ?? "Captured photo"}
           className="block h-full w-full object-cover"
           loading="lazy"
