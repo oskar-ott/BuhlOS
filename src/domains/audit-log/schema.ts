@@ -48,6 +48,10 @@ export const AUDIT_ACTIONS = [
   "evidence.reviewed",
   "evidence.rejected",
   "evidence.unreviewed",
+  // #263: before/after pairing — linked/unlinked fire on the AFTER row
+  // only. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
+  "evidence.linked",
+  "evidence.unlinked",
   "snag.created",
   "snag.transitioned",
   "itp.attached",

@@ -8,19 +8,24 @@ import {
   EVIDENCE_STATUSES,
   EvidenceCreateResponseSchema,
   EvidenceItemSchema,
+  EvidenceLinkResponseSchema,
   EvidenceListResponseSchema,
   EvidencePhotoUploadResponseSchema,
   EvidenceReviewResponseSchema,
+  LinkEvidencePayloadSchema,
   REJECTION_REASON_MAX,
   ReviewEvidencePayloadSchema,
   SERVER_EVIDENCE_STATUSES,
+  UnlinkEvidencePayloadSchema,
 } from "./schema";
 import { kindLabel, stageLabel, statusLabel, statusTone } from "./format";
 import { canTransition, humanFileSize } from "./service";
 import {
   createEvidence,
+  linkEvidence,
   listEvidence,
   reviewEvidence,
+  unlinkEvidence,
   uploadEvidencePhoto,
 } from "./client";
 
@@ -51,6 +56,7 @@ const baseItem = {
   reviewedByName: null,
   reviewedAt: null,
   rejectionReason: null,
+  pairedWithId: null,
   auditLogIds: ["al_abc12345"],
   createdAt: "2026-05-25T14:30:00.000Z",
   updatedAt: "2026-05-25T14:30:00.000Z",
@@ -416,6 +422,48 @@ describe("ReviewEvidencePayloadSchema", () => {
 });
 
 /* ----------------------------------------------------------------------
+ * Schema — pairedWithId (#263) + Link/Unlink payloads
+ * -------------------------------------------------------------------- */
+
+describe("EvidenceItemSchema pairedWithId (#263)", () => {
+  it("accepts a nullable pairedWithId", () => {
+    expect(EvidenceItemSchema.safeParse({ ...baseItem, pairedWithId: null }).success).toBe(true);
+    expect(EvidenceItemSchema.safeParse({ ...baseItem, pairedWithId: "ev_before" }).success).toBe(true);
+  });
+
+  it("accepts a row with no pairedWithId at all (migration-free)", () => {
+    const legacy = { ...baseItem } as Record<string, unknown>;
+    delete legacy.pairedWithId;
+    expect(EvidenceItemSchema.safeParse(legacy).success).toBe(true);
+  });
+
+  it("rejects a non-string pairedWithId", () => {
+    expect(EvidenceItemSchema.safeParse({ ...baseItem, pairedWithId: 123 }).success).toBe(false);
+  });
+});
+
+describe("LinkEvidencePayloadSchema (#263)", () => {
+  it("accepts a valid { afterId, beforeId }", () => {
+    expect(LinkEvidencePayloadSchema.safeParse({ afterId: "ev_a", beforeId: "ev_b" }).success).toBe(true);
+  });
+
+  it("rejects missing or empty ids", () => {
+    expect(LinkEvidencePayloadSchema.safeParse({ afterId: "ev_a" }).success).toBe(false);
+    expect(LinkEvidencePayloadSchema.safeParse({ afterId: "", beforeId: "ev_b" }).success).toBe(false);
+  });
+});
+
+describe("UnlinkEvidencePayloadSchema (#263)", () => {
+  it("accepts a valid { afterId }", () => {
+    expect(UnlinkEvidencePayloadSchema.safeParse({ afterId: "ev_a" }).success).toBe(true);
+  });
+
+  it("rejects an empty afterId", () => {
+    expect(UnlinkEvidencePayloadSchema.safeParse({ afterId: "" }).success).toBe(false);
+  });
+});
+
+/* ----------------------------------------------------------------------
  * Schema — response wrappers
  * -------------------------------------------------------------------- */
 
@@ -475,6 +523,14 @@ describe("response schemas", () => {
   it("rejects a create response shaped like the list response", () => {
     const r = EvidenceCreateResponseSchema.safeParse({ evidence: [baseItem] });
     expect(r.success).toBe(false);
+  });
+
+  it("parses a link response (#263 — same wrapper, carries pairedWithId)", () => {
+    const r = EvidenceLinkResponseSchema.safeParse({
+      evidenceItem: { ...baseItem, kind: "photo", photoId: "ph", photoUrl: "https://x/y.jpg", pairedWithId: "ev_before" },
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.evidenceItem.pairedWithId).toBe("ev_before");
   });
 });
 
@@ -815,5 +871,53 @@ describe("evidence client wrappers", () => {
     expect(url).toContain("jobId=birdwood-iv3232");
     expect(url).toContain("action=review");
     expect(init?.method).toBe("POST");
+  });
+
+  it("linkEvidence POSTs ?action=link and parses the canonical AFTER item", async () => {
+    const linked = { ...baseItem, kind: "photo", photoId: "ph", photoUrl: "https://x/y.jpg", pairedWithId: "ev_before" };
+    installFetch(
+      () =>
+        new Response(JSON.stringify({ evidenceItem: linked }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+    );
+    const r = await linkEvidence("birdwood-iv3232", { afterId: "ev_12345678", beforeId: "ev_before" });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data.evidenceItem.pairedWithId).toBe("ev_before");
+    const [url, init] = fetchCalls[0]!;
+    expect(url).toContain("action=link");
+    expect(init?.method).toBe("POST");
+  });
+
+  it("linkEvidence refuses to call the server with an invalid payload", async () => {
+    const sentinel = vi.fn();
+    globalThis.fetch = sentinel as unknown as typeof fetch;
+    const r = await linkEvidence("birdwood-iv3232", { afterId: "ev_a", beforeId: "" });
+    expect(r.ok).toBe(false);
+    expect(sentinel).not.toHaveBeenCalled();
+  });
+
+  it("unlinkEvidence POSTs ?action=unlink and parses the canonical item", async () => {
+    const unlinked = { ...baseItem, kind: "photo", photoId: "ph", photoUrl: "https://x/y.jpg", pairedWithId: null };
+    installFetch(
+      () =>
+        new Response(JSON.stringify({ evidenceItem: unlinked }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+    );
+    const r = await unlinkEvidence("birdwood-iv3232", { afterId: "ev_12345678" });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data.evidenceItem.pairedWithId).toBeNull();
+    expect(fetchCalls[0]![0]).toContain("action=unlink");
+  });
+
+  it("unlinkEvidence refuses to call the server with an empty afterId", async () => {
+    const sentinel = vi.fn();
+    globalThis.fetch = sentinel as unknown as typeof fetch;
+    const r = await unlinkEvidence("birdwood-iv3232", { afterId: "" });
+    expect(r.ok).toBe(false);
+    expect(sentinel).not.toHaveBeenCalled();
   });
 });

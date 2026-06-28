@@ -142,8 +142,12 @@ describe("AuditLogEntrySchema", () => {
       "employee.role_changed",
       "employee.updated",
       "evidence.captured",
+      // #263: before/after pairing verbs (sort between captured and rejected;
+      // unlinked sorts before unreviewed).
+      "evidence.linked",
       "evidence.rejected",
       "evidence.reviewed",
+      "evidence.unlinked",
       "evidence.unreviewed",
       // #390: hours / time-entry events (approvals pass + worker submits).
       "hours.approved",

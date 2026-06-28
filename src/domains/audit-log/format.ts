@@ -28,6 +28,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "evidence.reviewed": "Reviewed evidence",
   "evidence.rejected": "Rejected evidence",
   "evidence.unreviewed": "Re-opened evidence review",
+  "evidence.linked": "Linked before photo",
+  "evidence.unlinked": "Unlinked before photo",
   "snag.created": "Raised snag",
   "snag.transitioned": "Moved snag",
   "itp.attached": "Attached ITP",

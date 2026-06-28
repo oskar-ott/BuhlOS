@@ -2,18 +2,24 @@ import { httpGet, httpPost, type HttpResult } from "@/lib/http";
 import {
   CreateEvidencePayloadSchema,
   EvidenceCreateResponseSchema,
+  EvidenceLinkResponseSchema,
   EvidenceListResponseSchema,
   EvidencePhotoUploadResponseSchema,
   EvidenceReviewResponseSchema,
+  LinkEvidencePayloadSchema,
   ReviewEvidencePayloadSchema,
+  UnlinkEvidencePayloadSchema,
 } from "./schema";
 import type {
   CreateEvidencePayload,
   EvidenceCreateResponse,
+  EvidenceLinkResponse,
   EvidenceListResponse,
   EvidencePhotoUploadResponse,
   EvidenceReviewResponse,
+  LinkEvidencePayload,
   ReviewEvidencePayload,
+  UnlinkEvidencePayload,
 } from "./types";
 
 /**
@@ -100,6 +106,63 @@ export function reviewEvidence(
 }
 
 /**
+ * Link an AFTER photo to a BEFORE photo of the same spot (#263).
+ *
+ * POST /api/evidence?jobId=X&action=link  body { afterId, beforeId }.
+ * The server writes pairedWithId on the AFTER only and returns the
+ * canonical AFTER item. Permission: the AFTER's capturing worker OR an
+ * admin (LH / others → 403). Idempotent: already-linked → 200 no-op.
+ */
+export function linkEvidence(
+  jobId: string,
+  payload: LinkEvidencePayload
+): Promise<HttpResult<EvidenceLinkResponse>> {
+  const parsed = LinkEvidencePayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Promise.resolve({
+      ok: false,
+      error: {
+        status: 0,
+        body: parsed.error.flatten(),
+        message: `invalid link payload: ${parsed.error.message}`,
+      },
+    });
+  }
+  return httpPost<EvidenceLinkResponse>(evidenceUrl(jobId, "link"), parsed.data, {
+    schema: EvidenceLinkResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/**
+ * Unlink the AFTER photo's pairing (#263).
+ *
+ * POST /api/evidence?jobId=X&action=unlink  body { afterId }. Clears
+ * pairedWithId on the AFTER only; never touches the BEFORE. Same
+ * permission gate as link. Idempotent: already-null → 200 no-op.
+ */
+export function unlinkEvidence(
+  jobId: string,
+  payload: UnlinkEvidencePayload
+): Promise<HttpResult<EvidenceLinkResponse>> {
+  const parsed = UnlinkEvidencePayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Promise.resolve({
+      ok: false,
+      error: {
+        status: 0,
+        body: parsed.error.flatten(),
+        message: `invalid unlink payload: ${parsed.error.message}`,
+      },
+    });
+  }
+  return httpPost<EvidenceLinkResponse>(evidenceUrl(jobId, "unlink"), parsed.data, {
+    schema: EvidenceLinkResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/**
  * Photo upload — POST /api/photos?jobId=X&action=upload-evidence-photo.
  *
  * Reuses the legacy photos endpoint's D2-added action branch. Returns
@@ -137,5 +200,7 @@ export const evidenceClient = {
   listEvidence,
   createEvidence,
   reviewEvidence,
+  linkEvidence,
+  unlinkEvidence,
   uploadEvidencePhoto,
 } as const;
