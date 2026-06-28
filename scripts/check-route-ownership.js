@@ -123,6 +123,10 @@ const REQUIRED_SOURCES = [
   'src/app/(admin)/expenses/page.tsx',
   'src/app/(admin)/defects/page.tsx',
   'src/app/(admin)/reports/page.tsx',
+  // Owner Console (docs/owner-console.md) — owner-only platform control. No nav
+  // link by design (not in the shared admin sidebar), so it is verified by its
+  // required source + shell contract, not the nav scan.
+  'src/app/(admin)/owner/page.tsx',
   'src/app/(admin)/qa/page.tsx',
   'src/app/v2/jobs/page.tsx',
   'src/app/v2/jobs/[jobId]/page.tsx',
@@ -271,6 +275,9 @@ checkNav('src/components/phil/PhilTabBar.tsx', ['LEFT_TABS', 'RIGHT_TABS'], APPR
 if (exists('src/lib/auth/landing.ts')) {
   const src = read('src/lib/auth/landing.ts');
   const expected = [
+    // Owner is checked BEFORE the admin tier (owner ∈ ADMIN_ROLES) so a stored
+    // 'owner' role lands on the Owner Console, not the shared office home.
+    { role: 'owner', re: /isOwnerRole\(r\)\)\s*return\s*"\/owner"/, landing: '/owner' },
     { role: 'admin', re: /isAdminRole\(r\)\)\s*return\s*"\/command-centre"/, landing: '/command-centre' },
     { role: 'leading hand', re: /isLeadingHandRole\(r\)\)\s*return\s*"\/phil\/my-day"/, landing: '/phil/my-day' },
     { role: 'field', re: /isFieldRole\(r\)\)\s*return\s*"\/phil\/my-day"/, landing: '/phil/my-day' },

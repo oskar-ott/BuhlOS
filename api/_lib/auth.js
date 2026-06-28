@@ -132,6 +132,44 @@ function isClientRole(role) {
   return normaliseRole(role) === 'client';
 }
 
+// ── Owner Console access (docs/owner-console.md) ─────────────────────────
+// 'owner' is a NARROWING WITHIN the admin tier (it is also an ADMIN_ROLES
+// member): every owner is an admin, but the Owner Console — the product/
+// platform-owner control surface — gates to OWNER only, not the whole office
+// admin tier. Identity is EITHER the stored 'owner' role OR an email on the
+// OWNER_EMAILS allowlist (the env-configurable bootstrap, so the real product
+// owner reaches the console before a users.json role is set). Mirrors
+// OWNER_ROLES + isOwnerRole in src/lib/auth/roles.ts (keep both in sync).
+const OWNER_ROLES = new Set(['owner']);
+function isOwnerRole(role) {
+  return OWNER_ROLES.has(normaliseRole(role));
+}
+// The default seeds the product owner so the console is reachable
+// out-of-the-box; rotate it via the comma-separated OWNER_EMAILS env var (no
+// code change) as ownership changes.
+const DEFAULT_OWNER_EMAILS = ['oskaott@gmail.com'];
+function ownerEmails() {
+  const raw = process.env.OWNER_EMAILS;
+  if (raw && String(raw).trim()) {
+    return String(raw)
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+  }
+  return DEFAULT_OWNER_EMAILS;
+}
+function ownerEmailAllowed(email) {
+  const e = String(email == null ? '' : email).trim().toLowerCase();
+  return e !== '' && ownerEmails().includes(e);
+}
+// The authoritative Owner Console gate. Takes the FULL user (fresh from
+// users.json via getCurrentUser) so the email allowlist can be checked — the
+// session cookie itself carries only { userId, role }.
+function canAccessOwnerConsole(user) {
+  if (!user) return false;
+  return isOwnerRole(user.role) || ownerEmailAllowed(user.email);
+}
+
 // Expand one allowed-role entry passed to requireAuth into the set of
 // stored role strings that satisfy it. A gate written `{ roles: ['admin'] }`
 // admits the whole admin tier; `{ roles: ['admin', 'leadingHand'] }` also
@@ -263,6 +301,10 @@ function canViewPhilPlanMarkups(role) { return isFieldRole(role) || isLeadingHan
 
 module.exports = {
   isClientRole,
+  isOwnerRole,
+  OWNER_ROLES,
+  ownerEmailAllowed,
+  canAccessOwnerConsole,
   SESSION_COOKIE,
   ADMIN_ROLES,
   LEADING_HAND_ROLES,

@@ -44,6 +44,14 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   // #316: owner numbers dashboard — admin tier only (commercial figures:
   // quote pipeline, contract overruns).
   { prefix: "/reports", surface: "admin" },
+  // Owner Console (docs/owner-console.md) — the product/platform-owner control
+  // surface. Coarse-gated to the admin tier HERE because the cookie the
+  // middleware decodes carries no email, so it can't do the owner-only
+  // narrowing. The page and the owner-gated /api/owner endpoint enforce
+  // owner-only (role 'owner' OR the OWNER_EMAILS allowlist) authoritatively:
+  // a non-owner admin who reaches the page gets a 404 (notFound), and the
+  // data endpoint fails closed with 403.
+  { prefix: "/owner", surface: "admin" },
   // #183: v2 quote builder — admin tier only (commercial figures; unlike
   // /v2/jobs there is no LH read access).
   { prefix: "/v2/quotes", surface: "admin" },
@@ -106,6 +114,7 @@ export const config = {
     "/material-requests/:path*",
     "/defects/:path*",
     "/reports/:path*",
+    "/owner/:path*",
     "/v2/quotes/:path*",
     "/settings/:path*",
     "/v2/phil/:path*",

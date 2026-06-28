@@ -3,10 +3,17 @@ import { landingFor, rolePermits } from "./landing";
 
 describe("landingFor()", () => {
   it("routes admin roles to /command-centre", () => {
-    for (const role of ["admin", "boss", "owner", "manager", "office", "pm", "estimator"]) {
+    // 'owner' is deliberately excluded — it lands on the Owner Console
+    // (docs/owner-console.md); see the dedicated test below.
+    for (const role of ["admin", "boss", "manager", "office", "pm", "estimator"]) {
       expect(landingFor(role)).toBe("/command-centre");
       expect(landingFor(role.toUpperCase())).toBe("/command-centre");
     }
+  });
+
+  it("routes the owner role to its private Owner Console (/owner)", () => {
+    expect(landingFor("owner")).toBe("/owner");
+    expect(landingFor("OWNER")).toBe("/owner");
   });
 
   it("routes field roles to /phil/my-day (the Phil home, not the /v2/phil placeholder)", () => {
@@ -37,10 +44,13 @@ describe("rolePermits()", () => {
   it("accepts a role on its own landing", () => {
     expect(rolePermits("admin", "/command-centre")).toBe(true);
     expect(rolePermits("tradie", "/phil/my-day")).toBe(true);
+    expect(rolePermits("owner", "/owner")).toBe(true);
   });
 
   it("rejects a role on the wrong landing", () => {
     expect(rolePermits("tradie", "/command-centre")).toBe(false);
     expect(rolePermits("admin", "/phil/my-day")).toBe(false);
+    // owner ∈ admin tier, but its canonical landing is the Owner Console.
+    expect(rolePermits("owner", "/command-centre")).toBe(false);
   });
 });

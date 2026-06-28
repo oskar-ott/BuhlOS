@@ -50,6 +50,16 @@ export const FIELD_ROLES: ReadonlyArray<string> = [
 
 export const CLIENT_ROLES: ReadonlyArray<string> = ["client"];
 
+/**
+ * Owner is a NARROWING WITHIN the admin tier, not a new tier: 'owner' is
+ * already an ADMIN_ROLES member, so every owner is an admin but not every
+ * admin is an owner. It exists so the product/platform-owner surface — the
+ * Owner Console (docs/owner-console.md) — can gate to the person who runs the
+ * platform, distinct from the day-to-day office admins. Mirrors OWNER_ROLES +
+ * isOwnerRole in api/_lib/auth.js (keep both in sync).
+ */
+export const OWNER_ROLES: ReadonlyArray<string> = ["owner"];
+
 export function normaliseRole(raw: unknown): string {
   return String(raw ?? "").toLowerCase();
 }
@@ -68,6 +78,18 @@ export function isFieldRole(role: unknown): boolean {
 
 export function isClientRole(role: unknown): boolean {
   return CLIENT_ROLES.includes(normaliseRole(role));
+}
+
+/**
+ * Product/platform owner — the NARROW gate for the Owner Console
+ * (docs/owner-console.md). NOTE: 'owner' is also an admin-tier role, so
+ * isAdminRole('owner') is true too; this predicate never replaces the
+ * admin-tier checks, it sits inside them. The email-allowlist bootstrap
+ * (OWNER_EMAILS) lives API-side in api/_lib/auth.js because the session
+ * cookie carries only { userId, role } — no email.
+ */
+export function isOwnerRole(role: unknown): boolean {
+  return OWNER_ROLES.includes(normaliseRole(role));
 }
 
 /**

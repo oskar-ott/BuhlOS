@@ -179,6 +179,40 @@ describe("middleware — /reports owner numbers (#316, admin tier only)", () => 
   });
 });
 
+describe("middleware — /owner Owner Console (coarse admin gate; owner-only at the page + API)", () => {
+  it("redirects an unauthenticated /owner request to /v2/login?next=/owner", () => {
+    const target = redirectTarget(middleware(request("/owner")));
+    expect(target?.pathname).toBe("/v2/login");
+    expect(target?.next).toBe("/owner");
+  });
+
+  it("lets an owner through /owner", () => {
+    expect(isPassThrough(middleware(request("/owner", { role: "owner" })))).toBe(true);
+  });
+
+  it("lets a normal admin through the COARSE middleware gate (the page + /api/owner enforce owner-only)", () => {
+    // Middleware only narrows to the admin tier — the owner-only check needs the
+    // user's email (not in the cookie), so it lives at the page + API, which 404
+    // / 403 a non-owner admin. This test pins the coarse gate, not authorisation.
+    expect(isPassThrough(middleware(request("/owner", { role: "boss" })))).toBe(true);
+  });
+
+  it("redirects a field worker off /owner to their Phil home", () => {
+    const target = redirectTarget(middleware(request("/owner", { role: "tradie" })));
+    expect(target?.pathname).toBe("/phil/my-day");
+  });
+
+  it("redirects a client off /owner to their landing", () => {
+    const target = redirectTarget(middleware(request("/owner", { role: "client" })));
+    expect(target?.pathname).toBe("/client");
+  });
+
+  it("sends an owner who lands on a Phil surface back to the Owner Console (landingFor)", () => {
+    const target = redirectTarget(middleware(request("/phil/jobs", { role: "owner" })));
+    expect(target?.pathname).toBe("/owner");
+  });
+});
+
 describe("middleware — /v2/quotes builder (#183, admin tier only)", () => {
   it.each(["/v2/quotes", "/v2/quotes/qv2_abc123"])(
     "lets an estimator (admin tier, not literal 'admin') through %s",

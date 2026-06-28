@@ -3,6 +3,7 @@ import {
   isClientRole,
   isFieldRole,
   isLeadingHandRole,
+  isOwnerRole,
   normaliseRole,
 } from "./roles";
 
@@ -28,6 +29,12 @@ import {
  */
 export function landingFor(role: unknown): string {
   const r = normaliseRole(role);
+  // Owner is checked BEFORE the admin tier (owner ∈ ADMIN_ROLES): a user whose
+  // stored role is 'owner' lands on their private Owner Console
+  // (docs/owner-console.md), not the shared office home. Every other admin-tier
+  // role still lands on /command-centre. Email-allowlist owners (stored role
+  // 'admin') reach /owner by direct navigation — the cookie carries no email.
+  if (isOwnerRole(r)) return "/owner";
   if (isAdminRole(r)) return "/command-centre";
   if (isLeadingHandRole(r)) return "/phil/my-day";
   if (isFieldRole(r)) return "/phil/my-day";
