@@ -280,6 +280,18 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Per-job meeting-minutes register (#217): gates /api/job-minutes + the
+  // /v2/jobs/[jobId]/minutes admin register (record minutes / add amendment).
+  // An append-only record of meeting minutes (date, title, attendees, body
+  // and/or a PDF attachment) with stamped amendments — the original is never
+  // mutated. GLOBAL flag; admin/managing-LH only is enforced in the handler
+  // (read admin/LH; write admin). Default OFF.
+  minutes_register: {
+    description: 'Enable the per-job meeting-minutes register — /api/job-minutes + /v2/jobs/[jobId]/minutes (#217). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
 };
 
 const FLAGS_KEY = 'flags.json';

@@ -183,6 +183,9 @@ describe("AuditLogEntrySchema", () => {
       // PR 11: Material Request lifecycle.
       "material_request.created",
       "material_request.transitioned",
+      // #217: meeting-minutes register lifecycle (record + append-only amend).
+      "minutes.amended",
+      "minutes.recorded",
       // PR 11: observation -> real material request conversion verb.
       // Sorts before observation.converted_to_snag because '_material' < '_snag'.
       "observation.converted_to_material_request",
@@ -239,6 +242,8 @@ describe("AuditLogEntrySchema", () => {
       "leave",
       // PR 11: material requests as audit targets.
       "material_request",
+      // #217: per-job meeting-minutes records.
+      "minutes",
       // PR 6: observation as audit target (for observation.converted_to_snag).
       "observation",
       // #371: per-job pre-start readiness records.
