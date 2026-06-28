@@ -11,7 +11,8 @@ import {
   type CompileResult,
   type JobStructure,
 } from "@/domains/job-control/compile";
-import type { WorkPackage } from "@/domains/job-control/types";
+import type { CloseoutRequirement, WorkPackage } from "@/domains/job-control/types";
+import { seedCloseoutRequirements } from "@/domains/job-control/closeout-matrix";
 import {
   PersistedScopeReconciliationSchema,
   authorizeAdminViaVerify,
@@ -246,6 +247,33 @@ export function buildCompilePreview(input: {
   };
 }
 
+// ── Closeout seeding (first compile) ──────────────────────────────────────────
+
+/**
+ * The closeout requirement set to persist. On the FIRST write (no prior
+ * requirements) this SEEDS the standing electrical defaults — test results, the
+ * certificate of electrical safety, as-builts, O&M manuals/warranties — so the
+ * matrix is born populated, never silently empty (#374 was dead without this).
+ * On every subsequent write the existing array is preserved BYTE-FOR-BYTE, so an
+ * admin's links / confirmations / waivers / manual adds survive a re-compile.
+ *
+ * Idempotent across re-seeds: `seedCloseoutRequirements` stamps deterministic
+ * `cr_` ids, so even if a future change re-seeds against a populated array the
+ * defaults match by id rather than duplicating. We only seed when the array is
+ * empty/absent, which is the conservative read of that guarantee.
+ *
+ * CLAUSE-derived requirements are deliberately NOT seeded here yet: they depend
+ * on #366 scope-reconciliation classifications, which is not built. We pass an
+ * empty `clauseClassifications`, so only the standing DEFAULTS light up now. When
+ * #366 lands, the confirmed reconciliation's `closeout` clauses join the seed
+ * (same deterministic-id idempotency) — do not fabricate clause data before then.
+ */
+function seedOrPreserveCloseout(previous: PersistedJobControl | null, jobId: string): CloseoutRequirement[] {
+  const existing = previous?.closeoutRequirements ?? [];
+  if (existing.length > 0) return existing;
+  return seedCloseoutRequirements({ jobId, clauseClassifications: [] });
+}
+
 // ── Confirm (pure) ───────────────────────────────────────────────────────────
 
 export type CompileConfirmPrep =
@@ -308,7 +336,11 @@ export function prepareCompileConfirm(input: {
     workPackages: preview.workPackages,
     // L1 produces only work packages; never clobber arrays other producers own.
     claimLines: input.previous?.claimLines ?? [],
-    closeoutRequirements: input.previous?.closeoutRequirements ?? [],
+    // EXCEPTION to "never clobber": the closeout matrix has no other producer that
+    // can give it a first row, so the spine's first compile seeds the standing
+    // defaults (and only the defaults — clause-derived obligations wait on #366).
+    // Existing requirements are preserved untouched on every later write.
+    closeoutRequirements: seedOrPreserveCloseout(input.previous, input.jobId),
     evidenceLinks: input.previous?.evidenceLinks ?? [],
     proofReviews: input.previous?.proofReviews ?? [],
     updatedAt: input.at,

@@ -45,6 +45,7 @@ function readyView(overrides: Partial<Extract<CloseoutMatrixView, { status: "rea
       req({ id: "cr_out", title: "O&M manuals handed over", status: "outstanding" }),
       req({ id: "cr_prog", title: "As-builts issued", status: "in_progress" }),
     ],
+    linkOptions: [],
     ...overrides,
   };
 }
