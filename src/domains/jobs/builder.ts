@@ -526,6 +526,8 @@ export interface PhilPreview {
   sections: PhilPreviewSection[];
   /** Non-null when there's effectively nothing for the field to see yet. */
   emptyReason: string | null;
+  /** Per-row field-visibility lint — see buildFieldLint. */
+  fieldLint: FieldLintIssue[];
 }
 
 /**
@@ -584,5 +586,162 @@ export function buildPhilPreview(job: Job): PhilPreview {
     areas,
     sections,
     emptyReason,
+    fieldLint: buildFieldLint(job),
+  };
+}
+
+/* ---------------------------------------------------------------------
+ * Field-lint — does the field-visible structure hold together?
+ *
+ * Extends the Phil preview with per-row checks the job-wide publish gate
+ * (validateForPublish) can't make: an area the crew would open to find nothing
+ * to do, and a per-area task that renders as a blank row. Job-level blank task
+ * names are intentionally NOT re-checked here — validateForPublish already owns
+ * that gate, so re-flagging them would double-count in buildBuilderReadiness.
+ *
+ * Scope is honest (P7): the persisted Job carries no per-task proof requirement
+ * and no per-task area/instruction distinct from its name (proof lives on the
+ * compiled job-control packages; "area" is the structural parent). So the
+ * prototype's "field-visible but no proof" / "task with no area or instruction"
+ * lints are deferred to where that data actually exists rather than faked from a
+ * model that doesn't hold it.
+ * -------------------------------------------------------------------*/
+
+export type FieldLintSeverity = "error" | "warning";
+
+export interface FieldLintIssue {
+  code: string;
+  message: string;
+  severity: FieldLintSeverity;
+  /** Where it lives, so the cockpit can deep-link the offending row. */
+  target: { kind: "job" | "area"; id: string | null; name: string | null };
+}
+
+/**
+ * Lint the field-visible structure of a job, row by row. Pure: reads the same
+ * effectiveTasks / visibleAreaGroups helpers the live Phil surface uses, so an
+ * issue here is one the crew would genuinely hit.
+ */
+export function buildFieldLint(job: Job): FieldLintIssue[] {
+  const issues: FieldLintIssue[] = [];
+  const groups = visibleAreaGroups(job.areaGroups);
+
+  for (const g of groups) {
+    for (const a of g.areas ?? []) {
+      const rough = effectiveTasks(job, a, "roughIn");
+      const fit = effectiveTasks(job, a, "fitOff");
+
+      // An area the crew can open but with nothing to action at either stage.
+      // effectiveTasks() already falls back to the job-level template, so this
+      // only fires when the area genuinely inherits no work — a real dead end.
+      if (rough.length === 0 && fit.length === 0) {
+        issues.push({
+          code: "area-no-tasks",
+          message: `Area "${a.name}" has no rough-in or fit-off tasks — the crew would open it with nothing to do.`,
+          severity: "warning",
+          target: { kind: "area", id: a.id, name: a.name },
+        });
+      }
+
+      // Per-area override tasks with a blank name render as empty rows in Phil.
+      for (const stage of STAGES) {
+        const override = stage === "roughIn" ? a.roughInTasks : a.fitOffTasks;
+        for (const t of override ?? []) {
+          if (t.archived) continue;
+          if (!t.name || !t.name.trim()) {
+            issues.push({
+              code: "blank-task",
+              message: `A ${stageLabel(stage)} task in "${a.name}" has no name — it would show as a blank row in Phil.`,
+              severity: "error",
+              target: { kind: "area", id: a.id, name: a.name },
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return issues;
+}
+
+/* ---------------------------------------------------------------------
+ * Builder readiness — the cockpit's left-rail meter
+ *
+ * One honest rollup of "can this job ship to the field?": the publish gate
+ * (validateForPublish) plus the field-lint, split into blockers (error) vs
+ * warnings (advisory). This is distinct from the pre-start crew readiness in
+ * readiness.ts (inductions/licences) — that answers "can we start Monday?",
+ * this answers "is the build itself field-ready?".
+ *
+ * Deliberately carries no triage % yet: the prototype's "% triaged" counts
+ * cert-bearing scope/task suggestions, which the persisted Job doesn't hold —
+ * that lands with the cockpit's reconciliation-fed review items, not here.
+ * -------------------------------------------------------------------*/
+
+export interface ReadinessIssue {
+  code: string;
+  message: string;
+  severity: "error" | "warning";
+  /** Which engine raised it — the publish gate or the field-lint. */
+  source: "publish" | "field";
+}
+
+export type BuilderReadinessState = "no" | "warnings" | "yes";
+
+export interface BuilderReadiness {
+  state: BuilderReadinessState;
+  stateLabel: string;
+  tone: "danger" | "warning" | "success";
+  blockers: ReadinessIssue[];
+  warnings: ReadinessIssue[];
+  blockingCount: number;
+  warningCount: number;
+  /** Publish is allowed when there are no blockers (mirrors canPublish). */
+  canPublish: boolean;
+}
+
+const BUILDER_READINESS_LABEL: Record<BuilderReadinessState, string> = {
+  no: "Not ready to publish",
+  warnings: "Ready — with warnings",
+  yes: "Ready to publish",
+};
+
+const BUILDER_READINESS_TONE: Record<BuilderReadinessState, BuilderReadiness["tone"]> = {
+  no: "danger",
+  warnings: "warning",
+  yes: "success",
+};
+
+/** Combine the publish gate and the field-lint into the rail-meter view-model. */
+export function buildBuilderReadiness(job: Job): BuilderReadiness {
+  const issues: ReadinessIssue[] = [
+    ...validateForPublish(job).map((i) => ({
+      code: i.code,
+      message: i.message,
+      severity: i.severity,
+      source: "publish" as const,
+    })),
+    ...buildFieldLint(job).map((i) => ({
+      code: i.code,
+      message: i.message,
+      severity: i.severity,
+      source: "field" as const,
+    })),
+  ];
+
+  const blockers = issues.filter((i) => i.severity === "error");
+  const warnings = issues.filter((i) => i.severity === "warning");
+  const state: BuilderReadinessState =
+    blockers.length > 0 ? "no" : warnings.length > 0 ? "warnings" : "yes";
+
+  return {
+    state,
+    stateLabel: BUILDER_READINESS_LABEL[state],
+    tone: BUILDER_READINESS_TONE[state],
+    blockers,
+    warnings,
+    blockingCount: blockers.length,
+    warningCount: warnings.length,
+    canPublish: blockers.length === 0,
   };
 }
