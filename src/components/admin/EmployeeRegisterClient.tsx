@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Plus, Search, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { KpiStrip, type KpiCell } from "@/components/ui/KpiStrip";
 import { cn } from "@/lib/cn";
 import { EmployeeStatusChip } from "./EmployeeStatusChip";
 import { AddEmployeeDrawer, type ActiveJobOption } from "./AddEmployeeDrawer";
@@ -68,6 +69,21 @@ export function EmployeeRegisterClient({
   );
 
   const counts = useMemo(() => filterCounts(rows), [rows]);
+  // Register-summary KPIs — derived honestly from the loaded rows. "On site now"
+  // (a live on-clock signal) deliberately lives on the Command Centre, not here,
+  // so we don't fake it: this register summarises who EXISTS, not who's clocked on.
+  const kpis = useMemo<KpiCell[]>(() => {
+    const field = rows.filter(
+      (r) => r.employee.appAccess === "phil" || r.employee.appAccess === "both"
+    ).length;
+    const pending = counts.invited + counts.incomplete;
+    return [
+      { lbl: "Total", num: rows.length },
+      { lbl: "Office · BuhlOS", num: rows.length - field },
+      { lbl: "Field · Phil", num: field },
+      { lbl: "Pending setup", num: pending, tone: pending > 0 ? "amber" : "default" },
+    ];
+  }, [rows, counts]);
   const visible = useMemo(() => {
     const base = filterEmployees(rows, filter, search);
     return licenceAttentionOnly ? base.filter((r) => licenceFlagFor(r) !== null) : base;
@@ -117,6 +133,9 @@ export function EmployeeRegisterClient({
           Add employee
         </Button>
       </div>
+
+      {/* Register-summary KPIs */}
+      {!isEmpty ? <KpiStrip cells={kpis} /> : null}
 
       {/* Filter bar */}
       {!isEmpty ? (

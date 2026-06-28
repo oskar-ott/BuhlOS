@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { KpiStrip, type KpiCell } from "@/components/ui/KpiStrip";
 import { Pill } from "@/components/ui/Pill";
 import { Modal } from "@/components/ui/Modal";
 import { archiveGearAsset, markGearGood, reportGear, setGearCalibrationDue, transferGear } from "@/domains/gear/client";
@@ -97,6 +98,19 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
     });
   }
 
+  // Register-summary KPIs — real status counts + test-and-tag currency (overdue
+  // is computed from each asset's tag date, the honest "cal due" signal).
+  const gearKpis = useMemo<KpiCell[]>(() => {
+    const overdue = assets.filter((a) => isOverdue(a, today)).length;
+    const outOfService = counts.damaged + counts.missing;
+    return [
+      { lbl: "Available", num: counts.available, tone: "ok" },
+      { lbl: "In use", num: counts.assigned },
+      { lbl: "Out of service", num: outOfService, tone: outOfService > 0 ? "warn" : "default" },
+      { lbl: "Test tag overdue", num: overdue, tone: overdue > 0 ? "warn" : "default" },
+    ];
+  }, [assets, counts, today]);
+
   const drawerAsset = drawerAssetId ? assets.find((a) => a.id === drawerAssetId) ?? null : null;
   const [editor, setEditor] = useState<
     { mode: "create" } | { mode: "edit"; asset: GearAsset } | null
@@ -105,6 +119,7 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
 
   return (
     <>
+      <KpiStrip cells={gearKpis} className="mb-4" />
       <Card>
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex-1 min-w-[200px]">
