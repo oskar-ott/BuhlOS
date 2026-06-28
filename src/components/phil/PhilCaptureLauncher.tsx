@@ -17,7 +17,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { PhilActionButton } from "./ui/PhilActionButton";
+import { PhilDictateButton } from "./ui/PhilDictateButton";
 import { PhilNotice } from "./ui/PhilNotice";
+import { useOnline } from "./useOnline";
 import { listJobs, getJobDetail } from "@/domains/jobs/client";
 import {
   createObservation,
@@ -31,6 +33,7 @@ import {
   type WorkerCaptureOption,
 } from "@/domains/observations/service";
 import { submitOfficeCapture } from "@/domains/observations/office-capture";
+import { OBSERVATION_DESCRIPTION_MAX } from "@/domains/observations/schema";
 import { createEvidence, uploadEvidencePhoto } from "@/domains/evidence/client";
 import { EVIDENCE_NOTE_MAX } from "@/domains/evidence/schema";
 import { resizeImageToDataUrl } from "@/domains/evidence/service";
@@ -179,6 +182,9 @@ export function PhilCaptureLauncher({
   const consumedSeqRef = useRef(0);
   const photoIdRef = useRef(0);
   const submitSignalRef = useRef(0);
+  // Dictation (#147): mic appends to the batch note; offline disables it.
+  const online = useOnline();
+  const batchNoteRef = useRef<HTMLTextAreaElement | null>(null);
 
   const submitting = submit.v === "submitting" || submit.v === "sending";
 
@@ -690,6 +696,7 @@ export function PhilCaptureLauncher({
               labourHours={obsLabourHours}
               materialsNote={obsMaterialsNote}
               hasPhotos={photos.length > 0}
+              online={online}
               submitting={obsSubmitting}
               error={obsError}
               onPickJob={(j) => {
@@ -997,6 +1004,7 @@ export function PhilCaptureLauncher({
                     </label>
                     <textarea
                       id="capture-batch-note"
+                      ref={batchNoteRef}
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
                       disabled={submitting}
@@ -1009,6 +1017,16 @@ export function PhilCaptureLauncher({
                         "disabled:cursor-not-allowed disabled:opacity-60",
                       )}
                     />
+                    <div className="mt-2">
+                      <PhilDictateButton
+                        value={note}
+                        onAppend={(next) => setNote(next)}
+                        max={EVIDENCE_NOTE_MAX}
+                        online={online}
+                        disabled={submitting}
+                        onFocusField={() => batchNoteRef.current?.focus()}
+                      />
+                    </div>
                   </div>
 
                   {/* Optional area/stage context — appears once a job is chosen. */}
@@ -1171,6 +1189,7 @@ function NoteFlowBody({
   labourHours,
   materialsNote,
   hasPhotos,
+  online,
   submitting,
   error,
   onPickJob,
@@ -1191,6 +1210,7 @@ function NoteFlowBody({
   labourHours: string;
   materialsNote: string;
   hasPhotos: boolean;
+  online: boolean;
   submitting: boolean;
   error: string | null;
   onPickJob: (job: Job0) => void;
@@ -1203,6 +1223,7 @@ function NoteFlowBody({
   onSubmit: (job: Job0, option: WorkerCaptureOption) => void;
   onDone: () => void;
 }) {
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
   if (flow.step === "pick") {
     return (
       <>
@@ -1292,13 +1313,23 @@ function NoteFlowBody({
             More detail (optional)
           </span>
           <textarea
+            ref={descriptionRef}
             value={description}
             rows={3}
+            maxLength={OBSERVATION_DESCRIPTION_MAX}
             onChange={(e) => onDescription(e.target.value)}
             placeholder="Anything the office needs to know"
             className="mt-1 w-full rounded-card border border-border bg-surface px-3 py-2 text-base text-text"
           />
         </label>
+        <PhilDictateButton
+          value={description}
+          onAppend={onDescription}
+          max={OBSERVATION_DESCRIPTION_MAX}
+          online={online}
+          disabled={submitting}
+          onFocusField={() => descriptionRef.current?.focus()}
+        />
         {flow.option.type === "variation" ? (
           <div className="space-y-3 rounded-card border border-border bg-surface-subtle p-3">
             <p className="text-xs text-text-muted">

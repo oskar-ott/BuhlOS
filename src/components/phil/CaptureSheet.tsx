@@ -18,7 +18,9 @@ import type { Job, JobStage } from "@/domains/jobs/types";
 import { CapturePhotoPicker } from "./CapturePhotoPicker";
 import { CaptureTargetPickers } from "./CaptureTargetPickers";
 import { PhilActionButton } from "./ui/PhilActionButton";
+import { PhilDictateButton } from "./ui/PhilDictateButton";
 import { PhilNotice } from "./ui/PhilNotice";
+import { useOnline } from "./useOnline";
 import { cn } from "@/lib/cn";
 
 interface InitialContext {
@@ -94,6 +96,12 @@ export function CaptureSheet({
   // Track a per-submit signal so the async chain doesn't fire callbacks
   // for a stale submission.
   const submitSignalRef = useRef(0);
+
+  // Dictation (#147): the mic appends recognised text to the note. Online state
+  // gates it (the vendor speech service needs a connection); the field ref lets
+  // the iOS keyboard-nudge path focus the textarea.
+  const online = useOnline();
+  const noteRef = useRef<HTMLTextAreaElement | null>(null);
 
   const flatAreas = useMemo(
     () =>
@@ -326,6 +334,7 @@ export function CaptureSheet({
             </label>
             <textarea
               id="capture-note"
+              ref={noteRef}
               value={note}
               onChange={(e) => setNote(e.target.value)}
               disabled={busy}
@@ -338,9 +347,20 @@ export function CaptureSheet({
                 "disabled:cursor-not-allowed disabled:opacity-60"
               )}
             />
-            <p className="mt-1 text-right text-xs text-text-muted">
-              {noteLen} / {EVIDENCE_NOTE_MAX}
-            </p>
+            <div className="mt-2 flex items-start justify-between gap-3">
+              <PhilDictateButton
+                value={note}
+                onAppend={(next) => setNote(next)}
+                max={EVIDENCE_NOTE_MAX}
+                online={online}
+                disabled={busy}
+                onFocusField={() => noteRef.current?.focus()}
+                className="min-w-0"
+              />
+              <p className="mt-3 shrink-0 text-right text-xs text-text-muted">
+                {noteLen} / {EVIDENCE_NOTE_MAX}
+              </p>
+            </div>
           </div>
 
           <div>

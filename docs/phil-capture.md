@@ -128,6 +128,62 @@ metadata, permissions and honest states below are unchanged.
   persists them. **There is no offline queue:** capture needs a live
   connection. The UI does not pretend otherwise.
 
+### Voice dictation on note fields (#147)
+
+A **mic button sits beside every capture/observation note textarea** so a worker
+with gloves and dirty hands can *speak* a note instead of typing it (Phil
+constitution **P10** — additive: the keyboard still works, the mic is one extra
+affordance). Wired into:
+
+- the job-page **Capture evidence** sheet note (`#capture-note`, cap 280);
+- the global launcher **batch note** (`#capture-batch-note`, cap 280);
+- the no-photo observation **"More detail (optional)"** description (cap 2000).
+
+It recognises speech with the browser's built-in **Web Speech API**
+(`SpeechRecognition` / `webkitSpeechRecognition`), tuned for the field:
+`lang='en-AU'`, `interimResults=false` (final-only), `continuous=false`
+(single-shot). Recognised text is **appended** to whatever's already in the
+field via the field's own setter — it **never clobbers typed text** — and is
+hard-capped at the field's `maxLength`, so dictation can't push the note past the
+server-validated limit. Nothing auto-sends: the worker reviews and edits the text
+before Submit.
+
+**Adapter contract** (`src/components/phil/speechDictation.ts` — pure, no DOM/React,
+unit-tested):
+
+- `detectDictationMode()` → `'api' | 'keyboard-nudge' | 'unsupported'`.
+- `appendDictation(existing, fragment, max)` — the append-within-cap rule
+  (single joining space, trims the fragment, never replaces, slices to `max`).
+- `getDictationController()` — a **module-level singleton** so only **one**
+  recognition instance is ever live, even with a mic beside several fields. A new
+  `start()` aborts any in-flight session first.
+
+**iOS decision (keyboard-nudge).** Web Speech is unreliable inside an iOS
+**standalone PWA**, so on that device (`navigator.standalone` or
+`display-mode: standalone` + an iOS UA) the mic does **not** try in-app
+recognition. Instead it focuses the field and shows a one-line hint pointing at
+the **keyboard's own microphone key** — the OS dictation the worker already
+trusts. This is the load-bearing honest-fallback from #147: ship no mic that
+silently fails in the field. Android Chrome and desktop use the in-app `api`
+path; browsers with no `SpeechRecognition` at all render **nothing** (typed input
+untouched).
+
+**Honest privacy wording (P7).** Recognition runs on the **phone's built-in
+speech service — the same trust surface as the keyboard's mic key.** Web Speech
+streams audio to the browser/OS vendor, so the copy does **NOT** claim "no audio
+leaves the device." What it says honestly is that **BuhlOS servers receive text
+only**: the adapter never records, uploads, or POSTs audio — the only thing that
+reaches BuhlOS is the final recognised text, which the worker reviews before
+sending. No new endpoint, no server change, no audio handling anywhere.
+
+**Honest states.** Permission denial shows a **one-time** hint and then hides the
+control for the rest of the session (it never re-prompts on every open).
+Mid-dictation **signal loss / network failure** surfaces as a **stopped** state
+with a "your typed note is safe" message — typed input is untouched. Dictation is
+**offline-unavailable** (the vendor speech service needs a connection): offline,
+the mic disables and says "type your note for now." Recognition stops on sheet
+close, on submit, and on unmount.
+
 ---
 
 ## 3 · Metadata recorded
@@ -210,7 +266,15 @@ built (D4/D5) at `/v2/jobs/[jobId]/evidence`.
 - `evidence.test.ts` — schema, the `canTransition` state machine, format
   helpers, and every client wrapper incl. `uploadEvidencePhoto` error paths
   (mocked Blob).
-- `PhilCaptureLauncher.render.test.tsx` — launcher chooser SSR.
+- `PhilCaptureLauncher.render.test.tsx` — launcher chooser SSR (also locks the
+  `Capture` dialog aria-label against the #147 dictation wiring).
+- **`speechDictation.test.ts`** *(added, #147)* — the pure dictation adapter:
+  mode detection (`api` / iOS `keyboard-nudge` / `unsupported`), append-within-cap,
+  the single-instance singleton guard, and `onerror` → stopped classification.
+- **`PhilDictateButton.render.test.tsx`** *(added, #147)* — the mic control's
+  visual states via the pure `DictateButtonView` (unsupported → nothing;
+  listening `aria-pressed`/`aria-busy`; permission-denied one-time hint; offline;
+  iOS nudge) plus the SSR-default-null contract.
 - **`PhilTabBar.render.test.tsx`** *(added with this doc)* — locks the global
   **Capture FAB** as a named button, the four field tabs + hrefs, and that the
   launcher stays closed until tapped. This is the one capture affordance that
