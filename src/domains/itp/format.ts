@@ -1,4 +1,5 @@
 import { evaluateAgainstCriteria } from "@/domains/test-records/criteria";
+import { isPointApplicable } from "./applicability";
 import type {
   ITPInstance,
   ITPInstanceResult,
@@ -190,6 +191,12 @@ export interface ITPProgress {
  * Optional points are excluded from the denominator so the progress
  * line matches the witnessed-state criterion the server uses. If a
  * snapshot has no required points the percent is 0 (avoids div-by-0).
+ *
+ * #293: non-applicable conditional points are also excluded from the
+ * denominator (snapshot-driven via instance.scope) so Phil's "n / m
+ * points", the ITPDrawer, and qa-rollup all match what the worker
+ * actually sees — and a non-applicable required point can't keep an ITP
+ * below 100% forever.
  */
 /**
  * #285: evidence coverage — "n of m evidence-required points photographed".
@@ -216,8 +223,10 @@ export function evidenceCoverage(
 
 export function formatProgress(instance: ITPInstance): ITPProgress {
   const points = instance.templateSnapshot.points || [];
+  const ctx = { scope: instance.scope };
   const required = points.filter(
-    (p) => p.required !== false && !p.archived,
+    (p) =>
+      p.required !== false && !p.archived && isPointApplicable(p, ctx),
   );
   const results = instance.results || {};
   let done = 0;

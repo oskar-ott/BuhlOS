@@ -28,6 +28,10 @@ import {
   canTransition,
   pointsRecordedByUserRatio,
 } from "@/domains/itp/service";
+import {
+  applicabilityReason,
+  isPointApplicable,
+} from "@/domains/itp/applicability";
 import type {
   ITPInstance,
   ITPInstanceResult,
@@ -299,14 +303,31 @@ export function ITPDrawer({
               </p>
             ) : (
               <ol className="mt-1 space-y-2">
-                {points.map((point) => (
-                  <li key={point.id}>
-                    <PointRow
-                      point={point}
-                      result={instance.results?.[point.id]}
-                    />
-                  </li>
-                ))}
+                {points.map((point) => {
+                  // #293: unlike Phil (which hides non-applicable points),
+                  // admin SEES them greyed with a "Not applicable" pill —
+                  // data, not deletion — and they're kept out of the
+                  // recording affordances. Snapshot-driven via instance.scope.
+                  const applicable = isPointApplicable(point, {
+                    scope: instance.scope,
+                  });
+                  return (
+                    <li key={point.id}>
+                      <PointRow
+                        point={point}
+                        result={instance.results?.[point.id]}
+                        applicable={applicable}
+                        notApplicableReason={
+                          applicable
+                            ? null
+                            : applicabilityReason(point, {
+                                scope: instance.scope,
+                              })
+                        }
+                      />
+                    </li>
+                  );
+                })}
               </ol>
             )}
           </section>
@@ -444,14 +465,43 @@ function Field({
 function PointRow({
   point,
   result,
+  applicable = true,
+  notApplicableReason = null,
 }: {
   point: ITPTemplatePoint;
   result: ITPInstanceResult | undefined;
+  /** #293 — false when a conditional point doesn't apply to this scope. */
+  applicable?: boolean;
+  /** Human reason (admin/export only), e.g. "Only applies to switchboard". */
+  notApplicableReason?: string | null;
 }) {
   const required = point.required !== false;
   const recorded = result?.at != null;
   const label = point.label || pointTypeLabel(point.type);
   const passFail = point.type === "value" ? valuePassFailLabel(point, result) : null;
+
+  // #293: a non-applicable point is rendered as data — greyed, with a
+  // muted "Not applicable" pill — and never offers a recorded/pending
+  // status or its result body (it's out of the recording affordances).
+  if (!applicable) {
+    return (
+      <div className="rounded-card border border-dashed border-border bg-surface-subtle p-3 text-sm opacity-60">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="font-medium text-text-muted line-through">{label}</p>
+            <p className="text-xs text-text-muted">
+              {pointTypeLabel(point.type)}
+              {point.unit ? ` · ${point.unit}` : null}
+            </p>
+          </div>
+          <Pill tone="neutral">
+            Not applicable
+            {notApplicableReason ? ` — ${notApplicableReason}` : ""}
+          </Pill>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

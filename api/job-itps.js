@@ -81,6 +81,9 @@ const { requireAuth, canWrite, canManageJob, isAdminRole, isClientRole } = requi
 const { nanoid } = require('./_lib/validation');
 const { appendAudit } = require('./_lib/job-audit');
 const { append: appendAuditLog } = require('./_lib/audit-log');
+// #293 conditional points — the ONE evaluation source (CJS mirror of
+// src/domains/itp/applicability.ts). Snapshot-driven + fail-open.
+const { isPointApplicable } = require('./_lib/itp-applicability');
 
 const VALID_SCOPE  = new Set(['job', 'level', 'area', 'switchboard']);
 const VALID_STATUS = new Set(['pending', 'in-progress', 'witnessed', 'signed-off']);
@@ -133,13 +136,20 @@ function autoAdvanceStatus(inst) {
   }
 }
 
-// All required (non-archived) points have a recorded result. Mirrors
-// src/domains/itp/format.ts formatProgress (done === total, total > 0)
-// and src/domains/itp/service.ts canSubmitForReview. This is the gate the
-// 'submit' action enforces before flipping to 'witnessed'.
+// All required (non-archived, APPLICABLE) points have a recorded result.
+// Mirrors src/domains/itp/format.ts formatProgress (done === total,
+// total > 0) and src/domains/itp/service.ts canSubmitForReview. This is
+// the gate the 'submit' action enforces before flipping to 'witnessed'.
+//
+// #293 — a non-applicable required point can NEVER block reaching
+// witnessed, so it's filtered out of the required set here. Evaluation is
+// snapshot-driven (inst.templateSnapshot points, inst.scope) and
+// fail-open, so a typo'd condition keeps the point in the required set
+// (it stays a real check), never silently drops it.
 function requiredPointsComplete(inst) {
+  const ctx = { scope: inst.scope };
   const requiredPoints = ((inst.templateSnapshot && inst.templateSnapshot.points) || [])
-    .filter(p => p && p.required !== false && !p.archived);
+    .filter(p => p && p.required !== false && !p.archived && isPointApplicable(p, ctx));
   return requiredPoints.length > 0 && requiredPoints.every(p =>
     inst.results && inst.results[p.id] && inst.results[p.id].at);
 }
@@ -227,6 +237,16 @@ module.exports = async (req, res) => {
 
       const point = (inst.templateSnapshot && inst.templateSnapshot.points || []).find(p => p.id === pointId);
       if (!point) return res.status(404).json({ error: 'point not found on template' });
+
+      // #293 conditional points — a point that doesn't apply to this
+      // instance's scope is ABSENT from the worker's list, so a record on
+      // it can only come from a stale client or a hand-rolled request.
+      // Reject with an honest message. Snapshot-driven + fail-open: a
+      // typo'd condition still applies (recordable), never silently
+      // dropped. The word 'condition' never reaches Phil (P11).
+      if (!isPointApplicable(point, { scope: inst.scope })) {
+        return res.status(400).json({ error: 'This check does not apply to this ITP.' });
+      }
 
       // #285: evidence gate. Semantics (documented in itp/schema.ts too):
       // on an evidence-required point EVERY record must end up with a

@@ -53,6 +53,8 @@ const base: CompliancePack = {
           photoUrl: "https://blob/x.jpg",
           byUsername: "sparky",
           at: "2026-06-02T01:00:00.000Z",
+          applicable: true,
+          notApplicableReason: null,
         },
         {
           id: "p2",
@@ -66,6 +68,8 @@ const base: CompliancePack = {
           photoUrl: null,
           byUsername: null,
           at: null,
+          applicable: true,
+          notApplicableReason: null,
         },
       ],
       signOff: {

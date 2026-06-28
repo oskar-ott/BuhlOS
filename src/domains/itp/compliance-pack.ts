@@ -7,6 +7,10 @@ import {
   statusLabel,
   valuePassFail,
 } from "./format";
+import {
+  applicabilityReason,
+  isPointApplicable,
+} from "./applicability";
 import { resolveScopeName } from "@/components/phil/itp-scope";
 
 /**
@@ -42,6 +46,13 @@ export interface PackPointRow {
   photoUrl: string | null;
   byUsername: string | null;
   at: string | null;
+  /** #293 — false when a conditional point doesn't apply to this
+   *  instance's scope. The pack renders these as a DEFENSIBLE exclusion
+   *  ("Not applicable: …"), never a silent gap. Same evaluation fn as
+   *  Phil + admin (one source of truth). */
+  applicable: boolean;
+  /** Human reason, e.g. "Only applies to switchboard". Null when applicable. */
+  notApplicableReason: string | null;
 }
 
 export interface PackInstanceSection {
@@ -176,6 +187,14 @@ function buildPointRow(point: ITPTemplatePoint, instance: ITPInstance): PackPoin
   const result = instance.results?.[point.id];
   const recorded = Boolean(result?.at);
 
+  // #293 — snapshot-driven applicability (instance.scope). Same fn as
+  // Phil + admin + the server gate; one source of truth.
+  const ctx = { scope: instance.scope };
+  const applicable = isPointApplicable(point, ctx);
+  const notApplicableReason = applicable
+    ? null
+    : applicabilityReason(point, ctx);
+
   let valueLabel: string | null = null;
   let passFail: "pass" | "fail" | null = null;
   if (recorded && result) {
@@ -203,5 +222,7 @@ function buildPointRow(point: ITPTemplatePoint, instance: ITPInstance): PackPoin
     photoUrl: result?.photoUrl?.trim() ? result.photoUrl : null,
     byUsername: result?.byUsername ?? null,
     at: result?.at ?? null,
+    applicable,
+    notApplicableReason,
   };
 }

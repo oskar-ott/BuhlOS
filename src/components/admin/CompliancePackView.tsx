@@ -253,6 +253,25 @@ function InstanceSection({
 }
 
 function CheckRow({ p }: { p: PackInstanceSection["points"][number] }) {
+  // #293 — a non-applicable conditional point is a DEFENSIBLE exclusion,
+  // not a silent gap. Render it as "Not applicable: <reason>", greyed,
+  // with no missing-result styling and no recorded-by/when columns.
+  if (p.applicable === false) {
+    return (
+      <tr className="check check-na" data-testid="pack-point">
+        <td className="ck-label">
+          {p.label}
+          {p.required ? <span className="req"> *</span> : ""}
+        </td>
+        <td className="ck-result" colSpan={4}>
+          {p.notApplicableReason
+            ? `Not applicable: ${p.notApplicableReason}`
+            : "Not applicable"}
+        </td>
+      </tr>
+    );
+  }
+
   const hasExtra = Boolean(p.note || p.photoUrl);
   const resultText = p.recorded
     ? p.valueLabel ?? (p.photoUrl ? "Photo recorded" : "Recorded")

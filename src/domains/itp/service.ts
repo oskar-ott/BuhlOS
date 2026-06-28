@@ -236,6 +236,10 @@ export function canSubmitForReview(
   }
   // Reuse the domain's own progress criterion (required-points-with-`at`)
   // so the gate, the progress badge, and the server agree (P7).
+  // #293: formatProgress now filters the required denominator by
+  // applicability (snapshot-driven), so this client gate matches the
+  // server's requiredPointsComplete — a non-applicable required point
+  // can never block the worker from submitting.
   const progress = formatProgress(instance);
   if (progress.total === 0) return { ok: false, reason: "no-required-points" };
   if (progress.done < progress.total) {

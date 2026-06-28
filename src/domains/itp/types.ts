@@ -7,6 +7,7 @@ import type {
   ITPInstanceResultSchema,
   ITPInstanceSchema,
   ITPListResponseSchema,
+  ITPPointConditionSchema,
   ITPPointTypeSchema,
   ITPScopeSchema,
   ITPStatusSchema,
@@ -38,6 +39,8 @@ import type {
 export type ITPPointType = z.infer<typeof ITPPointTypeSchema>;
 export type ITPWitnessRole = z.infer<typeof ITPWitnessRoleSchema>;
 export type ITPScope = z.infer<typeof ITPScopeSchema>;
+/** #293 only-if condition (scope-type v1). */
+export type ITPPointCondition = z.infer<typeof ITPPointConditionSchema>;
 export type ITPTemplateSummary = z.infer<typeof ITPTemplateSummarySchema>;
 export type ITPTemplateListResponse = z.infer<typeof ITPTemplateListResponseSchema>;
 export type ItpTemplatePointDraft = z.infer<typeof ItpTemplatePointDraftSchema>;
