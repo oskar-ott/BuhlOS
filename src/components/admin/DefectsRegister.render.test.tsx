@@ -175,6 +175,28 @@ describe("DefectsRegister — URL-driven filters (#216 pattern)", () => {
   });
 });
 
+describe("DefectsRegister — shared inbox stat strip (§6)", () => {
+  it("renders the glanceable header over the register's OWN real counts", () => {
+    // SNAGS: s1 open/urgent, s2 open/high, s3 resolved, s4 verified, s5 closed,
+    // s6 rejected. So: Open=2 · Urgent/high among active=2 · Resolved=1 · Closed=1.
+    const html = render("");
+    expect(html).toContain("Open");
+    expect(html).toContain("Urgent / high (open)");
+    expect(html).toContain("Resolved (to verify)");
+    expect(html).toContain("Closed");
+    // The strip renders even while the list is filtered (it reflects all snags):
+    // the open count (2) is present as a stat value.
+    expect(html).toContain(">2<");
+  });
+
+  it("muted-zero, never fabricated: a dataset with no closed defects shows a calm 0", () => {
+    // Only one open snag → Closed tile is a real 0, rendered muted by the shell.
+    const html = render("", [snag({ id: "only", status: "open", priority: "normal" })]);
+    expect(html).toContain("Closed");
+    expect(html).toContain("tabular-nums text-text-muted");
+  });
+});
+
 describe("DefectsRegister — bulk-close affordances", () => {
   it("closable rows get a labelled checkbox; closed/rejected rows do not", () => {
     const html = render("status=all");
