@@ -201,6 +201,12 @@ const VALID_ACTIONS = new Set([
   // targetType 'job'. Kept in sync with src/domains/audit-log/schema.ts.
   'job.handover_set',
   'job.handover_cleared',
+  // #217: per-job meeting-minutes register (api/job-minutes.js). minutes.recorded
+  // on a new minute; minutes.amended on an append-only amendment (the original
+  // body is never mutated). targetType 'minutes'. Kept in sync with
+  // src/domains/audit-log/schema.ts.
+  'minutes.recorded',
+  'minutes.amended',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -251,6 +257,8 @@ const VALID_TARGET_TYPES = new Set([
   'rfi',
   // #210: per-job site diary entries (jobs/<id>/diary.json).
   'diary',
+  // #217: per-job meeting-minutes records (jobs/<id>/minutes.json).
+  'minutes',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

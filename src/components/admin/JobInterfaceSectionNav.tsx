@@ -14,6 +14,7 @@ import {
   NotebookPen,
   Package,
   Scale,
+  ScrollText,
   ShieldCheck,
   Zap,
 } from "lucide-react";
@@ -31,6 +32,8 @@ interface Props {
   certificatesEnabled?: boolean;
   /** #276: show the RFIs register row. Flag-gated (rfi_register) by the hub. */
   rfiEnabled?: boolean;
+  /** #217: show the Minutes register row. Flag-gated (minutes_register) by the hub. */
+  minutesEnabled?: boolean;
 }
 
 type SectionRow =
@@ -83,6 +86,7 @@ export function JobInterfaceSectionNav({
   safetyEnabled = false,
   certificatesEnabled = false,
   rfiEnabled = false,
+  minutesEnabled = false,
 }: Props) {
   const jobIdEnc = encodeURIComponent(job.id);
 
@@ -220,6 +224,21 @@ export function JobInterfaceSectionNav({
               "Questions to the builder — raised, sent, chased (overdue surfaces) and answered, on the record.",
             href: `/v2/jobs/${jobIdEnc}/rfis` as Route,
             icon: Inbox,
+          } satisfies SectionRow,
+        ]
+      : []),
+    // #217: Meeting-minutes register — date/title/attendees/body or PDF, with
+    // stamped append-only amendments. Flag-gated by the hub (minutes_register);
+    // dark until on.
+    ...(minutesEnabled
+      ? [
+          {
+            kind: "live",
+            label: "Minutes",
+            description:
+              "Meeting minutes — date, title, attendees and the body or a PDF. Append-only, with stamped amendments.",
+            href: `/v2/jobs/${jobIdEnc}/minutes` as Route,
+            icon: ScrollText,
           } satisfies SectionRow,
         ]
       : []),

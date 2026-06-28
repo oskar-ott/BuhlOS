@@ -180,6 +180,12 @@ export const AUDIT_ACTIONS = [
   // PUT. targetType 'job'. Kept in sync with api/_lib/audit-log.js.
   "job.handover_set",
   "job.handover_cleared",
+  // #217: meeting-minutes register (api/job-minutes.js). minutes.recorded on a
+  // new minute; minutes.amended on an append-only amendment (the original body
+  // is never mutated). targetType 'minutes'. Kept in sync with
+  // api/_lib/audit-log.js VALID_ACTIONS.
+  "minutes.recorded",
+  "minutes.amended",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -223,6 +229,8 @@ export const AUDIT_TARGET_TYPES = [
   "rfi",
   // #210: per-job site diary entries (jobs/<id>/diary.json).
   "diary",
+  // #217: per-job meeting-minutes records (jobs/<id>/minutes.json).
+  "minutes",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

@@ -101,6 +101,9 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   // #235: defect liability period (targetType 'job' groups as Other).
   "job.handover_set": "Set handover date",
   "job.handover_cleared": "Cleared handover date",
+  // #217: meeting-minutes register (targetType 'minutes' groups as Other).
+  "minutes.recorded": "Recorded minutes",
+  "minutes.amended": "Amended minutes",
 };
 
 export function actionLabel(action: AuditAction): string {
