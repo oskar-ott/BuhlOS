@@ -195,6 +195,12 @@ const VALID_ACTIONS = new Set([
   // targetType 'diary'. Kept in sync with src/domains/audit-log/schema.ts.
   'diary.created',
   'diary.amended',
+  // #235: defect liability period. job.handover_set fires from the jobs PUT
+  // whenever the handover / defect-period dates change and a handover date
+  // remains; job.handover_cleared fires when the handover date is removed.
+  // targetType 'job'. Kept in sync with src/domains/audit-log/schema.ts.
+  'job.handover_set',
+  'job.handover_cleared',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',

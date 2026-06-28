@@ -113,6 +113,13 @@ export const SnagItemSchema = z
     priority: SnagPrioritySchema,
     source: SnagSourceSchema,
 
+    // #235: creation-time origin marker. 'post_handover' when the snag was
+    // raised on or after the job's handover date (a defect-liability callback);
+    // null/absent otherwise. Recorded at create time — never recomputed on read,
+    // so a later handover edit can't rewrite history. (.passthrough already
+    // tolerates it; declared here for clarity + typed access.)
+    origin: z.string().nullable().optional(),
+
     // Actor stamps. Worker creates → admin verifies/closes.
     createdById: z.string(),
     createdByName: z.string(),

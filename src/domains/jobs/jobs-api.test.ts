@@ -408,6 +408,100 @@ describe("client + contract fields (#228)", () => {
   });
 });
 
+describe("defect liability period fields (#235)", () => {
+  function storedJob(id: string) {
+    return (blob.get("jobs.json") as { jobs: Array<Record<string, unknown>> }).jobs.find(
+      (j) => j.id === id,
+    )!;
+  }
+  function auditActions(): string[] {
+    const out: string[] = [];
+    for (const [key, value] of blob.entries()) {
+      if (!key.startsWith("audit/")) continue;
+      for (const e of (value as { entries?: Array<{ action: string }> }).entries ?? []) {
+        out.push(e.action);
+      }
+    }
+    return out;
+  }
+
+  it("admin PUT sets handover + defect-period dates and fires job.handover_set", async () => {
+    const put = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: {
+        id: "job-active",
+        handoverDate: "2026-06-01",
+        defectPeriodEndsAt: "2026-08-30",
+      },
+    });
+    expect(put.statusCode).toBe(200);
+    const stored = storedJob("job-active");
+    expect(stored.handoverDate).toBe("2026-06-01");
+    expect(stored.defectPeriodEndsAt).toBe("2026-08-30");
+    expect(auditActions()).toContain("job.handover_set");
+  });
+
+  it("clearing the handover date fires job.handover_cleared", async () => {
+    await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "job-active", handoverDate: "2026-06-01", defectPeriodEndsAt: "2026-08-30" },
+    });
+    const clear = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "job-active", handoverDate: null },
+    });
+    expect(clear.statusCode).toBe(200);
+    const stored = storedJob("job-active");
+    expect(stored.handoverDate).toBe(""); // cleared
+    expect(auditActions()).toContain("job.handover_cleared");
+  });
+
+  it("rejects defectPeriodEndsAt before handoverDate (400, no write)", async () => {
+    writeBlobMock.mockClear();
+    const put = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: {
+        id: "job-active",
+        handoverDate: "2026-08-30",
+        defectPeriodEndsAt: "2026-06-01",
+      },
+    });
+    expect(put.statusCode).toBe(400);
+    expect((put.body as { error: string }).error).toMatch(/on or after handoverDate/);
+    expect(writeBlobMock).not.toHaveBeenCalledWith("jobs.json", expect.anything());
+  });
+
+  it("rejects a malformed handoverDate (400)", async () => {
+    const put = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "job-active", handoverDate: "2026/06/01" },
+    });
+    expect(put.statusCode).toBe(400);
+    expect((put.body as { error: string }).error).toMatch(/handoverDate must be YYYY-MM-DD/);
+  });
+
+  it("a leading hand cannot WRITE the defect-period dates (403, no change)", async () => {
+    const put = await call({
+      method: "PUT",
+      userId: "u_lh",
+      role: "lh",
+      body: { id: "job-active", handoverDate: "2026-06-01" },
+    });
+    expect(put.statusCode).toBe(403);
+    expect(storedJob("job-active")).not.toHaveProperty("handoverDate"); // unchanged
+  });
+});
+
 describe("scope-of-work visibility + writes (#200)", () => {
   it("field and client GETs never carry scopeOfWork (single, list, withStats)", async () => {
     for (const [userId, role] of [

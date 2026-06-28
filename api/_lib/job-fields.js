@@ -99,9 +99,26 @@ function validateJobBasics(body) {
       patch.programmedDurationDays = Math.round(n);
     }
   }
+  // #235: defect liability period dates. Mirror startDate/dueDate exactly —
+  // null/'' clears the slot, otherwise must be a YYYY-MM-DD string.
+  if (body.handoverDate !== undefined) {
+    if (body.handoverDate === null || body.handoverDate === '') patch.handoverDate = '';
+    else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.handoverDate))) return { ok: false, error: 'handoverDate must be YYYY-MM-DD' };
+    else patch.handoverDate = String(body.handoverDate);
+  }
+  if (body.defectPeriodEndsAt !== undefined) {
+    if (body.defectPeriodEndsAt === null || body.defectPeriodEndsAt === '') patch.defectPeriodEndsAt = '';
+    else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.defectPeriodEndsAt))) return { ok: false, error: 'defectPeriodEndsAt must be YYYY-MM-DD' };
+    else patch.defectPeriodEndsAt = String(body.defectPeriodEndsAt);
+  }
   // Cross-check dates if both provided.
   if (patch.startDate && patch.dueDate && patch.startDate > patch.dueDate) {
     return { ok: false, error: 'dueDate must be on or after startDate' };
+  }
+  // #235: the defect period cannot end before handover. Same precedent as the
+  // startDate/dueDate cross-check — only enforced when BOTH are in this patch.
+  if (patch.handoverDate && patch.defectPeriodEndsAt && patch.defectPeriodEndsAt < patch.handoverDate) {
+    return { ok: false, error: 'defectPeriodEndsAt must be on or after handoverDate' };
   }
   return { ok: true, patch };
 }

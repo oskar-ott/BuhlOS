@@ -171,6 +171,9 @@ describe("AuditLogEntrySchema", () => {
       // #349 closeout lifecycle + #581 Job Builder/won-quote creation.
       "job.closed",
       "job.created",
+      // #235 defect liability period (handover date set / cleared).
+      "job.handover_cleared",
+      "job.handover_set",
       "job.reopened",
       "job.tasks_generated",
       // #127/#333 leave lifecycle.

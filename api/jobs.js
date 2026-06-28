@@ -664,6 +664,9 @@ module.exports = async (req, res) => {
       siteContactName, siteContactPhone,
       safetyNotes, inductionRequired,
       startDate, dueDate, programmedDurationDays,
+      // #235: defect liability period. Admin-tier (LH-forbidden list below);
+      // validated + cross-checked in validateJobBasics.
+      handoverDate, defectPeriodEndsAt,
     } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id required' });
     const job = data.jobs.find(j => j.id === id);
@@ -698,6 +701,10 @@ module.exports = async (req, res) => {
         siteContactPhone: job.siteContactPhone || '',
         inductionRequired: !!job.inductionRequired,
       }),
+      // #235: handover / defect-period dates — tracked separately so we can
+      // emit the dedicated job.handover_set / .cleared canonical-journal verbs.
+      handoverDate: job.handoverDate || '',
+      defectPeriodEndsAt: job.defectPeriodEndsAt || '',
     };
 
     // leadingHand may only patch areaGroups, roughInTasks, fitOffTasks, clientUserId.
@@ -710,6 +717,8 @@ module.exports = async (req, res) => {
           materialEstimate !== undefined || claimedToDate !== undefined ||
           paidToDate !== undefined || oldestClaimDays !== undefined ||
           clientReference !== undefined || contractNotes !== undefined ||
+          // #235: handover / defect-period dates are an admin-tier decision.
+          handoverDate !== undefined || defectPeriodEndsAt !== undefined ||
           modules !== undefined || scopeOfWork !== undefined) {
         return res.status(403).json({ error: 'leadingHand cannot change job money, module or scope fields' });
       }
@@ -988,6 +997,8 @@ module.exports = async (req, res) => {
           siteContactPhone: job.siteContactPhone || '',
           inductionRequired: !!job.inductionRequired,
         }),
+        handoverDate: job.handoverDate || '',
+        defectPeriodEndsAt: job.defectPeriodEndsAt || '',
       };
       const audits = [];
       if (_before.name !== _now.name) {
@@ -1036,6 +1047,34 @@ module.exports = async (req, res) => {
           kind: a.kind, summary: a.summary,
           before: a.before, after: a.after,
         });
+      }
+
+      // #235: handover / defect-period change → a dedicated canonical-journal
+      // verb so the cross-job activity feed shows "set/cleared the handover
+      // date" plainly. job.handover_set fires whenever either date changes and
+      // a handover date remains; job.handover_cleared fires when the handover
+      // date is removed. Best-effort after the write (mirrors job.created).
+      const handoverChanged =
+        _before.handoverDate !== _now.handoverDate ||
+        _before.defectPeriodEndsAt !== _now.defectPeriodEndsAt;
+      if (handoverChanged) {
+        const cleared = !_now.handoverDate;
+        await appendAuditLog({
+          action: cleared ? 'job.handover_cleared' : 'job.handover_set',
+          actorId: me.id,
+          actorName: me.username || me.name || '',
+          actorRole: me.role || null,
+          jobId: job.id,
+          targetType: 'job',
+          targetId: job.id,
+          summary: cleared
+            ? `${me.username || 'someone'} cleared the handover date on ${job.name}`.slice(0, 240)
+            : `${me.username || 'someone'} set ${job.name} handover ${_now.handoverDate}${_now.defectPeriodEndsAt ? ` — defects to ${_now.defectPeriodEndsAt}` : ''}`.slice(0, 240),
+          metadata: {
+            handoverDate: _now.handoverDate || null,
+            defectPeriodEndsAt: _now.defectPeriodEndsAt || null,
+          },
+        }).catch(() => {});
       }
     } catch (e) { console.warn('job audit write failed', e); }
 
