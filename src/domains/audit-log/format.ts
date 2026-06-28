@@ -58,6 +58,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "variation.created": "Raised variation claim",
   "variation.transitioned": "Updated variation claim",
   "observation.converted_to_variation": "Converted observation to variation",
+  "observation.converted_to_rfi": "Converted observation to RFI",
   // #151: scheduled blob backup runs (targetType 'system' groups as Other).
   "backup.completed": "Ran data backup",
   "storage.write_rejected": "Blocked a bad data write",
