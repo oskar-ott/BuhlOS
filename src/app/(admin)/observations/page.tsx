@@ -5,6 +5,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { ObservationsInbox } from "@/components/admin/ObservationsInbox";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { ObservationListResponseSchema } from "@/domains/observations/schema";
 import type { ObservationItem } from "@/domains/observations/types";
 
@@ -36,6 +37,9 @@ export default async function ObservationsPage() {
     redirect("/v2/login");
   }
 
+  // #276/#737: real "Convert to RFI" in the inbox when the register is on.
+  const rfiEnabled = await isFlagEnabled("rfi_register", session);
+
   const { observations, fetchError } = await loadObservations(raw);
 
   return (
@@ -58,6 +62,7 @@ export default async function ObservationsPage() {
             name: session.name ?? "You",
             role: String(session.role ?? ""),
           }}
+          rfiEnabled={rfiEnabled}
         />
       </div>
     </AdminShell>

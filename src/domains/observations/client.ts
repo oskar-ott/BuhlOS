@@ -3,6 +3,7 @@ import {
   CreateObservationPayloadSchema,
   CreateOfficeObservationPayloadSchema,
   ObservationConvertToMaterialRequestResponseSchema,
+  ObservationConvertToRfiResponseSchema,
   ObservationConvertToSnagResponseSchema,
   ObservationListResponseSchema,
   ObservationMutationResponseSchema,
@@ -13,6 +14,7 @@ import type {
   CreateObservationPayload,
   CreateOfficeObservationPayload,
   ObservationConvertToMaterialRequestResponse,
+  ObservationConvertToRfiResponse,
   ObservationConvertToSnagResponse,
   ObservationListResponse,
   ObservationMutationResponse,
@@ -214,6 +216,39 @@ export function convertObservationToMaterialRequest(payload: {
 }
 
 /**
+ * #276/#737: convert an eligible observation into a real register RFI.
+ *
+ *   POST /api/observations?action=convert-to-rfi  (admin-tier, rfi_register)
+ *
+ * Default-eligible type is `rfi` (the field's "Question for office" chip); other
+ * types need `force: true`. The server mints an RFI on the job's register and
+ * links it back. Gated by the rfi_register flag (404 when dark).
+ *
+ * 201 → { observation, rfi }; the observation now has linkedRfiId,
+ * convertedTo='rfi', convertedTargetId=rfi.id, status='converted'.
+ * 409 → already converted (idempotent). 400 → invalid type + no force.
+ * 404 → not found / flag dark. 403 → not admin tier.
+ */
+export function convertObservationToRfi(
+  payload: { id: string; force?: boolean }
+): Promise<HttpResult<ObservationConvertToRfiResponse>> {
+  if (!payload.id) {
+    return Promise.resolve({
+      ok: false,
+      error: { status: 0, body: null, message: "id is required" },
+    });
+  }
+  return httpPost<ObservationConvertToRfiResponse>(
+    "/api/observations?action=convert-to-rfi",
+    { id: payload.id, ...(payload.force ? { force: true } : {}) },
+    {
+      schema: ObservationConvertToRfiResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
+/**
  * Create an OFFICE item — an observation with NO job (the Phil "send to
  * office" path). POST /api/observations?scope=office; staff-only (the server
  * 403s clients). Photos must already be uploaded (uploadOfficePhoto) — the
@@ -270,4 +305,5 @@ export const observationsClient = {
   updateObservation,
   convertObservationToSnag,
   convertObservationToMaterialRequest,
+  convertObservationToRfi,
 } as const;

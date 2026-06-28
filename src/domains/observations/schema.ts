@@ -139,6 +139,10 @@ export const ObservationItemSchema = z
      *  The same observation cannot also be linked to a Snag (the API rejects
      *  a second convert with 409 if `convertedTo` is already set). */
     linkedMaterialRequestId: z.string().nullable().optional(),
+    /** #276/#737: set when the observation has been converted to a real register
+     *  RFI via POST /api/observations?action=convert-to-rfi (mirrors
+     *  linkedSnagId / linkedMaterialRequestId). */
+    linkedRfiId: z.string().nullable().optional(),
     photoUrls: z.array(z.string()),
 
     // Variation flag (#369). Set only on a `variation`-typed observation — a
@@ -360,4 +364,13 @@ export const ObservationConvertToSnagResponseSchema = z.object({
 export const ObservationConvertToMaterialRequestResponseSchema = z.object({
   observation: ObservationItemSchema,
   materialRequest: z.object({ id: z.string() }).passthrough(),
+});
+
+/** #276/#737: POST /api/observations?action=convert-to-rfi response — the
+ *  updated observation AND the newly-created register RFI (passthrough object so
+ *  this schema doesn't couple to the rfi domain; only `id` is contractually
+ *  required for the inbox to link to /v2/jobs/<id>/rfis). */
+export const ObservationConvertToRfiResponseSchema = z.object({
+  observation: ObservationItemSchema,
+  rfi: z.object({ id: z.string() }).passthrough(),
 });

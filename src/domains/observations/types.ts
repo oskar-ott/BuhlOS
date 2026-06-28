@@ -4,6 +4,7 @@ import type {
   CreateOfficeObservationPayloadSchema,
   ObservationConvertTargetSchema,
   ObservationConvertToMaterialRequestResponseSchema,
+  ObservationConvertToRfiResponseSchema,
   ObservationConvertToSnagResponseSchema,
   ObservationItemSchema,
   ObservationListResponseSchema,
@@ -43,4 +44,7 @@ export type ObservationMutationResponse = z.infer<typeof ObservationMutationResp
 export type ObservationConvertToSnagResponse = z.infer<typeof ObservationConvertToSnagResponseSchema>;
 export type ObservationConvertToMaterialRequestResponse = z.infer<
   typeof ObservationConvertToMaterialRequestResponseSchema
+>;
+export type ObservationConvertToRfiResponse = z.infer<
+  typeof ObservationConvertToRfiResponseSchema
 >;
