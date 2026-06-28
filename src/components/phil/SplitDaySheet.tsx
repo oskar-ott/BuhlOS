@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import { splitDayRemainder, STANDARD_DAY_HOURS } from "@/domains/timesheets/service";
+import { useSheetHistory } from "./useSheetHistory";
 
 /**
  * Split a day across 2+ jobs (#128) — opened from the log sheet's "More
@@ -37,6 +38,15 @@ interface SplitDaySheetProps {
   initialRows?: ReadonlyArray<{ jobId: string | null; hours: number }>;
   /** Server-side resubmit error to surface above the actions. */
   errorMessage?: string | null;
+  /**
+   * Opt in to sheet back-safety (#149): a swipe-back / Android back closes the
+   * sheet instead of navigating. ONLY the user-toggled "Split the day" path in
+   * LogHoursSheet sets this. The rejected-split RESUBMIT path
+   * (RejectedHoursResubmitSheet) leaves it false on purpose — that open is
+   * driven by the ?fixDate= URL flow, whose history contract must not be
+   * touched. Default false keeps every existing caller unchanged.
+   */
+  backSafe?: boolean;
 }
 
 const MAX_TOTAL = 24;
@@ -51,7 +61,16 @@ export function SplitDaySheet({
   initialTotal,
   initialRows,
   errorMessage = null,
+  backSafe = false,
 }: SplitDaySheetProps) {
+  // Back-safety only when opted in (the user-toggled split path). When off, the
+  // hook is given a never-open contract so it pushes nothing — keeping the
+  // ?fixDate=-driven resubmit open on its existing history contract.
+  const { closeWithHistory } = useSheetHistory({
+    open: backSafe && open,
+    onClose,
+  });
+  const close = backSafe ? closeWithHistory : onClose;
   const [total, setTotal] = useState<number>(initialTotal ?? STANDARD_DAY_HOURS);
   const [rows, setRows] = useState<SplitRow[]>(() =>
     initialRows && initialRows.length >= 2
@@ -114,7 +133,7 @@ export function SplitDaySheet({
     "h-11 rounded-card border border-border bg-surface px-2 text-sm focus:border-brand-navy focus:outline-none";
 
   return (
-    <Modal open={open} onClose={onClose} title={title}>
+    <Modal open={open} onClose={close} title={title}>
       <div className="space-y-4" data-testid="split-day-sheet">
         <label className="block text-sm">
           <span className="mb-1 block font-medium text-text">Total hours for the day</span>
@@ -210,7 +229,7 @@ export function SplitDaySheet({
         ) : null}
 
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-          <Button variant="ghost" onClick={onClose} disabled={submitting}>
+          <Button variant="ghost" onClick={close} disabled={submitting}>
             Cancel
           </Button>
           <Button onClick={submit} disabled={submitting} data-testid="split-submit">

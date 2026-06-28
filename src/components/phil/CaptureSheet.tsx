@@ -22,6 +22,7 @@ import { PhilActionButton } from "./ui/PhilActionButton";
 import { PhilDictateButton } from "./ui/PhilDictateButton";
 import { PhilNotice } from "./ui/PhilNotice";
 import { useOnline } from "./useOnline";
+import { useSheetHistory } from "./useSheetHistory";
 import { cn } from "@/lib/cn";
 
 interface InitialContext {
@@ -107,6 +108,12 @@ export function CaptureSheet({
   const online = useOnline();
   const noteRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // Back-safety (#149): a swipe-back / Android back closes the sheet instead of
+  // navigating off the job page. closeWithHistory wraps every programmatic close
+  // (Close button / Esc / Cancel / close-on-submit) so it unwinds the pushed
+  // history entry exactly once.
+  const { closeWithHistory } = useSheetHistory({ open, onClose });
+
   const flatAreas = useMemo(
     () =>
       visibleAreaGroups(job.areaGroups).flatMap((g) =>
@@ -135,11 +142,11 @@ export function CaptureSheet({
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") closeWithHistory();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, closeWithHistory]);
 
   const busy = phase.kind === "uploading" || resizing;
   const noteLen = note.length;
@@ -214,8 +221,9 @@ export function CaptureSheet({
 
     setPhase({ kind: "uploading" });
     // Close on first tap (BUG-C-003 lesson). The banner lands when the
-    // async chain resolves via onCaptured / onFailed.
-    onClose();
+    // async chain resolves via onCaptured / onFailed. closeWithHistory unwinds
+    // the back-safety entry so a later swipe doesn't pop a stale one (#149).
+    closeWithHistory();
 
     try {
       const photo = await uploadEvidencePhoto(captureJobId, captureDataUrl);
@@ -280,7 +288,7 @@ export function CaptureSheet({
     areaId,
     taskId,
     note,
-    onClose,
+    closeWithHistory,
     onCaptured,
     onFailed,
     initialContext?.stage,
@@ -309,7 +317,7 @@ export function CaptureSheet({
         </div>
         <button
           type="button"
-          onClick={onClose}
+          onClick={closeWithHistory}
           aria-label="Close"
           className={cn(
             "inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-card",
@@ -462,7 +470,7 @@ export function CaptureSheet({
             type="button"
             variant="secondary"
             size="lg"
-            onClick={onClose}
+            onClick={closeWithHistory}
             disabled={busy}
             className="flex-1"
           >

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ReceiptText, X, Camera } from "lucide-react";
 import { PhilActionButton } from "./ui/PhilActionButton";
 import { PhilNotice } from "./ui/PhilNotice";
+import { useSheetHistory } from "./useSheetHistory";
 import { resizeImageToDataUrl } from "@/domains/evidence/service";
 import { submitExpense, uploadReceiptPhoto } from "@/domains/expenses/client";
 import {
@@ -50,6 +51,11 @@ export function SubmitExpenseSheet({ open, onClose, onSubmitted, onFailed }: Pro
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const idemKeyRef = useRef<string>("");
 
+  // Back-safety (#149): a swipe-back / Android back closes the receipt sheet
+  // instead of navigating away. closeWithHistory unwinds the pushed entry on
+  // every programmatic close (Close / Esc / successful submit).
+  const { closeWithHistory } = useSheetHistory({ open, onClose });
+
   // Re-seed on open so a previous session never leaks in; mint a fresh
   // idempotency key for this submission attempt.
   useEffect(() => {
@@ -70,11 +76,11 @@ export function SubmitExpenseSheet({ open, onClose, onSubmitted, onFailed }: Pro
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !busy) onClose();
+      if (e.key === "Escape" && !busy) closeWithHistory();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, busy, onClose]);
+  }, [open, busy, closeWithHistory]);
 
   const onPickReceipt = useCallback(async (file: File | undefined) => {
     if (!file) return;
@@ -120,13 +126,13 @@ export function SubmitExpenseSheet({ open, onClose, onSubmitted, onFailed }: Pro
     setBusy(false);
     if (r.ok) {
       onSubmitted(r.data.expense);
-      onClose();
+      closeWithHistory();
     } else {
       const message = r.error.message || "Couldn't submit your receipt. Try again.";
       setErrorMessage(message);
       onFailed(message);
     }
-  }, [busy, receipt, category, amountCents, note, onSubmitted, onClose, onFailed]);
+  }, [busy, receipt, category, amountCents, note, onSubmitted, closeWithHistory, onFailed]);
 
   if (!open) return null;
 
@@ -145,7 +151,7 @@ export function SubmitExpenseSheet({ open, onClose, onSubmitted, onFailed }: Pro
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={closeWithHistory}
             disabled={busy}
             className="inline-flex h-11 w-11 items-center justify-center rounded-card text-text-muted hover:bg-surface-subtle disabled:opacity-50"
             aria-label="Close"

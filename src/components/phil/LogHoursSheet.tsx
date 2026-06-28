@@ -558,6 +558,10 @@ export function LogHoursSheet({
         assignedJobs={assignedJobs}
         submitting={submitting}
         onSubmit={submitSplit}
+        // User-toggled split (not the ?fixDate= resubmit path) → opt into
+        // sheet back-safety so a swipe-back closes it instead of leaving the
+        // hours form (#149). pushState carries no URL, so ?fixDate= is untouched.
+        backSafe
       />
     </div>
   );
