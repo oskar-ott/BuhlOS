@@ -84,6 +84,8 @@ const VALID_TARGET_TYPES = new Set([
   'quote',
   // #230: services-locations register — so the per-job feed can filter to it.
   'service_location',
+  // #283: site-instructions register — so the per-job feed can filter to it.
+  'instruction',
 ]);
 const MAX_MONTHS = 12;
 const DEFAULT_MONTHS = 2;

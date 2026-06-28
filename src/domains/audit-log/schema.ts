@@ -203,6 +203,11 @@ export const AUDIT_ACTIONS = [
   "service_location.added",
   "service_location.updated",
   "service_location.removed",
+  // #283: site-instructions register (api/site-instructions.js). created on a
+  // recorded instruction; transitioned on acknowledge / close. targetType
+  // 'instruction'. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
+  "instruction.created",
+  "instruction.transitioned",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -250,6 +255,8 @@ export const AUDIT_TARGET_TYPES = [
   "minutes",
   // #230: per-job services-locations records (jobs/<id>/services-locations.json).
   "service_location",
+  // #283: per-job site-instructions records (jobs/<id>/site-instructions.json).
+  "instruction",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

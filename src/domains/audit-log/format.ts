@@ -113,6 +113,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "service_location.added": "Added a service location",
   "service_location.updated": "Updated a service location",
   "service_location.removed": "Removed a service location",
+  "instruction.created": "Recorded a site instruction",
+  "instruction.transitioned": "Updated a site instruction",
 };
 
 export function actionLabel(action: AuditAction): string {

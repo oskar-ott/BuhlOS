@@ -327,6 +327,19 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+
+  // Per-job site-instructions register (#283): gates /api/site-instructions +
+  // the /v2/jobs/[jobId]/instructions admin register. Records builder
+  // instructions (who/what/when/channel), a formal acknowledgement back, and a
+  // cost/time-implication flag so costed instructions spawn an RFI/variation
+  // instead of becoming free work. GLOBAL flag; admin/managing-LH only is
+  // enforced in the handler (read admin/LH; write admin). Default OFF.
+  site_instructions_register: {
+    description: 'Enable the per-job site-instructions register — /api/site-instructions + /v2/jobs/[jobId]/instructions (#283). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
 };
 
 const FLAGS_KEY = 'flags.json';
