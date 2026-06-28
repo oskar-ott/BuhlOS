@@ -112,4 +112,38 @@ describe("PhilJobsList", () => {
     expect(html).toContain("Mango");
     expect(html).toContain("Kiwi");
   });
+
+  // --- #146: long-press row actions (additive — taps unchanged) ---
+
+  it("keeps the #145 row contract intact alongside the long-press gesture", () => {
+    const html = renderToString(
+      createElement(PhilJobsList, { initialJobs: [job], userId: "user-1" }),
+    );
+    // The whole row is still the tap target → the same job link + aria-label
+    // the smoke ('Open <name>') and #145 depend on, UNCHANGED.
+    expect(html).toContain('aria-label="Open Birdwood Rd — Rough-in"');
+    expect(html).toContain("/phil/jobs/job-1");
+    // The pin star is still its own sibling control (excluded from the gesture).
+    expect(html).toContain('data-testid="phil-job-pin-job-1"');
+    expect(html).toContain('aria-label="Pin Birdwood Rd — Rough-in"');
+  });
+
+  it("arms the long-press without hijacking the OS callout on the row", () => {
+    const html = renderToString(
+      createElement(PhilJobsList, { initialJobs: [job], userId: "user-1" }),
+    );
+    // The row link carries the -webkit-touch-callout:none utility class so the
+    // hold isn't stolen by the OS selection menu.
+    expect(html).toContain("[-webkit-touch-callout:none]");
+  });
+
+  it("keeps the actions sheet CLOSED in the SSR paint (opens only on hold)", () => {
+    const html = renderToString(
+      createElement(PhilJobsList, { initialJobs: [job], userId: "user-1" }),
+    );
+    // No dialog and no sheet copy until the worker actually long-presses.
+    expect(html).not.toContain('role="dialog"');
+    expect(html).not.toContain("Quick actions for this job");
+    expect(html).not.toContain("phil-job-actions-");
+  });
 });

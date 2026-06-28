@@ -42,6 +42,39 @@ export function launchableJobs(jobs: ReadonlyArray<Job>): LaunchableJob[] {
     }));
 }
 
+/**
+ * The recent jobs a long-press of the FAB should offer as one-tap capture
+ * destinations (#146). Recents come from #145's `readJobListPrefs(userId)`
+ * (most-recent-first), but a stored id can be STALE — a job the worker was
+ * un-assigned from, or one since archived. Such a recent must be dropped here:
+ * offering it would deep-link a capture against a job the worker can no longer
+ * see (a 403 on the job page). So we intersect the remembered ids with the
+ * worker's actually-launchable jobs (assigned + non-archived; `launchableJobs`),
+ * preserve recency order, and cap to a thumb-reachable shortlist.
+ *
+ * Pure (no fetch, no render) so the stale/cap/order rules are unit-tested. When
+ * the result is empty the FAB long-press shows NO sheet — the caller falls
+ * through to the plain camera tap (P7: never a fabricated recent).
+ */
+export function recentShortcutJobs(
+  recentIds: ReadonlyArray<string>,
+  launchable: ReadonlyArray<LaunchableJob>,
+  max = 3,
+): LaunchableJob[] {
+  const byId = new Map(launchable.map((j) => [j.id, j]));
+  const out: LaunchableJob[] = [];
+  const seen = new Set<string>();
+  for (const id of recentIds) {
+    if (out.length >= max) break;
+    if (seen.has(id)) continue;
+    const job = byId.get(id);
+    if (!job) continue; // stale: un-assigned or archived → dropped
+    seen.add(id);
+    out.push(job);
+  }
+  return out;
+}
+
 export type LauncherDecision =
   | { kind: "empty" }
   | { kind: "single"; job: LaunchableJob }

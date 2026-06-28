@@ -57,7 +57,7 @@ export default async function PhilJobsPage() {
   );
 
   return (
-    <PhilShell title="Jobs">
+    <PhilShell title="Jobs" userId={viewerId}>
       <div className="space-y-4">
         <PhilPageIntro
           title="Jobs"

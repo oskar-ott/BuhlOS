@@ -73,7 +73,7 @@ export default async function PhilHoursPage() {
   ]);
 
   return (
-    <PhilShell title="Hours history">
+    <PhilShell title="Hours history" userId={session.userId ?? ""}>
       <div className="space-y-4">
         <PhilBackLink href="/phil/my-day">My day</PhilBackLink>
 
