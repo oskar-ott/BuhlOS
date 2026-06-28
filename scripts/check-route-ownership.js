@@ -115,6 +115,8 @@ const REQUIRED_SOURCES = [
   'src/app/(admin)/hours/page.tsx',
   'src/app/(admin)/hours/approvals/page.tsx',
   'src/app/(admin)/hours/weekly/page.tsx',
+  'src/app/(admin)/hours/period/page.tsx', // #131 — pay-period roll-up (documented, was un-guarded)
+  'src/app/(admin)/activity/page.tsx', // #220 — cross-job activity feed (documented, was un-guarded)
   'src/app/(admin)/gear/page.tsx',
   'src/app/(admin)/employees/page.tsx',
   'src/app/(admin)/employees/[id]/page.tsx',
@@ -138,6 +140,7 @@ const REQUIRED_SOURCES = [
   'src/app/v2/jobs/[jobId]/dayworks/page.tsx', // #370 — per-job daywork register
   'src/app/(admin)/settings/page.tsx',
   'src/app/(admin)/settings/notifications/page.tsx',
+  'src/app/(admin)/settings/task-rules/page.tsx', // #224 — task-generation rules (documented, was un-guarded)
   'src/app/phil/my-day/page.tsx',
   'src/app/phil/jobs/page.tsx',
   'src/app/phil/jobs/[jobId]/page.tsx',

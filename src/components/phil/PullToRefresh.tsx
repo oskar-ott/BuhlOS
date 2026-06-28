@@ -114,14 +114,22 @@ export function PullToRefresh({ children }: { children: ReactNode }) {
       }
     };
 
-    // Self-bounding budget: resolve no matter what router.refresh() does. If the
-    // server round-trip stalls (offline / patchy signal), we land on an honest
-    // "Couldn't refresh" instead of spinning forever.
+    // Self-bounding budget: a STALLED round-trip (patchy signal) still resolves —
+    // we land on "Couldn't refresh" instead of spinning forever.
     const budget = window.setTimeout(() => finish("error"), PTR_TIMEOUT_MS);
 
+    // Offline → the honest error NOW. router.refresh() silently no-ops when
+    // offline and resolves immediately, which would otherwise flash a FALSE
+    // "refreshed" success (it can't report an offline no-op). So when we know
+    // we're offline, show "Couldn't refresh" rather than a misleading tick (P7).
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      finish("error");
+      return;
+    }
+
     // router.refresh() re-renders the server tree; we resolve the spinner once
-    // the transition is requested. The budget above guarantees termination even
-    // if the tree never settles.
+    // the transition settles. The budget above guarantees termination even if
+    // the tree never settles.
     Promise.resolve()
       .then(() => router.refresh())
       .then(
