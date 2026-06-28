@@ -56,6 +56,7 @@ import {
   moduleEnabled,
   projectArchivedStructure,
   publishState,
+  summariseStructure,
   validateForPublish,
   type AreaRowForm,
   type ArchivedStructure,
@@ -66,7 +67,9 @@ import {
 import { JobBuilderCockpit, type CockpitNavGroup, type CockpitSectionStatus } from "./JobBuilderCockpit";
 import { Inspector, type InspectorRow } from "./Inspector";
 import { ReviewQueue, type ReviewClause } from "./ReviewQueue";
+import { JobAssignmentPanel } from "./JobAssignmentPanel";
 import { classifyScopeClause } from "./jobControlAuthoringClient";
+import type { AssignableWorker } from "@/domains/users/types";
 import { certaintyForClassification, type CertaintyState } from "@/domains/jobs/certainty";
 import type { ScopeClassification } from "@/domains/job-control/reconciliation";
 import type {
@@ -115,13 +118,32 @@ import { cn } from "@/lib/cn";
  *   api/jobs.js — PUT (update) + the draft GET gate
  */
 
-type TabKey = "basics" | "scope" | "structure" | "modules" | "preview" | "publish" | "more";
+type DeliverKey = "plans" | "materials" | "gear" | "itps" | "risks";
+
+type TabKey =
+  | "overview"
+  | "basics"
+  | "scope"
+  | "structure"
+  | "modules"
+  | DeliverKey
+  | "crew"
+  | "preview"
+  | "publish"
+  | "more";
 
 const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
+  { key: "overview", label: "Overview" },
   { key: "basics", label: "Basics" },
   { key: "scope", label: "Scope" },
   { key: "structure", label: "Structure" },
   { key: "modules", label: "Field modules" },
+  { key: "plans", label: "Plans & docs" },
+  { key: "materials", label: "Materials" },
+  { key: "gear", label: "Gear" },
+  { key: "itps", label: "ITPs / QA" },
+  { key: "risks", label: "Risks & RFIs" },
+  { key: "crew", label: "Crew" },
   { key: "preview", label: "Phil preview" },
   { key: "publish", label: "Publish" },
   { key: "more", label: "More" },
@@ -218,10 +240,52 @@ const SECTION_TESTID: Partial<Record<TabKey, string>> = {
 };
 
 const COCKPIT_GROUPS: ReadonlyArray<{ heading: string; keys: ReadonlyArray<TabKey> }> = [
-  { heading: "Build", keys: ["basics", "scope", "structure", "modules"] },
+  { heading: "Build", keys: ["overview", "basics", "scope", "structure", "modules"] },
+  { heading: "Deliver", keys: ["plans", "materials", "gear", "itps", "risks", "crew"] },
   { heading: "Ship", keys: ["preview", "publish"] },
   { heading: "More", keys: ["more"] },
 ];
+
+/**
+ * The delivery facets that live on their own dedicated job surfaces. The cockpit
+ * surfaces each as a section that links out — it does NOT duplicate the editor
+ * (extend, don't fork). `module` (where set) reflects the real per-job field
+ * toggle. `external` links a global register rather than a job sub-route.
+ */
+const DELIVER_LINKS: Record<
+  DeliverKey,
+  { label: string; desc: string; path: (jobId: string) => string; module?: keyof JobModules; external?: boolean }
+> = {
+  plans: {
+    label: "Plans & documents",
+    desc: "Drawings, specs and revisions attached to this job.",
+    path: (id) => `/v2/jobs/${id}/plans`,
+    module: "plans",
+  },
+  materials: {
+    label: "Materials",
+    desc: "Field material requests — approve & order, then confirm delivery.",
+    path: (id) => `/v2/jobs/${id}/material-requests`,
+    module: "materials",
+  },
+  gear: {
+    label: "Gear — test & tag",
+    desc: "The test-and-tag register: who holds what and tag currency. Assign gear to this job's crew there.",
+    path: () => `/gear`,
+    external: true,
+  },
+  itps: {
+    label: "ITPs / QA",
+    desc: "Inspection & test points and hold points recorded against this job.",
+    path: (id) => `/v2/jobs/${id}/itps`,
+    module: "itps",
+  },
+  risks: {
+    label: "Risks & RFIs",
+    desc: "Open RFIs and risks that gate the work before or during the job.",
+    path: (id) => `/v2/jobs/${id}/rfis`,
+  },
+};
 
 /** Office labels for the reconciliation classifications shown in the Inspector. */
 const CLAUSE_CLASSIFICATION_LABEL: Record<ScopeClassification, string> = {
@@ -240,11 +304,16 @@ const CLAUSE_CLASSIFICATION_LABEL: Record<ScopeClassification, string> = {
 export function JobBuilderClient({
   job: initialJob,
   reconciliation = null,
+  assignableWorkers = [],
+  workersLoadError = null,
 }: {
   job: Job;
   /** The confirmed scope reconciliation (server-loaded), or null/missing. Source
    *  of real per-clause certainty for the cockpit Inspector. */
   reconciliation?: ScopeReconciliationView | null;
+  /** Assignable field/LH crew (server-loaded) for the cockpit Crew section. */
+  assignableWorkers?: ReadonlyArray<AssignableWorker>;
+  workersLoadError?: string | null;
 }) {
   const router = useRouter();
   const [savedJob, setSavedJob] = useState<Job>(initialJob);
@@ -253,8 +322,12 @@ export function JobBuilderClient({
   // Honour a deep-link hash on mount (e.g. `…/builder#publish`). Runs once,
   // client-only; a non-tab hash leaves the default tab untouched.
   useEffect(() => {
-    const t = tabFromHash(typeof window !== "undefined" ? window.location.hash : null);
+    const hash = (typeof window !== "undefined" ? window.location.hash : "").replace(/^#/, "");
+    const t = tabFromHash(hash ? `#${hash}` : null);
     if (t) setTab(t);
+    // The legacy #assigned-field-workers anchor (Needs-Attention deep-link) now
+    // opens the Crew section, where the assignment panel lives.
+    else if (hash === "assigned-field-workers") setTab("crew");
   }, []);
   // Keep savedJob in sync with the server-provided job. A sibling section (e.g.
   // ScopeOfWorkSection) can save + router.refresh(), handing down a fresh `job`
@@ -324,7 +397,15 @@ export function JobBuilderClient({
   const readiness = useMemo(() => buildBuilderReadiness(savedJob), [savedJob]);
 
   function sectionStatus(key: TabKey): CockpitSectionStatus {
-    if (key === "modules" || key === "more") return "none";
+    if (
+      key === "modules" ||
+      key === "more" ||
+      key === "overview" ||
+      key === "crew" ||
+      key in DELIVER_LINKS
+    ) {
+      return "none";
+    }
     if (key === "publish") return readiness.canPublish ? "ok" : "block";
     if (key === "scope") {
       // Scope owns the reconciliation: a red RAG = real conflicts (block); any
@@ -838,6 +919,8 @@ export function JobBuilderClient({
   /* ---- the active section node fed into the cockpit canvas ---- */
   function renderActiveSection() {
     switch (tab) {
+      case "overview":
+        return renderOverview();
       case "basics":
         return (
           <>
@@ -851,6 +934,14 @@ export function JobBuilderClient({
         );
       case "scope":
         return renderScope();
+      case "crew":
+        return renderCrew();
+      case "plans":
+      case "materials":
+      case "gear":
+      case "itps":
+      case "risks":
+        return renderDeliverLink(tab);
       case "structure":
         return renderStructure();
       case "modules":
@@ -864,6 +955,152 @@ export function JobBuilderClient({
       default:
         return null;
     }
+  }
+
+  /* ============================ OVERVIEW ============================ */
+  function renderOverview() {
+    const struct = summariseStructure(savedJob);
+    const preview = buildPhilPreview(savedJob);
+    const fieldTools = preview.sections.filter((s) => s.enabled).length;
+    const stats: Array<{ label: string; value: number; to: TabKey; danger?: boolean }> = [
+      { label: "Blockers", value: readiness.blockingCount, to: "publish", danger: true },
+      { label: "Warnings", value: readiness.warningCount, to: "publish" },
+      { label: "Scope to triage", value: untriagedClauses.length, to: "scope" },
+      { label: "Areas", value: struct.areaCount, to: "structure" },
+    ];
+    return (
+      <div className="space-y-4">
+        <Card>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <CardTitle className="break-words">{savedJob.name}</CardTitle>
+                <Pill tone={statusTone(savedJob.status)}>{statusLabel(savedJob.status)}</Pill>
+              </div>
+              <CardDescription className="mt-1">
+                {[
+                  savedJob.ref && `Ref ${savedJob.ref}`,
+                  savedJob.typeName ?? (savedJob.type || null),
+                  savedJob.siteAddress || null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "No ref, type or address yet"}
+              </CardDescription>
+            </div>
+            <Pill tone={readiness.tone}>{readiness.stateLabel}</Pill>
+          </div>
+        </Card>
+
+        <Card>
+          <CardTitle>Build readiness</CardTitle>
+          <CardDescription className="mt-1">
+            The running rollup of what stands between this job and the field.
+          </CardDescription>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {stats.map((s) => (
+              <button
+                key={s.label}
+                type="button"
+                onClick={() => setTab(s.to)}
+                className="rounded-card border border-border bg-surface-subtle px-3 py-2 text-left transition-colors hover:border-brand-navy"
+              >
+                <span
+                  className={cn(
+                    "block font-mono text-lg font-semibold",
+                    s.danger && s.value > 0 ? "text-state-danger" : "text-text"
+                  )}
+                >
+                  {s.value}
+                </span>
+                <span className="block text-[11px] text-text-muted">{s.label}</span>
+              </button>
+            ))}
+          </div>
+          {readiness.blockers.length > 0 ? (
+            <ul className="mt-3 space-y-1.5">
+              {readiness.blockers.slice(0, 3).map((b) => (
+                <li key={b.code} className="flex items-start gap-2 text-sm text-state-danger">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> {b.message}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-state-success">
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> No blockers — clear to publish.
+            </p>
+          )}
+        </Card>
+
+        <Card>
+          <div className="flex items-center gap-2">
+            <Eye className="h-5 w-5 text-text-muted" aria-hidden="true" />
+            <CardTitle>What the field sees</CardTitle>
+          </div>
+          {preview.emptyReason ? (
+            <p className="mt-2 text-sm text-text-muted">{preview.emptyReason}</p>
+          ) : (
+            <p className="mt-2 text-sm text-text-muted">
+              {struct.areaCount} area{struct.areaCount === 1 ? "" : "s"} ·{" "}
+              {struct.roughInTaskCount + struct.fitOffTaskCount} job-level task template
+              {struct.roughInTaskCount + struct.fitOffTaskCount === 1 ? "" : "s"} · {fieldTools} field
+              tool{fieldTools === 1 ? "" : "s"} on.
+              {preview.isVisibleToField
+                ? " Published — visible to assigned crew."
+                : " Draft — office-only."}
+            </p>
+          )}
+          <Button size="sm" variant="ghost" className="mt-3" onClick={() => setTab("preview")}>
+            <Eye className="h-4 w-4" aria-hidden="true" /> Open Phil preview
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  /* ============================ CREW ============================ */
+  function renderCrew() {
+    return (
+      <JobAssignmentPanel
+        jobId={savedJob.id}
+        jobName={savedJob.name}
+        initialWorkers={assignableWorkers}
+        loadError={workersLoadError}
+      />
+    );
+  }
+
+  /* ===================== DELIVER (link-out facets) ==================== */
+  function renderDeliverLink(key: DeliverKey) {
+    const cfg = DELIVER_LINKS[key];
+    const moduleOn = cfg.module ? moduleEnabled(savedJob, cfg.module) : null;
+    return (
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle>{cfg.label}</CardTitle>
+            <CardDescription className="mt-1">{cfg.desc}</CardDescription>
+          </div>
+          {moduleOn !== null ? (
+            <Pill tone={moduleOn ? "success" : "neutral"}>
+              Field module {moduleOn ? "on" : "off"}
+            </Pill>
+          ) : null}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Link
+            href={cfg.path(savedJob.id) as Route}
+            className="inline-flex items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse"
+          >
+            Open {cfg.label} <span aria-hidden="true">→</span>
+          </Link>
+          <span className="text-xs text-text-muted">
+            {cfg.external
+              ? "Lives on its own register — the builder links out rather than duplicating it."
+              : "Lives on its own job surface — the builder links out rather than duplicating it."}
+          </span>
+        </div>
+      </Card>
+    );
   }
 
   /* ============================ SCOPE INTAKE ============================ */

@@ -4,7 +4,6 @@ import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { JobBuilderClient } from "@/components/admin/JobBuilderClient";
-import { JobAssignmentPanel } from "@/components/admin/JobAssignmentPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
@@ -99,12 +98,13 @@ export default async function JobBuilderPage({ params }: PageParams) {
 
   return (
     <BuilderShell jobId={jobId} title={result.job.name}>
-      <JobBuilderClient job={result.job} reconciliation={reconciliation} />
-      <JobAssignmentPanel
-        jobId={jobId}
-        jobName={result.job.name}
-        initialWorkers={workers.workers}
-        loadError={workers.error}
+      {/* Crew now lives inside the cockpit's Crew section (assignableWorkers),
+          not as a sibling panel. */}
+      <JobBuilderClient
+        job={result.job}
+        reconciliation={reconciliation}
+        assignableWorkers={workers.workers}
+        workersLoadError={workers.error}
       />
     </BuilderShell>
   );
