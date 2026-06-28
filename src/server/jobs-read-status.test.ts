@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summariseJobsRead, summarisePhilRead, summariseTaskRead, summariseAdminTaskRead, summariseTaskReadProbe, summariseEvidenceReadProbe, summariseAdminEvidenceRead, summarisePhilEvidenceRead, type JobsReadStatus, type TaskReadStatus, type AdminTaskReadStatus, type TaskReadProbeStatus, type EvidenceReadProbeStatus, type AdminEvidenceReadStatus, type PhilEvidenceReadStatus } from "./jobs-read-status";
+import { summariseJobsRead, summarisePhilRead, summariseTaskRead, summariseAdminTaskRead, summariseTaskReadProbe, summariseEvidenceReadProbe, summariseAdminEvidenceRead, summarisePhilEvidenceRead, loadSourceMode, type JobsReadStatus, type TaskReadStatus, type AdminTaskReadStatus, type TaskReadProbeStatus, type EvidenceReadProbeStatus, type AdminEvidenceReadStatus, type PhilEvidenceReadStatus } from "./jobs-read-status";
 
 type Diag = NonNullable<JobsReadStatus["probe"]>;
 
@@ -331,5 +331,16 @@ describe("summarisePhilEvidenceRead (field evidence overlay counters)", () => {
     expect(s.totalReads).toBe(0);
     expect(s.lastSource).toBeNull();
     expect(s.lastParityPass).toBeNull();
+  });
+});
+
+describe("loadSourceMode (write source-mode readout)", () => {
+  it("lists each promotable domain with its source flag; default OFF → Blob", async () => {
+    const m = await loadSourceMode(); // no env/flags in test → all default false
+    const task = m.rows.find((r) => r.flag === "supabase_source_tasks");
+    expect(task).toBeTruthy();
+    expect(task?.domain).toBe("Task status");
+    expect(task?.pgSource).toBe(false);
+    expect(m.anyPgSource).toBe(false);
   });
 });

@@ -404,3 +404,18 @@ export function summarisePhilEvidenceRead(s: PhilEvidenceReadStatus): PhilEviden
     lastParityPass: c.lastDiag ? c.lastDiag.parityPass : null,
   };
 }
+
+// ── Write source mode (PG-as-source promotion). Shows, per domain, whether writes
+//    are Postgres-as-source (synchronous CAS write at request time) or still
+//    Blob-authoritative. Read-only flag readout — the standing ops visibility for
+//    the served-source bake. See supabase-served-source-roadmap.md. New `supabase_
+//    source_*` flags are added here as each domain is promoted.
+export type SourceModeRow = { domain: string; flag: string; pgSource: boolean };
+export type SourceModeSummary = { rows: SourceModeRow[]; anyPgSource: boolean };
+
+export async function loadSourceMode(): Promise<SourceModeSummary> {
+  const rows: SourceModeRow[] = [
+    { domain: "Task status", flag: "supabase_source_tasks", pgSource: await flagOrFalse("supabase_source_tasks") },
+  ];
+  return { rows, anyPgSource: rows.some((r) => r.pgSource) };
+}
