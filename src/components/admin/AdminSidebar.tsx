@@ -10,16 +10,29 @@ import { SignOutButton } from "./SignOutButton";
 // destinations from one source (see ./nav.ts). Rendering + longest-prefix
 // active state below are unchanged.
 import { NAV_GROUPS, activeHref } from "./nav";
+import { useNavCounts } from "./useNavCounts";
 
 export function AdminSidebar() {
   const pathname = usePathname() ?? "";
   const active = activeHref(pathname);
+  // Live loop counts for the nav badges (brief §1). Best-effort + module-cached;
+  // empty until the first fan-out resolves, so SSR renders labels with no badge.
+  const counts = useNavCounts();
 
   return (
     <aside className="hidden h-screen w-60 shrink-0 flex-col border-r border-border bg-brand-navy text-text-inverse md:flex">
-      <div className="px-5 py-6">
-        <p className="font-display text-xs uppercase tracking-widest text-accent-yellow">BuhlOS</p>
-        <p className="font-display text-base text-text-inverse">Command Centre</p>
+      <div className="flex flex-col gap-1.5 px-5 py-6">
+        {/* The bühl mark leads the office shell (brief §1). White wordmark on
+            the navy rail. */}
+        {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset in /public, not a remote/optimised image */}
+        <img
+          src="/brand/buhl-logo-white.png"
+          alt="bühl electrical"
+          className="h-7 w-auto self-start"
+        />
+        <p className="font-display text-[11px] uppercase tracking-widest text-slate-400">
+          office command centre
+        </p>
       </div>
 
       <nav aria-label="BuhlOS admin" className="flex-1 overflow-y-auto px-2 pb-4">
@@ -32,11 +45,22 @@ export function AdminSidebar() {
               {group.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = item.href === active;
+                // Live count for this loop (undefined until loaded / no source).
+                const count = item.countKey ? counts[item.countKey] : undefined;
+                const showCount = typeof count === "number" && count > 0;
                 return (
                   <li key={item.href}>
                     <Link
                       href={item.href}
                       aria-current={isActive ? "page" : undefined}
+                      // When a count is present, fold it into the accessible name
+                      // so screen readers hear "Defects: 4 needing attention"
+                      // (the visual pip itself is decorative / aria-hidden).
+                      aria-label={
+                        showCount
+                          ? `${item.label}: ${count}${item.attention ? " needing attention" : ""}`
+                          : undefined
+                      }
                       className={cn(
                         // Per doc 27 §7.2: active = yellow left border +
                         // accent-ink background + semi-bold label.
@@ -48,6 +72,20 @@ export function AdminSidebar() {
                     >
                       <Icon aria-hidden="true" className="h-4 w-4 shrink-0" />
                       <span className="flex-1 truncate">{item.label}</span>
+                      {showCount ? (
+                        <span
+                          aria-hidden="true"
+                          data-testid={`nav-count-${item.countKey}`}
+                          className={cn(
+                            "inline-flex min-w-[1.25rem] justify-center rounded-pill px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums",
+                            item.attention
+                              ? "bg-state-danger text-text-inverse"
+                              : "bg-accent-ink text-slate-300",
+                          )}
+                        >
+                          {count > 99 ? "99+" : count}
+                        </span>
+                      ) : null}
                     </Link>
                   </li>
                 );

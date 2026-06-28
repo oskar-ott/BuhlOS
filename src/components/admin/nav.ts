@@ -41,6 +41,24 @@ import type { Route } from "next";
  *     one sidebar item; Day / Approvals / Weekly are in-page HoursTabs);
  *   - /settings/notifications (a sidebar FOOTER link, not a nav-group item, #218).
  */
+/**
+ * The live-count loops a sidebar item can carry a badge for. Each maps to a
+ * cheap, already-shipped summary endpoint (see ./useNavCounts). Deliberately a
+ * SUBSET of the office IA: an item only gets a `countKey` when there is a real,
+ * cheap source for its number. Loops without one (Command centre criticals, QA
+ * exposure, quote pipeline, dayworks) render NO badge rather than a fake zero —
+ * the hide-unfinished / honesty rule (CLAUDE.md, brief §0).
+ */
+export type NavCountKey =
+  | "obs"
+  | "mats"
+  | "exp"
+  | "jobs"
+  | "defects"
+  | "hours"
+  | "people"
+  | "gear";
+
 export interface NavItem {
   label: string;
   href: Route;
@@ -48,6 +66,13 @@ export interface NavItem {
   /** Path prefix(es) that mark this item active; longest prefix wins
    *  (so a deeper sibling entry would beat /hours on its own pages). */
   activeFor: ReadonlyArray<string>;
+  /** Which live count feeds this item's sidebar badge (see useNavCounts).
+   *  Omitted = no badge. */
+  countKey?: NavCountKey;
+  /** When true, a non-zero count renders as a red attention pip (work waiting
+   *  on the office: defects, hours, observations, expiring gear) rather than a
+   *  muted tally (jobs / people / material requests / expenses). */
+  attention?: boolean;
 }
 
 export interface NavGroup {
@@ -72,12 +97,15 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/observations" as Route,
         icon: Inbox,
         activeFor: ["/observations"],
+        countKey: "obs",
+        attention: true,
       },
       {
         label: "Material requests",
         href: "/material-requests" as Route,
         icon: Package,
         activeFor: ["/material-requests"],
+        countKey: "mats",
       },
       {
         // Reimbursements (#536) — field-submitted receipts the office reviews,
@@ -87,6 +115,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/expenses" as Route,
         icon: Wallet,
         activeFor: ["/expenses"],
+        countKey: "exp",
       },
     ],
   },
@@ -98,6 +127,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/v2/jobs" as Route,
         icon: Briefcase,
         activeFor: ["/v2/jobs"],
+        countKey: "jobs",
       },
       {
         // v2 quote builder foundation (#183) — quotes are where jobs are
@@ -113,6 +143,8 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/defects" as Route,
         icon: Bug,
         activeFor: ["/defects"],
+        countKey: "defects",
+        attention: true,
       },
       {
         label: "ITP templates",
@@ -150,6 +182,8 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/hours",
         icon: Clock,
         activeFor: ["/hours"],
+        countKey: "hours",
+        attention: true,
       },
     ],
   },
@@ -161,12 +195,15 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/employees" as Route,
         icon: Users,
         activeFor: ["/employees"],
+        countKey: "people",
       },
       {
         label: "Gear",
         href: "/gear",
         icon: Wrench,
         activeFor: ["/gear"],
+        countKey: "gear",
+        attention: true,
       },
     ],
   },
