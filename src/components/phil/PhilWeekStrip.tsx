@@ -1,7 +1,8 @@
 import { PhilOfflineLink } from "./PhilOfflineLink";
+import { CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { TimeEntry } from "@/domains/timesheets/types";
-import { buildPhilWeek, type WeekDayCell, type WeekDayState } from "./philWeek";
+import { buildPhilWeek, isWeekSquaredAway, type WeekDayCell, type WeekDayState } from "./philWeek";
 import styles from "./myDay.module.css";
 
 // state → the scoped day-cell class (filled tints / yellow ring / dashed),
@@ -125,6 +126,11 @@ export function PhilWeekStrip({ entries, todayISO, selectedDate }: Props) {
   // comment markers — keeps the rendered copy clean and testable.
   const rangeLabel = `Mon ${startLabel} – Sun ${dayMonth(week.weekEnd)} · wk ${week.weekNumber}`;
   const totalLabel = `${decimalHours(week.totalHours)}h`;
+  // Calm completion echo (#427): the same quiet "Week squared away" the /phil/hours
+  // summary shows, mirrored on My Day when every loggable day is approved with
+  // nothing left to do. Same shared predicate (no new math); shows only on real,
+  // loaded approved hours (P7) — a nothing-logged week never wins.
+  const squaredAway = isWeekSquaredAway(week.counts);
 
   return (
     <section className={styles.week}>
@@ -179,6 +185,13 @@ export function PhilWeekStrip({ entries, todayISO, selectedDate }: Props) {
           );
         })}
       </ul>
+
+      {squaredAway ? (
+        <p className={styles.squaredAway}>
+          <CheckCircle2 aria-hidden="true" className={styles.squaredAwayIcon} />
+          <span>Week squared away</span>
+        </p>
+      ) : null}
 
       <div className={styles.weekFoot}>
         <PhilOfflineLink href="/phil/hours" className={styles.seeHistory}>

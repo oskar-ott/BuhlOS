@@ -1,11 +1,12 @@
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import type { Route } from "next";
+import { CheckCircle2 } from "lucide-react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
 import { cn } from "@/lib/cn";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { formatHoursLabel, otSplitLabel } from "@/domains/timesheets/format";
-import { buildPhilWeek, type WeekDayCell } from "./philWeek";
+import { buildPhilWeek, isWeekSquaredAway, type WeekDayCell } from "./philWeek";
 
 /**
  * "This week" for the worker — the fuller weekly view on /phil/hours that the
@@ -177,6 +178,11 @@ export function PhilWeekSummary({
 }) {
   const week = buildPhilWeek(entries, { todayISO });
   const verdict = weekVerdict(week.counts);
+  // Calm completion (#427): a single quiet "Week squared away" acknowledgement
+  // when every loggable day is approved and nothing's left for the worker — and
+  // only on real, loaded approved hours (P7). The "All approved" chip above
+  // already carries the status; this is one warm line + a tick, no new metric.
+  const squaredAway = isWeekSquaredAway(week.counts);
   const rows = week.days
     .map((d) => rowFor(d, todayISO))
     .filter((r): r is DayRowView => r !== null);
@@ -195,6 +201,13 @@ export function PhilWeekSummary({
         </div>
         <StatusChip tone={VERDICT_TONE[verdict]}>{VERDICT_LABEL[verdict]}</StatusChip>
       </div>
+
+      {squaredAway ? (
+        <p className="flex items-center gap-1.5 text-sm font-medium text-state-success">
+          <CheckCircle2 aria-hidden="true" className="h-4 w-4 shrink-0" />
+          <span>Week squared away</span>
+        </p>
+      ) : null}
 
       <ul className="divide-y divide-border">
         {rows.map((row) => (
