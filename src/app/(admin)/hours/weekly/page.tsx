@@ -81,6 +81,7 @@ export default async function HoursWeeklyCloseoutPage({
     entries: overview?.entries ?? [],
     missing: overview?.missing ?? [],
     leave: overview?.leave ?? [],
+    holidays: overview?.holidays ?? [],
     weekStart,
     todayISO,
   });
