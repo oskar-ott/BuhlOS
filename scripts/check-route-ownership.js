@@ -129,6 +129,7 @@ const REQUIRED_SOURCES = [
   'src/app/v2/jobs/[jobId]/plans/page.tsx',
   'src/app/v2/jobs/[jobId]/photos/page.tsx', // #242 — read-only "Job Bible" photo gallery
   'src/app/v2/jobs/[jobId]/scope/page.tsx', // #366 — scope reconciliation review (read-only)
+  'src/app/v2/jobs/[jobId]/diary/page.tsx', // #210 — per-job site diary (daily record)
   'src/app/v2/quotes/page.tsx',
   'src/app/v2/quotes/[quoteId]/page.tsx',
   'src/app/v2/dayworks/page.tsx', // #370 — cross-job daywork rollup

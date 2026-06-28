@@ -11,6 +11,7 @@ import {
   Inbox,
   ListChecks,
   Map as MapIcon,
+  NotebookPen,
   Package,
   Scale,
   ShieldCheck,
@@ -240,6 +241,17 @@ export function JobInterfaceSectionNav({
       icon: Package,
       ucReason:
         "Legacy /admin/materials still owns takeoff + PO + invoice match — a rebuilt scoped view is a later slice. The Material requests row above is the field-to-office request loop (PR 11) and is unrelated.",
+    },
+    {
+      // #210: the job's daily site diary — the office's contemporaneous record
+      // (delay-claim evidence). No count chip (like Photos): a total would need
+      // an extra fetch the hub doesn't do, so we omit it rather than fabricate.
+      kind: "live",
+      label: "Diary",
+      description:
+        "The day-by-day site diary — happenings, weather, attendance and delay flags. The office's contemporaneous record that doubles as delay-claim evidence.",
+      href: `/v2/jobs/${jobIdEnc}/diary` as Route,
+      icon: NotebookPen,
     },
     {
       kind: "live",

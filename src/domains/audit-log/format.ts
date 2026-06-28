@@ -95,6 +95,9 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   // #276: RFI register.
   "rfi.created": "Raised RFI",
   "rfi.transitioned": "Updated RFI",
+  // #210: site diary (targetType 'diary' groups as Other, like daywork).
+  "diary.created": "Wrote a diary entry",
+  "diary.amended": "Amended a diary entry",
 };
 
 export function actionLabel(action: AuditAction): string {
@@ -131,6 +134,10 @@ export function targetGroup(targetType: AuditTargetType): AuditTargetGroup {
       return "material_request";
     case "variation":
       return "variation";
+    // #210: diary entries group as Other (like daywork / time_entry / prestart)
+    // — they surface in the per-job feed but don't get their own filter chip.
+    case "diary":
+      return "other";
     default:
       return "other";
   }

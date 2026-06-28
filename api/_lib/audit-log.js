@@ -190,6 +190,11 @@ const VALID_ACTIONS = new Set([
   // on send/answer/close (one verb; metadata.from/to carry the direction).
   'rfi.created',
   'rfi.transitioned',
+  // #210: site diary (api/diary.js). diary.created on the day's entry POST;
+  // diary.amended on an append-only amendment (the original is never mutated).
+  // targetType 'diary'. Kept in sync with src/domains/audit-log/schema.ts.
+  'diary.created',
+  'diary.amended',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -238,6 +243,8 @@ const VALID_TARGET_TYPES = new Set([
   'certificate',
   // #276: per-job RFI records (jobs/<id>/rfis.json).
   'rfi',
+  // #210: per-job site diary entries (jobs/<id>/diary.json).
+  'diary',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;
