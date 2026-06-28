@@ -130,10 +130,15 @@ export function buildPhilWeek(
       overtimeHours?: number;
     }
   >,
-  opts: { todayISO: string },
+  opts: { todayISO: string; weekAnchorISO?: string },
 ): PhilWeek {
   const { todayISO } = opts;
-  const weekStart = weekStartOf(todayISO);
+  // The rendered week is the one containing `weekAnchorISO` (any date inside
+  // it), defaulting to today's week — so callers can render PAST pay weeks.
+  // `todayISO` still anchors "now": it decides which cells read as today /
+  // upcoming / missed, so a fully-past week's unlogged weekdays are honestly
+  // tallied as missed and a future-of-the-week day is never dunned.
+  const weekStart = weekStartOf(opts.weekAnchorISO ?? todayISO);
 
   // Sum hours per date (defensive against more than one entry on a date) and
   // remember the entry status — one entry per date is API-enforced, so the

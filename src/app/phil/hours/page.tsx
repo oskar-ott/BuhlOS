@@ -54,7 +54,11 @@ export const dynamic = "force-dynamic";
  * Cross-ref: docs/buhlos-hours-safe-foundation.md (#92 deferred this slice here)
  *            docs/rebuild-audit/19-phase-b-hours-implementation-brief.md
  */
-export default async function PhilHoursPage() {
+export default async function PhilHoursPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ week?: string }>;
+}) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
   const session = decodeSessionCookie(raw);
@@ -64,6 +68,13 @@ export default async function PhilHoursPage() {
   if (!canAccessSurface(session.role, "phil")) {
     redirect("/v2/login");
   }
+
+  // `?week=` is any date inside the week to show (nav links pass a Monday);
+  // default to the current Sydney week. Same convention as /hours/weekly.
+  const sp = await searchParams;
+  const todayISO = localDateString(new Date(), BUSINESS_TIMEZONE);
+  const weekAnchorISO =
+    sp.week && /^\d{4}-\d{2}-\d{2}$/.test(sp.week) ? sp.week : todayISO;
 
   // History + the worker's active assigned jobs in parallel — the jobs feed
   // the resubmit form's attribution guard so a fix can't land jobId:null.
@@ -93,7 +104,8 @@ export default async function PhilHoursPage() {
           // so we never render a fabricated "all clear" week.
           <PhilWeekSummary
             entries={entries}
-            todayISO={localDateString(new Date(), BUSINESS_TIMEZONE)}
+            todayISO={todayISO}
+            weekAnchorISO={weekAnchorISO}
           />
         )}
 

@@ -177,3 +177,27 @@ describe("isWeekSquaredAway (#427 calm completion predicate)", () => {
     expect(isWeekSquaredAway(waiting.counts)).toBe(false);
   });
 });
+
+describe("buildPhilWeek — week navigation (weekAnchorISO)", () => {
+  it("defaults to today's week when no anchor is given (back-compat)", () => {
+    const w = buildPhilWeek(WEEK, { todayISO: TODAY });
+    expect(w.weekStart).toBe("2024-05-20");
+    expect(w.weekEnd).toBe("2024-05-26");
+  });
+
+  it("renders the week containing weekAnchorISO — a PAST pay week", () => {
+    // Anchor mid-prior-week (Wed 2024-05-15) → Mon 2024-05-13 … Sun 2024-05-19.
+    const w = buildPhilWeek([], { todayISO: TODAY, weekAnchorISO: "2024-05-15" });
+    expect(w.weekStart).toBe("2024-05-13");
+    expect(w.weekEnd).toBe("2024-05-19");
+    expect(w.weekNumber).toBe(20);
+  });
+
+  it("still anchors 'now' to todayISO: a fully-past week's unlogged weekdays read as missed", () => {
+    const w = buildPhilWeek([], { todayISO: TODAY, weekAnchorISO: "2024-05-15" });
+    // Mon–Fri with no entry → missed; weekends excluded; nothing reads as
+    // today/upcoming because the whole week is behind today.
+    expect(w.counts.missed).toBe(5);
+    expect(w.days.every((d) => d.state !== "today" && d.state !== "upcoming")).toBe(true);
+  });
+});
