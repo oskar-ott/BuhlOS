@@ -41,6 +41,11 @@ interface Props {
   /** Fired on a failed submit so the parent can surface a persistent
    *  banner with retry context. */
   onFailed?: (message: string) => void;
+  /** #230: fired ONLY when the worker dismisses the sheet WITHOUT submitting
+   *  (X / Cancel / Escape) — never on the close-on-submit path. Lets a caller
+   *  that awaited a capture (the Services card) resolve its promise with "no
+   *  photo". Additive + optional: existing callers are unaffected. */
+  onCancel?: () => void;
 }
 
 type Phase =
@@ -79,6 +84,7 @@ export function CaptureSheet({
   onClose,
   onCaptured,
   onFailed,
+  onCancel,
 }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
@@ -114,6 +120,15 @@ export function CaptureSheet({
   // history entry exactly once.
   const { closeWithHistory } = useSheetHistory({ open, onClose });
 
+  // #230: dismiss WITHOUT submitting (X / Cancel / Escape). Fires onCancel so a
+  // caller that awaited a capture (the Services card) learns "no photo", then
+  // the existing history-aware close. The close-on-submit path stays on
+  // closeWithHistory alone, so onCancel never fires for a real capture.
+  const cancelWithHistory = useCallback(() => {
+    onCancel?.();
+    closeWithHistory();
+  }, [onCancel, closeWithHistory]);
+
   const flatAreas = useMemo(
     () =>
       visibleAreaGroups(job.areaGroups).flatMap((g) =>
@@ -142,11 +157,11 @@ export function CaptureSheet({
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") closeWithHistory();
+      if (e.key === "Escape") cancelWithHistory();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, closeWithHistory]);
+  }, [open, cancelWithHistory]);
 
   const busy = phase.kind === "uploading" || resizing;
   const noteLen = note.length;
@@ -317,7 +332,7 @@ export function CaptureSheet({
         </div>
         <button
           type="button"
-          onClick={closeWithHistory}
+          onClick={cancelWithHistory}
           aria-label="Close"
           className={cn(
             "inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-card",
@@ -470,7 +485,7 @@ export function CaptureSheet({
             type="button"
             variant="secondary"
             size="lg"
-            onClick={closeWithHistory}
+            onClick={cancelWithHistory}
             disabled={busy}
             className="flex-1"
           >

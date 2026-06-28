@@ -109,6 +109,10 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   // #217: meeting-minutes register (targetType 'minutes' groups as Other).
   "minutes.recorded": "Recorded minutes",
   "minutes.amended": "Amended minutes",
+  // #230: services-locations register (targetType 'service_location' groups as Other).
+  "service_location.added": "Added a service location",
+  "service_location.updated": "Updated a service location",
+  "service_location.removed": "Removed a service location",
 };
 
 export function actionLabel(action: AuditAction): string {

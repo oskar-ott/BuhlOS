@@ -82,6 +82,8 @@ const VALID_TARGET_TYPES = new Set([
   // / job's row-history can filter and surface the creation trail.
   'job',
   'quote',
+  // #230: services-locations register — so the per-job feed can filter to it.
+  'service_location',
 ]);
 const MAX_MONTHS = 12;
 const DEFAULT_MONTHS = 2;

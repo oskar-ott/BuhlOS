@@ -24,6 +24,7 @@ import { SnagListResponseSchema } from "@/domains/snags/schema";
 import { ObservationListResponseSchema } from "@/domains/observations/schema";
 import { ITPListResponseSchema } from "@/domains/itp/schema";
 import { DocumentListResponseSchema } from "@/domains/documents/schema";
+import { ServiceLocationListResponseSchema } from "@/domains/services-locations/schema";
 import { blobJobControlReadDeps, readJobControlForField } from "@/server/job-control/read";
 import type { Job } from "@/domains/jobs/types";
 import type { EvidenceLink, ProofReview, WorkPackage } from "@/domains/job-control/types";
@@ -32,6 +33,7 @@ import type { SnagItem } from "@/domains/snags/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { ITPInstance } from "@/domains/itp/types";
 import type { Document } from "@/domains/documents/types";
+import type { ServiceLocationRecord } from "@/domains/services-locations/types";
 
 export const dynamic = "force-dynamic";
 
@@ -187,6 +189,7 @@ async function PhilJobDetailFull({
     initialContacts,
     initialMyInduction,
     jobControlResult,
+    serviceLocationsResult,
   ] = await Promise.all([
     loadJob(raw, jobId),
     loadInitialEvidence(raw, jobId),
@@ -201,6 +204,7 @@ async function PhilJobDetailFull({
     loadInitialContacts(raw, jobId),
     loadInitialMyInduction(raw, jobId),
     loadInitialJobControl(jobId),
+    loadInitialServiceLocations(raw, jobId),
   ]);
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
@@ -254,6 +258,8 @@ async function PhilJobDetailFull({
       initialTags={tagsResult.tags}
       tagsError={tagsResult.error}
       initialContacts={initialContacts}
+      initialServiceLocations={serviceLocationsResult.locations}
+      serviceLocationsError={serviceLocationsResult.error}
       initialMyInduction={initialMyInduction}
       initialTaskState={taskStateResult ? taskStateResult.state : undefined}
       taskStateError={taskStateResult ? taskStateResult.error : null}
@@ -603,6 +609,44 @@ async function loadInitialContacts(
     return [...parsed.data.contacts];
   } catch {
     return [];
+  }
+}
+
+/**
+ * #230: services-locations register for this job (where the pit/board/meter/
+ * temp-supply are). Server returns every record to any reader on the job (no
+ * own-captures filter) — the photos are denormalised so worker B sees worker A's
+ * board photo. Returns a `{ locations, error }` shape so the card can surface a
+ * quiet notice on a fetch failure while still rendering. Fail-soft to empty +
+ * error=false on a 403 (the page-level gate already handles a non-assigned open).
+ */
+async function loadInitialServiceLocations(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<{ locations: ServiceLocationRecord[]; error: string | null }> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(
+      `${base}/api/services-locations?jobId=${encodeURIComponent(jobId)}`,
+      {
+        cache: "no-store",
+        headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+      }
+    );
+    if (!res.ok) {
+      return { locations: [], error: res.status === 403 ? null : `Services API returned ${res.status}` };
+    }
+    const parsed = ServiceLocationListResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { locations: [], error: "Unexpected services response shape" };
+    return { locations: [...parsed.data.locations], error: null };
+  } catch (err) {
+    return {
+      locations: [],
+      error: err instanceof Error ? err.message : "Services network error",
+    };
   }
 }
 

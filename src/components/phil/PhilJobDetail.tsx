@@ -35,8 +35,11 @@ import {
   type ProofSubmitStatus,
 } from "./jobControlProofReviewClient";
 import { PhilJobContactsCard } from "./PhilJobContactsCard";
+import { PhilJobServicesCard } from "./PhilJobServicesCard";
 import { taskRefKey } from "@/domains/job-control/spine";
+import { canAddServiceLocation } from "@/domains/services-locations/permissions";
 import type { JobContact } from "@/domains/contacts/schema";
+import type { ServiceLocationRecord } from "@/domains/services-locations/types";
 import type { TagItem } from "@/domains/tags/schema";
 import type { Job, JobStage } from "@/domains/jobs/types";
 import type { EvidenceLink, ProofReview, TaskRef, WorkPackage } from "@/domains/job-control/types";
@@ -94,6 +97,12 @@ interface Props {
   initialTags?: ReadonlyArray<TagItem>;
   /** Categorised job contacts fetched server-side (#189). May be empty. */
   initialContacts?: ReadonlyArray<JobContact>;
+  /** Services-locations records fetched server-side (#230 — where the pit/
+   *  board/meter/temp-supply are). May be empty. */
+  initialServiceLocations?: ReadonlyArray<ServiceLocationRecord>;
+  /** Non-blocking error from the services-locations fetch — surfaces a quiet
+   *  notice inside the card. Null when the fetch succeeded. */
+  serviceLocationsError?: string | null;
   /** This worker's latest induction record on this job (#332), loaded
    *  server-side. Null = no record; undefined = not loaded (falls back to
    *  the static warning — the safe direction). */
@@ -203,6 +212,8 @@ export function PhilJobDetail({
   initialTags,
   tagsError,
   initialContacts,
+  initialServiceLocations,
+  serviceLocationsError,
   initialMyInduction,
   initialTaskState,
   taskStateError,
@@ -266,6 +277,14 @@ export function PhilJobDetail({
   const [captureOpen, setCaptureOpen] = useState(false);
   const [evidenceItems, setEvidenceItems] = useState<ReadonlyArray<EvidenceItem>>(
     initialEvidence ?? []
+  );
+  // #230: when the Services card asks for a photo, it gets a promise that
+  // resolves with the captured EvidenceItem (or null if the worker cancels /
+  // the capture fails). We open the SAME CaptureSheet (no new upload path) and
+  // stash the resolver here; handleCaptured / handleCaptureFailed / close
+  // resolve it. A ref (not state) so resolving it never triggers a re-render.
+  const servicesCaptureResolverRef = useRef<((item: EvidenceItem | null) => void) | null>(
+    null,
   );
   const [captureBanner, setCaptureBanner] = useState<
     { tone: "info" | "success" | "danger"; message: string } | null
@@ -762,6 +781,17 @@ export function PhilJobDetail({
       setCaptureBanner({ tone: "success", message: "Evidence captured." });
       window.setTimeout(() => setCaptureBanner(null), 1500);
 
+      // #230: a capture the Services card requested — hand the saved item back to
+      // its waiting promise so it can POST the service-location link. This is a
+      // real capture (already in the strip above); it just isn't proof, so we
+      // return before the proof-link path runs.
+      const servicesResolver = servicesCaptureResolverRef.current;
+      if (servicesResolver) {
+        servicesCaptureResolverRef.current = null;
+        servicesResolver(item);
+        return;
+      }
+
       // If this capture was for a specific required-proof item, link it now.
       const pending = pendingProofLink;
       setPendingProofLink(null);
@@ -798,6 +828,32 @@ export function PhilJobDetail({
     setCaptureBanner({ tone: "danger", message });
     // A failed save never links proof; drop any pending target.
     setPendingProofLink(null);
+    // #230: a failed capture resolves any waiting Services request with null so
+    // the card stops "opening camera" and the worker can retry or save text-only.
+    const servicesResolver = servicesCaptureResolverRef.current;
+    if (servicesResolver) {
+      servicesCaptureResolverRef.current = null;
+      servicesResolver(null);
+    }
+  }, []);
+
+  // #230: the Services card calls this to add a photo. Opens the SAME
+  // CaptureSheet (no new upload path) and returns a promise that resolves with
+  // the captured EvidenceItem — or null if the sheet is closed/cancelled or the
+  // capture fails. Only one services capture is in flight at a time; a fresh
+  // request resolves a stale one null first.
+  const handleCapturePhotoForServices = useCallback((): Promise<EvidenceItem | null> => {
+    const prior = servicesCaptureResolverRef.current;
+    if (prior) {
+      servicesCaptureResolverRef.current = null;
+      prior(null);
+    }
+    return new Promise<EvidenceItem | null>((resolve) => {
+      servicesCaptureResolverRef.current = resolve;
+      setCaptureBanner(null);
+      setPendingProofLink(null);
+      setCaptureOpen(true);
+    });
   }, []);
 
   // Submit a task's captured proof for review (#503). Non-optimistic: the review
@@ -1194,6 +1250,20 @@ export function PhilJobDetail({
         }
       />
 
+      {/* Services on site (#230) — where the pit / board / meter / temp supply
+          are, with optional photos, so anyone can find them. Reference-zone slot
+          beside Site details + Who to call. Collapsible; renders nothing when the
+          job has no records and the viewer can't add (P10). Photos are served
+          from the denormalised URLs (worker B sees worker A's board photo); the
+          "Add a photo" path reuses the existing CaptureSheet. */}
+      <PhilJobServicesCard
+        jobId={job.id}
+        initialRecords={initialServiceLocations}
+        loadError={serviceLocationsError ?? null}
+        canWrite={canAddServiceLocation(viewer?.role)}
+        onCapturePhoto={handleCapturePhotoForServices}
+      />
+
       {/* Who to call (#189) — categorised job contacts with tap-to-call.
           Renders nothing when the office hasn't added any. */}
       {initialContacts && initialContacts.length > 0 ? (
@@ -1230,6 +1300,15 @@ export function PhilJobDetail({
         }}
         onCaptured={handleCaptured}
         onFailed={handleCaptureFailed}
+        onCancel={() => {
+          // #230: the worker dismissed the sheet without a photo — resolve any
+          // waiting Services request with null so its "Opening camera" clears.
+          const servicesResolver = servicesCaptureResolverRef.current;
+          if (servicesResolver) {
+            servicesCaptureResolverRef.current = null;
+            servicesResolver(null);
+          }
+        }}
       />
 
       <PhilTestRecordCard
