@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { JobBuilderClient, tabFromHash } from "./JobBuilderClient";
+import { ArchivedStructureSection, JobBuilderClient, tabFromHash } from "./JobBuilderClient";
+import { projectArchivedStructure } from "@/domains/jobs/builder";
 import type { Job } from "@/domains/jobs/types";
 
 describe("tabFromHash (deep-link hash → builder tab)", () => {
@@ -80,5 +81,81 @@ describe("JobBuilderClient", () => {
       })
     );
     expect(html).toContain("Visible to the field");
+  });
+
+  // #377 — the structure lock + notice are gone. Even a job WITH archived
+  // rooms/tasks must never render the old freeze copy anywhere (the builder is
+  // editable; archived items show as read-only rows on the Structure tab).
+  it("renders no structure-lock notice, even for a job with archived structure", () => {
+    const html = renderToString(
+      createElement(JobBuilderClient, {
+        job: makeJob({
+          id: "job-1",
+          name: "Long Runner",
+          status: "active",
+          areaGroups: [
+            { id: "g", name: "L1", areas: [{ id: "a-arch", name: "Old store", archived: true }] },
+          ],
+          roughInTasks: [{ id: "rt-arch", name: "Old conduit", archived: true }],
+        }),
+      })
+    );
+    expect(html).not.toContain("Structure editing is locked");
+    expect(html).not.toContain("until the builder can edit around archived items");
+  });
+});
+
+/**
+ * #377 — the read-only archived structure section. SSR-rendered directly (the
+ * full client only renders the Basics tab under renderToString). Proves the
+ * archived rows show with an "Archived" pill and carry NO editable controls.
+ */
+describe("ArchivedStructureSection (#377 read-only rows)", () => {
+  const archivedJob = makeJob({
+    id: "j",
+    name: "J",
+    areaGroups: [
+      {
+        id: "g-live",
+        name: "Level 1",
+        areas: [
+          { id: "a-live", name: "Unit 1" },
+          { id: "a-arch", name: "Old store", spaceType: "Store", archived: true },
+        ],
+      },
+      { id: "g-arch", name: "Old wing", archived: true, areas: [{ id: "a-x", name: "Room X" }] },
+    ],
+    roughInTasks: [{ id: "rt-arch", name: "Old conduit run", archived: true }],
+    fitOffTasks: [{ id: "ft-arch", name: "Legacy GPO swap", archived: true }],
+  });
+
+  it("renders archived groups, areas and job-level tasks as read-only rows with an Archived pill", () => {
+    const html = renderToString(
+      createElement(ArchivedStructureSection, { archived: projectArchivedStructure(archivedJob) })
+    );
+    expect(html).toContain("Archived (read-only)");
+    // The archived group, area and tasks each appear.
+    expect(html).toContain("Old wing");
+    expect(html).toContain("Old store");
+    expect(html).toContain("Old conduit run");
+    expect(html).toContain("Legacy GPO swap");
+    // The honest "Archived" pill is present.
+    expect(html).toContain("Archived");
+    // Read-only: no text inputs and no remove/trash controls in the section.
+    expect(html).not.toContain("<input");
+    expect(html).not.toContain("Remove");
+    expect(html).not.toContain("aria-label=\"Remove area\"");
+  });
+
+  it("renders nothing when the job has no archived structure", () => {
+    const clean = makeJob({
+      id: "j",
+      name: "J",
+      areaGroups: [{ id: "g", name: "L1", areas: [{ id: "a", name: "U1" }] }],
+    });
+    const html = renderToString(
+      createElement(ArchivedStructureSection, { archived: projectArchivedStructure(clean) })
+    );
+    expect(html).toBe("");
   });
 });

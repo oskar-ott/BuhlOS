@@ -811,14 +811,30 @@ module.exports = async (req, res) => {
       for (const eg of (job.areaGroups || [])) {
         existingGroupsByName[eg.name] = eg;
       }
+      // Per-area override task lists. Remap live tasks by name (rename keeps the
+      // id → progress survives), then re-append archived stored override tasks
+      // the payload omitted (#377 retention discipline, mirroring the job-level
+      // + area paths). If the payload carries no live tasks we still surface any
+      // surviving archived overrides so a structure edit can't silently drop
+      // them; only a genuinely empty override (no live, no archived) clears.
       const preserveTaskIds = (existingArr, newArr) => {
-        if (!Array.isArray(newArr) || !newArr.length) return undefined;
-        const byName = {};
-        for (const t of (existingArr || [])) byName[t.name] = t;
-        return newArr.map(t => ({
-          id: (byName[t.name] && byName[t.name].id) ? byName[t.name].id : t.id,
-          name: t.name,
-        }));
+        const hasNew = Array.isArray(newArr) && newArr.length > 0;
+        const mapped = [];
+        if (hasNew) {
+          const byName = {};
+          for (const t of (existingArr || [])) byName[t.name] = t;
+          for (const t of newArr) {
+            mapped.push({
+              id: (byName[t.name] && byName[t.name].id) ? byName[t.name].id : t.id,
+              name: t.name,
+            });
+          }
+        }
+        const liveNames = new Set(mapped.map(t => t.name));
+        for (const et of (existingArr || [])) {
+          if (et && et.archived && !liveNames.has(et.name)) mapped.push(et);
+        }
+        return mapped.length ? mapped : undefined;
       };
       // Carry server-owned structural metadata (#578). archived state, sort
       // `order` and `customFields` are NOT part of the editable structure the
@@ -899,16 +915,34 @@ module.exports = async (req, res) => {
       }
     }
 
+    // Retention (#578 discipline, extended to job-level tasks for #377): an
+    // ARCHIVED stored job-level task the payload omits is NOT a delete. The
+    // builder now renders archived job-level tasks as read-only rows and
+    // strips them from the editable payload, so a structure PUT carries only
+    // the LIVE tasks; the server is the retention authority. Re-append any
+    // archived stored task whose name the (validated, name-remapped) payload
+    // doesn't carry — intact. A matched LIVE task still renames/reorders; a
+    // structure PUT must never silently un-archive OR delete an archived
+    // job-level task.
+    const reappendArchivedTasks = (existingArr, mappedTasks) => {
+      const payloadNames = new Set(mappedTasks.map(t => t.name));
+      for (const et of (existingArr || [])) {
+        if (et && et.archived && !payloadNames.has(et.name)) mappedTasks.push(et);
+      }
+      return mappedTasks;
+    };
+
     // Patch roughInTasks — preserve existing IDs for tasks matched by name
     if (roughInTasks !== undefined) {
       const v = validateTasks(roughInTasks, 'rt');
       if (!v.ok) return res.status(400).json({ error: v.error });
       const existingByName = {};
       for (const t of (job.roughInTasks || [])) existingByName[t.name] = t;
-      job.roughInTasks = v.tasks.map(t => ({
+      const mapped = v.tasks.map(t => ({
         id: (existingByName[t.name] && existingByName[t.name].id) ? existingByName[t.name].id : t.id,
         name: t.name,
       }));
+      job.roughInTasks = reappendArchivedTasks(job.roughInTasks, mapped);
     }
 
     // Patch fitOffTasks — preserve existing IDs for tasks matched by name
@@ -917,10 +951,11 @@ module.exports = async (req, res) => {
       if (!v.ok) return res.status(400).json({ error: v.error });
       const existingByName = {};
       for (const t of (job.fitOffTasks || [])) existingByName[t.name] = t;
-      job.fitOffTasks = v.tasks.map(t => ({
+      const mapped = v.tasks.map(t => ({
         id: (existingByName[t.name] && existingByName[t.name].id) ? existingByName[t.name].id : t.id,
         name: t.name,
       }));
+      job.fitOffTasks = reappendArchivedTasks(job.fitOffTasks, mapped);
     }
 
     await writeBlob('jobs.json', data);

@@ -302,6 +302,94 @@ export function summariseStructure(job: Job): StructureSummary {
 }
 
 /* ---------------------------------------------------------------------
+ * Archived-structure projection (#377)
+ *
+ * The editable builder form (jobToForm) filters archived groups / areas /
+ * tasks OUT, so the PUT payload can only ever carry live rows — the server is
+ * the retention authority and re-appends the archived items the payload omits.
+ * To stay honest (P7), the builder still SHOWS what's archived as read-only
+ * rows. This pure projection derives exactly that — a render-only mirror of the
+ * archived structure on the SAVED job. It never feeds buildUpdatePayload.
+ * -------------------------------------------------------------------*/
+
+export interface ArchivedTaskRow {
+  id: string;
+  name: string;
+}
+
+export interface ArchivedAreaRow {
+  id: string;
+  name: string;
+  spaceType?: string;
+  /** the group this area sits under, for context in the read-only list */
+  groupName: string;
+}
+
+export interface ArchivedGroupRow {
+  id: string;
+  name: string;
+  /** count of LIVE (non-archived) areas the group still carries */
+  liveAreaCount: number;
+}
+
+/** Read-only projection of the archived structure on a job. Empty arrays when
+ *  nothing is archived. Areas inside an archived group are NOT double-listed —
+ *  the group row stands for the whole group. */
+export interface ArchivedStructure {
+  /** whole groups that are archived */
+  groups: ArchivedGroupRow[];
+  /** archived areas inside a LIVE group (an archived group is shown once, above) */
+  areas: ArchivedAreaRow[];
+  roughInTasks: ArchivedTaskRow[];
+  fitOffTasks: ArchivedTaskRow[];
+}
+
+function archivedTaskRows(
+  list: ReadonlyArray<{ id: string; name: string; archived?: boolean }> | undefined
+): ArchivedTaskRow[] {
+  return (list ?? [])
+    .filter((t) => t.archived)
+    .map((t) => ({ id: t.id, name: t.name }));
+}
+
+export function projectArchivedStructure(job: Job): ArchivedStructure {
+  const groups: ArchivedGroupRow[] = [];
+  const areas: ArchivedAreaRow[] = [];
+  for (const g of job.areaGroups ?? []) {
+    if (g.archived) {
+      const liveAreaCount = (g.areas ?? []).filter((a) => !a.archived).length;
+      groups.push({ id: g.id, name: g.name, liveAreaCount });
+      continue; // archived group → don't also list its areas individually
+    }
+    for (const a of g.areas ?? []) {
+      if (a.archived) {
+        const row: ArchivedAreaRow = { id: a.id, name: a.name, groupName: g.name };
+        if (a.spaceType) row.spaceType = a.spaceType;
+        areas.push(row);
+      }
+    }
+  }
+  return {
+    groups,
+    areas,
+    roughInTasks: archivedTaskRows(job.roughInTasks),
+    fitOffTasks: archivedTaskRows(job.fitOffTasks),
+  };
+}
+
+/** True when a job carries any archived group / area / job-level task — i.e.
+ *  the read-only archived section has something to show. */
+export function hasArchivedStructure(job: Job): boolean {
+  const p = projectArchivedStructure(job);
+  return (
+    p.groups.length > 0 ||
+    p.areas.length > 0 ||
+    p.roughInTasks.length > 0 ||
+    p.fitOffTasks.length > 0
+  );
+}
+
+/* ---------------------------------------------------------------------
  * Publish readiness
  * -------------------------------------------------------------------*/
 

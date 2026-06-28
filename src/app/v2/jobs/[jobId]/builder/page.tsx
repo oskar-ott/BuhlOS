@@ -23,10 +23,11 @@ interface PageParams {
  * /v2/jobs/[jobId]/builder — the Job Builder / Editor workspace (admin only).
  *
  * Loads the job with ?includeArchived=1 (admin-editor read) so the client
- * can detect archived rooms/tasks and freeze structure editing for those
- * jobs — the api/jobs.js PUT replaces structure wholesale and would drop
- * archived items, so the modern builder declines to touch them and points
- * at the legacy editor instead.
+ * can render archived rooms/tasks as honest read-only rows alongside the
+ * editable live structure (#377). Structure stays fully editable: the save
+ * sends only live rows and api/jobs.js PUT re-appends the archived items it
+ * omits (the server is the retention authority), so editing can't disturb
+ * archived history.
  *
  * Admin-only: POST /api/jobs (create) and the structure/status/name PUT
  * fields are admin-gated server-side; a leading hand who landed here would
@@ -140,8 +141,8 @@ async function loadJob(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   try {
-    // includeArchived=1 — the admin-editor read. Lets the builder detect
-    // archived structure and freeze structure editing for those jobs.
+    // includeArchived=1 — the admin-editor read. Lets the builder render
+    // archived structure as read-only rows next to the editable live structure (#377).
     const res = await fetch(
       `${base}/api/jobs?id=${encodeURIComponent(jobId)}&includeArchived=1`,
       {
