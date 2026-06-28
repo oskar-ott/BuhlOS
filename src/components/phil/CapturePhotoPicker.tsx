@@ -126,6 +126,11 @@ export function CapturePhotoPicker({
           <span className="text-xs text-text-muted">
             Camera opens by default. You can also choose from gallery.
           </span>
+          {/* Honest about what we own (P7): the OS camera owns flash + zoom
+              under <input capture>, so we add no in-app controls for them. */}
+          <span className="text-xs text-text-muted">
+            Flash and zoom are on your camera.
+          </span>
         </button>
       )}
 

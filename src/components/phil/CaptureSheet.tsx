@@ -8,7 +8,8 @@ import {
   uploadEvidencePhoto,
 } from "@/domains/evidence/client";
 import { EVIDENCE_NOTE_MAX } from "@/domains/evidence/schema";
-import { resizeImageToDataUrl } from "@/domains/evidence/service";
+import { resizeImageWithMeta } from "@/domains/evidence/service";
+import { isLowLight } from "@/domains/evidence/luma";
 import type {
   CreateEvidencePayload,
   EvidenceItem,
@@ -80,6 +81,9 @@ export function CaptureSheet({
 }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
+  // Measured average luma off the downscaled photo (0–255), for the
+  // non-blocking low-light review hint. Null = not measured / not dark.
+  const [avgLuma, setAvgLuma] = useState<number | null>(null);
   const [note, setNote] = useState("");
   const [stage, setStage] = useState<JobStage | null>(initialContext?.stage ?? null);
   const [areaId, setAreaId] = useState<string | null>(initialContext?.areaId ?? null);
@@ -175,10 +179,13 @@ export function CaptureSheet({
   const handlePick = useCallback(async (next: File) => {
     setFile(next);
     setDataUrl(null);
+    setAvgLuma(null);
     setResizing(true);
     try {
-      const resized = await resizeImageToDataUrl(next, 1920, 0.7);
+      // Same downscale pass also reads the luminance for the low-light hint.
+      const { dataUrl: resized, avgLuma: luma } = await resizeImageWithMeta(next, 1920, 0.7);
       setDataUrl(resized);
+      setAvgLuma(luma);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Couldn't read that photo.";
       setPhase({ kind: "failed", message: msg });
@@ -251,6 +258,7 @@ export function CaptureSheet({
       // does NOT preserve a draft after a successful submit).
       setFile(null);
       setDataUrl(null);
+      setAvgLuma(null);
       setNote("");
       setStage(initialContext?.stage ?? null);
       setAreaId(initialContext?.areaId ?? null);
@@ -327,6 +335,16 @@ export function CaptureSheet({
             busy={busy}
             onPick={handlePick}
           />
+
+          {/* Non-blocking low-light hint — additive review nudge (P10). It
+              never disables Submit (canSubmit ignores luma) and reflects a real
+              measured luminance (P7). Shown once the resize has a reading. */}
+          {dataUrl && isLowLight(avgLuma) ? (
+            <PhilNotice tone="warning" role="status" title="Bit dark — try the flash">
+              This photo looks dark. It&rsquo;ll still save — retake with the flash on if you
+              want the office to see more.
+            </PhilNotice>
+          ) : null}
 
           <div>
             <label htmlFor="capture-note" className="font-display text-sm font-semibold text-text">
