@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
+import { ScopeReconciliationStatus } from "./ScopeReconciliationStatus";
 import { ClientContractSection } from "./ClientContractSection";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -114,10 +115,11 @@ import { cn } from "@/lib/cn";
  *   api/jobs.js — PUT (update) + the draft GET gate
  */
 
-type TabKey = "basics" | "structure" | "modules" | "preview" | "publish" | "more";
+type TabKey = "basics" | "scope" | "structure" | "modules" | "preview" | "publish" | "more";
 
 const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "basics", label: "Basics" },
+  { key: "scope", label: "Scope" },
   { key: "structure", label: "Structure" },
   { key: "modules", label: "Field modules" },
   { key: "preview", label: "Phil preview" },
@@ -216,7 +218,7 @@ const SECTION_TESTID: Partial<Record<TabKey, string>> = {
 };
 
 const COCKPIT_GROUPS: ReadonlyArray<{ heading: string; keys: ReadonlyArray<TabKey> }> = [
-  { heading: "Build", keys: ["basics", "structure", "modules"] },
+  { heading: "Build", keys: ["basics", "scope", "structure", "modules"] },
   { heading: "Ship", keys: ["preview", "publish"] },
   { heading: "More", keys: ["more"] },
 ];
@@ -324,6 +326,14 @@ export function JobBuilderClient({
   function sectionStatus(key: TabKey): CockpitSectionStatus {
     if (key === "modules" || key === "more") return "none";
     if (key === "publish") return readiness.canPublish ? "ok" : "block";
+    if (key === "scope") {
+      // Scope owns the reconciliation: a red RAG = real conflicts (block); any
+      // un-triaged clause or an amber RAG = needs a look (warn); a clean
+      // confirmed reconciliation = ok; no scope/reconciliation yet = none.
+      if (reconciledView?.rag === "red") return "block";
+      if (untriagedClauses.length > 0 || reconciledView?.rag === "amber") return "warn";
+      return reconciledView ? "ok" : "none";
+    }
     const all = [...readiness.blockers, ...readiness.warnings];
     // Preview is "what the field sees", so it surfaces the field-lint symptom;
     // every other section owns the issues whose fix lives there.
@@ -337,16 +347,6 @@ export function JobBuilderClient({
     if (mine.some((i) => i.severity === "warning")) return "warn";
     return "ok";
   }
-
-  const cockpitNav: CockpitNavGroup[] = COCKPIT_GROUPS.map((g) => ({
-    heading: g.heading,
-    items: g.keys.map((key) => ({
-      key,
-      label: TABS.find((t) => t.key === key)!.label,
-      status: sectionStatus(key),
-      testId: SECTION_TESTID[key],
-    })),
-  }));
 
   function goToIssue(issue: ReadinessIssue) {
     setTab(ISSUE_SECTION[issue.code] ?? "publish");
@@ -448,6 +448,18 @@ export function JobBuilderClient({
       }),
     [scopeClauses, clauseState]
   );
+
+  // Built here (after reconciledView + untriagedClauses) so the Scope section's
+  // status can read them without a TDZ trap.
+  const cockpitNav: CockpitNavGroup[] = COCKPIT_GROUPS.map((g) => ({
+    heading: g.heading,
+    items: g.keys.map((key) => ({
+      key,
+      label: TABS.find((t) => t.key === key)!.label,
+      status: sectionStatus(key),
+      testId: SECTION_TESTID[key],
+    })),
+  }));
 
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewSession, setReviewSession] = useState<ReviewClause[]>([]);
@@ -830,16 +842,6 @@ export function JobBuilderClient({
         return (
           <>
             {renderBasics()}
-            {/* #200: scope of work — capture lives with Basics (the lighter
-                v1; a dedicated tab is a later call if it earns one). */}
-            <div className="mt-4">
-              <ScopeOfWorkSection
-                job={savedJob}
-                certaintyByClauseId={certaintyByClauseId}
-                selectedClauseId={selectedRow?.entity === "clause" ? selectedRow.id : null}
-                onInspectClause={selectClause}
-              />
-            </div>
             {/* #228: client + contract commercial context — admin-only, its
                 own PUT (the scopeOfWork precedent). */}
             <div className="mt-4">
@@ -847,6 +849,8 @@ export function JobBuilderClient({
             </div>
           </>
         );
+      case "scope":
+        return renderScope();
       case "structure":
         return renderStructure();
       case "modules":
@@ -860,6 +864,49 @@ export function JobBuilderClient({
       default:
         return null;
     }
+  }
+
+  /* ============================ SCOPE INTAKE ============================ */
+  function renderScope() {
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardTitle>Scope intake</CardTitle>
+          <CardDescription className="mt-1">
+            The agreed scope — the one source the structure, tasks and quote build from.
+            Classify each line so nothing becomes silent field work; the review queue triages
+            the unclassified ones fast.
+          </CardDescription>
+          {untriagedClauses.length > 0 ? (
+            <Button
+              size="sm"
+              className="mt-3"
+              data-testid="scope-open-review"
+              onClick={openReview}
+            >
+              <ListChecks className="h-4 w-4" aria-hidden="true" />
+              Review {untriagedClauses.length} unclassified line
+              {untriagedClauses.length === 1 ? "" : "s"}
+            </Button>
+          ) : reconciledView ? (
+            <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-state-success">
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Every scope line classified.
+            </p>
+          ) : null}
+        </Card>
+
+        <ScopeOfWorkSection
+          job={savedJob}
+          certaintyByClauseId={certaintyByClauseId}
+          selectedClauseId={selectedRow?.entity === "clause" ? selectedRow.id : null}
+          onInspectClause={selectClause}
+        />
+
+        {/* The confirmed scope-vs-quote reconciliation (RAG + findings + clause
+            table). Renders its own honest "no reconciliation yet" state. */}
+        {reconciliation ? <ScopeReconciliationStatus view={reconciliation} /> : null}
+      </div>
+    );
   }
 
   /* ============================ BASICS ============================ */

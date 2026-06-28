@@ -49,8 +49,9 @@ describe("JobBuilderClient", () => {
 
     // Header carries the job name.
     expect(html).toContain("Birdwood Tower");
-    // Every tab is reachable.
+    // Every section is reachable from the rail, incl. the dedicated Scope section.
     expect(html).toContain("Basics");
+    expect(html).toContain("Scope");
     expect(html).toContain("Structure");
     expect(html).toContain("Field modules");
     expect(html).toContain("Phil preview");
@@ -61,6 +62,8 @@ describe("JobBuilderClient", () => {
     expect(html).toContain("Site address");
     expect(html).toContain("Access notes");
     expect(html).toContain("Site induction required before the crew attends");
+    // Scope of work moved to its own Scope section — not on the default Basics tab.
+    expect(html).not.toContain("Scope of work");
   });
 
   it("shows the office-only visibility state for a draft", () => {
