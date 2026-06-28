@@ -27,7 +27,11 @@ const TILES: ReadonlyArray<{ name: string; status: "ready" | "soon" }> = [
   { name: "Site reqs", status: "ready" },
   { name: "Notes", status: "ready" },
   { name: "ITPs", status: "soon" },
-  { name: "As-builts", status: "soon" },
+  // #233 — as-built is now live: flag any handover photo or plan markup as
+  // as-built, then filter the Photos gallery / plans to that set. It reuses
+  // the existing capture + viewer surfaces (no separate as-built flow), so it
+  // is genuinely usable end-to-end.
+  { name: "As-builts", status: "ready" },
 ];
 
 export function JobInterfaceStep({ onContinue, onSkip }: JobInterfaceStepProps) {

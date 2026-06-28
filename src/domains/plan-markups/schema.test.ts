@@ -106,4 +106,38 @@ describe("UpdateMarkupPayloadSchema — strict partial", () => {
   it("rejects out-of-range coordinates on edit", () => {
     expect(UpdateMarkupPayloadSchema.safeParse({ x: 2 }).success).toBe(false);
   });
+
+  it("#233 — the .strict() schema accepts asBuilt so updateMarkup() doesn't reject it", () => {
+    expect(UpdateMarkupPayloadSchema.safeParse({ asBuilt: true }).success).toBe(true);
+    expect(UpdateMarkupPayloadSchema.safeParse({ asBuilt: false }).success).toBe(true);
+    // non-boolean is rejected
+    expect(UpdateMarkupPayloadSchema.safeParse({ asBuilt: "yes" }).success).toBe(false);
+  });
+});
+
+describe("#233 DrawingMarkupSchema — asBuilt", () => {
+  it("accepts a stored markup carrying asBuilt true/false", () => {
+    expect(DrawingMarkupSchema.safeParse({ ...basePin, asBuilt: true }).success).toBe(true);
+    expect(DrawingMarkupSchema.safeParse({ ...basePin, asBuilt: false }).success).toBe(true);
+  });
+
+  it("accepts a legacy markup with no asBuilt at all (migration-free)", () => {
+    expect(DrawingMarkupSchema.safeParse(basePin).success).toBe(true);
+  });
+
+  it("rejects a non-boolean asBuilt", () => {
+    expect(DrawingMarkupSchema.safeParse({ ...basePin, asBuilt: 1 }).success).toBe(false);
+  });
+
+  it("create payload need not carry asBuilt (set via PATCH in the viewer)", () => {
+    const r = CreateMarkupPayloadSchema.safeParse({
+      jobId: "job-1",
+      planId: "plan-1",
+      pageIndex: 0,
+      type: "pin",
+      x: 0.5,
+      y: 0.5,
+    });
+    expect(r.success).toBe(true);
+  });
 });

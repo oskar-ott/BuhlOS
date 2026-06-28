@@ -142,11 +142,15 @@ describe("AuditLogEntrySchema", () => {
       "employee.role_changed",
       "employee.updated",
       "evidence.captured",
+      // #233: as-built designation verbs. flagged sorts between captured and
+      // linked ('f' < 'l'); unflagged sorts before unlinked ('unf' < 'unl').
+      "evidence.flagged_asbuilt",
       // #263: before/after pairing verbs (sort between captured and rejected;
       // unlinked sorts before unreviewed).
       "evidence.linked",
       "evidence.rejected",
       "evidence.reviewed",
+      "evidence.unflagged_asbuilt",
       "evidence.unlinked",
       "evidence.unreviewed",
       // #390: hours / time-entry events (approvals pass + worker submits).

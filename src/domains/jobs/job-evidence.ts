@@ -58,6 +58,11 @@ export interface JobEvidenceSummary {
   photos: number;
   /** kind === "note". */
   notes: number;
+  /** #233 — captures flagged `asBuilt === true` (the handover as-built set).
+   *  An honest zero when none are flagged; absence of the flag is NOT counted
+   *  (never inferred). This is the cheap signal #374's closeout matrix reads —
+   *  no new index. */
+  asBuilt: number;
   /** Newest capture, for the "latest" caption, or null. */
   latest: { capturedByName: string; capturedAt: string } | null;
   hasAny: boolean;
@@ -89,6 +94,7 @@ export function summariseJobEvidence(
     fromOffice: 0,
     photos: 0,
     notes: 0,
+    asBuilt: 0,
     latest: null,
     hasAny: false,
   };
@@ -111,6 +117,9 @@ export function summariseJobEvidence(
 
     if (item.kind === "photo") summary.photos += 1;
     else if (item.kind === "note") summary.notes += 1;
+
+    // #233 — count only an explicit true; absence is not-as-built (never faked).
+    if (item.asBuilt === true) summary.asBuilt += 1;
 
     switch (item.status) {
       case "submitted":

@@ -134,4 +134,19 @@ describe("PhotosGallery", () => {
     expect(html).toContain("No photos on this job yet");
     expect(html).not.toContain("1 evidence");
   });
+
+  it("#233 — hides the as-built filter chip when nothing on the job is flagged", () => {
+    const html = render({ evidence: [ev({ id: "a" })] });
+    expect(html).not.toContain('data-testid="gallery-asbuilt-chip"');
+  });
+
+  it("#233 — shows the as-built filter chip + tile chip when a capture is flagged", () => {
+    const html = render({
+      evidence: [ev({ id: "a", asBuilt: true } as Partial<EvidenceItem>)],
+    });
+    // The hidden-when-empty filter chip now renders...
+    expect(html).toContain('data-testid="gallery-asbuilt-chip"');
+    // ...and the flagged tile carries an As-built chip.
+    expect(html).toContain("As-built");
+  });
 });

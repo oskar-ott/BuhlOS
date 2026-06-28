@@ -3,13 +3,14 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { ExternalLink, FileText, Image as ImageIcon, X } from "lucide-react";
+import { ExternalLink, FileText, Image as ImageIcon, Stamp, X } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pill } from "@/components/ui/Pill";
 import {
   EMPTY_GALLERY_FILTER,
   buildGalleryPhotos,
+  galleryAsBuiltCount,
   galleryUploaders,
   groupPhotosByDay,
   matchesGalleryFilter,
@@ -86,6 +87,8 @@ export function PhotosGallery({
   );
   const groups = useMemo(() => groupPhotosByDay(visible), [visible]);
   const uploaders = useMemo(() => galleryUploaders(allPhotos), [allPhotos]);
+  // #233 — drives the hidden-when-empty as-built filter chip.
+  const asBuiltCount = useMemo(() => galleryAsBuiltCount(allPhotos), [allPhotos]);
 
   const isDefault =
     filter.fromDate === null &&
@@ -93,7 +96,8 @@ export function PhotosGallery({
     filter.uploaderKey === null &&
     filter.side === null &&
     filter.kind === null &&
-    filter.sourceKind === null;
+    filter.sourceKind === null &&
+    filter.asBuilt === null;
 
   const sourceCounts = useMemo(() => {
     const c = { evidence: 0, snag: 0, itp: 0 };
@@ -144,6 +148,7 @@ export function PhotosGallery({
         totalCount={allPhotos.length}
         visibleCount={visible.length}
         isDefault={isDefault}
+        asBuiltCount={asBuiltCount}
       />
 
       {visible.length === 0 ? (
@@ -254,6 +259,14 @@ function PhotoTile({
             {sourceKindLabel(photo.sourceKind)}
           </Pill>
         </span>
+        {/* #233 — as-built chip on the flagged tile (hidden otherwise). */}
+        {photo.asBuilt ? (
+          <span className="absolute right-1.5 top-1.5">
+            <Pill tone="warning" className="text-[10px]">
+              As-built
+            </Pill>
+          </span>
+        ) : null}
       </span>
       <span className="flex flex-col gap-0.5 p-2">
         <span className="truncate text-xs font-medium text-text">
@@ -345,6 +358,9 @@ interface FilterBarProps {
   totalCount: number;
   visibleCount: number;
   isDefault: boolean;
+  /** #233 — number of as-built-flagged photos; the chip hides when 0 (P7 —
+   *  no dead control when nothing is flagged). */
+  asBuiltCount: number;
 }
 
 function GalleryFilterBar({
@@ -354,6 +370,7 @@ function GalleryFilterBar({
   totalCount,
   visibleCount,
   isDefault,
+  asBuiltCount,
 }: FilterBarProps) {
   return (
     <div className="rounded-card border border-border bg-surface-raised p-3 shadow-card">
@@ -445,6 +462,29 @@ function GalleryFilterBar({
             <option value="itp">ITP / dwelling</option>
           </select>
         </FilterField>
+
+        {/* #233 — as-built chip. HIDDEN when nothing on the job is flagged
+            (no dead control); a toggle, not a select. */}
+        {asBuiltCount > 0 ? (
+          <FilterField label="Handover">
+            <button
+              type="button"
+              onClick={() => onChange({ ...value, asBuilt: value.asBuilt === true ? null : true })}
+              aria-pressed={value.asBuilt === true}
+              data-testid="gallery-asbuilt-chip"
+              className={cn(
+                "inline-flex h-10 items-center gap-1 rounded-card border px-3 text-sm font-medium",
+                value.asBuilt === true
+                  ? "border-amber-300 bg-amber-50 text-amber-900"
+                  : "border-border bg-surface text-text hover:bg-surface-subtle",
+              )}
+            >
+              <Stamp aria-hidden="true" className="h-4 w-4" />
+              As-built
+              <span className="text-xs text-text-muted">({asBuiltCount})</span>
+            </button>
+          </FilterField>
+        ) : null}
 
         {!isDefault ? (
           <button

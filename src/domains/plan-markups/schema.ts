@@ -90,6 +90,15 @@ export const DrawingMarkupSchema = z
     visibleToPhil: z.boolean(),
     archived: z.boolean(),
 
+    /**
+     * #233 — as-built designation. The IDENTICAL field name as the evidence
+     * record (src/domains/evidence/schema.ts) so a future as-built export
+     * reads both stores with no per-store translation. ABSENCE = not-as-built
+     * (never inferred). Set via PATCH in the admin viewer, not at create —
+     * optional so every pre-#233 markup stays valid with no migration.
+     */
+    asBuilt: z.boolean().optional(),
+
     /** Denormalised display context (the anchor is planId, not these). */
     drawingNumber: z.string().optional(),
     revision: z.string().optional(),
@@ -136,6 +145,9 @@ export const UpdateMarkupPayloadSchema = z
     tone: MarkupToneSchema.optional(),
     visibleToPhil: z.boolean().optional(),
     archived: z.boolean().optional(),
+    // #233 — set the as-built designation from the admin viewer. Required in
+    // this .strict() schema or updateMarkup() would reject the patch.
+    asBuilt: z.boolean().optional(),
   })
   .strict();
 

@@ -2,10 +2,12 @@ import { httpGet, httpPost, type HttpResult } from "@/lib/http";
 import {
   CreateEvidencePayloadSchema,
   EvidenceCreateResponseSchema,
+  EvidenceFlagAsBuiltResponseSchema,
   EvidenceLinkResponseSchema,
   EvidenceListResponseSchema,
   EvidencePhotoUploadResponseSchema,
   EvidenceReviewResponseSchema,
+  FlagAsBuiltPayloadSchema,
   LinkEvidencePayloadSchema,
   ReviewEvidencePayloadSchema,
   UnlinkEvidencePayloadSchema,
@@ -13,10 +15,12 @@ import {
 import type {
   CreateEvidencePayload,
   EvidenceCreateResponse,
+  EvidenceFlagAsBuiltResponse,
   EvidenceLinkResponse,
   EvidenceListResponse,
   EvidencePhotoUploadResponse,
   EvidenceReviewResponse,
+  FlagAsBuiltPayload,
   LinkEvidencePayload,
   ReviewEvidencePayload,
   UnlinkEvidencePayload,
@@ -158,6 +162,36 @@ export function unlinkEvidence(
   }
   return httpPost<EvidenceLinkResponse>(evidenceUrl(jobId, "unlink"), parsed.data, {
     schema: EvidenceLinkResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/**
+ * Flag / unflag a capture as part of the as-built handover record (#233).
+ *
+ * POST /api/evidence?jobId=X&action=flag-asbuilt  body { evidenceId, asBuilt }.
+ * Returns the canonical flagged item. Permission asymmetry is enforced
+ * server-side: the capturer may flag/unflag their OWN; an admin or a
+ * leading-hand-on-the-job may flag ANY; admin may unflag. Idempotent: no
+ * change → 200 no-op.
+ */
+export function flagAsBuiltEvidence(
+  jobId: string,
+  payload: FlagAsBuiltPayload
+): Promise<HttpResult<EvidenceFlagAsBuiltResponse>> {
+  const parsed = FlagAsBuiltPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Promise.resolve({
+      ok: false,
+      error: {
+        status: 0,
+        body: parsed.error.flatten(),
+        message: `invalid flag-asbuilt payload: ${parsed.error.message}`,
+      },
+    });
+  }
+  return httpPost<EvidenceFlagAsBuiltResponse>(evidenceUrl(jobId, "flag-asbuilt"), parsed.data, {
+    schema: EvidenceFlagAsBuiltResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
   });
 }

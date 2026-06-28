@@ -140,6 +140,15 @@ export const EvidenceItemSchema = z
     // can backfill from `pairedWithId` without reshaping the wire.
     pairedWithId: z.string().nullable().optional(),
 
+    // #233 — as-built designation. An additive boolean the office (or the
+    // capturer for their own) sets to mark a capture as part of the handover
+    // as-built record. ABSENCE = not-as-built — never inferred, never faked
+    // (P7). The IDENTICAL field name lives on the drawing-markup record
+    // (src/domains/plan-markups/schema.ts) so a future as-built export reads
+    // both stores with no per-store translation. Optional so every pre-#233
+    // row stays valid via .passthrough() with no migration.
+    asBuilt: z.boolean().optional(),
+
     // Audit trail pointers (doc 28 §A.1 + §A.5). The full audit rows
     // live in audit/{yyyy-mm}.json blobs — this array is just the IDs
     // an admin drawer can resolve.
@@ -319,6 +328,24 @@ export const UnlinkEvidencePayloadSchema = z.object({
   afterId: z.string().min(1, "afterId required"),
 });
 
+/**
+ * #233 — flag / unflag a capture as part of the as-built handover record.
+ *
+ *   POST /api/evidence?jobId=X&action=flag-asbuilt  body { evidenceId, asBuilt }
+ *
+ * This is a SEPARATE action from review (which rides the strict status
+ * transition machine) — there is no general evidence update path, so the
+ * designation gets its own branch. Permission asymmetry is enforced
+ * server-side (api/evidence.js): the capturer may flag/unflag their OWN; an
+ * admin or leading-hand-on-the-job may flag ANY; admin may unflag. ABSENCE of
+ * the flag = not-as-built — `asBuilt: false` clears the flag rather than
+ * inferring anything.
+ */
+export const FlagAsBuiltPayloadSchema = z.object({
+  evidenceId: z.string().min(1, "evidenceId required"),
+  asBuilt: z.boolean(),
+});
+
 /** GET /api/evidence?jobId=X response. */
 export const EvidenceListResponseSchema = z.object({
   evidence: z.array(EvidenceItemSchema),
@@ -354,6 +381,10 @@ export const EvidenceReviewResponseSchema = EvidenceCreateResponseSchema;
 /** POST link / unlink response — returns the canonical AFTER item
  *  (the only row the mutation touches). Same wrapper as create/review. */
 export const EvidenceLinkResponseSchema = EvidenceCreateResponseSchema;
+
+/** POST flag-asbuilt response (#233) — returns the canonical flagged item.
+ *  Same wrapper as create/review. */
+export const EvidenceFlagAsBuiltResponseSchema = EvidenceCreateResponseSchema;
 
 /** Shared error shape across the legacy + new APIs. */
 export const ApiErrorBodySchema = z.object({

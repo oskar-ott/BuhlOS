@@ -201,6 +201,67 @@ describe("update (PATCH) + archive (DELETE)", () => {
   });
 });
 
+describe("#233 as-built designation (PATCH asBuilt)", () => {
+  async function seedPin(over: Record<string, unknown> = {}) {
+    const res = await call({ method: "POST", userId: "u_admin", role: "admin", query: { jobId: "job-1" }, body: PIN(over) });
+    return (res.body as { markup: { id: string } }).markup.id;
+  }
+
+  it("admin can designate a markup as-built (canManageJob)", async () => {
+    const id = await seedPin();
+    const res = await call({ method: "PATCH", userId: "u_admin", role: "admin", query: { jobId: "job-1", id }, body: { asBuilt: true } });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { markup: { asBuilt: boolean } }).markup.asBuilt).toBe(true);
+    expect(markupsBlob().find((m) => m.id === id)?.asBuilt).toBe(true);
+  });
+
+  it("LH-on-job can designate; LH off-job and field workers cannot (canManageJob-only)", async () => {
+    const id = await seedPin();
+    expect((await call({ method: "PATCH", userId: "u_lh", role: "lh", query: { jobId: "job-1", id }, body: { asBuilt: true } })).statusCode).toBe(200);
+    // LH off-job and a field worker are blocked at the manage gate.
+    expect((await call({ method: "PATCH", userId: "u_lh2", role: "lh", query: { jobId: "job-1", id }, body: { asBuilt: true } })).statusCode).toBe(403);
+    expect((await call({ method: "PATCH", userId: "u_field", role: "electrician", query: { jobId: "job-1", id }, body: { asBuilt: true } })).statusCode).toBe(403);
+  });
+
+  it("can clear an as-built designation (asBuilt:false)", async () => {
+    const id = await seedPin();
+    await call({ method: "PATCH", userId: "u_admin", role: "admin", query: { jobId: "job-1", id }, body: { asBuilt: true } });
+    const res = await call({ method: "PATCH", userId: "u_admin", role: "admin", query: { jobId: "job-1", id }, body: { asBuilt: false } });
+    expect(res.statusCode).toBe(200);
+    expect(markupsBlob().find((m) => m.id === id)?.asBuilt).toBe(false);
+  });
+
+  it("rejects a non-boolean asBuilt (400)", async () => {
+    const id = await seedPin();
+    const res = await call({ method: "PATCH", userId: "u_admin", role: "admin", query: { jobId: "job-1", id }, body: { asBuilt: "yes" } });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects an as-built designation on a markup whose plan is archived (400)", async () => {
+    // Seed a markup directly onto the archived plan (the create guard would
+    // otherwise refuse to place one there).
+    blob.set("jobs/job-1/drawing-markups.json", {
+      markups: [
+        { id: "mk_arch", jobId: "job-1", planId: "plan-arch", pageIndex: 0, type: "pin", x: 0.5, y: 0.5, visibleToPhil: false, archived: false },
+      ],
+    });
+    const res = await call({ method: "PATCH", userId: "u_admin", role: "admin", query: { jobId: "job-1", id: "mk_arch" }, body: { asBuilt: true } });
+    expect(res.statusCode).toBe(400);
+    expect(markupsBlob().find((m) => m.id === "mk_arch")?.asBuilt).toBeUndefined();
+  });
+
+  it("ALLOWS an as-built designation on a superseded plan (honest as-built on an older rev)", async () => {
+    blob.set("jobs/job-1/drawing-markups.json", {
+      markups: [
+        { id: "mk_super", jobId: "job-1", planId: "plan-super", pageIndex: 0, type: "pin", x: 0.5, y: 0.5, visibleToPhil: false, archived: false, revision: "A" },
+      ],
+    });
+    const res = await call({ method: "PATCH", userId: "u_admin", role: "admin", query: { jobId: "job-1", id: "mk_super" }, body: { asBuilt: true } });
+    expect(res.statusCode).toBe(200);
+    expect(markupsBlob().find((m) => m.id === "mk_super")?.asBuilt).toBe(true);
+  });
+});
+
 describe("GET visibility — office vs field", () => {
   async function seedTwo() {
     await call({ method: "POST", userId: "u_admin", role: "admin", query: { jobId: "job-1" }, body: PIN({ visibleToPhil: true, label: "Shared" }) });

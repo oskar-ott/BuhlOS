@@ -2,6 +2,7 @@ import type { z } from "zod";
 import type {
   CreateEvidencePayloadSchema,
   EvidenceCreateResponseSchema,
+  EvidenceFlagAsBuiltResponseSchema,
   EvidenceItemSchema,
   EvidenceKindSchema,
   EvidenceLinkResponseSchema,
@@ -11,6 +12,7 @@ import type {
   EvidenceSourceSchema,
   EvidenceStageSchema,
   EvidenceStatusSchema,
+  FlagAsBuiltPayloadSchema,
   LinkEvidencePayloadSchema,
   ReviewEvidencePayloadSchema,
   ServerEvidenceStatusSchema,
@@ -38,9 +40,11 @@ export type CreateEvidencePayload = z.infer<typeof CreateEvidencePayloadSchema>;
 export type ReviewEvidencePayload = z.infer<typeof ReviewEvidencePayloadSchema>;
 export type LinkEvidencePayload = z.infer<typeof LinkEvidencePayloadSchema>;
 export type UnlinkEvidencePayload = z.infer<typeof UnlinkEvidencePayloadSchema>;
+export type FlagAsBuiltPayload = z.infer<typeof FlagAsBuiltPayloadSchema>;
 
 export type EvidenceListResponse = z.infer<typeof EvidenceListResponseSchema>;
 export type EvidenceCreateResponse = z.infer<typeof EvidenceCreateResponseSchema>;
 export type EvidenceReviewResponse = z.infer<typeof EvidenceReviewResponseSchema>;
 export type EvidenceLinkResponse = z.infer<typeof EvidenceLinkResponseSchema>;
+export type EvidenceFlagAsBuiltResponse = z.infer<typeof EvidenceFlagAsBuiltResponseSchema>;
 export type EvidencePhotoUploadResponse = z.infer<typeof EvidencePhotoUploadResponseSchema>;

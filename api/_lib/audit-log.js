@@ -31,6 +31,10 @@ const VALID_ACTIONS = new Set([
   // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'evidence.linked',
   'evidence.unlinked',
+  // #233: as-built designation. flagged/unflagged fire on the designated row.
+  // Kept in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'evidence.flagged_asbuilt',
+  'evidence.unflagged_asbuilt',
   // Phase D.5 (snags). One verb covers every status change; the
   // metadata.from / metadata.to fields carry the direction.
   'snag.created',

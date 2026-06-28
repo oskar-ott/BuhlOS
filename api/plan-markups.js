@@ -248,6 +248,21 @@ module.exports = async (req, res) => {
       }
       markup.archived = body.archived;
     }
+    // #233 — as-built designation. Mirror the visibleToPhil/archived branch.
+    // Mirror the create-time archived-plan guard: an as-built designation must
+    // not land on a markup whose plan revision is archived (a superseded plan
+    // can still carry an honest as-built; an archived one cannot).
+    if (body.asBuilt !== undefined) {
+      if (typeof body.asBuilt !== 'boolean') {
+        return res.status(400).json({ error: 'asBuilt must be boolean' });
+      }
+      const index = await readPlanIndex(jobId);
+      const plan = (index.plans || []).find((p) => p.id === markup.planId);
+      if (plan && plan.status === 'archived') {
+        return res.status(400).json({ error: 'cannot designate an as-built on an archived plan' });
+      }
+      markup.asBuilt = body.asBuilt;
+    }
     markup.updatedBy = user.username;
     markup.updatedAt = new Date().toISOString();
 
