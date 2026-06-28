@@ -17,6 +17,7 @@ import {
   type TaskState,
 } from "@/domains/jobs/taskState";
 import { buildCanonicalTaskIndex } from "@/domains/jobs/task-index";
+import { rollUpTaskProgress } from "@/domains/jobs/task-progress-rollup";
 import {
   philTaskReadinessByTemplateId,
   workerTasksFromCanonicalIndex,
@@ -388,6 +389,22 @@ export function PhilJobDetail({
     [job, taskState],
   );
 
+  // Whole-job progress rolled up from the canonical index (#507) — the
+  // parity-locked path (NOT jobTaskProgress, whose shape differs). Drives the
+  // calm job-complete acknowledgement (#427): a quiet "every task is done" note
+  // shown ONLY when this is a real, loaded 100% (total > 0 && pct === 100). It is
+  // gated below on the task-state load flags so a job whose state is still
+  // streaming or failed to load NEVER flashes a false 100% (P7).
+  const jobProgress = useMemo(
+    () => rollUpTaskProgress(canonicalTasks).job,
+    [canonicalTasks],
+  );
+  const jobComplete =
+    !taskStatePending &&
+    !taskStateErr &&
+    jobProgress.total > 0 &&
+    jobProgress.pct === 100;
+
   // Field-visible tasks for the selected area + viewed stage — projected from the
   // canonical index (filter by source coordinate, render the template id). This
   // is behaviourally identical to the previous buildWorkerTasks path (proven in
@@ -739,6 +756,16 @@ export function PhilJobDetail({
           aria-labelledby="phil-job-work-h"
           className="scroll-mt-16 space-y-4"
         >
+          {/* Calm completion (#427): one quiet acknowledgement near "Work to do"
+              when every task on the job is really done — gated on a real, loaded
+              100% (jobComplete), so a not-yet-loaded job never flashes a false
+              win (P7). One success notice, no new metric/colour (P10). */}
+          {jobComplete ? (
+            <PhilNotice tone="success" title="Every task here is done." role="status">
+              Nice work — the whole job&rsquo;s ticked off. Snags, checks and hours
+              still live below if anything needs a look.
+            </PhilNotice>
+          ) : null}
           {groups.length > 0 ? (
             <Card>
               <CardTitle>

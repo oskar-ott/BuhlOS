@@ -288,6 +288,37 @@ describe("PhilJobAreaDetail render — task state + toggle", () => {
     expect(text(html)).toContain("All 2 done");
   });
 
+  it("gives the 100%-done caption a calm state-success treatment, not plain muted text (#427)", () => {
+    const html = render({
+      areaName: "Main Bar",
+      stages: RI,
+      stage: "roughIn",
+      tasks: [task("t1", "a", "complete"), task("t2", "b", "complete")],
+      counts: NO_COUNTS,
+    });
+    expect(text(html)).toContain("All 2 done");
+    // A calm success treatment: the state-success token + a tick (CheckCircle2),
+    // never a new colour or card.
+    expect(html).toContain("text-state-success");
+    expect(html).toContain("<svg"); // the CheckCircle2 tick is rendered
+  });
+
+  it("keeps the PARTIAL caption exactly as-is: plain muted text, no success treatment (#427)", () => {
+    const html = render({
+      areaName: "Main Bar",
+      stages: RI,
+      stage: "roughIn",
+      // No completed task at all → no done-state ticks anywhere in the drill-in,
+      // so the only way text-state-success could appear is the (forbidden) win.
+      tasks: [task("t1", "a"), task("t2", "b")],
+      counts: NO_COUNTS,
+    });
+    expect(text(html)).toContain("0 of 2 done");
+    // The partial caption is unchanged — muted, never the success treatment.
+    expect(html).toContain("text-text-muted");
+    expect(html).not.toContain("text-state-success");
+  });
+
   it("never renders admin/editor controls in the field drill-in", () => {
     const html = render({
       areaName: "Main Bar",

@@ -86,6 +86,28 @@ describe("PhilWeekSummary (render)", () => {
     expect(html).toContain("All approved");
   });
 
+  it("shows the calm 'Week squared away' line only when the whole week is approved (#427)", () => {
+    // Today = Tue; Mon+Tue both approved, nothing else loggable yet → all-approved.
+    const squared = render(
+      [entry("2024-05-20", "approved"), entry("2024-05-21", "approved")],
+      "2024-05-21",
+    );
+    expect(squared).toContain("Week squared away");
+    // The existing chip stays — the win is one extra calm line, not a replacement.
+    expect(squared).toContain("All approved");
+
+    // A still-waiting entry → no win line (the office hasn't closed the week).
+    const waiting = render(
+      [entry("2024-05-20", "approved"), entry("2024-05-21", "submitted")],
+      "2024-05-21",
+    );
+    expect(waiting).not.toContain("Week squared away");
+
+    // A nothing-logged week → no win line (P7 honesty gate: total must be real).
+    const nothing = render([], "2024-05-20");
+    expect(nothing).not.toContain("Week squared away");
+  });
+
   it("shows a draft truthfully without a dead-end action", () => {
     const html = render([entry("2024-05-20", "draft")], "2024-05-21");
     expect(html).toContain("Draft — not submitted");

@@ -104,6 +104,24 @@ function loggedStatusWord(status: TimeEntry["status"] | undefined): string {
   }
 }
 
+/**
+ * The week is "squared away" — every loggable day is approved with nothing left
+ * for the worker to do: no rejected day to fix, no past weekday missed, no draft
+ * left unsubmitted, no entry still waiting on the office — AND at least one
+ * approved hour really exists (P7: never a win on a nothing-logged week, which
+ * reads "Nothing logged yet"). Shared by the /phil/hours summary and the My Day
+ * strip so the all-clear predicate is defined in exactly one place.
+ */
+export function isWeekSquaredAway(counts: PhilWeek["counts"]): boolean {
+  return (
+    counts.fix === 0 &&
+    counts.missed === 0 &&
+    counts.draft === 0 &&
+    counts.waiting === 0 &&
+    counts.approvedHours > 0
+  );
+}
+
 export function buildPhilWeek(
   entries: ReadonlyArray<
     Pick<TimeEntry, "date" | "totalHours"> & {

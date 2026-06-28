@@ -241,11 +241,21 @@ export function PhilJobAreaDetail({
         ) : null}
 
         {hasAnyStage(stages) && tasks.length > 0 ? (
-          <p className="mt-2 text-xs text-text-muted">
-            {progress.complete === progress.total
-              ? `All ${progress.total} done`
-              : `${progress.complete} of ${progress.total} done`}
-          </p>
+          // Calm completion (#427): when every task in this stage is really done
+          // (complete === total, total > 0 — a true loaded 100%, never a guess,
+          // P7), the caption gets a quiet state-success treatment — a tick + the
+          // existing "All N done" words, no new card or colour. The partial
+          // "N of M done" caption is unchanged: plain muted text.
+          progress.total > 0 && progress.complete === progress.total ? (
+            <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-state-success">
+              <CheckCircle2 aria-hidden="true" className="h-4 w-4 shrink-0" />
+              <span>All {progress.total} done</span>
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-text-muted">
+              {`${progress.complete} of ${progress.total} done`}
+            </p>
+          )
         ) : null}
 
         {hasAnyStage(stages) ? (

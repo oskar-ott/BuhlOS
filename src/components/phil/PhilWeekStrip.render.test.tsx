@@ -120,4 +120,26 @@ describe("PhilWeekStrip (render)", () => {
     expect(html).toContain("7.6"); // the number is the chip content for a logged day
     expect(html).toContain("approved. Open this day in the hours form."); // word kept for a11y
   });
+
+  it("echoes a calm 'Week squared away' line only when the whole week is approved (#427)", () => {
+    // Today = Tuesday; Mon + Tue both approved, nothing else loggable yet.
+    const approved = (date: string): TimeEntry =>
+      ({ date, totalHours: 7.6, status: "approved" }) as unknown as TimeEntry;
+    const squared = render([approved("2024-05-20"), approved("2024-05-21")], "2024-05-21");
+    expect(squared).toContain("Week squared away");
+
+    // A waiting day anywhere → no echo (the office hasn't closed the week).
+    const waiting = render(
+      [
+        approved("2024-05-20"),
+        { date: "2024-05-21", totalHours: 7.6, status: "submitted" } as unknown as TimeEntry,
+      ],
+      "2024-05-21",
+    );
+    expect(waiting).not.toContain("Week squared away");
+
+    // A nothing-logged week → no echo (P7: a blank week is never a win).
+    const nothing = render([], "2024-05-20");
+    expect(nothing).not.toContain("Week squared away");
+  });
 });

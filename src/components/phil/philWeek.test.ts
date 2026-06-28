@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPhilWeek, isoWeekNumber } from "./philWeek";
+import { buildPhilWeek, isoWeekNumber, isWeekSquaredAway } from "./philWeek";
 
 // A pinned week: Monday 2024-05-20 … Sunday 2024-05-26, with today = Friday
 // 2024-05-24. This is ISO week 21 (Monday of week 21 of 2024 is 2024-05-20).
@@ -130,5 +130,50 @@ describe("buildPhilWeek — entry status awareness (#113 weekly view)", () => {
     // Mon–Thu past weekdays with nothing logged; today never counts as missed.
     expect(sparse.counts.missed).toBe(4);
     expect(sparse.counts.approvedHours).toBe(0);
+  });
+});
+
+describe("isWeekSquaredAway (#427 calm completion predicate)", () => {
+  const base = { approvedHours: 0, waiting: 0, fix: 0, draft: 0, missed: 0 };
+
+  it("is true only when everything is approved and nothing's left to do", () => {
+    expect(isWeekSquaredAway({ ...base, approvedHours: 38 })).toBe(true);
+  });
+
+  it("is false on a nothing-logged week — that reads 'Nothing logged yet', never a win (P7)", () => {
+    expect(isWeekSquaredAway({ ...base })).toBe(false);
+    // The honest negative the issue calls out: zero approved hours = no win.
+    expect(isWeekSquaredAway({ ...base, approvedHours: 0 })).toBe(false);
+  });
+
+  it("is false while anything still needs the worker or the office", () => {
+    expect(isWeekSquaredAway({ ...base, approvedHours: 30, fix: 1 })).toBe(false);
+    expect(isWeekSquaredAway({ ...base, approvedHours: 30, missed: 1 })).toBe(false);
+    expect(isWeekSquaredAway({ ...base, approvedHours: 30, draft: 1 })).toBe(false);
+    expect(isWeekSquaredAway({ ...base, approvedHours: 30, waiting: 1 })).toBe(false);
+  });
+
+  it("matches buildPhilWeek's all-approved week (real wiring, not just the predicate)", () => {
+    const w = buildPhilWeek(
+      [
+        { date: "2024-05-20", totalHours: 7.6, status: "approved" as const },
+        { date: "2024-05-21", totalHours: 7.6, status: "approved" as const },
+        { date: "2024-05-22", totalHours: 7.6, status: "approved" as const },
+        { date: "2024-05-23", totalHours: 7.6, status: "approved" as const },
+        { date: TODAY, totalHours: 7.6, status: "approved" as const },
+      ],
+      { todayISO: TODAY },
+    );
+    expect(isWeekSquaredAway(w.counts)).toBe(true);
+
+    // A waiting entry anywhere keeps the week un-squared.
+    const waiting = buildPhilWeek(
+      [
+        { date: "2024-05-20", totalHours: 7.6, status: "approved" as const },
+        { date: TODAY, totalHours: 7.6, status: "submitted" as const },
+      ],
+      { todayISO: TODAY },
+    );
+    expect(isWeekSquaredAway(waiting.counts)).toBe(false);
   });
 });
