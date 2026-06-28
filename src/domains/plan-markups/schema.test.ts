@@ -1,7 +1,9 @@
+import { createRequire } from "node:module";
 import { describe, it, expect } from "vitest";
 import {
   CreateMarkupPayloadSchema,
   DrawingMarkupSchema,
+  MARKUP_TYPES,
   UpdateMarkupPayloadSchema,
 } from "./schema";
 
@@ -62,6 +64,62 @@ describe("DrawingMarkupSchema — type + coordinate validation", () => {
   it("rejects over-long text/label", () => {
     expect(DrawingMarkupSchema.safeParse({ ...basePin, text: "a".repeat(2001) }).success).toBe(false);
     expect(DrawingMarkupSchema.safeParse({ ...basePin, label: "a".repeat(121) }).success).toBe(false);
+  });
+});
+
+describe("#651 annotation slice — arrow + text shapes", () => {
+  it("accepts an arrow with exactly two points", () => {
+    const arrow = { ...basePin, type: "arrow", x: undefined, y: undefined, points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] };
+    expect(DrawingMarkupSchema.safeParse(arrow).success).toBe(true);
+  });
+
+  it("rejects an arrow without exactly two points", () => {
+    const one = { ...basePin, type: "arrow", x: undefined, y: undefined, points: [{ x: 0, y: 0 }] };
+    const three = { ...basePin, type: "arrow", x: undefined, y: undefined, points: [{ x: 0, y: 0 }, { x: 0.5, y: 0.5 }, { x: 1, y: 1 }] };
+    const none = { ...basePin, type: "arrow", x: undefined, y: undefined };
+    expect(DrawingMarkupSchema.safeParse(one).success).toBe(false);
+    expect(DrawingMarkupSchema.safeParse(three).success).toBe(false);
+    expect(DrawingMarkupSchema.safeParse(none).success).toBe(false);
+  });
+
+  it("accepts a text markup with an x,y anchor", () => {
+    expect(DrawingMarkupSchema.safeParse({ ...basePin, type: "text", label: "GPO here" }).success).toBe(true);
+  });
+
+  it("rejects a text markup with no x,y anchor", () => {
+    const noAnchor = {
+      id: "mk_1", jobId: "job-1", planId: "plan-1", pageIndex: 0,
+      type: "text" as const, label: "floating", visibleToPhil: false, archived: false,
+    };
+    expect(DrawingMarkupSchema.safeParse(noAnchor).success).toBe(false);
+  });
+
+  it("accepts arrow/text create payloads and rejects malformed ones", () => {
+    expect(CreateMarkupPayloadSchema.safeParse({ jobId: "j", planId: "p", pageIndex: 0, type: "arrow", points: [{ x: 0.1, y: 0.1 }, { x: 0.9, y: 0.9 }] }).success).toBe(true);
+    expect(CreateMarkupPayloadSchema.safeParse({ jobId: "j", planId: "p", pageIndex: 0, type: "text", x: 0.3, y: 0.4 }).success).toBe(true);
+    // malformed: arrow needs 2 points, text needs x,y
+    expect(CreateMarkupPayloadSchema.safeParse({ jobId: "j", planId: "p", pageIndex: 0, type: "arrow", points: [{ x: 0.1, y: 0.1 }] }).success).toBe(false);
+    expect(CreateMarkupPayloadSchema.safeParse({ jobId: "j", planId: "p", pageIndex: 0, type: "text" }).success).toBe(false);
+  });
+});
+
+describe("ENUM LOCKSTEP — schema MARKUP_TYPES === api/plan-markups.js MARKUP_TYPES", () => {
+  it("both enums agree (client safeParse and server validator can't disagree)", () => {
+    // Pull the constant straight out of the CJS handler source — no import of
+    // the serverless module's runtime deps needed.
+    const requireFromHere = createRequire(import.meta.url);
+    const fs = requireFromHere("node:fs") as typeof import("node:fs");
+    const handlerPath = requireFromHere.resolve("../../../api/plan-markups.js");
+    const src = fs.readFileSync(handlerPath, "utf8");
+    const m = src.match(/const MARKUP_TYPES = (\[[^\]]*\]);/);
+    expect(m, "api/plan-markups.js must declare a literal MARKUP_TYPES array").not.toBeNull();
+    const apiTypes = JSON.parse(m![1]!.replace(/'/g, '"')) as string[];
+    expect([...apiTypes].sort()).toEqual([...MARKUP_TYPES].sort());
+    // explicit: the #651 additions are present in BOTH.
+    expect(apiTypes).toContain("arrow");
+    expect(apiTypes).toContain("text");
+    expect(MARKUP_TYPES).toContain("arrow");
+    expect(MARKUP_TYPES).toContain("text");
   });
 });
 

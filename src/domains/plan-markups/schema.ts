@@ -22,8 +22,14 @@ import { z } from "zod";
  * nothing more. No AI, no takeoff, no as-built export.
  */
 
-/** The Phase 2 markup shapes. pin/note use {x,y}; line/area use `points`. */
-export const MARKUP_TYPES = ["pin", "note", "line", "area"] as const;
+/**
+ * The markup shapes. pin/note/text use an {x,y} anchor; line/arrow use exactly
+ * two `points`; area uses 3..MAX `points`. `arrow` + `text` are the Phase 3
+ * annotation-slice additions (#651) — this enum is the lockstep partner of
+ * api/plan-markups.js's `MARKUP_TYPES`; the two MUST agree or the client
+ * safeParse and the server validator disagree.
+ */
+export const MARKUP_TYPES = ["pin", "note", "line", "area", "arrow", "text"] as const;
 export const MarkupTypeSchema = z.enum(MARKUP_TYPES);
 
 /** A small, fixed tone palette (no free-form colour — keeps the overlay calm). */
@@ -42,20 +48,22 @@ export const MarkupPointSchema = z.object({ x: Coord, y: Coord });
 
 /**
  * Per-type coordinate-shape guard shared by the stored record and the create
- * payload: pin/note need an {x,y} anchor; line needs exactly two points; area
- * needs 3..MAX. Keeps "invalid coordinates" rejection in one place.
+ * payload: pin/note/text need an {x,y} anchor; line/arrow need exactly two
+ * points; area needs 3..MAX. Keeps "invalid coordinates" rejection in one place.
+ * `text` shares the {x,y} anchor branch (a callout at a point), `arrow` shares
+ * the exactly-2-points branch (a directed segment) — see #651.
  */
 function refineShape(
   val: { type: string; x?: number; y?: number; points?: Array<{ x: number; y: number }> },
   ctx: z.RefinementCtx,
 ) {
-  if (val.type === "pin" || val.type === "note") {
+  if (val.type === "pin" || val.type === "note" || val.type === "text") {
     if (typeof val.x !== "number" || typeof val.y !== "number") {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["x"], message: `${val.type} requires x,y` });
     }
-  } else if (val.type === "line") {
+  } else if (val.type === "line" || val.type === "arrow") {
     if (!val.points || val.points.length !== 2) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["points"], message: "line requires exactly 2 points" });
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["points"], message: `${val.type} requires exactly 2 points` });
     }
   } else if (val.type === "area") {
     const n = val.points?.length ?? 0;

@@ -32,21 +32,34 @@ const PLAN = {
 } as unknown as Plan;
 
 describe("PlanOverlayController", () => {
-  it("renders the admin overlay toolbar (add pin/note/line + select)", () => {
+  it("renders the admin overlay toolbar (add pin/note/line/arrow/area/text + select + move + manage)", () => {
     const html = renderToString(createElement(PlanOverlayController, { jobId: "job-1", plan: PLAN, mode: "admin" }));
     expect(html).toContain('data-testid="overlay-toolbar"');
     expect(html).toContain("Add pin");
     expect(html).toContain("Add note");
     expect(html).toContain("Add line");
+    // #651 — the annotation-slice tools.
+    expect(html).toContain("Add arrow");
+    expect(html).toContain("Add area");
+    expect(html).toContain("Add text");
     expect(html).toContain("Select");
+    expect(html).toContain('data-testid="overlay-move-toggle"');
+    expect(html).toContain('data-testid="overlay-manage-toggle"');
     expect(html).toContain('data-testid="overlay-summary"');
   });
 
-  it("renders Phil read-only (no toolbar, no add/edit controls)", () => {
+  it("renders Phil read-only (no toolbar, no add/edit/move/manage controls)", () => {
     const html = renderToString(createElement(PlanOverlayController, { jobId: "job-1", plan: PLAN, mode: "phil" }));
     expect(html).toContain('data-testid="overlay-phil-hint"');
     expect(html).not.toContain('data-testid="overlay-toolbar"');
     expect(html).not.toContain("Add pin");
+    // #651 — annotation tools + move/manage are admin-only; Phil sees none.
+    expect(html).not.toContain("Add arrow");
+    expect(html).not.toContain("Add area");
+    expect(html).not.toContain("Add text");
+    expect(html).not.toContain('data-testid="overlay-move-toggle"');
+    expect(html).not.toContain('data-testid="overlay-manage-toggle"');
+    expect(html).not.toContain('data-testid="overlay-manage-panel"');
     expect(html).not.toContain("Show to Phil");
     expect(html).not.toContain("Archive");
     // #233 — the as-built designation is admin-only; Phil never sees the toggle.
