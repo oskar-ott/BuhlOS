@@ -65,6 +65,22 @@ describe("CaptureSheet — worker-first shutter", () => {
     expect(html).toContain("Cancel");
   });
 
+  it("keeps the test-sensitive dialog name + header byte-identical with dictation wired in (#147)", () => {
+    const html = render();
+    // The dialog accessible name MUST stay exactly this string — the Preview
+    // Smoke + Phase-D3 e2e match on it, and the #147 mic must not perturb it.
+    expect(html).toContain('aria-label="Capture evidence"');
+    expect(html).toContain("Capture evidence");
+    // The note field the mic appends into is still present (maxLength cap intact
+    // so dictation can never push the note past the server-validated limit).
+    expect(html).toContain('id="capture-note"');
+    expect(html).toContain('maxLength="280"');
+    // The mic is a client-only control (device mode resolves after mount), so it
+    // correctly paints nothing under SSR — typed input is never blocked on it,
+    // and no dishonest "no audio leaves the device" claim sneaks in.
+    expect(html.toLowerCase()).not.toContain("no audio");
+  });
+
   it("collapses stage/area/task behind one optional row by default (not a form)", () => {
     const html = render();
     // The single optional disclosure is present...

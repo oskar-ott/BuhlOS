@@ -38,4 +38,22 @@ describe("PhilCaptureLauncher", () => {
     // The destination step only appears once photos exist — never on first paint.
     expect(html).not.toContain("Where does this go?");
   });
+
+  it("keeps the dialog aria-label 'Capture' byte-identical with dictation wired in (#147)", () => {
+    const html = renderToString(
+      createElement(PhilCaptureLauncher, {
+        open: true,
+        onClose: () => {},
+        initialJobId: "job-1",
+      })
+    );
+    // The launcher dialog accessible name MUST stay exactly "Capture" — the
+    // Phil smoke matches { name: "Capture", exact: true }; the #147 mic in the
+    // note fields must not perturb it.
+    expect(html).toContain('aria-label="Capture"');
+    // The mic is client-only (its device mode resolves after mount) and the note
+    // fields appear only once photos exist, so first paint carries no dishonest
+    // "no audio leaves the device" claim.
+    expect(html.toLowerCase()).not.toContain("no audio");
+  });
 });
