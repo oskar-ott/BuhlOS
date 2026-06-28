@@ -74,8 +74,9 @@ export function JobCloseoutMatrixCard({
         <div className="min-w-0">
           <CardTitle>Closeout</CardTitle>
           <CardDescription className="mt-1">
-            Handover obligations — test results, certificate of electrical safety,
-            as-builts and the job&rsquo;s own closeout clauses.
+            Handover obligations — the standing electrical defaults (test results,
+            certificate of electrical safety, as-builts, O&amp;M manuals) plus
+            anything added on the job.
           </CardDescription>
         </div>
         <Pill tone={allDischarged ? "navy" : "warning"} className="shrink-0 font-semibold">

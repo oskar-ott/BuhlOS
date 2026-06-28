@@ -55,6 +55,16 @@ export interface CloseoutRequirementView {
   hasDanglingLink: boolean;
 }
 
+/** One record an admin can attach to a requirement as a fulfilment link — a
+ *  real certificate / document / as-built / ITP instance / evidence id, with a
+ *  human label where the store carries one (falls back to the id). Sourced from
+ *  the live stores, so the picker only ever offers records that will resolve. */
+export interface CloseoutLinkOption {
+  type: CloseoutFulfilmentLink["type"];
+  id: string;
+  label: string;
+}
+
 export interface CloseoutCounts {
   total: number;
   outstanding: number;
@@ -88,6 +98,10 @@ export type ShapedCloseoutView =
       /** The not-yet-discharged requirements (outstanding + in_progress), in
        *  order — the "what's left" list the card shows. */
       outstanding: CloseoutRequirementView[];
+      /** Real records an admin can attach as fulfilment links (the link picker's
+       *  source). Empty when no records loaded — the picker then offers nothing
+       *  rather than inviting a link that can't resolve. */
+      linkOptions: CloseoutLinkOption[];
     };
 
 export type CloseoutMatrixView =
@@ -105,6 +119,10 @@ export interface CloseoutReadDeps {
   /** The job's live record ids, for honest status derivation. Optional: omitted
    *  → links resolve fail-closed (nothing shows satisfied). */
   loadKnownIds?(jobId: string): Promise<CloseoutKnownIds>;
+  /** The job's linkable records (id + label), for the admin link picker.
+   *  Optional: omitted → the picker offers nothing. Best-effort — a failure
+   *  must NOT fail the whole read. */
+  loadLinkOptions?(jobId: string): Promise<CloseoutLinkOption[]>;
 }
 
 /**
@@ -117,6 +135,7 @@ export function shapeCloseoutMatrix(
   load: LoadCloseoutResult,
   jobId: string,
   known?: CloseoutKnownIds,
+  linkOptions?: CloseoutLinkOption[],
 ): ShapedCloseoutView {
   if (load.status === "absent") return { ok: true, jobId, status: "missing" };
   if (load.status === "unreadable") return { ok: true, jobId, status: "unreadable" };
@@ -162,6 +181,7 @@ export function shapeCloseoutMatrix(
     counts,
     requirements,
     outstanding,
+    linkOptions: linkOptions ?? [],
   };
 }
 
@@ -220,7 +240,17 @@ export async function runCloseoutMatrixView(
       known = undefined;
     }
   }
-  return shapeCloseoutMatrix(load, jobId, known);
+  // Best-effort: a failure to load the picker options must NOT fail the read —
+  // an admin can still confirm/waive/remove without the picker.
+  let linkOptions: CloseoutLinkOption[] | undefined;
+  if (deps.loadLinkOptions) {
+    try {
+      linkOptions = await deps.loadLinkOptions(jobId);
+    } catch {
+      linkOptions = undefined;
+    }
+  }
+  return shapeCloseoutMatrix(load, jobId, known, linkOptions);
 }
 
 // ── Real deps (Vercel Blob) ───────────────────────────────────────────────────
@@ -238,6 +268,7 @@ export function blobCloseoutReadDeps(): CloseoutReadDeps {
       documentIds: r.documentIds,
       itpInstanceIds: r.itpInstanceIds,
     })),
+    loadLinkOptions: (jobId) => loadJobCloseoutLinkOptions(jobId),
   };
 }
 
@@ -269,4 +300,57 @@ export async function loadJobCloseoutKnownIds(jobId: string): Promise<{
     documentIds: idsOf(docs?.plans),
     itpInstanceIds: idsOf(itps?.instances),
   };
+}
+
+/**
+ * The linkable records the admin picker offers, read from the same live stores
+ * as the known-id sets PLUS evidence (`jobs/<jobId>/data.json#evidence[]`), each
+ * with a human label where the store carries one (title / name / ref), falling
+ * back to the id. A document also surfaces as an `as-built` option so a
+ * requirement can cite it under either type. Best-effort and total — a
+ * missing/unreadable store contributes nothing, never throws. ONLY real records
+ * are offered, so a picked link always resolves (no fabricated options, P7).
+ */
+export async function loadJobCloseoutLinkOptions(jobId: string): Promise<CloseoutLinkOption[]> {
+  const [certs, docs, itps, data] = await Promise.all([
+    readJsonBlob<{ certificates?: Array<Record<string, unknown>> }>(`jobs/${jobId}/certificates.json`, {
+      certificates: [],
+    }),
+    readJsonBlob<{ plans?: Array<Record<string, unknown>> }>(`jobs/${jobId}/plans-index.json`, { plans: [] }),
+    readJsonBlob<{ instances?: Array<Record<string, unknown>> }>(`jobs/${jobId}/itps.json`, { instances: [] }),
+    readJsonBlob<{ evidence?: Array<Record<string, unknown>> }>(`jobs/${jobId}/data.json`, { evidence: [] }),
+  ]);
+
+  const str = (v: unknown): string | null =>
+    typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+  const idOf = (row: Record<string, unknown>): string | null => str(row.id);
+  const labelOf = (row: Record<string, unknown>, fallbackId: string): string =>
+    str(row.title) ?? str(row.name) ?? str(row.label) ?? str(row.referenceNo) ?? str(row.caption) ?? fallbackId;
+
+  const options: CloseoutLinkOption[] = [];
+  const push = (
+    rows: Array<Record<string, unknown>> | undefined,
+    type: CloseoutLinkOption["type"],
+  ): void => {
+    for (const row of rows ?? []) {
+      const id = idOf(row);
+      if (!id) continue;
+      options.push({ type, id, label: labelOf(row, id) });
+    }
+  };
+
+  push(certs?.certificates, "certificate");
+  // A document is offered under both `document` and `as-built` so the admin can
+  // cite an as-built drawing as such; both resolve against the documents id set.
+  for (const row of docs?.plans ?? []) {
+    const id = idOf(row);
+    if (!id) continue;
+    const label = labelOf(row, id);
+    options.push({ type: "document", id, label });
+    options.push({ type: "as-built", id, label });
+  }
+  push(itps?.instances, "itp-instance");
+  push(data?.evidence, "evidence");
+
+  return options;
 }

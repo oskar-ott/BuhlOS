@@ -21,10 +21,13 @@ interface PageParams {
 
 /**
  * /v2/jobs/[jobId]/closeout — the closeout matrix (#374). The per-job handover
- * obligations: requirements seeded from the recon's closeout clauses + the
- * electrical defaults, each discharged by links to real records (certificate /
- * document / evidence / ITP / as-built) and an admin confirmation, with honest
- * N-of-M readiness.
+ * obligations: the standing electrical defaults are SEEDED the first time the
+ * job's scope is compiled (test results, certificate of electrical safety,
+ * as-builts, O&M manuals/warranties); an admin can add job-specific ones; and —
+ * once #366 scope-reconciliation lands — the recon's `closeout` clauses join the
+ * seed. Each is discharged by links to real records (certificate / document /
+ * evidence / ITP / as-built) and an admin confirmation, with honest N-of-M
+ * readiness.
  *
  * Read-only with respect to job completion: this tracks readiness, it does NOT
  * gate or freeze the job's close-out (#349 owns the numbers freeze).
@@ -91,9 +94,12 @@ export default async function AdminJobCloseoutPage({ params }: PageParams) {
     >
       <div className="mx-auto max-w-4xl space-y-4">
         <p className="text-sm text-slate-600">
-          Closeout obligations — test results, certificate of electrical safety,
-          as-builts and the job&rsquo;s own closeout clauses. A requirement is
-          closed out only when a real record resolves and an admin confirms it.
+          Closeout obligations — the standing electrical defaults (test results,
+          certificate of electrical safety, as-builts, O&amp;M manuals and
+          warranties), seeded when the job is compiled, plus anything you add here
+          and, once the scope reconciliation is done, the job&rsquo;s own closeout
+          clauses. A requirement is closed out only when a real record resolves
+          and an admin confirms it.
         </p>
         <CloseoutMatrixPanel jobId={jobId} view={view} />
       </div>

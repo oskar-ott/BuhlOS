@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { decodeSessionCookie } from "@/lib/auth/session";
 import { ScopeReconciliationSchema } from "@/domains/job-control/reconciliation";
+import { DEFAULT_CLOSEOUT_REQUIREMENTS } from "@/domains/job-control/closeout-matrix";
 import type { JobStructure } from "@/domains/job-control/compile";
 import { taskRefKey } from "@/domains/job-control/spine";
 import {
@@ -357,6 +358,142 @@ describe("prepareCompileConfirm", () => {
     // generatedAt is carried from the first artifact; updatedAt is now
     expect(next.persisted.compileMeta?.generatedAt).toBe("2026-06-14T00:00:00.000Z");
     expect(next.persisted.updatedAt).toBe(AT);
+  });
+});
+
+// ── Closeout seeding (#374 follow-up) ──────────────────────────────────────--
+
+describe("closeout requirement seeding", () => {
+  it("the FIRST compile (no previous) seeds the standing electrical defaults", () => {
+    const prep = prepareCompileConfirm({
+      jobId: "job_100arthur",
+      persistedReconciliation: reconciliationEnvelope(),
+      structure: structure(),
+      previous: null,
+      at: AT,
+    });
+    expect(prep.ok).toBe(true);
+    if (!prep.ok) return;
+    // The matrix is born populated, not silently empty.
+    expect(prep.persisted.closeoutRequirements).toHaveLength(DEFAULT_CLOSEOUT_REQUIREMENTS.length);
+    expect(prep.persisted.closeoutRequirements.map((r) => r.title)).toContain(
+      "Certificate of electrical safety issued",
+    );
+    // Seeded as outstanding, manual-source, no links, no confirmation — never a
+    // fabricated "done".
+    expect(prep.persisted.closeoutRequirements.every((r) => r.status === "outstanding")).toBe(true);
+    expect(prep.persisted.closeoutRequirements.every((r) => r.source === "manual")).toBe(true);
+    expect(prep.persisted.closeoutRequirements.every((r) => r.fulfilmentLinks.length === 0)).toBe(true);
+    // No clause-derived requirements yet (#366 not built): defaults-only count.
+    expect(prep.persisted.closeoutRequirements.every((r) => r.scopeClauseIds.length === 0)).toBe(true);
+  });
+
+  it("is idempotent across a re-compile: deterministic cr_ ids, no duplication", () => {
+    const first = prepareCompileConfirm({
+      jobId: "job_100arthur",
+      persistedReconciliation: reconciliationEnvelope(),
+      structure: structure(),
+      previous: null,
+      at: "2026-06-14T00:00:00.000Z",
+    });
+    if (!first.ok) return;
+    const next = prepareCompileConfirm({
+      jobId: "job_100arthur",
+      persistedReconciliation: reconciliationEnvelope(),
+      structure: structure(),
+      previous: first.persisted,
+      at: AT,
+    });
+    expect(next.ok).toBe(true);
+    if (!next.ok) return;
+    // Same count, same ids — never re-seeded on top of the existing set.
+    expect(next.persisted.closeoutRequirements).toHaveLength(first.persisted.closeoutRequirements.length);
+    expect(next.persisted.closeoutRequirements.map((r) => r.id)).toEqual(
+      first.persisted.closeoutRequirements.map((r) => r.id),
+    );
+  });
+
+  it("PRESERVES an admin's links + confirmation through a re-compile (re-seed never clobbers)", () => {
+    const first = prepareCompileConfirm({
+      jobId: "job_100arthur",
+      persistedReconciliation: reconciliationEnvelope(),
+      structure: structure(),
+      previous: null,
+      at: "2026-06-14T00:00:00.000Z",
+    });
+    if (!first.ok) return;
+    // Simulate an admin linking a real certificate to the CoES requirement and
+    // confirming it (the producer would have done this via the closeout writer).
+    const coesId = first.persisted.closeoutRequirements.find(
+      (r) => r.title === "Certificate of electrical safety issued",
+    )!.id;
+    const withAdminWork = {
+      ...first.persisted,
+      closeoutRequirements: first.persisted.closeoutRequirements.map((r) =>
+        r.id === coesId
+          ? {
+              ...r,
+              fulfilmentLinks: [{ type: "certificate" as const, id: "cert_real" }],
+              confirmedAt: "2026-06-15T00:00:00.000Z",
+              confirmedBy: "boss",
+              status: "satisfied" as const,
+            }
+          : r,
+      ),
+    };
+    const next = prepareCompileConfirm({
+      jobId: "job_100arthur",
+      persistedReconciliation: reconciliationEnvelope(),
+      structure: structure(),
+      previous: withAdminWork,
+      at: AT,
+    });
+    expect(next.ok).toBe(true);
+    if (!next.ok) return;
+    const coes = next.persisted.closeoutRequirements.find((r) => r.id === coesId)!;
+    expect(coes.fulfilmentLinks).toEqual([{ type: "certificate", id: "cert_real" }]);
+    expect(coes.confirmedAt).toBe("2026-06-15T00:00:00.000Z");
+    expect(coes.confirmedBy).toBe("boss");
+  });
+
+  it("does NOT re-seed when an admin had cleared the matrix to a non-default set", () => {
+    // A non-empty existing array is preserved verbatim — seeding is first-write only.
+    const first = prepareCompileConfirm({
+      jobId: "job_100arthur",
+      persistedReconciliation: reconciliationEnvelope(),
+      structure: structure(),
+      previous: null,
+      at: "2026-06-14T00:00:00.000Z",
+    });
+    if (!first.ok) return;
+    const custom = {
+      ...first.persisted,
+      closeoutRequirements: [
+        {
+          id: "cr_custom",
+          jobId: "job_100arthur",
+          title: "Bespoke obligation",
+          kind: "other" as const,
+          scopeClauseIds: [],
+          fulfilmentLinks: [],
+          areaScope: "job_wide" as const,
+          source: "manual" as const,
+          status: "outstanding" as const,
+          order: 0,
+        },
+      ],
+    };
+    const next = prepareCompileConfirm({
+      jobId: "job_100arthur",
+      persistedReconciliation: reconciliationEnvelope(),
+      structure: structure(),
+      previous: custom,
+      at: AT,
+    });
+    expect(next.ok).toBe(true);
+    if (!next.ok) return;
+    expect(next.persisted.closeoutRequirements).toHaveLength(1);
+    expect(next.persisted.closeoutRequirements[0]!.id).toBe("cr_custom");
   });
 });
 

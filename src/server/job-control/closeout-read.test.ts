@@ -172,4 +172,29 @@ describe("runCloseoutMatrixView", () => {
     const v = await runCloseoutMatrixView(deps, "job-1");
     expect(v.ok).toBe(false);
   });
+
+  it("threads the loaded link options into the ready view (the picker's source)", async () => {
+    const deps: CloseoutReadDeps = {
+      loadArtifact: async () => loaded(spine()),
+      loadLinkOptions: async () => [
+        { type: "certificate", id: "cert_real", label: "CoES — main board" },
+        { type: "document", id: "doc_1", label: "As-built A1" },
+      ],
+    };
+    const v = await runCloseoutMatrixView(deps, "job-1");
+    if (!v.ok || v.status !== "ready") throw new Error("expected ready");
+    expect(v.linkOptions.map((o) => o.id)).toEqual(["cert_real", "doc_1"]);
+  });
+
+  it("falls back to no options when the link-options loader throws (never crashes)", async () => {
+    const deps: CloseoutReadDeps = {
+      loadArtifact: async () => loaded(spine()),
+      loadLinkOptions: async () => {
+        throw new Error("blob down");
+      },
+    };
+    const v = await runCloseoutMatrixView(deps, "job-1");
+    if (!v.ok || v.status !== "ready") throw new Error("expected ready");
+    expect(v.linkOptions).toEqual([]);
+  });
 });
