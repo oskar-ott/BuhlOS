@@ -79,6 +79,13 @@ module.exports = async (req, res) => {
 
   // ── GET — list markups for a plan + page ──────────────────────────────
   if (req.method === 'GET') {
+    // Access gate FIRST — a reader with no access to the job gets a 403 before
+    // any request-shape 400, so the endpoint never discloses its validation to
+    // a role that can't see the job's markups.
+    const hasFieldReadAccess = canViewPhilPlanMarkups(user.role) && isCrewOnJob(user, jobId);
+    const hasAccess = canManage || hasFieldReadAccess;
+    if (!hasAccess) return res.status(403).json({ error: 'no access to this job' });
+
     const planId = (req.query && req.query.planId) || '';
     if (!planId) return res.status(400).json({ error: 'planId required' });
     // page is optional: provided → that page only (the mission's per-page
@@ -92,10 +99,6 @@ module.exports = async (req, res) => {
         return res.status(400).json({ error: 'page must be a non-negative integer' });
       }
     }
-
-    const hasFieldReadAccess = canViewPhilPlanMarkups(user.role) && isCrewOnJob(user, jobId);
-    const hasAccess = canManage || hasFieldReadAccess;
-    if (!hasAccess) return res.status(403).json({ error: 'no access to this job' });
 
     const index = await readPlanIndex(jobId);
     const plan = (index.plans || []).find((p) => p.id === planId);

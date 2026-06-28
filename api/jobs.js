@@ -753,6 +753,20 @@ module.exports = async (req, res) => {
     // touches that one slot.
     const basicsPatch = validateJobBasics(req.body || {});
     if (!basicsPatch.ok) return res.status(400).json({ error: basicsPatch.error });
+    // #235 audit: validateJobBasics only cross-checks the DLP dates when BOTH
+    // arrive in the same patch — a partial PUT setting just one could leave
+    // defectPeriodEndsAt before the STORED handoverDate. Enforce the EFFECTIVE
+    // (stored + patch) ordering whenever a PUT touches either DLP date. Clearing
+    // a date ('') drops the constraint.
+    {
+      const p = basicsPatch.patch;
+      const touchedDlp = p.handoverDate !== undefined || p.defectPeriodEndsAt !== undefined;
+      const effHandover = p.handoverDate !== undefined ? p.handoverDate : job.handoverDate;
+      const effEnd = p.defectPeriodEndsAt !== undefined ? p.defectPeriodEndsAt : job.defectPeriodEndsAt;
+      if (touchedDlp && effHandover && effEnd && effEnd < effHandover) {
+        return res.status(400).json({ error: 'defectPeriodEndsAt must be on or after handoverDate' });
+      }
+    }
     Object.assign(job, basicsPatch.patch);
 
     // Polish (brief §13 prereq): contract + claims numeric fields.
