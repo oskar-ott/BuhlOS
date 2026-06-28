@@ -933,6 +933,13 @@ export function PhilJobDetail({
           items={evidenceItems}
           banner={captureBanner}
           areaNames={areaNames}
+          jobId={job.id}
+          viewerId={viewer?.id}
+          onItemUpdated={(updated) =>
+            setEvidenceItems((prev) =>
+              prev.map((it) => (it.id === updated.id ? updated : it))
+            )
+          }
         />
       </section>
 

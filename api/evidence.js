@@ -389,6 +389,154 @@ async function reviewEvidence(req, res, user, jobId) {
   return res.status(200).json({ evidenceItem: next });
 }
 
+// #263 — pair an AFTER photo with a BEFORE photo of the same spot.
+// The link is stored ONLY on the AFTER row (pairedWithId=beforeId); the
+// BEFORE row is NEVER mutated (byte-identical invariant — tested). Both
+// ids must resolve on THIS job; photo-kind only; no self-link. Permission:
+// the AFTER's capturing worker OR an admin (LH / others → 403). Idempotent.
+function canPairEvidence(user, after) {
+  if (isAdminRole(user.role)) return true;
+  return !!after && after.capturedById === user.id;
+}
+
+async function linkEvidence(req, res, user, jobId) {
+  const body = req.body || {};
+  const afterId = typeof body.afterId === 'string' ? body.afterId : '';
+  const beforeId = typeof body.beforeId === 'string' ? body.beforeId : '';
+  if (!afterId) return res.status(400).json({ error: 'afterId required' });
+  if (!beforeId) return res.status(400).json({ error: 'beforeId required' });
+  if (afterId === beforeId) {
+    return res.status(400).json({ error: 'cannot link a photo to itself' });
+  }
+
+  const KEY = dataKey(jobId);
+  const data = await readBlob(KEY, emptyData());
+  const arr = Array.isArray(data.evidence) ? data.evidence : [];
+
+  // Mirror the .some() resolution in api/snags.js — both ids must resolve
+  // on this job before any mutation.
+  const afterIdx = arr.findIndex((ev) => ev && ev.id === afterId);
+  if (afterIdx === -1) return res.status(404).json({ error: 'after evidence not found on job' });
+  if (!arr.some((ev) => ev && ev.id === beforeId)) {
+    return res.status(404).json({ error: 'before evidence not found on job' });
+  }
+  const after = arr[afterIdx];
+  const before = arr.find((ev) => ev && ev.id === beforeId);
+
+  // Photo-kind only — note pairing is rejected.
+  if (after.kind !== 'photo' || before.kind !== 'photo') {
+    return res.status(400).json({ error: 'only photos can be paired' });
+  }
+
+  // Permission: the AFTER's capturing worker OR an admin. LH / others → 403.
+  if (!canPairEvidence(user, after)) {
+    return res.status(403).json({ error: 'only the capturing worker or an admin can pair' });
+  }
+
+  // Idempotent: already linked to this before → 200 no-op (no write, no audit).
+  if (after.pairedWithId === beforeId) {
+    return res.status(200).json({ evidenceItem: after, idempotentNoop: true });
+  }
+
+  const nowIso = new Date().toISOString();
+  // Mutate ONLY the after row. The before row stays byte-identical.
+  const next = { ...after, pairedWithId: beforeId, updatedAt: nowIso };
+
+  const auditEntry = await appendAuditLog({
+    action: 'evidence.linked',
+    actorId: user.id,
+    actorName: user.name || user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'evidence',
+    targetId: next.id,
+    summary: 'linked before photo',
+    metadata: { beforeId },
+  }).catch(() => null);
+  if (auditEntry && auditEntry.id) {
+    next.auditLogIds = [...(after.auditLogIds || []), auditEntry.id];
+  }
+
+  arr[afterIdx] = next;
+  data.evidence = arr;
+  try {
+    await writeBlob(KEY, data);
+  } catch (e) {
+    return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
+  }
+
+  appendLegacyAudit(jobId, {
+    byUserId: user.id,
+    byUsername: user.username || user.name || '',
+    kind: 'evidence.linked',
+    summary: `evidence ${next.id} linked before photo ${beforeId}`,
+    after: { evidenceId: next.id, pairedWithId: beforeId },
+  }).catch(() => {});
+
+  return res.status(200).json({ evidenceItem: next });
+}
+
+async function unlinkEvidence(req, res, user, jobId) {
+  const body = req.body || {};
+  const afterId = typeof body.afterId === 'string' ? body.afterId : '';
+  if (!afterId) return res.status(400).json({ error: 'afterId required' });
+
+  const KEY = dataKey(jobId);
+  const data = await readBlob(KEY, emptyData());
+  const arr = Array.isArray(data.evidence) ? data.evidence : [];
+  const afterIdx = arr.findIndex((ev) => ev && ev.id === afterId);
+  if (afterIdx === -1) return res.status(404).json({ error: 'after evidence not found on job' });
+  const after = arr[afterIdx];
+
+  // Same permission gate as link.
+  if (!canPairEvidence(user, after)) {
+    return res.status(403).json({ error: 'only the capturing worker or an admin can unpair' });
+  }
+
+  // Idempotent: already unpaired → 200 no-op.
+  if (after.pairedWithId == null) {
+    return res.status(200).json({ evidenceItem: after, idempotentNoop: true });
+  }
+
+  const prevBeforeId = after.pairedWithId;
+  const nowIso = new Date().toISOString();
+  const next = { ...after, pairedWithId: null, updatedAt: nowIso };
+
+  const auditEntry = await appendAuditLog({
+    action: 'evidence.unlinked',
+    actorId: user.id,
+    actorName: user.name || user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'evidence',
+    targetId: next.id,
+    summary: 'unlinked before photo',
+    metadata: { previousBeforeId: prevBeforeId },
+  }).catch(() => null);
+  if (auditEntry && auditEntry.id) {
+    next.auditLogIds = [...(after.auditLogIds || []), auditEntry.id];
+  }
+
+  arr[afterIdx] = next;
+  data.evidence = arr;
+  try {
+    await writeBlob(KEY, data);
+  } catch (e) {
+    return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
+  }
+
+  appendLegacyAudit(jobId, {
+    byUserId: user.id,
+    byUsername: user.username || user.name || '',
+    kind: 'evidence.unlinked',
+    summary: `evidence ${next.id} unlinked before photo`,
+    before: { pairedWithId: prevBeforeId },
+    after: { evidenceId: next.id, pairedWithId: null },
+  }).catch(() => {});
+
+  return res.status(200).json({ evidenceItem: next });
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -417,6 +565,23 @@ module.exports = async (req, res) => {
       return await reviewEvidence(req, res, user, jobId);
     } catch (e) {
       return res.status(500).json({ error: e.message || 'review failed' });
+    }
+  }
+
+  // #263 — pair / unpair. The job-level write gate runs first (assigned
+  // job only for field/LH); the per-row capturing-worker-or-admin gate is
+  // then enforced inside the handler so an LH on the job still can't pair
+  // someone else's capture.
+  if (req.method === 'POST' && (action === 'link' || action === 'unlink')) {
+    if (!canWrite(user, jobId)) {
+      return res.status(403).json({ error: 'no write access to job' });
+    }
+    try {
+      return action === 'link'
+        ? await linkEvidence(req, res, user, jobId)
+        : await unlinkEvidence(req, res, user, jobId);
+    } catch (e) {
+      return res.status(500).json({ error: e.message || `${action} failed` });
     }
   }
 

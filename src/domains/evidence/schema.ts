@@ -128,6 +128,18 @@ export const EvidenceItemSchema = z
     reviewedAt: z.string().nullable().optional(),
     rejectionReason: z.string().nullable().optional(),
 
+    // #263 — before/after pairing. The link is stored ONLY on the AFTER
+    // row, pointing at the BEFORE row's id (deterministic direction; the
+    // render layer derives both ways via resolvePair). Nullable +
+    // optional so .passthrough() keeps every pre-#263 row valid without a
+    // migration. A dangling id (partner deleted) is treated as unpaired
+    // by the render layer — never a parse failure.
+    //
+    // Supabase forward-compat: this single-column link is the smallest
+    // honest model today; a future evidence-link join table (Phase F+)
+    // can backfill from `pairedWithId` without reshaping the wire.
+    pairedWithId: z.string().nullable().optional(),
+
     // Audit trail pointers (doc 28 §A.1 + §A.5). The full audit rows
     // live in audit/{yyyy-mm}.json blobs — this array is just the IDs
     // an admin drawer can resolve.
@@ -286,6 +298,27 @@ export const ReviewEvidencePayloadSchema = z
     }
   });
 
+/**
+ * #263 — pair an AFTER photo with a BEFORE photo of the same spot.
+ *
+ *   POST /api/evidence?jobId=X&action=link    body { afterId, beforeId }
+ *   POST /api/evidence?jobId=X&action=unlink  body { afterId }
+ *
+ * The link is written ONLY on the AFTER row (pairedWithId=beforeId); the
+ * BEFORE row is never mutated. Linking is a separate action from create,
+ * so this is NOT part of CreateEvidencePayloadSchema. Server rules
+ * (photo-kind only, both resolve on this job, no self-link, permission
+ * gate) are mirrored in src/domains/evidence/pairing.ts#validateLink.
+ */
+export const LinkEvidencePayloadSchema = z.object({
+  afterId: z.string().min(1, "afterId required"),
+  beforeId: z.string().min(1, "beforeId required"),
+});
+
+export const UnlinkEvidencePayloadSchema = z.object({
+  afterId: z.string().min(1, "afterId required"),
+});
+
 /** GET /api/evidence?jobId=X response. */
 export const EvidenceListResponseSchema = z.object({
   evidence: z.array(EvidenceItemSchema),
@@ -317,6 +350,10 @@ export const EvidenceCreateResponseSchema = z.object({
 
 /** POST review response — same shape, returns the canonical item. */
 export const EvidenceReviewResponseSchema = EvidenceCreateResponseSchema;
+
+/** POST link / unlink response — returns the canonical AFTER item
+ *  (the only row the mutation touches). Same wrapper as create/review. */
+export const EvidenceLinkResponseSchema = EvidenceCreateResponseSchema;
 
 /** Shared error shape across the legacy + new APIs. */
 export const ApiErrorBodySchema = z.object({

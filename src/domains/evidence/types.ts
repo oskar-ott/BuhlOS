@@ -4,14 +4,17 @@ import type {
   EvidenceCreateResponseSchema,
   EvidenceItemSchema,
   EvidenceKindSchema,
+  EvidenceLinkResponseSchema,
   EvidenceListResponseSchema,
   EvidencePhotoUploadResponseSchema,
   EvidenceReviewResponseSchema,
   EvidenceSourceSchema,
   EvidenceStageSchema,
   EvidenceStatusSchema,
+  LinkEvidencePayloadSchema,
   ReviewEvidencePayloadSchema,
   ServerEvidenceStatusSchema,
+  UnlinkEvidencePayloadSchema,
 } from "./schema";
 
 /**
@@ -33,8 +36,11 @@ export type EvidenceSource = z.infer<typeof EvidenceSourceSchema>;
 export type EvidenceItem = z.infer<typeof EvidenceItemSchema>;
 export type CreateEvidencePayload = z.infer<typeof CreateEvidencePayloadSchema>;
 export type ReviewEvidencePayload = z.infer<typeof ReviewEvidencePayloadSchema>;
+export type LinkEvidencePayload = z.infer<typeof LinkEvidencePayloadSchema>;
+export type UnlinkEvidencePayload = z.infer<typeof UnlinkEvidencePayloadSchema>;
 
 export type EvidenceListResponse = z.infer<typeof EvidenceListResponseSchema>;
 export type EvidenceCreateResponse = z.infer<typeof EvidenceCreateResponseSchema>;
 export type EvidenceReviewResponse = z.infer<typeof EvidenceReviewResponseSchema>;
+export type EvidenceLinkResponse = z.infer<typeof EvidenceLinkResponseSchema>;
 export type EvidencePhotoUploadResponse = z.infer<typeof EvidencePhotoUploadResponseSchema>;
