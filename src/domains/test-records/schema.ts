@@ -81,6 +81,10 @@ export const TestRecordInputSchema = z
     /** When the test was performed (ISO). */
     testedAt: z.string().min(1),
     note: z.string().nullable().optional(),
+    /** AC3 — immutability/supersede. A correction is a NEW record that names the
+     *  record it replaces; records are never edited in place. The superseded
+     *  record's id (`tr_…`) on this job. Absent = a fresh, non-superseding record. */
+    supersedesId: z.string().nullable().optional(),
   })
   .passthrough();
 export type TestRecordInput = z.infer<typeof TestRecordInputSchema>;

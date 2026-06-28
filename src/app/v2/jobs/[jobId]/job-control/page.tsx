@@ -5,6 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { JobControlAuthoringPanel } from "@/components/admin/JobControlAuthoringPanel";
 import { CompiledProofStatus } from "@/components/admin/CompiledProofStatus";
+import { TestRecordsPanel } from "@/components/admin/TestRecordsPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isAdminRole } from "@/lib/auth/roles";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
@@ -94,6 +95,11 @@ export default async function AdminJobControlPage({ params }: PageParams) {
     >
       <JobControlAuthoringPanel job={jobResult.job} />
       <CompiledProofStatus status={proofStatus} />
+      {/* #517 — read-only review of the structured electrical test results the
+          field captured (self-fetching client island; admin-gated by this page). */}
+      <div className="mt-6">
+        <TestRecordsPanel jobId={jobId} />
+      </div>
     </AdminShell>
   );
 }

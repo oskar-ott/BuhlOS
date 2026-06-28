@@ -49,6 +49,7 @@ export function statusTone(status: EvidenceStatus): EvidenceStatusTone {
 const KIND_LABELS: Record<EvidenceKind, string> = {
   photo: "Photo",
   note: "Note",
+  test_result: "Test result",
 };
 
 export function kindLabel(kind: EvidenceKind): string {

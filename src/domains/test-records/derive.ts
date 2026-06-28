@@ -53,3 +53,28 @@ export function buildTestRecord(
     ...(ctx.createdBy != null ? { createdBy: ctx.createdBy } : {}),
   });
 }
+
+/** Plain-English overall word for a status — site language, never "n/a" jargon. */
+export function overallStatusWord(status: TestStatus): string {
+  switch (status) {
+    case "pass":
+      return "pass";
+    case "fail":
+      return "fail";
+    case "na":
+      return "not judged";
+  }
+}
+
+/**
+ * A one-line, honest summary of a record — "3 circuits, overall pass" (no
+ * invented numbers, P7). Used as the companion `test_result` evidence note AND
+ * for the Phil/admin read-back. The circuit count is the real row count.
+ */
+export function summariseTestRecord(
+  record: Pick<TestRecord, "rows" | "overallStatus">,
+): string {
+  const n = record.rows.length;
+  const circuits = `${n} circuit${n === 1 ? "" : "s"}`;
+  return `${circuits}, overall ${overallStatusWord(record.overallStatus)}`;
+}

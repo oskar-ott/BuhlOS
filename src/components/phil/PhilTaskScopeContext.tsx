@@ -60,8 +60,15 @@ export function PhilTaskScopeContext({
    *  text (today's behavior — zero regression). */
   jobId?: string;
   /** Capture proof for a specific unmet requirement. When omitted, no capture
-   *  affordance renders (read-only context, today's behavior). */
-  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; taskRef?: TaskRef }) => void;
+   *  affordance renders (read-only context, today's behavior). The `kind` lets
+   *  the parent route a `test_result` requirement to the structured test-record
+   *  sheet instead of the photo/note CaptureSheet (#517). */
+  onCaptureProof?: (target: {
+    workPackageId: string;
+    requiredEvidenceId: string;
+    kind: TaskContextEvidenceReq["kind"];
+    taskRef?: TaskRef;
+  }) => void;
   /** Start a variation flag for a "stop — flag a variation first" warning. When
    *  omitted, the danger notice renders text-only (today's behavior — the notice
    *  tells the worker to flag one, with no button). When wired, a "Flag a
@@ -202,6 +209,9 @@ export function PhilTaskScopeContext({
                           onCaptureProof?.({
                             workPackageId: workPackageId as string,
                             requiredEvidenceId: e.id,
+                            // route on kind: a test_result opens the structured
+                            // test-record sheet; everything else the photo/note sheet.
+                            kind: e.kind,
                             // scope the link to the requirement's own task when it is
                             // task-authored (#502); package-level requirement → no taskRef
                             ...(e.taskRef ? { taskRef: e.taskRef } : {}),

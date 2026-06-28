@@ -206,7 +206,7 @@ describe("EvidenceItemSchema", () => {
   });
 
   it("enum exports stay in sync with the documented values", () => {
-    expect([...EVIDENCE_KINDS].sort()).toEqual(["note", "photo"]);
+    expect([...EVIDENCE_KINDS].sort()).toEqual(["note", "photo", "test_result"]);
     expect([...EVIDENCE_STAGES].sort()).toEqual(["fitOff", "roughIn"]);
     expect([...EVIDENCE_STATUSES].sort()).toEqual([
       "pending_sync",

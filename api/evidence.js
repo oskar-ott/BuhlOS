@@ -53,7 +53,13 @@ const { appendAudit: appendLegacyAudit } = require('./_lib/job-audit');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { idempotencyKeyFrom, findIdempotent, recordIdempotent } = require('./_lib/idempotency');
 
-const VALID_KINDS = new Set(['photo', 'note']);
+// `test_result` (#517) is the companion proof minted when a worker saves a
+// structured electrical TestRecord — the numbers live in
+// jobs/<jobId>/test-records.json; this row carries a `testRecordId` pointer + an
+// honest one-line summary note. It rides the SAME create path so it inherits the
+// audit dual-write + idempotency and lands in the same evidence[] array the
+// proof-loop's loadJobProofIds reads (extend, never fork the proof loop).
+const VALID_KINDS = new Set(['photo', 'note', 'test_result']);
 const VALID_STAGES = new Set(['roughIn', 'fitOff']);
 const NOTE_MAX = 280;
 const REJECTION_REASON_MAX = 500;
@@ -80,9 +86,9 @@ function validateCreateBody(body, job) {
   if (!body || typeof body !== 'object') {
     return ['body must be an object'];
   }
-  const { kind, areaId, stage, taskId, photoId, photoUrl, note } = body;
+  const { kind, areaId, stage, taskId, photoId, photoUrl, note, testRecordId } = body;
   if (!kind || !VALID_KINDS.has(kind)) {
-    errors.push('kind must be photo or note');
+    errors.push('kind must be photo, note or test_result');
   }
   if (kind === 'note') {
     const n = typeof note === 'string' ? note.trim() : '';
@@ -91,6 +97,14 @@ function validateCreateBody(body, job) {
   if (kind === 'photo') {
     if (!photoId) errors.push('photoId is required for kind=photo');
     if (!photoUrl) errors.push('photoUrl is required for kind=photo');
+  }
+  // #517 — a test_result evidence row is the companion proof for a structured
+  // TestRecord; it must carry the `testRecordId` that points back at the saved
+  // numbers (the row is otherwise summary-only — no photo, no free note required).
+  if (kind === 'test_result') {
+    if (!testRecordId || typeof testRecordId !== 'string') {
+      errors.push('testRecordId is required for kind=test_result');
+    }
   }
   if (typeof note === 'string' && note.length > NOTE_MAX) {
     errors.push(`note must be ${NOTE_MAX} characters or fewer`);
@@ -207,6 +221,10 @@ async function createEvidence(req, res, user, jobId) {
     photoId: body.photoId || null,
     photoUrl: body.photoUrl || null,
     thumbnailUrl: body.thumbnailUrl || null,
+    // #517 — pointer back at the structured test record this proof summarises
+    // (kind=test_result only; null for photo/note). The numbers live in
+    // jobs/<jobId>/test-records.json, not duplicated here.
+    testRecordId: typeof body.testRecordId === 'string' ? body.testRecordId : null,
     note: typeof body.note === 'string' ? body.note.trim() : null,
     capturedById: user.id,
     capturedByName: user.name || user.username || 'Unknown',

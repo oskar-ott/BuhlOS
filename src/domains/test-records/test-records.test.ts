@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { TestRecordInputSchema, TestRecordSchema } from "./schema";
-import { buildTestRecord, deriveOverallStatus, deriveRowStatus } from "./derive";
+import {
+  buildTestRecord,
+  deriveOverallStatus,
+  deriveRowStatus,
+  summariseTestRecord,
+} from "./derive";
 
 function baseInput(over: Record<string, unknown> = {}) {
   return {
@@ -91,5 +96,48 @@ describe("buildTestRecord", () => {
     );
     expect(rec.rows[0]!.status).toBe("fail"); // derived, not the smuggled "pass"
     expect(rec.overallStatus).toBe("fail");
+  });
+
+  it("carries supersedesId through (AC3 correction points at the record it replaces)", () => {
+    const rec = buildTestRecord(
+      TestRecordInputSchema.parse(baseInput({ supersedesId: "tr_prev" })),
+      { id: "tr_3", at: "2026-06-18T03:00:00.000Z" },
+    );
+    expect(rec.supersedesId).toBe("tr_prev");
+  });
+});
+
+describe("summariseTestRecord", () => {
+  it("counts the real circuits and the derived overall — never an invented number (P7)", () => {
+    const rec = buildTestRecord(
+      TestRecordInputSchema.parse(
+        baseInput({
+          rows: [
+            { circuit: "IR kitchen", testType: "insulation_resistance", value: 200, min: 1 },
+            { circuit: "Zs kitchen", testType: "earth_fault_loop_zs", value: 1, max: 1.37 },
+          ],
+        }),
+      ),
+      { id: "tr_1", at: "2026-06-18T03:00:00.000Z" },
+    );
+    expect(summariseTestRecord(rec)).toBe("2 circuits, overall pass");
+  });
+
+  it("singular 'circuit' for one row; a failing row reads 'overall fail'", () => {
+    const rec = buildTestRecord(
+      TestRecordInputSchema.parse(
+        baseInput({ rows: [{ circuit: "Zs", testType: "earth_fault_loop_zs", value: 5, max: 1.37 }] }),
+      ),
+      { id: "tr_1", at: "2026-06-18T03:00:00.000Z" },
+    );
+    expect(summariseTestRecord(rec)).toBe("1 circuit, overall fail");
+  });
+
+  it("a record with nothing to judge reads 'overall not judged' (never a fake pass)", () => {
+    const rec = buildTestRecord(
+      TestRecordInputSchema.parse(baseInput({ rows: [{ circuit: "c", testType: "polarity" }] })),
+      { id: "tr_1", at: "2026-06-18T03:00:00.000Z" },
+    );
+    expect(summariseTestRecord(rec)).toBe("1 circuit, overall not judged");
   });
 });
