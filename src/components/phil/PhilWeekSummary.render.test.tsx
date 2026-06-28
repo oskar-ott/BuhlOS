@@ -146,3 +146,30 @@ describe("PhilWeekSummary (render)", () => {
     expect(html).not.toContain("Approve<"); // no admin verbs
   });
 });
+
+describe("PhilWeekSummary — week navigation", () => {
+  function renderWeek(weekAnchorISO?: string, entries: TimeEntry[] = []) {
+    return renderToString(
+      createElement(PhilWeekSummary, { entries, todayISO: TODAY, weekAnchorISO }),
+    );
+  }
+
+  it("current week: shows 'This week', a Previous-week link, and no Next link (no future)", () => {
+    const html = renderWeek(); // no anchor → current week
+    expect(html).toContain("This week");
+    expect(html).toContain('aria-label="Previous week"');
+    expect(html).toContain("/phil/hours?week=2024-05-13"); // the week before this one
+    // The current week can't step forward, so there's no Next link.
+    expect(html).not.toContain('aria-label="Next week"');
+  });
+
+  it("past week: shows the navigated date range, a reset to This week, and prev+next links", () => {
+    const html = renderWeek("2024-05-15"); // Wed of the prior week (Mon 13 → Sun 19)
+    expect(html).toContain("May 2024"); // weekRangeLabel rendered (centre is the range, not "This week")
+    expect(html).toContain("This week"); // the reset link back to the current week
+    expect(html).toContain('aria-label="Previous week"');
+    expect(html).toContain('aria-label="Next week"');
+    expect(html).toContain("/phil/hours?week=2024-05-06"); // prev
+    expect(html).toContain("/phil/hours?week=2024-05-20"); // next (toward current)
+  });
+});
