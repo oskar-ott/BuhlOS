@@ -284,6 +284,8 @@ export function HoursApprovalsQueue({ initialEntries, fetchError, canUndo = fals
             <span className="mb-1 block font-medium text-text">Reason (required)</span>
             <textarea
               autoFocus
+              required
+              aria-required="true"
               rows={3}
               maxLength={500}
               value={rejectReason}
@@ -486,10 +488,21 @@ function EntryRow({
         </p>
       </div>
       <div className="flex flex-col gap-2 sm:items-end">
-        <Button onClick={() => onApprove(entry)} disabled={busy}>
+        <Button
+          size="sm"
+          onClick={() => onApprove(entry)}
+          disabled={busy}
+          aria-label={`Approve ${formatHoursLabel(entry.totalHours)} for ${entry.userName ?? entry.userId} on ${formatDateLabel(entry.date)}`}
+        >
           {approving ? "Approving…" : "Approve"}
         </Button>
-        <Button variant="danger" onClick={() => onReject(entry)} disabled={busy}>
+        <Button
+          variant="danger"
+          size="sm"
+          onClick={() => onReject(entry)}
+          disabled={busy}
+          aria-label={`Reject ${formatHoursLabel(entry.totalHours)} for ${entry.userName ?? entry.userId} on ${formatDateLabel(entry.date)}`}
+        >
           {rejecting ? "Rejecting…" : "Reject"}
         </Button>
       </div>

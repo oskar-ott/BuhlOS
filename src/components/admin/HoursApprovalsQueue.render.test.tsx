@@ -120,3 +120,19 @@ describe("Approve all (#124)", () => {
     expect(html).toContain("Approve all (2)");
   });
 });
+
+describe("approve/reject button accessibility (H7/H27)", () => {
+  it("gives each entry's approve/reject buttons a descriptive aria-label and the 44px touch size", () => {
+    const html = render({
+      initialEntries: [
+        entry("a", "Sparky", [{ jobId: "job-1", jobName: "Smith St Rewire", hours: 8, notes: null }]),
+      ],
+      fetchError: null,
+    });
+    // H27: screen reader hears WHO + WHEN, not a bare "Approve"/"Reject".
+    expect(html).toContain('aria-label="Approve 8h for Sparky on');
+    expect(html).toContain('aria-label="Reject 8h for Sparky on');
+    // H7: size="sm" gives the 44px phone touch floor (h-11).
+    expect(html).toContain("h-11");
+  });
+});
