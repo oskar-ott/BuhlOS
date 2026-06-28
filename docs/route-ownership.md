@@ -107,6 +107,7 @@ Confirmed in code. These are the intended destinations for new navigation.
 | `/defects` | `src/app/(admin)/defects/page.tsx` | **Defects register** (#414). Cross-job snags queue — BOTH per-job stores (live `snagsV2` + pre-cutover legacy `snags[]`) normalised by `/api/snags-all`; status/job/priority filters (#216 pattern), rows deep-link to `/v2/jobs/[jobId]/snags`, bulk-close via `/api/snags-bulk-close`. Gated `lh` surface like `/v2/jobs` (admin tier sees all jobs; LH only their `assignedJobIds` — scoped by the API). |
 | `/activity` | `src/app/(admin)/activity/page.tsx` | **Activity — cross-job feed** (#220). One read-only, day-grouped view of every audit-log event across all jobs (`GET /api/audit-log?scope=all`, bounded by months), filterable by surface / job / actor (URL-driven). Admin-tier gated (the endpoint 403s LH). Reuses the shared `ActivityRow` with the per-job `/v2/jobs/[jobId]/history` feed — one renderer, not two. Linked from `/reports`. |
 | `/reports` | `src/app/(admin)/reports/page.tsx` | **Reports — owner numbers** (#316). The six numbers the owner checks daily, defined ONE place each in `src/domains/analytics/owner-numbers.ts` (the #329 seed); six-source server-side fan-in with per-tile error degradation; every tile drills into the records surface (`/hours`, `/hours/approvals`, `/defects?status=open`, `/v2/jobs`). Admin-tier gated (commercial figures). Boundary with `/command-centre`: that page is attention/queues, this page is numbers — link, never duplicate. See `docs/owner-dashboard.md`. |
+| `/settings` | `src/app/(admin)/settings/page.tsx` | **Settings hub** (#222). The v2 company-config page: a working **Hours policy** section (`GET`/`PUT /api/policy` — the daily-threshold the *legacy* approvals bulk-approve / rate-flag rule reads; #124 closed without the v2 "Approve all" adopting it, zero `src/` consumers, so the copy says so) and a working **Job types** section (`api/job-types.js`'s four actions — list/create/rename/delete, with the server's "in use by jobs" 409 delete-guard surfaced). Admin-tier gated (both endpoints are admin-tier server-side; `canEdit` mirrors that so a non-writer sees no dead controls). NO "Company basics" card — no `api/` endpoint persists company-profile fields, so that card would be fake UI (the issue's own no-fake-card AC). Personal items (profile / change password / look & feel) are NOT duplicated — their legacy `settings.html` was retired in the cutover and no v2 replacement is built yet; the hub says where they stand. Links on to `/settings/notifications` (#218) and `/settings/task-rules` (#224). Reached from the sidebar FOOTER (single "Settings" link) + the mobile More sheet. No `api/policy.js` / `api/job-types.js` edits — pure UI port. |
 | `/settings/notifications` | `src/app/(admin)/settings/notifications/page.tsx` | **Notification settings** (#218). Per-type toggles over the self-only `GET`/`PUT /api/notification-prefs`; optimistic flip + rollback + error chip. The toggles are now REAL — the notify() engine (#162) consults `notificationPrefs` at delivery. Admin-tier gated; reached from the sidebar FOOTER (not a nav group — settings isn't a daily destination). First page under `/settings`; #222 grows it into a settings hub. See `docs/notifications.md`. |
 | `/settings/task-rules` | `src/app/(admin)/settings/task-rules/page.tsx` | **Task generation rules** (#224). Maintain the rule-based task-generation rules (job type and/or area-name pattern → roughIn/fitOff task lists) over `GET`/`POST ?action=save /api/task-rules`; the builder's "Generate tasks" (`POST /api/generate-tasks`) applies them to a job's empty areas. Admin-tier gated (the endpoints enforce admin server-side too). Self-fetching client island; reached from the sidebar FOOTER alongside notification settings, and linked from the builder's Structure tab. |
 
@@ -214,7 +215,8 @@ The legacy estate must stay dead. `scripts/check-legacy-quarantine.js`
 | `/activity` | BuhlOS | `(admin)/activity` | AdminShell | canonical | admin | /reports link | cross-job activity feed (#220); unauth → 307 `/v2/login`; non-admin → 307 |
 | `/reports` | BuhlOS | `(admin)/reports` | AdminShell | canonical | admin | sidebar "Reports" | owner numbers dashboard (#316); unauth → 307 `/v2/login` |
 | `/qa` | BuhlOS | `(admin)/qa` | AdminShell | canonical | admin | sidebar "QA status" | cross-job ITP/QA status dashboard (#290, read-only); drill-through to `/v2/jobs/[jobId]/itps`; unauth → 307 `/v2/login` |
-| `/settings/notifications` | BuhlOS | `(admin)/settings/notifications` | AdminShell | canonical | admin | sidebar footer "Notification settings" | notification prefs panel (#218); unauth → 307 `/v2/login` |
+| `/settings` | BuhlOS | `(admin)/settings` | AdminShell | canonical | admin | sidebar footer "Settings", mobile More sheet | settings hub (#222) — hours policy + job types sections; links on to notifications + task rules; unauth → 307 `/v2/login` |
+| `/settings/notifications` | BuhlOS | `(admin)/settings/notifications` | AdminShell | canonical | admin | settings hub, sidebar footer (pre-#222) | notification prefs panel (#218); unauth → 307 `/v2/login` |
 | `/settings/task-rules` | BuhlOS | `(admin)/settings/task-rules` | AdminShell | canonical | admin | sidebar footer "Task generation rules" | task-generation rules editor (#224); unauth → 307 `/v2/login` |
 | `/v2/jobs` | BuhlOS | `v2/jobs` | AdminShell | transitional | admin/LH | sidebar "Jobs", command-centre | admin jobs index; → `/admin/jobs` later |
 | `/v2/jobs/new` | BuhlOS | `v2/jobs/new` | AdminShell | transitional | **admin** | jobs index "New job" | create draft → 307 in-page non-admin → `/v2/jobs`; on create → `/v2/jobs/[jobId]/builder` |
@@ -258,6 +260,7 @@ failure that has happened (or could) if the row is left unguarded.
 | `/defects` | BuhlOS | AdminShell | `src/app/(admin)/defects/page.tsx` | canonical | blank / wrong shell / nav drift | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved nav + required source), `auth-routing.spec` |
 | `/reports` | BuhlOS | AdminShell | `src/app/(admin)/reports/page.tsx` | canonical | blank / wrong shell / nav drift / numbers drifting from sources | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved nav + required source), `auth-routing.spec`, `owner-numbers.test` (per-tile definitions) |
 | `/qa` | BuhlOS | AdminShell | `src/app/(admin)/qa/page.tsx` | canonical | blank / wrong shell / nav drift | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved nav + required source), `qa-rollup.test` / `qa-status.test` (aggregation) |
+| `/settings` | BuhlOS | AdminShell | `src/app/(admin)/settings/page.tsx` | canonical | blank / wrong shell / nav drift / a fake card with no persisting endpoint | `check-shell-contract`, `check-route-ownership` (approved href + required source), `policy-schema.test` (advisory bounds mirror the API), `HoursPolicySection`/`JobTypesSection` render tests (loading-first; job-types empty ≠ error) |
 | `/settings/notifications` | BuhlOS | AdminShell | `src/app/(admin)/settings/notifications/page.tsx` | canonical | blank / wrong shell / dead toggles / nav drift | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved href + required source), `auth-routing.spec`, `notification-item.test` (kinds↔keys 1:1) |
 | `/settings/task-rules` | BuhlOS | AdminShell | `src/app/(admin)/settings/task-rules/page.tsx` | canonical | blank / wrong shell / nav drift | `check-shell-contract`, `check-route-ownership` (approved href + required source), `task-rules.test` (engine), `task-rules-api.test` (endpoints) |
 | `/admin` · `/admin/` | legacy | legacy shim | `public/admin/index.html` (vercel) | legacy | dead redirect | `smoke-admin-routes` (admin→ops) |
@@ -320,11 +323,13 @@ lists in the guard **and** §8 / §8.1 here in the same PR.
   only link to approved admin routes: `/command-centre`, `/hours`,
   `/hours/approvals`, `/hours/weekly`, `/gear`, `/employees`, `/observations`,
   `/material-requests`, `/expenses`, `/defects`, `/reports`, `/v2/jobs`, `/v2/quotes`,
-  `/itp-templates`, `/qa`, `/settings/notifications`. The **footer** carries a small
-  `/settings/notifications` link (next to sign-out, #218) — settings is not a
-  daily destination, so it is intentionally NOT a nav-group item; the
-  route-ownership guard's nav parser only reads the `NAV_GROUPS` array, so the
-  footer link is covered by the approved-href set, not the per-group scan.
+  `/itp-templates`, `/qa`, `/settings`, `/settings/notifications`. The **footer** carries a
+  single `/settings` link (next to sign-out) — the #222 settings hub, which hosts
+  hours policy + job types and links on to notification prefs (#218) and task
+  rules (#224). Settings is not a daily destination, so it is intentionally NOT a
+  nav-group item; the route-ownership guard's nav parser only reads the
+  `NAV_GROUPS` array, so the footer link is covered by the approved-href set, not
+  the per-group scan.
   Unbuilt items (`Support`, `Settings`) are rendered as **non-clickable** `UC`
   spans, never `<Link>`s — per the "every incomplete feature shows UNDER
   CONSTRUCTION" non-negotiable. (The old `Snags` UC slot is now LIVE as
@@ -337,8 +342,8 @@ lists in the guard **and** §8 / §8.1 here in the same PR.
   four real route tabs — **Today** `/command-centre`, **Jobs** `/v2/jobs`,
   **Approvals** `/hours/approvals`, **People** `/employees` (all already in the
   approved set above) — plus a **More** tab that is a `<button>` opening the
-  full-IA sheet (`AdminMoreSheet`: every `NAV_GROUPS` destination + Notification
-  settings + the mobile sign-out), so More carries no route. It **replaced** the
+  full-IA sheet (`AdminMoreSheet`: every `NAV_GROUPS` destination + the Settings
+  hub link + the mobile sign-out), so More carries no route. It **replaced** the
   old AdminTopbar hamburger as the mobile nav. The route-ownership guard parses
   `TAB_ITEMS` and treats every tab as live (mirrors the Phil tab-bar scan below).
 - **Phil bottom tab bar** (`src/components/phil/PhilTabBar.tsx`) — a 4-tab +

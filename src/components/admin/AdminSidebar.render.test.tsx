@@ -95,19 +95,26 @@ describe("AdminSidebar (#187)", () => {
     expect(activeLabel(render("/v2/jobs/j1"))).toBe("Jobs");
   });
 
-  it("the footer carries a Notification settings link (#218), not a nav-group item", () => {
+  it("the footer carries a single Settings link to the /settings hub (#222), not a nav-group item", () => {
     const html = render("/command-centre");
-    // Present, links to the prefs page, and is a real <Link> (not a UC span).
-    expect(html).toContain("Notification settings");
-    expect(html.match(/href="\/settings\/notifications"/g)).toHaveLength(1);
+    // Present, links to the hub, and is a real <Link> (not a UC span).
+    expect(html).toContain(">Settings<");
+    expect(html.match(/href="\/settings"/g)).toHaveLength(1);
+    // The hub replaced the two specific footer links — the sidebar footer is a
+    // single Settings entry again; the hub itself links on to those pages.
+    expect(html).not.toContain('href="/settings/notifications"');
+    expect(html).not.toContain('href="/settings/task-rules"');
     // It lives next to sign-out in the footer — sign-out is still rendered.
     expect(html).toContain("Sign out");
-    // On /settings the footer link reads as the current page. React SSR emits
-    // aria-current before href on the same anchor, so assert both are present
-    // on the one <a> (match up to the next tag close).
-    const onSettings = render("/settings/notifications");
-    const anchor = onSettings.match(/<a[^>]*href="\/settings\/notifications"[^>]*>/);
-    expect(anchor).not.toBeNull();
-    expect(anchor![0]).toContain('aria-current="page"');
+    // The footer link stays active across the whole /settings subtree
+    // (longest-prefix: /settings, /settings/notifications, /settings/task-rules).
+    // React SSR emits aria-current before href on the same anchor, so assert
+    // both are present on the one <a> (match up to the next tag close).
+    for (const path of ["/settings", "/settings/notifications", "/settings/task-rules"]) {
+      const onSettings = render(path);
+      const anchor = onSettings.match(/<a[^>]*href="\/settings"[^>]*>/);
+      expect(anchor, `expected a Settings anchor when on ${path}`).not.toBeNull();
+      expect(anchor![0]).toContain('aria-current="page"');
+    }
   });
 });

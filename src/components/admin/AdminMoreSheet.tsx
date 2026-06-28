@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
-import { Bell } from "lucide-react";
+import { Settings } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Drawer } from "@/components/ui/Drawer";
 import { SignOutButton } from "./SignOutButton";
@@ -69,10 +69,11 @@ export function AdminMoreSheet({ open, onClose }: { open: boolean; onClose: () =
         {/* Footer parity with the sidebar — settings isn't a daily destination
             but must still be reachable on a phone (#218), and sign-out MUST be:
             the sidebar (which carries it) is desktop-only, so without this the
-            mobile admin had no way to sign out at all. */}
+            mobile admin had no way to sign out at all. #222 points this at the
+            /settings hub (which links on to notification prefs + task rules). */}
         <div className="mt-2 space-y-1 border-t border-border pt-2">
           <Link
-            href={"/settings/notifications" as Route}
+            href={"/settings" as Route}
             onClick={onClose}
             aria-current={settingsActive ? "page" : undefined}
             className={cn(
@@ -82,8 +83,8 @@ export function AdminMoreSheet({ open, onClose }: { open: boolean; onClose: () =
                 : "text-text-muted hover:bg-surface-subtle hover:text-text",
             )}
           >
-            <Bell aria-hidden="true" className="h-4 w-4" />
-            <span className="flex-1 truncate">Notification settings</span>
+            <Settings aria-hidden="true" className="h-4 w-4" />
+            <span className="flex-1 truncate">Settings</span>
           </Link>
           <SignOutButton
             testId="logout-mobile"
