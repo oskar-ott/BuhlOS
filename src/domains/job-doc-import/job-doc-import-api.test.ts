@@ -253,3 +253,105 @@ describe("api/job-doc-import — read-only preview (admin, flag on)", () => {
     expect(res.statusCode).toBe(405);
   });
 });
+
+describe("api/job-doc-import?action=create-job — the #365 write-half", () => {
+  beforeEach(() => {
+    process.env.FLAG_JOB_DOC_IMPORT = "1";
+    store.set("jobs.json", { jobs: [] });
+  });
+
+  it("creates a real DRAFT job through the sanctioned path + attaches the cost basis", async () => {
+    const res = await call({
+      method: "POST",
+      query: { action: "create-job" },
+      body: { name: "Sansara Gym Double Bay", fileName: "REV5.xlsx", mimeType: XLSX_MIME, dataUrl: xlsxDataUrl() },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.body as {
+      jobId: string;
+      job: { id: string; name: string; status: string };
+      costBasis: { lines: number; total: number };
+    };
+    expect(body.job.status).toBe("draft");
+    expect(body.job.name).toBe("Sansara Gym Double Bay");
+    expect(body.costBasis.lines).toBeGreaterThanOrEqual(1);
+
+    // The job landed in jobs.json via createJob (the sole sanctioned writer):
+    // born structure-less (no fabricated areas/tasks — a BOQ carries neither).
+    const jobs = (store.get("jobs.json") as { jobs: Array<{ id: string; status: string; areaGroups: unknown[] }> }).jobs;
+    const created = jobs.find((j) => j.id === body.jobId);
+    expect(created).toBeTruthy();
+    expect(created?.status).toBe("draft");
+    expect(created?.areaGroups).toEqual([]);
+
+    // The parsed bill was attached as the job's cost basis (provenance + lines).
+    const cost = store.get(`jobs/${body.jobId}/cost-import.json`) as {
+      source: string;
+      importedById: string;
+      preview: { counts: { lines: number } };
+    };
+    expect(cost.source).toBe("boq-import");
+    expect(cost.importedById).toBe("u_boss");
+    expect(cost.preview.counts.lines).toBe(body.costBasis.lines);
+  });
+
+  it("a missing name → 400 (and no job is written)", async () => {
+    const res = await call({
+      method: "POST",
+      query: { action: "create-job" },
+      body: { fileName: "REV5.xlsx", mimeType: XLSX_MIME, dataUrl: xlsxDataUrl() },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((store.get("jobs.json") as { jobs: unknown[] }).jobs).toHaveLength(0);
+  });
+
+  it("a duplicate job id → 400 (createJob rejects the collision)", async () => {
+    const first = await call({
+      method: "POST",
+      query: { action: "create-job" },
+      body: { name: "Sansara Gym", mimeType: XLSX_MIME, dataUrl: xlsxDataUrl() },
+    });
+    expect(first.statusCode).toBe(201);
+    const second = await call({
+      method: "POST",
+      query: { action: "create-job" },
+      body: { name: "Sansara Gym", mimeType: XLSX_MIME, dataUrl: xlsxDataUrl() },
+    });
+    expect(second.statusCode).toBe(400);
+  });
+
+  it("an unparseable workbook → 422 (and no job is written)", async () => {
+    const res = await call({
+      method: "POST",
+      query: { action: "create-job" },
+      body: {
+        name: "Sansara Gym",
+        mimeType: XLSX_MIME,
+        dataUrl: `data:${XLSX_MIME};base64,${Buffer.from("not a zip at all").toString("base64")}`,
+      },
+    });
+    expect(res.statusCode).toBe(422);
+    expect((store.get("jobs.json") as { jobs: unknown[] }).jobs).toHaveLength(0);
+  });
+
+  it("admin but flag OFF → 404 (the write path is invisible too)", async () => {
+    process.env.FLAG_JOB_DOC_IMPORT = "0";
+    const res = await call({
+      method: "POST",
+      query: { action: "create-job" },
+      body: { name: "Sansara Gym", mimeType: XLSX_MIME, dataUrl: xlsxDataUrl() },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("non-admin (field) → 403", async () => {
+    const res = await call({
+      method: "POST",
+      role: "electrician",
+      userId: "u_field",
+      query: { action: "create-job" },
+      body: { name: "Sansara Gym", mimeType: XLSX_MIME, dataUrl: xlsxDataUrl() },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});

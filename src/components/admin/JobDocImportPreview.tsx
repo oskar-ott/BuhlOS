@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, type ChangeEvent } from "react";
-import { requestBoqImportPreview } from "@/domains/job-doc-import/client";
+import {
+  createJobFromBoqImport,
+  requestBoqImportPreview,
+  type BoqJobCreated,
+} from "@/domains/job-doc-import/client";
 import {
   BOQ_FLAG_LABEL,
   type BoqFlagKind,
@@ -22,16 +26,20 @@ export function JobDocImportPreview() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [created, setCreated] = useState<BoqJobCreated | null>(null);
 
   async function onPick(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFileName(file.name);
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFileName(f.name);
+    setFile(f);
     setError(null);
+    setCreated(null);
     setLoading(true);
     setPreview(null);
     try {
-      setPreview(await requestBoqImportPreview(file));
+      setPreview(await requestBoqImportPreview(f));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not read the workbook");
     } finally {
@@ -42,8 +50,9 @@ export function JobDocImportPreview() {
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-        <strong>Read-only preview.</strong> Nothing here is saved. Review the lines and the flags
-        below before any of it becomes job data.
+        <strong>Review before you create.</strong> Check the lines and flags below, then create a
+        draft job from the bill. A BOQ is pricing only — the job is born with no areas or tasks;
+        you add those from the drawings.
       </div>
 
       <label className="block">
@@ -69,6 +78,121 @@ export function JobDocImportPreview() {
       )}
 
       {preview && <PreviewBody preview={preview} fileName={fileName} />}
+      {preview && file && (
+        <CreateJobPanel
+          file={file}
+          preview={preview}
+          defaultName={defaultJobName(fileName)}
+          created={created}
+          onCreated={setCreated}
+        />
+      )}
+    </div>
+  );
+}
+
+/** "Sansara_Gym_Double-Bay REV5.xlsx" → "Sansara Gym Double Bay REV5". */
+export function defaultJobName(fileName: string | null): string {
+  if (!fileName) return "";
+  return fileName
+    .replace(/\.(xlsx|xls)$/i, "")
+    .replace(/[_]+/g, " ")
+    .trim();
+}
+
+/**
+ * #365 write-half trigger: turn the reviewed bill into a real draft job. The
+ * server re-parses the workbook (the on-screen preview is never trusted as the
+ * source of truth) and attaches the priced lines as the job's cost basis.
+ */
+export function CreateJobPanel({
+  file,
+  preview,
+  defaultName,
+  created,
+  onCreated,
+}: {
+  file: File;
+  preview: BoqImportPreview;
+  defaultName: string;
+  created: BoqJobCreated | null;
+  onCreated: (c: BoqJobCreated) => void;
+}) {
+  const [name, setName] = useState(defaultName);
+  const [creating, setCreating] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  if (created) {
+    return (
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+        <p className="font-medium">Draft job created.</p>
+        <p className="mt-1">
+          {created.job.name} — {created.costBasis.lines} priced line
+          {created.costBasis.lines === 1 ? "" : "s"} attached as the cost basis.
+        </p>
+        <a
+          href={`/v2/jobs/${created.jobId}`}
+          className="mt-2 inline-block rounded-md bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+        >
+          Open {created.job.name}
+        </a>
+      </div>
+    );
+  }
+
+  async function onCreate() {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setErr("Give the job a name first.");
+      return;
+    }
+    setErr(null);
+    setCreating(true);
+    try {
+      onCreated(await createJobFromBoqImport(file, trimmed));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not create the job");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <p className="mb-2 text-sm font-medium text-slate-700">Create a draft job from this bill</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="block grow">
+          <span className="mb-1 block text-xs text-slate-500">Job name</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Sansara Gym Double Bay"
+            className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={onCreate}
+          disabled={creating}
+          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+        >
+          {creating ? "Creating…" : "Create draft job"}
+        </button>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">
+        Creates a draft (office-only) job and attaches the {preview.counts.lines} priced line
+        {preview.counts.lines === 1 ? "" : "s"} as its cost basis. Areas + tasks come later, from
+        the drawings.
+      </p>
+      {err && (
+        <div
+          className="mt-2 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-800"
+          role="alert"
+        >
+          {err}
+        </div>
+      )}
     </div>
   );
 }

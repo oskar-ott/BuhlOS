@@ -2,8 +2,14 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 
-import { JobDocImportPreview, PreviewBody } from "./JobDocImportPreview";
+import {
+  CreateJobPanel,
+  JobDocImportPreview,
+  PreviewBody,
+  defaultJobName,
+} from "./JobDocImportPreview";
 import type { BoqImportPreview } from "@/domains/job-doc-import/schema";
+import type { BoqJobCreated } from "@/domains/job-doc-import/client";
 
 /**
  * Server-render tests for the BOQ import preview UI (#365). Renders the empty
@@ -67,10 +73,64 @@ function fixture(): BoqImportPreview {
 const strip = (html: string) => html.replace(/<!-- -->/g, "");
 
 describe("JobDocImportPreview — empty state", () => {
-  it("leads with the read-only framing and an .xlsx picker", () => {
+  it("leads with the review-before-create framing and an .xlsx picker", () => {
     const html = strip(renderToString(createElement(JobDocImportPreview)));
-    expect(html).toContain("Read-only preview");
+    expect(html).toContain("Review before you create");
+    // Honest framing: a BOQ is pricing, so no areas/tasks are invented.
+    expect(html).toContain("no areas or tasks");
     expect(html).toContain("Pricing / BOQ workbook");
+  });
+});
+
+describe("CreateJobPanel — the #365 write-half trigger", () => {
+  const file = {} as unknown as File; // SSR never touches the file (only on click)
+  const noop = () => {};
+
+  it("offers a named create action with honest cost-basis copy", () => {
+    const html = strip(
+      renderToString(
+        createElement(CreateJobPanel, {
+          file,
+          preview: fixture(),
+          defaultName: "Sansara Gym Double Bay REV5",
+          created: null,
+          onCreated: noop,
+        })
+      )
+    );
+    expect(html).toContain("Create a draft job from this bill");
+    expect(html).toContain("Create draft job");
+    expect(html).toContain("Sansara Gym Double Bay REV5"); // prefilled name
+    expect(html).toContain("Areas + tasks come later"); // honest scoping
+  });
+
+  it("shows a success state linking to the new job once created", () => {
+    const created: BoqJobCreated = {
+      jobId: "sansara-gym-double-bay",
+      job: { id: "sansara-gym-double-bay", name: "Sansara Gym Double Bay", status: "draft" },
+      costBasis: { lines: 2, total: 7110, reconciles: false },
+    };
+    const html = strip(
+      renderToString(
+        createElement(CreateJobPanel, {
+          file,
+          preview: fixture(),
+          defaultName: "x",
+          created,
+          onCreated: noop,
+        })
+      )
+    );
+    expect(html).toContain("Draft job created");
+    expect(html).toContain('href="/v2/jobs/sansara-gym-double-bay"');
+    expect(html).toContain("Open Sansara Gym Double Bay");
+  });
+});
+
+describe("defaultJobName", () => {
+  it("strips the extension and underscores into a readable job name", () => {
+    expect(defaultJobName("Sansara_Gym_Double Bay REV5.xlsx")).toBe("Sansara Gym Double Bay REV5");
+    expect(defaultJobName(null)).toBe("");
   });
 });
 
