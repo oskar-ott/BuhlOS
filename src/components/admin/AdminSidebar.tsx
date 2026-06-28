@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
-import { Bell, ListChecks } from "lucide-react";
+import { Settings } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { SignOutButton } from "./SignOutButton";
 // #215 — NAV is extracted so the sidebar and the ⌘K palette render the same
@@ -59,34 +59,22 @@ export function AdminSidebar() {
 
       <div className="space-y-1 border-t border-accent-ink p-3">
         {/* Settings is not a daily destination, so it lives in the footer next
-            to sign-out rather than as a nav-group item (#218). Today it is the
-            notification-prefs page only; #222 grows /settings into a hub. */}
+            to sign-out rather than as a nav-group item (#218). #222 grew it into
+            a hub — one "Settings" link to /settings, which itself hosts hours
+            policy + job types and links on to notification prefs (#218) and task
+            generation rules (#224). The footer is a single entry again. */}
         <Link
-          href={"/settings/notifications" as Route}
-          aria-current={pathname.startsWith("/settings/notifications") ? "page" : undefined}
+          href={"/settings" as Route}
+          aria-current={pathname.startsWith("/settings") ? "page" : undefined}
           className={cn(
             "flex w-full items-center gap-3 rounded-card px-3 py-2 text-sm transition-colors",
-            pathname.startsWith("/settings/notifications")
+            pathname.startsWith("/settings")
               ? "bg-accent-ink font-semibold text-text-inverse"
               : "text-slate-300 hover:bg-accent-ink hover:text-text-inverse",
           )}
         >
-          <Bell aria-hidden="true" className="h-4 w-4" />
-          <span className="flex-1 truncate">Notification settings</span>
-        </Link>
-        {/* #224: rule-based task generation lives under settings too. */}
-        <Link
-          href={"/settings/task-rules" as Route}
-          aria-current={pathname.startsWith("/settings/task-rules") ? "page" : undefined}
-          className={cn(
-            "flex w-full items-center gap-3 rounded-card px-3 py-2 text-sm transition-colors",
-            pathname.startsWith("/settings/task-rules")
-              ? "bg-accent-ink font-semibold text-text-inverse"
-              : "text-slate-300 hover:bg-accent-ink hover:text-text-inverse",
-          )}
-        >
-          <ListChecks aria-hidden="true" className="h-4 w-4" />
-          <span className="flex-1 truncate">Task generation rules</span>
+          <Settings aria-hidden="true" className="h-4 w-4" />
+          <span className="flex-1 truncate">Settings</span>
         </Link>
         <SignOutButton />
       </div>
