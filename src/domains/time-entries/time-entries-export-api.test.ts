@@ -514,4 +514,48 @@ describe("POST /api/time-entries-export — finalise (#131)", () => {
     expect(headerOf(res)).toContain("Approval Status"); // review header
     expect((blob.get("users/w1/time-entries/2026-06-09.json") as { exportId?: string }).exportId).toMatch(/^exp_/);
   });
+
+  // H5: a concurrent edit (#157 stale-write) during the stamp must NOT leave a
+  // row in the committed CSV that wasn't actually marked exported — that row
+  // would be re-included by the next finalise and double-paid.
+  it("partial stamp: a concurrent edit drops only that row from the CSV, leaves it unexported, reports it (H5)", async () => {
+    const blobExports = (requireFromHere.cache[blobPath] as NodeJS.Module).exports as {
+      writeBlob: { mockImplementationOnce: (fn: () => Promise<never>) => void };
+    };
+    // The FIRST stamp (w1, earliest date) hits a concurrent edit; w2 commits.
+    blobExports.writeBlob.mockImplementationOnce(async () => {
+      throw Object.assign(new Error("stale"), { code: "stale_write", currentRev: "rX" });
+    });
+    const res = await callPost("u_admin", "office", { ...WEEK, shape: "review" });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["X-Stamp-Failures"]).toBe("1");
+    expect(res.headers["X-Row-Count"]).toBe("1");
+
+    const w1 = blob.get("users/w1/time-entries/2026-06-09.json") as { exportId?: string };
+    const w2 = blob.get("users/w2/time-entries/2026-06-10.json") as { exportId?: string };
+    expect(w1.exportId).toBeUndefined(); // failed → stays unexported (next run re-includes it)
+    expect(w2.exportId).toMatch(/^exp_/); // committed
+
+    const csv = String(res.sent);
+    expect(csv).toContain("2026-06-10"); // w2's row IS in the committed CSV
+    expect(csv).not.toContain("2026-06-09"); // w1's row is NOT — it wasn't paid
+
+    const runs = (blob.get("payroll-runs.json") as { runs: Array<Record<string, unknown>> }).runs;
+    expect(runs[0]).toMatchObject({ rowCount: 1, newlyStamped: 1, stampFailures: 1 });
+  });
+
+  it("commits nothing and 409s when every eligible row hits a concurrent edit (H5)", async () => {
+    const blobExports = (requireFromHere.cache[blobPath] as NodeJS.Module).exports as {
+      writeBlob: { mockImplementation: (fn: () => Promise<never>) => void };
+    };
+    blobExports.writeBlob.mockImplementation(async () => {
+      throw Object.assign(new Error("stale"), { code: "stale_write", currentRev: "rX" });
+    });
+    const res = await callPost("u_admin", "office", { ...WEEK, shape: "review" });
+    expect(res.statusCode).toBe(409);
+    expect((res.body as { code: string }).code).toBe("stamp_conflict");
+    expect((blob.get("users/w1/time-entries/2026-06-09.json") as { exportId?: string }).exportId).toBeUndefined();
+    expect((blob.get("users/w2/time-entries/2026-06-10.json") as { exportId?: string }).exportId).toBeUndefined();
+    expect(blob.has("payroll-runs.json")).toBe(false); // no run committed
+  });
 });
