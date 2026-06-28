@@ -846,12 +846,15 @@ function DayRow({
           {day.hours != null ? (
             <span className="text-text-muted">{formatHoursLabel(day.hours)}</span>
           ) : null}
-          {/* #130: base/OT split, only when the stored day has overtime —
-              ≤8h days render byte-identical (presenter returns null). */}
-          {day.overtimeHours != null && day.overtimeHours > 0 && day.hours != null
+          {/* #130: base/OT split, only when the day carries BOTH stored split
+              fields — never re-derived client-side, so the presenter's honesty
+              guard (ordinary+OT must reconcile to total) can still catch
+              garbage. ≤8h / unsplit days render byte-identical (the Phil
+              presenter applies the same `ordinaryHours != null` gate). */}
+          {day.overtimeHours != null && day.overtimeHours > 0 && day.hours != null && day.ordinaryHours != null
             ? (() => {
                 const split = otSplitLabel({
-                  ordinaryHours: day.ordinaryHours ?? day.hours - day.overtimeHours!,
+                  ordinaryHours: day.ordinaryHours,
                   overtimeHours: day.overtimeHours,
                   totalHours: day.hours,
                 });

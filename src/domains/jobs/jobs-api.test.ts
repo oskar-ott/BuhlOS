@@ -479,6 +479,24 @@ describe("defect liability period fields (#235)", () => {
     expect(writeBlobMock).not.toHaveBeenCalledWith("jobs.json", expect.anything());
   });
 
+  it("audit fix: a partial PUT can't set defectPeriodEndsAt before the STORED handoverDate (400, no write)", async () => {
+    // First store a handover date.
+    await call({ method: "PUT", userId: "u_admin", role: "admin", body: { id: "job-active", handoverDate: "2026-08-30" } });
+    writeBlobMock.mockClear();
+    // A partial PUT touching ONLY defectPeriodEndsAt must validate the EFFECTIVE
+    // (stored + patch) pair, not just the patch — the old guard only fired when
+    // both dates arrived together, so this used to slip through.
+    const put = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "job-active", defectPeriodEndsAt: "2026-06-01" },
+    });
+    expect(put.statusCode).toBe(400);
+    expect((put.body as { error: string }).error).toMatch(/on or after handoverDate/);
+    expect(writeBlobMock).not.toHaveBeenCalledWith("jobs.json", expect.anything());
+  });
+
   it("rejects a malformed handoverDate (400)", async () => {
     const put = await call({
       method: "PUT",
