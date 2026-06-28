@@ -8,6 +8,7 @@ import { renderToString } from "react-dom/server";
 import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
 import { JobScopeCard } from "./JobScopeCard";
 import type { Job } from "@/domains/jobs/types";
+import type { CertaintyState } from "@/domains/jobs/certainty";
 
 /**
  * Render guards for scope of work (#200). The write path + visibility
@@ -40,6 +41,32 @@ describe("ScopeOfWorkSection (builder)", () => {
   it("honest empty state", () => {
     const html = renderToString(createElement(ScopeOfWorkSection, { job: job([]) }));
     expect(html).toContain("No scope captured yet");
+  });
+
+  it("shows a live CertaintyChip + inspect affordance on a reconciled clause", () => {
+    const html = renderToString(
+      createElement(ScopeOfWorkSection, {
+        job: job([{ id: "sw_1", title: "Install DB-1", detail: "", order: 0 }]),
+        reconciled: true,
+        certaintyByClauseId: new Map<string, CertaintyState>([["sw_1", "confirmed"]]),
+        onInspectClause: () => undefined,
+        selectedClauseId: null,
+      })
+    );
+    expect(html).toContain("Confirmed"); // CertaintyChip label, live over real classification
+    expect(html).toContain("scope-inspect-0"); // the inspect affordance
+  });
+
+  it("shows no certainty chip when the job has no confirmed reconciliation (never faked)", () => {
+    const html = renderToString(
+      createElement(ScopeOfWorkSection, {
+        job: job([{ id: "sw_1", title: "Install DB-1", detail: "", order: 0 }]),
+        reconciled: false,
+        certaintyByClauseId: new Map<string, CertaintyState>([["sw_1", "confirmed"]]),
+        onInspectClause: () => undefined,
+      })
+    );
+    expect(html).not.toContain("Confirmed");
   });
 });
 

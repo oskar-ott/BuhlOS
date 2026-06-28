@@ -2,11 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, PanelRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { updateJob } from "@/domains/jobs/client";
 import type { Job } from "@/domains/jobs/types";
+import type { CertaintyState } from "@/domains/jobs/certainty";
+import { CertaintyChip } from "./CertaintyChip";
+import { cn } from "@/lib/cn";
 
 /**
  * Scope of work editor (#200) — the builder's Basics tab. Deliberately
@@ -29,7 +32,23 @@ interface DraftItem {
 let keyCounter = 0;
 const nextKey = () => `sw-draft-${++keyCounter}`;
 
-export function ScopeOfWorkSection({ job }: { job: Job }) {
+export function ScopeOfWorkSection({
+  job,
+  certaintyByClauseId,
+  reconciled = false,
+  selectedClauseId = null,
+  onInspectClause,
+}: {
+  job: Job;
+  /** Per-clause certainty derived from the confirmed reconciliation (clauseId → state). */
+  certaintyByClauseId?: ReadonlyMap<string, CertaintyState>;
+  /** True when this job has a confirmed reconciliation — gates the certainty chips. */
+  reconciled?: boolean;
+  /** The clause currently open in the cockpit Inspector, for highlight. */
+  selectedClauseId?: string | null;
+  /** Open a saved clause in the cockpit Inspector. */
+  onInspectClause?: (clauseId: string, title: string, detail: string) => void;
+}) {
   const router = useRouter();
   const [items, setItems] = useState<DraftItem[]>(() =>
     (job.scopeOfWork ?? [])
@@ -120,13 +139,24 @@ export function ScopeOfWorkSection({ job }: { job: Job }) {
         </p>
       ) : (
         <ul className="mt-3 space-y-2">
-          {items.map((item, idx) => (
-            <li key={item.key} className="rounded-card border border-border p-3">
+          {items.map((item, idx) => {
+            const cert = item.id ? certaintyByClauseId?.get(item.id) : undefined;
+            const showCert = Boolean(item.id && reconciled && cert);
+            const selected = Boolean(item.id && selectedClauseId && item.id === selectedClauseId);
+            return (
+            <li
+              key={item.key}
+              className={cn(
+                "rounded-card border p-3",
+                selected ? "border-brand-navy ring-1 ring-brand-navy" : "border-border"
+              )}
+            >
               <div className="flex items-start gap-2">
                 <span className="mt-2 w-5 shrink-0 font-mono text-xs text-text-muted">
                   {idx + 1}.
                 </span>
                 <div className="min-w-0 flex-1 space-y-2">
+                  {showCert && cert ? <CertaintyChip cert={cert} /> : null}
                   <input
                     value={item.title}
                     onChange={(e) => patch(item.key, { title: e.target.value })}
@@ -143,6 +173,17 @@ export function ScopeOfWorkSection({ job }: { job: Job }) {
                   />
                 </div>
                 <div className="flex shrink-0 flex-col gap-1">
+                  {item.id && onInspectClause ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onInspectClause(item.id!, item.title, item.detail)}
+                      aria-label="Inspect scope line"
+                      data-testid={`scope-inspect-${idx}`}
+                    >
+                      <PanelRight className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  ) : null}
                   <Button size="sm" variant="ghost" onClick={() => move(idx, -1)} disabled={idx === 0} aria-label="Move up">
                     ↑
                   </Button>
@@ -163,7 +204,8 @@ export function ScopeOfWorkSection({ job }: { job: Job }) {
                 </div>
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 
