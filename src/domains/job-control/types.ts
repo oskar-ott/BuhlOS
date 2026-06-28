@@ -4,8 +4,12 @@ import type {
   BoqLineRefSchema,
   ClaimLineSchema,
   ClaimLineStatusSchema,
+  CloseoutAreaScopeSchema,
+  CloseoutFulfilmentLinkSchema,
+  CloseoutFulfilmentTypeSchema,
   CloseoutRequirementSchema,
   CloseoutRequirementKindSchema,
+  CloseoutRequirementSourceSchema,
   CloseoutRequirementStatusSchema,
   EvidenceLinkSchema,
   EvidenceLinkRoleSchema,
@@ -61,6 +65,10 @@ export type EvidenceLink = z.infer<typeof EvidenceLinkSchema>;
 
 export type CloseoutRequirementKind = z.infer<typeof CloseoutRequirementKindSchema>;
 export type CloseoutRequirementStatus = z.infer<typeof CloseoutRequirementStatusSchema>;
+export type CloseoutFulfilmentType = z.infer<typeof CloseoutFulfilmentTypeSchema>;
+export type CloseoutFulfilmentLink = z.infer<typeof CloseoutFulfilmentLinkSchema>;
+export type CloseoutAreaScope = z.infer<typeof CloseoutAreaScopeSchema>;
+export type CloseoutRequirementSource = z.infer<typeof CloseoutRequirementSourceSchema>;
 export type CloseoutRequirement = z.infer<typeof CloseoutRequirementSchema>;
 export type ProofReviewStatus = z.infer<typeof ProofReviewStatusSchema>;
 export type ProofReview = z.infer<typeof ProofReviewSchema>;

@@ -64,6 +64,32 @@ export async function closeoutStatus(jobId: string): Promise<HttpResult<Closeout
   });
 }
 
+/**
+ * #374 (AC3) — a NON-GATING pre-freeze advisory derived from the closeout
+ * matrix's N-of-M readiness. The #349 close-out action (`closeOutJob`) READS
+ * this so the office can SEE outstanding handover obligations before it freezes
+ * the numbers, but it NEVER enforces it — exactly like #349 "reads, doesn't
+ * enforce": a job can still be closed with obligations outstanding (e.g. a
+ * waiver pending, a cert issued out-of-band). PURE — derives a message from the
+ * already-fetched matrix counts, fetches nothing, gates nothing.
+ *
+ * Returns `null` when there is nothing to warn about (no requirements, or every
+ * obligation discharged) — never a fake "all clear" banner.
+ */
+export interface CloseoutReadinessCounts {
+  total: number;
+  discharged: number;
+}
+
+export function preFreezeCloseoutWarning(counts: CloseoutReadinessCounts | null): string | null {
+  if (!counts || counts.total === 0) return null;
+  const outstanding = counts.total - counts.discharged;
+  if (outstanding <= 0) return null;
+  return `${outstanding} of ${counts.total} closeout obligation${
+    counts.total === 1 ? "" : "s"
+  } still outstanding. You can still close out — this is a heads-up, not a block.`;
+}
+
 export async function closeOutJob(jobId: string): Promise<HttpResult<z.infer<typeof CloseResponseSchema>>> {
   return httpPost(`/api/job-closeout?jobId=${encodeURIComponent(jobId)}&action=close`, {}, {
     schema: CloseResponseSchema,

@@ -47,7 +47,7 @@ const EXACT_STORES = [
 
 /** Multi-document stores (path prefixes; every *.json under them). */
 const PREFIX_STORES = [
-  'jobs/', // per-job data.json, itps.json, tags.json, materials-list.json, plans-index.json, photos-index.json, templates.json, temps.json, inductions.json, prestart.json (pre-start readiness #371), scope-reconciliation.json (job-control L0), job-control.json (job-control L1), field-detail.json (DERIVED per-job structure projection for Phil job-detail LCP; rebuilt from jobs.json on read, freshness-gated — disposable) …
+  'jobs/', // per-job data.json, itps.json, tags.json, materials-list.json, plans-index.json, photos-index.json, templates.json, temps.json, inductions.json, certificates.json (#231), prestart.json (pre-start readiness #371), scope-reconciliation.json (job-control L0), job-control.json (job-control L1 spine — also holds the #374 closeoutRequirements[] handover matrix; the #349 numbers-freeze report card is the SEPARATE closeout.json), field-detail.json (DERIVED per-job structure projection for Phil job-detail LCP; rebuilt from jobs.json on read, freshness-gated — disposable) …
   'users/', // per-user time-entries/<date>.json (payroll data)
   'audit/', // audit-log monthly rollovers audit/<yyyy-mm>.json
   'assets/', // gear/asset documents

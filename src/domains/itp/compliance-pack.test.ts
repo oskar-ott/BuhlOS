@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCompliancePack } from "./compliance-pack";
+import { buildCompliancePack, buildHandoverChecklistSection } from "./compliance-pack";
 import type { ITPInstance } from "./types";
 import type { Job } from "@/domains/jobs/types";
 
@@ -178,5 +178,44 @@ describe("buildCompliancePack — sign-off + overrides + determinism", () => {
     const two = build([...data].reverse());
     expect(one).toEqual(two);
     expect(one.instances.map((i) => i.id)).toEqual(["i_a", "i_b"]);
+  });
+});
+
+describe("buildCompliancePack — #374 handover checklist (AC4)", () => {
+  it("is null when no closeout requirements are supplied (honest absence)", () => {
+    expect(build([]).handoverChecklist).toBeNull();
+    expect(buildHandoverChecklistSection([])).toBeNull();
+  });
+
+  it("prepends a composable section with statuses + only resolving linked refs", () => {
+    const pack = buildCompliancePack({
+      job,
+      instances: [],
+      overrides: {},
+      overridesWindowMonths: 12,
+      generatedAt: NOW,
+      closeoutRequirements: [
+        {
+          id: "cr_1",
+          title: "Certificate of electrical safety issued",
+          status: "satisfied",
+          links: [
+            { type: "certificate", id: "cert_ok", resolved: true },
+            { type: "certificate", id: "cert_gone", resolved: false },
+          ],
+        },
+        { id: "cr_2", title: "As-builts issued", status: "outstanding" },
+        { id: "cr_3", title: "Deviation waived", status: "waived" },
+      ],
+    });
+    const section = pack.handoverChecklist!;
+    expect(section.total).toBe(3);
+    // discharged = satisfied + waived
+    expect(section.discharged).toBe(2);
+    expect(section.rows[0]!.statusLabel).toBe("Closed out");
+    // only the RESOLVING link is listed (a dangling link is not handover evidence)
+    expect(section.rows[0]!.linkedRefs).toEqual(["certificate:cert_ok"]);
+    expect(section.rows[1]!.discharged).toBe(false);
+    expect(section.rows[2]!.statusLabel).toBe("Waived");
   });
 });
