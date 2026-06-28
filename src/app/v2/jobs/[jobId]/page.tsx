@@ -24,6 +24,7 @@ import { ReadinessSignalsResponseSchema, signalsFrom } from "@/domains/jobs/read
 import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
 import { JobProfitabilitySummary } from "@/components/admin/JobProfitabilitySummary";
 import { JobBudgetVarianceCard } from "@/components/admin/JobBudgetVarianceCard";
+import { JobCostImportCard } from "@/components/admin/JobCostImportCard";
 import { JobCloseoutCard } from "@/components/admin/JobCloseoutCard";
 import { JobDlpCard } from "@/components/admin/JobDlpCard";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
@@ -124,6 +125,9 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
   const rfiEnabled = await isFlagEnabled("rfi_register", session);
   // #217: surface the meeting-minutes register section when the flag is on.
   const minutesEnabled = await isFlagEnabled("minutes_register", session);
+  // #365: surface the imported BOQ cost-basis card when the flag is on (the
+  // card self-hides for jobs that weren't created from a BOQ import).
+  const costImportEnabled = await isFlagEnabled("job_doc_import", session);
 
   const [data, inductions, readiness] = await Promise.all([
     loadJobInterface(raw, jobId),
@@ -237,6 +241,10 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
         {/* #341: budget vs actual (labour/materials/total) — $-vs-budget view,
             complements the Labour card's pending-approval framing. */}
         <JobBudgetVarianceCard jobId={job.id} />
+        {/* #365: imported BOQ cost basis — headline total + reconciliation for a
+            job born from a workbook import. Flag-gated + admin-tier; the card
+            self-hides for jobs with no import (the GET also 404s when dark). */}
+        {costImportEnabled && canBuild ? <JobCostImportCard jobId={job.id} /> : null}
         {/* #349: closeout / "Final numbers" report card — freeze the job's final
             numbers at end-of-life; admin-tier only (hidden for an LH viewer). */}
         <JobCloseoutCard jobId={job.id} />

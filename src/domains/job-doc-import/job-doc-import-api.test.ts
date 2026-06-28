@@ -248,8 +248,9 @@ describe("api/job-doc-import — read-only preview (admin, flag on)", () => {
     expect(writeSpy).toHaveBeenCalledTimes(0);
   });
 
-  it("a wrong method (GET) → 405", async () => {
-    const res = await call({ method: "GET" });
+  it("a genuinely unsupported method (PUT) → 405", async () => {
+    // GET is now the cost-basis read + POST is preview/create; PUT is unsupported.
+    const res = await call({ method: "PUT" });
     expect(res.statusCode).toBe(405);
   });
 });
@@ -351,6 +352,94 @@ describe("api/job-doc-import?action=create-job — the #365 write-half", () => {
       userId: "u_field",
       query: { action: "create-job" },
       body: { name: "Sansara Gym", mimeType: XLSX_MIME, dataUrl: xlsxDataUrl() },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("round-trip: create-job then GET returns the attached cost basis", async () => {
+    const created = await call({
+      method: "POST",
+      query: { action: "create-job" },
+      body: { name: "Sansara Gym", fileName: "REV5.xlsx", mimeType: XLSX_MIME, dataUrl: xlsxDataUrl() },
+    });
+    expect(created.statusCode).toBe(201);
+    const jobId = (created.body as { jobId: string }).jobId;
+
+    const got = await call({ method: "GET", query: { jobId } });
+    expect(got.statusCode).toBe(200);
+    const cost = (got.body as {
+      costImport: { source: string; total: number; lines: number; fileName: string };
+    }).costImport;
+    expect(cost.source).toBe("boq-import");
+    expect(cost.fileName).toBe("REV5.xlsx");
+    expect(cost.lines).toBeGreaterThanOrEqual(1);
+    expect(cost.total).toBeGreaterThan(0);
+  });
+});
+
+describe("api/job-doc-import GET — the hub cost-basis read", () => {
+  beforeEach(() => {
+    process.env.FLAG_JOB_DOC_IMPORT = "1";
+  });
+
+  it("projects a stored cost-import.json into the headline summary", async () => {
+    store.set("jobs/sansara/cost-import.json", {
+      source: "boq-import",
+      importedAt: "2026-06-28T00:00:00Z",
+      importedById: "u_boss",
+      importedByName: "boss",
+      fileName: "REV5.xlsx",
+      preview: {
+        totals: { computed: 7110, stated: 7160, delta: -50, reconciles: false },
+        counts: { lines: 2, byFlag: {} },
+        sections: [{ key: "lighting" }, { key: "electrical" }],
+      },
+    });
+    const res = await call({ method: "GET", query: { jobId: "sansara" } });
+    expect(res.statusCode).toBe(200);
+    const cost = (res.body as {
+      costImport: {
+        total: number;
+        stated: number;
+        delta: number;
+        reconciles: boolean;
+        lines: number;
+        sections: number;
+        fileName: string;
+      };
+    }).costImport;
+    expect(cost.total).toBe(7110);
+    expect(cost.stated).toBe(7160);
+    expect(cost.delta).toBe(-50);
+    expect(cost.reconciles).toBe(false);
+    expect(cost.lines).toBe(2);
+    expect(cost.sections).toBe(2);
+    expect(cost.fileName).toBe("REV5.xlsx");
+  });
+
+  it("a job with no import → costImport null (the card stays hidden)", async () => {
+    const res = await call({ method: "GET", query: { jobId: "never-imported" } });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { costImport: unknown }).costImport).toBeNull();
+  });
+
+  it("missing jobId → 400", async () => {
+    const res = await call({ method: "GET", query: {} });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("admin but flag OFF → 404 (the read is invisible too)", async () => {
+    process.env.FLAG_JOB_DOC_IMPORT = "0";
+    const res = await call({ method: "GET", query: { jobId: "sansara" } });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("non-admin (field) → 403", async () => {
+    const res = await call({
+      method: "GET",
+      role: "electrician",
+      userId: "u_field",
+      query: { jobId: "sansara" },
     });
     expect(res.statusCode).toBe(403);
   });

@@ -77,3 +77,30 @@ export const BoqImportPreviewSchema = z.object({
   counts: z.object({ lines: z.number(), byFlag: z.record(z.number()) }),
 });
 export type BoqImportPreview = z.infer<typeof BoqImportPreviewSchema>;
+
+/**
+ * #365 write-half: the cost-basis summary the job hub reads back via
+ * GET /api/job-doc-import?jobId=. A projection of the attached cost-import.json
+ * — the headline totals + counts + provenance, NOT the full priced lines (the
+ * hub card only needs the headline). `costImport` is null when the job was not
+ * created from a BOQ import, so the card stays hidden-until-real. Money is whole
+ * dollars (2dp), as the BOQ parser emits — NOT integer cents.
+ */
+export const CostImportSummarySchema = z.object({
+  source: z.string(),
+  importedAt: z.string().nullable(),
+  importedByName: z.string().nullable(),
+  fileName: z.string().nullable(),
+  total: z.number(),
+  stated: z.number().nullable(),
+  delta: z.number().nullable(),
+  reconciles: z.boolean().nullable(),
+  lines: z.number(),
+  sections: z.number(),
+});
+export type CostImportSummary = z.infer<typeof CostImportSummarySchema>;
+
+export const CostImportResponseSchema = z.object({
+  costImport: CostImportSummarySchema.nullable(),
+});
+export type CostImportResponse = z.infer<typeof CostImportResponseSchema>;
