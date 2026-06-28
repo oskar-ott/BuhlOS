@@ -209,6 +209,7 @@ async function handleGet(req, res, me) {
       const k = r.workerId + '|' + r.date;
       if (!touched.has(k)) touched.set(k, { userId: r.workerId, date: r.date });
     }
+    let stampFailures = 0;
     await Promise.all([...touched.values()].map(async ({ userId: uid, date: d }) => {
       const e = entries.find(x => x.userId === uid && x.date === d);
       if (!e) return;
@@ -216,9 +217,15 @@ async function handleGet(req, res, me) {
       try {
         await writeEntry(uid, updated);
         await appendAudit(uid, e.id, 'exported', me.id, exportId, null);
-      } catch {}
+      } catch {
+        // Don't swallow silently (P7): a concurrent edit left this row
+        // unstamped. Surfaced via the X-Stamp-Failures header below; the
+        // hardened POST /finalise path additionally drops it from the CSV.
+        stampFailures += 1;
+      }
     }));
     res.setHeader('X-Export-Id', exportId);
+    if (stampFailures) res.setHeader('X-Stamp-Failures', String(stampFailures));
 
     await appendRun({
       exportId, hash: csvHash, me, stampedAt,
@@ -298,15 +305,12 @@ async function handleFinalise(req, res, me) {
     }
   }
 
-  // THIS run's CSV = the eligible (newly-paid) rows only, in the requested
-  // shape. The hash is tamper-evident over exactly those rows.
-  const { cols, toCells, csvFilename } = csvShape(shape, fromDate, toDate, status);
-  const lines = [cols.map(csvCell).join(',')];
-  for (const r of eligibleRows) lines.push(toCells(r).map(csvCell).join(','));
-  const csv = lines.join('\n') + '\n';
-  const csvHash = crypto.createHash('sha256').update(csv, 'utf8').digest('hex');
-
-  // Stamp ONLY eligible entries (skip — never overwrite — already-exported).
+  // Stamp the eligible entries FIRST, then build the committed CSV from only the
+  // rows that actually stamped. A concurrent edit (#157 stale-write) between the
+  // read and the stamp must NOT leave a row in the committed CSV that wasn't
+  // marked exported — the next finalise would re-include that row and double-pay
+  // it. Failed rows stay UNEXPORTED (self-healing: the next run picks them up)
+  // and are surfaced, never silently swallowed (P7).
   const exportId = 'exp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const stampedAt = new Date().toISOString();
   const touched = new Map();
@@ -314,6 +318,8 @@ async function handleFinalise(req, res, me) {
     const k = r.workerId + '|' + r.date;
     if (!touched.has(k)) touched.set(k, { userId: r.workerId, date: r.date });
   }
+  const stampedKeys = new Set();
+  const stampFailures = [];
   await Promise.all([...touched.values()].map(async ({ userId: uid, date: d }) => {
     const e = entries.find((x) => x.userId === uid && x.date === d);
     if (!e || e.exportId) return; // defensive: never re-stamp a row already in a run
@@ -321,28 +327,59 @@ async function handleFinalise(req, res, me) {
     try {
       await writeEntry(uid, updated);
       await appendAudit(uid, e.id, 'exported', me.id, exportId, null);
-    } catch {}
+      stampedKeys.add(uid + '|' + d);
+    } catch (err) {
+      // Leave the entry UNEXPORTED so the next finalise re-includes it; never
+      // claim a row was paid when its stamp didn't land.
+      const conflict = !!(err && err.code === 'stale_write');
+      stampFailures.push({
+        userId: uid, date: d,
+        code: conflict ? 'conflict' : 'error',
+        error: conflict ? 'edited during export' : 'write failed',
+      });
+    }
   }));
+
+  // BLOCK: nothing committed (every eligible row hit a concurrent edit). Emit no
+  // CSV that claims otherwise — the entries are untouched, so the operator retries.
+  if (!stampedKeys.size) {
+    return res.status(409).json({
+      error: 'Could not commit any rows — they were edited during the export. Nothing was stamped; try again.',
+      code: 'stamp_conflict',
+      stampFailures,
+    });
+  }
+
+  // THIS run's CSV = only the rows that actually stamped, in the requested shape.
+  // The hash is tamper-evident over exactly the committed rows.
+  const committedRows = eligibleRows.filter((r) => stampedKeys.has(r.workerId + '|' + r.date));
+  const { cols, toCells, csvFilename } = csvShape(shape, fromDate, toDate, status);
+  const lines = [cols.map(csvCell).join(',')];
+  for (const r of committedRows) lines.push(toCells(r).map(csvCell).join(','));
+  const csv = lines.join('\n') + '\n';
+  const csvHash = crypto.createHash('sha256').update(csv, 'utf8').digest('hex');
 
   await appendRun({
     exportId, hash: csvHash, me, stampedAt,
     fromDate, toDate, status, userId: ctx.userId, jobId: ctx.jobId,
-    rowCount: eligibleRows.length, summary: summarise(eligibleRows),
-    extra: { newlyStamped: touched.size, alreadyExportedRows: alreadyRows.length, shape, via: 'finalise' },
+    rowCount: committedRows.length, summary: summarise(committedRows),
+    extra: { newlyStamped: stampedKeys.size, stampFailures: stampFailures.length, alreadyExportedRows: alreadyRows.length, shape, via: 'finalise' },
   });
   await appendActivity({
     action: 'payroll.exported', scope: 'payroll', actor: me.id, actorName: me.username,
     target: `payroll/${exportId}`, targetLabel: `${fromDate} → ${toDate}`,
     meta: {
-      exportId, hash: csvHash, rowCount: eligibleRows.length, via: 'finalise', shape,
-      range: { fromDate, toDate, status }, summary: summarise(eligibleRows),
+      exportId, hash: csvHash, rowCount: committedRows.length, via: 'finalise', shape,
+      stampFailures: stampFailures.length,
+      range: { fromDate, toDate, status }, summary: summarise(committedRows),
     },
   });
 
   res.setHeader('X-Export-Id', exportId);
   res.setHeader('X-Export-Hash', csvHash);
-  res.setHeader('X-Row-Count', String(eligibleRows.length));
+  res.setHeader('X-Row-Count', String(committedRows.length));
   res.setHeader('X-Already-Exported-Rows', String(alreadyRows.length));
+  res.setHeader('X-Stamp-Failures', String(stampFailures.length));
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="' + csvFilename + '"');
   return res.status(200).send(csv);
