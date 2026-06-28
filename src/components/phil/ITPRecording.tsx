@@ -12,6 +12,7 @@ import {
   statusTone,
   type ITPStatusTone,
 } from "@/domains/itp/format";
+import { isPointApplicable } from "@/domains/itp/applicability";
 import type { ITPInstance, ITPTemplatePoint } from "@/domains/itp/types";
 import type { Job } from "@/domains/jobs/types";
 import { ITPPointCard } from "./ITPPointCard";
@@ -73,8 +74,13 @@ export function ITPRecording({ job, instance: initial, viewer }: Props) {
   const [banner, setBanner] = useState<Banner>(null);
 
   const visiblePoints = useMemo<ITPTemplatePoint[]>(() => {
+    const ctx = { scope: instance.scope };
     const points = (instance.templateSnapshot?.points ?? []).filter(
-      (p) => !p.archived,
+      // #293: drop non-applicable conditional points entirely — they're
+      // simply ABSENT, no "condition" copy, no greyed rows (P11). The
+      // existing empty-state covers the all-filtered case. Snapshot-driven
+      // + fail-open, so a typo never hides a real check.
+      (p) => !p.archived && isPointApplicable(p, ctx),
     );
     // Render in (order, label) — legacy templates use an `order` int;
     // a missing order falls back to template position.

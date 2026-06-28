@@ -30,11 +30,41 @@ import { z } from "zod";
  *         createdAt, createdBy, updatedAt
  *     }] }
  *
+ * Conditional points ("only-if", #293) — CLOSED VOCABULARY v1
+ * ----------------------------------------------------------
+ * A template point may carry an `onlyIf` condition so a check only
+ * applies in the right context. v1 ships ONE condition key — `scopeType`
+ * — and nothing else. The allowed keys live in `ITP_CONDITION_KEYS`
+ * below; anything not in that set is a future, deferred key (e.g.
+ * attach-time-attribute / job-attribute) — no real template needs them
+ * yet, and they would touch AttachITPModal, so they wait for a named
+ * follow-up.
+ *
+ * Two opposite failure stances, on purpose:
+ *   - FAIL-OPEN at EVALUATION (src/domains/itp/applicability.ts +
+ *     api/_lib/itp-applicability.js): an unknown / malformed condition
+ *     never silently drops a check. A typo in `onlyIf` makes the point
+ *     APPLY (it shows, it counts), so a real inspection is never hidden
+ *     by a data error.
+ *   - FAIL-CLOSED at SAVE (api/itp-templates.js validatePoint): the
+ *     writer only persists `onlyIf` when it is shaped exactly as
+ *     `{ scopeType: <valid scope or array of valid scopes> }`. Unknown
+ *     keys and garbage are dropped, so a typo never reaches storage in
+ *     the first place. (Without this, the template writer strips the
+ *     whole `onlyIf` and the feature is a dead end-to-end.)
+ *
+ * Snapshot semantics (critical): applicability is ALWAYS evaluated
+ * against the attach-time `templateSnapshot.onlyIf`, never the live
+ * template — editing a template must not retro-change an existing
+ * instance's checklist.
+ *
  * Cross-ref:
  *   docs/rebuild-audit/32-phase-e-plan.md §3 (operational loop) + §5 (data model)
  *   docs/rebuild-audit/33-phase-e-build-prompts.md §E1a
  *   api/job-itps.js — wire-shape source of truth
  *   api/itp-templates.js — template point shape source of truth
+ *   src/domains/itp/applicability.ts — TS evaluation (one source of truth)
+ *   api/_lib/itp-applicability.js — CJS mirror (api/*.js can't import TS)
  *   src/domains/snags/schema.ts — precedent (.passthrough + superRefine)
  */
 
@@ -59,6 +89,28 @@ export const ITPWitnessRoleSchema = z.enum(ITP_WITNESS_ROLES);
  *  api/job-itps.js:57 VALID_SCOPE. */
 export const ITP_SCOPES = ["job", "level", "area", "switchboard"] as const;
 export const ITPScopeSchema = z.enum(ITP_SCOPES);
+
+/* ---------------------------------------------------------------------
+ * Conditional points — "only-if" condition keys (#293, scope-type v1)
+ *
+ * CLOSED vocabulary. v1 ships `scopeType` and nothing else. New keys
+ * (attach-time-attribute / job-attribute …) are a named follow-up — add
+ * them here AND to the evaluation fns (applicability.ts + the JS mirror)
+ * AND to the save-time whitelist (api/itp-templates.js) together, or the
+ * feature drifts. See the schema header for the fail-open/fail-closed
+ * split + snapshot semantics.
+ * -------------------------------------------------------------------*/
+export const ITP_CONDITION_KEYS = ["scopeType"] as const;
+export type ITPConditionKey = (typeof ITP_CONDITION_KEYS)[number];
+
+/** `onlyIf` shape. v1: a single `scopeType` key whose value is a scope
+ *  or an array of allowed scopes. `.passthrough()` is intentionally NOT
+ *  used — unknown keys are not modelled here (they are dropped at save),
+ *  but evaluation fails OPEN on anything it doesn't recognise so a typo
+ *  never silently hides a real check. */
+export const ITPPointConditionSchema = z.object({
+  scopeType: z.union([ITPScopeSchema, z.array(ITPScopeSchema)]),
+});
 
 /** Instance status — see api/job-itps.js:58 VALID_STATUS. Kebab-case,
  *  not snake_case (legacy convention; do NOT normalise). */
@@ -134,6 +186,13 @@ export const ITPTemplatePointSchema = z
     archivedBy: z.string().nullable().optional(),
     /** Optional sort key — see api/itp-templates.js validatePoint. */
     order: z.number().optional(),
+    /** #293 conditional point — only-if (scope-type v1). When present and
+     *  shaped `{ scopeType }`, the point applies only when the instance
+     *  scope ∈ the allowed set. Evaluation is snapshot-driven (this rides
+     *  the attach-time snapshot) and fails OPEN — see applicability.ts.
+     *  `.passthrough()` on the point means an unknown-but-stored shape
+     *  still parses; evaluation, not parsing, decides applicability. */
+    onlyIf: ITPPointConditionSchema.nullable().optional(),
   })
   .passthrough();
 
@@ -302,6 +361,10 @@ export const ItpTemplatePointDraftSchema = z.object({
   min: z.number().optional(),
   max: z.number().optional(),
   witnessRole: ITPWitnessRoleSchema.optional(),
+  /** #293 only-if (scope-type v1). Authoring surfaces send this; the
+   *  writer (api/itp-templates.js) whitelists it FAIL-CLOSED — only a
+   *  well-shaped `{ scopeType }` persists, garbage is dropped. */
+  onlyIf: ITPPointConditionSchema.nullable().optional(),
 });
 
 export const CreateItpTemplatePayloadSchema = z.object({

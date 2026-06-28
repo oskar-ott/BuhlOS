@@ -1175,6 +1175,57 @@ describe("formatProgress", () => {
     expect(p.done).toBe(2);
     expect(p.percent).toBe(100);
   });
+
+  it("#293 excludes a non-applicable required point from the denominator", () => {
+    // baseInstance.scope is 'switchboard'. Add a level-only required point —
+    // it must NOT count toward total on a switchboard instance, so the two
+    // recorded applicable required points read as 100%, not 2/3.
+    const levelOnly: ITPTemplatePoint = {
+      id: "ip_level_only",
+      label: "Level penetrations",
+      type: "signoff",
+      required: true,
+      onlyIf: { scopeType: "level" },
+    };
+    const inst: ITPInstance = {
+      ...baseInstance,
+      templateSnapshot: {
+        ...baseInstance.templateSnapshot,
+        points: [photoPoint, valuePoint, signoffPoint, levelOnly],
+      },
+      results: {
+        [photoPoint.id]: photoResult,
+        [valuePoint.id]: valueResult,
+        [signoffPoint.id]: signoffResult,
+      },
+    };
+    const p = formatProgress(inst);
+    expect(p).toEqual({ done: 3, total: 3, percent: 100 });
+  });
+
+  it("#293 keeps an applicable conditional required point in the denominator", () => {
+    // A switchboard-only required point on a switchboard instance DOES count.
+    const sbOnly: ITPTemplatePoint = {
+      id: "ip_sb_only",
+      label: "Board schedule attached",
+      type: "signoff",
+      required: true,
+      onlyIf: { scopeType: ["switchboard"] },
+    };
+    const inst: ITPInstance = {
+      ...baseInstance,
+      templateSnapshot: {
+        ...baseInstance.templateSnapshot,
+        points: [photoPoint, sbOnly],
+      },
+      results: {
+        [photoPoint.id]: photoResult,
+        // sbOnly left open
+      },
+    };
+    const p = formatProgress(inst);
+    expect(p).toEqual({ done: 1, total: 2, percent: 50 });
+  });
 });
 
 /* ----------------------------------------------------------------------

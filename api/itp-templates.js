@@ -13,6 +13,7 @@
 //         id, label, type: 'photo' | 'value' | 'signoff' | 'note',
 //         unit?, required?: boolean, witnessRole?: 'builder' | 'admin' | 'lh',
 //         min?: number, max?: number,     // value pass-criterion (numeric)
+//         onlyIf?: { scopeType: scope | scope[] },  // #293 conditional point
 //         archived?, order?
 //       }],
 //       archived?, createdAt, createdBy, updatedAt
@@ -48,11 +49,41 @@ const { nanoid } = require('./_lib/validation');
 const KEY = 'itp-templates.json';
 const VALID_POINT_TYPES = new Set(['photo', 'value', 'signoff', 'note']);
 const VALID_WITNESS     = new Set(['builder', 'admin', 'lh']);
+// #293 — instance scopes a conditional point may key off. Mirrors
+// VALID_SCOPE in api/job-itps.js + ITP_SCOPES in src/domains/itp/schema.ts.
+const VALID_SCOPE       = new Set(['job', 'level', 'area', 'switchboard']);
 const MAX_POINTS        = 100;
 const MAX_TEMPLATES     = 500;
 
 function _str(v, max = 80) {
   return v == null ? '' : String(v).trim().slice(0, max);
+}
+
+// #293 conditional points — FAIL-CLOSED whitelist for `onlyIf`.
+//
+// Store ONLY a well-shaped scope-type condition; drop unknown keys and
+// garbage so a typo never persists (the opposite stance to the
+// fail-open EVALUATION in src/domains/itp/applicability.ts + its JS
+// mirror). v1 vocabulary is closed to `scopeType`. Returns the
+// sanitised condition object, or null when there's nothing valid to
+// store (caller then omits onlyIf entirely — byte-identical to legacy).
+function sanitizeOnlyIf(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (raw.scopeType == null) return null;
+  // Normalise scalar or array → array of valid scopes only.
+  const candidates = Array.isArray(raw.scopeType) ? raw.scopeType : [raw.scopeType];
+  const valid = [];
+  for (const c of candidates) {
+    if (typeof c === 'string' && VALID_SCOPE.has(c) && !valid.includes(c)) {
+      valid.push(c);
+    }
+  }
+  if (valid.length === 0) return null; // garbage scopeType → drop entirely
+  // Preserve the author's scalar-vs-array shape when it survived cleanly,
+  // else fall back to the array form.
+  const scopeType =
+    !Array.isArray(raw.scopeType) && valid.length === 1 ? valid[0] : valid;
+  return { scopeType };
 }
 
 function validatePoint(raw, idx) {
@@ -90,6 +121,11 @@ function validatePoint(raw, idx) {
     if (raw.archivedBy) out.archivedBy = _str(raw.archivedBy, 80);
   }
   if (typeof raw.order === 'number' && Number.isFinite(raw.order)) out.order = raw.order;
+  // #293 — only persist a well-shaped onlyIf (fail-closed). Anything else
+  // is dropped, so a typo never survives a save and the evaluator never
+  // has to fail-open over stored garbage.
+  const onlyIf = sanitizeOnlyIf(raw.onlyIf);
+  if (onlyIf) out.onlyIf = onlyIf;
   return { ok: true, point: out };
 }
 
