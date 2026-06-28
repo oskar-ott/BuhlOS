@@ -19,8 +19,9 @@ byte-identical to Blob, else Blob). Blob is authoritative and read on every requ
 | Task status | Blob (`/api/task-toggle`); cron mirror → PG | parity-gated overlay | **Stage A built** (CAS write behind `supabase_source_tasks`, dark) |
 | Hours | Blob (in-request) + PG dual-write | parity-gated | next candidate (clean write seam) |
 | Jobs structure | Blob (create/PUT/bulk/publish) + in-request PG mirror | parity-gated | later (tree writes, many sites — hardest) |
-| Evidence metadata | Blob capture; cron mirror → PG | parity-gated | later |
-| Snags / observations / materials / proof-spine | Blob only (**no PG table yet**) | Blob | **blocked** — need importer→dual-write→read first |
+| Evidence metadata | Blob capture; cron mirror → PG **built but dark** (`supabase_dual_write_evidence` off, so `evidence_files` not yet populated) | parity-gated overlay (dark) | later |
+| Snags / observations / materials | Blob only (**PG tables exist** from Phase-1, but **no importer / no dual-write** yet) | Blob | **blocked** — tables are empty; need importer→dual-write→read first |
+| Proof-spine (job-control, #503) | Blob only (**no PG table yet**) | Blob | **blocked** — needs schema → importer → dual-write → read |
 
 ## The promotion ladder (per domain)
 
@@ -69,8 +70,10 @@ has proven reliable. This trade-off is re-decided per domain at promotion time.
 2. **Hours** — clean in-request write seam; Stage A next.
 3. **Jobs structure** — hardest (tree, many write sites); only after tasks + hours bake.
 4. **Evidence** — after structure (depends on area/task identity being PG-source).
-5. **Snags / observations / materials / proof-spine** — need the full importer →
-   dual-write → read ladder built first; not promotable until then.
+5. **Snags / observations / materials** — PG tables exist but are empty; need the
+   importer → dual-write → read ladder built before promotion.
+6. **Proof-spine (job-control, #503)** — no PG table yet; needs schema first, then
+   the full importer → dual-write → read ladder. Last.
 
 ## Non-goals / standing rules
 - **Binaries always stay in Blob** (photos/files) — only metadata is ever in PG.
