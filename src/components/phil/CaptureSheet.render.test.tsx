@@ -65,6 +65,16 @@ describe("CaptureSheet — worker-first shutter", () => {
     expect(html).toContain("Cancel");
   });
 
+  it("is honest that flash + zoom are OS-camera-owned, and shows no low-light hint without a measured photo (#148)", () => {
+    const html = render();
+    // We add no in-app flash/zoom controls — one honest worker-voice line says
+    // they live on the camera (AC: no dead controls).
+    expect(html).toContain("Flash and zoom are on your camera.");
+    // The low-light hint is gated on a measured photo (client-only resize), so
+    // a fresh SSR sheet never shows a dishonest "bit dark" on no photo.
+    expect(html).not.toContain("Bit dark");
+  });
+
   it("keeps the test-sensitive dialog name + header byte-identical with dictation wired in (#147)", () => {
     const html = render();
     // The dialog accessible name MUST stay exactly this string — the Preview

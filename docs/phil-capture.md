@@ -115,6 +115,40 @@ hidden. Submit stays disabled until a photo is picked; the note and the context
 are never required. This is a **UI/UX** change only — the payload, endpoints,
 metadata, permissions and honest states below are unchanged.
 
+### Shot guidance & file formats (#148)
+
+Additive, honest, non-blocking. **No live camera controls were added** — the
+flow stays `<input … capture="environment">`, so the shutter, exposure, **flash
+and zoom are owned by the OS camera**, not the app. Guidance lives at the
+**review** step, where the worker can actually act on it:
+
+- **Low-light hint.** The existing client resize (`resizeImageWithMeta` —
+  the sibling of `resizeImageToDataUrl`, same downscale, plus one cheap
+  `getImageData` luma pass) computes an **average Rec.601 luminance** (0–255) off
+  the already-downscaled canvas. If it's below a unit-tested cutoff
+  (`LOW_LIGHT_LUMA_THRESHOLD` in `src/domains/evidence/luma.ts`), a
+  **non-blocking** *"Bit dark — try the flash"* hint appears on the photo tile
+  (global launcher tray) / review preview (job sheet). It **never** disables the
+  tile, the Save/Submit button, or blocks adding more photos (P10). `avgLuma` is
+  a **real measured value**, not an invented score (P7); an unmeasurable read
+  (`null`) shows **no** hint — never a guess.
+- **Flash / zoom — honest scope (no dead controls).** Because `<input capture>`
+  hands flash + zoom to the OS camera, there are **no in-app flash/zoom
+  controls** (building one would be a `getUserMedia`/`ImageCapture` flow rework —
+  explicitly out of scope). One honest worker-voice line on the picker says
+  *"Flash and zoom are on your camera."* — nothing is faked.
+- **HEIC / HEIF (iPhone).** Handled by the **existing** client transcode: the
+  resize re-encodes every shot to **JPEG** (`image/jpeg`) before upload, so the
+  **office never sees a raw HEIC** and every photo is web-viewable in the per-job
+  evidence view. No new server work, no content-negotiation.
+- **The realistic failure is a client DECODE failure**, and it **already** has
+  an honest end-to-end path: `resizeImage*` throws (a `createImageBitmap`
+  rejection on an undecodable file, or a missing-API browser); both consumers
+  catch it — the launcher marks the tray photo `status: 'failed'` with the
+  message, the job sheet enters `phase: 'failed'` — and the tray renders a
+  **per-photo failed tile** the worker can remove/retake. Nothing is silently
+  dropped. This PR adds **tests** for that path; it does not re-engineer it.
+
 ### Honest states
 
 `ready → uploading → pending_sync → (success) | failed`
@@ -266,6 +300,20 @@ built (D4/D5) at `/v2/jobs/[jobId]/evidence`.
 - `evidence.test.ts` — schema, the `canTransition` state machine, format
   helpers, and every client wrapper incl. `uploadEvidencePhoto` error paths
   (mocked Blob).
+- **`service.test.ts`** *(added, #148)* — the client resize path with mocked
+  `createImageBitmap` / `OffscreenCanvas`: a decode **rejection** propagates so
+  callers mark the photo failed, a **missing** `createImageBitmap` throws the
+  existing honest error, and `resizeImageWithMeta` returns a real `avgLuma`
+  (bright high / dark low / Rec.601 green-weighted / `null` on a tainted-canvas
+  read). The string `resizeImageToDataUrl` wrapper still returns just the dataURL
+  (signature intact).
+- **`luma.test.ts`** *(added, #148)* — `isLowLight` on synthetic bright/dark
+  readings: fires strictly below `LOW_LIGHT_LUMA_THRESHOLD`, never on
+  null/undefined/NaN/Infinity, and the threshold stays in the 0–255 range.
+- **`CapturePhotoTray.render.test.tsx`** *(added, #148)* — the non-blocking
+  low-light hint: shown on a dark ready tile, absent on a bright one and on an
+  unmeasured/failed tile, and it never disables the tile, remove control, or the
+  "Add photo" affordance.
 - `PhilCaptureLauncher.render.test.tsx` — launcher chooser SSR (also locks the
   `Capture` dialog aria-label against the #147 dictation wiring).
 - **`speechDictation.test.ts`** *(added, #147)* — the pure dictation adapter:
@@ -348,8 +396,10 @@ module and **not** a new sidebar item.
 - Field readiness: [field-readiness/ROLL_OUT_STATUS.md](./field-readiness/ROLL_OUT_STATUS.md),
   [field-readiness/KNOWN_LIMITATIONS.md](./field-readiness/KNOWN_LIMITATIONS.md)
 - Code: `src/components/phil/PhilTabBar.tsx`, `PhilCaptureLauncher.tsx`,
-  `CaptureSheet.tsx`, `CapturePhotoPicker.tsx`, `src/domains/evidence/*`
-  (incl. `phil-capture.ts` — the job-first client contract),
+  `CaptureSheet.tsx`, `CapturePhotoPicker.tsx`, `CapturePhotoTray.tsx`,
+  `src/domains/evidence/*` (incl. `phil-capture.ts` — the job-first client
+  contract, `service.ts` — `resizeImageToDataUrl` / `resizeImageWithMeta`, and
+  `luma.ts` — the low-light cutoff + `isLowLight`),
   `api/evidence.js`, `api/photos.js`, `api/_lib/blob.js`
 - Admin per-job surface (do not duplicate): `src/app/v2/jobs/[jobId]/evidence/page.tsx`,
   `src/components/admin/EvidenceQueue.tsx`, `EvidenceDrawer.tsx`

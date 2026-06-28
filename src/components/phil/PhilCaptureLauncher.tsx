@@ -36,7 +36,7 @@ import { submitOfficeCapture } from "@/domains/observations/office-capture";
 import { OBSERVATION_DESCRIPTION_MAX } from "@/domains/observations/schema";
 import { createEvidence, uploadEvidencePhoto } from "@/domains/evidence/client";
 import { EVIDENCE_NOTE_MAX } from "@/domains/evidence/schema";
-import { resizeImageToDataUrl } from "@/domains/evidence/service";
+import { resizeImageWithMeta } from "@/domains/evidence/service";
 import { submitCaptureBatch } from "@/domains/evidence/capture-batch";
 import { effectiveTasks, stageLabel, visibleAreaGroups } from "@/domains/jobs/format";
 import type { Job, JobStage } from "@/domains/jobs/types";
@@ -314,9 +314,16 @@ export function PhilCaptureLauncher({
       const id = `tp_${photoIdRef.current}`;
       void (async () => {
         try {
-          const dataUrl = await resizeImageToDataUrl(file, 1920, 0.7);
+          // resizeImageWithMeta gives us the upload dataUrl AND a luminance
+          // reading in the same downscale pass — the avgLuma drives the
+          // non-blocking low-light tray hint (luma.ts) and never gates the save.
+          const { dataUrl, avgLuma } = await resizeImageWithMeta(file, 1920, 0.7);
           setPhotos((cur) =>
-            cur.map((p) => (p.id === id ? { ...p, dataUrl, status: "ready" as const } : p)),
+            cur.map((p) =>
+              p.id === id
+                ? { ...p, dataUrl, status: "ready" as const, avgLuma: avgLuma ?? undefined }
+                : p,
+            ),
           );
         } catch (e) {
           const msg = e instanceof Error ? e.message : "Couldn't read this photo.";

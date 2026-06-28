@@ -1,7 +1,8 @@
 "use client";
 
-import { Camera, Loader2, Plus, X } from "lucide-react";
+import { Camera, Lightbulb, Loader2, Plus, X } from "lucide-react";
 import { humanFileSize } from "@/domains/evidence/service";
+import { isLowLight } from "@/domains/evidence/luma";
 import { cn } from "@/lib/cn";
 
 /** A photo sitting in the capture tray (not yet submitted anywhere). */
@@ -17,6 +18,10 @@ export interface TrayPhoto {
   /** Blob URL once this photo has been uploaded for an OFFICE item — retries
    *  reuse it instead of re-uploading (see observations/office-capture.ts). */
   officeUrl?: string;
+  /** Measured average luma (0–255, Rec.601) off the downscaled photo. Drives
+   *  the non-blocking low-light hint (see luma.ts). Undefined = not measured
+   *  (e.g. a skipped/failed read) — no hint shown on a guess. */
+  avgLuma?: number;
 }
 
 interface Props {
@@ -116,6 +121,18 @@ export function CapturePhotoTray({ photos, max, busy, onAdd, onRemove }: Props) 
             {p.status === "ready" ? (
               <p className="mt-1 truncate text-[12px] text-text-muted">
                 {humanFileSize(p.file.size)}
+              </p>
+            ) : null}
+            {/* Non-blocking low-light hint — additive review nudge only (P10).
+                Never disables the tile, the Save button, or blocks onAdd; the
+                photo still saves. Reflects a real measured luma (P7). */}
+            {p.status === "ready" && isLowLight(p.avgLuma) ? (
+              <p
+                className="mt-1 flex items-start gap-1 text-[12px] leading-tight text-state-warning"
+                role="status"
+              >
+                <Lightbulb aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />
+                <span>Bit dark — try the flash</span>
               </p>
             ) : null}
           </li>
