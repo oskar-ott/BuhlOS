@@ -361,6 +361,11 @@ function _shrinkMetadata(meta) {
 module.exports = {
   append,
   readMonth,
+  // Exported read-only so observability surfaces (the Owner Console coverage
+  // matrix — docs/owner-console.md) can derive which product areas write to
+  // the canonical journal. Never mutate these Sets from a caller.
+  VALID_ACTIONS,
+  VALID_TARGET_TYPES,
   MAX_ENTRIES_PER_MONTH,
   TRIM_TO_PER_MONTH,
 };

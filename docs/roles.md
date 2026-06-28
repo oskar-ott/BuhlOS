@@ -17,6 +17,13 @@ missing-hours) and #123 (office/boss saw blank hours boards) happened.
 | `isStaffRole(role)` | admin tier OR leading hand |
 | `isClientRole(role)` | the client role (single role, predicate for consistency) |
 | `isHoursTrackedWorker(user)` | *expected to log hours*: field tier + LHs, live accounts |
+| `isOwnerRole(role)` | the product/platform owner — a **narrowing within** the admin tier (`owner` ∈ admin tier, so `isAdminRole('owner')` is also true). Gates the Owner Console only; never replaces the admin-tier checks. |
+
+The **Owner Console** (`docs/owner-console.md`, `/owner`) is gated to the owner —
+`isOwnerRole(role)` **OR** the `OWNER_EMAILS` email allowlist (the cookie carries
+no email, so the email check is authoritative at the API in `api/_lib/auth.js`
+via `canAccessOwnerConsole(user)`). A user whose stored role is `owner` also
+lands on `/owner` (`landingFor`), not `/command-centre`.
 
 JS (`api/`): `require('./_lib/auth')`. TS (`src/`): `src/lib/auth/roles.ts`.
 

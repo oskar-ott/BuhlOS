@@ -49,6 +49,15 @@ Resolution order — first hit wins:
 admin-tier viewers (tier-aware `isAdminRole` — the role-literal guard applies
 here like everywhere). `global` ignores the viewer.
 
+**Owner Console shows flags read-only.** `/owner` (`docs/owner-console.md`)
+displays every flag's resolved state, **source** (env > blob > default), target,
+and expiry classification. It does **not** toggle anything: there is no safe
+runtime override write-path yet (no audited, CAS-guarded, protected-flag-aware
+writer for `flags.json`, and the `supabase_*` cutover flags must never be flipped
+from a UI mid-sync). Building that writer — with a new `feature_flag.toggled`
+audit action and a protected-flag guard — is a tracked follow-up; until then,
+flip flags via the env var or the blob as above.
+
 ## Using a flag
 
 ```js
