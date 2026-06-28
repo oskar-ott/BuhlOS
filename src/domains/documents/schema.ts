@@ -73,6 +73,12 @@ export const DOCUMENT_DISCIPLINES = [
 ] as const;
 export const DocumentDisciplineSchema = z.enum(DOCUMENT_DISCIPLINES);
 
+/** #196: the two work-tree stages a spec can govern. Mirrors the
+ *  job's roughIn/fitOff stages (api/evidence.js VALID_STAGES). A spec
+ *  link MAY name a stage; omitting it means "governs both stages". */
+export const DOCUMENT_STAGES = ["roughIn", "fitOff"] as const;
+export const DocumentStageSchema = z.enum(DOCUMENT_STAGES);
+
 /* ---------------------------------------------------------------------
  * Field caps (defensive — mirror api/plans.js upload validation)
  * -------------------------------------------------------------------*/
@@ -129,6 +135,25 @@ export const DocumentSchema = z
      *  registration, shown in admin and Phil. Empty on first issues. */
     changeSummary: z.string().optional(),
 
+    /** #196: spec → work-tree linkage (additive). A spec document can be
+     *  linked to the areas it governs (validated against the job's work
+     *  tree at link time) and, optionally, the stage it applies to. Empty
+     *  / absent on every drawing and on un-linked specs.
+     *
+     *  `areaLinks` denormalises the area name at link time — the read
+     *  surfaces (admin chips + Phil area block) render the name without a
+     *  live job-tree join per render. `areaIds` stays the source of truth
+     *  for filtering; `areaLinks` is a display cache that can go stale if
+     *  an area is renamed, so the UI prefers the live name when it has the
+     *  job in hand and falls back to the denormalised name otherwise. A
+     *  link whose areaId no longer exists on the job is shown honestly as
+     *  "linked area no longer on this job" (P7), never silently dropped. */
+    areaIds: z.array(z.string()).optional(),
+    areaLinks: z
+      .array(z.object({ areaId: z.string(), areaName: z.string() }))
+      .optional(),
+    stage: DocumentStageSchema.optional(),
+
     uploadedAt: z.string().optional(),
     uploadedBy: z.string().optional(),
     uploadedByUserId: z.string().optional(),
@@ -165,6 +190,20 @@ export const UploadDocumentResponseSchema = z.object({
   revisionWarning: z.string().nullable(),
   /** #299: how many assigned field workers were pushed about the revision. */
   notified: z.number().optional(),
+});
+
+/** #196: PATCH ?id= link payload — set the areas + (optional) stage a
+ *  spec governs. `areaIds` is the full set on each call (PUT-replace
+ *  semantics — passing `[]` clears the link). `stage` is optional;
+ *  passing `null` / "" clears it. The server validates every areaId
+ *  against the job's work tree and denormalises the names. */
+export const LinkDocumentAreasPayloadSchema = z.object({
+  areaIds: z.array(z.string()),
+  stage: DocumentStageSchema.nullable().optional(),
+});
+
+export const LinkDocumentAreasResponseSchema = z.object({
+  plan: DocumentSchema,
 });
 
 /* #299: revision acknowledgements. */

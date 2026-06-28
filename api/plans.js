@@ -6,6 +6,8 @@
 //   GET    /api/plans?jobId=<id>                      → list plans
 //   POST   /api/plans?jobId=<id>                      → upload PDF/image (dataUrl)
 //   PATCH  /api/plans?jobId=<id>&id=<planId>          → edit metadata
+//                        (#196: areaIds[] + stage link a spec to the
+//                         work-tree areas/stage it governs)
 //   DELETE /api/plans?jobId=<id>&id=<planId>          → soft-archive
 //
 // New (Phase 9) — vision takeoff. Client orchestrates the loop because Vercel
@@ -67,6 +69,9 @@ const VALID_STATUSES = ['current', 'superseded', 'archived'];
 // without one group honestly under "other" in the UI. DOCUMENT_CATEGORIES
 // (plan/spec/…) is a different axis and stays untouched.
 const VALID_DISCIPLINES = ['architectural', 'electrical', 'services', 'structural', 'other'];
+// #196: the two work-tree stages a spec link may name. Mirrors
+// api/evidence.js VALID_STAGES + src/domains/documents DOCUMENT_STAGES.
+const VALID_STAGES = ['roughIn', 'fitOff'];
 const MAX_BYTES = 25 * 1024 * 1024; // 25 MB cap on uploads
 const VISION_MODEL = process.env.PLANS_AI_MODEL || 'claude-sonnet-4-5';
 const COST_CAP_USD = Number(process.env.PLANS_MAX_USD_PER_JOB || '5');
@@ -99,6 +104,20 @@ async function readIndex(jobId) {
 }
 async function writeIndex(jobId, data) {
   await writeBlob('jobs/' + jobId + '/plans-index.json', data);
+}
+
+// #196: resolve an area on a job's work tree. Same shape as the findArea
+// pattern in api/evidence.js — a spec link's areaId must resolve to a real
+// area before we persist it (no dangling links written by the server; a
+// link can only go stale later if the area is removed, which the read
+// surfaces label honestly). Returns the area object or null.
+function findArea(job, areaId) {
+  for (const g of (job && job.areaGroups) || []) {
+    for (const a of (g && g.areas) || []) {
+      if (a && a.id === areaId) return a;
+    }
+  }
+  return null;
 }
 
 function emptyTakeoff() {
@@ -906,9 +925,49 @@ module.exports = async (req, res) => {
         }
       }
     }
-    if (Array.isArray(body.linkedAreaGroups)) {
-      data.plans[idx].linkedAreaGroups = body.linkedAreaGroups
-        .filter(g => typeof g === 'string').map(g => g.trim()).filter(Boolean);
+    // #196: spec → work-tree linkage. `areaIds` is the full set on each
+    // PATCH (PUT-replace; [] clears the link). Every id must resolve to a
+    // real area on the job's work tree — a bad id is a hard 400 so the
+    // server never persists a dangling link (a link can only go stale
+    // later if the area is removed; the read surfaces label that honestly,
+    // P7). Area names are denormalised into `areaLinks` at link time so the
+    // chips/Phil block don't re-join the job tree per render. `stage` is
+    // optional and validated against the closed set; null/'' clears it.
+    //
+    // This REPLACES the write-only `linkedAreaGroups` block (#194 left it
+    // with zero readers repo-wide). Migrating to the area-id model keeps
+    // one vocabulary for "what does this document govern".
+    if (Array.isArray(body.areaIds)) {
+      const ids = body.areaIds
+        .filter((x) => typeof x === 'string')
+        .map((x) => x.trim())
+        .filter(Boolean);
+      const uniqueIds = [...new Set(ids)];
+      const areaLinks = [];
+      if (uniqueIds.length > 0) {
+        const jobsBlob = await readBlob('jobs.json', null);
+        if (!jobsBlob || !Array.isArray(jobsBlob.jobs)) {
+          return res.status(500).json({ error: 'jobs storage unavailable' });
+        }
+        const job = jobsBlob.jobs.find((j) => j && j.id === jobId);
+        if (!job) return res.status(404).json({ error: 'job not found' });
+        for (const areaId of uniqueIds) {
+          const area = findArea(job, areaId);
+          if (!area) {
+            return res.status(400).json({ error: 'areaId not found on job: ' + areaId });
+          }
+          areaLinks.push({ areaId, areaName: String(area.name || '').trim() });
+        }
+      }
+      data.plans[idx].areaIds = uniqueIds;
+      data.plans[idx].areaLinks = areaLinks;
+    }
+    if (body.stage !== undefined) {
+      const s = String(body.stage || '').trim();
+      if (s && !VALID_STAGES.includes(s)) {
+        return res.status(400).json({ error: 'stage must be one of: ' + VALID_STAGES.join(', ') });
+      }
+      data.plans[idx].stage = s;
     }
     let madeCurrent = false;
     if (body.status && VALID_STATUSES.includes(body.status)) {

@@ -9,11 +9,18 @@ import {
   Circle,
   CircleDot,
   ClipboardCheck,
+  ExternalLink,
+  FileText,
   Loader2,
   Undo2,
 } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import {
+  clauseLabel,
+  displayTitle as docDisplayTitle,
+} from "@/domains/documents/format";
+import type { Document } from "@/domains/documents/types";
 import { stageLabel } from "@/domains/jobs/format";
 import type { JobStage } from "@/domains/jobs/types";
 import {
@@ -66,6 +73,11 @@ interface Props {
   /** Worker-visible tasks for the viewed stage, each merged with its real
    *  runtime state (already resolved by the parent). */
   tasks: ReadonlyArray<WorkerTask>;
+  /** #196: specs the admin linked to THIS area (and matching the viewed
+   *  stage), already current-filtered by the parent. Read-only reference —
+   *  the block renders ONLY when non-empty (hidden-when-empty, P10), so an
+   *  area with no linked spec is unchanged from today. Absent ⇒ no block. */
+  areaSpecs?: ReadonlyArray<Document>;
   /** Real, area-linked counts for this area. */
   counts: AreaCounts;
   onStageChange: (stage: JobStage) => void;
@@ -153,6 +165,7 @@ export function PhilJobAreaDetail({
   stages,
   stage,
   tasks,
+  areaSpecs,
   counts,
   onStageChange,
   onToggleTask,
@@ -318,7 +331,63 @@ export function PhilJobAreaDetail({
           </p>
         )}
       </div>
+
+      {/* #196: read-only specs governing this area. Hidden-when-empty (P10) —
+          renders ONLY when the admin has linked a current spec to this area,
+          so an un-linked area is unchanged. No new affordance: each row opens
+          the file in a new tab, same as the documents panel. Site language,
+          read-only (P11). Serves the worker seeing the spec that governs the
+          area they're standing in. */}
+      {areaSpecs && areaSpecs.length > 0 ? (
+        <div className="mt-4">
+          <p className="font-display text-[12px] uppercase tracking-wider text-text-muted">
+            Specs for this area
+          </p>
+          <ul className="mt-2 space-y-2">
+            {areaSpecs.map((spec) => (
+              <li key={spec.id}>
+                <AreaSpecRow doc={spec} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </Card>
+  );
+}
+
+/** #196: one read-only spec row inside the area drill-in. Tap opens the
+ *  file; no edit, no link control (admin-only). */
+function AreaSpecRow({ doc }: { doc: Document }) {
+  const title = docDisplayTitle(doc);
+  const clause = clauseLabel(doc);
+  return (
+    <a
+      href={doc.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(
+        "flex min-h-[56px] items-center gap-3 rounded-card border border-border bg-surface px-3.5 py-2.5",
+        "transition-colors hover:bg-surface-subtle focus:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy",
+      )}
+      aria-label={`Open ${title} (opens in a new tab)`}
+    >
+      <FileText aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-display text-sm font-semibold text-text">
+          {title}
+        </span>
+        {clause ? (
+          <span className="mt-0.5 block truncate text-[12px] text-text-muted">
+            {clause}
+          </span>
+        ) : null}
+      </span>
+      <ExternalLink
+        aria-hidden="true"
+        className="h-5 w-5 shrink-0 text-text-muted/60"
+      />
+    </a>
   );
 }
 

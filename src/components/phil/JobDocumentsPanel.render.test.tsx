@@ -70,3 +70,43 @@ describe("JobDocumentsPanel — quiet empty state", () => {
     }
   });
 });
+
+describe("JobDocumentsPanel — #196 Specifications sub-group", () => {
+  const spec = doc({
+    id: "sp_1",
+    title: "Joinery spec",
+    category: "spec",
+    url: "https://blob.example/joinery-spec.pdf",
+  });
+
+  it("renders a Specifications sub-group when a current spec exists", () => {
+    const html = render({ initialDocuments: [doc(), spec] });
+    expect(html).toContain("Specifications");
+    expect(html).toContain("Joinery spec");
+    expect(html).toContain("https://blob.example/joinery-spec.pdf");
+    // the non-spec drawing still renders too
+    expect(html).toContain("Switchboard Layout");
+  });
+
+  it("hides the Specifications sub-group when there are no specs (hidden-when-empty)", () => {
+    const html = render({ initialDocuments: [doc()] });
+    expect(html).not.toContain("Specifications");
+  });
+
+  it("a superseded spec never reaches the panel (current-only filter held)", () => {
+    const supersededUrl = "https://blob.example/joinery-spec-old.pdf";
+    const html = render({
+      initialDocuments: [
+        doc(),
+        spec,
+        doc({ ...spec, id: "sp_old", status: "superseded", url: supersededUrl }),
+      ],
+    });
+    // the current spec's file renders; the superseded one's does not
+    expect(html).toContain("https://blob.example/joinery-spec.pdf");
+    expect(html).not.toContain(supersededUrl);
+    // and the spec href appears exactly once (one row, one current spec)
+    const matches = html.match(/joinery-spec\.pdf/g) ?? [];
+    expect(matches).toHaveLength(1);
+  });
+});

@@ -1,24 +1,34 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DOCUMENT_CATEGORIES,
+  DOCUMENT_STAGES,
   DOCUMENT_STATUSES,
   DocumentCategorySchema,
   DocumentListResponseSchema,
   DocumentSchema,
+  DocumentStageSchema,
   DocumentStatusSchema,
+  LinkDocumentAreasPayloadSchema,
 } from "./schema";
 import {
   categoryLabel,
+  clauseLabel,
   compareForQueue,
+  DANGLING_AREA_LABEL,
   displayTitle,
   drawingContextLine,
+  filterSpecsByArea,
   formatFileSize,
   groupByDrawing,
+  groupSpecs,
   isArchived,
   isCurrent,
+  isSpec,
   isSuperseded,
   mimeTypeLabel,
   normaliseCategory,
+  resolveAreaLinks,
+  specStageLabel,
   statusLabel,
   statusTone,
 } from "./format";
@@ -449,5 +459,186 @@ describe("documentsClient — listDocuments", () => {
     const r = await listDocuments("birdwood-iv3232");
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.message).toMatch(/schema/i);
+  });
+});
+
+/* ----------------------------------------------------------------------
+ * #196 — specifications: schema, identity, area linkage, clause label
+ * -------------------------------------------------------------------- */
+
+const specKitchen: Document = {
+  id: "sp_1",
+  url: "https://example.com/blob/sp_1.pdf",
+  title: "Kitchen joinery spec",
+  category: "spec",
+  status: "current",
+  level: "Section 7.2",
+  areaIds: ["area-kitchen", "area-pantry"],
+  areaLinks: [
+    { areaId: "area-kitchen", areaName: "Kitchen" },
+    { areaId: "area-pantry", areaName: "Pantry" },
+  ],
+  stage: "fitOff",
+  uploadedAt: "2026-06-01T08:00:00.000Z",
+};
+
+describe("#196 — stage enum + link payload schema", () => {
+  it("DOCUMENT_STAGES mirrors api/evidence.js VALID_STAGES", () => {
+    expect([...DOCUMENT_STAGES]).toEqual(["roughIn", "fitOff"]);
+    expect(DocumentStageSchema.safeParse("roughIn").success).toBe(true);
+    expect(DocumentStageSchema.safeParse("fitOff").success).toBe(true);
+    expect(DocumentStageSchema.safeParse("commissioning").success).toBe(false);
+  });
+
+  it("DocumentSchema accepts the additive spec linkage fields", () => {
+    expect(DocumentSchema.safeParse(specKitchen).success).toBe(true);
+  });
+
+  it("DocumentSchema rejects a bad stage value", () => {
+    const bad = { ...specKitchen, stage: "nope" };
+    expect(DocumentSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it("link payload accepts areaIds + optional/nullable stage", () => {
+    expect(
+      LinkDocumentAreasPayloadSchema.safeParse({
+        areaIds: ["a1"],
+        stage: "roughIn",
+      }).success,
+    ).toBe(true);
+    expect(
+      LinkDocumentAreasPayloadSchema.safeParse({ areaIds: [] }).success,
+    ).toBe(true);
+    expect(
+      LinkDocumentAreasPayloadSchema.safeParse({ areaIds: ["a1"], stage: null })
+        .success,
+    ).toBe(true);
+    expect(
+      LinkDocumentAreasPayloadSchema.safeParse({ areaIds: ["a1"], stage: "x" })
+        .success,
+    ).toBe(false);
+    expect(LinkDocumentAreasPayloadSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("isSpec", () => {
+  it("matches normalised spec category, not raw drawings", () => {
+    expect(isSpec(specKitchen)).toBe(true);
+    expect(isSpec({ category: "SPEC" })).toBe(true);
+    expect(isSpec({ category: "plan" })).toBe(false);
+    expect(isSpec({ category: undefined })).toBe(false);
+    expect(isSpec({ category: "drawing" })).toBe(false);
+  });
+});
+
+describe("specStageLabel + clauseLabel", () => {
+  it("labels the two stages, empty otherwise", () => {
+    expect(specStageLabel("roughIn")).toBe("Rough-in");
+    expect(specStageLabel("fitOff")).toBe("Fit-off");
+    expect(specStageLabel(null)).toBe("");
+    expect(specStageLabel(undefined)).toBe("");
+  });
+
+  it("reads the clause from the level field, trimmed", () => {
+    expect(clauseLabel(specKitchen)).toBe("Section 7.2");
+    expect(clauseLabel({ level: "  Clause 3  " })).toBe("Clause 3");
+    expect(clauseLabel({ level: "" })).toBe("");
+    expect(clauseLabel({})).toBe("");
+  });
+});
+
+describe("filterSpecsByArea", () => {
+  const specRoughIn: Document = {
+    ...specKitchen,
+    id: "sp_2",
+    title: "Rough-in spec",
+    stage: "roughIn",
+    areaIds: ["area-kitchen"],
+  };
+  const specNoStage: Document = {
+    ...specKitchen,
+    id: "sp_3",
+    title: "Both-stage spec",
+    stage: undefined,
+    areaIds: ["area-kitchen"],
+  };
+  const drawing: Document = {
+    id: "dr_1",
+    url: "https://x",
+    category: "plan",
+    areaIds: ["area-kitchen"],
+  };
+
+  it("returns only specs linked to the area", () => {
+    const out = filterSpecsByArea(
+      [specKitchen, specRoughIn, drawing],
+      "area-kitchen",
+    );
+    expect(out.map((d) => d.id).sort()).toEqual(["sp_1", "sp_2"]);
+    // a non-spec doc with the same areaId never leaks in
+    expect(out.some((d) => d.id === "dr_1")).toBe(false);
+  });
+
+  it("excludes specs not linked to the area", () => {
+    expect(filterSpecsByArea([specKitchen], "area-bathroom")).toHaveLength(0);
+  });
+
+  it("a stage filter keeps matching + unstaged specs, drops the other stage", () => {
+    const fitOff = filterSpecsByArea(
+      [specKitchen, specRoughIn, specNoStage],
+      "area-kitchen",
+      "fitOff",
+    );
+    // sp_1 (fitOff) + sp_3 (no stage → governs both); sp_2 (roughIn) dropped
+    expect(fitOff.map((d) => d.id).sort()).toEqual(["sp_1", "sp_3"]);
+  });
+});
+
+describe("groupSpecs", () => {
+  it("pulls specs out newest-first, leaving drawings behind", () => {
+    const older: Document = {
+      ...specKitchen,
+      id: "sp_old",
+      uploadedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const drawing: Document = { id: "dr", url: "https://x", category: "plan" };
+    const out = groupSpecs([older, specKitchen, drawing]);
+    expect(out.map((d) => d.id)).toEqual(["sp_1", "sp_old"]);
+  });
+});
+
+describe("resolveAreaLinks — denormalise + dangling-link honesty (P7)", () => {
+  it("prefers the LIVE area name over the denormalised cache (rename shows through)", () => {
+    const live = new Map([
+      ["area-kitchen", "Kitchen (renamed)"],
+      ["area-pantry", "Pantry"],
+    ]);
+    const chips = resolveAreaLinks(specKitchen, live);
+    expect(chips).toHaveLength(2);
+    expect(chips[0]).toMatchObject({
+      areaId: "area-kitchen",
+      name: "Kitchen (renamed)",
+      live: true,
+    });
+    expect(chips[1]!.live).toBe(true);
+  });
+
+  it("labels a dangling link honestly — never a fabricated name, never dropped", () => {
+    // area-pantry was removed from the job after linking → not in the live map.
+    const live = new Map([["area-kitchen", "Kitchen"]]);
+    const chips = resolveAreaLinks(specKitchen, live);
+    expect(chips).toHaveLength(2); // both kept, in areaIds order
+    expect(chips[1]).toMatchObject({
+      areaId: "area-pantry",
+      name: DANGLING_AREA_LABEL,
+      live: false,
+    });
+    // the stale denormalised name "Pantry" is NOT shown for a dangling link
+    expect(chips[1]!.name).not.toBe("Pantry");
+  });
+
+  it("empty when the spec has no areaIds", () => {
+    expect(resolveAreaLinks({}, new Map())).toHaveLength(0);
+    expect(resolveAreaLinks({ areaIds: [] }, new Map())).toHaveLength(0);
   });
 });

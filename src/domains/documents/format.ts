@@ -1,5 +1,10 @@
 import { DOCUMENT_CATEGORIES } from "./schema";
-import type { Document, DocumentCategory, DocumentStatus } from "./types";
+import type {
+  Document,
+  DocumentCategory,
+  DocumentStage,
+  DocumentStatus,
+} from "./types";
 
 /**
  * Pure display helpers for the documents domain.
@@ -253,3 +258,123 @@ export const DISCIPLINE_ORDER = [
   "structural",
   "other",
 ] as const;
+
+/* ---------------------------------------------------------------------
+ * #196 — specifications: identity, area linkage, clause label
+ *
+ * A spec is just a document whose category normalises to 'spec'. Specs
+ * carry no drawingNumber, so they group under the null-drawing bucket in
+ * the drawings register — this layer surfaces them as a first-class
+ * Specifications section instead. Area linkage is additive metadata
+ * (`areaIds` / `areaLinks` / `stage`); these helpers are pure so both
+ * surfaces (admin chips + Phil area block) read them the same way.
+ * -------------------------------------------------------------------*/
+
+/** True when a document's category normalises to 'spec'. */
+export function isSpec(doc: Pick<Document, "category">): boolean {
+  return normaliseCategory(doc.category) === "spec";
+}
+
+/** Stage label for a spec link. roughIn → "Rough-in", fitOff → "Fit-off".
+ *  Reuses no jobs-domain import so the documents domain stays standalone;
+ *  the two strings match src/domains/jobs/format.ts#stageLabel. */
+export function specStageLabel(stage: DocumentStage | null | undefined): string {
+  if (stage === "roughIn") return "Rough-in";
+  if (stage === "fitOff") return "Fit-off";
+  return "";
+}
+
+/**
+ * The clause / section label for a spec, drawn from the row's `level`
+ * field (the upload form's "Section / clause" input writes there for
+ * specs — specs have no drawing level). Empty when not set, so the
+ * caller can omit the line rather than render a blank.
+ */
+export function clauseLabel(doc: Pick<Document, "level">): string {
+  return String(doc.level ?? "").trim();
+}
+
+/**
+ * The specs that govern a given area, optionally narrowed to a stage.
+ *
+ * A spec governs an area when its `areaIds` includes that area's id. When
+ * `stage` is passed, a spec matches if it has NO stage (governs both) or
+ * its stage equals the requested one — so a stage filter never hides an
+ * unstaged, area-linked spec. Pure + allocation-light; both Phil's
+ * area block and the admin per-area view share it.
+ */
+export function filterSpecsByArea<T extends Pick<Document, "category" | "areaIds" | "stage">>(
+  docs: ReadonlyArray<T>,
+  areaId: string,
+  stage?: DocumentStage,
+): ReadonlyArray<T> {
+  return docs.filter((d) => {
+    if (!isSpec(d)) return false;
+    const ids = Array.isArray(d.areaIds) ? d.areaIds : [];
+    if (!ids.includes(areaId)) return false;
+    if (stage && d.stage && d.stage !== stage) return false;
+    return true;
+  });
+}
+
+/** A resolved area-link chip for the admin register. `live` is true when
+ *  the areaId still exists on the job (name taken from the live job tree);
+ *  false marks a dangling link — the area was removed after linking, so
+ *  we render an honest "linked area no longer on this job" instead of a
+ *  fabricated name (P7). */
+export interface ResolvedAreaLink {
+  areaId: string;
+  /** Display name. For a live link, the current job-tree name (preferred
+   *  over the possibly-stale denormalised name); for a dangling link, the
+   *  honest placeholder. */
+  name: string;
+  live: boolean;
+}
+
+/** Honest label for a link whose area is no longer on the job. */
+export const DANGLING_AREA_LABEL = "linked area no longer on this job";
+
+/**
+ * Resolve a spec's `areaIds` to display chips against the live job area
+ * map (`areaId → name`). A linked area still on the job renders with its
+ * CURRENT name (the live map wins over the denormalised `areaLinks` cache,
+ * so a rename shows through). A linked area no longer on the job renders
+ * as a dangling link — never silently dropped, never a fabricated name.
+ *
+ * `areaLinks` (the denormalised name cache) is only used as a last-ditch
+ * fallback when the live map is absent for that id AND the link still
+ * isn't dangling — which can't happen here, so dangling always wins the
+ * honest label. Order follows `areaIds`.
+ */
+export function resolveAreaLinks(
+  doc: {
+    areaIds?: ReadonlyArray<string>;
+    areaLinks?: ReadonlyArray<{ areaId: string; areaName: string }>;
+  },
+  liveAreaNames: ReadonlyMap<string, string>,
+): ReadonlyArray<ResolvedAreaLink> {
+  const ids = Array.isArray(doc.areaIds) ? doc.areaIds : [];
+  return ids.map((areaId) => {
+    const liveName = liveAreaNames.get(areaId);
+    if (liveName != null) {
+      return { areaId, name: liveName, live: true };
+    }
+    return { areaId, name: DANGLING_AREA_LABEL, live: false };
+  });
+}
+
+/**
+ * Pull the spec rows out of a document list, newest first. Used by the
+ * admin Specifications section and (current-filtered) by Phil. Pure;
+ * does not mutate the input.
+ */
+export function groupSpecs(
+  docs: ReadonlyArray<Document>,
+): ReadonlyArray<Document> {
+  return docs
+    .filter(isSpec)
+    .slice()
+    .sort((a, b) =>
+      String(b.uploadedAt ?? "").localeCompare(String(a.uploadedAt ?? "")),
+    );
+}

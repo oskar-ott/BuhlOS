@@ -13,10 +13,13 @@ import { Pill } from "@/components/ui/Pill";
 import { DocumentUploadButton } from "@/components/admin/DocumentUploadButton";
 import {
   categoryLabel,
+  clauseLabel,
   displayTitle,
   drawingContextLine,
   formatFileSize,
   groupByDrawing,
+  groupSpecs,
+  isSpec,
   mimeTypeLabel,
   statusLabel,
   statusTone,
@@ -26,6 +29,7 @@ import {
 } from "@/domains/documents/format";
 import type { Document, DocumentStatus } from "@/domains/documents/types";
 import type { Job } from "@/domains/jobs/types";
+import { SpecLinkEditor } from "@/components/admin/SpecLinkEditor";
 import { cn } from "@/lib/cn";
 
 interface Props {
@@ -85,7 +89,15 @@ export function DocumentsList({
     return initialDocuments;
   }, [initialDocuments, filter]);
 
-  const groups = useMemo(() => groupByDrawing(filtered), [filtered]);
+  // #196: specs are a separate axis from the discipline-grouped drawings
+  // register. They carry no drawingNumber, so they'd otherwise fall into
+  // the null-drawing bucket under "Other"; surfacing them as a first-class
+  // Specifications section (with their area/stage linkage) keeps the
+  // register honest. Drawings = everything that isn't a spec.
+  const specs = useMemo(() => groupSpecs(filtered), [filtered]);
+  const drawings = useMemo(() => filtered.filter((d) => !isSpec(d)), [filtered]);
+
+  const groups = useMemo(() => groupByDrawing(drawings), [drawings]);
   // #194: discipline sections over the drawing groups. A group's discipline
   // is its newest row's; legacy rows without one land under "Other".
   const sections = useMemo(() => {
@@ -179,6 +191,33 @@ export function DocumentsList({
         </Card>
       ) : (
         <div className="space-y-4">
+          {specs.length > 0 ? (
+            <Card>
+              <h3 className="font-display text-sm uppercase tracking-wider text-text-muted">
+                Specifications
+              </h3>
+              <CardDescription className="mt-1">
+                Link a spec to the areas and stage it governs — the field crew
+                then sees it on that area.
+              </CardDescription>
+              <ul className="mt-2 divide-y divide-border overflow-hidden rounded-card border border-border bg-surface">
+                {specs.map((spec) => {
+                  const clause = clauseLabel(spec);
+                  return (
+                    <li key={spec.id} className="px-4 py-3">
+                      <DocumentRow doc={spec} />
+                      {clause ? (
+                        <p className="mt-1 text-xs text-text-muted">
+                          Section / clause: {clause}
+                        </p>
+                      ) : null}
+                      <SpecLinkEditor jobId={job.id} doc={spec} job={job} />
+                    </li>
+                  );
+                })}
+              </ul>
+            </Card>
+          ) : null}
           {sections.map((section) => (
             <Card key={section.key}>
               <h3 className="font-display text-sm uppercase tracking-wider text-text-muted">
