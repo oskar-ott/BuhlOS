@@ -4,10 +4,12 @@ import {
   buildPhilPreview,
   buildUpdatePayload,
   canPublish,
+  hasArchivedStructure,
   isDraft,
   isPublished,
   isVisibleToField,
   moduleEnabled,
+  projectArchivedStructure,
   publishState,
   stageHasTasks,
   summariseStructure,
@@ -218,6 +220,92 @@ describe("summariseStructure", () => {
     expect(stageHasTasks(job, "roughIn")).toBe(true);
     expect(stageHasTasks(job, "fitOff")).toBe(false);
     expect(summariseStructure(job).stagesWithTasks).toEqual(["roughIn"]);
+  });
+});
+
+// #377 — the form-mapper / projection split. The editable payload must NEVER
+// carry an archived item; the read-only projection mirrors exactly what's
+// archived so the builder can show it honestly.
+describe("projectArchivedStructure + hasArchivedStructure (#377)", () => {
+  const jobWithArchived = () =>
+    makeJob({
+      id: "j",
+      name: "J",
+      areaGroups: [
+        {
+          id: "g-live",
+          name: "Level 1",
+          areas: [
+            { id: "a-live", name: "Unit 1" },
+            { id: "a-arch", name: "Old store", spaceType: "Store", archived: true },
+          ],
+        },
+        {
+          id: "g-arch",
+          name: "Old wing",
+          archived: true,
+          areas: [
+            { id: "a-x", name: "Room X" },
+            { id: "a-y", name: "Room Y", archived: true },
+          ],
+        },
+      ],
+      roughInTasks: [
+        { id: "rt-live", name: "Pull cables" },
+        { id: "rt-arch", name: "Old conduit", archived: true },
+      ],
+      fitOffTasks: [{ id: "ft-arch", name: "Legacy GPO", archived: true }],
+    });
+
+  it("projects archived groups, areas (in live groups) and job-level tasks; an archived group is not double-listed", () => {
+    const p = projectArchivedStructure(jobWithArchived());
+    expect(p.groups).toEqual([{ id: "g-arch", name: "Old wing", liveAreaCount: 1 }]);
+    // a-y lives inside the archived group g-arch → represented by the group row, not listed
+    expect(p.areas).toEqual([
+      { id: "a-arch", name: "Old store", spaceType: "Store", groupName: "Level 1" },
+    ]);
+    expect(p.roughInTasks).toEqual([{ id: "rt-arch", name: "Old conduit" }]);
+    expect(p.fitOffTasks).toEqual([{ id: "ft-arch", name: "Legacy GPO" }]);
+  });
+
+  it("returns empty arrays for a job with no archived structure", () => {
+    const clean = makeJob({
+      id: "j",
+      name: "J",
+      areaGroups: [{ id: "g", name: "L1", areas: [{ id: "a", name: "U1" }] }],
+      roughInTasks: [{ id: "r", name: "Rough" }],
+    });
+    const p = projectArchivedStructure(clean);
+    expect(p.groups).toEqual([]);
+    expect(p.areas).toEqual([]);
+    expect(p.roughInTasks).toEqual([]);
+    expect(p.fitOffTasks).toEqual([]);
+    expect(hasArchivedStructure(clean)).toBe(false);
+  });
+
+  it("hasArchivedStructure is true when any group/area/job-level task is archived", () => {
+    expect(hasArchivedStructure(jobWithArchived())).toBe(true);
+  });
+
+  it("the editable payload never carries an archived row (buildUpdatePayload sends only live structure)", () => {
+    // The editable form arrays are already archived-free (jobToForm filters
+    // them out). buildUpdatePayload has no notion of `archived` — confirm it
+    // round-trips the live rows it's given without inventing archived flags.
+    const payload = buildUpdatePayload(
+      "j",
+      fullForm({
+        areaGroups: [{ id: "g-live", name: "Level 1", areas: [{ id: "a-live", name: "Unit 1" }] }],
+        roughInTasks: [{ id: "rt-live", name: "Pull cables" }],
+        fitOffTasks: [],
+      })
+    );
+    expect(payload.areaGroups).toEqual([
+      { id: "g-live", name: "Level 1", areas: [{ id: "a-live", name: "Unit 1" }] },
+    ]);
+    expect(payload.roughInTasks).toEqual([{ id: "rt-live", name: "Pull cables" }]);
+    expect(payload.fitOffTasks).toEqual([]);
+    // No archived flag anywhere in the payload.
+    expect(JSON.stringify(payload)).not.toContain("archived");
   });
 });
 

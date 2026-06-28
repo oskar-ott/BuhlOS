@@ -653,6 +653,132 @@ describe("scope-of-work visibility + writes (#200)", () => {
   });
 });
 
+// #377 — structure editing for jobs with archived rooms/tasks. The builder no
+// longer freezes; it sends only LIVE structure and the server re-appends the
+// archived items the payload omits (server is the retention authority). These
+// round-trip tests assert archived JOB-LEVEL tasks survive byte-for-byte AND
+// the #491 area-id uniqueness invariant still holds after the merge.
+describe("PUT /api/jobs — archived job-level task retention (#377)", () => {
+  // Seed an archived + a live job-level rough-in task and an archived fit-off
+  // task directly onto the stored job, alongside the existing archived AREA.
+  const seedArchivedJobTasks = () => {
+    const data = blob.get("jobs.json") as {
+      jobs: Array<{
+        id: string;
+        roughInTasks?: unknown[];
+        fitOffTasks?: unknown[];
+      }>;
+    };
+    const job = data.jobs.find((j) => j.id === "job-active")!;
+    job.roughInTasks = [
+      { id: "rt_live", name: "Pull cables" },
+      { id: "rt_arch", name: "Old conduit run", archived: true, archivedAt: "2026-01-02", archivedBy: "u_admin" },
+    ];
+    job.fitOffTasks = [
+      { id: "ft_arch", name: "Legacy GPO swap", archived: true },
+    ];
+    blob.set("jobs.json", data);
+  };
+
+  const jobTasks = () => {
+    const job = (
+      blob.get("jobs.json") as {
+        jobs: Array<{
+          id: string;
+          roughInTasks?: Array<{ id: string; name: string; archived?: boolean; archivedAt?: string; archivedBy?: string }>;
+          fitOffTasks?: Array<{ id: string; name: string; archived?: boolean }>;
+          areaGroups?: Array<{ areas?: Array<{ id: string; name: string; archived?: boolean }> }>;
+        }>;
+      }
+    ).jobs.find((j) => j.id === "job-active")!;
+    return job;
+  };
+
+  it("retains an archived job-level rough-in task the structure PUT omits (byte-for-byte) and keeps the archived area; area ids stay unique", async () => {
+    seedArchivedJobTasks();
+    // A structure edit: rename the live rough-in task, add a new one, and carry
+    // ONLY live tasks (what the builder sends). Also edit areaGroups, omitting
+    // the archived area entirely — both archived task + archived area must survive.
+    const put = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: {
+        id: "job-active",
+        areaGroups: [
+          { id: "group-a", name: "Group A", areas: [{ id: "area-current", name: "Current area" }] },
+        ],
+        roughInTasks: [
+          { id: "rt_live", name: "Pull cables and tray" }, // rename of the live task
+          { name: "Terminate DB" }, // brand-new task (server mints id)
+        ],
+        fitOffTasks: [{ name: "Fit accessories" }],
+      },
+    });
+    expect(put.statusCode).toBe(200);
+
+    const job = jobTasks();
+
+    // Archived rough-in task survives BYTE-FOR-BYTE (id, name, archived flags).
+    const archRough = (job.roughInTasks ?? []).find((t) => t.id === "rt_arch");
+    expect(archRough).toEqual({
+      id: "rt_arch",
+      name: "Old conduit run",
+      archived: true,
+      archivedAt: "2026-01-02",
+      archivedBy: "u_admin",
+    });
+    // The live task renamed but kept its id (progress-preserving).
+    const liveRough = (job.roughInTasks ?? []).find((t) => t.id === "rt_live");
+    expect(liveRough).toEqual({ id: "rt_live", name: "Pull cables and tray" });
+    // New task got persisted too.
+    expect((job.roughInTasks ?? []).some((t) => t.name === "Terminate DB")).toBe(true);
+
+    // Archived fit-off task survives even though the payload replaced fit-off.
+    const archFit = (job.fitOffTasks ?? []).find((t) => t.id === "ft_arch");
+    expect(archFit).toEqual({ id: "ft_arch", name: "Legacy GPO swap", archived: true });
+    expect((job.fitOffTasks ?? []).some((t) => t.name === "Fit accessories")).toBe(true);
+
+    // The archived AREA is still retained (existing #578 discipline, asserted here too).
+    const archArea = (job.areaGroups ?? []).flatMap((g) => g.areas ?? []).find((a) => a.id === "area-archived");
+    expect(archArea?.archived).toBe(true);
+
+    // #491 invariant: live area ids stay unique after the merge.
+    const liveAreaIds = (job.areaGroups ?? [])
+      .flatMap((g) => g.areas ?? [])
+      .filter((a) => !a.archived)
+      .map((a) => a.id);
+    expect(new Set(liveAreaIds).size).toBe(liveAreaIds.length);
+  });
+
+  it("a structure PUT never silently un-archives a job-level task even if the payload re-uses its name", async () => {
+    seedArchivedJobTasks();
+    // Payload carries a LIVE task with the same name as the archived one.
+    // The archived task must survive (retention re-appends it) and the live
+    // entry is a new live task — the archived one is NOT resurrected/edited.
+    const put = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: {
+        id: "job-active",
+        roughInTasks: [{ name: "Pull cables" }], // only the live one survives as live
+      },
+    });
+    expect(put.statusCode).toBe(200);
+    const job = jobTasks();
+    const archived = (job.roughInTasks ?? []).filter((t) => t.archived);
+    expect(archived).toHaveLength(1);
+    expect(archived[0]).toEqual({
+      id: "rt_arch",
+      name: "Old conduit run",
+      archived: true,
+      archivedAt: "2026-01-02",
+      archivedBy: "u_admin",
+    });
+  });
+});
+
 describe("POST and PUT /api/jobs", () => {
   it("writes a job.created (source builder) audit entry on create (#581)", async () => {
     const created = await call({

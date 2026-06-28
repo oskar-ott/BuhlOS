@@ -6,6 +6,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import {
   AlertTriangle,
+  Archive,
   Camera,
   CheckCircle2,
   ClipboardCheck,
@@ -50,10 +51,11 @@ import {
   canPublish,
   isVisibleToField,
   moduleEnabled,
+  projectArchivedStructure,
   publishState,
-  summariseStructure,
   validateForPublish,
   type AreaRowForm,
+  type ArchivedStructure,
   type JobBuilderForm,
   type TaskRowForm,
 } from "@/domains/jobs/builder";
@@ -86,10 +88,12 @@ import { cn } from "@/lib/cn";
  *     ACTUALLY get. A "save to refresh" banner shows when the form is dirty.
  *   - Publish is disabled while there are unsaved changes (publish only
  *     writes status; it must not silently drop structural edits).
- *   - Structure editing is frozen (read-only) when the job carries archived
- *     rooms/tasks, because api/jobs.js PUT replaces the structure wholesale
- *     and would corrupt those archived items. Such jobs are edited on the
- *     legacy structure editor; we say so rather than risk data loss.
+ *   - Structure stays editable even when the job carries archived rooms/tasks
+ *     (#377). The editable form filters archived items OUT and the save sends
+ *     only live rows; api/jobs.js PUT is the retention authority and re-appends
+ *     any archived group/area/task the payload omits, so editing the live
+ *     structure can't disturb archived history. Archived items render as honest
+ *     read-only rows (ArchivedStructureSection) — visible, never editable.
  *
  * Cross-ref:
  *   src/domains/jobs/builder.ts — payload + publish + preview logic (tested)
@@ -217,7 +221,11 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
   const [genError, setGenError] = useState<string | null>(null);
   const [genResult, setGenResult] = useState<GenerationSummary | null>(null);
 
-  const structureFrozen = useMemo(() => hasArchivedStructure(savedJob), [savedJob]);
+  // #377 — read-only projection of any archived groups/areas/job-level tasks on
+  // the SAVED job. The editable form filters archived OUT; we render this mirror
+  // as honest read-only rows so the structure stays editable without hiding the
+  // archived history. The server re-appends the archived items on save.
+  const archivedStructure = useMemo(() => projectArchivedStructure(savedJob), [savedJob]);
 
   const savedForm = useMemo(() => jobToForm(savedJob), [savedJob]);
   const dirty = useMemo(
@@ -247,15 +255,12 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
     }
     setSaving(true);
     setSaveError(null);
+    // #377 — the payload carries only LIVE structure (jobToForm filters archived
+    // out, buildUpdatePayload only sends non-archived rows). The server is the
+    // retention authority: it re-appends any archived group/area/task the
+    // payload omits, so structure stays fully editable on jobs with archived
+    // items without disturbing them. No client-side freeze.
     const payload = buildUpdatePayload(savedJob.id, form);
-    // Structure is frozen for jobs with archived rooms/tasks — never send
-    // the structure arrays (the PUT replaces them wholesale and would drop
-    // the archived items). Basics + modules + status still save.
-    if (structureFrozen) {
-      delete payload.areaGroups;
-      delete payload.roughInTasks;
-      delete payload.fitOffTasks;
-    }
     const res = await updateJob(payload);
     setSaving(false);
     if (!res.ok) {
@@ -697,34 +702,6 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
 
   /* ============================ STRUCTURE ============================ */
   function renderStructure() {
-    if (structureFrozen) {
-      const s = summariseStructure(savedJob);
-      return (
-        <Card>
-          <div className="flex items-start gap-2 rounded-card border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-            <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            <div>
-              <p className="font-display font-semibold">
-                Structure editing is locked for this job
-              </p>
-              <p className="mt-1 text-xs">
-                This job has archived rooms or tasks. The builder saves structure as a whole, which
-                would disturb those archived items, so structure editing is locked for jobs like
-                this until the builder can edit around archived items. Basics, field modules, and
-                publishing still work here.
-              </p>
-            </div>
-          </div>
-          <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-            <Stat label="Area groups" value={s.areaGroupCount} />
-            <Stat label="Areas" value={s.areaCount} />
-            <Stat label="Rough-in tasks" value={s.roughInTaskCount} />
-            <Stat label="Fit-off tasks" value={s.fitOffTaskCount} />
-          </dl>
-        </Card>
-      );
-    }
-
     return (
       <div className="space-y-4">
         {/* #224 — rule-based task generation */}
@@ -922,6 +899,8 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
             </ul>
           )}
         </Card>
+
+        <ArchivedStructureSection archived={archivedStructure} />
       </div>
     );
   }
@@ -1418,23 +1397,120 @@ function jobToForm(job: Job): JobBuilderForm {
   };
 }
 
-function hasArchivedStructure(job: Job): boolean {
-  const groups = job.areaGroups ?? [];
-  if (groups.some((g) => g.archived)) return true;
-  for (const g of groups) {
-    for (const a of g.areas ?? []) {
-      if (a.archived) return true;
-      if ((a.roughInTasks ?? []).some((t) => t.archived)) return true;
-      if ((a.fitOffTasks ?? []).some((t) => t.archived)) return true;
-    }
-  }
-  if ((job.roughInTasks ?? []).some((t) => t.archived)) return true;
-  if ((job.fitOffTasks ?? []).some((t) => t.archived)) return true;
-  return false;
-}
-
 function areaHasOverride(area: AreaRowForm): boolean {
   return Boolean((area.roughInTasks?.length ?? 0) || (area.fitOffTasks?.length ?? 0));
+}
+
+/**
+ * #377 — read-only archived structure. The editable UI above never carries
+ * archived items (the server is the retention authority); we still SHOW them so
+ * an admin can see the full history honestly (P7). These rows are deliberately
+ * muted, carry an "Archived" pill, and have NO inputs or remove buttons — never
+ * a control that looks editable but no-ops. Renders nothing when nothing is
+ * archived.
+ */
+export function ArchivedStructureSection({ archived }: { archived: ArchivedStructure }) {
+  const { groups, areas, roughInTasks, fitOffTasks } = archived;
+  const empty =
+    groups.length === 0 &&
+    areas.length === 0 &&
+    roughInTasks.length === 0 &&
+    fitOffTasks.length === 0;
+  if (empty) return null;
+
+  return (
+    <Card data-testid="archived-structure" className="border-dashed bg-surface-subtle">
+      <div className="flex items-center gap-2">
+        <Archive className="h-5 w-5 text-text-muted" aria-hidden="true" />
+        <CardTitle>Archived (read-only)</CardTitle>
+      </div>
+      <CardDescription className="mt-1">
+        Archived rooms and tasks are kept for history and stay out of the field&rsquo;s view. They
+        can&rsquo;t be edited here — adding and renaming the live structure above leaves them
+        untouched.
+      </CardDescription>
+
+      {groups.length > 0 ? (
+        <div className="mt-4">
+          <p className="font-mono text-[10.5px] uppercase tracking-wider text-text-muted">
+            Area groups
+          </p>
+          <ul className="mt-2 space-y-2">
+            {groups.map((g) => (
+              <li
+                key={g.id}
+                data-testid="archived-group-row"
+                className="flex flex-wrap items-center gap-2 rounded-card border border-border bg-surface px-3 py-2 text-sm text-text-muted"
+              >
+                <span className="font-display font-semibold">{g.name}</span>
+                <ArchivedPill />
+                <span className="text-xs">
+                  {g.liveAreaCount} live area{g.liveAreaCount === 1 ? "" : "s"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {areas.length > 0 ? (
+        <div className="mt-4">
+          <p className="font-mono text-[10.5px] uppercase tracking-wider text-text-muted">Areas</p>
+          <ul className="mt-2 space-y-2">
+            {areas.map((a) => (
+              <li
+                key={a.id}
+                data-testid="archived-area-row"
+                className="flex flex-wrap items-center gap-2 rounded-card border border-border bg-surface px-3 py-2 text-sm text-text-muted"
+              >
+                <span className="font-display font-semibold">{a.name}</span>
+                {a.spaceType ? <span className="text-xs">({a.spaceType})</span> : null}
+                <ArchivedPill />
+                <span className="text-xs">in {a.groupName}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {roughInTasks.length > 0 || fitOffTasks.length > 0 ? (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {[
+            { label: "Rough-in tasks", rows: roughInTasks },
+            { label: "Fit-off tasks", rows: fitOffTasks },
+          ]
+            .filter((c) => c.rows.length > 0)
+            .map((c) => (
+              <div key={c.label}>
+                <p className="font-mono text-[10.5px] uppercase tracking-wider text-text-muted">
+                  {c.label}
+                </p>
+                <ul className="mt-2 space-y-2">
+                  {c.rows.map((t) => (
+                    <li
+                      key={t.id}
+                      data-testid="archived-task-row"
+                      className="flex flex-wrap items-center gap-2 rounded-card border border-border bg-surface px-3 py-2 text-sm text-text-muted"
+                    >
+                      <span>{t.name}</span>
+                      <ArchivedPill />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+function ArchivedPill() {
+  return (
+    <Pill tone="neutral" className="text-[10px] uppercase tracking-wider">
+      Archived
+    </Pill>
+  );
 }
 
 /* ============================ building blocks ============================ */
@@ -1470,15 +1546,6 @@ function Field({
         <span className="mt-1 block text-[11px] text-text-muted">{help}</span>
       ) : null}
     </label>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-card border border-border bg-surface px-3 py-2">
-      <div className="font-display text-lg text-text">{value}</div>
-      <div className="font-mono text-[10px] uppercase tracking-wider text-text-muted">{label}</div>
-    </div>
   );
 }
 
