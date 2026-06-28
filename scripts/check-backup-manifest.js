@@ -22,6 +22,7 @@ const KNOWN_DYNAMIC = {
   'api/safety-docs.js': ['jobs/'], // docsKey/acksKey(jobId): jobs/<id>/safety-docs.json + safety-acks.json (concat helpers; covered by the jobs/ prefix) (#219)
   'api/certificates.js': ['jobs/'], // certsKey(jobId): jobs/<id>/certificates.json (concat helper; covered by the jobs/ prefix) (#231)
   'api/rfis.js': ['jobs/'], // rfisKey(jobId): jobs/<id>/rfis.json (concat helper; covered by the jobs/ prefix) (#276)
+  'api/job-doc-import.js': ['jobs/'], // create-job attaches jobs/<id>/cost-import.json (template key; covered by the jobs/ prefix) (#365)
 };
 
 // The backup system itself: blob.js DEFINES writeBlob, backup.js's restore

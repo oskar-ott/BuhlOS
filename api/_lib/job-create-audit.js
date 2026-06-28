@@ -14,10 +14,11 @@
 
 /**
  * Build the audit-log payload for a job creation. `source` distinguishes the
- * Job Builder POST ('builder') from a won-quote conversion ('quote_convert').
+ * Job Builder POST ('builder'), a won-quote conversion ('quote_convert'), and a
+ * BOQ workbook import ('boq-import', #365).
  * @param {{ actor: {id:string, username?:string, role?:string},
  *           job: {id:string, name?:string, status?:string},
- *           source: 'builder'|'quote_convert', fromQuoteId?: string|null }} input
+ *           source: 'builder'|'quote_convert'|'boq-import', fromQuoteId?: string|null }} input
  */
 function buildJobCreatedEntry({ actor, job, source, fromQuoteId }) {
   const jobId = (job && job.id) || '';

@@ -21,6 +21,35 @@ export async function requestBoqImportPreview(file: File): Promise<BoqImportPrev
   return BoqImportPreviewSchema.parse(json.preview);
 }
 
+export interface BoqJobCreated {
+  jobId: string;
+  job: { id: string; name: string; status: string };
+  costBasis: { lines: number; total: number; reconciles: boolean | null };
+}
+
+/**
+ * Create a real DRAFT job from a reviewed BOQ workbook (#365 write-half). Re-
+ * uploads the workbook — the server re-parses it, so the client's on-screen
+ * preview is never trusted as the source of truth — plus the human-entered job
+ * name. Returns the new job id + a small cost-basis summary.
+ */
+export async function createJobFromBoqImport(
+  file: File,
+  name: string
+): Promise<BoqJobCreated> {
+  const dataUrl = await fileToDataUrl(file);
+  const res = await fetch("/api/job-doc-import?action=create-job", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fileName: file.name, mimeType: file.type, dataUrl, name }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `Create job failed (${res.status})`);
+  }
+  return (await res.json()) as BoqJobCreated;
+}
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
