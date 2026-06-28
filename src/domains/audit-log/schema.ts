@@ -197,6 +197,12 @@ export const AUDIT_ACTIONS = [
   // api/_lib/audit-log.js VALID_ACTIONS.
   "minutes.recorded",
   "minutes.amended",
+  // #230: services-locations register (api/services-locations.js) — where the
+  // pit/board/meter/temp-supply are. added on POST, updated on PATCH, removed on
+  // DELETE. targetType 'service_location'. Kept in sync with api/_lib/audit-log.js.
+  "service_location.added",
+  "service_location.updated",
+  "service_location.removed",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -242,6 +248,8 @@ export const AUDIT_TARGET_TYPES = [
   "diary",
   // #217: per-job meeting-minutes records (jobs/<id>/minutes.json).
   "minutes",
+  // #230: per-job services-locations records (jobs/<id>/services-locations.json).
+  "service_location",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

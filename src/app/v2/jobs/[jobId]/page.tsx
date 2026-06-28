@@ -33,6 +33,7 @@ import {
 import { JobDlpCard } from "@/components/admin/JobDlpCard";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
+import { JobServicesSection } from "@/components/admin/JobServicesSection";
 import { JobRecentActivity } from "@/components/admin/JobRecentActivity";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
@@ -51,6 +52,8 @@ import { JobViewToggle } from "@/components/admin/JobViewToggle";
 import { JobFieldView } from "@/components/admin/JobFieldView";
 import type { PhilJobDataForCommand } from "@/domains/phil/job-command-input";
 import { SnagListResponseSchema } from "@/domains/snags/schema";
+import { ServiceLocationListResponseSchema } from "@/domains/services-locations/schema";
+import type { ServiceLocationRecord } from "@/domains/services-locations/types";
 import { ITPListResponseSchema } from "@/domains/itp/schema";
 import { DocumentListResponseSchema } from "@/domains/documents/schema";
 import { TagListResponseSchema } from "@/domains/tags/schema";
@@ -143,10 +146,11 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
   // card self-hides for jobs that weren't created from a BOQ import).
   const costImportEnabled = await isFlagEnabled("job_doc_import", session);
 
-  const [data, inductions, readiness] = await Promise.all([
+  const [data, inductions, readiness, services] = await Promise.all([
     loadJobInterface(raw, jobId),
     loadJobInductions(raw, jobId),
     loadJobReadiness(raw, jobId),
+    loadJobServices(raw, jobId),
   ]);
   const result = data.job;
 
@@ -320,6 +324,17 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
         ) : null}
         <JobTagsSummary job={job} />
         {hasSiteContext(job) ? <SiteContextCard job={job} /> : null}
+        {/* #230: services-locations register (pit / board / meter / temp supply)
+            with the crew's photos — read in the parallel load above, lives in the
+            hub (no new admin route). Every hub viewer is admin or LH (the page is
+            gated to the LH surface), and both may manage server-side, so edit/
+            remove is shown. The section self-hides when empty + no error. */}
+        <JobServicesSection
+          jobId={job.id}
+          initialRecords={services.locations}
+          loadError={services.error}
+          canManage
+        />
         <JobInterfaceSectionNav
           job={job}
           safetyEnabled={safetyEnabled}
@@ -633,6 +648,36 @@ async function loadJobReadiness(
     return { result: computeReadiness(signalsFrom(parsed.data)), error: null };
   } catch (err) {
     return { result: empty(), error: err instanceof Error ? err.message : "network error" };
+  }
+}
+
+/**
+ * #230: services-locations register for the hub section. Every hub viewer (admin
+ * or LH) has job access, so a 403 isn't expected; any failure resolves to an
+ * empty-but-flagged result so the section can show a quiet notice rather than
+ * blanking. Mirrors the Zod-parse fail-soft shape of the other loaders.
+ */
+async function loadJobServices(
+  cookieValue: string | undefined,
+  jobId: string
+): Promise<{ locations: ServiceLocationRecord[]; error: string | null }> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(`${base}/api/services-locations?jobId=${encodeURIComponent(jobId)}`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (!res.ok) {
+      return { locations: [], error: res.status === 403 ? null : `Services API ${res.status}` };
+    }
+    const parsed = ServiceLocationListResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { locations: [], error: "Services: bad shape" };
+    return { locations: [...parsed.data.locations], error: null };
+  } catch (err) {
+    return { locations: [], error: err instanceof Error ? err.message : "network error" };
   }
 }
 

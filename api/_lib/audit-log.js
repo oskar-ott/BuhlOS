@@ -219,6 +219,14 @@ const VALID_ACTIONS = new Set([
   // src/domains/audit-log/schema.ts.
   'minutes.recorded',
   'minutes.amended',
+  // #230: services-locations register (api/services-locations.js) — where the
+  // pit/board/meter/temp-supply are, with optional denormalised photos.
+  // service_location.added on POST; service_location.updated on PATCH;
+  // service_location.removed on DELETE. targetType 'service_location'. Kept in
+  // sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'service_location.added',
+  'service_location.updated',
+  'service_location.removed',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -271,6 +279,8 @@ const VALID_TARGET_TYPES = new Set([
   'diary',
   // #217: per-job meeting-minutes records (jobs/<id>/minutes.json).
   'minutes',
+  // #230: per-job services-locations records (jobs/<id>/services-locations.json).
+  'service_location',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;
