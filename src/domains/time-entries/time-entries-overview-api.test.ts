@@ -24,6 +24,13 @@ const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const handlerPath = requireFromHere.resolve("../../../api/time-entries-overview.js");
 
+// #137: the REAL static holiday table (pure, no blob deps) — derive a genuine
+// past weekday public holiday so the test follows the gazetted table instead of
+// pinning a date that yearly maintenance could drop.
+const publicHolidays = requireFromHere("../../../api/_lib/public-holidays.js") as {
+  publicHolidaysInRange: (from: string, to: string) => Array<{ date: string; name: string }>;
+};
+
 type Handler = (
   req: Record<string, unknown>,
   res: ReturnType<typeof createRes>
@@ -60,6 +67,16 @@ const TOMORROW = (() => {
   const d = todayLocal();
   d.setDate(d.getDate() + 1);
   return isoLocal(d);
+})();
+/** A real NSW public holiday that is a past weekday (Mon–Fri ≤ today) — so
+ *  without the #137 exclusion the crew WOULD be flagged missing on it. */
+const PAST_WEEKDAY_HOLIDAY = (() => {
+  const past = publicHolidays.publicHolidaysInRange("2025-01-01", TODAY);
+  for (let i = past.length - 1; i >= 0; i--) {
+    const wd = new Date(past[i]!.date + "T00:00:00").getDay();
+    if (wd >= 1 && wd <= 5) return past[i]!;
+  }
+  return null;
 })();
 
 function clone<T>(value: T): T {
@@ -269,6 +286,25 @@ describe("missing-hours crew coverage (#114)", () => {
       toDate: PAST_SATURDAY,
     });
     expect(missingIds(res)).toEqual([]);
+  });
+
+  it("a public holiday weekday is exempt from missing AND named in holidays[] (#137)", async () => {
+    // The static AU/NSW table must carry a past weekday holiday to exercise this.
+    expect(PAST_WEEKDAY_HOLIDAY).not.toBeNull();
+    const hol = PAST_WEEKDAY_HOLIDAY!;
+    const res = await overview("u_admin", "admin", {
+      fromDate: hol.date,
+      toDate: hol.date,
+    });
+    // Without #137 the whole job-x crew (no entries) would be flagged missing on
+    // this weekday; the holiday exempts them exactly like a weekend.
+    expect(missingIds(res)).toEqual([]);
+    // …and the server NAMES the holiday so the weekly board can render its cell
+    // (the half that was dead until the page glue was wired).
+    const holidays =
+      (res.body as { holidays?: Array<{ date: string; name: string }> }).holidays ?? [];
+    expect(holidays.map((h) => h.date)).toContain(hol.date);
+    expect(holidays.find((h) => h.date === hol.date)?.name).toBeTruthy();
   });
 
   it("future days are never missing", async () => {

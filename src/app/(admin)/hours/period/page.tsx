@@ -452,6 +452,7 @@ async function loadWeekCloseout(
       entries: parsed.data.entries,
       missing: parsed.data.missing,
       leave: parsed.data.leave ?? [],
+      holidays: parsed.data.holidays ?? [],
       weekStart,
       todayISO,
     });
