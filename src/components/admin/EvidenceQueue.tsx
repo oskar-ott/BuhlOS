@@ -13,7 +13,11 @@ import {
   statusTone,
   type EvidenceStatusTone,
 } from "@/domains/evidence/format";
-import { reviewEvidence, unlinkEvidence } from "@/domains/evidence/client";
+import {
+  flagAsBuiltEvidence,
+  reviewEvidence,
+  unlinkEvidence,
+} from "@/domains/evidence/client";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import { pairedIdSet } from "@/domains/evidence/pairing";
 import { resolveEvidenceTargetParts } from "@/domains/evidence/target-label";
@@ -46,6 +50,14 @@ interface Props {
    *  authoritative reviewedByName in the canonical response, so this
    *  is only used for in-flight optimistic copy. */
   viewerName: string;
+  /** #233 — the viewer's user id. Used to detect whether they captured a
+   *  given row so the as-built toggle can be offered to the capturer.
+   *  Default-safe: absent = never the capturer. */
+  viewerId?: string;
+  /** #233 — true when the viewer can manage this job (admin, or a leading
+   *  hand assigned to it). Gates the FLAG half of the as-built toggle for
+   *  non-capturers, mirroring the server's `canManageJob`. */
+  viewerCanManageJob?: boolean;
 }
 
 type ActionState =
@@ -81,6 +93,8 @@ export function EvidenceQueue({
   fetchError,
   isAdmin,
   viewerName,
+  viewerId,
+  viewerCanManageJob,
 }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -243,6 +257,44 @@ export function EvidenceQueue({
             r.error.status === 403
               ? "You can't unlink this pair."
               : r.error.message || "Couldn't unlink. Try again.",
+        });
+      }
+    },
+    [job.id, applyServerItem, router]
+  );
+
+  // #233 — flag / unflag a capture as part of the as-built handover record.
+  // Reuses the shipped `flag-asbuilt` endpoint; the server enforces the
+  // capturer-own-OR-canManageJob (flag) / capturer-own-OR-admin (unflag)
+  // asymmetry, so a 403 here is a defensive fallback (the drawer only
+  // surfaces the control to a viewer who can use it). The canonical item is
+  // merged into local state so the As-built pill flips without a reload; the
+  // gallery + summary count pick it up on their next load.
+  const toggleAsBuilt = useCallback(
+    async (id: string, next: boolean) => {
+      setAction({ kind: "in_flight", evidenceId: id });
+      const r = await flagAsBuiltEvidence(job.id, {
+        evidenceId: id,
+        asBuilt: next,
+      });
+      if (r.ok) {
+        applyServerItem(r.data.evidenceItem);
+        setAction({
+          kind: "success",
+          message: next
+            ? "Flagged as-built — it'll show on the gallery's as-built filter."
+            : "Cleared the as-built flag.",
+        });
+        startTransition(() => router.refresh());
+      } else {
+        setAction({
+          kind: "error",
+          message:
+            r.error.status === 403
+              ? "You can't change the as-built flag on this capture."
+              : r.error.status === 400
+                ? "Couldn't update the as-built flag (photos only)."
+                : r.error.message || "Couldn't update the as-built flag. Try again.",
         });
       }
     },
@@ -489,6 +541,8 @@ export function EvidenceQueue({
               unreviewId === drawerItem.id
             : false
         }
+        viewerId={viewerId}
+        viewerCanManageJob={viewerCanManageJob}
         onClose={() => setDrawerId(null)}
         onMarkReviewed={() => {
           if (drawerItem) markReviewed(drawerItem.id);
@@ -506,6 +560,11 @@ export function EvidenceQueue({
         onUnlink={
           isAdmin && drawerAfterId
             ? () => unlinkPair(drawerAfterId)
+            : undefined
+        }
+        onToggleAsBuilt={
+          drawerItem
+            ? () => toggleAsBuilt(drawerItem.id, !(drawerItem.asBuilt === true))
             : undefined
         }
       />

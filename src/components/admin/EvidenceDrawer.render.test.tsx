@@ -55,11 +55,17 @@ function render(
     open = true,
     isAdmin = true,
     onUnlink,
+    viewerId,
+    viewerCanManageJob,
+    onToggleAsBuilt,
   }: {
     allEvidence?: ReadonlyArray<EvidenceItem>;
     open?: boolean;
     isAdmin?: boolean;
     onUnlink?: () => void;
+    viewerId?: string;
+    viewerCanManageJob?: boolean;
+    onToggleAsBuilt?: () => void;
   } = {},
 ): string {
   return renderToString(
@@ -70,10 +76,13 @@ function render(
       open,
       isAdmin,
       busy: false,
+      viewerId,
+      viewerCanManageJob,
       onClose: () => {},
       onMarkReviewed: () => {},
       onOpenReject: () => {},
       onUnlink,
+      onToggleAsBuilt,
     }),
   );
 }
@@ -137,5 +146,117 @@ describe("EvidenceDrawer pair view (#263)", () => {
     const html = render(solo, { allEvidence: [solo] });
     expect(html).not.toContain("Before / after");
     expect(html).toContain('src="https://blob.example/after.jpg"');
+  });
+});
+
+/**
+ * #233 — as-built flag control. The shipped endpoint + client + gallery
+ * chip + summary count had no UI setter, so the as-built path was
+ * unreachable. These pin the permission-aware toggle (mirroring the
+ * server flag/unflag asymmetry), the As-built pill, and photo-only.
+ */
+describe("EvidenceDrawer as-built control (#233)", () => {
+  const TOGGLE = 'data-testid="evidence-asbuilt-toggle"';
+  const PILL = 'data-testid="evidence-asbuilt-pill"';
+
+  it("renders the As-built toggle for an admin/LH viewer (canManageJob)", () => {
+    // Not the capturer (different id), but can manage the job.
+    const html = render(photo(), {
+      allEvidence: [photo()],
+      isAdmin: true,
+      viewerId: "u_admin",
+      viewerCanManageJob: true,
+      onToggleAsBuilt: () => {},
+    });
+    expect(html).toContain(TOGGLE);
+    expect(html).toContain("Mark as-built");
+  });
+
+  it("renders the As-built toggle for the CAPTURER of the row (even without manage rights)", () => {
+    const html = render(photo({ capturedById: "u_field" }), {
+      allEvidence: [photo()],
+      isAdmin: false,
+      viewerId: "u_field",
+      viewerCanManageJob: false,
+      onToggleAsBuilt: () => {},
+    });
+    expect(html).toContain(TOGGLE);
+  });
+
+  it("is ABSENT for a non-capturer tradie who can't manage the job", () => {
+    const html = render(photo({ capturedById: "u_other" }), {
+      allEvidence: [photo({ capturedById: "u_other" })],
+      isAdmin: false,
+      viewerId: "u_field",
+      viewerCanManageJob: false,
+      onToggleAsBuilt: () => {},
+    });
+    expect(html).not.toContain(TOGGLE);
+  });
+
+  it("shows the As-built pill + 'As-built ✓' label when item.asBuilt is set", () => {
+    const html = render(photo({ asBuilt: true }), {
+      allEvidence: [photo({ asBuilt: true })],
+      isAdmin: true,
+      viewerId: "u_admin",
+      viewerCanManageJob: true,
+      onToggleAsBuilt: () => {},
+    });
+    expect(html).toContain(PILL);
+    expect(html).toContain("As-built ✓");
+  });
+
+  it("an admin can UNFLAG someone else's flagged photo (admin unflag path)", () => {
+    const html = render(photo({ capturedById: "u_other", asBuilt: true }), {
+      allEvidence: [photo({ capturedById: "u_other", asBuilt: true })],
+      isAdmin: true,
+      viewerId: "u_admin",
+      viewerCanManageJob: true,
+      onToggleAsBuilt: () => {},
+    });
+    expect(html).toContain(TOGGLE);
+  });
+
+  it("an LH CANNOT unflag someone else's flagged photo (unflag is admin-only for non-capturers)", () => {
+    // LH on the job (can manage) but not the capturer and not admin: the
+    // server would 403 the UNFLAG, so the control must hide.
+    const html = render(photo({ capturedById: "u_other", asBuilt: true }), {
+      allEvidence: [photo({ capturedById: "u_other", asBuilt: true })],
+      isAdmin: false,
+      viewerId: "u_lh",
+      viewerCanManageJob: true,
+      onToggleAsBuilt: () => {},
+    });
+    expect(html).not.toContain(TOGGLE);
+    // …but the pill still shows the existing as-built state honestly.
+    expect(html).toContain(PILL);
+  });
+
+  it("is photo-only: a note row never offers the toggle", () => {
+    const note = photo({
+      id: "ev_note",
+      kind: "note",
+      photoId: null,
+      photoUrl: null,
+      note: "tagged out at the board",
+    });
+    const html = render(note, {
+      allEvidence: [note],
+      isAdmin: true,
+      viewerId: "u_admin",
+      viewerCanManageJob: true,
+      onToggleAsBuilt: () => {},
+    });
+    expect(html).not.toContain(TOGGLE);
+  });
+
+  it("renders no toggle when no handler is passed (default-safe)", () => {
+    const html = render(photo(), {
+      allEvidence: [photo()],
+      isAdmin: true,
+      viewerId: "u_admin",
+      viewerCanManageJob: true,
+    });
+    expect(html).not.toContain(TOGGLE);
   });
 });
