@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildGalleryPhotos,
   EMPTY_GALLERY_FILTER,
+  galleryAsBuiltCount,
   galleryUploaders,
   groupPhotosByDay,
   matchesGalleryFilter,
@@ -182,6 +183,28 @@ describe("buildGalleryPhotos", () => {
     expect(photos[0]?.uploader).toBe("u-42");
     expect(photos[0]?.uploaderKey).toBe("u-42");
   });
+
+  it("#233 — projects evidence asBuilt straight off the row; absence = false", () => {
+    const photos = buildGalleryPhotos({
+      evidence: [
+        ev({ id: "flagged", asBuilt: true } as Partial<EvidenceItem>),
+        ev({ id: "plain" }),
+      ],
+      catalog: [],
+    });
+    const ab = (id: string) => photos.find((p) => p.id === id)?.asBuilt;
+    expect(ab("evidence:flagged")).toBe(true);
+    // No flag on the row → not-as-built (never inferred).
+    expect(ab("evidence:plain")).toBe(false);
+  });
+
+  it("#233 — catalog (snag / ITP) photos are never as-built", () => {
+    const photos = buildGalleryPhotos({
+      evidence: [],
+      catalog: [snagPhoto({ id: "s" }), dwellingPhoto({ id: "d" })],
+    });
+    expect(photos.every((p) => p.asBuilt === false)).toBe(true);
+  });
 });
 
 describe("groupPhotosByDay", () => {
@@ -212,6 +235,7 @@ describe("groupPhotosByDay", () => {
       sourceKind: "itp",
       isNote: false,
       provenanceSide: "field",
+      asBuilt: false,
       evidenceItem: null,
       snagId: null,
     };
@@ -277,6 +301,42 @@ describe("matchesGalleryFilter", () => {
     });
     const f: GalleryFilter = { ...EMPTY_GALLERY_FILTER, fromDate: "2026-01-01" };
     expect(undatedOnly.filter((p) => matchesGalleryFilter(p, f))).toHaveLength(0);
+  });
+
+  it("#233 — asBuilt:true keeps only flagged captures; null keeps all", () => {
+    const set = buildGalleryPhotos({
+      evidence: [
+        ev({ id: "flagged", asBuilt: true } as Partial<EvidenceItem>),
+        ev({ id: "plain", capturedAt: "2026-06-02T09:00:00Z" }),
+      ],
+      catalog: [snagPhoto({ id: "s" })],
+    });
+    const on: GalleryFilter = { ...EMPTY_GALLERY_FILTER, asBuilt: true };
+    expect(set.filter((p) => matchesGalleryFilter(p, on)).map((p) => p.id)).toEqual([
+      "evidence:flagged",
+    ]);
+    // null = no restriction.
+    expect(set.filter((p) => matchesGalleryFilter(p, EMPTY_GALLERY_FILTER))).toHaveLength(3);
+  });
+});
+
+describe("#233 galleryAsBuiltCount", () => {
+  it("counts only as-built-flagged photos (honest zero when none)", () => {
+    const none = buildGalleryPhotos({
+      evidence: [ev({ id: "a" }), ev({ id: "b" })],
+      catalog: [snagPhoto({ id: "s" })],
+    });
+    expect(galleryAsBuiltCount(none)).toBe(0);
+
+    const some = buildGalleryPhotos({
+      evidence: [
+        ev({ id: "a", asBuilt: true } as Partial<EvidenceItem>),
+        ev({ id: "b", asBuilt: true } as Partial<EvidenceItem>),
+        ev({ id: "c" }),
+      ],
+      catalog: [],
+    });
+    expect(galleryAsBuiltCount(some)).toBe(2);
   });
 });
 

@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FileText, Image as ImageIcon, X } from "lucide-react";
+import { FileText, Image as ImageIcon, Stamp, X } from "lucide-react";
 import { PhilNotice } from "./ui/PhilNotice";
 import { Pill } from "@/components/ui/Pill";
 import {
   EMPTY_GALLERY_FILTER,
   buildGalleryPhotos,
+  galleryAsBuiltCount,
   galleryUploaders,
   groupPhotosByDay,
   matchesGalleryFilter,
@@ -83,12 +84,15 @@ export function PhilPhotosGallery({
   );
   const groups = useMemo(() => groupPhotosByDay(visible), [visible]);
   const uploaders = useMemo(() => galleryUploaders(allPhotos), [allPhotos]);
+  // #233 — drives the hidden-when-empty as-built filter chip (P7).
+  const asBuiltCount = useMemo(() => galleryAsBuiltCount(allPhotos), [allPhotos]);
 
   const isDefault =
     filter.fromDate === null &&
     filter.toDate === null &&
     filter.uploaderKey === null &&
-    filter.sourceKind === null;
+    filter.sourceKind === null &&
+    filter.asBuilt === null;
 
   return (
     <div className="space-y-4">
@@ -116,6 +120,7 @@ export function PhilPhotosGallery({
         totalCount={allPhotos.length}
         visibleCount={visible.length}
         isDefault={isDefault}
+        asBuiltCount={asBuiltCount}
       />
 
       {visible.length === 0 ? (
@@ -195,6 +200,14 @@ function PhilPhotoTile({
             {sourceKindLabel(photo.sourceKind)}
           </Pill>
         </span>
+        {/* #233 — as-built chip on a flagged tile (hidden otherwise). */}
+        {photo.asBuilt ? (
+          <span className="absolute right-1.5 top-1.5">
+            <Pill tone="warning" className="text-xs">
+              As-built
+            </Pill>
+          </span>
+        ) : null}
       </span>
       <span className="flex flex-col gap-0.5 p-2">
         <span className="truncate text-xs font-medium text-text">{photo.provenance}</span>
@@ -273,6 +286,8 @@ interface FilterBarProps {
   totalCount: number;
   visibleCount: number;
   isDefault: boolean;
+  /** #233 — as-built-flagged count; the chip hides when 0 (P7). */
+  asBuiltCount: number;
 }
 
 function PhilGalleryFilterBar({
@@ -282,6 +297,7 @@ function PhilGalleryFilterBar({
   totalCount,
   visibleCount,
   isDefault,
+  asBuiltCount,
 }: FilterBarProps) {
   return (
     <div className="rounded-card border border-border bg-surface-raised p-3">
@@ -354,6 +370,27 @@ function PhilGalleryFilterBar({
           </select>
         </label>
       </div>
+
+      {/* #233 — as-built chip. HIDDEN when nothing in this (own-captures) view
+          is flagged, so a tradie never sees a dead control (P7). */}
+      {asBuiltCount > 0 ? (
+        <button
+          type="button"
+          onClick={() => onChange({ ...value, asBuilt: value.asBuilt === true ? null : true })}
+          aria-pressed={value.asBuilt === true}
+          data-testid="phil-gallery-asbuilt-chip"
+          className={cn(
+            "mt-3 inline-flex h-11 items-center gap-1 rounded-card border px-3 text-sm font-medium",
+            value.asBuilt === true
+              ? "border-amber-300 bg-amber-50 text-amber-900"
+              : "border-border bg-surface text-text",
+          )}
+        >
+          <Stamp aria-hidden="true" className="h-4 w-4" />
+          As-built
+          <span className="text-xs text-text-muted">({asBuiltCount})</span>
+        </button>
+      ) : null}
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <p className="text-xs text-text-muted">

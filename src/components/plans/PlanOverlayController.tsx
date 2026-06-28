@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MapPin, StickyNote, Minus, MousePointer2, Eye, EyeOff, Trash2, Loader2 } from "lucide-react";
+import { MapPin, StickyNote, Minus, MousePointer2, Eye, EyeOff, Trash2, Loader2, Stamp } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -163,6 +163,16 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
     });
   }, [selected, applyMutation, jobId]);
 
+  // #233 — designate this markup as part of the as-built handover record. The
+  // server rejects the patch on an archived plan and gates on canManageJob.
+  const toggleAsBuilt = useCallback(async () => {
+    if (!selected) return;
+    await applyMutation(async () => {
+      const res = await updateMarkup(jobId, selected.id, { asBuilt: !selected.asBuilt });
+      return res.ok ? { ok: true, markup: res.data.markup as DrawingMarkup } : { ok: false, message: errorText(res.error) };
+    });
+  }, [selected, applyMutation, jobId]);
+
   const archiveSelected = useCallback(async () => {
     if (!selected) return;
     setSave({ kind: "saving" });
@@ -247,9 +257,19 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
         <Card className="space-y-3" data-testid="overlay-detail">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="capitalize">{selected.type} overlay</CardTitle>
-            <Pill tone={selected.visibleToPhil ? "success" : "neutral"}>
-              {selected.visibleToPhil ? "Visible to Phil" : "Office only"}
-            </Pill>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* #233 — as-built designation pill. Carries the revision context
+                  so a markup on a superseded plan reads honestly ("As-built
+                  · Rev A"), never as a bare flag. Hidden when not flagged. */}
+              {selected.asBuilt ? (
+                <Pill tone="warning" data-testid="overlay-asbuilt-pill">
+                  {asBuiltPillLabel(selected.revision, selected.drawingNumber)}
+                </Pill>
+              ) : null}
+              <Pill tone={selected.visibleToPhil ? "success" : "neutral"}>
+                {selected.visibleToPhil ? "Visible to Phil" : "Office only"}
+              </Pill>
+            </div>
           </div>
 
           {isAdmin ? (
@@ -284,6 +304,18 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
                     <><Eye className="h-4 w-4" aria-hidden /> Show to Phil</>
                   )}
                 </Button>
+                {/* #233 — designate / clear the as-built flag. */}
+                <Button
+                  size="sm"
+                  variant={selected.asBuilt ? "primary" : "secondary"}
+                  onClick={toggleAsBuilt}
+                  disabled={save.kind === "saving"}
+                  aria-pressed={selected.asBuilt === true}
+                  data-testid="overlay-asbuilt-toggle"
+                >
+                  <Stamp className="h-4 w-4" aria-hidden />
+                  {selected.asBuilt ? "As-built ✓" : "Mark as-built"}
+                </Button>
                 <Button size="sm" variant="danger" onClick={archiveSelected} disabled={save.kind === "saving"}>
                   <Trash2 className="h-4 w-4" aria-hidden /> Archive
                 </Button>
@@ -304,6 +336,20 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
       ) : null}
     </div>
   );
+}
+
+/**
+ * #233 — the as-built pill label, carrying the markup's revision context so a
+ * designation on a superseded plan reads honestly. "As-built · Rev A" when a
+ * revision is known; "As-built · E-01" when only the drawing number is; plain
+ * "As-built" otherwise. Never invents a revision. Exported for the unit test.
+ */
+export function asBuiltPillLabel(revision?: string, drawingNumber?: string): string {
+  const rev = revision?.trim();
+  if (rev) return `As-built · Rev ${rev}`;
+  const dwg = drawingNumber?.trim();
+  if (dwg) return `As-built · ${dwg}`;
+  return "As-built";
 }
 
 function SaveStatus({ save }: { save: SaveState }) {

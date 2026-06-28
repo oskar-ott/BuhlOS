@@ -12,6 +12,7 @@ import {
   EvidenceListResponseSchema,
   EvidencePhotoUploadResponseSchema,
   EvidenceReviewResponseSchema,
+  FlagAsBuiltPayloadSchema,
   LinkEvidencePayloadSchema,
   REJECTION_REASON_MAX,
   ReviewEvidencePayloadSchema,
@@ -22,6 +23,7 @@ import { kindLabel, stageLabel, statusLabel, statusTone } from "./format";
 import { canTransition, humanFileSize } from "./service";
 import {
   createEvidence,
+  flagAsBuiltEvidence,
   linkEvidence,
   listEvidence,
   reviewEvidence,
@@ -460,6 +462,41 @@ describe("UnlinkEvidencePayloadSchema (#263)", () => {
 
   it("rejects an empty afterId", () => {
     expect(UnlinkEvidencePayloadSchema.safeParse({ afterId: "" }).success).toBe(false);
+  });
+});
+
+/* ----------------------------------------------------------------------
+ * Schema — asBuilt (#233) + FlagAsBuiltPayload
+ * -------------------------------------------------------------------- */
+
+describe("EvidenceItemSchema asBuilt (#233)", () => {
+  it("accepts a row with asBuilt true/false", () => {
+    expect(EvidenceItemSchema.safeParse({ ...baseItem, asBuilt: true }).success).toBe(true);
+    expect(EvidenceItemSchema.safeParse({ ...baseItem, asBuilt: false }).success).toBe(true);
+  });
+
+  it("accepts a legacy row with no asBuilt at all (migration-free)", () => {
+    const legacy = { ...baseItem } as Record<string, unknown>;
+    delete legacy.asBuilt;
+    expect(EvidenceItemSchema.safeParse(legacy).success).toBe(true);
+  });
+
+  it("rejects a non-boolean asBuilt", () => {
+    expect(EvidenceItemSchema.safeParse({ ...baseItem, asBuilt: "yes" }).success).toBe(false);
+  });
+});
+
+describe("FlagAsBuiltPayloadSchema (#233)", () => {
+  it("accepts a valid { evidenceId, asBuilt }", () => {
+    expect(FlagAsBuiltPayloadSchema.safeParse({ evidenceId: "ev_a", asBuilt: true }).success).toBe(true);
+    expect(FlagAsBuiltPayloadSchema.safeParse({ evidenceId: "ev_a", asBuilt: false }).success).toBe(true);
+  });
+
+  it("rejects a missing/empty evidenceId or non-boolean asBuilt", () => {
+    expect(FlagAsBuiltPayloadSchema.safeParse({ evidenceId: "", asBuilt: true }).success).toBe(false);
+    expect(FlagAsBuiltPayloadSchema.safeParse({ asBuilt: true }).success).toBe(false);
+    expect(FlagAsBuiltPayloadSchema.safeParse({ evidenceId: "ev_a" }).success).toBe(false);
+    expect(FlagAsBuiltPayloadSchema.safeParse({ evidenceId: "ev_a", asBuilt: "x" }).success).toBe(false);
   });
 });
 
@@ -917,6 +954,34 @@ describe("evidence client wrappers", () => {
     const sentinel = vi.fn();
     globalThis.fetch = sentinel as unknown as typeof fetch;
     const r = await unlinkEvidence("birdwood-iv3232", { afterId: "" });
+    expect(r.ok).toBe(false);
+    expect(sentinel).not.toHaveBeenCalled();
+  });
+
+  it("flagAsBuiltEvidence POSTs ?action=flag-asbuilt and parses the canonical item (#233)", async () => {
+    const flagged = { ...baseItem, asBuilt: true };
+    installFetch(
+      () =>
+        new Response(JSON.stringify({ evidenceItem: flagged }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+    );
+    const r = await flagAsBuiltEvidence("birdwood-iv3232", {
+      evidenceId: "ev_12345678",
+      asBuilt: true,
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data.evidenceItem.asBuilt).toBe(true);
+    const [url, init] = fetchCalls[0]!;
+    expect(url).toContain("action=flag-asbuilt");
+    expect(init?.method).toBe("POST");
+  });
+
+  it("flagAsBuiltEvidence refuses to call the server with an empty evidenceId (#233)", async () => {
+    const sentinel = vi.fn();
+    globalThis.fetch = sentinel as unknown as typeof fetch;
+    const r = await flagAsBuiltEvidence("birdwood-iv3232", { evidenceId: "", asBuilt: true });
     expect(r.ok).toBe(false);
     expect(sentinel).not.toHaveBeenCalled();
   });

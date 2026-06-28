@@ -113,6 +113,10 @@ export interface GalleryPhoto {
   /** Field vs office provenance. Evidence carries source phil/admin/system;
    *  catalog photos are field-captured by construction. */
   provenanceSide: "field" | "office";
+  /** #233 — true when the originating evidence row is flagged `asBuilt`. Only
+   *  evidence photos can carry the flag today; catalog (snag / ITP) photos are
+   *  always false (absence = not-as-built, never inferred). */
+  asBuilt: boolean;
   /** The originating evidence row, for opening EvidenceDrawer. Null for
    *  catalog-only photos (snag / ITP / dwelling). */
   evidenceItem: EvidenceItem | null;
@@ -173,6 +177,8 @@ function fromEvidence(
       isNote,
       // Evidence carries an explicit source; admin/system reads as office.
       provenanceSide: item.source === "phil" ? "field" : "office",
+      // #233 — read straight off the row; absence is not-as-built.
+      asBuilt: item.asBuilt === true,
       evidenceItem: item,
       snagId: null,
     });
@@ -213,6 +219,8 @@ function fromCatalog(entries: ReadonlyArray<PhotoCatalogEntry>): GalleryPhoto[] 
         sourceKind: "snag",
         isNote: false,
         provenanceSide: "field",
+        // #233 — only evidence carries the as-built flag; catalog is never it.
+        asBuilt: false,
         evidenceItem: null,
         snagId: e.snagId || null,
       });
@@ -239,6 +247,8 @@ function fromCatalog(entries: ReadonlyArray<PhotoCatalogEntry>): GalleryPhoto[] 
         sourceKind: "itp",
         isNote: false,
         provenanceSide: "field",
+        // #233 — only evidence carries the as-built flag; catalog is never it.
+        asBuilt: false,
         evidenceItem: null,
         snagId: null,
       });
@@ -320,6 +330,10 @@ export interface GalleryFilter {
   kind: "photo" | "note" | null;
   /** Restrict to one source pipeline, or null for all. */
   sourceKind: GallerySourceKind | null;
+  /** #233 — true = only as-built-flagged captures; null = all. There is no
+   *  `false` mode: the chip is a "show me the as-builts" toggle, and absence
+   *  of the flag is not a thing the office filters FOR. */
+  asBuilt: true | null;
 }
 
 export const EMPTY_GALLERY_FILTER: GalleryFilter = {
@@ -329,6 +343,7 @@ export const EMPTY_GALLERY_FILTER: GalleryFilter = {
   side: null,
   kind: null,
   sourceKind: null,
+  asBuilt: null,
 };
 
 /**
@@ -354,7 +369,18 @@ export function matchesGalleryFilter(
     if (filter.kind === "note" && !photo.isNote) return false;
   }
   if (filter.sourceKind && photo.sourceKind !== filter.sourceKind) return false;
+  // #233 — when on, keep only as-built-flagged captures.
+  if (filter.asBuilt === true && !photo.asBuilt) return false;
   return true;
+}
+
+/** Count of as-built-flagged photos — drives the hidden-when-empty chip. */
+export function galleryAsBuiltCount(
+  photos: ReadonlyArray<GalleryPhoto>,
+): number {
+  let n = 0;
+  for (const p of photos) if (p.asBuilt) n += 1;
+  return n;
 }
 
 /** Distinct uploaders present in a gallery, for the filter dropdown. */

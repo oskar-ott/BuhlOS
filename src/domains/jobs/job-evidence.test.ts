@@ -114,4 +114,21 @@ describe("summariseJobEvidence", () => {
     expect(s.notes).toBe(2);
     expect(s.photos + s.notes).toBe(s.total);
   });
+
+  it("#233 — counts as-built-flagged captures; absence is not counted (honest zero)", () => {
+    const none = summariseJobEvidence([ev({ id: "a" }), ev({ id: "b" })], "job-1");
+    expect(none.asBuilt).toBe(0);
+
+    const s = summariseJobEvidence(
+      [
+        ev({ id: "a", asBuilt: true } as Partial<EvidenceItem>),
+        ev({ id: "b", asBuilt: true } as Partial<EvidenceItem>),
+        ev({ id: "c" }),
+        ev({ id: "d", asBuilt: false } as Partial<EvidenceItem>),
+      ],
+      "job-1",
+    );
+    // Only explicit true counts; absent + false do not (never inferred).
+    expect(s.asBuilt).toBe(2);
+  });
 });

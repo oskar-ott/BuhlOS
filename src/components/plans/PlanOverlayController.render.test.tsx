@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { PlanOverlayController } from "./PlanOverlayController";
+import { PlanOverlayController, asBuiltPillLabel } from "./PlanOverlayController";
 import type { Plan } from "@/domains/plans/types";
 
 /**
@@ -49,5 +49,23 @@ describe("PlanOverlayController", () => {
     expect(html).not.toContain("Add pin");
     expect(html).not.toContain("Show to Phil");
     expect(html).not.toContain("Archive");
+    // #233 — the as-built designation is admin-only; Phil never sees the toggle.
+    expect(html).not.toContain("Mark as-built");
+    expect(html).not.toContain('data-testid="overlay-asbuilt-toggle"');
+  });
+});
+
+describe("#233 asBuiltPillLabel — revision-context honesty", () => {
+  it("carries the revision when known (superseded plan reads honestly)", () => {
+    expect(asBuiltPillLabel("A", "E-01")).toBe("As-built · Rev A");
+  });
+
+  it("falls back to the drawing number when no revision", () => {
+    expect(asBuiltPillLabel(undefined, "E-01")).toBe("As-built · E-01");
+  });
+
+  it("is a bare label when neither is known — never invents a revision", () => {
+    expect(asBuiltPillLabel()).toBe("As-built");
+    expect(asBuiltPillLabel("  ", "  ")).toBe("As-built");
   });
 });

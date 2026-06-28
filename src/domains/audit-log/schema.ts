@@ -52,6 +52,10 @@ export const AUDIT_ACTIONS = [
   // only. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
   "evidence.linked",
   "evidence.unlinked",
+  // #233: as-built designation — flagged/unflagged fire on the designated
+  // capture. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
+  "evidence.flagged_asbuilt",
+  "evidence.unflagged_asbuilt",
   "snag.created",
   "snag.transitioned",
   "itp.attached",

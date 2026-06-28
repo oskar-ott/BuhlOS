@@ -43,7 +43,7 @@
 // failure on either path never blocks the evidence write.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canWrite, isAdminRole, isFieldRole, isClientRole } = require('./_lib/auth');
+const { requireAuth, canWrite, canManageJob, isAdminRole, isFieldRole, isClientRole } = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
 const {
   effectiveRoughInTasks,
@@ -537,6 +537,107 @@ async function unlinkEvidence(req, res, user, jobId) {
   return res.status(200).json({ evidenceItem: next });
 }
 
+// #233 — flag / unflag a capture as part of the as-built handover record.
+// Does NOT ride the strict review transition machine (there is no general
+// evidence update path) — its own branch sets item.asBuilt + updatedAt and
+// dual-writes a new audit verb, mirroring reviewEvidence.
+//
+// Permission asymmetry (locked in tests):
+//   - FLAG  (asBuilt=true):  the capturer of THIS row (capturedById===me), OR
+//     an admin / leading-hand-on-the-job (canManageJob) for ANY row.
+//   - UNFLAG (asBuilt=false): the capturer for their OWN, OR an admin for ANY.
+//     A leading hand cannot unflag someone else's (admin may).
+// A client is 403'd at the dispatcher; unauth is 401'd by requireAuth.
+function canFlagAsBuilt(user, item) {
+  if (!item) return false;
+  if (item.capturedById === user.id) return true;
+  return canManageJob(user, jobIdOf(item));
+}
+function canUnflagAsBuilt(user, item) {
+  if (!item) return false;
+  if (item.capturedById === user.id) return true;
+  return isAdminRole(user.role);
+}
+// The row carries its own jobId; the gate keys off it (canManageJob is
+// job-scoped for LH). Falls back to '' which canManageJob treats as not-managed
+// for a non-admin.
+function jobIdOf(item) {
+  return (item && item.jobId) || '';
+}
+
+async function flagAsBuiltEvidence(req, res, user, jobId) {
+  const body = req.body || {};
+  const evidenceId = typeof body.evidenceId === 'string' ? body.evidenceId : '';
+  const asBuilt = body.asBuilt;
+  if (!evidenceId) return res.status(400).json({ error: 'evidenceId required' });
+  if (typeof asBuilt !== 'boolean') {
+    return res.status(400).json({ error: 'asBuilt must be a boolean' });
+  }
+
+  const KEY = dataKey(jobId);
+  const data = await readBlob(KEY, emptyData());
+  const arr = Array.isArray(data.evidence) ? data.evidence : [];
+  const idx = arr.findIndex((ev) => ev && ev.id === evidenceId);
+  if (idx === -1) return res.status(404).json({ error: 'evidence not found on job' });
+  const current = arr[idx];
+
+  // Permission asymmetry — flag vs unflag differ.
+  const allowed = asBuilt ? canFlagAsBuilt(user, current) : canUnflagAsBuilt(user, current);
+  if (!allowed) {
+    return res.status(403).json({
+      error: asBuilt
+        ? 'only the capturing worker, an admin, or a leading hand on the job can flag as-built'
+        : 'only the capturing worker or an admin can clear the as-built flag',
+    });
+  }
+
+  // Idempotent: no change → 200 no-op (no write, no audit). Treat a missing
+  // flag as false so flagging an unmarked row is never a no-op.
+  if ((current.asBuilt === true) === asBuilt) {
+    return res.status(200).json({ evidenceItem: current, idempotentNoop: true });
+  }
+
+  const nowIso = new Date().toISOString();
+  const next = { ...current, asBuilt, updatedAt: nowIso };
+
+  const action = asBuilt ? 'evidence.flagged_asbuilt' : 'evidence.unflagged_asbuilt';
+  const auditEntry = await appendAuditLog({
+    action,
+    actorId: user.id,
+    actorName: user.name || user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'evidence',
+    targetId: next.id,
+    summary: asBuilt ? 'flagged evidence as-built' : 'cleared as-built flag',
+    metadata: { asBuilt },
+  }).catch(() => null);
+  if (auditEntry && auditEntry.id) {
+    next.auditLogIds = [...(current.auditLogIds || []), auditEntry.id];
+  }
+
+  arr[idx] = next;
+  data.evidence = arr;
+  try {
+    await writeBlob(KEY, data);
+  } catch (e) {
+    return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
+  }
+
+  appendLegacyAudit(jobId, {
+    byUserId: user.id,
+    byUsername: user.username || user.name || '',
+    kind: action,
+    summary: asBuilt
+      ? `evidence ${next.id} flagged as-built`
+      : `evidence ${next.id} as-built flag cleared`,
+    before: { asBuilt: current.asBuilt === true },
+    after: { evidenceId: next.id, asBuilt },
+  }).catch(() => {});
+
+  return res.status(200).json({ evidenceItem: next });
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -565,6 +666,17 @@ module.exports = async (req, res) => {
       return await reviewEvidence(req, res, user, jobId);
     } catch (e) {
       return res.status(500).json({ error: e.message || 'review failed' });
+    }
+  }
+
+  // #233 — as-built designation. NO blanket canWrite gate here: an admin who
+  // isn't assigned to the job must still be able to flag, and the capturer /
+  // LH-on-job / unflag asymmetry is enforced per-row inside the handler.
+  if (req.method === 'POST' && action === 'flag-asbuilt') {
+    try {
+      return await flagAsBuiltEvidence(req, res, user, jobId);
+    } catch (e) {
+      return res.status(500).json({ error: e.message || 'flag-asbuilt failed' });
     }
   }
 
