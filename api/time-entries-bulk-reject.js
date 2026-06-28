@@ -119,13 +119,21 @@ module.exports = async (req, res) => {
       ...entry,
       status: 'rejected',
       rejectedReason: reason,
+      rejectedAt: now,      // parity with single reject: powers the 30s undo window
+      rejectedBy: me.id,    // and the audit chain (who rejected) — was missing here
       updatedAt: now,
     };
     try {
       await writeEntry(userId, updated);
       await appendAudit(userId, entry.id, 'rejected', me.id, reason);
     } catch (e) {
-      failed.push({ userId, date, error: 'write failed: ' + (e.message || 'unknown') });
+      if (e && e.code === 'stale_write') {
+        // #157: edited concurrently between read and write — report it as a
+        // typed, retryable conflict (not a generic failure) so the caller knows.
+        failed.push({ userId, date, error: 'conflict — edited while rejecting; retry', code: 'conflict', currentRev: e.currentRev });
+      } else {
+        failed.push({ userId, date, error: 'write failed: ' + (e.message || 'unknown') });
+      }
       continue;
     }
     rejected.push({ userId, date, totalHours: Number(entry.totalHours) || 0, reason });
