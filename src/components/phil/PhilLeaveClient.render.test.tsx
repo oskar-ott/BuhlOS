@@ -82,4 +82,17 @@ describe("PhilLeaveClient", () => {
     );
     expect(html).toContain("Couldn’t load your requests");
   });
+
+  it("floors the date pickers at today and clarifies the single-day default (H14/H15)", () => {
+    const html = renderToString(
+      createElement(PhilLeaveClient, {
+        initialRequests: [],
+        fetchError: null,
+        todayISO: "2026-06-28",
+      }),
+    );
+    expect(html).toContain('min="2026-06-28"'); // can't request leave already in the past
+    expect(html).toContain("Last day (optional)"); // no longer reads as mandatory
+    expect(html).toContain("single day off"); // explains the blank-last-day default
+  });
 });

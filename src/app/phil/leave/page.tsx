@@ -7,6 +7,7 @@ import { PhilLeaveClient } from "@/components/phil/PhilLeaveClient";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { LeaveListResponseSchema } from "@/domains/timesheets/schema";
+import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
 import type { LeaveRequest } from "@/domains/timesheets/types";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export default async function PhilLeavePage() {
   }
 
   const { requests, error } = await loadMine(raw);
+  const todayISO = localDateString(new Date(), BUSINESS_TIMEZONE);
 
   return (
     <PhilShell title="Leave" userId={session.userId ?? ""}>
@@ -31,9 +33,9 @@ export default async function PhilLeavePage() {
         <PhilBackLink href="/phil/my-day">My day</PhilBackLink>
         <PhilPageIntro
           title="Leave"
-          description="Request time off and see what the office decided. Approved days never show as missing hours."
+          description="Request time off and see what the office decided. Once the office approves, those days stop showing as missing hours."
         />
-        <PhilLeaveClient initialRequests={requests} fetchError={error} />
+        <PhilLeaveClient initialRequests={requests} fetchError={error} todayISO={todayISO} />
       </div>
     </PhilShell>
   );
