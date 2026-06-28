@@ -15,7 +15,7 @@
 // Writes use writeBlob(..., { expectedRev }) CAS so a concurrent record/amend
 // can't clobber a sibling write.
 
-const { put } = require('@vercel/blob');
+const { put, del } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob, isAdminRole } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
@@ -176,7 +176,17 @@ module.exports = async (req, res) => {
     });
     if (a && a.id) entry.auditLogIds.push(a.id);
     data.minutes.push(entry);
-    await writeBlob(minutesKey(jobId), data, { expectedRev: revOf(data), actor: user.id });
+    try {
+      await writeBlob(minutesKey(jobId), data, { expectedRev: revOf(data), actor: user.id });
+    } catch (e) {
+      // Audit: the attachment blob is put() BEFORE this CAS-guarded write. On a
+      // stale-revision conflict (or any write failure) the uploaded blob would
+      // orphan, so best-effort delete it before surfacing the error.
+      if (attachment && attachment.blobPath) {
+        try { await del(attachment.blobPath, { token: process.env.BLOB_READ_WRITE_TOKEN }); } catch { /* best effort */ }
+      }
+      throw e;
+    }
     return res.status(201).json({ minute: entry });
   }
 
