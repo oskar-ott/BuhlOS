@@ -42,11 +42,16 @@ const { nanoid } = require('./_lib/validation');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { sendPushToUserId } = require('./_lib/push');
 const { idempotencyKeyFrom, findIdempotent, recordIdempotent } = require('./_lib/idempotency');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 
 // PR 6: which observation types are eligible for one-click conversion to a
 // real Snag. Others need explicit ?force=1 — keeps the inbox honest about
 // what the conversion actually means.
 const CONVERT_TO_SNAG_DEFAULT_TYPES = new Set(['defect', 'safety', 'blocker']);
+// #276: the field's "Question for office" chip raises an `rfi`-typed
+// observation — that's the natural one-click target for the RFI register.
+// Other types need explicit {"force":true}.
+const CONVERT_TO_RFI_DEFAULT_TYPES = new Set(['rfi']);
 const SNAG_TITLE_MAX = 120;
 const SNAG_DESCRIPTION_MAX = 1000;
 
@@ -1033,6 +1038,172 @@ async function convertObservationToSnag(req, res, user) {
 }
 
 /**
+ * #276: Convert an eligible observation into a REAL RFI on the job's register.
+ *
+ * Mirrors convertObservationToSnag(): admin-tier only, default-eligible type is
+ * `rfi` (the field's "Question for office" chip), other types require
+ * {"force":true}, idempotent (409 if already converted), writes the RFI FIRST
+ * then updates the observation. The RFI object is built to match api/rfis.js's
+ * create path EXACTLY (RfiSchema in src/domains/rfi/schema.ts) so the register
+ * reads it back unchanged. The dispatch caller flag-gates on `rfi_register`.
+ */
+async function convertObservationToRfi(req, res, user) {
+  const body = req.body || {};
+  const id = body.id ? String(body.id) : '';
+  if (!id) return res.status(400).json({ error: 'id required' });
+
+  const force = body.force === true;
+  const store = await readStore();
+  const arr = Array.isArray(store.observations) ? store.observations : [];
+  const idx = arr.findIndex((o) => o && o.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'observation not found' });
+  const observation = arr[idx];
+
+  // Office items (jobId null) have no job to raise an RFI on.
+  if (!observation.jobId) {
+    return res.status(400).json({
+      error: "office item has no job — it can't be converted to an RFI",
+    });
+  }
+  if (observation.linkedRfiId || observation.convertedTo === 'rfi') {
+    return res.status(409).json({
+      error: 'observation already converted to an RFI',
+      linkedRfiId: observation.linkedRfiId,
+      convertedTargetId: observation.convertedTargetId,
+    });
+  }
+  if (!CONVERT_TO_RFI_DEFAULT_TYPES.has(observation.type) && !force) {
+    return res.status(400).json({
+      error: `observation type '${observation.type}' is not a default conversion target; pass {"force":true} to convert anyway`,
+    });
+  }
+
+  const job = await loadJobOrFail(res, observation.jobId);
+  if (!job) return;
+
+  const nowIso = new Date().toISOString();
+  const actorName = user.name || user.username || 'Unknown';
+
+  // Build the RFI to match api/rfis.js's create path exactly so the register
+  // (RfiSchema) reads it back unchanged. Sequential per-job ref, id, fields.
+  const rfisKey = `jobs/${observation.jobId}/rfis.json`;
+  const rfiStore = await readBlob(rfisKey, { rfis: [] });
+  if (!Array.isArray(rfiStore.rfis)) rfiStore.rfis = [];
+  let maxRef = 0;
+  for (const r of rfiStore.rfis) {
+    const m = /(\d+)\s*$/.exec((r && r.ref) || '');
+    if (m) maxRef = Math.max(maxRef, parseInt(m[1], 10));
+  }
+  const ref = 'RFI-' + String(maxRef + 1).padStart(3, '0');
+  const rfiId = 'rfi_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const subject = String(observation.title || '').trim().slice(0, 200) || ref;
+  const question = String(observation.description || observation.title || '')
+    .trim()
+    .slice(0, 4000);
+
+  const rfi = {
+    id: rfiId,
+    jobId: observation.jobId,
+    ref,
+    subject,
+    question,
+    askedOf: '',
+    status: 'open',
+    responseDue: '',
+    sentAt: null,
+    answer: '',
+    answeredAt: null,
+    answeredBy: null,
+    closedReason: '',
+    observationId: observation.id,
+    convertedFromObservationId: observation.id,
+    areaId: observation.areaId || null,
+    planId: observation.planId || null,
+    raisedById: user.id,
+    raisedByName: user.username || user.id,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    auditLogIds: [],
+  };
+
+  // Audit: emit BOTH rfi.created (the verb api/rfis.js's create path emits, so
+  // the register timeline is consistent) AND a separate
+  // observation.converted_to_rfi row attributing the office decision.
+  const rfiAudit = await appendAuditLog({
+    action: 'rfi.created',
+    actorId: user.id,
+    actorName,
+    actorRole: user.role || null,
+    jobId: observation.jobId,
+    targetType: 'rfi',
+    targetId: rfiId,
+    summary: `RFI raised ${ref} via observation conversion — "${subject.slice(0, 80)}"`,
+    metadata: {
+      ref,
+      status: 'open',
+      convertedFromObservationId: observation.id,
+      convertedFromType: observation.type,
+    },
+  }).catch(() => null);
+  if (rfiAudit && rfiAudit.id) rfi.auditLogIds.push(rfiAudit.id);
+
+  // Write the RFI FIRST. If it fails we never touch the observation; the caller
+  // sees a 502 and can retry safely.
+  rfiStore.rfis.push(rfi);
+  try {
+    await writeBlob(rfisKey, rfiStore);
+  } catch (e) {
+    return res.status(502).json({ error: 'RFI write failed: ' + (e.message || 'unknown') });
+  }
+
+  const next = {
+    ...observation,
+    linkedRfiId: rfiId,
+    convertedTo: 'rfi',
+    convertedTargetId: rfiId,
+    convertedAt: nowIso,
+    convertedById: user.id,
+    convertedByName: actorName,
+    status: 'converted',
+    updatedAt: nowIso,
+  };
+
+  await appendAuditLog({
+    action: 'observation.converted_to_rfi',
+    actorId: user.id,
+    actorName,
+    actorRole: user.role || null,
+    jobId: observation.jobId,
+    targetType: 'observation',
+    targetId: observation.id,
+    summary: `observation → RFI ${ref} — "${String(observation.title).slice(0, 80)}"`,
+    metadata: {
+      rfiId,
+      ref,
+      observationType: observation.type,
+      previousStatus: observation.status,
+      forced: force && !CONVERT_TO_RFI_DEFAULT_TYPES.has(observation.type),
+    },
+  }).catch(() => null);
+
+  arr[idx] = next;
+  store.observations = arr;
+  try {
+    await writeBlob(STORE_KEY, store);
+  } catch (e) {
+    // RFI was already written; surface that so the operator knows it exists and
+    // the observation just needs a manual link.
+    return res.status(502).json({
+      error: 'observation write failed after RFI created: ' + (e.message || 'unknown'),
+      rfiId,
+      observationId: observation.id,
+    });
+  }
+
+  return res.status(201).json({ observation: next, rfi });
+}
+
+/**
  * PR 11: Convert an eligible observation into a REAL Material Request.
  *
  * Mirrors convertObservationToSnag(): admin-tier only, default-eligible
@@ -1470,6 +1641,22 @@ module.exports = async (req, res) => {
     if (!user) return;
     try {
       return await convertObservationToVariation(req, res, user);
+    } catch (e) {
+      return res.status(500).json({ error: e.message || 'conversion failed' });
+    }
+  }
+
+  // --- POST ?action=convert-to-rfi (#276) ---------------------------------
+  // Flag-gated on rfi_register: the register is dark until ready, so don't mint
+  // RFIs the office can't yet see. Admin-tier only, like the other converts.
+  if (req.method === 'POST' && action === 'convert-to-rfi') {
+    const user = await requireAuth(req, res, { roles: ['admin'] });
+    if (!user) return;
+    if (!(await isFlagEnabled('rfi_register', user))) {
+      return res.status(404).json({ error: 'not found' });
+    }
+    try {
+      return await convertObservationToRfi(req, res, user);
     } catch (e) {
       return res.status(500).json({ error: e.message || 'conversion failed' });
     }

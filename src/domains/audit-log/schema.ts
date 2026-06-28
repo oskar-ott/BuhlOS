@@ -126,6 +126,9 @@ export const AUDIT_ACTIONS = [
   "variation.created",
   "variation.transitioned",
   "observation.converted_to_variation",
+  // #276: observation → real RFI conversion verb (mirrors the snag/variation
+  // converts; the field's "Question for office" chip becomes a register RFI).
+  "observation.converted_to_rfi",
   // #390: hours / time-entry events. The office approvals pass (bulk actions
   // write one summarising entry) plus the worker submissions that feed it —
   // submitted (first submission) + resubmitted (rejected→submitted correction).

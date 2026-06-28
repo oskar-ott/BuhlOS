@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RfiSchema } from "../rfi/schema";
 
 /**
  * Integration tests for api/observations.js — the real serverless handler,
@@ -880,6 +881,206 @@ describe("POST /api/observations?action=convert-to-material-request (PR 11)", ()
       userId: "u_boss",
       query: { action: "convert-to-material-request" },
       body: { id: "missing", item: "x", quantity: 1, unit: "ea" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("POST /api/observations?action=convert-to-rfi (#276)", () => {
+  beforeEach(() => {
+    // The register is dark by default; arm the flag so the convert path is live.
+    process.env.FLAG_RFI_REGISTER = "true";
+    blob.set("observations.json", {
+      observations: [
+        {
+          id: "orfi1",
+          jobId: "job-1",
+          jobName: "Birdwood",
+          type: "rfi",
+          title: "Where does the riser panel go?",
+          description: "Drawings don't show the panel location on level 2.",
+          status: "new",
+          priority: "high",
+          source: "phil",
+          requiresAction: true,
+          photoUrls: [],
+          areaId: "ar_1",
+          areaName: "Riser",
+          stage: "rough-in",
+          planId: "pl_1",
+          createdById: "u_field",
+          createdByName: "Sparky",
+          createdByRole: "electrician",
+          createdAt: "2026-05-02T00:00:00Z",
+          updatedAt: "2026-05-02T00:00:00Z",
+        },
+        {
+          id: "onote1",
+          jobId: "job-1",
+          type: "note",
+          title: "Tidied the board",
+          status: "new",
+          priority: "low",
+          source: "phil",
+          requiresAction: false,
+          photoUrls: [],
+          createdById: "u_field",
+          createdByName: "Sparky",
+          createdAt: "2026-05-02T00:00:00Z",
+          updatedAt: "2026-05-02T00:00:00Z",
+        },
+        {
+          id: "ooffice1",
+          jobId: null,
+          type: "rfi",
+          title: "Office question",
+          status: "new",
+          priority: "low",
+          source: "phil",
+          requiresAction: true,
+          photoUrls: [],
+          createdById: "u_field",
+          createdByName: "Sparky",
+          createdAt: "2026-05-02T00:00:00Z",
+          updatedAt: "2026-05-02T00:00:00Z",
+        },
+      ],
+    });
+  });
+  afterEach(() => {
+    delete process.env.FLAG_RFI_REGISTER;
+  });
+
+  it("admin converts an rfi observation into a real register RFI and links them", async () => {
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-rfi" },
+      body: { id: "orfi1" },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.body as {
+      observation: Record<string, unknown>;
+      rfi: Record<string, unknown>;
+    };
+    expect(body.observation.linkedRfiId).toBe(body.rfi.id);
+    expect(body.observation.convertedTo).toBe("rfi");
+    expect(body.observation.convertedTargetId).toBe(body.rfi.id);
+    expect(body.observation.status).toBe("converted");
+    expect(body.observation.convertedById).toBe("u_boss");
+    expect(body.rfi.ref).toBe("RFI-001");
+    expect(body.rfi.status).toBe("open");
+    expect(body.rfi.subject).toBe("Where does the riser panel go?");
+    expect(body.rfi.question).toBe("Drawings don't show the panel location on level 2.");
+    expect(body.rfi.observationId).toBe("orfi1");
+    expect(body.rfi.convertedFromObservationId).toBe("orfi1");
+    expect(body.rfi.areaId).toBe("ar_1");
+    expect(body.rfi.planId).toBe("pl_1");
+    // RFI was actually persisted to the job's rfis.json.
+    const store = blob.get("jobs/job-1/rfis.json") as { rfis: { id: string }[] };
+    expect(store.rfis.map((r) => r.id)).toEqual([body.rfi.id]);
+  });
+
+  it("the persisted RFI validates against the register's RfiSchema", async () => {
+    // Gold-standard guard: a shape drift here would make the register reject the
+    // converted RFI on read. Parse the real persisted record against the schema.
+    await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-rfi" },
+      body: { id: "orfi1" },
+    });
+    const store = blob.get("jobs/job-1/rfis.json") as { rfis: unknown[] };
+    expect(() => RfiSchema.parse(store.rfis[0])).not.toThrow();
+  });
+
+  it("assigns sequential refs against existing RFIs", async () => {
+    blob.set("jobs/job-1/rfis.json", { rfis: [{ ref: "RFI-007" }] });
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-rfi" },
+      body: { id: "orfi1" },
+    });
+    expect((res.body as { rfi: { ref: string } }).rfi.ref).toBe("RFI-008");
+  });
+
+  it("409s a second conversion attempt (idempotent)", async () => {
+    const first = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-rfi" },
+      body: { id: "orfi1" },
+    });
+    expect(first.statusCode).toBe(201);
+    const second = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-rfi" },
+      body: { id: "orfi1" },
+    });
+    expect(second.statusCode).toBe(409);
+  });
+
+  it("400s a non-default type (note) without force=true", async () => {
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-rfi" },
+      body: { id: "onote1" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("201s a non-default type (note) when force=true", async () => {
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-rfi" },
+      body: { id: "onote1", force: true },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.body as { observation: { linkedRfiId: string } };
+    expect(body.observation.linkedRfiId).toMatch(/^rfi_/);
+  });
+
+  it("403s a field worker trying to convert", async () => {
+    const res = await call({
+      method: "POST",
+      role: "electrician",
+      userId: "u_field",
+      query: { action: "convert-to-rfi" },
+      body: { id: "orfi1" },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("400s an office item (no job)", async () => {
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-rfi" },
+      body: { id: "ooffice1" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("404s when the rfi_register flag is dark", async () => {
+    delete process.env.FLAG_RFI_REGISTER;
+    const res = await call({
+      method: "POST",
+      role: "boss",
+      userId: "u_boss",
+      query: { action: "convert-to-rfi" },
+      body: { id: "orfi1" },
     });
     expect(res.statusCode).toBe(404);
   });

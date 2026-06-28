@@ -135,6 +135,9 @@ const VALID_ACTIONS = new Set([
   'variation.created',
   'variation.transitioned',
   'observation.converted_to_variation',
+  // #276: observation → real RFI conversion verb (mirrors the snag/variation
+  // converts; the field's "Question for office" chip becomes a register RFI).
+  'observation.converted_to_rfi',
   // #390: hours / time-entry events in the canonical audit journal so the
   // cross-job activity feed (#220) and per-job history include both the office
   // approvals pass — half the office's day — and the worker submissions that

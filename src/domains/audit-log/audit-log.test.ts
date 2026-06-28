@@ -193,6 +193,9 @@ describe("AuditLogEntrySchema", () => {
       // PR 11: observation -> real material request conversion verb.
       // Sorts before observation.converted_to_snag because '_material' < '_snag'.
       "observation.converted_to_material_request",
+      // #276: observation -> real RFI conversion verb.
+      // Sorts between '_material_request' and '_snag' ('r' is between 'm' and 's').
+      "observation.converted_to_rfi",
       // PR 6: observation -> real snag conversion verb.
       // (sorts before observation.created because 'co' < 'cr')
       "observation.converted_to_snag",
