@@ -165,6 +165,9 @@ describe("AuditLogEntrySchema", () => {
       // #332: induction register (backfilled sorts before confirmed).
       "induction.backfilled",
       "induction.confirmed",
+      // #283: site-instructions register (created sorts before transitioned).
+      "instruction.created",
+      "instruction.transitioned",
       "invite.accepted",
       "invite.issued",
       "invite.opened",
@@ -250,6 +253,8 @@ describe("AuditLogEntrySchema", () => {
       "employee",
       "evidence",
       "induction",
+      // #283: per-job site-instructions records.
+      "instruction",
       "invite",
       "itp_instance",
       "itp_template",

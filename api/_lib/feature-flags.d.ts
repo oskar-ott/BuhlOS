@@ -25,7 +25,8 @@ export type FlagKey =
   | "safety_docs"
   | "certificates_register"
   | "rfi_register"
-  | "minutes_register";
+  | "minutes_register"
+  | "site_instructions_register";
 
 export interface FlagDefinition {
   description: string;

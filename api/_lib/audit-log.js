@@ -227,6 +227,11 @@ const VALID_ACTIONS = new Set([
   'service_location.added',
   'service_location.updated',
   'service_location.removed',
+  // #283: site-instructions register (api/site-instructions.js). created on a
+  // recorded instruction; transitioned on acknowledge / close. targetType
+  // 'instruction'. Kept in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'instruction.created',
+  'instruction.transitioned',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -281,6 +286,8 @@ const VALID_TARGET_TYPES = new Set([
   'minutes',
   // #230: per-job services-locations records (jobs/<id>/services-locations.json).
   'service_location',
+  // #283: per-job site-instructions records (jobs/<id>/site-instructions.json).
+  'instruction',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;
