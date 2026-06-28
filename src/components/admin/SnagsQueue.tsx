@@ -412,6 +412,10 @@ function SnagRow({
           <Pill tone={PRIORITY_TONE_MAP[priorityTone(snag.priority)]}>
             {priorityLabel(snag.priority)}
           </Pill>
+          {/* #235: raised after handover — a defect-period callback. */}
+          {snag.origin === "post_handover" ? (
+            <Pill tone="warning">Post-handover</Pill>
+          ) : null}
         </div>
       </td>
       <td className="px-3 py-3 align-top">

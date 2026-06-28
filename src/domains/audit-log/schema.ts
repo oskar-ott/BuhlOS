@@ -176,6 +176,10 @@ export const AUDIT_ACTIONS = [
   // targetType 'diary'. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
   "diary.created",
   "diary.amended",
+  // #235: defect liability period — handover date set / cleared from the jobs
+  // PUT. targetType 'job'. Kept in sync with api/_lib/audit-log.js.
+  "job.handover_set",
+  "job.handover_cleared",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 

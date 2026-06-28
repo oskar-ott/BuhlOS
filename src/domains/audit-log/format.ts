@@ -98,6 +98,9 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   // #210: site diary (targetType 'diary' groups as Other, like daywork).
   "diary.created": "Wrote a diary entry",
   "diary.amended": "Amended a diary entry",
+  // #235: defect liability period (targetType 'job' groups as Other).
+  "job.handover_set": "Set handover date",
+  "job.handover_cleared": "Cleared handover date",
 };
 
 export function actionLabel(action: AuditAction): string {

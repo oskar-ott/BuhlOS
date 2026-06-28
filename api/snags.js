@@ -126,6 +126,29 @@ function isField(role) {
   return isFieldRole(role) || isLeadingHandRole(role);
 }
 
+// #235: today as a Sydney YYYY-MM-DD string (same Intl pattern as
+// api/site-visits.js). Used to stamp a snag's creation-time origin.
+function sydneyToday() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Australia/Sydney',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+}
+
+// #235: a snag raised on or after the job's handover date is a defect-liability
+// callback — stamp 'post_handover'. Raising AFTER the defect period ends is
+// allowed (no gate); the marker only records that handover had occurred at
+// create time, so a later handover edit never rewrites this. A tiny inline
+// date-string compare (lexical on YYYY-MM-DD) — no Date parsing. Returns null
+// when the job has no handover date or it's still in the future.
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+function originForJob(job, today) {
+  const handover = job && job.handoverDate;
+  if (typeof handover !== 'string' || !YMD_RE.test(handover)) return null;
+  if (!YMD_RE.test(String(today))) return null;
+  return today >= handover ? 'post_handover' : null;
+}
+
 const ALLOWED_TRANSITIONS = new Set([
   // create
   'null→open',
@@ -331,6 +354,10 @@ async function createSnag(req, res, user, jobId) {
     status: 'open',
     priority: v.priority,
     source: sourceForUser(user),
+    // #235: creation-time origin — 'post_handover' if the job had been handed
+    // over by today. `job` is the row loaded by loadJobOrFail (carries the
+    // additive handoverDate field). Recorded once, never recomputed on read.
+    origin: originForJob(job, sydneyToday()),
     createdById: user.id,
     createdByName: user.name || user.username || 'Unknown',
     createdByRole: user.role || null,

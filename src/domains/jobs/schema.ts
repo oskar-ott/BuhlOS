@@ -154,6 +154,12 @@ export const JobSchema = z
     dueDate: z.string().nullable().optional(),
     programmedDurationDays: z.number().nullable().optional(),
 
+    // #235: defect liability period. handoverDate = the day the job was
+    // handed over; defectPeriodEndsAt = the last day of the defect window.
+    // Both admin-set, both YYYY-MM-DD. Absent → no DLP (see jobs/dlp.ts).
+    handoverDate: z.string().nullable().optional(),
+    defectPeriodEndsAt: z.string().nullable().optional(),
+
     // Structure.
     areaGroups: z.array(JobAreaGroupSchema).optional(),
     roughInTasks: z.array(JobTaskTemplateSchema).optional(),
@@ -352,6 +358,11 @@ const JobWritableFieldsSchema = z.object({
   startDate: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
   programmedDurationDays: z.number().nullable().optional(),
+
+  /** #235: defect liability period — admin-tier writes (YYYY-MM-DD).
+   *  Server validates the format + the cross-field rule (end ≥ handover). */
+  handoverDate: z.string().nullable().optional(),
+  defectPeriodEndsAt: z.string().nullable().optional(),
 
   areaGroups: z.array(JobAreaGroupInputSchema).optional(),
   roughInTasks: z.array(JobTaskTemplateInputSchema).optional(),

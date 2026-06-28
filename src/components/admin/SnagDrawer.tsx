@@ -221,6 +221,10 @@ export function SnagDrawer({
               <Pill tone={PRIORITY_TONE_MAP[priorityTone(snag.priority)]}>
                 {priorityLabel(snag.priority)}
               </Pill>
+              {/* #235: raised after handover — a defect-period callback. */}
+              {snag.origin === "post_handover" ? (
+                <Pill tone="warning">Post-handover</Pill>
+              ) : null}
             </div>
           </div>
           <button
@@ -349,7 +353,7 @@ export function SnagDrawer({
                 className={cn("w-full", primaryActionClass(to))}
               >
                 {iconForTransition(to)}
-                {labelForTransition(to)}
+                {labelForTransition(to, snag.status)}
               </Button>
             ))}
             {canReject ? (
@@ -474,7 +478,7 @@ function iconForTransition(to: SnagStatus) {
   return null;
 }
 
-function labelForTransition(to: SnagStatus): string {
+function labelForTransition(to: SnagStatus, from?: SnagStatus): string {
   switch (to) {
     case "open":
       return "Re-open";
@@ -483,7 +487,11 @@ function labelForTransition(to: SnagStatus): string {
     case "resolved":
       return "Mark resolved";
     case "verified":
-      return "Verify";
+      // #235: the closed→verified move IS the defect re-open (the locked
+      // decision — no new closed→open transition). Read it as "Re-open" so a
+      // DLP callback reopens a closed snag in plain language; the resolved→
+      // verified move stays "Verify".
+      return from === "closed" ? "Re-open" : "Verify";
     case "closed":
       return "Close";
     case "rejected":

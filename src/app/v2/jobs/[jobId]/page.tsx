@@ -25,6 +25,7 @@ import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
 import { JobProfitabilitySummary } from "@/components/admin/JobProfitabilitySummary";
 import { JobBudgetVarianceCard } from "@/components/admin/JobBudgetVarianceCard";
 import { JobCloseoutCard } from "@/components/admin/JobCloseoutCard";
+import { JobDlpCard } from "@/components/admin/JobDlpCard";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
 import { JobRecentActivity } from "@/components/admin/JobRecentActivity";
@@ -237,6 +238,10 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
         {/* #349: closeout / "Final numbers" report card — freeze the job's final
             numbers at end-of-life; admin-tier only (hidden for an LH viewer). */}
         <JobCloseoutCard jobId={job.id} />
+        {/* #235: defect liability period — handover date + defect window, with
+            in-DLP status / days remaining. Admin-tier dates (the PUT 403s an LH),
+            so gate the whole card on canBuild like the contract card above. */}
+        {canBuild ? <JobDlpCard job={job} today={sydneyTodayStr()} /> : null}
         <JobEvidenceSummary
           evidence={data.evidence.evidence}
           jobId={job.id}
@@ -284,6 +289,18 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
       </div>
     </AdminShell>
   );
+}
+
+/** #235: today as a Sydney YYYY-MM-DD string (the api/site-visits.js Intl
+ *  pattern). Computed server-side so the DLP status line is deterministic with
+ *  the server render. */
+function sydneyTodayStr(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Sydney",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 function JobHeaderCard({ job }: { job: Job }) {
