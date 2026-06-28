@@ -17,7 +17,7 @@ byte-identical to Blob, else Blob). Blob is authoritative and read on every requ
 | Domain | Write today | Read today | PG-as-source status |
 |---|---|---|---|
 | Task status | Blob (`/api/task-toggle`); cron mirror → PG | parity-gated overlay | **Stage A built** (CAS write behind `supabase_source_tasks`, dark) |
-| Hours | Blob (in-request) + PG dual-write | parity-gated | next candidate (clean write seam) |
+| Hours | Blob (in-request, `__rev` CAS) + **synchronous** in-request PG upsert | parity-gated | **Stage A built** (existing mirror promoted under `supabase_source_hours`, dark) |
 | Jobs structure | Blob (create/PUT/bulk/publish) + in-request PG mirror | parity-gated | later (tree writes, many sites — hardest) |
 | Evidence metadata | Blob capture; cron mirror → PG **built but dark** (`supabase_dual_write_evidence` off, so `evidence_files` not yet populated) | parity-gated overlay (dark) | later |
 | Snags / observations / materials | Blob only (**PG tables exist** from Phase-1, but **no importer / no dual-write** yet) | Blob | **blocked** — tables are empty; need importer→dual-write→read first |
@@ -41,6 +41,30 @@ Each domain climbs the same rungs; **never skip a rung, never two domains at onc
    (still Blob-fallback on a PG *error*, for availability).
 4. **Retire Blob for the domain.** Much later, separately: stop writing the domain to
    Blob. Each retirement is its own ADR with its own bake + rollback.
+
+### Stage-A's shape differs per domain (don't copy code blindly)
+
+Rung 1 is a *posture* — "a synchronous per-row PG write at request time, behind a
+dark `supabase_source_*` flag" — not one fixed implementation. How much new code it
+needs depends on what the domain already has:
+
+- **Task status (#738)** needed a NEW write file (`api/_lib/task-write.js`). Its only
+  pre-existing mirror was the J9 *async cron* (`task-mirror.js`), off the request path,
+  and `data.json` task state has **no Blob CAS** — so the synchronous PG `revision`
+  CAS is a genuine *lost-update* fix.
+- **Hours** needed **no new write file**. Its mirror (`api/_lib/hours-mirror.js`) was
+  *already* synchronous + in-request, doing a per-row `on conflict … do update …
+  where <distinct from>` upsert (revision bumped by trigger) with allocations
+  reconciled in the same txn. Stage A here just **promotes** that write under
+  `supabase_source_hours` (it runs when that OR `supabase_dual_write` is on) and
+  reports `source` for the diagnostics. The hours Blob write also already has
+  optimistic-lock CAS (`writeBlob` `expectedRev: entry.__rev`), so hours has **no
+  lost-update flaw** — its PG win is **referential** (real job FKs, per-allocation
+  rows, schema CHECKs) and it unlocks the Stage-B payroll read.
+
+The invariants are constant regardless of shape: synchronous + at-request-time,
+identity via the existing legacy bridge (never mint an id), Blob write-through always
+(resilience), read stays parity-gated until Stage B.
 
 ## The soundness rule (why the order is fixed)
 
@@ -67,7 +91,8 @@ has proven reliable. This trade-off is re-decided per domain at promotion time.
 ## Order of attack (recommendation)
 
 1. **Task status** — Stage A built; bake next (smallest, leaf-value write).
-2. **Hours** — clean in-request write seam; Stage A next.
+2. **Hours** — Stage A built (the synchronous mirror promoted under
+   `supabase_source_hours`); bake alongside/after tasks.
 3. **Jobs structure** — hardest (tree, many write sites); only after tasks + hours bake.
 4. **Evidence** — after structure (depends on area/task identity being PG-source).
 5. **Snags / observations / materials** — PG tables exist but are empty; need the

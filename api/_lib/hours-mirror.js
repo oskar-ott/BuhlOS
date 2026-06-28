@@ -6,10 +6,20 @@
 // logged and SWALLOWED — it can never fail a worker's hours save. Drift is
 // caught later by scripts/importers/hours-parity.js (the P7 drift alarm).
 //
+// PG-AS-SOURCE Stage A (supabase_source_hours): because this mirror is ALREADY a
+// synchronous, in-request, per-row upsert into a fully-constrained schema, it IS
+// the hours Stage-A write — no separate write file is needed (contrast tasks,
+// whose mirror was an async cron, so #738 added a new synchronous write). The
+// source flag simply designates this write as source-authoritative; the PG work
+// runs when EITHER supabase_source_hours OR the generic supabase_dual_write is on,
+// and the return reports `source` so the diagnostics readout can show hours'
+// write-source mode. The read stays parity-gated in Stage A (a PG lag falls back
+// to current Blob — never stale); the PG-authoritative payroll read is Stage B.
+//
 // Triple-gated so production is inert:
 //   1. no SUPABASE_DB_URL in the runtime → return immediately (prod is unwired;
 //      this also keeps the hot write path free of the flag's blob read);
-//   2. supabase_dual_write flag off (default/dark) → return;
+//   2. both supabase_source_hours AND supabase_dual_write off (default/dark) → return;
 //   3. getDb({mode:'write'}) runs the env guard → a non-prod env can only reach
 //      the dev project; the prod project needs the explicit write opt-in.
 //
@@ -99,30 +109,47 @@ async function resolveJobs(sql, tenantId, legacyIds) {
   return new Map(rows.map((r) => [r.legacy_id, r.id]));
 }
 
+// Resolve the hours write gate once. The PG write runs when EITHER the Stage-A
+// source flag OR the generic dual-write flag is on. Read the source flag FIRST and
+// short-circuit, so once hours is promoted (source on) the hot path costs a single
+// flag read, not two. Returns { write, source } — `source` is reported back so the
+// diagnostics readout can show hours' write-source mode.
+async function resolveHoursWriteGate(flagOn) {
+  const source = await flagOn('supabase_source_hours');
+  const write = source || (await flagOn('supabase_dual_write'));
+  return { write, source };
+}
+
 /**
  * Mirror one time-entry create/edit/status-change into Postgres. Best-effort —
  * NEVER throws. `deps` lets tests inject isFlagOn/getDb.
- * @returns {Promise<{mirrored:boolean, reason?:string}>}
+ * @returns {Promise<{mirrored:boolean, reason?:string, source?:boolean}>}
  */
 async function mirrorTimeEntry(userId, entry, deps = {}) {
   const flagOn = deps.isFlagOn || isFlagOn;
   const db = deps.getDb || getDb;
+  // Hoisted so the catch can report whether we were in source mode when the write
+  // threw: a source-mode write that falls back to Blob is exactly what the bake
+  // watches for, so `source` must survive the error path, not just the happy one.
+  let source = false;
   try {
     if (!entry || !entry.date) return { mirrored: false, reason: 'no entry/date' };
     // Cheap prod short-circuit BEFORE the flag's blob read: prod has no SUPABASE_DB_URL.
     if (!process.env.SUPABASE_DB_URL) return { mirrored: false, reason: 'no supabase env' };
-    if (!(await flagOn('supabase_dual_write'))) return { mirrored: false, reason: 'flag off' };
-    return await withTimeout(mirrorEntryWrite(db, userId, entry), deps.timeoutMs || MIRROR_TIMEOUT_MS, 'mirrorTimeEntry');
+    const gate = await resolveHoursWriteGate(flagOn);
+    source = gate.source;
+    if (!gate.write) return { mirrored: false, reason: 'flag off', source };
+    return await withTimeout(mirrorEntryWrite(db, userId, entry, source), deps.timeoutMs || MIRROR_TIMEOUT_MS, 'mirrorTimeEntry');
   } catch (err) {
     console.error('[hours-mirror] best-effort PG mirror failed (Blob is authoritative):', err && err.message);
-    return { mirrored: false, reason: 'error', error: err && err.message };
+    return { mirrored: false, reason: 'error', error: err && err.message, source };
   }
 }
 
-async function mirrorEntryWrite(db, userId, entry) {
+async function mirrorEntryWrite(db, userId, entry, source = false) {
   const sql = db({ mode: 'write' }); // env guard runs here; fail-closed
   const resolved = await resolveTenantAndUser(sql, userId);
-  if (!resolved) return { mirrored: false, reason: 'tenant/user not mirrored' };
+  if (!resolved) return { mirrored: false, reason: 'tenant/user not mirrored', source };
 
   // Resolve the attribution legacy ids (approvedBy/enteredByUserId) too, except
   // the entry's own user which we already have. Best-effort: unresolved → NULL.
@@ -139,7 +166,7 @@ async function mirrorEntryWrite(db, userId, entry) {
   if (bad) {
     // Log so the skip is visible — the only other drift signal is the parity script.
     console.warn(`[hours-mirror] skipping malformed entry (Blob authoritative, drift alarm will catch): ${bad}`);
-    return { mirrored: false, reason: bad };
+    return { mirrored: false, reason: bad, source };
   }
 
   // Resolve the entry's allocation job ids (best-effort) for the allocation mirror.
@@ -172,7 +199,7 @@ async function mirrorEntryWrite(db, userId, entry) {
     }
     await reconcileAllocations(tx, resolved.tenantId, byEntry);
   });
-  return { mirrored: true };
+  return { mirrored: true, source };
 }
 
 /**
@@ -181,28 +208,31 @@ async function mirrorEntryWrite(db, userId, entry) {
 async function mirrorTimeEntryDelete(userId, date, deps = {}) {
   const flagOn = deps.isFlagOn || isFlagOn;
   const db = deps.getDb || getDb;
+  let source = false; // hoisted so the catch reports source mode on the fallback path
   try {
     if (!date) return { mirrored: false, reason: 'no date' };
     if (!process.env.SUPABASE_DB_URL) return { mirrored: false, reason: 'no supabase env' };
-    if (!(await flagOn('supabase_dual_write'))) return { mirrored: false, reason: 'flag off' };
-    return await withTimeout(mirrorDeleteWrite(db, userId, date), deps.timeoutMs || MIRROR_TIMEOUT_MS, 'mirrorTimeEntryDelete');
+    const gate = await resolveHoursWriteGate(flagOn);
+    source = gate.source;
+    if (!gate.write) return { mirrored: false, reason: 'flag off', source };
+    return await withTimeout(mirrorDeleteWrite(db, userId, date, source), deps.timeoutMs || MIRROR_TIMEOUT_MS, 'mirrorTimeEntryDelete');
   } catch (err) {
     console.error('[hours-mirror] best-effort PG delete-mirror failed (Blob is authoritative):', err && err.message);
-    return { mirrored: false, reason: 'error', error: err && err.message };
+    return { mirrored: false, reason: 'error', error: err && err.message, source };
   }
 }
 
-async function mirrorDeleteWrite(db, userId, date) {
+async function mirrorDeleteWrite(db, userId, date, source = false) {
   const sql = db({ mode: 'write' });
   const resolved = await resolveTenantAndUser(sql, userId);
-  if (!resolved) return { mirrored: false, reason: 'tenant/user not mirrored' };
+  if (!resolved) return { mirrored: false, reason: 'tenant/user not mirrored', source };
 
   await sql`
     update public.time_entries set deleted_at = now()
     where tenant_id = ${resolved.tenantId} and user_id = ${resolved.userUuid}
       and work_date = ${date} and deleted_at is null
   `;
-  return { mirrored: true };
+  return { mirrored: true, source };
 }
 
 module.exports = { mirrorTimeEntry, mirrorTimeEntryDelete, malformedReason, withTimeout };

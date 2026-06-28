@@ -12,8 +12,8 @@ import { afterEach, describe, expect, it } from "vitest";
 const requireFromHere = createRequire(import.meta.url);
 const mirrorPath = requireFromHere.resolve("../../../api/_lib/hours-mirror.js");
 const { mirrorTimeEntry, mirrorTimeEntryDelete, malformedReason, withTimeout } = requireFromHere(mirrorPath) as {
-  mirrorTimeEntry: (userId: string, entry: unknown, deps?: object) => Promise<{ mirrored: boolean; reason?: string }>;
-  mirrorTimeEntryDelete: (userId: string, date: string, deps?: object) => Promise<{ mirrored: boolean; reason?: string }>;
+  mirrorTimeEntry: (userId: string, entry: unknown, deps?: object) => Promise<{ mirrored: boolean; reason?: string; source?: boolean }>;
+  mirrorTimeEntryDelete: (userId: string, date: string, deps?: object) => Promise<{ mirrored: boolean; reason?: string; source?: boolean }>;
   malformedReason: (row: Record<string, unknown>) => string;
   withTimeout: <T>(promise: Promise<T>, ms: number, label: string) => Promise<T>;
 };
@@ -26,6 +26,10 @@ function setEnv(on: boolean) {
 }
 const throwDb = () => { throw new Error("getDb must not be called"); };
 const throwFlag = async () => { throw new Error("isFlagOn must not be called"); };
+// A getDb whose sql tag resolves every query to [] — so resolveTenantAndUser finds
+// no tenant and the write returns early ("tenant/user not mirrored") WITHOUT faking
+// the full upsert. Enough to prove the gate let the write run and `source` threaded.
+const emptyDb = () => () => Promise.resolve([] as unknown[]);
 
 afterEach(() => {
   if (OLD_URL === undefined) delete process.env.SUPABASE_DB_URL;
@@ -47,17 +51,20 @@ describe("mirrorTimeEntry — gating + best-effort", () => {
     expect(res).toEqual({ mirrored: false, reason: "no supabase env" });
   });
 
-  it("does nothing when the flag is off (no db touch)", async () => {
+  it("does nothing when the flag is off (no db touch), source:false", async () => {
     setEnv(true);
     const res = await mirrorTimeEntry("u1", ENTRY, { getDb: throwDb, isFlagOn: async () => false });
-    expect(res).toEqual({ mirrored: false, reason: "flag off" });
+    expect(res).toEqual({ mirrored: false, reason: "flag off", source: false });
   });
 
-  it("swallows any error — never throws (Blob stays authoritative)", async () => {
+  it("swallows any error — never throws (Blob stays authoritative); source survives the fallback path", async () => {
     setEnv(true);
+    // source-mode on, but the write throws → error swallowed AND source:true reported
+    // (a source-mode write that falls back is exactly what the bake watches for).
     const res = await mirrorTimeEntry("u1", ENTRY, { isFlagOn: async () => true, getDb: () => { throw new Error("boom"); } });
     expect(res.mirrored).toBe(false);
     expect(res.reason).toBe("error");
+    expect(res.source).toBe(true);
   });
 
   it("swallows a timeout when the inner DB work hangs (never delays the save past the bound)", async () => {
@@ -67,6 +74,47 @@ describe("mirrorTimeEntry — gating + best-effort", () => {
     const res = await mirrorTimeEntry("u1", ENTRY, { isFlagOn: async () => true, getDb, timeoutMs: 20 });
     expect(res.mirrored).toBe(false);
     expect(res.reason).toBe("error");
+  });
+});
+
+describe("PG-as-source Stage A — supabase_source_hours gating", () => {
+  it("source flag alone activates the write and reports source:true", async () => {
+    setEnv(true);
+    const res = await mirrorTimeEntry("u1", ENTRY, {
+      isFlagOn: async (k: string) => k === "supabase_source_hours",
+      getDb: emptyDb,
+    });
+    // Reached the write (getDb called) → tenant lookup empty → early return, source threaded.
+    expect(res).toEqual({ mirrored: false, reason: "tenant/user not mirrored", source: true });
+  });
+
+  it("dual_write alone still activates the write (back-compat), source:false", async () => {
+    setEnv(true);
+    const res = await mirrorTimeEntry("u1", ENTRY, {
+      isFlagOn: async (k: string) => k === "supabase_dual_write",
+      getDb: emptyDb,
+    });
+    expect(res).toEqual({ mirrored: false, reason: "tenant/user not mirrored", source: false });
+  });
+
+  it("reads the source flag FIRST and short-circuits (no dual_write read) when source is on", async () => {
+    setEnv(true);
+    const keys: string[] = [];
+    const res = await mirrorTimeEntry("u1", ENTRY, {
+      isFlagOn: async (k: string) => { keys.push(k); return k === "supabase_source_hours"; },
+      getDb: emptyDb,
+    });
+    expect(keys).toEqual(["supabase_source_hours"]); // dual_write never read on the promoted hot path
+    expect(res.source).toBe(true);
+  });
+
+  it("delete: source flag activates the delete-mirror and reports source:true", async () => {
+    setEnv(true);
+    const res = await mirrorTimeEntryDelete("u1", "2026-06-01", {
+      isFlagOn: async (k: string) => k === "supabase_source_hours",
+      getDb: emptyDb,
+    });
+    expect(res).toEqual({ mirrored: false, reason: "tenant/user not mirrored", source: true });
   });
 });
 

@@ -341,6 +341,10 @@ describe("loadSourceMode (write source-mode readout)", () => {
     expect(task).toBeTruthy();
     expect(task?.domain).toBe("Task status");
     expect(task?.pgSource).toBe(false);
+    const hours = m.rows.find((r) => r.flag === "supabase_source_hours");
+    expect(hours).toBeTruthy();
+    expect(hours?.domain).toBe("Hours");
+    expect(hours?.pgSource).toBe(false);
     expect(m.anyPgSource).toBe(false);
   });
 });

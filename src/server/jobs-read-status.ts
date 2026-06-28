@@ -416,6 +416,7 @@ export type SourceModeSummary = { rows: SourceModeRow[]; anyPgSource: boolean };
 export async function loadSourceMode(): Promise<SourceModeSummary> {
   const rows: SourceModeRow[] = [
     { domain: "Task status", flag: "supabase_source_tasks", pgSource: await flagOrFalse("supabase_source_tasks") },
+    { domain: "Hours", flag: "supabase_source_hours", pgSource: await flagOrFalse("supabase_source_hours") },
   ];
   return { rows, anyPgSource: rows.some((r) => r.pgSource) };
 }
