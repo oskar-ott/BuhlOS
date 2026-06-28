@@ -109,12 +109,12 @@ export default async function PhilHoursPage({
           />
         )}
 
-        {entries.length === 0 ? (
+        {!fetchError && entries.length === 0 ? (
           <EmptyState
             title="No entries yet"
             description="Once you submit hours on /phil/my-day they'll show up here with status updates."
           />
-        ) : (
+        ) : !fetchError ? (
           <ul className="space-y-3">
             {entries.map((entry) => (
               <li key={entry.id}>
@@ -126,7 +126,7 @@ export default async function PhilHoursPage({
               </li>
             ))}
           </ul>
-        )}
+        ) : null}
       </div>
     </PhilShell>
   );

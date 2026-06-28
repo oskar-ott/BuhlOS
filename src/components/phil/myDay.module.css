@@ -671,6 +671,7 @@ details[open] > .moreOptionsSummary::before {
   align-items: center;
   gap: 10px;
   width: 100%;
+  min-height: 44px; /* reliable one-thumb tap target (H10) */
   background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: 11px;
@@ -696,7 +697,11 @@ details[open] > .moreOptionsSummary::before {
   color: var(--text-muted);
 }
 .dayPickInput {
-  margin-left: auto;
+  /* Fill the row so the whole right side (not just the small date text) opens
+     the native picker, and give it the full 44px height as a tap target (H10). */
+  flex: 1;
+  align-self: stretch;
+  min-height: 44px;
   border: 0;
   background: transparent;
   font-family: var(--font-inter-tight), "Inter", sans-serif;
