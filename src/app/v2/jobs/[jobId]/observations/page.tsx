@@ -8,6 +8,7 @@ import { ObservationsInbox } from "@/components/admin/ObservationsInbox";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isAdminRole } from "@/lib/auth/roles";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { ObservationListResponseSchema } from "@/domains/observations/schema";
 import type { Job } from "@/domains/jobs/types";
@@ -48,6 +49,10 @@ export default async function JobObservationsPage({ params }: PageParams) {
   if (!canAccessSurface(session.role, "lh")) {
     redirect("/v2/login");
   }
+
+  // #276/#737: when the RFI register is on, the inbox offers a REAL
+  // "Convert to RFI" (mints a register RFI) instead of the intent-only tag.
+  const rfiEnabled = await isFlagEnabled("rfi_register", session);
 
   const { job, jobError, observations, observationsError } = await loadJobAndObservations(raw, jobId);
 
@@ -113,6 +118,7 @@ export default async function JobObservationsPage({ params }: PageParams) {
           }}
           actionsEnabled={isAdminRole(session.role)}
           showJobFilter={false}
+          rfiEnabled={rfiEnabled}
         />
       </div>
     </AdminShell>

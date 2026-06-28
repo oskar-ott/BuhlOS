@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CreateObservationPayloadSchema,
+  ObservationConvertToRfiResponseSchema,
   ObservationItemSchema,
   OBSERVATION_TYPES,
   UpdateObservationPayloadSchema,
@@ -197,5 +198,35 @@ describe("ObservationItemSchema", () => {
       futureField: "ok",
     });
     expect(r.success).toBe(true);
+  });
+
+  it("accepts linkedRfiId on an item (mirrors linkedSnagId — #276/#737)", () => {
+    const r = ObservationItemSchema.safeParse(item({ id: "o2", linkedRfiId: "rfi_9" }));
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.linkedRfiId).toBe("rfi_9");
+  });
+});
+
+describe("ObservationConvertToRfiResponseSchema (#276/#737)", () => {
+  it("parses a convert-to-rfi response (updated observation + the new RFI)", () => {
+    const r = ObservationConvertToRfiResponseSchema.safeParse({
+      observation: item({
+        id: "o1",
+        convertedTo: "rfi",
+        convertedTargetId: "rfi_1",
+        linkedRfiId: "rfi_1",
+        status: "converted",
+      }),
+      rfi: { id: "rfi_1", ref: "RFI-001", status: "open" },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects a response missing the rfi id", () => {
+    const r = ObservationConvertToRfiResponseSchema.safeParse({
+      observation: item({ id: "o1" }),
+      rfi: { ref: "RFI-001" },
+    });
+    expect(r.success).toBe(false);
   });
 });

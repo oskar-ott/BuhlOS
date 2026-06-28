@@ -69,6 +69,10 @@ interface Props {
   /** Show the "Job" filter dropdown. Off for the job-scoped view (only one job
    *  appears so the dropdown adds nothing). Default true. */
   showJobFilter?: boolean;
+  /** #276/#737: when the rfi_register flag is on, "Convert to RFI" becomes a
+   *  REAL conversion (mints a register RFI) with its own button + handler, and
+   *  drops out of the intent-only list. Default false → intent-only (unchanged). */
+  rfiEnabled?: boolean;
 }
 
 /** Intent-only conversion targets — the downstream modules (RFI / Variation /
@@ -78,8 +82,10 @@ interface Props {
  *  `defect` is intentionally not here — it overlaps with the real Snag target.
  */
 const INTENT_CONVERT_OPTIONS: ReadonlyArray<ObservationConvertTarget> = [
-  // PR 11 promoted material_request to a REAL conversion target — own
-  // section + own handler below. RFI and Variation remain intent-only.
+  // PR 11 promoted material_request to a REAL conversion target — own section +
+  // own handler below. #737 promoted RFI too, but only when rfi_register is on
+  // (the register has to exist to mint into) — so RFI is filtered out of this
+  // list at render time when rfiEnabled. Variation remains intent-only.
   "rfi",
   "variation",
 ];
@@ -87,6 +93,11 @@ const INTENT_CONVERT_OPTIONS: ReadonlyArray<ObservationConvertTarget> = [
 /** Types that auto-promote to a Snag without a force flag (mirror of
  *  CONVERT_TO_SNAG_DEFAULT_TYPES in api/observations.js). */
 const SNAG_ELIGIBLE_TYPES = new Set(["defect", "safety", "blocker"]);
+
+/** Observation type that auto-promotes to a real RFI without a force flag
+ *  (mirror of CONVERT_TO_RFI_DEFAULT_TYPES in api/observations.js) — the
+ *  field's "Question for office" chip. */
+const RFI_ELIGIBLE_TYPES = new Set(["rfi"]);
 
 /** Observation type that auto-promotes to a Material Request without a
  *  force flag (mirror of the api/observations.js convert handler). */
@@ -108,6 +119,7 @@ export function ObservationsInbox({
   viewer,
   actionsEnabled = true,
   showJobFilter = true,
+  rfiEnabled = false,
 }: Props) {
   const [observations, setObservations] = useState<ReadonlyArray<ObservationItem>>(
     initialObservations
@@ -240,6 +252,35 @@ export function ObservationsInbox({
     setBanner({
       tone: "success",
       message: `Converted — material request created on ${updated.jobName || updated.jobId}.`,
+    });
+  }
+
+  /** #276/#737: real RFI conversion. Calls POST /api/observations?action=
+   *  convert-to-rfi which mints a register RFI on the job and links it back; the
+   *  response is the updated observation (linkedRfiId, convertedTo='rfi',
+   *  status='converted') + the new RFI. Only wired when rfiEnabled. */
+  async function convertToRfi(id: string, force = false) {
+    setBusy(true);
+    setBanner(null);
+    const r = await observationsClient.convertObservationToRfi({ id, force });
+    setBusy(false);
+    if (!r.ok) {
+      const conflictAlready = r.error.status === 409;
+      setBanner({
+        tone: "danger",
+        message: conflictAlready
+          ? "Already converted to an RFI."
+          : r.error.status === 0
+            ? "Couldn't reach the server. Check your connection and try again."
+            : `Convert to RFI failed (${r.error.status}).`,
+      });
+      return;
+    }
+    const updated = r.data.observation;
+    setObservations((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+    setBanner({
+      tone: "success",
+      message: `Converted — RFI raised on ${updated.jobName || updated.jobId}.`,
     });
   }
 
@@ -382,6 +423,8 @@ export function ObservationsInbox({
         onApply={apply}
         onConvertToSnag={convertToSnag}
         onConvertToMaterialRequest={convertToMaterialRequest}
+        onConvertToRfi={convertToRfi}
+        rfiEnabled={rfiEnabled}
       />
     </div>
   );
@@ -576,6 +619,8 @@ function ObservationDrawer({
   onApply,
   onConvertToSnag,
   onConvertToMaterialRequest,
+  onConvertToRfi,
+  rfiEnabled,
   actionsEnabled,
 }: {
   observation: ObservationItem | null;
@@ -590,6 +635,10 @@ function ObservationDrawer({
     id: string,
     fields: { item: string; quantity: number; unit: string; urgency?: ObservationPriority; force?: boolean }
   ) => void;
+  onConvertToRfi: (id: string, force?: boolean) => void;
+  /** #276/#737: when true, render the REAL "Convert to RFI" section + drop RFI
+   *  from the intent-only list. */
+  rfiEnabled: boolean;
   /** PR 8: when false, render only the read-only details (no triage / priority /
    *  resolve / convert sections). */
   actionsEnabled: boolean;
@@ -854,18 +903,71 @@ function ObservationDrawer({
           onConvertToMaterialRequest={onConvertToMaterialRequest}
         />
 
-        {/* Record other conversion intent — RFI / Variation modules are still
-            UC. These buttons record the office decision honestly. */}
+        {/* Convert to RFI — REAL (#276/#737), only when the register is on. The
+            field's "Question for office" chip raises an rfi-typed observation;
+            this promotes it to a real register RFI. */}
+        {rfiEnabled ? (
+          <section className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Convert to RFI
+            </h3>
+            {o.convertedTo === "rfi" || o.linkedRfiId ? (
+              <p className="text-xs text-text-muted">
+                Already raised as an RFI — see the job&rsquo;s RFI register.
+              </p>
+            ) : RFI_ELIGIBLE_TYPES.has(o.type) ? (
+              <>
+                <p className="text-xs text-text-muted">
+                  Raises a real RFI on this job&rsquo;s register (status <em>open</em>, ref{" "}
+                  <em>RFI-00N</em>), links it back to this observation, and moves it to{" "}
+                  <em>Converted</em>. The office then sends it to the builder and records the answer.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="primary"
+                  disabled={busy}
+                  onClick={() => onConvertToRfi(o.id, false)}
+                >
+                  <ArrowRightLeft aria-hidden="true" className="h-4 w-4" />
+                  Raise RFI from this observation
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-text-muted">
+                  This is a <em>{typeLabel(o.type).toLowerCase()}</em> — RFIs fit the field&rsquo;s{" "}
+                  <em>question for office</em>. Force-convert anyway if you&rsquo;ve decided it&rsquo;s
+                  a question for the builder.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => onConvertToRfi(o.id, true)}
+                >
+                  <ArrowRightLeft aria-hidden="true" className="h-4 w-4" />
+                  Force-convert to RFI
+                </Button>
+              </>
+            )}
+          </section>
+        ) : null}
+
+        {/* Record other conversion intent — the Variation module isn't built yet
+            (and RFI when its register is off). These buttons record the office
+            decision honestly with no downstream record. */}
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
             Record other intent
           </h3>
           <p className="text-xs text-text-muted">
-            Moves this to <em>Converted</em> with an intent tag. The RFI and Variation modules
-            are coming next — no downstream record is created yet.
+            Moves this to <em>Converted</em> with an intent tag — no downstream record is created
+            yet.
           </p>
           <div className="flex flex-wrap gap-2">
-            {INTENT_CONVERT_OPTIONS.map((t) => (
+            {INTENT_CONVERT_OPTIONS.filter((t) => !(rfiEnabled && t === "rfi")).map((t) => (
               <Button
                 key={t}
                 type="button"
