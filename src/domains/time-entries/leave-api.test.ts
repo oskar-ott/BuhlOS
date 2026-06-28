@@ -196,6 +196,16 @@ describe("POST /api/leave — worker self-request", () => {
     expect(inverted.statusCode).toBe(400);
   });
 
+  it("rejects a worker self-request that starts in the past (H15)", async () => {
+    const res = await call("u_elec", "electrician", {
+      method: "POST",
+      body: { type: "annual", fromDate: "2020-01-01", toDate: "2020-01-02" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/past/i);
+    expect(storedRequests()).toHaveLength(0);
+  });
+
   it("409s when the range overlaps an existing pending/approved request", async () => {
     blob.set("leave-requests.json", {
       requests: [
@@ -273,6 +283,15 @@ describe("POST /api/leave — admin record on behalf", () => {
     expect(r.status).toBe("approved");
     expect(r.decidedBy).toBe("u_admin");
     expect(r.requestedBy).toBe("u_admin");
+  });
+
+  it("CAN back-date on a worker's behalf (retroactive sick) — the past-date guard is worker-self only (H15)", async () => {
+    const res = await call("u_admin", "admin", {
+      method: "POST",
+      body: { type: "sick", fromDate: "2020-01-01", toDate: "2020-01-01", userId: "u_tradie" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(requestOf(res).status).toBe("approved");
   });
 
   it("403s a non-admin recording for someone else", async () => {

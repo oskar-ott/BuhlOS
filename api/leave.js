@@ -142,6 +142,15 @@ module.exports = async (req, res) => {
     if (onBehalf && !isAdminRole(me.role)) {
       return res.status(403).json({ error: 'only the office can record leave for someone else' });
     }
+    // A worker's OWN request can't start in the past — you don't request leave
+    // you've already taken. (Admin recording on-behalf above CAN back-date, for
+    // retroactive sick.) Compared in the business timezone.
+    if (!onBehalf) {
+      const todaySyd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Sydney' }).format(new Date());
+      if (fromDate < todaySyd) {
+        return res.status(400).json({ error: "leave can't start in the past — ask the office to record past leave" });
+      }
+    }
     let target = me;
     if (onBehalf) {
       const usersBlob = await readBlob('users.json', { users: [] });

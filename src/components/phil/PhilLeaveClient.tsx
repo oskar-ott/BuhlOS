@@ -33,9 +33,12 @@ const STATUS_TONE: Record<LeaveRequest["status"], "success" | "warning" | "dange
 interface Props {
   initialRequests: ReadonlyArray<LeaveRequest>;
   fetchError: string | null;
+  /** Today (YYYY-MM-DD, business tz) — floors the date pickers so a worker
+   *  can't request leave that's already in the past. */
+  todayISO?: string;
 }
 
-export function PhilLeaveClient({ initialRequests, fetchError }: Props) {
+export function PhilLeaveClient({ initialRequests, fetchError, todayISO }: Props) {
   const router = useRouter();
   const [requests, setRequests] = useState<ReadonlyArray<LeaveRequest>>(initialRequests);
   const [type, setType] = useState<string>("annual");
@@ -120,13 +123,14 @@ export function PhilLeaveClient({ initialRequests, fetchError }: Props) {
         <div className="grid grid-cols-2 gap-3">
           <label className="block text-sm">
             <span className="text-text-muted">First day</span>
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputClass} data-testid="leave-from" />
+            <input type="date" value={fromDate} min={todayISO} onChange={(e) => setFromDate(e.target.value)} className={inputClass} data-testid="leave-from" />
           </label>
           <label className="block text-sm">
-            <span className="text-text-muted">Last day</span>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputClass} data-testid="leave-to" />
+            <span className="text-text-muted">Last day (optional)</span>
+            <input type="date" value={toDate} min={fromDate || todayISO} onChange={(e) => setToDate(e.target.value)} className={inputClass} data-testid="leave-to" />
           </label>
         </div>
+        <p className="text-xs text-text-muted">Leave the last day blank for a single day off.</p>
         <label className="block text-sm">
           <span className="text-text-muted">Note (optional)</span>
           <input type="text" value={note} onChange={(e) => setNote(e.target.value)} className={inputClass} />
