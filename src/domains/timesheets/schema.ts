@@ -239,6 +239,11 @@ export const TimeEntryOverviewResponseSchema = z.object({
       z.object({ date: z.string(), userId: z.string(), type: z.string() }).passthrough(),
     )
     .optional(),
+  /** #137: AU/NSW public holidays in range — per-date (whole-crew), not
+   *  per-user. Same server-side source as `missing`/`leave`. */
+  holidays: z
+    .array(z.object({ date: z.string(), name: z.string() }).passthrough())
+    .optional(),
   jobs: z.array(OverviewJobSchema),
   users: z.array(OverviewUserSchema),
 });

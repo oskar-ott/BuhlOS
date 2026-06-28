@@ -74,6 +74,7 @@ const DAY_TONE: Record<WeeklyDayStatus, "neutral" | "info" | "success" | "danger
   draft: "warning",
   missing: "warning",
   leave: "info",
+  holiday: "neutral",
   future: "neutral",
   "not-required": "neutral",
 };
@@ -866,6 +867,10 @@ function DayRow({
           {day.jobLabel ? <span className="text-text-muted">· {day.jobLabel}</span> : null}
           {day.status === "leave" && day.leaveType ? (
             <span className="text-text-muted">({day.leaveType})</span>
+          ) : null}
+          {/* #137: name the holiday so the cell says WHY it isn't missing. */}
+          {day.status === "holiday" && day.holidayName ? (
+            <span className="text-text-muted">({day.holidayName})</span>
           ) : null}
           {day.status !== "leave" && day.leaveType && day.entryId ? (
             <Pill tone="warning" title="Hours were logged on an approved-leave day">

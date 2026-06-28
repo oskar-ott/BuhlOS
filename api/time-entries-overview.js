@@ -31,6 +31,7 @@
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { readLeave, approvedLeaveByUserDate } = require('./_lib/leave');
+const { publicHolidaysInRange } = require('./_lib/public-holidays');
 const { requireAuth, isStaffRole, isAdminRole, isHoursTrackedWorker } = require('./_lib/auth');
 
 module.exports = async (req, res) => {
@@ -239,22 +240,34 @@ module.exports = async (req, res) => {
   } catch { leaveByUserDate = {}; }
   const leave = [];
 
+  // #137: AU national + NSW public holidays. Computed over the FULL range
+  // (not just past/today, unlike missing) so the weekly board can render a
+  // holiday cell for an upcoming holiday too. A holiday applies to the whole
+  // crew, so it is emitted as a per-date list — unlike per-user leave. Same
+  // server-side-truth principle as #333 leave: every consumer (weekly board,
+  // Phil week, reminder crons) agrees because the classification lives here.
+  const holidays = publicHolidaysInRange(fromDate, toDate);
+  const holidaySet = new Set(holidays.map(h => h.date));
+
   const cursor = new Date(fromDate + 'T00:00:00');
   const end    = new Date(toDate   + 'T00:00:00');
   while (cursor <= end && cursor <= today0) {
     const dow = cursor.getDay();
     const isWeekend = (dow === 0 || dow === 6);
-    if (!isWeekend) {
-      // Format from the cursor's own calendar components, NOT toISOString():
-      // the cursor is local-midnight, so the UTC render shifted the emitted
-      // date by a day on any non-UTC host — entry-suppression then never
-      // matched. Invisible on UTC production, but wrong (and untestable)
-      // everywhere else; this keeps the date consistent with the local
-      // getDay() weekend check above.
-      const iso =
-        cursor.getFullYear() + '-' +
-        String(cursor.getMonth() + 1).padStart(2, '0') + '-' +
-        String(cursor.getDate()).padStart(2, '0');
+    // Format from the cursor's own calendar components, NOT toISOString():
+    // the cursor is local-midnight, so the UTC render shifted the emitted
+    // date by a day on any non-UTC host — entry-suppression then never
+    // matched. Invisible on UTC production, but wrong (and untestable)
+    // everywhere else; this keeps the date consistent with the local
+    // getDay() weekend check above.
+    const iso =
+      cursor.getFullYear() + '-' +
+      String(cursor.getMonth() + 1).padStart(2, '0') + '-' +
+      String(cursor.getDate()).padStart(2, '0');
+    // A public holiday is not a required day — exempt it from "missing" just
+    // like a weekend, or the board cries wolf for the whole crew every
+    // holiday week and the office learns to ignore red.
+    if (!isWeekend && !holidaySet.has(iso)) {
       for (const u of crewForMissing) {
         if (entryByUserDate[u.id + '|' + iso]) continue;
         const leaveType = leaveByUserDate[u.id + '|' + iso];
@@ -274,6 +287,7 @@ module.exports = async (req, res) => {
     totals,
     missing,
     leave,
+    holidays,
     jobs:  visibleJobs.map(j => ({ id: j.id, name: j.name, status: j.status || 'active' })),
     users: visibleCrew.map(u => ({ id: u.id, username: u.username, role: u.role })),
   });
