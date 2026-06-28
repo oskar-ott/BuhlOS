@@ -57,14 +57,55 @@ import {
  *     and create a cycle — see task-index.ts), so the proof facet is INJECTED by
  *     the caller via `proofFor`. It carries `granularity: "area-package"` to stay
  *     honest that it is not per-task-instance yet (#502).
- *   - worker / material / rfi: no per-task source exists on `main`, so these are
- *     always `null` — never invented. They light up in later facet slices (#506).
+ *
+ * Grain-tagged facets — assignee / labour / material / drawing / rfi (#506)
+ * -------------------------------------------------------------------------
+ * Every facet ALWAYS carries an explicit `grain` (and a `reason` when empty), so
+ * an absent source renders "not task-grained yet" — it is NEVER silently omitted
+ * and NEVER faked. The grain is the load-bearing honesty (P7): a facet says where
+ * its data is keyed (`task` / `area-package` / `job` / `none`), so the reader can
+ * never mistake job-grained or absent data for a per-task signal.
+ *
+ *   - assignee: NO per-task assignee source exists on `main` (visibility is the
+ *     job-grained `assignedJobIds`, never a per-task owner). The facet is
+ *     ALWAYS honest-empty (`grain: "none"`) — there is no resolver and no input
+ *     path, so it is STRUCTURALLY INCAPABLE of being faked. It lights up with no
+ *     projection rewrite the day a per-task assignee field lands (a separate
+ *     write issue, NOT this one — #134/#340 territory).
+ *   - labour: hours are `jobId`-only (the timesheet/hours ledger keys to a job,
+ *     never a task). The facet is ALWAYS `grain: "job"` honest-empty — NEVER a
+ *     per-task split (P7) — which deliberately keeps the sensitive timesheet /
+ *     payroll surface out of this read model. No resolver, no input path. It
+ *     lights up with no rewrite the day a task-grained `TimeEntryAllocation`
+ *     lands (#134/#334 — and those pull in payroll, out of scope here).
+ *   - material: area/package-granular today (#368 compiles `WorkPackage.materials`
+ *     for the area that delivers the task). INJECTED via `materialsFor`; honest
+ *     `grain: "area-package"` with zero items when the package carries none.
+ *   - drawing: area/package-granular today (#368 `governingDocRefs`). INJECTED via
+ *     `drawingsFor`; honest `grain: "area-package"` with zero docs when none.
+ *   - rfi: the ONE genuinely task-grained facet — derived IN-DOMAIN from the #504
+ *     blockers already passed to `projectTaskInstances` (an open `rfi`-typed
+ *     `TaskBlocker` keyed on the canonical id). `grain: "task"` with the open rfi
+ *     ids/titles, or honest-empty `grain: "none"` when the task has none.
+ *
+ * Dependency direction is preserved: material/drawing facet shapes are STRUCTURAL
+ * MIRRORS declared LOCALLY (like `TaskInstanceProofFacet` mirrors job-control's
+ * `PhilTaskProofSummary`) so the jobs domain still imports NOTHING from
+ * job-control. The caller maps a `buildPhilTaskContext` result into the injected
+ * resolvers (see the integration test).
+ *
+ * Strictly READ-ONLY (#506 scope guard): no per-task assignee field, no
+ * task-grained labour write, no new authoring or write path of any kind. The
+ * NOTE on #367: `buildAreaTaskContext` returns empty until the #367 plumbing
+ * lands, so `materialsFor`/`drawingsFor` resolve empty on real jobs today — that
+ * is ON-SPEC (grain `area-package`, zero items = honest-empty), and the facet
+ * lights up with no rewrite once #367 flows.
  *
  * Cross-ref:
  *   src/domains/jobs/task-index.ts — CanonicalTask + buildCanonicalTaskIndex
- *   src/domains/jobs/task-blockers.ts — readiness/blocker read-model (#482)
+ *   src/domains/jobs/task-blockers.ts — readiness/blocker read-model (#482), TaskBlockerType (#504)
  *   src/domains/jobs/phil-task-projection.ts — the Phil worker-row projection (#490/#493)
- *   src/domains/job-control/task-context.ts — summarisePhilTaskProof (proof source, injected)
+ *   src/domains/job-control/task-context.ts — summarisePhilTaskProof / buildPhilTaskContext (injected sources)
  *   docs/architecture/task-led-job-architecture.md
  */
 
@@ -85,6 +126,83 @@ export interface TaskInstanceProofFacet {
   eligibleForReview: boolean;
   granularity: "area-package";
 }
+
+// ── #506 grain-tagged facets ──────────────────────────────────────────────────
+// Each facet ALWAYS carries a `grain` discriminator so an absent source renders
+// "not task-grained yet", never silently omitted, never faked (P7). The
+// material/drawing shapes are STRUCTURAL MIRRORS of job-control's
+// `WorkPackageMaterial` / `GoverningDocRef`, declared LOCALLY so the jobs domain
+// imports nothing from job-control (dependency direction preserved — see header).
+
+/** A material item delivered to a task's package. Structural mirror of
+ *  job-control's `WorkPackageMaterial` (label + optional qty/unit), declared
+ *  locally. `boqLineRef` and any compiler-added fields ride through untyped
+ *  (the source schema is `.passthrough()`), so the resolver may inject the
+ *  package's items byte-for-byte without this domain importing the source type. */
+export interface TaskInstanceMaterial {
+  label: string;
+  qty?: number | null;
+  unit?: string | null;
+  [extra: string]: unknown;
+}
+
+/** An id-only reference into the documents/plans register. Structural mirror of
+ *  job-control's `GoverningDocRef`, declared locally. */
+export interface TaskInstanceGoverningDoc {
+  documentId: string;
+  label?: string | null;
+  [extra: string]: unknown;
+}
+
+/**
+ * Who is on a task. ALWAYS honest-empty: `main` has NO per-task assignee source
+ * (visibility is the job-grained `assignedJobIds`, never a per-task owner), and
+ * this facet has NO resolver and NO input path — it is structurally incapable of
+ * carrying a faked per-task value. Lights up with no projection rewrite the day a
+ * per-task assignee field lands (a separate write issue, not #506).
+ */
+export interface AssigneeFacet {
+  grain: "none";
+  reason: "no per-task assignee source";
+}
+
+/**
+ * Labour on a task. ALWAYS `grain: "job"` honest-empty: hours are `jobId`-only
+ * (the hours ledger keys to a job, never a task), so this is NEVER a per-task
+ * split (P7) — which keeps the sensitive timesheet/payroll surface out of this
+ * read model. No resolver, no input path. Lights up with no rewrite the day a
+ * task-grained `TimeEntryAllocation` lands (#134/#334 — payroll, out of scope).
+ */
+export interface LabourFacet {
+  grain: "job";
+  reason: "hours are jobId-only";
+}
+
+/** Materials on a task. `area-package` granular (the package that delivers the
+ *  task), injected via `materialsFor`; honest-empty `grain: "none"` when no
+ *  resolver is supplied or the task belongs to no package. */
+export type MaterialFacet =
+  | { grain: "area-package"; items: TaskInstanceMaterial[] }
+  | { grain: "none"; reason: "no task-grained material source" };
+
+/** Governing drawings/specs on a task. `area-package` granular, injected via
+ *  `drawingsFor`; honest-empty `grain: "none"` otherwise. */
+export type DrawingFacet =
+  | { grain: "area-package"; docs: TaskInstanceGoverningDoc[] }
+  | { grain: "none"; reason: "no task-grained drawing source" };
+
+/** Open RFIs on a task. The ONE genuinely task-grained facet — derived in-domain
+ *  from the open `rfi`-typed `TaskBlocker`s (#504) keyed on the canonical id;
+ *  honest-empty `grain: "none"` when the task has none. */
+export type RfiFacet =
+  | { grain: "task"; openRfiIds: string[]; titles: string[] }
+  | { grain: "none"; reason: "no open task RFI" };
+
+const ASSIGNEE_NONE: AssigneeFacet = { grain: "none", reason: "no per-task assignee source" };
+const LABOUR_JOB: LabourFacet = { grain: "job", reason: "hours are jobId-only" };
+const MATERIAL_NONE: MaterialFacet = { grain: "none", reason: "no task-grained material source" };
+const DRAWING_NONE: DrawingFacet = { grain: "none", reason: "no task-grained drawing source" };
+const RFI_NONE: RfiFacet = { grain: "none", reason: "no open task RFI" };
 
 /**
  * The composed facets of one task instance. `area`/`stage`/`system` echo the
@@ -109,11 +227,21 @@ export interface TaskInstanceFacets {
    *  supplied or the task's package carries no required proof. */
   proof: TaskInstanceProofFacet | null;
 
-  /** Facets with no per-task source on `main` yet — always `null` (P7, never
-   *  faked). Light up in later slices (#506 facets, #504 real blockers). */
-  worker: null;
-  material: null;
-  rfi: null;
+  /** Who is on the task. ALWAYS honest-empty `grain: "none"` — no per-task
+   *  assignee source, no resolver (structurally un-fakeable, #506). */
+  assignee: AssigneeFacet;
+  /** Labour on the task. ALWAYS `grain: "job"` honest-empty — hours are
+   *  jobId-only, never a per-task split (P7; keeps payroll out, #506). */
+  labour: LabourFacet;
+  /** Materials. `area-package`-granular when injected (`materialsFor`), else
+   *  honest-empty `grain: "none"` (#506). */
+  material: MaterialFacet;
+  /** Governing drawings/specs. `area-package`-granular when injected
+   *  (`drawingsFor`), else honest-empty `grain: "none"` (#506). */
+  drawing: DrawingFacet;
+  /** Open RFIs — task-grained, derived from open `rfi`-typed blockers (#504),
+   *  else honest-empty `grain: "none"` (#506). */
+  rfi: RfiFacet;
 }
 
 /** A task instance with its composed facets. REUSES `CanonicalTask` (and its
@@ -184,12 +312,18 @@ function groupBy<T, K>(items: ReadonlyArray<T>, keyOf: (item: T) => K): Map<K, T
 
 // ── Projection (compose facets onto an instance) ──────────────────────────────
 
-/** Optional pre-resolved facet inputs for ONE instance. */
+/** Optional pre-resolved facet inputs for ONE instance. Any grain-tagged facet
+ *  not supplied falls back to its honest-empty/grain-tagged default — never to a
+ *  faked value. `assignee`/`labour` have NO input here by design (resolver-less,
+ *  #506): they are always their honest default. */
 export interface TaskInstanceFacetInput {
   readiness?: TaskReadiness;
   hasOpenBlockers?: boolean;
   blockerIds?: string[];
   proof?: TaskInstanceProofFacet | null;
+  material?: MaterialFacet;
+  drawing?: DrawingFacet;
+  rfi?: RfiFacet;
 }
 
 /**
@@ -216,9 +350,13 @@ export function toTaskInstanceView(
       hasOpenBlockers: facets.hasOpenBlockers ?? false,
       blockerIds: facets.blockerIds ?? [],
       proof: facets.proof ?? null,
-      worker: null,
-      material: null,
-      rfi: null,
+      // grain-tagged facets — every one defaults to its honest-empty default, so
+      // with no input the observable output is identical to today plus the tags.
+      assignee: ASSIGNEE_NONE,
+      labour: LABOUR_JOB,
+      material: facets.material ?? MATERIAL_NONE,
+      drawing: facets.drawing ?? DRAWING_NONE,
+      rfi: facets.rfi ?? RFI_NONE,
     },
   };
 }
@@ -227,11 +365,41 @@ export function toTaskInstanceView(
 export interface ProjectTaskInstancesContext {
   /** #482 dependency edges (canonical ids). Honest-empty by default. */
   dependencies?: ReadonlyArray<TaskDependency>;
-  /** #482 blockers (canonical ids). Honest-empty by default. */
+  /** #482 blockers (canonical ids). Honest-empty by default. ALSO the in-domain
+   *  source of the rfi facet: open `rfi`-typed blockers on a task → that task's
+   *  open RFIs (#504/#506 — no new import, no new source). */
   blockers?: ReadonlyArray<TaskBlocker>;
   /** Caller-injected proof facet per instance (job-control lives outside this
    *  domain). Return `null` for a task with no required proof. */
   proofFor?: (task: CanonicalTask) => TaskInstanceProofFacet | null;
+  /** Caller-injected materials per instance, area/package-granular today (the
+   *  caller maps a `buildPhilTaskContext(...).materials` into this — job-control
+   *  lives outside this domain). Return `null` for a task with no package; an
+   *  empty array yields an honest `grain: "area-package"` facet with zero items
+   *  (#506/#368). */
+  materialsFor?: (task: CanonicalTask) => TaskInstanceMaterial[] | null;
+  /** Caller-injected governing drawings/specs per instance, area/package-granular
+   *  today (maps `buildPhilTaskContext(...).governingDocs`). Return `null` for a
+   *  task with no package (#506/#368). */
+  drawingsFor?: (task: CanonicalTask) => TaskInstanceGoverningDoc[] | null;
+}
+
+/** Derive the rfi facet IN-DOMAIN from the #504 blockers already passed to the
+ *  projection: the OPEN, `rfi`-typed blockers keyed on this canonical id. A
+ *  resolved or non-rfi blocker never contributes. Honest-empty when none. */
+function rfiFacetFromBlockers(
+  task: CanonicalTask,
+  blockers: ReadonlyArray<TaskBlocker>,
+): RfiFacet {
+  const openRfis = blockers.filter(
+    (b) => b.taskId === task.id && b.status === "open" && b.type === "rfi",
+  );
+  if (openRfis.length === 0) return RFI_NONE;
+  return {
+    grain: "task",
+    openRfiIds: openRfis.map((b) => b.id),
+    titles: openRfis.map((b) => b.title),
+  };
 }
 
 /**
@@ -247,16 +415,22 @@ export function projectTaskInstances(
   tasks: ReadonlyArray<CanonicalTask>,
   ctx: ProjectTaskInstancesContext = {},
 ): TaskInstanceView[] {
-  const { dependencies, blockers, proofFor } = ctx;
+  const { dependencies, blockers, proofFor, materialsFor, drawingsFor } = ctx;
+  const allBlockers = blockers ?? [];
   return tasks.map((task) => {
-    const openBlockers = (blockers ?? []).filter(
+    const openBlockers = allBlockers.filter(
       (b) => b.taskId === task.id && b.status === "open",
     );
+    const materials = materialsFor ? materialsFor(task) : null;
+    const docs = drawingsFor ? drawingsFor(task) : null;
     return toTaskInstanceView(task, {
       readiness: deriveTaskReadiness({ task, dependencies, blockers, tasks }),
       hasOpenBlockers: openBlockers.length > 0,
       blockerIds: openBlockers.map((b) => b.id),
       proof: proofFor ? proofFor(task) : null,
+      material: materials ? { grain: "area-package", items: materials } : MATERIAL_NONE,
+      drawing: docs ? { grain: "area-package", docs } : DRAWING_NONE,
+      rfi: rfiFacetFromBlockers(task, allBlockers),
     });
   });
 }
