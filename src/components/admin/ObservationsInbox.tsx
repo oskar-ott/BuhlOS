@@ -15,13 +15,19 @@ import {
   Paperclip,
   UserCheck,
 } from "lucide-react";
-import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { StatusChip } from "@/components/ui/StatusChip";
 import { Button } from "@/components/ui/Button";
 import { Drawer } from "@/components/ui/Drawer";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { RefreshButton } from "@/components/ui/RefreshButton";
+import {
+  InboxBanner,
+  InboxFilterBar,
+  InboxFilterSelect,
+  InboxLoadErrorCard,
+  InboxStatStrip,
+  type InboxStat,
+} from "./InboxShell";
 import { relativeWhen } from "@/domains/jobs/format";
 import { observationsClient } from "@/domains/observations/client";
 import {
@@ -284,70 +290,60 @@ export function ObservationsInbox({
     });
   }
 
+  // Summary cards — exception-first vitals.
+  const stats: InboxStat[] = [
+    { key: "needsAction", label: "New / needs action", value: summary.newOrNeedsAction, icon: Inbox, tone: "warning" },
+    { key: "highUrgent", label: "High / urgent", value: summary.highUrgent, icon: AlertTriangle, tone: "danger" },
+    { key: "blockers", label: "Blockers", value: summary.blockers, icon: AlertTriangle, tone: "danger" },
+    { key: "resolved", label: "Resolved / record only", value: summary.resolvedOrRecord, icon: CheckCircle2, tone: "success" },
+  ];
+
   return (
     <div className="space-y-5">
       {fetchError ? (
-        <Card className="border-amber-200 bg-amber-50" role="alert">
-          <CardTitle>Couldn&rsquo;t load observations</CardTitle>
-          <CardDescription className="text-amber-900">
-            {fetchError}. The list may be incomplete.
-          </CardDescription>
-          <div className="mt-3">
-            <RefreshButton />
-          </div>
-        </Card>
+        <InboxLoadErrorCard
+          title="Couldn’t load observations"
+          message={`${fetchError}. The list may be incomplete.`}
+        />
       ) : null}
 
-      {banner ? (
-        <div
-          role="status"
-          className={
-            banner.tone === "success"
-              ? "rounded-card border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
-              : "rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900"
-          }
-        >
-          {banner.message}
-        </div>
-      ) : null}
+      {banner ? <InboxBanner tone={banner.tone}>{banner.message}</InboxBanner> : null}
 
-      {/* Summary cards — exception-first vitals. */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <SummaryCard label="New / needs action" value={summary.newOrNeedsAction} icon={Inbox} tone="warning" />
-        <SummaryCard label="High / urgent" value={summary.highUrgent} icon={AlertTriangle} tone="danger" />
-        <SummaryCard label="Blockers" value={summary.blockers} icon={AlertTriangle} tone="danger" />
-        <SummaryCard label="Resolved / record only" value={summary.resolvedOrRecord} icon={CheckCircle2} tone="success" />
-      </div>
+      <InboxStatStrip stats={stats} />
 
       {/* Filters. */}
-      <div className="flex flex-wrap items-end gap-2 rounded-card border border-border bg-surface p-3">
-        <FilterSelect
+      <InboxFilterBar
+        shown={visible.length}
+        total={observations.length}
+        onClear={filtersActive ? () => setFilters(EMPTY_OBSERVATION_FILTERS) : undefined}
+      >
+        <InboxFilterSelect
           label="Status"
           value={filters.status}
           onChange={(v) => setFilters((f) => ({ ...f, status: v as ObservationStatus | "" }))}
           options={OBSERVATION_STATUSES.map((s) => ({ value: s, label: statusLabel(s) }))}
         />
-        <FilterSelect
+        <InboxFilterSelect
           label="Type"
           value={filters.type}
           onChange={(v) => setFilters((f) => ({ ...f, type: v as ObservationType | "" }))}
           options={OBSERVATION_TYPES.map((t) => ({ value: t, label: typeLabel(t) }))}
         />
-        <FilterSelect
+        <InboxFilterSelect
           label="Priority"
           value={filters.priority}
           onChange={(v) => setFilters((f) => ({ ...f, priority: v as ObservationPriority | "" }))}
           options={OBSERVATION_PRIORITIES.map((p) => ({ value: p, label: priorityLabel(p) }))}
         />
         {showJobFilter ? (
-          <FilterSelect
+          <InboxFilterSelect
             label="Job"
             value={filters.jobId}
             onChange={(v) => setFilters((f) => ({ ...f, jobId: v }))}
             options={jobOptions.map((j) => ({ value: j.id, label: j.name }))}
           />
         ) : null}
-        <FilterSelect
+        <InboxFilterSelect
           label="Source"
           value={filters.source}
           onChange={(v) => setFilters((f) => ({ ...f, source: v }))}
@@ -357,7 +353,7 @@ export function ObservationsInbox({
             { value: "system", label: "System" },
           ]}
         />
-        <FilterSelect
+        <InboxFilterSelect
           label="Raised by"
           value={filters.createdById}
           onChange={(v) => setFilters((f) => ({ ...f, createdById: v }))}
@@ -373,15 +369,7 @@ export function ObservationsInbox({
           value={filters.toDate}
           onChange={(v) => setFilters((f) => ({ ...f, toDate: v }))}
         />
-        {filtersActive ? (
-          <Button type="button" variant="ghost" size="sm" onClick={() => setFilters(EMPTY_OBSERVATION_FILTERS)}>
-            Clear
-          </Button>
-        ) : null}
-        <span className="ml-auto self-center text-xs text-text-muted">
-          {visible.length} of {observations.length}
-        </span>
-      </div>
+      </InboxFilterBar>
 
       {/* List. */}
       {observations.length === 0 && !fetchError ? (
@@ -427,66 +415,6 @@ export function ObservationsInbox({
         rfiEnabled={rfiEnabled}
       />
     </div>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-  icon: Icon,
-  tone,
-}: {
-  label: string;
-  value: number;
-  icon: typeof Inbox;
-  tone: "warning" | "danger" | "success";
-}) {
-  const toneClass =
-    value === 0
-      ? "text-text-muted"
-      : tone === "danger"
-        ? "text-rose-700"
-        : tone === "warning"
-          ? "text-amber-700"
-          : "text-emerald-700";
-  return (
-    <Card className="flex items-center justify-between gap-2">
-      <div>
-        <p className="text-xs uppercase tracking-wider text-text-muted">{label}</p>
-        <p className={`mt-1 font-display text-2xl ${toneClass}`}>{value}</p>
-      </div>
-      <Icon aria-hidden="true" className={`h-5 w-5 shrink-0 ${toneClass}`} />
-    </Card>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: ReadonlyArray<{ value: string; label: string }>;
-}) {
-  return (
-    <label className="flex flex-col gap-1 text-xs text-text-muted">
-      <span className="uppercase tracking-wider">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full min-w-0 rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text sm:w-auto sm:min-w-[8rem] sm:max-w-[11rem]"
-      >
-        <option value="">All</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
 
