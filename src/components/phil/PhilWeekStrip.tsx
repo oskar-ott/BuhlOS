@@ -133,7 +133,10 @@ export function PhilWeekStrip({ entries, todayISO, selectedDate }: Props) {
   const squaredAway = isWeekSquaredAway(week.counts);
 
   return (
-    <section className={styles.week}>
+    // data-no-ptr: a touch that starts on the week strip's day cells must not
+    // arm pull-to-refresh (#149) — the strip is its own horizontal directory of
+    // tappable days, so the page-level pull skips anything inside it.
+    <section className={styles.week} data-no-ptr>
       <header className={styles.weekHead}>
         <div>
           <div className={styles.weekTitle}>This week</div>

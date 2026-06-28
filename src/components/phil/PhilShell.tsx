@@ -3,6 +3,7 @@ import { PhilHeader } from "./PhilHeader";
 import { PhilTabBar } from "./PhilTabBar";
 import { CaptureLauncherProvider } from "./captureLauncherContext";
 import { PhilOfflineBanner } from "./PhilOfflineBanner";
+import { PullToRefresh } from "./PullToRefresh";
 import { PwaRegistrar } from "@/components/pwa/PwaRegistrar";
 
 interface PhilShellProps {
@@ -41,10 +42,14 @@ export function PhilShell({ children, title, userId }: PhilShellProps) {
           launcher. */}
       <CaptureLauncherProvider>
         {/* Subtle-grey content surface so the white `surface-raised` cards
-            lift off the page instead of blending into a flat-white shell. */}
-        <main className="flex-1 overflow-y-auto bg-surface-subtle px-4 py-4">
-          <PhilOfflineBanner />
-          {children}
+            lift off the page instead of blending into a flat-white shell.
+            PullToRefresh owns the single shared scroll container (#149) so every
+            Phil screen inherits pull-to-refresh; <main> is just the landmark. */}
+        <main className="flex min-h-0 flex-1 flex-col">
+          <PullToRefresh>
+            <PhilOfflineBanner />
+            {children}
+          </PullToRefresh>
         </main>
         <PhilTabBar userId={userId} />
       </CaptureLauncherProvider>

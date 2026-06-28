@@ -42,6 +42,7 @@ import { effectiveTasks, stageLabel, visibleAreaGroups } from "@/domains/jobs/fo
 import type { Job, JobStage } from "@/domains/jobs/types";
 import { CapturePhotoTray, type TrayPhoto } from "./CapturePhotoTray";
 import { CaptureTargetPickers } from "./CaptureTargetPickers";
+import { useSheetHistory } from "./useSheetHistory";
 import {
   buildObservationPayload,
   buildOfficeObservationPayload,
@@ -185,6 +186,14 @@ export function PhilCaptureLauncher({
   // Dictation (#147): mic appends to the batch note; offline disables it.
   const online = useOnline();
   const batchNoteRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Back-safety (#149) — THE data-loss case: the photo tray lives in useState
+  // and deliberately survives a close, so an accidental swipe-back / Android
+  // back must CLOSE this sheet (keeping the tray) rather than navigate away and
+  // strand the shots. closeWithHistory wraps every programmatic close (backdrop,
+  // Close button, Esc, the success "Done" buttons) so the pushed entry unwinds
+  // exactly once; the tray is never cleared on close.
+  const { closeWithHistory } = useSheetHistory({ open, onClose });
 
   const submitting = submit.v === "submitting" || submit.v === "sending";
 
@@ -367,11 +376,11 @@ export function PhilCaptureLauncher({
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") closeWithHistory();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, closeWithHistory]);
 
   const readyPhotos = photos.filter((p) => p.status === "ready" && p.dataUrl);
   const resizing = photos.some((p) => p.status === "resizing");
@@ -609,7 +618,7 @@ export function PhilCaptureLauncher({
       aria-modal="true"
       aria-label="Capture"
       className="fixed inset-0 z-50 flex items-end justify-center bg-accent-ink/40"
-      onClick={onClose}
+      onClick={closeWithHistory}
     >
       <div
         className="flex max-h-[85vh] w-full max-w-md flex-col rounded-t-card border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] shadow-raised"
@@ -633,7 +642,7 @@ export function PhilCaptureLauncher({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={closeWithHistory}
             aria-label="Close"
             className="inline-flex h-11 w-11 items-center justify-center rounded-card text-text-muted hover:bg-surface-subtle"
           >
@@ -662,7 +671,7 @@ export function PhilCaptureLauncher({
                 className="w-full"
                 onClick={() => {
                   setSubmit({ v: "idle" });
-                  onClose();
+                  closeWithHistory();
                 }}
               >
                 Done
@@ -686,7 +695,7 @@ export function PhilCaptureLauncher({
                 className="w-full"
                 onClick={() => {
                   setSubmit({ v: "idle" });
-                  onClose();
+                  closeWithHistory();
                 }}
               >
                 Done
@@ -732,7 +741,7 @@ export function PhilCaptureLauncher({
               onLabourHours={setObsLabourHours}
               onMaterialsNote={setObsMaterialsNote}
               onSubmit={(job, option) => void submitNote(job, option)}
-              onDone={onClose}
+              onDone={closeWithHistory}
             />
           ) : (
             /* ── Camera-first capture ───────────────────────────────────── */

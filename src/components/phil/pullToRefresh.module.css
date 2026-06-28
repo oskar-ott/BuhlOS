@@ -1,0 +1,65 @@
+/*
+ * Pull-to-refresh indicator (#149, slice 2).
+ *
+ * The live pull distance is fed in as the `--ptr-pull` custom property, set
+ * imperatively on the indicator node from the touch handlers (the repo bans
+ * inline JSX `style` attributes, so the dynamic value rides a CSS variable that
+ * the component sets via ref.style.setProperty). Everything else is static.
+ */
+
+.indicator {
+  --ptr-pull: 0px;
+  pointer-events: none;
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  height: var(--ptr-pull);
+  opacity: 0;
+  transition:
+    height 150ms ease,
+    opacity 150ms ease;
+}
+
+/* While the finger is actively dragging, the height must track 1:1 with no
+ * lag — the transition is suppressed via this modifier. */
+.dragging {
+  transition: none;
+}
+
+/* Visible whenever there is pull OR a refresh/error in flight. */
+.visible {
+  opacity: 1;
+}
+
+.pill {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 9999px;
+  padding: 4px 12px;
+  font-size: 12px; /* Phil 12px legibility floor — not below. */
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.icon {
+  height: 16px;
+  width: 16px;
+}
+
+/* On release → refresh, the icon spins continuously until the refresh resolves
+ * (success or the self-bounded "couldn't refresh"). */
+.spinning {
+  animation: ptr-spin 0.8s linear infinite;
+}
+
+@keyframes ptr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

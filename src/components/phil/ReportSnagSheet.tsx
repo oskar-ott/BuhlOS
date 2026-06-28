@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { PhilActionButton } from "./ui/PhilActionButton";
 import { PhilNotice } from "./ui/PhilNotice";
+import { useSheetHistory } from "./useSheetHistory";
 import { createSnag } from "@/domains/snags/client";
 import {
   SNAG_DESCRIPTION_MAX,
@@ -79,6 +80,11 @@ export function ReportSnagSheet({
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Back-safety (#149): a swipe-back / Android back closes the sheet rather than
+  // navigating off the job page. closeWithHistory unwinds the pushed entry on
+  // every programmatic close (Close / Esc / successful submit).
+  const { closeWithHistory } = useSheetHistory({ open, onClose });
+
   // Re-seed the form whenever the sheet opens so a previous open-close
   // doesn't leak state into the next session. The page's selected
   // stage/area carries through as the default context.
@@ -99,11 +105,11 @@ export function ReportSnagSheet({
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !busy) onClose();
+      if (e.key === "Escape" && !busy) closeWithHistory();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, busy, onClose]);
+  }, [open, busy, closeWithHistory]);
 
   const titleTrimmed = title.trim();
   const submitDisabled =
@@ -131,7 +137,7 @@ export function ReportSnagSheet({
     setBusy(false);
     if (r.ok) {
       onCreated(r.data.snagItem);
-      onClose();
+      closeWithHistory();
     } else {
       const message =
         r.error.status === 403
@@ -156,7 +162,7 @@ export function ReportSnagSheet({
     linkedEvidenceIds,
     job.id,
     onCreated,
-    onClose,
+    closeWithHistory,
     onFailed,
   ]);
 
@@ -177,7 +183,7 @@ export function ReportSnagSheet({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={closeWithHistory}
             disabled={busy}
             className="inline-flex h-11 w-11 items-center justify-center rounded-card text-text-muted hover:bg-surface-subtle disabled:opacity-50"
             aria-label="Close"
