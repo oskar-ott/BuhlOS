@@ -9,6 +9,7 @@ import {
   Link2Off,
   Lock,
   PenSquare,
+  Stamp,
   X,
   XCircle,
 } from "lucide-react";
@@ -50,6 +51,15 @@ interface Props {
   isAdmin: boolean;
   /** True while a review or reject mutation is in flight for this item. */
   busy: boolean;
+  /** #233 — the viewer's user id, used to detect whether they captured
+   *  THIS row. Threaded from the page session. Default-safe: absent =
+   *  never treated as the capturer. */
+  viewerId?: string;
+  /** #233 — true when the viewer is an admin or a leading hand on this
+   *  job (i.e. server-side `canManageJob` would pass). Gates the FLAG
+   *  half of the as-built toggle for non-capturers. Default-safe: absent
+   *  = false (no manager rights). */
+  viewerCanManageJob?: boolean;
   onClose: () => void;
   onMarkReviewed: () => void;
   onOpenReject: () => void;
@@ -62,6 +72,11 @@ interface Props {
    *  footer only when the item resolves to a real pair AND a handler is
    *  passed (admin path). */
   onUnlink?: () => void;
+  /** #233 — flag / unflag this capture as part of the as-built handover
+   *  record. Optional; the toggle only renders for a PHOTO row AND when
+   *  the viewer actually has permission for the relevant transition
+   *  (mirrors the server's flag/unflag asymmetry), so it never 403s. */
+  onToggleAsBuilt?: () => void;
 }
 
 type HistoryState =
@@ -89,11 +104,14 @@ export function EvidenceDrawer({
   open,
   isAdmin,
   busy,
+  viewerId,
+  viewerCanManageJob,
   onClose,
   onMarkReviewed,
   onOpenReject,
   onOpenUnreview,
   onUnlink,
+  onToggleAsBuilt,
 }: Props) {
   const [history, setHistory] = useState<HistoryState>({ kind: "idle" });
 
@@ -189,6 +207,23 @@ export function EvidenceDrawer({
   const pair = resolvePair(allEvidence ?? [], item);
   const showPair = pair.paired && !!pair.before && !!pair.after;
 
+  // #233 — as-built flag control. Photo-only (the server rejects notes),
+  // and permission-aware so we never render a button that would 403.
+  // Server asymmetry (api/evidence.js):
+  //   FLAG   (asBuilt=true):  the capturer of THIS row, OR an admin / LH
+  //                           on the job (canManageJob).
+  //   UNFLAG (asBuilt=false): the capturer of THIS row, OR an admin.
+  // We mirror it exactly: which side of the toggle is live depends on the
+  // current flag state, so the control only shows when the action it would
+  // perform is actually permitted.
+  const isPhoto = item.kind === "photo";
+  const isAsBuilt = item.asBuilt === true;
+  const isCapturer = !!viewerId && item.capturedById === viewerId;
+  const canFlag = isCapturer || !!viewerCanManageJob;
+  const canUnflag = isCapturer || isAdmin;
+  const canToggleAsBuilt =
+    !!onToggleAsBuilt && isPhoto && (isAsBuilt ? canUnflag : canFlag);
+
   return (
     <div
       role="dialog"
@@ -233,8 +268,15 @@ export function EvidenceDrawer({
 
         <div className="flex-1 overflow-y-auto px-4 py-4">
           <div className="space-y-4">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Pill tone={tone}>{statusLabel(item.status)}</Pill>
+              {/* #233 — as-built designation, shown to every viewer whenever
+                  it's set (mirrors the gallery's as-built chip). */}
+              {isAsBuilt ? (
+                <Pill tone="warning" data-testid="evidence-asbuilt-pill">
+                  As-built
+                </Pill>
+              ) : null}
               {isReviewed ? (
                 <Lock aria-label="Locked" className="h-4 w-4 text-text-muted" />
               ) : null}
@@ -294,6 +336,28 @@ export function EvidenceDrawer({
             <HistorySection state={history} />
           </div>
         </div>
+
+        {canToggleAsBuilt ? (
+          <div className="flex items-center justify-between gap-3 border-t border-border bg-surface-subtle px-4 py-2.5">
+            <p className="flex items-center gap-1.5 text-xs text-text-muted">
+              <Stamp aria-hidden="true" className="h-3.5 w-3.5" />
+              {isAsBuilt
+                ? "Marked as part of the as-built record."
+                : "Mark this photo as part of the as-built record."}
+            </p>
+            <Button
+              variant={isAsBuilt ? "primary" : "secondary"}
+              size="sm"
+              onClick={onToggleAsBuilt}
+              disabled={busy}
+              aria-pressed={isAsBuilt}
+              data-testid="evidence-asbuilt-toggle"
+            >
+              <Stamp aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
+              {isAsBuilt ? "As-built ✓" : "Mark as-built"}
+            </Button>
+          </div>
+        ) : null}
 
         {showPair && onUnlink ? (
           <div className="flex items-center justify-between gap-3 border-t border-border bg-surface-subtle px-4 py-2.5">

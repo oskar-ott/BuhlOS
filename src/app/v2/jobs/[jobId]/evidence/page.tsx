@@ -6,7 +6,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EvidenceQueue } from "@/components/admin/EvidenceQueue";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { isAdminRole } from "@/lib/auth/roles";
+import { isAdminRole, isLeadingHandRole } from "@/lib/auth/roles";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
 import type { Job } from "@/domains/jobs/types";
@@ -119,6 +119,12 @@ export default async function AdminEvidenceReviewPage({ params }: PageParams) {
           fetchError={evidenceResult.error}
           isAdmin={isAdmin}
           viewerName={session.name ?? session.role ?? "you"}
+          viewerId={session.userId}
+          /* #233 — admins manage any job; a leading hand who can reach this
+             page is, by the single-job GET gate, assigned to it (i.e.
+             server-side canManageJob passes). So admin OR LH here == can
+             manage this job for the as-built FLAG permission. */
+          viewerCanManageJob={isAdmin || isLeadingHandRole(session.role)}
         />
       </div>
     </AdminShell>
