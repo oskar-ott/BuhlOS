@@ -24,6 +24,10 @@ import {
 } from "@/domains/timesheets/service";
 import { formatDateLabel } from "@/domains/timesheets/format";
 import { buildWeeklyHoursCloseout } from "@/domains/timesheets/weekly-closeout";
+import {
+  CostRateHistoryResponseSchema,
+  effectiveCostRateOn,
+} from "@/domains/cost-rates/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -59,24 +63,43 @@ export default async function HoursWeeklyCloseoutPage({
     redirect("/v2/login");
   }
 
-  // `?week=` is any date inside the desired week (nav links pass a Monday);
-  // default to the current Sydney week — same convention as /hours.
+  // `?week=` is any date inside the desired week (nav links pass a Monday).
+  // DEFAULT to the most recent COMPLETE week (last week), not the in-progress
+  // current week — the closeout is a pay-run ritual run AFTER a week ends, so
+  // it should open on a populated week, not one that only has today's entries.
+  // The ← → nav still reaches the current (and future) weeks.
   const sp = await searchParams;
+  const todayISO = localDateString(new Date(), BUSINESS_TIMEZONE);
+  const lastCompleteWeekStart = addDays(weekStartOf(todayISO), -7);
   const anchor =
-    sp.week && /^\d{4}-\d{2}-\d{2}$/.test(sp.week)
-      ? sp.week
-      : localDateString(new Date(), BUSINESS_TIMEZONE);
+    sp.week && /^\d{4}-\d{2}-\d{2}$/.test(sp.week) ? sp.week : lastCompleteWeekStart;
   const weekStart = weekStartOf(anchor);
   const weekEnd = weekEndOf(anchor);
   const prevWeek = addDays(weekStart, -7);
   const nextWeek = addDays(weekStart, 7);
-  const todayISO = localDateString(new Date(), BUSINESS_TIMEZONE);
   const isCurrentWeek = weekStart === weekStartOf(todayISO);
 
   const [{ overview, fetchError }, runsResult] = await Promise.all([
     loadWeek(raw, weekStart, weekEnd),
     loadRuns(raw),
   ]);
+
+  // Worker universe of the week (anyone with an entry or a server-flagged
+  // missing day) — the ids we need cost rates for. Built from the same data the
+  // closeout uses, so no extra round-trip and no fabricated workers.
+  const workerIds = new Set<string>();
+  for (const e of overview?.entries ?? []) workerIds.add(e.userId);
+  for (const m of overview?.missing ?? []) workerIds.add(m.userId);
+
+  // §5 labour $: /hours is admin-tier, so the office sees labour here. We read
+  // the confidential, effective-dated cost rate (api/cost-rates.js, admin-gated)
+  // for each worker, resolved to the rate effective on the week's Monday. A
+  // leading-hand viewer never reaches this (admin-gated page) and the endpoint
+  // 403s them anyway → no rates → the board shows "—" / omits the labour figure.
+  const costRatesByWorker = isAdminRole(session.role)
+    ? await loadCostRates(raw, [...workerIds], weekStart)
+    : {};
+
   const closeout = buildWeeklyHoursCloseout({
     entries: overview?.entries ?? [],
     missing: overview?.missing ?? [],
@@ -84,6 +107,7 @@ export default async function HoursWeeklyCloseoutPage({
     holidays: overview?.holidays ?? [],
     weekStart,
     todayISO,
+    costRatesByWorker,
   });
 
   return (
@@ -197,6 +221,56 @@ async function loadRuns(
   } catch (err) {
     return { runs: [], error: err instanceof Error ? err.message : "Network error" };
   }
+}
+
+/**
+ * §5 labour: the effective LOADED-COST rate (integer cents) per worker for the
+ * week, keyed by userId. ADMIN-TIER — the caller has already checked the role,
+ * and /api/cost-rates is admin-gated server-side too. One GET per worker (a
+ * week is a handful of workers); a worker with no rate is simply absent from the
+ * map, so the closeout carries null cost → the board shows "—", never a $0.
+ * Fail-soft: a failed fetch drops that worker (understated labour, never a 500).
+ * Rates are resolved against the worker's history to the rate effective on the
+ * week's Monday, so a back-week is costed at the rate that was effective THEN.
+ */
+async function loadCostRates(
+  cookieValue: string | undefined,
+  workerIds: string[],
+  weekStart: string,
+): Promise<Record<string, number>> {
+  if (workerIds.length === 0) return {};
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+
+  const pairs = await Promise.all(
+    workerIds.map(async (userId): Promise<[string, number] | null> => {
+      try {
+        const res = await fetch(
+          `${base}/api/cost-rates?userId=${encodeURIComponent(userId)}`,
+          {
+            cache: "no-store",
+            headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+          },
+        );
+        if (!res.ok) return null;
+        const parsed = CostRateHistoryResponseSchema.safeParse(await res.json());
+        if (!parsed.success) return null;
+        const effective = effectiveCostRateOn(parsed.data.history, weekStart);
+        if (!effective || effective.costRateCents <= 0) return null;
+        return [userId, effective.costRateCents];
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  const out: Record<string, number> = {};
+  for (const pair of pairs) {
+    if (pair) out[pair[0]] = pair[1];
+  }
+  return out;
 }
 
 async function loadWeek(

@@ -40,6 +40,26 @@ export function formatCents(cents: number | null | undefined): string {
 }
 
 /**
+ * The rate entry effective on `date` (YYYY-MM-DD): the latest entry whose
+ * effectiveFrom ≤ date, or null when the worker had no rate yet then. Pure —
+ * the client-side mirror of the server's effectiveCostRate (api/_lib/cost-rates.js),
+ * so a PAST week is costed at the rate that was effective THEN (the store's
+ * append-only law), not today's rate. The endpoint's `current` is effective
+ * TODAY, which would mis-cost back-weeks; this resolves against the history.
+ */
+export function effectiveCostRateOn(
+  history: ReadonlyArray<CostRateEntry>,
+  date: string,
+): CostRateEntry | null {
+  let best: CostRateEntry | null = null;
+  for (const entry of history) {
+    const ef = entry.effectiveFrom;
+    if (ef && ef <= date && (!best || ef >= best.effectiveFrom)) best = entry;
+  }
+  return best;
+}
+
+/**
  * Parse a dollars string ("52.50", "52") into integer cents, or null if it
  * isn't a positive money value. Pure — used by the admin form before POST.
  */

@@ -2,31 +2,42 @@ import { cn } from "@/lib/cn";
 import type { StripCell, StripTone } from "@/domains/timesheets/pay-run";
 
 /**
- * The seven-day "shape of the week" strip (brief §5) — one square per day,
- * Mon → Sun, so the office reads a worker's week at a glance before expanding
- * the row: solid green across = a clean approved week; an amber gap = a missing
- * day; a red square = a rejection waiting on the worker.
+ * The seven-day strip (§5 mockup `hwk-strip`) — one cell per day, Mon → Sun,
+ * each showing the ACTUAL LOGGED HOURS NUMBER ("8", "8.5", "10.5"). A day with
+ * no logged hours shows a glyph, never a fabricated 0: "—" for a server-flagged
+ * missing day, "·" for an off / not-required / future day, "L"/"H" for leave /
+ * holiday. Status colour comes from brand tokens (no inline gradients — the
+ * repo bans the `style` attribute, so the mockup's per-day linear-gradient bars
+ * are intentionally NOT ported).
  *
- * Presentational only. The cells come from the pure pay-run VM
- * (src/domains/timesheets/pay-run.ts → workerStrip); this renders them with
- * brand tokens. Each cell carries a full `title` for hover + an aria-label so
- * the strip is not colour-only (the tone is backed by the day glyph/hours and
- * the accessible label).
+ * Presentational only. Cells come from the pure pay-run VM
+ * (src/domains/timesheets/pay-run.ts → workerStrip); each carries a full
+ * `title` for hover + an aria-label so the strip is not colour-only.
  */
 
-// Square fills — the status palette, kept consistent with the board's Pills:
-// approved=success, submitted=info, rejected=danger, draft/missing=warning,
-// leave=info-subtle, holiday/empty=neutral. Border + bg only, no new hex.
+// Day-cell fills — the status palette, kept consistent with the board's Pills:
+// approved=success, submitted=info, rejected/overtime=danger, draft/missing=
+// warning, leave=info-subtle, holiday/empty=neutral. Border + bg only, no hex.
 const CELL_TONE: Record<StripTone, string> = {
   approved: "border-emerald-200 bg-emerald-100 text-emerald-900",
   submitted: "border-sky-200 bg-sky-100 text-sky-900",
   rejected: "border-rose-200 bg-rose-100 text-rose-900",
   draft: "border-amber-200 bg-amber-100 text-amber-900",
-  missing: "border-amber-200 bg-amber-50 text-amber-800",
+  missing: "border-amber-300 bg-transparent text-amber-700",
   leave: "border-sky-200 bg-sky-50 text-sky-800",
   holiday: "border-border bg-surface-subtle text-text-muted",
-  empty: "border-border bg-surface text-text-muted",
+  empty: "border-transparent bg-transparent text-text-muted",
 };
+
+// Overtime cell — a long day reads red even when its status is approved /
+// submitted, so a >10h or stored-OT day pops in the strip (§5 .hwk-day.over).
+const OVERTIME_CELL = "border-rose-200 bg-rose-50 text-rose-700";
+
+/** A logged day with stored overtime, or a >10h day — the mockup's "over"
+ *  treatment. Pure: reads only the cell the model already produced. */
+function isOvertimeCell(cell: StripCell): boolean {
+  return cell.hoursNumber != null && cell.hoursNumber > 10;
+}
 
 export function WeekShapeStrip({
   cells,
@@ -38,28 +49,31 @@ export function WeekShapeStrip({
 }) {
   return (
     <div
-      className="flex gap-1"
+      className="flex gap-1.5"
       role="img"
       aria-label={`${workerName} — week at a glance`}
     >
-      {cells.map((cell) => (
-        <div
-          key={cell.date}
-          title={cell.title}
-          aria-label={`${workerName}: ${cell.title}`}
-          className={cn(
-            "flex h-12 w-9 shrink-0 flex-col items-center justify-center rounded-card border text-center sm:w-10",
-            CELL_TONE[cell.tone],
-          )}
-        >
-          <span className="font-mono text-[10px] uppercase leading-none tracking-wide opacity-70">
-            {cell.weekday}
-          </span>
-          <span className="mt-0.5 font-display text-xs font-semibold leading-none tabular-nums">
-            {cell.hoursLabel ? cell.hoursLabel.replace(/\s+/g, "") : cell.emptyGlyph}
-          </span>
-        </div>
-      ))}
+      {cells.map((cell) => {
+        const over = isOvertimeCell(cell);
+        return (
+          <div
+            key={cell.date}
+            title={cell.title}
+            aria-label={`${workerName}: ${cell.title}`}
+            className={cn(
+              "flex h-12 w-10 shrink-0 flex-col items-center justify-center gap-0.5 rounded-card border text-center",
+              over ? OVERTIME_CELL : CELL_TONE[cell.tone],
+            )}
+          >
+            <span className="font-mono text-[8px] font-semibold uppercase leading-none tracking-widest opacity-70">
+              {cell.weekday}
+            </span>
+            <span className="font-display text-sm font-bold leading-none tabular-nums">
+              {cell.hoursShort ?? cell.emptyGlyph}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

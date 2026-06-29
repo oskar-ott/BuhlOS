@@ -124,6 +124,181 @@ describe("buildWeeklyHoursCloseout — totals and counts", () => {
   });
 });
 
+describe("buildWeeklyHoursCloseout — §5 logged hours, labour $ and job split", () => {
+  it("loggedHours sums EVERY logged day (all four statuses), not just approved", () => {
+    const c = build([
+      entry({ userId: "u1", date: "2024-05-20", status: "approved", totalHours: 8 }),
+      entry({ userId: "u1", date: "2024-05-21", status: "submitted", totalHours: 8.5 }),
+      entry({ userId: "u1", date: "2024-05-22", status: "rejected", totalHours: 9, rejectedReason: "x" }),
+      entry({ userId: "u1", date: "2024-05-23", status: "draft", totalHours: 7 }),
+    ]);
+    const w = c.workers[0]!;
+    expect(w.loggedHours).toBeCloseTo(32.5, 5); // 8 + 8.5 + 9 + 7
+    expect(w.approvedHours).toBeCloseTo(8, 5); // approved subset unchanged
+    expect(c.summary.loggedHours).toBeCloseTo(32.5, 5);
+  });
+
+  it("a missing / leave / holiday / future day contributes no logged hours", () => {
+    const c = build(
+      [entry({ userId: "u1", date: "2024-05-20", status: "approved", totalHours: 8 })],
+      [missing("u1", "2024-05-22")],
+    );
+    expect(c.workers[0]!.loggedHours).toBeCloseTo(8, 5);
+  });
+
+  it("labourCents = round(loggedHours × rate) when a rate is supplied", () => {
+    const c = buildWeeklyHoursCloseout({
+      entries: [
+        entry({ userId: "u1", date: "2024-05-20", status: "approved", totalHours: 8 }),
+        entry({ userId: "u1", date: "2024-05-21", status: "submitted", totalHours: 2 }),
+      ],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+      costRatesByWorker: { u1: 5250 }, // $52.50/h loaded cost
+    });
+    const w = c.workers[0]!;
+    expect(w.costRateCents).toBe(5250);
+    expect(w.labourCents).toBe(52_500); // 10h × 5250
+    expect(c.summary.labourCents).toBe(52_500);
+    expect(c.summary.ratedWorkers).toBe(1);
+  });
+
+  it("a worker with NO rate carries null cost (honest '—', never a fabricated $0)", () => {
+    const c = buildWeeklyHoursCloseout({
+      entries: [
+        entry({ userId: "u1", date: "2024-05-20", status: "approved", totalHours: 8 }),
+        entry({ userId: "u2", date: "2024-05-20", status: "approved", totalHours: 8 }),
+      ],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+      costRatesByWorker: { u1: 5000 }, // only u1 is rated
+    });
+    const u1 = c.workers.find((w) => w.workerId === "u1")!;
+    const u2 = c.workers.find((w) => w.workerId === "u2")!;
+    expect(u1.labourCents).toBe(40_000);
+    expect(u2.costRateCents).toBeNull();
+    expect(u2.labourCents).toBeNull();
+    // The hero labour sums ONLY the rated worker — u2 contributes nothing.
+    expect(c.summary.labourCents).toBe(40_000);
+    expect(c.summary.ratedWorkers).toBe(1);
+  });
+
+  it("no rates at all → zero rated workers, zero labour (hero omits the figure)", () => {
+    const c = build([entry({ userId: "u1", date: "2024-05-20", totalHours: 8 })]);
+    expect(c.workers[0]!.costRateCents).toBeNull();
+    expect(c.workers[0]!.labourCents).toBeNull();
+    expect(c.summary.ratedWorkers).toBe(0);
+    expect(c.summary.labourCents).toBe(0);
+  });
+
+  it("a zero / negative rate is treated as unknown (null), never a fake $0", () => {
+    const c = buildWeeklyHoursCloseout({
+      entries: [entry({ userId: "u1", date: "2024-05-20", status: "approved", totalHours: 8 })],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+      costRatesByWorker: { u1: 0 },
+    });
+    expect(c.workers[0]!.costRateCents).toBeNull();
+    expect(c.workers[0]!.labourCents).toBeNull();
+  });
+
+  it("jobBreakdown sums logged hours per job, biggest first (drives the split chips)", () => {
+    const c = build([
+      entry({
+        userId: "u1",
+        date: "2024-05-20",
+        status: "approved",
+        totalHours: 8,
+        allocations: [
+          { jobId: "j1", jobName: "100 Arthur", hours: 5 },
+          { jobId: "j2", jobName: "Depot", hours: 3 },
+        ],
+      } as Partial<TimeEntry> & { userId: string; date: string }),
+      entry({
+        userId: "u1",
+        date: "2024-05-21",
+        status: "submitted",
+        totalHours: 4,
+        allocations: [{ jobId: "j2", jobName: "Depot", hours: 4 }],
+      } as Partial<TimeEntry> & { userId: string; date: string }),
+    ]);
+    expect(c.workers[0]!.jobBreakdown).toEqual([
+      { jobId: "j2", jobName: "Depot", hours: 7 }, // 3 + 4, biggest first
+      { jobId: "j1", jobName: "100 Arthur", hours: 5 },
+    ]);
+  });
+
+  it("a single-job week has one breakdown slice (no 'split this week')", () => {
+    const c = build([
+      entry({ userId: "u1", date: "2024-05-20", status: "approved", totalHours: 8 }),
+      entry({ userId: "u1", date: "2024-05-21", status: "approved", totalHours: 8 }),
+    ]);
+    expect(c.workers[0]!.jobBreakdown).toHaveLength(1);
+    expect(c.workers[0]!.jobBreakdown[0]).toMatchObject({ jobName: "100 Arthur", hours: 16 });
+  });
+});
+
+describe("buildWeeklyHoursCloseout — §5 needs-a-look reasons (real signals)", () => {
+  it("a missing day raises a site-language reason", () => {
+    const c = build([], [missing("u1", "2024-05-22")]);
+    expect(c.workers[0]!.needsLookReasons.some((r) => r.includes("No entry for Wed"))).toBe(true);
+  });
+
+  it("a rejected day cites the reason and that it's with the worker", () => {
+    const c = build([
+      entry({ userId: "u1", date: "2024-05-21", status: "rejected", rejectedReason: "Wrong job" }),
+    ]);
+    const reasons = c.workers[0]!.needsLookReasons.join(" | ");
+    expect(reasons).toContain("Wrong job");
+    expect(reasons.toLowerCase()).toContain("worker");
+  });
+
+  it("a stored-overtime day flags 'overtime needs your nod'", () => {
+    const c = build([
+      entry({
+        userId: "u1",
+        date: "2024-05-20",
+        status: "submitted",
+        totalHours: 10,
+        ordinaryHours: 8,
+        overtimeHours: 2,
+      }),
+    ]);
+    expect(c.workers[0]!.needsLookReasons.some((r) => r.toLowerCase().includes("overtime"))).toBe(true);
+  });
+
+  it("a >10h day flags overtime even without a stored OT split", () => {
+    const c = build([
+      entry({
+        userId: "u1",
+        date: "2024-05-20",
+        status: "submitted",
+        totalHours: 11,
+        ordinaryHours: 11,
+        overtimeHours: 0,
+      }),
+    ]);
+    expect(c.workers[0]!.needsLookReasons.some((r) => r.includes("over 10h"))).toBe(true);
+  });
+
+  it("a clean approved week has NO needs-a-look reasons (nothing invented)", () => {
+    const c = build([
+      entry({ userId: "u1", date: "2024-05-20", status: "approved", totalHours: 8 }),
+    ]);
+    expect(c.workers[0]!.needsLookReasons).toEqual([]);
+  });
+
+  it("a plain submitted day (no OT, no flags) raises no reason — just pending", () => {
+    const c = build([
+      entry({ userId: "u1", date: "2024-05-20", status: "submitted", totalHours: 8 }),
+    ]);
+    expect(c.workers[0]!.needsLookReasons).toEqual([]);
+  });
+});
+
 describe("buildWeeklyHoursCloseout — readiness rules", () => {
   it("payroll-ready only when every day is approved or honestly not required", () => {
     const c = build([
@@ -466,7 +641,8 @@ describe("submittedWeekSelection (#124 — the Approve-week payload)", () => {
       readiness: "needs-review" as const,
       approvedHours: 0, approvedCount: 0, submittedCount: 7,
       rejectedCount: 0, draftCount: 0, missingCount: 0,
-      blockers: [], days,
+      blockers: [], needsLookReasons: [], days,
+      loggedHours: 0, jobBreakdown: [], costRateCents: null, labourCents: null,
     };
     expect(submittedWeekSelection(worker).length).toBeLessThanOrEqual(BULK_APPROVE_MAX);
   });
