@@ -8,6 +8,8 @@ import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { EmployeeRegisterClient } from "@/components/admin/EmployeeRegisterClient";
+import { ResourceStatRow } from "@/components/admin/ResourceStatRow";
+import { buildPeopleSummary } from "@/domains/resources/summary";
 import { loadEmployeesView } from "./load";
 
 /**
@@ -28,6 +30,16 @@ export async function EmployeesScreen({ selectedId }: { selectedId?: string | nu
 
   const view = await loadEmployeesView(raw);
 
+  // §7 redesign — glanceable crew header. Pure projection over the rows + the
+  // server-computed licence worst-status map the register already loads (no
+  // extra fetch). Suppressed on a failed load so we never show a fabricated 0.
+  const summary = view.fetchError
+    ? null
+    : buildPeopleSummary({
+        rows: view.rows,
+        licenceStatusByUserId: view.licenceStatusByUserId,
+      });
+
   return (
     <AdminShell
       title="Employees"
@@ -41,13 +53,15 @@ export async function EmployeesScreen({ selectedId }: { selectedId?: string | nu
       }
     >
       <div className="mx-auto max-w-6xl space-y-4">
-        <Card>
-          <CardTitle>People · one worker, one invite, one app</CardTitle>
-          <CardDescription>
-            Add a worker, send them an invite, and they set up Phil on their own phone. The status
-            on each row updates as they open the invite and finish setup.
-          </CardDescription>
-        </Card>
+        {/* Title lives in the top bar (AdminTopbar h1); this is the glanceable
+            sub-line + KPI header from the §7 prototype. */}
+        <p className="text-sm text-text-muted">
+          {summary
+            ? summary.subline
+            : "Add a worker, send an invite, and they set up Phil on their own phone."}
+        </p>
+
+        {summary ? <ResourceStatRow label="People at a glance" tiles={summary.tiles} /> : null}
 
         {view.fetchError ? (
           <Card className="border-amber-200 bg-amber-50" role="alert">
