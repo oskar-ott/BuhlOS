@@ -49,14 +49,19 @@ Resolution order — first hit wins:
 admin-tier viewers (tier-aware `isAdminRole` — the role-literal guard applies
 here like everywhere). `global` ignores the viewer.
 
-**Owner Console shows flags read-only.** `/owner` (`docs/owner-console.md`)
+**Owner Console controls flags (#760).** `/owner` (`docs/owner-console.md`)
 displays every flag's resolved state, **source** (env > blob > default), target,
-and expiry classification. It does **not** toggle anything: there is no safe
-runtime override write-path yet (no audited, CAS-guarded, protected-flag-aware
-writer for `flags.json`, and the `supabase_*` cutover flags must never be flipped
-from a UI mid-sync). Building that writer — with a new `feature_flag.toggled`
-audit action and a protected-flag guard — is a tracked follow-up; until then,
-flip flags via the env var or the blob as above.
+and expiry classification — and for non-protected flags it now **toggles** them
+at runtime via `POST /api/owner-flags` (owner-gated, CAS-guarded on `flags.json`,
+audited with the `feature_flag.toggled` action). Two dials per flag: **Live to
+customers** (the `flags.json` baseline) and **Preview for me** (an owner-only
+`ownerPreview` override). Protected data-plane flags (`supabase_*`,
+`phil_jobs_summary_read`) stay read-only there, and env (`FLAG_*`) always wins.
+The viewer-aware resolver `isFlagEnabled` applies owner-preview **only** for the
+stored `owner` role; the data-plane `isFlagOn`/`isFlagOnSync` path never reads
+`ownerPreview`. Per-feature config knobs ride the same surface via
+`PUT /api/owner-settings` (#760 PR2). You can still flip a flag per-environment
+via the env var or the blob as above.
 
 ## Using a flag
 
