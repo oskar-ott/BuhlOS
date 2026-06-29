@@ -74,6 +74,7 @@ export function QaStatusBoard({ result }: { result: QaStatusResult }) {
                 <th className="px-2 py-2 font-medium">Signed&nbsp;off</th>
                 <th className="px-2 py-2 font-medium">Open&nbsp;pts</th>
                 <th className="px-2 py-2 font-medium">Oldest&nbsp;active</th>
+                <th className="px-2 py-2 font-medium"></th>
               </tr>
             </thead>
             <tbody>
@@ -109,7 +110,7 @@ function QaRow({ row }: { row: QaJobRow }) {
     return (
       <tr className="border-b border-border/60">
         <td className="py-2 pr-3">{name}</td>
-        <td className="px-2 py-2 text-text-muted" colSpan={6}>
+        <td className="px-2 py-2 text-text-muted" colSpan={7}>
           No ITPs attached
         </td>
       </tr>
@@ -132,6 +133,18 @@ function QaRow({ row }: { row: QaJobRow }) {
       <td className="px-2 py-2 tabular-nums">{rollup.openPoints}</td>
       <td className="px-2 py-2 tabular-nums">
         {rollup.oldestActiveAgeDays === null ? "—" : `${rollup.oldestActiveAgeDays}d`}
+      </td>
+      {/* Inline action — only when there's something awaiting sign-off. Points
+          at the row's existing per-job ITP surface (no new route). */}
+      <td className="px-2 py-2 text-right">
+        {rollup.awaitingSignOff > 0 ? (
+          <Link
+            href={href}
+            className="font-medium text-state-warning underline decoration-accent-yellow decoration-2 underline-offset-2"
+          >
+            Review
+          </Link>
+        ) : null}
       </td>
     </tr>
   );

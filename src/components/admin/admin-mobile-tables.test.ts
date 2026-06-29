@@ -79,7 +79,10 @@ describe("admin data tables stay horizontally scrollable on mobile", () => {
   it("the employee register grid scrolls (overflow-x-auto + min-w floor) instead of overflowing", () => {
     const src = read("EmployeeRegisterClient.tsx");
     expect(src).toContain("overflow-x-auto");
-    expect(src).toContain("min-w-[640px]");
+    // A min-width floor keeps the dense column grid legible and forces the
+    // wrapper to scroll rather than crush the columns. The exact value tracks
+    // the column count (widened to 760px when the Mobile column was added, §7A).
+    expect(src).toMatch(/min-w-\[\d+px\]/);
   });
 
   it("the dense registers ship a mobile card list (sm:hidden) beside the desktop table/grid", () => {

@@ -23,6 +23,7 @@ const QUOTES: ReadonlyArray<QuoteSummary> = [
   {
     id: "qv2_a",
     name: "Birdwood St rewire",
+    clientName: "B. Hender",
     status: "draft",
     updatedAt: "2026-06-12T01:00:00.000Z",
     totalIncGst: 416,
@@ -31,6 +32,7 @@ const QUOTES: ReadonlyArray<QuoteSummary> = [
   {
     id: "qv2_b",
     name: "East Gym fitout",
+    clientName: null, // not captured → honest dash
     status: "submitted",
     updatedAt: "2026-06-11T01:00:00.000Z",
     totalIncGst: 12345.5,
@@ -53,6 +55,22 @@ describe("QuotesList (#183)", () => {
     expect(html).toContain("$12,345.50"); // en-AU grouping + forced cents
     expect(html).toContain("3 lines");
     expect(html).toContain("1 line"); // singular
+  });
+
+  it("renders the Client column — captured client name, or an honest dash (§8A)", () => {
+    const html = render();
+    // clientName is already captured on the quote; the list now shows it.
+    expect(html).toContain("B. Hender");
+    // A quote with no client name shows "—", never a fabricated client.
+    expect(html).toContain("—");
+  });
+
+  it("never exposes cost or margin in the list projection (confidential — §8A)", () => {
+    // The list summary is SELL-SIDE only. Cost/margin live behind the admin gate
+    // on the detail surface; they must not appear in the registry-fed list.
+    const html = render();
+    expect(html.toLowerCase()).not.toContain("cost");
+    expect(html.toLowerCase()).not.toContain("margin");
   });
 
   it("rows deep-link into the builder", () => {

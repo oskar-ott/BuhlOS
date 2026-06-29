@@ -244,9 +244,10 @@ export function EmployeeRegisterClient({
         <div className="hidden overflow-x-auto rounded-card border border-border bg-surface sm:block">
           {/* Column header — min-w keeps the 6 columns legible; the wrapper
               scrolls horizontally rather than crushing/overflowing the page. */}
-          <div className="grid min-w-[640px] grid-cols-[1.6fr_1fr_0.9fr_0.5fr_0.5fr_0.8fr] gap-3 border-b border-border bg-surface-subtle px-4 py-2 font-mono text-[9.5px] uppercase tracking-wider text-text-muted">
+          <div className="grid min-w-[760px] grid-cols-[1.6fr_1fr_1fr_0.9fr_0.5fr_0.5fr_0.8fr] gap-3 border-b border-border bg-surface-subtle px-4 py-2 font-mono text-[9.5px] uppercase tracking-wider text-text-muted">
             <span>Employee</span>
             <span>Role</span>
+            <span>Mobile</span>
             <span>Status</span>
             <span>Jobs</span>
             <span>Gear</span>
@@ -267,7 +268,7 @@ export function EmployeeRegisterClient({
                     <button
                       type="button"
                       onClick={() => setSelectedId(e.id)}
-                      className="grid w-full min-w-[640px] grid-cols-[1.6fr_1fr_0.9fr_0.5fr_0.5fr_0.8fr] items-center gap-3 border-b border-border px-4 py-3 text-left text-sm last:border-b-0 hover:bg-surface-subtle"
+                      className="grid w-full min-w-[760px] grid-cols-[1.6fr_1fr_1fr_0.9fr_0.5fr_0.5fr_0.8fr] items-center gap-3 border-b border-border px-4 py-3 text-left text-sm last:border-b-0 hover:bg-surface-subtle"
                     >
                       <span className="flex min-w-0 items-center gap-2.5">
                         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-subtle font-mono text-[10px] font-bold text-brand-navy">
@@ -283,6 +284,12 @@ export function EmployeeRegisterClient({
                         <span className="block font-mono text-[10px] uppercase tracking-wider text-text-muted">
                           {e.appAccess === "phil" ? "Field · Phil" : e.appAccess === "both" ? "Field · Phil +" : "Office · BuhlOS"}
                         </span>
+                      </span>
+                      {/* Mobile — the field "call number". The whole row is a
+                          button (opens the drawer), so this is plain text here;
+                          the one-tap tel: link lives in the detail drawer. */}
+                      <span className="min-w-0 truncate font-mono text-[11px] text-text-muted">
+                        {e.phone || "—"}
                       </span>
                       <span className="flex flex-wrap items-center gap-1">
                         <EmployeeStatusChip employee={e} invite={row.invite} />

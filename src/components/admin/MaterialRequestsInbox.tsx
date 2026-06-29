@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/Button";
 import { Drawer } from "@/components/ui/Drawer";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusChip } from "@/components/ui/StatusChip";
+import { cn } from "@/lib/cn";
 import {
   InboxBanner,
   InboxFilterBar,
@@ -28,6 +29,7 @@ import {
   compareForInbox,
   isOpenRequest,
   summariseInbox,
+  type MaterialRequestSummary,
 } from "@/domains/material-requests/service";
 import {
   formatQuantity,
@@ -185,6 +187,17 @@ export function MaterialRequestsInbox({
       ) : null}
 
       {banner ? <InboxBanner tone={banner.tone}>{banner.message}</InboxBanner> : null}
+
+      {/* Procurement pipeline — the lifecycle a request moves through. Each
+          stage is a real count off `summary` and filters the list to it; the
+          stat strip below keeps the urgent / exception read. */}
+      <MaterialPipeline
+        summary={summary}
+        activeStatus={filters.status}
+        onPick={(status) =>
+          setFilters((f) => ({ ...f, status: f.status === status ? "" : status }))
+        }
+      />
 
       <InboxStatStrip stats={stats} />
 
@@ -614,6 +627,90 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     <div className="flex gap-2">
       <dt className="w-28 shrink-0 text-text-muted">{label}</dt>
       <dd className="min-w-0 flex-1 text-text">{value}</dd>
+    </div>
+  );
+}
+
+/* ── Procurement pipeline ───────────────────────────────────────────────── */
+
+const PIPELINE_STAGES: ReadonlyArray<{
+  status: MaterialRequestStatus;
+  label: string;
+  icon: typeof PackageOpen;
+}> = [
+  { status: "requested", label: "Requested", icon: PackageOpen },
+  { status: "approved", label: "Approved", icon: CheckCircle2 },
+  { status: "ordered", label: "Ordered", icon: Truck },
+  { status: "delivered", label: "Delivered", icon: Package },
+];
+
+/**
+ * The four-stage procurement pipeline: Requested → Approved → Ordered →
+ * Delivered, each a real count off `summary` (summariseInbox) and a button that
+ * filters the list to that stage (toggles off when it's already active). The
+ * connecting arrow reads left-to-right as the lifecycle. Cancelled is a
+ * terminal exit, not a pipeline stage, so it isn't shown here (the status
+ * filter still reaches it).
+ */
+function MaterialPipeline({
+  summary,
+  activeStatus,
+  onPick,
+}: {
+  summary: MaterialRequestSummary;
+  activeStatus: MaterialRequestStatus | "";
+  onPick: (status: MaterialRequestStatus) => void;
+}) {
+  return (
+    <div
+      className="flex items-stretch gap-1 overflow-x-auto rounded-card border border-border bg-surface p-2"
+      data-testid="material-pipeline"
+    >
+      {PIPELINE_STAGES.map((stage, i) => {
+        const count = summary[stage.status];
+        const active = activeStatus === stage.status;
+        const Icon = stage.icon;
+        return (
+          <div key={stage.status} className="flex flex-1 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onPick(stage.status)}
+              aria-pressed={active}
+              data-testid={`material-pipeline-${stage.status}`}
+              className={cn(
+                "flex flex-1 flex-col items-center gap-0.5 rounded-card px-3 py-2 text-center transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
+                active ? "bg-brand-navy text-text-inverse" : "hover:bg-surface-subtle"
+              )}
+            >
+              <Icon
+                aria-hidden="true"
+                className={cn("h-4 w-4", active ? "text-text-inverse" : "text-text-muted")}
+              />
+              <span
+                className={cn(
+                  "font-display text-xl tabular-nums",
+                  active ? "text-text-inverse" : count === 0 ? "text-text-muted" : "text-text"
+                )}
+              >
+                {count}
+              </span>
+              <span
+                className={cn(
+                  "font-mono text-[10px] uppercase tracking-wider",
+                  active ? "text-text-inverse" : "text-text-muted"
+                )}
+              >
+                {stage.label}
+              </span>
+            </button>
+            {i < PIPELINE_STAGES.length - 1 ? (
+              <span aria-hidden="true" className="shrink-0 px-0.5 text-text-muted">
+                →
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

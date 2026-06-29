@@ -238,6 +238,10 @@ function summaryRow(doc) {
   return {
     id: doc.id,
     name: doc.name,
+    // clientName is already captured on the document; the list surface shows it
+    // as a Client column (admin-only surface). null when not set so the UI shows
+    // an honest "—". Older registry rows lack it until the quote is next saved.
+    clientName: doc.clientName || null,
     status: doc.status,
     updatedAt: doc.updatedAt,
     totalIncGst: doc.totals.totalIncGst,

@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { AssetDrawer } from "./GearRegisterClient";
+import { AssetDrawer, GearRegisterClient } from "./GearRegisterClient";
 import type { GearAsset, GearHolderUser } from "@/domains/gear/types";
+
+// GearRegisterClient calls useRouter; stub it for the SSR smoke.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => {}, push: () => {} }),
+}));
 
 /**
  * SSR render test for the Gear holder picker (node env). The transfer <select>
@@ -93,5 +98,48 @@ describe("Gear holder picker (AssetDrawer transfer <select>)", () => {
     const html = render(assetFixture({ archived: true }), HOLDERS);
     expect(html).not.toContain("Return to depot");
     expect(optionCount(html)).toBe(0);
+  });
+});
+
+describe("Gear register status-contextual row action (§7B)", () => {
+  function renderTable(assets: GearAsset[]): string {
+    return renderToString(
+      createElement(GearRegisterClient, { initialAssets: assets, holders: HOLDERS }),
+    );
+  }
+
+  it("offers 'Mark good' on a damaged asset and 'Mark found' on a missing one", () => {
+    const html = renderTable([
+      assetFixture({ id: "g_dmg", name: "Cracked tester", condition: "damaged" }),
+      assetFixture({ id: "g_lost", name: "Lost ladder", condition: "missing" }),
+    ]);
+    expect(html).toContain('data-testid="gear-row-action-g_dmg"');
+    expect(html).toContain("Mark good");
+    expect(html).toContain('data-testid="gear-row-action-g_lost"');
+    expect(html).toContain("Mark found");
+  });
+
+  it("offers 'Book test' when a test instrument's calibration has lapsed", () => {
+    // calibrationDue well in the past → calibrationFlag === 'expired' regardless
+    // of the day the component computes internally.
+    const html = renderTable([
+      assetFixture({ id: "g_cal", name: "Megger", type: "tool", calibrationDue: "2000-01-01" }),
+    ]);
+    expect(html).toContain('data-testid="gear-row-action-g_cal"');
+    expect(html).toContain("Book test");
+    expect(html).toContain("Calibration due");
+  });
+
+  it("shows ONLY the Manage fallback for a healthy asset (no contextual action)", () => {
+    const html = renderTable([assetFixture({ id: "g_ok", name: "Good drill", condition: "good" })]);
+    expect(html).not.toContain('data-testid="gear-row-action-g_ok"');
+    expect(html).toContain("Manage");
+  });
+
+  it("renders an inline note from asset.notes when present", () => {
+    const html = renderTable([
+      assetFixture({ id: "g_note", name: "Drill", notes: "chuck sticks intermittently" }),
+    ]);
+    expect(html).toContain("chuck sticks intermittently");
   });
 });
