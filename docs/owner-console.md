@@ -12,10 +12,11 @@ admin tier. The Owner Console answers "is the *platform* healthy, what's used,
 what's broken or uninstrumented, and what's risky" for the **person who runs the
 product**. Keep the two separate: business *numbers* vs platform *observability*.
 
-> First slice. This is a deliberately small, honest, **read-only** first
-> version. It surfaces the real signals that exist today and labels the gaps
-> plainly; it does not invent telemetry or controls. The follow-ups at the end
-> deepen it.
+> Honest by construction. Every panel surfaces real signals that exist today and
+> labels the gaps plainly; it never invents telemetry. The observability panels
+> are read-only; the **feature-flag panel is a live control** (#760) — see
+> [Feature-flag control](#feature-flag-control-760). The follow-ups at the end
+> deepen the rest.
 
 ## Who can access it
 
@@ -105,8 +106,58 @@ The console **displays** flag state but does **not** toggle anything.
 - Never returns: `SESSION_SECRET` (only a configured/not boolean), password
   hashes, raw env, the raw `flags.json` blob, audit metadata payloads, or the
   full user table. The viewer's own email is **masked**.
-- `GET` only (no mutation via this endpoint); a non-`GET` is `405`.
+- `api/owner.js` is `GET` only (no mutation; non-`GET` is `405`). The one write
+  surface is the companion `api/owner-flags.js` (`POST`), which reuses the
+  **identical** owner gate (`requireAuth` + `canAccessOwnerConsole`, fails
+  closed) and is CAS-guarded + audited — see
+  [Feature-flag control](#feature-flag-control-760).
 - No client-only access control; no "temporary open route".
+
+## Feature-flag control (#760)
+
+The feature-flag panel is a **live control surface**: the owner switches
+unfinished features off for customers at launch and still previews them in the
+real product. Each non-protected flag has **two dials**:
+
+- **Live to customers** — the launch gate (the `flags.json` `flags[key]`
+  baseline; what everyone sees).
+- **Preview for me** — an **owner-only** override (`flags.json`
+  `ownerPreview[key]`) layered on top, so the owner runs a feature live while
+  customers still can't see it.
+
+**Resolution precedence** (`isFlagEnabled(key, viewer)` in
+`api/_lib/feature-flags.js`): `env (FLAG_*) > owner-preview (owner viewer only) >
+customer baseline (blob → registry default)`, then admin-tier targeting. The
+data-plane path (`isFlagOn` / `isFlagOnSync`, no viewer) is **unchanged** and
+never reads `ownerPreview`, so owner preview can't alter request-time data
+behaviour.
+
+**Write path** — `POST /api/owner-flags` `{ key, scope, value, expectedRev }`
+(`scope` = `customer` | `ownerPreview`; `value` = `true`/`false`, or `null` to
+clear). Owner-gated (same boundary as the read endpoint, fails closed),
+registry-validated, CAS-guarded (`expectedRev` on `flags.json`), and audited
+(`feature_flag.toggled`, best-effort). Toggles are optimistic in the UI and roll
+back with a visible error on failure.
+
+**Rules & constraints (deliberate):**
+
+- **Protected data-plane flags** (`supabase_*`, `phil_jobs_summary_read`) are
+  **never** toggleable here (`isProtectedFlag` → `409`); they're ops levers, set
+  via env. The console renders them read-only.
+- **Env always wins.** A flag pinned by a `FLAG_*` env var can't be changed from
+  the console; the row shows disabled with a "pinned by env" note.
+- **Owner-role precondition.** *Preview for me* only takes effect **in the live
+  app** when the owner's account has the stored **`owner` role** — RSC/API
+  viewers carry role but no email, so the `OWNER_EMAILS` path can't drive in-app
+  preview. When access is via the email allowlist the panel shows a banner saying
+  so. The *customer* toggle works regardless. (See follow-up: owner-role
+  hardening.)
+- **Shared blob + ~5s cache.** `flags.json` is one Blob object; a toggle applies
+  to any environment sharing that store and converges within ~5s (the `readBlob`
+  TTL). Use per-environment `FLAG_*` env vars for true per-env pinning.
+- **Expiry discipline.** Registry flags carry an `expires` date (CI-enforced).
+  Using a flag as a long-lived launch gate means consciously extending that date;
+  the console surfaces expiring/expired flags so it stays visible.
 
 ## How to verify
 
@@ -114,29 +165,51 @@ Unit (runs in `npm run test:unit`, no browser/credentials):
 
 - `src/domains/platform/owner-console-api.test.ts` — the access gate (`401`
   anon, `403` field/client/**non-owner admin**, `200` owner-role + email-
-  allowlist), no-secrets, read-only flags, derived coverage.
+  allowlist), no-secrets, `toggleable`/protected projection, **plus the
+  `POST /api/owner-flags` write path** (same gate; unknown-key/bad-scope/bad-value
+  `400`; protected `409` + blob untouched; customer & owner-preview happy paths;
+  `value:null` clear; CAS stale `409`; audit emitted; audit-failure tolerated).
+- `src/domains/flags/feature-flags.test.ts` — owner-preview resolution
+  (overrides baseline for the owner only; env beats preview; non-owner never
+  reads it; `isFlagOn`/`isFlagOnSync` ignore it; admin-tier composition) +
+  `isProtectedFlag`.
 - `src/lib/auth/owner-access.test.ts` — `isOwnerRole` + `canAccessOwnerConsole`
   TS↔CJS parity, the email allowlist + `OWNER_EMAILS` override.
 - `src/lib/auth/landing.test.ts` — `owner` → `/owner`, other admin roles → `/command-centre`.
 - `src/domains/platform/owner-console.test.ts` — classification helpers + schema.
 - `src/components/admin/OwnerConsole.render.test.tsx` — panels paint, honest
-  empty states, read-only flags.
+  empty states, the read-only fallback, and the interactive flag controls
+  (switches render; protected + env-pinned fenced).
 
-Live: the page's data comes from `api/owner.js`, which **does not run under
-`next dev`** — verify the rendered console on a **PR preview** deploy (sign in as
-the owner; confirm a normal admin gets a `404`).
+Live: the page's data comes from `api/owner.js` (and writes go to
+`api/owner-flags.js`), which **do not run under `next dev`** — verify on a **PR
+preview** deploy: sign in as the owner; confirm a normal admin gets a `404`;
+switch a feature **off for customers** and confirm a second (non-owner) session
+can't see it; turn **Preview for me** on and confirm it shows only to the owner;
+confirm a protected flag has no toggle.
+
+## Shipped
+
+- **Owner-safe runtime feature-flag override API (#760)** — `POST
+  /api/owner-flags`, audited (`feature_flag.toggled`), CAS-guarded
+  (`expectedRev`), protected-flag aware, with the two-dial (customer + owner
+  preview) model. See [Feature-flag control](#feature-flag-control-760).
 
 ## Follow-ups
 
-1. **Owner-safe runtime feature-flag override API** — audited (new
-   `feature_flag.toggled` action), CAS-guarded (`expectedRev`), protected-flag
-   aware. Only then add toggles to the console.
-2. **Route / feature usage instrumentation** — so the console can answer
+1. **Route / feature usage instrumentation** — so the console can answer
    "what's used / abandoned / dead".
-3. **Failed-action / error telemetry** — a persisted error feed.
-4. **Login / session activity** in the canonical audit journal.
-5. **Owner role hardening** — assign a `users.json` account the `owner` role
-   and/or configure `OWNER_EMAILS`, to move off the bootstrap default.
+2. **Failed-action / error telemetry** — a persisted error feed.
+3. **Login / session activity** in the canonical audit journal.
+4. **Owner role hardening** — assign a `users.json` account the `owner` role
+   (not just the `OWNER_EMAILS` bootstrap). Beyond moving off the default, this
+   is the **precondition for in-app *Preview for me***: RSC/API flag resolution
+   sees the role, not the email, so owner preview only takes effect once the
+   account's stored role is `owner`.
+5. **Per-feature config knobs (PR 2)** — tune real feature settings (upload
+   caps, length limits, windows) from the console, on top of the visibility
+   dials. A settings registry + `feature-settings.json` + `getSetting` resolver +
+   owner-gated write.
 6. **Preview/prod health summary** — wire the dark `supabase_read_health` probe
    and surface build/version metadata.
 

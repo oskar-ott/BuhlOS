@@ -10,8 +10,9 @@
 //   * OWNER-ONLY    — requireAuth (HMAC-verified, fresh users.json) then the
 //                     canAccessOwnerConsole gate (role 'owner' OR OWNER_EMAILS).
 //                     Fails CLOSED (401 unauth, 403 non-owner).
-//   * READ-ONLY     — GET only; no mutation, no flag writes (no safe override
-//                     write-path exists yet — see docs/owner-console.md).
+//   * READ-ONLY     — GET only. Flag WRITES live in the companion route
+//                     POST /api/owner-flags (same owner gate, CAS, audit); this
+//                     endpoint never mutates.
 //   * HONEST (P7)   — every value is real (registry, env, the flags.json
 //                     override blob, the audit journal, live health probes) or
 //                     an explicit "not instrumented yet" label. Never a fake
@@ -31,6 +32,8 @@ const {
 const {
   listFlags,
   isFlagOn,
+  isFlagEnabled,
+  isProtectedFlag,
   expiredFlags,
 } = require('./_lib/feature-flags');
 const { readMonth, VALID_ACTIONS } = require('./_lib/audit-log');
@@ -54,13 +57,9 @@ function envName(key) {
   return 'FLAG_' + String(key).toUpperCase();
 }
 
-// Data-plane / perf flags whose effects ripple into reads/writes — these would
-// stay read-only even once a safe override API exists (toggling them mid-sync
-// can show stale data). The admin_* / register flags are UX gates (lower risk),
-// but ALL flags are read-only in this slice.
-function isProtectedFlag(key) {
-  return key.startsWith('supabase_') || key === 'phil_jobs_summary_read';
-}
+// isProtectedFlag (the data-plane / perf flags that stay ops-only and are never
+// toggleable from the owner UI) is now the single source of truth in
+// feature-flags.js — imported above and shared with the write route.
 
 function daysUntil(yyyymmdd, now) {
   const then = Date.parse(yyyymmdd + 'T00:00:00Z');
@@ -87,26 +86,49 @@ function maskEmail(email) {
 async function buildFlags(now) {
   const today = now.toISOString().slice(0, 10);
   let overrides = {};
+  let previewOverrides = {};
+  let rev;
   try {
     const doc = await readBlob(FLAGS_KEY, { flags: {} });
     overrides = doc && doc.flags && typeof doc.flags === 'object' ? doc.flags : {};
+    previewOverrides =
+      doc && doc.ownerPreview && typeof doc.ownerPreview === 'object' ? doc.ownerPreview : {};
+    if (doc && Number.isFinite(doc.__rev)) rev = doc.__rev;
   } catch {
     overrides = {};
+    previewOverrides = {};
   }
 
   const items = [];
   for (const f of listFlags()) {
+    // resolved          = the CUSTOMER baseline (isFlagOn, no viewer).
+    // resolvedForOwner  = what the OWNER sees live (env > owner-preview > baseline).
     let resolved;
     try {
       resolved = await isFlagOn(f.key);
     } catch {
       resolved = f.default;
     }
+    let resolvedForOwner;
+    try {
+      resolvedForOwner = await isFlagEnabled(f.key, { role: 'owner' });
+    } catch {
+      resolvedForOwner = resolved;
+    }
     const envVal = parseEnvLike(process.env[envName(f.key)]);
+    const ownerPreview =
+      typeof previewOverrides[f.key] === 'boolean' ? previewOverrides[f.key] : null;
+
+    // Customer-facing resolution source.
     let source;
     if (envVal !== null) source = 'env';
     else if (typeof overrides[f.key] === 'boolean') source = 'override';
     else source = 'default';
+    // Owner-facing source: env wins; else the preview override; else the baseline.
+    let ownerSource;
+    if (envVal !== null) ownerSource = 'env';
+    else if (ownerPreview !== null) ownerSource = 'owner-preview';
+    else ownerSource = source;
 
     const d = daysUntil(f.expires, now);
     let expiryStatus = 'ok';
@@ -120,14 +142,21 @@ async function buildFlags(now) {
       target: f.target,
       expires: f.expires,
       resolved,
+      resolvedForOwner,
+      ownerPreview,
       source,
+      ownerSource,
       expiryStatus,
       protected: isProtectedFlag(f.key),
-      toggleable: false, // read-only this slice (no safe override write-path)
+      // Protected (data-plane) flags are never toggleable from the UI. Env-pinned
+      // flags ARE toggleable:true but the UI renders the control disabled (env
+      // wins) — source:'env' carries that signal.
+      toggleable: !isProtectedFlag(f.key),
     });
   }
   return {
     source: 'feature flag registry + env (FLAG_*) + flags.json override blob',
+    rev,
     items,
   };
 }
@@ -470,10 +499,12 @@ module.exports = async (req, res) => {
     ok: true,
     meta,
     capabilities: {
-      flagToggle: false,
+      flagToggle: true,
       flagToggleReason:
-        'Flags are read-only here. No safe runtime override write-path exists yet ' +
-        '(audited, CAS-guarded, protected-flag-aware). See docs/owner-console.md follow-ups.',
+        'Flags toggle via POST /api/owner-flags (owner-gated, CAS-guarded, audited). ' +
+        'Each flag has two dials — customer launch-gate + owner preview. Protected ' +
+        'data-plane flags (supabase_*, phil_jobs_summary_read) stay read-only; ' +
+        'env-pinned flags (FLAG_*) win and show disabled.',
     },
     health,
     flags,

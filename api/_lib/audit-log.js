@@ -232,6 +232,13 @@ const VALID_ACTIONS = new Set([
   // 'instruction'. Kept in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'instruction.created',
   'instruction.transitioned',
+  // #760: owner runtime feature-flag control. One verb covers both the customer
+  // launch-gate toggle and the owner-preview override; metadata.scope
+  // ('customer'|'ownerPreview'), metadata.value (bool | null = cleared to
+  // default) and metadata.previous carry the change. targetType 'feature_flag',
+  // targetId is the flag key. Written best-effort (the toggle never blocks on the
+  // audit). Kept in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'feature_flag.toggled',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -288,6 +295,8 @@ const VALID_TARGET_TYPES = new Set([
   'service_location',
   // #283: per-job site-instructions records (jobs/<id>/site-instructions.json).
   'instruction',
+  // #760: a feature flag (targetId = the flag key) for owner toggle/preview events.
+  'feature_flag',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

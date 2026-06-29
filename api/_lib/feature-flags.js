@@ -5,13 +5,22 @@
 // (default off), stage it to the admin tier first, kill a misbehaving
 // feature without a revert deploy.
 //
-// Resolution order (first hit wins), per flag:
+// Resolution order (first hit wins), per flag — the CUSTOMER baseline
+// (isFlagOn, no viewer):
 //   1. env var  FLAG_<SNAKE_UPPER>   ('1'/'true' → on, '0'/'false' → off)
 //   2. flags.json blob override      ({ flags: { <key>: true|false } })
 //   3. registry default              (always false — dark by default)
 // Then TARGETING applies on top of enablement: a flag with
 // target 'admin-tier' is only ever on for admin-tier viewers (tier-aware
 // isAdminRole — never literal role strings); 'global' ignores the viewer.
+//
+// OWNER PREVIEW (isFlagEnabled, viewer-aware path only): the product owner
+// can run a feature live while customers still can't see it. When the viewer
+// is the owner (isOwnerRole) and flags.json has an ownerPreview[key] boolean,
+// that value overrides the customer baseline FOR THE OWNER ALONE. Env still
+// wins absolutely (the ops kill-switch beats owner preview). The data-plane
+// path (isFlagOn / isFlagOnSync, no viewer) never reads ownerPreview, so
+// owner preview can never alter request-time data behaviour.
 //
 // Cost: env flags are free; the blob override rides readBlob's 5s TTL
 // cache, so hot paths never add a blocking fetch beyond one per 5s per
@@ -24,7 +33,7 @@
 // consciously extend it. Inventory + conventions: docs/feature-flags.md.
 
 const { readBlob } = require('./blob');
-const { isAdminRole } = require('./auth');
+const { isAdminRole, isOwnerRole } = require('./auth');
 
 /** @type {Record<string, {description: string, default: boolean, target: 'global'|'admin-tier', expires: string}>} */
 const REGISTRY = {
@@ -362,6 +371,14 @@ function definitionOf(key) {
   return def;
 }
 
+// Protected flags are operational data-plane levers (the Supabase migration
+// switches + the perf read-path), NOT product features. They must never be
+// toggled from the owner UI — only via env/ops. The owner console renders
+// them read-only and the write route rejects writes to them (both scopes).
+function isProtectedFlag(key) {
+  return /^supabase_/.test(String(key)) || key === 'phil_jobs_summary_read';
+}
+
 /** Enablement only (no targeting): env > blob override > default. */
 async function isFlagOn(key) {
   const def = definitionOf(key);
@@ -389,13 +406,42 @@ function isFlagOnSync(key) {
   return parseEnv(process.env[envName(key)]) === true;
 }
 
+/** The owner-preview override for one flag, or undefined if unset. Reads the
+ *  same flags.json blob as isFlagOn (rides the 5s TTL cache), so it adds no
+ *  network cost; only owner viewers ever reach this. */
+async function ownerPreviewOf(key) {
+  try {
+    const doc = await readBlob(FLAGS_KEY, { flags: {} });
+    const v = doc && doc.ownerPreview ? doc.ownerPreview[key] : undefined;
+    return typeof v === 'boolean' ? v : undefined;
+  } catch {
+    return undefined; // Blob unavailable → no preview override.
+  }
+}
+
 /**
  * Enablement + targeting for a viewer ({ role } or null for anonymous /
  * system callers — who only ever see 'global' flags).
+ *
+ * Precedence: env wins absolutely (ops kill-switch); else, for the OWNER, an
+ * ownerPreview override (if set) beats the customer baseline; else the
+ * customer baseline (isFlagOn = blob → default). Targeting (admin-tier) then
+ * applies on top of enablement. The owner is always an admin-tier role, so an
+ * owner-preview'd admin-tier flag still passes the targeting gate.
  */
 async function isFlagEnabled(key, viewer) {
   const def = definitionOf(key);
-  if (!(await isFlagOn(key))) return false;
+  const fromEnv = parseEnv(process.env[envName(key)]);
+  let enabled;
+  if (fromEnv !== null) {
+    enabled = fromEnv;
+  } else if (viewer && isOwnerRole(viewer.role)) {
+    const preview = await ownerPreviewOf(key);
+    enabled = preview !== undefined ? preview : await isFlagOn(key);
+  } else {
+    enabled = await isFlagOn(key);
+  }
+  if (!enabled) return false;
   if (def.target === 'admin-tier') return Boolean(viewer && isAdminRole(viewer.role));
   return true;
 }
@@ -428,6 +474,7 @@ module.exports = {
   isFlagOnSync,
   isFlagEnabled,
   flagsForViewer,
+  isProtectedFlag,
   listFlags,
   expiredFlags,
 };

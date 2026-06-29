@@ -41,7 +41,57 @@ describe("<OwnerConsole />", () => {
     const html = renderToString(createElement(OwnerConsole, { summary }));
     expect(html).toContain("No recent activity");
   });
+
+  it("renders interactive controls when flagToggle is on; fences protected + env-pinned", () => {
+    const summary = makeSummary();
+    summary.capabilities = { flagToggle: true, flagToggleReason: "toggle via POST /api/owner-flags" };
+    summary.flags = {
+      source: "registry + env + blob",
+      rev: 7,
+      items: [
+        // normal feature flag → two switches + dual-state line
+        mkFlag({ key: "safety_docs", resolvedForOwner: true, ownerPreview: true, ownerSource: "owner-preview" }),
+        // protected → read-only, no switch
+        mkFlag({ key: "supabase_dual_write", protected: true, toggleable: false }),
+        // env-pinned → disabled, no switch
+        mkFlag({ key: "rfi_register", resolved: true, resolvedForOwner: true, source: "env", ownerSource: "env" }),
+      ],
+    };
+    const html = renderToString(createElement(OwnerConsole, { summary }));
+
+    expect(html).toContain("Owner controls"); // header chip reflects control mode
+    expect(html).toContain('role="switch"'); // interactive toggles exist
+    expect(html).toContain("flag-customer-safety_docs");
+    expect(html).toContain("flag-preview-safety_docs");
+    expect(html).toContain("Customers:"); // dual-state honesty line
+    expect(html).toContain("You:");
+    // Protected flag is fenced read-only — no toggle.
+    expect(html).toContain("protected");
+    expect(html).not.toContain("flag-customer-supabase_dual_write");
+    // Env-pinned flag is disabled with a note — no toggle.
+    expect(html).toContain("pinned by env");
+    expect(html).not.toContain("flag-customer-rfi_register");
+  });
 });
+
+/** A complete FlagItem with sensible defaults; override per case. */
+function mkFlag(over: Partial<OwnerSummary["flags"]["items"][number]> & { key: string }) {
+  return {
+    description: `${over.key} feature`,
+    default: false,
+    target: "global",
+    expires: "2026-12-31",
+    resolved: false,
+    resolvedForOwner: false,
+    ownerPreview: null,
+    source: "default",
+    ownerSource: "default",
+    expiryStatus: "ok",
+    protected: false,
+    toggleable: true,
+    ...over,
+  } as OwnerSummary["flags"]["items"][number];
+}
 
 function makeSummary(): OwnerSummary {
   return {
@@ -66,6 +116,7 @@ function makeSummary(): OwnerSummary {
     },
     flags: {
       source: "feature flag registry + env + flags.json override blob",
+      rev: 3,
       items: [
         {
           key: "rfi_register",
@@ -74,10 +125,13 @@ function makeSummary(): OwnerSummary {
           target: "global",
           expires: "2026-12-31",
           resolved: false,
+          resolvedForOwner: false,
+          ownerPreview: null,
           source: "default",
+          ownerSource: "default",
           expiryStatus: "ok",
           protected: false,
-          toggleable: false,
+          toggleable: true,
         },
         {
           key: "admin_proof_review",
@@ -86,10 +140,13 @@ function makeSummary(): OwnerSummary {
           target: "admin-tier",
           expires: "2026-01-01",
           resolved: true,
+          resolvedForOwner: true,
+          ownerPreview: null,
           source: "env",
+          ownerSource: "env",
           expiryStatus: "expired",
           protected: false,
-          toggleable: false,
+          toggleable: true,
         },
       ],
     },

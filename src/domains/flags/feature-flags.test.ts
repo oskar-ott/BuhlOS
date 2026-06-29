@@ -14,8 +14,10 @@ const flagsPath = requireFromHere.resolve("../../../api/_lib/feature-flags.js");
 
 type FlagsModule = {
   isFlagOn: (key: string) => Promise<boolean>;
+  isFlagOnSync: (key: string) => boolean;
   isFlagEnabled: (key: string, viewer?: { role?: string | null } | null) => Promise<boolean>;
   flagsForViewer: (viewer?: { role?: string | null } | null) => Promise<Record<string, boolean>>;
+  isProtectedFlag: (key: string) => boolean;
   expiredFlags: (now?: Date) => Array<{ key: string; expires: string }>;
   REGISTRY: Record<string, { default: boolean; target: string; expires: string }>;
 };
@@ -23,12 +25,15 @@ type FlagsModule = {
 let blob: Map<string, unknown>;
 let flags: FlagsModule;
 
-const KEY = "supabase_dual_write"; // global-target registry entry
+const KEY = "supabase_dual_write"; // global-target registry entry (also PROTECTED)
 const ADMIN_KEY = "admin_flags_readout"; // admin-tier-target registry entry
+const PREVIEW_KEY = "safety_docs"; // global, NON-protected feature flag — owner-preview subject
+const OWNER = { role: "owner" } as const;
 
 beforeEach(() => {
   delete process.env.FLAG_SUPABASE_DUAL_WRITE;
   delete process.env.FLAG_ADMIN_FLAGS_READOUT;
+  delete process.env.FLAG_SAFETY_DOCS;
   blob = new Map<string, unknown>();
   delete requireFromHere.cache[flagsPath];
   requireFromHere.cache[blobPath] = {
@@ -50,6 +55,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.FLAG_SUPABASE_DUAL_WRITE;
   delete process.env.FLAG_ADMIN_FLAGS_READOUT;
+  delete process.env.FLAG_SAFETY_DOCS;
 });
 
 describe("resolution order (env > blob override > default)", () => {
@@ -120,6 +126,75 @@ describe("role-tier targeting", () => {
     expect(field[ADMIN_KEY]).toBe(false);
     const boss = await flags.flagsForViewer({ role: "boss" });
     expect(boss[ADMIN_KEY]).toBe(true);
+  });
+});
+
+describe("owner preview (#760) — viewer-aware override", () => {
+  it("overrides the customer baseline for the OWNER alone (global flag)", async () => {
+    // baseline off (no flags[key]); owner-preview on.
+    blob.set("flags.json", { flags: {}, ownerPreview: { [PREVIEW_KEY]: true } });
+    expect(await flags.isFlagEnabled(PREVIEW_KEY, OWNER)).toBe(true);
+    // everyone else still sees the customer baseline (off).
+    expect(await flags.isFlagEnabled(PREVIEW_KEY, { role: "boss" })).toBe(false);
+    expect(await flags.isFlagEnabled(PREVIEW_KEY, { role: "electrician" })).toBe(false);
+    expect(await flags.isFlagEnabled(PREVIEW_KEY, null)).toBe(false);
+    // the data-plane path is untouched.
+    expect(await flags.isFlagOn(PREVIEW_KEY)).toBe(false);
+  });
+
+  it("can hide a feature from the owner while customers still see it", async () => {
+    blob.set("flags.json", { flags: { [PREVIEW_KEY]: true }, ownerPreview: { [PREVIEW_KEY]: false } });
+    expect(await flags.isFlagEnabled(PREVIEW_KEY, OWNER)).toBe(false);
+    expect(await flags.isFlagEnabled(PREVIEW_KEY, { role: "boss" })).toBe(true); // global → baseline
+  });
+
+  it("env wins over owner preview in BOTH directions (ops kill-switch)", async () => {
+    blob.set("flags.json", { flags: {}, ownerPreview: { [PREVIEW_KEY]: true } });
+    process.env.FLAG_SAFETY_DOCS = "0";
+    expect(await flags.isFlagEnabled(PREVIEW_KEY, OWNER)).toBe(false);
+    blob.set("flags.json", { flags: {}, ownerPreview: { [PREVIEW_KEY]: false } });
+    process.env.FLAG_SAFETY_DOCS = "1";
+    expect(await flags.isFlagEnabled(PREVIEW_KEY, OWNER)).toBe(true);
+  });
+
+  it("composes with admin-tier targeting (owner is admin, so the gate passes)", async () => {
+    blob.set("flags.json", { flags: {}, ownerPreview: { [ADMIN_KEY]: true } });
+    expect(await flags.isFlagEnabled(ADMIN_KEY, OWNER)).toBe(true);
+    // a non-owner admin sees only the (off) baseline; a field worker is neither owner nor admin.
+    expect(await flags.isFlagEnabled(ADMIN_KEY, { role: "boss" })).toBe(false);
+    expect(await flags.isFlagEnabled(ADMIN_KEY, { role: "electrician" })).toBe(false);
+  });
+
+  it("a NON-owner viewer never reads ownerPreview (the branch is owner-gated)", async () => {
+    blob.set("flags.json", { flags: {}, ownerPreview: { [PREVIEW_KEY]: true } });
+    // boss is admin-tier but NOT owner → resolves the customer baseline (off).
+    expect(await flags.isFlagEnabled(PREVIEW_KEY, { role: "boss" })).toBe(
+      await flags.isFlagOn(PREVIEW_KEY),
+    );
+  });
+
+  it("isFlagOn / isFlagOnSync ignore ownerPreview entirely (data-plane isolation)", async () => {
+    blob.set("flags.json", { flags: {}, ownerPreview: { [PREVIEW_KEY]: true } });
+    expect(await flags.isFlagOn(PREVIEW_KEY)).toBe(false);
+    expect(flags.isFlagOnSync(PREVIEW_KEY)).toBe(false);
+  });
+
+  it("an owner with no preview override sees the customer baseline", async () => {
+    blob.set("flags.json", { flags: { [PREVIEW_KEY]: true } });
+    expect(await flags.isFlagEnabled(PREVIEW_KEY, OWNER)).toBe(true);
+    blob.set("flags.json", { flags: { [PREVIEW_KEY]: false } });
+    expect(await flags.isFlagEnabled(PREVIEW_KEY, OWNER)).toBe(false);
+  });
+
+  it("unknown flag names still THROW in isFlagEnabled", async () => {
+    await expect(flags.isFlagEnabled("not_a_flag", OWNER)).rejects.toThrow(/unknown feature flag/);
+  });
+
+  it("isProtectedFlag fences the data-plane flags, not feature flags", () => {
+    expect(flags.isProtectedFlag("supabase_dual_write")).toBe(true);
+    expect(flags.isProtectedFlag("phil_jobs_summary_read")).toBe(true);
+    expect(flags.isProtectedFlag("safety_docs")).toBe(false);
+    expect(flags.isProtectedFlag("admin_flags_readout")).toBe(false);
   });
 });
 

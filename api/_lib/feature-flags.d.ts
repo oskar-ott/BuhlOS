@@ -45,5 +45,7 @@ export declare const FLAGS_KEY: string;
 export declare function isFlagOn(key: FlagKey): Promise<boolean>;
 export declare function isFlagEnabled(key: FlagKey, viewer?: FlagViewer | null): Promise<boolean>;
 export declare function flagsForViewer(viewer?: FlagViewer | null): Promise<Record<FlagKey, boolean>>;
+/** Operational data-plane flags that must never be toggled from the owner UI. */
+export declare function isProtectedFlag(key: string): boolean;
 export declare function listFlags(): Array<FlagDefinition & { key: FlagKey }>;
 export declare function expiredFlags(now?: Date): Array<FlagDefinition & { key: FlagKey }>;

@@ -147,8 +147,17 @@ const EXACT_GUARDS = {
     shrinkField: 'observations',
     shrinkFloor: 20,
   },
+  // { flags: { key: bool }, ownerPreview?: { key: bool } }. ownerPreview is the
+  // owner-only preview override layer (#760) — optional so the existing prod
+  // blob ({flags:{…}}) stays valid. No shrink guard: flags legitimately empty
+  // out as features ship and overrides are cleared.
   'flags.json': {
-    validate: (doc) => (isPlainObject(doc) && isPlainObject(doc.flags) ? null : 'flags must be an object'),
+    validate: (doc) => {
+      if (!isPlainObject(doc) || !isPlainObject(doc.flags)) return 'flags must be an object';
+      if (doc.ownerPreview !== undefined && !isPlainObject(doc.ownerPreview))
+        return 'ownerPreview must be an object';
+      return null;
+    },
   },
   'structure-presets.json': { validate: arrayOfIdObjects('presets') },
   'job-blueprints.json': { validate: arrayOfIdObjects('blueprints') }, // #191 global job shapes

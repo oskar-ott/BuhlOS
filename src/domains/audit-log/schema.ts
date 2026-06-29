@@ -208,6 +208,11 @@ export const AUDIT_ACTIONS = [
   // 'instruction'. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
   "instruction.created",
   "instruction.transitioned",
+  // #760: owner runtime feature-flag control. One verb for both the customer
+  // launch-gate toggle and the owner-preview override; metadata.scope / value /
+  // previous carry the change. targetType 'feature_flag'. Kept in sync with
+  // api/_lib/audit-log.js VALID_ACTIONS.
+  "feature_flag.toggled",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -257,6 +262,8 @@ export const AUDIT_TARGET_TYPES = [
   "service_location",
   // #283: per-job site-instructions records (jobs/<id>/site-instructions.json).
   "instruction",
+  // #760: a feature flag (targetId = the flag key) for owner toggle/preview events.
+  "feature_flag",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

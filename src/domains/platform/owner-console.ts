@@ -31,8 +31,14 @@ export const FlagItemSchema = z.object({
   default: z.boolean(),
   target: z.string(),
   expires: z.string(),
+  // resolved = the customer baseline; resolvedForOwner = what the owner sees
+  // live (env > owner-preview > baseline). ownerPreview is the raw override
+  // (true/false set, null = unset).
   resolved: z.boolean(),
+  resolvedForOwner: z.boolean(),
+  ownerPreview: z.boolean().nullable(),
   source: z.enum(["env", "override", "default"]),
+  ownerSource: z.enum(["env", "override", "default", "owner-preview"]),
   expiryStatus: z.enum(["ok", "expiring", "expired"]),
   protected: z.boolean(),
   toggleable: z.boolean(),
@@ -40,6 +46,9 @@ export const FlagItemSchema = z.object({
 
 export const FlagsSchema = z.object({
   source: z.string(),
+  // The flags.json document revision — the CAS token the console echoes back on
+  // a toggle (POST /api/owner-flags). Absent if the flag section degraded.
+  rev: z.number().optional(),
   items: z.array(FlagItemSchema),
   error: z.string().optional(),
 });
@@ -222,7 +231,7 @@ export function flagStateTone(resolved: boolean): StatusTone {
   return resolved ? "success" : "neutral";
 }
 
-export function flagSourceLabel(source: FlagItem["source"]): string {
+export function flagSourceLabel(source: FlagItem["source"] | FlagItem["ownerSource"]): string {
   switch (source) {
     case "env":
       return "env override";
@@ -230,6 +239,8 @@ export function flagSourceLabel(source: FlagItem["source"]): string {
       return "blob override";
     case "default":
       return "registry default";
+    case "owner-preview":
+      return "owner preview";
   }
 }
 
