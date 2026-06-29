@@ -36,9 +36,11 @@ const {
   isProtectedFlag,
   expiredFlags,
 } = require('./_lib/feature-flags');
+const { listSettings, coerce } = require('./_lib/feature-settings');
 const { readMonth, VALID_ACTIONS } = require('./_lib/audit-log');
 
 const FLAGS_KEY = 'flags.json';
+const SETTINGS_KEY = 'feature-settings.json';
 const EXPIRING_SOON_DAYS = 30;
 const RECENT_AUDIT_LIMIT = 25;
 
@@ -156,6 +158,51 @@ async function buildFlags(now) {
   }
   return {
     source: 'feature flag registry + env (FLAG_*) + flags.json override blob',
+    rev,
+    items,
+  };
+}
+
+// Per-feature config knobs (#760 PR2) — the runtime-tunable settings the owner
+// can adjust. Mirrors buildFlags: every registry entry with its resolved value,
+// default, type/constraints, and override source. Read-modify-write lives in the
+// companion api/owner-settings.js (this is the read projection only).
+async function buildSettings() {
+  let stored = {};
+  let rev;
+  try {
+    const doc = await readBlob(SETTINGS_KEY, { settings: {} });
+    stored = doc && doc.settings && typeof doc.settings === 'object' ? doc.settings : {};
+    if (doc && Number.isFinite(doc.__rev)) rev = doc.__rev;
+  } catch {
+    stored = {};
+  }
+
+  const items = listSettings().map((s) => {
+    const raw = stored[s.featureKey] ? stored[s.featureKey][s.key] : undefined;
+    const resolved = coerce(s, raw);
+    // A valid stored value that survived coercion is a real override.
+    const source = raw !== undefined && resolved === raw ? 'override' : 'default';
+    return {
+      featureKey: s.featureKey,
+      key: s.key,
+      type: s.type,
+      label: s.label,
+      description: s.description,
+      default: s.default,
+      value: resolved,
+      source,
+      min: s.min ?? null,
+      max: s.max ?? null,
+      step: s.step ?? null,
+      maxLength: s.maxLength ?? null,
+      options: s.options ?? null,
+      unit: s.unit ?? null,
+    };
+  });
+
+  return {
+    source: 'feature settings registry + feature-settings.json override blob',
     rev,
     items,
   };
@@ -483,6 +530,11 @@ module.exports = async (req, res) => {
     items: [],
     error: 'flag data unavailable',
   });
+  const settings = await safe(() => buildSettings(), {
+    source: 'feature settings registry',
+    items: [],
+    error: 'settings unavailable',
+  });
   const health = await safe(() => buildHealth(now), {
     overall: 'needs_attention',
     checks: [{ id: 'probe', label: 'Health probe', status: 'down', detail: 'probe failed' }],
@@ -505,9 +557,14 @@ module.exports = async (req, res) => {
         'Each flag has two dials — customer launch-gate + owner preview. Protected ' +
         'data-plane flags (supabase_*, phil_jobs_summary_read) stay read-only; ' +
         'env-pinned flags (FLAG_*) win and show disabled.',
+      settingsWrite: true,
+      settingsWriteReason:
+        'Config knobs save via PUT /api/owner-settings (owner-gated, CAS-guarded, ' +
+        'audited, registry-validated).',
     },
     health,
     flags,
+    settings,
     usage,
     audit,
     coverage,

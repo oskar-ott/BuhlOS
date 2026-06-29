@@ -154,6 +154,32 @@ back with a visible error on failure.
   Using a flag as a long-lived launch gate means consciously extending that date;
   the console surfaces expiring/expired flags so it stays visible.
 
+## Feature config knobs (#760 PR2)
+
+Beyond on/off, the owner can **tune** a feature's settings at runtime — the
+"Feature configuration" panel. Where a flag answers "is this visible", a knob
+answers "how does it behave" (upload caps, length limits, …).
+
+- **Registry** — `api/_lib/feature-settings.js` `SETTINGS_REGISTRY`, keyed by
+  feature, each knob typed (`number` / `string` / `boolean` / `enum`) with a
+  `default`, bounds, and label. A knob's `default` **equals the feature's current
+  hardcoded constant**, so behaviour is byte-identical until the owner changes it.
+- **Resolver** — `getSetting(featureKey, key)` / `getSettings(featureKey)` read
+  the `feature-settings.json` blob and **re-validate against the registry**: an
+  out-of-range / wrong-type stored value silently resolves to the default
+  (defence in depth, dark-safe). Blob down → default.
+- **Write path** — owner-gated `PUT /api/owner-settings`
+  `{ featureKey, key, value, expectedRev }`: registry-validated (unknown → 404,
+  out-of-range → 400 with a message), CAS-guarded, audited
+  (`feature_config.changed`). Optimistic UI with rollback.
+- **Honest limitation (P7):** a knob only does something where the feature is
+  **wired** to read it (`await getSetting(...)`). The registry is the extension
+  point; each consumer is an individual, tested wiring — there is no automatic
+  binding. Shipped wirings: `safety_docs.maxUploadMb`,
+  `certificates_register.maxUploadMb`, `minutes_register.bodyMaxChars`,
+  `site_instructions_register.instructionTextMaxChars`. Add more by registering a
+  knob and swapping the constant at its use site.
+
 ## How to verify
 
 Unit (runs in `npm run test:unit`, no browser/credentials):
@@ -168,13 +194,20 @@ Unit (runs in `npm run test:unit`, no browser/credentials):
   (overrides baseline for the owner only; env beats preview; non-owner never
   reads it; `isFlagOn`/`isFlagOnSync` ignore it; admin-tier composition) +
   `isProtectedFlag`.
+- `src/domains/flags/feature-settings.test.ts` — config-knob resolution
+  (default-until-overridden; out-of-range / wrong-type → default; unknown throw)
+  + `validateWrite`.
+- `src/domains/platform/owner-settings-api.test.ts` — `PUT /api/owner-settings`
+  gate, unknown `404`, out-of-range `400`, CAS `409`, audit, happy path.
+- `src/domains/safety-docs/safety-docs-api.test.ts` — the upload cap now tracks
+  the `safety_docs.maxUploadMb` setting (rejects above the live cap).
 - `src/lib/auth/owner-access.test.ts` — `isOwnerRole` + `canAccessOwnerConsole`
   TS↔CJS parity, the email allowlist + `OWNER_EMAILS` override.
 - `src/lib/auth/landing.test.ts` — `owner` → `/owner`, other admin roles → `/command-centre`.
 - `src/domains/platform/owner-console.test.ts` — classification helpers + schema.
 - `src/components/admin/OwnerConsole.render.test.tsx` — panels paint, honest
-  empty states, the read-only fallback, and the interactive flag controls
-  (switches render; protected + env-pinned fenced).
+  empty states, the read-only fallback, the interactive flag controls (switches
+  render; protected + env-pinned fenced), and the config-knob controls.
 
 Live: the page's data comes from `api/owner.js` (and writes go to
 `api/owner-flags.js`), which **do not run under `next dev`** — verify on a **PR
@@ -189,6 +222,9 @@ confirm a protected flag has no toggle.
   /api/owner-flags`, audited (`feature_flag.toggled`), CAS-guarded
   (`expectedRev`), protected-flag aware, with the two-dial (customer + owner
   preview) model. See [Feature-flag control](#feature-flag-control-760).
+- **Per-feature config knobs (#760 PR2)** — `PUT /api/owner-settings`, a typed
+  settings registry + `feature-settings.json` + `getSetting` resolver, audited
+  (`feature_config.changed`). See [Feature config knobs](#feature-config-knobs-760-pr2).
 
 ## Follow-ups
 
@@ -201,12 +237,10 @@ confirm a protected flag has no toggle.
    is the **precondition for in-app *Preview for me***: RSC/API flag resolution
    sees the role, not the email, so owner preview only takes effect once the
    account's stored role is `owner`.
-5. **Per-feature config knobs (PR 2)** — tune real feature settings (upload
-   caps, length limits, windows) from the console, on top of the visibility
-   dials. A settings registry + `feature-settings.json` + `getSetting` resolver +
-   owner-gated write.
-6. **Preview/prod health summary** — wire the dark `supabase_read_health` probe
+5. **Preview/prod health summary** — wire the dark `supabase_read_health` probe
    and surface build/version metadata.
+6. **More config knobs** — extend `SETTINGS_REGISTRY` + wire the use site (e.g.
+   `job_doc_import.maxUploadMb`, owner-console display knobs).
 
 ## Wiki sync
 

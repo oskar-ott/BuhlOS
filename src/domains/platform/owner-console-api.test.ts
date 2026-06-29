@@ -226,6 +226,21 @@ describe("GET /api/owner — payload (real, honest, no secrets, read-only)", () 
     const body = res.body as { meta: { viewer: { email: string | null } } };
     expect(body.meta.viewer.email).toMatch(/\*/);
   });
+
+  it("includes the writable feature-settings projection (#760 PR2)", async () => {
+    const res = await call({ role: "owner" });
+    const body = res.body as {
+      capabilities: { settingsWrite?: boolean };
+      settings?: { items: Array<{ featureKey: string; key: string; value: unknown }> };
+    };
+    expect(body.capabilities.settingsWrite).toBe(true);
+    expect(body.settings).toBeTruthy();
+    expect(body.settings?.items.length ?? 0).toBeGreaterThan(0);
+    const cap = body.settings?.items.find(
+      (s) => s.featureKey === "safety_docs" && s.key === "maxUploadMb",
+    );
+    expect(cap?.value).toBe(25); // default until overridden
+  });
 });
 
 // ── POST /api/owner-flags — the runtime toggle write path (#760) ─────────────

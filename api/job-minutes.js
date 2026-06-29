@@ -19,10 +19,11 @@ const { put, del } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob, isAdminRole } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
+const { getSetting } = require('./_lib/feature-settings');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 
 const FLAG = 'minutes_register';
-const BODY_MAX = 10000;
+// Body length cap is an owner-tunable setting (minutes_register.bodyMaxChars, default 10000).
 const MAX_BYTES = 25 * 1024 * 1024;
 
 function minutesKey(jobId) { return 'jobs/' + jobId + '/minutes.json'; }
@@ -111,8 +112,9 @@ module.exports = async (req, res) => {
 
     // Body is capped server-side (re-asserted, not trusted from the edge).
     const rawBody = body.body != null ? String(body.body) : '';
-    if (rawBody.length > BODY_MAX) {
-      return res.status(400).json({ error: 'minutes body too long (max ' + BODY_MAX + ' characters)' });
+    const bodyMax = await getSetting('minutes_register', 'bodyMaxChars');
+    if (rawBody.length > bodyMax) {
+      return res.status(400).json({ error: 'minutes body too long (max ' + bodyMax + ' characters)' });
     }
     const minuteBody = rawBody.trim();
 

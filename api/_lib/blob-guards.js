@@ -159,6 +159,13 @@ const EXACT_GUARDS = {
       return null;
     },
   },
+  // #760 PR2: per-feature config knobs — { settings: { <featureKey>: { <key>: value } } }.
+  // Shape-sanity only; deep type/range/enum validation is the owner-settings API's
+  // job against the registry. No shrink guard (a reset legitimately empties it).
+  'feature-settings.json': {
+    validate: (doc) =>
+      isPlainObject(doc) && isPlainObject(doc.settings) ? null : 'settings must be an object',
+  },
   'structure-presets.json': { validate: arrayOfIdObjects('presets') },
   'job-blueprints.json': { validate: arrayOfIdObjects('blueprints') }, // #191 global job shapes
   // Tag/calibration reminder dedupe state (#305): { entries: { key → {threshold,

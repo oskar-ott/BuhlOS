@@ -239,6 +239,10 @@ const VALID_ACTIONS = new Set([
   // targetId is the flag key. Written best-effort (the toggle never blocks on the
   // audit). Kept in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'feature_flag.toggled',
+  // #760 PR2: owner per-feature config knob change. metadata.featureKey/key and
+  // metadata.from/to carry the change. targetType 'feature_config', targetId is
+  // '<featureKey>.<key>'. Best-effort. Kept in sync with schema.ts AUDIT_ACTIONS.
+  'feature_config.changed',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -297,6 +301,8 @@ const VALID_TARGET_TYPES = new Set([
   'instruction',
   // #760: a feature flag (targetId = the flag key) for owner toggle/preview events.
   'feature_flag',
+  // #760 PR2: a feature config knob (targetId = '<featureKey>.<key>').
+  'feature_config',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

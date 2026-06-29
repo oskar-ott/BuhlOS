@@ -33,6 +33,7 @@ const EXACT_STORES = [
   'user-activity.json',
   'policy.json',
   'flags.json', // feature-flag runtime overrides (#155)
+  'feature-settings.json', // per-feature config knobs (#760 PR2)
   'structure-presets.json', // reusable area-group presets (#192)
   'job-blueprints.json', // reusable whole-job shapes (#191)
   'task-rules.json', // rule-based task-generation rules (#224)

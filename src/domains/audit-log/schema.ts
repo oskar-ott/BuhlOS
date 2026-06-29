@@ -213,6 +213,8 @@ export const AUDIT_ACTIONS = [
   // previous carry the change. targetType 'feature_flag'. Kept in sync with
   // api/_lib/audit-log.js VALID_ACTIONS.
   "feature_flag.toggled",
+  // #760 PR2: owner per-feature config knob change.
+  "feature_config.changed",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -264,6 +266,8 @@ export const AUDIT_TARGET_TYPES = [
   "instruction",
   // #760: a feature flag (targetId = the flag key) for owner toggle/preview events.
   "feature_flag",
+  // #760 PR2: a feature config knob (targetId = '<featureKey>.<key>').
+  "feature_config",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

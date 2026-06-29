@@ -53,6 +53,33 @@ export const FlagsSchema = z.object({
   error: z.string().optional(),
 });
 
+const SettingValueSchema = z.union([z.number(), z.string(), z.boolean()]);
+
+export const SettingItemSchema = z.object({
+  featureKey: z.string(),
+  key: z.string(),
+  type: z.enum(["number", "string", "boolean", "enum"]),
+  label: z.string(),
+  description: z.string(),
+  default: SettingValueSchema,
+  value: SettingValueSchema,
+  source: z.enum(["override", "default"]),
+  min: z.number().nullable(),
+  max: z.number().nullable(),
+  step: z.number().nullable(),
+  maxLength: z.number().nullable(),
+  options: z.array(z.string()).nullable(),
+  unit: z.string().nullable(),
+});
+
+export const SettingsSchema = z.object({
+  source: z.string(),
+  // feature-settings.json revision — the CAS token for PUT /api/owner-settings.
+  rev: z.number().optional(),
+  items: z.array(SettingItemSchema),
+  error: z.string().optional(),
+});
+
 export const UsageSchema = z.object({
   source: z.string(),
   auditEvents7d: z.number(),
@@ -125,9 +152,12 @@ export const OwnerSummarySchema = z.object({
   capabilities: z.object({
     flagToggle: z.boolean(),
     flagToggleReason: z.string(),
+    settingsWrite: z.boolean().optional(),
+    settingsWriteReason: z.string().optional(),
   }),
   health: HealthSchema,
   flags: FlagsSchema,
+  settings: SettingsSchema.optional(),
   usage: UsageSchema,
   audit: AuditSchema,
   coverage: CoverageSchema,
@@ -137,6 +167,7 @@ export const OwnerSummarySchema = z.object({
 
 export type OwnerSummary = z.infer<typeof OwnerSummarySchema>;
 export type FlagItem = z.infer<typeof FlagItemSchema>;
+export type SettingItem = z.infer<typeof SettingItemSchema>;
 export type ProblemItem = z.infer<typeof ProblemSchema>;
 export type NextActionItem = z.infer<typeof NextActionSchema>;
 export type CoverageRow = z.infer<typeof CoverageRowSchema>;

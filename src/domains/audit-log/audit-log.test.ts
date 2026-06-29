@@ -153,7 +153,8 @@ describe("AuditLogEntrySchema", () => {
       "evidence.unflagged_asbuilt",
       "evidence.unlinked",
       "evidence.unreviewed",
-      // #760: owner runtime feature-flag control (sorts between evidence.* and hours.*).
+      // #760: owner feature control (config sorts before flag; both between evidence.* and hours.*).
+      "feature_config.changed",
       "feature_flag.toggled",
       // #390: hours / time-entry events (approvals pass + worker submits).
       "hours.approved",
@@ -254,7 +255,8 @@ describe("AuditLogEntrySchema", () => {
       "document",
       "employee",
       "evidence",
-      // #760: a feature flag (owner toggle/preview target).
+      // #760: owner feature-control targets (config sorts before flag).
+      "feature_config",
       "feature_flag",
       "induction",
       // #283: per-job site-instructions records.
