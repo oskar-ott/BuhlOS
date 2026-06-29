@@ -44,6 +44,17 @@ function render(search: string, jobs: ReadonlyArray<Job> = JOBS): string {
   return renderToString(createElement(JobsList, { jobs }));
 }
 
+/** Render with explicit extra props (canBuild / newJobHref) for the §3 redesign
+ *  presentation assertions. */
+function renderWith(
+  search: string,
+  jobs: ReadonlyArray<Job>,
+  props: { canBuild?: boolean; newJobHref?: string }
+): string {
+  nav.search = search;
+  return renderToString(createElement(JobsList, { jobs, ...props }));
+}
+
 /** The pill button for `label`, asserting its pressed state. */
 function pillPressed(html: string, label: string): boolean | null {
   const match = html.match(
@@ -200,5 +211,61 @@ describe("JobsList — health indicators + filter/sort (#227)", () => {
     expect(html).toContain("Risky Job");
     expect(html).not.toContain("Healthy Job");
     expect(html).not.toContain("Watchful Job");
+  });
+});
+
+describe("JobsList — §3 portfolio card presentation (admin redesign)", () => {
+  it("renders the portfolio summary with a need-attention count from real health", () => {
+    const jobs: ReadonlyArray<Job> = [
+      job({ id: "a", name: "Alpha", status: "active", statsExpiredTags: 1 }), // at-risk
+      job({ id: "b", name: "Bravo", status: "active", statsSnagsV2Active: 0, statsEvidenceV2Pending: 0, statsItpsNeedsReview: 0, statsExpiredTags: 0 }), // good
+    ];
+    const html = render("", jobs);
+    expect(html).toContain("2 jobs · 1 needs attention");
+  });
+
+  it("shows a real contract Value tile and the total-contract readout (admin data)", () => {
+    const jobs: ReadonlyArray<Job> = [
+      job({ id: "a", name: "Alpha", status: "active", contractValue: 1_500_000 }),
+      job({ id: "b", name: "Bravo", status: "active", contractValue: 500_000 }),
+    ];
+    const html = render("", jobs);
+    expect(html).toContain("$1,500,000"); // per-card Value
+    expect(html).toContain("$2.00M"); // summed total-contract readout (2dp under $10M)
+    expect(html).toContain("across 2 priced jobs");
+  });
+
+  it('shows "—" Value (never a fabricated $0) and no total readout when unpriced (LH redaction)', () => {
+    const jobs: ReadonlyArray<Job> = [job({ id: "a", name: "Alpha", status: "active" })];
+    const html = render("", jobs);
+    expect(html).toContain("—");
+    expect(html).not.toContain("total contract");
+  });
+
+  it("renders the risk meter with the real health level (no fabricated 0–100 score)", () => {
+    const jobs: ReadonlyArray<Job> = [
+      job({ id: "a", name: "Alpha", status: "active", statsExpiredTags: 2 }),
+    ];
+    const html = render("", jobs);
+    expect(html).toContain("Risk: At risk");
+    // The prototype's numeric 0–100 risk score must NOT be reproduced.
+    expect(html).not.toMatch(/Risk<\/span>[^<]*<span[^>]*>\d{1,3}<\/span>/);
+  });
+
+  it("shows the +New job entry point only when a newJobHref is given (literal admin)", () => {
+    const jobs: ReadonlyArray<Job> = [job({ id: "a", name: "Alpha", status: "active" })];
+    const withCreate = renderWith("", jobs, { newJobHref: "/v2/jobs/new" });
+    expect(withCreate).toContain('data-testid="jobs-new-job"');
+    expect(withCreate).toContain("New job");
+    const noCreate = render("", jobs);
+    expect(noCreate).not.toContain('data-testid="jobs-new-job"');
+  });
+
+  it("shows the per-card Build chip only for admin builders", () => {
+    const jobs: ReadonlyArray<Job> = [job({ id: "a", name: "Alpha", status: "active" })];
+    const asBuilder = renderWith("", jobs, { canBuild: true });
+    expect(asBuilder).toContain("/v2/jobs/a/builder");
+    const asViewer = render("", jobs);
+    expect(asViewer).not.toContain("/v2/jobs/a/builder");
   });
 });
