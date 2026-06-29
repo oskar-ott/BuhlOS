@@ -21,18 +21,15 @@ export function AdminSidebar() {
 
   return (
     <aside className="hidden h-screen w-60 shrink-0 flex-col border-r border-border bg-brand-navy text-text-inverse md:flex">
-      <div className="flex flex-col gap-1.5 px-5 py-6">
-        {/* The bühl mark leads the office shell (brief §1). White wordmark on
-            the navy rail. */}
+      <div className="px-5 py-6">
+        {/* The bühl wordmark leads the office shell (brief §1) — white on the
+            navy rail, sized to fill the rail (no subtitle). */}
         {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset in /public, not a remote/optimised image */}
         <img
           src="/brand/buhl-logo-white.png"
           alt="bühl electrical"
-          className="h-7 w-auto self-start"
+          className="h-auto w-48"
         />
-        <p className="font-display text-[11px] uppercase tracking-widest text-slate-400">
-          office command centre
-        </p>
       </div>
 
       <nav aria-label="BuhlOS admin" className="flex-1 overflow-y-auto px-2 pb-4">
