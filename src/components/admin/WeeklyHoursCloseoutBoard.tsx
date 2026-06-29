@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -21,6 +22,12 @@ import {
   type WorkerWeekReadiness,
   type WeeklyDayStatus,
 } from "@/domains/timesheets/weekly-closeout";
+import {
+  buildPayRun,
+  workerStrip,
+  type StripTone,
+} from "@/domains/timesheets/pay-run";
+import { WeekShapeStrip, WeekShapeLegend } from "@/components/admin/WeekShapeStrip";
 
 /**
  * The interactive part of /hours/weekly. The server component fetches one
@@ -109,9 +116,13 @@ export function WeeklyHoursCloseoutBoard({
   canUndo = false,
 }: WeeklyHoursCloseoutBoardProps) {
   const router = useRouter();
+  const payRun = buildPayRun(closeout);
   const [action, setAction] = useState<ActionState>({ kind: "idle" });
   const [bulk, setBulk] = useState<BulkOutcome | null>(null);
   const [bulkBusyWorker, setBulkBusyWorker] = useState<string | null>(null);
+  // "Approve all clean" runs across workers, so it is tracked separately from
+  // the per-worker "Approve week" busy flag.
+  const [cleanSweepBusy, setCleanSweepBusy] = useState(false);
   const [undoBusy, setUndoBusy] = useState(false);
   // Monotonic id so a stale 30s timer never clears a NEWER bulk result.
   const bulkSeqRef = useRef(0);
@@ -140,6 +151,17 @@ export function WeeklyHoursCloseoutBoard({
 
   const needAction = closeout.workers.filter((w) => w.readiness !== "payroll-ready");
   const ready = closeout.workers.filter((w) => w.readiness === "payroll-ready");
+
+  // Distinct strip tones present in the run — drives the legend (we only show
+  // legend entries for states that actually appear, never a key for a tone the
+  // week doesn't contain).
+  const stripTones = new Set<StripTone>();
+  for (const w of closeout.workers) {
+    for (const cell of workerStrip(w)) stripTones.add(cell.tone);
+  }
+  // "empty" cells (future / not-required) carry no decision meaning — keep them
+  // off the legend so it stays about real states.
+  stripTones.delete("empty");
 
   // #127: mark a missing day as not-worked (records approved leave on the
   // worker's behalf via #333's store) and undo it. The day flips to "leave"
@@ -208,6 +230,50 @@ export function WeeklyHoursCloseoutBoard({
     if (undo.length > 0) {
       // The undo window matches single-approve affordances: 30 seconds, then
       // the revert path is the admin reopen flow, not a stale button.
+      setTimeout(() => {
+        if (bulkSeqRef.current === seq) setBulk((b) => (b ? { ...b, undo: [] } : b));
+      }, 30_000);
+    }
+    startTransition(() => router.refresh());
+  }
+
+  /**
+   * "Approve all clean" — one bulk call for every submitted day of every
+   * CLEAN week (workers whose only open state is pending-approval). Flagged
+   * weeks (rejected / draft / missing) are never swept; they need a look. Same
+   * endpoint and outcome surface as the per-worker "Approve week".
+   */
+  async function approveAllClean() {
+    const entries = [...payRun.cleanApproval];
+    if (entries.length === 0 || cleanSweepBusy || bulkBusyWorker) return;
+    setCleanSweepBusy(true);
+    setAction({ kind: "idle" });
+    setBulk(null);
+    const result = await timesheetsClient.bulkApproveEntries({ entries });
+    setCleanSweepBusy(false);
+    if (!result.ok) {
+      setAction({
+        kind: "error",
+        message:
+          result.error.status === 403
+            ? "You don't have permission to approve these entries."
+            : result.error.message || "Couldn't approve the clean weeks. Try again.",
+      });
+      return;
+    }
+    bulkSeqRef.current += 1;
+    const seq = bulkSeqRef.current;
+    const undo = canUndo
+      ? result.data.approved.map((a) => ({ userId: a.userId, date: a.date }))
+      : [];
+    const sweptWorkers = new Set(result.data.approved.map((a) => a.userId)).size;
+    setBulk({
+      workerName: `${sweptWorkers} ${sweptWorkers === 1 ? "clean week" : "clean weeks"}`,
+      approvedCount: result.data.approvedCount,
+      failed: result.data.failed.map((f) => ({ date: f.date, error: f.error })),
+      undo,
+    });
+    if (undo.length > 0) {
       setTimeout(() => {
         if (bulkSeqRef.current === seq) setBulk((b) => (b ? { ...b, undo: [] } : b));
       }, 30_000);
@@ -364,7 +430,12 @@ export function WeeklyHoursCloseoutBoard({
         </Card>
       ) : null}
 
-      <SummaryCard closeout={closeout} />
+      <PayRunHero
+        closeout={closeout}
+        payRun={payRun}
+        cleanSweepBusy={cleanSweepBusy}
+        onApproveAllClean={approveAllClean}
+      />
 
       <ActionFeedback state={action} />
 
@@ -447,12 +518,15 @@ export function WeeklyHoursCloseoutBoard({
               <ul className="mt-2 space-y-2">
                 {ready.map((w) => (
                   <li key={w.workerId}>
-                    <Card className="flex items-center justify-between gap-3 py-3">
-                      <div className="min-w-0">
-                        <span className="font-medium text-text">{w.workerName}</span>
-                        <span className="ml-2 text-sm text-text-muted">
-                          {`${w.approvedCount} approved · ${formatHoursLabel(w.approvedHours)}`}
-                        </span>
+                    <Card className="flex flex-col gap-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
+                        <div className="min-w-0">
+                          <span className="font-medium text-text">{w.workerName}</span>
+                          <span className="ml-2 text-sm text-text-muted">
+                            {`${w.approvedCount} approved · ${formatHoursLabel(w.approvedHours)}`}
+                          </span>
+                        </div>
+                        <WeekShapeStrip cells={workerStrip(w)} workerName={w.workerName} />
                       </div>
                       <Pill tone="success">Ready</Pill>
                     </Card>
@@ -461,6 +535,15 @@ export function WeeklyHoursCloseoutBoard({
               </ul>
             )}
           </section>
+
+          {stripTones.size > 0 ? (
+            <div className="rounded-card border border-border bg-surface-subtle px-4 py-3">
+              <p className="mb-2 font-display text-xs uppercase tracking-widest text-text-muted">
+                Week strip
+              </p>
+              <WeekShapeLegend tones={stripTones} />
+            </div>
+          ) : null}
         </>
       )}
 
@@ -648,23 +731,118 @@ export function WeeklyHoursCloseoutBoard({
   );
 }
 
-function SummaryCard({ closeout }: { closeout: WeeklyHoursCloseout }): ReactNode {
+/**
+ * Progress-bar fill width as a STATIC Tailwind class (no inline style — the
+ * repo bans the `style` attribute). Rounded to the nearest 10% bucket so the
+ * class name is statically resolvable; the precise "X of Y" count sits beside
+ * the bar, so this approximation never misleads. Mirrors the approach in
+ * OnboardingProgress.
+ */
+function progressFillClass(pct: number): string {
+  const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+  if (clamped <= 0) return "w-0";
+  if (clamped >= 100) return "w-full";
+  const bucket = Math.round(clamped / 10) * 10;
+  switch (bucket) {
+    case 10:
+      return "w-[10%]";
+    case 20:
+      return "w-1/5";
+    case 30:
+      return "w-[30%]";
+    case 40:
+      return "w-2/5";
+    case 50:
+      return "w-1/2";
+    case 60:
+      return "w-3/5";
+    case 70:
+      return "w-[70%]";
+    case 80:
+      return "w-4/5";
+    case 90:
+      return "w-[90%]";
+    default:
+      return "w-1/2";
+  }
+}
+
+/**
+ * The pay-run hero (brief §5) — the office's "how far through this week's run
+ * am I?" banner. Leads with approval progress (workers ready / crew) and the
+ * one bulk action that's always safe: approve every CLEAN week at once.
+ * Flagged weeks (rejected / draft / missing) are deliberately excluded from
+ * the sweep and called out so they get a look. Every number is the real
+ * closeout summary — no money (cost is confidential + off this surface) and no
+ * fabricated readiness for an empty run.
+ */
+function PayRunHero({
+  closeout,
+  payRun,
+  cleanSweepBusy,
+  onApproveAllClean,
+}: {
+  closeout: WeeklyHoursCloseout;
+  payRun: ReturnType<typeof buildPayRun>;
+  cleanSweepBusy: boolean;
+  onApproveAllClean: () => void;
+}): ReactNode {
   const s = closeout.summary;
+  const h = payRun.hero;
+  const cleanCount = payRun.cleanWorkerCount;
+
   return (
-    <Card className="space-y-3 border-l-4 border-l-brand-navy">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <CardTitle>Payroll readiness</CardTitle>
+    <Card className="space-y-4 border-l-4 border-l-brand-navy">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-display text-xs uppercase tracking-widest text-text-muted">
+            Pay run · {h.rangeLabel}
+          </p>
+          <CardTitle className="mt-1">
+            {h.crewCount === 0
+              ? "No hours to approve this week"
+              : h.allReady
+                ? "This week is approved"
+                : `${h.crewCount} ${h.crewCount === 1 ? "week" : "weeks"} to approve`}
+          </CardTitle>
+        </div>
         <Pill tone={s.payrollReady ? "success" : "warning"}>
           {s.payrollReady ? "Payroll-ready" : "Not payroll-ready"}
         </Pill>
       </div>
 
-      {/* single strings per pill — adjacent JSX text would be split by SSR
-          comment markers and break copy/tests */}
+      {/* Approval progress — readyCount / crewCount. Empty run = 0%, honest.
+          Width comes from a discrete class map (no inline style — the repo's
+          ESLint no-restricted-syntax rule); the exact count below is the
+          precise truth, the bar is the at-a-glance approximation. */}
+      <div className="space-y-1.5">
+        <div
+          className="h-2 w-full overflow-hidden rounded-pill bg-surface-subtle"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={h.progressPct}
+          aria-label="Workers approved this week"
+        >
+          <div
+            aria-hidden="true"
+            className={cn(
+              "h-full rounded-pill bg-brand-navy transition-[width]",
+              progressFillClass(h.progressPct),
+            )}
+          />
+        </div>
+        <p className="text-xs text-text-muted">
+          {`${h.readyCount} of ${h.crewCount} ${h.crewCount === 1 ? "worker" : "workers"} approved`}
+        </p>
+      </div>
+
+      {/* Real counts only — each pill renders just one string (SSR comment
+          markers would otherwise split adjacent JSX text). */}
       <div className="flex flex-wrap gap-2">
         <Pill tone="success">{`${s.workersReady} ready`}</Pill>
-        <Pill tone={s.workersNeedAction > 0 ? "warning" : "neutral"}>
-          {`${s.workersNeedAction} need action`}
+        <Pill tone={h.flaggedCount > 0 ? "warning" : "neutral"}>
+          {`${h.flaggedCount} need a look`}
         </Pill>
         {s.submittedDays > 0 ? (
           <Pill tone="info">
@@ -696,6 +874,25 @@ function SummaryCard({ closeout }: { closeout: WeeklyHoursCloseout }): ReactNode
           </span>
         ) : null}
       </p>
+
+      {/* "Approve all clean" — sweeps only weeks whose sole open state is
+          pending-approval. Hidden when there are none (an empty run, or every
+          remaining week is flagged) so the button never lies about being able
+          to clear the run. */}
+      {cleanCount > 0 ? (
+        <div className="flex flex-wrap items-center gap-3 border-t border-border pt-3">
+          <Button onClick={onApproveAllClean} disabled={cleanSweepBusy}>
+            {cleanSweepBusy
+              ? "Approving clean weeks…"
+              : `Approve all clean · ${cleanCount}`}
+          </Button>
+          {h.flaggedCount > 0 ? (
+            <span className="text-xs text-text-muted">
+              {`${h.flaggedCount} flagged ${h.flaggedCount === 1 ? "week needs" : "weeks need"} a look first.`}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </Card>
   );
 }
@@ -748,13 +945,18 @@ function WorkerCard({
   const days = worker.days.filter(
     (d) => !(["Sat", "Sun"].includes(d.weekday) && d.entryId === null && d.status !== "missing")
   );
+  const strip = workerStrip(worker);
   return (
     <Card className="space-y-3">
       <details open={defaultOpen}>
-        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
-          <div className="min-w-0">
-            <CardTitle>{worker.workerName}</CardTitle>
-            <CardDescription>{countLine(worker)}</CardDescription>
+        <summary className="flex cursor-pointer list-none flex-col gap-3 [&::-webkit-details-marker]:hidden sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="min-w-0">
+              <CardTitle>{worker.workerName}</CardTitle>
+              <CardDescription>{countLine(worker)}</CardDescription>
+            </div>
+            {/* Seven-day strip — the shape of the week without expanding. */}
+            <WeekShapeStrip cells={strip} workerName={worker.workerName} />
           </div>
           <div className="flex items-center gap-2">
             {worker.submittedCount > 0 ? (

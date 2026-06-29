@@ -59,16 +59,34 @@ function renderAsAdmin(entries: TimeEntry[], missing: MissingLog[] = []) {
  * empties, and no fabricated rows.
  */
 describe("WeeklyHoursCloseoutBoard (render)", () => {
-  it("leads with payroll readiness and the week's counts", () => {
+  it("leads with the pay-run hero, approval progress and the week's counts", () => {
     const html = render([
       entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown" }),
       entry({ userId: "u2", date: "2024-05-20", userName: "Jack Smith", status: "submitted" }),
     ]);
-    expect(html).toContain("Payroll readiness");
+    expect(html).toContain("Pay run");
     expect(html).toContain("Not payroll-ready");
     expect(html).toContain("1 ready");
-    expect(html).toContain("1 need action");
+    // The hero reframes "need action" as the flagged "need a look" count
+    // (0 here — the one open week is clean/submitted), and shows progress.
+    expect(html).toContain("0 need a look");
+    expect(html).toContain("1 of 2 workers approved");
     expect(html).toContain("1 submitted day");
+  });
+
+  it("offers a clean-sweep button for weeks whose only open state is submitted", () => {
+    const html = render([
+      entry({ userId: "u1", date: "2024-05-20", userName: "Jack Smith", status: "submitted" }),
+    ]);
+    expect(html).toContain("Approve all clean");
+  });
+
+  it("renders the seven-day shape strip per worker", () => {
+    const html = render([
+      entry({ userId: "u1", date: "2024-05-20", userName: "Jack Smith", status: "submitted" }),
+    ]);
+    expect(html).toContain("week at a glance");
+    expect(html).toContain("Week strip"); // the legend heading
   });
 
   it("groups workers needing action before the payroll-ready group", () => {
