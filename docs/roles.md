@@ -25,6 +25,14 @@ no email, so the email check is authoritative at the API in `api/_lib/auth.js`
 via `canAccessOwnerConsole(user)`). A user whose stored role is `owner` also
 lands on `/owner` (`landingFor`), not `/command-centre`.
 
+**Env-only owner principal (#760).** The preferred owner identity is *not* a
+`users.json` employee — it's a synthetic principal (id `__owner__`, role `owner`)
+authenticated against `OWNER_PASSWORD_HASH` (bcrypt, env; fail-closed) and resolved
+by `getCurrentUser` without a stored row, so it leaves no trace in the Employees
+roster. Role `owner` is therefore **not** in `VALID_ROLES` (no owner employee), and
+the owner username + `__owner__` id are reserved (`api/users.js`, the `users.json`
+write-guard). See `docs/owner-console.md` → "Owner identity".
+
 JS (`api/`): `require('./_lib/auth')`. TS (`src/`): `src/lib/auth/roles.ts`.
 
 **Enforcement** — two guards, because `next lint` deliberately ignores `api/`:

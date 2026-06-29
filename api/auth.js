@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const {
   setSessionCookie, clearSessionCookie, getCurrentUser, isDisabledUser,
+  ownerPasswordHash, ownerLoginUsername, syntheticOwner,
 } = require('./_lib/auth');
 const { createRateLimiter } = require('./_lib/rate-limit');
 
@@ -36,6 +37,22 @@ module.exports = async (req, res) => {
       const retryAfterSec = loginThrottle.retryAfterSec(throttleKey);
       res.setHeader('Retry-After', String(retryAfterSec));
       return res.status(429).json({ error: 'Too many attempts. Wait a few minutes and try again.', retryAfterSec });
+    }
+    // Env-only owner (#760): a synthetic super-admin with NO users.json row. Only
+    // active when OWNER_PASSWORD_HASH is configured (fail closed); checked BEFORE
+    // the users.json lookup so the reserved owner username can't be shadowed.
+    // Throttled like any login; the session carries the reserved sentinel id.
+    const ownerHash = ownerPasswordHash();
+    if (ownerHash && throttleKey === ownerLoginUsername().toLowerCase()) {
+      const ownerOk = await bcrypt.compare(String(secret), ownerHash);
+      if (!ownerOk) {
+        loginThrottle.record(throttleKey);
+        return res.status(401).json({ error: 'invalid credentials' });
+      }
+      loginThrottle.clear(throttleKey);
+      const owner = syntheticOwner();
+      setSessionCookie(res, { userId: owner.id, role: owner.role });
+      return res.status(200).json({ user: owner });
     }
     const data = await readBlob('users.json', { users: [] });
     const user = (data.users || []).find(u => u.username.toLowerCase() === throttleKey);

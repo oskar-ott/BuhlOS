@@ -6,6 +6,14 @@ const { readBlob } = require('./blob');
 const SESSION_COOKIE = 'buhl_session';
 const SESSION_DAYS = 30;
 
+// Reserved id for the env-only platform owner (#760) — a SYNTHETIC principal
+// with NO users.json row, so it never appears in the Employees roster, exports,
+// or assignment pickers. Helpers + login live in the owner section below; see
+// docs/owner-console.md. The leading/trailing underscores keep it clearly out of
+// the real-id namespace (nanoid/`u_*`), and a blob-guard forbids any stored row
+// from claiming it.
+const OWNER_SENTINEL = '__owner__';
+
 function secret() {
   const s = process.env.SESSION_SECRET;
   if (!s || s.length < 16) throw new Error('SESSION_SECRET env var missing or too short');
@@ -65,6 +73,11 @@ function getSession(req) {
 async function getCurrentUser(req) {
   const session = getSession(req);
   if (!session) return null;
+  // Env-only owner: a synthetic super-admin with NO users.json row. getSession
+  // has already HMAC-verified the cookie, so a forged '__owner__' session is
+  // impossible without SESSION_SECRET — the same trust anchor as the role claim.
+  // Resolve it here WITHOUT touching the blob (there is no row to find).
+  if (isOwnerSentinel(session.userId)) return syntheticOwner();
   const users = await readBlob('users.json', { users: [] });
   const user = users.users.find(u => u.id === session.userId);
   if (!user) return null;
@@ -168,6 +181,40 @@ function ownerEmailAllowed(email) {
 function canAccessOwnerConsole(user) {
   if (!user) return false;
   return isOwnerRole(user.role) || ownerEmailAllowed(user.email);
+}
+
+// ── Env-only owner login (#760) ──────────────────────────────────────────────
+// The platform owner authenticates against ENV credentials and is represented by
+// a SYNTHETIC principal (no users.json row) — so it leaves zero trace in the
+// admin Employees view. FAIL CLOSED: with no OWNER_PASSWORD_HASH set, owner login
+// does not exist (the login branch is skipped). The password NEVER defaults
+// (unlike OWNER_EMAILS, which seeds an email for console access).
+function isOwnerSentinel(id) {
+  return id === OWNER_SENTINEL;
+}
+function ownerLoginUsername() {
+  const raw = process.env.OWNER_LOGIN_USERNAME;
+  return raw && String(raw).trim() ? String(raw).trim() : 'owner';
+}
+// The bcrypt hash of the owner password — env only, no default. Unset ⇒ null ⇒
+// owner login disabled.
+function ownerPasswordHash() {
+  const h = process.env.OWNER_PASSWORD_HASH;
+  return h && String(h).trim() ? String(h).trim() : null;
+}
+// The synthetic owner returned to the app. role 'owner' ⇒ canAccessOwnerConsole
+// is true and the owner-preview flag branch fires; 'owner' ∈ ADMIN_ROLES ⇒ it
+// behaves as a full super-admin through requireAuth/canManageJob. email mirrors
+// OWNER_EMAILS[0] for console-gate consistency. Carries NO passwordHash.
+function syntheticOwner() {
+  return {
+    id: OWNER_SENTINEL,
+    username: ownerLoginUsername(),
+    name: 'Owner',
+    role: 'owner',
+    email: ownerEmails()[0] || null,
+    assignedJobIds: [],
+  };
 }
 
 // Expand one allowed-role entry passed to requireAuth into the set of
@@ -305,6 +352,11 @@ module.exports = {
   OWNER_ROLES,
   ownerEmailAllowed,
   canAccessOwnerConsole,
+  OWNER_SENTINEL,
+  isOwnerSentinel,
+  ownerLoginUsername,
+  ownerPasswordHash,
+  syntheticOwner,
   SESSION_COOKIE,
   ADMIN_ROLES,
   LEADING_HAND_ROLES,

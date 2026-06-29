@@ -56,6 +56,11 @@ class StaleWriteError extends Error {
   }
 }
 
+// #760: the env-only owner's reserved sentinel id — imported from the single
+// source of truth (api/_lib/auth.js) so the users.json guard below forbids any
+// stored row from claiming it. Acyclic require: auth → blob, never blob-guards.
+const { OWNER_SENTINEL } = require('./auth');
+
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -140,7 +145,20 @@ function jobDataCount(doc) {
 
 /** Exact-key validators + the shrink-guard config (highest blast radius first). */
 const EXACT_GUARDS = {
-  'users.json': { validate: arrayOfIdObjects('users'), shrinkField: 'users', shrinkFloor: 10 },
+  'users.json': {
+    // #760: reject the reserved owner sentinel id — the env-only owner must never
+    // have a stored row (no trace in the roster); this stops any path planting one.
+    validate: (doc) => {
+      const base = arrayOfIdObjects('users')(doc);
+      if (base) return base;
+      if (Array.isArray(doc.users) && doc.users.some((u) => u && u.id === OWNER_SENTINEL)) {
+        return 'a user may not use the reserved owner id';
+      }
+      return null;
+    },
+    shrinkField: 'users',
+    shrinkFloor: 10,
+  },
   'jobs.json': { validate: arrayOfIdObjects('jobs'), shrinkField: 'jobs', shrinkFloor: 10 },
   'observations.json': {
     validate: arrayOfIdObjects('observations'),
