@@ -65,7 +65,7 @@ hardcoded "healthy" (P7 — no fake UI / no invented numbers).
 | --- | --- | --- |
 | **Product health** | Live probes at load: Blob reachability, `SESSION_SECRET` configured, feature-flag expiry. | ✅ derived from real checks |
 | **Usage & activity** | Derived from the audit journal (`audit/<yyyy-mm>.json`): events (7d), distinct actors (7d), this month's count, top actions. | ✅ real (business actions only) |
-| **Feature flags** | The flag registry (`api/_lib/feature-flags.js`) + env (`FLAG_*`) + the `flags.json` override blob: per-flag resolved state, source, target, expiry classification, protected marker. | ✅ real, **read-only** |
+| **Feature flags** | The flag registry (`api/_lib/feature-flags.js`) + env (`FLAG_*`) + the `flags.json` override blob: per-flag resolved state, source, target, expiry classification, protected marker. | ✅ real, **live control** (#760) |
 | **Product problems** | Derived from real signals: expired/expiring flags, failed health probes, instrumentation gaps, owner-access durability. | ✅ derived; gaps labelled |
 | **Audit trail** | The cross-job audit journal (recent entries; **no metadata payloads**, no ids). | ✅ real |
 | **Surface coverage** | `routeExists`/`accessGuarded` from the route map; `auditTracked` **derived** from the live audit-action registry; usage/error columns honestly "not instrumented". | ✅ partial; gaps labelled |
@@ -75,24 +75,19 @@ hardcoded "healthy" (P7 — no fake UI / no invented numbers).
 feature adoption, login/session activity, error/failed-action telemetry,
 endpoint latency, uptime probe.
 
-## Feature flags — read-only
+## Feature flags — live control
 
-The console **displays** flag state but does **not** toggle anything.
-
-- It shows, per flag: resolved on/off, the resolution **source** (env override >
-  blob override > registry default — env always wins), target tier, **expiry
-  status** (ok / expiring soon / expired), and a **protected** marker on the
-  data-plane / perf flags (`supabase_*`, `phil_jobs_summary_read`).
-- There is **no toggle**. No safe runtime override write-path exists yet: there
-  is no audited, CAS-guarded, protected-flag-aware writer for `flags.json`, and
-  the dangerous Supabase cutover flags must never be flipped from a UI mid-sync.
-  Building that writer is a documented follow-up.
-- To change a flag today: set `FLAG_<KEY>` in the Vercel env (and redeploy), per
-  `docs/feature-flags.md`.
+The console **controls** feature visibility (it is no longer read-only). Each
+non-protected flag has two dials — **Live to customers** (the customer launch
+gate) and **Preview for me** (an owner-only override) — while protected
+data-plane flags (`supabase_*`, `phil_jobs_summary_read`) stay read-only and env
+(`FLAG_*`) always wins. Full mechanics, precedence and safety rules:
+[Feature-flag control](#feature-flag-control-760). To pin a flag per-environment
+regardless of the UI, set `FLAG_<KEY>` in the Vercel env per
+`docs/feature-flags.md`.
 
 ## What is intentionally NOT built (yet)
 
-- **No flag toggles** — read-only (above).
 - **No route/feature usage instrumentation** — no analytics store exists; the
   console labels this gap and proposes it as a follow-up.
 - **No error/failed-action telemetry**, **no login/session log**, **no latency
