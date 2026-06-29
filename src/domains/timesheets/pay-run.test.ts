@@ -6,7 +6,9 @@ import {
   buildPayRun,
   isCleanWeek,
   isFlaggedWeek,
+  shortHours,
   toStripCell,
+  wholeDollarsFromCents,
   workerStrip,
 } from "./pay-run";
 
@@ -276,5 +278,76 @@ describe("toStripCell / workerStrip", () => {
     expect(cell.title).toContain("Submitted");
     expect(cell.title).toContain("100 Arthur");
     expect(cell.hoursLabel).toBe("7h 36m");
+    // §5 dense strip: the raw number + its compact string.
+    expect(cell.hoursNumber).toBe(7.6);
+    expect(cell.hoursShort).toBe("7.6");
+  });
+
+  it("toStripCell leaves hoursNumber/hoursShort null for a day with no hours", () => {
+    const cell = toStripCell({
+      date: "2024-05-22",
+      weekday: "Wed",
+      status: "missing",
+      entryId: null,
+      jobLabel: null,
+      hours: null,
+      ordinaryHours: null,
+      overtimeHours: null,
+      note: null,
+      rejectedReason: null,
+      exportId: null,
+      leaveType: null,
+      holidayName: null,
+    });
+    expect(cell.hoursNumber).toBeNull();
+    expect(cell.hoursShort).toBeNull();
+    expect(cell.emptyGlyph).toBe("—");
+  });
+});
+
+describe("§5 hero — logged hours, labour $, need-a-look", () => {
+  it("carries logged hours, the labour figure and the need-a-look count", () => {
+    const closeout = buildWeeklyHoursCloseout({
+      entries: [
+        entry({ userId: "u1", date: "2024-05-20", status: "approved", totalHours: 8 }),
+        entry({ userId: "u2", date: "2024-05-20", status: "rejected", totalHours: 9, rejectedReason: "x" }),
+      ],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+      costRatesByWorker: { u1: 5000, u2: 5000 }, // both $50/h
+    });
+    const { hero } = buildPayRun(closeout);
+    expect(hero.loggedHoursShort).toBe("17"); // 8 + 9
+    // $50 × (8 + 9) = $850, whole-dollar with separator.
+    expect(hero.labourLabel).toBe("$850");
+    expect(hero.needLookCount).toBe(1); // u2 is flagged (rejected)
+  });
+
+  it("omits the labour label when NO worker has a cost rate", () => {
+    const closeout = buildWeeklyHoursCloseout({
+      entries: [entry({ userId: "u1", date: "2024-05-20", status: "approved", totalHours: 8 })],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+    });
+    expect(buildPayRun(closeout).hero.labourLabel).toBeNull();
+  });
+});
+
+describe("shortHours / wholeDollarsFromCents", () => {
+  it("shortHours trims to a clean decimal, null for no hours", () => {
+    expect(shortHours(8)).toBe("8");
+    expect(shortHours(8.5)).toBe("8.5");
+    expect(shortHours(10.25)).toBe("10.25");
+    expect(shortHours(0)).toBeNull();
+    expect(shortHours(null)).toBeNull();
+  });
+
+  it("wholeDollarsFromCents rounds to whole dollars with a separator, null for ≤0", () => {
+    expect(wholeDollarsFromCents(52_500)).toBe("$525");
+    expect(wholeDollarsFromCents(2_418_000)).toBe("$24,180");
+    expect(wholeDollarsFromCents(0)).toBeNull();
+    expect(wholeDollarsFromCents(null)).toBeNull();
   });
 });

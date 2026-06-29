@@ -31,7 +31,12 @@ function closeout(
       draftCount: 0,
       missingCount: 0,
       blockers: [],
+      needsLookReasons: [],
       days: [],
+      loggedHours: 0,
+      jobBreakdown: [],
+      costRateCents: null,
+      labourCents: null,
     })),
     approvedByJob: [],
     summary: {
@@ -42,6 +47,9 @@ function closeout(
       draftDays: 0,
       missingDays: 0,
       approvedHours: 0,
+      loggedHours: 0,
+      labourCents: 0,
+      ratedWorkers: 0,
       payrollReady: workers.every((w) => w.readiness === "payroll-ready"),
     },
   };

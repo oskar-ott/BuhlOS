@@ -18,13 +18,14 @@ import type {
  * what the operator sees.
  *
  * HONESTY (the project's #1 law — no fake UI, no invented numbers):
- *   - NO money. The prototype prints `$labour` per worker and per job, but the
- *     admin hours surface deliberately shows no money figures (cost rates are
- *     confidential, admin-only, effective-dated per worker, and sparsely
- *     populated — api/cost-rates.js). Rolling a labour-$ column in here would
- *     mean N confidential per-worker rate fetches AND surfacing payroll cost on
- *     a queue screen. We keep the hours-shaped numbers the surface already
- *     trusts (hours + day counts) and omit money entirely.
+ *   - MONEY ON, HONESTLY. /hours is admin-tier, so the §5 mockup's labour $ is
+ *     correct to show here. The page reads the confidential, effective-dated
+ *     cost rate (api/cost-rates.js — admin-gated) and the closeout multiplies
+ *     LOGGED hours × the rate effective on the week's Monday. A worker with NO
+ *     rate carries `labourCents: null` and renders "—" — never a fabricated $0
+ *     — and the hero omits the labour figure entirely when NO worker is rated
+ *     (no column of dashes). A leading-hand viewer never gets rates (the page
+ *     passes none), so the same "—"/omit path keeps cost off their screen.
  *   - "Approve all clean" only counts weeks that are ACTIONABLE RIGHT NOW: a
  *     worker whose ONLY open state is `submitted` days (no rejected, no draft,
  *     no missing). A flagged week (anything else outstanding) is never swept
@@ -57,6 +58,13 @@ export interface StripCell {
   tone: StripTone;
   /** Pre-formatted hours for the cell ("7h 36m"), or null when no entry. */
   hoursLabel: string | null;
+  /** §5 mockup: the RAW logged-hours number for the dense day cell — "8",
+   *  "8.5", "10.5" — or null when the day has no logged hours (then the cell
+   *  shows `emptyGlyph`, never a fabricated 0). Decimal hours, ≤2 dp. */
+  hoursNumber: number | null;
+  /** Compact decimal form of `hoursNumber` for the dense strip ("8", "8.5"),
+   *  or null. Pre-formatted so the presenter stays string-only. */
+  hoursShort: string | null;
   /** Glyph the strip shows when there are no hours: "—" missing, "·" off/
    *  future/not-required, "" otherwise. Never a fake number. */
   emptyGlyph: string;
@@ -78,8 +86,17 @@ export interface PayRunHero {
   flaggedCount: number;
   /** Approved hours across the run, pre-formatted ("142h 30m"). */
   approvedHoursLabel: string;
+  /** §5 hero "{totalHrs}h logged" — LOGGED hours across the run as a compact
+   *  number string ("412", "412.5"). The figure the day-number strip adds to. */
+  loggedHoursShort: string;
+  /** §5 hero "${labour} labour" — total labour across rated workers, as a
+   *  rounded whole-dollar string with thousands separators ("$24,180"), or null
+   *  when NO worker in the run has a cost rate (the hero omits the figure). */
+  labourLabel: string | null;
   /** Submitted (awaiting-approval) day count across the run. */
   submittedDays: number;
+  /** §5 hero "{needLook} need a look" — workers flagged for a human look. */
+  needLookCount: number;
   /** Progress 0..100 = readyCount / crewCount, rounded; 0 for an empty run. */
   progressPct: number;
   /** True only when there is a crew AND every worker is payroll-ready. */
@@ -143,6 +160,20 @@ function cellHoursLabel(hours: number | null): string | null {
   return `${m}m`;
 }
 
+/** §5 dense day number — "8", "8.5", "10.5". `null` when no logged hours so the
+ *  cell shows a glyph, never a fabricated 0. Trims trailing zeros to ≤2 dp. */
+export function shortHours(hours: number | null): string | null {
+  if (hours == null || !(hours > 0)) return null;
+  return String(Math.round(hours * 100) / 100);
+}
+
+/** §5 whole-dollar label from integer cents — "$24,180" (en-AU thousands).
+ *  Pure; null/sub-zero in → null so callers can omit rather than print "$0". */
+export function wholeDollarsFromCents(cents: number | null | undefined): string | null {
+  if (cents == null || !Number.isFinite(cents) || cents <= 0) return null;
+  return `$${Math.round(cents / 100).toLocaleString("en-AU")}`;
+}
+
 const STATUS_WORD: Record<WeeklyDayStatus, string> = {
   approved: "Approved",
   submitted: "Submitted",
@@ -182,6 +213,8 @@ export function toStripCell(day: WeeklyHoursDay): StripCell {
     status: day.status,
     tone,
     hoursLabel,
+    hoursNumber: day.hours != null && day.hours > 0 ? day.hours : null,
+    hoursShort: shortHours(day.hours),
     emptyGlyph,
     title: parts.join(" · "),
   };
@@ -216,7 +249,13 @@ export function buildPayRun(closeout: WeeklyHoursCloseout): PayRunVM {
     needActionCount: summary.workersNeedAction,
     flaggedCount,
     approvedHoursLabel: cellHoursLabel(summary.approvedHours) ?? "0h",
+    loggedHoursShort: shortHours(summary.loggedHours) ?? "0",
+    // Only show a labour figure when at least one worker is rated — otherwise
+    // omit it (no "$0" lie, no column of dashes). §5 + honesty rules.
+    labourLabel:
+      summary.ratedWorkers > 0 ? wholeDollarsFromCents(summary.labourCents) : null,
     submittedDays: summary.submittedDays,
+    needLookCount: flaggedCount,
     progressPct,
     allReady: crewCount > 0 && readyCount === crewCount,
   };

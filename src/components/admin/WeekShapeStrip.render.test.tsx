@@ -9,6 +9,8 @@ function cell(p: Partial<StripCell> & { date: string; weekday: string }): StripC
     status: "approved",
     tone: "approved",
     hoursLabel: "8h",
+    hoursNumber: 8,
+    hoursShort: "8",
     emptyGlyph: "",
     title: `${p.weekday} · Approved · 8h`,
     ...p,
@@ -25,6 +27,8 @@ describe("WeekShapeStrip (render)", () => {
         status: "missing",
         tone: "missing",
         hoursLabel: null,
+        hoursNumber: null,
+        hoursShort: null,
         emptyGlyph: "—",
         title: "Tue · Missing",
       }),
@@ -41,15 +45,44 @@ describe("WeekShapeStrip (render)", () => {
     expect(html).toContain("—");
   });
 
-  it("strips internal whitespace from the hours label inside the square", () => {
+  it("shows the ACTUAL logged-hours number in each day cell (not a dot)", () => {
     const html = renderToString(
       createElement(WeekShapeStrip, {
-        cells: [cell({ date: "2024-05-20", weekday: "Mon", hoursLabel: "7h 36m" })],
+        cells: [
+          cell({ date: "2024-05-20", weekday: "Mon", hoursNumber: 8, hoursShort: "8" }),
+          cell({ date: "2024-05-21", weekday: "Tue", hoursNumber: 8.5, hoursShort: "8.5" }),
+          cell({ date: "2024-05-22", weekday: "Wed", hoursNumber: 10.5, hoursShort: "10.5" }),
+        ],
         workerName: "Tom",
       }),
     );
-    // "7h 36m" → "7h36m" so the tiny square doesn't wrap.
-    expect(html).toContain("7h36m");
+    // The dense strip renders the raw number, not "8h" / a glyph.
+    expect(html).toContain(">8<");
+    expect(html).toContain("8.5");
+    expect(html).toContain("10.5");
+  });
+
+  it("a day with no logged hours shows its glyph, never a fabricated 0", () => {
+    const html = renderToString(
+      createElement(WeekShapeStrip, {
+        cells: [
+          cell({
+            date: "2024-05-25",
+            weekday: "Sat",
+            status: "not-required",
+            tone: "empty",
+            hoursLabel: null,
+            hoursNumber: null,
+            hoursShort: null,
+            emptyGlyph: "·",
+            title: "Sat · No hours",
+          }),
+        ],
+        workerName: "Tom",
+      }),
+    );
+    expect(html).toContain("·");
+    expect(html).not.toContain(">0<");
   });
 });
 
