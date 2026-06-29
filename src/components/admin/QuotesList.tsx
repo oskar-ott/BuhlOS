@@ -136,6 +136,9 @@ export function QuotesList({ quotes }: QuotesListProps) {
                   className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-navy"
                 >
                   <span className="min-w-40 flex-1 truncate font-medium text-text">{q.name}</span>
+                  <span className="w-40 truncate text-sm text-text-muted" title={q.clientName ?? undefined}>
+                    {q.clientName || "—"}
+                  </span>
                   <Pill tone={quoteStatusTone(q.status)}>{quoteStatusLabel(q.status)}</Pill>
                   <span className="text-sm text-text-muted">
                     {q.lineCount === 1 ? "1 line" : `${q.lineCount} lines`}

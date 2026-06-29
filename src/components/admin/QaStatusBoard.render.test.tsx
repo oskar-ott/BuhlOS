@@ -107,6 +107,54 @@ describe("QaStatusBoard", () => {
     expect(render(RESULT)).toContain('href="/v2/jobs/j_await/itps"');
   });
 
+  it("shows an inline Review link only on rows awaiting sign-off (§8B)", () => {
+    const result: QaStatusResult = {
+      ok: true,
+      scannedJobs: 2,
+      failedJobs: [],
+      dashboard: {
+        rows: [
+          // awaitingSignOff > 0 → Review link present.
+          {
+            jobId: "j_await",
+            jobName: "Reception fitout",
+            rollup: {
+              total: 2,
+              statusCounts: { pending: 0, "in-progress": 1, witnessed: 1, "signed-off": 0 },
+              activeCount: 2,
+              awaitingSignOff: 1,
+              openPoints: 3,
+              oldestActiveAt: "2026-06-06T00:00:00.000Z",
+              oldestActiveAgeDays: 9,
+            },
+          },
+          // has ITPs but nothing awaiting sign-off → NO Review link.
+          {
+            jobId: "j_clear",
+            jobName: "All signed",
+            rollup: {
+              total: 2,
+              statusCounts: { pending: 0, "in-progress": 0, witnessed: 0, "signed-off": 2 },
+              activeCount: 0,
+              awaitingSignOff: 0,
+              openPoints: 0,
+              oldestActiveAt: null,
+              oldestActiveAgeDays: null,
+            },
+          },
+        ],
+        totals: { jobs: 2, jobsWithItps: 2, instances: 4, activeInstances: 2, awaitingSignOff: 1, openPoints: 3 },
+        oldestActiveAgeDays: 9,
+      },
+    };
+    const html = render(result);
+    // The Review link is present, pointing at the awaiting row's existing href.
+    expect(html).toContain("Review");
+    expect(html).toContain('href="/v2/jobs/j_await/itps"');
+    // Exactly ONE Review affordance (the cleared row has none).
+    expect((html.match(/>Review</g) ?? []).length).toBe(1);
+  });
+
   it("renders a job with no ITPs as an honest gap, not all-clear", () => {
     const html = render(RESULT);
     expect(html).toContain("New shed");

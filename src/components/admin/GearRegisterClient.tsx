@@ -12,6 +12,7 @@ import { isLeadingHandRole } from "@/lib/auth/roles";
 import { deriveStatus, statusTone } from "@/domains/gear/service";
 import {
   assetDisplayName,
+  calibrationFlag,
   conditionLabel,
   formatShortDate,
   formatTimestamp,
@@ -147,6 +148,8 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
             visible.map((asset) => {
               const status = deriveStatus(asset);
               const overdue = isOverdue(asset, today);
+              const cal = calibrationFlag(asset, today);
+              const action = rowAction(asset, today);
               return (
                 <li key={asset.id} className="px-4 py-3">
                   <div className="flex items-start justify-between gap-2">
@@ -155,17 +158,36 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
                       {asset.identifier ? (
                         <div className="truncate text-xs text-text-muted">{asset.identifier}</div>
                       ) : null}
+                      {asset.notes ? (
+                        <div className="truncate text-xs italic text-text-muted" title={asset.notes}>{asset.notes}</div>
+                      ) : null}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
                       <Pill tone={statusTone(status)}>{statusLabel(status)}</Pill>
                       {overdue ? <Pill tone="danger">Overdue</Pill> : null}
+                      {cal ? (
+                        <Pill tone={cal.status === "expired" ? "danger" : "warning"}>
+                          {cal.status === "expired" ? "Calibration due" : "Calibration soon"}
+                        </Pill>
+                      ) : null}
                     </div>
                   </div>
                   <div className="mt-1 text-xs text-text-muted">
                     {typeLabel(asset.type)} · {asset.currentHolderName ?? "— depot —"} · {formatTimestamp(asset.assignedAt) ?? "—"}
                   </div>
-                  <div className="mt-2">
-                    <Button size="sm" variant="secondary" className="w-full" onClick={() => setDrawerAssetId(asset.id)}>
+                  <div className="mt-2 flex gap-2">
+                    {action ? (
+                      <Button
+                        size="sm"
+                        variant={action.tone === "danger" ? "danger" : "secondary"}
+                        className="flex-1"
+                        data-testid={`gear-row-action-${asset.id}`}
+                        onClick={() => setDrawerAssetId(asset.id)}
+                      >
+                        {action.label}
+                      </Button>
+                    ) : null}
+                    <Button size="sm" variant="secondary" className="flex-1" onClick={() => setDrawerAssetId(asset.id)}>
                       Manage
                     </Button>
                   </div>
@@ -198,6 +220,8 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
                 visible.map((asset) => {
                   const status = deriveStatus(asset);
                   const overdue = isOverdue(asset, today);
+                  const cal = calibrationFlag(asset, today);
+                  const action = rowAction(asset, today);
                   return (
                     <tr key={asset.id} className="hover:bg-surface-subtle">
                       <td className="max-w-xs px-4 py-3">
@@ -207,6 +231,11 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
                         {asset.identifier ? (
                           <div className="truncate text-xs text-text-muted">{asset.identifier}</div>
                         ) : null}
+                        {asset.notes ? (
+                          <div className="truncate text-xs italic text-text-muted" title={asset.notes}>
+                            {asset.notes}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 text-text-muted">{typeLabel(asset.type)}</td>
                       <td className="px-4 py-3">
@@ -214,6 +243,11 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
                         {overdue ? (
                           <Pill tone="danger" className="ml-1">
                             Overdue
+                          </Pill>
+                        ) : null}
+                        {cal ? (
+                          <Pill tone={cal.status === "expired" ? "danger" : "warning"} className="ml-1">
+                            {cal.status === "expired" ? "Calibration due" : "Calibration soon"}
                           </Pill>
                         ) : null}
                       </td>
@@ -227,14 +261,26 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
                       <td className="px-4 py-3 text-text-muted">
                         {formatTimestamp(asset.assignedAt) ?? "—"}
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => setDrawerAssetId(asset.id)}
-                        >
-                          Manage
-                        </Button>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-2">
+                          {action ? (
+                            <Button
+                              size="sm"
+                              variant={action.tone === "danger" ? "danger" : "secondary"}
+                              data-testid={`gear-row-action-${asset.id}`}
+                              onClick={() => setDrawerAssetId(asset.id)}
+                            >
+                              {action.label}
+                            </Button>
+                          ) : null}
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setDrawerAssetId(asset.id)}
+                          >
+                            Manage
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -300,6 +346,33 @@ export function GearRegisterClient({ initialAssets, holders }: Props) {
       ) : null}
     </>
   );
+}
+
+/**
+ * The status-contextual inline row action (§7 resources redesign). Driven by
+ * the existing `deriveStatus` + `calibrationFlag` — NOT a new state:
+ *   - overdue calibration  → "Book test"  (jumps to the Calibration section)
+ *   - damaged              → "Mark good"   (the repair quick-action)
+ *   - missing             → "Mark found"
+ * Anything else returns null and only the "Manage" fallback shows. The action
+ * opens the asset drawer (where the actual mutation + audit live) — the same
+ * place "Manage" goes, so there's one write path, not a duplicated mutation.
+ *
+ * `today` is the ISO day the page computed once; passing it keeps the
+ * calibration flag deterministic with the rest of the table.
+ */
+function rowAction(
+  asset: GearAsset,
+  today: string,
+): { label: string; tone: "danger" | "warning" } | null {
+  const status = deriveStatus(asset);
+  if (status === "damaged") return { label: "Mark good", tone: "danger" };
+  if (status === "missing") return { label: "Mark found", tone: "warning" };
+  if (status === "retired") return null;
+  // Test instrument whose calibration has lapsed — book it in.
+  const cal = calibrationFlag(asset, today);
+  if (cal?.status === "expired") return { label: "Book test", tone: "danger" };
+  return null;
 }
 
 function FilterTab({

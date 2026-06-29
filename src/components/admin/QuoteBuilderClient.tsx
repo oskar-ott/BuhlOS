@@ -270,9 +270,19 @@ const inputClass =
 
 interface QuoteBuilderClientProps {
   initialQuote: Quote;
+  /**
+   * CONFIDENTIAL GATE (§8). The per-line unit-cost entry and the Sell/Cost/
+   * Margin panel are INTERNAL — they must never reach a non-admin viewer or any
+   * client-facing surface. The server page (the only mount point) passes
+   * `isAdminRole(session.role)`; defaulting to `false` is fail-closed, so a
+   * caller that forgets to pass it shows NO cost/margin rather than leaking it.
+   * This is defence-in-depth: the page and /api/quotes-v2 are already admin-tier
+   * gated, so cost data only reaches an admin's browser in the first place.
+   */
+  viewerIsAdmin?: boolean;
 }
 
-export function QuoteBuilderClient({ initialQuote }: QuoteBuilderClientProps) {
+export function QuoteBuilderClient({ initialQuote, viewerIsAdmin = false }: QuoteBuilderClientProps) {
   const [savedQuote, setSavedQuote] = useState<Quote>(initialQuote);
   const [form, setForm] = useState<BuilderForm>(() => quoteToForm(initialQuote));
   const [saving, setSaving] = useState(false);
@@ -725,13 +735,15 @@ export function QuoteBuilderClient({ initialQuote }: QuoteBuilderClientProps) {
                           <Trash2 aria-hidden="true" className="h-4 w-4" />
                         </Button>
                        </div>
-                        <LineCostRow
-                          line={line}
-                          presets={livePresets}
-                          onPatch={(patch) => patchLine(section.key, line.key, patch)}
-                          onApplyPreset={(presetId) => applyPreset(section.key, line.key, presetId)}
-                          onManagePresets={() => setPresetsOpen(true)}
-                        />
+                        {viewerIsAdmin ? (
+                          <LineCostRow
+                            line={line}
+                            presets={livePresets}
+                            onPatch={(patch) => patchLine(section.key, line.key, patch)}
+                            onApplyPreset={(presetId) => applyPreset(section.key, line.key, presetId)}
+                            onManagePresets={() => setPresetsOpen(true)}
+                          />
+                        ) : null}
                       </li>
                     );
                   })}
@@ -759,7 +771,9 @@ export function QuoteBuilderClient({ initialQuote }: QuoteBuilderClientProps) {
         <Plus aria-hidden="true" className="h-4 w-4" /> Add section
       </Button>
 
-      <MarginPanel margin={margin} onManagePresets={() => setPresetsOpen(true)} />
+      {viewerIsAdmin ? (
+        <MarginPanel margin={margin} onManagePresets={() => setPresetsOpen(true)} />
+      ) : null}
 
       <QuoteRatePresetsModal
         open={presetsOpen}
