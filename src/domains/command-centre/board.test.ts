@@ -117,6 +117,20 @@ describe("buildBoard — openWork", () => {
     expect(vm.openWork.tiles.map((t) => t.heat)).toEqual(["red", "amber", "calm"]);
     expect(vm.openWork.total).toBe(19); // includes the zero bucket's 0
   });
+
+  it("carries the per-loop icon through to the tile (heatmap corner icon)", () => {
+    const vm = buildBoard(
+      signals({
+        openWork: [
+          { key: "snags", label: "Snags", count: 9, href: "/s", icon: "alert-octagon" },
+          { key: "hours", label: "Hours", count: 3, href: "/h", icon: "clipboard-check" },
+        ],
+      }),
+    );
+    const tile = (key: string) => vm.openWork.tiles.find((t) => t.key === key)!;
+    expect(tile("snags").icon).toBe("alert-octagon");
+    expect(tile("hours").icon).toBe("clipboard-check");
+  });
 });
 
 describe("buildBoard — pulse", () => {
@@ -150,5 +164,14 @@ describe("buildBoard — pulse", () => {
     expect(plain.value).toBe("14");
     expect(plain.denom).toBeUndefined();
     expect(plain.ringPct).toBeUndefined();
+  });
+
+  it("leads the approvals + jobs tiles with an icon; on-clock + logged carry none", () => {
+    const vm = buildBoard(signals({}));
+    const tile = (key: string) => vm.pulse.find((t) => t.key === key)!;
+    expect(tile("pending").icon).toBe("clipboard-check");
+    expect(tile("jobs").icon).toBe("briefcase");
+    expect(tile("onclock").icon).toBeUndefined();
+    expect(tile("logged").icon).toBeUndefined();
   });
 });

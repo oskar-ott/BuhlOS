@@ -137,6 +137,10 @@ interface FetchFixtures {
   meName?: string | null;
   /** Non-200 makes the jobs-with-stats fetch fail (board honest-degradation path). */
   jobsStatus?: number;
+  /** admin-stats users.byRole roster (leading hands + tradies) for the on-clock ring. */
+  byRole?: { admin: number; leadingHand: number; tradie: number; client: number };
+  /** Non-200 makes the admin-stats fetch fail → ring degrades to a plain count. */
+  adminStatsStatus?: number;
 }
 
 function stubFetch({
@@ -147,11 +151,21 @@ function stubFetch({
   expensesStatus = 200,
   meName = null,
   jobsStatus = 200,
+  byRole,
+  adminStatsStatus = 200,
 }: FetchFixtures) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: unknown) => {
       const url = String(input);
+      // admin-stats — the on-clock ring's roster denominator. Checked before
+      // the broad /api/time-entries branches (none collide, but be explicit).
+      if (url.includes("/api/admin-stats")) {
+        if (adminStatsStatus !== 200) return jsonResponse({ error: "boom" }, adminStatsStatus);
+        return jsonResponse({
+          users: { byRole: byRole ?? { admin: 2, leadingHand: 0, tradie: 0, client: 0 } },
+        });
+      }
       if (url.includes("/api/today-pulse")) {
         if (pulseStatus !== 200) return jsonResponse({ error: "boom" }, pulseStatus);
         return jsonResponse(pulse ?? pulseBody());
@@ -292,5 +306,53 @@ describe("/command-centre board (§2)", () => {
     expect(html).toContain("to approve");
     // The desktop board is present too (wrapped hidden md:block).
     expect(html).toContain("State of play");
+  });
+
+  // ── §2 fidelity (FIX 1–4) ──────────────────────────────────────────────
+  it("renders the on-the-clock SVG ring when admin-stats supplies a roster", async () => {
+    stubFetch({
+      submittedEntries: [],
+      pulse: pulseBody({ crewOnSite: 14 }),
+      byRole: { admin: 3, leadingHand: 6, tradie: 15, client: 4 }, // roster = 21
+    });
+    const html = await renderPage();
+    // Donut: navy arc + muted track, dashed to the percentage (round(14/21*100)=67).
+    expect(html).toContain('stroke-dasharray="67 100"');
+    expect(html).toContain("stroke-brand-navy");
+    expect(html).toContain("stroke-border");
+    // The crew/roster value still reads honestly inside the ring.
+    expect(html).toContain("/21");
+  });
+
+  it("degrades the ring to a plain number when admin-stats fails (no fabricated roster)", async () => {
+    stubFetch({
+      submittedEntries: [],
+      pulse: pulseBody({ crewOnSite: 14 }),
+      adminStatsStatus: 503,
+    });
+    const html = await renderPage();
+    // No ring arc and no denominator — just the count.
+    expect(html).not.toContain("stroke-dasharray");
+    expect(html).not.toContain("/21");
+    expect(html).toContain("on the clock");
+  });
+
+  it("renders heat-coloured corner icons on the open-work tiles", async () => {
+    // 9 pending hours → a red 'hi' tile carrying the clipboard-check icon.
+    stubFetch({
+      submittedEntries: Array.from({ length: 9 }, (_, i) => timeEntry(`t${i}`)),
+      pulse: pulseBody(),
+    });
+    const html = await renderPage();
+    expect(html).toContain('aria-label="Hours pending approval: 9"');
+    // lucide renders an <svg class="lucide lucide-clipboard-check ...">.
+    expect(html).toMatch(/lucide-clipboard-check/);
+  });
+
+  it("renders the date subline + the 'Owner numbers' link to /reports", async () => {
+    stubFetch({ submittedEntries: [], pulse: pulseBody() });
+    const html = await renderPage();
+    expect(html).toContain("Owner numbers");
+    expect(html).toContain('href="/reports"');
   });
 });

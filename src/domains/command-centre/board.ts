@@ -14,6 +14,24 @@ import type { ExceptionItem, ExceptionSeverity } from "@/domains/exceptions/type
 export type BoardTone = "calm" | "busy" | "critical";
 export type HeatLevel = "calm" | "amber" | "red";
 
+/**
+ * The lucide icon vocabulary the board references by name (the page maps each
+ * to a component). Kept as string keys so this module stays pure/server-safe
+ * and free of React imports. Mirrors NeedsNowCards' SOURCE_ICON set so the
+ * open-work tiles and the "needs you now" cards share one icon language.
+ */
+export type BoardIcon =
+  | "clipboard-check"
+  | "briefcase"
+  | "camera"
+  | "alert-octagon"
+  | "file-check"
+  | "inbox"
+  | "rotate-ccw"
+  | "user-x"
+  | "layers"
+  | "package";
+
 /** critical first, then warning; info never reaches needsNow. */
 const SEVERITY_RANK: Record<ExceptionSeverity, number> = {
   critical: 0,
@@ -36,6 +54,8 @@ export interface PulseTile {
   denom?: string;
   /** Highlight the tile (e.g. approvals waiting). */
   amber?: boolean;
+  /** Optional leading icon (clipboard-check on approvals, briefcase on jobs). */
+  icon?: BoardIcon;
 }
 
 /** A single open-work loop: its count and the surface that owns it. */
@@ -44,6 +64,8 @@ export interface OpenWorkInput {
   label: string;
   count: number;
   href: string;
+  /** Corner icon, recoloured by heat in the tile (same vocabulary as NeedsNow). */
+  icon?: BoardIcon;
 }
 export interface OpenWorkTile extends OpenWorkInput {
   heat: HeatLevel;
@@ -164,11 +186,13 @@ export function buildBoard(signals: BoardSignals): BoardVM {
       label: "pending approvals",
       value: String(signals.pendingApprovals),
       amber: signals.pendingApprovals > 0,
+      icon: "clipboard-check",
     },
     {
       key: "jobs",
       label: "jobs live today",
       value: signals.jobsLiveToday == null ? "—" : String(signals.jobsLiveToday),
+      icon: "briefcase",
     },
   ];
 
