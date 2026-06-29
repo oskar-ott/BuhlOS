@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { CompanyStatStrip } from "@/components/admin/CompanyStatStrip";
+import { buildQaSummary } from "@/domains/company/summary";
 import type { QaStatusResult } from "@/server/itp/qa-status";
 import type { QaJobRow } from "@/domains/itp/qa-rollup";
 
@@ -29,7 +31,8 @@ export function QaStatusBoard({ result }: { result: QaStatusResult }) {
   }
 
   const { dashboard, failedJobs } = result;
-  const { rows, totals } = dashboard;
+  const { rows } = dashboard;
+  const summary = buildQaSummary(dashboard);
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -37,21 +40,10 @@ export function QaStatusBoard({ result }: { result: QaStatusResult }) {
         <CardTitle>QA status</CardTitle>
         <CardDescription className="mt-1">
           ITP / QA health across active jobs. Worst-first — chase the oldest
-          unwitnessed checks before they become audit findings.
+          unwitnessed checks before they become audit findings. A check that&rsquo;s
+          recorded but not independently signed off is awaiting sign-off, never
+          &ldquo;done&rdquo;.
         </CardDescription>
-        <ul className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-text-muted">
-          <li>Active jobs: {totals.jobs}</li>
-          <li>With ITPs: {totals.jobsWithItps}</li>
-          <li>Active checks: {totals.activeInstances}</li>
-          <li className={totals.awaitingSignOff > 0 ? "text-state-warning" : ""}>
-            Awaiting sign-off: {totals.awaitingSignOff}
-          </li>
-          <li>Open points: {totals.openPoints}</li>
-          <li>
-            Oldest active:{" "}
-            {dashboard.oldestActiveAgeDays === null ? "—" : `${dashboard.oldestActiveAgeDays}d`}
-          </li>
-        </ul>
         {failedJobs.length > 0 ? (
           <p className="mt-2 text-xs text-state-warning" role="alert">
             {failedJobs.length} job{failedJobs.length === 1 ? "" : "s"}&rsquo; QA couldn&rsquo;t be
@@ -59,6 +51,12 @@ export function QaStatusBoard({ result }: { result: QaStatusResult }) {
           </p>
         ) : null}
       </Card>
+
+      <CompanyStatStrip
+        label="QA at a glance"
+        subline={summary.subline}
+        tiles={summary.tiles}
+      />
 
       {rows.length === 0 ? (
         <Card>

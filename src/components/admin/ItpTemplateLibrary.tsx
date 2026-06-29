@@ -4,8 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { CompanyStatStrip } from "@/components/admin/CompanyStatStrip";
 import { Modal } from "@/components/ui/Modal";
 import { Pill } from "@/components/ui/Pill";
+import { buildItpTemplatesSummary } from "@/domains/company/summary";
 import {
   archiveItpTemplate,
   createItpTemplate,
@@ -97,6 +99,10 @@ export function ItpTemplateLibrary({ initialTemplates, fetchError }: Props) {
 
   const live = templates.filter((t) => !t.archived);
   const archived = templates.filter((t) => t.archived);
+  // Live header summary over the current library state (stays accurate after a
+  // create / archive / duplicate refresh). Hidden when nothing's loaded yet so a
+  // brand-new install shows its empty-state, not a strip of zeros.
+  const summary = !fetchError && templates.length > 0 ? buildItpTemplatesSummary(templates) : null;
 
   return (
     <div className="space-y-4">
@@ -114,6 +120,14 @@ export function ItpTemplateLibrary({ initialTemplates, fetchError }: Props) {
           </Button>
         </div>
       </Card>
+
+      {summary ? (
+        <CompanyStatStrip
+          label="ITP library at a glance"
+          subline={summary.subline}
+          tiles={summary.tiles}
+        />
+      ) : null}
 
       {fetchError ? (
         <Card className="border-amber-200 bg-amber-50" role="alert">

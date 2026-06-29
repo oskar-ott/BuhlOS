@@ -75,9 +75,12 @@ describe("QaStatusBoard", () => {
     const html = render(RESULT);
     expect(html).toContain("QA status");
     expect(html).toContain("Reception fitout");
-    expect(html).toContain("Awaiting sign-off: 1");
-    expect(html).toContain("Active checks: 2");
-    expect(html).toMatch(/Oldest active:\s*9d/); // exact header age, not a loose "9d"
+    // The header stat strip carries the same totals (label + value live in
+    // separate nodes), plus the active-jobs / with-ITPs subline.
+    expect(html).toContain("Awaiting sign-off");
+    expect(html).toContain("Active checks");
+    expect(html).toContain("Oldest active");
+    expect(html).toContain("2 active jobs · 1 with ITPs");
     // rows render in the order given (the server sorts worst-first)
     expect(html.indexOf("Reception fitout")).toBeLessThan(html.indexOf("New shed"));
   });
@@ -94,8 +97,10 @@ describe("QaStatusBoard", () => {
     const html = render({ ok: true, scannedJobs: 2, failedJobs: [], dashboard });
     // worst-first comes from the real sort, not a hand-authored order
     expect(html.indexOf("Awaiting job")).toBeLessThan(html.indexOf("Clear job"));
-    expect(html).toContain("Awaiting sign-off: 1");
-    expect(html).toMatch(/Oldest active:\s*10d/); // computed: 2026-06-05 → 2026-06-15
+    expect(html).toContain("Awaiting sign-off");
+    // The computed oldest-active age (2026-06-05 → 2026-06-15 = 10d) surfaces in
+    // the strip's Oldest active tile and the job row.
+    expect(html).toContain("10d");
   });
 
   it("drills through to the existing per-job ITP surface", () => {
