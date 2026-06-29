@@ -34,6 +34,7 @@ const EXACT_STORES = [
   'policy.json',
   'flags.json', // feature-flag runtime overrides (#155)
   'owner-auth.json', // env-only owner's chosen password hash (#760)
+  'feature-settings.json', // per-feature config knobs (#760 PR2)
   'structure-presets.json', // reusable area-group presets (#192)
   'job-blueprints.json', // reusable whole-job shapes (#191)
   'task-rules.json', // rule-based task-generation rules (#224)

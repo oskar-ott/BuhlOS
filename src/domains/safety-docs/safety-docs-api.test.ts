@@ -16,6 +16,7 @@ const requireFromHere = createRequire(import.meta.url);
 const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const ffPath = requireFromHere.resolve("../../../api/_lib/feature-flags.js");
+const fsPath = requireFromHere.resolve("../../../api/_lib/feature-settings.js");
 const auditPath = requireFromHere.resolve("../../../api/_lib/audit-log.js");
 const handlerPath = requireFromHere.resolve("../../../api/safety-docs.js");
 const vercelBlobPath = requireFromHere.resolve("@vercel/blob");
@@ -94,7 +95,7 @@ beforeEach(() => {
     ],
   ]);
 
-  for (const p of [authPath, ffPath, auditPath, handlerPath]) delete requireFromHere.cache[p];
+  for (const p of [authPath, ffPath, fsPath, auditPath, handlerPath]) delete requireFromHere.cache[p];
   requireFromHere.cache[blobPath] = {
     id: blobPath,
     filename: blobPath,
@@ -281,6 +282,27 @@ describe("api/safety-docs — a new version resets acknowledgement", () => {
     expect(fieldBody.documents).toHaveLength(1);
     expect(fieldBody.documents[0]!.version).toBe(2);
     expect(fieldBody.acknowledgedDocIds).toEqual([]); // the v1 ack does not carry to v2
+  });
+});
+
+describe("api/safety-docs — upload cap is owner-tunable (#760 PR2)", () => {
+  it("rejects an upload above the configured maxUploadMb, and the message tracks the live cap", async () => {
+    // Owner overrides the cap down to 1 MB via the settings blob.
+    store.set("feature-settings.json", { settings: { safety_docs: { maxUploadMb: 1 } } });
+    const bigPdf = `data:application/pdf;base64,${Buffer.from(
+      "%PDF-1.4 " + "A".repeat(2 * 1024 * 1024),
+    ).toString("base64")}`;
+    const res = await call({
+      method: "POST",
+      body: { type: "swms", title: "Big", dataUrl: bigPdf, mimeType: "application/pdf" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/max 1 MB/);
+  });
+
+  it("accepts a small upload at the default cap (25 MB)", async () => {
+    const res = await uploadSwms("Small");
+    expect(res.statusCode).toBe(201);
   });
 });
 

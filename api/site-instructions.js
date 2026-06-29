@@ -26,10 +26,12 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob, isAdminRole } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
+const { getSetting } = require('./_lib/feature-settings');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 
 const FLAG = 'site_instructions_register';
-const TEXT_MAX = 2000;
+// Instruction text cap is an owner-tunable setting
+// (site_instructions_register.instructionTextMaxChars, default 2000).
 const REASON_MAX = 500;
 const CHANNELS = new Set(['verbal', 'phone', 'email', 'text', 'on_site']);
 const STATUSES = new Set(['recorded', 'acknowledged', 'closed']);
@@ -125,8 +127,9 @@ module.exports = async (req, res) => {
     if (!dateReceived) return res.status(400).json({ error: 'dateReceived (YYYY-MM-DD) required' });
 
     const rawText = body.instructionText != null ? String(body.instructionText) : '';
-    if (rawText.length > TEXT_MAX) {
-      return res.status(400).json({ error: 'instruction text too long (max ' + TEXT_MAX + ' characters)' });
+    const textMax = await getSetting('site_instructions_register', 'instructionTextMaxChars');
+    if (rawText.length > textMax) {
+      return res.status(400).json({ error: 'instruction text too long (max ' + textMax + ' characters)' });
     }
     const instructionText = rawText.trim();
     if (!instructionText) return res.status(400).json({ error: 'instruction text required' });
@@ -196,7 +199,8 @@ module.exports = async (req, res) => {
 
     if (body.instructionText !== undefined) {
       const t = String(body.instructionText);
-      if (t.length > TEXT_MAX) return res.status(400).json({ error: 'instruction text too long' });
+      const textMax = await getSetting('site_instructions_register', 'instructionTextMaxChars');
+      if (t.length > textMax) return res.status(400).json({ error: 'instruction text too long' });
       const trimmed = t.trim();
       if (!trimmed) return res.status(400).json({ error: 'instruction text required' });
       entry.instructionText = trimmed;

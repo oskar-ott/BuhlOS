@@ -3,6 +3,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { StatusChip } from "@/components/ui/StatusChip";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { OwnerFeatureBoard } from "@/components/admin/OwnerFeatureBoard";
+import { OwnerSettingsControls } from "@/components/admin/OwnerSettingsControls";
 import {
   type OwnerSummary,
   checkTone,
@@ -30,7 +31,7 @@ import {
  * no vanity numbers.
  */
 export function OwnerConsole({ summary }: { summary: OwnerSummary }) {
-  const { meta, capabilities, health, flags, usage, audit, coverage, problems, nextActions } =
+  const { meta, capabilities, health, flags, settings, usage, audit, coverage, problems, nextActions } =
     summary;
 
   const onCount = flags.items.filter((f) => f.resolved).length;
@@ -187,6 +188,38 @@ export function OwnerConsole({ summary }: { summary: OwnerSummary }) {
           </div>
         )}
       </Section>
+
+      {/* Feature configuration (#760 PR2) */}
+      {settings && settings.items.length > 0 ? (
+        <Section
+          title="Feature configuration"
+          source={settings.source}
+          caption={
+            capabilities.settingsWrite
+              ? "Tune feature settings at runtime — each default equals the live value until you change it."
+              : "Read-only."
+          }
+        >
+          {capabilities.settingsWrite ? (
+            <OwnerSettingsControls items={settings.items} rev={settings.rev} />
+          ) : (
+            <div className="divide-y divide-border overflow-hidden rounded-card border border-border">
+              {settings.items.map((s) => (
+                <div key={`${s.featureKey}.${s.key}`} className="space-y-1 px-4 py-3">
+                  <p className="text-sm font-medium text-text">{s.label}</p>
+                  <p className="text-xs text-text-muted">
+                    <span className="font-mono">
+                      {s.featureKey}.{s.key}
+                    </span>{" "}
+                    · {String(s.value)}
+                    {s.unit ? ` ${s.unit}` : ""} · default {String(s.default)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </Section>
+      ) : null}
 
       {/* Product Problems */}
       <Section title="Product problems" source="Derived from real signals — flag expiry, health probes, instrumentation gaps">

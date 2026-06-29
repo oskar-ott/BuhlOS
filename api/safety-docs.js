@@ -28,11 +28,13 @@ const {
   isLeadingHandRole,
 } = require("./_lib/auth");
 const { isFlagEnabled } = require("./_lib/feature-flags");
+const { getSetting } = require("./_lib/feature-settings");
 const { append: appendAuditLog } = require("./_lib/audit-log");
 
 const FLAG = "safety_docs";
 const SAFETY_TYPES = ["swms", "sds", "other-safety"];
-const MAX_BYTES = 25 * 1024 * 1024;
+// Upload cap is an owner-tunable setting (feature-settings.js →
+// safety_docs.maxUploadMb, default 25) — resolved per request at the check below.
 
 function docsKey(jobId) {
   return "jobs/" + jobId + "/safety-docs.json";
@@ -185,8 +187,9 @@ module.exports = async (req, res) => {
     const base64 = String(body.dataUrl).split(",")[1];
     if (!base64) return res.status(400).json({ error: "invalid dataUrl" });
     const buf = Buffer.from(base64, "base64");
-    if (buf.length > MAX_BYTES)
-      return res.status(400).json({ error: "file too large (max 25 MB)" });
+    const maxMb = await getSetting("safety_docs", "maxUploadMb");
+    if (buf.length > maxMb * 1024 * 1024)
+      return res.status(400).json({ error: `file too large (max ${maxMb} MB)` });
 
     const docsData = await readDocs(jobId);
     docsData.documents = docsData.documents || [];
