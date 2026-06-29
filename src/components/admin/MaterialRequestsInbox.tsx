@@ -11,11 +11,17 @@ import {
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Drawer } from "@/components/ui/Drawer";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusChip } from "@/components/ui/StatusChip";
-import { RefreshButton } from "@/components/ui/RefreshButton";
+import {
+  InboxBanner,
+  InboxFilterBar,
+  InboxFilterSelect,
+  InboxLoadErrorCard,
+  InboxStatStrip,
+  type InboxStat,
+} from "./InboxShell";
 import { relativeWhen } from "@/domains/jobs/format";
 import { materialRequestsClient } from "@/domains/material-requests/client";
 import {
@@ -162,70 +168,52 @@ export function MaterialRequestsInbox({
     resetDrafts(updated);
   }
 
+  const stats: InboxStat[] = [
+    { key: "approve", label: "To approve / order", value: summary.requested + summary.approved, icon: PackageOpen, tone: "warning" },
+    { key: "ordered", label: "On order", value: summary.ordered, icon: Truck, tone: "info" },
+    { key: "delivered", label: "Delivered", value: summary.delivered, icon: CheckCircle2, tone: "success" },
+    { key: "urgent", label: "Urgent / high (open)", value: summary.urgentOpen, icon: Package, tone: "danger" },
+  ];
+
   return (
     <div className="space-y-5">
       {fetchError ? (
-        <Card className="border-amber-200 bg-amber-50" role="alert">
-          <CardTitle>Couldn&rsquo;t load material requests</CardTitle>
-          <CardDescription className="text-amber-900">
-            {fetchError}. The list may be incomplete.
-          </CardDescription>
-          <div className="mt-3">
-            <RefreshButton />
-          </div>
-        </Card>
+        <InboxLoadErrorCard
+          title="Couldn’t load material requests"
+          message={`${fetchError}. The list may be incomplete.`}
+        />
       ) : null}
 
-      {banner ? (
-        <div
-          role="status"
-          className={
-            banner.tone === "success"
-              ? "rounded-card border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
-              : "rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900"
-          }
-        >
-          {banner.message}
-        </div>
-      ) : null}
+      {banner ? <InboxBanner tone={banner.tone}>{banner.message}</InboxBanner> : null}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <SummaryCard label="To approve / order" value={summary.requested + summary.approved} icon={PackageOpen} tone="warning" />
-        <SummaryCard label="On order" value={summary.ordered} icon={Truck} tone="info" />
-        <SummaryCard label="Delivered" value={summary.delivered} icon={CheckCircle2} tone="success" />
-        <SummaryCard label="Urgent / high (open)" value={summary.urgentOpen} icon={Package} tone="danger" />
-      </div>
+      <InboxStatStrip stats={stats} />
 
-      <div className="flex flex-wrap items-end gap-2 rounded-card border border-border bg-surface p-3">
-        <FilterSelect
+      <InboxFilterBar
+        shown={visible.length}
+        total={requests.length}
+        onClear={filtersActive ? () => setFilters(EMPTY_FILTERS) : undefined}
+      >
+        <InboxFilterSelect
           label="Status"
           value={filters.status}
           onChange={(v) => setFilters((f) => ({ ...f, status: v as MaterialRequestStatus | "" }))}
           options={MATERIAL_REQUEST_STATUSES.map((s) => ({ value: s, label: statusLabel(s) }))}
         />
-        <FilterSelect
+        <InboxFilterSelect
           label="Urgency"
           value={filters.urgency}
           onChange={(v) => setFilters((f) => ({ ...f, urgency: v as MaterialRequestUrgency | "" }))}
           options={MATERIAL_REQUEST_URGENCIES.map((u) => ({ value: u, label: urgencyLabel(u) }))}
         />
         {showJobFilter ? (
-          <FilterSelect
+          <InboxFilterSelect
             label="Job"
             value={filters.jobId}
             onChange={(v) => setFilters((f) => ({ ...f, jobId: v }))}
             options={jobOptions.map((j) => ({ value: j.id, label: j.name }))}
           />
         ) : null}
-        {filtersActive ? (
-          <Button type="button" variant="ghost" size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>
-            Clear
-          </Button>
-        ) : null}
-        <span className="ml-auto self-center text-xs text-text-muted">
-          {visible.length} of {requests.length}
-        </span>
-      </div>
+      </InboxFilterBar>
 
       {requests.length === 0 && !fetchError ? (
         <EmptyState
@@ -279,68 +267,6 @@ export function MaterialRequestsInbox({
         onApply={apply}
       />
     </div>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-  icon: Icon,
-  tone,
-}: {
-  label: string;
-  value: number;
-  icon: typeof Package;
-  tone: "warning" | "danger" | "success" | "info";
-}) {
-  const toneClass =
-    value === 0
-      ? "text-text-muted"
-      : tone === "danger"
-        ? "text-rose-700"
-        : tone === "warning"
-          ? "text-amber-700"
-          : tone === "info"
-            ? "text-sky-700"
-            : "text-emerald-700";
-  return (
-    <Card className="flex items-center justify-between gap-2">
-      <div>
-        <p className="text-xs uppercase tracking-wider text-text-muted">{label}</p>
-        <p className={`mt-1 font-display text-2xl ${toneClass}`}>{value}</p>
-      </div>
-      <Icon aria-hidden="true" className={`h-5 w-5 shrink-0 ${toneClass}`} />
-    </Card>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: ReadonlyArray<{ value: string; label: string }>;
-}) {
-  return (
-    <label className="flex flex-col gap-1 text-xs text-text-muted">
-      <span className="uppercase tracking-wider">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full min-w-0 rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text sm:w-auto sm:min-w-[8rem] sm:max-w-[11rem]"
-      >
-        <option value="">All</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
 
