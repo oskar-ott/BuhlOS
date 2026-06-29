@@ -135,6 +135,8 @@ interface FetchFixtures {
   expensesStatus?: number;
   /** Display name for the mobile greeting (resolved via /api/auth?action=me). */
   meName?: string | null;
+  /** Non-200 makes the jobs-with-stats fetch fail (board honest-degradation path). */
+  jobsStatus?: number;
 }
 
 function stubFetch({
@@ -144,6 +146,7 @@ function stubFetch({
   expenses = [],
   expensesStatus = 200,
   meName = null,
+  jobsStatus = 200,
 }: FetchFixtures) {
   vi.stubGlobal(
     "fetch",
@@ -169,7 +172,10 @@ function stubFetch({
         if (expensesStatus !== 200) return jsonResponse({ error: "boom" }, expensesStatus);
         return jsonResponse({ expenses });
       }
-      if (url.includes("/api/jobs")) return jsonResponse({ jobs: [] });
+      if (url.includes("/api/jobs")) {
+        if (jobsStatus !== 200) return jsonResponse({ error: "boom" }, jobsStatus);
+        return jsonResponse({ jobs: [] });
+      }
       if (url.includes("/api/observations")) return jsonResponse({ observations: [] });
       if (url.includes("/api/material-requests")) return jsonResponse({ requests: [] });
       throw new Error(`unstubbed fetch in test: ${url}`);
@@ -192,97 +198,67 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("/command-centre with the Today strip (#185)", () => {
-  it("leads with a populated strip whose pending figure matches the Hours queue card", async () => {
+describe("/command-centre board (§2)", () => {
+  it("renders the board — hero, four pulse tiles, and an open-work tile for each non-empty loop", async () => {
     stubFetch({
-      // THREE pending entries from the hours source…
+      // Three pending entries → the hours loop has open work.
       submittedEntries: [timeEntry("t1"), timeEntry("t2"), timeEntry("t3")],
-      // …while the pulse claims a different (today-only) pendingCount. The
-      // strip must show the queue-card number, not the pulse's.
-      pulse: pulseBody({
-        submittedCount: 1,
-        submittedTotal: 7.6,
-        pendingCount: 1,
-        crewOnSite: 2,
-      }),
+      pulse: pulseBody({ submittedTotal: 7.6, crewOnSite: 2 }),
     });
     const html = await renderPage();
 
-    // Strip: honest crew label + the shared pending figure.
-    expect(html).toContain("on the clock");
-    expect(html).toContain("logged hours today");
-    expect(html).toContain("Pending approval: 3");
-    expect(html).not.toContain("Pending approval: 1");
-    // Queue card renders the same number from the same source.
-    expect(html).toContain("Hours pending approval: 3");
-    // Queues are present and unchanged.
-    expect(html).toContain("Evidence to review");
-    expect(html).toContain("Material requests");
-    // Honesty: the crew stat is labelled by hours logged, never GPS presence.
-    expect(html).toContain('aria-label="2 on the clock — logged hours today"');
-  });
-
-  it("renders the strip error chip while every queue still paints", async () => {
-    stubFetch({
-      submittedEntries: [timeEntry("t1")],
-      pulseStatus: 500,
-    });
-    const html = await renderPage();
-
-    // Per-source degradation: the strip says so…
-    expect(html).toContain("Today’s pulse couldn’t load");
-    expect(html).toContain("Today pulse API returned 500");
-    // …the pending stat survives (it comes from the hours source)…
-    expect(html).toContain("Pending approval: 1");
-    // …and the queue cards all still render.
+    // State-of-play hero.
+    expect(html).toContain("State of play");
+    // The four pulse tiles.
     for (const label of [
-      "Hours pending approval",
-      "Evidence to review",
-      "Snags needing attention",
-      "ITPs needing sign-off",
-      "Observations to action",
-      "Rejected hours",
-      "Missing hours",
-      "Plan mismatches",
-      "Material requests",
+      "on the clock",
+      "logged today",
+      "pending approvals",
+      "jobs live today",
     ]) {
       expect(html).toContain(label);
     }
-    // A pulse failure is never "all clear". (The ExceptionsInbox empty state
-    // has its own "All clear" heading, so assert the page card's unique copy.)
-    expect(html).not.toContain("Nothing needs you right now");
+    // Open work: the hours loop (3 pending) renders a tile with its count; the
+    // zero loops do NOT render tiles (the heatmap shows only what's open).
+    expect(html).toContain("Open work");
+    expect(html).toContain('aria-label="Hours pending approval: 3"');
+    expect(html).not.toContain('aria-label="Evidence to review: 0"');
   });
 
-  it("keeps All clear on a calm zero day — the strip joins it, calmly", async () => {
+  it("is calm on a zero day — calm hero, All clear, No open work", async () => {
     stubFetch({ submittedEntries: [], pulse: pulseBody() });
     const html = await renderPage();
-
-    // The page-level all-clear card (not just the inbox's empty state).
-    expect(html).toContain("Nothing needs you right now");
-    expect(html).toContain("No hours logged yet today");
-    // The zero state is neutral copy, not the strip's warning chip.
-    expect(html).not.toContain("pulse couldn’t load");
+    expect(html).toContain("The desk is calm");
+    expect(html).toContain("CALM");
+    expect(html).toContain("All clear"); // needsNow empty
+    expect(html).toContain("No open work"); // openWork empty
   });
 
-  it("blocks All clear when the pulse source failed, even with empty queues", async () => {
+  it("degrades the pulse honestly when today-pulse fails — '—', not a fabricated 0, board still renders", async () => {
     stubFetch({ submittedEntries: [], pulseStatus: 503 });
     const html = await renderPage();
-
-    expect(html).not.toContain("Nothing needs you right now");
-    expect(html).toContain("Today’s pulse couldn’t load");
-    // Queue cards still render their empty states.
-    expect(html).toContain("No timesheets waiting for you.");
+    expect(html).toContain("State of play");
+    expect(html).toContain("on the clock");
+    // A failed pulse → null signals render as an em-dash, never a fake number.
+    expect(html).toContain("—");
   });
 
+  it("shows an honest 'couldn't load every signal' card when a board source fails", async () => {
+    stubFetch({ submittedEntries: [], pulse: pulseBody(), jobsStatus: 500 });
+    const html = await renderPage();
+    expect(html).toContain("Couldn’t load every signal");
+    expect(html).toContain("Jobs API returned 500");
+  });
+
+  // ── Proof to sign off (#503, flagged) — unchanged by the §2 board. ──
   it("surfaces a TOTAL proof-scan failure as an error card, never a false 'queue clear' (#503 P7)", async () => {
     h.proofFlagOn = true;
     h.proofResult = { ok: false, error: "Could not load jobs for the proof queue" };
     stubFetch({ submittedEntries: [], pulse: pulseBody() });
     const html = await renderPage();
-    // The degraded read is an explicit error card, never a silent "Queue clear".
     expect(html).toContain("Couldn’t load proof to sign off");
     expect(html).toContain("Could not load jobs for the proof queue");
-    expect(html).not.toContain("waiting on you"); // no false "N tasks ... waiting" line
+    expect(html).not.toContain("waiting on you");
   });
 
   it("flags a PARTIAL proof scan (failedJobs) instead of presenting an undercount as the total", async () => {
@@ -294,15 +270,15 @@ describe("/command-centre with the Today strip (#185)", () => {
     expect(html).toContain("couldn’t be read");
   });
 
+  // ── Mobile home (md:hidden) — unchanged by the §2 board. ──
   it("degrades honestly when the expenses fetch fails — mobile 'couldn't load every queue', no fabricated 0", async () => {
     stubFetch({ submittedEntries: [], pulse: pulseBody(), expensesStatus: 500 });
     const html = await renderPage();
-    // The mobile home folds the expenses error into its source-error card.
     expect(html).toContain("Couldn’t load every queue");
     expect(html).toContain("Expenses API returned 500");
   });
 
-  it("renders the mobile home (md:hidden) with greeting + pulse from the same data", async () => {
+  it("renders the mobile home (md:hidden) with greeting + pulse, and the desktop board alongside", async () => {
     stubFetch({
       submittedEntries: [timeEntry("t1")],
       pulse: pulseBody({ submittedTotal: 8, crewOnSite: 2 }),
@@ -310,16 +286,11 @@ describe("/command-centre with the Today strip (#185)", () => {
     });
     const html = await renderPage();
 
-    // The mobile column exists, hidden on desktop (CSS gate, still in the SSR).
     expect(html).toContain("md:hidden");
-    // Greeting uses the resolved display name (part-of-day varies by clock).
     expect(html).toContain("Dana");
     expect(html).toContain("here’s what needs you");
-    // The navy pulse row's three honest segments.
-    expect(html).toContain("on the clock");
-    expect(html).toContain("logged today");
     expect(html).toContain("to approve");
-    // The desktop tree is still present (wrapped hidden md:block).
-    expect(html).toContain("Needs your attention");
+    // The desktop board is present too (wrapped hidden md:block).
+    expect(html).toContain("State of play");
   });
 });

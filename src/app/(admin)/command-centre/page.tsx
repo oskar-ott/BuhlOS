@@ -2,25 +2,11 @@ import Link from "next/link";
 import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
-import {
-  AlertOctagon,
-  ArrowRight,
-  Briefcase,
-  Camera,
-  ClipboardCheck,
-  Clock,
-  FileCheck2,
-  Inbox,
-  Layers,
-  Package,
-  RotateCcw,
-  UserX,
-  Wrench,
-} from "lucide-react";
+import { AlertOctagon, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { cn } from "@/lib/cn";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { Pill } from "@/components/ui/Pill";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie, verifyViaApi } from "@/lib/auth/session";
 import { isFlagEnabled, listFlags, isFlagOn } from "../../../../api/_lib/feature-flags.js";
@@ -40,7 +26,6 @@ import {
   TodayPulseResponseSchema,
 } from "@/domains/timesheets/schema";
 import { summariseTodayStrip } from "@/domains/timesheets/today-strip";
-import { TodayStrip } from "@/components/admin/TodayStrip";
 import {
   BUSINESS_TIMEZONE,
   localDateString,
@@ -59,11 +44,10 @@ import type {
 import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { MaterialRequestItem } from "@/domains/material-requests/types";
-import { relativeWhen } from "@/domains/jobs/format";
 import { buildExceptions, decorateAges } from "@/domains/exceptions/service";
-import { ExceptionsInbox } from "@/components/admin/ExceptionsInbox";
+import { buildBoard, type OpenWorkInput } from "@/domains/command-centre/board";
+import { NeedsNowCards } from "@/components/admin/NeedsNowCards";
 import { summariseItpReviewQueue } from "./itp-queue-card";
-import { singleJobTarget } from "./queue-card-targets";
 
 export const dynamic = "force-dynamic";
 
@@ -153,13 +137,6 @@ export default async function CommandCentrePage() {
     0
   );
 
-  const oldestHours = oldestAge(
-    hoursPending.map((e) => e.submittedAt).filter(Boolean) as string[]
-  );
-  const jobsWithEvidence = jobs.filter(
-    (j) => (j.statsEvidenceV2Pending ?? 0) > 0
-  );
-  const jobsWithSnags = jobs.filter((j) => (j.statsSnagsV2Active ?? 0) > 0);
   const itpReview = summariseItpReviewQueue(jobs);
 
   // #155 pilot: the flags readout is itself flag-gated + admin-tier targeted
@@ -183,21 +160,12 @@ export default async function CommandCentrePage() {
       )
     : [];
 
-  // When a cross-job queue is concentrated on a single job, deep-link
-  // straight to that job's section instead of dropping the owner on the
-  // jobs index to hunt for it. Mirrors the ITP card's behaviour. The
-  // cross-job inbox (many jobs) is still UC, so /v2/jobs is the honest
-  // destination there.
-  const evidenceTarget = singleJobTarget(jobsWithEvidence, "evidence");
-  const snagsTarget = singleJobTarget(jobsWithSnags, "snags");
-
   // Open observations flagged as needing office action (the field-to-office
   // loop's "what came in from site" queue).
   const obsNeedingAction = observations.filter(
     (o) => isOpenObservation(o.status) && o.requiresAction
   );
   const obsCount = obsNeedingAction.length;
-  const obsJobsAffected = new Set(obsNeedingAction.map((o) => o.jobId)).size;
 
   // PR 7: real exception sub-queue derived from the same observations fetch
   // (no extra round-trip). Plan mismatches are the observation type the owner
@@ -205,7 +173,6 @@ export default async function CommandCentrePage() {
   // count belongs on the morning view too.
   const obsPlanMismatch = obsNeedingAction.filter((o) => o.type === "plan_mismatch");
   const planMismatchCount = obsPlanMismatch.length;
-  const planMismatchJobs = new Set(obsPlanMismatch.map((o) => o.jobId)).size;
 
   // PR 11: the Material requests queue is now real — count open ones
   // (status='requested' or 'approved' = "office action needed before
@@ -216,17 +183,11 @@ export default async function CommandCentrePage() {
     isOpenRequest(m.status)
   );
   const materialRequestCount = openMaterialRequests.length;
-  const materialRequestJobs = new Set(
-    openMaterialRequests.map((m) => m.jobId)
-  ).size;
 
   // PR 7: rejected hours that the worker hasn't yet re-submitted. Real data
   // from /api/time-entries?scope=approver&status=rejected; the boss sees the
   // count so they can nudge the worker (or correct the rejection).
   const rejectedHoursCount = hoursRejected.length;
-  const rejectedHoursOldest = oldestAge(
-    hoursRejected.map((e) => e.submittedAt).filter(Boolean) as string[]
-  );
 
   // Missing hours: assigned crew with no entry on a past weekday in the
   // rolling window (server-computed in /api/time-entries-overview — weekdays
@@ -234,30 +195,6 @@ export default async function CommandCentrePage() {
   // who owe hours; the subtitle is the age of the oldest unlogged day.
   const missingSummary = summariseMissing(hoursMissing);
   const missingHoursCount = missingSummary.workerCount;
-  const missingHoursOldest = missingSummary.oldestDate
-    ? relativeWhen(missingSummary.oldestDate + "T00:00:00Z")
-    : null;
-
-  const allClear =
-    hoursPending.length === 0 &&
-    rejectedHoursCount === 0 &&
-    missingHoursCount === 0 &&
-    evidencePending === 0 &&
-    snagsActive === 0 &&
-    itpReview.count === 0 &&
-    obsCount === 0 &&
-    planMismatchCount === 0 &&
-    materialRequestCount === 0 &&
-    !hoursError &&
-    !hoursRejectedError &&
-    !hoursMissingError &&
-    !jobsError &&
-    !observationsError &&
-    !materialRequestsError &&
-    // #185: the Today strip participates in all-clear — we can't claim the
-    // morning view is complete while its source failed. (A quiet zero-day
-    // pulse does NOT block all-clear; only a load failure does.)
-    !todayPulseError;
 
   // Itemised "Needs attention" projection over the SAME already-loaded,
   // admin-gated sources the count cards use — no new fetch, no new store.
@@ -316,6 +253,41 @@ export default async function CommandCentrePage() {
     hoursPending.length === 0 &&
     !mobileAnySourceError &&
     !todayPulseError;
+
+  // ── §2 board view-model — the desktop Command Centre's four glance zones,
+  //    projected from the SAME already-loaded, permission-gated signals (no new
+  //    fetch). Proof-to-sign-off keeps its own dedicated section above, so it is
+  //    not double-counted here. ──
+  const openWork: OpenWorkInput[] = [
+    { key: "hours", label: "Hours pending approval", count: hoursPending.length, href: "/hours/approvals" },
+    { key: "evidence", label: "Evidence to review", count: evidencePending, href: "/v2/jobs" },
+    { key: "snags", label: "Snags needing attention", count: snagsActive, href: "/v2/jobs" },
+    { key: "itp", label: "ITPs needing sign-off", count: itpReview.count, href: itpReview.href },
+    { key: "observations", label: "Observations to action", count: obsCount, href: "/observations" },
+    { key: "rejected", label: "Rejected hours", count: rejectedHoursCount, href: "/hours/approvals" },
+    { key: "missing", label: "Missing hours", count: missingHoursCount, href: "/hours" },
+    { key: "plan", label: "Plan mismatches", count: planMismatchCount, href: "/observations" },
+    { key: "materials", label: "Material requests", count: materialRequestCount, href: "/material-requests" },
+  ];
+  const board = buildBoard({
+    crewOnSite: todayStrip ? todayStrip.crewCount : null,
+    rosterTotal: null, // no cheap roster denominator yet → plain count (honest)
+    loggedHoursLabel: todayStrip ? todayStrip.loggedHoursLabel : null,
+    pendingApprovals: hoursPending.length,
+    jobsLiveToday: todayPulse ? todayPulse.jobs.jobsWithActivityToday : null,
+    exceptions,
+    openWork,
+  });
+  const heatClasses: Record<"red" | "amber" | "calm", string> = {
+    red: "border-rose-200 bg-rose-50 text-rose-900 hover:border-rose-400",
+    amber: "border-amber-200 bg-amber-50 text-amber-900 hover:border-amber-400",
+    calm: "border-border bg-surface-raised text-text hover:border-brand-navy",
+  };
+  const heroClasses: Record<"critical" | "busy" | "calm", string> = {
+    critical: "border-rose-200 bg-rose-50",
+    busy: "border-amber-200 bg-amber-50",
+    calm: "border-emerald-200 bg-emerald-50",
+  };
 
   return (
     <AdminShell title="Command Centre">
@@ -395,334 +367,160 @@ export default async function CommandCentrePage() {
             — flip via FLAG_* env or the flags.json override (docs/feature-flags.md).
           </section>
         ) : null}
-        {/* #185 — Today strip: the operational morning view (who's on the
-            clock + the same pending count as the Hours card below). A strip,
-            not a hero: the needs-you queue cards stay above the fold. */}
-        <section aria-label="Today at a glance">
-          <TodayStrip
-            model={todayStrip}
-            pulseError={todayPulseError}
-            pendingApprovals={hoursPending.length}
-          />
+        {/* §2 — state-of-play hero: one calm sentence + a glance tag. */}
+        <section aria-label="State of play">
+          <div
+            className={cn(
+              "flex items-center gap-4 rounded-card border p-5",
+              heroClasses[board.hero.tone],
+            )}
+          >
+            <span
+              className={cn(
+                "shrink-0",
+                board.hero.tone === "critical"
+                  ? "text-state-danger"
+                  : board.hero.tone === "busy"
+                    ? "text-state-warning"
+                    : "text-state-success",
+              )}
+            >
+              {board.hero.tone === "critical" ? (
+                <AlertOctagon aria-hidden="true" className="h-6 w-6" />
+              ) : board.hero.tone === "busy" ? (
+                <AlertTriangle aria-hidden="true" className="h-6 w-6" />
+              ) : (
+                <CheckCircle2 aria-hidden="true" className="h-6 w-6" />
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-mono text-[11px] uppercase tracking-widest text-text-muted">
+                State of play
+              </p>
+              <p className="mt-0.5 font-display text-lg font-semibold text-text">
+                {board.hero.headline}
+              </p>
+            </div>
+            <span className="shrink-0 rounded-pill border border-current px-2.5 py-0.5 font-mono text-[11px] font-semibold tracking-wider text-text-muted">
+              {board.hero.tag}
+            </span>
+          </div>
         </section>
 
-        <section>
-          <h2 className="font-display text-sm uppercase tracking-wider text-text-muted">
-            Needs your attention
-          </h2>
-          <p className="mt-1 text-sm text-text-muted">
-            Open queues across the live loops. Each card is one click into
-            the action.
-          </p>
-
-          {hoursError ||
-          hoursRejectedError ||
-          hoursMissingError ||
-          jobsError ||
-          observationsError ||
-          materialRequestsError ? (
-            <Card
-              className="mt-3 border-amber-200 bg-amber-50"
-              role="alert"
-            >
-              <CardTitle>Couldn&rsquo;t load every queue</CardTitle>
-              <CardDescription className="text-amber-900">
-                {hoursError ??
-                  hoursRejectedError ??
-                  hoursMissingError ??
-                  jobsError ??
-                  observationsError ??
-                  materialRequestsError}
-                . Counts shown may be incomplete.
-              </CardDescription>
-              <div className="mt-3">
-                <RefreshButton />
+        {/* §2 — pulse: four tiles. Unloaded signals read "—", never a fake 0. */}
+        <section aria-label="Today at a glance">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {board.pulse.map((tile) => (
+              <div
+                key={tile.key}
+                className={cn(
+                  "rounded-card border p-4",
+                  tile.amber
+                    ? "border-amber-200 bg-amber-50"
+                    : "border-border bg-surface-raised",
+                )}
+              >
+                <div className="font-display text-2xl font-semibold tabular-nums text-text">
+                  {tile.value}
+                  {tile.denom ? (
+                    <span className="text-base font-normal text-text-muted">
+                      {tile.denom}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-1 text-xs text-text-muted">{tile.label}</div>
               </div>
-            </Card>
-          ) : null}
+            ))}
+          </div>
+        </section>
 
-          {allClear ? (
+        {/* Honest degradation: a failed source means the board may undercount. */}
+        {anySourceError ? (
+          <Card className="border-amber-200 bg-amber-50" role="alert">
+            <CardTitle>Couldn&rsquo;t load every signal</CardTitle>
+            <CardDescription className="text-amber-900">
+              {hoursError ??
+                hoursRejectedError ??
+                hoursMissingError ??
+                jobsError ??
+                observationsError ??
+                materialRequestsError}
+              . The board may be incomplete.
+            </CardDescription>
+            <div className="mt-3">
+              <RefreshButton />
+            </div>
+          </Card>
+        ) : null}
+
+        {/* §2 — needs you now: the criticals as ≤4 action cards (+N more). */}
+        <section aria-label="Needs you now">
+          <h2 className="font-display text-sm uppercase tracking-wider text-text-muted">
+            Needs you now
+            {board.needsNow.total > 0 ? (
+              <span className="ml-2 rounded-pill bg-brand-navy px-2 py-0.5 font-mono text-xs text-text-inverse">
+                {board.needsNow.total}
+              </span>
+            ) : null}
+          </h2>
+          {board.needsNow.total === 0 ? (
             <Card className="mt-3 border-emerald-200 bg-emerald-50" role="status">
               <CardTitle className="text-emerald-900">All clear</CardTitle>
               <CardDescription className="text-emerald-900">
-                Nothing needs you right now — no hours pending, rejected or
-                missing, no evidence, snags, ITPs, observations, plan mismatches
-                or material requests waiting. New submissions land here as they
-                come in.
+                Nothing is holding a crew up right now. New items land here as
+                they come in.
               </CardDescription>
             </Card>
-          ) : null}
-
-          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <QueueCard
-              icon={<ClipboardCheck aria-hidden="true" className="h-5 w-5" />}
-              label="Hours pending approval"
-              count={hoursPending.length}
-              ageLabel={oldestHours}
-              href="/hours/approvals"
-              ctaLabel="Review approvals"
-              empty="No timesheets waiting for you."
-            />
-            <QueueCard
-              icon={<Camera aria-hidden="true" className="h-5 w-5" />}
-              label="Evidence to review"
-              count={evidencePending}
-              jobsAffected={jobsWithEvidence.length}
-              href={evidenceTarget.href as Route}
-              ctaLabel={evidenceTarget.cta}
-              empty="No evidence waiting for review."
-            />
-            <QueueCard
-              icon={<AlertOctagon aria-hidden="true" className="h-5 w-5" />}
-              label="Snags needing attention"
-              count={snagsActive}
-              jobsAffected={jobsWithSnags.length}
-              href={snagsTarget.href as Route}
-              ctaLabel={snagsTarget.cta}
-              empty="Nice — no open snags right now."
-            />
-            <QueueCard
-              icon={<FileCheck2 aria-hidden="true" className="h-5 w-5" />}
-              label="ITPs needing sign-off"
-              count={itpReview.count}
-              jobsAffected={itpReview.jobsAffected}
-              href={itpReview.href as Route}
-              ctaLabel={
-                itpReview.jobsAffected === 1 ? "Open ITP queue" : "Open jobs"
-              }
-              empty="No ITPs waiting for sign-off."
-            />
-            <QueueCard
-              icon={<Inbox aria-hidden="true" className="h-5 w-5" />}
-              label="Observations to action"
-              count={obsCount}
-              jobsAffected={obsJobsAffected}
-              href={"/observations" as Route}
-              ctaLabel="Open inbox"
-              empty="No field observations need action."
-            />
-            <QueueCard
-              icon={<RotateCcw aria-hidden="true" className="h-5 w-5" />}
-              label="Rejected hours"
-              count={rejectedHoursCount}
-              ageLabel={rejectedHoursOldest}
-              href="/hours/approvals"
-              ctaLabel="Review rejections"
-              empty="No rejected timesheets waiting on a worker."
-            />
-            <QueueCard
-              icon={<UserX aria-hidden="true" className="h-5 w-5" />}
-              label="Missing hours"
-              count={missingHoursCount}
-              ageLabel={missingHoursOldest}
-              href="/hours"
-              ctaLabel="Chase missing hours"
-              empty="Everyone's hours are in — no gaps."
-            />
-            <QueueCard
-              icon={<Layers aria-hidden="true" className="h-5 w-5" />}
-              label="Plan mismatches"
-              count={planMismatchCount}
-              jobsAffected={planMismatchJobs}
-              href={"/observations" as Route}
-              ctaLabel="Open inbox"
-              empty="No plan mismatches reported from site."
-            />
-            <QueueCard
-              icon={<Package aria-hidden="true" className="h-5 w-5" />}
-              label="Material requests"
-              count={materialRequestCount}
-              jobsAffected={materialRequestJobs}
-              href={"/material-requests" as Route}
-              ctaLabel="Open material requests"
-              empty="No material requests waiting on the office."
-            />
-          </div>
+          ) : (
+            <NeedsNowCards items={board.needsNow.items} cap={board.needsNow.cap} />
+          )}
         </section>
 
-        <section aria-label="Needs attention — item by item">
-          <ExceptionsInbox initialItems={exceptions} partial={anySourceError} />
-        </section>
-
-        <section>
+        {/* §2 — open work: colour-graded heatmap of the live loops. */}
+        <section aria-label="Open work">
           <h2 className="font-display text-sm uppercase tracking-wider text-text-muted">
-            Live surfaces
+            Open work
+            {board.openWork.total > 0 ? (
+              <span className="ml-2 rounded-pill bg-surface-subtle px-2 py-0.5 font-mono text-xs text-text-muted">
+                {board.openWork.total}
+              </span>
+            ) : null}
           </h2>
-          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-            <SurfaceLink
-              href="/hours"
-              icon={<Clock aria-hidden="true" className="h-4 w-4" />}
-              label="Hours"
-              hint="Pending · approved · rejected"
-            />
-            <SurfaceLink
-              href="/hours/approvals"
-              icon={<ClipboardCheck aria-hidden="true" className="h-4 w-4" />}
-              label="Approvals"
-              hint="Approve or reject submissions"
-            />
-            <SurfaceLink
-              href="/gear"
-              icon={<Wrench aria-hidden="true" className="h-4 w-4" />}
-              label="Gear register"
-              hint="Who holds what · damage · returns"
-            />
-            <SurfaceLink
-              href={"/v2/jobs" as Route}
-              icon={<Briefcase aria-hidden="true" className="h-4 w-4" />}
-              label="Jobs"
-              hint="Evidence + snags per job"
-            />
-          </div>
+          {board.openWork.tiles.length === 0 ? (
+            <Card className="mt-3 border-border bg-surface-raised" role="status">
+              <CardTitle>No open work</CardTitle>
+              <CardDescription>
+                New submissions land here as they come in.
+              </CardDescription>
+            </Card>
+          ) : (
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {board.openWork.tiles.map((tile) => (
+                <Link
+                  key={tile.key}
+                  href={tile.href as Route}
+                  aria-label={`${tile.label}: ${tile.count}`}
+                  className={cn(
+                    "block rounded-card border p-4 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
+                    heatClasses[tile.heat],
+                  )}
+                >
+                  <div className="font-display text-2xl font-semibold tabular-nums">
+                    {tile.count}
+                  </div>
+                  <div className="mt-1 text-xs">{tile.label}</div>
+                </Link>
+              ))}
+            </div>
+          )}
         </section>
 
         <section>
           <PushNotificationsCard audience="admin" />
         </section>
-
-        <section>
-          <Card>
-            <div className="flex items-baseline justify-between gap-3">
-              <div>
-                <CardTitle>Still being built</CardTitle>
-                <CardDescription className="mt-1">
-                  A cross-job snags inbox and a full settings hub aren&rsquo;t
-                  built yet. This is the only admin interface — the old{" "}
-                  <code className="text-xs">/admin/*</code> tool suite was
-                  retired in the legacy cutover and its URLs redirect here.
-                </CardDescription>
-              </div>
-              <Pill tone="neutral">UC</Pill>
-            </div>
-          </Card>
-        </section>
       </div>
     </AdminShell>
   );
-}
-
-function QueueCard({
-  icon,
-  label,
-  count,
-  ageLabel,
-  jobsAffected,
-  href,
-  ctaLabel,
-  empty,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  count: number;
-  /** Oldest-item age, e.g. "3d ago" — only for the hours queue. */
-  ageLabel?: string | null;
-  /** Number of jobs the count spans — only for cross-job aggregates. */
-  jobsAffected?: number;
-  href: Route;
-  ctaLabel: string;
-  empty: string;
-}) {
-  const isEmpty = count <= 0;
-  return (
-    <Link
-      href={href}
-      className="group block focus:outline-none focus:ring-2 focus:ring-brand-navy"
-      aria-label={`${label}: ${count}`}
-    >
-      <Card
-        className={
-          isEmpty
-            ? "h-full border-border bg-surface-raised"
-            : "h-full border-brand-navy bg-brand-navy text-text-inverse"
-        }
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className={isEmpty ? "text-text-muted" : "text-text-inverse"}>
-            {icon}
-          </div>
-          <Pill
-            tone={isEmpty ? "neutral" : "yellow"}
-            className={
-              isEmpty
-                ? "text-text-muted"
-                : "font-display text-base font-semibold"
-            }
-          >
-            {count}
-          </Pill>
-        </div>
-        <p
-          className={
-            "mt-3 font-display text-base font-semibold " +
-            (isEmpty ? "text-text" : "text-text-inverse")
-          }
-        >
-          {label}
-        </p>
-        <p
-          className={
-            "mt-1 text-xs " +
-            (isEmpty ? "text-text-muted" : "text-text-inverse/80")
-          }
-        >
-          {isEmpty
-            ? empty
-            : ageLabel
-              ? `Oldest ${ageLabel}`
-              : jobsAffected != null
-                ? `${jobsAffected} ${jobsAffected === 1 ? "job" : "jobs"} affected`
-                : ""}
-        </p>
-        {!isEmpty ? (
-          <p className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent-yellow">
-            {ctaLabel}
-            <ArrowRight aria-hidden="true" className="h-4 w-4" />
-          </p>
-        ) : null}
-      </Card>
-    </Link>
-  );
-}
-
-function SurfaceLink({
-  href,
-  icon,
-  label,
-  hint,
-}: {
-  href: Route;
-  icon: React.ReactNode;
-  label: string;
-  hint: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="flex flex-col gap-1 rounded-card border border-border bg-surface-raised px-4 py-3 transition-colors hover:border-brand-navy hover:bg-surface focus:outline-none focus:ring-2 focus:ring-brand-navy"
-    >
-      <span className="flex items-center gap-2 font-display text-sm font-semibold text-text">
-        <span aria-hidden="true" className="text-text-muted">
-          {icon}
-        </span>
-        {label}
-      </span>
-      <span className="text-xs text-text-muted">{hint}</span>
-    </Link>
-  );
-}
-
-function oldestAge(timestamps: ReadonlyArray<string>): string | null {
-  if (timestamps.length === 0) return null;
-  // Find the smallest (earliest) ISO timestamp string. ISO 8601 sorts
-  // lexicographically the same as chronologically, which is enough for
-  // a queue with submittedAt timestamps written by the same API.
-  let oldest: string | null = null;
-  for (const t of timestamps) {
-    if (!t) continue;
-    if (oldest === null || t < oldest) oldest = t;
-  }
-  if (!oldest) return null;
-  return relativeWhen(oldest);
 }
 
 async function loadSnapshot(cookieValue: string | undefined): Promise<{
