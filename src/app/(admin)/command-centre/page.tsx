@@ -2,7 +2,22 @@ import Link from "next/link";
 import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
-import { AlertOctagon, AlertTriangle, CheckCircle2 } from "lucide-react";
+import {
+  AlertOctagon,
+  AlertTriangle,
+  ArrowRight,
+  Briefcase,
+  Camera,
+  CheckCircle2,
+  ClipboardCheck,
+  FileCheck2,
+  Inbox,
+  Layers,
+  Package,
+  RotateCcw,
+  UserX,
+  type LucideIcon,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
@@ -45,11 +60,30 @@ import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { MaterialRequestItem } from "@/domains/material-requests/types";
 import { buildExceptions, decorateAges } from "@/domains/exceptions/service";
-import { buildBoard, type OpenWorkInput } from "@/domains/command-centre/board";
+import { buildBoard, type BoardIcon, type OpenWorkInput } from "@/domains/command-centre/board";
 import { NeedsNowCards } from "@/components/admin/NeedsNowCards";
 import { summariseItpReviewQueue } from "./itp-queue-card";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * The board's icon-name vocabulary → lucide components. Mirrors NeedsNowCards'
+ * SOURCE_ICON so the pulse tiles, open-work heatmap and "needs you now" cards
+ * speak one icon language. board.ts stays React-free and names icons by string;
+ * this is the single place those names resolve to components.
+ */
+const BOARD_ICON: Record<BoardIcon, LucideIcon> = {
+  "clipboard-check": ClipboardCheck,
+  briefcase: Briefcase,
+  camera: Camera,
+  "alert-octagon": AlertOctagon,
+  "file-check": FileCheck2,
+  inbox: Inbox,
+  "rotate-ccw": RotateCcw,
+  "user-x": UserX,
+  layers: Layers,
+  package: Package,
+};
 
 /**
  * /command-centre — BuhlOS admin home.
@@ -111,6 +145,7 @@ export default async function CommandCentrePage() {
     observations,
     materialRequests,
     todayPulse,
+    rosterTotal,
     expensesSubmitted,
     expensesError,
     displayName,
@@ -232,6 +267,17 @@ export default async function CommandCentrePage() {
     month: "long",
     timeZone: BUSINESS_TIMEZONE,
   });
+  // Desktop header subline (mockup PageHead): "{weekday} {date} · {time}" in the
+  // business timezone. Rendered once server-side (the page is force-dynamic), so
+  // it's the time the desk opened the page — not a live clock (no fake ticking).
+  const deskDatetime = new Date().toLocaleString("en-AU", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: BUSINESS_TIMEZONE,
+  });
   // Day-to-day approvals (hours excluded — they're a weekly closeout): the
   // office queues that have a real approve action today.
   // The "to approve" pulse routes to /hours/approvals — expenses + ITPs +
@@ -259,19 +305,21 @@ export default async function CommandCentrePage() {
   //    fetch). Proof-to-sign-off keeps its own dedicated section above, so it is
   //    not double-counted here. ──
   const openWork: OpenWorkInput[] = [
-    { key: "hours", label: "Hours pending approval", count: hoursPending.length, href: "/hours/approvals" },
-    { key: "evidence", label: "Evidence to review", count: evidencePending, href: "/v2/jobs" },
-    { key: "snags", label: "Snags needing attention", count: snagsActive, href: "/v2/jobs" },
-    { key: "itp", label: "ITPs needing sign-off", count: itpReview.count, href: itpReview.href },
-    { key: "observations", label: "Observations to action", count: obsCount, href: "/observations" },
-    { key: "rejected", label: "Rejected hours", count: rejectedHoursCount, href: "/hours/approvals" },
-    { key: "missing", label: "Missing hours", count: missingHoursCount, href: "/hours" },
-    { key: "plan", label: "Plan mismatches", count: planMismatchCount, href: "/observations" },
-    { key: "materials", label: "Material requests", count: materialRequestCount, href: "/material-requests" },
+    { key: "hours", label: "Hours pending approval", count: hoursPending.length, href: "/hours/approvals", icon: "clipboard-check" },
+    { key: "evidence", label: "Evidence to review", count: evidencePending, href: "/v2/jobs", icon: "camera" },
+    { key: "snags", label: "Snags needing attention", count: snagsActive, href: "/v2/jobs", icon: "alert-octagon" },
+    { key: "itp", label: "ITPs needing sign-off", count: itpReview.count, href: itpReview.href, icon: "file-check" },
+    { key: "observations", label: "Observations to action", count: obsCount, href: "/observations", icon: "inbox" },
+    { key: "rejected", label: "Rejected hours", count: rejectedHoursCount, href: "/hours/approvals", icon: "rotate-ccw" },
+    { key: "missing", label: "Missing hours", count: missingHoursCount, href: "/hours", icon: "user-x" },
+    { key: "plan", label: "Plan mismatches", count: planMismatchCount, href: "/observations", icon: "layers" },
+    { key: "materials", label: "Material requests", count: materialRequestCount, href: "/material-requests", icon: "package" },
   ];
   const board = buildBoard({
     crewOnSite: todayStrip ? todayStrip.crewCount : null,
-    rosterTotal: null, // no cheap roster denominator yet → plain count (honest)
+    // Field-staff roster (leading hands + tradies) from /api/admin-stats; null
+    // when that fetch failed → buildBoard renders a plain count (honest, P7).
+    rosterTotal,
     loggedHoursLabel: todayStrip ? todayStrip.loggedHoursLabel : null,
     pendingApprovals: hoursPending.length,
     jobsLiveToday: todayPulse ? todayPulse.jobs.jobsWithActivityToday : null,
@@ -355,6 +403,21 @@ export default async function CommandCentrePage() {
       </div>
       {/* Desktop home — unchanged, hidden on phones (the mobile view above). */}
       <div className="mx-auto hidden max-w-5xl space-y-6 md:block">
+        {/* Page head (mockup): the title sits in AdminTopbar; here we add its
+            dateline subline + the "Owner numbers →" jump to the reports surface
+            (the analytics board lives there, deliberately off the morning view). */}
+        <div className="flex items-center justify-between gap-4">
+          <p className="font-mono text-[11px] uppercase tracking-widest text-text-muted">
+            {deskDatetime}
+          </p>
+          <Link
+            href={"/reports" as Route}
+            className="inline-flex shrink-0 items-center gap-1 rounded-pill border border-border px-3 py-1.5 font-display text-sm font-medium text-brand-navy transition-colors hover:border-brand-navy focus:outline-none focus:ring-2 focus:ring-brand-navy"
+          >
+            Owner numbers
+            <ArrowRight aria-hidden="true" className="h-4 w-4" />
+          </Link>
+        </div>
         {showFlagsReadout ? (
           <section
             aria-label="Active feature flags"
@@ -407,30 +470,87 @@ export default async function CommandCentrePage() {
           </div>
         </section>
 
-        {/* §2 — pulse: four tiles. Unloaded signals read "—", never a fake 0. */}
+        {/* §2 — pulse: four tiles. Unloaded signals read "—", never a fake 0.
+            On-the-clock renders an SVG donut ring (crew / roster) when a real
+            roster denominator loaded; otherwise a plain number. Approvals + jobs
+            lead with an icon (clipboard-check / briefcase). */}
         <section aria-label="Today at a glance">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {board.pulse.map((tile) => (
-              <div
-                key={tile.key}
-                className={cn(
-                  "rounded-card border p-4",
-                  tile.amber
-                    ? "border-amber-200 bg-amber-50"
-                    : "border-border bg-surface-raised",
-                )}
-              >
-                <div className="font-display text-2xl font-semibold tabular-nums text-text">
-                  {tile.value}
-                  {tile.denom ? (
-                    <span className="text-base font-normal text-text-muted">
-                      {tile.denom}
+            {board.pulse.map((tile) => {
+              const TileIcon = tile.icon ? BOARD_ICON[tile.icon] : null;
+              return (
+                <div
+                  key={tile.key}
+                  className={cn(
+                    "flex flex-col items-center gap-2 rounded-card border p-4 text-center",
+                    tile.amber
+                      ? "border-amber-200 bg-amber-50"
+                      : "border-border bg-surface-raised",
+                  )}
+                >
+                  {tile.ringPct != null ? (
+                    // SVG donut — strokeDasharray is an SVG attribute (NOT the
+                    // banned inline `style`); pathLength=100 lets the dash be a
+                    // literal percentage. Navy arc over a muted track ring.
+                    <span className="relative inline-flex h-16 w-16 items-center justify-center">
+                      <svg
+                        viewBox="0 0 36 36"
+                        className="h-16 w-16 -rotate-90"
+                        aria-hidden="true"
+                      >
+                        <circle
+                          cx="18"
+                          cy="18"
+                          r="15.5"
+                          fill="none"
+                          className="stroke-border"
+                          strokeWidth="3.5"
+                        />
+                        <circle
+                          cx="18"
+                          cy="18"
+                          r="15.5"
+                          fill="none"
+                          className="stroke-brand-navy"
+                          strokeWidth="3.5"
+                          strokeLinecap="round"
+                          pathLength={100}
+                          strokeDasharray={`${tile.ringPct} 100`}
+                        />
+                      </svg>
+                      <span className="absolute font-display text-base font-semibold tabular-nums text-text">
+                        {tile.value}
+                        {tile.denom ? (
+                          <span className="text-[11px] font-normal text-text-muted">
+                            {tile.denom}
+                          </span>
+                        ) : null}
+                      </span>
                     </span>
-                  ) : null}
+                  ) : (
+                    <div
+                      className={cn(
+                        "inline-flex items-center gap-1.5 font-display text-2xl font-semibold tabular-nums",
+                        tile.amber ? "text-state-warning" : "text-text",
+                      )}
+                    >
+                      {TileIcon ? (
+                        <TileIcon aria-hidden="true" className="h-[18px] w-[18px] text-text-muted" />
+                      ) : null}
+                      <span>
+                        {tile.value}
+                        {tile.denom ? (
+                          <span className="text-base font-normal text-text-muted">
+                            {tile.denom}
+                          </span>
+                        ) : null}
+                      </span>
+                    </div>
+                  )}
+                  <div className="text-xs text-text-muted">{tile.label}</div>
                 </div>
-                <div className="mt-1 text-xs text-text-muted">{tile.label}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 
@@ -495,22 +615,36 @@ export default async function CommandCentrePage() {
             </Card>
           ) : (
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {board.openWork.tiles.map((tile) => (
-                <Link
-                  key={tile.key}
-                  href={tile.href as Route}
-                  aria-label={`${tile.label}: ${tile.count}`}
-                  className={cn(
-                    "block rounded-card border p-4 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
-                    heatClasses[tile.heat],
-                  )}
-                >
-                  <div className="font-display text-2xl font-semibold tabular-nums">
-                    {tile.count}
-                  </div>
-                  <div className="mt-1 text-xs">{tile.label}</div>
-                </Link>
-              ))}
+              {board.openWork.tiles.map((tile) => {
+                const TileIcon = tile.icon ? BOARD_ICON[tile.icon] : null;
+                return (
+                  <Link
+                    key={tile.key}
+                    href={tile.href as Route}
+                    aria-label={`${tile.label}: ${tile.count}`}
+                    className={cn(
+                      "relative block rounded-card border p-4 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
+                      heatClasses[tile.heat],
+                    )}
+                  >
+                    {TileIcon ? (
+                      // Corner icon, recoloured by heat (red/amber/calm) — the
+                      // text colour already carries the heat tint via heatClasses.
+                      <TileIcon
+                        aria-hidden="true"
+                        className={cn(
+                          "absolute right-3 top-3 h-[18px] w-[18px]",
+                          tile.heat === "calm" ? "text-text-muted" : "opacity-80",
+                        )}
+                      />
+                    ) : null}
+                    <div className="font-display text-2xl font-semibold tabular-nums">
+                      {tile.count}
+                    </div>
+                    <div className="mt-1 text-xs">{tile.label}</div>
+                  </Link>
+                );
+              })}
             </div>
           )}
         </section>
@@ -531,6 +665,8 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
   observations: ReadonlyArray<ObservationItem>;
   materialRequests: ReadonlyArray<MaterialRequestItem>;
   todayPulse: TodayPulseResponse | null;
+  /** Field-staff roster (leading hands + tradies) for the on-the-clock ring; null when admin-stats didn't load → plain count. */
+  rosterTotal: number | null;
   /** Submitted expense claims awaiting review — the count for the mobile pulse. */
   expensesSubmitted: number;
   /** Non-null when the expenses fetch failed (so the mobile home degrades honestly). */
@@ -571,6 +707,7 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     mrResult,
     todayPulseResult,
     expensesResult,
+    rosterTotal,
     profile,
   ] = await Promise.all([
     loadHoursByStatus(base, headersInit, "submitted"),
@@ -581,6 +718,7 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     loadMaterialRequests(base, headersInit),
     loadTodayPulse(base, headersInit),
     loadExpensesSubmitted(base, headersInit),
+    loadRosterTotal(base, headersInit),
     // The greeting name — resolved from the authoritative /api/auth?action=me
     // (the cookie carries no name). Fails soft to null → impersonal greeting.
     cookieValue ? verifyViaApi(`${SESSION_COOKIE}=${cookieValue}`, base) : Promise.resolve(null),
@@ -597,6 +735,7 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     observations: obsResult.observations,
     materialRequests: mrResult.requests,
     todayPulse: todayPulseResult.pulse,
+    rosterTotal,
     expensesSubmitted: expensesResult.count,
     expensesError: expensesResult.error,
     displayName,
@@ -641,6 +780,43 @@ async function loadTodayPulse(
       pulse: null,
       error: err instanceof Error ? err.message : "Today pulse network error",
     };
+  }
+}
+
+/**
+ * Field-staff roster for the on-the-clock pulse ring — leading hands + tradies
+ * from /api/admin-stats (`users.byRole`), the SAME endpoint the sidebar badges
+ * read (useNavCounts). Admins/clients are excluded: the ring compares crew on
+ * the clock against the people who clock on. Best-effort + honest: any failure
+ * or unexpected shape returns null, so buildBoard degrades to a plain count
+ * instead of fabricating a denominator (P7). Parsed defensively (no zod schema
+ * for this ops endpoint) — a non-numeric/absent role yields null, not 0.
+ */
+async function loadRosterTotal(
+  base: string,
+  headersInit: { cookie: string } | undefined
+): Promise<number | null> {
+  try {
+    const res = await fetch(`${base}/api/admin-stats`, {
+      cache: "no-store",
+      headers: headersInit,
+    });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    const root = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+    const users = root && typeof root.users === "object" ? (root.users as Record<string, unknown>) : null;
+    const byRole =
+      users && typeof users.byRole === "object" ? (users.byRole as Record<string, unknown>) : null;
+    if (!byRole) return null;
+    const lh = byRole.leadingHand;
+    const tr = byRole.tradie;
+    // Need at least one real numeric count to claim a roster; otherwise null.
+    if (typeof lh !== "number" && typeof tr !== "number") return null;
+    const lhN = typeof lh === "number" && Number.isFinite(lh) ? lh : 0;
+    const trN = typeof tr === "number" && Number.isFinite(tr) ? tr : 0;
+    return lhN + trN;
+  } catch {
+    return null;
   }
 }
 
