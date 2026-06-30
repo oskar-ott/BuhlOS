@@ -23,12 +23,12 @@ export function AdminSidebar() {
     <aside className="hidden h-screen w-60 shrink-0 flex-col border-r border-border bg-brand-navy text-text-inverse md:flex">
       <div className="px-5 py-6">
         {/* The bühl wordmark leads the office shell (brief §1) — white on the
-            navy rail, sized to fill the rail (no subtitle). */}
+            navy rail, at the prototype's 116px width (no subtitle). */}
         {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset in /public, not a remote/optimised image */}
         <img
           src="/brand/buhl-logo-white.png"
           alt="bühl electrical"
-          className="h-auto w-48"
+          className="h-auto w-[116px]"
         />
       </div>
 
