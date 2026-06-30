@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { OwnerConsole } from "@/components/admin/OwnerConsole";
+import { OwnerPasswordCard } from "@/components/admin/OwnerPasswordCard";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isOwnerRole } from "@/lib/auth/roles";
 import { OwnerSummarySchema } from "@/domains/platform/owner-console";
@@ -54,6 +55,9 @@ export default async function OwnerConsolePage() {
       return (
         <AdminShell title="Owner Console">
           <OwnerConsole summary={parsed.data} />
+          <div className="mx-auto mt-6 max-w-5xl">
+            <OwnerPasswordCard />
+          </div>
         </AdminShell>
       );
     }

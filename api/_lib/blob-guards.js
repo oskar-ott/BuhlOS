@@ -159,6 +159,15 @@ const EXACT_GUARDS = {
     shrinkField: 'users',
     shrinkFloor: 10,
   },
+  // #760: the env-only owner's chosen password hash (set via the console
+  // change-password). Shape only; a credential store — never returned by any
+  // read surface. No shrink guard (a single optional key).
+  'owner-auth.json': {
+    validate: (doc) =>
+      isPlainObject(doc) && (doc.passwordHash === undefined || typeof doc.passwordHash === 'string')
+        ? null
+        : 'passwordHash must be a string',
+  },
   'jobs.json': { validate: arrayOfIdObjects('jobs'), shrinkField: 'jobs', shrinkFloor: 10 },
   'observations.json': {
     validate: arrayOfIdObjects('observations'),

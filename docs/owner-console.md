@@ -60,11 +60,19 @@ The recommended owner identity is **not a `users.json` employee at all** — it 
 **synthetic principal** authenticated against env credentials, so it leaves **zero
 trace** in the admin Employees view (roster, exports, assignment pickers).
 
-- **Login.** `POST /api/auth?action=login` with the owner username + secret. When
-  `OWNER_PASSWORD_HASH` (a bcrypt hash) is configured, the secret is bcrypt-compared
-  and a session is minted for the reserved id **`__owner__`** with role `owner`.
-  **Fail closed:** with no `OWNER_PASSWORD_HASH` set, owner login does not exist (the
-  password *never* defaults). Throttled like any login.
+- **Login.** `POST /api/auth?action=login` with the owner username + secret. The
+  effective password hash is `resolveOwnerPasswordHash()` = the `owner-auth.json`
+  blob (if the owner has set one) **else** the `OWNER_PASSWORD_HASH` env bootstrap.
+  The secret is bcrypt-compared and a session is minted for the reserved id
+  **`__owner__`** with role `owner`. **Fail closed:** with neither blob nor env hash,
+  owner login does not exist (the password *never* defaults). Throttled like any login.
+- **Change password (in the console).** `/owner` shows an "Owner password" card →
+  `POST /api/auth?action=change-password`. For the `__owner__` principal it verifies
+  the current password against the effective hash, then writes the new bcrypt hash to
+  the **`owner-auth.json`** blob (runtime-mutable) — so the owner rotates their
+  password from the console with **no env edit or redeploy**; the blob hash wins
+  thereafter. `OWNER_PASSWORD_HASH` env stays the one-time bootstrap. (Single key,
+  shared across environments on a shared Blob store — single-owner by design.)
 - **Resolution.** `getCurrentUser` (`api/_lib/auth.js`) short-circuits the
   `__owner__` session to a synthetic owner (`role: 'owner'`, `email: OWNER_EMAILS[0]`,
   `assignedJobIds: []`) **without** reading `users.json`. The HMAC-signed cookie is
@@ -80,7 +88,10 @@ trace** in the admin Employees view (roster, exports, assignment pickers).
   branch fires.
 
 **Env (Vercel):** `OWNER_LOGIN_USERNAME` (default `owner`), `OWNER_PASSWORD_HASH`
-(bcrypt hash; no default → no login), and the existing `OWNER_EMAILS`. The legacy
+(bcrypt hash — the one-time **bootstrap**; no default → no login until set; once the
+owner changes it in the console the `owner-auth.json` blob wins), and the existing
+`OWNER_EMAILS`. Generate the bootstrap hash locally:
+`node -e "console.log(require('bcryptjs').hashSync('YOUR_PW', 12))"`. The legacy
 access paths (a real account with stored role `owner`, or an `OWNER_EMAILS` email on
 a real account) still satisfy the console gate, but the env-only principal is the
 no-trace path.

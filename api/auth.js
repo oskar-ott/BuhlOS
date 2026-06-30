@@ -2,7 +2,7 @@ const bcrypt = require('bcryptjs');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const {
   setSessionCookie, clearSessionCookie, getCurrentUser, isDisabledUser,
-  ownerPasswordHash, ownerLoginUsername, syntheticOwner,
+  resolveOwnerPasswordHash, ownerLoginUsername, syntheticOwner, isOwnerSentinel,
 } = require('./_lib/auth');
 const { createRateLimiter } = require('./_lib/rate-limit');
 
@@ -42,7 +42,7 @@ module.exports = async (req, res) => {
     // active when OWNER_PASSWORD_HASH is configured (fail closed); checked BEFORE
     // the users.json lookup so the reserved owner username can't be shadowed.
     // Throttled like any login; the session carries the reserved sentinel id.
-    const ownerHash = ownerPasswordHash();
+    const ownerHash = await resolveOwnerPasswordHash();
     if (ownerHash && throttleKey === ownerLoginUsername().toLowerCase()) {
       const ownerOk = await bcrypt.compare(String(secret), ownerHash);
       if (!ownerOk) {
@@ -82,6 +82,24 @@ module.exports = async (req, res) => {
     if (!me) return res.status(401).json({ error: 'not authenticated' });
     const { currentSecret, newSecret } = req.body || {};
     if (!currentSecret || !newSecret) return res.status(400).json({ error: 'current and new required' });
+    // Env-only owner (#760): no users.json row — rotate the password into the
+    // owner-auth.json blob so it can be changed from the console without an env
+    // edit + redeploy. Verify CURRENT against the effective hash (blob else env
+    // bootstrap), then write the new hash (it wins thereafter).
+    if (isOwnerSentinel(me.id)) {
+      const currentHash = await resolveOwnerPasswordHash();
+      if (!currentHash) return res.status(400).json({ error: 'owner login not configured' });
+      const ok = await bcrypt.compare(String(currentSecret), currentHash);
+      if (!ok) return res.status(401).json({ error: 'current password incorrect' });
+      if (String(newSecret).length < 8) {
+        return res.status(400).json({ error: 'owner password must be at least 8 characters' });
+      }
+      const passwordHash = await bcrypt.hash(String(newSecret), 12);
+      // Literal key (matches OWNER_AUTH_KEY in ./_lib/auth) — the backup-manifest
+      // guard resolves same-file string literals; owner-auth.json is in the manifest.
+      await writeBlob('owner-auth.json', { passwordHash, updatedAt: new Date().toISOString() });
+      return res.status(200).json({ ok: true });
+    }
     const data = await readBlob('users.json', { users: [] });
     const u = (data.users || []).find(x => x.id === me.id);
     if (!u) return res.status(404).json({ error: 'user not found' });

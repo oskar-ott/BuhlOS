@@ -227,3 +227,53 @@ describe("reservation + no trace", () => {
     expect(json).toContain("sparky"); // the real roster did come back
   });
 });
+
+async function changePw(cookie: string, currentSecret: string, newSecret: string): Promise<Res> {
+  const res = createRes();
+  await loginHandler(
+    { method: "POST", query: { action: "change-password" }, body: { currentSecret, newSecret }, headers: { cookie } },
+    res,
+  );
+  return res;
+}
+
+describe("owner change-password (console-rotatable, blob-backed)", () => {
+  const NEW_PW = "new-owner-pw-2026";
+
+  it("correct current → 200, writes the blob; the NEW password logs in and the old (env) one stops working", async () => {
+    const res = await changePw(ownerCookie(), OWNER_PW, NEW_PW);
+    expect(res.statusCode).toBe(200);
+    expect((blob.get("owner-auth.json") as { passwordHash: string }).passwordHash).toBeTruthy();
+
+    // blob hash now wins over the env bootstrap
+    expect((await login("owner", NEW_PW)).statusCode).toBe(200);
+    expect((await login("owner", OWNER_PW)).statusCode).toBe(401);
+  });
+
+  it("wrong current password → 401 (no write)", async () => {
+    const res = await changePw(ownerCookie(), "not-the-password", NEW_PW);
+    expect(res.statusCode).toBe(401);
+    expect(blob.has("owner-auth.json")).toBe(false);
+  });
+
+  it("new password shorter than 8 → 400", async () => {
+    const res = await changePw(ownerCookie(), OWNER_PW, "short");
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("owner login not configured (no blob, no env) → 400", async () => {
+    delete process.env.OWNER_PASSWORD_HASH;
+    const res = await changePw(ownerCookie(), OWNER_PW, NEW_PW);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("the owner-auth.json guard accepts a string hash and rejects a non-string", () => {
+    const guards = requireFromHere(guardsPath) as {
+      applyGuards: (k: string, d: unknown, c: unknown, o: unknown) => unknown;
+    };
+    expect(() => guards.applyGuards("owner-auth.json", { passwordHash: "$2a$12$x" }, null, {})).not.toThrow();
+    expect(() => guards.applyGuards("owner-auth.json", { passwordHash: 123 }, null, {})).toThrow(
+      /passwordHash must be a string/,
+    );
+  });
+});

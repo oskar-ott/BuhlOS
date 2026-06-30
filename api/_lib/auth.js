@@ -196,11 +196,30 @@ function ownerLoginUsername() {
   const raw = process.env.OWNER_LOGIN_USERNAME;
   return raw && String(raw).trim() ? String(raw).trim() : 'owner';
 }
-// The bcrypt hash of the owner password — env only, no default. Unset ⇒ null ⇒
-// owner login disabled.
-function ownerPasswordHash() {
+// The ENV bcrypt hash of the owner password — the one-time BOOTSTRAP. No default.
+// Once the owner changes their password in the console it's stored in the
+// owner-auth.json blob (runtime-mutable) and that wins; env stays the fallback.
+function ownerPasswordHashEnv() {
   const h = process.env.OWNER_PASSWORD_HASH;
   return h && String(h).trim() ? String(h).trim() : null;
+}
+// The blob that holds the owner's chosen password hash (set via the console's
+// change-password) so the owner can rotate it WITHOUT an env edit + redeploy.
+// Single key (single-owner, single-tenant); shared across environments on a
+// shared Blob store — documented in docs/owner-console.md.
+const OWNER_AUTH_KEY = 'owner-auth.json';
+// The EFFECTIVE owner password hash: the blob (if the owner has set one) else the
+// env bootstrap. null ⇒ owner login disabled (fail closed). The login + change-
+// password paths use this; never reads env when a blob hash exists.
+async function resolveOwnerPasswordHash() {
+  try {
+    const doc = await readBlob(OWNER_AUTH_KEY, {});
+    const h = doc && typeof doc.passwordHash === 'string' ? doc.passwordHash.trim() : '';
+    if (h) return h;
+  } catch {
+    // Blob unavailable → fall back to the env bootstrap.
+  }
+  return ownerPasswordHashEnv();
 }
 // The synthetic owner returned to the app. role 'owner' ⇒ canAccessOwnerConsole
 // is true and the owner-preview flag branch fires; 'owner' ∈ ADMIN_ROLES ⇒ it
@@ -353,9 +372,11 @@ module.exports = {
   ownerEmailAllowed,
   canAccessOwnerConsole,
   OWNER_SENTINEL,
+  OWNER_AUTH_KEY,
   isOwnerSentinel,
   ownerLoginUsername,
-  ownerPasswordHash,
+  ownerPasswordHashEnv,
+  resolveOwnerPasswordHash,
   syntheticOwner,
   SESSION_COOKIE,
   ADMIN_ROLES,
