@@ -18,7 +18,7 @@ describe("<OwnerConsole />", () => {
       "Platform control",
       "Product health",
       "Usage &amp; activity",
-      "Feature flags",
+      "Feature control",
       "Product problems",
       "Audit trail",
       "Surface coverage",

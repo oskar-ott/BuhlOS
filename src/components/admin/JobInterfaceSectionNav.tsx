@@ -35,6 +35,8 @@ interface Props {
   rfiEnabled?: boolean;
   /** #217: show the Minutes register row. Flag-gated (minutes_register) by the hub. */
   minutesEnabled?: boolean;
+  /** #760: ITPs are a kill-switch feature — hide the ITP / QA row when off. */
+  itpEnabled?: boolean;
 }
 
 type SectionRow =
@@ -88,6 +90,7 @@ export function JobInterfaceSectionNav({
   certificatesEnabled = false,
   rfiEnabled = false,
   minutesEnabled = false,
+  itpEnabled = false,
 }: Props) {
   const jobIdEnc = encodeURIComponent(job.id);
 
@@ -129,15 +132,19 @@ export function JobInterfaceSectionNav({
       href: `/v2/jobs/${jobIdEnc}/observations` as Route,
       icon: Inbox,
     },
-    {
-      kind: "live",
-      label: "ITP / QA",
-      description:
-        "Attached inspection / test plans, field results, admin sign-off.",
-      href: `/v2/jobs/${jobIdEnc}/itps` as Route,
-      count: job.statsItpsActive,
-      icon: ClipboardCheck,
-    },
+    ...(itpEnabled
+      ? [
+          {
+            kind: "live",
+            label: "ITP / QA",
+            description:
+              "Attached inspection / test plans, field results, admin sign-off.",
+            href: `/v2/jobs/${jobIdEnc}/itps` as Route,
+            count: job.statsItpsActive,
+            icon: ClipboardCheck,
+          } satisfies SectionRow,
+        ]
+      : []),
     {
       kind: "live",
       label: "Scope reconciliation",

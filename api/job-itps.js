@@ -78,6 +78,7 @@
 
 const { readBlob, readBlobFresh, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, canManageJob, isAdminRole, isClientRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 const { nanoid } = require('./_lib/validation');
 const { appendAudit } = require('./_lib/job-audit');
 const { append: appendAuditLog } = require('./_lib/audit-log');
@@ -181,6 +182,9 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
+  // #760: ITPs are an owner kill-switch feature. When turned off, the whole
+  // surface 404s (masking it) — same pattern as the register flags.
+  if (!(await isFlagEnabled('itp', me))) return res.status(404).json({ error: 'not found' });
 
   const jobId = (req.query && req.query.jobId) || '';
   if (!jobId) return res.status(400).json({ error: 'jobId required' });

@@ -78,7 +78,13 @@ export function OwnerFlagRow({
   return (
     <div className="space-y-2 px-4 py-3" data-testid={`flag-row-${flag.key}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-sm font-semibold text-text">{flag.key}</span>
+        <span className="text-sm font-semibold text-text">{flag.label || flag.key}</span>
+        {flag.label ? (
+          <span className="font-mono text-xs text-text-muted">{flag.key}</span>
+        ) : null}
+        <StatusChip tone={customerOn ? "success" : ownerOn ? "info" : "neutral"} dot={false}>
+          {customerOn ? "On" : ownerOn ? "Preview only" : "Off"}
+        </StatusChip>
         {flag.expiryStatus !== "ok" ? (
           <StatusChip tone={expiryTone(flag.expiryStatus)}>{flag.expiryStatus}</StatusChip>
         ) : null}

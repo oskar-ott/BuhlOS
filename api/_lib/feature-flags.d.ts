@@ -26,7 +26,8 @@ export type FlagKey =
   | "certificates_register"
   | "rfi_register"
   | "minutes_register"
-  | "site_instructions_register";
+  | "site_instructions_register"
+  | "itp";
 
 export interface FlagDefinition {
   description: string;
@@ -34,14 +35,25 @@ export interface FlagDefinition {
   target: "global" | "admin-tier";
   /** YYYY-MM-DD — flags are temporary; CI fails past this date. */
   expires: string;
+  /** #760: a kill-switch flag is a LIVE feature (default true) the owner can turn
+   *  off — the only way a flag defaults on. Absent/false = dark-by-default gate. */
+  killSwitch?: boolean;
 }
 
 export interface FlagViewer {
   role?: string | null;
 }
 
+/** #760: owner Feature Control Board presentation for a (non-protected) flag. */
+export interface FlagPresentation {
+  label: string;
+  domain: string;
+  surface: "BuhlOS" | "Phil" | "Shared";
+}
+
 export declare const REGISTRY: Record<FlagKey, FlagDefinition>;
 export declare const FLAGS_KEY: string;
+export declare function presentationOf(key: string): FlagPresentation | null;
 export declare function isFlagOn(key: FlagKey): Promise<boolean>;
 export declare function isFlagEnabled(key: FlagKey, viewer?: FlagViewer | null): Promise<boolean>;
 export declare function flagsForViewer(viewer?: FlagViewer | null): Promise<Record<FlagKey, boolean>>;

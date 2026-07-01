@@ -115,6 +115,8 @@ export default async function CommandCentrePage() {
   // a Command Centre surface; dark (zero render, zero scan) when off. Kicked off
   // BEFORE the snapshot await so the scan overlaps the other fetches.
   const showProofReview = await isFlagEnabled("admin_proof_review", session);
+  // #760: ITP kill-switch — when off, drop the ITP sign-off card + its pulse.
+  const itpEnabled = await isFlagEnabled("itp", session);
   const proofPromise = showProofReview
     ? runProofQueue(blobProofQueueDeps())
     : Promise.resolve(null);
@@ -160,7 +162,9 @@ export default async function CommandCentrePage() {
     (j) => (j.statsEvidenceV2Pending ?? 0) > 0
   );
   const jobsWithSnags = jobs.filter((j) => (j.statsSnagsV2Active ?? 0) > 0);
-  const itpReview = summariseItpReviewQueue(jobs);
+  const itpReview = itpEnabled
+    ? summariseItpReviewQueue(jobs)
+    : { count: 0, jobsAffected: 0, href: "/v2/jobs" };
 
   // #155 pilot: the flags readout is itself flag-gated + admin-tier targeted
   // — dark for everyone (incl. this page) until FLAG_ADMIN_FLAGS_READOUT or
@@ -481,17 +485,19 @@ export default async function CommandCentrePage() {
               ctaLabel={snagsTarget.cta}
               empty="Nice — no open snags right now."
             />
-            <QueueCard
-              icon={<FileCheck2 aria-hidden="true" className="h-5 w-5" />}
-              label="ITPs needing sign-off"
-              count={itpReview.count}
-              jobsAffected={itpReview.jobsAffected}
-              href={itpReview.href as Route}
-              ctaLabel={
-                itpReview.jobsAffected === 1 ? "Open ITP queue" : "Open jobs"
-              }
-              empty="No ITPs waiting for sign-off."
-            />
+            {itpEnabled ? (
+              <QueueCard
+                icon={<FileCheck2 aria-hidden="true" className="h-5 w-5" />}
+                label="ITPs needing sign-off"
+                count={itpReview.count}
+                jobsAffected={itpReview.jobsAffected}
+                href={itpReview.href as Route}
+                ctaLabel={
+                  itpReview.jobsAffected === 1 ? "Open ITP queue" : "Open jobs"
+                }
+                empty="No ITPs waiting for sign-off."
+              />
+            ) : null}
             <QueueCard
               icon={<Inbox aria-hidden="true" className="h-5 w-5" />}
               label="Observations to action"

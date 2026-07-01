@@ -75,13 +75,17 @@ hardcoded "healthy" (P7 — no fake UI / no invented numbers).
 feature adoption, login/session activity, error/failed-action telemetry,
 endpoint latency, uptime probe.
 
-## Feature flags — live control
+## Feature control (the feature board)
 
-The console **controls** feature visibility (it is no longer read-only). Each
+The console **controls** feature visibility (it is no longer read-only). The
+flags are presented as a **feature board** — grouped by domain (QA & compliance,
+Site records, Commercial, …), each feature a row with a human label and a state
+chip (**On** / **Preview only** / **Off** / **Pinned by env**). Each
 non-protected flag has two dials — **Live to customers** (the customer launch
 gate) and **Preview for me** (an owner-only override) — while protected
-data-plane flags (`supabase_*`, `phil_jobs_summary_read`) stay read-only and env
-(`FLAG_*`) always wins. Full mechanics, precedence and safety rules:
+data-plane flags (`supabase_*`, `phil_jobs_summary_read`) are fenced in a
+collapsed read-only **System · data-plane** group, and env (`FLAG_*`) always
+wins. Full mechanics, precedence and safety rules:
 [Feature-flag control](#feature-flag-control-760). To pin a flag per-environment
 regardless of the UI, set `FLAG_<KEY>` in the Vercel env per
 `docs/feature-flags.md`.
@@ -119,6 +123,25 @@ real product. Each non-protected flag has **two dials**:
 - **Preview for me** — an **owner-only** override (`flags.json`
   `ownerPreview[key]`) layered on top, so the owner runs a feature live while
   customers still can't see it.
+
+**The board** (`OwnerFeatureBoard`) frames the raw flags as features:
+
+- **Domain groups.** Non-protected flags carry presentation metadata
+  (`label`, `domain`, `surface`) in `FLAG_PRESENTATION`
+  (`api/_lib/feature-flags.js`); the board groups rows by `domain` and labels
+  them by `label` (e.g. `itp` → "ITPs", `rfi_register` → "RFIs"). A flag with no
+  presentation metadata is a data-plane flag and lands in the read-only
+  **System · data-plane** group.
+- **Filters.** Exposure (All / On / Preview / Off) and surface
+  (All / BuhlOS / Phil), with live counts — the honest replacement for the
+  prototype's fake multi-tenant matrix.
+- **Reduce-exposure confirm.** Turning a customer-visible feature **off**
+  (reducing exposure) opens a small confirm step with an optional **reason**;
+  the reason is threaded into the `feature_flag.toggled` audit `metadata`.
+  *Enabling* a feature is one click (no confirm).
+- **Kill-switch features.** A live-by-default feature (`killSwitch: true`, e.g.
+  `itp`) shows **On** out of the box; the owner uses *Live to customers* to turn
+  it **off**. See `docs/feature-flags.md` → Two flag kinds.
 
 **Resolution precedence** (`isFlagEnabled(key, viewer)` in
 `api/_lib/feature-flags.js`): `env (FLAG_*) > owner-preview (owner viewer only) >

@@ -44,6 +44,7 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isStaffRole, isAdminRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 const { nanoid } = require('./_lib/validation');
 
 const KEY = 'itp-templates.json';
@@ -173,6 +174,8 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
+  // #760: ITP kill-switch — templates are part of the ITP feature.
+  if (!(await isFlagEnabled('itp', me))) return res.status(404).json({ error: 'not found' });
 
   // ── GET — list ────────────────────────────────────────────────────────
   if (req.method === 'GET') {

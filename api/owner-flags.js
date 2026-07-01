@@ -61,6 +61,11 @@ module.exports = async (req, res) => {
   const key = typeof body.key === 'string' ? body.key : '';
   const scope = typeof body.scope === 'string' ? body.scope : '';
   const value = body.value;
+  // #760: optional operator reason (captured by the board's reduce-exposure
+  // confirm) — recorded in the audit metadata. Capped defensively.
+  const reason = typeof body.reason === 'string' && body.reason.trim()
+    ? body.reason.trim().slice(0, 500)
+    : null;
 
   // Known flag only — mirrors the resolver's "unknown keys throw" guarantee so
   // a typo can never write a phantom override.
@@ -130,7 +135,7 @@ module.exports = async (req, res) => {
     summary: `${scope === 'ownerPreview' ? 'owner-preview' : 'customer'} ${key} → ${
       value === null ? 'default' : value ? 'on' : 'off'
     }`,
-    metadata: { scope, value, previous },
+    metadata: { scope, value, previous, ...(reason ? { reason } : {}) },
   }).catch(() => {});
 
   // Recompute resolved state so the UI updates without a refetch. writeBlob made

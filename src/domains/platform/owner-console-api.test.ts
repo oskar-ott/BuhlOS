@@ -364,6 +364,14 @@ describe("POST /api/owner-flags — audit", () => {
     expect((entry?.metadata as { scope?: string })?.scope).toBe("customer");
   });
 
+  it("threads the board's optional reason into the audit metadata (#760 board)", async () => {
+    await callWrite({
+      body: { key: "safety_docs", scope: "customer", value: false, reason: "not ready for launch" },
+    });
+    const entry = auditEntriesThisMonth().find((e) => e.action === "feature_flag.toggled");
+    expect((entry?.metadata as { reason?: string })?.reason).toBe("not ready for launch");
+  });
+
   it("a failing audit write never fails the toggle (best-effort)", async () => {
     const blobMod = requireFromHere.cache[blobPath]!.exports as {
       writeBlob: (k: string, d: unknown, o?: unknown) => Promise<void>;

@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { cookies, headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { isFlagEnabled } from "../../../../../../../api/_lib/feature-flags.js";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { ITPListResponseSchema } from "@/domains/itp/schema";
 import {
@@ -49,6 +50,10 @@ export default async function CompliancePackPage({
   }
   if (!canAccessSurface(session.role, "lh")) {
     redirect("/v2/login");
+  }
+  // #760: ITP kill-switch — the compliance pack is part of the ITP feature.
+  if (!(await isFlagEnabled("itp", session))) {
+    notFound();
   }
 
   const [job, instances, overrides] = await Promise.all([

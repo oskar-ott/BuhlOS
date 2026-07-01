@@ -349,7 +349,43 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Per-job ITP / QA (#474/#476): hold/witness/record points + office sign-off.
+  // Unlike the registers above, ITPs are ALREADY LIVE — so this is a KILL SWITCH,
+  // not a launch gate: default ON (killSwitch:true), and the owner can turn the
+  // whole feature OFF from the console. Gates /api/job-itps + /api/itp-templates,
+  // the /v2/jobs/[jobId]/itps surface, the Command Centre sign-off card, and the
+  // Phil Checks panel.
+  itp: {
+    description: 'Per-job ITP / QA — hold/witness/record points + office sign-off (#474/#476). Live; owner kill-switch.',
+    default: true,
+    killSwitch: true,
+    target: 'global',
+    expires: '2027-06-30',
+  },
 };
+
+// ── Board presentation (#760) ────────────────────────────────────────────────
+// Human label + domain + surface for the owner Feature Control Board — kept out
+// of the core flag def. Only NON-protected (product) flags appear; protected
+// data-plane flags are intentionally omitted (the board shows them in a separate
+// read-only "System" group).
+const FLAG_PRESENTATION = {
+  itp: { label: 'ITPs', domain: 'QA & compliance', surface: 'Shared' },
+  rfi_register: { label: 'RFIs', domain: 'QA & compliance', surface: 'Shared' },
+  certificates_register: { label: 'Certificates', domain: 'QA & compliance', surface: 'BuhlOS' },
+  safety_docs: { label: 'Safety docs (SWMS/SDS)', domain: 'QA & compliance', surface: 'Shared' },
+  admin_proof_review: { label: 'Proof sign-off', domain: 'QA & compliance', surface: 'BuhlOS' },
+  minutes_register: { label: 'Meeting minutes', domain: 'Site records', surface: 'BuhlOS' },
+  site_instructions_register: { label: 'Site instructions', domain: 'Site records', surface: 'BuhlOS' },
+  job_doc_import: { label: 'BOQ / pricing import', domain: 'Commercial', surface: 'BuhlOS' },
+  admin_job_field_view: { label: 'Office / Field job view', domain: 'Jobs', surface: 'BuhlOS' },
+  admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS' },
+};
+
+/** Board presentation (label/domain/surface) for a flag, or null if none. */
+function presentationOf(key) {
+  return FLAG_PRESENTATION[key] || null;
+}
 
 const FLAGS_KEY = 'flags.json';
 
@@ -475,6 +511,7 @@ module.exports = {
   isFlagEnabled,
   flagsForViewer,
   isProtectedFlag,
+  presentationOf,
   listFlags,
   expiredFlags,
 };

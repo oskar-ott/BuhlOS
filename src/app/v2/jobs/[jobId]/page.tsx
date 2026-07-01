@@ -145,6 +145,8 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
   // #365: surface the imported BOQ cost-basis card when the flag is on (the
   // card self-hides for jobs that weren't created from a BOQ import).
   const costImportEnabled = await isFlagEnabled("job_doc_import", session);
+  // #760: ITPs are a kill-switch feature — hide the ITP/QA nav row when off.
+  const itpEnabled = await isFlagEnabled("itp", session);
 
   const [data, inductions, readiness, services] = await Promise.all([
     loadJobInterface(raw, jobId),
@@ -341,6 +343,7 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
           certificatesEnabled={certificatesEnabled}
           rfiEnabled={rfiEnabled}
           minutesEnabled={minutesEnabled}
+          itpEnabled={itpEnabled}
         />
         </>
         )}

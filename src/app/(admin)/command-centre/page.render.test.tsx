@@ -52,7 +52,11 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../../api/_lib/feature-flags.js", () => ({
-  isFlagEnabled: async (key: string) => (key === "admin_proof_review" ? h.proofFlagOn : false),
+  // admin_proof_review is a launch-gate flag (default off, driven per-test);
+  // itp is a #760 kill-switch flag — live by default, so its Command Centre
+  // sign-off card renders unless the owner turns it off.
+  isFlagEnabled: async (key: string) =>
+    key === "admin_proof_review" ? h.proofFlagOn : key === "itp",
   listFlags: () => [],
   isFlagOn: async () => false,
 }));

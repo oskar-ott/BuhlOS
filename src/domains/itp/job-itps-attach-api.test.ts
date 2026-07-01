@@ -26,6 +26,7 @@ const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const handlerPath = requireFromHere.resolve("../../../api/job-itps.js");
 const templatesPath = requireFromHere.resolve("../../../api/itp-templates.js");
+const flagsPath = requireFromHere.resolve("../../../api/_lib/feature-flags.js");
 
 type Res = ReturnType<typeof createRes>;
 let blob: Map<string, unknown>;
@@ -110,7 +111,7 @@ beforeEach(() => {
     ],
   });
 
-  for (const p of [authPath, handlerPath, templatesPath]) delete requireFromHere.cache[p];
+  for (const p of [authPath, handlerPath, templatesPath, flagsPath]) delete requireFromHere.cache[p];
   requireFromHere.cache[blobPath] = {
     id: blobPath,
     filename: blobPath,
@@ -226,6 +227,16 @@ describe("POST /api/job-itps?action=attach (#387)", () => {
 
     const missing = await attach("u_admin", "office", { templateId: "tpl_nope", scope: "job" });
     expect(missing.statusCode).toBe(404);
+  });
+
+  // #760 — the ITP kill-switch flag gates the whole endpoint. Default ON (every
+  // test above proves the on path); the owner turning it OFF makes ITPs vanish.
+  it("404s the whole endpoint when the owner turns the itp flag OFF", async () => {
+    blob.set("flags.json", { flags: { itp: false } });
+    const res = await attach("u_admin", "office", { templateId: "tpl_rough", scope: "job" });
+    expect(res.statusCode).toBe(404);
+    // no instance was written — the feature is truly dark, not just hidden
+    expect(blob.get("jobs/j1/itps.json")).toBeUndefined();
   });
 });
 

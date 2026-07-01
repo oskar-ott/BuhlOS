@@ -34,6 +34,7 @@ const {
   isFlagOn,
   isFlagEnabled,
   isProtectedFlag,
+  presentationOf,
   expiredFlags,
 } = require('./_lib/feature-flags');
 const { readMonth, VALID_ACTIONS } = require('./_lib/audit-log');
@@ -135,6 +136,9 @@ async function buildFlags(now) {
     if (f.expires < today) expiryStatus = 'expired';
     else if (d !== null && d <= EXPIRING_SOON_DAYS) expiryStatus = 'expiring';
 
+    // #760: board presentation (human label / domain / surface). Null for
+    // protected data-plane flags — they render in the read-only "System" group.
+    const pres = presentationOf(f.key);
     items.push({
       key: f.key,
       description: f.description,
@@ -152,6 +156,11 @@ async function buildFlags(now) {
       // flags ARE toggleable:true but the UI renders the control disabled (env
       // wins) — source:'env' carries that signal.
       toggleable: !isProtectedFlag(f.key),
+      // #760 Feature Control Board fields (null when unlabelled/protected).
+      label: pres ? pres.label : null,
+      domain: pres ? pres.domain : null,
+      surface: pres ? pres.surface : null,
+      killSwitch: !!f.killSwitch,
     });
   }
   return {

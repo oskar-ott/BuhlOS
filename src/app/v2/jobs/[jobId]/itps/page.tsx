@@ -1,11 +1,12 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { ITPsQueue } from "@/components/admin/ITPsQueue";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isAdminRole } from "@/lib/auth/roles";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
@@ -61,6 +62,10 @@ export default async function AdminItpsPage({ params }: PageParams) {
   }
   if (!canAccessSurface(session.role, "lh")) {
     redirect("/v2/login");
+  }
+  // #760: ITP kill-switch — when the owner turns ITPs off, the surface 404s.
+  if (!(await isFlagEnabled("itp", session))) {
+    notFound();
   }
   const isAdmin = isAdminRole(session.role);
 
