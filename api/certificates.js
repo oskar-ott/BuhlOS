@@ -16,11 +16,12 @@ const { put } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob, isAdminRole, isClientRole } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
+const { getSetting } = require('./_lib/feature-settings');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 
 const FLAG = 'certificates_register';
 const CERT_TYPES = ['certificate', 'test_sheet', 'commissioning'];
-const MAX_BYTES = 25 * 1024 * 1024;
+// Upload cap is an owner-tunable setting (certificates_register.maxUploadMb, default 25).
 
 function certsKey(jobId) { return 'jobs/' + jobId + '/certificates.json'; }
 async function readCerts(jobId) { return await readBlob(certsKey(jobId), { certificates: [] }); }
@@ -96,7 +97,9 @@ module.exports = async (req, res) => {
     const base64 = String(body.dataUrl).split(',')[1];
     if (!base64) return res.status(400).json({ error: 'invalid dataUrl' });
     const buf = Buffer.from(base64, 'base64');
-    if (buf.length > MAX_BYTES) return res.status(400).json({ error: 'file too large (max 25 MB)' });
+    const maxMb = await getSetting('certificates_register', 'maxUploadMb');
+    if (buf.length > maxMb * 1024 * 1024)
+      return res.status(400).json({ error: `file too large (max ${maxMb} MB)` });
 
     const id = newId();
     const blobPath = 'jobs/' + jobId + '/certificates/' + id + '.' + extFor(mime);

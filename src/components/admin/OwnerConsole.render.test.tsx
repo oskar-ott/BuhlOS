@@ -42,6 +42,42 @@ describe("<OwnerConsole />", () => {
     expect(html).toContain("No recent activity");
   });
 
+  it("renders the config-knob controls when settingsWrite is on", () => {
+    const summary = makeSummary();
+    summary.capabilities = {
+      flagToggle: true,
+      flagToggleReason: "toggle",
+      settingsWrite: true,
+      settingsWriteReason: "save via PUT /api/owner-settings",
+    };
+    summary.settings = {
+      source: "settings registry + feature-settings.json",
+      rev: 2,
+      items: [
+        {
+          featureKey: "safety_docs",
+          key: "maxUploadMb",
+          type: "number",
+          label: "Max upload size (MB)",
+          description: "Largest safety file.",
+          default: 25,
+          value: 25,
+          source: "default",
+          min: 1,
+          max: 100,
+          step: 1,
+          maxLength: null,
+          options: null,
+          unit: "MB",
+        },
+      ],
+    };
+    const html = renderToString(createElement(OwnerConsole, { summary }));
+    expect(html).toContain("Feature configuration"); // the section
+    expect(html).toContain("setting-input-safety_docs.maxUploadMb"); // the input renders
+    expect(html).toContain("Max upload size (MB)");
+  });
+
   it("renders the staged control when flagToggle is on; fences protected + env-pinned", () => {
     const summary = makeSummary();
     summary.capabilities = { flagToggle: true, flagToggleReason: "toggle via POST /api/owner-flags" };
