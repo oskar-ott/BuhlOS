@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -9,6 +9,7 @@ import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
 import { PhilCircuitSchedule } from "@/components/phil/PhilCircuitSchedule";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { CircuitBoardsResponseSchema, type Board } from "@/domains/circuit-schedule/schema";
 import type { Job } from "@/domains/jobs/types";
@@ -42,6 +43,10 @@ export default async function PhilCircuitSchedulePage({ params }: PageParams) {
   }
   if (!canAccessSurface(session.role, "phil")) {
     redirect("/v2/login");
+  }
+  // #760: circuit-schedule kill-switch — when the owner turns it off, 404.
+  if (!(await isFlagEnabled("circuit_schedule", session))) {
+    notFound();
   }
 
   const [jobResult, boardsResult] = await Promise.all([

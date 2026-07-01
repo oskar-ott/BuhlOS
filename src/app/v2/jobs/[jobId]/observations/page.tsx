@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -49,6 +49,7 @@ export default async function JobObservationsPage({ params }: PageParams) {
   if (!canAccessSurface(session.role, "lh")) {
     redirect("/v2/login");
   }
+  if (!(await isFlagEnabled("observations_inbox", session))) notFound();
 
   // #276/#737: when the RFI register is on, the inbox offers a REAL
   // "Convert to RFI" (mints a register RFI) instead of the intent-only tag.

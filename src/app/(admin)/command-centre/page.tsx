@@ -117,6 +117,17 @@ export default async function CommandCentrePage() {
   const showProofReview = await isFlagEnabled("admin_proof_review", session);
   // #760: ITP kill-switch — when off, drop the ITP sign-off card + its pulse.
   const itpEnabled = await isFlagEnabled("itp", session);
+  // #760: the other queue cards each belong to a kill-switch feature — hide a
+  // card when the owner has turned its feature off (the card would otherwise
+  // link to a now-404 surface). All default ON. Resolved in parallel (cached).
+  const [hoursCardOn, evidenceCardOn, snagsCardOn, obsCardOn, materialCardOn] =
+    await Promise.all([
+      isFlagEnabled("hours", session),
+      isFlagEnabled("evidence", session),
+      isFlagEnabled("snags", session),
+      isFlagEnabled("observations_inbox", session),
+      isFlagEnabled("material_requests", session),
+    ]);
   const proofPromise = showProofReview
     ? runProofQueue(blobProofQueueDeps())
     : Promise.resolve(null);
@@ -458,33 +469,39 @@ export default async function CommandCentrePage() {
           ) : null}
 
           <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <QueueCard
-              icon={<ClipboardCheck aria-hidden="true" className="h-5 w-5" />}
-              label="Hours pending approval"
-              count={hoursPending.length}
-              ageLabel={oldestHours}
-              href="/hours/approvals"
-              ctaLabel="Review approvals"
-              empty="No timesheets waiting for you."
-            />
-            <QueueCard
-              icon={<Camera aria-hidden="true" className="h-5 w-5" />}
-              label="Evidence to review"
-              count={evidencePending}
-              jobsAffected={jobsWithEvidence.length}
-              href={evidenceTarget.href as Route}
-              ctaLabel={evidenceTarget.cta}
-              empty="No evidence waiting for review."
-            />
-            <QueueCard
-              icon={<AlertOctagon aria-hidden="true" className="h-5 w-5" />}
-              label="Snags needing attention"
-              count={snagsActive}
-              jobsAffected={jobsWithSnags.length}
-              href={snagsTarget.href as Route}
-              ctaLabel={snagsTarget.cta}
-              empty="Nice — no open snags right now."
-            />
+            {hoursCardOn ? (
+              <QueueCard
+                icon={<ClipboardCheck aria-hidden="true" className="h-5 w-5" />}
+                label="Hours pending approval"
+                count={hoursPending.length}
+                ageLabel={oldestHours}
+                href="/hours/approvals"
+                ctaLabel="Review approvals"
+                empty="No timesheets waiting for you."
+              />
+            ) : null}
+            {evidenceCardOn ? (
+              <QueueCard
+                icon={<Camera aria-hidden="true" className="h-5 w-5" />}
+                label="Evidence to review"
+                count={evidencePending}
+                jobsAffected={jobsWithEvidence.length}
+                href={evidenceTarget.href as Route}
+                ctaLabel={evidenceTarget.cta}
+                empty="No evidence waiting for review."
+              />
+            ) : null}
+            {snagsCardOn ? (
+              <QueueCard
+                icon={<AlertOctagon aria-hidden="true" className="h-5 w-5" />}
+                label="Snags needing attention"
+                count={snagsActive}
+                jobsAffected={jobsWithSnags.length}
+                href={snagsTarget.href as Route}
+                ctaLabel={snagsTarget.cta}
+                empty="Nice — no open snags right now."
+              />
+            ) : null}
             {itpEnabled ? (
               <QueueCard
                 icon={<FileCheck2 aria-hidden="true" className="h-5 w-5" />}
@@ -498,51 +515,61 @@ export default async function CommandCentrePage() {
                 empty="No ITPs waiting for sign-off."
               />
             ) : null}
-            <QueueCard
-              icon={<Inbox aria-hidden="true" className="h-5 w-5" />}
-              label="Observations to action"
-              count={obsCount}
-              jobsAffected={obsJobsAffected}
-              href={"/observations" as Route}
-              ctaLabel="Open inbox"
-              empty="No field observations need action."
-            />
-            <QueueCard
-              icon={<RotateCcw aria-hidden="true" className="h-5 w-5" />}
-              label="Rejected hours"
-              count={rejectedHoursCount}
-              ageLabel={rejectedHoursOldest}
-              href="/hours/approvals"
-              ctaLabel="Review rejections"
-              empty="No rejected timesheets waiting on a worker."
-            />
-            <QueueCard
-              icon={<UserX aria-hidden="true" className="h-5 w-5" />}
-              label="Missing hours"
-              count={missingHoursCount}
-              ageLabel={missingHoursOldest}
-              href="/hours"
-              ctaLabel="Chase missing hours"
-              empty="Everyone's hours are in — no gaps."
-            />
-            <QueueCard
-              icon={<Layers aria-hidden="true" className="h-5 w-5" />}
-              label="Plan mismatches"
-              count={planMismatchCount}
-              jobsAffected={planMismatchJobs}
-              href={"/observations" as Route}
-              ctaLabel="Open inbox"
-              empty="No plan mismatches reported from site."
-            />
-            <QueueCard
-              icon={<Package aria-hidden="true" className="h-5 w-5" />}
-              label="Material requests"
-              count={materialRequestCount}
-              jobsAffected={materialRequestJobs}
-              href={"/material-requests" as Route}
-              ctaLabel="Open material requests"
-              empty="No material requests waiting on the office."
-            />
+            {obsCardOn ? (
+              <QueueCard
+                icon={<Inbox aria-hidden="true" className="h-5 w-5" />}
+                label="Observations to action"
+                count={obsCount}
+                jobsAffected={obsJobsAffected}
+                href={"/observations" as Route}
+                ctaLabel="Open inbox"
+                empty="No field observations need action."
+              />
+            ) : null}
+            {hoursCardOn ? (
+              <QueueCard
+                icon={<RotateCcw aria-hidden="true" className="h-5 w-5" />}
+                label="Rejected hours"
+                count={rejectedHoursCount}
+                ageLabel={rejectedHoursOldest}
+                href="/hours/approvals"
+                ctaLabel="Review rejections"
+                empty="No rejected timesheets waiting on a worker."
+              />
+            ) : null}
+            {hoursCardOn ? (
+              <QueueCard
+                icon={<UserX aria-hidden="true" className="h-5 w-5" />}
+                label="Missing hours"
+                count={missingHoursCount}
+                ageLabel={missingHoursOldest}
+                href="/hours"
+                ctaLabel="Chase missing hours"
+                empty="Everyone's hours are in — no gaps."
+              />
+            ) : null}
+            {obsCardOn ? (
+              <QueueCard
+                icon={<Layers aria-hidden="true" className="h-5 w-5" />}
+                label="Plan mismatches"
+                count={planMismatchCount}
+                jobsAffected={planMismatchJobs}
+                href={"/observations" as Route}
+                ctaLabel="Open inbox"
+                empty="No plan mismatches reported from site."
+              />
+            ) : null}
+            {materialCardOn ? (
+              <QueueCard
+                icon={<Package aria-hidden="true" className="h-5 w-5" />}
+                label="Material requests"
+                count={materialRequestCount}
+                jobsAffected={materialRequestJobs}
+                href={"/material-requests" as Route}
+                ctaLabel="Open material requests"
+                empty="No material requests waiting on the office."
+              />
+            ) : null}
           </div>
         </section>
 

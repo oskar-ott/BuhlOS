@@ -36,6 +36,7 @@
 
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob, isStaffRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -44,6 +45,8 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
+  // #760: job-photos kill-switch — when the owner turns job photos off, the surface 404s.
+  if (!(await isFlagEnabled('job_photos', me))) return res.status(404).json({ error: 'not found' });
   if (!isStaffRole(me.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 
 /**
@@ -42,6 +43,15 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: () => undefined, push: () => undefined }),
 }));
 
+// #760: AdminShell is now an async server component (it resolves the viewer's
+// owner-disabled nav flags). renderToString can't render async components, so
+// mock it to a sync passthrough — this test asserts page CONTENT, not the shell
+// chrome (sidebar/nav are covered by their own unit + render tests).
+vi.mock("@/components/admin/AdminShell", () => ({
+  AdminShell: ({ children }: { children: unknown }) =>
+    createElement("div", { "data-testid": "buhlos-admin-shell" }, children as never),
+}));
+
 // Configurable flag + proof-queue mocks (hoisted so the vi.mock factories can
 // reference them). Default: all flags dark, proof queue empty.
 const h = vi.hoisted(() => ({
@@ -51,12 +61,20 @@ const h = vi.hoisted(() => ({
     | { ok: false; error: string },
 }));
 
+// #760 kill-switch flags are LIVE by default, so their Command Centre cards
+// render unless the owner turns them off. admin_proof_review is a launch-gate
+// flag (default off, driven per-test).
+const KILL_SWITCHES_ON = new Set([
+  "itp",
+  "hours",
+  "evidence",
+  "snags",
+  "observations_inbox",
+  "material_requests",
+]);
 vi.mock("../../../../api/_lib/feature-flags.js", () => ({
-  // admin_proof_review is a launch-gate flag (default off, driven per-test);
-  // itp is a #760 kill-switch flag — live by default, so its Command Centre
-  // sign-off card renders unless the owner turns it off.
   isFlagEnabled: async (key: string) =>
-    key === "admin_proof_review" ? h.proofFlagOn : key === "itp",
+    key === "admin_proof_review" ? h.proofFlagOn : KILL_SWITCHES_ON.has(key),
   listFlags: () => [],
   isFlagOn: async () => false,
 }));

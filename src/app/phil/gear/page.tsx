@@ -1,5 +1,6 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
@@ -35,6 +36,10 @@ export default async function PhilGearPage() {
   }
   if (!canAccessSurface(session.role, "phil")) {
     redirect("/v2/login");
+  }
+  // #760: gear kill-switch — when the owner turns gear off, the surface 404s.
+  if (!(await isFlagEnabled("gear", session))) {
+    notFound();
   }
 
   const { assets, fetchError } = await loadMyGear(raw);

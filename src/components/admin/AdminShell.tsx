@@ -3,12 +3,38 @@ import { AdminSidebar } from "./AdminSidebar";
 import { AdminTopbar } from "./AdminTopbar";
 import { AdminMobileTabBar } from "./AdminMobileTabBar";
 import { CommandPalette } from "./CommandPalette";
+import { FLAGGED_ITEMS } from "./nav";
 import { PwaRegistrar } from "@/components/pwa/PwaRegistrar";
+import { getCurrentUser } from "@/lib/auth/current-user";
+import { isFlagEnabled } from "../../../api/_lib/feature-flags.js";
 
 interface AdminShellProps {
   children: ReactNode;
   title: string;
   breadcrumb?: ReactNode;
+}
+
+/**
+ * #760 owner feature-control: resolve which flag-gated nav destinations to hide
+ * from THIS viewer. Reads the same viewer-aware resolver the routes/APIs use, so
+ * the sidebar, ⌘K palette and mobile IA reflect exactly what the owner has
+ * turned off (and what the owner is previewing). Fails OPEN — on any error the
+ * chrome shows everything; the route + API 404 remain the authoritative gate, so
+ * a stray visible link can never expose a disabled feature's data.
+ */
+async function resolveHiddenNavHrefs(): Promise<string[]> {
+  try {
+    const viewer = await getCurrentUser();
+    const checks = await Promise.all(
+      FLAGGED_ITEMS.map(async ({ href, flag }) => ({
+        href,
+        on: await isFlagEnabled(flag, viewer),
+      })),
+    );
+    return checks.filter((c) => !c.on).map((c) => c.href);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -25,10 +51,11 @@ interface AdminShellProps {
  * client child (same pattern as AdminSidebar) so this stays a server
  * component. It renders nothing until ⌘K / Ctrl+K opens it.
  */
-export function AdminShell({ children, title, breadcrumb }: AdminShellProps) {
+export async function AdminShell({ children, title, breadcrumb }: AdminShellProps) {
+  const hiddenHrefs = await resolveHiddenNavHrefs();
   return (
     <div data-testid="buhlos-admin-shell" className="flex h-screen overflow-hidden bg-surface-subtle">
-      <AdminSidebar />
+      <AdminSidebar hiddenHrefs={hiddenHrefs} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <AdminTopbar title={title} breadcrumb={breadcrumb} />
         {/* The scroll region — the sidebar (h-screen) + topbar stay fixed while
@@ -41,9 +68,9 @@ export function AdminShell({ children, title, breadcrumb }: AdminShellProps) {
             md, where AdminSidebar is hidden. A flex sibling of <main> (mirrors
             PhilShell) so it reserves its own space rather than overlaying the
             scroll region; gone entirely on desktop. */}
-        <AdminMobileTabBar />
+        <AdminMobileTabBar hiddenHrefs={hiddenHrefs} />
       </div>
-      <CommandPalette />
+      <CommandPalette hiddenHrefs={hiddenHrefs} />
       <PwaRegistrar />
     </div>
   );

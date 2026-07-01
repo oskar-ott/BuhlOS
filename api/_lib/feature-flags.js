@@ -362,6 +362,98 @@ const REGISTRY = {
     target: 'global',
     expires: '2027-06-30',
   },
+
+  // ── #760: owner feature-control kill-switches (LIVE features, default ON) ──
+  // Each gates a whole shipped feature so the owner can hide it from customers
+  // (and preview it) from /owner, without a revert deploy. killSwitch:true is the
+  // ONLY way a flag defaults on (see docs/feature-flags.md → Two flag kinds).
+  // Turning one off hides its nav/section AND 404s its routes + API. Nothing
+  // changes until the owner flips it. `jobs`/`hours`/`evidence` are the CORE
+  // spine — gateable but the board warns before you turn them off.
+  jobs: {
+    description: 'CORE. The jobs list + job hub — /v2/jobs + api/jobs. Live; owner kill-switch (turning off hides the whole Jobs surface).',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  hours: {
+    description: 'CORE. The hours workflow — /hours (day/approvals/weekly) + time-entry APIs. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  evidence: {
+    description: 'CORE. Per-job evidence capture + admin review — /v2/jobs/[id]/evidence + api/evidence. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  observations_inbox: {
+    description: 'The From-site inbox + per-job observations — /observations + api/observations. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  material_requests: {
+    description: 'Field-to-office material requests — /material-requests + per-job register + api/material-requests. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  expenses: {
+    description: 'Reimbursements — field receipts the office reviews — /expenses + api/expenses. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  quotes: {
+    description: 'The quote builder — /v2/quotes + api/quotes. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  defects: {
+    description: 'The cross-job defects register — /defects. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  dayworks: {
+    description: 'The daywork dockets register — /v2/dayworks + per-job dayworks + api/dayworks. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  employees: {
+    description: 'The employees/people admin surface — /employees. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  gear: {
+    description: 'The gear / test-and-tag register — /gear. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  reports: {
+    description: 'The owner-numbers reports surface — /reports. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  job_photos: {
+    description: 'The read-only job photo gallery ("Job Bible") — /v2/jobs/[id]/photos. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  snags: {
+    description: 'Per-job snags/defects raised by the field — /v2/jobs/[id]/snags + api/snags. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  scope_reconciliation: {
+    description: 'Scope-vs-quote reconciliation — /v2/jobs/[id]/scope. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  job_control: {
+    description: 'Required-proof authoring (job control) — /v2/jobs/[id]/job-control. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  closeout: {
+    description: 'The handover closeout matrix — /v2/jobs/[id]/closeout. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  documents: {
+    description: 'The per-job document & specs register — /v2/jobs/[id]/documents + api/documents. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  circuit_schedule: {
+    description: 'AS/NZS-3000 circuit schedules — /v2/jobs/[id]/circuit-schedule + api/job-circuits. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  diary: {
+    description: 'The per-job site diary — /v2/jobs/[id]/diary + api/diary. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
+  job_activity: {
+    description: 'The per-job activity/audit trail — /v2/jobs/[id]/history. Live; owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+  },
 };
 
 // ── Board presentation (#760) ────────────────────────────────────────────────
@@ -380,6 +472,30 @@ const FLAG_PRESENTATION = {
   job_doc_import: { label: 'BOQ / pricing import', domain: 'Commercial', surface: 'BuhlOS' },
   admin_job_field_view: { label: 'Office / Field job view', domain: 'Jobs', surface: 'BuhlOS' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS' },
+
+  // #760 kill-switches. `core: true` = load-bearing spine; the board warns
+  // before the owner turns one off.
+  jobs: { label: 'Jobs', domain: 'Jobs', surface: 'Shared', core: true },
+  hours: { label: 'Hours', domain: 'Hours', surface: 'Shared', core: true },
+  evidence: { label: 'Evidence', domain: 'Field capture', surface: 'Shared', core: true },
+  observations_inbox: { label: 'From site (observations)', domain: 'Field capture', surface: 'Shared' },
+  material_requests: { label: 'Material requests', domain: 'Commercial', surface: 'Shared' },
+  expenses: { label: 'Expenses', domain: 'Commercial', surface: 'Shared' },
+  quotes: { label: 'Quotes', domain: 'Commercial', surface: 'BuhlOS' },
+  defects: { label: 'Defects', domain: 'QA & compliance', surface: 'BuhlOS' },
+  dayworks: { label: 'Dayworks', domain: 'Commercial', surface: 'BuhlOS' },
+  employees: { label: 'Employees', domain: 'People & gear', surface: 'BuhlOS' },
+  gear: { label: 'Gear / test & tag', domain: 'People & gear', surface: 'BuhlOS' },
+  reports: { label: 'Reports', domain: 'Company', surface: 'BuhlOS' },
+  job_photos: { label: 'Photos (Job Bible)', domain: 'Field capture', surface: 'Shared' },
+  snags: { label: 'Snags', domain: 'Field capture', surface: 'Shared' },
+  scope_reconciliation: { label: 'Scope reconciliation', domain: 'Jobs', surface: 'BuhlOS' },
+  job_control: { label: 'Job control (required proof)', domain: 'Jobs', surface: 'Shared' },
+  closeout: { label: 'Closeout', domain: 'QA & compliance', surface: 'BuhlOS' },
+  documents: { label: 'Documents & specs', domain: 'Site records', surface: 'Shared' },
+  circuit_schedule: { label: 'Circuit schedules', domain: 'QA & compliance', surface: 'Shared' },
+  diary: { label: 'Site diary', domain: 'Site records', surface: 'BuhlOS' },
+  job_activity: { label: 'Activity (audit trail)', domain: 'Platform', surface: 'BuhlOS' },
 };
 
 /** Board presentation (label/domain/surface) for a flag, or null if none. */

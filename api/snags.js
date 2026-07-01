@@ -63,6 +63,7 @@ const { requireAuth, canWrite, isAdminRole, isFieldRole, isLeadingHandRole, isCl
 const { nanoid } = require('./_lib/validation');
 const { appendAudit: appendLegacyAudit } = require('./_lib/job-audit');
 const { append: appendAuditLog } = require('./_lib/audit-log');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 
 const VALID_STATUSES = new Set([
   'open',
@@ -595,6 +596,10 @@ module.exports = async (req, res) => {
   if (!user) return;
   if (isClientRole(user.role)) {
     return res.status(403).json({ error: 'forbidden' });
+  }
+  // #760: snags kill-switch — when the owner turns snags off, the API 404s.
+  if (!(await isFlagEnabled('snags', user))) {
+    return res.status(404).json({ error: 'not found' });
   }
 
   const action = (req.query && req.query.action) || '';

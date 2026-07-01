@@ -42,6 +42,7 @@
 
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isStaffRole, isAdminRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 
 const V2_STATUSES = new Set(['open', 'in_progress', 'resolved', 'verified', 'closed', 'rejected']);
 const V2_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
@@ -120,6 +121,7 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
+  if (!(await isFlagEnabled('defects', me))) return res.status(404).json({ error: 'not found' });
   if (!isStaffRole(me.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }

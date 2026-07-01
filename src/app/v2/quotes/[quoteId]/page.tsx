@@ -1,12 +1,13 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { QuoteBuilderClient } from "@/components/admin/QuoteBuilderClient";
 import { QuoteDeliveryCard } from "@/components/admin/QuoteDeliveryCard";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { QuoteDetailResponseSchema, type Quote } from "@/domains/quoting/schema";
 
@@ -45,6 +46,7 @@ export default async function QuoteBuilderPage({ params }: PageParams) {
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
   }
+  if (!(await isFlagEnabled("quotes", session))) notFound();
 
   const result = await loadQuote(raw, quoteId);
 

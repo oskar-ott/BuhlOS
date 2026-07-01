@@ -1,10 +1,11 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { MaterialRequestsInbox } from "@/components/admin/MaterialRequestsInbox";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import {
   MATERIAL_REQUEST_STATUSES,
   MaterialRequestListResponseSchema,
@@ -40,6 +41,7 @@ export default async function MaterialRequestsPage({
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
   }
+  if (!(await isFlagEnabled("material_requests", session))) notFound();
 
   // Deep-link query (Needs Attention → a specific request). Both are validated
   // and tolerant: an unknown status is ignored, an unknown focus id just opens

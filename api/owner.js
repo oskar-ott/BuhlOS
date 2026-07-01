@@ -161,6 +161,7 @@ async function buildFlags(now) {
       domain: pres ? pres.domain : null,
       surface: pres ? pres.surface : null,
       killSwitch: !!f.killSwitch,
+      core: pres ? !!pres.core : false,
     });
   }
   return {

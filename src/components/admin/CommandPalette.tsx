@@ -55,7 +55,7 @@ function anyModalOpen(): boolean {
   return document.querySelector('[aria-modal="true"]') !== null;
 }
 
-export function CommandPalette() {
+export function CommandPalette({ hiddenHrefs }: { hiddenHrefs?: ReadonlyArray<string> } = {}) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -73,9 +73,13 @@ export function CommandPalette() {
   const searching = trimmed.length >= PALETTE_MIN_CHARS;
 
   // Static (non-search) sections; recents only present when non-empty.
+  // #760: owner-disabled features are dropped from Go-to + Actions.
+  const hiddenKey = (hiddenHrefs ?? []).join(",");
   const staticSections = useMemo<PaletteSection[]>(
-    () => buildStaticSections(recents),
-    [recents]
+    () => buildStaticSections(recents, hiddenHrefs),
+    // hiddenKey is a stable string proxy for the hiddenHrefs array identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [recents, hiddenKey]
   );
 
   // Search results promoted to palette commands so keyboard nav is uniform.

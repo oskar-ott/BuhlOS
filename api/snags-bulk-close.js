@@ -57,6 +57,7 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob, isStaffRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 
 const MAX_SNAGS = 100;
 
@@ -67,6 +68,7 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
+  if (!(await isFlagEnabled('defects', me))) return res.status(404).json({ error: 'not found' });
   if (!isStaffRole(me.role)) {
     return res.status(403).json({ error: 'forbidden' });
   }

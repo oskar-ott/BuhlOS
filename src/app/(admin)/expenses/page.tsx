@@ -1,9 +1,10 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { ExpensesReviewQueue } from "@/components/admin/ExpensesReviewQueue";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { ExpenseListResponseSchema } from "@/domains/expenses/schema";
 import type { ExpenseItem } from "@/domains/expenses/types";
@@ -36,6 +37,10 @@ export default async function ExpensesPage() {
   // Office/admin surface — matches the admin-tier list gate in api/expenses.js.
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
+  }
+  // #760: expenses kill-switch — when the owner turns expenses off, the surface 404s.
+  if (!(await isFlagEnabled("expenses", session))) {
+    notFound();
   }
 
   const { expenses, fetchError } = await loadExpenses(raw);

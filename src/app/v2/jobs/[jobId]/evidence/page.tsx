@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EvidenceQueue } from "@/components/admin/EvidenceQueue";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isAdminRole, isLeadingHandRole } from "@/lib/auth/roles";
@@ -55,6 +56,8 @@ export default async function AdminEvidenceReviewPage({ params }: PageParams) {
     // ever slips (or someone deep-links and the middleware matcher misses).
     redirect("/v2/login");
   }
+  // #760: Evidence is a CORE kill-switch the owner can turn off. Default ON.
+  if (!(await isFlagEnabled("evidence", session))) notFound();
   const isAdmin = isAdminRole(session.role);
 
   const [jobResult, evidenceResult] = await Promise.all([

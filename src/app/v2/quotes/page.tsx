@@ -1,9 +1,10 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { QuotesList } from "@/components/admin/QuotesList";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { QuoteListResponseSchema, type QuoteSummary } from "@/domains/quoting/schema";
 
@@ -42,6 +43,7 @@ export default async function QuotesPage() {
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
   }
+  if (!(await isFlagEnabled("quotes", session))) notFound();
 
   const { quotes, fetchError } = await loadQuotes(raw);
 

@@ -131,3 +131,29 @@ non-`killSwitch` flag is `default: false`.
 > flag governance (this file is the governing doc). It is bounded on purpose:
 > only an explicit `killSwitch: true` flag may do it; everything else stays
 > dark by default.
+
+## Feature kill-switches — the owner controls the whole interface (#760)
+
+Most shipped features now carry a kill-switch flag so the owner can hide any of
+them from `/owner` (jobs, hours, evidence, observations, material requests,
+expenses, quotes, defects, dayworks, employees, gear, reports, ITPs, RFIs,
+snags, photos, scope, job control, closeout, documents, circuit schedules,
+diary, activity, …). Each such flag gates the feature at **three layers**, so
+turning it off removes the feature everywhere — not just visually:
+
+1. **Navigation** — `src/components/admin/nav.ts` tags each sidebar item with
+   its `flag`; `AdminShell` (server) resolves `flagsForViewer` once and passes
+   the hidden hrefs to the sidebar, ⌘K palette and mobile IA (`visibleNavGroups`
+   / `FLAGGED_ITEMS`). Job-hub sections are tagged in `JobInterfaceSectionNav`
+   and resolved in the hub page. Command Centre queue cards gate the same way.
+2. **Route** — each RSC page calls `notFound()` when its flag is off (so a
+   deep-link 404s, not just the nav link vanishing).
+3. **API** — each serverless handler returns `404` when off, on **every**
+   request path, using `isFlagEnabled(flag, <viewer>)` **after** auth (so owner
+   preview still reaches the data — see owner-preview above).
+
+`jobs` / `hours` / `evidence` are marked **core** (`FLAG_PRESENTATION[key].core`)
+— the board warns before the owner turns one off, and their shared APIs
+(`/api/jobs`, the time-entry endpoints) stay live as infrastructure; the office
+*surfaces* are what gate. `Command centre` and `/owner` itself are never gated,
+so the owner can't self-lock.

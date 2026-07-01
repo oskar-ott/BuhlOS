@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { isAdminRole } from "@/lib/auth/roles";
 import { CircuitScheduleApp } from "@/components/admin/circuit-schedule/CircuitScheduleApp";
 import { loadCircuitSchedule } from "@/domains/circuit-schedule/server-load";
@@ -37,6 +38,10 @@ export default async function CircuitSchedulePage({ params }: PageParams) {
   }
   if (!isAdminRole(session.role)) {
     redirect("/v2/login");
+  }
+  // #760: circuit-schedule kill-switch — when the owner turns it off, 404.
+  if (!(await isFlagEnabled("circuit_schedule", session))) {
+    notFound();
   }
 
   const { job, boards, error } = await loadCircuitSchedule(raw, jobId);

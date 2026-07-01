@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -8,6 +8,7 @@ import { CompiledProofStatus } from "@/components/admin/CompiledProofStatus";
 import { TestRecordsPanel } from "@/components/admin/TestRecordsPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isAdminRole } from "@/lib/auth/roles";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import type { Job } from "@/domains/jobs/types";
 import {
@@ -46,6 +47,10 @@ export default async function AdminJobControlPage({ params }: PageParams) {
   }
   if (!isAdminRole(session.role)) {
     redirect("/v2/login");
+  }
+  // #760: job-control kill-switch — when the owner turns job control off, the surface 404s.
+  if (!(await isFlagEnabled("job_control", session))) {
+    notFound();
   }
 
   const jobResult = await loadJob(raw, jobId);

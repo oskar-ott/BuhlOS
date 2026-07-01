@@ -147,6 +147,29 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
   const costImportEnabled = await isFlagEnabled("job_doc_import", session);
   // #760: ITPs are a kill-switch feature — hide the ITP/QA nav row when off.
   const itpEnabled = await isFlagEnabled("itp", session);
+  // #760: resolve the rest of the job sections' kill-switches so the section nav
+  // hides any the owner has turned off. All default ON (live features), so the
+  // hub is unchanged until the owner flips one from /owner. Cached blob reads.
+  const sectionKeys = [
+    "evidence",
+    "job_photos",
+    "snags",
+    "observations_inbox",
+    "scope_reconciliation",
+    "job_control",
+    "closeout",
+    "documents",
+    "circuit_schedule",
+    "material_requests",
+    "diary",
+    "job_activity",
+  ] as const;
+  const sectionResolved = await Promise.all(
+    sectionKeys.map((k) => isFlagEnabled(k, session)),
+  );
+  const killSwitches: Partial<Record<string, boolean>> = Object.fromEntries(
+    sectionKeys.map((k, i) => [k, sectionResolved[i]]),
+  );
 
   const [data, inductions, readiness, services] = await Promise.all([
     loadJobInterface(raw, jobId),
@@ -344,6 +367,7 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
           rfiEnabled={rfiEnabled}
           minutesEnabled={minutesEnabled}
           itpEnabled={itpEnabled}
+          killSwitches={killSwitches}
         />
         </>
         )}

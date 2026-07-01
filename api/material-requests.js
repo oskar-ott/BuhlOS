@@ -35,6 +35,7 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, isAdminRole, isClientRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 const { nanoid } = require('./_lib/validation');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 
@@ -498,6 +499,7 @@ module.exports = async (req, res) => {
     if (!jobId) return res.status(400).json({ error: 'jobId required' });
     const user = await requireAuth(req, res, { roles: ['admin'] });
     if (!user) return;
+    if (!(await isFlagEnabled('material_requests', user))) return res.status(404).json({ error: 'not found' });
     try {
       return await createDirect(req, res, user, jobId);
     } catch (e) {
@@ -509,6 +511,7 @@ module.exports = async (req, res) => {
   if (req.method === 'PATCH') {
     const user = await requireAuth(req, res, { roles: ['admin'] });
     if (!user) return;
+    if (!(await isFlagEnabled('material_requests', user))) return res.status(404).json({ error: 'not found' });
     try {
       return await updateItem(req, res, user);
     } catch (e) {
@@ -522,6 +525,7 @@ module.exports = async (req, res) => {
       const user = await requireAuth(req, res, { jobId });
       if (!user) return;
       if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
+      if (!(await isFlagEnabled('material_requests', user))) return res.status(404).json({ error: 'not found' });
       try {
         return await listJobRequests(req, res, jobId);
       } catch (e) {
@@ -531,6 +535,7 @@ module.exports = async (req, res) => {
     // Cross-job inbox: admin-tier only (matches the BuhlOS surface gate).
     const user = await requireAuth(req, res, { roles: ['admin'] });
     if (!user) return;
+    if (!(await isFlagEnabled('material_requests', user))) return res.status(404).json({ error: 'not found' });
     try {
       return await listInbox(req, res);
     } catch (e) {

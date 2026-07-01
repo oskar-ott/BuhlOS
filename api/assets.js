@@ -22,6 +22,7 @@
 
 const { readBlob, readBlobFresh, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole, isFieldRole, isLeadingHandRole, isDisabledUser } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 const { listAllAssets } = require('./_lib/assets');
 const { sendPushToUserId } = require('./_lib/push');
 
@@ -174,6 +175,9 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
+  // #760: gear is an owner kill-switch feature. When turned off, the whole
+  // surface 404s (masking it) — same pattern as the register flags.
+  if (!(await isFlagEnabled('gear', user))) return res.status(404).json({ error: 'not found' });
   // Gear is for admin-tier (manage all assets) and field-tier + leading hands
   // (their own held gear). Clients and any unknown role are denied outright —
   // normalised, not a literal `role === 'client'` check.

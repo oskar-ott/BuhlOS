@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { CloseoutMatrixPanel } from "@/components/admin/CloseoutMatrixPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isAdminRole } from "@/lib/auth/roles";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import type { Job } from "@/domains/jobs/types";
 import {
@@ -50,6 +51,7 @@ export default async function AdminJobCloseoutPage({ params }: PageParams) {
   if (!isAdminRole(session.role)) {
     redirect("/v2/login");
   }
+  if (!(await isFlagEnabled("closeout", session))) notFound();
 
   const jobResult = await loadJob(raw, jobId);
 

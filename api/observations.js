@@ -1617,6 +1617,9 @@ module.exports = async (req, res) => {
   if (req.method === 'POST' && action === 'convert-to-snag') {
     const user = await requireAuth(req, res, { roles: ['admin'] });
     if (!user) return;
+    if (!(await isFlagEnabled('observations_inbox', user))) {
+      return res.status(404).json({ error: 'not found' });
+    }
     try {
       return await convertObservationToSnag(req, res, user);
     } catch (e) {
@@ -1628,6 +1631,9 @@ module.exports = async (req, res) => {
   if (req.method === 'POST' && action === 'convert-to-material-request') {
     const user = await requireAuth(req, res, { roles: ['admin'] });
     if (!user) return;
+    if (!(await isFlagEnabled('observations_inbox', user))) {
+      return res.status(404).json({ error: 'not found' });
+    }
     try {
       return await convertObservationToMaterialRequest(req, res, user);
     } catch (e) {
@@ -1639,6 +1645,9 @@ module.exports = async (req, res) => {
   if (req.method === 'POST' && action === 'convert-to-variation') {
     const user = await requireAuth(req, res, { roles: ['admin'] });
     if (!user) return;
+    if (!(await isFlagEnabled('observations_inbox', user))) {
+      return res.status(404).json({ error: 'not found' });
+    }
     try {
       return await convertObservationToVariation(req, res, user);
     } catch (e) {
@@ -1647,11 +1656,15 @@ module.exports = async (req, res) => {
   }
 
   // --- POST ?action=convert-to-rfi (#276) ---------------------------------
-  // Flag-gated on rfi_register: the register is dark until ready, so don't mint
-  // RFIs the office can't yet see. Admin-tier only, like the other converts.
+  // Double flag-gated: observations_inbox (owner kill-switch — the whole
+  // observations feature goes dark) AND rfi_register (the RFI register is dark
+  // until ready, so don't mint RFIs the office can't yet see). Admin-tier only.
   if (req.method === 'POST' && action === 'convert-to-rfi') {
     const user = await requireAuth(req, res, { roles: ['admin'] });
     if (!user) return;
+    if (!(await isFlagEnabled('observations_inbox', user))) {
+      return res.status(404).json({ error: 'not found' });
+    }
     if (!(await isFlagEnabled('rfi_register', user))) {
       return res.status(404).json({ error: 'not found' });
     }
@@ -1669,6 +1682,9 @@ module.exports = async (req, res) => {
   if (req.method === 'POST' && action === 'upload-office-photo') {
     const user = await requireAuth(req, res);
     if (!user) return;
+    if (!(await isFlagEnabled('observations_inbox', user))) {
+      return res.status(404).json({ error: 'not found' });
+    }
     if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
     try {
       return await uploadOfficePhoto(req, res, user);
@@ -1684,6 +1700,9 @@ module.exports = async (req, res) => {
   if (req.method === 'POST' && String((req.query && req.query.scope) || '') === 'office') {
     const user = await requireAuth(req, res);
     if (!user) return;
+    if (!(await isFlagEnabled('observations_inbox', user))) {
+      return res.status(404).json({ error: 'not found' });
+    }
     if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
     try {
       return await createOfficeObservation(req, res, user);
@@ -1697,6 +1716,9 @@ module.exports = async (req, res) => {
     if (!jobId) return res.status(400).json({ error: 'jobId required' });
     const user = await requireAuth(req, res, { jobId });
     if (!user) return;
+    if (!(await isFlagEnabled('observations_inbox', user))) {
+      return res.status(404).json({ error: 'not found' });
+    }
     if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
     if (!canWrite(user, jobId)) {
       return res.status(403).json({ error: 'no write access to job' });
@@ -1712,6 +1734,9 @@ module.exports = async (req, res) => {
   if (req.method === 'PATCH') {
     const user = await requireAuth(req, res, { roles: ['admin'] });
     if (!user) return;
+    if (!(await isFlagEnabled('observations_inbox', user))) {
+      return res.status(404).json({ error: 'not found' });
+    }
     try {
       return await updateObservation(req, res, user);
     } catch (e) {
@@ -1725,6 +1750,9 @@ module.exports = async (req, res) => {
       // Job-scoped: field/LH on assigned job + admin-tier; clients excluded.
       const user = await requireAuth(req, res, { jobId });
       if (!user) return;
+      if (!(await isFlagEnabled('observations_inbox', user))) {
+        return res.status(404).json({ error: 'not found' });
+      }
       if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
       try {
         return await listJobObservations(req, res, jobId);
@@ -1735,6 +1763,9 @@ module.exports = async (req, res) => {
     // Cross-job inbox: office/admin-tier only (matches the BuhlOS surface gate).
     const user = await requireAuth(req, res, { roles: ['admin'] });
     if (!user) return;
+    if (!(await isFlagEnabled('observations_inbox', user))) {
+      return res.status(404).json({ error: 'not found' });
+    }
     try {
       return await listInbox(req, res);
     } catch (e) {

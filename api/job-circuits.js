@@ -80,6 +80,7 @@ const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob, isAdminRole, isClientRole } = require('./_lib/auth');
 const { nanoid } = require('./_lib/validation');
 const { appendAudit } = require('./_lib/job-audit');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 
 const VALID_CIRCUIT_TYPES   = new Set(['power','light','emergency','data','fire','mech','other']);
 const VALID_CIRCUIT_STATUS  = new Set(['planned','roughed-in','energised','commissioned']);
@@ -290,6 +291,9 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
+
+  // #760: circuit-schedule kill-switch — when the owner turns it off, 404.
+  if (!(await isFlagEnabled('circuit_schedule', me))) return res.status(404).json({ error: 'not found' });
 
   const jobId = (req.query && req.query.jobId) || '';
   if (!jobId) return res.status(400).json({ error: 'jobId required' });

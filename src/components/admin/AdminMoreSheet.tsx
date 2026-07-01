@@ -8,8 +8,9 @@ import { cn } from "@/lib/cn";
 import { Drawer } from "@/components/ui/Drawer";
 import { SignOutButton } from "./SignOutButton";
 // One nav source (./nav.ts) — the sidebar, the ⌘K palette AND this "More"
-// sheet render the same destinations, so they can never drift.
-import { NAV_GROUPS, activeHref } from "./nav";
+// sheet render the same destinations, so they can never drift. #760: the same
+// hiddenHrefs (owner-disabled features) filter this mobile IA too.
+import { visibleNavGroups, activeHref } from "./nav";
 
 /**
  * The mobile admin "More" sheet — the full office IA behind the bottom tab
@@ -26,15 +27,24 @@ import { NAV_GROUPS, activeHref } from "./nav";
  * Drawer (focus-trap + Escape + backdrop close). Desktop never sees it — the
  * tab bar that owns it is `md:hidden`.
  */
-export function AdminMoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function AdminMoreSheet({
+  open,
+  onClose,
+  hiddenHrefs,
+}: {
+  open: boolean;
+  onClose: () => void;
+  hiddenHrefs?: ReadonlyArray<string>;
+}) {
   const pathname = usePathname() ?? "";
   const active = activeHref(pathname);
   const settingsActive = pathname.startsWith("/settings");
+  const groups = visibleNavGroups(hiddenHrefs);
 
   return (
     <Drawer open={open} onClose={onClose} title="BuhlOS" subtitle="Menu">
       <nav aria-label="BuhlOS admin">
-        {NAV_GROUPS.map((group) => (
+        {groups.map((group) => (
           <div key={group.heading} className="mb-3">
             <p className="px-2 pb-1 pt-2 text-xs font-medium uppercase tracking-widest text-text-muted">
               {group.heading}

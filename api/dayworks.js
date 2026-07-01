@@ -44,6 +44,7 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isClientRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 const { nanoid } = require('./_lib/validation');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 
@@ -545,6 +546,7 @@ module.exports = async (req, res) => {
     if (!jobId) {
       const user = await requireAuth(req, res, { roles: ['admin'] });
       if (!user) return;
+      if (!(await isFlagEnabled('dayworks', user))) return res.status(404).json({ error: 'not found' });
       try {
         return await crossJobRollup(req, res);
       } catch (e) {
@@ -553,6 +555,7 @@ module.exports = async (req, res) => {
     }
     const user = await requireAuth(req, res, { jobId });
     if (!user) return;
+    if (!(await isFlagEnabled('dayworks', user))) return res.status(404).json({ error: 'not found' });
     if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
     try {
       return await listJobDockets(req, res, jobId);
@@ -565,6 +568,7 @@ module.exports = async (req, res) => {
     if (!jobId) return res.status(400).json({ error: 'jobId required' });
     const user = await requireAuth(req, res, { jobId });
     if (!user) return;
+    if (!(await isFlagEnabled('dayworks', user))) return res.status(404).json({ error: 'not found' });
     if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
     try {
       return await createDocket(req, res, user, jobId);
@@ -588,6 +592,7 @@ module.exports = async (req, res) => {
         ? await requireAuth(req, res, { roles: ['admin'] })
         : await requireAuth(req, res, { jobId: bodyJobId });
     if (!user) return;
+    if (!(await isFlagEnabled('dayworks', user))) return res.status(404).json({ error: 'not found' });
     if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
 
     try {

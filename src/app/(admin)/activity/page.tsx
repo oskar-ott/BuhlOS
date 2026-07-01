@@ -1,9 +1,10 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardTitle, CardDescription } from "@/components/ui/Card";
 import { CrossJobActivityFeed } from "@/components/admin/CrossJobActivityFeed";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { AuditLogListResponseSchema } from "@/domains/audit-log/schema";
 import type { AuditLogEntry } from "@/domains/audit-log/types";
@@ -26,6 +27,8 @@ export default async function ActivityPage() {
   if (!session) redirect("/v2/login");
   // Office tier and up; the endpoint additionally enforces admin-tier.
   if (!canAccessSurface(session.role, "admin")) redirect("/phil/my-day");
+  // #760: job-activity kill-switch — when the owner turns it off, the surface 404s.
+  if (!(await isFlagEnabled("job_activity", session))) notFound();
 
   const { entries, jobNameById, error } = await loadActivity(raw);
 

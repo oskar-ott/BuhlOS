@@ -1,11 +1,12 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { JobDiary } from "@/components/admin/JobDiary";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { DiaryListResponseSchema } from "@/domains/diary/schema";
@@ -49,6 +50,7 @@ export default async function JobDiaryPage({ params }: PageParams) {
   if (!canAccessSurface(session.role, "lh")) {
     redirect("/v2/login");
   }
+  if (!(await isFlagEnabled("diary", session))) notFound();
 
   const { job, jobError, entries, entriesError } = await loadJobAndDiary(raw, jobId);
 

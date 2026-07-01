@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhotosGallery, type SourceLoadError } from "@/components/admin/PhotosGallery";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
@@ -57,6 +58,10 @@ export default async function AdminJobPhotosPage({ params }: PageParams) {
   if (!canAccessSurface(session.role, "lh")) {
     // Middleware also gates; defence-in-depth if the matcher ever misses.
     redirect("/v2/login");
+  }
+  // #760: job-photos kill-switch — when the owner turns job photos off, the surface 404s.
+  if (!(await isFlagEnabled("job_photos", session))) {
+    notFound();
   }
 
   const [jobResult, evidenceResult, catalogResult] = await Promise.all([

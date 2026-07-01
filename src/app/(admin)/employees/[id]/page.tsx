@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { getCurrentUser } from "@/lib/auth/current-user";
+import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { EmployeesScreen } from "../EmployeesScreen";
 
 export const metadata: Metadata = {
@@ -19,5 +22,7 @@ export default async function EmployeeDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // #760: employees kill-switch — when the owner turns it off, the surface 404s.
+  if (!(await isFlagEnabled("employees", await getCurrentUser()))) notFound();
   return <EmployeesScreen selectedId={id} />;
 }

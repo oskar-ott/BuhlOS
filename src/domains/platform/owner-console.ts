@@ -49,6 +49,9 @@ export const FlagItemSchema = z.object({
   domain: z.string().nullable().optional(),
   surface: z.enum(["BuhlOS", "Phil", "Shared"]).nullable().optional(),
   killSwitch: z.boolean().optional(),
+  // #760: a load-bearing spine feature (jobs/hours/evidence) — the board warns
+  // before the owner turns it off.
+  core: z.boolean().optional(),
 });
 
 export const FlagsSchema = z.object({

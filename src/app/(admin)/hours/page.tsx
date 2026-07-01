@@ -1,9 +1,10 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { ArrowLeft, ArrowRight, HardHat, UserX } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
@@ -93,6 +94,10 @@ export default async function HoursOverviewPage({
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
   }
+  // #760: Hours is a CORE kill-switch — the owner can hide the office Hours
+  // surface. Default ON. (Field hours logging + the time-entry APIs stay live —
+  // shared infrastructure; the board warns before disabling a core feature.)
+  if (!(await isFlagEnabled("hours", session))) notFound();
   const isAdmin = isAdminRole(session.role);
 
   // Which week are we looking at? `?week=` is any date inside the desired week

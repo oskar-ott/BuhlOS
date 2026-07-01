@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -36,6 +37,10 @@ export default async function GearRegisterPage() {
   }
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
+  }
+  // #760: gear kill-switch — when the owner turns gear off, the surface 404s.
+  if (!(await isFlagEnabled("gear", session))) {
+    notFound();
   }
 
   const [{ assets, holders, fetchError }, compliance] = await Promise.all([

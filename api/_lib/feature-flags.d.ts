@@ -27,7 +27,29 @@ export type FlagKey =
   | "rfi_register"
   | "minutes_register"
   | "site_instructions_register"
-  | "itp";
+  | "itp"
+  // #760 owner feature-control kill-switches (LIVE features, default ON)
+  | "jobs"
+  | "hours"
+  | "evidence"
+  | "observations_inbox"
+  | "material_requests"
+  | "expenses"
+  | "quotes"
+  | "defects"
+  | "dayworks"
+  | "employees"
+  | "gear"
+  | "reports"
+  | "job_photos"
+  | "snags"
+  | "scope_reconciliation"
+  | "job_control"
+  | "closeout"
+  | "documents"
+  | "circuit_schedule"
+  | "diary"
+  | "job_activity";
 
 export interface FlagDefinition {
   description: string;
@@ -49,6 +71,9 @@ export interface FlagPresentation {
   label: string;
   domain: string;
   surface: "BuhlOS" | "Phil" | "Shared";
+  /** #760: load-bearing spine feature (jobs/hours/evidence) — the board warns
+   *  before the owner turns it off. */
+  core?: boolean;
 }
 
 export declare const REGISTRY: Record<FlagKey, FlagDefinition>;

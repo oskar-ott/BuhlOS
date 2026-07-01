@@ -142,6 +142,17 @@ real product. Each non-protected flag has **two dials**:
 - **Kill-switch features.** A live-by-default feature (`killSwitch: true`, e.g.
   `itp`) shows **On** out of the box; the owner uses *Live to customers* to turn
   it **off**. See `docs/feature-flags.md` → Two flag kinds.
+- **Whole-interface control.** Most shipped features are kill-switches — jobs,
+  hours, evidence, observations, material requests, expenses, quotes, defects,
+  dayworks, employees, gear, reports, ITPs, RFIs, snags, photos, scope, job
+  control, closeout, documents, circuit schedules, diary, activity, and more.
+  Turning one off hides its **nav entry, job-hub section and Command Centre
+  card**, `404`s its **routes**, and `404`s its **API** — the feature is gone,
+  not just hidden. See `docs/feature-flags.md` → Feature kill-switches.
+- **Core warning.** `jobs`, `hours` and `evidence` are marked **core**
+  (`core: true`); the reduce-exposure confirm shows a prominent warning before
+  the owner disables a load-bearing surface. `Command centre` and `/owner`
+  itself are never gateable, so the owner can't lock themselves out.
 
 **Resolution precedence** (`isFlagEnabled(key, viewer)` in
 `api/_lib/feature-flags.js`): `env (FLAG_*) > owner-preview (owner viewer only) >

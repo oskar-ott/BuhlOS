@@ -19,6 +19,9 @@ type FlagsModule = {
   flagsForViewer: (viewer?: { role?: string | null } | null) => Promise<Record<string, boolean>>;
   isProtectedFlag: (key: string) => boolean;
   expiredFlags: (now?: Date) => Array<{ key: string; expires: string }>;
+  presentationOf: (
+    key: string,
+  ) => { label: string; domain: string; surface: string; core?: boolean } | null;
   REGISTRY: Record<string, { default: boolean; target: string; expires: string; killSwitch?: boolean }>;
 };
 
@@ -223,6 +226,30 @@ describe("kill-switch flags (#760) — live by default, owner can turn off", () 
     blob.set("flags.json", { flags: { [KS]: false }, ownerPreview: { [KS]: true } });
     expect(await flags.isFlagEnabled(KS, OWNER)).toBe(true);
     expect(await flags.isFlagEnabled(KS, { role: "electrician" })).toBe(false);
+  });
+});
+
+describe("board presentation (#760)", () => {
+  it("labels + domains the product flags and marks the core spine", () => {
+    const jobs = flags.presentationOf("jobs");
+    expect(jobs).toMatchObject({ label: "Jobs", domain: "Jobs", core: true });
+    expect(flags.presentationOf("hours")?.core).toBe(true);
+    expect(flags.presentationOf("evidence")?.core).toBe(true);
+    // A normal kill-switch is labelled but NOT core.
+    const rfi = flags.presentationOf("rfi_register");
+    expect(rfi?.label).toBe("RFIs");
+    expect(rfi?.core).toBeFalsy();
+  });
+
+  it("returns null for a protected data-plane flag (kept out of the board)", () => {
+    expect(flags.presentationOf("supabase_dual_write")).toBeNull();
+  });
+
+  it("every non-protected registry flag has board presentation", () => {
+    for (const key of Object.keys(flags.REGISTRY)) {
+      if (flags.isProtectedFlag(key)) continue;
+      expect(flags.presentationOf(key), `missing presentation for ${key}`).not.toBeNull();
+    }
   });
 });
 

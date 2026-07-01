@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NAV_GROUPS, ALL_ITEMS, activeHref } from "./nav";
+import { NAV_GROUPS, ALL_ITEMS, activeHref, visibleNavGroups, FLAGGED_ITEMS } from "./nav";
 
 /**
  * #215 — NAV is the shared source of truth for the sidebar and the ⌘K palette.
@@ -84,5 +84,49 @@ describe("activeHref (#215 longest-prefix)", () => {
     // startsWith uses a trailing slash, so /hoursful or /hours-x is NOT under /hours.
     expect(activeHref("/hoursful")).toBeNull();
     expect(activeHref("/reports-archive")).toBeNull();
+  });
+});
+
+describe("visibleNavGroups (#760 owner feature-control)", () => {
+  it("returns every group unchanged when nothing is hidden", () => {
+    expect(visibleNavGroups()).toBe(NAV_GROUPS);
+    expect(visibleNavGroups([])).toBe(NAV_GROUPS);
+  });
+
+  it("drops the hidden hrefs and keeps the rest", () => {
+    const groups = visibleNavGroups(["/reports", "/gear"]);
+    const hrefs = groups.flatMap((g) => g.items.map((i) => i.href));
+    expect(hrefs).not.toContain("/reports");
+    expect(hrefs).not.toContain("/gear");
+    expect(hrefs).toContain("/v2/jobs");
+    expect(hrefs).toContain("/command-centre");
+  });
+
+  it("drops a whole group when all its items are hidden", () => {
+    // Company only holds /reports; hiding it removes the group entirely.
+    const groups = visibleNavGroups(["/reports"]);
+    expect(groups.some((g) => g.heading === "Company")).toBe(false);
+    // People & gear still shows Employees when only Gear is hidden.
+    const peopleGear = visibleNavGroups(["/gear"]).find((g) => g.heading === "People & gear");
+    expect(peopleGear?.items.map((i) => i.href)).toEqual(["/employees"]);
+  });
+
+  it("never mutates the source NAV_GROUPS", () => {
+    const before = NAV_GROUPS.flatMap((g) => g.items).length;
+    visibleNavGroups(["/reports", "/gear", "/v2/jobs"]);
+    expect(NAV_GROUPS.flatMap((g) => g.items).length).toBe(before);
+  });
+});
+
+describe("FLAGGED_ITEMS (#760)", () => {
+  it("pairs every flag-gated nav item with its flag; Command centre is never gated", () => {
+    const byHref = Object.fromEntries(FLAGGED_ITEMS.map((f) => [f.href, f.flag]));
+    expect(byHref["/v2/jobs"]).toBe("jobs");
+    expect(byHref["/hours"]).toBe("hours");
+    expect(byHref["/observations"]).toBe("observations_inbox");
+    expect(byHref["/itp-templates"]).toBe("itp");
+    expect(byHref["/qa"]).toBe("itp"); // QA status rides the same ITP kill-switch
+    // Command centre must stay reachable so the owner can't self-lock.
+    expect(byHref["/command-centre"]).toBeUndefined();
   });
 });

@@ -18,6 +18,7 @@ const { requireAuth, isAdminRole } = require('./_lib/auth');
 const { readCostRates, historyFor, effectiveCostRate } = require('./_lib/cost-rates');
 const { buildCloseoutSnapshot, snagLifecycleStats } = require('./_lib/job-closeout');
 const { append: appendAuditLog } = require('./_lib/audit-log');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 
 const CLOSEOUT_KEY = (jobId) => `jobs/${jobId}/closeout.json`;
 const dollarsToCents = (v) =>
@@ -83,6 +84,7 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
+  if (!(await isFlagEnabled('closeout', me))) return res.status(404).json({ error: 'not found' });
   if (!isAdminRole(me.role)) return res.status(403).json({ error: 'admin only' });
 
   const jobId = String((req.query && req.query.jobId) || '');

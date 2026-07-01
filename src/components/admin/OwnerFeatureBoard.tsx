@@ -41,7 +41,9 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
   const [error, setError] = useState<string | null>(null);
   const [expo, setExpo] = useState<Exposure>("all");
   const [surface, setSurface] = useState<string>("all");
-  const [confirm, setConfirm] = useState<{ key: string; label: string } | null>(null);
+  const [confirm, setConfirm] = useState<{ key: string; label: string; core: boolean } | null>(
+    null,
+  );
   const [reason, setReason] = useState("");
 
   async function doWrite(key: string, scope: Scope, value: boolean | null, why?: string) {
@@ -98,7 +100,7 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
     const row = rows.find((r) => r.key === key);
     if (row && scope === "customer" && value === false && row.resolved) {
       setReason("");
-      setConfirm({ key, label: row.label || row.key });
+      setConfirm({ key, label: row.label || row.key, core: !!row.core });
       return;
     }
     void doWrite(key, scope, value);
@@ -230,6 +232,16 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
               Customers will no longer see this feature — its pages, nav entries and cards
               disappear. Existing data is kept; you can turn it back on any time.
             </p>
+            {confirm.core ? (
+              <p
+                data-testid="board-confirm-core-warning"
+                className="mt-2 rounded-card border-l-2 border-l-state-danger bg-surface-subtle px-3 py-2 text-sm font-medium text-text"
+              >
+                ⚠ This is a <strong>core</strong> surface — turning it off removes a
+                load-bearing part of the product (jobs, hours or evidence). Most of the app
+                depends on it. Only do this if you really mean to.
+              </p>
+            ) : null}
             <label className="mt-3 block text-xs uppercase tracking-wider text-text-muted">
               Reason (optional — recorded in the audit log)
               <textarea
