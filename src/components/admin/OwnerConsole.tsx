@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { StatusChip } from "@/components/ui/StatusChip";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { OwnerFlagList } from "@/components/admin/OwnerFlagRow";
 import {
   type OwnerSummary,
   checkTone,
@@ -17,13 +18,16 @@ import {
 } from "@/domains/platform/owner-console";
 
 /**
- * Owner Console board (docs/owner-console.md) — pure render of the owner-gated
- * summary from /api/owner. No fetching, no interactivity: the page resolves
- * access + data server-side and hands a parsed `OwnerSummary` here.
+ * Owner Console board (docs/owner-console.md) — server render of the owner-gated
+ * summary from /api/owner. The page resolves access + data server-side and hands
+ * a parsed `OwnerSummary` here. The only interactive part is the feature-flag
+ * section, which mounts the OwnerFlagList client island when
+ * capabilities.flagToggle is true (writes go to POST /api/owner-flags); when
+ * false it falls back to the read-only flag list.
  *
  * Honesty rules (P7): every panel shows its data source + freshness, or an
  * explicit "not instrumented yet" label. No fake metrics, no invented zeros,
- * no vanity numbers, no toggles (flags are read-only this slice).
+ * no vanity numbers.
  */
 export function OwnerConsole({ summary }: { summary: OwnerSummary }) {
   const { meta, capabilities, health, flags, usage, audit, coverage, problems, nextActions } =
@@ -49,10 +53,13 @@ export function OwnerConsole({ summary }: { summary: OwnerSummary }) {
             <CardTitle>Platform control</CardTitle>
             <CardDescription className="mt-1 max-w-2xl">
               Private control surface for app health, usage, feature flags, and product
-              risk. Owner-only — read-only in this first slice.
+              risk. Owner-only
+              {capabilities.flagToggle
+                ? " — switch features off for customers and preview unbuilt work live."
+                : " — read-only in this first slice."}
             </CardDescription>
           </div>
-          <StatusChip tone="navy">Read-only</StatusChip>
+          <StatusChip tone="navy">{capabilities.flagToggle ? "Owner controls" : "Read-only"}</StatusChip>
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
           <MetaItem label="Environment" value={meta.environment} />
@@ -131,10 +138,29 @@ export function OwnerConsole({ summary }: { summary: OwnerSummary }) {
       <Section
         title="Feature flags"
         source={flags.source}
-        caption={`${onCount} on · ${expiredCount} expired · ${expiringCount} expiring soon · read-only (${capabilities.flagToggleReason})`}
+        caption={
+          capabilities.flagToggle
+            ? `${onCount} on · ${expiredCount} expired · ${expiringCount} expiring soon · two dials per flag — Live to customers + Preview for me. Protected data-plane flags stay read-only.`
+            : `${onCount} on · ${expiredCount} expired · ${expiringCount} expiring soon · read-only (${capabilities.flagToggleReason})`
+        }
       >
         {flags.items.length === 0 ? (
           <EmptyState title="No flags resolved" description={flags.error ?? "The flag registry returned nothing."} />
+        ) : capabilities.flagToggle ? (
+          <div className="space-y-3">
+            {meta.identityBasis === "email-allowlist" ? (
+              <div
+                role="note"
+                className="rounded-card border-l-2 border-l-state-warning bg-surface-raised px-4 py-2 text-sm text-text"
+              >
+                You&rsquo;re signed in via the email allowlist, not the{" "}
+                <span className="font-mono">owner</span> role. Customer toggles work, but{" "}
+                <strong>Preview for me</strong> only takes effect in the live app when your account has
+                the <span className="font-mono">owner</span> role.
+              </div>
+            ) : null}
+            <OwnerFlagList items={flags.items} rev={flags.rev} />
+          </div>
         ) : (
           <div className="divide-y divide-border overflow-hidden rounded-card border border-border">
             {flags.items.map((f) => (
