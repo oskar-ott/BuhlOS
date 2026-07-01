@@ -56,8 +56,10 @@ function goldenQuote(): Quote {
   };
 }
 
-function render(quote: Quote = goldenQuote()): string {
-  return renderToString(createElement(QuoteBuilderClient, { initialQuote: quote }));
+function render(quote: Quote = goldenQuote(), viewerIsAdmin = true): string {
+  return renderToString(
+    createElement(QuoteBuilderClient, { initialQuote: quote, viewerIsAdmin }),
+  );
 }
 
 describe("QuoteBuilderClient (#183) — render contract", () => {
@@ -131,8 +133,8 @@ describe("QuoteBuilderClient (#183) — render contract", () => {
     }
   });
 
-  it("renders the office-only margin view (#214) — honest about uncosted lines", () => {
-    const html = render();
+  it("renders the office-only margin view for an admin viewer (#214) — honest about uncosted lines", () => {
+    const html = render(goldenQuote(), true);
     expect(html).toContain('data-testid="quote-builder-margin"');
     expect(html).toContain("Margin — office only");
     expect(html).toContain("Never shown to the client");
@@ -141,5 +143,27 @@ describe("QuoteBuilderClient (#183) — render contract", () => {
     expect(html).toContain("Rate presets");
     // Per-line internal cost entry is present.
     expect(html).toContain("Unit cost ex GST");
+  });
+
+  it("NEVER renders cost or margin for a non-admin viewer (confidential gate — §8A)", () => {
+    // Defence-in-depth: the surface is admin-gated, but even if a non-admin
+    // reached the builder, the cost/margin panel + per-line cost entry must be
+    // absent. The sell-side line grid + totals still render normally.
+    const html = render(goldenQuote(), false);
+    // Confidential UI is gone.
+    expect(html).not.toContain('data-testid="quote-builder-margin"');
+    expect(html).not.toContain("Margin — office only");
+    expect(html).not.toContain("Unit cost ex GST");
+    expect(html).not.toContain("Rate presets");
+    // The sell-side quote still renders (sections + the golden totals).
+    expect(html).toContain('value="Power"');
+    expect(html).toContain("$416.00");
+  });
+
+  it("defaults to NO cost/margin when viewerIsAdmin is omitted (fail-closed — §8A)", () => {
+    // The prop defaults to false, so a caller that forgets it leaks nothing.
+    const html = renderToString(createElement(QuoteBuilderClient, { initialQuote: goldenQuote() }));
+    expect(html).not.toContain('data-testid="quote-builder-margin"');
+    expect(html).not.toContain("Unit cost ex GST");
   });
 });

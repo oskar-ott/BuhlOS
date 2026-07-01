@@ -12,6 +12,9 @@ import { isFieldRole, isLeadingHandRole } from "@/lib/auth/roles";
 import { ExpiringCalibrationSchema, GearListResponseSchema } from "@/domains/gear/schema";
 import type { ExpiringCalibration, GearAsset, GearHolderUser } from "@/domains/gear/types";
 import { GearRegisterClient } from "@/components/admin/GearRegisterClient";
+import { ResourceStatRow } from "@/components/admin/ResourceStatRow";
+import { buildGearSummary } from "@/domains/resources/summary";
+import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +51,17 @@ export default async function GearRegisterPage() {
     loadCompliance(raw),
   ]);
 
+  // §7 redesign — glanceable gear header. Pure projection over the same asset
+  // list the register renders; calibration "due soon" reuses calibrationFlag
+  // (the cross-job compliance taxonomy). "today" is the Sydney business date so
+  // the count is deterministic and matches the compliance board below.
+  const summary = fetchError
+    ? null
+    : buildGearSummary({
+        assets,
+        today: localDateString(new Date(), BUSINESS_TIMEZONE),
+      });
+
   return (
     <AdminShell
       title="Gear · register"
@@ -61,13 +75,15 @@ export default async function GearRegisterPage() {
       }
     >
       <div className="mx-auto max-w-6xl space-y-4">
-        <Card>
-          <CardTitle>Assets · who has what</CardTitle>
-          <CardDescription>
-            Assign gear to a worker, return to depot, or mark damaged / missing. Every action is
-            logged with actor and timestamp in the asset history.
-          </CardDescription>
-        </Card>
+        {/* Title lives in the top bar (AdminTopbar h1); this is the glanceable
+            sub-line + KPI header from the §7 prototype. */}
+        <p className="text-sm text-text-muted">
+          {summary
+            ? summary.subline
+            : "Who has what · test-and-tag and calibration currency · assign, return, retire."}
+        </p>
+
+        {summary ? <ResourceStatRow label="Gear at a glance" tiles={summary.tiles} /> : null}
 
         <ComplianceSection compliance={compliance} />
 

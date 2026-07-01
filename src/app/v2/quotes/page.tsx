@@ -3,10 +3,12 @@ import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { QuotesList } from "@/components/admin/QuotesList";
+import { CompanyStatStrip } from "@/components/admin/CompanyStatStrip";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { QuoteListResponseSchema, type QuoteSummary } from "@/domains/quoting/schema";
+import { buildQuotesSummary } from "@/domains/company/summary";
 
 export const dynamic = "force-dynamic";
 
@@ -46,19 +48,29 @@ export default async function QuotesPage() {
   if (!(await isFlagEnabled("quotes", session))) notFound();
 
   const { quotes, fetchError } = await loadQuotes(raw);
+  const summary = fetchError ? null : buildQuotesSummary(quotes);
 
   return (
     <AdminShell title="Quotes">
       <div className="mx-auto max-w-5xl space-y-4">
         {fetchError ? (
-          <Card className="border-amber-200 bg-amber-50" role="alert">
+          <Card className="border-state-danger" role="alert">
             <CardTitle>Couldn&rsquo;t load quotes</CardTitle>
-            <CardDescription className="text-amber-900">
+            <CardDescription>
               {fetchError}. Try refreshing in a moment.
             </CardDescription>
           </Card>
         ) : (
-          <QuotesList quotes={quotes} />
+          <>
+            {summary ? (
+              <CompanyStatStrip
+                label="Quotes at a glance"
+                subline={summary.subline}
+                tiles={summary.tiles}
+              />
+            ) : null}
+            <QuotesList quotes={quotes} />
+          </>
         )}
       </div>
     </AdminShell>

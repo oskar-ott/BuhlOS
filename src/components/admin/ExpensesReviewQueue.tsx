@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Paperclip } from "lucide-react";
+import { Clock, Paperclip } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { Button } from "@/components/ui/Button";
+import { InboxStatStrip, type InboxStat } from "./InboxShell";
 import { ExpenseDetailDrawer } from "./ExpenseDetailDrawer";
 import { ExpenseDeclineModal } from "./ExpenseDeclineModal";
 import { transitionExpense } from "@/domains/expenses/client";
@@ -104,20 +105,25 @@ export function ExpensesReviewQueue({ initialExpenses, fetchError }: Props) {
     setDeclineTarget(null);
   }
 
+  // Shared inbox stat strip — the same glanceable header the other inboxes use.
+  // "Awaiting review" carries the action tone when there's anything to do; the
+  // currency totals stay neutral (a real $0.00 reads calm, never a fake green).
+  const stats: InboxStat[] = [
+    { key: "pendingCount", label: "Awaiting review", value: summary.pendingCount, icon: Clock, tone: "warning" },
+    { key: "pendingTotal", label: "Awaiting total", value: formatAud(summary.pendingTotalCents), tone: "neutral" },
+    { key: "approvedCount", label: "Approved, unpaid", value: summary.approvedUnpaidCount, tone: "neutral" },
+    { key: "approvedTotal", label: "Unpaid total", value: formatAud(summary.approvedUnpaidTotalCents), tone: "neutral" },
+  ];
+
   return (
     <div className="space-y-4">
-      <Card>
-        <CardTitle>To reimburse</CardTitle>
-        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Metric label="Awaiting review" value={String(summary.pendingCount)} />
-          <Metric label="Awaiting total" value={formatAud(summary.pendingTotalCents)} />
-          <Metric label="Approved, unpaid" value={String(summary.approvedUnpaidCount)} />
-          <Metric label="Unpaid total" value={formatAud(summary.approvedUnpaidTotalCents)} />
-        </div>
-        <CardDescription className="mt-3">
+      <section className="space-y-3">
+        <h2 className="font-display text-lg text-text">To reimburse</h2>
+        <InboxStatStrip stats={stats} />
+        <p className="text-sm text-text-muted">
           BuhlOS captures + approves; payout runs through payroll/Xero (no direct connection yet).
-        </CardDescription>
-      </Card>
+        </p>
+      </section>
 
       {fetchError ? (
         <Card>
@@ -256,15 +262,6 @@ export function ExpensesReviewQueue({ initialExpenses, fetchError }: Props) {
         onClose={() => setDeclineTarget(null)}
         onSubmit={(reason) => void submitDecline(reason)}
       />
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-card border border-border bg-surface-subtle px-3 py-2">
-      <div className="text-xs text-text-muted">{label}</div>
-      <div className="mt-0.5 text-lg font-semibold tabular-nums text-text">{value}</div>
     </div>
   );
 }

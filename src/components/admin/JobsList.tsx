@@ -6,11 +6,12 @@ import { Suspense, use, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   AlertOctagon,
+  Archive,
   Camera,
-  ChevronRight,
   ClipboardCheck,
   MapPin,
   PencilRuler,
+  Plus,
   Search,
   X,
 } from "lucide-react";
@@ -37,6 +38,11 @@ import {
   parseHealthParam,
   sortByHealth,
 } from "@/domains/jobs/job-health-list";
+import {
+  buildPortfolioSummary,
+  formatContractValue,
+  type JobCardMeta,
+} from "@/domains/jobs/portfolio";
 import type { Job, JobStatus } from "@/domains/jobs/types";
 import {
   clearRememberedFilters,
@@ -46,17 +52,24 @@ import {
 import { useApplyRememberedFiltersOnce } from "@/lib/storage/use-remembered-filters";
 import { cn } from "@/lib/cn";
 
-type TaskCountMap = Record<string, { tasksTotal: number; tasksComplete: number }>;
+/** Streamed per-job extras (full ?withStats read): task progress + the admin-tier
+ *  contractValue that the fast statsOnly list paint omits. */
+type CardExtra = { tasksTotal?: number; tasksComplete?: number; contractValue?: number };
+type CardExtraMap = Record<string, CardExtra>;
 
 interface Props {
   jobs: ReadonlyArray<Job>;
-  /** Admin-only: show the per-row "Build" action that opens the Job Builder. */
+  /** Admin-only: show the per-card "Build" action that opens the Job Builder. */
   canBuild?: boolean;
+  /** Literal-admin only: when set, the header shows a "+ New job" entry point to
+   *  the builder. Absent ⇒ no create affordance (LH viewers). */
+  newJobHref?: string;
   /** Perf: when the list is served from the fast statsOnly read (no areaGroups-
-   *  derived task counts), the "X/Y tasks" progress is STREAMED in via this promise
-   *  and hydrated behind the already-painted rows. Absent (flag-off / no stream) ⇒
-   *  the rows use the task counts already on the job objects. */
-  taskCountsPromise?: Promise<TaskCountMap>;
+   *  derived task counts, no money fields), the "X/Y tasks" progress and the
+   *  card's Value are STREAMED in via this promise and hydrated behind the
+   *  already-painted cards. Absent (flag-off / no stream) ⇒ the cards use the
+   *  values already on the job objects. */
+  cardExtrasPromise?: Promise<CardExtraMap>;
 }
 
 /** Per-device remembered default for this list (issue #216). Exported for
@@ -71,52 +84,47 @@ export const JOBS_FILTER_SPEC: RememberedFilterSpec = {
 const SEARCH_URL_DEBOUNCE_MS = 250;
 
 /**
- * Admin jobs index list — Phase D6, filters URL-driven since #216.
+ * Admin jobs portfolio — Phase D6, filters URL-driven since #216, restyled to
+ * the admin-redesign card grid (brief §3, prototype docs/prototype/admin/
+ * admin-jobs.jsx) in this slice.
  *
- * Mirrors the Phil JobsList row shape (status pill, name, address, when
- * caption, chevron) but adds two pending-count chips per row that
- * deep-link into /v2/jobs/[jobId]/evidence + /v2/jobs/[jobId]/snags.
+ * Each card carries the real, glanceable read on a job: status, the rolled-up
+ * health risk read (deriveJobHealth — NOT the prototype's fabricated 0–100
+ * score), the contract Value + Crew meta (Value is admin-tier; "—" when
+ * redacted/unpriced), task progress, and the pending evidence / snags / ITP
+ * action chips that deep-link past the hub. The prototype's Billed% and PM
+ * tiles are dropped — neither has a data source (see src/domains/jobs/
+ * portfolio.ts).
  *
- * Counts come from /api/jobs?withStats=1 (the V2 namespace counts added
- * in this same slice). When counts are absent (e.g. enrichment failed
- * server-side) the chips simply don't render — the row remains clickable
- * and the admin lands on the per-job page either way.
+ * Filtering (#216 + #227): status pills + a search box + a health filter, all
+ * reflected in the URL (`?status=` + `?q=` + `?health=`) so views are shareable
+ * and restorable from a remembered per-device default. Mechanics are unchanged
+ * by the restyle:
  *
- * Filtering (#216): status pills + the search box, both reflected in the
- * URL (`?status=` + `?q=`) so views are shareable, both restorable from a
- * remembered per-device default. Mechanics:
- *
- *   - Filter state is read LIVE from useSearchParams() — never snapshotted
- *     into useState — so same-route deep links re-filter the list (the
- *     soft-nav pitfall, #116→#118).
- *   - Filtering itself stays client-side over the already-loaded array.
- *     Interaction writes mirror the URL via window.history.replaceState
- *     (the Next-sanctioned shallow update): useSearchParams stays in sync
- *     WITHOUT re-running the server component, so a pill click or
- *     keystroke never refetches /api/jobs. router.replace is reserved for
- *     the once-per-mount remembered-default application, where a server
- *     round-trip is acceptable.
- *   - The search <input> keeps local echo state for typing latency, synced
- *     FROM the URL when the param changes externally (lastWrittenQueryRef
- *     distinguishes our own debounced writes from external navigations).
- *   - Memory: write-through on user interaction only; applied on mount
- *     only when the URL carries neither filter param (URL always wins);
- *     "Reset to all" clears the URL params and the stored default.
+ *   - Filter state is read LIVE from useSearchParams() — never snapshotted into
+ *     useState — so same-route deep links re-filter (the soft-nav pitfall).
+ *   - Filtering stays client-side over the already-loaded array; interaction
+ *     writes mirror the URL via window.history.replaceState so a pill/keystroke
+ *     never refetches /api/jobs. router.replace is reserved for the
+ *     once-per-mount remembered-default application.
+ *   - The search <input> keeps local echo for typing latency, synced FROM the
+ *     URL when the param changes externally (lastWrittenQueryRef).
  *
  * Cross-ref:
- *   src/components/phil/PhilJobsList.tsx — row pattern precedent
- *   src/app/v2/jobs/page.tsx — server component that hydrates this list
+ *   src/domains/jobs/portfolio.ts — the pure card / summary view-model
  *   src/domains/jobs/list-filter.ts — the pure filter matrix
+ *   src/domains/jobs/job-health.ts — the real risk read
+ *   src/app/v2/jobs/page.tsx — the server component that hydrates this list
  */
-export function JobsList({ jobs, canBuild = false, taskCountsPromise }: Props) {
+export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise }: Props) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // Streamed task-progress (statsOnly list): starts empty, hydrated when the
-  // ?withStats read resolves (TaskCountsHydrator below). Additive — rows render
-  // immediately from statsOnly; the "X/Y tasks" line appears when this lands, so
-  // there is no flicker (health/chips come from statsOnly and never change).
-  const [streamedTaskCounts, setStreamedTaskCounts] = useState<TaskCountMap>({});
+  // Streamed card extras (statsOnly list): starts empty, hydrated when the
+  // ?withStats read resolves (CardExtrasHydrator below). Additive — cards render
+  // immediately from statsOnly; the "X/Y tasks" line + Value fill in when this
+  // lands (health/chips come from statsOnly and never change, so no flicker).
+  const [streamedExtras, setStreamedExtras] = useState<CardExtraMap>({});
 
   // URL is the source of truth for the status filter (validated; unknown
   // values degrade to "all").
@@ -125,10 +133,9 @@ export function JobsList({ jobs, canBuild = false, taskCountsPromise }: Props) {
   // #227: health filter is URL-driven too (validated; garbage → no filter).
   const health = parseHealthParam(searchParams.get("health"));
 
-  // Local echo for the search box; the URL mirror is debounced. The ref
-  // tracks the last value THIS component intends/wrote so the sync effect
-  // below only adopts genuinely external URL changes (deep links) instead
-  // of clobbering in-flight typing with our own write echo.
+  // Local echo for the search box; the URL mirror is debounced. The ref tracks
+  // the last value THIS component wrote so the sync effect only adopts genuinely
+  // external URL changes (deep links) instead of clobbering in-flight typing.
   const [query, setQuery] = useState(urlQuery);
   const lastWrittenQueryRef = useRef(urlQuery);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -140,22 +147,20 @@ export function JobsList({ jobs, canBuild = false, taskCountsPromise }: Props) {
     }
   }, [urlQuery]);
 
-  // Clear any pending URL write on unmount.
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
 
-  // Apply the remembered per-device default (only when the URL is clean of
-  // both filter params; storage is read inside the effect, never in render).
+  // Apply the remembered per-device default (only when the URL is clean of both
+  // filter params; storage is read inside the effect, never in render).
   useApplyRememberedFiltersOnce(JOBS_FILTERS_STORAGE_KEY, JOBS_FILTER_SPEC);
 
   /**
-   * Mirror the given filter set into the URL + the per-device memory.
-   * Reads window.location.search at call time (interaction handlers only)
-   * so a debounced search write can't resurrect a status the user changed
-   * while the timer was pending.
+   * Mirror the given filter set into the URL + the per-device memory. Reads
+   * window.location.search at call time (interaction handlers only) so a
+   * debounced search write can't resurrect a status changed while pending.
    */
   const writeFilters = (next: { status: JobStatus | null; query: string }) => {
     const params = new URLSearchParams(window.location.search);
@@ -221,15 +226,15 @@ export function JobsList({ jobs, canBuild = false, taskCountsPromise }: Props) {
     }
   };
 
-  // Filter on the LIVE keystroke value (not the debounced URL mirror) so
-  // the list narrows instantly while typing.
+  // Filter on the LIVE keystroke value (not the debounced URL mirror) so the
+  // list narrows instantly while typing.
   const filtered = useMemo(
     () => filterJobs(jobs, { status, query }),
     [jobs, status, query]
   );
 
-  // #227: derive each row's health from its already-loaded stats (no I/O, no
-  // recompute of the counts), then triage the portfolio "needs me first".
+  // #227: derive each row's health from its already-loaded stats (no I/O), then
+  // triage the portfolio "needs me first".
   const withHealth = useMemo(
     () => filtered.map((job) => ({ job, health: deriveJobHealth(job) })),
     [filtered]
@@ -240,11 +245,22 @@ export function JobsList({ jobs, canBuild = false, taskCountsPromise }: Props) {
     return sortByHealth(byHealth);
   }, [withHealth, health]);
 
+  // Portfolio header summary (pure VM): "N jobs · M need attention" + the honest
+  // total-contract readout. Computed over the WHOLE loaded list (not the current
+  // filter) so the header reads the portfolio, not the view — and folds in the
+  // streamed contractValue so the total fills in with the cards.
+  const portfolio = useMemo(() => {
+    const enriched = jobs.map((j) => withStreamedValue(j, streamedExtras[j.id]));
+    return buildPortfolioSummary({
+      jobs: enriched,
+      healthByIndex: enriched.map((j) => deriveJobHealth(j)),
+    });
+  }, [jobs, streamedExtras]);
+
   const counts = useMemo(() => jobStatusCounts(jobs), [jobs]);
   // Statuses with zero jobs stay hidden (this page excludes archived rows
-  // server-side — a permanently-dead pill would imply otherwise) UNLESS the
-  // URL deep-links to one, in which case the pill renders so the active
-  // filter is visible and clearable.
+  // server-side) UNLESS the URL deep-links to one, in which case the pill
+  // renders so the active filter is visible and clearable.
   const statusOptions = JOB_STATUS_OPTIONS.filter(
     (s) => (counts.get(s) ?? 0) > 0 || status === s
   );
@@ -261,12 +277,55 @@ export function JobsList({ jobs, canBuild = false, taskCountsPromise }: Props) {
   }
 
   return (
-    <div className="space-y-3">
-      {taskCountsPromise ? (
+    <div className="space-y-4">
+      {cardExtrasPromise ? (
         <Suspense fallback={null}>
-          <TaskCountsHydrator promise={taskCountsPromise} onResolved={setStreamedTaskCounts} />
+          <CardExtrasHydrator promise={cardExtrasPromise} onResolved={setStreamedExtras} />
         </Suspense>
       ) : null}
+
+      {/* Portfolio header — title + the real "N jobs · M need attention" read,
+          the honest total-contract readout (admin-only data), and the create /
+          archive actions. */}
+      <div className="flex flex-wrap items-start justify-between gap-3 rounded-card border border-border bg-surface-raised px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="font-display text-lg font-semibold text-text">Jobs</h2>
+          <p className="mt-0.5 text-sm text-text-muted">{portfolio.subline}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          {portfolio.totalContract ? (
+            <div className="text-right">
+              <div className="font-display text-base font-semibold text-text">
+                {portfolio.totalContract.value}
+              </div>
+              <div className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
+                total contract · {portfolio.totalContract.hint}
+              </div>
+            </div>
+          ) : null}
+          {/* Cross-job bulk archive has no API today (api/jobs-bulk-edit.js is
+              intra-job: areas / groups / tasks only). Archiving a job is a
+              per-job status change on the hub, so the portfolio offers the
+              honest entry point to that flow rather than a multi-select that
+              can't write. */}
+          <Link
+            href={"/v2/jobs?status=archived" as Route}
+            className="inline-flex items-center gap-1.5 rounded-card border border-border bg-surface px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+          >
+            <Archive aria-hidden="true" className="h-4 w-4" /> Archived
+          </Link>
+          {newJobHref ? (
+            <Link
+              data-testid="jobs-new-job"
+              href={newJobHref as Route}
+              className="inline-flex items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
+            >
+              <Plus aria-hidden="true" className="h-4 w-4" /> New job
+            </Link>
+          ) : null}
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <label className="flex w-full max-w-md items-center gap-2 rounded-card border border-border bg-surface px-3 py-2 text-sm">
           <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
@@ -334,14 +393,14 @@ export function JobsList({ jobs, canBuild = false, taskCountsPromise }: Props) {
           </div>
         </Card>
       ) : (
-        <ul className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised">
+        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {visible.map(({ job, health: jobHealth }) => (
             <li key={job.id}>
-              <JobRow
+              <JobCard
                 job={job}
                 health={jobHealth}
                 canBuild={canBuild}
-                streamedCount={streamedTaskCounts[job.id]}
+                extra={streamedExtras[job.id]}
               />
             </li>
           ))}
@@ -351,9 +410,21 @@ export function JobsList({ jobs, canBuild = false, taskCountsPromise }: Props) {
   );
 }
 
+/** Apply a streamed contractValue to a job that the statsOnly paint left
+ *  unpriced. Never overwrites a value already on the object. */
+function withStreamedValue(job: Job, extra: CardExtra | undefined): Job {
+  if (
+    extra?.contractValue !== undefined &&
+    !(typeof job.contractValue === "number" && Number.isFinite(job.contractValue))
+  ) {
+    return { ...job, contractValue: extra.contractValue };
+  }
+  return job;
+}
+
 /**
- * Status filter pill. Selection uses the navy brand accent (doc 27 §6 —
- * brand accents mark SELECTION, never entity state; the row's status Pill
+ * Status / health / filter pill. Selection uses the navy brand accent (doc 27
+ * §6 — brand accents mark SELECTION, never entity state; the card's status Pill
  * keeps the five-tone palette via statusTone).
  */
 function FilterPill({
@@ -399,142 +470,230 @@ const HEALTH_TONE: Record<JobHealthLevel, "danger" | "warning" | "success" | "ne
   unknown: "neutral",
 };
 
-function JobRow({
+/** Risk-meter fill tone — mirrors the prototype's red/amber/calm bar, but the
+ *  fill is driven by the real health level, not a fabricated 0–100 score. */
+const RISK_BAR: Record<JobHealthLevel, { width: string; bar: string }> = {
+  "at-risk": { width: "w-full", bar: "bg-state-danger" },
+  watch: { width: "w-2/3", bar: "bg-state-warning" },
+  good: { width: "w-1/4", bar: "bg-state-success" },
+  unknown: { width: "w-1/12", bar: "bg-border" },
+};
+
+function JobCard({
   job,
   health,
   canBuild,
-  streamedCount,
+  extra,
 }: {
   job: Job;
   health: JobHealth;
   canBuild: boolean;
-  /** Streamed task progress (statsOnly list). Falls back to the counts on the
-   *  job object (full read / flag-off). */
-  streamedCount?: { tasksTotal: number; tasksComplete: number };
+  /** Streamed extras (statsOnly list): task progress + contractValue. */
+  extra?: CardExtra;
 }) {
+  const hubHref = `/v2/jobs/${encodeURIComponent(job.id)}` as Route;
   const topReason = health.reasons[0] ?? null;
+
   // Task progress: prefer the job object's own counts (full read), else the
-  // streamed map. When neither is present yet the progress line simply omits.
+  // streamed map. When neither is present the progress line omits.
   const tasksTotal =
-    typeof job.statsTasksTotal === "number" ? job.statsTasksTotal : streamedCount?.tasksTotal;
+    typeof job.statsTasksTotal === "number" ? job.statsTasksTotal : extra?.tasksTotal;
   const tasksComplete =
-    typeof job.statsTasksComplete === "number" ? job.statsTasksComplete : streamedCount?.tasksComplete;
+    typeof job.statsTasksComplete === "number" ? job.statsTasksComplete : extra?.tasksComplete;
+
+  // Value: the object's value (full read), else the streamed value. Crew is on
+  // both reads. Honest "—" when absent (LH redaction / not loaded), never 0.
+  const meta = cardMetaWithStream(job, extra);
+
   const caption = lastActivityCaption(job);
   const address = (job.siteAddress ?? "").trim();
+  const subline = [job.ref && `Ref ${job.ref}`, job.typeName].filter(Boolean).join(" · ");
   const evidencePending = job.statsEvidenceV2Pending ?? 0;
   // statsSnagsV2Active counts needsWorkerAttention statuses
-  // (open|in_progress|resolved|rejected) — rejected snags still need a
-  // human to handle them.
+  // (open|in_progress|resolved|rejected) — rejected snags still need a human.
   const snagsNeedingAttention = job.statsSnagsV2Active ?? 0;
   // statsItpsActive (E1a) counts non-archived instances in
-  // pending|in-progress|witnessed — anything that still needs work or
-  // review.
+  // pending|in-progress|witnessed — anything that still needs work or review.
   const itpsActive = job.statsItpsActive ?? 0;
   const hasPending =
     evidencePending > 0 || snagsNeedingAttention > 0 || itpsActive > 0;
 
+  const risk = RISK_BAR[health.level];
+
   return (
-    <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-stretch sm:gap-3">
-      <Link
-        href={`/v2/jobs/${encodeURIComponent(job.id)}/evidence` as Route}
-        className="flex min-w-0 flex-1 items-start gap-3 hover:underline focus:outline-none focus:ring-2 focus:ring-brand-navy"
-        aria-label={`Open evidence for ${job.name}`}
-      >
-        <div className="flex shrink-0 flex-col items-start gap-1 pt-1">
-          <Pill tone={statusTone(job.status)}>{statusLabel(job.status)}</Pill>
-          {/* #227: rolled-up health (deriveJobHealth) + the top contributing
-              reason, so the portfolio triages at list altitude. `unknown` is the
-              honest "not enough data" state, never a fake "On track". */}
-          {health.level !== "good" ? (
-            <Pill tone={HEALTH_TONE[health.level]}>
-              {healthLabel(health.level)}
-              {topReason ? ` · ${topReason.count} ${topReason.label.toLowerCase()}` : ""}
-            </Pill>
-          ) : (
-            <Pill tone="success">On track</Pill>
-          )}
-          {/* QA smoke runs leave SMOKE_TEST_/QA_SEED_ rows here — label them
-              so nobody mistakes the seeded fixture for a real site. */}
-          {isQaTestJobName(job.name) ? <Pill tone="neutral">Test data</Pill> : null}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-display text-base font-semibold text-text">
+    <div className="flex h-full flex-col rounded-card border border-border bg-surface-raised p-4 transition-colors hover:border-brand-navy/30">
+      {/* Title + status — the whole title block links to the hub. */}
+      <div className="flex items-start justify-between gap-2">
+        <Link
+          href={hubHref}
+          className="min-w-0 flex-1 focus:outline-none focus:ring-2 focus:ring-brand-navy"
+        >
+          <p className="truncate font-display text-base font-semibold text-text hover:underline">
             {job.name}
           </p>
+          {subline ? (
+            <p className="mt-0.5 truncate text-xs text-text-muted">{subline}</p>
+          ) : null}
           {address ? (
-            <p className="mt-0.5 flex items-center gap-1 truncate text-sm text-text-muted">
-              <MapPin aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+            <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-text-muted">
+              <MapPin aria-hidden="true" className="h-3 w-3 shrink-0" />
               <span className="truncate">{address}</span>
             </p>
           ) : null}
-          {/* #198 canonical progress — counts first, % only with a total. From the
-              job object (full read) or the streamed map (statsOnly list). */}
-          {typeof tasksTotal === "number" && typeof tasksComplete === "number" ? (
-            <p className="mt-0.5 text-xs text-text-muted">
-              {tasksTotal === 0
-                ? "No tasks yet"
-                : `${tasksComplete}/${tasksTotal} tasks · ${Math.round((tasksComplete / tasksTotal) * 100)}%`}
-            </p>
-          ) : null}
-          {job.ref ? (
-            <p className="mt-0.5 truncate text-xs text-text-muted">Ref {job.ref}</p>
-          ) : null}
-        </div>
-      </Link>
+        </Link>
+        <Pill tone={statusTone(job.status)}>{statusLabel(job.status)}</Pill>
+      </div>
 
-      <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+      {/* Meta strip — Value + Crew (real fields only; Billed%/PM dropped). */}
+      <dl className="mt-3 grid grid-cols-3 gap-2">
+        <MetaCell label="Value" value={meta.value} muted={!meta.valueKnown} />
+        <MetaCell label="Crew" value={meta.crew} muted={!meta.crewKnown} />
+        <MetaCell
+          label="Tasks"
+          value={
+            typeof tasksTotal === "number" && typeof tasksComplete === "number"
+              ? tasksTotal === 0
+                ? "—"
+                : `${Math.round((tasksComplete / tasksTotal) * 100)}%`
+              : "—"
+          }
+          muted={!(typeof tasksTotal === "number" && tasksTotal > 0)}
+          hint={
+            typeof tasksTotal === "number" && typeof tasksComplete === "number" && tasksTotal > 0
+              ? `${tasksComplete}/${tasksTotal}`
+              : undefined
+          }
+        />
+      </dl>
+
+      {/* Health badges — the rolled-up risk read + the top contributing reason.
+          `unknown` is the honest "not enough data", never a fake "On track". */}
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        {health.level === "good" ? (
+          <Pill tone="success">On track</Pill>
+        ) : (
+          <Pill tone={HEALTH_TONE[health.level]}>
+            {healthLabel(health.level)}
+            {topReason ? ` · ${topReason.count} ${topReason.label.toLowerCase()}` : ""}
+          </Pill>
+        )}
+        {isQaTestJobName(job.name) ? <Pill tone="neutral">Test data</Pill> : null}
+      </div>
+
+      {/* Pending action chips — deep-link past the hub (power-user one-tap). */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {hasPending ? (
+          <>
+            {evidencePending > 0 ? (
+              <ActionChip
+                href={`/v2/jobs/${encodeURIComponent(job.id)}/evidence`}
+                icon={<Camera aria-hidden="true" className="h-3.5 w-3.5" />}
+                label="Evidence"
+                count={evidencePending}
+                ariaLabel={`Open ${evidencePending} pending evidence for ${job.name}`}
+              />
+            ) : null}
+            {snagsNeedingAttention > 0 ? (
+              <ActionChip
+                href={`/v2/jobs/${encodeURIComponent(job.id)}/snags`}
+                icon={<AlertOctagon aria-hidden="true" className="h-3.5 w-3.5" />}
+                label="Snags"
+                count={snagsNeedingAttention}
+                ariaLabel={`Open ${snagsNeedingAttention} snags needing attention for ${job.name}`}
+              />
+            ) : null}
+            {itpsActive > 0 ? (
+              <ActionChip
+                href={`/v2/jobs/${encodeURIComponent(job.id)}/itps`}
+                icon={<ClipboardCheck aria-hidden="true" className="h-3.5 w-3.5" />}
+                label="ITPs"
+                count={itpsActive}
+                ariaLabel={`Open ${itpsActive} ITPs needing attention for ${job.name}`}
+              />
+            ) : null}
+          </>
+        ) : (
+          <span className="text-[11px] uppercase tracking-wider text-text-muted">All clear</span>
+        )}
+        {canBuild ? (
+          <ActionChip
+            href={`/v2/jobs/${encodeURIComponent(job.id)}/builder`}
+            icon={<PencilRuler aria-hidden="true" className="h-3.5 w-3.5" />}
+            label="Build"
+            ariaLabel={`Open the builder for ${job.name}`}
+          />
+        ) : null}
+      </div>
+
+      {/* Foot: the real risk read as a meter + the last-activity caption. */}
+      <div className="mt-auto flex items-center justify-between gap-3 pt-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-text-muted">
+            Risk
+          </span>
+          <span
+            className="h-1.5 flex-1 overflow-hidden rounded-pill bg-surface-subtle"
+            role="img"
+            aria-label={`Risk: ${healthLabel(health.level)}`}
+          >
+            <span className={cn("block h-full rounded-pill", risk.width, risk.bar)} />
+          </span>
+        </div>
         {caption ? (
           <span className="whitespace-nowrap text-[11px] uppercase tracking-wider text-text-muted">
             {caption}
           </span>
         ) : null}
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <ActionChip
-            href={`/v2/jobs/${encodeURIComponent(job.id)}/evidence`}
-            icon={<Camera aria-hidden="true" className="h-3.5 w-3.5" />}
-            label="Evidence"
-            count={evidencePending}
-            highlightWhenNonZero
-            ariaLabel={`Open ${evidencePending} pending evidence for ${job.name}`}
-          />
-          <ActionChip
-            href={`/v2/jobs/${encodeURIComponent(job.id)}/snags`}
-            icon={<AlertOctagon aria-hidden="true" className="h-3.5 w-3.5" />}
-            label="Snags"
-            count={snagsNeedingAttention}
-            highlightWhenNonZero
-            ariaLabel={`Open ${snagsNeedingAttention} snags needing attention for ${job.name}`}
-          />
-          <ActionChip
-            href={`/v2/jobs/${encodeURIComponent(job.id)}/itps`}
-            icon={<ClipboardCheck aria-hidden="true" className="h-3.5 w-3.5" />}
-            label="ITPs"
-            count={itpsActive}
-            highlightWhenNonZero
-            ariaLabel={`Open ${itpsActive} ITPs needing attention for ${job.name}`}
-          />
-          {canBuild ? (
-            <ActionChip
-              href={`/v2/jobs/${encodeURIComponent(job.id)}/builder`}
-              icon={<PencilRuler aria-hidden="true" className="h-3.5 w-3.5" />}
-              label="Build"
-              ariaLabel={`Open the builder for ${job.name}`}
-            />
-          ) : null}
-          <Link
-            href={`/v2/jobs/${encodeURIComponent(job.id)}/evidence` as Route}
-            aria-label={`Open ${job.name}`}
-            className="hidden self-center text-text-muted/60 hover:text-text sm:inline-flex"
-          >
-            <ChevronRight aria-hidden="true" className="h-5 w-5" />
-          </Link>
-        </div>
-        {!hasPending ? (
-          <span className="text-[11px] uppercase tracking-wider text-text-muted">
-            All clear
-          </span>
+      </div>
+    </div>
+  );
+}
+
+/** Resolve the card meta with the streamed value folded in (statsOnly list).
+ *  Value prefers the object's own figure, then the streamed one; "—" otherwise. */
+function cardMetaWithStream(job: Job, extra?: CardExtra): JobCardMeta {
+  const hasOwnValue =
+    typeof job.contractValue === "number" && Number.isFinite(job.contractValue);
+  const value = hasOwnValue
+    ? (job.contractValue as number)
+    : extra?.contractValue !== undefined
+      ? extra.contractValue
+      : undefined;
+  const hasCrew =
+    typeof job.statsCrewCount === "number" && Number.isFinite(job.statsCrewCount);
+  return {
+    value: value !== undefined ? formatContractValue(value) : "—",
+    valueKnown: value !== undefined,
+    crew: hasCrew ? String(job.statsCrewCount) : "—",
+    crewKnown: hasCrew,
+  };
+}
+
+function MetaCell({
+  label,
+  value,
+  muted,
+  hint,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-card border border-border bg-surface px-2.5 py-1.5">
+      <div
+        className={cn(
+          "truncate font-display text-sm font-semibold",
+          muted ? "text-text-muted" : "text-text"
+        )}
+      >
+        {value}
+        {hint ? (
+          <span className="ml-1 font-mono text-[10px] font-normal text-text-muted">{hint}</span>
         ) : null}
       </div>
+      <div className="font-mono text-[9px] uppercase tracking-wider text-text-muted">{label}</div>
     </div>
   );
 }
@@ -545,19 +704,13 @@ interface ActionChipProps {
   label: string;
   /** Omit for action chips that aren't a count (e.g. "Build"). */
   count?: number;
-  highlightWhenNonZero?: boolean;
   ariaLabel: string;
 }
 
-function ActionChip({
-  href,
-  icon,
-  label,
-  count,
-  highlightWhenNonZero,
-  ariaLabel,
-}: ActionChipProps) {
-  const hot = highlightWhenNonZero && (count ?? 0) > 0;
+/** A pending-count chip. Only rendered when count>0 (or count-less, e.g. Build),
+ *  so it is always a "hot" navy chip — no cold zero chips clutter the card. */
+function ActionChip({ href, icon, label, count, ariaLabel }: ActionChipProps) {
+  const hot = count !== undefined;
   return (
     <Link
       href={href as Route}
@@ -572,12 +725,7 @@ function ActionChip({
       {icon}
       <span>{label}</span>
       {count !== undefined ? (
-        <span
-          className={cn(
-            "ml-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-pill px-1 text-[10px] font-semibold",
-            hot ? "bg-accent-yellow text-brand-navy" : "bg-surface-subtle text-text-muted"
-          )}
-        >
+        <span className="ml-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-pill bg-accent-yellow px-1 text-[10px] font-semibold text-brand-navy">
           {count}
         </span>
       ) : null}
@@ -591,16 +739,16 @@ function Card({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Resolves the streamed task-count map and lifts it into JobsList state exactly
+/** Resolves the streamed card-extras map and lifts it into JobsList state exactly
  *  once. `use()` suspends this leaf until the ?withStats read resolves (parent
- *  <Suspense fallback={null}>), so the rows paint immediately from statsOnly and
- *  the per-row "X/Y tasks" progress fills in after. Renders nothing. */
-function TaskCountsHydrator({
+ *  <Suspense fallback={null}>), so the cards paint immediately from statsOnly and
+ *  the per-card task progress + Value fill in after. Renders nothing. */
+function CardExtrasHydrator({
   promise,
   onResolved,
 }: {
-  promise: Promise<TaskCountMap>;
-  onResolved: (m: TaskCountMap) => void;
+  promise: Promise<CardExtraMap>;
+  onResolved: (m: CardExtraMap) => void;
 }) {
   const resolved = use(promise);
   const done = useRef(false);

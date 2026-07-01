@@ -70,11 +70,16 @@ export default async function AdminDayworksRollupPage() {
   return (
     <AdminShell title="Dayworks" breadcrumb={<BackToCommandCentre />}>
       <div className="mx-auto max-w-4xl space-y-4">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-text-muted">
           Day-labour dockets across every job. Unsigned dockets older than 24h are payment risk —
           chase the builder&rsquo;s signature before they age into a disputed invoice.
         </p>
-        <DayworkRollup byJob={rollup.byJob} summary={rollup.summary} />
+        <DayworkRollup
+          byJob={rollup.byJob}
+          dockets={rollup.dockets}
+          summary={rollup.summary}
+          nowMs={nowMs}
+        />
       </div>
     </AdminShell>
   );

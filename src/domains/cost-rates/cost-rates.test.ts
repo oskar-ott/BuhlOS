@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { dollarsToCents, formatCents } from "./schema";
+import { dollarsToCents, effectiveCostRateOn, formatCents, type CostRateEntry } from "./schema";
 
 /**
  * #304 — confidential cost-rate store helpers. Pure: effective-dating (a past
@@ -128,5 +128,30 @@ describe("dollarsToCents / formatCents — UI money conversion", () => {
   it("formats cents to dollars", () => {
     expect(formatCents(5250)).toBe("$52.50");
     expect(formatCents(null)).toBe("—");
+  });
+});
+
+describe("effectiveCostRateOn — client mirror of the server resolver", () => {
+  const entry = (effectiveFrom: string, costRateCents: number): CostRateEntry => ({
+    id: `cr_${effectiveFrom}`,
+    costRateCents,
+    chargeOutRateCents: null,
+    effectiveFrom,
+    setBy: "x",
+    setByName: "X",
+    setAt: `${effectiveFrom}T00:00:00.000Z`,
+  });
+
+  it("picks the latest entry effective on or before the date", () => {
+    const history = [entry("2024-01-01", 4000), entry("2024-05-01", 5000)];
+    // A week starting 2024-05-20 is costed at the May rate…
+    expect(effectiveCostRateOn(history, "2024-05-20")?.costRateCents).toBe(5000);
+    // …but a back-week in March uses the rate effective THEN (Jan), not today's.
+    expect(effectiveCostRateOn(history, "2024-03-15")?.costRateCents).toBe(4000);
+  });
+
+  it("returns null when the worker had no rate yet on that date", () => {
+    expect(effectiveCostRateOn([entry("2024-05-01", 5000)], "2024-04-01")).toBeNull();
+    expect(effectiveCostRateOn([], "2024-05-20")).toBeNull();
   });
 });

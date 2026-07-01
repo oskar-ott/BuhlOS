@@ -59,26 +59,49 @@ function renderAsAdmin(entries: TimeEntry[], missing: MissingLog[] = []) {
  * empties, and no fabricated rows.
  */
 describe("WeeklyHoursCloseoutBoard (render)", () => {
-  it("leads with payroll readiness and the week's counts", () => {
+  it("leads with the §5 pay-run hero — eyebrow, headline, meta line, progress", () => {
     const html = render([
-      entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown" }),
-      entry({ userId: "u2", date: "2024-05-20", userName: "Jack Smith", status: "submitted" }),
+      entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown", totalHours: 8 }),
+      entry({ userId: "u2", date: "2024-05-20", userName: "Jack Smith", status: "submitted", totalHours: 8 }),
     ]);
-    expect(html).toContain("Payroll readiness");
-    expect(html).toContain("Not payroll-ready");
-    expect(html).toContain("1 ready");
-    expect(html).toContain("1 need action");
-    expect(html).toContain("1 submitted day");
+    expect(html).toContain("Pay run");
+    // §5 headline + meta line: "{totalHrs}h logged · {crew} crew · {needLook}
+    // need a look", and the progress count. 16h logged (8 + 8), 2 crew, 0
+    // flagged (the one open week is clean/submitted). React splits "{n}" and
+    // "h" into separate SSR text nodes, so assert the number + word separately.
+    expect(html).toContain(">16<"); // total logged number in the hero meta
+    expect(html).toContain("logged");
+    expect(html).toContain("need a look");
+    // u1 is approved (default), u2 submitted → 1 of 2 ready.
+    expect(html).toContain("1 of 2 approved");
   });
 
-  it("groups workers needing action before the payroll-ready group", () => {
+  it("offers a clean-sweep button for weeks whose only open state is submitted", () => {
+    const html = render([
+      entry({ userId: "u1", date: "2024-05-20", userName: "Jack Smith", status: "submitted" }),
+    ]);
+    expect(html).toContain("Approve all clean");
+  });
+
+  it("renders the seven-day shape strip per worker", () => {
+    const html = render([
+      entry({ userId: "u1", date: "2024-05-20", userName: "Jack Smith", status: "submitted" }),
+    ]);
+    expect(html).toContain("week at a glance");
+    expect(html).toContain("Week strip"); // the legend heading
+  });
+
+  it("orders workers needing action before the payroll-ready ones in the list", () => {
     const html = render([
       entry({ userId: "u_ready", date: "2024-05-20", userName: "Tom Brown" }),
       entry({ userId: "u_review", date: "2024-05-21", userName: "Jack Smith", status: "submitted" }),
     ]);
-    expect(html.indexOf("Needs action")).toBeLessThan(html.indexOf("Ready for payroll"));
+    // The dense list is one card; the model sorts needs-action first, so the
+    // submitted worker's row renders above the approved one.
     expect(html.indexOf("Jack Smith")).toBeLessThan(html.indexOf("Tom Brown"));
-    expect(html).toContain("Needs review");
+    // The submitted worker offers "Approve week"; the ready one shows "Approved".
+    expect(html).toContain("Approve week");
+    expect(html).toContain("Approved");
   });
 
   it("gives a submitted day Approve and Reject actions", () => {
@@ -106,32 +129,62 @@ describe("WeeklyHoursCloseoutBoard (render)", () => {
     expect(html).not.toContain("Approve");
   });
 
-  it("shows server-flagged missing days and blocking lines", () => {
+  it("flags a server-missing day with a 'needs a look' pill and an honest reason", () => {
     const html = render(
       [entry({ userId: "u1", date: "2024-05-20", userName: "Oskar Ott" })],
       [{ date: "2024-05-22", userId: "u1", userName: "Oskar Ott", role: "tradie" } as MissingLog]
     );
-    expect(html).toContain("Missing hours");
+    // §5 row: a flagged week reads "needs a look" with a site-language reason,
+    // and the missing day still shows in the strip + the expanded day rows.
+    expect(html).toContain("needs a look");
+    expect(html).toContain("No entry for Wed");
     expect(html).toContain("Missing");
-    expect(html).toContain("Blocking payroll:");
-    expect(html).toContain("Wed missing");
   });
 
-  it("totals approved hours per worker and per job", () => {
+  it("totals every worker's LOGGED hours and shows the per-row total", () => {
     const html = render([
-      entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown", totalHours: 7.6 }),
-      entry({ userId: "u1", date: "2024-05-21", userName: "Tom Brown", totalHours: 7.6 }),
+      entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown", totalHours: 8 }),
+      entry({ userId: "u1", date: "2024-05-21", userName: "Tom Brown", totalHours: 8.5 }),
     ]);
-    expect(html).toContain("15h 12m"); // 15.2h approved
-    expect(html).toContain("100 Arthur");
-    expect(html).toContain("Ready");
+    // The row total is the dense number "16.5" (8 + 8.5), and the day numbers
+    // appear in the strip. A worker with no cost rate shows "—" for labour.
+    expect(html).toContain("16.5");
+    expect(html).toContain(">8.5<"); // a day number in the strip
+    expect(html).toContain("Approved");
+  });
+
+  it("shows '—' for labour when the worker has no cost rate (never a fake $0)", () => {
+    const html = render([
+      entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown", totalHours: 8 }),
+    ]);
+    // No costRatesByWorker passed → labour is "—", and the hero omits the
+    // labour figure entirely (no "$0", no column of dashes).
+    expect(html).toContain("—");
+    expect(html).not.toContain("labour");
+  });
+
+  it("shows labour $ in the hero and the row when a cost rate is supplied", () => {
+    const closeout = buildWeeklyHoursCloseout({
+      entries: [
+        entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown", totalHours: 10 }),
+      ],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+      costRatesByWorker: { u1: 5000 }, // $50.00/h loaded cost
+    });
+    const html = renderToString(
+      createElement(WeeklyHoursCloseoutBoard, { closeout, fetchError: null }),
+    );
+    // 10h × $50 = $500 — shown in the row and summed into the hero labour.
+    expect(html).toContain("$500");
+    expect(html).toContain("labour");
   });
 
   it("is honestly empty when the week has no entries and no missing days", () => {
     const html = render([]);
     expect(html).toContain("No hours found for this week");
-    expect(html).not.toContain("Needs action");
-    expect(html).not.toContain("Ready for payroll");
+    expect(html).not.toContain("needs a look");
   });
 
   it("never fabricates missing days the server didn't flag", () => {

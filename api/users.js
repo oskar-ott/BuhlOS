@@ -3,10 +3,21 @@ const { list } = require('@vercel/blob');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { writeGuardErrorResponse } = require('./_lib/blob-guards');
 const { cronAuthState } = require('./_lib/cron-auth');
-const { requireAuth, getCurrentUser, canManageJob, isStaffRole, isFieldRole, isLeadingHandRole, isDisabledUser, isClientRole } = require('./_lib/auth');
+const { requireAuth, getCurrentUser, canManageJob, isStaffRole, isFieldRole, isLeadingHandRole, isDisabledUser, isClientRole, ownerLoginUsername, OWNER_SENTINEL } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
 
+// Role 'owner' is already uncreatable here (not in VALID_ROLES; PUT can't change
+// role) — the owner is an env-only principal with no users.json row (#760).
 const VALID_ROLES = ['admin', 'tradie', 'leadingHand', 'client'];
+
+// #760: the env-only owner username (and its reserved sentinel id) may never be
+// claimed by a real user — a real row with that name would shadow the owner
+// login and leave a "trace" in the Employees roster. Enforced on every
+// create/rename path below.
+function isReservedOwnerName(name) {
+  const n = String(name == null ? '' : name).trim().toLowerCase();
+  return n !== '' && (n === ownerLoginUsername().toLowerCase() || n === OWNER_SENTINEL);
+}
 
 function newId() {
   return 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -38,6 +49,7 @@ module.exports = async (req, res) => {
     if (!jobId) return res.status(400).json({ error: 'jobId required' });
     if (!canManageJob(user, jobId)) return res.status(403).json({ error: 'forbidden' });
     if (!username || !username.trim()) return res.status(400).json({ error: 'username required' });
+    if (isReservedOwnerName(username)) return res.status(400).json({ error: 'username is reserved' });
     if (!secret) return res.status(400).json({ error: 'PIN required' });
     const pinErr = validateSecret('client', secret);
     if (pinErr) return res.status(400).json({ error: pinErr });
@@ -184,6 +196,7 @@ module.exports = async (req, res) => {
   if (req.method === 'POST') {
     const { username, role, secret, assignedJobIds = [], hourlyRate, email, xeroEmployeeId } = req.body || {};
     if (!username || !role) return res.status(400).json({ error: 'username and role required' });
+    if (isReservedOwnerName(username)) return res.status(400).json({ error: 'username is reserved' });
     if (!VALID_ROLES.includes(role)) {
       return res.status(400).json({ error: 'invalid role' });
     }
@@ -236,7 +249,10 @@ module.exports = async (req, res) => {
     const previousJobIds = new Set(user.assignedJobIds || []);
     let addedJobIds = [];
 
-    if (username) user.username = username;
+    if (username) {
+      if (isReservedOwnerName(username)) return res.status(400).json({ error: 'username is reserved' });
+      user.username = username;
+    }
     if (Array.isArray(assignedJobIds)) {
       user.assignedJobIds = assignedJobIds;
       addedJobIds = assignedJobIds.filter(j => !previousJobIds.has(j));

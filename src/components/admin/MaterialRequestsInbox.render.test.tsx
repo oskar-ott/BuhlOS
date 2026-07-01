@@ -59,6 +59,34 @@ describe("MaterialRequestsInbox", () => {
     expect(html).toContain("Urgency");
   });
 
+  it("renders the 4-stage procurement pipeline with real per-stage counts (§6C)", () => {
+    const html = renderToString(
+      createElement(MaterialRequestsInbox, {
+        initialRequests: [
+          mr({ id: "a", status: "requested" }),
+          mr({ id: "b", status: "requested" }),
+          mr({ id: "c", status: "approved" }),
+          mr({ id: "d", status: "ordered" }),
+          mr({ id: "e", status: "delivered" }),
+        ],
+        fetchError: null,
+      })
+    );
+    // The pipeline + each clickable stage tile render…
+    expect(html).toContain('data-testid="material-pipeline"');
+    for (const s of ["requested", "approved", "ordered", "delivered"]) {
+      expect(html).toContain(`data-testid="material-pipeline-${s}"`);
+    }
+    // …with the four stage labels and a connecting arrow.
+    expect(html).toContain("Requested");
+    expect(html).toContain("Approved");
+    expect(html).toContain("Ordered");
+    expect(html).toContain("Delivered");
+    expect(html).toContain("→");
+    // Counts come straight off summariseInbox: requested=2 here.
+    expect(html).toMatch(/data-testid="material-pipeline-requested"[\s\S]*?>2</);
+  });
+
   it("renders request rows with item, qty + unit, job and status", () => {
     const html = renderToString(
       createElement(MaterialRequestsInbox, {

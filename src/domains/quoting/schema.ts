@@ -125,11 +125,16 @@ export const QuoteSchema = z
 export type Quote = z.infer<typeof QuoteSchema>;
 
 /** Registry row (`quotes-v2.json` → quotes[]) — exactly what the list
- *  surface renders; the full document lives in `quotes-v2/<id>.json`. */
+ *  surface renders; the full document lives in `quotes-v2/<id>.json`.
+ *  `clientName` is the captured client (nullish — older rows predate it and the
+ *  list shows an honest "—"). NOTE: this is the SELL-SIDE summary only — it
+ *  carries NO cost/margin. The confidential margin readback lives behind the
+ *  admin gate on the quote detail surface, never in this registry. */
 export const QuoteSummarySchema = z
   .object({
     id: z.string(),
     name: z.string(),
+    clientName: z.string().nullish(),
     status: QuoteStatusSchema,
     updatedAt: z.string(),
     totalIncGst: z.number(),

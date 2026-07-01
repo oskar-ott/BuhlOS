@@ -265,7 +265,7 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
         {/* #215 — record this job view in the device-local recents ring buffer
             so ⌘K can offer a one-keystroke jump back. Renders nothing. */}
         <RecentItemTracker path={`/v2/jobs/${job.id}`} title={job.name} type="job" />
-        <JobHeaderCard job={job} />
+        <JobHeaderCard job={job} canBuild={canBuild} />
         {/* Office / Field view toggle (flagged). Field view = read-only admin
             render of the Phil job command model (what the crew sees). */}
         {showFieldView ? <JobViewToggle jobId={job.id} current={activeView} /> : null}
@@ -388,21 +388,47 @@ function sydneyTodayStr(): string {
   }).format(new Date());
 }
 
-function JobHeaderCard({ job }: { job: Job }) {
-  const subline = [job.ref && `Ref ${job.ref}`, job.typeName].filter(Boolean).join(" · ");
+/**
+ * Job hero (brief §3, prototype admin-jobs.jsx). Name + a rich
+ * "Ref · type · address" subline + the status pill, plus ONE contextual
+ * primary action. The action only ever links to a REAL route:
+ *   - office-only (not published) + admin builder → "Open builder" (publish
+ *     happens inside the builder; we never fake a one-click Publish here).
+ *   - published → "Open drawings" (the real /plans route).
+ * An LH viewer (no build access) gets the hero without the action.
+ */
+function JobHeaderCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
+  const subline = [job.ref && `Ref ${job.ref}`, job.typeName, job.siteAddress]
+    .filter(Boolean)
+    .join(" · ");
+  const published = isVisibleToField(job);
   return (
     <Card>
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <CardTitle className="break-words">{job.name}</CardTitle>
           {subline ? (
-            <CardDescription className="mt-1">{subline}</CardDescription>
-          ) : null}
-          {job.siteAddress ? (
-            <p className="mt-2 text-sm text-text-muted">{job.siteAddress}</p>
+            <CardDescription className="mt-1 break-words">{subline}</CardDescription>
           ) : null}
         </div>
-        <Pill tone={statusTone(job.status)}>{statusLabel(job.status)}</Pill>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Pill tone={statusTone(job.status)}>{statusLabel(job.status)}</Pill>
+          {canBuild && !published ? (
+            <a
+              href={`/v2/jobs/${encodeURIComponent(job.id)}/builder` as Route}
+              className="inline-flex items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
+            >
+              <PencilRuler aria-hidden="true" className="h-4 w-4" /> Open builder
+            </a>
+          ) : published ? (
+            <a
+              href={`/v2/jobs/${encodeURIComponent(job.id)}/plans` as Route}
+              className="inline-flex items-center gap-1.5 rounded-card border border-border bg-surface px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+            >
+              <MapPin aria-hidden="true" className="h-4 w-4" /> Open drawings
+            </a>
+          ) : null}
+        </div>
       </div>
     </Card>
   );

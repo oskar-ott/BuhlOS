@@ -11,17 +11,25 @@ import {
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Drawer } from "@/components/ui/Drawer";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusChip } from "@/components/ui/StatusChip";
-import { RefreshButton } from "@/components/ui/RefreshButton";
+import { cn } from "@/lib/cn";
+import {
+  InboxBanner,
+  InboxFilterBar,
+  InboxFilterSelect,
+  InboxLoadErrorCard,
+  InboxStatStrip,
+  type InboxStat,
+} from "./InboxShell";
 import { relativeWhen } from "@/domains/jobs/format";
 import { materialRequestsClient } from "@/domains/material-requests/client";
 import {
   compareForInbox,
   isOpenRequest,
   summariseInbox,
+  type MaterialRequestSummary,
 } from "@/domains/material-requests/service";
 import {
   formatQuantity,
@@ -162,70 +170,63 @@ export function MaterialRequestsInbox({
     resetDrafts(updated);
   }
 
+  const stats: InboxStat[] = [
+    { key: "approve", label: "To approve / order", value: summary.requested + summary.approved, icon: PackageOpen, tone: "warning" },
+    { key: "ordered", label: "On order", value: summary.ordered, icon: Truck, tone: "info" },
+    { key: "delivered", label: "Delivered", value: summary.delivered, icon: CheckCircle2, tone: "success" },
+    { key: "urgent", label: "Urgent / high (open)", value: summary.urgentOpen, icon: Package, tone: "danger" },
+  ];
+
   return (
     <div className="space-y-5">
       {fetchError ? (
-        <Card className="border-amber-200 bg-amber-50" role="alert">
-          <CardTitle>Couldn&rsquo;t load material requests</CardTitle>
-          <CardDescription className="text-amber-900">
-            {fetchError}. The list may be incomplete.
-          </CardDescription>
-          <div className="mt-3">
-            <RefreshButton />
-          </div>
-        </Card>
+        <InboxLoadErrorCard
+          title="Couldn’t load material requests"
+          message={`${fetchError}. The list may be incomplete.`}
+        />
       ) : null}
 
-      {banner ? (
-        <div
-          role="status"
-          className={
-            banner.tone === "success"
-              ? "rounded-card border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
-              : "rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900"
-          }
-        >
-          {banner.message}
-        </div>
-      ) : null}
+      {banner ? <InboxBanner tone={banner.tone}>{banner.message}</InboxBanner> : null}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <SummaryCard label="To approve / order" value={summary.requested + summary.approved} icon={PackageOpen} tone="warning" />
-        <SummaryCard label="On order" value={summary.ordered} icon={Truck} tone="info" />
-        <SummaryCard label="Delivered" value={summary.delivered} icon={CheckCircle2} tone="success" />
-        <SummaryCard label="Urgent / high (open)" value={summary.urgentOpen} icon={Package} tone="danger" />
-      </div>
+      {/* Procurement pipeline — the lifecycle a request moves through. Each
+          stage is a real count off `summary` and filters the list to it; the
+          stat strip below keeps the urgent / exception read. */}
+      <MaterialPipeline
+        summary={summary}
+        activeStatus={filters.status}
+        onPick={(status) =>
+          setFilters((f) => ({ ...f, status: f.status === status ? "" : status }))
+        }
+      />
 
-      <div className="flex flex-wrap items-end gap-2 rounded-card border border-border bg-surface p-3">
-        <FilterSelect
+      <InboxStatStrip stats={stats} />
+
+      <InboxFilterBar
+        shown={visible.length}
+        total={requests.length}
+        onClear={filtersActive ? () => setFilters(EMPTY_FILTERS) : undefined}
+      >
+        <InboxFilterSelect
           label="Status"
           value={filters.status}
           onChange={(v) => setFilters((f) => ({ ...f, status: v as MaterialRequestStatus | "" }))}
           options={MATERIAL_REQUEST_STATUSES.map((s) => ({ value: s, label: statusLabel(s) }))}
         />
-        <FilterSelect
+        <InboxFilterSelect
           label="Urgency"
           value={filters.urgency}
           onChange={(v) => setFilters((f) => ({ ...f, urgency: v as MaterialRequestUrgency | "" }))}
           options={MATERIAL_REQUEST_URGENCIES.map((u) => ({ value: u, label: urgencyLabel(u) }))}
         />
         {showJobFilter ? (
-          <FilterSelect
+          <InboxFilterSelect
             label="Job"
             value={filters.jobId}
             onChange={(v) => setFilters((f) => ({ ...f, jobId: v }))}
             options={jobOptions.map((j) => ({ value: j.id, label: j.name }))}
           />
         ) : null}
-        {filtersActive ? (
-          <Button type="button" variant="ghost" size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>
-            Clear
-          </Button>
-        ) : null}
-        <span className="ml-auto self-center text-xs text-text-muted">
-          {visible.length} of {requests.length}
-        </span>
-      </div>
+      </InboxFilterBar>
 
       {requests.length === 0 && !fetchError ? (
         <EmptyState
@@ -279,68 +280,6 @@ export function MaterialRequestsInbox({
         onApply={apply}
       />
     </div>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-  icon: Icon,
-  tone,
-}: {
-  label: string;
-  value: number;
-  icon: typeof Package;
-  tone: "warning" | "danger" | "success" | "info";
-}) {
-  const toneClass =
-    value === 0
-      ? "text-text-muted"
-      : tone === "danger"
-        ? "text-rose-700"
-        : tone === "warning"
-          ? "text-amber-700"
-          : tone === "info"
-            ? "text-sky-700"
-            : "text-emerald-700";
-  return (
-    <Card className="flex items-center justify-between gap-2">
-      <div>
-        <p className="text-xs uppercase tracking-wider text-text-muted">{label}</p>
-        <p className={`mt-1 font-display text-2xl ${toneClass}`}>{value}</p>
-      </div>
-      <Icon aria-hidden="true" className={`h-5 w-5 shrink-0 ${toneClass}`} />
-    </Card>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: ReadonlyArray<{ value: string; label: string }>;
-}) {
-  return (
-    <label className="flex flex-col gap-1 text-xs text-text-muted">
-      <span className="uppercase tracking-wider">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full min-w-0 rounded-card border border-border bg-surface px-2 py-1.5 text-sm text-text sm:w-auto sm:min-w-[8rem] sm:max-w-[11rem]"
-      >
-        <option value="">All</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
 
@@ -688,6 +627,90 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     <div className="flex gap-2">
       <dt className="w-28 shrink-0 text-text-muted">{label}</dt>
       <dd className="min-w-0 flex-1 text-text">{value}</dd>
+    </div>
+  );
+}
+
+/* ── Procurement pipeline ───────────────────────────────────────────────── */
+
+const PIPELINE_STAGES: ReadonlyArray<{
+  status: MaterialRequestStatus;
+  label: string;
+  icon: typeof PackageOpen;
+}> = [
+  { status: "requested", label: "Requested", icon: PackageOpen },
+  { status: "approved", label: "Approved", icon: CheckCircle2 },
+  { status: "ordered", label: "Ordered", icon: Truck },
+  { status: "delivered", label: "Delivered", icon: Package },
+];
+
+/**
+ * The four-stage procurement pipeline: Requested → Approved → Ordered →
+ * Delivered, each a real count off `summary` (summariseInbox) and a button that
+ * filters the list to that stage (toggles off when it's already active). The
+ * connecting arrow reads left-to-right as the lifecycle. Cancelled is a
+ * terminal exit, not a pipeline stage, so it isn't shown here (the status
+ * filter still reaches it).
+ */
+function MaterialPipeline({
+  summary,
+  activeStatus,
+  onPick,
+}: {
+  summary: MaterialRequestSummary;
+  activeStatus: MaterialRequestStatus | "";
+  onPick: (status: MaterialRequestStatus) => void;
+}) {
+  return (
+    <div
+      className="flex items-stretch gap-1 overflow-x-auto rounded-card border border-border bg-surface p-2"
+      data-testid="material-pipeline"
+    >
+      {PIPELINE_STAGES.map((stage, i) => {
+        const count = summary[stage.status];
+        const active = activeStatus === stage.status;
+        const Icon = stage.icon;
+        return (
+          <div key={stage.status} className="flex flex-1 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onPick(stage.status)}
+              aria-pressed={active}
+              data-testid={`material-pipeline-${stage.status}`}
+              className={cn(
+                "flex flex-1 flex-col items-center gap-0.5 rounded-card px-3 py-2 text-center transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
+                active ? "bg-brand-navy text-text-inverse" : "hover:bg-surface-subtle"
+              )}
+            >
+              <Icon
+                aria-hidden="true"
+                className={cn("h-4 w-4", active ? "text-text-inverse" : "text-text-muted")}
+              />
+              <span
+                className={cn(
+                  "font-display text-xl tabular-nums",
+                  active ? "text-text-inverse" : count === 0 ? "text-text-muted" : "text-text"
+                )}
+              >
+                {count}
+              </span>
+              <span
+                className={cn(
+                  "font-mono text-[10px] uppercase tracking-wider",
+                  active ? "text-text-inverse" : "text-text-muted"
+                )}
+              >
+                {stage.label}
+              </span>
+            </button>
+            {i < PIPELINE_STAGES.length - 1 ? (
+              <span aria-hidden="true" className="shrink-0 px-0.5 text-text-muted">
+                →
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -6,6 +6,14 @@ const { readBlob } = require('./blob');
 const SESSION_COOKIE = 'buhl_session';
 const SESSION_DAYS = 30;
 
+// Reserved id for the env-only platform owner (#760) — a SYNTHETIC principal
+// with NO users.json row, so it never appears in the Employees roster, exports,
+// or assignment pickers. Helpers + login live in the owner section below; see
+// docs/owner-console.md. The leading/trailing underscores keep it clearly out of
+// the real-id namespace (nanoid/`u_*`), and a blob-guard forbids any stored row
+// from claiming it.
+const OWNER_SENTINEL = '__owner__';
+
 function secret() {
   const s = process.env.SESSION_SECRET;
   if (!s || s.length < 16) throw new Error('SESSION_SECRET env var missing or too short');
@@ -65,6 +73,11 @@ function getSession(req) {
 async function getCurrentUser(req) {
   const session = getSession(req);
   if (!session) return null;
+  // Env-only owner: a synthetic super-admin with NO users.json row. getSession
+  // has already HMAC-verified the cookie, so a forged '__owner__' session is
+  // impossible without SESSION_SECRET — the same trust anchor as the role claim.
+  // Resolve it here WITHOUT touching the blob (there is no row to find).
+  if (isOwnerSentinel(session.userId)) return syntheticOwner();
   const users = await readBlob('users.json', { users: [] });
   const user = users.users.find(u => u.id === session.userId);
   if (!user) return null;
@@ -168,6 +181,59 @@ function ownerEmailAllowed(email) {
 function canAccessOwnerConsole(user) {
   if (!user) return false;
   return isOwnerRole(user.role) || ownerEmailAllowed(user.email);
+}
+
+// ── Env-only owner login (#760) ──────────────────────────────────────────────
+// The platform owner authenticates against ENV credentials and is represented by
+// a SYNTHETIC principal (no users.json row) — so it leaves zero trace in the
+// admin Employees view. FAIL CLOSED: with no OWNER_PASSWORD_HASH set, owner login
+// does not exist (the login branch is skipped). The password NEVER defaults
+// (unlike OWNER_EMAILS, which seeds an email for console access).
+function isOwnerSentinel(id) {
+  return id === OWNER_SENTINEL;
+}
+function ownerLoginUsername() {
+  const raw = process.env.OWNER_LOGIN_USERNAME;
+  return raw && String(raw).trim() ? String(raw).trim() : 'owner';
+}
+// The ENV bcrypt hash of the owner password — the one-time BOOTSTRAP. No default.
+// Once the owner changes their password in the console it's stored in the
+// owner-auth.json blob (runtime-mutable) and that wins; env stays the fallback.
+function ownerPasswordHashEnv() {
+  const h = process.env.OWNER_PASSWORD_HASH;
+  return h && String(h).trim() ? String(h).trim() : null;
+}
+// The blob that holds the owner's chosen password hash (set via the console's
+// change-password) so the owner can rotate it WITHOUT an env edit + redeploy.
+// Single key (single-owner, single-tenant); shared across environments on a
+// shared Blob store — documented in docs/owner-console.md.
+const OWNER_AUTH_KEY = 'owner-auth.json';
+// The EFFECTIVE owner password hash: the blob (if the owner has set one) else the
+// env bootstrap. null ⇒ owner login disabled (fail closed). The login + change-
+// password paths use this; never reads env when a blob hash exists.
+async function resolveOwnerPasswordHash() {
+  try {
+    const doc = await readBlob(OWNER_AUTH_KEY, {});
+    const h = doc && typeof doc.passwordHash === 'string' ? doc.passwordHash.trim() : '';
+    if (h) return h;
+  } catch {
+    // Blob unavailable → fall back to the env bootstrap.
+  }
+  return ownerPasswordHashEnv();
+}
+// The synthetic owner returned to the app. role 'owner' ⇒ canAccessOwnerConsole
+// is true and the owner-preview flag branch fires; 'owner' ∈ ADMIN_ROLES ⇒ it
+// behaves as a full super-admin through requireAuth/canManageJob. email mirrors
+// OWNER_EMAILS[0] for console-gate consistency. Carries NO passwordHash.
+function syntheticOwner() {
+  return {
+    id: OWNER_SENTINEL,
+    username: ownerLoginUsername(),
+    name: 'Owner',
+    role: 'owner',
+    email: ownerEmails()[0] || null,
+    assignedJobIds: [],
+  };
 }
 
 // Expand one allowed-role entry passed to requireAuth into the set of
@@ -305,6 +371,13 @@ module.exports = {
   OWNER_ROLES,
   ownerEmailAllowed,
   canAccessOwnerConsole,
+  OWNER_SENTINEL,
+  OWNER_AUTH_KEY,
+  isOwnerSentinel,
+  ownerLoginUsername,
+  ownerPasswordHashEnv,
+  resolveOwnerPasswordHash,
+  syntheticOwner,
   SESSION_COOKIE,
   ADMIN_ROLES,
   LEADING_HAND_ROLES,

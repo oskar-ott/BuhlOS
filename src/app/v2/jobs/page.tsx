@@ -1,7 +1,5 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
-import { Plus } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -72,7 +70,7 @@ export default async function AdminJobsPage() {
   // carry task counts and no stream is needed (byte-identical to before).
   const summaryOn = /^(1|true|on)$/.test((process.env.FLAG_PHIL_JOBS_SUMMARY_READ ?? "").toLowerCase());
   const { jobs, fetchError } = await loadJobs(raw);
-  const taskCountsPromise = summaryOn ? loadTaskCounts(raw) : null;
+  const cardExtrasPromise = summaryOn ? loadCardExtras(raw) : null;
 
   // Hide archived rows from the admin index — admins can still reach
   // archived jobs through legacy /admin/jobs.html when they need to.
@@ -89,34 +87,7 @@ export default async function AdminJobsPage() {
 
   return (
     <AdminShell title="Jobs">
-      <div className="mx-auto max-w-5xl space-y-4">
-        <Card>
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <div>
-              <CardTitle>Jobs</CardTitle>
-              <CardDescription className="mt-1">
-                Open a job to review captured evidence or work the snags queue.
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-3">
-              <p className="text-sm text-text-muted">
-                {visible.length === 0
-                  ? "No active jobs"
-                  : `${visible.length} ${visible.length === 1 ? "job" : "jobs"}`}
-              </p>
-              {canCreate ? (
-                <Link
-                  data-testid="jobs-new-job"
-                  href="/v2/jobs/new"
-                  className="inline-flex items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
-                >
-                  <Plus aria-hidden="true" className="h-4 w-4" /> New job
-                </Link>
-              ) : null}
-            </div>
-          </div>
-        </Card>
-
+      <div className="mx-auto max-w-6xl space-y-4">
         {fetchError ? (
           <Card className="border-amber-200 bg-amber-50" role="alert">
             <CardTitle>Couldn&rsquo;t load jobs</CardTitle>
@@ -128,7 +99,12 @@ export default async function AdminJobsPage() {
 
         <TestJobsCleanup jobs={deletableTestJobs} />
 
-        <JobsList jobs={visible} canBuild={canBuild} taskCountsPromise={taskCountsPromise ?? undefined} />
+        <JobsList
+          jobs={visible}
+          canBuild={canBuild}
+          newJobHref={canCreate ? "/v2/jobs/new" : undefined}
+          cardExtrasPromise={cardExtrasPromise ?? undefined}
+        />
       </div>
     </AdminShell>
   );
@@ -145,8 +121,9 @@ async function loadJobs(cookieValue: string | undefined): Promise<{
 
   try {
     // statsOnly: base + snag/evidence/ITP counts + health inputs, skipping the
-    // ~8s jobs.json monolith. The "X/Y tasks" progress (areaGroups-derived) is
-    // absent here and streamed in via loadTaskCounts. Flag-off → full read.
+    // ~8s jobs.json monolith. The "X/Y tasks" progress (areaGroups-derived) and
+    // the admin-tier contractValue are absent here and streamed in via
+    // loadCardExtras. Flag-off → full read.
     const res = await fetch(`${base}/api/jobs?withStats=1&statsOnly=1`, {
       cache: "no-store",
       headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
@@ -169,15 +146,17 @@ async function loadJobs(cookieValue: string | undefined): Promise<{
 }
 
 /**
- * Streamed task-progress for the list rows: the full ?withStats=1 read carries the
- * areaGroups-derived statsTasksTotal/Complete that statsOnly omits. Resolves to a
- * { [jobId]: { tasksTotal, tasksComplete } } map (only jobs with numeric counts);
- * JobsList hydrates it in behind the already-painted rows. Fails soft to {} → the
- * progress line just doesn't show (no fabricated count).
+ * Streamed enrichment for the list cards: the full ?withStats=1 read carries the
+ * areaGroups-derived statsTasksTotal/Complete AND the admin-tier contractValue
+ * that the fast statsOnly read omits (statsOnly builds from the money-stripped
+ * jobs-summary base). Resolves to a per-job map of the numeric extras present;
+ * JobsList hydrates them in behind the already-painted cards. Fails soft to {} →
+ * the progress line + value tile just stay as the statsOnly paint left them (no
+ * fabricated count, no fabricated dollar figure).
  */
-async function loadTaskCounts(
+async function loadCardExtras(
   cookieValue: string | undefined
-): Promise<Record<string, { tasksTotal: number; tasksComplete: number }>> {
+): Promise<Record<string, { tasksTotal?: number; tasksComplete?: number; contractValue?: number }>> {
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";
@@ -190,11 +169,22 @@ async function loadTaskCounts(
     if (!res.ok) return {};
     const parsed = JobListResponseSchema.safeParse(await res.json());
     if (!parsed.success) return {};
-    const out: Record<string, { tasksTotal: number; tasksComplete: number }> = {};
+    const out: Record<
+      string,
+      { tasksTotal?: number; tasksComplete?: number; contractValue?: number }
+    > = {};
     for (const j of parsed.data.jobs) {
+      const entry: { tasksTotal?: number; tasksComplete?: number; contractValue?: number } = {};
       if (typeof j.statsTasksTotal === "number" && typeof j.statsTasksComplete === "number") {
-        out[j.id] = { tasksTotal: j.statsTasksTotal, tasksComplete: j.statsTasksComplete };
+        entry.tasksTotal = j.statsTasksTotal;
+        entry.tasksComplete = j.statsTasksComplete;
       }
+      // contractValue is admin-tier (redacted to undefined for an LH viewer by
+      // the API), so this is a real figure or genuinely absent — never faked.
+      if (typeof j.contractValue === "number" && Number.isFinite(j.contractValue)) {
+        entry.contractValue = j.contractValue;
+      }
+      if (Object.keys(entry).length > 0) out[j.id] = entry;
     }
     return out;
   } catch {

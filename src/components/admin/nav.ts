@@ -42,6 +42,24 @@ import type { FlagKey } from "../../../api/_lib/feature-flags";
  *     one sidebar item; Day / Approvals / Weekly are in-page HoursTabs);
  *   - /settings/notifications (a sidebar FOOTER link, not a nav-group item, #218).
  */
+/**
+ * The live-count loops a sidebar item can carry a badge for. Each maps to a
+ * cheap, already-shipped summary endpoint (see ./useNavCounts). Deliberately a
+ * SUBSET of the office IA: an item only gets a `countKey` when there is a real,
+ * cheap source for its number. Loops without one (Command centre criticals, QA
+ * exposure, quote pipeline, dayworks) render NO badge rather than a fake zero —
+ * the hide-unfinished / honesty rule (CLAUDE.md, brief §0).
+ */
+export type NavCountKey =
+  | "obs"
+  | "mats"
+  | "exp"
+  | "jobs"
+  | "defects"
+  | "hours"
+  | "people"
+  | "gear";
+
 export interface NavItem {
   label: string;
   href: Route;
@@ -49,6 +67,13 @@ export interface NavItem {
   /** Path prefix(es) that mark this item active; longest prefix wins
    *  (so a deeper sibling entry would beat /hours on its own pages). */
   activeFor: ReadonlyArray<string>;
+  /** Which live count feeds this item's sidebar badge (see useNavCounts).
+   *  Omitted = no badge. */
+  countKey?: NavCountKey;
+  /** When true, a non-zero count renders as a red attention pip (work waiting
+   *  on the office: defects, hours, observations, expiring gear) rather than a
+   *  muted tally (jobs / people / material requests / expenses). */
+  attention?: boolean;
   /**
    * #760 owner feature-control: the kill-switch flag that gates this item. When
    * the flag is off for the viewer, AdminShell hides the item from the sidebar,
@@ -81,6 +106,8 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         icon: Inbox,
         activeFor: ["/observations"],
         flag: "observations_inbox",
+        countKey: "obs",
+        attention: true,
       },
       {
         label: "Material requests",
@@ -88,6 +115,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         icon: Package,
         activeFor: ["/material-requests"],
         flag: "material_requests",
+        countKey: "mats",
       },
       {
         // Reimbursements (#536) — field-submitted receipts the office reviews,
@@ -98,6 +126,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         icon: Wallet,
         activeFor: ["/expenses"],
         flag: "expenses",
+        countKey: "exp",
       },
     ],
   },
@@ -110,6 +139,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         icon: Briefcase,
         activeFor: ["/v2/jobs"],
         flag: "jobs",
+        countKey: "jobs",
       },
       {
         // v2 quote builder foundation (#183) — quotes are where jobs are
@@ -127,6 +157,8 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         icon: Bug,
         activeFor: ["/defects"],
         flag: "defects",
+        countKey: "defects",
+        attention: true,
       },
       {
         label: "ITP templates",
@@ -168,6 +200,8 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         icon: Clock,
         activeFor: ["/hours"],
         flag: "hours",
+        countKey: "hours",
+        attention: true,
       },
     ],
   },
@@ -180,6 +214,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         icon: Users,
         activeFor: ["/employees"],
         flag: "employees",
+        countKey: "people",
       },
       {
         label: "Gear",
@@ -187,6 +222,8 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         icon: Wrench,
         activeFor: ["/gear"],
         flag: "gear",
+        countKey: "gear",
+        attention: true,
       },
     ],
   },

@@ -4,11 +4,12 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight, ClipboardCheck, X } from "lucide-react";
+import { AlertOctagon, CheckCircle2, ChevronRight, ClipboardCheck, ClipboardList, X } from "lucide-react";
 import { Pill } from "@/components/ui/Pill";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { priorityLabel, priorityTone, statusLabel, statusTone } from "@/domains/snags/format";
+import { InboxStatStrip, type InboxStat } from "./InboxShell";
+import { isActive, priorityLabel, priorityTone, statusLabel, statusTone } from "@/domains/snags/format";
 import { SNAG_PRIORITIES, SNAG_STATUSES } from "@/domains/snags/schema";
 import { bulkCloseSnags } from "@/domains/snags/client";
 import {
@@ -155,6 +156,30 @@ export function DefectsRegister({ snags, jobs }: Props) {
   // filter is always visible and clearable (JobsList convention).
   const statusOptions = SNAG_STATUSES.filter((s) => (counts.get(s) ?? 0) > 0 || status === s);
 
+  // Shared inbox stat strip (§6) — a glanceable header over the register's OWN
+  // data (no new fetch). Every number is derived from the same `snags` the list
+  // renders: open count + urgent/high among still-active rows (the "needs an
+  // owner" signal) + resolved-awaiting-verify + closed. A zero reads calm/muted
+  // (the shell handles that); nothing here is fabricated.
+  // OMITTED vs the prototype: the "Stale > 3 days" tile — the register doesn't
+  // compute a staleness threshold anywhere (it sorts oldest-first but has no
+  // age-bucket count), so inventing one here would be a fabricated policy.
+  const urgentHighActive = useMemo(
+    () =>
+      snags.reduce(
+        (n, s) =>
+          isActive(s.status) && (s.priority === "urgent" || s.priority === "high") ? n + 1 : n,
+        0
+      ),
+    [snags]
+  );
+  const stats: InboxStat[] = [
+    { key: "open", label: "Open", value: counts.get("open") ?? 0, icon: AlertOctagon, tone: "warning" },
+    { key: "urgentHigh", label: "Urgent / high (open)", value: urgentHighActive, icon: ClipboardList, tone: "danger" },
+    { key: "resolved", label: "Resolved (to verify)", value: counts.get("resolved") ?? 0, icon: ClipboardCheck, tone: "info" },
+    { key: "closed", label: "Closed", value: counts.get("closed") ?? 0, icon: CheckCircle2, tone: "success" },
+  ];
+
   const jobNameById = useMemo(() => {
     const m = new Map<string, string>();
     for (const j of jobs) m.set(j.id, j.name);
@@ -240,6 +265,8 @@ export function DefectsRegister({ snags, jobs }: Props) {
 
   return (
     <div className="space-y-3">
+      <InboxStatStrip stats={stats} />
+
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div
           role="group"

@@ -75,6 +75,12 @@ export interface WeeklyHoursDay {
   holidayName: string | null;
 }
 
+export interface WeeklyJobSlice {
+  jobId: string | null;
+  jobName: string;
+  hours: number;
+}
+
 export interface WeeklyWorkerHours {
   workerId: string;
   workerName: string;
@@ -88,8 +94,28 @@ export interface WeeklyWorkerHours {
   missingCount: number;
   /** Human-readable blocking lines, e.g. "Wed missing", "Fri rejected". */
   blockers: string[];
+  /** §5 mockup "needs a look" lines — site-language reasons the office should
+   *  eyeball before approving (overtime, missing day, rejected/draft, logged on
+   *  leave). Derived from the SAME real signals as `blockers`; never invented. */
+  needsLookReasons: string[];
   /** Seven cells, Monday → Sunday. */
   days: WeeklyHoursDay[];
+  /** §5 mockup weekly TOTAL — every LOGGED day (approved/submitted/rejected/
+   *  draft) regardless of approval state, so the row's "{h}h" matches the day
+   *  numbers a boss can see in the strip. (`approvedHours` stays the
+   *  payroll-relevant subset.) Never includes missing/leave/holiday/empty. */
+  loggedHours: number;
+  /** §5 mockup job-split chips — logged hours per job across the week, from the
+   *  entries' allocations. >1 entry ⇒ render "Split this week". */
+  jobBreakdown: WeeklyJobSlice[];
+  /** Effective LOADED-COST rate (integer cents) for this worker, when the admin
+   *  caller supplied one (api/cost-rates.js, effective on the week's Monday).
+   *  null when no rate exists OR the viewer can't read rates (a leading hand) —
+   *  the row then shows "—", never a fabricated $0. */
+  costRateCents: number | null;
+  /** §5 mockup labour $ for the row = round(loggedHours × costRateCents), in
+   *  integer cents. null exactly when costRateCents is null (honest "—"). */
+  labourCents: number | null;
 }
 
 export interface WeeklyApprovedJobSlice {
@@ -115,6 +141,16 @@ export interface WeeklyHoursCloseout {
     draftDays: number;
     missingDays: number;
     approvedHours: number;
+    /** §5 hero "{totalHrs}h logged" — sum of every worker's LOGGED hours
+     *  across the week (all statuses), the figure the day-number strip adds to. */
+    loggedHours: number;
+    /** §5 hero "${labour} labour" — sum of labourCents across ONLY the workers
+     *  who have a known cost rate (integer cents). 0 when no worker is rated;
+     *  `ratedWorkers` lets the hero omit the $ affordance gracefully then. */
+    labourCents: number;
+    /** How many workers in the run carry a cost rate (drives whether the hero
+     *  shows a labour figure at all — no column of "—"). */
+    ratedWorkers: number;
     payrollReady: boolean;
   };
 }
@@ -134,6 +170,14 @@ export interface WeeklyCloseoutInput {
   weekStart: string;
   /** Today in the business timezone — future-day classification. */
   todayISO: string;
+  /** §5: effective LOADED-COST rate per worker (integer cents), keyed by
+   *  userId — supplied ONLY by the admin-tier page after an admin-gated
+   *  /api/cost-rates read. Omit entirely (or pass {}) when the viewer can't read
+   *  rates (a leading hand) or the rates are unknown; the model then carries
+   *  null cost everywhere and the surface shows "—", never a fabricated $0.
+   *  Resolved to the rate effective on the week's Monday so a past week is
+   *  costed at the rate that was effective THEN (cost-rates' append-only law). */
+  costRatesByWorker?: Readonly<Record<string, number>>;
 }
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
@@ -192,16 +236,23 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
     }
   }
 
+  const costRates = input.costRatesByWorker ?? {};
+
   const workers: WeeklyWorkerHours[] = [];
   for (const [workerId, who] of names) {
     const days: WeeklyHoursDay[] = [];
     let approvedHours = 0;
+    let loggedHours = 0;
     let approvedCount = 0;
     let submittedCount = 0;
     let rejectedCount = 0;
     let draftCount = 0;
     let missingCount = 0;
     const blockers: string[] = [];
+    const needsLookReasons: string[] = [];
+    // §5 job-split chips: logged hours per job across the week, allocation-level
+    // so split days attribute correctly. Insertion-ordered for a stable palette.
+    const jobHours = new Map<string, { jobId: string | null; jobName: string; hours: number }>();
 
     for (let i = 0; i < 7; i++) {
       const date = addDays(weekStart, i);
@@ -242,6 +293,32 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
         status = "not-required";
       }
 
+      // §5: every LOGGED day (any of the four entry statuses) feeds the row's
+      // weekly total + job-split, regardless of approval state. Missing / leave
+      // / holiday / future / not-required carry no hours and never count here.
+      const isLogged =
+        status === "approved" ||
+        status === "submitted" ||
+        status === "rejected" ||
+        status === "draft";
+      if (entry && isLogged) {
+        loggedHours += entry.totalHours ?? 0;
+        for (const a of entry.allocations ?? []) {
+          const key = a.jobId ?? "__internal__";
+          const hours = Number(a.hours) || 0;
+          const existing = jobHours.get(key);
+          if (existing) {
+            existing.hours += hours;
+          } else {
+            jobHours.set(key, {
+              jobId: a.jobId ?? null,
+              jobName: a.jobId ? (a.jobName ?? a.jobId) : "Internal (no job)",
+              hours,
+            });
+          }
+        }
+      }
+
       if (status === "approved") {
         approvedCount += 1;
         approvedHours += entry?.totalHours ?? 0;
@@ -251,12 +328,33 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
       } else if (status === "rejected") {
         rejectedCount += 1;
         blockers.push(`${weekday} rejected`);
+        needsLookReasons.push(
+          entry?.rejectedReason
+            ? `${weekday} bounced back — "${entry.rejectedReason}". Waiting on the worker.`
+            : `${weekday} was rejected — waiting on the worker to fix it.`,
+        );
       } else if (status === "draft") {
         draftCount += 1;
         blockers.push(`${weekday} draft — not submitted`);
+        needsLookReasons.push(`${weekday} is still a draft — not sent in yet.`);
       } else if (status === "missing") {
         missingCount += 1;
         blockers.push(`${weekday} missing`);
+        needsLookReasons.push(`No entry for ${weekday} — was she on site?`);
+      }
+
+      // §5 overtime flag — a long day the boss should eyeball. Read straight off
+      // the stored entry (overtimeHours > 0, or a >10h day) — never re-derived.
+      if (entry && isLogged) {
+        const ot = entry.overtimeHours ?? 0;
+        const long = (entry.totalHours ?? 0) > 10;
+        if (ot > 0 || long) {
+          needsLookReasons.push(
+            ot > 0
+              ? `${weekday} carries ${round2(ot)}h overtime — needs your nod.`
+              : `${weekday} ran over 10h — overtime needs your nod.`,
+          );
+        }
       }
 
       const leaveType = leaveByKey.get(`${workerId}|${date}`) ?? null;
@@ -264,6 +362,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
         // Logged hours on an approved-leave day still count as WORK, but the
         // office should see the collision (#333).
         blockers.push(`${weekday} logged while on leave`);
+        needsLookReasons.push(`${weekday} logged while on ${leaveType} leave.`);
       }
 
       days.push({
@@ -295,6 +394,24 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
             ? "missing-hours"
             : "payroll-ready";
 
+    const roundedLogged = round2(loggedHours);
+    // §5 labour $: hours × rate, integer cents. null exactly when no rate is
+    // known for this worker — the surface shows "—", never $0.
+    const rawRate = costRates[workerId];
+    const costRateCents =
+      typeof rawRate === "number" && Number.isFinite(rawRate) && rawRate > 0
+        ? Math.round(rawRate)
+        : null;
+    const labourCents =
+      costRateCents != null ? Math.round(roundedLogged * costRateCents) : null;
+
+    // Job-split chips — logged hours per job, biggest first; "__internal__"
+    // (null-job allocations) sorts like any other slice.
+    const jobBreakdown: WeeklyJobSlice[] = [...jobHours.values()]
+      .map((j) => ({ jobId: j.jobId, jobName: j.jobName, hours: round2(j.hours) }))
+      .filter((j) => j.hours > 0)
+      .sort((a, b) => b.hours - a.hours);
+
     workers.push({
       workerId,
       workerName: who.name,
@@ -307,7 +424,12 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
       draftCount,
       missingCount,
       blockers,
+      needsLookReasons,
       days,
+      loggedHours: roundedLogged,
+      jobBreakdown,
+      costRateCents,
+      labourCents,
     });
   }
 
@@ -350,6 +472,11 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
     draftDays: workers.reduce((n, w) => n + w.draftCount, 0),
     missingDays: workers.reduce((n, w) => n + w.missingCount, 0),
     approvedHours: round2(workers.reduce((n, w) => n + w.approvedHours, 0)),
+    loggedHours: round2(workers.reduce((n, w) => n + w.loggedHours, 0)),
+    // Labour sums ONLY rated workers — an unrated worker contributes 0, never a
+    // guessed cost. The hero hides the figure entirely when ratedWorkers === 0.
+    labourCents: workers.reduce((n, w) => n + (w.labourCents ?? 0), 0),
+    ratedWorkers: workers.filter((w) => w.costRateCents != null).length,
     // An empty week can't honestly be "ready" — there is nothing to pay.
     payrollReady:
       workers.length > 0 && workers.every((w) => w.readiness === "payroll-ready"),
