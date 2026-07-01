@@ -7,6 +7,7 @@ import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { HoursTabs } from "@/components/admin/HoursTabs";
 import { WeeklyHoursCloseoutBoard } from "@/components/admin/WeeklyHoursCloseoutBoard";
+import { WeeklyHoursApprovalMobile } from "@/components/admin/WeeklyHoursApprovalMobile";
 import { WeeklyPayrollExportPanel } from "@/components/admin/WeeklyPayrollExportPanel";
 import { notPayrollReadyWorkers } from "@/domains/timesheets/payroll-export";
 import { PayrollRunsResponseSchema } from "@/domains/timesheets/schema";
@@ -127,7 +128,28 @@ export default async function HoursWeeklyCloseoutPage({
     >
       {/* Section tabs (#415) — navigation chrome only, above all content. */}
       <HoursTabs />
-      <div className="mx-auto max-w-4xl space-y-4">
+
+      {/* Phones + narrow tablets: the purpose-built, one-at-a-time approval
+          flow (summary readout, "Review each" stepper, per-person cards). It
+          fires the SAME approve / reject / reopen endpoints the desktop board
+          below uses — no second status-transition path. */}
+      <div className="mx-auto w-full max-w-xl lg:hidden">
+        <WeeklyHoursApprovalMobile
+          closeout={closeout}
+          weekNav={{
+            prevWeek,
+            nextWeek,
+            currentWeek: weekStartOf(todayISO),
+            isCurrentWeek,
+          }}
+          canUndo={isAdminRole(session.role)}
+          fetchError={fetchError}
+        />
+      </div>
+
+      {/* Desktop (lg+): the dense pay-run board — the full closeout with the
+          payroll export panel. */}
+      <div className="mx-auto hidden max-w-4xl space-y-4 lg:block">
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
