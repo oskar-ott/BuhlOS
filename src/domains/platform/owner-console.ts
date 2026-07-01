@@ -42,6 +42,18 @@ export const FlagItemSchema = z.object({
   expiryStatus: z.enum(["ok", "expiring", "expired"]),
   protected: z.boolean(),
   toggleable: z.boolean(),
+  // #760 Feature Control Board: human label / domain / surface (null for
+  // protected/unlabelled flags). killSwitch = a LIVE feature (default-on) the
+  // owner can turn off, vs a dark-by-default launch gate.
+  label: z.string().nullable().optional(),
+  domain: z.string().nullable().optional(),
+  surface: z.enum(["BuhlOS", "Phil", "Shared"]).nullable().optional(),
+  killSwitch: z.boolean().optional(),
+  // #760: a load-bearing spine feature (jobs/hours/evidence) — the board warns
+  // before the owner turns it off.
+  core: z.boolean().optional(),
+  // #760: where "Open to test" deep-links (null for protected/unlabelled flags).
+  previewHref: z.string().nullable().optional(),
 });
 
 export const FlagsSchema = z.object({

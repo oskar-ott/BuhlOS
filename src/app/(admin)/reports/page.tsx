@@ -1,13 +1,14 @@
 import Link from "next/link";
 import type { Route } from "next";
 import type { z } from "zod";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { OwnerNumbersBoard } from "@/components/admin/OwnerNumbersBoard";
 import { UtilisationPanel } from "@/components/admin/UtilisationPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import {
   BUSINESS_TIMEZONE,
@@ -67,6 +68,10 @@ export default async function ReportsPage() {
   // /command-centre) — never a literal 'admin' comparison.
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
+  }
+  // #760: reports kill-switch — when the owner turns reports off, the surface 404s.
+  if (!(await isFlagEnabled("reports", session))) {
+    notFound();
   }
 
   const tiles = await loadOwnerNumbers(raw);

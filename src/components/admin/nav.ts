@@ -15,6 +15,7 @@ import {
   Wallet,
 } from "lucide-react";
 import type { Route } from "next";
+import type { FlagKey } from "../../../api/_lib/feature-flags";
 
 /**
  * BuhlOS admin navigation — the single source of truth for the office IA.
@@ -73,6 +74,13 @@ export interface NavItem {
    *  on the office: defects, hours, observations, expiring gear) rather than a
    *  muted tally (jobs / people / material requests / expenses). */
   attention?: boolean;
+  /**
+   * #760 owner feature-control: the kill-switch flag that gates this item. When
+   * the flag is off for the viewer, AdminShell hides the item from the sidebar,
+   * ⌘K palette and mobile tab bar (and the route itself 404s). Omit for chrome
+   * that must always be reachable (Command centre) so the owner can't self-lock.
+   */
+  flag?: FlagKey;
 }
 
 export interface NavGroup {
@@ -97,6 +105,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/observations" as Route,
         icon: Inbox,
         activeFor: ["/observations"],
+        flag: "observations_inbox",
         countKey: "obs",
         attention: true,
       },
@@ -105,6 +114,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/material-requests" as Route,
         icon: Package,
         activeFor: ["/material-requests"],
+        flag: "material_requests",
         countKey: "mats",
       },
       {
@@ -115,6 +125,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/expenses" as Route,
         icon: Wallet,
         activeFor: ["/expenses"],
+        flag: "expenses",
         countKey: "exp",
       },
     ],
@@ -127,6 +138,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/v2/jobs" as Route,
         icon: Briefcase,
         activeFor: ["/v2/jobs"],
+        flag: "jobs",
         countKey: "jobs",
       },
       {
@@ -136,6 +148,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/v2/quotes" as Route,
         icon: Calculator,
         activeFor: ["/v2/quotes"],
+        flag: "quotes",
       },
       {
         // Cross-job defects register (#414) — doc 13 reserves this slot.
@@ -143,6 +156,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/defects" as Route,
         icon: Bug,
         activeFor: ["/defects"],
+        flag: "defects",
         countKey: "defects",
         attention: true,
       },
@@ -151,6 +165,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/itp-templates" as Route,
         icon: ClipboardList,
         activeFor: ["/itp-templates"],
+        flag: "itp",
       },
       {
         // Cross-job QA status dashboard (#290) — ITP exposure across active
@@ -159,6 +174,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/qa" as Route,
         icon: ClipboardCheck,
         activeFor: ["/qa"],
+        flag: "itp",
       },
       {
         // Cross-job daywork register (#370) — day-labour dockets + payment risk
@@ -167,6 +183,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/v2/dayworks" as Route,
         icon: Receipt,
         activeFor: ["/v2/dayworks"],
+        flag: "dayworks",
       },
     ],
   },
@@ -182,6 +199,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/hours",
         icon: Clock,
         activeFor: ["/hours"],
+        flag: "hours",
         countKey: "hours",
         attention: true,
       },
@@ -195,6 +213,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/employees" as Route,
         icon: Users,
         activeFor: ["/employees"],
+        flag: "employees",
         countKey: "people",
       },
       {
@@ -202,6 +221,7 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/gear",
         icon: Wrench,
         activeFor: ["/gear"],
+        flag: "gear",
         countKey: "gear",
         attention: true,
       },
@@ -218,12 +238,37 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         href: "/reports" as Route,
         icon: BarChart3,
         activeFor: ["/reports"],
+        flag: "reports",
       },
     ],
   },
 ];
 
 export const ALL_ITEMS: ReadonlyArray<NavItem> = NAV_GROUPS.flatMap((g) => g.items);
+
+/**
+ * #760 owner feature-control: drop nav items whose href is in `hiddenHrefs`
+ * (the features the owner has turned off for this viewer), then drop any group
+ * left with no items. `hiddenHrefs` is resolved server-side in AdminShell from
+ * `flagsForViewer`; an undefined/empty set means "show everything" (the default,
+ * and the safe fallback if flag resolution ever fails). Pure + synchronous so
+ * the client sidebar / palette / mobile tab bar all filter from one rule.
+ */
+export function visibleNavGroups(
+  hiddenHrefs?: ReadonlyArray<string> | null,
+): ReadonlyArray<NavGroup> {
+  if (!hiddenHrefs || hiddenHrefs.length === 0) return NAV_GROUPS;
+  const hidden = new Set(hiddenHrefs);
+  return NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((it) => !hidden.has(it.href)),
+  })).filter((g) => g.items.length > 0);
+}
+
+/** The subset of ALL_ITEMS that carry a gating flag → their [href, flag] pairs.
+ *  AdminShell uses this to resolve which hrefs to hide for the viewer. */
+export const FLAGGED_ITEMS: ReadonlyArray<{ href: string; flag: NonNullable<NavItem["flag"]> }> =
+  ALL_ITEMS.filter((it) => it.flag).map((it) => ({ href: it.href, flag: it.flag! }));
 
 /**
  * The active item is the one whose `activeFor` prefix is the LONGEST match

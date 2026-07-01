@@ -87,6 +87,7 @@ const { append: appendAuditLog } = require('./_lib/audit-log');
 const { buildJobCreatedEntry, buildQuoteConvertedEntry } = require('./_lib/job-create-audit');
 const { deriveDeliveryState, validateSent, appendSent, appendViewed } = require('./_lib/quote-delivery');
 const { requireAuth, isAdminRole, isLeadingHandRole, isFieldRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 // #244: won-quote conversion writes the job through THE sanctioned creator,
 // not a second raw writeBlob('jobs.json'). quoteToJobShape mirrors the pure
 // spec in src/domains/quoting/quote-to-job.ts (the CJS server can't import the
@@ -1660,6 +1661,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
+  if (!(await isFlagEnabled('quotes', user))) return res.status(404).json({ error: 'not found' });
   // Quoting is admin-only for v1. Tradies/clients always 403.
   if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin only' });
 

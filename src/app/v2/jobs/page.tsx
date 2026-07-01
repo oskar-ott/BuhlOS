@@ -1,6 +1,7 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { JobsList } from "@/components/admin/JobsList";
 import { TestJobsCleanup } from "@/components/admin/TestJobsCleanup";
@@ -50,6 +51,11 @@ export default async function AdminJobsPage() {
   if (!canAccessSurface(session.role, "lh")) {
     redirect("/v2/login");
   }
+  // #760: Jobs is a CORE kill-switch — the owner can hide the whole admin Jobs
+  // surface. Default ON, so this is a no-op until turned off from /owner. (The
+  // shared /api/jobs stays live — it's infrastructure the field + hub rely on;
+  // the board warns before disabling a core feature.)
+  if (!(await isFlagEnabled("jobs", session))) notFound();
   // CREATE (POST /api/jobs) is literal-admin only; EDIT/build (PUT) is the
   // admin tier. The "New job" button uses canCreateJob (literal admin); the
   // per-row "Build" uses admin-tier access. A leading hand sees the list but

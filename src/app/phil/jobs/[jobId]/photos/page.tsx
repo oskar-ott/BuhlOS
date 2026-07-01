@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -8,6 +8,7 @@ import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
 import { PhilPhotosGallery } from "@/components/phil/PhilPhotosGallery";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
@@ -56,6 +57,10 @@ export default async function PhilJobPhotosPage({ params }: PageParams) {
   }
   if (!canAccessSurface(session.role, "phil")) {
     redirect("/v2/login");
+  }
+  // #760: job-photos kill-switch — when the owner turns job photos off, the surface 404s.
+  if (!(await isFlagEnabled("job_photos", session))) {
+    notFound();
   }
 
   const [jobResult, evidenceResult, catalogResult] = await Promise.all([

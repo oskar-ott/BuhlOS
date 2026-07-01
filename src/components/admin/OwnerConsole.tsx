@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { StatusChip } from "@/components/ui/StatusChip";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { OwnerFlagList } from "@/components/admin/OwnerFlagRow";
+import { OwnerFeatureBoard } from "@/components/admin/OwnerFeatureBoard";
 import {
   type OwnerSummary,
   checkTone,
@@ -20,10 +20,10 @@ import {
 /**
  * Owner Console board (docs/owner-console.md) — server render of the owner-gated
  * summary from /api/owner. The page resolves access + data server-side and hands
- * a parsed `OwnerSummary` here. The only interactive part is the feature-flag
- * section, which mounts the OwnerFlagList client island when
- * capabilities.flagToggle is true (writes go to POST /api/owner-flags); when
- * false it falls back to the read-only flag list.
+ * a parsed `OwnerSummary` here. The only interactive part is the Feature control
+ * section, which mounts the OwnerFeatureBoard client island (domain-grouped
+ * feature toggles) when capabilities.flagToggle is true (writes go to POST
+ * /api/owner-flags); when false it falls back to the read-only flag list.
  *
  * Honesty rules (P7): every panel shows its data source + freshness, or an
  * explicit "not instrumented yet" label. No fake metrics, no invented zeros,
@@ -134,13 +134,13 @@ export function OwnerConsole({ summary }: { summary: OwnerSummary }) {
         <NotInstrumented items={usage.notInstrumented} />
       </Section>
 
-      {/* Feature Flags */}
+      {/* Feature control board (#760) */}
       <Section
-        title="Feature flags"
+        title="Feature control"
         source={flags.source}
         caption={
           capabilities.flagToggle
-            ? `${onCount} on · ${expiredCount} expired · ${expiringCount} expiring soon · two dials per flag — Live to customers + Preview for me. Protected data-plane flags stay read-only.`
+            ? `${onCount} on · ${expiredCount} expired · ${expiringCount} expiring soon · grouped by area; two dials per feature — Live to customers + Preview for me. Data-plane flags stay read-only.`
             : `${onCount} on · ${expiredCount} expired · ${expiringCount} expiring soon · read-only (${capabilities.flagToggleReason})`
         }
       >
@@ -159,7 +159,7 @@ export function OwnerConsole({ summary }: { summary: OwnerSummary }) {
                 the <span className="font-mono">owner</span> role.
               </div>
             ) : null}
-            <OwnerFlagList items={flags.items} rev={flags.rev} />
+            <OwnerFeatureBoard items={flags.items} rev={flags.rev} />
           </div>
         ) : (
           <div className="divide-y divide-border overflow-hidden rounded-card border border-border">

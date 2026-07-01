@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { HoursTabs } from "@/components/admin/HoursTabs";
 import { WeeklyHoursCloseoutBoard } from "@/components/admin/WeeklyHoursCloseoutBoard";
@@ -62,6 +63,8 @@ export default async function HoursWeeklyCloseoutPage({
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
   }
+  // #760: Hours kill-switch — hide the office surface when the owner turns it off.
+  if (!(await isFlagEnabled("hours", session))) notFound();
 
   // `?week=` is any date inside the desired week (nav links pass a Monday).
   // DEFAULT to the most recent COMPLETE week (last week), not the in-progress

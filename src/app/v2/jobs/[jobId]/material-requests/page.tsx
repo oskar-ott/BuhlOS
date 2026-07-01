@@ -1,12 +1,13 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { MaterialRequestsInbox } from "@/components/admin/MaterialRequestsInbox";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { isAdminRole } from "@/lib/auth/roles";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { MaterialRequestListResponseSchema } from "@/domains/material-requests/schema";
@@ -39,6 +40,7 @@ export default async function JobMaterialRequestsPage({ params }: PageParams) {
   if (!canAccessSurface(session.role, "lh")) {
     redirect("/v2/login");
   }
+  if (!(await isFlagEnabled("material_requests", session))) notFound();
 
   const { job, jobError, requests, requestsError } = await load(raw, jobId);
 

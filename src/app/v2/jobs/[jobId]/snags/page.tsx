@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { SnagsQueue } from "@/components/admin/SnagsQueue";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isAdminRole } from "@/lib/auth/roles";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
@@ -52,6 +53,10 @@ export default async function AdminSnagsPage({ params }: PageParams) {
   if (!canAccessSurface(session.role, "lh")) {
     // Defence-in-depth — middleware already gates this prefix.
     redirect("/v2/login");
+  }
+  // #760: snags kill-switch — when the owner turns snags off, the surface 404s.
+  if (!(await isFlagEnabled("snags", session))) {
+    notFound();
   }
   const isAdmin = isAdminRole(session.role);
 

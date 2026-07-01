@@ -1,9 +1,10 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { DefectsRegister } from "@/components/admin/DefectsRegister";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import {
   DefectsRegisterResponseSchema,
@@ -47,6 +48,7 @@ export default async function DefectsPage() {
   if (!canAccessSurface(session.role, "lh")) {
     redirect("/v2/login");
   }
+  if (!(await isFlagEnabled("defects", session))) notFound();
 
   const { snags, jobs, fetchError } = await loadRegister(raw);
 

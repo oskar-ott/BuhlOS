@@ -50,8 +50,11 @@ describe("AdminTopbar ⌘K affordance (#215)", () => {
 });
 
 describe("AdminShell mounts the palette (#215) while keeping its contract", () => {
-  it("renders the shell test id and composes sidebar + topbar; palette mount throws nothing", () => {
-    const html = renderToString(<AdminShell title="Command Centre">body</AdminShell>);
+  it("renders the shell test id and composes sidebar + topbar; palette mount throws nothing", async () => {
+    // #760: AdminShell is now an async server component (it resolves the
+    // viewer's owner-disabled nav flags, failing open here since next/headers
+    // isn't in scope). Await the element, then render it.
+    const html = renderToString(await AdminShell({ title: "Command Centre", children: "body" }));
     // check:shell-contract invariants stay intact.
     expect(html).toContain("buhlos-admin-shell");
     // Sidebar + topbar still compose (sidebar nav landmark, topbar search box).

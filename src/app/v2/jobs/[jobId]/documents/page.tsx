@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { DocumentsList } from "@/components/admin/DocumentsList";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { DocumentListResponseSchema } from "@/domains/documents/schema";
@@ -50,6 +51,10 @@ export default async function AdminDocumentsPage({ params }: PageParams) {
   }
   if (!canAccessSurface(session.role, "lh")) {
     redirect("/v2/login");
+  }
+  // #760: documents kill-switch — when the owner turns documents off, the surface 404s.
+  if (!(await isFlagEnabled("documents", session))) {
+    notFound();
   }
 
   const [jobResult, docsResult] = await Promise.all([

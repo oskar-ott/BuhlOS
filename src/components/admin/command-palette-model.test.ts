@@ -25,6 +25,36 @@ function rec(path: string, type: RecentItem["type"] = "job", title = path): Rece
   return { path, title, type, at: 1 };
 }
 
+describe("#760 owner feature-control filtering", () => {
+  it("buildGoToCommands drops hidden nav destinations", () => {
+    const hrefs = buildGoToCommands(["/reports", "/v2/jobs"]).map((c) => c.href);
+    expect(hrefs).not.toContain("/reports");
+    expect(hrefs).not.toContain("/v2/jobs");
+    expect(hrefs).toContain("/command-centre"); // ungated stays
+  });
+
+  it("hides commands that sit UNDER a hidden feature href (prefix match)", () => {
+    // Hiding /v2/jobs must also drop the 'New job' action (/v2/jobs/new) and
+    // hiding /hours must drop 'Open approvals' (/hours/approvals).
+    const actions = buildActionCommands(["/v2/jobs", "/hours"]).map((c) => c.href);
+    expect(actions).not.toContain("/v2/jobs/new");
+    expect(actions).not.toContain("/hours/approvals");
+    expect(actions).toContain("/reports"); // ungated action stays
+  });
+
+  it("buildStaticSections threads the hidden set into Go-to + Actions", () => {
+    const flat = flattenSections(buildStaticSections([], ["/reports"])).map((c) => c.href);
+    expect(flat).not.toContain("/reports");
+    expect(flat).not.toContain("/reports"); // also the 'Open reports' action
+  });
+
+  it("an empty/undefined hidden set changes nothing", () => {
+    expect(buildGoToCommands().map((c) => c.href)).toEqual(
+      buildGoToCommands([]).map((c) => c.href),
+    );
+  });
+});
+
 describe("buildGoToCommands (NAV-derived + explicit sub-tabs)", () => {
   const goTo = buildGoToCommands();
   const hrefs = goTo.map((c) => c.href);

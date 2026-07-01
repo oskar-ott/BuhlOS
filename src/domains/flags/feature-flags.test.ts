@@ -19,7 +19,10 @@ type FlagsModule = {
   flagsForViewer: (viewer?: { role?: string | null } | null) => Promise<Record<string, boolean>>;
   isProtectedFlag: (key: string) => boolean;
   expiredFlags: (now?: Date) => Array<{ key: string; expires: string }>;
-  REGISTRY: Record<string, { default: boolean; target: string; expires: string }>;
+  presentationOf: (
+    key: string,
+  ) => { label: string; domain: string; surface: string; core?: boolean } | null;
+  REGISTRY: Record<string, { default: boolean; target: string; expires: string; killSwitch?: boolean }>;
 };
 
 let blob: Map<string, unknown>;
@@ -59,10 +62,16 @@ afterEach(() => {
 });
 
 describe("resolution order (env > blob override > default)", () => {
-  it("is dark by default — every registry entry defaults off", async () => {
+  it("dark by default — launch-gate flags default off; kill-switch flags default on", async () => {
     for (const [key, def] of Object.entries(flags.REGISTRY)) {
-      expect(def.default).toBe(false);
-      expect(await flags.isFlagOn(key)).toBe(false);
+      if (def.killSwitch) {
+        // #760: a live feature the owner can turn OFF — defaults ON.
+        expect(def.default).toBe(true);
+        expect(await flags.isFlagOn(key)).toBe(true);
+      } else {
+        expect(def.default).toBe(false);
+        expect(await flags.isFlagOn(key)).toBe(false);
+      }
     }
   });
 
@@ -195,6 +204,52 @@ describe("owner preview (#760) — viewer-aware override", () => {
     expect(flags.isProtectedFlag("phil_jobs_summary_read")).toBe(true);
     expect(flags.isProtectedFlag("safety_docs")).toBe(false);
     expect(flags.isProtectedFlag("admin_flags_readout")).toBe(false);
+  });
+});
+
+describe("kill-switch flags (#760) — live by default, owner can turn off", () => {
+  const KS = "itp"; // killSwitch: default ON
+
+  it("defaults ON with no override (a live feature)", async () => {
+    expect(await flags.isFlagOn(KS)).toBe(true);
+    expect(await flags.isFlagEnabled(KS, { role: "electrician" })).toBe(true);
+  });
+
+  it("the owner turning it OFF (blob false) disables it for everyone", async () => {
+    blob.set("flags.json", { flags: { [KS]: false } });
+    expect(await flags.isFlagOn(KS)).toBe(false);
+    expect(await flags.isFlagEnabled(KS, { role: "electrician" })).toBe(false);
+    expect(await flags.isFlagEnabled(KS, OWNER)).toBe(false);
+  });
+
+  it("the owner can still PREVIEW it while it's off for customers", async () => {
+    blob.set("flags.json", { flags: { [KS]: false }, ownerPreview: { [KS]: true } });
+    expect(await flags.isFlagEnabled(KS, OWNER)).toBe(true);
+    expect(await flags.isFlagEnabled(KS, { role: "electrician" })).toBe(false);
+  });
+});
+
+describe("board presentation (#760)", () => {
+  it("labels + domains the product flags and marks the core spine", () => {
+    const jobs = flags.presentationOf("jobs");
+    expect(jobs).toMatchObject({ label: "Jobs", domain: "Jobs", core: true });
+    expect(flags.presentationOf("hours")?.core).toBe(true);
+    expect(flags.presentationOf("evidence")?.core).toBe(true);
+    // A normal kill-switch is labelled but NOT core.
+    const rfi = flags.presentationOf("rfi_register");
+    expect(rfi?.label).toBe("RFIs");
+    expect(rfi?.core).toBeFalsy();
+  });
+
+  it("returns null for a protected data-plane flag (kept out of the board)", () => {
+    expect(flags.presentationOf("supabase_dual_write")).toBeNull();
+  });
+
+  it("every non-protected registry flag has board presentation", () => {
+    for (const key of Object.keys(flags.REGISTRY)) {
+      if (flags.isProtectedFlag(key)) continue;
+      expect(flags.presentationOf(key), `missing presentation for ${key}`).not.toBeNull();
+    }
   });
 });
 

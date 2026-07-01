@@ -70,18 +70,33 @@ const EXTRA_GO_TO: ReadonlyArray<PaletteCommand> = [
 ];
 
 /**
+ * #760: a command is hidden when its href is, or sits under, an owner-disabled
+ * feature href (so "New job" → /v2/jobs/new hides when /v2/jobs is off, and
+ * "Open approvals" → /hours/approvals hides when /hours is off).
+ */
+function makeHiddenPredicate(
+  hiddenHrefs?: ReadonlyArray<string> | null,
+): (href: string) => boolean {
+  if (!hiddenHrefs || hiddenHrefs.length === 0) return () => false;
+  const hidden = Array.from(new Set(hiddenHrefs));
+  return (href: string) => hidden.some((h) => href === h || href.startsWith(`${h}/`));
+}
+
+/**
  * "Go to" = every live NAV destination (the same objects the sidebar renders,
  * via ALL_ITEMS) plus the explicit sub-tab / settings routes above. Sidebar
- * order is preserved; the extras trail it.
+ * order is preserved; the extras trail it. #760: owner-disabled features are
+ * dropped so the palette can't navigate to a hidden surface.
  */
-export function buildGoToCommands(): PaletteCommand[] {
-  const fromNav: PaletteCommand[] = ALL_ITEMS.map((item) => ({
+export function buildGoToCommands(hiddenHrefs?: ReadonlyArray<string> | null): PaletteCommand[] {
+  const isHidden = makeHiddenPredicate(hiddenHrefs);
+  const fromNav: PaletteCommand[] = ALL_ITEMS.filter((item) => !isHidden(item.href)).map((item) => ({
     id: `nav:${item.href}`,
     label: item.label,
     href: item.href,
     icon: item.icon,
   }));
-  return [...fromNav, ...EXTRA_GO_TO];
+  return [...fromNav, ...EXTRA_GO_TO.filter((c) => !isHidden(c.href))];
 }
 
 /**
@@ -91,7 +106,8 @@ export function buildGoToCommands(): PaletteCommand[] {
  * "New job" opens the builder, it does not POST a job. Mutating actions and a
  * "New defect" command are deliberately out of scope (#215 body / addendum).
  */
-export function buildActionCommands(): PaletteCommand[] {
+export function buildActionCommands(hiddenHrefs?: ReadonlyArray<string> | null): PaletteCommand[] {
+  const isHidden = makeHiddenPredicate(hiddenHrefs);
   return [
     { id: "new-job", label: "New job", href: "/v2/jobs/new" as Route, icon: FilePlus2 },
     { id: "new-quote", label: "New quote", href: "/v2/quotes" as Route, icon: Calculator },
@@ -103,7 +119,7 @@ export function buildActionCommands(): PaletteCommand[] {
       href: "/settings/notifications" as Route,
       icon: Bell,
     },
-  ];
+  ].filter((c) => !isHidden(c.href));
 }
 
 /** A recent row promoted to a command (so keyboard nav is uniform). */
@@ -135,10 +151,13 @@ export interface PaletteSection {
   commands: PaletteCommand[];
 }
 
-export function buildStaticSections(recents: ReadonlyArray<RecentItem>): PaletteSection[] {
+export function buildStaticSections(
+  recents: ReadonlyArray<RecentItem>,
+  hiddenHrefs?: ReadonlyArray<string> | null,
+): PaletteSection[] {
   const sections: PaletteSection[] = [
-    { id: "go-to", heading: "Go to", commands: buildGoToCommands() },
-    { id: "actions", heading: "Actions", commands: buildActionCommands() },
+    { id: "go-to", heading: "Go to", commands: buildGoToCommands(hiddenHrefs) },
+    { id: "actions", heading: "Actions", commands: buildActionCommands(hiddenHrefs) },
   ];
   if (recents.length > 0) {
     sections.push({

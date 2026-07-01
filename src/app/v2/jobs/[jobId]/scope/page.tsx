@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { ScopeReconciliationStatus } from "@/components/admin/ScopeReconciliationStatus";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isAdminRole } from "@/lib/auth/roles";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
@@ -41,6 +42,10 @@ export default async function AdminJobScopePage({ params }: PageParams) {
   }
   if (!isAdminRole(session.role)) {
     redirect("/v2/login");
+  }
+  // #760: scope-reconciliation kill-switch — owner can turn the surface off.
+  if (!(await isFlagEnabled("scope_reconciliation", session))) {
+    notFound();
   }
 
   const jobResult = await loadJob(raw, jobId);

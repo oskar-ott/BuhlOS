@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -73,6 +74,8 @@ export default async function HoursPeriodPage({
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
   }
+  // #760: Hours kill-switch — hide the office surface when the owner turns it off.
+  if (!(await isFlagEnabled("hours", session))) notFound();
   if (!isAdminRole(session.role)) {
     redirect("/hours/weekly");
   }

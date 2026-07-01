@@ -117,13 +117,17 @@ hardcoded "healthy" (P7 — no fake UI / no invented numbers).
 feature adoption, login/session activity, error/failed-action telemetry,
 endpoint latency, uptime probe.
 
-## Feature flags — live control
+## Feature control (the feature board)
 
-The console **controls** feature visibility (it is no longer read-only). Each
+The console **controls** feature visibility (it is no longer read-only). The
+flags are presented as a **feature board** — grouped by domain (QA & compliance,
+Site records, Commercial, …), each feature a row with a human label and a state
+chip (**On** / **Preview only** / **Off** / **Pinned by env**). Each
 non-protected flag has two dials — **Live to customers** (the customer launch
 gate) and **Preview for me** (an owner-only override) — while protected
-data-plane flags (`supabase_*`, `phil_jobs_summary_read`) stay read-only and env
-(`FLAG_*`) always wins. Full mechanics, precedence and safety rules:
+data-plane flags (`supabase_*`, `phil_jobs_summary_read`) are fenced in a
+collapsed read-only **System · data-plane** group, and env (`FLAG_*`) always
+wins. Full mechanics, precedence and safety rules:
 [Feature-flag control](#feature-flag-control-760). To pin a flag per-environment
 regardless of the UI, set `FLAG_<KEY>` in the Vercel env per
 `docs/feature-flags.md`.
@@ -161,6 +165,49 @@ real product. Each non-protected flag has **two dials**:
 - **Preview for me** — an **owner-only** override (`flags.json`
   `ownerPreview[key]`) layered on top, so the owner runs a feature live while
   customers still can't see it.
+
+**Staged rollout — the easy control.** Each product feature has one segmented
+control: **Off** (hidden from everyone) → **Preview** (only the owner sees it —
+build and test it live in the real product) → **Live** (everyone). This is the
+honest single-control expression of the two dials, written atomically via
+`POST /api/owner-flags { key, rollout: "off"|"preview"|"live", expectedRev }`
+(one CAS write + one `feature_flag.toggled` audit). When a feature is reachable
+for the owner (Preview or Live) an **"Open to test"** link deep-links straight
+to it (`FLAG_PRESENTATION[key].previewHref` — job-scoped features point at
+`/v2/jobs`), so the owner can try a disabled feature before releasing it to
+customers or admins. Moving a **live** feature back (to Preview or Off) goes
+through the reduce-exposure confirm; releasing forward is one click. The
+underlying two-dial scope writes (`scope`/`value`) remain for advanced use.
+
+**The board** (`OwnerFeatureBoard`) frames the raw flags as features:
+
+- **Domain groups.** Non-protected flags carry presentation metadata
+  (`label`, `domain`, `surface`) in `FLAG_PRESENTATION`
+  (`api/_lib/feature-flags.js`); the board groups rows by `domain` and labels
+  them by `label` (e.g. `itp` → "ITPs", `rfi_register` → "RFIs"). A flag with no
+  presentation metadata is a data-plane flag and lands in the read-only
+  **System · data-plane** group.
+- **Filters.** Exposure (All / On / Preview / Off) and surface
+  (All / BuhlOS / Phil), with live counts — the honest replacement for the
+  prototype's fake multi-tenant matrix.
+- **Reduce-exposure confirm.** Turning a customer-visible feature **off**
+  (reducing exposure) opens a small confirm step with an optional **reason**;
+  the reason is threaded into the `feature_flag.toggled` audit `metadata`.
+  *Enabling* a feature is one click (no confirm).
+- **Kill-switch features.** A live-by-default feature (`killSwitch: true`, e.g.
+  `itp`) shows **On** out of the box; the owner uses *Live to customers* to turn
+  it **off**. See `docs/feature-flags.md` → Two flag kinds.
+- **Whole-interface control.** Most shipped features are kill-switches — jobs,
+  hours, evidence, observations, material requests, expenses, quotes, defects,
+  dayworks, employees, gear, reports, ITPs, RFIs, snags, photos, scope, job
+  control, closeout, documents, circuit schedules, diary, activity, and more.
+  Turning one off hides its **nav entry, job-hub section and Command Centre
+  card**, `404`s its **routes**, and `404`s its **API** — the feature is gone,
+  not just hidden. See `docs/feature-flags.md` → Feature kill-switches.
+- **Core warning.** `jobs`, `hours` and `evidence` are marked **core**
+  (`core: true`); the reduce-exposure confirm shows a prominent warning before
+  the owner disables a load-bearing surface. `Command centre` and `/owner`
+  itself are never gateable, so the owner can't lock themselves out.
 
 **Resolution precedence** (`isFlagEnabled(key, viewer)` in
 `api/_lib/feature-flags.js`): `env (FLAG_*) > owner-preview (owner viewer only) >

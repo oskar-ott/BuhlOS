@@ -44,6 +44,7 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, canManageJob, isAdminRole, isFieldRole, isClientRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 const { nanoid } = require('./_lib/validation');
 const {
   effectiveRoughInTasks,
@@ -667,6 +668,11 @@ module.exports = async (req, res) => {
   if (!user) return;
   if (isClientRole(user.role)) {
     return res.status(403).json({ error: 'forbidden' });
+  }
+  // #760: Evidence is a CORE kill-switch feature — 404 the whole endpoint when
+  // the owner has turned it off. Default ON, so this is a no-op until then.
+  if (!(await isFlagEnabled('evidence', user))) {
+    return res.status(404).json({ error: 'not found' });
   }
 
   const action = (req.query && req.query.action) || '';

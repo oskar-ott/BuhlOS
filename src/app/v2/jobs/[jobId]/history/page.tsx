@@ -1,11 +1,12 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { JobActivityFeed } from "@/components/admin/JobActivityFeed";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { AuditLogListResponseSchema } from "@/domains/audit-log/schema";
@@ -45,6 +46,10 @@ export default async function JobHistoryPage({ params }: PageParams) {
   // surface. The API enforces the same admin/LH-only rule independently.
   if (!canAccessSurface(session.role, "lh")) {
     redirect("/v2/login");
+  }
+  // #760: job-activity kill-switch — when the owner turns it off, the surface 404s.
+  if (!(await isFlagEnabled("job_activity", session))) {
+    notFound();
   }
 
   const { job, jobError, entries, entriesError } = await loadJobAndActivity(raw, jobId);

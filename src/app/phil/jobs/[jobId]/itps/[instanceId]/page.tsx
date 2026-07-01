@@ -1,5 +1,6 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
+import { isFlagEnabled } from "../../../../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { ITPRecording } from "@/components/phil/ITPRecording";
@@ -55,6 +56,10 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
   }
   if (!canAccessSurface(session.role, "phil")) {
     redirect("/v2/login");
+  }
+  // #760: ITP kill-switch — the field recording route 404s when ITPs are off.
+  if (!(await isFlagEnabled("itp", session))) {
+    notFound();
   }
 
   const [jobResult, itpsResult] = await Promise.all([

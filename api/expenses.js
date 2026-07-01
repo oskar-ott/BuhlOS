@@ -18,6 +18,7 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isClientRole, isAdminRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 const { idempotencyKeyFrom, findIdempotent, recordIdempotent } = require('./_lib/idempotency');
 const { appendActivity } = require('./_lib/activity');
 const { sendPushToUserId } = require('./_lib/push');
@@ -45,6 +46,9 @@ module.exports = async (req, res) => {
   // Any authenticated staff/field user; clients are never allowed near expenses.
   const me = await requireAuth(req, res, {});
   if (!me) return;
+  // #760: expenses are an owner kill-switch feature. When turned off, the whole
+  // surface 404s (masking it) — same pattern as the ITP flag.
+  if (!(await isFlagEnabled('expenses', me))) return res.status(404).json({ error: 'not found' });
   if (isClientRole(me.role)) return res.status(403).json({ error: 'forbidden' });
 
   const action = (req.query && req.query.action) || '';

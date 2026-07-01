@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { HoursApprovalsQueue } from "@/components/admin/HoursApprovalsQueue";
@@ -42,6 +43,8 @@ export default async function HoursApprovalsPage() {
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
   }
+  // #760: Hours kill-switch — hide the office surface when the owner turns it off.
+  if (!(await isFlagEnabled("hours", session))) notFound();
 
   const [{ entries, fetchError }, approvalsCounts] = await Promise.all([
     loadPendingQueue(raw),

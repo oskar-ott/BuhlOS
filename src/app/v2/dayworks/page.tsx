@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { DayworkRollup } from "@/components/admin/DayworkRollup";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isAdminRole } from "@/lib/auth/roles";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { readJsonBlob } from "@/server/job-control/blob";
 import { blobDayworkDeps, loadDayworkRollup } from "@/server/dayworks/register";
 
@@ -33,6 +34,10 @@ export default async function AdminDayworksRollupPage() {
   }
   if (!isAdminRole(session.role)) {
     redirect("/v2/login");
+  }
+  // #760: dayworks kill-switch — when the owner turns dayworks off, the surface 404s.
+  if (!(await isFlagEnabled("dayworks", session))) {
+    notFound();
   }
 
   let jobs: JobRow[] = [];

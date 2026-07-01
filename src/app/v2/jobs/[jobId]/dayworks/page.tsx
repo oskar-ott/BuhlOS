@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { DayworkRegister } from "@/components/admin/DayworkRegister";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isClientRole } from "@/lib/auth/roles";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import type { Job } from "@/domains/jobs/types";
 import { blobDayworkDeps, loadJobDayworkRegister } from "@/server/dayworks/register";
@@ -34,6 +35,10 @@ export default async function AdminJobDayworksPage({ params }: PageParams) {
   const session = decodeSessionCookie(raw);
   if (!session?.role || isClientRole(session.role)) {
     redirect(`/v2/login?next=${encodeURIComponent(`/v2/jobs/${jobId}/dayworks`)}`);
+  }
+  // #760: dayworks kill-switch — when the owner turns dayworks off, the surface 404s.
+  if (!(await isFlagEnabled("dayworks", session))) {
+    notFound();
   }
 
   const jobResult = await loadJob(raw, jobId);

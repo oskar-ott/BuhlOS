@@ -26,7 +26,30 @@ export type FlagKey =
   | "certificates_register"
   | "rfi_register"
   | "minutes_register"
-  | "site_instructions_register";
+  | "site_instructions_register"
+  | "itp"
+  // #760 owner feature-control kill-switches (LIVE features, default ON)
+  | "jobs"
+  | "hours"
+  | "evidence"
+  | "observations_inbox"
+  | "material_requests"
+  | "expenses"
+  | "quotes"
+  | "defects"
+  | "dayworks"
+  | "employees"
+  | "gear"
+  | "reports"
+  | "job_photos"
+  | "snags"
+  | "scope_reconciliation"
+  | "job_control"
+  | "closeout"
+  | "documents"
+  | "circuit_schedule"
+  | "diary"
+  | "job_activity";
 
 export interface FlagDefinition {
   description: string;
@@ -34,14 +57,31 @@ export interface FlagDefinition {
   target: "global" | "admin-tier";
   /** YYYY-MM-DD — flags are temporary; CI fails past this date. */
   expires: string;
+  /** #760: a kill-switch flag is a LIVE feature (default true) the owner can turn
+   *  off — the only way a flag defaults on. Absent/false = dark-by-default gate. */
+  killSwitch?: boolean;
 }
 
 export interface FlagViewer {
   role?: string | null;
 }
 
+/** #760: owner Feature Control Board presentation for a (non-protected) flag. */
+export interface FlagPresentation {
+  label: string;
+  domain: string;
+  surface: "BuhlOS" | "Phil" | "Shared";
+  /** #760: load-bearing spine feature (jobs/hours/evidence) — the board warns
+   *  before the owner turns it off. */
+  core?: boolean;
+  /** #760: where "Open to test" on the board deep-links so the owner can try a
+   *  previewed/live feature. Job-scoped features point at /v2/jobs. */
+  previewHref?: string;
+}
+
 export declare const REGISTRY: Record<FlagKey, FlagDefinition>;
 export declare const FLAGS_KEY: string;
+export declare function presentationOf(key: string): FlagPresentation | null;
 export declare function isFlagOn(key: FlagKey): Promise<boolean>;
 export declare function isFlagEnabled(key: FlagKey, viewer?: FlagViewer | null): Promise<boolean>;
 export declare function flagsForViewer(viewer?: FlagViewer | null): Promise<Record<FlagKey, boolean>>;

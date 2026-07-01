@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -36,6 +36,7 @@ export default async function ObservationsPage() {
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
   }
+  if (!(await isFlagEnabled("observations_inbox", session))) notFound();
 
   // #276/#737: real "Convert to RFI" in the inbox when the register is on.
   const rfiEnabled = await isFlagEnabled("rfi_register", session);

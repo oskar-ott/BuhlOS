@@ -8,10 +8,17 @@ half-broken UI is hidden or labelled, never shipped live.
 
 One source of truth: [api/_lib/feature-flags.js](../api/_lib/feature-flags.js)
 (+ `.d.ts` for typed `src/` consumption — add new keys to **both**, same PR).
-Every flag declares a description, `default: false` (always), a target, and
+Every flag declares a description, a `default`, a target, and
 an **expiry date** — flags are temporary by default, and
 `npm run check:flag-expiry` (CI) fails the build once a flag outlives its
 date: delete it (and the dead branch it guarded) or consciously extend it.
+
+The `default` is **`false`** for the usual *launch-gate* flag (dark until
+turned on). The one exception is a *kill-switch* flag — `killSwitch: true`
+with `default: true` — a feature that is **already live**, wrapped so the owner
+can turn it **off** without a revert. See [Two flag kinds](#two-flag-kinds).
+Non-protected feature flags also carry presentation metadata (`label`, `domain`,
+`surface`) that drives the Owner Console's feature board (`FLAG_PRESENTATION`).
 
 | Flag | Target | Expires | What it gates |
 |---|---|---|---|
@@ -19,6 +26,7 @@ date: delete it (and the dead branch it guarded) or consciously extend it.
 | `admin_flags_readout` | admin-tier | 2026-09-30 | The active-flags readout card on /command-centre |
 | `admin_job_field_view` | admin-tier | 2026-09-25 | The Office/Field view toggle + read-only Phil job render on `/v2/jobs/[jobId]` (mobile-admin redesign) |
 | `admin_proof_review` | admin-tier | 2026-09-25 | The office Proof-to-sign-off approve/send-back surface + Command Centre queue (#503) |
+| `itp` | global | 2027-06-30 | **Kill-switch (default ON).** Per-job ITP / QA — hold/witness/record + office sign-off (#474/#476). The owner can turn the whole feature off from `/owner` |
 | `supabase_read_health` | global | 2026-12-31 | `GET /api/supabase-health` — the read-only Supabase connectivity proving slice (#533) |
 | `supabase_read_hours` | global | 2026-12-31 | Serve the hours display read (`listUserEntries`) from Postgres with a Blob fallback (#152) |
 | `supabase_dual_write_jobs` | global | 2026-12-31 | Mirror one job's `jobs.json` structure write into Postgres, best-effort, Blob authoritative (#152, J8) |
@@ -43,7 +51,8 @@ Resolution order — first hit wins:
    `{ "flags": { "supabase_dual_write": true } }`. No deploy needed; rides
    the 5s `readBlob` TTL cache so it costs nothing on hot paths. (It's in the
    backup manifest like every canonical store.)
-3. **Registry default** — always `false`. Dark by default.
+3. **Registry default** — `false` for a launch-gate flag (dark by default),
+   `true` for a kill-switch flag (live by default; see below).
 
 **Targeting applies on top:** an `admin-tier` flag is only ever on for
 admin-tier viewers (tier-aware `isAdminRole` — the role-literal guard applies
@@ -53,9 +62,11 @@ here like everywhere). `global` ignores the viewer.
 displays every flag's resolved state, **source** (env > blob > default), target,
 and expiry classification — and for non-protected flags it now **toggles** them
 at runtime via `POST /api/owner-flags` (owner-gated, CAS-guarded on `flags.json`,
-audited with the `feature_flag.toggled` action). Two dials per flag: **Live to
-customers** (the `flags.json` baseline) and **Preview for me** (an owner-only
-`ownerPreview` override). Protected data-plane flags (`supabase_*`,
+audited with the `feature_flag.toggled` action). The feature flags are presented
+as a **feature board** grouped by `domain` (the `FLAG_PRESENTATION` metadata),
+with an optional `reason` recorded in the audit metadata when the owner *reduces*
+a feature's exposure. Two dials per flag: **Live to customers** (the `flags.json`
+baseline) and **Preview for me** (an owner-only `ownerPreview` override). Protected data-plane flags (`supabase_*`,
 `phil_jobs_summary_read`) stay read-only there, and env (`FLAG_*`) always wins.
 The viewer-aware resolver `isFlagEnabled` applies owner-preview **only** for the
 stored `owner` role; the data-plane `isFlagOn`/`isFlagOnSync` path never reads
@@ -92,3 +103,57 @@ Unknown flag names **throw** at runtime and fail typecheck (`FlagKey` union)
   the feature is two features.
 - Pilot: `admin_flags_readout` is the worked example — the readout it gates
   is itself dark by default and admin-tier-targeted in the same build.
+
+## Two flag kinds
+
+There are exactly two shapes. The kind is declared on the flag, not inferred:
+
+- **Launch-gate flag** (the default, and the overwhelming majority):
+  `default: false`. Merges unfinished work dark; the owner or an env var turns
+  it on when it's ready. This is the safe shape — nothing a customer can see
+  ships accidentally.
+- **Kill-switch flag:** `killSwitch: true, default: true`. For a feature that
+  is **already live** and that the owner needs to be able to switch **off**
+  (e.g. it's misbehaving, or a customer isn't ready for it) without a revert
+  deploy. `killSwitch: true` is the **only** way a flag defaults on, and it
+  must be set explicitly per flag — so "no customer-visible feature turns on by
+  accident" still holds. `itp` is the first one: ITPs are live, so gating them
+  behind a plain `default: false` flag would hide them on the very next deploy.
+
+The resolver is identical for both — `isFlagOn` / `isFlagEnabled` already honour
+`def.default`, so a kill-switch is just a flag whose default happens to be
+`true`. The distinction is governance, not mechanism: `killSwitch` is what the
+`check:flag-expiry` guard and the owner-facing board read to explain *why* a
+flag is on out of the box, and the "dark by default" test asserts every
+non-`killSwitch` flag is `default: false`.
+
+> **Constitution Gate.** Allowing a flag to default on is a change to
+> flag governance (this file is the governing doc). It is bounded on purpose:
+> only an explicit `killSwitch: true` flag may do it; everything else stays
+> dark by default.
+
+## Feature kill-switches — the owner controls the whole interface (#760)
+
+Most shipped features now carry a kill-switch flag so the owner can hide any of
+them from `/owner` (jobs, hours, evidence, observations, material requests,
+expenses, quotes, defects, dayworks, employees, gear, reports, ITPs, RFIs,
+snags, photos, scope, job control, closeout, documents, circuit schedules,
+diary, activity, …). Each such flag gates the feature at **three layers**, so
+turning it off removes the feature everywhere — not just visually:
+
+1. **Navigation** — `src/components/admin/nav.ts` tags each sidebar item with
+   its `flag`; `AdminShell` (server) resolves `flagsForViewer` once and passes
+   the hidden hrefs to the sidebar, ⌘K palette and mobile IA (`visibleNavGroups`
+   / `FLAGGED_ITEMS`). Job-hub sections are tagged in `JobInterfaceSectionNav`
+   and resolved in the hub page. Command Centre queue cards gate the same way.
+2. **Route** — each RSC page calls `notFound()` when its flag is off (so a
+   deep-link 404s, not just the nav link vanishing).
+3. **API** — each serverless handler returns `404` when off, on **every**
+   request path, using `isFlagEnabled(flag, <viewer>)` **after** auth (so owner
+   preview still reaches the data — see owner-preview above).
+
+`jobs` / `hours` / `evidence` are marked **core** (`FLAG_PRESENTATION[key].core`)
+— the board warns before the owner turns one off, and their shared APIs
+(`/api/jobs`, the time-entry endpoints) stay live as infrastructure; the office
+*surfaces* are what gate. `Command centre` and `/owner` itself are never gated,
+so the owner can't self-lock.

@@ -44,6 +44,7 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob, isAdminRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 const { nanoid } = require('./_lib/validation');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 
@@ -367,6 +368,8 @@ module.exports = async (req, res) => {
   // check, so the diary's content never leaks past the site-visits line.
   const user = await requireAuth(req, res, { jobId });
   if (!user) return;
+
+  if (!(await isFlagEnabled('diary', user))) return res.status(404).json({ error: 'not found' });
 
   if (req.method === 'GET') {
     if (!canManageJob(user, jobId)) return res.status(403).json({ error: 'forbidden' });

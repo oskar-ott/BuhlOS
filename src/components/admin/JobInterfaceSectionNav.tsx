@@ -35,6 +35,16 @@ interface Props {
   rfiEnabled?: boolean;
   /** #217: show the Minutes register row. Flag-gated (minutes_register) by the hub. */
   minutesEnabled?: boolean;
+  /** #760: ITPs are a kill-switch feature — hide the ITP / QA row when off. */
+  itpEnabled?: boolean;
+  /**
+   * #760 owner feature-control: resolved kill-switch state for the rest of the
+   * job sections, keyed by flag (evidence, job_photos, snags, …). A row tagged
+   * with a `flag` is HIDDEN only when its entry is explicitly `false` — i.e.
+   * shown by default (these are live features), hidden when the owner turns it
+   * off. The hub page resolves every key, so "off" always reaches here.
+   */
+  killSwitches?: Partial<Record<string, boolean>>;
 }
 
 type SectionRow =
@@ -45,6 +55,8 @@ type SectionRow =
       href: Route;
       count?: number;
       icon: typeof Camera;
+      /** #760: the kill-switch flag gating this row (via `killSwitches`). */
+      flag?: string;
     }
   | {
       kind: "uc";
@@ -88,6 +100,8 @@ export function JobInterfaceSectionNav({
   certificatesEnabled = false,
   rfiEnabled = false,
   minutesEnabled = false,
+  itpEnabled = false,
+  killSwitches,
 }: Props) {
   const jobIdEnc = encodeURIComponent(job.id);
 
@@ -99,6 +113,7 @@ export function JobInterfaceSectionNav({
       href: `/v2/jobs/${jobIdEnc}/evidence` as Route,
       count: job.statsEvidenceV2Pending,
       icon: Camera,
+      flag: "evidence",
     },
     {
       // #242: read-only photo gallery (the "Job Bible") — browse every photo on
@@ -112,6 +127,7 @@ export function JobInterfaceSectionNav({
         "Browse every photo on this job — field captures, snag photos and ITP / dwelling photos, date-grouped and filterable. Read-only.",
       href: `/v2/jobs/${jobIdEnc}/photos` as Route,
       icon: Images,
+      flag: "job_photos",
     },
     {
       kind: "live",
@@ -120,6 +136,7 @@ export function JobInterfaceSectionNav({
       href: `/v2/jobs/${jobIdEnc}/snags` as Route,
       count: job.statsSnagsV2Active,
       icon: AlertOctagon,
+      flag: "snags",
     },
     {
       kind: "live",
@@ -128,16 +145,21 @@ export function JobInterfaceSectionNav({
         "Field-to-office notes, blockers, plan mismatches, material requests, RFIs and instructions raised against this job.",
       href: `/v2/jobs/${jobIdEnc}/observations` as Route,
       icon: Inbox,
+      flag: "observations_inbox",
     },
-    {
-      kind: "live",
-      label: "ITP / QA",
-      description:
-        "Attached inspection / test plans, field results, admin sign-off.",
-      href: `/v2/jobs/${jobIdEnc}/itps` as Route,
-      count: job.statsItpsActive,
-      icon: ClipboardCheck,
-    },
+    ...(itpEnabled
+      ? [
+          {
+            kind: "live",
+            label: "ITP / QA",
+            description:
+              "Attached inspection / test plans, field results, admin sign-off.",
+            href: `/v2/jobs/${jobIdEnc}/itps` as Route,
+            count: job.statsItpsActive,
+            icon: ClipboardCheck,
+          } satisfies SectionRow,
+        ]
+      : []),
     {
       kind: "live",
       label: "Scope reconciliation",
@@ -145,6 +167,7 @@ export function JobInterfaceSectionNav({
         "Scope-vs-quote review: the confirmed classification of every clause and the open conflicts (excluded-but-owed, by-others, alternates) before work starts.",
       href: `/v2/jobs/${jobIdEnc}/scope` as Route,
       icon: Scale,
+      flag: "scope_reconciliation",
     },
     {
       kind: "live",
@@ -153,6 +176,7 @@ export function JobInterfaceSectionNav({
         "Author required proof: tie a scope clause to a worker task, set the proof the field must capture, and compile it for Phil.",
       href: `/v2/jobs/${jobIdEnc}/job-control` as Route,
       icon: ListChecks,
+      flag: "job_control",
     },
     {
       // #374: closeout matrix — handover obligations (test results, certificate
@@ -165,6 +189,7 @@ export function JobInterfaceSectionNav({
         "Handover obligations — test results, certificate of electrical safety, as-builts and the job's closeout clauses. Closed out only when a real record resolves and an admin confirms.",
       href: `/v2/jobs/${jobIdEnc}/closeout` as Route,
       icon: PackageCheck,
+      flag: "closeout",
     },
     {
       kind: "live",
@@ -173,6 +198,7 @@ export function JobInterfaceSectionNav({
       href: `/v2/jobs/${jobIdEnc}/documents` as Route,
       count: job.statsDocumentsCurrent,
       icon: FileText,
+      flag: "documents",
     },
     {
       kind: "live",
@@ -181,6 +207,7 @@ export function JobInterfaceSectionNav({
         "Distribution-board circuit schedules — device, cable, load and live voltage-drop / phase-balance / capacity checks (AS/NZS 3000), print to PDF.",
       href: `/v2/jobs/${jobIdEnc}/circuit-schedule` as Route,
       icon: Zap,
+      flag: "circuit_schedule",
     },
     // Plans viewer — the in-app raster drawing viewer (read-only Phase 1),
     // distinct from the Documents register above. Gated on the job's
@@ -265,6 +292,7 @@ export function JobInterfaceSectionNav({
         "Procurement requests raised against this job — requested / approved / ordered / delivered. Worker raises a Need-material observation in Phil; the office converts it here.",
       href: `/v2/jobs/${jobIdEnc}/material-requests` as Route,
       icon: Package,
+      flag: "material_requests",
     },
     {
       kind: "uc",
@@ -284,6 +312,7 @@ export function JobInterfaceSectionNav({
         "The day-by-day site diary — happenings, weather, attendance and delay flags. The office's contemporaneous record that doubles as delay-claim evidence.",
       href: `/v2/jobs/${jobIdEnc}/diary` as Route,
       icon: NotebookPen,
+      flag: "diary",
     },
     {
       kind: "live",
@@ -292,8 +321,16 @@ export function JobInterfaceSectionNav({
         "Consolidated audit trail across every section on this job — captures, snag transitions, ITP sign-offs, observation conversions.",
       href: `/v2/jobs/${jobIdEnc}/history` as Route,
       icon: History,
+      flag: "job_activity",
     },
   ];
+
+  // #760: hide a live section only when the owner has explicitly turned its
+  // kill-switch off. Rows without a `flag` (UC, or gated elsewhere via the
+  // existing spread props) always pass this filter.
+  const visibleRows = rows.filter(
+    (row) => row.kind !== "live" || !row.flag || killSwitches?.[row.flag] !== false,
+  );
 
   return (
     <Card>
@@ -307,7 +344,7 @@ export function JobInterfaceSectionNav({
         </div>
       </div>
       <ul className="mt-3 divide-y divide-border overflow-hidden rounded-card border border-border bg-surface">
-        {rows.map((row) => (
+        {visibleRows.map((row) => (
           <li key={row.label}>
             {row.kind === "live" ? (
               <LiveRow row={row} />

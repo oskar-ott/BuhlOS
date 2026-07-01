@@ -37,6 +37,7 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 
 const REGISTRY_KEY = 'quotes-v2.json';
 const docKey = (id) => `quotes-v2/${id}.json`;
@@ -395,6 +396,7 @@ module.exports = async (req, res) => {
 
   const user = await requireAuth(req, res);
   if (!user) return;
+  if (!(await isFlagEnabled('quotes', user))) return res.status(404).json({ error: 'not found' });
   // Quoting is commercial — admin TIER only (boss/owner/manager/office/pm/
   // estimator all pass; field, LH and client roles never do).
   if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin tier only' });

@@ -32,6 +32,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { getCurrentUser, isAdminRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 const audit = require('./_lib/audit-log');
 const email = require('./_lib/email');
 
@@ -221,6 +222,8 @@ module.exports = async (req, res) => {
   const me = await getCurrentUser(req);
   if (!me) return res.status(401).json({ error: 'not authenticated' });
   if (!isAdminRole(me.role)) return res.status(403).json({ error: 'forbidden' });
+  // #760: employees kill-switch — when the owner turns it off, the surface 404s.
+  if (!(await isFlagEnabled('employees', me))) return res.status(404).json({ error: 'not found' });
 
   const action = (req.query && req.query.action) || '';
   const id = (req.query && req.query.id) || (req.body && req.body.id) || '';

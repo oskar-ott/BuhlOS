@@ -30,6 +30,7 @@
 
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole, isClientRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 const { expiringTagRows, expiringCalibrationRows } = require('./_lib/tag-compliance');
 const { tagsFromBlob } = require('./_lib/tags-store');
 const { listAllAssets } = require('./_lib/assets');
@@ -41,6 +42,9 @@ module.exports = async (req, res) => {
 
   const me = await requireAuth(req, res);
   if (!me) return;
+  // #760: gear is an owner kill-switch feature. When turned off, the whole
+  // surface 404s (masking it) — same pattern as the register flags.
+  if (!(await isFlagEnabled('gear', me))) return res.status(404).json({ error: 'not found' });
   if (isClientRole(me.role)) return res.status(403).json({ error: 'forbidden' });
 
   const q = req.query || {};

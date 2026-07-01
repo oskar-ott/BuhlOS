@@ -38,6 +38,18 @@ const FLAGS_KEY = 'flags.json';
 // scope → the blob sub-map it writes.
 const SCOPE_FIELD = { customer: 'flags', ownerPreview: 'ownerPreview' };
 
+// #760 easy staged rollout: ONE control that sets both dials atomically, so the
+// owner moves a feature Off → Preview (test it themselves) → Live (release to
+// customers) in a single click. null = clear the override.
+//   off     — nobody: customer off, owner-preview off.
+//   preview — just the owner: customer off, owner-preview on (test before release).
+//   live    — everyone: customer on, owner-preview cleared (owner follows baseline).
+const ROLLOUT = {
+  off: { flags: false, ownerPreview: false },
+  preview: { flags: false, ownerPreview: true },
+  live: { flags: true, ownerPreview: null },
+};
+
 /** The stored revision (writeBlob stamps __rev); absent on a never-written doc. */
 function revOf(doc) {
   return doc && Number.isFinite(doc.__rev) ? doc.__rev : undefined;
@@ -61,22 +73,38 @@ module.exports = async (req, res) => {
   const key = typeof body.key === 'string' ? body.key : '';
   const scope = typeof body.scope === 'string' ? body.scope : '';
   const value = body.value;
+  // #760: the easy staged-rollout control sends a single `rollout` state instead
+  // of scope+value. When present it takes precedence (both dials, one write).
+  const rollout = typeof body.rollout === 'string' ? body.rollout : '';
+  const usingRollout = rollout !== '';
+  // #760: optional operator reason (captured by the board's reduce-exposure
+  // confirm) — recorded in the audit metadata. Capped defensively.
+  const reason = typeof body.reason === 'string' && body.reason.trim()
+    ? body.reason.trim().slice(0, 500)
+    : null;
 
   // Known flag only — mirrors the resolver's "unknown keys throw" guarantee so
   // a typo can never write a phantom override.
   if (!key || !REGISTRY[key]) {
     return res.status(400).json({ ok: false, error: 'unknown flag', code: 'unknown_flag' });
   }
-  const field = SCOPE_FIELD[scope];
-  if (!field) {
-    return res
-      .status(400)
-      .json({ ok: false, error: 'scope must be "customer" or "ownerPreview"', code: 'bad_scope' });
-  }
-  if (value !== true && value !== false && value !== null) {
-    return res
-      .status(400)
-      .json({ ok: false, error: 'value must be true, false, or null', code: 'bad_value' });
+  if (usingRollout) {
+    if (!ROLLOUT[rollout]) {
+      return res
+        .status(400)
+        .json({ ok: false, error: 'rollout must be "off", "preview" or "live"', code: 'bad_rollout' });
+    }
+  } else {
+    if (!SCOPE_FIELD[scope]) {
+      return res
+        .status(400)
+        .json({ ok: false, error: 'scope must be "customer" or "ownerPreview"', code: 'bad_scope' });
+    }
+    if (value !== true && value !== false && value !== null) {
+      return res
+        .status(400)
+        .json({ ok: false, error: 'value must be true, false, or null', code: 'bad_value' });
+    }
   }
   // Data-plane flags are ops-only — never toggleable from the owner UI (both
   // scopes). The console also renders them read-only, so this is defence in depth.
@@ -103,9 +131,24 @@ module.exports = async (req, res) => {
     flags: { ...(doc.flags || {}) },
     ownerPreview: { ...(doc.ownerPreview || {}) },
   };
-  const previous = next[field][key] === undefined ? null : next[field][key];
-  if (value === null) delete next[field][key];
-  else next[field][key] = value;
+  const applyDial = (fieldName, dialValue) => {
+    if (dialValue === null) delete next[fieldName][key];
+    else next[fieldName][key] = dialValue;
+  };
+  let previous;
+  if (usingRollout) {
+    previous = {
+      customer: next.flags[key] === undefined ? null : next.flags[key],
+      ownerPreview: next.ownerPreview[key] === undefined ? null : next.ownerPreview[key],
+    };
+    const spec = ROLLOUT[rollout];
+    applyDial('flags', spec.flags);
+    applyDial('ownerPreview', spec.ownerPreview);
+  } else {
+    const field = SCOPE_FIELD[scope];
+    previous = next[field][key] === undefined ? null : next[field][key];
+    applyDial(field, value);
+  }
 
   try {
     await writeBlob(FLAGS_KEY, next, {
@@ -127,10 +170,14 @@ module.exports = async (req, res) => {
     jobId: null,
     targetType: 'feature_flag',
     targetId: key,
-    summary: `${scope === 'ownerPreview' ? 'owner-preview' : 'customer'} ${key} → ${
-      value === null ? 'default' : value ? 'on' : 'off'
-    }`,
-    metadata: { scope, value, previous },
+    summary: usingRollout
+      ? `${key} → ${rollout}`
+      : `${scope === 'ownerPreview' ? 'owner-preview' : 'customer'} ${key} → ${
+          value === null ? 'default' : value ? 'on' : 'off'
+        }`,
+    metadata: usingRollout
+      ? { rollout, previous, ...(reason ? { reason } : {}) }
+      : { scope, value, previous, ...(reason ? { reason } : {}) },
   }).catch(() => {});
 
   // Recompute resolved state so the UI updates without a refetch. writeBlob made
@@ -158,8 +205,7 @@ module.exports = async (req, res) => {
   return res.status(200).json({
     ok: true,
     key,
-    scope,
-    value,
+    ...(usingRollout ? { rollout } : { scope, value }),
     rev: newRev,
     resolved: { customer: resolvedCustomer, owner: resolvedOwner },
   });

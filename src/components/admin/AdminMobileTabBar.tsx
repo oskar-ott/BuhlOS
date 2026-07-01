@@ -53,11 +53,16 @@ function isTabActive(tab: TabItem, pathname: string): boolean {
 interface AdminMobileTabBarProps {
   /** Optional honest badge counts, rendered only when > 0. */
   badges?: { today?: number; approvals?: number };
+  /** #760: owner-disabled feature hrefs — hide the matching primary tab, and
+   *  filter the "More" sheet's full IA. Undefined = show everything. */
+  hiddenHrefs?: ReadonlyArray<string>;
 }
 
-export function AdminMobileTabBar({ badges }: AdminMobileTabBarProps = {}) {
+export function AdminMobileTabBar({ badges, hiddenHrefs }: AdminMobileTabBarProps = {}) {
   const pathname = usePathname() ?? "";
   const [moreOpen, setMoreOpen] = useState(false);
+  const hidden = hiddenHrefs && hiddenHrefs.length > 0 ? new Set(hiddenHrefs) : null;
+  const tabs = hidden ? TAB_ITEMS.filter((t) => !hidden.has(t.href)) : TAB_ITEMS;
   const badgeFor: Record<string, { n: number; tone: "danger" | "amber" } | undefined> = {
     Today: badges?.today && badges.today > 0 ? { n: badges.today, tone: "danger" } : undefined,
     Approvals:
@@ -70,7 +75,7 @@ export function AdminMobileTabBar({ badges }: AdminMobileTabBarProps = {}) {
         aria-label="BuhlOS tabs"
         className="sticky bottom-0 z-30 flex h-16 shrink-0 items-stretch border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
       >
-        {TAB_ITEMS.map((tab) => {
+        {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = isTabActive(tab, pathname);
           const badge = badgeFor[tab.label];
@@ -144,7 +149,7 @@ export function AdminMobileTabBar({ badges }: AdminMobileTabBarProps = {}) {
         </button>
       </nav>
 
-      <AdminMoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} />
+      <AdminMoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} hiddenHrefs={hiddenHrefs} />
     </>
   );
 }

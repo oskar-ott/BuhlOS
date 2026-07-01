@@ -15,9 +15,9 @@ import { AdminSidebar } from "./AdminSidebar";
  * moved into the in-page HoursTabs bar (see HoursTabs.render.test.tsx).
  */
 
-function render(path: string): string {
+function render(path: string, hiddenHrefs?: string[]): string {
   mockPath = path;
-  return renderToString(createElement(AdminSidebar));
+  return renderToString(createElement(AdminSidebar, hiddenHrefs ? { hiddenHrefs } : {}));
 }
 
 function activeLabel(html: string): string | null {
@@ -93,6 +93,18 @@ describe("AdminSidebar (#187)", () => {
     // steal it (longest-prefix rule, distinct prefixes).
     expect(activeLabel(render("/v2/quotes/qv2_abc123"))).toBe("Quotes");
     expect(activeLabel(render("/v2/jobs/j1"))).toBe("Jobs");
+  });
+
+  it("#760: hides owner-disabled features and drops an emptied group", () => {
+    // Owner turned Reports (whole Company group) + Gear off.
+    const html = render("/command-centre", ["/reports", "/gear"]);
+    expect(html).not.toContain('href="/reports"');
+    expect(html).not.toContain('href="/gear"');
+    expect(html).not.toContain("Company"); // group emptied → gone
+    // The rest of the IA is intact.
+    expect(html).toContain('href="/v2/jobs"');
+    expect(html).toContain("Employees"); // People & gear keeps Employees
+    expect(html).toContain("Command centre");
   });
 
   it("the footer carries a single Settings link to the /settings hub (#222), not a nav-group item", () => {
