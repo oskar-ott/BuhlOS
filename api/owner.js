@@ -162,6 +162,7 @@ async function buildFlags(now) {
       surface: pres ? pres.surface : null,
       killSwitch: !!f.killSwitch,
       core: pres ? !!pres.core : false,
+      previewHref: pres && pres.previewHref ? pres.previewHref : null,
     });
   }
   return {

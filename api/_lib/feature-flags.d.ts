@@ -74,6 +74,9 @@ export interface FlagPresentation {
   /** #760: load-bearing spine feature (jobs/hours/evidence) — the board warns
    *  before the owner turns it off. */
   core?: boolean;
+  /** #760: where "Open to test" on the board deep-links so the owner can try a
+   *  previewed/live feature. Job-scoped features point at /v2/jobs. */
+  previewHref?: string;
 }
 
 export declare const REGISTRY: Record<FlagKey, FlagDefinition>;

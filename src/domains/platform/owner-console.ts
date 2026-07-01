@@ -52,6 +52,8 @@ export const FlagItemSchema = z.object({
   // #760: a load-bearing spine feature (jobs/hours/evidence) — the board warns
   // before the owner turns it off.
   core: z.boolean().optional(),
+  // #760: where "Open to test" deep-links (null for protected/unlabelled flags).
+  previewHref: z.string().nullable().optional(),
 });
 
 export const FlagsSchema = z.object({

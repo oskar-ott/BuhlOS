@@ -354,6 +354,60 @@ describe("POST /api/owner-flags — write semantics", () => {
   });
 });
 
+describe("POST /api/owner-flags — staged rollout (#760 easy control)", () => {
+  it("rollout:live sets customer on and clears the owner-preview override (one write)", async () => {
+    // Start from a preview state, then release to everyone.
+    await callWrite({ body: { key: "safety_docs", scope: "ownerPreview", value: true } });
+    const res = await callWrite({ body: { key: "safety_docs", rollout: "live" } });
+    expect(res.statusCode).toBe(200);
+    const body = res.body as { rollout: string; resolved: { customer: boolean; owner: boolean } };
+    expect(body.rollout).toBe("live");
+    expect(body.resolved.customer).toBe(true);
+    expect(body.resolved.owner).toBe(true);
+    expect(flagsDoc().flags?.safety_docs).toBe(true);
+    expect(flagsDoc().ownerPreview?.safety_docs).toBeUndefined(); // cleared
+  });
+
+  it("rollout:preview hides from customers but keeps it visible to the owner", async () => {
+    const res = await callWrite({ body: { key: "safety_docs", rollout: "preview" } });
+    expect(res.statusCode).toBe(200);
+    const body = res.body as { resolved: { customer: boolean; owner: boolean } };
+    expect(body.resolved.customer).toBe(false);
+    expect(body.resolved.owner).toBe(true);
+    expect(flagsDoc().flags?.safety_docs).toBe(false);
+    expect(flagsDoc().ownerPreview?.safety_docs).toBe(true);
+  });
+
+  it("rollout:off darkens the feature for everyone (both dials off)", async () => {
+    await callWrite({ body: { key: "safety_docs", rollout: "live" } });
+    const res = await callWrite({ body: { key: "safety_docs", rollout: "off" } });
+    expect(res.statusCode).toBe(200);
+    const body = res.body as { resolved: { customer: boolean; owner: boolean } };
+    expect(body.resolved.customer).toBe(false);
+    expect(body.resolved.owner).toBe(false);
+    expect(flagsDoc().flags?.safety_docs).toBe(false);
+    expect(flagsDoc().ownerPreview?.safety_docs).toBe(false);
+  });
+
+  it("400s an unknown rollout state", async () => {
+    const res = await callWrite({ body: { key: "safety_docs", rollout: "sideways" } });
+    expect(res.statusCode).toBe(400);
+    expect((res.body as { code: string }).code).toBe("bad_rollout");
+  });
+
+  it("409s a protected flag even via rollout (data-plane stays ops-only)", async () => {
+    const res = await callWrite({ body: { key: "supabase_dual_write", rollout: "live" } });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("records the rollout state in the audit metadata", async () => {
+    await callWrite({ body: { key: "safety_docs", rollout: "preview", reason: "testing first" } });
+    const entry = auditEntriesThisMonth().find((e) => e.action === "feature_flag.toggled");
+    expect((entry?.metadata as { rollout?: string })?.rollout).toBe("preview");
+    expect((entry?.metadata as { reason?: string })?.reason).toBe("testing first");
+  });
+});
+
 describe("POST /api/owner-flags — audit", () => {
   it("emits a feature_flag.toggled entry on a successful toggle", async () => {
     await callWrite({ body: { key: "safety_docs", scope: "customer", value: true } });

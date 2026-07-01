@@ -124,6 +124,19 @@ real product. Each non-protected flag has **two dials**:
   `ownerPreview[key]`) layered on top, so the owner runs a feature live while
   customers still can't see it.
 
+**Staged rollout — the easy control.** Each product feature has one segmented
+control: **Off** (hidden from everyone) → **Preview** (only the owner sees it —
+build and test it live in the real product) → **Live** (everyone). This is the
+honest single-control expression of the two dials, written atomically via
+`POST /api/owner-flags { key, rollout: "off"|"preview"|"live", expectedRev }`
+(one CAS write + one `feature_flag.toggled` audit). When a feature is reachable
+for the owner (Preview or Live) an **"Open to test"** link deep-links straight
+to it (`FLAG_PRESENTATION[key].previewHref` — job-scoped features point at
+`/v2/jobs`), so the owner can try a disabled feature before releasing it to
+customers or admins. Moving a **live** feature back (to Preview or Off) goes
+through the reduce-exposure confirm; releasing forward is one click. The
+underlying two-dial scope writes (`scope`/`value`) remain for advanced use.
+
 **The board** (`OwnerFeatureBoard`) frames the raw flags as features:
 
 - **Domain groups.** Non-protected flags carry presentation metadata

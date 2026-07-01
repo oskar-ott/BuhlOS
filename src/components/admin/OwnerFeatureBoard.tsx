@@ -3,27 +3,28 @@
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { type FlagItem } from "@/domains/platform/owner-console";
-import { OwnerFlagRow, optimistic } from "./OwnerFlagRow";
+import { OwnerFlagRow } from "./OwnerFlagRow";
+import { OwnerFeatureRow, rolloutOf, type Rollout } from "./OwnerFeatureRow";
 
 /**
- * Owner Feature Control Board (#760) — the honest recreation of the prototype's
- * feature board. Product features grouped by DOMAIN, each with the two-dial
- * control from OwnerFlagRow (Live to customers / Preview for me). Filters by
- * exposure + surface; turning a live feature OFF for customers goes through a
- * reduce-exposure confirm (optional reason → audit). Protected data-plane flags
- * render in a collapsed, read-only "System" group.
+ * Owner Feature Control Board (#760). Product features grouped by DOMAIN, each
+ * with the EASY staged-rollout control (Off · Preview · Live) from
+ * OwnerFeatureRow — one atomic write moves a feature from hidden → owner-only
+ * test → released to everyone. Filters by exposure + surface; MOVING A LIVE
+ * FEATURE BACK (to preview or off) goes through a reduce-exposure confirm
+ * (optional reason → audit). Protected data-plane flags stay in a collapsed,
+ * read-only "System" group (the two-dial OwnerFlagRow, no interaction).
  *
- * State lives here (one shared flags.json rev + optimistic write, reusing the
- * pure `optimistic` projection); rows are the effect-free OwnerFlagRow.
+ * State lives here (one shared flags.json rev + optimistic write); the rows are
+ * effect-free.
  */
 
-type Scope = "customer" | "ownerPreview";
 type Exposure = "all" | "on" | "preview" | "off";
 
 const EXPOSURE_FILTERS: ReadonlyArray<readonly [Exposure, string]> = [
   ["all", "All"],
-  ["on", "On"],
-  ["preview", "Preview only"],
+  ["on", "Live"],
+  ["preview", "Preview"],
   ["off", "Off"],
 ];
 
@@ -34,6 +35,18 @@ function exposureOf(f: FlagItem): Exclude<Exposure, "all"> {
   return "off";
 }
 
+/** Pure optimistic projection of a staged-rollout write onto a row (the server
+ *  echo then corrects resolved/resolvedForOwner). */
+function optimisticRollout(r: FlagItem, state: Rollout): FlagItem {
+  if (state === "live") {
+    return { ...r, resolved: true, resolvedForOwner: true, ownerPreview: null, source: "override", ownerSource: "override" };
+  }
+  if (state === "preview") {
+    return { ...r, resolved: false, resolvedForOwner: true, ownerPreview: true, source: "override", ownerSource: "owner-preview" };
+  }
+  return { ...r, resolved: false, resolvedForOwner: false, ownerPreview: false, source: "override", ownerSource: "override" };
+}
+
 export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: number }) {
   const [rows, setRows] = useState<FlagItem[]>(items);
   const [currentRev, setCurrentRev] = useState<number | undefined>(rev);
@@ -41,24 +54,27 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
   const [error, setError] = useState<string | null>(null);
   const [expo, setExpo] = useState<Exposure>("all");
   const [surface, setSurface] = useState<string>("all");
-  const [confirm, setConfirm] = useState<{ key: string; label: string; core: boolean } | null>(
-    null,
-  );
+  const [confirm, setConfirm] = useState<{
+    key: string;
+    label: string;
+    core: boolean;
+    target: Rollout;
+  } | null>(null);
   const [reason, setReason] = useState("");
 
-  async function doWrite(key: string, scope: Scope, value: boolean | null, why?: string) {
+  async function doRollout(key: string, state: Rollout, why?: string) {
     if (savingKey) return;
     const before = rows.find((r) => r.key === key);
     if (!before) return;
     setSavingKey(key);
     setError(null);
-    setRows((prev) => prev.map((r) => (r.key === key ? optimistic(r, scope, value) : r)));
+    setRows((prev) => prev.map((r) => (r.key === key ? optimisticRollout(r, state) : r)));
     try {
       const res = await fetch("/api/owner-flags", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, scope, value, expectedRev: currentRev, reason: why }),
+        body: JSON.stringify({ key, rollout: state, expectedRev: currentRev, reason: why }),
       });
       const data: {
         code?: string;
@@ -70,7 +86,7 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
         setRows((prev) => prev.map((r) => (r.key === key ? before : r)));
         setError(
           data.code === "stale_write"
-            ? "These flags changed elsewhere — reload the page to get the latest, then retry."
+            ? "These features changed elsewhere — reload the page to get the latest, then retry."
             : data.error || "Couldn't save that change. Try again.",
         );
         return;
@@ -79,7 +95,7 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
         prev.map((r) =>
           r.key === key
             ? {
-                ...optimistic(r, scope, value),
+                ...optimisticRollout(r, state),
                 resolved: data.resolved ? data.resolved.customer : r.resolved,
                 resolvedForOwner: data.resolved ? data.resolved.owner : r.resolvedForOwner,
               }
@@ -95,15 +111,16 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
     }
   }
 
-  // Reducing exposure (turning a customer-visible feature OFF) → confirm first.
-  function handleWrite(key: string, scope: Scope, value: boolean | null) {
+  // Reducing a LIVE feature's exposure (Live → Preview or Off) → confirm first.
+  // Releasing (→ Live) or starting a preview (Off → Preview) is one click.
+  function handleRollout(key: string, target: Rollout) {
     const row = rows.find((r) => r.key === key);
-    if (row && scope === "customer" && value === false && row.resolved) {
+    if (row && row.resolved && target !== "live") {
       setReason("");
-      setConfirm({ key, label: row.label || row.key, core: !!row.core });
+      setConfirm({ key, label: row.label || row.key, core: !!row.core, target });
       return;
     }
-    void doWrite(key, scope, value);
+    void doRollout(key, target);
   }
 
   const surfaces = useMemo(
@@ -133,6 +150,13 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
 
   return (
     <div data-testid="owner-feature-board" className="space-y-4">
+      <p className="text-sm text-text-muted">
+        Move any feature through its launch: <strong className="text-text">Off</strong> (hidden) →{" "}
+        <strong className="text-text">Preview</strong> (only you see it — build &amp; test it live)
+        → <strong className="text-text">Live</strong> (everyone). Turning a live feature back asks
+        you to confirm.
+      </p>
+
       {error ? (
         <div
           role="alert"
@@ -188,11 +212,11 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
           </h3>
           <div className="divide-y divide-border overflow-hidden rounded-card border border-border">
             {g.items.map((f) => (
-              <OwnerFlagRow
+              <OwnerFeatureRow
                 key={f.key}
                 flag={f}
                 saving={savingKey === f.key}
-                onWrite={(scope, value) => handleWrite(f.key, scope, value)}
+                onRollout={(state) => handleRollout(f.key, state)}
               />
             ))}
           </div>
@@ -221,25 +245,29 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={`Turn ${confirm.label} off for customers`}
+          aria-label={`Reduce ${confirm.label} exposure`}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
         >
           <div className="w-full max-w-md rounded-card border border-border bg-surface-raised p-5 shadow-lg">
             <h4 className="font-display text-lg text-text">
-              Turn &ldquo;{confirm.label}&rdquo; off for customers?
+              {confirm.target === "off"
+                ? `Turn "${confirm.label}" off for everyone?`
+                : `Move "${confirm.label}" to preview (hide from customers)?`}
             </h4>
             <p className="mt-2 text-sm text-text-muted">
-              Customers will no longer see this feature — its pages, nav entries and cards
-              disappear. Existing data is kept; you can turn it back on any time.
+              {confirm.target === "off"
+                ? "Customers and admins will no longer see this feature — its pages, nav entries and cards disappear."
+                : "Customers and admins will no longer see this feature, but YOU still will — so you can keep testing it."}{" "}
+              Existing data is kept; you can move it back any time.
             </p>
             {confirm.core ? (
               <p
                 data-testid="board-confirm-core-warning"
                 className="mt-2 rounded-card border-l-2 border-l-state-danger bg-surface-subtle px-3 py-2 text-sm font-medium text-text"
               >
-                ⚠ This is a <strong>core</strong> surface — turning it off removes a
-                load-bearing part of the product (jobs, hours or evidence). Most of the app
-                depends on it. Only do this if you really mean to.
+                ⚠ This is a <strong>core</strong> surface — a load-bearing part of the product
+                (jobs, hours or evidence). Most of the app depends on it. Only do this if you
+                really mean to.
               </p>
             ) : null}
             <label className="mt-3 block text-xs uppercase tracking-wider text-text-muted">
@@ -266,11 +294,11 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
                 onClick={() => {
                   const c = confirm;
                   setConfirm(null);
-                  void doWrite(c.key, "customer", false, reason.trim() || undefined);
+                  void doRollout(c.key, c.target, reason.trim() || undefined);
                 }}
                 className="rounded-card bg-state-danger px-3 py-1.5 text-sm font-medium text-white"
               >
-                Turn off
+                {confirm.target === "off" ? "Turn off" : "Move to preview"}
               </button>
             </div>
           </div>
