@@ -434,6 +434,19 @@ const REGISTRY = {
     target: 'admin-tier',
     expires: '2026-12-31',
   },
+  // Epic 5 — AI Drawing Interpretation, foundation slice (#197): gates
+  // /api/ai-drawings (page understanding — sheet classification + title-block
+  // parse with per-field confidence, behind a human review-and-correct loop)
+  // and the sheet-understanding panel on /v2/jobs/[jobId]/documents.
+  // Extractions persist in Supabase (first extraction tables); vision spend
+  // rides the SHARED per-job AI cap (#510 ledger). Default OFF until proven
+  // on a real uploaded drawing set.
+  ai_drawings: {
+    description: 'Enable AI drawing interpretation — /api/ai-drawings page understanding + the review panel on job documents (#197). Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
   // Per-job ITP / QA (#474/#476): hold/witness/record points + office sign-off.
   // Unlike the registers above, ITPs are ALREADY LIVE — so this is a KILL SWITCH,
   // not a launch gate: default ON (killSwitch:true), and the owner can turn the
@@ -568,6 +581,7 @@ const FLAG_PRESENTATION = {
   ai_quote_drafts: { label: 'AI quote drafts', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/quotes' },
   ai_contract_obligations: { label: 'AI contract obligations', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   ai_office_daily_summary: { label: 'AI office daily summary', domain: 'Company', surface: 'BuhlOS', previewHref: '/reports' },
+  ai_drawings: { label: 'AI drawings — sheet understanding', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
 
   // #760 kill-switches. `core: true` = load-bearing spine; the board warns
   // before the owner turns one off.

@@ -119,6 +119,10 @@ const VALID_ACTIONS = new Set([
   'document.made_current',
   // #299: a field worker acknowledged a revision ("seen rev C").
   'document.acknowledged',
+  // #197: Epic 5 page understanding — an AI extraction ran / a human
+  // reviewed-and-corrected an AI-read field (api/ai-drawings.js).
+  'document.ai_extracted',
+  'document.ai_corrected',
   // #189: per-job contacts maintained by the office.
   'contact.saved',
   'contact.removed',

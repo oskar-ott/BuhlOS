@@ -126,6 +126,9 @@ export const AUDIT_ACTIONS = [
   "document.superseded",
   "document.made_current",
   "document.acknowledged",
+  // #197: Epic 5 page understanding — AI extraction ran / human corrected a field.
+  "document.ai_extracted",
+  "document.ai_corrected",
   "contact.saved",
   "contact.removed",
   "credential.added",

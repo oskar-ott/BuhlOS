@@ -56,6 +56,8 @@ export default async function AdminDocumentsPage({ params }: PageParams) {
   if (!(await isFlagEnabled("documents", session))) {
     notFound();
   }
+  // #197: AI sheet understanding (Epic 5) — dark flag; owner-preview aware.
+  const aiDrawingsEnabled = await isFlagEnabled("ai_drawings", session);
 
   const [jobResult, docsResult] = await Promise.all([
     loadJob(raw, jobId),
@@ -133,6 +135,7 @@ export default async function AdminDocumentsPage({ params }: PageParams) {
             docsResult.kind === "ok" ? docsResult.documents : []
           }
           fetchError={docsResult.kind === "error" ? docsResult.message : null}
+          aiDrawingsEnabled={aiDrawingsEnabled}
         />
       </div>
     </AdminShell>

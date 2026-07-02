@@ -139,6 +139,8 @@ describe("AuditLogEntrySchema", () => {
       "diary.amended",
       "diary.created",
       "document.acknowledged",
+      "document.ai_corrected",
+      "document.ai_extracted",
       "document.made_current",
       "document.superseded",
       "document.uploaded",
