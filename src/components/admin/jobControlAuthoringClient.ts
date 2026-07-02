@@ -12,6 +12,8 @@
  * invented id, never a fabricated proof item.
  */
 
+import type { ScopeClassification } from "@/domains/job-control/reconciliation";
+
 /** The field-delivering classifications an admin may pick — the ONLY ones that
  *  compile into a work package with worker tasks. Plain labels, never the raw
  *  enum; values are the domain's closed set (no `field_delivered` etc.). */
@@ -196,6 +198,42 @@ export async function saveReconciliation(
     return { ok: true, data: { status: saved.status ?? "", sourceHash: saved.sourceHash ?? "" } };
   }
   return { ok: false, message: failMessage("save the proof", r) };
+}
+
+/** Review-queue fast-classify body: ONE clause, a BARE classification — no task
+ *  wiring / proof (the cockpit triage path). The confirm producer merges this
+ *  into the prior reconciliation, so other clauses' classifications are kept. */
+export function buildClassifyBody(jobId: string, clauseId: string, classification: ScopeClassification) {
+  return { jobId, classifications: { [clauseId]: classification } };
+}
+
+/**
+ * POST /api/job-control/reconciliation/confirm — fast-classify one scope clause
+ * from the cockpit review queue. Same endpoint + producer as the full authoring
+ * flow (extend, don't fork); it just sends the bare disposition. Returns the new
+ * RAG status on success, or admin-readable error copy.
+ */
+export async function classifyScopeClause(
+  jobId: string,
+  clauseId: string,
+  classification: ScopeClassification,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ClientResult<SaveReconciliationData>> {
+  let r: Awaited<ReturnType<typeof postJson>>;
+  try {
+    r = await postJson(
+      "/api/job-control/reconciliation/confirm",
+      buildClassifyBody(jobId, clauseId, classification),
+      fetchImpl,
+    );
+  } catch {
+    return { ok: false, message: "Network error. Try again." };
+  }
+  const saved = r.body.saved as { status?: string; sourceHash?: string } | undefined;
+  if (r.ok && r.body.ok === true && saved) {
+    return { ok: true, data: { status: saved.status ?? "", sourceHash: saved.sourceHash ?? "" } };
+  }
+  return { ok: false, message: failMessage("classify the scope line", r) };
 }
 
 export interface CompilePreviewData {

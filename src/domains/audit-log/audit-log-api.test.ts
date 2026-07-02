@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Integration tests for the PR 9 per-job activity mode of /api/audit-log.
@@ -64,7 +64,16 @@ async function call(opts: {
   return res;
 }
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(() => {
+  // The handler reads the last N monthly blobs from Date.now(); the fixtures
+  // below live in 2026-05, so the clock must stay pinned inside that window —
+  // unpinned, the suite starts failing the moment the calendar rolls past June.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-06-15T12:00:00.000Z"));
   process.env.SESSION_SECRET = "test-session-secret-long-enough";
   // Two months of entries covering each surface, on two different jobs.
   blob = new Map<string, unknown>([

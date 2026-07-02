@@ -49,18 +49,30 @@ describe("JobBuilderClient", () => {
 
     // Header carries the job name.
     expect(html).toContain("Birdwood Tower");
-    // Every tab is reachable.
+    // Every section is reachable from the rail — Build, Deliver, Ship, More.
+    expect(html).toContain("Overview");
     expect(html).toContain("Basics");
+    expect(html).toContain("Scope");
     expect(html).toContain("Structure");
     expect(html).toContain("Field modules");
+    expect(html).toContain("Plans &amp; docs");
+    expect(html).toContain("Materials");
+    expect(html).toContain("Gear");
+    expect(html).toContain("ITPs / QA");
+    expect(html).toContain("Risks &amp; RFIs");
+    expect(html).toContain("Crew");
     expect(html).toContain("Phil preview");
     expect(html).toContain("Publish");
     expect(html).toContain("More");
+    // Rail groups.
+    expect(html).toContain("Deliver");
     // Basics (default tab) shows its fields.
     expect(html).toContain("Job name");
     expect(html).toContain("Site address");
     expect(html).toContain("Access notes");
     expect(html).toContain("Site induction required before the crew attends");
+    // Scope of work moved to its own Scope section — not on the default Basics tab.
+    expect(html).not.toContain("Scope of work");
   });
 
   it("shows the office-only visibility state for a draft", () => {
