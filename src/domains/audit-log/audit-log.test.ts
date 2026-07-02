@@ -115,6 +115,8 @@ describe("AuditLogEntrySchema", () => {
     // explicit submit-for-review handoff) + the itp_template /
     // itp_instance target types.
     expect([...AUDIT_ACTIONS].sort()).toEqual([
+      // #170: AI assistant job summary ('ai.' sorts before 'backup.').
+      "ai.job_summarised",
       "backup.completed",
       // #231: certificates register.
       "certificate.uploaded",

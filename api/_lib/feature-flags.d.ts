@@ -27,6 +27,7 @@ export type FlagKey =
   | "rfi_register"
   | "minutes_register"
   | "site_instructions_register"
+  | "ai_assistant"
   | "itp"
   // #760 owner feature-control kill-switches (LIVE features, default ON)
   | "jobs"
