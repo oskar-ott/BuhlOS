@@ -150,6 +150,11 @@ const VALID_ACTIONS = new Set([
   'variation.created',
   'variation.transitioned',
   'observation.converted_to_variation',
+  // #372: PROGRESS-claim register (jobs/<id>/claims.json). Kept in sync with
+  // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'claim.created',
+  'claim.submitted',
+  'claim.status_changed',
   // #276: observation → real RFI conversion verb (mirrors the snag/variation
   // converts; the field's "Question for office" chip becomes a register RFI).
   'observation.converted_to_rfi',
@@ -308,6 +313,8 @@ const VALID_TARGET_TYPES = new Set([
   'leave',
   // #280: variation claim records (jobs/<id>/variations.json).
   'variation',
+  // #372: progress-claim records (jobs/<id>/claims.json).
+  'claim',
   // #390: timesheet day records (users/<id>/time-entries/<date>.json).
   'time_entry',
   // #370: daywork docket records (jobs/<id>/dayworks.json).

@@ -27,6 +27,7 @@ export type FlagKey =
   | "certificates_register"
   | "rfi_register"
   | "variations_register"
+  | "progress_claims"
   | "minutes_register"
   | "site_instructions_register"
   | "ai_assistant"

@@ -82,6 +82,10 @@ const SHELL_EXEMPT = new Map([
   // PDF → sent to the builder) — admin chrome would print onto an external
   // deliverable. Session-gated like the rest of /v2; no shell by design.
   ['src/app/v2/jobs/[jobId]/itps/pack/page.tsx', 'printable compliance pack — print document, deliberately chromeless (route-ownership §8.1)'],
+  // #372: a progress claim print view is a PRINT DOCUMENT sent to the builder
+  // (browser print → Save as PDF → keyed into Payapps) — admin chrome would
+  // print onto an external deliverable. Session-gated like the rest of /v2.
+  ['src/app/v2/jobs/[jobId]/claims/[claimId]/print/page.tsx', 'printable progress claim — print document, deliberately chromeless (route-ownership §8.1)'],
 ]);
 
 // ── helpers ──────────────────────────────────────────────────────────

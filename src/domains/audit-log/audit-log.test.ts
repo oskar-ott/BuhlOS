@@ -124,6 +124,10 @@ describe("AuditLogEntrySchema", () => {
       "backup.completed",
       // #231: certificates register.
       "certificate.uploaded",
+      // #372: progress-claim register lifecycle.
+      "claim.created",
+      "claim.status_changed",
+      "claim.submitted",
       "contact.removed",
       "contact.saved",
       // #331: worker licence register lifecycle.
@@ -266,6 +270,8 @@ describe("AuditLogEntrySchema", () => {
     expect([...AUDIT_TARGET_TYPES].sort()).toEqual([
       // #231: per-job certificates.
       "certificate",
+      // #372: progress-claim records.
+      "claim",
       "contact",
       "credential",
       // #370: daywork docket records.
