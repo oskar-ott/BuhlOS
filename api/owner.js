@@ -39,6 +39,7 @@ const {
 } = require('./_lib/feature-flags');
 const { listSettings, coerce } = require('./_lib/feature-settings');
 const { readMonth, VALID_ACTIONS } = require('./_lib/audit-log');
+const { readErrors, MAX_ENTRIES: ERROR_LOG_CAP } = require('./_lib/error-log');
 
 const FLAGS_KEY = 'flags.json';
 const SETTINGS_KEY = 'feature-settings.json';
@@ -263,8 +264,10 @@ async function buildHealth(now) {
   return {
     overall,
     checks,
+    // #154: escaped errors + client crashes now land in the errors panel; a
+    // true error RATE (per-request denominator) is still not instrumented.
     notInstrumented: [
-      'Error / exception rate',
+      'Error rate (journal counts escaped errors only — no request denominator)',
       'Endpoint latency (p50/p95)',
       'External uptime probe',
     ],
@@ -326,6 +329,72 @@ function buildUsage(recent, now) {
   };
 }
 
+// #154: the platform error journal (platform/errors.json) — escaped api/*
+// errors from withErrorCapture-wrapped handlers + client render crashes
+// reported by src/app/error.tsx. HONEST SCOPE: errors handled inside a route's
+// own try/catch are NOT here (still console-only), so counts are a floor,
+// never a rate.
+const RECENT_ERROR_LIMIT = 50;
+const TOP_ERROR_GROUPS = 5;
+
+async function buildErrors(now) {
+  const entries = await readErrors();
+  const sorted = [...entries].sort((x, y) => (x.ts < y.ts ? 1 : x.ts > y.ts ? -1 : 0));
+  const weekAgo = now.getTime() - 7 * 86400000;
+  const count7d = sorted.filter((e) => Date.parse(e.ts) >= weekAgo).length;
+
+  // Group by fingerprint (handler|message|statusCode) — newest entry wins the
+  // display fields.
+  const groups = new Map();
+  for (const e of sorted) {
+    const key = e.fingerprint || 'none';
+    const g = groups.get(key);
+    if (g) {
+      g.count += 1;
+    } else {
+      groups.set(key, {
+        fingerprint: key,
+        handler: e.handler || 'unknown',
+        message: e.message || '',
+        source: e.source || 'api',
+        count: 1,
+        lastSeen: e.ts,
+      });
+    }
+  }
+  const topGroups = [...groups.values()]
+    .sort((x, y) => y.count - x.count)
+    .slice(0, TOP_ERROR_GROUPS);
+
+  const recent = sorted.slice(0, RECENT_ERROR_LIMIT).map((e) => ({
+    id: e.id,
+    ts: e.ts,
+    source: e.source || 'api',
+    handler: e.handler || 'unknown',
+    message: e.message || '',
+    severity: e.severity || 'error',
+    statusCode: e.statusCode == null ? null : e.statusCode,
+    fingerprint: e.fingerprint || null,
+    // stack + metadata deliberately omitted — same no-payloads discipline as
+    // the audit panel.
+  }));
+
+  return {
+    source:
+      'platform error journal (platform/errors.json) — escaped api errors ' +
+      '(wrapped handlers only) + client render crashes',
+    coverageNote:
+      'Partial by design: only jobs/data/time-entries/observations are wrapped, ' +
+      'and errors handled inside a route are not captured.',
+    available: entries.length > 0,
+    count7d,
+    total: entries.length,
+    cap: ERROR_LOG_CAP,
+    recent,
+    topGroups,
+  };
+}
+
 // First-pass STATIC coverage matrix. routeExists + accessGuarded are real
 // knowledge of the route map; auditTracked is DERIVED from the live audit
 // action registry (the namespaces that actually write to the journal);
@@ -333,6 +402,17 @@ function buildUsage(recent, now) {
 function buildCoverage() {
   const auditedNamespaces = new Set([...VALID_ACTIONS].map((a) => String(a).split('.')[0]));
   const ns = (n) => (n ? auditedNamespaces.has(n) : false);
+
+  // #154: areas whose PRIMARY api/*.js handlers are wrapped with
+  // withErrorCapture (api/jobs.js, api/data.js, api/time-entries.js,
+  // api/observations.js). ESCAPED errors only — a route's internal catches
+  // still swallow. Areas served by other, unwrapped handlers stay false.
+  const ERROR_WRAPPED_AREAS = new Set([
+    'Jobs',
+    'Hours',
+    'Phil — Hours',
+    'Observations / RFIs / Snags',
+  ]);
 
   // [area, surface, accessGuarded, auditNamespace|null]
   const defs = [
@@ -361,14 +441,15 @@ function buildCoverage() {
     accessGuarded,
     auditTracked: ns(auditNs),
     usageTracked: false,
-    errorsTracked: false,
+    errorsTracked: ERROR_WRAPPED_AREAS.has(area),
   }));
 
   return {
     note:
       'First-pass matrix. routeExists + accessGuarded reflect the route map; ' +
-      'auditTracked is derived from the live audit-action registry; usage and ' +
-      'error columns are not instrumented yet (see Next actions).',
+      'auditTracked is derived from the live audit-action registry; usage is ' +
+      'not instrumented yet; errors marks areas whose primary handlers are ' +
+      'wrapped for escaped-error capture (#154) — partial, not full telemetry.',
     rows,
   };
 }
@@ -418,12 +499,16 @@ function buildProblems(flags, health, usage, meta, now) {
     why: 'Without usage data you cannot see which surfaces are used, abandoned, or dead.',
     action: 'Add lightweight route-view instrumentation (follow-up issue).',
   });
+  // #154: error telemetry now exists but is PARTIAL — say exactly what's
+  // covered rather than dropping the line.
   problems.push({
     severity: 'not_instrumented',
-    title: 'No error / failed-action telemetry',
-    evidence: 'transient failures are logged server-side but not persisted or aggregated',
-    why: 'Repeated failures and product dead-ends are invisible without an error feed.',
-    action: 'Wire a failed-action / error summary (follow-up issue).',
+    title: 'Error telemetry is partial (escaped errors + client render crashes only)',
+    evidence:
+      'platform/errors.json — withErrorCapture wraps jobs/data/time-entries/observations; ' +
+      'src/app/error.tsx reports page crashes',
+    why: 'Errors handled inside a route (its own try/catch) are still only console-logged, so most failed actions remain invisible.',
+    action: 'Extend withErrorCapture to remaining handlers and thread captureError into hot catch blocks (follow-up issue).',
   });
   problems.push({
     severity: 'not_instrumented',
@@ -474,11 +559,12 @@ function buildNextActions(problems, flags, meta) {
     suggestedIssue: 'Owner Console: route usage instrumentation',
   });
   actions.push({
-    title: 'Wire failed-action / error telemetry',
-    reason: 'Surface repeated failures and product dead-ends.',
+    title: 'Extend error capture to the remaining api/* handlers',
+    reason:
+      'Escaped-error capture (#154) covers jobs/data/time-entries/observations + the client boundary; the other ~35 handlers and in-route catches are still console-only.',
     priority: 'medium',
-    safeNow: false,
-    suggestedIssue: 'Owner Console: failed action / error summary',
+    safeNow: true,
+    suggestedIssue: 'Owner Console: full-coverage error capture',
   });
   actions.push({
     title: 'Record login / session activity in the audit journal',
@@ -552,6 +638,17 @@ module.exports = async (req, res) => {
     notInstrumented: [],
   });
   const recent = await safe(() => readRecentEntries(now), { all: [], thisMonth: [] });
+  const errors = await safe(() => buildErrors(now), {
+    source: 'platform error journal (platform/errors.json)',
+    coverageNote: 'error journal unavailable',
+    available: false,
+    count7d: 0,
+    total: 0,
+    cap: ERROR_LOG_CAP,
+    recent: [],
+    topGroups: [],
+    error: 'error journal unavailable',
+  });
   const audit = buildAudit(recent);
   const usage = buildUsage(recent, now);
   const coverage = await safe(() => buildCoverage(), { note: 'coverage unavailable', rows: [] });
@@ -577,6 +674,7 @@ module.exports = async (req, res) => {
     flags,
     settings,
     usage,
+    errors,
     audit,
     coverage,
     problems,

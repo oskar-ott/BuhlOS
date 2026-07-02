@@ -18,8 +18,24 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // In real prod we'd report this with a unique error ID; Phase A logs only.
     console.error("[BuhlOS] unhandled error:", error);
+    // #154: best-effort report to the platform error journal (Owner Console).
+    // Fire-and-forget — a failed report must never affect the error UI.
+    try {
+      fetch("/api/client-errors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: error.message || "unknown client error",
+          stack: error.stack ? String(error.stack).slice(0, 800) : undefined,
+          digest: error.digest,
+          url: window.location.pathname,
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    } catch {
+      // Never let reporting break the boundary itself.
+    }
   }, [error]);
 
   return (

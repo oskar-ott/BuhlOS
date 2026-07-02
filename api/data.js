@@ -88,3 +88,8 @@ module.exports = async (req, res) => {
   }
   return res.status(200).json(data); // clients (and any other tier) — pure Blob
 };
+
+// #154: capture any error that ESCAPES the handler above (its internal
+// try/catches stay the primary handling) — journal + 500. Signature unchanged.
+const { withErrorCapture } = require('./_lib/error-wrap');
+module.exports = withErrorCapture(module.exports, 'data');

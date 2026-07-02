@@ -17,6 +17,7 @@ const guardsPath = requireFromHere.resolve("../../../api/_lib/blob-guards.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const flagsPath = requireFromHere.resolve("../../../api/_lib/feature-flags.js");
 const auditPath = requireFromHere.resolve("../../../api/_lib/audit-log.js");
+const errorLogPath = requireFromHere.resolve("../../../api/_lib/error-log.js");
 const handlerPath = requireFromHere.resolve("../../../api/owner.js");
 const ownerFlagsPath = requireFromHere.resolve("../../../api/owner-flags.js");
 
@@ -125,6 +126,7 @@ beforeEach(() => {
 
   delete requireFromHere.cache[flagsPath];
   delete requireFromHere.cache[auditPath];
+  delete requireFromHere.cache[errorLogPath];
   delete requireFromHere.cache[authPath];
   delete requireFromHere.cache[guardsPath];
   delete requireFromHere.cache[handlerPath];
@@ -240,6 +242,101 @@ describe("GET /api/owner — payload (real, honest, no secrets, read-only)", () 
       (s) => s.featureKey === "safety_docs" && s.key === "maxUploadMb",
     );
     expect(cap?.value).toBe(25); // default until overridden
+  });
+});
+
+// ── GET /api/owner — errors panel (#154) ─────────────────────────────────────
+
+describe("GET /api/owner — errors panel (#154, honest partial coverage)", () => {
+  it("returns an honest empty errors panel when the journal has no entries", async () => {
+    const res = await call({ role: "owner" });
+    const body = res.body as {
+      errors: {
+        available: boolean;
+        count7d: number;
+        total: number;
+        recent: unknown[];
+        topGroups: unknown[];
+        coverageNote: string;
+      };
+    };
+    expect(body.errors).toBeTruthy();
+    expect(body.errors.available).toBe(false);
+    expect(body.errors.count7d).toBe(0);
+    expect(body.errors.total).toBe(0);
+    expect(body.errors.recent).toEqual([]);
+    expect(body.errors.topGroups).toEqual([]);
+    // The panel states its own partial scope — no overclaiming.
+    expect(body.errors.coverageNote).toContain("Partial");
+  });
+
+  it("aggregates seeded events: 7-day count, fingerprint groups, recent w/o stack", async () => {
+    const now = Date.now();
+    const mk = (over: Record<string, unknown>) => ({
+      id: `err_${Math.random().toString(36).slice(2, 10)}`,
+      ts: new Date(now - 3600_000).toISOString(),
+      source: "api",
+      handler: "jobs",
+      message: "boom",
+      severity: "error",
+      statusCode: 500,
+      stack: "Error: boom",
+      userId: null,
+      jobId: null,
+      fingerprint: "aaaaaaaaaaaa",
+      ...over,
+    });
+    blob.set("platform/errors.json", {
+      entries: [
+        mk({}),
+        mk({}),
+        mk({ handler: "data", message: "bang", fingerprint: "bbbbbbbbbbbb" }),
+        // Older than 7 days — counted in total but not count7d.
+        mk({ ts: new Date(now - 10 * 86400_000).toISOString(), fingerprint: "cccccccccccc" }),
+      ],
+    });
+    const res = await call({ role: "owner" });
+    const body = res.body as {
+      errors: {
+        available: boolean;
+        count7d: number;
+        total: number;
+        recent: Array<Record<string, unknown>>;
+        topGroups: Array<{ fingerprint: string; count: number; handler: string }>;
+      };
+    };
+    expect(body.errors.available).toBe(true);
+    expect(body.errors.total).toBe(4);
+    expect(body.errors.count7d).toBe(3);
+    const top = body.errors.topGroups[0]!;
+    expect(top.fingerprint).toBe("aaaaaaaaaaaa");
+    expect(top.count).toBe(2);
+    expect(top.handler).toBe("jobs");
+    // No payloads in the projection (same discipline as the audit panel).
+    expect(body.errors.recent[0]).not.toHaveProperty("stack");
+    expect(body.errors.recent[0]).not.toHaveProperty("metadata");
+  });
+
+  it("marks ONLY wrapped-handler areas errorsTracked in the coverage matrix", async () => {
+    const res = await call({ role: "owner" });
+    const body = res.body as {
+      coverage: { rows: Array<{ area: string; errorsTracked: boolean }> };
+      problems: Array<{ title: string }>;
+      nextActions: Array<{ title: string }>;
+    };
+    const tracked = body.coverage.rows.filter((r) => r.errorsTracked).map((r) => r.area);
+    expect(tracked.sort()).toEqual(
+      ["Hours", "Jobs", "Observations / RFIs / Snags", "Phil — Hours"].sort(),
+    );
+    // Command centre has no wrapped handler — stays honest-false.
+    const cc = body.coverage.rows.find((r) => r.area === "Command centre");
+    expect(cc?.errorsTracked).toBe(false);
+    // The old "no telemetry" problem is replaced by an honest PARTIAL note.
+    expect(body.problems.some((p) => p.title === "No error / failed-action telemetry")).toBe(false);
+    expect(body.problems.some((p) => p.title.includes("partial"))).toBe(true);
+    expect(
+      body.nextActions.some((a) => a.title.includes("Extend error capture")),
+    ).toBe(true);
   });
 });
 
