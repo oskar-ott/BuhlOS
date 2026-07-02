@@ -11,6 +11,9 @@ import type { AuditAction, AuditLogEntry, AuditTargetType } from "./types";
 
 const ACTION_LABELS: Record<AuditAction, string> = {
   "ai.job_summarised": "Generated an AI job summary",
+  "ai.digest_generated": "Generated an AI insights digest",
+  "job.contract_obligations_extracted": "Extracted contract obligations (AI)",
+  "job.contract_obligation_accepted": "Accepted contract obligation",
   "document.uploaded": "uploaded a document",
   "document.superseded": "document superseded",
   "document.made_current": "marked a drawing current",
@@ -33,6 +36,9 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "evidence.unlinked": "Unlinked before photo",
   "evidence.flagged_asbuilt": "Flagged as-built",
   "evidence.unflagged_asbuilt": "Cleared as-built flag",
+  "evidence.labels_suggested": "Suggested photo labels (AI)",
+  "evidence.labels_corrected": "Corrected photo labels",
+  "evidence.defect_suggestion_dismissed": "Dismissed defect suggestion",
   "snag.created": "Raised snag",
   "snag.transitioned": "Moved snag",
   "itp.attached": "Attached ITP",

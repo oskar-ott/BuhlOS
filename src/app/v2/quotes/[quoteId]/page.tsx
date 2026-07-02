@@ -90,6 +90,9 @@ export default async function QuoteBuilderPage({ params }: PageParams) {
         <QuoteBuilderClient
           initialQuote={result.quote}
           viewerIsAdmin={isAdminRole(session.role)}
+          // #246 — dark by default; resolved server-side like the other flags
+          // so the AI entry point never renders for a flag-dark viewer.
+          aiDraftsEnabled={await isFlagEnabled("ai_quote_drafts", session)}
         />
       </div>
     </AdminShell>

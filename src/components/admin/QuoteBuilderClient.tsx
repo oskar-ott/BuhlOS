@@ -25,6 +25,7 @@ import {
 import { computeV2QuoteMargin, type V2MarginRow } from "@/domains/quoting/quote-margin-v2";
 import { listRatePresets, type RatePreset } from "@/domains/quoting/rate-presets-client";
 import { QuoteRatePresetsModal } from "./QuoteRatePresetsModal";
+import { QuoteAiDraftPanel } from "./QuoteAiDraftPanel";
 import type { MarginFlag } from "@/domains/quoting/margin";
 
 /**
@@ -61,6 +62,11 @@ interface LineForm {
   /** Applied-preset snapshot stamps (labour). */
   ratePresetId?: string;
   ratePresetName?: string;
+  /** #246 — AI-draft provenance (round-trips through saves). `needsPricing`
+   *  drives the "AI · needs pricing" badge; it clears when a rate is typed. */
+  source?: "ai_suggested";
+  aiSuggestionId?: string;
+  needsPricing?: boolean;
 }
 
 interface SectionForm {
@@ -105,6 +111,9 @@ function quoteToForm(quote: Quote): BuilderForm {
         category: l.category ?? "",
         ratePresetId: l.ratePresetId,
         ratePresetName: l.ratePresetName,
+        source: l.source,
+        aiSuggestionId: l.aiSuggestionId,
+        needsPricing: l.needsPricing,
       })),
     })),
   };
@@ -148,6 +157,7 @@ function comparable(form: BuilderForm) {
         unitCost: parseOptionalAmount(l.unitCost) ?? null,
         category: l.category.trim(),
         ratePresetId: l.ratePresetId ?? null,
+        needsPricing: l.needsPricing ?? null,
       })),
     })),
   };
@@ -211,6 +221,10 @@ function toSaveInput(form: BuilderForm, updatedAt: string): QuoteSaveInput {
         category: l.category.trim() || undefined,
         ratePresetId: l.ratePresetId || undefined,
         ratePresetName: l.ratePresetName || undefined,
+        // #246 — AI-draft provenance survives ordinary saves.
+        source: l.source,
+        aiSuggestionId: l.aiSuggestionId,
+        needsPricing: l.needsPricing,
       })),
     })),
     updatedAt,
@@ -280,9 +294,16 @@ interface QuoteBuilderClientProps {
    * gated, so cost data only reaches an admin's browser in the first place.
    */
   viewerIsAdmin?: boolean;
+  /** #246 — `ai_quote_drafts` flag, resolved server-side by the page (dark by
+   *  default). Fail-closed: a caller that forgets it shows NO AI entry point. */
+  aiDraftsEnabled?: boolean;
 }
 
-export function QuoteBuilderClient({ initialQuote, viewerIsAdmin = false }: QuoteBuilderClientProps) {
+export function QuoteBuilderClient({
+  initialQuote,
+  viewerIsAdmin = false,
+  aiDraftsEnabled = false,
+}: QuoteBuilderClientProps) {
   const [savedQuote, setSavedQuote] = useState<Quote>(initialQuote);
   const [form, setForm] = useState<BuilderForm>(() => quoteToForm(initialQuote));
   const [saving, setSaving] = useState(false);
@@ -439,6 +460,52 @@ export function QuoteBuilderClient({ initialQuote, viewerIsAdmin = false }: Quot
     setSaveError(null);
   }
 
+  /**
+   * #246 — adopt the server document after an AI-draft action. A draft run or
+   * a discard only changes the doc's `aiDraft` metadata (sections + updatedAt
+   * untouched), so adopting `savedQuote` alone keeps the form's save
+   * precondition valid. An accept/edit wrote ONE real line server-side; merge
+   * exactly that line into the open form so unsaved edits are never clobbered.
+   */
+  function handleAiQuoteUpdate(quote: Quote, acceptedSuggestionId?: string) {
+    setSavedQuote(quote);
+    if (!acceptedSuggestionId) return;
+    for (const s of quote.sections) {
+      const l = s.lines.find((line) => line.aiSuggestionId === acceptedSuggestionId);
+      if (!l) continue;
+      const lineForm: LineForm = {
+        key: l.id,
+        id: l.id,
+        kind: l.kind,
+        description: l.description,
+        qty: String(l.qty),
+        unit: l.unit,
+        rate: String(l.rate),
+        unitCost: "",
+        category: "",
+        source: l.source,
+        aiSuggestionId: l.aiSuggestionId,
+        needsPricing: l.needsPricing,
+      };
+      setForm((f) => {
+        const existing = f.sections.find((sec) => sec.id === s.id);
+        if (existing) {
+          return {
+            ...f,
+            sections: f.sections.map((sec) =>
+              sec.id === s.id ? { ...sec, lines: [...sec.lines, lineForm] } : sec
+            ),
+          };
+        }
+        return {
+          ...f,
+          sections: [...f.sections, { key: s.id, id: s.id, title: s.title, lines: [lineForm] }],
+        };
+      });
+      break;
+    }
+  }
+
   const chip = saving ? (
     <Pill tone="info" data-testid="quote-builder-save-state">
       Saving…
@@ -586,6 +653,11 @@ export function QuoteBuilderClient({ initialQuote, viewerIsAdmin = false }: Quot
         ) : null}
       </Card>
 
+      {/* #246 — flag-gated AI draft entry point + review tray. */}
+      {aiDraftsEnabled ? (
+        <QuoteAiDraftPanel quote={savedQuote} onQuoteUpdate={handleAiQuoteUpdate} />
+      ) : null}
+
       {form.sections.length === 0 ? (
         <Card data-testid="quote-builder-no-sections">
           <CardTitle>No sections yet</CardTitle>
@@ -719,7 +791,16 @@ export function QuoteBuilderClient({ initialQuote, viewerIsAdmin = false }: Quot
                           inputMode="decimal"
                           step="any"
                           value={line.rate}
-                          onChange={(e) => patchLine(section.key, line.key, { rate: e.target.value })}
+                          onChange={(e) =>
+                            patchLine(section.key, line.key, {
+                              rate: e.target.value,
+                              // #246 — typing a rate IS the pricing decision;
+                              // the "needs pricing" flag clears with it.
+                              ...(line.needsPricing && e.target.value.trim() !== ""
+                                ? { needsPricing: false }
+                                : {}),
+                            })
+                          }
                           className={`${inputClass} ${rate === null ? "border-state-danger" : ""}`}
                         />
                         <span className="text-right text-sm tabular-nums font-medium text-text">
@@ -735,6 +816,20 @@ export function QuoteBuilderClient({ initialQuote, viewerIsAdmin = false }: Quot
                           <Trash2 aria-hidden="true" className="h-4 w-4" />
                         </Button>
                        </div>
+                        {/* #246 — an accepted AI line sits at $0 until priced.
+                            The badge is honest state, driven by the persisted
+                            flags; it never invents a price. */}
+                        {line.source === "ai_suggested" && line.needsPricing ? (
+                          <div
+                            className="mt-1.5 flex flex-wrap items-center gap-2 md:px-1"
+                            data-testid="quote-ai-needs-pricing"
+                          >
+                            <Pill tone="warning">AI · needs pricing</Pill>
+                            <span className="text-xs text-text-muted">
+                              Accepted from an AI draft at $0 — set the rate.
+                            </span>
+                          </div>
+                        ) : null}
                         {viewerIsAdmin ? (
                           <LineCostRow
                             line={line}

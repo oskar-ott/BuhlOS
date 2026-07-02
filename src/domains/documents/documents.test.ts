@@ -113,6 +113,7 @@ describe("Document enum schemas", () => {
       "schedule",
       "photo",
       "certificate",
+      "contract",
       "other",
     ]);
   });
@@ -218,6 +219,7 @@ describe("categoryLabel + normaliseCategory", () => {
     expect(categoryLabel("schedule")).toBe("Schedule");
     expect(categoryLabel("photo")).toBe("Photo");
     expect(categoryLabel("certificate")).toBe("Certificate");
+    expect(categoryLabel("contract")).toBe("Contract / SOW");
     expect(categoryLabel("other")).toBe("Other");
   });
 

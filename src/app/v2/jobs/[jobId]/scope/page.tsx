@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { ScopeReconciliationStatus } from "@/components/admin/ScopeReconciliationStatus";
+import { ContractObligationsSection } from "@/components/admin/ContractObligationsSection";
 import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isAdminRole } from "@/lib/auth/roles";
@@ -84,6 +85,10 @@ export default async function AdminJobScopePage({ params }: PageParams) {
 
   const view = await runScopeReconciliationView(blobReconciliationReadDeps(), jobId);
 
+  // #373: AI contract-obligation extraction — dark by default; resolved the
+  // same way as the page's kill-switch flag above.
+  const contractObligationsOn = await isFlagEnabled("ai_contract_obligations", session);
+
   return (
     <AdminShell
       title={`Scope reconciliation · ${jobResult.job.name}`}
@@ -103,6 +108,7 @@ export default async function AdminJobScopePage({ params }: PageParams) {
           </Link>
         </div>
         <ScopeReconciliationStatus view={view} />
+        {contractObligationsOn ? <ContractObligationsSection jobId={jobId} /> : null}
       </div>
     </AdminShell>
   );

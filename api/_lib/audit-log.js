@@ -35,6 +35,13 @@ const VALID_ACTIONS = new Set([
   // Kept in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'evidence.flagged_asbuilt',
   'evidence.unflagged_asbuilt',
+  // #262: AI photo labels. `labels_suggested` fires once per classify batch
+  // (metadata: model, promptVersion, counts); `labels_corrected` per human
+  // add/accept/remove. #267: `defect_suggestion_dismissed` records the sticky
+  // per-photo dismissal. Kept in sync with src/domains/audit-log/schema.ts.
+  'evidence.labels_suggested',
+  'evidence.labels_corrected',
+  'evidence.defect_suggestion_dismissed',
   // Phase D.5 (snags). One verb covers every status change; the
   // metadata.from / metadata.to fields carry the direction.
   'snag.created',
@@ -247,6 +254,13 @@ const VALID_ACTIONS = new Set([
   // targetType 'job'; metadata carries model + token usage. Best-effort. Kept
   // in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'ai.job_summarised',
+  // 2026-07 AI batch. #347: a stored insights digest was generated
+  // (targetType 'system'; metadata carries model + finding count + grounding
+  // outcome). #373: contract-obligation extraction run + per-item acceptance
+  // (targetType 'job'). Kept in sync with src/domains/audit-log/schema.ts.
+  'ai.digest_generated',
+  'job.contract_obligations_extracted',
+  'job.contract_obligation_accepted',
   // #366: scope-vs-quote reconciliation — the office's resolve-or-accept
   // decision on an engine-named finding (resolved = conflict fixed; accepted =
   // lived with, with a required reason in metadata.reason). targetType

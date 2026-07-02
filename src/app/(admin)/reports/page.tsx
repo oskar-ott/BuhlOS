@@ -7,6 +7,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { OwnerNumbersBoard } from "@/components/admin/OwnerNumbersBoard";
 import { UtilisationPanel } from "@/components/admin/UtilisationPanel";
+import { InsightsDigestCard, type StoredDigest } from "@/components/admin/InsightsDigestCard";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
@@ -76,6 +77,12 @@ export default async function ReportsPage() {
 
   const tiles = await loadOwnerNumbers(raw);
 
+  // #347 — flag-dark (default OFF) AI insights digest. Loaded server-side so
+  // the card renders with the stored digest; the client button only triggers
+  // regeneration. Invisible until the flag is on for this admin.
+  const digestEnabled = await isFlagEnabled("ai_insights_digest", session);
+  const digestData = digestEnabled ? await loadDigest(raw) : null;
+
   return (
     <AdminShell title="Reports">
       <div className="mx-auto max-w-5xl space-y-6">
@@ -107,6 +114,12 @@ export default async function ReportsPage() {
           <OwnerNumbersBoard tiles={tiles} />
         </section>
 
+        {digestData ? (
+          <section aria-label="AI insights digest">
+            <InsightsDigestCard weekStart={digestData.weekStart} digest={digestData.digest} />
+          </section>
+        ) : null}
+
         {/* #342: crew utilisation — multi-week vs real expected hours + crew
             capacity. Client-fetched (admin-only endpoint); degrades on its own. */}
         <section aria-label="Crew utilisation">
@@ -115,6 +128,26 @@ export default async function ReportsPage() {
       </div>
     </AdminShell>
   );
+}
+
+// #347 — read the stored digest for the current week (never generates).
+async function loadDigest(
+  cookieValue: string | undefined,
+): Promise<{ weekStart: string; digest: StoredDigest | null } | null> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  const result = await fetchJson(
+    base,
+    "/api/insights-digest",
+    cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    "Insights digest",
+  );
+  if (result.error || !result.body || typeof result.body !== "object") return null;
+  const body = result.body as { weekStart?: string; digest?: StoredDigest | null };
+  if (!body.weekStart) return null;
+  return { weekStart: body.weekStart, digest: body.digest ?? null };
 }
 
 // ── Server-side fan-in (loadSnapshot pattern) ──────────────────────────

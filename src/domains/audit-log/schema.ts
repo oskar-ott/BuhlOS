@@ -47,6 +47,10 @@ export const AUDIT_ACTIONS = [
   // #170: the AI assistant generated a job summary (api/ai-assistant.js).
   // targetType 'job'. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
   "ai.job_summarised",
+  // 2026-07 AI batch (#347/#373). Kept in sync with api/_lib/audit-log.js.
+  "ai.digest_generated",
+  "job.contract_obligations_extracted",
+  "job.contract_obligation_accepted",
   "evidence.captured",
   "evidence.reviewed",
   "evidence.rejected",
@@ -59,6 +63,11 @@ export const AUDIT_ACTIONS = [
   // capture. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
   "evidence.flagged_asbuilt",
   "evidence.unflagged_asbuilt",
+  // #262 AI photo labels + #267 defect suggestions. Kept in sync with
+  // api/_lib/audit-log.js VALID_ACTIONS.
+  "evidence.labels_suggested",
+  "evidence.labels_corrected",
+  "evidence.defect_suggestion_dismissed",
   "snag.created",
   "snag.transitioned",
   "itp.attached",
