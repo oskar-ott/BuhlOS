@@ -263,6 +263,13 @@ function SnagRow({ snag, viewer, busy, onTransition }: RowProps) {
           {snag.areaName ? (
             <p className="mt-1 text-xs text-text-muted">{snag.areaName}</p>
           ) : null}
+          {/* #520: honest origin line — only on snags raised off a failed
+              ITP point / test circuit. */}
+          {snag.itpInstanceId || snag.itpPointId ? (
+            <p className="mt-1 text-xs text-text-muted">From a failed ITP check</p>
+          ) : snag.testRecordId ? (
+            <p className="mt-1 text-xs text-text-muted">From a failed test result</p>
+          ) : null}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <Pill tone={STATUS_PILL_TONE[statusTone(snag.status)]}>

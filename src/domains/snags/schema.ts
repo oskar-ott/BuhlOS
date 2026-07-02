@@ -67,6 +67,11 @@ export const SNAG_REJECTION_REASON_MAX = 500;
  *  every evidence row on the job. */
 export const SNAG_EVIDENCE_LINK_MAX = 10;
 
+/** #520: length cap for the raised-from origin ids (itpInstanceId /
+ *  itpPointId / testRecordId). Real ids are nanoid-scale (~10–30
+ *  chars); 80 is a junk guard, not a format assertion. */
+export const SNAG_ORIGIN_ID_MAX = 80;
+
 /**
  * Full SnagItem as persisted on jobs/<jobId>/data.json snagsV2[] and
  * as returned by GET / POST /api/snags.
@@ -119,6 +124,14 @@ export const SnagItemSchema = z
     // so a later handover edit can't rewrite history. (.passthrough already
     // tolerates it; declared here for clarity + typed access.)
     origin: z.string().nullable().optional(),
+
+    // #520: raised-from pointers — set when the snag was raised straight off a
+    // failed ITP point or a failed TestRecord circuit, so review surfaces can
+    // say honestly where the defect came from. A labelled facet on the snag,
+    // not a new store; all optional/null on snags raised any other way.
+    itpInstanceId: z.string().nullable().optional(),
+    itpPointId: z.string().nullable().optional(),
+    testRecordId: z.string().nullable().optional(),
 
     // Actor stamps. Worker creates → admin verifies/closes.
     createdById: z.string(),
@@ -211,6 +224,24 @@ export const CreateSnagPayloadSchema = z
       .optional(),
 
     assignedToId: z.string().nullable().optional(),
+
+    /** #520: raised-from pointers (see SnagItemSchema). Plain ids —
+     *  the server persists them verbatim; length-capped junk guard. */
+    itpInstanceId: z
+      .string()
+      .max(SNAG_ORIGIN_ID_MAX, `itpInstanceId must be ${SNAG_ORIGIN_ID_MAX} characters or fewer`)
+      .nullable()
+      .optional(),
+    itpPointId: z
+      .string()
+      .max(SNAG_ORIGIN_ID_MAX, `itpPointId must be ${SNAG_ORIGIN_ID_MAX} characters or fewer`)
+      .nullable()
+      .optional(),
+    testRecordId: z
+      .string()
+      .max(SNAG_ORIGIN_ID_MAX, `testRecordId must be ${SNAG_ORIGIN_ID_MAX} characters or fewer`)
+      .nullable()
+      .optional(),
   })
   .superRefine((data, ctx) => {
     if (data.taskId && !data.stage) {
@@ -218,6 +249,13 @@ export const CreateSnagPayloadSchema = z
         code: z.ZodIssueCode.custom,
         message: "stage is required when taskId is provided",
         path: ["stage"],
+      });
+    }
+    if (data.itpPointId && !data.itpInstanceId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "itpInstanceId is required when itpPointId is provided",
+        path: ["itpInstanceId"],
       });
     }
   });
