@@ -1407,4 +1407,78 @@ describe("schedule tables (#202)", () => {
     expect(extractions).toHaveLength(0);
     expect(spendLedger().calls).toHaveLength(1);
   });
+
+  // ── #207 switchboard schedules on the same machinery ──
+  it("extracts a board schedule keyed by board, verbatim abbreviations intact (#207)", async () => {
+    aiNextText = JSON.stringify({
+      isSchedulePresent: true,
+      tables: [
+        {
+          boardIdentifier: "DB-1",
+          region: { x: 0.05, y: 0.1, w: 0.45, h: 0.7 },
+          headers: ["CCT", "DESCRIPTION", "CB", "CABLE", "PH"],
+          columnMap: {
+            CCT: "circuitRef",
+            DESCRIPTION: "description",
+            CB: "protection",
+            CABLE: "cableSize",
+            PH: "phase",
+          },
+          rows: [
+            {
+              rowRegion: { x: 0.05, y: 0.2, w: 0.45, h: 0.02 },
+              cells: {
+                circuitRef: { value: "L1", confidence: 0.95 },
+                description: { value: "LTS GF EAST", confidence: 0.9 }, // abbreviation VERBATIM
+                protection: { value: "10A MCB C", confidence: 0.9 },
+                cableSize: { value: "2.5mm²", confidence: 0.88 },
+                phase: { value: "R", confidence: 0.9 },
+              },
+            },
+          ],
+        },
+      ],
+      notes: null,
+    });
+    const res = await call("POST", { jobId: "j1", action: "extract-schedule" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      tableKind: "switchboard",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.tables).toHaveLength(1);
+    expect(res.body.tables[0].tableKind).toBe("switchboard");
+    expect(res.body.tables[0].boardIdentifier).toBe("DB-1"); // stored keyed by board
+    expect(res.body.rows[0].effective.description.value).toBe("LTS GF EAST"); // never expanded
+    expect(res.body.rows[0].effective.cableSize.value).toBe("2.5mm²");
+    const audit = auditEntries.find((a) => a.action === "document.ai_extracted");
+    expect((audit?.metadata as Row)?.kind).toBe("schedule-switchboard");
+  });
+
+  it("lighting and switchboard runs on the same page cache independently (#207)", async () => {
+    await extractScheduleOn(0); // lighting
+    aiNextText = JSON.stringify({
+      isSchedulePresent: true,
+      tables: [
+        {
+          boardIdentifier: "MSB",
+          region: null,
+          headers: ["CCT"],
+          columnMap: { CCT: "circuitRef" },
+          rows: [{ rowRegion: null, cells: { circuitRef: { value: "P1", confidence: 0.9 } } }],
+        },
+      ],
+      notes: null,
+    });
+    const res = await call("POST", { jobId: "j1", action: "extract-schedule" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      tableKind: "switchboard",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.cached).toBe(false); // separate run-log kind → separate cache
+    expect(aiCalls).toHaveLength(2);
+    // both kinds live side by side — a board run never supersedes lighting tables
+    expect(scheduleTables.filter((t) => t.status === "live")).toHaveLength(2);
+  });
 });

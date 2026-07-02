@@ -168,11 +168,21 @@ switchboard mapper on top. Same flag, run-log cache and spend cap.
 
 - **No server-side PDF/OCR pipeline** — pages must have been rendered by the
   existing upload flow (client-side PDF.js → `set-pages`).
-- **Lighting schedules only so far** — the switchboard mapper + board
-  grouping is #207; no revision diff (#203), no device recognition
-  (#204/#205).
-- Accuracy ACs (#201 legend listing, #202 cell-level error rate on a real
-  schedule) need prod — same owner-preview session as the #197/#199 checks.
+- **Switchboard schedules (#207)** ride the same machinery: the
+  `switchboard` mapper (`circuitRef/description/protection/cableSize/phase/
+  load` — named for `api/job-circuits.js` `circuitBoards` compatibility),
+  prompt `sb-v1` with the verbatim-abbreviations rule stated even harder,
+  tables keyed by `board_identifier`, and multi-page boards stitched **at
+  read time** — same-board tables render adjacently as "part i of n", each
+  keeping its own source page and row strips. Lighting and board runs on
+  the same page cache and supersede independently. Extracted board rows are
+  a review-side register — they do NOT write into `circuitBoards[]` (the
+  engineering schedule keeps its single writer); feeding verified rows
+  across is a #213-adjacent follow-up.
+- No revision diff yet (#203), no device recognition (#204/#205).
+- Accuracy ACs (#201 legend listing, #202/#207 cell-level error rate on
+  real schedules) need prod — same owner-preview session as the #197/#199
+  checks.
 - **The ≥10-page real-set end-to-end check (final #197 AC) needs production**
   (real Anthropic key + Supabase + a real drawing set) — run it there with
   the flag in owner-preview before closing the issue.
