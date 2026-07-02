@@ -52,6 +52,15 @@ export interface ScopeReconciliationCounts {
   amberFindings: number;
 }
 
+/** One recorded resolve-or-accept decision (who/when/why) for the review list. */
+export interface ScopeResolutionView {
+  findingKey: string;
+  action: "resolved" | "accepted";
+  reason: string | null;
+  by: string;
+  at: string;
+}
+
 export type ScopeReconciliationView =
   /** No reconciliation confirmed yet for this job. */
   | { ok: true; jobId: string; status: "missing" }
@@ -70,6 +79,11 @@ export type ScopeReconciliationView =
       counts: ScopeReconciliationCounts;
       clauses: ScopeClauseView[];
       findings: ScopeFindingView[];
+      /** Recorded resolve-or-accept decisions (never wiped by re-reconciliation). */
+      resolutions: ScopeResolutionView[];
+      /** The scope fingerprint this was confirmed against — the stale-write
+       *  precondition an interactive resolve/accept sends back on its confirm. */
+      sourceHash: string;
     };
 
 export interface ReconciliationReadDeps {
@@ -126,6 +140,14 @@ function toView(jobId: string, persisted: PersistedScopeReconciliation): ScopeRe
       clauseId: w.clauseId ?? null,
       message: w.message,
     })),
+    resolutions: rec.resolutions.map((r) => ({
+      findingKey: r.findingKey,
+      action: r.action,
+      reason: r.reason ?? null,
+      by: r.by,
+      at: r.at,
+    })),
+    sourceHash: persisted.sourceHash,
   };
 }
 

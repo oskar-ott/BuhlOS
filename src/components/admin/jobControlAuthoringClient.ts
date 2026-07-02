@@ -236,6 +236,66 @@ export async function classifyScopeClause(
   return { ok: false, message: failMessage("classify the scope line", r) };
 }
 
+/** A resolve-or-accept decision on one engine-named finding (#366 AC2). */
+export interface FindingResolutionInput {
+  findingKey: string;
+  action: "resolved" | "accepted";
+  /** Required for `accepted` (the route 400s without it); unused for `resolved`. */
+  reason?: string;
+  /** The view's sourceHash — the stale-write precondition (409 when the scope
+   *  moved since the page loaded). */
+  sourceHash?: string;
+}
+
+/** The exact confirm body for one finding resolution. Only the findingKey +
+ *  action (+ reason) travel — the actor and timestamp are stamped server-side
+ *  from the verified session, never client-supplied. */
+export function buildResolutionBody(jobId: string, input: FindingResolutionInput) {
+  const reason = input.reason?.trim();
+  return {
+    jobId,
+    ...(input.sourceHash ? { sourceHash: input.sourceHash } : {}),
+    resolutions: [
+      {
+        findingKey: input.findingKey,
+        action: input.action,
+        ...(reason ? { reason } : {}),
+      },
+    ],
+  };
+}
+
+/**
+ * POST /api/job-control/reconciliation/confirm — resolve or accept ONE open
+ * finding from the builder's reconciliation review. Same endpoint + producer as
+ * classify (extend, don't fork); the producer merges the resolution into the
+ * prior reconciliation, so classifications and earlier resolutions are kept.
+ */
+export async function resolveScopeFinding(
+  jobId: string,
+  input: FindingResolutionInput,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ClientResult<SaveReconciliationData>> {
+  let r: Awaited<ReturnType<typeof postJson>>;
+  try {
+    r = await postJson(
+      "/api/job-control/reconciliation/confirm",
+      buildResolutionBody(jobId, input),
+      fetchImpl,
+    );
+  } catch {
+    return { ok: false, message: "Network error. Try again." };
+  }
+  const saved = r.body.saved as { status?: string; sourceHash?: string } | undefined;
+  if (r.ok && r.body.ok === true && saved) {
+    return { ok: true, data: { status: saved.status ?? "", sourceHash: saved.sourceHash ?? "" } };
+  }
+  return {
+    ok: false,
+    message: failMessage(input.action === "accepted" ? "accept the finding" : "resolve the finding", r),
+  };
+}
+
 export interface CompilePreviewData {
   workPackageCount: number;
   requiredProofCount: number;

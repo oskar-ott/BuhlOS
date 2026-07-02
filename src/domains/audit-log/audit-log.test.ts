@@ -233,6 +233,10 @@ describe("AuditLogEntrySchema", () => {
       // #219: safety document lifecycle (upload + acknowledge).
       "safety_doc.acknowledged",
       "safety_doc.uploaded",
+      // #366: scope-reconciliation resolve-or-accept decisions on named findings.
+      // Sorts between safety_doc and service_location ('sc' < 'se'); accepted < resolved.
+      "scope.finding_accepted",
+      "scope.finding_resolved",
       // #230: services-locations register lifecycle (added/updated/removed).
       // Sorts between safety_doc and snag ('se' < 'sn'); added < removed < updated.
       "service_location.added",
@@ -285,6 +289,8 @@ describe("AuditLogEntrySchema", () => {
       "rfi",
       // #219: per-job safety docs.
       "safety_doc",
+      // #366: per-job scope reconciliation (targetId = the findingKey).
+      "scope_reconciliation",
       // #230: per-job services-locations records (sorts between safety_doc and snag).
       "service_location",
       "snag",

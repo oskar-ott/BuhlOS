@@ -5,10 +5,12 @@ import {
   buildClassificationPatch,
   buildClassifyBody,
   buildReconciliationConfirmBody,
+  buildResolutionBody,
   canSave,
   classifyScopeClause,
   compileConfirm,
   compilePreview,
+  resolveScopeFinding,
   saveReconciliation,
   summarisePreview,
   type AuthoringSelection,
@@ -143,6 +145,72 @@ describe("classifyScopeClause — review-queue fast-classify (bare disposition)"
       throw new Error("offline");
     }) as unknown as typeof fetch;
     expect(await classifyScopeClause("j", "sw_1", "priced", throwing)).toEqual({
+      ok: false,
+      message: "Network error. Try again.",
+    });
+  });
+});
+
+describe("resolveScopeFinding — resolve-or-accept a named finding (#366)", () => {
+  const KEY = "excluded_with_obligation:sw_disposal";
+
+  it("builds the confirm body: findingKey + action only for resolved (no client by/at)", () => {
+    expect(buildResolutionBody("job_1", { findingKey: KEY, action: "resolved" })).toEqual({
+      jobId: "job_1",
+      resolutions: [{ findingKey: KEY, action: "resolved" }],
+    });
+  });
+
+  it("carries the trimmed reason and the stale-guard sourceHash for an accept", () => {
+    expect(
+      buildResolutionBody("job_1", {
+        findingKey: KEY,
+        action: "accepted",
+        reason: "  builder carries disposal  ",
+        sourceHash: "h1",
+      }),
+    ).toEqual({
+      jobId: "job_1",
+      sourceHash: "h1",
+      resolutions: [{ findingKey: KEY, action: "accepted", reason: "builder carries disposal" }],
+    });
+  });
+
+  it("POSTs to the existing confirm endpoint and maps 200 to ok", async () => {
+    const fetchImpl = fakeFetch(200, { ok: true, saved: { status: "green", sourceHash: "h2" } });
+    const r = await resolveScopeFinding(
+      "job_1",
+      { findingKey: KEY, action: "accepted", reason: "agreed", sourceHash: "h1" },
+      fetchImpl,
+    );
+    expect(r).toEqual({ ok: true, data: { status: "green", sourceHash: "h2" } });
+    const call = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(call[0]).toBe("/api/job-control/reconciliation/confirm");
+  });
+
+  it("maps a stale-source 409 to the reload message", async () => {
+    const r = await resolveScopeFinding(
+      "j",
+      { findingKey: KEY, action: "resolved" },
+      fakeFetch(409, { ok: false, code: "stale_source" }),
+    );
+    expect(r).toEqual({
+      ok: false,
+      message: "The job changed since you loaded it. Reload and try again.",
+    });
+  });
+
+  it("maps 401/403 to the admin-login message and a thrown fetch to a network message", async () => {
+    const denied = await resolveScopeFinding(
+      "j",
+      { findingKey: KEY, action: "resolved" },
+      fakeFetch(403, { ok: false }),
+    );
+    expect(denied.ok).toBe(false);
+    const throwing = vi.fn(async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    expect(await resolveScopeFinding("j", { findingKey: KEY, action: "resolved" }, throwing)).toEqual({
       ok: false,
       message: "Network error. Try again.",
     });

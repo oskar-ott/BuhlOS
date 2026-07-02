@@ -27,7 +27,15 @@ function fixture() {
         { clauseId: "c3", classification: "unclear" },
       ],
       boqClassifications: [],
-      resolutions: [],
+      resolutions: [
+        {
+          findingKey: "alternate_in_base_total:q1|s1|l9",
+          action: "accepted",
+          reason: "PL3 pendants confirmed with the client",
+          by: "Boss",
+          at: "2026-06-19T23:00:00.000Z",
+        },
+      ],
       updatedAt: "2026-06-20T00:00:00.000Z",
     },
     status: "red",
@@ -93,5 +101,20 @@ describe("runScopeReconciliationView", () => {
     expect(view.clauses.find((c) => c.clauseId === "c1")?.boqLineCount).toBe(1);
     expect(view.clauses.find((c) => c.clauseId === "c3")?.classification).toBe("unclear");
     expect(view.findings.map((f) => f.kind)).toContain("excluded_with_obligation");
+  });
+
+  it("exposes the recorded resolutions (who/when/why) and the confirmed sourceHash", async () => {
+    const view = await runScopeReconciliationView(depsReturning(fixture()), "job-1");
+    if (view.status !== "reconciled") throw new Error("expected reconciled");
+    expect(view.sourceHash).toBe("abc123"); // the interactive write's stale guard
+    expect(view.resolutions).toEqual([
+      {
+        findingKey: "alternate_in_base_total:q1|s1|l9",
+        action: "accepted",
+        reason: "PL3 pendants confirmed with the client",
+        by: "Boss",
+        at: "2026-06-19T23:00:00.000Z",
+      },
+    ]);
   });
 });

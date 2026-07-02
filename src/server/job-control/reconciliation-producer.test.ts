@@ -12,9 +12,12 @@ import {
   deriveRequiredEvidenceId,
   PersistedScopeReconciliationSchema,
   prepareReconciliationConfirm,
+  REASON_REQUIRED_MESSAGE,
+  ResolutionsInputSchema,
   runReconciliationConfirm,
   runReconciliationPreview,
   scopeReconciliationKey,
+  type ClassificationsInput,
   type PersistedScopeReconciliation,
   type ReconciliationProducerDeps,
   type VerifiedSession,
@@ -721,6 +724,207 @@ describe("confirmReconciliationAuthorized — only writes after authoritative ad
     );
     expect(r).toMatchObject({ ok: false, status: 409 });
     expect(deps.save).not.toHaveBeenCalled();
+  });
+});
+
+// ── Resolutions: resolve-or-accept-with-reason on named findings (#366 AC2/5) ─
+
+describe("resolutions — resolve-or-accept-with-reason", () => {
+  /** Every clause classified; the excluded disposal clause carries a note →
+   *  exactly one finding, the red disposal trap. */
+  const FULL: ClassificationsInput = {
+    sw_zip: "priced",
+    sw_av: "by_others",
+    sw_disposal: { classification: "excluded", note: "disposal owed on site" },
+    sw_asbuilt: "admin_only",
+    sw_extra: "variation_trigger",
+  };
+  const KEY = "excluded_with_obligation:sw_disposal";
+  const LATER = "2026-06-16T00:00:00.000Z";
+
+  /** A confirmed prior with the one red finding open. */
+  function redPrior(): PersistedScopeReconciliation {
+    const prep = prepareReconciliationConfirm({
+      jobId: "j",
+      clauses: clauses(),
+      quote: null,
+      prior: null,
+      classifications: FULL,
+      confirmedBy: "Boss",
+      at: AT,
+    });
+    if (!prep.ok) throw new Error("fixture prior failed to build");
+    return prep.persisted;
+  }
+
+  it("schema: an accept with no reason (or a blank one) is rejected; resolved needs none", () => {
+    const missing = ResolutionsInputSchema.safeParse([{ findingKey: KEY, action: "accepted" }]);
+    expect(missing.success).toBe(false);
+    if (!missing.success) {
+      expect(missing.error.issues.some((i) => i.message === REASON_REQUIRED_MESSAGE)).toBe(true);
+    }
+    expect(
+      ResolutionsInputSchema.safeParse([{ findingKey: KEY, action: "accepted", reason: "   " }])
+        .success,
+    ).toBe(false);
+    expect(
+      ResolutionsInputSchema.safeParse([{ findingKey: KEY, action: "resolved" }]).success,
+    ).toBe(true);
+    expect(
+      ResolutionsInputSchema.safeParse([
+        { findingKey: KEY, action: "accepted", reason: "builder carries disposal" },
+      ]).success,
+    ).toBe(true);
+  });
+
+  it("accepting a red finding removes it from the open list, recomputes the RAG, and stamps who/when", async () => {
+    const prior = redPrior();
+    expect(prior.status).toBe("red");
+    expect(prior.warnings.map((w) => w.key)).toContain(KEY);
+
+    const deps = fakeDeps({ prior });
+    const r = await runReconciliationConfirm(deps, {
+      jobId: "j",
+      resolutions: [
+        { findingKey: KEY, action: "accepted", reason: "Builder confirmed they carry disposal" },
+      ],
+      confirmedBy: "Boss",
+      at: LATER,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.unknownFindingKeys).toEqual([]);
+    expect(r.saved.status).toBe("green");
+
+    const persisted = deps.saved[0]!;
+    expect(persisted.warnings.map((w) => w.key)).not.toContain(KEY); // left the open list
+    expect(persisted.status).toBe("green"); // RAG recomputed by the engine
+    // who/when/why stamped server-side, never client-supplied
+    expect(persisted.reconciliation.resolutions).toEqual([
+      expect.objectContaining({
+        findingKey: KEY,
+        action: "accepted",
+        reason: "Builder confirmed they carry disposal",
+        by: "Boss",
+        at: LATER,
+      }),
+    ]);
+  });
+
+  it("marking resolved (no reason) also clears the finding", async () => {
+    const deps = fakeDeps({ prior: redPrior() });
+    const r = await runReconciliationConfirm(deps, {
+      jobId: "j",
+      resolutions: [{ findingKey: KEY, action: "resolved" }],
+      confirmedBy: "Boss",
+      at: LATER,
+    });
+    expect(r.ok).toBe(true);
+    expect(deps.saved[0]!.warnings.map((w) => w.key)).not.toContain(KEY);
+    expect(deps.saved[0]!.reconciliation.resolutions[0]).toMatchObject({
+      findingKey: KEY,
+      action: "resolved",
+      by: "Boss",
+    });
+  });
+
+  it("a resolution naming no real finding is ignored and surfaced, never recorded", async () => {
+    const deps = fakeDeps({ prior: redPrior() });
+    const r = await runReconciliationConfirm(deps, {
+      jobId: "j",
+      resolutions: [{ findingKey: "excluded_with_obligation:nope", action: "resolved" }],
+      confirmedBy: "Boss",
+      at: LATER,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.unknownFindingKeys).toEqual(["excluded_with_obligation:nope"]);
+    expect(deps.saved[0]!.reconciliation.resolutions).toEqual([]);
+    expect(deps.saved[0]!.status).toBe("red"); // the real finding is still open
+  });
+
+  it("resolutions survive a later re-confirm and re-reconciliation (never wiped, AC5)", async () => {
+    // 1) accept the disposal finding
+    const deps1 = fakeDeps({ prior: redPrior() });
+    const first = await runReconciliationConfirm(deps1, {
+      jobId: "j",
+      resolutions: [{ findingKey: KEY, action: "accepted", reason: "agreed by email" }],
+      confirmedBy: "Boss",
+      at: LATER,
+    });
+    expect(first.ok).toBe(true);
+
+    // 2) later confirm: a scope edit (new clause) + a classification change —
+    //    no resolutions in the body at all
+    const grownScope = clauses().concat({
+      id: "sw_new",
+      title: "New riser penetration",
+      detail: "x",
+      order: 9,
+    });
+    const deps2 = fakeDeps({ clauseList: grownScope, prior: deps1.saved[0]! });
+    const second = await runReconciliationConfirm(deps2, {
+      jobId: "j",
+      classifications: { sw_new: "priced" },
+      confirmedBy: "Boss",
+      at: "2026-06-17T00:00:00.000Z",
+    });
+    expect(second.ok).toBe(true);
+
+    const persisted = deps2.saved[0]!;
+    // the acceptance is still recorded and the disposal finding is still closed
+    expect(persisted.reconciliation.resolutions).toEqual([
+      expect.objectContaining({ findingKey: KEY, action: "accepted", reason: "agreed by email" }),
+    ]);
+    expect(persisted.warnings.map((w) => w.key)).not.toContain(KEY);
+  });
+
+  it("a stale sourceHash rejects the confirm before any resolution is written (409)", async () => {
+    const deps = fakeDeps({ prior: redPrior() });
+    const r = await runReconciliationConfirm(deps, {
+      jobId: "j",
+      resolutions: [{ findingKey: KEY, action: "resolved" }],
+      expectedSourceHash: "stale",
+      confirmedBy: "Boss",
+      at: LATER,
+    });
+    expect(r).toMatchObject({ ok: false, status: 409, code: "stale_source" });
+    expect(deps.save).not.toHaveBeenCalled();
+  });
+
+  it("401/403 from the authoritative gate never reach a resolution write", async () => {
+    const depsA = fakeDeps({ prior: redPrior() });
+    const unauth = await confirmReconciliationAuthorized(
+      depsA,
+      { cookieHeader: "buhl_session=x.badsig", baseUrl: "https://x", verify: verifyNull },
+      { jobId: "j", resolutions: [{ findingKey: KEY, action: "resolved" }], at: LATER },
+    );
+    expect(unauth).toMatchObject({ ok: false, status: 401 });
+    expect(depsA.save).not.toHaveBeenCalled();
+
+    const depsB = fakeDeps({ prior: redPrior() });
+    const nonAdmin = await confirmReconciliationAuthorized(
+      depsB,
+      { cookieHeader: "c", baseUrl: "https://x", verify: verifyField },
+      { jobId: "j", resolutions: [{ findingKey: KEY, action: "resolved" }], at: LATER },
+    );
+    expect(nonAdmin).toMatchObject({ ok: false, status: 403 });
+    expect(depsB.save).not.toHaveBeenCalled();
+  });
+
+  it("a verified admin's resolution write stamps the VERIFIED identity as `by`", async () => {
+    const deps = fakeDeps({ prior: redPrior() });
+    const r = await confirmReconciliationAuthorized(
+      deps,
+      { cookieHeader: "c", baseUrl: "https://x", verify: verifyAdmin },
+      {
+        jobId: "j",
+        resolutions: [{ findingKey: KEY, action: "accepted", reason: "priced elsewhere" }],
+        at: LATER,
+      },
+    );
+    expect(r.ok).toBe(true);
+    expect(deps.saved[0]!.reconciliation.resolutions[0]).toMatchObject({ by: "Boss" });
   });
 });
 
