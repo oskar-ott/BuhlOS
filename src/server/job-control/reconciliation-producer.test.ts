@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ScopeOfWorkItem } from "@/domains/jobs/types";
+import type { Quote } from "@/domains/quoting/schema";
 
 // Mock the Vercel Blob SDK so blobReconciliationDeps.loadScope can be driven
 // against an in-memory key→JSON map (the src/server/job-control/blob.test.ts
@@ -51,16 +52,48 @@ function clauses(): ScopeOfWorkItem[] {
 
 const AT = "2026-06-15T12:00:00.000Z";
 
+/** A linked v2 quote for the quote half of AC1 (two priced lines). */
+function linkedQuote(): Quote {
+  return {
+    id: "qv2_arthur",
+    name: "100 Arthur St",
+    clientName: null,
+    status: "draft",
+    createdAt: AT,
+    createdBy: "boss",
+    updatedAt: AT,
+    sections: [
+      {
+        id: "qsec_wb_1",
+        title: "Imported — East Gym",
+        sortOrder: 0,
+        lines: [
+          { id: "wl_zip", kind: "other", description: "ZIP 20A circuit", qty: 2, unit: "ea", rate: 450 },
+          { id: "wl_pl3", kind: "other", description: "PL3 pendants (alternative)", qty: 6, unit: "ea", rate: 220 },
+        ],
+      },
+    ],
+    totals: { subtotalExGst: 2220, gst: 222, totalIncGst: 2442, lineCount: 2 },
+  };
+}
+
+const KEY_ZIP = "qv2_arthur/qsec_wb_1/wl_zip";
+const KEY_PL3 = "qv2_arthur/qsec_wb_1/wl_pl3";
+const ZIP_REF = { quoteId: "qv2_arthur", sectionId: "qsec_wb_1", lineId: "wl_zip" };
+const PL3_REF = { quoteId: "qv2_arthur", sectionId: "qsec_wb_1", lineId: "wl_pl3" };
+
 /** A deps double with spies, backed by an in-memory store. */
 function fakeDeps(
   over: Partial<{
     found: boolean;
     clauseList: ScopeOfWorkItem[];
+    quote: Quote | null;
     prior: PersistedScopeReconciliation | null;
   }> = {},
 ): ReconciliationProducerDeps & { saved: PersistedScopeReconciliation[]; save: ReturnType<typeof vi.fn> } {
   const found = over.found ?? true;
   const clauseList = over.clauseList ?? clauses();
+  const quote = over.quote ?? null;
   const prior = over.prior ?? null;
   const saved: PersistedScopeReconciliation[] = [];
   const save = vi.fn(async (_jobId: string, p: PersistedScopeReconciliation) => {
@@ -69,7 +102,7 @@ function fakeDeps(
   return {
     saved,
     save,
-    loadScope: async () => ({ found, clauses: clauseList, quote: null }),
+    loadScope: async () => ({ found, clauses: clauseList, quote }),
     loadPrior: async () => prior,
     savePersisted: save,
   };
@@ -223,6 +256,148 @@ describe("buildReconciliationPreview", () => {
 });
 
 // ── ClassificationsInputSchema — no fake classifications ───────────────────────
+
+// ── The quote/BOQ half of AC1 — lights up with a LINKED quote ────────────────
+
+describe("buildReconciliationPreview with a linked quote (AC1 quote half)", () => {
+  it("seeds one BOQ classification per quote line and NAMES every unattributed line", () => {
+    const p = buildReconciliationPreview({
+      jobId: "j",
+      clauses: clauses(),
+      quote: linkedQuote(),
+      prior: null,
+    });
+    expect(p.reconciliation.quoteId).toBe("qv2_arthur");
+    expect(p.reconciliation.boqClassifications).toHaveLength(2);
+    const lineFindings = p.warnings.filter((w) => w.kind === "priced_line_no_clause");
+    expect(lineFindings.map((f) => f.key).sort()).toEqual([
+      `priced_line_no_clause:${KEY_ZIP}`,
+      `priced_line_no_clause:${KEY_PL3}`,
+    ].sort());
+  });
+
+  it("a classification carrying boqLineRefs stores the link AND clears the line's finding", () => {
+    const p = buildReconciliationPreview({
+      jobId: "j",
+      clauses: clauses(),
+      quote: linkedQuote(),
+      prior: null,
+      classifications: { sw_zip: { classification: "priced", boqLineRefs: [ZIP_REF] } },
+    });
+    const cc = p.reconciliation.clauseClassifications.find((c) => c.clauseId === "sw_zip");
+    expect(cc?.boqLineRefs).toEqual([ZIP_REF]);
+    const bc = p.reconciliation.boqClassifications.find((b) => b.ref.lineId === "wl_zip");
+    expect(bc?.owningClauseId).toBe("sw_zip");
+    expect(p.warnings.some((w) => w.key === `priced_line_no_clause:${KEY_ZIP}`)).toBe(false);
+    // the other line stays honestly unattributed
+    expect(p.warnings.some((w) => w.key === `priced_line_no_clause:${KEY_PL3}`)).toBe(true);
+    expect(p.unknownBoqLineKeys).toEqual([]);
+  });
+
+  it("a ref naming a line the linked quote doesn't have is surfaced and NEVER stored", () => {
+    const p = buildReconciliationPreview({
+      jobId: "j",
+      clauses: clauses(),
+      quote: linkedQuote(),
+      prior: null,
+      classifications: {
+        sw_zip: {
+          classification: "priced",
+          boqLineRefs: [ZIP_REF, { quoteId: "qv2_arthur", sectionId: "qsec_wb_1", lineId: "wl_ghost" }],
+        },
+      },
+    });
+    expect(p.unknownBoqLineKeys).toEqual(["qv2_arthur/qsec_wb_1/wl_ghost"]);
+    const cc = p.reconciliation.clauseClassifications.find((c) => c.clauseId === "sw_zip");
+    expect(cc?.boqLineRefs).toEqual([ZIP_REF]); // ghost stripped, real link kept
+  });
+
+  it("with NO quote linked, every boqLineRef is unknown — nothing is stored", () => {
+    const p = buildReconciliationPreview({
+      jobId: "j",
+      clauses: clauses(),
+      quote: null,
+      prior: null,
+      classifications: { sw_zip: { classification: "priced", boqLineRefs: [ZIP_REF] } },
+    });
+    expect(p.unknownBoqLineKeys).toEqual([KEY_ZIP]);
+    const cc = p.reconciliation.clauseClassifications.find((c) => c.clauseId === "sw_zip");
+    expect(cc?.boqLineRefs).toEqual([]);
+  });
+
+  it("boqLines marks a real line alternate (red when clause-tied); unknown keys surfaced", () => {
+    const p = buildReconciliationPreview({
+      jobId: "j",
+      clauses: clauses(),
+      quote: linkedQuote(),
+      prior: null,
+      boqLines: { [KEY_PL3]: { isAlternate: true }, "qv2_arthur/qsec_wb_1/wl_ghost": { isAlternate: true } },
+      classifications: { sw_zip: { classification: "priced", boqLineRefs: [PL3_REF] } },
+    });
+    expect(p.unknownBoqLineKeys).toEqual(["qv2_arthur/qsec_wb_1/wl_ghost"]);
+    const hit = p.warnings.find((w) => w.kind === "alternate_in_base_total");
+    expect(hit?.key).toBe(`alternate_in_base_total:${KEY_PL3}`);
+    expect(hit?.severity).toBe("red");
+    // an unlinked alternate is NOT unattributed money
+    expect(p.status).not.toBe("green");
+  });
+
+  it("sourceHash covers the linked quote's lines — a quote edit invalidates a stale confirm", () => {
+    const a = computeScopeSourceHash(clauses(), linkedQuote());
+    const q = linkedQuote();
+    q.sections[0]!.lines.push({ id: "wl_new", kind: "other", description: "Added line", qty: 1, unit: "ea", rate: 100 });
+    expect(computeScopeSourceHash(clauses(), q)).not.toBe(a);
+    expect(computeScopeSourceHash(clauses(), null)).not.toBe(a);
+  });
+
+  it("confirm persists the BOQ-linked reconciliation and surfaces unknown line keys", async () => {
+    const deps = fakeDeps({ quote: linkedQuote() });
+    const r = await runReconciliationConfirm(deps, {
+      jobId: "j1",
+      classifications: {
+        sw_zip: { classification: "priced", boqLineRefs: [ZIP_REF] },
+        sw_av: { classification: "by_others", warningText: "Cabling only" },
+        sw_disposal: "variation_trigger",
+        sw_asbuilt: "admin_only",
+        sw_extra: "variation_trigger",
+      },
+      boqLines: { [KEY_PL3]: { isAlternate: true }, "nope/nope/nope": { isAlternate: true } },
+      at: AT,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.unknownBoqLineKeys).toEqual(["nope/nope/nope"]);
+    const persisted = deps.saved[0]!;
+    expect(persisted.reconciliation.quoteId).toBe("qv2_arthur");
+    const zip = persisted.reconciliation.boqClassifications.find((b) => b.ref.lineId === "wl_zip");
+    expect(zip?.owningClauseId).toBe("sw_zip");
+    const pl3 = persisted.reconciliation.boqClassifications.find((b) => b.ref.lineId === "wl_pl3");
+    expect(pl3?.isAlternate).toBe(true);
+    // fully classified + every line accounted for (owned or alternate) → green
+    expect(persisted.status).toBe("green");
+  });
+
+  it("re-confirm over a prior keeps the stored line links (reconcile carries them)", async () => {
+    const deps = fakeDeps({ quote: linkedQuote() });
+    await runReconciliationConfirm(deps, {
+      jobId: "j1",
+      classifications: { sw_zip: { classification: "priced", boqLineRefs: [ZIP_REF] } },
+      at: AT,
+    });
+    const withPrior = fakeDeps({ quote: linkedQuote(), prior: deps.saved[0]! });
+    const r2 = await runReconciliationConfirm(withPrior, {
+      jobId: "j1",
+      classifications: { sw_av: "by_others" },
+      at: "2026-06-16T09:00:00.000Z",
+    });
+    expect(r2.ok).toBe(true);
+    const persisted = withPrior.saved[0]!;
+    const cc = persisted.reconciliation.clauseClassifications.find((c) => c.clauseId === "sw_zip");
+    expect(cc?.boqLineRefs).toEqual([ZIP_REF]);
+    const zip = persisted.reconciliation.boqClassifications.find((b) => b.ref.lineId === "wl_zip");
+    expect(zip?.owningClauseId).toBe("sw_zip");
+  });
+});
 
 describe("ClassificationsInputSchema", () => {
   it("rejects an unknown classification (e.g. the non-domain 'field')", () => {

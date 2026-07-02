@@ -558,18 +558,24 @@ export function JobBuilderClient({
     setReviewError(null);
     setReviewOpen(true);
   }
-  function classifyInReview(clauseId: string, classification: ScopeClassification) {
+  function classifyInReview(
+    clauseId: string,
+    classification: ScopeClassification,
+    warningText?: string,
+  ) {
     // Optimistic: record + advance so chips/counts update now; persist to the
     // real reconciliation in the background, strictly serialised. On failure
     // revert the override AND rewind to re-present the clause — we never leave a
     // green chip, nor silently drop a clause, for a classification that didn't save.
+    // `warningText` (AC4) rides the same confirm write — the producer stores it
+    // on the clause and #367 compiles it onto the delivering packages.
     setClassifiedOverrides((m) => new Map(m).set(clauseId, classification));
     setReviewIndex((i) => i + 1);
     setReviewError(null);
     const session = reviewSession;
     confirmTail.current = confirmTail.current
       .catch(() => {}) // a prior failure must not stall the chain
-      .then(() => classifyScopeClause(savedJob.id, clauseId, classification))
+      .then(() => classifyScopeClause(savedJob.id, clauseId, classification, warningText))
       .then((res) => {
         if (res && !res.ok) {
           setClassifiedOverrides((m) => {

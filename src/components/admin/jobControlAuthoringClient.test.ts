@@ -123,9 +123,46 @@ describe("classifyScopeClause — review-queue fast-classify (bare disposition)"
     });
   });
 
+  it("carries an authored heads-up as the SAME warningText field the authoring wire uses (AC4)", () => {
+    expect(
+      buildClassifyBody("job_1", "sw_2", "by_others", "  Cabling only — hardware by AV contractor  "),
+    ).toEqual({
+      jobId: "job_1",
+      classifications: {
+        sw_2: { classification: "by_others", warningText: "Cabling only — hardware by AV contractor" },
+      },
+    });
+  });
+
+  it("a blank heads-up sends the bare classification — never an empty warning", () => {
+    expect(buildClassifyBody("job_1", "sw_2", "reuse_existing", "   ")).toEqual({
+      jobId: "job_1",
+      classifications: { sw_2: "reuse_existing" },
+    });
+  });
+
+  it("POSTs the classification + warningText to the confirm endpoint", async () => {
+    const fetchImpl = fakeFetch(200, { ok: true, saved: { status: "amber", sourceHash: "h" } });
+    const r = await classifyScopeClause(
+      "job_1",
+      "sw_2",
+      "variation_trigger",
+      "Flag it before extra work",
+      fetchImpl,
+    );
+    expect(r.ok).toBe(true);
+    const call = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({
+      jobId: "job_1",
+      classifications: {
+        sw_2: { classification: "variation_trigger", warningText: "Flag it before extra work" },
+      },
+    });
+  });
+
   it("POSTs the bare classification to the confirm endpoint and maps 200 to ok", async () => {
     const fetchImpl = fakeFetch(200, { ok: true, saved: { status: "amber", sourceHash: "h" } });
-    const r = await classifyScopeClause("job_1", "sw_2", "priced", fetchImpl);
+    const r = await classifyScopeClause("job_1", "sw_2", "priced", undefined, fetchImpl);
     expect(r.ok).toBe(true);
     const call = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(call[0]).toBe("/api/job-control/reconciliation/confirm");
@@ -136,7 +173,7 @@ describe("classifyScopeClause — review-queue fast-classify (bare disposition)"
   });
 
   it("maps 401/403 to a plain admin-login message", async () => {
-    const r = await classifyScopeClause("j", "sw_1", "priced", fakeFetch(403, { ok: false }));
+    const r = await classifyScopeClause("j", "sw_1", "priced", undefined, fakeFetch(403, { ok: false }));
     expect(r.ok).toBe(false);
   });
 
@@ -144,7 +181,7 @@ describe("classifyScopeClause — review-queue fast-classify (bare disposition)"
     const throwing = vi.fn(async () => {
       throw new Error("offline");
     }) as unknown as typeof fetch;
-    expect(await classifyScopeClause("j", "sw_1", "priced", throwing)).toEqual({
+    expect(await classifyScopeClause("j", "sw_1", "priced", undefined, throwing)).toEqual({
       ok: false,
       message: "Network error. Try again.",
     });

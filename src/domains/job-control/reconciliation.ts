@@ -205,6 +205,27 @@ export function reconcile(
 }
 
 /**
+ * The clause that owns each quote line, from EITHER half of the stored link:
+ * the line record's `owningClauseId`, or a clause classification whose
+ * `boqLineRefs` name the line ({@link classifyClause} keeps the two in sync;
+ * this stays defensive so a hand-edited or partially-written overlay never
+ * makes a genuinely-linked line look unattributed).
+ */
+function effectiveLineOwners(rec: ScopeReconciliation): Map<string, string> {
+  const owners = new Map<string, string>();
+  for (const cc of rec.clauseClassifications) {
+    for (const ref of cc.boqLineRefs) {
+      const key = boqLineRefKey(ref);
+      if (!owners.has(key)) owners.set(key, cc.clauseId);
+    }
+  }
+  for (const bc of rec.boqClassifications) {
+    if (bc.owningClauseId != null) owners.set(boqLineRefKey(bc.ref), bc.owningClauseId);
+  }
+  return owners;
+}
+
+/**
  * Derive the open conflicts. Deterministic finding keys mean a resolution
  * recorded against a key stays matched across re-reconciliation. A finding is
  * "open" only when no resolution names its key.
@@ -240,31 +261,29 @@ export function detectFindings(rec: ScopeReconciliation): ReconciliationFinding[
     }
   }
 
-  const owned = new Set(
-    rec.boqClassifications
-      .filter((b) => b.owningClauseId != null)
-      .map((b) => boqLineRefKey(b.ref)),
-  );
+  const owners = effectiveLineOwners(rec);
   for (const bc of rec.boqClassifications) {
+    const key = boqLineRefKey(bc.ref);
+    const owner = owners.get(key) ?? null;
     // An alternate line that's been tied to a clause (i.e. treated as base) is
     // double-counted in the base total until confirmed.
-    if (bc.isAlternate && bc.owningClauseId != null) {
+    if (bc.isAlternate && owner != null) {
       push({
-        key: `alternate_in_base_total:${boqLineRefKey(bc.ref)}`,
+        key: `alternate_in_base_total:${key}`,
         kind: "alternate_in_base_total",
         severity: "red",
         ref: bc.ref,
-        message: `Alternate line ${boqLineRefKey(bc.ref)} is counted in the base scope`,
+        message: `Alternate line ${key} is counted in the base scope`,
       });
     }
     // A priced line nobody claims is unattributed money.
-    if (bc.owningClauseId == null && !bc.isAlternate && !owned.has(boqLineRefKey(bc.ref))) {
+    if (owner == null && !bc.isAlternate) {
       push({
-        key: `priced_line_no_clause:${boqLineRefKey(bc.ref)}`,
+        key: `priced_line_no_clause:${key}`,
         kind: "priced_line_no_clause",
         severity: "amber",
         ref: bc.ref,
-        message: `Priced line ${boqLineRefKey(bc.ref)} is not tied to any scope clause`,
+        message: `Priced line ${key} is not tied to any scope clause`,
       });
     }
   }
@@ -320,7 +339,17 @@ export function applyResolution(
 }
 
 /** Set a clause's classification (and optional warning/boq/docs), preserving
- *  everything else. Pure — returns a new reconciliation. */
+ *  everything else. Pure — returns a new reconciliation.
+ *
+ *  When the patch carries `boqLineRefs` (the clause↔line link, the quote half
+ *  of #366 AC1), the line records are kept in sync: every referenced line
+ *  becomes owned by this clause (`owningClauseId`), and a line this clause
+ *  previously owned but no longer references is released back to unowned — so
+ *  linking a priced clause to its BOQ lines clears their
+ *  `priced_line_no_clause` findings in the same operation, and unlinking
+ *  reopens them. Only lines that exist in the linked quote are ever touched
+ *  (the seeded records are the closed set — a ref to a line the quote doesn't
+ *  have owns nothing). */
 export function classifyClause(
   rec: ScopeReconciliation,
   clauseId: string,
@@ -331,5 +360,34 @@ export function classifyClause(
   const clauseClassifications = rec.clauseClassifications.map((cc) =>
     cc.clauseId === clauseId ? { ...cc, ...patch } : cc,
   );
-  return ScopeReconciliationSchema.parse({ ...rec, clauseClassifications });
+  let boqClassifications = rec.boqClassifications;
+  if (patch.boqLineRefs !== undefined) {
+    // `Omit` over the passthrough-inferred record widens the field type — the
+    // schema pins it to BoqLineRef[] (parsed below), so the assertion is sound.
+    const refs = (patch.boqLineRefs ?? []) as ReadonlyArray<BoqLineRef>;
+    const linked = new Set(refs.map((r) => boqLineRefKey(r)));
+    boqClassifications = rec.boqClassifications.map((bc) => {
+      const key = boqLineRefKey(bc.ref);
+      if (linked.has(key)) return { ...bc, owningClauseId: clauseId };
+      if (bc.owningClauseId === clauseId) return { ...bc, owningClauseId: null };
+      return bc;
+    });
+  }
+  return ScopeReconciliationSchema.parse({ ...rec, clauseClassifications, boqClassifications });
+}
+
+/** Mark (or unmark) a quote line as an alternate — priced but NOT part of the
+ *  base scope until confirmed (the v2 QuoteLine carries no alternate flag, so
+ *  the overlay is where it lives). A ref naming no seeded line changes nothing
+ *  — the caller surfaces that honestly. Pure — returns a new reconciliation. */
+export function setBoqLineAlternate(
+  rec: ScopeReconciliation,
+  ref: BoqLineRef,
+  isAlternate: boolean,
+): ScopeReconciliation {
+  const key = boqLineRefKey(ref);
+  const boqClassifications = rec.boqClassifications.map((bc) =>
+    boqLineRefKey(bc.ref) === key ? { ...bc, isAlternate } : bc,
+  );
+  return ScopeReconciliationSchema.parse({ ...rec, boqClassifications });
 }

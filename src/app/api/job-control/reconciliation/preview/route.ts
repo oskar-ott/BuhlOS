@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import {
+  BoqLinesInputSchema,
   ClassificationsInputSchema,
   authorizeAdmin,
   blobReconciliationDeps,
@@ -23,6 +24,7 @@ export const dynamic = "force-dynamic";
 const BodySchema = z.object({
   jobId: z.string().min(1),
   classifications: ClassificationsInputSchema.optional(),
+  boqLines: BoqLinesInputSchema.optional(),
 });
 
 export async function POST(req: Request): Promise<NextResponse> {
@@ -48,6 +50,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   const result = await runReconciliationPreview(blobReconciliationDeps(), {
     jobId: body.data.jobId,
     classifications: body.data.classifications,
+    boqLines: body.data.boqLines,
   });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
   return NextResponse.json(result, { status: 200 });
