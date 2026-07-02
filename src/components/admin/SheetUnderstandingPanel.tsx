@@ -344,6 +344,24 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
 
 function SpendMeter({ spend }: { spend: SheetSpend }) {
   const pct = Math.min(100, Math.round((spend.totalUsd / spend.capUsd) * 100));
+  // Inline styles are banned (rebuild non-negotiable) — quantise the fill to
+  // static Tailwind width classes; the exact figure is in the text above.
+  const fill =
+    pct >= 100
+      ? "w-full"
+      : pct >= 88
+        ? "w-11/12"
+        : pct >= 75
+          ? "w-3/4"
+          : pct >= 50
+            ? "w-1/2"
+            : pct >= 25
+              ? "w-1/4"
+              : pct >= 8
+                ? "w-1/12"
+                : pct > 0
+                  ? "w-1"
+                  : "w-0";
   return (
     <div className="w-44 shrink-0" aria-label="AI budget used on this job">
       <div className="flex items-baseline justify-between text-xs text-text-muted">
@@ -356,9 +374,9 @@ function SpendMeter({ spend }: { spend: SheetSpend }) {
         <div
           className={cn(
             "h-full rounded-pill",
+            fill,
             pct >= 90 ? "bg-amber-500" : "bg-brand-navy",
           )}
-          style={{ width: `${pct}%` }}
         />
       </div>
     </div>

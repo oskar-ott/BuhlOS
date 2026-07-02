@@ -44,8 +44,16 @@ let dbAvailable: boolean;
 let insertRaceWinner: Row | null; // simulates a concurrent run winning the unique index
 let auth: { signSession: (payload: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
+type EffectiveFieldShape = {
+  ai: { value: string | null; confidence: number | null } | null;
+  override: { value: string | null } | null;
+  effective: string | null;
+};
 let testExports: {
-  effectiveSheet: (row: Row, ovr: Row[]) => Record<string, any>;
+  effectiveSheet: (
+    row: Row,
+    ovr: Row[],
+  ) => { needsReview: boolean; fields: Record<string, EffectiveFieldShape> };
   cleanValue: (v: unknown) => string | null;
   extractJson: (t: string) => unknown;
   REVIEW_THRESHOLD: number;
@@ -59,6 +67,7 @@ function clone<T>(value: T): T {
 function createRes() {
   return {
     statusCode: 200,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- response body asserted per test
     body: null as any,
     status(code: number) {
       this.statusCode = code;
@@ -748,7 +757,7 @@ describe("needs-review derivation (pure)", () => {
       },
     ]);
     expect(s.needsReview).toBe(false);
-    expect(s.fields.scale.effective).toBe("1:50");
+    expect(s.fields.scale?.effective).toBe("1:50");
   });
 
   it("a null AI confidence counts as unreviewed", () => {
