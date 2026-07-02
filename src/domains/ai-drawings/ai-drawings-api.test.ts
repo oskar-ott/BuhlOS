@@ -38,6 +38,8 @@ let extractions: Row[];
 let sheetRows: Row[];
 let overrides: Row[];
 let legendRows: Row[];
+let scheduleTables: Row[];
+let scheduleRowsArr: Row[];
 let blobPuts: Array<{ path: string; bytes: number }>;
 let auditEntries: Row[];
 let aiCalls: Array<Record<string, unknown>>;
@@ -179,6 +181,8 @@ beforeEach(() => {
   sheetRows = [];
   overrides = [];
   legendRows = [];
+  scheduleTables = [];
+  scheduleRowsArr = [];
   blobPuts = [];
   auditEntries = [];
 
@@ -528,6 +532,100 @@ beforeEach(() => {
         if (i < 0) return null;
         legendRows[i] = { ...legendRows[i], symbol_crop_url: url };
         return legendRows[i];
+      },
+      // ── #202/#207 schedule tables (mirrors the real store's SQL semantics) ──
+      SCHEDULE_COLUMNS: {
+        lighting: ["typeCode", "description", "manufacturer", "model", "lamp", "wattage", "qty"],
+        switchboard: ["circuitRef", "description", "protection", "cableSize", "phase", "load"],
+      },
+      SCHEDULE_ROW_TRANSITIONS: {
+        suggested: ["accepted", "edited", "rejected"],
+        accepted: ["rejected", "edited"],
+        edited: ["rejected", "edited"],
+        rejected: [],
+      },
+      listScheduleTables: async (_sql: unknown, _t: string, jobId: string) =>
+        scheduleTables.filter((t) => t.job_id === jobId && t.status === "live"),
+      listScheduleRowsForTables: async (_sql: unknown, _t: string, ids: string[]) =>
+        scheduleRowsArr.filter((r) => ids.includes(r.table_id as string)),
+      liveTablesForExtraction: async (_sql: unknown, _t: string, extractionId: string) =>
+        scheduleTables.filter((t) => t.extraction_id === extractionId && t.status === "live"),
+      insertScheduleTables: async (_sql: unknown, _t: string, ctx: Row, tables: Row[]) => {
+        const inserted: Row[] = [];
+        for (const t of tables) {
+          const rows = t.rows as Row[];
+          const table: Row = {
+            id: `st_${scheduleTables.length + 1}`,
+            job_id: ctx.jobId,
+            plan_id: ctx.planId,
+            page_index: ctx.pageIndex,
+            page_sha256: ctx.pageSha256,
+            table_kind: ctx.tableKind,
+            board_identifier: t.boardIdentifier,
+            region: t.region,
+            headers: t.headers,
+            column_map: t.columnMap,
+            extraction_id: ctx.extractionId,
+            status: "live",
+            superseded_by: null,
+            row_count: rows.length,
+            model: ctx.model,
+            prompt_version: ctx.promptVersion,
+            created_at: new Date().toISOString(),
+            created_by_label: ctx.createdByLabel,
+          };
+          scheduleTables.push(table);
+          rows.forEach((r, i) => {
+            scheduleRowsArr.push({
+              id: `sr_${scheduleRowsArr.length + 1}`,
+              table_id: table.id,
+              job_id: ctx.jobId,
+              row_index: i,
+              cells: r.cells,
+              human_cells: null,
+              row_region: r.rowRegion,
+              status: "suggested",
+              reviewed_at: null,
+              reviewed_by_label: null,
+              review_note: null,
+              created_at: new Date().toISOString(),
+            });
+          });
+          inserted.push(table);
+        }
+        const newIds = inserted.map((t) => t.id);
+        for (const t of scheduleTables) {
+          if (
+            t.job_id === ctx.jobId &&
+            t.plan_id === ctx.planId &&
+            t.page_index === ctx.pageIndex &&
+            t.table_kind === ctx.tableKind &&
+            t.status === "live" &&
+            !newIds.includes(t.id)
+          ) {
+            t.status = "superseded";
+            t.superseded_by = newIds[0];
+          }
+        }
+        return inserted;
+      },
+      getScheduleRow: async (_sql: unknown, _t: string, jobId: string, rowId: string) =>
+        scheduleRowsArr.find((r) => r.job_id === jobId && r.id === rowId) ?? null,
+      reviewScheduleRow: async (_sql: unknown, _t: string, jobId: string, row: Row, next: Row) => {
+        const i = scheduleRowsArr.findIndex(
+          (r) => r.job_id === jobId && r.id === row.id && r.status === row.status,
+        );
+        if (i < 0) return null;
+        scheduleRowsArr[i] = {
+          ...scheduleRowsArr[i],
+          status: next.status,
+          human_cells:
+            next.humanCells === undefined ? scheduleRowsArr[i]!.human_cells : next.humanCells,
+          review_note: next.note === undefined ? scheduleRowsArr[i]!.review_note : next.note,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by_label: next.reviewedByLabel,
+        };
+        return scheduleRowsArr[i];
       },
     },
   } as NodeJS.Module;
@@ -1128,6 +1226,184 @@ describe("legend vocabulary (#201)", () => {
     const res = await extractLegendOn(0);
     expect(res.statusCode).toBe(502);
     expect(legendRows).toHaveLength(0);
+    expect(extractions).toHaveLength(0);
+    expect(spendLedger().calls).toHaveLength(1);
+  });
+});
+
+// ─── #202 schedule tables ───────────────────────────────────────────────────
+
+const GOOD_SCHEDULE = {
+  isSchedulePresent: true,
+  tables: [
+    {
+      boardIdentifier: null,
+      region: { x: 0.1, y: 0.1, w: 0.6, h: 0.5 },
+      headers: ["TYPE", "DESCRIPTION", "QTY", "IP RATING"],
+      columnMap: { TYPE: "typeCode", DESCRIPTION: "description", QTY: "qty" },
+      rows: [
+        {
+          rowRegion: { x: 0.1, y: 0.2, w: 0.6, h: 0.03 },
+          cells: {
+            typeCode: { value: "L1", confidence: 0.95 },
+            description: { value: "LED PANEL 600x600", confidence: 0.9 },
+            qty: { value: "24", confidence: 0.92 },
+            "IP RATING": { value: "IP44", confidence: 0.85 },
+          },
+        },
+        {
+          rowRegion: null,
+          cells: {
+            typeCode: { value: "L2", confidence: 0.9 },
+            description: { value: null, confidence: 0.3 }, // unreadable — flagged, not invented
+            qty: { value: "6", confidence: 0.88 },
+          },
+        },
+      ],
+    },
+  ],
+  notes: null,
+};
+
+async function extractScheduleOn(pageIndex: number): Promise<Res> {
+  return call("POST", { jobId: "j1", action: "extract-schedule" }, {
+    planId: "pl1",
+    pageIndex,
+    tableKind: "lighting",
+  });
+}
+
+describe("schedule tables (#202)", () => {
+  beforeEach(() => {
+    aiNextText = JSON.stringify(GOOD_SCHEDULE);
+  });
+
+  it("extracts a table into rows with verbatim cells + effective merge, spend + audit", async () => {
+    const res = await extractScheduleOn(0);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.isSchedulePresent).toBe(true);
+    expect(res.body.tables).toHaveLength(1);
+    expect(res.body.rows).toHaveLength(2);
+    const row1 = res.body.rows[0];
+    expect(row1.effective.typeCode.value).toBe("L1");
+    expect(row1.effective["IP RATING"].value).toBe("IP44"); // unmapped column preserved
+    const row2 = res.body.rows[1];
+    expect(row2.effective.description.value).toBe(null); // null flagged, never invented
+    expect(row2.effective.description.confidence).toBe(0.3);
+    expect(spendLedger().calls[0]?.kind).toBe("extract-schedule");
+    const audit = auditEntries.find((a) => a.action === "document.ai_extracted");
+    expect((audit?.metadata as Row)?.kind).toBe("schedule-lighting");
+
+    const list = await call("GET", { jobId: "j1", action: "schedules" });
+    expect(list.statusCode).toBe(200);
+    expect(list.body.tables).toHaveLength(1);
+    expect(list.body.columns.lighting).toContain("typeCode");
+  });
+
+  it("a cached re-click is idempotent — no second bill, no duplicate tables", async () => {
+    await extractScheduleOn(0);
+    const res = await extractScheduleOn(0);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.cached).toBe(true);
+    expect(res.body.tables).toHaveLength(1);
+    expect(aiCalls).toHaveLength(1);
+    expect(spendLedger().calls).toHaveLength(1);
+  });
+
+  it("re-extracting a re-rendered page supersedes the old table — reviewed history kept", async () => {
+    await extractScheduleOn(0);
+    blob.set("jobs/j1/plans-index.json", {
+      plans: [
+        {
+          id: "pl1",
+          jobId: "j1",
+          fileName: "set.pdf",
+          status: "current",
+          pages: [{ pageIndex: 0, pngUrl: "https://blob.test/pl1-0.png", sha256: "sha0b" }],
+        },
+      ],
+      __rev: 2,
+    });
+    const res = await extractScheduleOn(0);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.cached).toBe(false);
+    expect(res.body.tables).toHaveLength(1); // one LIVE table
+    expect(scheduleTables).toHaveLength(2); // the superseded one remains for the trail
+    expect(scheduleTables.filter((t) => t.status === "superseded")).toHaveLength(1);
+  });
+
+  it("row review: accept, edited requires cells, corrections win, accepted rows still fixable, rejected is terminal", async () => {
+    await extractScheduleOn(0);
+    const [r1, r2] = scheduleRowsArr;
+
+    const accepted = await call("POST", { jobId: "j1", action: "review-schedule-row" }, {
+      rowId: r1?.id,
+      status: "accepted",
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.body.row.status).toBe("accepted");
+
+    const editNoCells = await call("POST", { jobId: "j1", action: "review-schedule-row" }, {
+      rowId: r2?.id,
+      status: "edited",
+    });
+    expect(editNoCells.statusCode).toBe(400);
+
+    const edited = await call("POST", { jobId: "j1", action: "review-schedule-row" }, {
+      rowId: r2?.id,
+      status: "edited",
+      cells: { description: "EXIT LIGHT LED", qty: null },
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.body.row.effective.description).toEqual({
+      value: "EXIT LIGHT LED",
+      confidence: 0.3,
+      corrected: true,
+    });
+    expect(edited.body.row.effective.qty.value).toBe(null); // human says the cell is empty
+    expect(edited.body.row.cells.description.value).toBe(null); // AI read preserved
+
+    // accepted rows remain fixable (a later-spotted error must be correctable)
+    const fixAccepted = await call("POST", { jobId: "j1", action: "review-schedule-row" }, {
+      rowId: r1?.id,
+      status: "edited",
+      cells: { qty: "25" },
+    });
+    expect(fixAccepted.statusCode).toBe(200);
+
+    const rejected = await call("POST", { jobId: "j1", action: "review-schedule-row" }, {
+      rowId: r2?.id,
+      status: "rejected",
+    });
+    expect(rejected.statusCode).toBe(200);
+    const afterTerminal = await call("POST", { jobId: "j1", action: "review-schedule-row" }, {
+      rowId: r2?.id,
+      status: "accepted",
+    });
+    expect(afterTerminal.statusCode).toBe(409);
+
+    const missing = await call("POST", { jobId: "j1", action: "review-schedule-row" }, {
+      rowId: "nope",
+      status: "accepted",
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("a page with no schedule stores the cached run and inserts nothing", async () => {
+    aiNextText = JSON.stringify({ isSchedulePresent: false, tables: [], notes: "floor plan" });
+    const res = await extractScheduleOn(0);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.isSchedulePresent).toBe(false);
+    expect(res.body.tables).toHaveLength(0);
+    expect(scheduleTables).toHaveLength(0);
+    expect(extractions).toHaveLength(1);
+  });
+
+  it("unusable schedule output → 502, spend recorded, nothing stored (P7)", async () => {
+    aiNextText = "no table here";
+    const res = await extractScheduleOn(0);
+    expect(res.statusCode).toBe(502);
+    expect(scheduleTables).toHaveLength(0);
     expect(extractions).toHaveLength(0);
     expect(spendLedger().calls).toHaveLength(1);
   });

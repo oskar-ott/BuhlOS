@@ -275,11 +275,128 @@ async function setLegendCrop(sql, tenantId, jobId, entryId, url) {
   return rows.length ? rows[0] : null;
 }
 
+// ─── #202/#207: schedule tables (table-type-agnostic machinery) ─────────────
+
+// Canonical column vocabularies per table kind. The model maps each raw
+// header it reads onto one of these (or keeps it as an extra column keyed by
+// its raw header). #207's switchboard set is named for compatibility with
+// the circuitBoards vocabulary in api/job-circuits.js.
+const SCHEDULE_COLUMNS = {
+  lighting: ['typeCode', 'description', 'manufacturer', 'model', 'lamp', 'wattage', 'qty'],
+  switchboard: ['circuitRef', 'description', 'protection', 'cableSize', 'phase', 'load'],
+};
+
+// Row review machine — same grammar as legend entries: live rows are still
+// rejectable (a bad row must be removable before takeoff consumes it).
+const SCHEDULE_ROW_TRANSITIONS = {
+  suggested: ['accepted', 'edited', 'rejected'],
+  accepted: ['rejected', 'edited'],
+  edited: ['rejected', 'edited'],
+  rejected: [],
+};
+
+async function listScheduleTables(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.schedule_tables
+    where tenant_id = ${tenantId} and job_id = ${jobId} and status = 'live'
+    order by table_kind, plan_id, page_index, created_at`;
+}
+
+async function listScheduleRowsForTables(sql, tenantId, tableIds) {
+  if (!tableIds.length) return [];
+  return await sql`
+    select * from public.schedule_rows
+    where tenant_id = ${tenantId} and table_id = any(${tableIds})
+    order by table_id, row_index`;
+}
+
+// Insert one extraction's tables + rows, superseding any live tables for the
+// same (job, plan, page, kind) — reviewed history is never rewritten.
+async function insertScheduleTables(sql, tenantId, ctx, tables) {
+  const insertedTables = [];
+  for (const t of tables) {
+    const rows = await sql`
+      insert into public.schedule_tables (
+        tenant_id, job_id, plan_id, page_index, page_sha256, table_kind,
+        board_identifier, region, headers, column_map, extraction_id,
+        row_count, model, prompt_version, created_by_label
+      ) values (
+        ${tenantId}, ${ctx.jobId}, ${ctx.planId}, ${ctx.pageIndex}, ${ctx.pageSha256},
+        ${ctx.tableKind}, ${t.boardIdentifier},
+        ${t.region === null ? null : sql.json(t.region)},
+        ${sql.json(t.headers)}, ${sql.json(t.columnMap)}, ${ctx.extractionId},
+        ${t.rows.length}, ${ctx.model}, ${ctx.promptVersion}, ${ctx.createdByLabel}
+      ) returning *`;
+    const table = rows[0];
+    for (let i = 0; i < t.rows.length; i += 1) {
+      const r = t.rows[i];
+      await sql`
+        insert into public.schedule_rows (
+          tenant_id, table_id, job_id, row_index, cells, row_region
+        ) values (
+          ${tenantId}, ${table.id}, ${ctx.jobId}, ${i}, ${sql.json(r.cells)},
+          ${r.rowRegion === null ? null : sql.json(r.rowRegion)}
+        )`;
+    }
+    insertedTables.push(table);
+  }
+  // Supersede the previously-live tables for this page+kind (not the ones we
+  // just inserted). Pointing at the first new table is enough lineage.
+  const newIds = insertedTables.map((t) => t.id);
+  if (newIds.length) {
+    await sql`
+      update public.schedule_tables
+      set status = 'superseded', superseded_by = ${newIds[0]}
+      where tenant_id = ${tenantId} and job_id = ${ctx.jobId}
+        and plan_id = ${ctx.planId} and page_index = ${ctx.pageIndex}
+        and table_kind = ${ctx.tableKind} and status = 'live'
+        and id <> all(${newIds})`;
+  }
+  return insertedTables;
+}
+
+// Live tables already produced by a cached extraction run (idempotent
+// re-click) — matched by extraction id.
+async function liveTablesForExtraction(sql, tenantId, extractionId) {
+  return await sql`
+    select * from public.schedule_tables
+    where tenant_id = ${tenantId} and extraction_id = ${extractionId} and status = 'live'`;
+}
+
+async function getScheduleRow(sql, tenantId, jobId, rowId) {
+  const rows = await sql`
+    select * from public.schedule_rows
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${rowId}`;
+  return rows.length ? rows[0] : null;
+}
+
+async function reviewScheduleRow(sql, tenantId, jobId, row, next) {
+  const rows = await sql`
+    update public.schedule_rows set
+      status = ${next.status},
+      human_cells = ${next.humanCells === undefined ? row.human_cells : (next.humanCells === null ? null : sql.json(next.humanCells))},
+      review_note = ${next.note === undefined ? row.review_note : next.note},
+      reviewed_at = now(),
+      reviewed_by_label = ${next.reviewedByLabel}
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${row.id}
+      and status = ${row.status}
+    returning *`;
+  return rows.length ? rows[0] : null;
+}
+
 module.exports = {
   OVERRIDE_FIELDS,
   SHEET_TYPES,
   LEGEND_CATEGORIES,
   LEGEND_TRANSITIONS,
+  SCHEDULE_COLUMNS,
+  SCHEDULE_ROW_TRANSITIONS,
+  listScheduleTables,
+  listScheduleRowsForTables,
+  insertScheduleTables,
+  liveTablesForExtraction,
+  getScheduleRow,
+  reviewScheduleRow,
   normalizeLabel,
   resolveTenantId,
   findCachedExtraction,

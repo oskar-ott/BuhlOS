@@ -23,6 +23,8 @@ import {
   type EffectiveSheet,
   type FieldState,
   type LegendEntry,
+  type ScheduleRow,
+  type ScheduleTable,
   type SheetField,
   type SheetSpend,
   type SheetType,
@@ -32,14 +34,18 @@ import {
   attachLegendCrop,
   clearOverride,
   extractLegend,
+  extractSchedule,
   fetchLegend,
+  fetchSchedules,
   fetchSheets,
   saveOverride,
   understandPage,
 } from "@/domains/ai-drawings/client";
 import { buildRegistryRows } from "@/domains/ai-drawings/registry";
+import { cropRegionFromPng, padRegion } from "@/domains/ai-drawings/crop";
 import { SheetRegistryCard } from "@/components/admin/SheetRegistryCard";
 import { LegendVocabularyCard } from "@/components/admin/LegendVocabularyCard";
+import { ScheduleTablesCard } from "@/components/admin/ScheduleTablesCard";
 
 /**
  * Epic 5 (#197) — AI sheet understanding: run + review-and-correct loop.
@@ -91,64 +97,11 @@ const TITLE_BLOCK_REGION: CropRegion = { x: 0.55, y: 0.55, w: 0.45, h: 0.45 };
 // (the API's own 6M guard is the ceiling, not the target).
 const MAX_CROP_CHARS = 4_000_000;
 
-// Crop a normalised region out of a stored page PNG in the browser (there is
-// no server-side image library). Returns a PNG data URL, or null on a
-// CORS-tainted canvas / load failure / oversize result — callers treat a
-// missing crop as best-effort, never fatal.
-async function cropRegionFromPng(
-  pngUrl: string,
-  region: CropRegion,
-  maxChars: number,
-  minEdgePx = 32,
-): Promise<string | null> {
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.crossOrigin = "anonymous";
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error("image load failed"));
-      el.src = pngUrl;
-    });
-    const sx = Math.floor(img.naturalWidth * region.x);
-    const sy = Math.floor(img.naturalHeight * region.y);
-    const sw = Math.floor(img.naturalWidth * region.w);
-    const sh = Math.floor(img.naturalHeight * region.h);
-    if (sw < minEdgePx || sh < minEdgePx) return null;
-    const canvas = document.createElement("canvas");
-    canvas.width = sw;
-    canvas.height = sh;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-    const dataUrl = canvas.toDataURL("image/png");
-    if (!dataUrl.startsWith("data:image/") || dataUrl.length > maxChars) {
-      return null;
-    }
-    return dataUrl;
-  } catch {
-    return null;
-  }
-}
-
 async function buildTitleBlockCrop(
   pngUrl: string,
 ): Promise<{ dataUrl: string; region: CropRegion } | null> {
   const dataUrl = await cropRegionFromPng(pngUrl, TITLE_BLOCK_REGION, MAX_CROP_CHARS);
   return dataUrl ? { dataUrl, region: TITLE_BLOCK_REGION } : null;
-}
-
-// #201: pad a symbol bbox for context, clamped to the page.
-function padRegion(r: CropRegion, factor = 0.35): CropRegion {
-  const px = r.w * factor;
-  const py = r.h * factor;
-  const x = Math.max(0, r.x - px);
-  const y = Math.max(0, r.y - py);
-  return {
-    x,
-    y,
-    w: Math.min(1 - x, r.w + px * 2),
-    h: Math.min(1 - y, r.h + py * 2),
-  };
 }
 
 const MAX_SYMBOL_CROP_CHARS = 1_200_000; // stay under the API's 1.5M guard
@@ -172,7 +125,11 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
   const [running, setRunning] = useState<RunState | null>(null);
   const [runNotice, setRunNotice] = useState<string>("");
   const [legendEntries, setLegendEntries] = useState<LegendEntry[]>([]);
-  const [legendBusyKey, setLegendBusyKey] = useState<string | null>(null);
+  const [scheduleTables, setScheduleTables] = useState<ScheduleTable[]>([]);
+  const [scheduleRows, setScheduleRows] = useState<ScheduleRow[]>([]);
+  const [scheduleColumns, setScheduleColumns] = useState<Record<string, string[]>>({});
+  // one page-level extraction (legend OR schedule) at a time
+  const [extractBusyKey, setExtractBusyKey] = useState<string | null>(null);
 
   const applySheet = useCallback((sheet: EffectiveSheet | null) => {
     if (!sheet) return;
@@ -195,11 +152,23 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
     });
   }, []);
 
+  const applyScheduleRow = useCallback((row: ScheduleRow) => {
+    setScheduleRows((prev) => {
+      const i = prev.findIndex((r) => r.id === row.id);
+      if (i >= 0) {
+        const next = [...prev];
+        next[i] = row;
+        return next;
+      }
+      return [...prev, row];
+    });
+  }, []);
+
   const load = useCallback(async () => {
     setStatus("loading");
     setStatusMessage("");
     try {
-      const [sheetsRes, plansRes, legendRes] = await Promise.all([
+      const [sheetsRes, plansRes, legendRes, schedulesRes] = await Promise.all([
         fetchSheets(jobId),
         fetch(`/api/plans?jobId=${encodeURIComponent(jobId)}`, {
           cache: "no-store",
@@ -209,6 +178,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
           return PanelPlansResponseSchema.parse(await r.json());
         }),
         fetchLegend(jobId),
+        fetchSchedules(jobId),
       ]);
       const nextSheets: Record<string, EffectiveSheet> = {};
       for (const s of sheetsRes.sheets) {
@@ -227,6 +197,9 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
       setSpend(sheetsRes.spend);
       setPlans(parsedPlans);
       setLegendEntries(legendRes.entries);
+      setScheduleTables(schedulesRes.tables);
+      setScheduleRows(schedulesRes.rows);
+      setScheduleColumns(schedulesRes.columns);
       setStatus("ready");
     } catch (err) {
       if (err instanceof AiDrawingsError && err.code === "STORE_UNAVAILABLE") {
@@ -295,7 +268,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
       const page = plan.pages.find((p) => p.pageIndex === pageIndex);
       if (!page) return;
       setRunNotice("");
-      setLegendBusyKey(sheetKey(plan.id, pageIndex));
+      setExtractBusyKey(sheetKey(plan.id, pageIndex));
       try {
         const out = await extractLegend(jobId, plan.id, pageIndex);
         setLegendEntries(out.entries);
@@ -332,10 +305,36 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
           setRunNotice(err instanceof Error ? err.message : "legend extraction failed");
         }
       } finally {
-        setLegendBusyKey(null);
+        setExtractBusyKey(null);
       }
     },
     [applyLegendEntry, jobId],
+  );
+
+  // #202: one schedule-extraction call per page — same rhythm as legend.
+  const runExtractSchedule = useCallback(
+    async (plan: PanelPlan, pageIndex: number) => {
+      setRunNotice("");
+      setExtractBusyKey(sheetKey(plan.id, pageIndex));
+      try {
+        const out = await extractSchedule(jobId, plan.id, pageIndex, "lighting");
+        setScheduleTables(out.tables);
+        setScheduleRows(out.rows);
+        if (out.spend) setSpend(out.spend);
+        if (!out.isSchedulePresent) {
+          setRunNotice(`No lighting schedule found on page ${pageIndex + 1} of ${planLabel(plan)}.`);
+        }
+      } catch (err) {
+        if (err instanceof AiDrawingsError && err.code === "CAP_REACHED") {
+          setRunNotice(err.message);
+        } else {
+          setRunNotice(err instanceof Error ? err.message : "schedule extraction failed");
+        }
+      } finally {
+        setExtractBusyKey(null);
+      }
+    },
+    [jobId],
   );
 
   const totals = useMemo(() => {
@@ -458,6 +457,28 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
             </div>
           ) : null}
 
+          {scheduleTables.length > 0 ? (
+            <div className="mt-3">
+              <ScheduleTablesCard
+                jobId={jobId}
+                tables={scheduleTables}
+                rows={scheduleRows}
+                columns={scheduleColumns}
+                lookup={{
+                  pngUrlFor: (planId, pageIndex) =>
+                    plans
+                      .find((p) => p.id === planId)
+                      ?.pages.find((pg) => pg.pageIndex === pageIndex)?.pngUrl ?? null,
+                  labelFor: (planId) => {
+                    const p = plans.find((pl) => pl.id === planId);
+                    return p ? planLabel(p) : "(document no longer on this job)";
+                  },
+                }}
+                onRow={applyScheduleRow}
+              />
+            </div>
+          ) : null}
+
           {plans.length === 0 ? (
             <p className="mt-3 rounded-card border border-dashed border-border bg-surface-subtle p-4 text-center text-sm text-text-muted">
               No documents with rendered pages yet — upload a PDF drawing set
@@ -475,9 +496,10 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
                   reviewThreshold={reviewThreshold}
                   onRun={() => void runPlan(plan)}
                   onSheet={applySheet}
-                  anyRunning={running !== null || legendBusyKey !== null}
-                  legendBusyKey={legendBusyKey}
+                  anyRunning={running !== null || extractBusyKey !== null}
+                  extractBusyKey={extractBusyKey}
                   onExtractLegend={(pageIndex) => void runExtractLegend(plan, pageIndex)}
+                  onExtractSchedule={(pageIndex) => void runExtractSchedule(plan, pageIndex)}
                 />
               ))}
             </div>
@@ -538,8 +560,9 @@ function PlanSheets({
   onRun,
   onSheet,
   anyRunning,
-  legendBusyKey,
+  extractBusyKey,
   onExtractLegend,
+  onExtractSchedule,
 }: {
   jobId: string;
   plan: PanelPlan;
@@ -549,8 +572,9 @@ function PlanSheets({
   onRun: () => void;
   onSheet: (sheet: EffectiveSheet | null) => void;
   anyRunning: boolean;
-  legendBusyKey: string | null;
+  extractBusyKey: string | null;
   onExtractLegend: (pageIndex: number) => void;
+  onExtractSchedule: (pageIndex: number) => void;
 }) {
   const planRunning = running?.planId === plan.id;
   const analysed = plan.pages.filter(
@@ -604,10 +628,15 @@ function PlanSheets({
                 sheet={sheet}
                 reviewThreshold={reviewThreshold}
                 onSheet={onSheet}
-                extractingLegend={legendBusyKey === sheetKey(plan.id, page.pageIndex)}
+                extractBusy={extractBusyKey === sheetKey(plan.id, page.pageIndex)}
                 onExtractLegend={
                   sheet?.fields.sheetType.effective === "legend" && !anyRunning
                     ? () => onExtractLegend(page.pageIndex)
+                    : undefined
+                }
+                onExtractSchedule={
+                  sheet?.fields.sheetType.effective === "schedule" && !anyRunning
+                    ? () => onExtractSchedule(page.pageIndex)
                     : undefined
                 }
               />
@@ -627,8 +656,9 @@ function SheetRow({
   sheet,
   reviewThreshold,
   onSheet,
-  extractingLegend = false,
+  extractBusy = false,
   onExtractLegend,
+  onExtractSchedule,
 }: {
   jobId: string;
   planId: string;
@@ -637,8 +667,9 @@ function SheetRow({
   sheet: EffectiveSheet | undefined;
   reviewThreshold: number;
   onSheet: (sheet: EffectiveSheet | null) => void;
-  extractingLegend?: boolean;
+  extractBusy?: boolean;
   onExtractLegend?: () => void;
+  onExtractSchedule?: () => void;
 }) {
   return (
     <div>
@@ -663,20 +694,36 @@ function SheetRow({
           view page
           <ExternalLink aria-hidden="true" className="h-3 w-3" />
         </a>
-        {onExtractLegend || extractingLegend ? (
+        {onExtractLegend || (extractBusy && !onExtractSchedule) ? (
           <button
             type="button"
             onClick={onExtractLegend}
-            disabled={!onExtractLegend || extractingLegend}
+            disabled={!onExtractLegend || extractBusy}
             className={cn(
               "inline-flex h-7 items-center gap-1.5 rounded-card border px-2.5 text-xs font-medium",
-              extractingLegend || !onExtractLegend
+              extractBusy || !onExtractLegend
                 ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
                 : "border-border bg-surface text-text hover:bg-surface-subtle",
             )}
           >
             <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
-            {extractingLegend ? "Extracting legend…" : "Extract legend"}
+            {extractBusy ? "Extracting legend…" : "Extract legend"}
+          </button>
+        ) : null}
+        {onExtractSchedule || (extractBusy && !onExtractLegend) ? (
+          <button
+            type="button"
+            onClick={onExtractSchedule}
+            disabled={!onExtractSchedule || extractBusy}
+            className={cn(
+              "inline-flex h-7 items-center gap-1.5 rounded-card border px-2.5 text-xs font-medium",
+              extractBusy || !onExtractSchedule
+                ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
+                : "border-border bg-surface text-text hover:bg-surface-subtle",
+            )}
+          >
+            <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+            {extractBusy ? "Extracting schedule…" : "Extract lighting schedule"}
           </button>
         ) : null}
       </div>

@@ -200,3 +200,96 @@ export const LegendEntryResponseSchema = z.object({
   entry: LegendEntrySchema.nullable(),
 });
 export type LegendEntryResponse = z.infer<typeof LegendEntryResponseSchema>;
+
+// ─── #202/#207: schedule tables ─────────────────────────────────────────────
+
+export const SCHEDULE_TABLE_KINDS = ["lighting", "switchboard"] as const;
+export type ScheduleTableKind = (typeof SCHEDULE_TABLE_KINDS)[number];
+
+export const SCHEDULE_KIND_LABELS: Record<ScheduleTableKind, string> = {
+  lighting: "Lighting schedule",
+  switchboard: "Switchboard schedule",
+};
+
+/** Human-facing labels for the canonical schedule columns. */
+export const SCHEDULE_COLUMN_LABELS: Record<string, string> = {
+  typeCode: "Type",
+  description: "Description",
+  manufacturer: "Manufacturer",
+  model: "Model",
+  lamp: "Lamp",
+  wattage: "Wattage",
+  qty: "Qty",
+  circuitRef: "Circuit",
+  protection: "Protection",
+  cableSize: "Cable",
+  phase: "Phase",
+  load: "Load",
+};
+
+const ScheduleCellSchema = z.object({
+  value: z.string().nullable(),
+  confidence: z.number().nullable().optional(),
+});
+
+const EffectiveCellSchema = z.object({
+  value: z.string().nullable(),
+  confidence: z.number().nullable(),
+  corrected: z.boolean(),
+});
+export type EffectiveCell = z.infer<typeof EffectiveCellSchema>;
+
+export const ScheduleTableSchema = z.object({
+  id: z.string(),
+  planId: z.string(),
+  pageIndex: z.number().int(),
+  pageSha256: z.string(),
+  tableKind: z.enum(SCHEDULE_TABLE_KINDS),
+  boardIdentifier: z.string().nullable(),
+  region: CropRegionSchema.nullable(),
+  headers: z.array(z.string()),
+  columnMap: z.record(z.string(), z.string()),
+  rowCount: z.number().int(),
+  model: z.string().nullable(),
+  promptVersion: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type ScheduleTable = z.infer<typeof ScheduleTableSchema>;
+
+export const ScheduleRowSchema = z.object({
+  id: z.string(),
+  tableId: z.string(),
+  rowIndex: z.number().int(),
+  cells: z.record(z.string(), ScheduleCellSchema),
+  humanCells: z.record(z.string(), z.string().nullable()).nullable(),
+  effective: z.record(z.string(), EffectiveCellSchema),
+  rowRegion: CropRegionSchema.nullable(),
+  status: z.enum(["suggested", "accepted", "edited", "rejected"]),
+  reviewedAt: z.string().nullable(),
+  reviewedBy: z.string().nullable(),
+  reviewNote: z.string().nullable(),
+});
+export type ScheduleRow = z.infer<typeof ScheduleRowSchema>;
+
+export const SchedulesResponseSchema = z.object({
+  tables: z.array(ScheduleTableSchema),
+  rows: z.array(ScheduleRowSchema),
+  columns: z.record(z.string(), z.array(z.string())),
+  promptVersions: z.record(z.string(), z.string()),
+});
+export type SchedulesResponse = z.infer<typeof SchedulesResponseSchema>;
+
+export const ExtractScheduleResponseSchema = z.object({
+  cached: z.boolean(),
+  isSchedulePresent: z.boolean(),
+  notes: z.string().nullable(),
+  tables: z.array(ScheduleTableSchema),
+  rows: z.array(ScheduleRowSchema),
+  spend: z.object({ totalUsd: z.number(), capUsd: z.number() }).optional(),
+});
+export type ExtractScheduleResponse = z.infer<typeof ExtractScheduleResponseSchema>;
+
+export const ReviewScheduleRowResponseSchema = z.object({
+  row: ScheduleRowSchema,
+});
+export type ReviewScheduleRowResponse = z.infer<typeof ReviewScheduleRowResponseSchema>;

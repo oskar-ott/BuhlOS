@@ -7,17 +7,24 @@
 
 import {
   ExtractLegendResponseSchema,
+  ExtractScheduleResponseSchema,
   LegendEntryResponseSchema,
   LegendListResponseSchema,
   OverrideResponseSchema,
+  ReviewScheduleRowResponseSchema,
+  SchedulesResponseSchema,
   SheetsResponseSchema,
   UnderstandResponseSchema,
   type CropRegion,
   type ExtractLegendResponse,
+  type ExtractScheduleResponse,
   type LegendCategory,
   type LegendEntryResponse,
   type LegendListResponse,
   type OverrideResponse,
+  type ReviewScheduleRowResponse,
+  type ScheduleTableKind,
+  type SchedulesResponse,
   type SheetField,
   type SheetsResponse,
   type UnderstandResponse,
@@ -209,5 +216,49 @@ export async function attachLegendCrop(
       body: JSON.stringify({ entryId, dataUrl }),
     },
     (b) => LegendEntryResponseSchema.parse(b),
+  );
+}
+
+// ─── #202/#207: schedule tables ─────────────────────────────────────────────
+
+export async function fetchSchedules(jobId: string): Promise<SchedulesResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=schedules`,
+    { method: "GET" },
+    (b) => SchedulesResponseSchema.parse(b),
+  );
+}
+
+export async function extractSchedule(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+  tableKind: ScheduleTableKind,
+): Promise<ExtractScheduleResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=extract-schedule`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex, tableKind }),
+    },
+    (b) => ExtractScheduleResponseSchema.parse(b),
+  );
+}
+
+export async function reviewScheduleRow(
+  jobId: string,
+  rowId: string,
+  status: "accepted" | "edited" | "rejected",
+  opts: { cells?: Record<string, string | null>; note?: string } = {},
+): Promise<ReviewScheduleRowResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=review-schedule-row`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ rowId, status, ...opts }),
+    },
+    (b) => ReviewScheduleRowResponseSchema.parse(b),
   );
 }

@@ -66,6 +66,11 @@ const LEGEND_PROMPT_VERSION = 'lv-v1';
 const KIND_LEGEND = 'legend-entries';
 const MAX_SYMBOL_CROP_CHARS = 1_500_000; // symbol cells are small
 
+// #202/#207 schedule extraction — one prompt lineage per table kind.
+// #202 ships lighting; #207 widens the request enum to switchboard.
+const SCHEDULE_PROMPT_VERSIONS = { lighting: 'sl-v1', switchboard: 'sb-v1' };
+const SCHEDULE_RUN_KINDS = { lighting: 'schedule-lighting', switchboard: 'schedule-switchboard' };
+
 // ─── Request validation (Zod at the boundary) ──────────────────────────────
 const CropRegion = z.object({
   x: z.number().min(0).max(1),
@@ -113,6 +118,18 @@ const AttachLegendCropBody = z.object({
   entryId: z.string().min(1),
   dataUrl: z.string().startsWith('data:image/').max(MAX_SYMBOL_CROP_CHARS),
 });
+const ExtractScheduleBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+  tableKind: z.enum(['lighting']), // #207 widens to 'switchboard'
+});
+const ReviewScheduleRowBody = z.object({
+  rowId: z.string().min(1),
+  status: z.enum(['accepted', 'edited', 'rejected']),
+  // per-cell corrections: { col: 'fixed text' | null } — null = cell is empty
+  cells: z.record(z.string().max(80), z.string().max(300).nullable()).optional(),
+  note: z.string().max(500).optional(),
+});
 
 // ─── Model output contract (validated before anything persists) ────────────
 const FieldOut = z.object({
@@ -153,6 +170,39 @@ const LegendEntryOut = z.object({
 const LegendModelOutput = z.object({
   isLegendPresent: z.boolean(),
   entries: z.array(LegendEntryOut).max(150),
+  notes: z.string().max(2000).nullable().optional(),
+});
+
+// #202/#207 schedule model contract — table-type-agnostic. Cells are the
+// VERBATIM per-cell read with confidence; null = unreadable/absent, never
+// invented, and abbreviations are never expanded.
+const NormBox = z.object({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  w: z.number().gt(0).max(1),
+  h: z.number().gt(0).max(1),
+});
+const CellOut = z.object({
+  value: z.string().max(300).nullable(),
+  confidence: z.number().min(0).max(1),
+});
+const ScheduleTableOut = z.object({
+  boardIdentifier: z.string().max(60).nullable().optional(),
+  region: NormBox.nullable().optional(),
+  headers: z.array(z.string().max(120)).max(30),
+  columnMap: z.record(z.string().max(120), z.string().max(80)),
+  rows: z
+    .array(
+      z.object({
+        rowRegion: NormBox.nullable().optional(),
+        cells: z.record(z.string().max(80), CellOut),
+      }),
+    )
+    .max(200),
+});
+const ScheduleModelOutput = z.object({
+  isSchedulePresent: z.boolean(),
+  tables: z.array(ScheduleTableOut).max(5),
   notes: z.string().max(2000).nullable().optional(),
 });
 
@@ -215,6 +265,54 @@ RULES — non-negotiable:
   "isLegendPresent": true,
   "entries": [
     { "label": "...", "description": "..." or null, "category": "Power", "symbol": "..." or null, "confidence": 0.0, "bbox": {"x":0.1,"y":0.2,"w":0.03,"h":0.02} or null }
+  ],
+  "notes": "one short caveat sentence, or null"
+}`;
+}
+
+// ─── Prompt (versions: SCHEDULE_PROMPT_VERSIONS) ────────────────────────────
+function schedulePrompt(tableKind) {
+  const canonical = store.SCHEDULE_COLUMNS[tableKind].join(' | ');
+  const kindBlock =
+    tableKind === 'lighting'
+      ? `LIGHTING SCHEDULE tables — luminaire schedules listing type codes, descriptions, manufacturer/model, lamp, wattage, quantities.
+Canonical columns to map onto: ${canonical}.
+boardIdentifier is always null for lighting schedules.`
+      : `SWITCHBOARD SCHEDULE tables — board schedules listing circuit references, descriptions, protection devices, cable sizes, phases, loads.
+Canonical columns to map onto: ${canonical}.
+Set boardIdentifier to the board's name/code (e.g. "MSB", "DB-1") for EACH table; one table per board section.`;
+
+  return `You are reading ${tableKind.toUpperCase()} SCHEDULE tables on ONE page of an Australian construction drawing set.
+
+${kindBlock}
+
+For EVERY such table on the page return:
+- boardIdentifier (see above)
+- region: the table's bounding box in page-normalised coordinates {"x","y","w","h"} each 0..1, or null
+- headers: the header row cells EXACTLY as printed, in order
+- columnMap: each raw header mapped to a canonical column name where one fits; leave unmappable headers OUT of columnMap (their cells still extract under the raw header key)
+- rows: EVERY data row. Per row:
+  - rowRegion: the row's bounding box (page-normalised), or null
+  - cells: an object keyed by canonical column names (and raw header keys for unmapped columns), each cell {"value": "...", "confidence": 0..1}
+
+RULES — non-negotiable:
+- Cells are VERBATIM: exactly the text printed, abbreviations preserved, never expanded or corrected. "2.5mm²" stays "2.5mm²"; "EM" stays "EM".
+- An unreadable, smudged or empty cell is {"value": null, "confidence": <your honest estimate>} — NEVER guessed.
+- NEVER invent rows. Skip continuation/total/blank separator rows and say so in notes.
+- If the page has NO ${tableKind} schedule: {"isSchedulePresent": false, "tables": [], "notes": "..."}.
+- Return ONLY strict JSON:
+{
+  "isSchedulePresent": true,
+  "tables": [
+    {
+      "boardIdentifier": "DB-1" or null,
+      "region": {"x":0.1,"y":0.2,"w":0.5,"h":0.6} or null,
+      "headers": ["TYPE", "DESCRIPTION", "..."],
+      "columnMap": {"TYPE": "typeCode", "DESCRIPTION": "description"},
+      "rows": [
+        { "rowRegion": {...} or null, "cells": { "typeCode": {"value":"L1","confidence":0.95}, "description": {"value":null,"confidence":0.4} } }
+      ]
+    }
   ],
   "notes": "one short caveat sentence, or null"
 }`;
@@ -847,6 +945,273 @@ async function handleAttachLegendCrop(res, sql, tenantId, jobId, user, body) {
   return res.status(200).json({ entry: updated ? legendEntryView(updated) : null });
 }
 
+// ─── #202/#207: schedule table handlers ─────────────────────────────────────
+
+function scheduleTableView(t) {
+  return {
+    id: t.id,
+    planId: t.plan_id,
+    pageIndex: t.page_index,
+    pageSha256: t.page_sha256,
+    tableKind: t.table_kind,
+    boardIdentifier: t.board_identifier,
+    region: t.region,
+    headers: t.headers,
+    columnMap: t.column_map,
+    rowCount: t.row_count,
+    model: t.model,
+    promptVersion: t.prompt_version,
+    createdAt: t.created_at,
+  };
+}
+
+// Effective cell = human correction (wins) else the AI's verbatim read.
+function scheduleRowView(r) {
+  const cells = r.cells || {};
+  const human = r.human_cells || {};
+  const effective = {};
+  for (const key of new Set([...Object.keys(cells), ...Object.keys(human)])) {
+    const corrected = Object.prototype.hasOwnProperty.call(human, key);
+    effective[key] = {
+      value: corrected ? human[key] : (cells[key] ? cells[key].value : null),
+      confidence: cells[key] ? cells[key].confidence : null,
+      corrected,
+    };
+  }
+  return {
+    id: r.id,
+    tableId: r.table_id,
+    rowIndex: r.row_index,
+    cells,
+    humanCells: r.human_cells,
+    effective,
+    rowRegion: r.row_region,
+    status: r.status,
+    reviewedAt: r.reviewed_at,
+    reviewedBy: r.reviewed_by_label,
+    reviewNote: r.review_note,
+  };
+}
+
+async function handleSchedulesList(res, sql, tenantId, jobId) {
+  const tables = await store.listScheduleTables(sql, tenantId, jobId);
+  const rows = await store.listScheduleRowsForTables(sql, tenantId, tables.map((t) => t.id));
+  return res.status(200).json({
+    tables: tables.map(scheduleTableView),
+    rows: rows.map(scheduleRowView),
+    columns: store.SCHEDULE_COLUMNS,
+    promptVersions: SCHEDULE_PROMPT_VERSIONS,
+  });
+}
+
+// Normalise a validated model table into store shape: cell values trimmed
+// (verbatim otherwise), '' → null.
+function normaliseModelTable(t) {
+  return {
+    boardIdentifier: cleanValue(t.boardIdentifier),
+    region: t.region || null,
+    headers: t.headers,
+    columnMap: t.columnMap,
+    rows: t.rows.map((r) => {
+      const cells = {};
+      for (const [key, cell] of Object.entries(r.cells)) {
+        const v = cell.value === null ? null : String(cell.value).trim();
+        cells[key] = { value: v === '' ? null : v, confidence: cell.confidence };
+      }
+      return { rowRegion: r.rowRegion || null, cells };
+    }),
+  };
+}
+
+async function handleExtractSchedule(res, sql, tenantId, jobId, user, body) {
+  const parsedBody = ExtractScheduleBody.safeParse(body);
+  if (!parsedBody.success) {
+    return res.status(400).json({ error: parsedBody.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex, tableKind } = parsedBody.data;
+  const runKind = SCHEDULE_RUN_KINDS[tableKind];
+  const promptVersion = SCHEDULE_PROMPT_VERSIONS[tableKind];
+
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  const { page } = found;
+
+  const cacheKey = {
+    jobId, planId, pageIndex,
+    pageSha256: page.sha256,
+    kind: runKind,
+    promptVersion,
+    model: AI_DRAWINGS_MODEL,
+  };
+
+  let extraction = await store.findCachedExtraction(sql, tenantId, cacheKey);
+  const cached = !!extraction;
+  if (!extraction) {
+    const takeoff = await aiSpend.readTakeoff(jobId);
+    if (aiSpend.overBudget(takeoff)) {
+      return res.status(402).json({
+        error: 'cost cap reached for this job ($' + aiSpend.COST_CAP_USD + ')',
+        spend: takeoff.spend,
+      });
+    }
+    let content;
+    try {
+      const png = await fetchPngAsBase64(page.pngUrl);
+      content = [
+        { type: 'image', source: { type: 'base64', media_type: png.mediaType, data: png.base64 } },
+        { type: 'text', text: schedulePrompt(tableKind) },
+      ];
+    } catch (e) {
+      return res.status(502).json({ error: 'could not fetch page image: ' + e.message });
+    }
+    let text, usage;
+    try {
+      const out = await aiComplete({
+        model: AI_DRAWINGS_MODEL,
+        maxTokens: 4000, // dense tables — rows dominate the budget
+        messages: [{ role: 'user', content }],
+      });
+      text = out.text;
+      usage = out.usage;
+    } catch (e) {
+      if (e instanceof AiError && e.code === 'UNCONFIGURED') {
+        return res.status(503).json({ error: 'AI is not configured in this environment' });
+      }
+      return res.status(502).json({ error: 'vision call failed: ' + e.message });
+    }
+    // The money is spent — record it BEFORE judging the output (honest cap).
+    await aiSpend.commitTakeoff(jobId, (t) => {
+      aiSpend.recordSpend(t, usage, 'extract-schedule', { planId, pageIndex, tableKind, promptVersion }, {
+        inputUsdPerToken: COST_PER_INPUT_TOKEN,
+        outputUsdPerToken: COST_PER_OUTPUT_TOKEN,
+      });
+    });
+    const json = extractJson(text);
+    if (!json || !ScheduleModelOutput.safeParse(json).success) {
+      return res.status(502).json({
+        error: 'model returned unusable output — nothing was stored; try again',
+      });
+    }
+    try {
+      extraction = await store.insertExtraction(sql, tenantId, {
+        jobId, planId, pageIndex,
+        pageSha256: page.sha256,
+        kind: runKind,
+        model: AI_DRAWINGS_MODEL,
+        promptVersion,
+        raw: json,
+        sheetType: null, sheetTypeConfidence: null,
+        sheetNumber: null, sheetNumberConfidence: null,
+        sheetTitle: null, sheetTitleConfidence: null,
+        revision: null, revisionConfidence: null,
+        scale: null, scaleConfidence: null,
+        region: null,
+        inputTokens: usage ? Number(usage.inputTokens ?? usage.input_tokens ?? 0) : null,
+        outputTokens: usage ? Number(usage.outputTokens ?? usage.output_tokens ?? 0) : null,
+        createdByLabel: user.username || null,
+      });
+    } catch (e) {
+      const dup = e && (e.code === '23505' || /duplicate key/i.test(String(e.message || '')));
+      if (!dup) throw e;
+      extraction = await store.findCachedExtraction(sql, tenantId, cacheKey);
+      if (!extraction) throw e;
+    }
+  }
+
+  const parsedOut = ScheduleModelOutput.safeParse(extraction.raw);
+  if (!parsedOut.success) {
+    return res.status(502).json({ error: 'stored schedule run is unreadable — re-run after a prompt bump' });
+  }
+  const output = parsedOut.data;
+
+  // Idempotent materialisation: a cached re-click serves the tables the run
+  // already produced; a fresh run inserts + supersedes the page's old tables.
+  let liveTables = await store.liveTablesForExtraction(sql, tenantId, extraction.id);
+  if (liveTables.length === 0 && output.isSchedulePresent && output.tables.length > 0) {
+    liveTables = await store.insertScheduleTables(
+      sql,
+      tenantId,
+      {
+        jobId, planId, pageIndex,
+        pageSha256: page.sha256,
+        tableKind,
+        extractionId: extraction.id,
+        model: extraction.model,
+        promptVersion: extraction.prompt_version,
+        createdByLabel: user.username || null,
+      },
+      output.tables.map(normaliseModelTable),
+    );
+    await appendAuditLog({
+      action: 'document.ai_extracted',
+      actorId: user.id,
+      actorName: user.username || 'Unknown',
+      actorRole: user.role || null,
+      jobId,
+      targetType: 'document',
+      targetId: planId,
+      summary: `AI read ${liveTables.length} ${tableKind} schedule table${liveTables.length === 1 ? '' : 's'} (${liveTables.reduce((n, t) => n + t.row_count, 0)} rows) from page ${pageIndex + 1}`,
+      metadata: { kind: runKind, pageIndex, tables: liveTables.length, promptVersion },
+    }).catch(() => {});
+  }
+
+  const allTables = await store.listScheduleTables(sql, tenantId, jobId);
+  const rows = await store.listScheduleRowsForTables(sql, tenantId, allTables.map((t) => t.id));
+  const fresh = await aiSpend.readTakeoff(jobId);
+  return res.status(200).json({
+    cached,
+    isSchedulePresent: output.isSchedulePresent,
+    notes: output.notes || null,
+    tables: allTables.map(scheduleTableView),
+    rows: rows.map(scheduleRowView),
+    spend: { totalUsd: fresh.spend.totalUsd, capUsd: aiSpend.COST_CAP_USD },
+  });
+}
+
+async function handleReviewScheduleRow(res, sql, tenantId, jobId, user, body) {
+  const parsed = ReviewScheduleRowBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { rowId, status, cells, note } = parsed.data;
+  if (status === 'edited' && (!cells || Object.keys(cells).length === 0)) {
+    return res.status(400).json({ error: 'edited requires cell corrections — that is what distinguishes it from accept' });
+  }
+  const row = await store.getScheduleRow(sql, tenantId, jobId, rowId);
+  if (!row) return res.status(404).json({ error: 'schedule row not found' });
+  const allowed = store.SCHEDULE_ROW_TRANSITIONS[row.status] || [];
+  if (!allowed.includes(status)) {
+    return res.status(409).json({ error: `cannot ${status} a ${row.status} row` });
+  }
+  let humanCells;
+  if (status === 'edited') {
+    humanCells = { ...(row.human_cells || {}) };
+    for (const [key, value] of Object.entries(cells)) {
+      humanCells[key] = value === null ? null : String(value).trim();
+    }
+  }
+  const updated = await store.reviewScheduleRow(sql, tenantId, jobId, row, {
+    status,
+    humanCells,
+    note: cleanValue(note),
+    reviewedByLabel: user.username || 'Unknown',
+  });
+  if (!updated) return res.status(409).json({ error: 'row was reviewed concurrently — reload' });
+  await appendAuditLog({
+    action: 'document.ai_corrected',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: 'schedule',
+    summary: `schedule row ${updated.row_index + 1} ${status}` +
+      (status === 'edited' ? ` (${Object.keys(cells).length} cell${Object.keys(cells).length === 1 ? '' : 's'})` : ''),
+    metadata: { kind: 'schedule', rowId, status },
+  }).catch(() => {});
+  return res.status(200).json({ row: scheduleRowView(updated) });
+}
+
 // ─── Router ─────────────────────────────────────────────────────────────────
 
 module.exports = async (req, res) => {
@@ -872,11 +1237,12 @@ module.exports = async (req, res) => {
     return res.status(403).json({ error: 'cannot manage this job' });
   }
 
-  if (req.method === 'GET' && (action === 'sheets' || action === 'legend')) {
+  if (req.method === 'GET' && (action === 'sheets' || action === 'legend' || action === 'schedules')) {
     const sql = dbOr503(res, 'read');
     if (!sql) return;
     const tenantId = await store.resolveTenantId(sql);
     if (action === 'legend') return handleLegendList(res, sql, tenantId, jobId);
+    if (action === 'schedules') return handleSchedulesList(res, sql, tenantId, jobId);
     return handleSheets(res, sql, tenantId, jobId);
   }
 
@@ -892,6 +1258,8 @@ module.exports = async (req, res) => {
     if (action === 'review-legend-entry') return handleReviewLegendEntry(res, sql, tenantId, jobId, user, body);
     if (action === 'add-legend-entry') return handleAddLegendEntry(res, sql, tenantId, jobId, user, body);
     if (action === 'attach-legend-crop') return handleAttachLegendCrop(res, sql, tenantId, jobId, user, body);
+    if (action === 'extract-schedule') return handleExtractSchedule(res, sql, tenantId, jobId, user, body);
+    if (action === 'review-schedule-row') return handleReviewScheduleRow(res, sql, tenantId, jobId, user, body);
     return res.status(400).json({ error: 'unknown action: ' + (action || '(none)') });
   }
 
@@ -911,4 +1279,8 @@ module.exports.__test = {
   LEGEND_PROMPT_VERSION,
   legendPrompt,
   legendEntryView,
+  SCHEDULE_PROMPT_VERSIONS,
+  schedulePrompt,
+  scheduleRowView,
+  normaliseModelTable,
 };
