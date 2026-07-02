@@ -1140,8 +1140,11 @@ export function JobBuilderClient({
         />
 
         {/* The confirmed scope-vs-quote reconciliation (RAG + findings + clause
-            table). Renders its own honest "no reconciliation yet" state. */}
-        {reconciliation ? <ScopeReconciliationStatus view={reconciliation} /> : null}
+            table). Renders its own honest "no reconciliation yet" state.
+            Interactive here (#366 AC2): each open finding carries resolve /
+            accept-with-reason actions; the write goes through the confirm route
+            and router.refresh() re-reads the persisted result. */}
+        {reconciliation ? <ScopeReconciliationStatus view={reconciliation} interactive /> : null}
       </div>
     );
   }

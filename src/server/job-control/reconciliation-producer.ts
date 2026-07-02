@@ -13,6 +13,8 @@ import type { TaskRef } from "@/domains/job-control/types";
 import {
   ScopeClassificationSchema,
   ScopeReconciliationSchema,
+  ScopeResolutionSchema,
+  applyResolution,
   classifyClause,
   detectFindings,
   reconcile,
@@ -25,6 +27,7 @@ import type {
   ScopeClassification,
   ScopeClauseClassification,
   ScopeReconciliation,
+  ScopeResolution,
 } from "@/domains/job-control/reconciliation";
 import { readJsonBlob, writeJsonBlob } from "./blob";
 
@@ -156,6 +159,37 @@ export const ClassificationsInputSchema = z.record(z.string(), ClauseClassificat
 export type ClauseClassificationInput = z.infer<typeof ClauseClassificationInputSchema>;
 export type ClassificationsInput = z.infer<typeof ClassificationsInputSchema>;
 
+// ── Resolution input (resolve-or-accept-with-reason, #366 AC2/AC5) ───────────
+
+/** The route-level message for an accept with no reason — exported so the route
+ *  can return it verbatim as the 400 body (and tests can assert it). */
+export const REASON_REQUIRED_MESSAGE = "A reason is required to accept a finding";
+
+/**
+ * One admin decision on a named finding, as it arrives on the wire: the
+ * deterministic `findingKey` the engine produced, and the action — `resolved`
+ * (the underlying conflict was fixed) or `accepted` (the office lives with it,
+ * and MUST say why: an accept with no reason is rejected at parse time, per the
+ * issue's "resolve-or-accept-with-reason"). The actor (`by`) and timestamp
+ * (`at`) are NEVER client-supplied — the confirm flow stamps them from the
+ * authoritative admin verification, mirroring `ScopeResolutionSchema`.
+ */
+export const ResolutionInputSchema = z
+  .object({
+    findingKey: z.string().min(1),
+    action: z.enum(["resolved", "accepted"]),
+    reason: z.string().nullable().optional(),
+  })
+  .superRefine((r, ctx) => {
+    if (r.action === "accepted" && !(r.reason ?? "").trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: REASON_REQUIRED_MESSAGE, path: ["reason"] });
+    }
+  });
+
+export const ResolutionsInputSchema = z.array(ResolutionInputSchema);
+export type ResolutionInput = z.infer<typeof ResolutionInputSchema>;
+export type ResolutionsInput = z.infer<typeof ResolutionsInputSchema>;
+
 /**
  * Deterministic id for an admin-authored required-evidence item when the author
  * omits one. FNV-1a over the trimmed label (the repo's id-derivation idiom, cf.
@@ -261,13 +295,20 @@ export interface ReconciliationPreviewResult {
   unclassifiedClauseIds: string[];
   /** Classifications that named a clause not in the job scope — ignored, surfaced honestly. */
   unknownClauseIds: string[];
+  /** Resolutions that named no open finding and no prior resolution — ignored,
+   *  surfaced honestly (a resolution is only ever recorded against a real,
+   *  engine-named finding; we never store a decision about nothing). */
+  unknownFindingKeys: string[];
   sourceHash: string;
 }
 
 /**
  * Build a reconciliation preview. Seeds (or re-reconciles over a prior), applies
- * the admin classifications, and derives status + warnings. PURE — persists
- * nothing, compiles nothing, mutates no input.
+ * the admin classifications, then any resolve-or-accept resolutions, and derives
+ * status + warnings. PURE — persists nothing, compiles nothing, mutates no input.
+ * All derivation stays in the engine: findings come from `detectFindings`,
+ * resolutions land via `applyResolution` (which replaces on the same key and
+ * never wipes the others).
  */
 export function buildReconciliationPreview(input: {
   jobId: string;
@@ -275,8 +316,10 @@ export function buildReconciliationPreview(input: {
   quote: Quote | null;
   prior: ScopeReconciliation | null;
   classifications?: ClassificationsInput;
+  /** Full resolution records (by/at already stamped by the confirm flow). */
+  resolutions?: ReadonlyArray<ScopeResolution>;
 }): ReconciliationPreviewResult {
-  const { jobId, clauses, quote, prior, classifications } = input;
+  const { jobId, clauses, quote, prior, classifications, resolutions } = input;
 
   const base = prior
     ? reconcile(prior, clauses, quote)
@@ -295,6 +338,26 @@ export function buildReconciliationPreview(input: {
     }
   }
 
+  // Apply resolutions AFTER classifications so the valid-key check sees the
+  // findings this confirm actually produces. A key is valid when it names an
+  // OPEN finding (resolve/accept it) or an already-resolved one (replace the
+  // earlier decision — applyResolution is idempotent on the key). Anything else
+  // is ignored and surfaced — never silently recorded.
+  const unknownFindingKeys: string[] = [];
+  if (resolutions && resolutions.length > 0) {
+    const validKeys = new Set([
+      ...detectFindings(rec).map((f) => f.key),
+      ...rec.resolutions.map((r) => r.findingKey),
+    ]);
+    for (const r of resolutions) {
+      if (!validKeys.has(r.findingKey)) {
+        unknownFindingKeys.push(r.findingKey);
+        continue;
+      }
+      rec = applyResolution(rec, r);
+    }
+  }
+
   const warnings = detectFindings(rec);
   const status = reconciliationStatus(rec);
   const unclassifiedClauseIds = rec.clauseClassifications
@@ -310,6 +373,7 @@ export function buildReconciliationPreview(input: {
     warnings,
     unclassifiedClauseIds,
     unknownClauseIds,
+    unknownFindingKeys,
     sourceHash: computeScopeSourceHash(clauses, quote),
   };
 }
@@ -331,16 +395,32 @@ export function prepareReconciliationConfirm(input: {
   quote: Quote | null;
   prior: PersistedScopeReconciliation | null;
   classifications?: ClassificationsInput;
+  resolutions?: ResolutionsInput;
   expectedSourceHash?: string | null;
   confirmedBy?: string | null;
   at: string;
 }): ReconciliationConfirmPrep {
+  // Stamp the actor + timestamp onto the wire resolutions HERE — never
+  // client-supplied. `by` is the authoritatively verified admin identity the
+  // confirm flow resolved ("office" only when the verified session carries no
+  // usable name — the write was still admin-verified).
+  const resolutionRecords = (input.resolutions ?? []).map((r) =>
+    ScopeResolutionSchema.parse({
+      findingKey: r.findingKey,
+      action: r.action,
+      reason: r.reason ?? null,
+      by: input.confirmedBy ?? "office",
+      at: input.at,
+    }),
+  );
+
   const preview = buildReconciliationPreview({
     jobId: input.jobId,
     clauses: input.clauses,
     quote: input.quote,
     prior: input.prior?.reconciliation ?? null,
     classifications: input.classifications,
+    resolutions: resolutionRecords,
   });
 
   if (input.expectedSourceHash != null && input.expectedSourceHash !== preview.sourceHash) {
@@ -430,6 +510,8 @@ export type RunConfirmResult =
         confirmedAt: string | null;
         updatedAt: string;
       };
+      /** Resolution inputs that named no real finding — ignored, surfaced. */
+      unknownFindingKeys: string[];
     }
   | { ok: false; status: 404 | 409; code?: "stale_source"; error: string; currentSourceHash?: string };
 
@@ -440,6 +522,7 @@ export async function runReconciliationConfirm(
   input: {
     jobId: string;
     classifications?: ClassificationsInput;
+    resolutions?: ResolutionsInput;
     expectedSourceHash?: string | null;
     confirmedBy?: string | null;
     at: string;
@@ -455,6 +538,7 @@ export async function runReconciliationConfirm(
     quote,
     prior,
     classifications: input.classifications,
+    resolutions: input.resolutions,
     expectedSourceHash: input.expectedSourceHash,
     confirmedBy: input.confirmedBy,
     at: input.at,
@@ -481,6 +565,7 @@ export async function runReconciliationConfirm(
       confirmedAt: prep.persisted.confirmedAt,
       updatedAt: prep.persisted.updatedAt,
     },
+    unknownFindingKeys: prep.preview.unknownFindingKeys,
   };
 }
 
@@ -533,6 +618,7 @@ export async function confirmReconciliationAuthorized(
   input: {
     jobId: string;
     classifications?: ClassificationsInput;
+    resolutions?: ResolutionsInput;
     expectedSourceHash?: string | null;
     at: string;
   },
@@ -542,6 +628,7 @@ export async function confirmReconciliationAuthorized(
   return runReconciliationConfirm(deps, {
     jobId: input.jobId,
     classifications: input.classifications,
+    resolutions: input.resolutions,
     expectedSourceHash: input.expectedSourceHash,
     confirmedBy: a.confirmedBy,
     at: input.at,

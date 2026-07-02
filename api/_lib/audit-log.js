@@ -247,6 +247,14 @@ const VALID_ACTIONS = new Set([
   // targetType 'job'; metadata carries model + token usage. Best-effort. Kept
   // in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'ai.job_summarised',
+  // #366: scope-vs-quote reconciliation — the office's resolve-or-accept
+  // decision on an engine-named finding (resolved = conflict fixed; accepted =
+  // lived with, with a required reason in metadata.reason). targetType
+  // 'scope_reconciliation', targetId is the deterministic findingKey. Written
+  // best-effort by the reconciliation confirm route. Kept in sync with
+  // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'scope.finding_resolved',
+  'scope.finding_accepted',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -307,6 +315,9 @@ const VALID_TARGET_TYPES = new Set([
   'feature_flag',
   // #760 PR2: a feature config knob (targetId = '<featureKey>.<key>').
   'feature_config',
+  // #366: per-job scope reconciliation (jobs/<id>/scope-reconciliation.json);
+  // targetId is the finding's deterministic key.
+  'scope_reconciliation',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

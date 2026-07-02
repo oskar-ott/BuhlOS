@@ -218,6 +218,12 @@ export const AUDIT_ACTIONS = [
   "feature_flag.toggled",
   // #760 PR2: owner per-feature config knob change.
   "feature_config.changed",
+  // #366: scope-vs-quote reconciliation — resolve-or-accept decisions on
+  // engine-named findings (accepted carries metadata.reason; targetId is the
+  // deterministic findingKey). targetType 'scope_reconciliation'. Kept in sync
+  // with api/_lib/audit-log.js VALID_ACTIONS.
+  "scope.finding_resolved",
+  "scope.finding_accepted",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -271,6 +277,9 @@ export const AUDIT_TARGET_TYPES = [
   "feature_flag",
   // #760 PR2: a feature config knob (targetId = '<featureKey>.<key>').
   "feature_config",
+  // #366: per-job scope reconciliation (jobs/<id>/scope-reconciliation.json);
+  // targetId is the finding's deterministic key.
+  "scope_reconciliation",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

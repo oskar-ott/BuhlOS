@@ -1,13 +1,19 @@
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import type { ScopeClassification } from "@/domains/job-control/reconciliation";
 import type { ScopeReconciliationView } from "@/server/job-control/reconciliation-read";
+import { ScopeFindingActions } from "./ScopeFindingActions";
 
 /**
- * Boss-facing scope-vs-quote reconciliation review (#366). Pure presenter —
- * props in, JSX out — so it render-tests without a browser. It SHOWS the
- * confirmed reconciliation produced by the authoring flow on the job-control
- * page; it computes nothing and writes nothing (the engine derives findings, the
- * UI renders them — the issue's "the UI renders findings, never computes them").
+ * Boss-facing scope-vs-quote reconciliation review (#366). Presenter — props
+ * in, JSX out — so it render-tests without a browser. It SHOWS the confirmed
+ * reconciliation produced by the authoring flow; it computes nothing (the
+ * engine derives findings, the UI renders them — the issue's "the UI renders
+ * findings, never computes them").
+ *
+ * `interactive` (the builder's Scope section) adds the resolve-or-accept
+ * actions to each open finding — the writes go through the existing confirm
+ * route via `ScopeFindingActions`; this component still derives nothing. The
+ * read-only surfaces (/v2/jobs/[jobId]/scope) leave it off.
  *
  * Site/office language for the ten classifications and the RAG status so a
  * reviewer reads "Excluded — but carries an obligation" instead of an enum.
@@ -49,7 +55,14 @@ function RagBadge({ rag }: { rag: "red" | "amber" | "green" }) {
   );
 }
 
-export function ScopeReconciliationStatus({ view }: { view: ScopeReconciliationView }) {
+export function ScopeReconciliationStatus({
+  view,
+  interactive = false,
+}: {
+  view: ScopeReconciliationView;
+  /** Render resolve/accept actions on each open finding (builder only). */
+  interactive?: boolean;
+}) {
   if (view.status === "missing") {
     return (
       <Card>
@@ -103,9 +116,15 @@ export function ScopeReconciliationStatus({ view }: { view: ScopeReconciliationV
       {view.findings.length > 0 ? (
         <Card>
           <CardTitle>Open findings</CardTitle>
-          <ul className="mt-2 space-y-2">
+          {interactive ? (
+            <CardDescription className="mt-1">
+              Each one needs a decision before work starts: fix it and mark it resolved, or
+              accept it with a reason.
+            </CardDescription>
+          ) : null}
+          <ul className="mt-2 space-y-3">
             {view.findings.map((f) => (
-              <li key={f.key} className="flex items-start gap-2 text-sm">
+              <li key={f.key} className="flex flex-wrap items-start gap-2 text-sm">
                 <span
                   className={`mt-0.5 inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
                     f.severity === "red" ? "bg-red-100 text-red-900" : "bg-amber-100 text-amber-900"
@@ -114,6 +133,13 @@ export function ScopeReconciliationStatus({ view }: { view: ScopeReconciliationV
                   {f.severity}
                 </span>
                 <span className="text-slate-800">{f.message}</span>
+                {interactive ? (
+                  <ScopeFindingActions
+                    jobId={view.jobId}
+                    findingKey={f.key}
+                    sourceHash={view.sourceHash}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>
@@ -125,6 +151,36 @@ export function ScopeReconciliationStatus({ view }: { view: ScopeReconciliationV
           </CardDescription>
         </Card>
       )}
+
+      {view.resolutions.length > 0 ? (
+        <Card>
+          <CardTitle>Decisions</CardTitle>
+          <CardDescription className="mt-1">
+            Resolved or accepted findings — kept across re-reconciliation, never wiped.
+          </CardDescription>
+          <ul className="mt-2 space-y-2">
+            {view.resolutions.map((r) => (
+              <li key={r.findingKey} className="text-sm">
+                <span
+                  className={`mr-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    r.action === "accepted"
+                      ? "bg-slate-100 text-slate-700"
+                      : "bg-emerald-100 text-emerald-900"
+                  }`}
+                >
+                  {r.action === "accepted" ? "Accepted" : "Resolved"}
+                </span>
+                <span className="font-mono text-xs text-slate-500">{r.findingKey}</span>
+                {r.reason ? <span className="text-slate-800"> — {r.reason}</span> : null}
+                <span className="text-xs text-slate-500">
+                  {" "}
+                  · by {r.by} · {String(r.at).slice(0, 10)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       <Card>
         <CardTitle>Scope clauses</CardTitle>

@@ -63,6 +63,12 @@ import {
   runCloseoutMatrixView,
   type CloseoutMatrixView,
 } from "@/server/job-control/closeout-read";
+import { JobScopeReconciliationChip } from "@/components/admin/JobScopeReconciliationChip";
+import {
+  blobReconciliationReadDeps,
+  runScopeReconciliationView,
+  type ScopeReconciliationView,
+} from "@/server/job-control/reconciliation-read";
 
 export const dynamic = "force-dynamic";
 
@@ -174,11 +180,18 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
     sectionKeys.map((k, i) => [k, sectionResolved[i]]),
   );
 
-  const [data, inductions, readiness, services] = await Promise.all([
+  const [data, inductions, readiness, services, scopeRecon] = await Promise.all([
     loadJobInterface(raw, jobId),
     loadJobInductions(raw, jobId),
     loadJobReadiness(raw, jobId),
     loadJobServices(raw, jobId),
+    // #366 AC3: the confirmed scope-vs-quote RAG for the hub chip. Admin-tier
+    // (commercial reconciliation) + honours the scope_reconciliation
+    // kill-switch; the reader never throws (missing/unreadable are typed) and
+    // the chip renders ONLY for a confirmed reconciliation — no fake state.
+    canBuild && killSwitches["scope_reconciliation"]
+      ? runScopeReconciliationView(blobReconciliationReadDeps(), jobId)
+      : Promise.resolve<ScopeReconciliationView | null>(null),
   ]);
   const result = data.job;
 
@@ -281,6 +294,11 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
             carry the field (server redaction), so this renders for the
             admin/LH viewers who can see this page with data present. */}
         <JobScopeCard job={job} />
+        {/* #366 AC3: scope-vs-quote reconciliation state — red conflicts /
+            amber unclassified / green reconciled, linking into the builder's
+            Scope section. Renders null unless a confirmed reconciliation
+            exists (the chip is honest, never a nag). */}
+        <JobScopeReconciliationChip jobId={job.id} view={scopeRecon} />
         {/* #228: client + contract commercial summary — admin-tier ONLY (the
             fields are adminTier in job-redaction.js, so an LH viewer's payload
             has no data; gate the card too so we don't show an empty shell). */}

@@ -1,11 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { ScopeReconciliationStatus } from "./ScopeReconciliationStatus";
 import type { ScopeReconciliationView } from "@/server/job-control/reconciliation-read";
 
-function render(view: ScopeReconciliationView): string {
-  return renderToString(createElement(ScopeReconciliationStatus, { view })).replace(/<!-- -->/g, "");
+// The interactive finding actions call useRouter().refresh after a save; stub
+// it so the SSR render works (the established render-test pattern).
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => {}, push: () => {} }),
+}));
+
+function render(view: ScopeReconciliationView, interactive = false): string {
+  return renderToString(
+    createElement(ScopeReconciliationStatus, { view, interactive }),
+  ).replace(/<!-- -->/g, "");
 }
 
 const RECONCILED: ScopeReconciliationView = {
@@ -28,6 +36,8 @@ const RECONCILED: ScopeReconciliationView = {
     { key: "k1", kind: "excluded_with_obligation", severity: "red", clauseId: "c2", message: "Clause c2 is excluded but still carries an obligation" },
     { key: "k2", kind: "clause_unpriced_unclassified", severity: "amber", clauseId: "c3", message: "Scope clause c3 is not yet classified" },
   ],
+  resolutions: [],
+  sourceHash: "hash-1",
 };
 
 describe("ScopeReconciliationStatus", () => {
@@ -66,5 +76,62 @@ describe("ScopeReconciliationStatus", () => {
     const html = render(green);
     expect(html).toContain("Reconciled");
     expect(html).toContain("No open findings");
+  });
+
+  it("read-only render carries NO resolve/accept actions (the default)", () => {
+    const html = render(RECONCILED);
+    expect(html).not.toContain("scope-finding-resolve");
+    expect(html).not.toContain("Accept with reason");
+  });
+
+  it("interactive render puts both actions on every open finding (#366 AC2)", () => {
+    const html = render(RECONCILED, true);
+    // two open findings → two of each action
+    expect(html.match(/scope-finding-resolve/g)).toHaveLength(2);
+    expect(html.match(/scope-finding-accept"/g)).toHaveLength(2);
+    expect(html).toContain("Mark resolved");
+    expect(html).toContain("Accept with reason");
+  });
+
+  it("an accepted finding shows who / when / reason, and a resolved key has left the open list", () => {
+    const afterAccept: ScopeReconciliationView = {
+      ...RECONCILED,
+      rag: "amber",
+      counts: { clauses: 3, classified: 2, unclassified: 1, openFindings: 1, redFindings: 0, amberFindings: 1 },
+      // k1 was accepted → it is no longer an open finding; k2 remains
+      findings: [RECONCILED.findings[1]!],
+      resolutions: [
+        {
+          findingKey: "k1",
+          action: "accepted",
+          reason: "Builder confirmed they carry disposal",
+          by: "Boss",
+          at: "2026-06-21T02:00:00.000Z",
+        },
+      ],
+    };
+    const html = render(afterAccept, true);
+    // the accepted decision is visible with who/when/reason
+    expect(html).toContain("Accepted");
+    expect(html).toContain("Builder confirmed they carry disposal");
+    expect(html).toContain("by Boss");
+    expect(html).toContain("2026-06-21");
+    // the accepted finding's message is gone from the open list
+    expect(html).not.toContain("excluded but still carries an obligation");
+    // only ONE open finding still carries actions
+    expect(html.match(/scope-finding-resolve/g)).toHaveLength(1);
+  });
+
+  it("a resolved decision renders as Resolved (no reason required)", () => {
+    const afterResolve: ScopeReconciliationView = {
+      ...RECONCILED,
+      findings: [RECONCILED.findings[1]!],
+      resolutions: [
+        { findingKey: "k1", action: "resolved", reason: null, by: "Boss", at: "2026-06-21T02:00:00.000Z" },
+      ],
+    };
+    const html = render(afterResolve);
+    expect(html).toContain("Resolved");
+    expect(html).toContain("k1");
   });
 });

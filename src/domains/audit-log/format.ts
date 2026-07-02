@@ -118,6 +118,10 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "instruction.transitioned": "Updated a site instruction",
   "feature_flag.toggled": "Changed a feature flag",
   "feature_config.changed": "Changed a feature setting",
+  // #366: scope-vs-quote reconciliation decisions (targetType
+  // 'scope_reconciliation' groups as Other).
+  "scope.finding_resolved": "Resolved a scope conflict",
+  "scope.finding_accepted": "Accepted a scope conflict",
 };
 
 export function actionLabel(action: AuditAction): string {
