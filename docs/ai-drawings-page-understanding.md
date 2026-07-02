@@ -74,6 +74,13 @@ is served from the extraction cache and never bills twice.
   Admin-tier / managing-LH only; clients 403; flag off → 404.
 - UI: `SheetUnderstandingPanel` on `/v2/jobs/[jobId]/documents`
   (`aiDrawingsEnabled` prop from the server component's flag check).
+- **Sheet registry (#199)**: `SheetRegistryCard` inside the panel — the
+  searchable register over every classified sheet (number/title substring
+  search, type filter, natural sheet-number ordering, deep link to the
+  rendered page, source document + status). Read-only projection
+  (`src/domains/ai-drawings/registry.ts`) over the same effective data, so
+  corrections made in the review flow win here automatically and re-uploads
+  never lose them. Unreviewed rows are visibly marked.
 - Domain: `src/domains/ai-drawings/` (zod contract + fetch client).
 
 ## Config
