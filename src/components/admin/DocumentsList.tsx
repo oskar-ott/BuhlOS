@@ -30,12 +30,15 @@ import {
 import type { Document, DocumentStatus } from "@/domains/documents/types";
 import type { Job } from "@/domains/jobs/types";
 import { SpecLinkEditor } from "@/components/admin/SpecLinkEditor";
+import { SheetUnderstandingPanel } from "@/components/admin/SheetUnderstandingPanel";
 import { cn } from "@/lib/cn";
 
 interface Props {
   job: Job;
   initialDocuments: ReadonlyArray<Document>;
   fetchError: string | null;
+  /** Epic 5 (#197): renders the AI sheet-understanding panel (dark flag). */
+  aiDrawingsEnabled?: boolean;
 }
 
 type FilterMode = "current" | "all";
@@ -77,6 +80,7 @@ export function DocumentsList({
   job,
   initialDocuments,
   fetchError,
+  aiDrawingsEnabled = false,
 }: Props) {
   const [filter, setFilter] = useState<FilterMode>("current");
 
@@ -175,6 +179,8 @@ export function DocumentsList({
           </CardDescription>
         </Card>
       ) : null}
+
+      {aiDrawingsEnabled ? <SheetUnderstandingPanel jobId={job.id} /> : null}
 
       {filtered.length === 0 ? (
         <Card>
